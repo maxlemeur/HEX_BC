@@ -58,13 +58,13 @@ function KpiCard({
     <div
       className={`dashboard-card min-w-0 p-4 animate-fade-in sm:p-5 ${staggerClass}`}
     >
-      <p className="text-[11px] font-medium uppercase tracking-wider text-[var(--slate-500)] sm:text-xs">
+      <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground sm:text-xs">
         {label}
       </p>
-      <p className="mt-2 break-words text-xl font-bold leading-tight text-[var(--slate-900)] [overflow-wrap:anywhere] sm:text-2xl">
+      <p className="mt-2 break-words text-xl font-bold leading-tight text-foreground [overflow-wrap:anywhere] sm:text-2xl">
         {value}
         {suffix ? (
-          <span className="ml-1 text-sm font-medium text-[var(--slate-400)]">
+          <span className="ml-1 text-sm font-medium text-subtle-foreground">
             {suffix}
           </span>
         ) : null}
@@ -91,12 +91,12 @@ function TrendChart({ trend }: { trend: AnalyticsTrendPoint[] }) {
 
   return (
     <div className="dashboard-card p-4 animate-fade-in stagger-5 sm:p-5">
-      <h2 className="text-sm font-semibold text-[var(--slate-700)] mb-4">
+      <h2 className="text-sm font-semibold text-foreground-secondary mb-4">
         Tendance sur 6 mois
       </h2>
 
       {/* Legend */}
-      <div className="flex items-center gap-4 mb-3 text-xs text-[var(--slate-500)]">
+      <div className="flex items-center gap-4 mb-3 text-xs text-muted-foreground">
         <span className="flex items-center gap-1.5">
           <span
             className="inline-block h-3 w-3 rounded-sm"
@@ -149,7 +149,7 @@ function TrendChart({ trend }: { trend: AnalyticsTrendPoint[] }) {
               />
             </div>
             <span
-              className="block max-w-full truncate whitespace-nowrap text-[9px] text-[var(--slate-400)] sm:text-[10px]"
+              className="block max-w-full truncate whitespace-nowrap text-[9px] text-subtle-foreground sm:text-[10px]"
               title={point.label}
             >
               {point.label}
@@ -169,7 +169,7 @@ function TopAffairesTable({ items }: { items: AnalyticsTopAffaire[] }) {
   if (items.length === 0) {
     return (
       <div className="dashboard-card p-8 text-center animate-fade-in stagger-6">
-        <p className="text-sm text-[var(--slate-500)]">
+        <p className="text-sm text-muted-foreground">
           Aucune affaire récente.
         </p>
       </div>
@@ -185,14 +185,14 @@ function TopAffairesTable({ items }: { items: AnalyticsTopAffaire[] }) {
 
   return (
     <div className="dashboard-card overflow-hidden animate-fade-in stagger-6">
-      <div className="px-5 py-4 border-b border-[var(--slate-100)]">
-        <h2 className="text-sm font-semibold text-[var(--slate-700)]">
+      <div className="px-5 py-4 border-b border-border-subtle">
+        <h2 className="text-sm font-semibold text-foreground-secondary">
           Top 10 affaires récentes
         </h2>
       </div>
 
       <div
-        className="divide-y divide-[var(--slate-100)] md:hidden"
+        className="divide-y divide-border-subtle md:hidden"
         data-testid="analytics-top-affaires-mobile"
       >
         {items.map((item) => {
@@ -202,14 +202,14 @@ function TopAffairesTable({ items }: { items: AnalyticsTopAffaire[] }) {
             <Link
               key={item.projectId}
               href={targetHref}
-              className="block p-4 transition-colors hover:bg-[var(--slate-50)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--brand-blue)]"
+              className="block p-4 transition-colors hover:bg-surface-subtle focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
             >
               <div className="flex min-w-0 items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-semibold text-[var(--slate-900)]">
+                  <p className="truncate font-semibold text-foreground">
                     {item.projectName}
                   </p>
-                  <p className="mt-0.5 truncate text-xs text-[var(--slate-500)]">
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
                     {item.projectClient ??
                       item.projectReference ??
                       "Client non renseigné"}
@@ -227,12 +227,12 @@ function TopAffairesTable({ items }: { items: AnalyticsTopAffaire[] }) {
                 ) : null}
               </div>
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
-                <span className="font-semibold text-[var(--slate-700)]">
+                <span className="font-semibold text-foreground-secondary">
                   {item.currentTotalHtCents != null
                     ? formatEUR(item.currentTotalHtCents)
                     : "Montant non renseigné"}
                 </span>
-                <span className="text-[var(--slate-400)]">
+                <span className="text-subtle-foreground">
                   Mis à jour le {formatDate(item.currentUpdatedAt)}
                 </span>
               </div>
@@ -247,20 +247,20 @@ function TopAffairesTable({ items }: { items: AnalyticsTopAffaire[] }) {
       >
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-[var(--slate-200)] bg-[var(--slate-50)]">
-              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
+            <tr className="border-b border-border bg-surface-subtle">
+              <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Affaire
               </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
+              <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Client
               </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
+              <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Statut
               </th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
+              <th className="px-4 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Total HT
               </th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
+              <th className="px-4 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Mise à jour
               </th>
             </tr>
@@ -272,17 +272,17 @@ function TopAffairesTable({ items }: { items: AnalyticsTopAffaire[] }) {
               return (
                 <tr
                   key={item.projectId}
-                  className="border-b border-[var(--slate-100)] transition-colors hover:bg-[var(--slate-50)]"
+                  className="border-b border-border-subtle transition-colors hover:bg-surface-subtle"
                 >
-                  <td className="px-4 py-3 font-medium text-[var(--slate-900)] max-w-[200px] truncate">
+                  <td className="px-4 py-3 font-medium text-foreground max-w-[200px] truncate">
                     <Link
                       href={targetHref}
-                      className="rounded-sm text-[var(--slate-900)] hover:text-[var(--brand-blue)] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-blue)]"
+                      className="rounded-sm text-foreground hover:text-primary hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                     >
                       {item.projectName}
                     </Link>
                   </td>
-                  <td className="px-4 py-3 text-[var(--slate-600)] max-w-[160px] truncate">
+                  <td className="px-4 py-3 text-slate-600 max-w-[160px] truncate">
                     {item.projectClient ?? "\u2014"}
                   </td>
                   <td className="px-4 py-3">
@@ -297,17 +297,17 @@ function TopAffairesTable({ items }: { items: AnalyticsTopAffaire[] }) {
                         {STATUS_LABEL[item.currentStatus] ?? item.currentStatus}
                       </Badge>
                     ) : (
-                      <span className="text-xs text-[var(--slate-300)]">
+                      <span className="text-xs text-slate-300">
                         {"\u2014"}
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-right font-medium text-[var(--slate-700)] whitespace-nowrap">
+                  <td className="px-4 py-3 text-right font-medium text-foreground-secondary whitespace-nowrap">
                     {item.currentTotalHtCents != null
                       ? formatEUR(item.currentTotalHtCents)
                       : "\u2014"}
                   </td>
-                  <td className="px-4 py-3 text-right text-[var(--slate-400)] whitespace-nowrap">
+                  <td className="px-4 py-3 text-right text-subtle-foreground whitespace-nowrap">
                     {formatDate(item.currentUpdatedAt)}
                   </td>
                 </tr>
@@ -366,7 +366,7 @@ function OwnerSelector({ owners }: { owners: AnalyticsOwnerOption[] }) {
   return (
     <Suspense
       fallback={
-        <div className="h-10 w-full animate-pulse rounded-lg bg-[var(--slate-200)]/50 sm:w-48" />
+        <div className="h-10 w-full animate-pulse rounded-lg bg-slate-200/50 sm:w-48" />
       }
     >
       <OwnerSelectorInner owners={owners} />
@@ -454,7 +454,7 @@ export function ChiffreurDashboard({ initialData }: Readonly<Props>) {
       </div>
 
       {/* Generated at timestamp */}
-      <p className="mt-4 text-xs text-[var(--slate-400)] text-right">
+      <p className="mt-4 text-xs text-subtle-foreground text-right">
         Mis à jour : {new Date(initialData.generatedAt).toLocaleString("fr-FR")}
       </p>
     </div>

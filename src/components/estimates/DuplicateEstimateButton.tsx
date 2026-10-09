@@ -80,7 +80,7 @@ export function DuplicateEstimateButton({
         >
           {isDuplicating ? (
             <>
-              <span className="h-3 w-3 animate-spin rounded-full border-2 border-[var(--slate-300)] border-t-[var(--slate-600)]"></span>
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-border-strong border-t-slate-600"></span>
               Duplication...
             </>
           ) : (
@@ -96,7 +96,7 @@ export function DuplicateEstimateButton({
         >
           {isCreatingVariant ? (
             <>
-              <span className="h-3 w-3 animate-spin rounded-full border-2 border-[var(--slate-300)] border-t-[var(--slate-600)]"></span>
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-border-strong border-t-slate-600"></span>
               Creation variante...
             </>
           ) : (

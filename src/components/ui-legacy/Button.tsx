@@ -5,11 +5,11 @@ type ButtonSize = "xs" | "sm" | "md" | "lg" | "xl";
 
 const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
   primary:
-    "bg-primary text-primary-foreground shadow-[var(--shadow-primary-glow)] hover:brightness-[1.04] hover:shadow-[0_8px_22px_-6px_rgb(30_58_95_/_0.45)]",
+    "bg-primary text-primary-foreground shadow-primary-glow hover:brightness-[1.04] hover:shadow-[0_8px_22px_-6px_rgb(30_58_95_/_0.45)]",
   secondary:
     "border border-primary/20 bg-transparent text-primary hover:bg-primary/5 hover:text-primary",
   ghost:
-    "bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900",
+    "bg-transparent text-slate-600 hover:bg-muted hover:text-foreground",
   danger: "bg-error-light text-red-700 hover:bg-red-100",
   success: "bg-success-light text-emerald-700 hover:bg-emerald-100",
   accent:

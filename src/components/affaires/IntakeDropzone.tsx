@@ -263,9 +263,9 @@ export function IntakeDropzone({
           {state.results.map((file) => (
             <div
               key={file.documentId}
-              className="flex items-center gap-2 rounded-lg border border-[var(--slate-200)] bg-surface px-3 py-2 text-sm"
+              className="flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-sm"
             >
-              <span className="min-w-0 flex-1 truncate text-[var(--slate-700)]">
+              <span className="min-w-0 flex-1 truncate text-foreground-secondary">
                 {file.fileName}
               </span>
               {file.status === "uploaded" ? (
@@ -282,7 +282,7 @@ export function IntakeDropzone({
           <button
             type="button"
             onClick={reset}
-            className="mt-1 text-xs font-medium text-[var(--brand-blue)] hover:underline"
+            className="mt-1 text-xs font-medium text-primary hover:underline"
           >
             Fermer le resume
           </button>

@@ -232,7 +232,7 @@ export default function TakeoffExceptionsTab({ projectId, versionId }: Props) {
             </select>
           </div>
 
-          <p className="text-xs text-[var(--slate-500)] sm:col-span-2 lg:col-span-1">
+          <p className="text-xs text-muted-foreground sm:col-span-2 lg:col-span-1">
             {radarData.items.length} signal(s)
             {isFilterPending ? " · filtrage..." : ""}
           </p>
@@ -243,10 +243,10 @@ export default function TakeoffExceptionsTab({ projectId, versionId }: Props) {
         {radarData.items.map((item) => (
           <article
             key={item.alert_id}
-            className="rounded-2xl border border-[var(--slate-200)] bg-white p-4 shadow-sm"
+            className="rounded-2xl border border-border bg-surface p-4 shadow-sm"
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--slate-500)]">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                 {item.scope_label}
               </p>
               <div className="flex flex-wrap gap-2">
@@ -258,16 +258,16 @@ export default function TakeoffExceptionsTab({ projectId, versionId }: Props) {
                 </Badge>
               </div>
             </div>
-            <h3 className="mt-3 text-sm font-semibold text-[var(--slate-900)]">
+            <h3 className="mt-3 text-sm font-semibold text-foreground">
               {item.cause_label}
             </h3>
             {item.reason_labels[0] ? (
-              <p className="mt-1 text-sm text-[var(--slate-600)]">
+              <p className="mt-1 text-sm text-slate-600">
                 {item.reason_labels[0]}
               </p>
             ) : null}
             {item.provenance[0] ? (
-              <p className="mt-3 text-xs text-[var(--slate-500)]">
+              <p className="mt-3 text-xs text-muted-foreground">
                 {item.provenance[0].label} · {item.provenance[0].source}
               </p>
             ) : null}
@@ -279,7 +279,7 @@ export default function TakeoffExceptionsTab({ projectId, versionId }: Props) {
                 Revoir ce signal
               </Link>
             ) : (
-              <p className="mt-3 text-xs font-medium text-[var(--slate-500)]">
+              <p className="mt-3 text-xs font-medium text-muted-foreground">
                 Signal au niveau de l&apos;affaire
               </p>
             )}
@@ -303,16 +303,16 @@ export default function TakeoffExceptionsTab({ projectId, versionId }: Props) {
             <tbody>
               {radarData.items.map((item) => (
                 <tr key={item.alert_id}>
-                  <td className="font-medium text-[var(--slate-800)]">
+                  <td className="font-medium text-slate-800">
                     {item.scope_label}
                   </td>
                   <td>
                     <div className="space-y-1">
-                      <p className="text-sm font-medium text-[var(--slate-900)]">
+                      <p className="text-sm font-medium text-foreground">
                         {item.cause_label}
                       </p>
                       {item.reason_labels[0] ? (
-                        <p className="text-xs text-[var(--slate-500)]">
+                        <p className="text-xs text-muted-foreground">
                           {item.reason_labels[0]}
                         </p>
                       ) : null}
@@ -330,14 +330,14 @@ export default function TakeoffExceptionsTab({ projectId, versionId }: Props) {
                   </td>
                   <td>
                     {item.provenance[0] ? (
-                      <div className="text-xs text-[var(--slate-600)]">
+                      <div className="text-xs text-slate-600">
                         <p>{item.provenance[0].label}</p>
-                        <p className="text-[var(--slate-500)]">
+                        <p className="text-muted-foreground">
                           {item.provenance[0].source}
                         </p>
                       </div>
                     ) : (
-                      <span className="text-[var(--slate-400)]">-</span>
+                      <span className="text-subtle-foreground">-</span>
                     )}
                   </td>
                   <td>
@@ -349,7 +349,7 @@ export default function TakeoffExceptionsTab({ projectId, versionId }: Props) {
                         Revoir
                       </Link>
                     ) : (
-                      <span className="text-xs text-[var(--slate-400)]">
+                      <span className="text-xs text-subtle-foreground">
                         Vue affaire
                       </span>
                     )}

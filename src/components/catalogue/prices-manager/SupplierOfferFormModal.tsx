@@ -466,14 +466,14 @@ export function SupplierOfferFormModal({
       onOpenChange={(nextOpen) => !nextOpen && handleClose()}
     >
       <Modal.Content className="flex max-h-[min(94dvh,calc(100dvh-2rem))] max-w-5xl flex-col overflow-hidden p-0">
-        <Modal.Header className="mb-0 shrink-0 border-b border-[var(--slate-200)] px-6 py-5">
+        <Modal.Header className="mb-0 shrink-0 border-b border-border px-6 py-5">
           <div>
             <Modal.Title>
               {isEditing
                 ? "Modifier l’offre fournisseur"
                 : "Ajouter un fournisseur / tarif"}
             </Modal.Title>
-            <p className="mt-1 text-sm text-[var(--slate-500)]">
+            <p className="mt-1 text-sm text-muted-foreground">
               L&apos;article porte les caractéristiques communes ; la référence
               et l&apos;URL appartiennent au fournisseur.
             </p>
@@ -483,13 +483,13 @@ export function SupplierOfferFormModal({
 
         <form className="flex min-h-0 flex-col" onSubmit={onSubmit}>
           <Modal.Body className="min-h-0 space-y-5 overflow-y-auto px-6 py-5">
-            <section className="rounded-xl border border-[var(--slate-200)] p-4">
+            <section className="rounded-xl border border-border p-4">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <h3 className="text-sm font-semibold text-[var(--slate-900)]">
+                  <h3 className="text-sm font-semibold text-foreground">
                     1. Article commun
                   </h3>
-                  <p className="text-xs text-[var(--slate-500)]">
+                  <p className="text-xs text-muted-foreground">
                     Désignation et caractéristiques partagées par tous les
                     fournisseurs.
                   </p>
@@ -538,7 +538,7 @@ export function SupplierOfferFormModal({
                     }}
                   />
                   {selectedProductLabel ? (
-                    <p className="mt-2 text-xs text-[var(--slate-500)]">
+                    <p className="mt-2 text-xs text-muted-foreground">
                       Article retenu : {selectedProductLabel}
                     </p>
                   ) : null}
@@ -609,13 +609,13 @@ export function SupplierOfferFormModal({
               )}
             </section>
 
-            <section className="rounded-xl border border-[var(--slate-200)] p-4">
+            <section className="rounded-xl border border-border p-4">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <h3 className="text-sm font-semibold text-[var(--slate-900)]">
+                  <h3 className="text-sm font-semibold text-foreground">
                     2. Fournisseur
                   </h3>
-                  <p className="text-xs text-[var(--slate-500)]">
+                  <p className="text-xs text-muted-foreground">
                     Un seul fournisseur et une seule référence pour cet article.
                   </p>
                 </div>
@@ -740,7 +740,7 @@ export function SupplierOfferFormModal({
                 />
               </div>
               {isCatalogItemLoading ? (
-                <p className="mt-2 text-xs text-[var(--slate-500)]">
+                <p className="mt-2 text-xs text-muted-foreground">
                   Vérification de la fiche existante...
                 </p>
               ) : null}
@@ -753,8 +753,8 @@ export function SupplierOfferFormModal({
               ) : null}
             </section>
 
-            <section className="rounded-xl border border-[var(--slate-200)] p-4">
-              <h3 className="text-sm font-semibold text-[var(--slate-900)]">
+            <section className="rounded-xl border border-border p-4">
+              <h3 className="text-sm font-semibold text-foreground">
                 3. Tarif
               </h3>
               <div className="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -773,7 +773,7 @@ export function SupplierOfferFormModal({
                   value={priceDraft.min_quantity}
                   onChange={(value) => updatePrice("min_quantity", value)}
                 />
-                <label className="space-y-1.5 text-xs font-semibold text-[var(--slate-700)]">
+                <label className="space-y-1.5 text-xs font-semibold text-foreground-secondary">
                   Devise
                   <select
                     className="form-input form-select"
@@ -808,7 +808,7 @@ export function SupplierOfferFormModal({
                 />
                 {isEditing ? (
                   <div>
-                    <label className="space-y-1.5 text-xs font-semibold text-[var(--slate-700)]">
+                    <label className="space-y-1.5 text-xs font-semibold text-foreground-secondary">
                       Transport
                       <select className="form-input form-select" aria-label="Transport"
                         value={priceDraft.transport_mode} disabled={!canEditTransport}
@@ -818,7 +818,7 @@ export function SupplierOfferFormModal({
                         <option value="excluded">Exclu</option>
                       </select>
                     </label>
-                    {!canEditTransport ? <p className="mt-1 text-xs text-[var(--slate-500)]">
+                    {!canEditTransport ? <p className="mt-1 text-xs text-muted-foreground">
                       Un administrateur peut préciser les conditions de transport.
                     </p> : null}
                   </div>
@@ -831,7 +831,7 @@ export function SupplierOfferFormModal({
               </div>
             </section>
 
-            <p className="text-xs text-[var(--slate-500)]">
+            <p className="text-xs text-muted-foreground">
               Validité maximale : six mois à partir de la date de début. Une fin non renseignée est calculée automatiquement.
             </p>
             {formError ? (
@@ -841,7 +841,7 @@ export function SupplierOfferFormModal({
             ) : null}
           </Modal.Body>
 
-          <Modal.Footer className="mt-0 shrink-0 border-t border-[var(--slate-200)] px-6 py-4">
+          <Modal.Footer className="mt-0 shrink-0 border-t border-border px-6 py-4">
             <button
               className="btn btn-secondary"
               type="button"
@@ -889,7 +889,7 @@ function TextField({
 }) {
   return (
     <label
-      className={`space-y-1.5 text-xs font-semibold text-[var(--slate-700)] ${className}`}
+      className={`space-y-1.5 text-xs font-semibold text-foreground-secondary ${className}`}
     >
       {label}
       <input
@@ -915,7 +915,7 @@ function SelectField({
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="space-y-1.5 text-xs font-semibold text-[var(--slate-700)]">
+    <label className="space-y-1.5 text-xs font-semibold text-foreground-secondary">
       {label}
       <select
         className="form-input form-select"

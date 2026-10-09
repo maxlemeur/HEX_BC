@@ -311,9 +311,9 @@ export default function NewOrderPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--slate-100)]">
+    <div className="min-h-screen bg-muted">
       {/* Action bar - sticky at top */}
-      <div className="no-print sticky top-0 z-10 border-b border-[var(--slate-200)] bg-white/80 backdrop-blur-md">
+      <div className="no-print sticky top-0 z-10 border-b border-border bg-surface/80 backdrop-blur-md">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-6 py-4">
           {/* Left: Back and title */}
           <div className="flex items-center gap-4">
@@ -334,8 +334,8 @@ export default function NewOrderPage() {
               </svg>
               Annuler
             </Link>
-            <div className="hidden h-6 w-px bg-[var(--slate-200)] sm:block" />
-            <span className="hidden text-sm font-semibold text-[var(--slate-700)] sm:block">
+            <div className="hidden h-6 w-px bg-slate-200 sm:block" />
+            <span className="hidden text-sm font-semibold text-foreground-secondary sm:block">
               Nouveau bon de commande
             </span>
           </div>
@@ -399,7 +399,7 @@ export default function NewOrderPage() {
       {isLoading && (
         <div className="mx-auto max-w-4xl px-4 pt-6">
           <div className="alert alert-info">
-            <div className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--info)]/30 border-t-[var(--info)]"></div>
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-info/30 border-t-info"></div>
             Chargement des donnees...
           </div>
         </div>

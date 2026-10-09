@@ -87,13 +87,13 @@ export function ImportWizardFileStageSection({
               className={`
                 relative rounded-xl border-2 border-dashed p-8 text-center transition-colors
                 ${isDragOver
-                  ? "border-[var(--brand-blue)] bg-[var(--brand-blue)]/5"
-                  : "border-[var(--slate-300)] bg-[var(--slate-50)] hover:border-[var(--slate-400)]"
+                  ? "border-primary bg-primary/5"
+                  : "border-border-strong bg-surface-subtle hover:border-slate-400"
                 }
               `}
             >
               <div className="flex flex-col items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--slate-100)]">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
                   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--slate-400)" strokeWidth="1.5">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                     <path d="m17 8-5-5-5 5" />
@@ -101,10 +101,10 @@ export function ImportWizardFileStageSection({
                   </svg>
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-[var(--slate-700)]">
+                  <p className="text-sm font-medium text-foreground-secondary">
                     Glissez-déposez votre fichier ici
                   </p>
-                  <p className="mt-1 text-xs text-[var(--slate-500)]">
+                  <p className="mt-1 text-xs text-muted-foreground">
                     ou cliquez pour parcourir
                   </p>
                 </div>
@@ -124,15 +124,15 @@ export function ImportWizardFileStageSection({
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-xs text-[var(--slate-500)]">
+              <p className="text-xs text-muted-foreground">
                 Taille maximale : 50 Mo.
               </p>
-              <p className="text-xs text-[var(--slate-500)]">
+              <p className="text-xs text-muted-foreground">
                 Besoin d&apos;aide ?{" "}
                 <a
                   href="/exemple-dpgf.xlsx"
                   download
-                  className="font-medium text-[var(--brand-blue)] underline hover:text-[var(--brand-blue-dark)]"
+                  className="font-medium text-primary underline hover:text-brand-blue-dark"
                 >
                   Télécharger un fichier exemple
                 </a>
@@ -142,16 +142,16 @@ export function ImportWizardFileStageSection({
         )}
 
         {fileStage === "validating" && selectedFile && (
-          <div className="animate-fade-in rounded-xl border-2 border-[var(--slate-300)] bg-[var(--slate-50)] p-5">
+          <div className="animate-fade-in rounded-xl border-2 border-border-strong bg-surface-subtle p-5">
             <div className="flex items-center gap-4">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--slate-100)]">
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--slate-300)] border-t-[var(--brand-blue)]" />
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-border-strong border-t-primary" />
               </div>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-[var(--slate-800)]">
+                <p className="truncate text-sm font-semibold text-slate-800">
                   {selectedFile.name}
                 </p>
-                <p className="mt-0.5 text-xs text-[var(--brand-blue)]">
+                <p className="mt-0.5 text-xs text-primary">
                   Validation du format...
                 </p>
               </div>
@@ -163,20 +163,20 @@ export function ImportWizardFileStageSection({
         )}
 
         {fileStage === "scanning" && selectedFile && (
-          <div className="animate-fade-in rounded-xl border-2 border-[var(--brand-blue)] bg-[var(--brand-blue)]/5 p-5">
+          <div className="animate-fade-in rounded-xl border-2 border-primary bg-primary/5 p-5">
             <div className="flex items-center gap-4">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--success)]/10">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-success/10">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2">
                   <path d="M20 6 9 17l-5-5" />
                 </svg>
               </div>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-[var(--slate-800)]">
+                <p className="truncate text-sm font-semibold text-slate-800">
                   {selectedFile.name}
-                  <span className="ml-2 text-xs font-normal text-[var(--success)]">Format valide</span>
+                  <span className="ml-2 text-xs font-normal text-success">Format valide</span>
                 </p>
-                <p className="mt-0.5 flex items-center gap-2 text-xs text-[var(--brand-blue)]">
-                  <span className="inline-block h-3 w-3 animate-spin rounded-full border border-[var(--brand-blue)]/30 border-t-[var(--brand-blue)]" />
+                <p className="mt-0.5 flex items-center gap-2 text-xs text-primary">
+                  <span className="inline-block h-3 w-3 animate-spin rounded-full border border-primary/30 border-t-primary" />
                   Analyse de la structure du fichier...
                 </p>
               </div>
@@ -188,16 +188,16 @@ export function ImportWizardFileStageSection({
         )}
 
         {fileStage === "reviewing_pdf" && selectedFile && (
-          <div className="animate-fade-in rounded-xl border-2 border-[var(--brand-blue)] bg-[var(--brand-blue)]/5 p-5">
+          <div className="animate-fade-in rounded-xl border-2 border-primary bg-primary/5 p-5">
             <div className="flex items-center gap-4">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--brand-blue)]/10">
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--brand-blue)]/30 border-t-[var(--brand-blue)]" />
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
               </div>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-[var(--slate-800)]">
+                <p className="truncate text-sm font-semibold text-slate-800">
                   {selectedFile.name}
                 </p>
-                <p className="mt-0.5 text-xs text-[var(--brand-blue)]">
+                <p className="mt-0.5 text-xs text-primary">
                   Detection des tableaux puis validation explicite...
                 </p>
               </div>
@@ -209,9 +209,9 @@ export function ImportWizardFileStageSection({
         )}
 
         {fileStage === "invalid" && selectedFile && (
-          <div className="animate-fade-in rounded-xl border-2 border-[var(--error)] bg-[var(--error)]/5 p-5">
+          <div className="animate-fade-in rounded-xl border-2 border-danger bg-danger/5 p-5">
             <div className="flex items-center gap-4">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--error)]/10">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-danger/10">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--error)" strokeWidth="2">
                   <circle cx="12" cy="12" r="10" />
                   <path d="m15 9-6 6" />
@@ -219,10 +219,10 @@ export function ImportWizardFileStageSection({
                 </svg>
               </div>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-[var(--slate-800)]">
+                <p className="truncate text-sm font-semibold text-slate-800">
                   {selectedFile.name}
                 </p>
-                <p className="mt-0.5 text-xs text-[var(--error)]">
+                <p className="mt-0.5 text-xs text-danger">
                   {pdfReviewError ?? formatError}
                 </p>
               </div>
@@ -247,22 +247,22 @@ export function ImportWizardFileStageSection({
         )}
 
         {fileStage === "ready" && selectedFile && (
-          <div className="animate-fade-in rounded-xl border-2 border-[var(--success)] bg-[var(--success)]/5 p-5">
+          <div className="animate-fade-in rounded-xl border-2 border-success bg-success/5 p-5">
             <div className="flex items-center gap-4">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--success)]/10">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-success/10">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2">
                   <path d="M20 6 9 17l-5-5" />
                 </svg>
               </div>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-[var(--slate-800)]">
+                <p className="truncate text-sm font-semibold text-slate-800">
                   {selectedFile.name}
-                  <span className="ml-2 text-xs font-normal text-[var(--slate-500)]">
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">
                     {formatSize(selectedFile.size)}
                   </span>
                 </p>
                 {detectedHeaders.length > 0 ? (
-                  <p className="mt-0.5 text-xs text-[var(--success)]">
+                  <p className="mt-0.5 text-xs text-success">
                     En-tête détectée
                     {detectedHeaderRow && detectedHeaderRow > 1
                       ? ` (ligne ${detectedHeaderRow})`
@@ -270,7 +270,7 @@ export function ImportWizardFileStageSection({
                     {" "}— {detectedHeaders.length} colonnes trouvées
                   </p>
                 ) : (
-                  <p className="mt-0.5 text-xs text-[var(--success)]">
+                  <p className="mt-0.5 text-xs text-success">
                     Fichier prêt pour l&apos;import
                   </p>
                 )}
@@ -299,21 +299,21 @@ export function ImportWizardFileStageSection({
             </div>
 
             {detectedHeaders.length > 0 ? (
-              <div className="mt-3 border-t border-[var(--success)]/15 pt-3">
-                <p className="mb-2 text-xs font-medium text-[var(--slate-600)]">
+              <div className="mt-3 border-t border-success/15 pt-3">
+                <p className="mb-2 text-xs font-medium text-slate-600">
                   Colonnes détectées :
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {detectedHeaders.slice(0, 12).map((header) => (
                     <span
                       key={header}
-                      className="inline-block rounded-md bg-[var(--slate-100)] px-2 py-0.5 text-xs text-[var(--slate-700)]"
+                      className="inline-block rounded-md bg-muted px-2 py-0.5 text-xs text-foreground-secondary"
                     >
                       {header}
                     </span>
                   ))}
                   {detectedHeaders.length > 12 ? (
-                    <span className="inline-block rounded-md bg-[var(--slate-100)] px-2 py-0.5 text-xs text-[var(--slate-500)]">
+                    <span className="inline-block rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">
                       +{detectedHeaders.length - 12} autres
                     </span>
                   ) : null}
@@ -324,9 +324,9 @@ export function ImportWizardFileStageSection({
         )}
 
         {fileStage === "header_needed" && selectedFile && (
-          <div className="animate-fade-in rounded-xl border-2 border-[var(--warning)] bg-[var(--warning)]/5 p-5">
+          <div className="animate-fade-in rounded-xl border-2 border-warning bg-warning/5 p-5">
             <div className="flex items-center gap-4">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--warning)]/10">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-warning/10">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--warning)" strokeWidth="2">
                   <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
                   <line x1="12" x2="12" y1="9" y2="13" />
@@ -334,9 +334,9 @@ export function ImportWizardFileStageSection({
                 </svg>
               </div>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-[var(--slate-800)]">
+                <p className="truncate text-sm font-semibold text-slate-800">
                   {selectedFile.name}
-                  <span className="ml-2 text-xs font-normal text-[var(--slate-500)]">
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">
                     {formatSize(selectedFile.size)}
                   </span>
                 </p>
@@ -349,13 +349,13 @@ export function ImportWizardFileStageSection({
               </button>
             </div>
 
-            <div className="mt-3 border-t border-[var(--warning)]/15 pt-3">
-              <p className="mb-2 text-xs text-[var(--slate-600)]">
+            <div className="mt-3 border-t border-warning/15 pt-3">
+              <p className="mb-2 text-xs text-slate-600">
                 Indiquez le numéro de la ligne contenant les noms de colonnes, ou laissez vide pour laisser le serveur détecter.
               </p>
               <div className="flex items-end gap-3">
                 <div className="max-w-[120px]">
-                  <label htmlFor="header-row-input" className="mb-1 block text-xs font-medium text-[var(--slate-700)]">
+                  <label htmlFor="header-row-input" className="mb-1 block text-xs font-medium text-foreground-secondary">
                     Ligne d&apos;en-tête
                   </label>
                   <input
@@ -397,10 +397,10 @@ export function ImportWizardFileStageSection({
 
       {isSubmitting ? (
         <div className="mt-4">
-          <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--slate-200)]">
-            <div className="h-full rounded-full bg-[var(--brand-blue)] transition-all duration-1000" style={{ width: "100%", animation: "indeterminate 1.5s ease-in-out infinite" }} />
+          <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200">
+            <div className="h-full rounded-full bg-primary transition-all duration-1000" style={{ width: "100%", animation: "indeterminate 1.5s ease-in-out infinite" }} />
           </div>
-          <p className="mt-2 text-xs text-[var(--slate-500)]">Envoi et traitement en cours...</p>
+          <p className="mt-2 text-xs text-muted-foreground">Envoi et traitement en cours...</p>
           <style>{`@keyframes indeterminate { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }`}</style>
         </div>
       ) : null}

@@ -45,23 +45,23 @@ function ProofList({
 }) {
   if (proofs.length === 0) {
     return (
-      <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--slate-50)] p-4">
-        <p className="text-sm font-medium text-[var(--slate-800)]">{label}</p>
-        <p className="mt-2 text-sm text-[var(--slate-600)]">Aucun élément.</p>
+      <div className="rounded-2xl border border-dashed border-border bg-surface-subtle p-4">
+        <p className="text-sm font-medium text-slate-800">{label}</p>
+        <p className="mt-2 text-sm text-slate-600">Aucun élément.</p>
       </div>
     );
   }
 
   return (
     <section className="space-y-3">
-      <p className="text-xs uppercase tracking-[0.14em] text-[var(--slate-500)]">{label}</p>
+      <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
       {proofs.map((proof) => (
         <article
           key={proof.proof_id}
-          className={`rounded-2xl border border-[var(--border)] border-l-4 ${PROOF_TYPE_BORDER[proof.type]} bg-white p-4 shadow-sm`}
+          className={`rounded-2xl border border-border border-l-4 ${PROOF_TYPE_BORDER[proof.type]} bg-surface p-4 shadow-sm`}
         >
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold text-[var(--slate-900)]">{proof.label}</p>
+            <p className="text-sm font-semibold text-foreground">{proof.label}</p>
             <Badge variant="neutral" size="sm">
               {PROOF_TYPE_LABELS[proof.type]}
             </Badge>
@@ -77,18 +77,18 @@ function ProofList({
             ) : null}
           </div>
           {proof.type !== "plan_zone" ? (
-            <p className="mt-2 text-xs text-[var(--slate-600)]">Source : {proof.source}</p>
+            <p className="mt-2 text-xs text-slate-600">Source : {proof.source}</p>
           ) : null}
-          <p className="mt-1 text-xs text-[var(--slate-500)]">
+          <p className="mt-1 text-xs text-muted-foreground">
             {formatProofConfidence(proof.confidence_score)}
           </p>
           {proof.note ? (
             proof.type === "comment" ? (
-              <blockquote className="mt-2 border-l-2 border-emerald-300 pl-3 text-sm italic leading-6 text-[var(--slate-700)]">
+              <blockquote className="mt-2 border-l-2 border-emerald-300 pl-3 text-sm italic leading-6 text-foreground-secondary">
                 {proof.note}
               </blockquote>
             ) : (
-              <p className="mt-2 text-sm leading-6 text-[var(--slate-700)]">{proof.note}</p>
+              <p className="mt-2 text-sm leading-6 text-foreground-secondary">{proof.note}</p>
             )
           ) : null}
         </article>
@@ -153,22 +153,22 @@ export function SelectedRowReviewAside({
   return (
     <aside className="xl:sticky xl:top-6 xl:self-start">
       {!selectedRow ? (
-        <div className="rounded-[28px] border border-[var(--border)] bg-white p-6 shadow-sm">
-          <p className="text-sm text-[var(--slate-600)]">
+        <div className="rounded-[28px] border border-border bg-surface p-6 shadow-sm">
+          <p className="text-sm text-slate-600">
             Sélectionnez une ligne pour afficher les preuves, hypothèses et décisions.
           </p>
         </div>
       ) : (
-        <div className="space-y-5 rounded-[28px] border border-[var(--border)] bg-white p-5 shadow-sm">
+        <div className="space-y-5 rounded-[28px] border border-border bg-surface p-5 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-xs uppercase tracking-[0.14em] text-[var(--slate-500)]">
+              <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
                 Revue détaillée
               </p>
-              <h3 className="mt-2 text-xl font-semibold text-[var(--slate-950)]">
+              <h3 className="mt-2 text-xl font-semibold text-slate-950">
                 {selectedRow.line_label}
               </h3>
-              <p className="mt-1 text-sm text-[var(--slate-600)]">
+              <p className="mt-1 text-sm text-slate-600">
                 Position {selectedRow.dpgf.position}
                 {selectedRow.dpgf.source_file_name ? ` · ${selectedRow.dpgf.source_file_name}` : ""}
                 {selectedRow.dpgf.source_page ? ` · ligne ${selectedRow.dpgf.source_page}` : ""}
@@ -180,44 +180,44 @@ export function SelectedRowReviewAside({
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-2xl border border-[var(--border)] bg-[var(--slate-50)] p-4">
-              <p className="text-xs uppercase tracking-[0.14em] text-[var(--slate-500)]">
+            <div className="rounded-2xl border border-border bg-surface-subtle p-4">
+              <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
                 Matching
               </p>
-              <p className="mt-2 text-lg font-semibold text-[var(--slate-950)]">
+              <p className="mt-2 text-lg font-semibold text-slate-950">
                 {Math.round(selectedRow.matching_score * 100)}%
               </p>
-              <p className="mt-1 text-xs text-[var(--slate-600)]">
+              <p className="mt-1 text-xs text-slate-600">
                 Mode: {selectedRow.matched_by ?? "aucun"}
               </p>
             </div>
-            <div className="rounded-2xl border border-[var(--border)] bg-[var(--slate-50)] p-4">
-              <p className="text-xs uppercase tracking-[0.14em] text-[var(--slate-500)]">
+            <div className="rounded-2xl border border-border bg-surface-subtle p-4">
+              <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
                 Suggestion IA
               </p>
-              <p className="mt-2 text-sm font-semibold text-[var(--slate-950)]">
+              <p className="mt-2 text-sm font-semibold text-slate-950">
                 {selectedRow.suggested_decision
                   ? DECISION_LABELS[selectedRow.suggested_decision]
                   : "Aucune suggestion"}
               </p>
-              <p className="mt-1 text-xs text-[var(--slate-600)]">
+              <p className="mt-1 text-xs text-slate-600">
                 Confiance globale {formatConfidence(selectedRow.confidence_score)}
               </p>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-[var(--border)] bg-[var(--slate-50)] p-4">
+          <div className="rounded-2xl border border-border bg-surface-subtle p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.14em] text-[var(--slate-500)]">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
                   Radar ligne
                 </p>
-                <p className="mt-2 text-sm font-semibold text-[var(--slate-950)]">
+                <p className="mt-2 text-sm font-semibold text-slate-950">
                   {selectedRow.risk
                     ? `${RISK_SEVERITY_LABELS[selectedRow.risk.severity]} · ${selectedRow.risk.score}/100`
                     : "Aucun signal specifique sur cette ligne"}
                 </p>
-                <p className="mt-1 text-xs text-[var(--slate-600)]">
+                <p className="mt-1 text-xs text-slate-600">
                   {selectedRow.risk?.causes.length
                     ? selectedRow.risk.causes.join(" · ")
                     : "Le radar complet reste visible dans la file A traiter."}
@@ -232,14 +232,14 @@ export function SelectedRowReviewAside({
 
             <div className="mt-4 space-y-3">
               {selectedLineRiskItems.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-[var(--border)] bg-white p-4 text-sm text-[var(--slate-600)]">
+                <div className="rounded-2xl border border-dashed border-border bg-surface p-4 text-sm text-slate-600">
                   Aucun signal de risque persistant sur cette ligne.
                 </div>
               ) : (
                 selectedLineRiskItems.map((item) => (
                   <article
                     key={item.alert_id}
-                    className="rounded-2xl border border-[var(--border)] bg-white p-4"
+                    className="rounded-2xl border border-border bg-surface p-4"
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
@@ -251,11 +251,11 @@ export function SelectedRowReviewAside({
                             {RISK_STATUS_LABELS[item.status]}
                           </Badge>
                         </div>
-                        <p className="mt-2 text-sm font-semibold text-[var(--slate-950)]">
+                        <p className="mt-2 text-sm font-semibold text-slate-950">
                           {item.cause_label}
                         </p>
                       </div>
-                      <p className="text-sm font-semibold text-[var(--slate-900)]">
+                      <p className="text-sm font-semibold text-foreground">
                         {item.risk_score}/100
                       </p>
                     </div>
@@ -281,24 +281,24 @@ export function SelectedRowReviewAside({
                               entry.source,
                               entry.note ?? "",
                             ].join("-")}
-                            className="rounded-xl border border-[var(--border)] bg-[var(--slate-50)] px-3 py-2"
+                            className="rounded-xl border border-border bg-surface-subtle px-3 py-2"
                           >
                             <div className="flex flex-wrap items-center gap-2">
                               <Badge variant="neutral" size="sm">
                                 {PROOF_KIND_LABELS[entry.kind]}
                               </Badge>
-                              <p className="text-xs font-semibold text-[var(--slate-900)]">
+                              <p className="text-xs font-semibold text-foreground">
                                 {entry.label}
                               </p>
                             </div>
-                            <p className="mt-1 text-xs text-[var(--slate-600)]">
+                            <p className="mt-1 text-xs text-slate-600">
                               {entry.source}
                               {entry.confidence_score !== null
                                 ? ` · ${formatProofConfidence(entry.confidence_score)}`
                                 : ""}
                             </p>
                             {entry.note ? (
-                              <p className="mt-1 text-xs leading-5 text-[var(--slate-600)]">
+                              <p className="mt-1 text-xs leading-5 text-slate-600">
                                 {entry.note}
                               </p>
                             ) : null}
@@ -308,7 +308,7 @@ export function SelectedRowReviewAside({
                     ) : null}
 
                     {item.review_note ? (
-                      <p className="mt-3 text-xs leading-5 text-[var(--slate-600)]">
+                      <p className="mt-3 text-xs leading-5 text-slate-600">
                         Note humaine : {item.review_note}
                       </p>
                     ) : null}
@@ -351,13 +351,13 @@ export function SelectedRowReviewAside({
             </div>
           </div>
 
-          <div className="rounded-2xl border border-[var(--border)] bg-[var(--slate-50)] p-4">
+          <div className="rounded-2xl border border-border bg-surface-subtle p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.14em] text-[var(--slate-500)]">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
                   Décision humaine appliquée
                 </p>
-                <p className="mt-2 text-sm font-semibold text-[var(--slate-950)]">
+                <p className="mt-2 text-sm font-semibold text-slate-950">
                   {selectedRow.applied_decision
                     ? DECISION_LABELS[selectedRow.applied_decision.decision]
                     : "Aucune décision appliquée"}
@@ -374,19 +374,19 @@ export function SelectedRowReviewAside({
               ) : null}
             </div>
             {selectedRow.applied_decision?.reason ? (
-              <p className="mt-3 text-sm leading-6 text-[var(--slate-700)]">
+              <p className="mt-3 text-sm leading-6 text-foreground-secondary">
                 {selectedRow.applied_decision.reason}
               </p>
             ) : null}
           </div>
 
           <div className="space-y-4">
-            <div className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--border)] bg-[var(--slate-50)] px-4 py-3">
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-surface-subtle px-4 py-3">
               <div>
-                <p className="text-sm font-semibold text-[var(--slate-950)]">
+                <p className="text-sm font-semibold text-slate-950">
                   Traçabilité persistée
                 </p>
-                <p className="mt-1 text-xs text-[var(--slate-600)]">
+                <p className="mt-1 text-xs text-slate-600">
                   Provenance détaillée, historique et remplacements de preuves.
                 </p>
               </div>
@@ -416,13 +416,13 @@ export function SelectedRowReviewAside({
             <ProofList label={PROOF_KIND_LABELS.inference} proofs={proofGroups.inference} />
           </div>
 
-          <div className="rounded-2xl border border-[var(--border)] bg-white p-4 shadow-sm">
+          <div className="rounded-2xl border border-border bg-surface p-4 shadow-sm">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.14em] text-[var(--slate-500)]">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
                   Arbitrage humain
                 </p>
-                <p className="mt-2 text-sm text-[var(--slate-600)]">
+                <p className="mt-2 text-sm text-slate-600">
                   Sélection explicite obligatoire avant application.
                 </p>
               </div>
@@ -443,7 +443,7 @@ export function SelectedRowReviewAside({
             </div>
 
             {draftDecision ? (
-              <p className="mt-2 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+              <p className="mt-2 rounded-xl bg-surface-subtle px-3 py-2 text-xs text-slate-600">
                 {getDecisionImpactText(draftDecision, selectedRow)}
               </p>
             ) : null}
@@ -465,7 +465,7 @@ export function SelectedRowReviewAside({
             </div>
 
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-              <p className="text-xs text-[var(--slate-500)]">
+              <p className="text-xs text-muted-foreground">
                 Provenance visible, confiance explicite, aucune application silencieuse.
               </p>
               <Button type="button" size="sm" loading={decisionSaving} onClick={onDecisionSave}>

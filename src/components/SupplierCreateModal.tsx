@@ -146,11 +146,11 @@ export function SupplierCreateModal({ open, onClose, onCreated }: SupplierCreate
       }}
     >
       <Modal.Content className="max-w-4xl overflow-hidden p-0" closeOnOverlayClick={!isSubmitting}>
-        <div className="border-b border-[var(--slate-200)] px-6 py-4">
+        <div className="border-b border-border px-6 py-4">
           <Modal.Header className="mb-0">
             <div>
               <Modal.Title>Nouveau fournisseur</Modal.Title>
-              <p className="text-sm text-[var(--slate-500)]">
+              <p className="text-sm text-muted-foreground">
                 Ajoutez un fournisseur sans quitter le bon de commande.
               </p>
             </div>
@@ -210,7 +210,7 @@ export function SupplierCreateModal({ open, onClose, onCreated }: SupplierCreate
           />
 
           <div className="space-y-1.5 sm:col-span-2 lg:col-span-3">
-            <label className="block text-xs font-semibold text-[var(--slate-700)]" htmlFor="modal-supplier-address">
+            <label className="block text-xs font-semibold text-foreground-secondary" htmlFor="modal-supplier-address">
               Adresse
             </label>
             <textarea

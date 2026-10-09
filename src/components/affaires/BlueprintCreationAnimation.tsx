@@ -125,7 +125,7 @@ export function BlueprintCreationAnimation({
           {/* Nom du projet + crayon (stage 2+) */}
           <AnimatePresence>
             {stage >= 2 && (
-              <div className="absolute top-[30%] left-[15%] md:left-[20%] font-mono text-3xl md:text-5xl font-bold tracking-tight text-[var(--brand-blue-dark)]">
+              <div className="absolute top-[30%] left-[15%] md:left-[20%] font-mono text-3xl md:text-5xl font-bold tracking-tight text-brand-blue-dark">
                 <span className="relative inline-block py-2">
                   {/* Texte révélé par clip-path */}
                   <motion.span
@@ -143,7 +143,7 @@ export function BlueprintCreationAnimation({
                   {/* Crayon animé */}
                   {stage === 2 && (
                     <motion.div
-                      className="absolute -top-8 -right-8 text-[var(--brand-blue)] drop-shadow-md z-20"
+                      className="absolute -top-8 -right-8 text-primary drop-shadow-md z-20"
                       initial={{ left: "0%", opacity: 0 }}
                       animate={{
                         left: "100%",
@@ -199,19 +199,19 @@ export function BlueprintCreationAnimation({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="absolute inset-0 flex items-center justify-center bg-white/60 backdrop-blur-sm z-30"
+            className="absolute inset-0 flex items-center justify-center bg-surface/60 backdrop-blur-sm z-30"
           >
             <motion.div
               initial={{ scale: 0.5 }}
               animate={{ scale: 1 }}
               transition={{ type: "spring", bounce: 0.5 }}
-              className="rounded-full bg-white p-8 shadow-2xl border-4 border-green-50"
+              className="rounded-full bg-surface p-8 shadow-2xl border-4 border-green-50"
             >
               <svg
                 width="120"
                 height="120"
                 viewBox="0 0 100 100"
-                className="text-[var(--success)]"
+                className="text-success"
               >
                 <motion.circle
                   cx="50"
@@ -247,7 +247,7 @@ export function BlueprintCreationAnimation({
           {stage !== 3 ? (
             <motion.p
               key="creating"
-              className="rounded-full bg-white/80 px-6 py-2.5 text-sm font-medium text-[var(--slate-600)] shadow-sm backdrop-blur-sm"
+              className="rounded-full bg-surface/80 px-6 py-2.5 text-sm font-medium text-slate-600 shadow-sm backdrop-blur-sm"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
@@ -258,7 +258,7 @@ export function BlueprintCreationAnimation({
           ) : (
             <motion.p
               key="done"
-              className="rounded-full bg-white/80 px-6 py-2.5 text-sm font-semibold text-[var(--success)] shadow-sm backdrop-blur-sm"
+              className="rounded-full bg-surface/80 px-6 py-2.5 text-sm font-semibold text-success shadow-sm backdrop-blur-sm"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.2 }}

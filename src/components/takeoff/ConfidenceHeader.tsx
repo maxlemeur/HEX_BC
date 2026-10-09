@@ -126,25 +126,25 @@ function DistributionBar({
     <div className="space-y-2">
       {/* Bar */}
       <div
-        className="flex h-2.5 w-full overflow-hidden rounded-full bg-[var(--slate-100)]"
+        className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted"
         role="img"
         aria-label={`Distribution des items inclus : ${high} à confiance élevée, ${medium} à confiance moyenne, ${low} à confiance faible ou non évaluée`}
       >
         {highPct > 0 && (
           <div
-            className="h-full bg-[var(--success)] transition-[width] duration-500 motion-reduce:transition-none"
+            className="h-full bg-success transition-[width] duration-500 motion-reduce:transition-none"
             style={{ width: `${highPct}%` }}
           />
         )}
         {mediumPct > 0 && (
           <div
-            className="h-full bg-[var(--warning)] transition-[width] duration-500 motion-reduce:transition-none"
+            className="h-full bg-warning transition-[width] duration-500 motion-reduce:transition-none"
             style={{ width: `${mediumPct}%` }}
           />
         )}
         {lowPct > 0 && (
           <div
-            className="h-full bg-[var(--danger)] transition-[width] duration-500 motion-reduce:transition-none"
+            className="h-full bg-danger transition-[width] duration-500 motion-reduce:transition-none"
             style={{ width: `${lowPct}%` }}
           />
         )}
@@ -155,26 +155,26 @@ function DistributionBar({
         <span className="flex items-center gap-1.5">
           <span
             aria-hidden="true"
-            className="inline-block h-2.5 w-2.5 rounded-full bg-[var(--success)]"
+            className="inline-block h-2.5 w-2.5 rounded-full bg-success"
           />
-          <span className="font-medium text-[var(--slate-700)]">{high}</span>{" "}
-          <span className="text-[var(--slate-500)]">Élevée</span>
+          <span className="font-medium text-foreground-secondary">{high}</span>{" "}
+          <span className="text-muted-foreground">Élevée</span>
         </span>
         <span className="flex items-center gap-1.5">
           <span
             aria-hidden="true"
-            className="inline-block h-2.5 w-2.5 rounded-full bg-[var(--warning)]"
+            className="inline-block h-2.5 w-2.5 rounded-full bg-warning"
           />
-          <span className="font-medium text-[var(--slate-700)]">{medium}</span>{" "}
-          <span className="text-[var(--slate-500)]">Moyenne</span>
+          <span className="font-medium text-foreground-secondary">{medium}</span>{" "}
+          <span className="text-muted-foreground">Moyenne</span>
         </span>
         <span className="flex items-center gap-1.5">
           <span
             aria-hidden="true"
-            className="inline-block h-2.5 w-2.5 rounded-full bg-[var(--danger)]"
+            className="inline-block h-2.5 w-2.5 rounded-full bg-danger"
           />
-          <span className="font-medium text-[var(--slate-700)]">{low}</span>{" "}
-          <span className="text-[var(--slate-500)]">
+          <span className="font-medium text-foreground-secondary">{low}</span>{" "}
+          <span className="text-muted-foreground">
             Faible ou non évaluée
           </span>
         </span>
@@ -242,7 +242,7 @@ export function ConfidenceHeader({ globalConfidence, items }: ConfidenceHeaderPr
     <div
       role="region"
       aria-label="Indicateurs de confiance du métré"
-      className="animate-fade-in rounded-lg border border-[var(--border)] bg-white px-5 py-4"
+      className="animate-fade-in rounded-lg border border-border bg-surface px-5 py-4"
     >
       {/* Screen-reader full description */}
       <span className="sr-only">
@@ -259,11 +259,11 @@ export function ConfidenceHeader({ globalConfidence, items }: ConfidenceHeaderPr
         {/* Text + distribution */}
         <div className="flex min-w-0 flex-1 flex-col gap-3">
           <div>
-            <h2 className="text-sm font-semibold text-[var(--slate-800)] text-pretty">
+            <h2 className="text-sm font-semibold text-slate-800 text-pretty">
               Confiance estimée de l’analyse
             </h2>
-            <p className="mt-0.5 text-sm text-[var(--slate-600)]">{label}</p>
-            <p className="mt-2 text-xs text-[var(--slate-500)]">
+            <p className="mt-0.5 text-sm text-slate-600">{label}</p>
+            <p className="mt-2 text-xs text-muted-foreground">
               Ce score provient de l’analyse automatique. Il ne prouve ni la
               présence d’une source localisable ni une validation humaine.
             </p>
@@ -277,25 +277,25 @@ export function ConfidenceHeader({ globalConfidence, items }: ConfidenceHeaderPr
           />
 
           <dl className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-3">
-            <div className="rounded-md bg-[var(--slate-50)] px-3 py-2">
-              <dt className="text-[var(--slate-500)]">Preuves localisées</dt>
-              <dd className="mt-0.5 font-semibold text-[var(--slate-800)] tabular-nums">
+            <div className="rounded-md bg-surface-subtle px-3 py-2">
+              <dt className="text-muted-foreground">Preuves localisées</dt>
+              <dd className="mt-0.5 font-semibold text-slate-800 tabular-nums">
                 {trustSummary.localizedProofs}/{trustSummary.total}
               </dd>
             </div>
-            <div className="rounded-md bg-[var(--slate-50)] px-3 py-2">
-              <dt className="text-[var(--slate-500)]">Validés humainement</dt>
-              <dd className="mt-0.5 font-semibold text-[var(--slate-800)] tabular-nums">
+            <div className="rounded-md bg-surface-subtle px-3 py-2">
+              <dt className="text-muted-foreground">Validés humainement</dt>
+              <dd className="mt-0.5 font-semibold text-slate-800 tabular-nums">
                 {trustSummary.verified}/{trustSummary.total}
               </dd>
             </div>
-            <div className="rounded-md bg-[var(--slate-50)] px-3 py-2">
-              <dt className="text-[var(--slate-500)]">À traiter</dt>
+            <div className="rounded-md bg-surface-subtle px-3 py-2">
+              <dt className="text-muted-foreground">À traiter</dt>
               <dd
                 className={`mt-0.5 font-semibold tabular-nums ${
                   trustSummary.needsAttention > 0
-                    ? "text-[var(--danger)]"
-                    : "text-[var(--success)]"
+                    ? "text-danger"
+                    : "text-success"
                 }`}
               >
                 {trustSummary.needsAttention}

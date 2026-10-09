@@ -125,7 +125,7 @@ export function SearchableSelect({
   return (
     <div className="space-y-1.5" ref={rootRef}>
       {label ? (
-        <label className="block text-xs font-semibold text-slate-700" htmlFor={inputId}>
+        <label className="block text-xs font-semibold text-foreground-secondary" htmlFor={inputId}>
           {label}
         </label>
       ) : null}
@@ -133,7 +133,7 @@ export function SearchableSelect({
       <div
         className={cn(
           "relative flex h-11 items-center rounded-button border bg-surface transition",
-          "border-slate-200 hover:border-slate-300 focus-within:border-ring",
+          "border-border hover:border-border-strong focus-within:border-ring",
           error ? "border-danger" : null,
           disabled ? "opacity-70" : null
         )}
@@ -211,7 +211,7 @@ export function SearchableSelect({
           }}
         />
 
-        <span className="pointer-events-none absolute right-3 text-slate-400">▾</span>
+        <span className="pointer-events-none absolute right-3 text-subtle-foreground">▾</span>
 
         {name ? (
           <input
@@ -227,10 +227,10 @@ export function SearchableSelect({
           <div
             role="listbox"
             id={listboxId}
-            className="absolute left-0 top-full z-50 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-slate-200 bg-surface p-1 shadow-lg"
+            className="absolute left-0 top-full z-50 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-lg"
           >
             {filteredOptions.length === 0 ? (
-              <p className="px-3 py-2 text-xs text-slate-500">
+              <p className="px-3 py-2 text-xs text-muted-foreground">
                 {isLoading ? "Recherche..." : emptyMessage}
               </p>
             ) : (
@@ -250,10 +250,10 @@ export function SearchableSelect({
                     className={cn(
                       "flex w-full items-center rounded-lg px-3 py-2 text-left text-sm",
                       option.disabled
-                        ? "cursor-not-allowed text-slate-400"
-                        : "text-slate-700 hover:bg-slate-50",
-                      isSelected ? "bg-info-light text-slate-900" : null,
-                      isActive ? "bg-slate-100" : null
+                        ? "cursor-not-allowed text-subtle-foreground"
+                        : "text-foreground-secondary hover:bg-surface-subtle",
+                      isSelected ? "bg-info-light text-foreground" : null,
+                      isActive ? "bg-muted" : null
                     )}
                     aria-selected={isSelected}
                     disabled={option.disabled}
@@ -276,7 +276,7 @@ export function SearchableSelect({
       ) : null}
 
       {!error && helperText ? (
-        <p id={helperId ?? undefined} className="text-xs text-slate-500">
+        <p id={helperId ?? undefined} className="text-xs text-muted-foreground">
           {helperText}
         </p>
       ) : null}

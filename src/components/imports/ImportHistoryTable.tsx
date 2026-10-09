@@ -88,14 +88,14 @@ export function ImportHistoryTable({
             <tr>
               <td colSpan={6} className="py-8 text-center">
                 <div className="flex items-center justify-center gap-2">
-                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--slate-200)] border-t-[var(--brand-blue)]"></div>
-                  <span className="text-sm text-[var(--slate-500)]">Chargement...</span>
+                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-primary"></div>
+                  <span className="text-sm text-muted-foreground">Chargement...</span>
                 </div>
               </td>
             </tr>
           ) : items.length === 0 ? (
             <tr>
-              <td colSpan={6} className="py-8 text-center text-sm text-[var(--slate-500)]">
+              <td colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
                 Aucun import trouvé.
               </td>
             </tr>
@@ -104,12 +104,12 @@ export function ImportHistoryTable({
               <tr key={item.id}>
                 <td>
                   <div className="flex items-center gap-2">
-                    <code className="text-xs text-[var(--slate-600)]">
+                    <code className="text-xs text-slate-600">
                       {item.id.slice(0, 8)}
                     </code>
                     <button
                       type="button"
-                      className="text-xs font-medium text-[var(--brand-blue)] hover:underline"
+                      className="text-xs font-medium text-primary hover:underline"
                       onClick={() => void onCopyImportId(item.id)}
                     >
                       {copiedImportId === item.id ? "Copie" : "Copier"}
@@ -117,7 +117,7 @@ export function ImportHistoryTable({
                   </div>
                 </td>
                 <td className="max-w-[280px]">
-                  <span className="block truncate font-medium text-[var(--slate-800)]">
+                  <span className="block truncate font-medium text-slate-800">
                     {item.fileName}
                   </span>
                 </td>
@@ -126,17 +126,17 @@ export function ImportHistoryTable({
                     {statusLabel(item.status)}
                   </span>
                 </td>
-                <td className="font-mono text-[var(--slate-700)]">
+                <td className="font-mono text-foreground-secondary">
                   {formatRowsCount(item.rowsCount)}
                 </td>
-                <td className="text-sm text-[var(--slate-500)]">
+                <td className="text-sm text-muted-foreground">
                   {formatDate(item.createdAt)}
                 </td>
                 <td>
                   {["parsed", "imported", "completed"].includes(item.status) ? (
                     <Link
                       href={`/dashboard/mappings?import_id=${item.id}`}
-                      className="text-xs font-medium text-[var(--brand-blue)] hover:underline"
+                      className="text-xs font-medium text-primary hover:underline"
                     >
                       Continuer
                     </Link>

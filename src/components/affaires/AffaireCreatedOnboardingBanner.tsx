@@ -14,15 +14,15 @@ export function AffaireCreatedOnboardingBanner({
   manualEstimateHref,
 }: AffaireCreatedOnboardingBannerProps) {
   return (
-    <div className="mb-4 animate-fade-in rounded-xl border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 px-5 py-4">
+    <div className="mb-4 animate-fade-in rounded-xl border border-primary/20 bg-primary/5 px-5 py-4">
       <div className="flex items-start justify-between gap-4">
-        <p className="text-sm font-semibold text-[var(--brand-blue)]">
+        <p className="text-sm font-semibold text-primary">
           Affaire creee ! Voici comment continuer :
         </p>
         <button
           type="button"
           onClick={onDismiss}
-          className="shrink-0 rounded-md p-1 text-[var(--brand-blue)]/60 transition-colors hover:bg-[var(--brand-blue)]/10 hover:text-[var(--brand-blue)]"
+          className="shrink-0 rounded-md p-1 text-primary/60 transition-colors hover:bg-primary/10 hover:text-primary"
           aria-label="Fermer"
         >
           <svg
@@ -43,18 +43,18 @@ export function AffaireCreatedOnboardingBanner({
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <div className="animate-onboarding-pulse rounded-lg border border-[var(--brand-blue)]/20 bg-white px-4 py-3">
-          <p className="text-xs font-semibold text-[var(--brand-blue)]">1</p>
-          <p className="mt-1 text-sm font-medium text-[var(--slate-800)]">
+        <div className="animate-onboarding-pulse rounded-lg border border-primary/20 bg-surface px-4 py-3">
+          <p className="text-xs font-semibold text-primary">1</p>
+          <p className="mt-1 text-sm font-medium text-slate-800">
             Deposez votre dossier
           </p>
-          <p className="mt-1 text-xs text-[var(--slate-500)]">
+          <p className="mt-1 text-xs text-muted-foreground">
             Les pieces du dossier lancent le cadrage automatique.
           </p>
           <button
             type="button"
             onClick={onScrollToIntake}
-            className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-[var(--brand-blue)] transition-colors hover:text-[var(--brand-blue-dark)]"
+            className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-primary transition-colors hover:text-brand-blue-dark"
           >
             Deposer
             <svg
@@ -74,17 +74,17 @@ export function AffaireCreatedOnboardingBanner({
           </button>
         </div>
 
-        <div className="rounded-lg border border-[var(--slate-200)] bg-white px-4 py-3">
-          <p className="text-xs font-semibold text-[var(--brand-blue)]">2</p>
-          <p className="mt-1 text-sm font-medium text-[var(--slate-800)]">
+        <div className="rounded-lg border border-border bg-surface px-4 py-3">
+          <p className="text-xs font-semibold text-primary">2</p>
+          <p className="mt-1 text-sm font-medium text-slate-800">
             Continuer en manuel
           </p>
-          <p className="mt-1 text-xs text-[var(--slate-500)]">
+          <p className="mt-1 text-xs text-muted-foreground">
             Le devis peut commencer sans DPGF. Posez votre base de chiffrage directement.
           </p>
           <Link
             href={manualEstimateHref}
-            className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-[var(--brand-blue)] transition-colors hover:text-[var(--brand-blue-dark)]"
+            className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-primary transition-colors hover:text-brand-blue-dark"
           >
             Ouvrir le devis
             <svg
@@ -104,18 +104,18 @@ export function AffaireCreatedOnboardingBanner({
           </Link>
         </div>
 
-        <div className="rounded-lg border border-[var(--slate-200)] bg-white px-4 py-3">
-          <p className="text-xs font-semibold text-[var(--brand-blue)]">3</p>
-          <p className="mt-1 text-sm font-medium text-[var(--slate-800)]">
+        <div className="rounded-lg border border-border bg-surface px-4 py-3">
+          <p className="text-xs font-semibold text-primary">3</p>
+          <p className="mt-1 text-sm font-medium text-slate-800">
             Importer la DPGF
           </p>
-          <p className="mt-1 text-xs text-[var(--slate-500)]">
+          <p className="mt-1 text-xs text-muted-foreground">
             Pre-remplissez la structure du devis si le bordereau principal est exploitable.
           </p>
           <button
             type="button"
             onClick={onOpenImportFlow}
-            className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-[var(--brand-blue)] transition-colors hover:text-[var(--brand-blue-dark)]"
+            className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-primary transition-colors hover:text-brand-blue-dark"
           >
             Importer la DPGF
             <svg

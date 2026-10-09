@@ -250,11 +250,11 @@ export function buildOverrideFromAction(input: {
 }
 
 export function confidenceColor(confidence: number | null): string {
-  if (confidence === null) return "text-[var(--danger)]";
-  if (confidence < 0.3) return "text-[var(--danger)]";
-  if (confidence < 0.5) return "text-[var(--warning)]";
-  if (confidence < 0.8) return "text-[var(--info)]";
-  return "text-[var(--success)]";
+  if (confidence === null) return "text-danger";
+  if (confidence < 0.3) return "text-danger";
+  if (confidence < 0.5) return "text-warning";
+  if (confidence < 0.8) return "text-info";
+  return "text-success";
 }
 
 export function formatConfidencePercent(confidence: number | null): string {

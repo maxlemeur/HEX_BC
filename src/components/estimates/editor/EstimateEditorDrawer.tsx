@@ -176,7 +176,7 @@ export function EstimateEditorDrawer({
         role="dialog"
         aria-modal="true"
         aria-label="Paramétrage du devis"
-        className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-full lg:max-w-7xl flex-col border-l border-[var(--slate-200)] bg-surface shadow-xl"
+        className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-full lg:max-w-7xl flex-col border-l border-border bg-surface shadow-xl"
         onKeyDown={(event) => {
           if (event.key === "Escape" && !confirmClose) {
             requestClose();
@@ -185,8 +185,8 @@ export function EstimateEditorDrawer({
         tabIndex={-1}
         data-testid="estimate-editor-drawer"
       >
-        <div className="flex items-center justify-between border-b border-[var(--slate-200)] px-4 py-3 lg:px-6 lg:py-4">
-          <h2 className="text-sm font-semibold text-[var(--slate-800)]">Paramétrage</h2>
+        <div className="flex items-center justify-between border-b border-border px-4 py-3 lg:px-6 lg:py-4">
+          <h2 className="text-sm font-semibold text-slate-800">Paramétrage</h2>
           <button
             type="button"
             className="btn btn-ghost btn-sm"
@@ -251,8 +251,8 @@ export function EstimateEditorDrawer({
               <div className="dashboard-card p-8" data-testid="estimate-editor-drawer-audit-card">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <h2 className="text-sm font-semibold text-[var(--slate-800)]">Audit admin</h2>
-                    <p className="text-xs text-[var(--slate-500)]">Dernieres operations journalisees sur cette version.</p>
+                    <h2 className="text-sm font-semibold text-slate-800">Audit admin</h2>
+                    <p className="text-xs text-muted-foreground">Dernieres operations journalisees sur cette version.</p>
                   </div>
                   <button
                     className="btn btn-secondary btn-sm"
@@ -286,7 +286,7 @@ export function EstimateEditorDrawer({
                       {auditLogs.length === 0 ? (
                         <tr>
                           <td colSpan={4}>
-                            <div className="text-sm text-[var(--slate-500)]">
+                            <div className="text-sm text-muted-foreground">
                               {isAuditLoading
                                 ? "Chargement des logs d'audit..."
                                 : "Aucun log d'audit recent pour cette version."}
@@ -299,12 +299,12 @@ export function EstimateEditorDrawer({
                             <td>{formatAuditTimestamp(log.created_at)}</td>
                             <td className="font-medium uppercase">{log.action}</td>
                             <td>
-                              <span className="font-mono text-xs text-[var(--slate-600)]">
+                              <span className="font-mono text-xs text-slate-600">
                                 {log.table_name}
                               </span>
                             </td>
                             <td>
-                              <span className="font-mono text-xs text-[var(--slate-600)]">
+                              <span className="font-mono text-xs text-slate-600">
                                 {log.record_id}
                               </span>
                             </td>
@@ -316,7 +316,7 @@ export function EstimateEditorDrawer({
                 </div>
 
                 {isAuditLoading && auditLogs.length > 0 ? (
-                  <p className="mt-3 text-sm text-[var(--slate-500)]">Actualisation des logs en cours...</p>
+                  <p className="mt-3 text-sm text-muted-foreground">Actualisation des logs en cours...</p>
                 ) : null}
               </div>
             </>

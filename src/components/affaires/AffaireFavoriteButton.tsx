@@ -25,7 +25,7 @@ export function AffaireFavoriteButton({
       className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-8 sm:min-w-8 ${
         isFavorite
           ? "text-amber-500 hover:bg-amber-50 hover:text-amber-600"
-          : "text-[var(--slate-300)] hover:bg-amber-50 hover:text-amber-500"
+          : "text-slate-300 hover:bg-amber-50 hover:text-amber-500"
       }`}
       onClick={(event) => {
         event.preventDefault();

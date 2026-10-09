@@ -300,13 +300,13 @@ export function SendEstimateModal({
               <div>
                 <label
                   htmlFor="send-estimate-message"
-                  className="mb-1.5 block text-sm font-medium text-[var(--slate-700)]"
+                  className="mb-1.5 block text-sm font-medium text-foreground-secondary"
                 >
                   Message *
                 </label>
                 <textarea
                   id="send-estimate-message"
-                  className="form-textarea w-full rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2 text-sm text-[var(--slate-800)] placeholder:text-[var(--slate-400)] focus:border-[var(--brand-blue)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-blue)]/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="form-textarea w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-slate-800 placeholder:text-subtle-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
                   rows={6}
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}

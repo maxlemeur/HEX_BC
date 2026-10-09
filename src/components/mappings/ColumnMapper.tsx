@@ -179,37 +179,37 @@ export function ColumnMapper({
 
   return (
     <section className="dashboard-card overflow-hidden">
-      <div className="border-b border-[var(--slate-200)]">
+      <div className="border-b border-border">
         <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
           <div>
-            <h2 className="text-sm font-semibold text-[var(--slate-800)]">Mapping des colonnes</h2>
-            <p className="mt-1 text-xs text-[var(--slate-500)]">
+            <h2 className="text-sm font-semibold text-slate-800">Mapping des colonnes</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
               Associez les colonnes source aux champs metier.
-              <span className="ml-2 font-medium text-[var(--slate-700)]">
+              <span className="ml-2 font-medium text-foreground-secondary">
                 {mappedTargetCount}/{totalTargetFields} champs
               </span>
             </p>
           </div>
 
           {/* Filter toggle */}
-          <div className="flex rounded-lg border border-[var(--slate-200)] text-xs">
+          <div className="flex rounded-lg border border-border text-xs">
             <button
               type="button"
-              className={`px-2.5 py-1.5 transition-colors ${filterMode === "all" ? "bg-[var(--slate-800)] text-white" : "text-[var(--slate-600)] hover:bg-[var(--slate-100)]"}`}
+              className={`px-2.5 py-1.5 transition-colors ${filterMode === "all" ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-muted"}`}
               onClick={() => setFilterMode("all")}
             >
               Toutes ({sourceColumns.length})
             </button>
             <button
               type="button"
-              className={`border-l border-r border-[var(--slate-200)] px-2.5 py-1.5 transition-colors ${filterMode === "mapped" ? "bg-[var(--slate-800)] text-white" : "text-[var(--slate-600)] hover:bg-[var(--slate-100)]"}`}
+              className={`border-l border-r border-border px-2.5 py-1.5 transition-colors ${filterMode === "mapped" ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-muted"}`}
               onClick={() => setFilterMode("mapped")}
             >
               Mappees ({mappedCount})
             </button>
             <button
               type="button"
-              className={`px-2.5 py-1.5 transition-colors ${filterMode === "unmapped" ? "bg-[var(--slate-800)] text-white" : "text-[var(--slate-600)] hover:bg-[var(--slate-100)]"}`}
+              className={`px-2.5 py-1.5 transition-colors ${filterMode === "unmapped" ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-muted"}`}
               onClick={() => setFilterMode("unmapped")}
             >
               Non mappées / ignorées ({sourceColumns.length - mappedCount})
@@ -218,16 +218,16 @@ export function ColumnMapper({
         </div>
 
         {/* Full-width progress bar */}
-        <div className="h-2.5 w-full overflow-hidden bg-[var(--slate-200)]">
+        <div className="h-2.5 w-full overflow-hidden bg-slate-200">
           <div
-            className="h-full bg-[var(--success)] transition-all duration-300"
+            className="h-full bg-success transition-all duration-300"
             style={{ width: `${totalTargetFields > 0 ? (mappedTargetCount / totalTargetFields) * 100 : 0}%` }}
           />
         </div>
       </div>
 
       {sourceColumns.length === 0 ? (
-        <div className="px-6 py-8 text-sm text-[var(--slate-500)]">
+        <div className="px-6 py-8 text-sm text-muted-foreground">
           Aucune colonne detectee. Selectionnez un import pour commencer.
         </div>
       ) : (
@@ -265,19 +265,19 @@ export function ColumnMapper({
                     <td>
                       <div className="flex items-center gap-2">
                         <span
-                          className={`inline-block h-2 w-2 shrink-0 rounded-full ${isMapped ? "bg-[var(--success)]" : "bg-[var(--slate-300)]"}`}
+                          className={`inline-block h-2 w-2 shrink-0 rounded-full ${isMapped ? "bg-success" : "bg-slate-300"}`}
                           title={isMapped ? "Mappe" : "Non mappe"}
                         />
-                        <span className="font-medium text-[var(--slate-800)]">{sourceColumn}</span>
+                        <span className="font-medium text-slate-800">{sourceColumn}</span>
                       </div>
                     </td>
                     <td>
                       {samples.length > 0 ? (
-                        <span className="text-xs text-[var(--slate-500)] italic">
+                        <span className="text-xs text-muted-foreground italic">
                           {samples.join(", ")}
                         </span>
                       ) : (
-                        <span className="text-xs text-[var(--slate-300)]">-</span>
+                        <span className="text-xs text-slate-300">-</span>
                       )}
                     </td>
                     {confidenceBySource && (
@@ -285,7 +285,7 @@ export function ColumnMapper({
                         {confidence ? (
                           <ConfidenceBadge confidence={confidence} />
                         ) : (
-                          <span className="text-xs text-[var(--slate-300)]">-</span>
+                          <span className="text-xs text-slate-300">-</span>
                         )}
                       </td>
                     )}
@@ -335,9 +335,9 @@ export function ColumnMapper({
         </div>
       )}
 
-      <div className="border-t border-[var(--slate-200)] px-6 py-4 text-xs text-[var(--slate-500)]">
+      <div className="border-t border-border px-6 py-4 text-xs text-muted-foreground">
         {missingRequiredTargets.length === 0 ? (
-          <span className="text-[var(--success)]">
+          <span className="text-success">
             Tous les champs requis sont mappes.
           </span>
         ) : (

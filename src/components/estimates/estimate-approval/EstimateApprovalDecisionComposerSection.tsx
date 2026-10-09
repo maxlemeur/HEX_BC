@@ -55,27 +55,27 @@ export function EstimateApprovalDecisionComposerSection({
   onCancelRequestChanges: () => void;
 }>) {
   return (
-    <section className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-4">
+    <section className="rounded-xl border border-border bg-surface-subtle px-4 py-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-[var(--slate-800)]">
+          <h3 className="text-sm font-semibold text-slate-800">
             Commentaires de validation
           </h3>
-          <p className="mt-1 text-xs text-[var(--slate-500)]">
+          <p className="mt-1 text-xs text-muted-foreground">
             Ciblez l&apos;affaire, un lot, une ligne, une exception ou une
             hypothese sans ouvrir l&apos;éditeur complet.
           </p>
         </div>
         {activeCycle ? (
-          <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-[var(--slate-600)]">
+          <span className="rounded-full bg-surface px-2 py-0.5 text-[11px] font-medium text-slate-600">
             Cycle {activeCycle.cycleNumber}
           </span>
         ) : null}
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-[160px_minmax(0,1fr)]">
-        <label className="flex flex-col gap-1 text-sm text-[var(--slate-700)]">
-          <span className="text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">
+        <label className="flex flex-col gap-1 text-sm text-foreground-secondary">
+          <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
             Portée
           </span>
           <select
@@ -94,12 +94,12 @@ export function EstimateApprovalDecisionComposerSection({
         </label>
 
         {draftScopeType === "project" ? (
-          <div className="rounded-xl border border-dashed border-[var(--slate-200)] bg-white px-3 py-2 text-sm text-[var(--slate-600)]">
+          <div className="rounded-xl border border-dashed border-border bg-surface px-3 py-2 text-sm text-slate-600">
             Commentaire global sur {projectLabel}.
           </div>
         ) : (
-          <label className="flex flex-col gap-1 text-sm text-[var(--slate-700)]">
-            <span className="text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">
+          <label className="flex flex-col gap-1 text-sm text-foreground-secondary">
+            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               Cible
             </span>
             <select
@@ -121,8 +121,8 @@ export function EstimateApprovalDecisionComposerSection({
         )}
       </div>
 
-      <label className="mt-3 flex flex-col gap-1 text-sm text-[var(--slate-700)]">
-        <span className="text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">
+      <label className="mt-3 flex flex-col gap-1 text-sm text-foreground-secondary">
+        <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
           Commentaire
         </span>
         <textarea
@@ -134,7 +134,7 @@ export function EstimateApprovalDecisionComposerSection({
       </label>
 
       {formError ? (
-        <p className="mt-2 text-sm text-[var(--danger)]">{formError}</p>
+        <p className="mt-2 text-sm text-danger">{formError}</p>
       ) : null}
 
       <div className="mt-3 flex flex-wrap gap-2">
@@ -163,32 +163,32 @@ export function EstimateApprovalDecisionComposerSection({
           {draftComments.map((comment) => (
             <article
               key={comment.id}
-              className="rounded-xl border border-[var(--slate-200)] bg-white px-3 py-3"
+              className="rounded-xl border border-border bg-surface px-3 py-3"
             >
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
-                  <p className="text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">
+                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                     {SCOPE_LABELS[comment.scopeType]}
                   </p>
-                  <p className="mt-1 text-sm font-semibold text-[var(--slate-800)]">
+                  <p className="mt-1 text-sm font-semibold text-slate-800">
                     {comment.scopeLabel}
                   </p>
                 </div>
                 <button
                   type="button"
-                  className="text-xs text-[var(--slate-400)] hover:text-[var(--slate-600)]"
+                  className="text-xs text-subtle-foreground hover:text-slate-600"
                   onClick={() => onRemoveComment(comment.id)}
                 >
                   Retirer
                 </button>
               </div>
-              <p className="mt-2 text-sm text-[var(--slate-700)]">{comment.comment}</p>
+              <p className="mt-2 text-sm text-foreground-secondary">{comment.comment}</p>
             </article>
           ))}
         </div>
       ) : null}
 
-      <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[var(--slate-200)] pt-4">
+      <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border pt-4">
         <button
           type="button"
           className="btn btn-primary btn-sm"
@@ -199,7 +199,7 @@ export function EstimateApprovalDecisionComposerSection({
         </button>
         <button
           type="button"
-          className="btn btn-sm border-[var(--warning)] bg-[var(--warning)]/10 text-[var(--warning)] hover:bg-[var(--warning)]/20"
+          className="btn btn-sm border-warning bg-warning/10 text-warning hover:bg-warning/20"
           disabled={isPending}
           onClick={onApproveWithReservations}
         >
@@ -212,12 +212,12 @@ export function EstimateApprovalDecisionComposerSection({
 
         {pendingConfirm === "changes_requested" ? (
           <span className="flex items-center gap-2">
-            <span className="text-xs text-[var(--danger)]">
+            <span className="text-xs text-danger">
               Confirmer le renvoi ?
             </span>
             <button
               type="button"
-              className="btn btn-sm border-[var(--danger)] bg-[var(--danger)] text-white hover:bg-[var(--danger)]/90"
+              className="btn btn-sm border-danger bg-danger text-white hover:bg-danger/90"
               disabled={isPending}
               onClick={onConfirmRequestChanges}
             >
@@ -235,7 +235,7 @@ export function EstimateApprovalDecisionComposerSection({
         ) : (
           <button
             type="button"
-            className="btn btn-sm border-[var(--danger)]/30 bg-[var(--danger)]/5 text-[var(--danger)] hover:bg-[var(--danger)]/10"
+            className="btn btn-sm border-danger/30 bg-danger/5 text-danger hover:bg-danger/10"
             disabled={isPending}
             onClick={onRequestChanges}
           >

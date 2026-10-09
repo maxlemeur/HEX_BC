@@ -113,7 +113,7 @@ export function EstimatePdfDownloadButton({
         {isProcessing ? processingLabel : label}
       </button>
       {showInlineError && errorMessage ? (
-        <p className="text-xs font-medium text-[var(--danger-700)]" role="alert">
+        <p className="text-xs font-medium text-danger" role="alert">
           {errorMessage}
         </p>
       ) : null}

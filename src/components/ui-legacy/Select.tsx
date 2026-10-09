@@ -41,7 +41,7 @@ export function Select({
   return (
     <div className="space-y-1.5">
       {label ? (
-        <label className="block font-body text-sm font-medium text-slate-700" htmlFor={selectId}>
+        <label className="block font-body text-sm font-medium text-foreground-secondary" htmlFor={selectId}>
           {label}
         </label>
       ) : null}
@@ -49,7 +49,7 @@ export function Select({
       <div
         className={cn(
           "relative flex h-[var(--density-input-h)] items-center rounded-button border bg-surface transition",
-          "border-slate-200 hover:border-slate-300 focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/12",
+          "border-border hover:border-border-strong focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/12",
           error ? "border-danger" : null
         )}
       >
@@ -76,7 +76,7 @@ export function Select({
             </option>
           ))}
         </select>
-        <span className="pointer-events-none absolute right-3 text-slate-400">
+        <span className="pointer-events-none absolute right-3 text-subtle-foreground">
           ▾
         </span>
       </div>
@@ -88,7 +88,7 @@ export function Select({
       ) : null}
 
       {!error && helperText ? (
-        <p id={helperId ?? undefined} className="typo-caption text-slate-500">
+        <p id={helperId ?? undefined} className="typo-caption text-muted-foreground">
           {helperText}
         </p>
       ) : null}

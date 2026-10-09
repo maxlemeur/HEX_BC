@@ -10,7 +10,7 @@ export function PrintCurrencySelect({ currency }: PrintCurrencySelectProps) {
       <span className="sr-only">Devise</span>
       <select
         aria-label="Devise"
-        className="form-input form-select h-10 w-24 bg-white text-sm font-medium"
+        className="form-input form-select h-10 w-24 bg-surface text-sm font-medium"
         defaultValue={currency}
         disabled
       >

@@ -143,11 +143,11 @@ export function CounterCard({
   value: number;
 }) {
   return (
-    <article className="rounded-xl border border-[var(--slate-200)] bg-white p-3 shadow-sm">
-      <p className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+    <article className="rounded-xl border border-border bg-surface p-3 shadow-sm">
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         {label}
       </p>
-      <p className="mt-1 text-xl font-black text-[var(--slate-800)]">
+      <p className="mt-1 text-xl font-black text-slate-800">
         {formatCount(value)}
       </p>
     </article>
@@ -290,7 +290,7 @@ export function JobsTableSkeleton() {
         {Array.from({ length: 6 }).map((_, index) => (
           <div
             key={index}
-            className="h-4 animate-pulse rounded bg-[var(--slate-200)]"
+            className="h-4 animate-pulse rounded bg-slate-200"
             style={{ width: `${65 + (index % 3) * 10}%` }}
           />
         ))}

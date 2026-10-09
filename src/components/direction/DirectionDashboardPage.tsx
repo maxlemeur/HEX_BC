@@ -93,7 +93,7 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
         <div className="flex flex-col gap-3 2xl:flex-row 2xl:items-end 2xl:justify-between">
           <div>
             <h1 className="typo-h1">Cockpit direction</h1>
-            <p className="mt-1 max-w-3xl text-sm text-[var(--slate-500)]">
+            <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
               Priorisez les arbitrages, gardez une vue claire des affaires
               fragiles et renvoyez rapidement les dossiers a traiter.
             </p>
@@ -105,39 +105,39 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
             aria-atomic="true"
           >
             <article className="dashboard-card p-4">
-              <p className="typo-label text-[var(--slate-400)]">
+              <p className="typo-label text-subtle-foreground">
                 Portefeuille
               </p>
-              <p className="mt-2 typo-kpi animate-count-up text-[var(--slate-900)]">
+              <p className="mt-2 typo-kpi animate-count-up text-foreground">
                 {data.summary.totalAffaires}
               </p>
-              <p className="mt-1 text-xs text-[var(--slate-500)]">
+              <p className="mt-1 text-xs text-muted-foreground">
                 affaire{data.summary.totalAffaires > 1 ? "s" : ""} active
                 {data.summary.totalAffaires > 1 ? "s" : ""}
               </p>
             </article>
 
             <article className="dashboard-card p-4">
-              <p className="typo-label text-[var(--slate-400)]">
+              <p className="typo-label text-subtle-foreground">
                 A surveiller
               </p>
-              <p className="mt-2 typo-kpi animate-count-up text-[var(--danger)]">
+              <p className="mt-2 typo-kpi animate-count-up text-danger">
                 {data.summary.criticalCount}
               </p>
-              <p className="mt-1 text-xs text-[var(--slate-500)]">
+              <p className="mt-1 text-xs text-muted-foreground">
                 dossier{data.summary.criticalCount > 1 ? "s" : ""} critique
                 {data.summary.criticalCount > 1 ? "s" : ""}
               </p>
             </article>
 
             <article className="dashboard-card p-4">
-              <p className="typo-label text-[var(--slate-400)]">
+              <p className="typo-label text-subtle-foreground">
                 Validation
               </p>
-              <p className="mt-2 typo-kpi animate-count-up text-[var(--brand-blue)]">
+              <p className="mt-2 typo-kpi animate-count-up text-primary">
                 {data.summary.validationPendingCount}
               </p>
-              <p className="mt-1 text-xs text-[var(--slate-500)]">
+              <p className="mt-1 text-xs text-muted-foreground">
                 arbitrage{data.summary.validationPendingCount > 1 ? "s" : ""} en
                 attente
               </p>
@@ -150,7 +150,7 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             <label className="space-y-1.5">
-              <span className="block text-xs font-semibold text-[var(--slate-700)]">
+              <span className="block text-xs font-semibold text-foreground-secondary">
                 Responsable
               </span>
               <select
@@ -175,7 +175,7 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
             </label>
 
             <label className="space-y-1.5">
-              <span className="block text-xs font-semibold text-[var(--slate-700)]">
+              <span className="block text-xs font-semibold text-foreground-secondary">
                 Lot
               </span>
               <select
@@ -200,7 +200,7 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
             </label>
 
             <div className="space-y-1.5">
-              <span className="block text-xs font-semibold text-[var(--slate-700)]">
+              <span className="block text-xs font-semibold text-foreground-secondary">
                 Horizon
               </span>
               <div className="flex flex-wrap gap-2">
@@ -212,8 +212,8 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
                       type="button"
                       className={`rounded-full border px-3 py-2 text-xs font-medium transition ${
                         isActive
-                          ? "border-[var(--brand-blue)] bg-[var(--brand-blue)] text-white"
-                          : "border-[var(--slate-200)] bg-white text-[var(--slate-600)] hover:border-[var(--slate-300)] hover:bg-[var(--slate-50)]"
+                          ? "border-primary bg-primary text-white"
+                          : "border-border bg-surface text-slate-600 hover:border-border-strong hover:bg-surface-subtle"
                       }`}
                       aria-pressed={isActive}
                       onClick={() =>
@@ -233,10 +233,10 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
             </div>
           </div>
 
-          <label className="inline-flex items-center gap-2 text-sm text-[var(--slate-600)]">
+          <label className="inline-flex items-center gap-2 text-sm text-slate-600">
             <input
               type="checkbox"
-              className="h-4 w-4 rounded border-[var(--slate-300)] text-[var(--brand-blue)] focus:ring-[var(--brand-blue)]"
+              className="h-4 w-4 rounded border-border-strong text-primary focus:ring-primary"
               checked={currentQuery.onlyExceptions}
               onChange={() =>
                 startTransition(() => {
@@ -251,7 +251,7 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
           </label>
         </div>
 
-        <p className="mt-3 text-xs text-[var(--slate-400)]" aria-live="polite">
+        <p className="mt-3 text-xs text-subtle-foreground" aria-live="polite">
           {isPending
             ? "Mise a jour des filtres..."
             : `${data.cards.length} dossier(s) sur ${data.pagination.totalCards} affiches.`}
@@ -269,7 +269,7 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
 
       {data.pagination.totalPages > 1 ? (
         <section className="dashboard-card flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-[var(--slate-600)]">
+          <p className="text-sm text-slate-600">
             Page {data.pagination.page} sur {data.pagination.totalPages}
           </p>
 

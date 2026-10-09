@@ -179,13 +179,13 @@ function BoundsDisplay({
             key={action}
             type="button"
             onClick={() => onSelectAction(action)}
-            className={`rounded-2xl border p-3 text-center transition hover:-translate-y-0.5 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] ${
+            className={`rounded-2xl border p-3 text-center transition hover:-translate-y-0.5 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
               isSelected
                 ? selectedAccent
-                : "border-[var(--border)] bg-white"
+                : "border-border bg-surface"
             }`}
           >
-            <p className="text-[10px] uppercase tracking-[0.14em] text-[var(--slate-500)]">
+            <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
               {label}
             </p>
             <p className={`mt-1 text-sm font-semibold ${accent}`}>
@@ -200,7 +200,7 @@ function BoundsDisplay({
 
 function SourceItem({ source }: { source: TakeoffPriceSuggestionSource }) {
   return (
-    <article className="rounded-xl border border-[var(--border)] bg-white p-3">
+    <article className="rounded-xl border border-border bg-surface p-3">
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant={SOURCE_KIND_VARIANT[source.source_kind]} size="sm">
           {SOURCE_KIND_LABELS[source.source_kind]}
@@ -220,14 +220,14 @@ function SourceItem({ source }: { source: TakeoffPriceSuggestionSource }) {
         ) : null}
       </div>
       <div className="mt-2 flex items-baseline justify-between gap-2">
-        <p className="text-sm font-medium text-[var(--slate-900)]">
+        <p className="text-sm font-medium text-foreground">
           {source.label}
         </p>
-        <p className={`text-sm font-semibold tabular-nums ${source.is_outlier ? "text-[var(--slate-400)] line-through" : "text-[var(--slate-900)]"}`}>
+        <p className={`text-sm font-semibold tabular-nums ${source.is_outlier ? "text-subtle-foreground line-through" : "text-foreground"}`}>
           {formatEUR(source.price_cents)}
         </p>
       </div>
-      <p className="mt-1 text-xs text-[var(--slate-600)]">
+      <p className="mt-1 text-xs text-slate-600">
         {source.source_ref}
         {source.confidence_score !== null
           ? ` · Confiance ${Math.round(source.confidence_score * 100)}%`
@@ -495,21 +495,21 @@ export function PriceSuggestionPanel({
         aria-label={`Suggestion de prix : ${lineLabel}`}
         tabIndex={-1}
         onKeyDown={handleKeyDown}
-        className="animate-slide-in-right fixed inset-0 z-50 flex min-w-0 flex-col bg-white shadow-xl outline-none sm:inset-y-0 sm:left-auto sm:w-full sm:max-w-lg sm:border-l sm:border-[var(--border)]"
+        className="animate-slide-in-right fixed inset-0 z-50 flex min-w-0 flex-col bg-surface shadow-xl outline-none sm:inset-y-0 sm:left-auto sm:w-full sm:max-w-lg sm:border-l sm:border-border"
       >
         {/* ---- Header ---- */}
-        <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-4 py-3">
+        <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
           <div>
-            <h2 className="text-sm font-semibold text-[var(--slate-800)]">
+            <h2 className="text-sm font-semibold text-slate-800">
               Suggestion de prix
             </h2>
-            <p className="mt-0.5 text-xs text-[var(--slate-500)] line-clamp-1">
+            <p className="mt-0.5 text-xs text-muted-foreground line-clamp-1">
               {lineLabel}
             </p>
           </div>
           <button
             type="button"
-            className="rounded p-1 text-[var(--slate-500)] transition-colors hover:bg-[var(--slate-100)] hover:text-[var(--slate-700)]"
+            className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground-secondary"
             onClick={handleClose}
             title="Fermer le panneau (Echap)"
             aria-label="Fermer le panneau"
@@ -527,9 +527,9 @@ export function PriceSuggestionPanel({
             <div className="flex flex-col items-center justify-center gap-3 py-12">
               <span
                 aria-hidden="true"
-                className="size-6 animate-spin rounded-full border-2 border-[var(--slate-300)] border-t-[var(--slate-700)]"
+                className="size-6 animate-spin rounded-full border-2 border-border-strong border-t-slate-700"
               />
-              <p className="text-sm text-[var(--slate-600)]" aria-live="polite">
+              <p className="text-sm text-slate-600" aria-live="polite">
                 Calcul de la suggestion en cours...
               </p>
             </div>
@@ -553,11 +553,11 @@ export function PriceSuggestionPanel({
 
           {/* Empty */}
           {state.kind === "empty" ? (
-            <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--slate-50)] p-6 text-center">
-              <p className="text-sm font-medium text-[var(--slate-800)]">
+            <div className="rounded-2xl border border-dashed border-border bg-surface-subtle p-6 text-center">
+              <p className="text-sm font-medium text-slate-800">
                 Aucune suggestion calculable pour cette ligne.
               </p>
-              <p className="mt-1 text-xs text-[var(--slate-500)]">
+              <p className="mt-1 text-xs text-muted-foreground">
                 Ni historique, ni bordereau fournisseur, ni ouvrage proche exploitable pour
                 l&apos;instant.
               </p>
@@ -601,11 +601,11 @@ export function PriceSuggestionPanel({
               ) : null}
 
               {/* Current price */}
-              <div className="rounded-2xl border border-[var(--border)] bg-[var(--slate-50)] p-4">
-                <p className="text-xs uppercase tracking-[0.14em] text-[var(--slate-500)]">
+              <div className="rounded-2xl border border-border bg-surface-subtle p-4">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
                   Prix actuel
                 </p>
-                <p className="mt-1 text-lg font-semibold text-[var(--slate-950)]">
+                <p className="mt-1 text-lg font-semibold text-slate-950">
                   {suggestion.current_price_cents !== null
                     ? formatEUR(suggestion.current_price_cents)
                     : "Non renseigne"}
@@ -614,7 +614,7 @@ export function PriceSuggestionPanel({
 
               {/* Bounds */}
               <div>
-                <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--slate-500)]">
+                <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
                   Fourchette de prix
                 </p>
                 <div className="mt-2">
@@ -629,7 +629,7 @@ export function PriceSuggestionPanel({
 
                 {/* Visual range bar */}
                 <div className="mt-3 space-y-1">
-                  <div className="relative h-3 w-full overflow-hidden rounded-full bg-[var(--slate-100)]">
+                  <div className="relative h-3 w-full overflow-hidden rounded-full bg-muted">
                     <div
                       className="absolute inset-y-0 rounded-full bg-gradient-to-r from-sky-400 via-emerald-400 to-amber-400 opacity-80"
                       style={{
@@ -640,7 +640,7 @@ export function PriceSuggestionPanel({
                     {suggestion.current_price_cents !== null &&
                       suggestion.high_cents > suggestion.low_cents ? (
                       <div
-                        className="absolute top-0 h-full w-0.5 bg-[var(--slate-800)]"
+                        className="absolute top-0 h-full w-0.5 bg-slate-800"
                         style={{
                           left: `${Math.min(
                             100,
@@ -656,7 +656,7 @@ export function PriceSuggestionPanel({
                       />
                     ) : null}
                   </div>
-                  <div className="flex justify-between text-[10px] text-[var(--slate-500)]">
+                  <div className="flex justify-between text-[10px] text-muted-foreground">
                     <span>{formatEUR(suggestion.low_cents)}</span>
                     <span>{formatEUR(suggestion.high_cents)}</span>
                   </div>
@@ -665,11 +665,11 @@ export function PriceSuggestionPanel({
 
               {/* Confidence */}
               <div>
-                <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--slate-500)]">
+                <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
                   Confiance
                 </p>
                 <div className="mt-2 flex items-center gap-3">
-                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--slate-100)]">
+                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
                     <div
                       className="h-full rounded-full transition-all duration-300"
                       style={{
@@ -682,7 +682,7 @@ export function PriceSuggestionPanel({
                     {CONFIDENCE_LABELS[suggestion.confidence_label]}
                   </Badge>
                 </div>
-                <p className="mt-1 text-xs text-[var(--slate-600)]">
+                <p className="mt-1 text-xs text-slate-600">
                   {suggestion.candidate_count} source{suggestion.candidate_count > 1 ? "s" : ""}
                   {suggestion.outlier_count > 0
                     ? ` · ${suggestion.outlier_count} outlier${suggestion.outlier_count > 1 ? "s" : ""} signale${suggestion.outlier_count > 1 ? "s" : ""}`
@@ -692,10 +692,10 @@ export function PriceSuggestionPanel({
 
               {/* Justification */}
               <div>
-                <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--slate-500)]">
+                <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
                   Justification
                 </p>
-                <div className="mt-2 rounded-xl border border-[var(--border)] bg-[var(--slate-50)] px-3 py-2.5 text-sm leading-relaxed text-[var(--slate-700)] whitespace-pre-wrap">
+                <div className="mt-2 rounded-xl border border-border bg-surface-subtle px-3 py-2.5 text-sm leading-relaxed text-foreground-secondary whitespace-pre-wrap">
                   {suggestion.justification}
                 </div>
               </div>
@@ -703,24 +703,24 @@ export function PriceSuggestionPanel({
               {/* Factors */}
               {suggestion.factors.length > 0 ? (
                 <div>
-                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--slate-500)]">
+                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
                     Facteurs
                   </p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     {suggestion.factors.map((factor) => (
                       <div
                         key={factor.key}
-                        className="rounded-xl border border-[var(--border)] bg-white px-3 py-2"
+                        className="rounded-xl border border-border bg-surface px-3 py-2"
                       >
                         <div className="flex items-center gap-1.5">
                           <Badge variant="neutral" size="sm">
                             {EVIDENCE_KIND_LABELS[factor.kind] ?? factor.kind}
                           </Badge>
-                          <span className="text-xs font-medium text-[var(--slate-800)]">
+                          <span className="text-xs font-medium text-slate-800">
                             {factor.label}
                           </span>
                         </div>
-                        <p className="mt-1 text-xs text-[var(--slate-600)]">
+                        <p className="mt-1 text-xs text-slate-600">
                           {factor.value}
                         </p>
                       </div>
@@ -731,12 +731,12 @@ export function PriceSuggestionPanel({
 
               {/* Sources */}
               <div>
-                <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--slate-500)]">
+                <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
                   Sources ({suggestion.sources.length})
                 </p>
                 <div className="mt-2 space-y-2">
                   {suggestion.sources.length === 0 ? (
-                    <p className="text-sm text-[var(--slate-500)]">
+                    <p className="text-sm text-muted-foreground">
                       Aucune source disponible.
                     </p>
                   ) : (
@@ -772,14 +772,14 @@ export function PriceSuggestionPanel({
                   {/* Review note */}
                   <div>
                     <label
-                      className="text-xs font-medium uppercase text-[var(--slate-500)]"
+                      className="text-xs font-medium uppercase text-muted-foreground"
                       htmlFor="price-suggestion-review-note"
                     >
                       Note de revue (obligatoire)
                     </label>
                     <textarea
                       id="price-suggestion-review-note"
-                      className="mt-1 block w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm focus:border-[var(--ring)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                      className="mt-1 block w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
                       rows={3}
                       value={reviewNote}
                       onChange={(e) => setReviewNote(e.target.value)}
@@ -788,7 +788,7 @@ export function PriceSuggestionPanel({
                       disabled={isRecalculating || isSubmitting}
                     />
                     <div className="mt-1 flex items-center justify-between">
-                      <span className="text-[10px] text-[var(--slate-400)]">
+                      <span className="text-[10px] text-subtle-foreground">
                         {reviewNote.length}/2000
                       </span>
                       {selectedAction && reviewNote.trim().length === 0 ? (
@@ -811,8 +811,8 @@ export function PriceSuggestionPanel({
         </div>
 
         {/* ---- Footer ---- */}
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] px-4 py-3">
-          <span className="text-[10px] text-[var(--slate-400)]">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3">
+          <span className="text-[10px] text-subtle-foreground">
             Echap fermer
           </span>
 

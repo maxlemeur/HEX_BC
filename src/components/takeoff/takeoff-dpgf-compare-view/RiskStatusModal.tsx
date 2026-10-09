@@ -36,14 +36,14 @@ export function RiskStatusModal({
           <Modal.Title>Statut explicite du risque</Modal.Title>
         </Modal.Header>
         <Modal.Body>
-          <div className="rounded-2xl border border-[var(--border)] bg-[var(--slate-50)] p-4">
-            <p className="text-xs uppercase tracking-[0.14em] text-[var(--slate-500)]">
+          <div className="rounded-2xl border border-border bg-surface-subtle p-4">
+            <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
               Signal cible
             </p>
-            <p className="mt-2 text-sm font-semibold text-[var(--slate-950)]">
+            <p className="mt-2 text-sm font-semibold text-slate-950">
               {riskActionTarget?.causeLabel ?? "Signal"}
             </p>
-            <p className="mt-1 text-sm text-[var(--slate-600)]">
+            <p className="mt-1 text-sm text-slate-600">
               {riskActionTarget?.scopeLabel ?? "Scope inconnu"} ·{" "}
               {riskActionTarget ? RISK_STATUS_LABELS[riskActionTarget.status] : "Statut"}
             </p>
@@ -62,7 +62,7 @@ export function RiskStatusModal({
               onChange={(event) => onRiskReviewNoteChange(event.target.value)}
               maxLength={2000}
             />
-            <p className="mt-2 text-xs text-[var(--slate-500)]">
+            <p className="mt-2 text-xs text-muted-foreground">
               Aucune suggestion IA n&apos;est appliquee silencieusement. Ce changement reste explicite
               et justifie.
             </p>

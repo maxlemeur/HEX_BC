@@ -42,11 +42,11 @@ export function SelectionStep({
   return (
     <div className="space-y-5">
       <div className="grid gap-4 xl:grid-cols-[280px,minmax(0,1fr)]">
-        <div className="rounded-2xl border border-[var(--slate-200)] p-4">
-          <h3 className="text-sm font-semibold text-[var(--slate-900)]">
+        <div className="rounded-2xl border border-border p-4">
+          <h3 className="text-sm font-semibold text-foreground">
             Lots a retenir
           </h3>
-          <p className="mt-1 text-sm text-[var(--slate-500)]">
+          <p className="mt-1 text-sm text-muted-foreground">
             Chaque lot coche sera inclus avec son sous-arbre.
           </p>
           {isAssemblyOnlyWeakMode && selectedRootIds.length === 0 ? (
@@ -60,7 +60,7 @@ export function SelectionStep({
             {draft.nodes.map((node) => (
               <label
                 key={node.id}
-                className="flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--slate-200)] p-3"
+                className="flex cursor-pointer items-start gap-3 rounded-xl border border-border p-3"
               >
                 <input
                   type="checkbox"
@@ -69,24 +69,24 @@ export function SelectionStep({
                   onChange={() => onToggleRootSelection(node.id)}
                 />
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-[var(--slate-900)]">
+                  <p className="text-sm font-medium text-foreground">
                     {node.label}
                   </p>
-                  <p className="mt-1 text-xs text-[var(--slate-500)]">
+                  <p className="mt-1 text-xs text-muted-foreground">
                     {confidenceText(node)}
                   </p>
                   {node.provenance.length > 0 ? (
-                    <p className="mt-1 text-xs text-[var(--slate-500)]">
+                    <p className="mt-1 text-xs text-muted-foreground">
                       Provenance: {summarizeNodeProvenance(node)}
                     </p>
                   ) : null}
                   {node.duplicateMatchPath ? (
-                    <p className="mt-1 text-xs text-[var(--amber-700)]">
+                    <p className="mt-1 text-xs text-warning">
                       Doublon potentiel: {node.duplicateMatchPath}
                     </p>
                   ) : null}
                   {isWeakSignalNode(node) ? (
-                    <p className="mt-1 text-xs text-[var(--rose-700)]">
+                    <p className="mt-1 text-xs text-danger">
                       Suggestion issue des ouvrages seuls, non preselectionnee par defaut.
                     </p>
                   ) : null}
@@ -96,8 +96,8 @@ export function SelectionStep({
           </div>
         </div>
 
-        <div className="rounded-2xl border border-[var(--slate-200)] p-4">
-          <h3 className="text-sm font-semibold text-[var(--slate-900)]">
+        <div className="rounded-2xl border border-border p-4">
+          <h3 className="text-sm font-semibold text-foreground">
             Preview arborescente
           </h3>
           <div
@@ -125,7 +125,7 @@ export function SelectionStep({
           </div>
           <div className="mt-4 space-y-3">
             {!hasFilteredPreviewResults ? (
-              <div className="rounded-xl border border-dashed border-[var(--slate-300)] bg-[var(--slate-50)] p-4 text-sm text-[var(--slate-600)]">
+              <div className="rounded-xl border border-dashed border-border-strong bg-surface-subtle p-4 text-sm text-slate-600">
                 Aucun nœud ne correspond aux filtres actifs.
                 Desactivez un filtre pour réafficher la preview.
               </div>

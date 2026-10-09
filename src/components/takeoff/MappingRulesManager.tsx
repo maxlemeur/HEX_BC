@@ -531,7 +531,7 @@ export function MappingRulesManager() {
       ) : null}
 
       <section className="dashboard-card overflow-hidden">
-        <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[var(--slate-200)] px-6 py-4">
+        <div className="flex flex-wrap items-end justify-between gap-3 border-b border-border px-6 py-4">
           <div className="w-full max-w-md">
             <label className="form-label" htmlFor="mapping-rules-search">
               Rechercher
@@ -553,14 +553,14 @@ export function MappingRulesManager() {
             >
               {isReordering ? "Sauvegarde..." : "Enregistrer l'ordre"}
             </button>
-            <span className="text-xs text-[var(--slate-500)]">
+            <span className="text-xs text-muted-foreground">
               {isAssembliesLoading ? "Ouvrages: chargement..." : `${assemblies.length} ouvrage(s)`}
             </span>
           </div>
         </div>
 
         {isRulesLoading ? (
-          <div className="px-6 py-8 text-sm text-[var(--slate-500)]">
+          <div className="px-6 py-8 text-sm text-muted-foreground">
             Chargement des regles de mapping...
           </div>
         ) : (
@@ -580,7 +580,7 @@ export function MappingRulesManager() {
               <tbody>
                 {filteredRules.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-10 text-center text-[var(--slate-500)]">
+                    <td colSpan={7} className="py-10 text-center text-muted-foreground">
                       Aucune regle de mapping.
                     </td>
                   </tr>
@@ -599,7 +599,7 @@ export function MappingRulesManager() {
                               step={1}
                               inputMode="numeric"
                               className={`form-input form-input--sm ${
-                                priorityErrorById[rule.id] ? "border-[var(--error)]" : ""
+                                priorityErrorById[rule.id] ? "border-danger" : ""
                               }`}
                               aria-label={`Priorite de ${rule.name}`}
                               value={draftPriority}
@@ -638,28 +638,28 @@ export function MappingRulesManager() {
                             className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${
                               rule.is_active
                                 ? "bg-emerald-50 text-emerald-700"
-                                : "bg-[var(--slate-100)] text-[var(--slate-600)]"
+                                : "bg-muted text-slate-600"
                             }`}
                           >
                             {rule.is_active ? "Active" : "Inactive"}
                           </span>
                         </td>
                         <td>
-                          <div className="font-semibold text-[var(--slate-800)]">{rule.name}</div>
+                          <div className="font-semibold text-slate-800">{rule.name}</div>
                         </td>
                         <td>
-                          <div className="text-xs uppercase tracking-wide text-[var(--slate-500)]">
+                          <div className="text-xs uppercase tracking-wide text-muted-foreground">
                             {MATCH_LABELS[rule.match_type]}
                           </div>
-                          <div className="mt-1 text-sm text-[var(--slate-700)]">
+                          <div className="mt-1 text-sm text-foreground-secondary">
                             {rule.match_pattern}
                           </div>
                         </td>
                         <td>
-                          <div className="text-xs uppercase tracking-wide text-[var(--slate-500)]">
+                          <div className="text-xs uppercase tracking-wide text-muted-foreground">
                             {ACTION_LABELS[rule.action]}
                           </div>
-                          <div className="mt-1 text-sm text-[var(--slate-700)]">
+                          <div className="mt-1 text-sm text-foreground-secondary">
                             {renderActionDetails(rule, assembliesById)}
                           </div>
                         </td>

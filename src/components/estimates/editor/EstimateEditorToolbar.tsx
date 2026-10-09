@@ -169,7 +169,7 @@ function MoreActionsDropdown({
 
   const close = () => setIsOpen(false);
   const menuItemClass =
-    "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-[var(--slate-700)] transition-colors hover:bg-[var(--slate-50)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--brand-blue)] disabled:cursor-not-allowed disabled:opacity-50";
+    "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-foreground-secondary transition-colors hover:bg-surface-subtle focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-50";
   const formattedLastSavedAt = formatLastSavedAt(lastSavedAt);
 
   const handlePanelKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -242,13 +242,13 @@ function MoreActionsDropdown({
           id={panelId}
           role="menu"
           aria-label="Plus d'actions du chiffrage"
-          className="estimate-toolbar-actions-panel absolute right-0 top-full z-50 mt-2 max-h-[min(640px,calc(100vh-100px))] w-64 overflow-y-auto rounded-xl border border-[var(--slate-200)] bg-surface p-2 shadow-xl"
+          className="estimate-toolbar-actions-panel absolute right-0 top-full z-50 mt-2 max-h-[min(640px,calc(100vh-100px))] w-64 overflow-y-auto rounded-xl border border-border bg-surface p-2 shadow-xl"
           data-testid="estimate-page-toolbar-more-actions-menu"
           onKeyDown={handlePanelKeyDown}
         >
           {showAutoSaveControls ? (
             <div role="none">
-              <p className="px-3 pb-1 pt-1 text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+              <p className="px-3 pb-1 pt-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Synchronisation
               </p>
               <button
@@ -262,26 +262,26 @@ function MoreActionsDropdown({
               >
                 <span className="min-w-0 flex-1">
                   <span className="block">Sauvegarde automatique</span>
-                  <span className="block text-xs font-normal text-[var(--slate-500)]">
+                  <span className="block text-xs font-normal text-muted-foreground">
                     {isAutoSaveEnabled ? "Activée" : "Désactivée"}
                   </span>
                 </span>
                 <span
                   className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors ${
                     isAutoSaveEnabled
-                      ? "bg-[var(--brand-blue)]"
-                      : "bg-[var(--slate-300)]"
+                      ? "bg-primary"
+                      : "bg-slate-300"
                   }`}
                   aria-hidden="true"
                 >
                   <span
-                    className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                    className={`absolute top-0.5 h-4 w-4 rounded-full bg-surface shadow-sm transition-transform ${
                       isAutoSaveEnabled ? "translate-x-[18px]" : "translate-x-0.5"
                     }`}
                   />
                 </span>
               </button>
-              <p className="px-3 pb-1 text-xs leading-5 text-[var(--slate-500)]">
+              <p className="px-3 pb-1 text-xs leading-5 text-muted-foreground">
                 {isAutoSaveEnabled
                   ? "Les lignes sont automatiques ; le paramétrage reste manuel."
                   : "Les modifications restent en attente jusqu’à une sauvegarde manuelle."}
@@ -299,12 +299,12 @@ function MoreActionsDropdown({
                 data-testid="estimate-page-toolbar-save-now-button"
               >
                 <span className="flex-1">Sauvegarder maintenant</span>
-                <kbd className="text-xs font-normal text-[var(--slate-500)]">
+                <kbd className="text-xs font-normal text-muted-foreground">
                   Ctrl+S
                 </kbd>
               </button>
               <p
-                className="px-3 pb-2 text-xs text-[var(--slate-500)]"
+                className="px-3 pb-2 text-xs text-muted-foreground"
                 data-testid="estimate-page-toolbar-last-saved-at"
               >
                 {formattedLastSavedAt
@@ -314,7 +314,7 @@ function MoreActionsDropdown({
                     : "Aucune modification en attente."}
               </p>
               <div
-                className="my-1 border-t border-[var(--slate-200)]"
+                className="my-1 border-t border-border"
                 role="separator"
               />
             </div>
@@ -372,7 +372,7 @@ function MoreActionsDropdown({
             >
               Exporter CSV
             </button>
-            <div className="my-1 border-t border-[var(--slate-200)]" role="separator" />
+            <div className="my-1 border-t border-border" role="separator" />
           </div>
           {showImportDpgfSource ? (
             <button
@@ -418,7 +418,7 @@ function MoreActionsDropdown({
           >
             Exclusions
           </button>
-          <div className="my-1 border-t border-[var(--slate-200)]" role="separator" />
+          <div className="my-1 border-t border-border" role="separator" />
           <button
             type="button"
             role="menuitem"
@@ -457,7 +457,7 @@ function MoreActionsDropdown({
           </div>
           {canArchive ? (
             <>
-              <div className="my-1 border-t border-[var(--slate-200)]" role="separator" />
+              <div className="my-1 border-t border-border" role="separator" />
               <button
                 type="button"
                 role="menuitem"
@@ -473,7 +473,7 @@ function MoreActionsDropdown({
               </button>
             </>
           ) : null}
-          <div className="my-1 border-t border-[var(--slate-200)]" role="separator" />
+          <div className="my-1 border-t border-border" role="separator" />
           <Link
             role="menuitem"
             className={menuItemClass}

@@ -47,18 +47,18 @@ const ROLE_LABELS: Record<TenantRole, string> = {
 
 function roleBadgeClass(role: TenantRole) {
   if (role === "admin") {
-    return "inline-flex items-center rounded-full bg-[var(--brand-blue)]/10 px-2.5 py-0.5 text-xs font-medium text-[var(--brand-blue)]";
+    return "inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary";
   }
 
   if (role === "engineer") {
-    return "inline-flex items-center rounded-full bg-[var(--warning-light)] px-2.5 py-0.5 text-xs font-medium text-[var(--warning)]";
+    return "inline-flex items-center rounded-full bg-warning-light px-2.5 py-0.5 text-xs font-medium text-warning";
   }
 
   if (role === "director") {
-    return "inline-flex items-center rounded-full bg-[var(--success)]/10 px-2.5 py-0.5 text-xs font-medium text-[var(--success)]";
+    return "inline-flex items-center rounded-full bg-success/10 px-2.5 py-0.5 text-xs font-medium text-success";
   }
 
-  return "inline-flex items-center rounded-full bg-[var(--slate-100)] px-2.5 py-0.5 text-xs font-medium text-[var(--slate-600)]";
+  return "inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-slate-600";
 }
 
 function formatDate(value: string) {
@@ -269,8 +269,8 @@ export function TenantMembershipManager() {
     return (
       <div className="animate-fade-in flex min-h-[400px] items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--slate-200)] border-t-[var(--brand-blue)]"></div>
-          <span className="text-[var(--slate-500)]">Chargement...</span>
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-primary"></div>
+          <span className="text-muted-foreground">Chargement...</span>
         </div>
       </div>
     );
@@ -316,25 +316,25 @@ export function TenantMembershipManager() {
       {success ? <div className="alert alert-success mb-6">{success}</div> : null}
 
       <div className="dashboard-card p-6 mb-8">
-        <h2 className="text-sm font-semibold text-[var(--slate-800)] mb-2">Tenant courant</h2>
-        <div className="text-sm text-[var(--slate-600)] space-y-1">
+        <h2 className="text-sm font-semibold text-slate-800 mb-2">Tenant courant</h2>
+        <div className="text-sm text-slate-600 space-y-1">
           <p>
-            <span className="font-medium text-[var(--slate-800)]">Nom:</span> {tenantName || "-"}
+            <span className="font-medium text-slate-800">Nom:</span> {tenantName || "-"}
           </p>
           <p>
-            <span className="font-medium text-[var(--slate-800)]">Votre membership:</span>{" "}
+            <span className="font-medium text-slate-800">Votre membership:</span>{" "}
             {ownMembership ? ROLE_LABELS[ownMembership.role] : "-"}
           </p>
           <p>
-            <span className="font-medium text-[var(--slate-800)]">Statut par defaut:</span>{" "}
+            <span className="font-medium text-slate-800">Statut par defaut:</span>{" "}
             {isCurrentTenantDefault ? "Oui" : "Non"}
           </p>
         </div>
       </div>
 
       <div className="dashboard-card overflow-hidden">
-        <div className="border-b border-[var(--slate-200)] px-6 py-4">
-          <h2 className="text-sm font-semibold text-[var(--slate-800)]">Membres du tenant</h2>
+        <div className="border-b border-border px-6 py-4">
+          <h2 className="text-sm font-semibold text-slate-800">Membres du tenant</h2>
         </div>
 
         <div className="table-scroll">
@@ -351,7 +351,7 @@ export function TenantMembershipManager() {
             <tbody>
               {memberships.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="py-10 text-center text-[var(--slate-500)]">
+                  <td colSpan={5} className="py-10 text-center text-muted-foreground">
                     Aucun membership dans ce tenant.
                   </td>
                 </tr>
@@ -364,17 +364,17 @@ export function TenantMembershipManager() {
                     <tr key={membership.id}>
                       <td>
                         <div className="flex flex-col">
-                          <span className="font-medium text-[var(--slate-800)]">
+                          <span className="font-medium text-slate-800">
                             {membership.user_full_name}
                           </span>
                           {membership.user_work_email ? (
-                            <span className="text-xs text-[var(--slate-500)]">
+                            <span className="text-xs text-muted-foreground">
                               {membership.user_work_email}
                             </span>
                           ) : null}
                         </div>
                       </td>
-                      <td className="text-sm text-[var(--slate-600)]">
+                      <td className="text-sm text-slate-600">
                         {membership.user_job_title || "-"}
                       </td>
                       <td>
@@ -397,19 +397,19 @@ export function TenantMembershipManager() {
                           </select>
                         </div>
                         {isSelf ? (
-                          <p className="mt-1 text-xs text-[var(--slate-500)]">Vous</p>
+                          <p className="mt-1 text-xs text-muted-foreground">Vous</p>
                         ) : null}
                       </td>
                       <td>
                         {membership.is_default ? (
-                          <span className="inline-flex items-center rounded-full bg-[var(--success-light)] px-2.5 py-0.5 text-xs font-medium text-[var(--success)]">
+                          <span className="inline-flex items-center rounded-full bg-success-light px-2.5 py-0.5 text-xs font-medium text-success">
                             Oui
                           </span>
                         ) : (
-                          <span className="text-xs text-[var(--slate-500)]">Non</span>
+                          <span className="text-xs text-muted-foreground">Non</span>
                         )}
                       </td>
-                      <td className="text-sm text-[var(--slate-500)]">
+                      <td className="text-sm text-muted-foreground">
                         {formatDate(membership.created_at)}
                       </td>
                     </tr>

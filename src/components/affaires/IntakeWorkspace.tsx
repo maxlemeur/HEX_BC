@@ -405,10 +405,10 @@ export function IntakeWorkspace({
       {shouldRenderEntryShell ? null : (
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold text-[var(--slate-800)]">
+            <h2 className="text-sm font-semibold text-slate-800">
               Dossier de consultation
             </h2>
-            <p className="mt-0.5 text-xs text-[var(--slate-500)]">
+            <p className="mt-0.5 text-xs text-muted-foreground">
               {hasDocuments
                 ? `${documents.length} document${documents.length > 1 ? "s" : ""} — classés automatiquement`
                 : "Déposez vos pièces (CCTP, DPGF, plans, courriers) pour lancer l'analyse"}
@@ -423,8 +423,8 @@ export function IntakeWorkspace({
                 onClick={toggleFilter}
                 className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
                   isFilterActive
-                    ? "bg-[var(--warning)]/10 text-[var(--warning)] ring-1 ring-[var(--warning)]/30"
-                    : "text-[var(--slate-600)] hover:bg-[var(--slate-100)]"
+                    ? "bg-warning/10 text-warning ring-1 ring-warning/30"
+                    : "text-slate-600 hover:bg-muted"
                 }`}
                 aria-pressed={isFilterActive}
               >
@@ -440,7 +440,7 @@ export function IntakeWorkspace({
               <button
                 type="button"
                 onClick={() => setShowDropzone((v) => !v)}
-                className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-[var(--brand-blue)] transition-colors hover:bg-[var(--brand-blue)]/5"
+                className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/5"
               >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <line x1="12" x2="12" y1="5" y2="19" />
@@ -457,7 +457,7 @@ export function IntakeWorkspace({
       {hasDocuments && (
         <div className="mb-4">
           <div
-            className="flex h-2.5 w-full overflow-hidden rounded-full bg-[var(--slate-100)]"
+            className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted"
             role="progressbar"
             aria-valuenow={classifiedCount}
             aria-valuemin={0}
@@ -466,24 +466,24 @@ export function IntakeWorkspace({
           >
             {classifiedPct > 0 && (
               <div
-                className="h-full bg-[var(--success)] transition-all duration-500"
+                className="h-full bg-success transition-all duration-500"
                 style={{ width: `${classifiedPct}%` }}
               />
             )}
             {reviewPct > 0 && (
               <div
-                className="h-full bg-[var(--warning)] transition-all duration-500"
+                className="h-full bg-warning transition-all duration-500"
                 style={{ width: `${reviewPct}%` }}
               />
             )}
             {processingPct > 0 && (
               <div
-                className="h-full bg-[var(--brand-blue)] transition-all duration-500"
+                className="h-full bg-primary transition-all duration-500"
                 style={{ width: `${processingPct}%` }}
               />
             )}
           </div>
-          <p className="mt-1.5 text-xs text-[var(--slate-500)]">{progressLegend}</p>
+          <p className="mt-1.5 text-xs text-muted-foreground">{progressLegend}</p>
         </div>
       )}
 
@@ -512,9 +512,9 @@ export function IntakeWorkspace({
       )}
 
       {focusedDocument && (
-        <div className="mb-4 rounded-xl border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/6 px-4 py-3">
+        <div className="mb-4 rounded-xl border border-primary/20 bg-primary/6 px-4 py-3">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold text-[var(--slate-800)]">
+            <p className="text-sm font-semibold text-slate-800">
               Source du brief
             </p>
             {focusBannerTitle ? (
@@ -533,18 +533,18 @@ export function IntakeWorkspace({
               </Badge>
             ) : null}
           </div>
-          <p className="mt-1 text-sm text-[var(--slate-600)]">
+          <p className="mt-1 text-sm text-slate-600">
             {focusBannerTitle
               ? `${focusBannerTitle} s'appuie sur cette pièce du dossier.`
               : "Cette pièce du dossier est utilisée comme source du brief."}{" "}
-            <span className="font-medium text-[var(--slate-800)]">
+            <span className="font-medium text-slate-800">
               {focusedDocument.fileName}
             </span>
           </p>
           {focusBannerExcerpt ? (
-            <p className="mt-2 text-xs text-[var(--slate-500)]">
+            <p className="mt-2 text-xs text-muted-foreground">
               Enonce cible :{" "}
-              <span className="font-medium text-[var(--slate-700)]">
+              <span className="font-medium text-foreground-secondary">
                 {focusBannerExcerpt}
               </span>
             </p>
@@ -654,13 +654,13 @@ export function IntakeWorkspace({
       {/* Empty filter state */}
       {isFilterActive && filteredDocuments.length === 0 && hasDocuments && (
         <div className="py-6 text-center">
-          <p className="text-sm text-[var(--slate-500)]">
+          <p className="text-sm text-muted-foreground">
             Tous les documents sont correctement valides.
           </p>
           <button
             type="button"
             onClick={toggleFilter}
-            className="mt-2 text-xs font-medium text-[var(--brand-blue)] hover:underline"
+            className="mt-2 text-xs font-medium text-primary hover:underline"
           >
             Voir tous les documents
           </button>
@@ -669,7 +669,7 @@ export function IntakeWorkspace({
 
       {/* CTA: Triage status */}
       {hasDocuments && triageComplete && (
-        <div className="mt-4 flex items-center gap-2 rounded-lg border border-[var(--success)]/20 bg-[var(--success)]/5 px-3 py-2 text-sm text-[var(--success)]">
+        <div className="mt-4 flex items-center gap-2 rounded-lg border border-success/20 bg-success/5 px-3 py-2 text-sm text-success">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden="true">
             <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
             <polyline points="22 4 12 14.01 9 11.01" />
@@ -678,7 +678,7 @@ export function IntakeWorkspace({
         </div>
       )}
       {hasDocuments && !triageComplete && (needsReviewCount > 0 || processingCount > 0) && (
-        <div className="mt-4 flex items-center gap-2 rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-2 text-sm text-[var(--slate-600)]">
+        <div className="mt-4 flex items-center gap-2 rounded-lg border border-border bg-surface-subtle px-3 py-2 text-sm text-slate-600">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden="true">
             <circle cx="12" cy="12" r="10" />
             <line x1="12" x2="12" y1="8" y2="12" />
@@ -690,7 +690,7 @@ export function IntakeWorkspace({
               <button
                 type="button"
                 onClick={toggleFilter}
-                className="ml-1 font-medium text-[var(--brand-blue)] hover:underline"
+                className="ml-1 font-medium text-primary hover:underline"
               >
                 Filtrer
               </button>

@@ -10,8 +10,8 @@ import { COMPANY_INFO } from "@/lib/company-info";
  */
 export function PortalContactBlock() {
   return (
-    <div className="mt-6 rounded-xl border border-[var(--slate-200)] bg-white px-5 py-4 text-sm text-[var(--slate-600)]">
-      <p className="font-semibold text-[var(--slate-800)]">
+    <div className="mt-6 rounded-xl border border-border bg-surface px-5 py-4 text-sm text-slate-600">
+      <p className="font-semibold text-slate-800">
         {COMPANY_INFO.name}
       </p>
       <p className="mt-1">

@@ -107,7 +107,7 @@ function ModeToggleSwitch({
         className={`sidebar-mode-toggle__thumb pointer-events-none relative z-10 h-5 w-5 rounded-full shadow-md transition-all duration-200 ease-in-out ${
           isExpert
             ? "translate-x-5 bg-brand-orange"
-            : "translate-x-0 bg-white/80"
+            : "translate-x-0 bg-surface/80"
         }`}
       />
     </button>
@@ -342,12 +342,12 @@ export function DashboardShell({
   return (
     <DashboardNavigationProvider value={navigationContextValue}>
       <div
-        className="flex min-h-screen flex-col bg-[var(--background)]"
+        className="flex min-h-screen flex-col bg-background"
         data-navigation-mode={navigationMode}
       >
       <a
         href="#dashboard-main-content"
-        className="sr-only fixed left-3 top-3 z-[70] rounded-lg bg-white px-4 py-3 font-semibold text-[var(--brand-blue)] shadow-lg focus:not-sr-only focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-[var(--brand-blue)]"
+        className="sr-only fixed left-3 top-3 z-[70] rounded-lg bg-surface px-4 py-3 font-semibold text-primary shadow-lg focus:not-sr-only focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-primary"
       >
         Aller au contenu principal
       </a>
@@ -401,7 +401,7 @@ export function DashboardShell({
       </header>
       {!isWorkspace ? (
         <div
-          className="no-print pointer-events-none fixed inset-x-0 top-0 z-30 h-16 border-b border-[var(--slate-200)]/80 bg-[var(--background)]/95 backdrop-blur lg:hidden"
+          className="no-print pointer-events-none fixed inset-x-0 top-0 z-30 h-16 border-b border-border/80 bg-background/95 backdrop-blur lg:hidden"
           aria-hidden="true"
         />
       ) : null}
@@ -411,7 +411,7 @@ export function DashboardShell({
         <button
           ref={menuButtonRef}
           type="button"
-          className={`no-print fixed left-3 top-2.5 z-50 flex h-11 w-11 items-center justify-center rounded-lg bg-[var(--brand-blue)] text-white shadow-lg transition-opacity lg:hidden ${
+          className={`no-print fixed left-3 top-2.5 z-50 flex h-11 w-11 items-center justify-center rounded-lg bg-primary text-white shadow-lg transition-opacity lg:hidden ${
             drawerOpen ? "pointer-events-none opacity-0" : "opacity-100"
           }`}
           onClick={openDrawer}
@@ -674,7 +674,7 @@ export function DashboardShell({
         >
           {children}
         </div>
-        <footer className="no-print mx-auto w-full px-3 pb-4 text-right text-[10px] font-medium tracking-wide text-[var(--slate-400)] sm:px-6">
+        <footer className="no-print mx-auto w-full px-3 pb-4 text-right text-[10px] font-medium tracking-wide text-subtle-foreground sm:px-6">
           <p
             role="note"
             aria-label={`Version de l'application ${appVersion}${

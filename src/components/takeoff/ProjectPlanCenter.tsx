@@ -27,10 +27,10 @@ function SkeletonCard() {
   return (
     <div className="dashboard-card animate-pulse p-5">
       <div className="flex items-center gap-4">
-        <div className="h-5 w-48 rounded bg-[var(--slate-200)]" />
-        <div className="ml-auto h-4 w-24 rounded bg-[var(--slate-200)]" />
+        <div className="h-5 w-48 rounded bg-slate-200" />
+        <div className="ml-auto h-4 w-24 rounded bg-slate-200" />
       </div>
-      <div className="mt-3 h-4 w-32 rounded bg-[var(--slate-200)]" />
+      <div className="mt-3 h-4 w-32 rounded bg-slate-200" />
     </div>
   );
 }
@@ -105,18 +105,18 @@ export function ProjectPlanCenter({ projectId, initialPlanSets }: ProjectPlanCen
     <section>
       {/* Metrics bar */}
       {!isLoading && !error && sets && sets.length > 0 && (
-        <div className="mb-6 flex flex-wrap items-center gap-6 text-sm text-[var(--slate-600)]">
+        <div className="mb-6 flex flex-wrap items-center gap-6 text-sm text-slate-600">
           <span>
-            <strong className="text-[var(--slate-800)]">{totalSets}</strong>{" "}
+            <strong className="text-slate-800">{totalSets}</strong>{" "}
             {totalSets === 1 ? "jeu" : "jeux"}
           </span>
           <span>
-            <strong className="text-[var(--slate-800)]">{totalFiles}</strong>{" "}
+            <strong className="text-slate-800">{totalFiles}</strong>{" "}
             {totalFiles === 1 ? "fichier" : "fichiers"} au total
           </span>
           {totalSizeBytes > 0 ? (
             <span>
-              <strong className="text-[var(--slate-800)]">
+              <strong className="text-slate-800">
                 {formatFileSize(totalSizeBytes)}
               </strong>{" "}
               au total
@@ -144,7 +144,7 @@ export function ProjectPlanCenter({ projectId, initialPlanSets }: ProjectPlanCen
       {/* Loading skeleton */}
       {isLoading && (
         <div className="space-y-4" role="status" aria-live="polite">
-          <p className="text-sm text-[var(--slate-600)]">
+          <p className="text-sm text-slate-600">
             {isSlowLoading
               ? "Le chargement prend plus de temps que prévu…"
               : "Chargement des jeux de plans…"}
@@ -177,7 +177,7 @@ export function ProjectPlanCenter({ projectId, initialPlanSets }: ProjectPlanCen
       {!isLoading && !error && sets && sets.length === 0 && (
         <div className="dashboard-card flex flex-col items-center justify-center px-4 py-10 text-center sm:px-6 sm:py-16">
           <svg
-            className="mb-4 h-12 w-12 text-[var(--slate-300)]"
+            className="mb-4 h-12 w-12 text-slate-300"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -190,10 +190,10 @@ export function ProjectPlanCenter({ projectId, initialPlanSets }: ProjectPlanCen
               d="M12 10.5v6m3-3H9m4.06-7.19l-2.12-2.12a1.5 1.5 0 00-1.06-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V8.25a2.25 2.25 0 00-2.25-2.25h-5.38a1.5 1.5 0 01-1.06-.44z"
             />
           </svg>
-          <h3 className="text-base font-semibold text-[var(--slate-800)]">
+          <h3 className="text-base font-semibold text-slate-800">
             Aucun jeu de plans
           </h3>
-          <p className="mt-2 max-w-sm text-sm text-[var(--slate-500)]">
+          <p className="mt-2 max-w-sm text-sm text-muted-foreground">
             Un jeu de plans regroupe vos fichiers PDF pour le métré.
             Commencez par en créer un.
           </p>

@@ -32,56 +32,56 @@ export function SourcesStep({
       {draft ? (
         <>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-            <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-[var(--slate-500)]">
+            <div className="rounded-xl border border-border bg-surface-subtle p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
                 Lots proposes
               </p>
-              <p className="mt-2 text-2xl font-semibold text-[var(--slate-900)]">
+              <p className="mt-2 text-2xl font-semibold text-foreground">
                 {draft.summary.rootCount}
               </p>
             </div>
-            <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-[var(--slate-500)]">
+            <div className="rounded-xl border border-border bg-surface-subtle p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
                 Nouveaux
               </p>
-              <p className="mt-2 text-2xl font-semibold text-[var(--slate-900)]">
+              <p className="mt-2 text-2xl font-semibold text-foreground">
                 {draft.summary.newCount}
               </p>
             </div>
-            <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-[var(--slate-500)]">
+            <div className="rounded-xl border border-border bg-surface-subtle p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
                 Fusions
               </p>
-              <p className="mt-2 text-2xl font-semibold text-[var(--slate-900)]">
+              <p className="mt-2 text-2xl font-semibold text-foreground">
                 {draft.summary.mergeCount}
               </p>
             </div>
-            <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-[var(--slate-500)]">
+            <div className="rounded-xl border border-border bg-surface-subtle p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
                 Doublons
               </p>
-              <p className="mt-2 text-2xl font-semibold text-[var(--slate-900)]">
+              <p className="mt-2 text-2xl font-semibold text-foreground">
                 {draft.summary.duplicateCount}
               </p>
             </div>
-            <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-[var(--slate-500)]">
+            <div className="rounded-xl border border-border bg-surface-subtle p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
                 Confiance faible
               </p>
-              <p className="mt-2 text-2xl font-semibold text-[var(--slate-900)]">
+              <p className="mt-2 text-2xl font-semibold text-foreground">
                 {draft.summary.lowConfidenceCount}
               </p>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-[var(--slate-200)] p-5">
+          <div className="rounded-2xl border border-border p-5">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h3 className="text-sm font-semibold text-[var(--slate-900)]">
+                <h3 className="text-sm font-semibold text-foreground">
                   Provenance utilisee
                 </h3>
                 {sourceCoverageSummary ? (
-                  <p className="mt-1 text-sm text-[var(--slate-500)]">
+                  <p className="mt-1 text-sm text-muted-foreground">
                     {sourceCoverageSummary}
                   </p>
                 ) : null}
@@ -108,10 +108,10 @@ export function SourcesStep({
               {draft.sources.map((source) => (
                 <div
                   key={source.kind}
-                  className="rounded-xl border border-[var(--slate-200)] bg-white p-4"
+                  className="rounded-xl border border-border bg-surface p-4"
                 >
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-[var(--slate-900)]">
+                    <span className="text-sm font-medium text-foreground">
                       {sourceKindLabel(source.kind)}
                     </span>
                     <span
@@ -120,7 +120,7 @@ export function SourcesStep({
                           ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                           : source.available
                             ? "border-amber-200 bg-amber-50 text-amber-700"
-                            : "border-slate-200 bg-slate-100 text-slate-600"
+                            : "border-border bg-muted text-slate-600"
                       }`}
                     >
                       {source.used
@@ -131,7 +131,7 @@ export function SourcesStep({
                     </span>
                   </div>
                   {source.detail ? (
-                    <p className="mt-2 text-sm text-[var(--slate-600)]">
+                    <p className="mt-2 text-sm text-slate-600">
                       {source.detail}
                     </p>
                   ) : null}

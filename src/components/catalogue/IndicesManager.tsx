@@ -263,8 +263,8 @@ export function IndicesManager() {
       <section className="dashboard-card p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold text-[var(--slate-900)]">Indices matiere</h2>
-            <p className="text-sm text-[var(--slate-500)]">
+            <h2 className="text-lg font-semibold text-foreground">Indices matiere</h2>
+            <p className="text-sm text-muted-foreground">
               CRUD + bulk upsert pour la base d&apos;indices.
             </p>
           </div>
@@ -306,20 +306,20 @@ export function IndicesManager() {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="text-center text-[var(--slate-500)]">
+                  <td colSpan={6} className="text-center text-muted-foreground">
                     Chargement...
                   </td>
                 </tr>
               ) : items.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center text-[var(--slate-500)]">
+                  <td colSpan={6} className="text-center text-muted-foreground">
                     Aucun indice disponible.
                   </td>
                 </tr>
               ) : (
                 items.map((item) => (
                   <tr key={item.id}>
-                    <td className="font-semibold text-[var(--slate-900)]">
+                    <td className="font-semibold text-foreground">
                       {item.index_code || item.code || "-"}
                     </td>
                     <td>{item.label || "-"}</td>
@@ -359,7 +359,7 @@ export function IndicesManager() {
       </section>
 
       <section className="dashboard-card p-6">
-        <h2 className="text-lg font-semibold text-[var(--slate-900)]">
+        <h2 className="text-lg font-semibold text-foreground">
           {editingId ? "Modifier un indice" : "Ajouter un indice"}
         </h2>
 
@@ -472,8 +472,8 @@ export function IndicesManager() {
       </section>
 
       <section className="dashboard-card p-6">
-        <h2 className="text-lg font-semibold text-[var(--slate-900)]">Bulk upsert indices</h2>
-        <p className="mt-1 text-sm text-[var(--slate-500)]">
+        <h2 className="text-lg font-semibold text-foreground">Bulk upsert indices</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
           Envoi direct vers `/api/indices` action `bulk-upsert`.
         </p>
 

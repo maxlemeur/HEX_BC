@@ -53,7 +53,7 @@ const LazyTakeoffReviewExpert = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="dashboard-card p-8 text-center text-sm text-[var(--slate-500)]">
+      <div className="dashboard-card p-8 text-center text-sm text-muted-foreground">
         Chargement de la vue avancee...
       </div>
     ),
@@ -68,7 +68,7 @@ const LazyValidationReviewPanel = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="dashboard-card p-8 text-center text-sm text-[var(--slate-500)]">
+      <div className="dashboard-card p-8 text-center text-sm text-muted-foreground">
         Chargement de la vue validation...
       </div>
     ),
@@ -189,11 +189,11 @@ function ExclusionReasonModal({
           </Modal.Title>
         </Modal.Header>
         <Modal.Body>
-          <label className="block text-sm font-medium text-[var(--slate-700)]">
+          <label className="block text-sm font-medium text-foreground-secondary">
             Motif d&apos;exclusion (obligatoire)
           </label>
           <textarea
-            className="mt-1 block w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm focus:border-[var(--ring)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+            className="mt-1 block w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
             rows={3}
             value={reason}
             onChange={(e) => setReason(e.target.value)}
@@ -1284,7 +1284,7 @@ export default function TakeoffReviewPage({
             {Array.from({ length: 6 }).map((_, i) => (
               <div
                 key={i}
-                className="h-4 animate-pulse rounded bg-[var(--slate-200)]"
+                className="h-4 animate-pulse rounded bg-slate-200"
                 style={{ width: `${60 + (i % 3) * 15}%` }}
               />
             ))}
@@ -1404,19 +1404,19 @@ export default function TakeoffReviewPage({
       )}
 
       {applySuccess && isAffaireContext ? (
-        <section className="rounded-2xl border border-[var(--success)]/20 bg-[var(--success)]/5 p-4">
+        <section className="rounded-2xl border border-success/20 bg-success/5 p-4">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--success)]">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-success">
                 Apply controle confirme
               </p>
-              <h2 className="mt-1 text-lg font-semibold text-[var(--slate-900)]">
+              <h2 className="mt-1 text-lg font-semibold text-foreground">
                 Le devis a ete enrichi depuis le metre source
               </h2>
-              <p className="mt-2 text-sm text-[var(--slate-700)]">
+              <p className="mt-2 text-sm text-foreground-secondary">
                 Source: {jobFileName ?? "job takeoff"} · Section: {applySuccess.targetSectionLabel}
               </p>
-              <p className="mt-1 text-sm text-[var(--slate-700)]">
+              <p className="mt-1 text-sm text-foreground-secondary">
                 Strategie: {applySuccess.strategy} · crees {applySuccess.createdCount} · mis a jour {applySuccess.updatedCount} · ignores {applySuccess.ignoredCount}
               </p>
             </div>
@@ -1500,17 +1500,17 @@ export default function TakeoffReviewPage({
       )}
 
       {/* ---- Apply readiness bar (production mode only, others have built-in bars) ---- */}
-      {currentReviewMode === "production" && <div className="flex flex-col gap-3 rounded-lg border border-[var(--border)] bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+      {currentReviewMode === "production" && <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="text-sm">
           {isApplyReady ? (
-            <span className="flex items-center gap-2 text-[var(--success)]">
+            <span className="flex items-center gap-2 text-success">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.06l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
               </svg>
               Pret a appliquer ({includedItems.length} items)
             </span>
           ) : (
-            <span className="flex items-center gap-2 text-[var(--slate-500)]">
+            <span className="flex items-center gap-2 text-muted-foreground">
               {applyReadinessMessage}
             </span>
           )}

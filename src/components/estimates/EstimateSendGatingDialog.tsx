@@ -266,13 +266,13 @@ function renderFlagDetails(flag: EstimateSendGatingFlag) {
   if (detailsLines.length === 0) return null;
 
   return (
-    <ul className="mt-1 list-disc pl-4 text-xs text-[var(--slate-600)]">
+    <ul className="mt-1 list-disc pl-4 text-xs text-slate-600">
       {detailsLines.map((line) => (
         <li key={line.key}>
           {line.href ? (
             <Link
               href={line.href}
-              className="text-[var(--brand-blue)] underline underline-offset-2"
+              className="text-primary underline underline-offset-2"
             >
               {line.text}
             </Link>
@@ -288,7 +288,7 @@ function renderFlagDetails(flag: EstimateSendGatingFlag) {
 function renderFlags(flags: EstimateSendGatingFlag[], projectId?: string | null) {
   if (flags.length === 0) {
     return (
-      <p className="text-sm text-[var(--slate-500)]">
+      <p className="text-sm text-muted-foreground">
         Aucun element.
       </p>
     );
@@ -309,34 +309,34 @@ function renderFlags(flags: EstimateSendGatingFlag[], projectId?: string | null)
           return (
             <li
               key={`${flag.key}-${flag.severity}-${index}`}
-              className="rounded-lg border border-[var(--slate-200)] bg-[var(--surface-subtle)] px-3 py-2"
+              className="rounded-lg border border-border bg-surface-subtle px-3 py-2"
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium text-[var(--slate-800)]">
+                  <span className="font-medium text-slate-800">
                     {flag.label}
                   </span>
-                  <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-[var(--slate-500)]">
+                  <span className="rounded-full bg-surface px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                     {ESTIMATE_READINESS_CATEGORY_LABELS[category]}
                   </span>
                 </div>
-                <span className="text-xs text-[var(--slate-500)]">
+                <span className="text-xs text-muted-foreground">
                   {formatFlagCount(flag.count)}
                 </span>
               </div>
-              <p className="mt-1 text-xs text-[var(--slate-600)]">
+              <p className="mt-1 text-xs text-slate-600">
                 {flag.description}
               </p>
               {renderFlagDetails(flag)}
               {registerAction ? (
-                <div className="mt-2 rounded-lg bg-white px-2.5 py-2">
-                  <p className="text-xs font-medium text-[var(--brand-blue)]">
+                <div className="mt-2 rounded-lg bg-surface px-2.5 py-2">
+                  <p className="text-xs font-medium text-primary">
                     {registerAction}
                   </p>
                   {registerHref && !hasFocusedRegisterLinks ? (
                     <Link
                       href={registerHref}
-                      className="mt-2 inline-flex text-xs font-medium text-[var(--brand-blue)] underline underline-offset-2"
+                      className="mt-2 inline-flex text-xs font-medium text-primary underline underline-offset-2"
                     >
                       Ouvrir le registre affaire
                     </Link>
@@ -465,11 +465,11 @@ export function EstimateSendGatingDialog({
           <div>
             <h2
               id="estimate-send-gating-title"
-              className="text-lg font-semibold text-[var(--slate-800)]"
+              className="text-lg font-semibold text-slate-800"
             >
               Verification avant envoi
             </h2>
-            <p className="mt-1 text-sm text-[var(--slate-500)]">
+            <p className="mt-1 text-sm text-muted-foreground">
               Traitez les blocants metier avant de passer la version en statut envoye.
             </p>
           </div>
@@ -486,26 +486,26 @@ export function EstimateSendGatingDialog({
 
         {phaseLabel ? (
           <div className="alert alert-info mb-4 flex items-center gap-3">
-            <div className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--slate-300)] border-t-[var(--brand-blue)]" />
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-border-strong border-t-primary" />
             <span>{phaseLabel}</span>
           </div>
         ) : null}
 
         <div className="space-y-4">
           <section>
-            <h3 className="mb-2 text-sm font-semibold text-[var(--danger)]">
+            <h3 className="mb-2 text-sm font-semibold text-danger">
               Bloquants ({blockingFlags.length})
             </h3>
-            <p className="mb-2 text-xs text-[var(--slate-500)]">
+            <p className="mb-2 text-xs text-muted-foreground">
               Tant qu&apos;un blocant subsiste, l&apos;envoi client doit rester en attente.
             </p>
             {renderFlags(blockingFlags, projectId)}
           </section>
           <section>
-            <h3 className="mb-2 text-sm font-semibold text-[var(--warning)]">
+            <h3 className="mb-2 text-sm font-semibold text-warning">
               Avertissements ({warningFlags.length})
             </h3>
-            <p className="mb-2 text-xs text-[var(--slate-500)]">
+            <p className="mb-2 text-xs text-muted-foreground">
               Ces signaux n&apos;interdisent pas toujours l&apos;envoi, mais ils doivent etre assumes explicitement.
             </p>
             {renderFlags(warningFlags, projectId)}

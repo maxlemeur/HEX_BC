@@ -529,12 +529,12 @@ export function CurrencyRatesAdminClient() {
       ) : null}
 
       <div className="dashboard-card mb-6 p-5">
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           Filtres
         </h2>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <label className="block">
-            <span className="mb-1 block text-xs text-[var(--slate-500)]">Devise source</span>
+            <span className="mb-1 block text-xs text-muted-foreground">Devise source</span>
             <input
               type="text"
               className="form-input h-10"
@@ -549,7 +549,7 @@ export function CurrencyRatesAdminClient() {
             />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs text-[var(--slate-500)]">Devise cible</span>
+            <span className="mb-1 block text-xs text-muted-foreground">Devise cible</span>
             <input
               type="text"
               className="form-input h-10"
@@ -574,7 +574,7 @@ export function CurrencyRatesAdminClient() {
                 }))
               }
             />
-            <span className="text-sm text-[var(--slate-700)]">Inclure inactifs</span>
+            <span className="text-sm text-foreground-secondary">Inclure inactifs</span>
           </label>
           <div className="flex items-end">
             <button
@@ -589,12 +589,12 @@ export function CurrencyRatesAdminClient() {
       </div>
 
       <div className="dashboard-card mb-6 p-5">
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           Nouveau taux
         </h2>
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-6">
           <label className="block">
-            <span className="mb-1 block text-xs text-[var(--slate-500)]">From</span>
+            <span className="mb-1 block text-xs text-muted-foreground">From</span>
             <input
               className="form-input h-10"
               type="text"
@@ -608,7 +608,7 @@ export function CurrencyRatesAdminClient() {
             />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs text-[var(--slate-500)]">To</span>
+            <span className="mb-1 block text-xs text-muted-foreground">To</span>
             <input
               className="form-input h-10"
               type="text"
@@ -622,7 +622,7 @@ export function CurrencyRatesAdminClient() {
             />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs text-[var(--slate-500)]">Taux</span>
+            <span className="mb-1 block text-xs text-muted-foreground">Taux</span>
             <input
               className="form-input h-10"
               type="text"
@@ -637,7 +637,7 @@ export function CurrencyRatesAdminClient() {
             />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs text-[var(--slate-500)]">Date effet</span>
+            <span className="mb-1 block text-xs text-muted-foreground">Date effet</span>
             <input
               className="form-input h-10"
               type="date"
@@ -651,7 +651,7 @@ export function CurrencyRatesAdminClient() {
             />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs text-[var(--slate-500)]">Source</span>
+            <span className="mb-1 block text-xs text-muted-foreground">Source</span>
             <input
               className="form-input h-10"
               type="text"
@@ -694,8 +694,8 @@ export function CurrencyRatesAdminClient() {
       {isLoading ? (
         <div className="animate-fade-in flex min-h-[240px] items-center justify-center">
           <div className="flex flex-col items-center gap-3">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--slate-200)] border-t-[var(--brand-blue)]"></div>
-            <span className="text-[var(--slate-500)]">Chargement...</span>
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-primary"></div>
+            <span className="text-muted-foreground">Chargement...</span>
           </div>
         </div>
       ) : error ? (
@@ -719,7 +719,7 @@ export function CurrencyRatesAdminClient() {
               <tbody>
                 {items.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-10 text-center text-[var(--slate-500)]">
+                    <td colSpan={8} className="py-10 text-center text-muted-foreground">
                       Aucun taux de change trouve.
                     </td>
                   </tr>
@@ -759,7 +759,7 @@ export function CurrencyRatesAdminClient() {
                               })
                             }
                           />
-                          <p className="mt-1 text-[11px] text-[var(--slate-500)]">
+                          <p className="mt-1 text-[11px] text-muted-foreground">
                             {formatRate(rate.rate)}
                           </p>
                         </td>
@@ -801,7 +801,7 @@ export function CurrencyRatesAdminClient() {
                             {rowDraft.is_active ? "Actif" : "Inactif"}
                           </label>
                         </td>
-                        <td className="text-sm text-[var(--slate-500)]">
+                        <td className="text-sm text-muted-foreground">
                           {formatDateTime(rate.updated_at)}
                         </td>
                         <td>

@@ -42,11 +42,11 @@ function RegisterEntryCard({
   const statusPanel = getEntryStatusPanel(entry);
 
   return (
-    <article className="rounded-2xl border border-[var(--slate-200)] bg-white p-4">
+    <article className="rounded-2xl border border-border bg-surface p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-[var(--slate-100)] px-2.5 py-1 text-xs font-medium text-[var(--slate-600)]">
+            <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-slate-600">
               {AFFAIRE_REGISTER_KIND_LABELS[entry.kind]}
             </span>
             <span
@@ -60,43 +60,43 @@ function RegisterEntryCard({
               {getEntryStatusLabel(entry)}
             </span>
           </div>
-          <p className="mt-3 text-sm text-[var(--slate-800)]">{entry.text}</p>
-          <div className="mt-3 rounded-2xl border border-[var(--slate-200)] bg-[var(--slate-50)]/80 p-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+          <p className="mt-3 text-sm text-slate-800">{entry.text}</p>
+          <div className="mt-3 rounded-2xl border border-border bg-surface-subtle/80 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Contexte métier
             </p>
-            <p className="mt-1 text-sm text-[var(--slate-700)]">
+            <p className="mt-1 text-sm text-foreground-secondary">
               {getEntryContextSummary(entry)}
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               {getEntryContextTags(entry).map((tag) => (
                 <span
                   key={`${entry.id}-${tag.label}`}
-                  className="rounded-full border border-[var(--slate-200)] bg-white px-2.5 py-1 text-xs text-[var(--slate-600)]"
+                  className="rounded-full border border-border bg-surface px-2.5 py-1 text-xs text-slate-600"
                 >
-                  <span className="font-medium text-[var(--slate-700)]">{tag.label}</span>
+                  <span className="font-medium text-foreground-secondary">{tag.label}</span>
                   {` · ${tag.value}`}
                 </span>
               ))}
             </div>
           </div>
-          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--slate-500)]">
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
             <span>
               MAJ: {formatDateTime(entry.updatedAt)}
               {entry.updatedByName ? ` · ${entry.updatedByName}` : ""}
             </span>
           </div>
         </div>
-        <div className="w-full max-w-sm rounded-2xl border border-[var(--slate-200)] bg-[var(--slate-50)]/80 p-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+        <div className="w-full max-w-sm rounded-2xl border border-border bg-surface-subtle/80 p-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             {statusPanel.title}
           </p>
-          <p className="mt-1 text-xs text-[var(--slate-500)]">
+          <p className="mt-1 text-xs text-muted-foreground">
             {statusPanel.description}
           </p>
           {statusPanel.note ? (
-            <div className="mt-3 rounded-xl border border-[var(--brand-blue)]/15 bg-white/80 px-3 py-2 text-xs text-[var(--slate-600)]">
-              <p className="font-medium text-[var(--slate-700)]">
+            <div className="mt-3 rounded-xl border border-primary/15 bg-surface/80 px-3 py-2 text-xs text-slate-600">
+              <p className="font-medium text-foreground-secondary">
                 {statusPanel.note.label}
               </p>
               <p className="mt-1">{statusPanel.note.value}</p>
@@ -110,20 +110,20 @@ function RegisterEntryCard({
                   type="button"
                   className={`rounded-2xl border px-3 py-3 text-left transition ${
                     action.tone === "success"
-                      ? "border-[var(--success)]/20 bg-[var(--success)]/5 hover:border-[var(--success)]/35"
+                      ? "border-success/20 bg-success/5 hover:border-success/35"
                       : action.tone === "danger"
-                        ? "border-[var(--danger)]/20 bg-[var(--danger)]/5 hover:border-[var(--danger)]/35"
+                        ? "border-danger/20 bg-danger/5 hover:border-danger/35"
                         : action.tone === "brand"
-                          ? "border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 hover:border-[var(--brand-blue)]/35"
-                          : "border-[var(--slate-200)] bg-white hover:border-[var(--slate-300)]"
+                          ? "border-primary/20 bg-primary/5 hover:border-primary/35"
+                          : "border-border bg-surface hover:border-border-strong"
                   } disabled:cursor-not-allowed disabled:opacity-60`}
                   disabled={isPendingEntry}
                   onClick={() => onOpenTransitionDialog(action.transition)}
                 >
-                  <span className="block text-sm font-medium text-[var(--slate-800)]">
+                  <span className="block text-sm font-medium text-slate-800">
                     {action.label}
                   </span>
-                  <span className="mt-1 block text-xs text-[var(--slate-500)]">
+                  <span className="mt-1 block text-xs text-muted-foreground">
                     {action.description}
                   </span>
                 </button>
@@ -147,13 +147,13 @@ export function RegisterEntryList({
   return (
     <div className="mt-4 space-y-3">
       {items.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-[var(--slate-200)] bg-[var(--slate-50)]/70 px-4 py-8 text-center">
-          <p className="text-sm font-medium text-[var(--slate-700)]">
+        <div className="rounded-2xl border border-dashed border-border bg-surface-subtle/70 px-4 py-8 text-center">
+          <p className="text-sm font-medium text-foreground-secondary">
             {hasActiveFilters
               ? "Aucun point ne correspond à ces filtres."
               : "Aucun point du registre sur cette vue pour le moment."}
           </p>
-          <p className="mt-2 text-sm text-[var(--slate-500)]">
+          <p className="mt-2 text-sm text-muted-foreground">
             {hasActiveFilters
               ? "Réinitialisez les filtres pour revenir à l'ensemble du registre."
               : isReadOnly

@@ -90,7 +90,7 @@ export function SupplierCatalogItemModal({
         <Modal.Header>
           <div>
             <Modal.Title>Modifier la fiche fournisseur</Modal.Title>
-            <p className="mt-1 text-sm text-[var(--slate-500)]">
+            <p className="mt-1 text-sm text-muted-foreground">
               Ces informations s&apos;appliquent à tous les tarifs de{" "}
               {item?._supplierName} pour {item?._productName}.
             </p>
@@ -98,7 +98,7 @@ export function SupplierCatalogItemModal({
         </Modal.Header>
 
         <form className="space-y-4" onSubmit={handleSubmit}>
-          <label className="block space-y-1.5 text-xs font-semibold text-[var(--slate-700)]">
+          <label className="block space-y-1.5 text-xs font-semibold text-foreground-secondary">
             Référence fournisseur
             <input
               className="form-input"
@@ -106,7 +106,7 @@ export function SupplierCatalogItemModal({
               onChange={(event) => setSupplierSku(event.target.value)}
             />
           </label>
-          <label className="block space-y-1.5 text-xs font-semibold text-[var(--slate-700)]">
+          <label className="block space-y-1.5 text-xs font-semibold text-foreground-secondary">
             URL fournisseur
             <input
               className="form-input"

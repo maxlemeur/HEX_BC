@@ -79,8 +79,8 @@ const CATEGORY_COLORS: Record<AffaireIntakeDocumentKind, string> = {
   plans: "text-violet-600",
   cctp: "text-amber-600",
   bpu_dqe: "text-emerald-600",
-  annexes: "text-slate-500",
-  emails: "text-slate-500",
+  annexes: "text-muted-foreground",
+  emails: "text-muted-foreground",
   a_classer: "text-amber-500",
 };
 
@@ -136,7 +136,7 @@ export function IntakeCategoryCard({
   }
 
   return (
-    <div className="rounded-xl border border-[var(--slate-200)] bg-surface transition-shadow hover:shadow-sm">
+    <div className="rounded-xl border border-border bg-surface transition-shadow hover:shadow-sm">
       {/* Clickable header */}
       <button
         type="button"
@@ -146,7 +146,7 @@ export function IntakeCategoryCard({
         <span className={`mt-0.5 shrink-0 ${colorClass}`}>{icon}</span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-[var(--slate-800)]">
+            <span className="text-sm font-semibold text-slate-800">
               {label}
             </span>
             <Badge variant="neutral" size="sm">
@@ -170,7 +170,7 @@ export function IntakeCategoryCard({
           </div>
           {/* File name previews */}
           {!expanded && (
-            <p className="mt-0.5 truncate text-xs text-[var(--slate-500)]">
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">
               {previewNames.join(", ")}
               {moreCount > 0 ? ` +${moreCount}` : ""}
             </p>
@@ -185,7 +185,7 @@ export function IntakeCategoryCard({
           strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
-          className={`mt-1 shrink-0 text-[var(--slate-400)] transition-transform ${expanded ? "rotate-180" : ""}`}
+          className={`mt-1 shrink-0 text-subtle-foreground transition-transform ${expanded ? "rotate-180" : ""}`}
           aria-hidden="true"
         >
           <polyline points="6 9 12 15 18 9" />
@@ -194,11 +194,11 @@ export function IntakeCategoryCard({
 
       {/* DPGF contextual action */}
       {category === "dpgf" && !dpgfAlreadyImported && onBridgeDpgfImport && (
-        <div className="border-t border-[var(--slate-100)] px-3 py-2">
+        <div className="border-t border-border-subtle px-3 py-2">
           <button
             type="button"
             onClick={onBridgeDpgfImport}
-            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-[var(--brand-blue)] transition-colors hover:bg-[var(--brand-blue)]/5"
+            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/5"
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -212,7 +212,7 @@ export function IntakeCategoryCard({
 
       {/* Expanded: show individual document cards */}
       {expanded && (
-        <div className="border-t border-[var(--slate-100)] p-3 space-y-2">
+        <div className="border-t border-border-subtle p-3 space-y-2">
           {documents.map((doc) => (
             <IntakeDocumentCard
               key={doc.documentId}

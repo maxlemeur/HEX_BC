@@ -3,7 +3,7 @@ import { PortalContactBlock } from "@/components/portal/PortalContactBlock";
 export default function PortalNotFound() {
   return (
     <div className="flex min-h-[400px] flex-col items-center justify-center text-center">
-      <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-[var(--slate-200)]">
+      <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-slate-200">
         <svg
           xmlns="http://www.w3.org/2000/svg"
           width="28"
@@ -21,10 +21,10 @@ export default function PortalNotFound() {
           <path d="m9 9 6 6" />
         </svg>
       </div>
-      <h1 className="text-2xl font-bold text-[var(--slate-800)]">
+      <h1 className="text-2xl font-bold text-slate-800">
         Lien invalide
       </h1>
-      <p className="mt-3 max-w-md text-[var(--slate-500)]">
+      <p className="mt-3 max-w-md text-muted-foreground">
         Ce lien de consultation n&apos;est pas valide ou a été révoqué.
         Veuillez contacter votre interlocuteur pour obtenir un nouveau lien.
       </p>

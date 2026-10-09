@@ -49,11 +49,11 @@ export function DataPreview({
 }) {
   return (
     <section className="dashboard-card overflow-hidden">
-      <div className="border-b border-[var(--slate-200)] px-6 py-4">
+      <div className="border-b border-border px-6 py-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold text-[var(--slate-800)]">Apercu des donnees mappees</h2>
-            <p className="mt-1 text-xs text-[var(--slate-500)]">
+            <h2 className="text-sm font-semibold text-slate-800">Apercu des donnees mappees</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
               Verification rapide des champs requis et detection des doublons.
             </p>
           </div>
@@ -61,7 +61,7 @@ export function DataPreview({
           {/* Preview limit selector — integrated into header */}
           {previewLimit !== undefined && onPreviewLimitChange ? (
             <div className="flex items-center gap-2">
-              <label className="text-xs text-[var(--slate-500)]" htmlFor="preview-limit">
+              <label className="text-xs text-muted-foreground" htmlFor="preview-limit">
                 Lignes :
               </label>
               <select
@@ -80,22 +80,22 @@ export function DataPreview({
         </div>
       </div>
 
-      <div className="grid gap-3 border-b border-[var(--slate-200)] px-6 py-4 sm:grid-cols-3">
-        <div className={`rounded-xl border px-4 py-3 ${validation?.is_valid ? "border-[var(--success)] bg-emerald-50" : "border-[var(--slate-200)] bg-[var(--slate-50)]"}`}>
-          <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">Validation</p>
-          <p className={`mt-1 text-sm font-semibold ${validation?.is_valid ? "text-emerald-700" : "text-[var(--slate-800)]"}`}>
+      <div className="grid gap-3 border-b border-border px-6 py-4 sm:grid-cols-3">
+        <div className={`rounded-xl border px-4 py-3 ${validation?.is_valid ? "border-success bg-emerald-50" : "border-border bg-surface-subtle"}`}>
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Validation</p>
+          <p className={`mt-1 text-sm font-semibold ${validation?.is_valid ? "text-emerald-700" : "text-slate-800"}`}>
             {validation ? (validation.is_valid ? "Pret a enregistrer" : "Mapping en cours\u2026") : "-"}
           </p>
         </div>
-        <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-3">
-          <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">Champs a compléter</p>
-          <p className="mt-1 text-sm font-semibold text-[var(--slate-800)]">
+        <div className="rounded-xl border border-border bg-surface-subtle px-4 py-3">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Champs a compléter</p>
+          <p className="mt-1 text-sm font-semibold text-slate-800">
             {validation ? validation.missing_required_fields.length : "-"}
           </p>
         </div>
-        <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-3">
-          <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">Doublons</p>
-          <p className="mt-1 text-sm font-semibold text-[var(--slate-800)]">
+        <div className="rounded-xl border border-border bg-surface-subtle px-4 py-3">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Doublons</p>
+          <p className="mt-1 text-sm font-semibold text-slate-800">
             {duplicates ? duplicates.total_groups : "-"}
           </p>
         </div>
@@ -143,13 +143,13 @@ export function DataPreview({
           <tbody>
             {isLoading ? (
               <tr>
-                <td colSpan={9} className="py-8 text-center text-sm text-[var(--slate-500)]">
+                <td colSpan={9} className="py-8 text-center text-sm text-muted-foreground">
                   Chargement de l&apos;apercu...
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={9} className="py-8 text-center text-sm text-[var(--slate-500)]">
+                <td colSpan={9} className="py-8 text-center text-sm text-muted-foreground">
                   Aucun apercu disponible.
                 </td>
               </tr>
@@ -185,7 +185,7 @@ export function DataPreview({
       </div>
 
       {duplicates ? (
-        <div className="border-t border-[var(--slate-200)] px-6 py-4 text-xs text-[var(--slate-500)]">
+        <div className="border-t border-border px-6 py-4 text-xs text-muted-foreground">
           {duplicates.total_groups > 0
             ? `${duplicates.total_groups} groupe(s) de doublons detecte(s), ${duplicates.total_rows_impacted} ligne(s) impactee(s).`
             : "Aucun doublon detecte sur les lignes analysees."}

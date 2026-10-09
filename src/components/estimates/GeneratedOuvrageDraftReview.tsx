@@ -102,7 +102,7 @@ export function GeneratedOuvrageDraftReview({
 
       {/* Draft status message */}
       {STATUS_MESSAGES[draftStatus] && (
-        <div className="text-sm text-slate-500 italic">
+        <div className="text-sm text-muted-foreground italic">
           {STATUS_MESSAGES[draftStatus]}
         </div>
       )}

@@ -75,7 +75,7 @@ export function ApprovalQueueStateActions({
           setIsOpen(!isOpen);
         }}
         disabled={isPending}
-        className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-lg border border-[var(--slate-200)] bg-white px-2 py-1 text-xs font-medium text-[var(--slate-600)] hover:bg-[var(--slate-50)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-blue)] disabled:opacity-50 sm:min-h-8 sm:min-w-8"
+        className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-lg border border-border bg-surface px-2 py-1 text-xs font-medium text-slate-600 hover:bg-surface-subtle focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50 sm:min-h-8 sm:min-w-8"
         aria-expanded={isOpen}
         aria-haspopup="listbox"
         aria-label="Actions de triage"
@@ -95,7 +95,7 @@ export function ApprovalQueueStateActions({
 
       {isOpen && (
         <div
-          className="absolute right-0 top-full z-10 mt-1 w-40 rounded-lg border border-[var(--slate-200)] bg-white py-1 shadow-lg"
+          className="absolute right-0 top-full z-10 mt-1 w-40 rounded-lg border border-border bg-surface py-1 shadow-lg"
           role="listbox"
           aria-label="Etats de triage"
         >
@@ -111,10 +111,10 @@ export function ApprovalQueueStateActions({
                 e.stopPropagation();
                 handleSelect(option.value);
               }}
-              className={`flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-[var(--slate-50)] sm:min-h-0 sm:py-1.5 ${
+              className={`flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-surface-subtle sm:min-h-0 sm:py-1.5 ${
                 currentState === option.value
-                  ? "font-semibold text-[var(--brand-blue)]"
-                  : "text-[var(--slate-700)]"
+                  ? "font-semibold text-primary"
+                  : "text-foreground-secondary"
               }`}
             >
               {currentState === option.value && (
@@ -129,7 +129,7 @@ export function ApprovalQueueStateActions({
       )}
 
       {feedback && (
-        <span className="absolute right-0 top-full mt-1 whitespace-nowrap rounded bg-[var(--slate-800)] px-2 py-1 text-[10px] text-white" aria-live="polite">
+        <span className="absolute right-0 top-full mt-1 whitespace-nowrap rounded bg-slate-800 px-2 py-1 text-[10px] text-white" aria-live="polite">
           {feedback}
         </span>
       )}

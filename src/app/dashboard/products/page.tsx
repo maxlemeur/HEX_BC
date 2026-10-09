@@ -159,7 +159,7 @@ function freshnessClass(status: ProductView["_priceStatus"]) {
     case "stale":
       return "bg-rose-50 text-rose-700";
     default:
-      return "bg-slate-100 text-slate-600";
+      return "bg-muted text-slate-600";
   }
 }
 
@@ -490,7 +490,7 @@ export default function ProductsPage() {
       <div className="page-header product-catalogue-header flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-5">
         <h1 className="page-title flex flex-wrap items-baseline gap-2">
           <span>Produits</span>
-          <span className="font-mono text-base font-medium tracking-normal text-[var(--slate-400)]">
+          <span className="font-mono text-base font-medium tracking-normal text-subtle-foreground">
             · {data ? stats.active.toLocaleString("fr-FR") : "…"}
           </span>
         </h1>
@@ -520,10 +520,10 @@ export default function ProductsPage() {
                 <DropdownMenuLabel className="px-2 py-1.5 text-[11px] uppercase tracking-wide">
                   État du catalogue
                 </DropdownMenuLabel>
-                <dl className="grid grid-cols-2 gap-x-4 gap-y-2 px-2 pb-2 text-xs text-[var(--slate-500)]">
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-2 px-2 pb-2 text-xs text-muted-foreground">
                   <div>
                     <dt>Actifs</dt>
-                    <dd className="font-mono font-semibold text-[var(--slate-800)]">
+                    <dd className="font-mono font-semibold text-slate-800">
                       {stats.active.toLocaleString("fr-FR")}
                     </dd>
                   </div>
@@ -554,7 +554,7 @@ export default function ProductsPage() {
                   <InfoIcon aria-hidden="true" className="size-4" />
                   Règle de prix actuelle
                 </DropdownMenuLabel>
-                <p className="px-2 pb-2 text-xs leading-relaxed text-[var(--slate-500)]">
+                <p className="px-2 pb-2 text-xs leading-relaxed text-muted-foreground">
                   Le prix de référence est validé explicitement à partir des
                   offres comparables ou d’une saisie justifiée. Les nouveaux
                   tarifs ne remplacent pas automatiquement ce prix ni les
@@ -611,7 +611,7 @@ export default function ProductsPage() {
       </div>
 
       {isOpeningProduct ? (
-        <div className="mb-5 text-sm text-[var(--slate-500)]" role="status">
+        <div className="mb-5 text-sm text-muted-foreground" role="status">
           Ouverture de la fiche produit…
         </div>
       ) : null}
@@ -660,15 +660,15 @@ export default function ProductsPage() {
         className={`dashboard-card overflow-hidden transition-opacity ${isValidating && data ? "opacity-70" : ""}`}
         aria-busy={isValidating}
       >
-        <div className="flex items-center justify-between gap-3 border-b border-[var(--slate-200)] px-3 py-2.5 sm:px-4">
-          <p className="min-w-0 text-xs text-[var(--slate-500)]">
+        <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2.5 sm:px-4">
+          <p className="min-w-0 text-xs text-muted-foreground">
             {totalItems > 0
               ? `${pageStart}–${pageEnd} sur ${totalItems.toLocaleString("fr-FR")} produits`
               : "Identité, caractéristiques et prix fournisseur."}
           </p>
           <div className="flex shrink-0 items-center gap-1">
             <Link
-              className="hidden min-h-10 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-[var(--brand-blue)] transition-colors hover:bg-[var(--slate-50)] sm:inline-flex"
+              className="hidden min-h-10 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-primary transition-colors hover:bg-surface-subtle sm:inline-flex"
               href="/dashboard/prices"
             >
               <TagsIcon aria-hidden="true" className="size-4" />
@@ -680,7 +680,7 @@ export default function ProductsPage() {
                   ? "Actualisation en cours"
                   : "Actualiser les produits"
               }
-              className="inline-flex size-10 items-center justify-center rounded-lg border border-[var(--slate-200)] text-[var(--slate-500)] transition-colors hover:bg-[var(--slate-50)] hover:text-[var(--slate-800)] disabled:cursor-wait disabled:opacity-60"
+              className="inline-flex size-10 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-surface-subtle hover:text-slate-800 disabled:cursor-wait disabled:opacity-60"
               disabled={isValidating}
               onClick={() => void mutate()}
               type="button"
@@ -730,7 +730,7 @@ export default function ProductsPage() {
                 <tr>
                   <td
                     colSpan={6}
-                    className="py-12 text-center text-[var(--slate-500)]"
+                    className="py-12 text-center text-muted-foreground"
                   >
                     Chargement de la base produits...
                   </td>
@@ -739,10 +739,10 @@ export default function ProductsPage() {
                 <tr>
                   <td colSpan={6} className="py-14 text-center">
                     <div className="mx-auto max-w-lg">
-                      <p className="text-lg font-semibold text-[var(--slate-800)]">
+                      <p className="text-lg font-semibold text-slate-800">
                         Construisez votre première base articles
                       </p>
-                      <p className="mt-2 text-sm text-[var(--slate-500)]">
+                      <p className="mt-2 text-sm text-muted-foreground">
                         Ajoutez un produit manuellement ou partez du modèle
                         officiel pour importer produits et tarifs.
                       </p>
@@ -776,7 +776,7 @@ export default function ProductsPage() {
                 <tr>
                   <td
                     colSpan={6}
-                    className="py-12 text-center text-[var(--slate-500)]"
+                    className="py-12 text-center text-muted-foreground"
                   >
                     Aucun produit ne correspond aux filtres.
                   </td>
@@ -788,30 +788,30 @@ export default function ProductsPage() {
                     className={product.is_active ? undefined : "opacity-60"}
                   >
                     <td className="hidden lg:table-cell">
-                      <span className="break-all font-mono text-xs text-[var(--slate-600)]">
+                      <span className="break-all font-mono text-xs text-slate-600">
                         {product.reference || "Sans référence"}
                       </span>
                     </td>
                     <td>
-                      <div className="break-words text-sm font-semibold leading-snug text-[var(--slate-900)]">
+                      <div className="break-words text-sm font-semibold leading-snug text-foreground">
                         {product.designation}
                       </div>
-                      <div className="mt-1 break-all font-mono text-[10px] text-[var(--slate-500)] lg:hidden">
+                      <div className="mt-1 break-all font-mono text-[10px] text-muted-foreground lg:hidden">
                         {product.reference || "Sans référence"}
                       </div>
                       {!product.is_active ? (
-                        <span className="mt-1 inline-flex rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-700">
+                        <span className="mt-1 inline-flex rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-medium text-foreground-secondary">
                           Archivé
                         </span>
                       ) : null}
                     </td>
                     <td className="hidden min-[700px]:table-cell">
-                      <div className="font-medium text-[var(--slate-800)]">
+                      <div className="font-medium text-slate-800">
                         {[product.material, product.grade]
                           .filter(Boolean)
                           .join(" ") || "Non renseigné"}
                       </div>
-                      <div className="mt-0.5 text-xs text-[var(--slate-500)]">
+                      <div className="mt-0.5 text-xs text-muted-foreground">
                         {[
                           product.category,
                           product.product_type,
@@ -823,16 +823,16 @@ export default function ProductsPage() {
                       </div>
                     </td>
                     <td className="text-right">
-                      <div className="whitespace-nowrap font-mono text-xs font-semibold text-[var(--slate-900)] sm:text-sm">
+                      <div className="whitespace-nowrap font-mono text-xs font-semibold text-foreground sm:text-sm">
                         {product.unit_price_cents === 0 && !product.reference_price_validation_id ? "Prix manquant" : formatEUR(product.unit_price_cents)}
-                        {product.unit_price_cents !== 0 || product.reference_price_validation_id ? <span className="ml-1 text-[10px] font-normal text-[var(--slate-500)] sm:text-xs">
+                        {product.unit_price_cents !== 0 || product.reference_price_validation_id ? <span className="ml-1 text-[10px] font-normal text-muted-foreground sm:text-xs">
                           /{product.unit || "u"}
                         </span> : null}
                       </div>
-                      <div className="mt-0.5 hidden text-xs text-[var(--slate-500)] md:block">
+                      <div className="mt-0.5 hidden text-xs text-muted-foreground md:block">
                         {referencePriceSourceLabel(product)}
                       </div>
-                      <button type="button" className="mt-1 text-xs text-[var(--brand-blue)] underline underline-offset-2"
+                      <button type="button" className="mt-1 text-xs text-primary underline underline-offset-2"
                         onClick={() => setReferenceProduct(product)} aria-label={`Examiner le prix de ${product.designation}`}>
                         Examiner le prix
                       </button>
@@ -845,7 +845,7 @@ export default function ProductsPage() {
                           </span>
                         </div>
                       ) : (
-                        <div className="mt-1 text-[10px] text-[var(--slate-400)] sm:text-xs">
+                        <div className="mt-1 text-[10px] text-subtle-foreground sm:text-xs">
                           Aucun tarif
                         </div>
                       )}
@@ -861,7 +861,7 @@ export default function ProductsPage() {
                       <DropdownMenu>
                         <DropdownMenuTrigger
                           aria-label={`Actions pour ${product.designation}`}
-                          className="inline-flex size-11 items-center justify-center rounded-lg text-[var(--slate-500)] transition-colors hover:bg-[var(--slate-100)] hover:text-[var(--slate-900)]"
+                          className="inline-flex size-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                         >
                           <EllipsisIcon aria-hidden="true" className="size-4" />
                         </DropdownMenuTrigger>
@@ -916,8 +916,8 @@ export default function ProductsPage() {
         </div>
 
         {totalItems > 0 ? (
-          <div className="flex flex-col gap-4 border-t border-[var(--slate-200)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-            <div className="flex flex-wrap items-center gap-2 text-sm text-[var(--slate-500)]">
+          <div className="flex flex-col gap-4 border-t border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
               <span>Afficher</span>
               {PRODUCT_PAGE_SIZES.map((size) => (
                 <button
@@ -925,8 +925,8 @@ export default function ProductsPage() {
                   type="button"
                   className={`min-h-9 rounded-lg px-3 text-xs font-semibold transition-colors ${
                     pageSize === size
-                      ? "bg-[var(--slate-900)] text-white"
-                      : "bg-[var(--slate-100)] text-[var(--slate-600)] hover:bg-[var(--slate-200)]"
+                      ? "bg-slate-900 text-white"
+                      : "bg-muted text-slate-600 hover:bg-slate-200"
                   }`}
                   onClick={() => updateUrl({ size: String(size) })}
                 >
@@ -949,7 +949,7 @@ export default function ProductsPage() {
               >
                 Précédent
               </button>
-              <span className="px-2 text-center text-xs text-[var(--slate-500)]">
+              <span className="px-2 text-center text-xs text-muted-foreground">
                 {page} / {totalPages}
               </span>
               <button

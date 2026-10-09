@@ -172,11 +172,11 @@ export function ProductPriceTemplateImport({
         closeOnEscapeKey={!isBusy}
         closeOnOverlayClick={!isBusy}
       >
-        <div className="border-b border-slate-200 px-6 py-4">
+        <div className="border-b border-border px-6 py-4">
           <Modal.Header className="mb-0">
             <div>
               <Modal.Title>Importer des produits et tarifs</Modal.Title>
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="mt-1 text-sm text-muted-foreground">
                 Utilisez le modèle officiel pour ajouter votre catalogue en une seule opération.
               </p>
             </div>
@@ -185,11 +185,11 @@ export function ProductPriceTemplateImport({
         </div>
 
         <Modal.Body className="max-h-[calc(90vh-76px)] overflow-y-auto p-6">
-          <section className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <section className="rounded-xl border border-border bg-surface-subtle p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h3 className="text-sm font-semibold text-slate-800">1. Préparer le fichier</h3>
-                <p className="mt-1 max-w-2xl text-xs text-slate-500">
+                <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
                   Complétez les feuilles Produits et Tarifs fournisseurs sans modifier leurs
                   en-têtes.
                 </p>
@@ -204,14 +204,14 @@ export function ProductPriceTemplateImport({
             </div>
           </section>
 
-          <section className="rounded-xl border border-dashed border-slate-300 bg-white p-4">
+          <section className="rounded-xl border border-dashed border-border-strong bg-surface p-4">
             <label
               className="block text-sm font-semibold text-slate-800"
               htmlFor="product-price-template-file"
             >
               2. Sélectionner le fichier XLSX
             </label>
-            <p id="product-price-template-help" className="mb-3 mt-1 text-xs text-slate-500">
+            <p id="product-price-template-help" className="mb-3 mt-1 text-xs text-muted-foreground">
               Fichier .xlsx uniquement, 5 Mo maximum. Le fichier est contrôlé avant tout import.
             </p>
             <input
@@ -224,7 +224,7 @@ export function ProductPriceTemplateImport({
               onChange={handleFileChange}
               className="block w-full text-sm text-slate-600 file:mr-4 file:rounded-lg file:border-0 file:bg-primary file:px-4 file:py-2 file:font-medium file:text-primary-foreground hover:file:brightness-105"
             />
-            {fileName ? <p className="mt-2 text-xs text-slate-500">Fichier : {fileName}</p> : null}
+            {fileName ? <p className="mt-2 text-xs text-muted-foreground">Fichier : {fileName}</p> : null}
           </section>
 
           <div aria-live="polite" className="space-y-3">
@@ -240,7 +240,7 @@ export function ProductPriceTemplateImport({
 
           {result ? <TemplatePreview result={result} /> : null}
 
-          <Modal.Footer className="border-t border-slate-200 pt-4">
+          <Modal.Footer className="border-t border-border pt-4">
             <Button type="button" variant="ghost" disabled={isBusy} onClick={onClose}>
               {success ? "Fermer" : "Annuler"}
             </Button>
@@ -275,7 +275,7 @@ function TemplatePreview({ result }: Readonly<{ result: ProductPriceTemplatePars
       </div>
 
       {result.version ? (
-        <p className="text-xs text-slate-500">Version du modèle détectée : {result.version}</p>
+        <p className="text-xs text-muted-foreground">Version du modèle détectée : {result.version}</p>
       ) : null}
 
       {result.products.length > 0 ? <ProductsPreview products={result.products} /> : null}
@@ -298,14 +298,14 @@ function ProductsPreview({ products }: Readonly<{ products: ProductTemplateRow[]
         <h3 id="template-products-preview-title" className="text-sm font-semibold text-slate-800">
           Aperçu des produits
         </h3>
-        <span className="text-xs text-slate-500">5 premières lignes</span>
+        <span className="text-xs text-muted-foreground">5 premières lignes</span>
       </div>
-      <div className="overflow-x-auto rounded-xl border border-slate-200">
+      <div className="overflow-x-auto rounded-xl border border-border">
         <table
           aria-labelledby="template-products-preview-title"
           className="w-full min-w-[780px] text-left text-sm"
         >
-          <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+          <thead className="bg-surface-subtle text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
               <th className="px-3 py-2 font-semibold">Référence</th>
               <th className="px-3 py-2 font-semibold">Désignation</th>
@@ -314,14 +314,14 @@ function ProductsPreview({ products }: Readonly<{ products: ProductTemplateRow[]
               <th className="px-3 py-2 text-right font-semibold">Prix HT</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-border-subtle">
             {products.slice(0, PREVIEW_ROWS_COUNT).map((product) => (
               <tr key={product.reference}>
                 <td className="px-3 py-2 font-mono text-xs text-slate-600">{product.reference}</td>
                 <td className="px-3 py-2 font-medium text-slate-800">{product.designation}</td>
                 <td className="px-3 py-2 text-slate-600">{product.category ?? "—"}</td>
                 <td className="px-3 py-2 text-slate-600">{product.unit}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-slate-700">
+                <td className="px-3 py-2 text-right tabular-nums text-foreground-secondary">
                   {formatEuro(product.unit_price_cents)}
                 </td>
               </tr>
@@ -340,14 +340,14 @@ function PricesPreview({ prices }: Readonly<{ prices: SupplierPriceTemplateRow[]
         <h3 id="template-prices-preview-title" className="text-sm font-semibold text-slate-800">
           Aperçu des tarifs fournisseurs
         </h3>
-        <span className="text-xs text-slate-500">5 premières lignes</span>
+        <span className="text-xs text-muted-foreground">5 premières lignes</span>
       </div>
-      <div className="overflow-x-auto rounded-xl border border-slate-200">
+      <div className="overflow-x-auto rounded-xl border border-border">
         <table
           aria-labelledby="template-prices-preview-title"
           className="w-full min-w-[820px] text-left text-sm"
         >
-          <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+          <thead className="bg-surface-subtle text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
               <th className="px-3 py-2 font-semibold">Produit</th>
               <th className="px-3 py-2 font-semibold">Fournisseur</th>
@@ -356,7 +356,7 @@ function PricesPreview({ prices }: Readonly<{ prices: SupplierPriceTemplateRow[]
               <th className="px-3 py-2 font-semibold">Date du prix</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-border-subtle">
             {prices.slice(0, PREVIEW_ROWS_COUNT).map((price, index) => (
               <tr key={`${price.product_reference}-${price.supplier_name}-${price.supplier_sku ?? index}`}>
                 <td className="px-3 py-2 font-mono text-xs text-slate-600">
@@ -364,7 +364,7 @@ function PricesPreview({ prices }: Readonly<{ prices: SupplierPriceTemplateRow[]
                 </td>
                 <td className="px-3 py-2 font-medium text-slate-800">{price.supplier_name}</td>
                 <td className="px-3 py-2 text-slate-600">{price.supplier_sku ?? "—"}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-slate-700">
+                <td className="px-3 py-2 text-right tabular-nums text-foreground-secondary">
                   {formatCurrency(price.unit_price_cents, price.currency)}
                 </td>
                 <td className="px-3 py-2 text-slate-600">{formatDate(price.valid_from)}</td>
@@ -399,7 +399,7 @@ function IssuesPreview({ issues }: Readonly<{ issues: ProductPriceTemplateIssue[
           <tbody className="divide-y divide-red-100">
             {issues.map((issue, index) => (
               <tr key={`${issue.sheet}-${issue.row ?? "sheet"}-${issue.code}-${index}`}>
-                <td className="px-3 py-2 text-slate-700">{issue.sheet}</td>
+                <td className="px-3 py-2 text-foreground-secondary">{issue.sheet}</td>
                 <td className="px-3 py-2 tabular-nums text-slate-600">{issue.row ?? "—"}</td>
                 <td className="px-3 py-2 text-red-700">{issue.message}</td>
                 <td className="px-3 py-2 font-medium text-red-700">
@@ -431,8 +431,8 @@ function SummaryCard({
         : "text-slate-800";
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-      <p className="text-xs font-medium text-slate-500">{label}</p>
+    <div className="rounded-xl border border-border bg-surface px-4 py-3">
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
       <p className={`mt-1 text-lg font-semibold ${valueClass}`}>{value}</p>
     </div>
   );

@@ -51,15 +51,15 @@ export const CORRECTION_STATUS_META: Record<
 > = {
   pending: {
     label: "À traiter",
-    className: "bg-[var(--warning-light)] text-[var(--warning)]",
+    className: "bg-warning-light text-warning",
   },
   corrected: {
     label: "Corrigé",
-    className: "bg-[var(--success)]/10 text-[var(--success)]",
+    className: "bg-success/10 text-success",
   },
   to_discuss: {
     label: "À discuter",
-    className: "bg-[var(--brand-blue)]/10 text-[var(--brand-blue)]",
+    className: "bg-primary/10 text-primary",
   },
 };
 
@@ -75,21 +75,21 @@ export const DECISION_META: Record<
 > = {
   approved: {
     badgeLabel: "Approuvée",
-    badgeClassName: "bg-[var(--success)]/10 text-[var(--success)]",
+    badgeClassName: "bg-success/10 text-success",
     buttonLabel: "Approuver",
     requiresComment: false,
     successTitle: "Version approuvée",
   },
   approved_with_reservations: {
     badgeLabel: "Approuvée sous réserve",
-    badgeClassName: "bg-[var(--warning-light)] text-[var(--warning)]",
+    badgeClassName: "bg-warning-light text-warning",
     buttonLabel: "Approuver sous réserve",
     requiresComment: true,
     successTitle: "Version approuvée sous réserve",
   },
   changes_requested: {
     badgeLabel: "À corriger",
-    badgeClassName: "bg-[var(--danger)]/10 text-[var(--danger)]",
+    badgeClassName: "bg-danger/10 text-danger",
     buttonLabel: "Renvoyer en correction",
     requiresComment: true,
     successTitle: "Retour correction envoyé",

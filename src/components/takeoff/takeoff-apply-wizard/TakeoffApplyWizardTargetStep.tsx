@@ -23,16 +23,16 @@ export function TakeoffApplyWizardTargetStep({
 }) {
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--slate-500)]">
+      <div className="rounded-xl border border-border bg-surface-subtle p-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
           Cible d&apos;application
         </p>
-        <p className="mt-2 text-sm font-semibold text-[var(--slate-800)]">
+        <p className="mt-2 text-sm font-semibold text-slate-800">
           {targetVersionLabel
             ? `${targetVersionLabel} — brouillon actuellement ouvert`
             : "Brouillon actuellement ouvert"}
         </p>
-        <p className="mt-1 text-sm text-[var(--slate-600)]">
+        <p className="mt-1 text-sm text-slate-600">
           Les quantités seront injectées dans cette section après confirmation finale. La racine du devis n&apos;est jamais proposée comme cible.
         </p>
       </div>
@@ -40,7 +40,7 @@ export function TakeoffApplyWizardTargetStep({
       <div>
         <label
           htmlFor="takeoff-target-section"
-          className="block text-xs font-semibold text-[var(--slate-700)]"
+          className="block text-xs font-semibold text-foreground-secondary"
         >
           Section cible
         </label>

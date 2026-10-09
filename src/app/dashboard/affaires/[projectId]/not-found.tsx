@@ -12,13 +12,13 @@ export default function AffaireNotFound() {
         strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
-        className="text-[var(--slate-300)]"
+        className="text-slate-300"
       >
         <circle cx="12" cy="12" r="10" />
         <line x1="12" x2="12" y1="8" y2="12" />
         <line x1="12" x2="12.01" y1="16" y2="16" />
       </svg>
-      <p className="text-sm text-[var(--slate-500)]">
+      <p className="text-sm text-muted-foreground">
         Affaire introuvable ou non autorisee.
       </p>
       <Link href="/dashboard/affaires" className="btn btn-secondary">

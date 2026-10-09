@@ -63,7 +63,7 @@ export function DeletePriceModal({
       <Modal.Content className="max-w-md">
         <Modal.Header>
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--danger)]/10">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-danger/10">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 width="20"
@@ -80,14 +80,14 @@ export function DeletePriceModal({
             </div>
             <div>
               <Modal.Title>Confirmer la suppression</Modal.Title>
-              <p className="text-sm text-[var(--slate-500)]">Cette action est irréversible.</p>
+              <p className="text-sm text-muted-foreground">Cette action est irréversible.</p>
             </div>
           </div>
         </Modal.Header>
 
         {target ? (
           <Modal.Body>
-            <p className="text-sm text-[var(--slate-700)]">
+            <p className="text-sm text-foreground-secondary">
               Voulez-vous supprimer le prix de <strong>{target._supplierName}</strong> pour{" "}
               <strong>{target._productName}</strong> (
               {typeof target.unit_price_cents === "number" ? formatEUR(target.unit_price_cents) : "-"}) ?

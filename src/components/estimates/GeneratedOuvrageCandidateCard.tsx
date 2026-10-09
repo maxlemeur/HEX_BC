@@ -25,7 +25,7 @@ const GeneratedOuvrageSubdetailEditor = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+      <div className="mt-4 rounded-xl border border-border bg-surface-subtle p-4 text-sm text-muted-foreground">
         Chargement du sous-detail...
       </div>
     ),
@@ -116,7 +116,7 @@ function ReadinessStepper({
                 ? "bg-emerald-50 text-emerald-700"
                 : i === activeIndex
                   ? "bg-amber-50 text-amber-800 font-medium ring-1 ring-amber-200/60"
-                  : "bg-slate-50 text-slate-400"
+                  : "bg-surface-subtle text-subtle-foreground"
             )}
           >
             {step.done ? (
@@ -179,12 +179,12 @@ export function GeneratedOuvrageCandidateCard({
       <div
         className={cn(
           "rounded-lg border p-4 opacity-60",
-          isInserted ? "border-success/30 bg-success/5" : "border-slate-200 bg-slate-50"
+          isInserted ? "border-success/30 bg-success/5" : "border-border bg-surface-subtle"
         )}
         data-testid={`candidate-card-${candidate.candidateId}`}
       >
         <div className="flex items-center gap-2">
-          <span className="font-medium text-sm text-slate-500">
+          <span className="font-medium text-sm text-muted-foreground">
             {candidate.editedDesignation}
           </span>
           <Badge variant={isInserted ? "success" : "error"} size="sm">
@@ -192,7 +192,7 @@ export function GeneratedOuvrageCandidateCard({
           </Badge>
         </div>
         {candidate.editedUnit && (
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs text-subtle-foreground mt-1">
             Unite proposee : {candidate.editedUnit}
           </p>
         )}
@@ -228,7 +228,7 @@ export function GeneratedOuvrageCandidateCard({
           ? "border-primary/40 bg-primary/5"
           : nextStep === "ready"
             ? "border-emerald-200 bg-emerald-50/30"
-            : "border-slate-200"
+            : "border-border"
       )}
       data-testid={`candidate-card-${candidate.candidateId}`}
     >
@@ -295,7 +295,7 @@ export function GeneratedOuvrageCandidateCard({
 
           {/* Metadata - hidden when parent incomplete to reduce density */}
           {parentReadiness.isReady && (
-            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-slate-500">
+            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-muted-foreground">
               {candidate.editedUnit && (
                 <span>Unite : {candidate.editedUnit}</span>
               )}
@@ -317,7 +317,7 @@ export function GeneratedOuvrageCandidateCard({
 
           {/* Reasoning - hidden when parent incomplete */}
           {candidate.reasoning && parentReadiness.isReady && (
-            <p className="text-xs text-slate-400 mt-1 italic">
+            <p className="text-xs text-subtle-foreground mt-1 italic">
               {candidate.reasoning}
             </p>
           )}
@@ -431,7 +431,7 @@ export function GeneratedOuvrageCandidateCard({
           {subdetailOpen && parentReadiness.isReady ? (
             <div aria-live="polite">
               {subdetailState?.status === "loading" ? (
-                <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+                <div className="mt-4 rounded-xl border border-border bg-surface-subtle p-4 text-sm text-muted-foreground">
                   Generation du sous-detail compose en cours...
                 </div>
               ) : null}
@@ -507,7 +507,7 @@ function EditMode({
       data-testid={`candidate-card-${candidate.candidateId}`}
     >
       <div className="space-y-3">
-        <p className="text-xs font-medium text-slate-700">
+        <p className="text-xs font-medium text-foreground-secondary">
           Completez la ligne pour debloquer la selection et l&apos;insertion.
         </p>
         <div>
@@ -644,7 +644,7 @@ function SourceList({
       {sources.map((src) => (
         <li
           key={src.sourceFragmentId}
-          className="rounded border border-slate-100 bg-white p-2 text-xs"
+          className="rounded border border-border-subtle bg-surface p-2 text-xs"
         >
           <div className="flex items-center gap-1.5">
             <Badge variant="info" size="sm">
@@ -653,10 +653,10 @@ function SourceList({
             <span className="font-medium">{src.label}</span>
           </div>
           {src.excerpt && (
-            <p className="mt-1 text-slate-400 line-clamp-2">{src.excerpt}</p>
+            <p className="mt-1 text-subtle-foreground line-clamp-2">{src.excerpt}</p>
           )}
           {src.sourceFileName && (
-            <p className="mt-0.5 text-slate-400">
+            <p className="mt-0.5 text-subtle-foreground">
               Fichier : {src.sourceFileName}
               {src.sourcePageFrom != null &&
                 ` (p. ${src.sourcePageFrom}${src.sourcePageTo != null && src.sourcePageTo !== src.sourcePageFrom ? `-${src.sourcePageTo}` : ""})`}

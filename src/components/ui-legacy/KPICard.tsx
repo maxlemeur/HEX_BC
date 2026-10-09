@@ -55,11 +55,11 @@ export function KPICard({
     >
       <div className="flex items-start justify-between gap-2">
         <p className="typo-overline">{label}</p>
-        {icon && <div className="text-[var(--slate-400)]">{icon}</div>}
+        {icon && <div className="text-subtle-foreground">{icon}</div>}
       </div>
 
       <div className="mt-2 flex items-baseline gap-2">
-        <p className="typo-kpi animate-count-up text-[var(--slate-900)]">{value}</p>
+        <p className="typo-kpi animate-count-up text-foreground">{value}</p>
         {variation !== undefined && <VariationBadge variation={variation} />}
       </div>
 

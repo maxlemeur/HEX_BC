@@ -161,7 +161,7 @@ export function CommandPalette() {
         aria-label="Recherche rapide"
         className={cn(
           "relative z-10 mx-4 flex w-full max-w-lg flex-col overflow-hidden rounded-xl",
-          "border border-[var(--border)] bg-[var(--surface)] shadow-2xl",
+          "border border-border bg-surface shadow-2xl",
           "max-h-[min(480px,60vh)]"
         )}
         onMouseDown={(e) => e.stopPropagation()}
@@ -171,7 +171,7 @@ export function CommandPalette() {
         }}
       >
         {/* Search input */}
-        <div className="flex items-center gap-3 border-b border-[var(--border)] px-4 py-3">
+        <div className="flex items-center gap-3 border-b border-border px-4 py-3">
           <svg
             xmlns="http://www.w3.org/2000/svg"
             width="18"
@@ -182,7 +182,7 @@ export function CommandPalette() {
             strokeWidth="2"
             strokeLinecap="round"
             strokeLinejoin="round"
-            className="shrink-0 text-[var(--muted-foreground)]"
+            className="shrink-0 text-muted-foreground"
           >
             <circle cx="11" cy="11" r="8" />
             <path d="m21 21-4.3-4.3" />
@@ -191,7 +191,7 @@ export function CommandPalette() {
             ref={inputRef}
             type="text"
             role="combobox"
-            className="flex-1 bg-transparent text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] outline-none"
+            className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
             placeholder="Rechercher une page, action..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -208,7 +208,7 @@ export function CommandPalette() {
           <button
             type="button"
             aria-label="Fermer la recherche rapide"
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-slate-100 hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-orange)] dark:hover:bg-slate-800"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange dark:hover:bg-slate-800"
             onClick={close}
           >
             <svg
@@ -238,7 +238,7 @@ export function CommandPalette() {
           className="flex-1 overflow-y-auto overscroll-contain px-2 py-2"
         >
           {groups.length === 0 ? (
-            <div className="px-3 py-8 text-center text-sm text-[var(--muted-foreground)]">
+            <div className="px-3 py-8 text-center text-sm text-muted-foreground">
               Aucun résultat
             </div>
           ) : (
@@ -246,7 +246,7 @@ export function CommandPalette() {
               const groupItems = group.items;
               return (
                 <div key={group.key} className="mb-1">
-                  <div className="flex items-center gap-2 px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                  <div className="flex items-center gap-2 px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                     <GroupIcon group={group.key} />
                     {group.label}
                   </div>
@@ -263,15 +263,15 @@ export function CommandPalette() {
                         className={cn(
                           "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors",
                           isSelected
-                            ? "bg-[var(--brand-orange)]/10 text-[var(--foreground)]"
-                            : "text-[var(--foreground)] hover:bg-slate-100 dark:hover:bg-slate-800"
+                            ? "bg-brand-orange/10 text-foreground"
+                            : "text-foreground hover:bg-muted dark:hover:bg-slate-800"
                         )}
                         onMouseEnter={() => setSelectedIndex(idx)}
                         onClick={() => execute(item)}
                       >
                         <span className="flex-1 truncate">{item.label}</span>
                         {item.description ? (
-                          <span className="truncate text-xs text-[var(--muted-foreground)]">
+                          <span className="truncate text-xs text-muted-foreground">
                             {item.description}
                           </span>
                         ) : null}
@@ -286,7 +286,7 @@ export function CommandPalette() {
                             strokeWidth="2"
                             strokeLinecap="round"
                             strokeLinejoin="round"
-                            className="shrink-0 text-[var(--brand-orange)]"
+                            className="shrink-0 text-brand-orange"
                           >
                             <polyline points="9 10 4 15 9 20" />
                             <path d="M20 4v7a4 4 0 0 1-4 4H4" />
@@ -302,21 +302,21 @@ export function CommandPalette() {
         </div>
 
         {/* Footer hints */}
-        <div className="flex items-center gap-4 border-t border-[var(--border)] px-4 py-2 text-[11px] text-[var(--muted-foreground)]">
+        <div className="flex items-center gap-4 border-t border-border px-4 py-2 text-[11px] text-muted-foreground">
           <span className="flex items-center gap-1">
-            <kbd className="rounded border border-[var(--border)] bg-[var(--muted)] px-1 py-px font-mono text-[10px]">
+            <kbd className="rounded border border-border bg-muted px-1 py-px font-mono text-[10px]">
               &uarr;&darr;
             </kbd>
             Naviguer
           </span>
           <span className="flex items-center gap-1">
-            <kbd className="rounded border border-[var(--border)] bg-[var(--muted)] px-1 py-px font-mono text-[10px]">
+            <kbd className="rounded border border-border bg-muted px-1 py-px font-mono text-[10px]">
               &crarr;
             </kbd>
             Ouvrir
           </span>
           <span className="flex items-center gap-1">
-            <kbd className="rounded border border-[var(--border)] bg-[var(--muted)] px-1 py-px font-mono text-[10px]">
+            <kbd className="rounded border border-border bg-muted px-1 py-px font-mono text-[10px]">
               Esc
             </kbd>
             Fermer
@@ -337,7 +337,7 @@ export function CommandPaletteTrigger({
     <button
       type="button"
       className={cn(
-        "inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm text-[var(--muted-foreground)] transition-colors hover:bg-slate-50 dark:hover:bg-slate-800",
+        "inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-surface-subtle dark:hover:bg-slate-800",
         className
       )}
       onClick={() => {
@@ -366,7 +366,7 @@ export function CommandPaletteTrigger({
         <path d="m21 21-4.3-4.3" />
       </svg>
       Recherche rapide
-      <kbd className="ml-auto rounded border border-[var(--border)] bg-[var(--muted)] px-1.5 py-0.5 text-[10px] font-medium">
+      <kbd className="ml-auto rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium">
         Ctrl K
       </kbd>
     </button>

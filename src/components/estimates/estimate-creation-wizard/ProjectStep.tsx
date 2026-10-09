@@ -24,7 +24,7 @@ export function ProjectStep({
   if (projectId) {
     return (
       <div className="grid gap-6">
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <div className="rounded-lg border border-border bg-surface-subtle p-3">
           <p className="text-sm text-slate-600">
             Version ajoutee au projet existant.
           </p>
@@ -56,13 +56,13 @@ export function ProjectStep({
         <input
           id="wiz-project-name"
           ref={projectNameInputRef}
-          className={`form-input ${errors.projectName ? "border-[var(--error)]" : ""}`}
+          className={`form-input ${errors.projectName ? "border-danger" : ""}`}
           placeholder="Nom du projet"
           value={data.projectName}
           onChange={(event) => updateField("projectName", event.target.value)}
         />
         {errors.projectName && (
-          <p className="mt-1 text-sm text-[var(--error)]">{errors.projectName}</p>
+          <p className="mt-1 text-sm text-danger">{errors.projectName}</p>
         )}
       </div>
 

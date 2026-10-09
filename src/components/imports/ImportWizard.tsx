@@ -128,7 +128,7 @@ export function ImportWizard() {
           <button
             type="button"
             onClick={() => setShowHistory(true)}
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--slate-500)] hover:text-[var(--brand-blue)]"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-primary"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <circle cx="12" cy="12" r="10" />
@@ -146,14 +146,14 @@ export function ImportWizard() {
 
       {shouldShowHistory ? (
         <section className="animate-fade-in dashboard-card overflow-hidden">
-          <div className="flex items-center justify-between border-b border-[var(--slate-200)] px-6 py-4">
+          <div className="flex items-center justify-between border-b border-border px-6 py-4">
             <div className="flex items-center gap-3">
-              <h2 className="text-sm font-semibold text-[var(--slate-800)]">
+              <h2 className="text-sm font-semibold text-slate-800">
                 Historique
               </h2>
               {isPolling ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--info-light)] px-2.5 py-0.5 text-xs font-medium text-[var(--info)]">
-                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--info)]"></span>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-info-light px-2.5 py-0.5 text-xs font-medium text-info">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-info"></span>
                   Auto
                 </span>
               ) : null}
@@ -170,7 +170,7 @@ export function ImportWizard() {
               {showHistory ? (
                 <button
                   type="button"
-                  className="text-xs text-[var(--slate-400)] hover:text-[var(--slate-600)]"
+                  className="text-xs text-subtle-foreground hover:text-slate-600"
                   onClick={() => setShowHistory(false)}
                 >
                   Masquer

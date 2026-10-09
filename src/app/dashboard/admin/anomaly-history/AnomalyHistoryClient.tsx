@@ -353,7 +353,7 @@ export function AnomalyHistoryClient({ tenantId }: { tenantId: string }) {
             Filtrer les anomalies courantes
           </h2>
           {hasCurrentFilters ? (
-            <button type="button" className="min-h-11 text-sm font-medium text-[var(--brand-blue)] hover:underline" onClick={resetCurrentFilters}>
+            <button type="button" className="min-h-11 text-sm font-medium text-primary hover:underline" onClick={resetCurrentFilters}>
               Réinitialiser
             </button>
           ) : null}
@@ -403,7 +403,7 @@ export function AnomalyHistoryClient({ tenantId }: { tenantId: string }) {
                   className={`min-h-11 rounded-full border px-3 py-2 text-xs font-medium transition ${
                     selected
                       ? "border-blue-500 bg-info-light text-info"
-                      : "border-slate-300 bg-surface text-muted-foreground hover:bg-surface-subtle"
+                      : "border-border-strong bg-surface text-muted-foreground hover:bg-surface-subtle"
                   }`}
                 >
                   {option.label}
@@ -455,7 +455,7 @@ export function AnomalyHistoryClient({ tenantId }: { tenantId: string }) {
                 <article key={`${row.versionId}-${row.flagKey}`} className="rounded-lg border border-border p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <Link href={`/dashboard/estimates/${row.versionId}`} className="font-semibold text-[var(--brand-blue)] hover:underline">
+                      <Link href={`/dashboard/estimates/${row.versionId}`} className="font-semibold text-primary hover:underline">
                         {row.versionLabel}
                       </Link>
                       <p className="mt-1 [overflow-wrap:anywhere] text-sm font-medium text-foreground">{row.projectName}</p>
@@ -502,7 +502,7 @@ export function AnomalyHistoryClient({ tenantId }: { tenantId: string }) {
                   {currentRows.map((row) => (
                     <tr key={`${row.versionId}-${row.flagKey}`} className="border-b border-border last:border-b-0 hover:bg-surface-subtle">
                       <td className="px-4 py-3 font-mono text-xs">
-                        <Link href={`/dashboard/estimates/${row.versionId}`} className="font-semibold text-[var(--brand-blue)] hover:underline">
+                        <Link href={`/dashboard/estimates/${row.versionId}`} className="font-semibold text-primary hover:underline">
                           {row.versionLabel}
                         </Link>
                       </td>

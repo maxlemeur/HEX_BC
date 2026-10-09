@@ -328,7 +328,7 @@ export default function TakeoffActivityCenter({
           <div className="flex min-w-0 flex-col gap-1.5">
             <label
               htmlFor="filter-version"
-              className="text-xs font-semibold text-[var(--slate-500)]"
+              className="text-xs font-semibold text-muted-foreground"
             >
               Version
             </label>
@@ -352,7 +352,7 @@ export default function TakeoffActivityCenter({
           <div className="flex min-w-0 flex-col gap-1.5">
             <label
               htmlFor="filter-lot"
-              className="text-xs font-semibold text-[var(--slate-500)]"
+              className="text-xs font-semibold text-muted-foreground"
             >
               Lot
             </label>
@@ -375,7 +375,7 @@ export default function TakeoffActivityCenter({
           <div className="flex min-w-0 flex-col gap-1.5">
             <label
               htmlFor="filter-planSet"
-              className="text-xs font-semibold text-[var(--slate-500)]"
+              className="text-xs font-semibold text-muted-foreground"
             >
               Jeu de plans
             </label>
@@ -399,7 +399,7 @@ export default function TakeoffActivityCenter({
           <div className="flex min-w-0 flex-col gap-1.5">
             <label
               htmlFor="filter-status"
-              className="text-xs font-semibold text-[var(--slate-500)]"
+              className="text-xs font-semibold text-muted-foreground"
             >
               Statut
             </label>
@@ -422,7 +422,7 @@ export default function TakeoffActivityCenter({
           <div className="flex min-w-0 flex-col gap-1.5">
             <label
               htmlFor="filter-level"
-              className="text-xs font-semibold text-[var(--slate-500)]"
+              className="text-xs font-semibold text-muted-foreground"
             >
               Niveau
             </label>
@@ -445,7 +445,7 @@ export default function TakeoffActivityCenter({
           <div className="flex min-w-0 flex-col gap-1.5">
             <label
               htmlFor="filter-period"
-              className="text-xs font-semibold text-[var(--slate-500)]"
+              className="text-xs font-semibold text-muted-foreground"
             >
               Période
             </label>
@@ -477,7 +477,7 @@ export default function TakeoffActivityCenter({
         {activeTab === "jobs" &&
           (isLoading ? (
             <div role="status" aria-live="polite">
-              <p className="mb-3 text-sm text-[var(--slate-600)]">
+              <p className="mb-3 text-sm text-slate-600">
                 {isSlowLoading
                   ? "Le chargement prend plus de temps que prévu…"
                   : "Chargement des analyses…"}
@@ -486,10 +486,10 @@ export default function TakeoffActivityCenter({
             </div>
           ) : error ? (
             <section className="dashboard-card mt-4 p-6">
-              <h2 className="text-xl font-black text-[var(--slate-800)]">
+              <h2 className="text-xl font-black text-slate-800">
                 {resolveErrorTitle(errorStatus)}
               </h2>
-              <p className="mt-2 text-sm text-[var(--slate-600)]">
+              <p className="mt-2 text-sm text-slate-600">
                 {errorMessage}
               </p>
               <button

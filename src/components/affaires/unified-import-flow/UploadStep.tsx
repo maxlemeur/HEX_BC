@@ -177,14 +177,14 @@ export function UploadStep({ projectId, onImportReady }: UploadStepProps) {
       {waitingForParse ? (
         <div className="dashboard-card p-6">
           <div className="flex items-center gap-4">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--brand-blue)]/10">
-              <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--brand-blue)]/30 border-t-[var(--brand-blue)]" />
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-[var(--slate-800)]">
+              <p className="text-sm font-semibold text-slate-800">
                 Traitement en cours…
               </p>
-              <p className="mt-0.5 text-xs text-[var(--slate-500)]">
+              <p className="mt-0.5 text-xs text-muted-foreground">
                 Le serveur analyse votre fichier. Cela peut prendre quelques secondes.
               </p>
             </div>
@@ -201,12 +201,12 @@ export function UploadStep({ projectId, onImportReady }: UploadStepProps) {
             onDragLeave={() => setIsDragOver(false)}
             className={`relative rounded-xl border-2 border-dashed p-8 text-center transition-colors ${
               isDragOver
-                ? "border-[var(--brand-blue)] bg-[var(--brand-blue)]/5"
-                : "border-[var(--slate-300)] bg-[var(--slate-50)] hover:border-[var(--slate-400)]"
+                ? "border-primary bg-primary/5"
+                : "border-border-strong bg-surface-subtle hover:border-slate-400"
             }`}
           >
             <div className="flex flex-col items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--slate-100)]">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
                 <svg
                   width="24"
                   height="24"
@@ -221,10 +221,10 @@ export function UploadStep({ projectId, onImportReady }: UploadStepProps) {
                 </svg>
               </div>
               <div>
-                <p className="text-sm font-medium text-[var(--slate-700)]">
+                <p className="text-sm font-medium text-foreground-secondary">
                   Glissez-deposez votre fichier DPGF ici
                 </p>
-                <p className="mt-1 text-xs text-[var(--slate-500)]">
+                <p className="mt-1 text-xs text-muted-foreground">
                   CSV, XLSX, XLS ou PDF tabulaire — ou cliquez pour parcourir
                 </p>
               </div>
@@ -245,12 +245,12 @@ export function UploadStep({ projectId, onImportReady }: UploadStepProps) {
           </div>
 
           {selectedFile && !fileError && getFileExtension(selectedFile.name) !== "pdf" && (
-            <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-[var(--slate-200)] px-4 py-3">
+            <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-border px-4 py-3">
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-[var(--slate-800)]">
+                <p className="truncate text-sm font-medium text-slate-800">
                   {selectedFile.name}
                 </p>
-                <p className="text-xs text-[var(--slate-500)]">
+                <p className="text-xs text-muted-foreground">
                   {(selectedFile.size / 1024).toFixed(1)} Ko
                 </p>
               </div>
@@ -291,9 +291,9 @@ export function UploadStep({ projectId, onImportReady }: UploadStepProps) {
 
           {selectedFile && getFileExtension(selectedFile.name) === "pdf" && !fileError ? (
             isReviewingPdf ? (
-              <div className="mt-4 rounded-lg border border-[var(--brand-blue)] bg-[var(--brand-blue)]/5 px-4 py-4">
-                <div className="flex items-center gap-3 text-sm text-[var(--slate-700)]">
-                  <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[var(--brand-blue)]/30 border-t-[var(--brand-blue)]" />
+              <div className="mt-4 rounded-lg border border-primary bg-primary/5 px-4 py-4">
+                <div className="flex items-center gap-3 text-sm text-foreground-secondary">
+                  <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
                   Detection des tableaux puis validation explicite...
                 </div>
               </div>
@@ -349,15 +349,15 @@ export function UploadStep({ projectId, onImportReady }: UploadStepProps) {
 
       {isSubmitting && (
         <div>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--slate-200)]">
+          <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200">
             {uploadProgress !== null ? (
               <div
-                className="h-full rounded-full bg-[var(--brand-blue)] transition-all duration-300"
+                className="h-full rounded-full bg-primary transition-all duration-300"
                 style={{ width: `${uploadProgress}%` }}
               />
             ) : (
               <div
-                className="h-full rounded-full bg-[var(--brand-blue)]"
+                className="h-full rounded-full bg-primary"
                 style={{
                   width: "100%",
                   animation: "uif-indeterminate 1.5s ease-in-out infinite",
@@ -365,7 +365,7 @@ export function UploadStep({ projectId, onImportReady }: UploadStepProps) {
               />
             )}
           </div>
-          <p className="mt-2 text-xs text-[var(--slate-500)]">
+          <p className="mt-2 text-xs text-muted-foreground">
             {uploadProgress !== null
               ? `Envoi en cours… ${uploadProgress}%`
               : "Envoi et traitement en cours…"}

@@ -88,14 +88,14 @@ export function WeeklySendPriorityQueue({ items, ownerOptions }: Readonly<Props>
     <section className="dashboard-card p-5">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-base font-semibold text-[var(--slate-900)]">
+          <h2 className="text-base font-semibold text-foreground">
             A envoyer cette semaine
           </h2>
-          <p className="mt-1 text-sm text-[var(--slate-500)]">
+          <p className="mt-1 text-sm text-muted-foreground">
             Traitez en premier les dossiers proches de l&apos;envoi et encore fragiles.
           </p>
         </div>
-        <p className="text-xs text-[var(--slate-400)]" aria-live="polite">
+        <p className="text-xs text-subtle-foreground" aria-live="polite">
           {feedback ?? ""}
         </p>
       </div>
@@ -103,7 +103,7 @@ export function WeeklySendPriorityQueue({ items, ownerOptions }: Readonly<Props>
       <div className="mt-4 overflow-x-auto">
         <table className="w-full min-w-[940px] text-sm">
           <thead>
-            <tr className="border-b border-[var(--slate-200)] text-left text-xs uppercase tracking-[0.14em] text-[var(--slate-400)]">
+            <tr className="border-b border-border text-left text-xs uppercase tracking-[0.14em] text-subtle-foreground">
               <th className="pb-3 pr-4">Affaire</th>
               <th className="pb-3 pr-4">Etat</th>
               <th className="pb-3 pr-4">Échéance</th>
@@ -121,16 +121,16 @@ export function WeeklySendPriorityQueue({ items, ownerOptions }: Readonly<Props>
               const queueMeta = QUEUE_STATE_META[item.queueState];
 
               return (
-                <tr key={item.projectId} className="border-b border-[var(--slate-100)] align-top">
+                <tr key={item.projectId} className="border-b border-border-subtle align-top">
                   <td className="py-4 pr-4">
-                    <p className="font-semibold text-[var(--slate-900)]">
+                    <p className="font-semibold text-foreground">
                       {item.projectName}
                     </p>
-                    <p className="mt-1 text-xs text-[var(--slate-500)]">
+                    <p className="mt-1 text-xs text-muted-foreground">
                       {item.clientName ?? "Client non precise"}
                     </p>
                     {item.alerts[0] ? (
-                      <p className="mt-2 max-w-xs text-xs text-[var(--slate-600)]">
+                      <p className="mt-2 max-w-xs text-xs text-slate-600">
                         {item.alerts[0].label}
                       </p>
                     ) : null}
@@ -140,13 +140,13 @@ export function WeeklySendPriorityQueue({ items, ownerOptions }: Readonly<Props>
                       {queueMeta.label}
                     </Badge>
                   </td>
-                  <td className="py-4 pr-4 text-[var(--slate-600)]">
+                  <td className="py-4 pr-4 text-slate-600">
                     {formatTargetDate(item.sendTargetAt)}
                   </td>
-                  <td className="py-4 pr-4 font-medium text-[var(--slate-700)]">
+                  <td className="py-4 pr-4 font-medium text-foreground-secondary">
                     {formatEUR(item.amountHtCents)}
                   </td>
-                  <td className="py-4 pr-4 text-[var(--slate-700)]">
+                  <td className="py-4 pr-4 text-foreground-secondary">
                     {item.riskScore}/100
                   </td>
                   <td className="py-4 pr-4">
@@ -163,7 +163,7 @@ export function WeeklySendPriorityQueue({ items, ownerOptions }: Readonly<Props>
                         />
                       </div>
                     ) : (
-                      <span className="text-xs text-[var(--slate-400)]">
+                      <span className="text-xs text-subtle-foreground">
                         Pas de cycle ouvert
                       </span>
                     )}
@@ -211,7 +211,7 @@ export function WeeklySendPriorityQueue({ items, ownerOptions }: Readonly<Props>
                   <td className="py-4 text-right">
                     <Link
                       href={`/dashboard/affaires/${item.projectId}`}
-                      className="inline-flex rounded-full border border-[var(--slate-200)] px-3 py-2 text-xs font-medium text-[var(--slate-700)] transition hover:border-[var(--slate-300)] hover:bg-[var(--slate-50)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-blue)]"
+                      className="inline-flex rounded-full border border-border px-3 py-2 text-xs font-medium text-foreground-secondary transition hover:border-border-strong hover:bg-surface-subtle focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                     >
                       Ouvrir
                     </Link>

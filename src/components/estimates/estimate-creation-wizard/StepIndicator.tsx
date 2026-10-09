@@ -31,8 +31,8 @@ export function StepIndicator({
                 <div
                   className={`h-px flex-1 ${
                     isPast || isValidated
-                      ? "bg-[var(--primary)]"
-                      : "bg-[var(--slate-200)]"
+                      ? "bg-primary"
+                      : "bg-slate-200"
                   }`}
                 />
               )}
@@ -47,10 +47,10 @@ export function StepIndicator({
                 <div
                   className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold transition-colors ${
                     isActive
-                      ? "bg-[var(--primary)] text-white"
+                      ? "bg-primary text-white"
                       : isValidated
-                        ? "bg-[var(--success)] text-white"
-                        : "bg-[var(--slate-100)] text-[var(--slate-500)]"
+                        ? "bg-success text-white"
+                        : "bg-muted text-muted-foreground"
                   }`}
                 >
                   {isValidated && !isActive ? (
@@ -71,8 +71,8 @@ export function StepIndicator({
                 <span
                   className={`text-xs whitespace-nowrap text-center ${
                     isActive
-                      ? "font-semibold text-[var(--primary)]"
-                      : "text-[var(--slate-500)]"
+                      ? "font-semibold text-primary"
+                      : "text-muted-foreground"
                   }`}
                 >
                   {step.label}

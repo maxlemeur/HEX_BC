@@ -21,7 +21,7 @@ export function ProductReferenceSuggestion({ enabled, value, onUse }: {
   }, [shouldSuggest]);
   if (!enabled) return null;
   return (
-    <div className="mt-1.5 space-y-1.5 text-xs text-[var(--slate-600)]">
+    <div className="mt-1.5 space-y-1.5 text-xs text-slate-600">
       <p>Une référence sera générée automatiquement si ce champ reste vide.</p>
       {shouldSuggest && suggestion ? (
         <div className="flex flex-wrap items-center gap-2">

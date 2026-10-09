@@ -35,10 +35,10 @@ export function DpgfStepper({ importId }: { importId?: string | null }) {
                 className={`
                   inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-colors
                   ${isActive
-                    ? "bg-[var(--brand-blue)] text-white shadow-sm"
+                    ? "bg-primary text-white shadow-sm"
                     : isDone
-                      ? "bg-[var(--success-light)] text-[var(--success)] hover:bg-[var(--success)]/20"
-                      : "bg-[var(--slate-100)] text-[var(--slate-500)] hover:bg-[var(--slate-200)]"
+                      ? "bg-success-light text-success hover:bg-success/20"
+                      : "bg-muted text-muted-foreground hover:bg-slate-200"
                   }
                 `}
               >
@@ -48,8 +48,8 @@ export function DpgfStepper({ importId }: { importId?: string | null }) {
                     ${isActive
                       ? "bg-white/20 text-white"
                       : isDone
-                        ? "bg-[var(--success)] text-white"
-                        : "bg-[var(--slate-300)] text-white"
+                        ? "bg-success text-white"
+                        : "bg-slate-300 text-white"
                     }
                   `}
                 >
@@ -66,7 +66,7 @@ export function DpgfStepper({ importId }: { importId?: string | null }) {
               {index < STEPS.length - 1 ? (
                 <div
                   className={`mx-1 h-0.5 w-8 ${
-                    isDone ? "bg-[var(--success)]" : "bg-[var(--slate-200)]"
+                    isDone ? "bg-success" : "bg-slate-200"
                   }`}
                 />
               ) : null}

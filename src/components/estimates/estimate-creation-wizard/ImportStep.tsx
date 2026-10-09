@@ -84,7 +84,7 @@ export function ImportStep({
           </Link>
         </div>
         {templateModeUnavailable && (
-          <p className="mt-2 text-xs text-[var(--slate-500)]">
+          <p className="mt-2 text-xs text-muted-foreground">
             Aucun modele disponible actuellement. Creation en mode Nouveau (vide).
           </p>
         )}
@@ -97,7 +97,7 @@ export function ImportStep({
           </label>
           <select
             id="wiz-template-id"
-            className={`form-input form-select ${errors.selectedTemplateId ? "border-[var(--error)]" : ""}`}
+            className={`form-input form-select ${errors.selectedTemplateId ? "border-danger" : ""}`}
             value={data.selectedTemplateId}
             onChange={(event) => updateField("selectedTemplateId", event.target.value)}
             disabled={isLoadingTemplates || templates.length === 0}
@@ -121,7 +121,7 @@ export function ImportStep({
             )}
           </select>
           {errors.selectedTemplateId && (
-            <p className="mt-1 text-sm text-[var(--error)]">
+            <p className="mt-1 text-sm text-danger">
               {errors.selectedTemplateId}
             </p>
           )}
@@ -131,17 +131,17 @@ export function ImportStep({
         </div>
       )}
 
-      <div className="rounded-lg border border-[var(--slate-200)] bg-white p-4">
-        <h3 className="text-sm font-semibold text-[var(--slate-700)]">
+      <div className="rounded-lg border border-border bg-surface p-4">
+        <h3 className="text-sm font-semibold text-foreground-secondary">
           Import DPGF (optionnel)
         </h3>
-        <p className="mt-2 text-sm text-[var(--slate-500)]">
+        <p className="mt-2 text-sm text-muted-foreground">
           {projectId
             ? "Si une source DPGF est liee a cette affaire, vous pouvez pre-remplir automatiquement la version."
             : "Le pre-remplissage DPGF source est disponible depuis une affaire existante liee a un import DPGF."}
         </p>
         {projectId && isLoadingLinkedDpgfSource ? (
-          <p className="mt-2 text-xs text-[var(--slate-500)]">
+          <p className="mt-2 text-xs text-muted-foreground">
             Verification de la source DPGF liee...
           </p>
         ) : null}
@@ -149,7 +149,7 @@ export function ImportStep({
           <div className="alert alert-error mt-3 text-xs">{linkedDpgfSourceError}</div>
         ) : null}
         {projectId && hasLinkedDpgfSource && linkedDpgfSource ? (
-          <p className="mt-2 text-xs text-[var(--slate-500)]">
+          <p className="mt-2 text-xs text-muted-foreground">
             Source detectee: {linkedDpgfSource.filename} ({linkedDpgfSource.mappedRowCount} ligne(s) importable(s)).
           </p>
         ) : null}
@@ -182,36 +182,36 @@ export function ImportStep({
             DPGF source a importer
           </button>
         </div>
-        <p className="mt-3 text-xs text-[var(--slate-500)]">
+        <p className="mt-3 text-xs text-muted-foreground">
           {data.dpgfImportMode === "source"
             ? "La version sera creee avec les lignes du DPGF source lie."
             : "Aucun pre-remplissage DPGF source a la creation."}
         </p>
       </div>
 
-      <div className="rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] p-4">
-        <h3 className="mb-3 text-sm font-semibold text-[var(--slate-700)]">
+      <div className="rounded-lg border border-border bg-surface-subtle p-4">
+        <h3 className="mb-3 text-sm font-semibold text-foreground-secondary">
           Récapitulatif
         </h3>
         <dl className="grid gap-2 text-sm sm:grid-cols-2">
           <div>
-            <dt className="text-[var(--slate-500)]">Projet</dt>
+            <dt className="text-muted-foreground">Projet</dt>
             <dd className="font-medium">
               {projectId ? "Projet existant" : data.projectName || "-"}
             </dd>
           </div>
           {data.clientName && (
             <div>
-              <dt className="text-[var(--slate-500)]">Client</dt>
+              <dt className="text-muted-foreground">Client</dt>
               <dd className="font-medium">{data.clientName}</dd>
             </div>
           )}
           <div>
-            <dt className="text-[var(--slate-500)]">Date</dt>
+            <dt className="text-muted-foreground">Date</dt>
             <dd className="font-medium">{formatDateLabel(data.dateDevis)}</dd>
           </div>
           <div>
-            <dt className="text-[var(--slate-500)]">Marge</dt>
+            <dt className="text-muted-foreground">Marge</dt>
             <dd className="font-medium">
               {data.marginMode === "tiered"
                 ? "Par tranche"
@@ -221,7 +221,7 @@ export function ImportStep({
             </dd>
           </div>
           <div>
-            <dt className="text-[var(--slate-500)]">TVA</dt>
+            <dt className="text-muted-foreground">TVA</dt>
             <dd className="font-medium">
               {Number(data.taxRateBp) > 0
                 ? `${(Number(data.taxRateBp) / 100).toFixed(1)}%`
@@ -229,7 +229,7 @@ export function ImportStep({
             </dd>
           </div>
           <div>
-            <dt className="text-[var(--slate-500)]">Mode</dt>
+            <dt className="text-muted-foreground">Mode</dt>
             <dd className="font-medium">
               {data.creationMode === "template"
                 ? "Depuis un modèle"
@@ -237,13 +237,13 @@ export function ImportStep({
             </dd>
           </div>
           <div>
-            <dt className="text-[var(--slate-500)]">Famille de projet</dt>
+            <dt className="text-muted-foreground">Famille de projet</dt>
             <dd className="font-medium">
               {data.projectFamily || "Non renseignee"}
             </dd>
           </div>
           <div>
-            <dt className="text-[var(--slate-500)]">Import DPGF</dt>
+            <dt className="text-muted-foreground">Import DPGF</dt>
             <dd className="font-medium">
               {data.dpgfImportMode === "source"
                 ? "Source DPGF a importer apres creation"

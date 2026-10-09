@@ -47,7 +47,7 @@ export default function SignupPage() {
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-zinc-50 px-6 py-16 text-zinc-950">
-      <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm">
+      <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-surface p-8 shadow-sm">
         <h1 className="text-2xl font-semibold tracking-tight">
           Créer un compte
         </h1>
@@ -59,7 +59,7 @@ export default function SignupPage() {
           <label className="block">
             <span className="text-sm font-medium">Email</span>
             <input
-              className="mt-1 h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-zinc-400"
+              className="mt-1 h-11 w-full rounded-xl border border-zinc-200 bg-surface px-3 text-sm outline-none focus:border-zinc-400"
               autoComplete="email"
               inputMode="email"
               name="email"
@@ -74,7 +74,7 @@ export default function SignupPage() {
           <label className="block">
             <span className="text-sm font-medium">Mot de passe</span>
             <input
-              className="mt-1 h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-zinc-400"
+              className="mt-1 h-11 w-full rounded-xl border border-zinc-200 bg-surface px-3 text-sm outline-none focus:border-zinc-400"
               autoComplete="new-password"
               name="password"
               required

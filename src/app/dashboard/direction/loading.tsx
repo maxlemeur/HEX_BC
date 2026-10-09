@@ -34,7 +34,7 @@ function PortfolioCardSkeleton({ index }: { index: number }) {
         {Array.from({ length: 4 }, (_, metricIndex) => (
           <div
             key={metricIndex}
-            className="rounded-2xl bg-[var(--slate-50)] px-3 py-3"
+            className="rounded-2xl bg-surface-subtle px-3 py-3"
           >
             <Skeleton width={82} height={10} />
             <Skeleton width={72} height={18} className="mt-3" />

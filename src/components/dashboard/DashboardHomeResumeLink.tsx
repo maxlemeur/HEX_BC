@@ -10,7 +10,7 @@ export function DashboardHomeResumeLink() {
   if (!lastAffaireId) {
     return (
       <span
-        className="flex min-h-11 items-center rounded-lg border border-dashed border-[var(--slate-200)] px-3 text-sm text-[var(--slate-500)]"
+        className="flex min-h-11 items-center rounded-lg border border-dashed border-border px-3 text-sm text-muted-foreground"
         aria-disabled="true"
       >
         Aucune affaire récente à reprendre
@@ -22,7 +22,7 @@ export function DashboardHomeResumeLink() {
     <Link
       href={`/dashboard/affaires/${lastAffaireId}`}
       prefetch={false}
-      className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-[var(--slate-200)] bg-white px-3 text-sm font-semibold text-[var(--brand-blue)] transition-colors hover:border-[var(--brand-blue)] hover:bg-[var(--slate-50)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-blue)]"
+      className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-border bg-surface px-3 text-sm font-semibold text-primary transition-colors hover:border-primary hover:bg-surface-subtle focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
     >
       <svg
         xmlns="http://www.w3.org/2000/svg"

@@ -188,11 +188,11 @@ export function ProductFormModal({
         closeOnEscapeKey={!isSaving}
         closeOnOverlayClick={!isSaving}
       >
-        <div className="border-b border-[var(--slate-200)] px-6 py-5">
+        <div className="border-b border-border px-6 py-5">
           <Modal.Header className="mb-0">
             <div>
               <Modal.Title>{title}</Modal.Title>
-              <p className="mt-1 text-sm text-[var(--slate-500)]">
+              <p className="mt-1 text-sm text-muted-foreground">
                 Une désignation suffit pour créer l’article. Tout le reste peut
                 être complété plus tard.
               </p>
@@ -209,7 +209,7 @@ export function ProductFormModal({
         <form onSubmit={handleSubmit}>
           <Modal.Body className="max-h-[calc(92vh-10rem)] overflow-y-auto px-6 py-5">
             <fieldset>
-              <legend className="text-sm font-semibold text-[var(--slate-800)]">
+              <legend className="text-sm font-semibold text-slate-800">
                 Identification
               </legend>
 
@@ -231,7 +231,7 @@ export function ProductFormModal({
                       }))
                     }
                   />
-                  <p className="mt-1.5 text-xs text-[var(--slate-500)]">
+                  <p className="mt-1.5 text-xs text-muted-foreground">
                     Référence interne de l’article, distincte des références fournisseur.
                   </p>
                   <ProductReferenceSuggestion
@@ -264,10 +264,10 @@ export function ProductFormModal({
             </fieldset>
 
             <fieldset className="mt-6">
-              <legend className="text-sm font-semibold text-[var(--slate-800)]">
+              <legend className="text-sm font-semibold text-slate-800">
                 Classement
               </legend>
-              <p className="mt-1 text-xs text-[var(--slate-500)]">
+              <p className="mt-1 text-xs text-muted-foreground">
                 Ces deux champs pilotent les filtres du référentiel.
               </p>
 
@@ -335,7 +335,7 @@ export function ProductFormModal({
             </fieldset>
 
             <fieldset className="mt-6">
-              <legend className="text-sm font-semibold text-[var(--slate-800)]">
+              <legend className="text-sm font-semibold text-slate-800">
                 Unité et prix de référence
               </legend>
 
@@ -385,11 +385,11 @@ export function ProductFormModal({
                         }))
                       }
                     />
-                    <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm text-[var(--slate-400)]">
+                    <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm text-subtle-foreground">
                       EUR
                     </span>
                   </div>
-                  <p className="mt-1.5 text-xs text-[var(--slate-500)]">
+                  <p className="mt-1.5 text-xs text-muted-foreground">
                     {isEditing
                       ? "Utilisez « Examiner le prix » dans le catalogue pour valider une moyenne fournisseur ou justifier un autre prix."
                       : "Prix initial facultatif. Les offres fournisseurs permettront ensuite de proposer une référence à valider."}
@@ -399,24 +399,24 @@ export function ProductFormModal({
             </fieldset>
 
             <details
-              className="group mt-6 border-t border-[var(--slate-200)] pt-4"
+              className="group mt-6 border-t border-border pt-4"
               open={showTechnicalDetails}
               onToggle={(event) =>
                 setShowTechnicalDetails(event.currentTarget.open)
               }
             >
-              <summary className="flex cursor-pointer list-none items-start justify-between gap-3 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-blue)] [&::-webkit-details-marker]:hidden">
+              <summary className="flex cursor-pointer list-none items-start justify-between gap-3 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
                 <span className="min-w-0">
-                  <span className="block text-sm font-semibold text-[var(--slate-800)]">
+                  <span className="block text-sm font-semibold text-slate-800">
                     Détails techniques (optionnel)
                   </span>
-                  <span className="mt-1 block text-xs text-[var(--slate-500)]">
+                  <span className="mt-1 block text-xs text-muted-foreground">
                     Améliorent la recherche et les suggestions de tarifs.
                   </span>
                 </span>
                 <svg
                   aria-hidden="true"
-                  className="mt-0.5 h-4 w-4 shrink-0 text-[var(--slate-500)] transition-transform duration-200 group-open:rotate-180"
+                  className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180"
                   fill="none"
                   stroke="currentColor"
                   strokeLinecap="round"
@@ -505,7 +505,7 @@ export function ProductFormModal({
             </details>
 
             {isEditing ? (
-              <label className="mt-6 flex items-center gap-3 rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-3 text-sm text-[var(--slate-700)]">
+              <label className="mt-6 flex items-center gap-3 rounded-xl border border-border bg-surface-subtle px-4 py-3 text-sm text-foreground-secondary">
                 <input
                   type="checkbox"
                   checked={form.is_active}
@@ -527,7 +527,7 @@ export function ProductFormModal({
             ) : null}
           </Modal.Body>
 
-          <Modal.Footer className="mt-0 border-t border-[var(--slate-200)] px-6 py-4">
+          <Modal.Footer className="mt-0 border-t border-border px-6 py-4">
             <Modal.Close className="btn btn-secondary" disabled={isSaving}>
               Annuler
             </Modal.Close>

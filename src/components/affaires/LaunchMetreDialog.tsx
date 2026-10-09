@@ -467,7 +467,7 @@ function LaunchMetreDialogContent({
         <Modal.Body className="max-h-[calc(100dvh-10rem)] overflow-y-auto overscroll-contain pr-1">
           {launchSuccess ? (
             <div aria-live="polite" className="space-y-4 py-4 text-center">
-              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[var(--success)]/10">
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-success/10">
                 <svg
                   width="24"
                   height="24"
@@ -482,14 +482,14 @@ function LaunchMetreDialogContent({
                   <path d="M20 6 9 17l-5-5" />
                 </svg>
               </div>
-              <p className="text-sm font-semibold text-[var(--slate-800)]">
+              <p className="text-sm font-semibold text-slate-800">
                 {launchRecoveryUnconfirmed
                   ? "Analyse créée, reprise à vérifier"
                   : launchQueuedForRecovery
                     ? "Analyse enregistrée, démarrage en attente"
                     : "Analyse transmise au traitement"}
               </p>
-              <p className="text-xs text-[var(--slate-500)]">
+              <p className="text-xs text-muted-foreground">
                 {launchSuccessVersionLabel ?? versionLabel ?? "Brouillon"} —{" "}
                 {selectedPlanSet?.fileCount ?? 0} fichier
                 {(selectedPlanSet?.fileCount ?? 0) > 1 ? "s" : ""}.
@@ -520,7 +520,7 @@ function LaunchMetreDialogContent({
             <div className="space-y-4">
               {isLoadingPlanSets && !hasUsablePlanSet ? (
                 <div className="py-6 text-center" role="status">
-                  <p className="text-sm text-[var(--slate-600)]">
+                  <p className="text-sm text-slate-600">
                     Chargement des jeux de plans…
                   </p>
                 </div>
@@ -530,7 +530,7 @@ function LaunchMetreDialogContent({
                     {planSetOptions.length > 1 ? (
                       <>
                         <label
-                          className="mb-1 block text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]"
+                          className="mb-1 block text-xs font-medium uppercase tracking-wider text-muted-foreground"
                           htmlFor="launch-metre-plan-set"
                         >
                           Jeu de plans à analyser
@@ -561,7 +561,7 @@ function LaunchMetreDialogContent({
                         </select>
                       </>
                     ) : (
-                      <p className="mb-1 text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">
+                      <p className="mb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                         Jeu de plans à analyser
                       </p>
                     )}
@@ -569,19 +569,19 @@ function LaunchMetreDialogContent({
                       <Badge variant="info" size="sm">
                         {selectedPlanSet.name}
                       </Badge>
-                      <span className="text-xs text-[var(--slate-500)]">
+                      <span className="text-xs text-muted-foreground">
                         {selectedPlanSet.fileCount} fichier
                         {selectedPlanSet.fileCount > 1 ? "s" : ""}
                       </span>
                     </div>
-                    <p className="mt-2 text-xs text-[var(--slate-500)]">
+                    <p className="mt-2 text-xs text-muted-foreground">
                       {isIntakeSyncedPlanSet(selectedPlanSet.source)
                         ? "Plans synchronisés depuis le dossier de l'affaire. Seuls les plans confirmés sont repris ici."
                         : "Vérifiez que ce jeu contient bien les plans à analyser."}
                     </p>
                     {planSetsLoadError ? (
                       <div
-                        className="mt-3 rounded-lg border border-[var(--warning)]/20 bg-[var(--warning)]/5 px-3 py-2 text-xs text-[var(--slate-700)]"
+                        className="mt-3 rounded-lg border border-warning/20 bg-warning/5 px-3 py-2 text-xs text-foreground-secondary"
                         role="status"
                       >
                         <p>
@@ -599,7 +599,7 @@ function LaunchMetreDialogContent({
                   </div>
 
                   <div className={!hasTargetVersion ? "opacity-50" : ""}>
-                    <p className="mb-1 text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">
+                    <p className="mb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                       Version cible
                     </p>
                     {selectedVersionOption ? (
@@ -626,20 +626,20 @@ function LaunchMetreDialogContent({
                           <Badge variant="info" size="sm">
                             {versionLabel}
                           </Badge>
-                          <span className="text-xs text-[var(--slate-500)]">
+                          <span className="text-xs text-muted-foreground">
                             {selectedVersionOption.helper}
                           </span>
                         </div>
                       </div>
                     ) : (
-                      <p className="text-sm text-[var(--slate-400)]">
+                      <p className="text-sm text-subtle-foreground">
                         Aucune version cible disponible.
                       </p>
                     )}
                   </div>
 
                   <fieldset className={!hasTargetVersion ? "opacity-50" : ""}>
-                    <legend className="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">
+                    <legend className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                       Niveau d&apos;analyse
                     </legend>
                     <div className="space-y-2" role="radiogroup">
@@ -649,8 +649,8 @@ function LaunchMetreDialogContent({
                           aria-label={level.label}
                           className={`flex items-start gap-3 rounded-lg border px-3 py-2 ${
                             selectedLevel === level.level
-                              ? "border-[var(--brand-blue)] bg-[var(--brand-blue)]/5 cursor-pointer"
-                              : "border-[var(--slate-200)] bg-white cursor-pointer"
+                              ? "border-primary bg-primary/5 cursor-pointer"
+                              : "border-border bg-surface cursor-pointer"
                           }`}
                         >
                           <input
@@ -662,10 +662,10 @@ function LaunchMetreDialogContent({
                             className="mt-0.5"
                           />
                           <div>
-                            <span className="text-sm font-medium text-[var(--slate-800)]">
+                            <span className="text-sm font-medium text-slate-800">
                               {level.label}
                             </span>
-                            <p className="text-xs text-[var(--slate-500)]">
+                            <p className="text-xs text-muted-foreground">
                               {level.description}
                             </p>
                           </div>
@@ -673,17 +673,17 @@ function LaunchMetreDialogContent({
                       ))}
                     </div>
                     {selectedPlanSetRecommendation ? (
-                      <div className="mt-3 rounded-lg border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 px-3 py-2">
-                        <p className="text-xs text-[var(--slate-700)]">
+                      <div className="mt-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2">
+                        <p className="text-xs text-foreground-secondary">
                           Niveau recommandé :{" "}
                           {selectedPlanSetRecommendation.recommendedLevel ? (
-                            <span className="font-semibold text-[var(--brand-blue)]">
+                            <span className="font-semibold text-primary">
                               {TAKEOFF_LEVEL_BUSINESS_LABELS[
                                 selectedPlanSetRecommendation.recommendedLevel
                               ]}
                             </span>
                           ) : (
-                            <span className="font-semibold text-[var(--warning)]">
+                            <span className="font-semibold text-warning">
                               Choix manuel requis
                             </span>
                           )}
@@ -692,8 +692,8 @@ function LaunchMetreDialogContent({
                           <p
                             className={`mt-1 text-xs ${
                               selectionWarning.severity === "critical"
-                                ? "text-[var(--warning)]"
-                                : "text-[var(--slate-600)]"
+                                ? "text-warning"
+                                : "text-slate-600"
                             }`}
                           >
                             {selectionWarning.message}
@@ -703,15 +703,15 @@ function LaunchMetreDialogContent({
                     ) : null}
                   </fieldset>
 
-                  <div className="rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-2">
-                    <p className="text-xs text-[var(--slate-600)]">
+                  <div className="rounded-lg border border-border bg-surface-subtle px-3 py-2">
+                    <p className="text-xs text-slate-600">
                       Résultats disponibles dans le centre d&apos;activité des métrés après lancement.
                     </p>
                   </div>
 
                   {errorMessage ? (
                     <div
-                      className="rounded-lg border border-[var(--error)]/20 bg-[var(--error)]/5 px-3 py-2 text-sm text-[var(--error)]"
+                      className="rounded-lg border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger"
                       role="alert"
                     >
                       {errorMessage}
@@ -741,7 +741,7 @@ function LaunchMetreDialogContent({
                 </>
               ) : (
                 <div className="py-4 text-center">
-                  <p className="text-sm text-[var(--slate-600)]">
+                  <p className="text-sm text-slate-600">
                     Aucun jeu de plans exploitable n&apos;est disponible pour cette affaire.
                   </p>
                   <div className="mt-4 flex flex-wrap justify-center gap-2">
@@ -765,7 +765,7 @@ function LaunchMetreDialogContent({
               )}
 
               {!hasTargetVersion ? (
-                <div className="rounded-lg border border-[var(--warning)]/20 bg-[var(--warning)]/5 px-3 py-2 text-sm text-[var(--slate-700)]">
+                <div className="rounded-lg border border-warning/20 bg-warning/5 px-3 py-2 text-sm text-foreground-secondary">
                   Créez d&apos;abord une première version pour lancer l&apos;analyse sur une cible de chiffrage.
                   <div className="mt-3">
                     <Link

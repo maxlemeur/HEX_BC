@@ -477,7 +477,7 @@ export function MappingWizard({ initialImportId = null }: { initialImportId?: st
     <div className="space-y-6">
       {/* M-15: Auto-mapping notification — compact and collapsible */}
       {autoMappedCount > 0 ? (
-        <div className="rounded-xl border border-[var(--success)] bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+        <div className="rounded-xl border border-success bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
           <div className="flex items-center justify-between gap-2">
             <p className="font-medium">
               {autoMappedCount} colonne(s) pre-mappee(s) automatiquement
@@ -510,7 +510,7 @@ export function MappingWizard({ initialImportId = null }: { initialImportId?: st
       {/* UX2-010: Template exact match banner */}
       {templateExactMatch && (
         <div
-          className="rounded-xl border border-[var(--success)]/20 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+          className="rounded-xl border border-success/20 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
           role="status"
           aria-label={`Mapping applique depuis le template ${templateExactMatch.name}`}
         >
@@ -528,12 +528,12 @@ export function MappingWizard({ initialImportId = null }: { initialImportId?: st
       {/* UX2-010: Auto-validated state (simplified mode) */}
       {isSimplified && autoValidation?.can_auto_validate && (
         <div
-          className="rounded-xl border border-[var(--info)]/20 bg-[var(--info)]/5 px-4 py-3 text-sm text-[var(--slate-700)]"
+          className="rounded-xl border border-info/20 bg-info/5 px-4 py-3 text-sm text-foreground-secondary"
           role="status"
           aria-label="Mapping auto-valide"
         >
           <p className="font-medium">Mapping auto-valide</p>
-          <p className="mt-0.5 text-xs text-[var(--slate-500)]">
+          <p className="mt-0.5 text-xs text-muted-foreground">
             Tous les champs requis sont mappes avec une confiance elevee.
             Verifiez le mapping puis cliquez sur &laquo;Enregistrer le mapping&raquo;.
           </p>
@@ -590,7 +590,7 @@ export function MappingWizard({ initialImportId = null }: { initialImportId?: st
 
         {/* M-14: Hide template save fields when checkbox unchecked */}
         <div className="mt-4">
-          <label className="inline-flex items-center gap-2 text-sm text-[var(--slate-700)]">
+          <label className="inline-flex items-center gap-2 text-sm text-foreground-secondary">
             <input
               type="checkbox"
               checked={saveAsTemplate}
@@ -659,7 +659,7 @@ export function MappingWizard({ initialImportId = null }: { initialImportId?: st
       <div className="h-20" />
 
       {/* Sticky bottom action bar */}
-      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-[var(--slate-200)] bg-white/95 px-6 py-3 shadow-[0_-2px_8px_rgba(0,0,0,0.06)] backdrop-blur-sm">
+      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-border bg-surface/95 px-6 py-3 shadow-[0_-2px_8px_rgba(0,0,0,0.06)] backdrop-blur-sm">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
           <Link
             href="/dashboard/imports"
@@ -669,7 +669,7 @@ export function MappingWizard({ initialImportId = null }: { initialImportId?: st
           </Link>
 
           <div className="flex items-center gap-4">
-            <span className="hidden text-xs text-[var(--slate-500)] sm:inline">
+            <span className="hidden text-xs text-muted-foreground sm:inline">
               {(() => {
                 const mappedValues = Object.values(visibleMapping);
                 const mappedTargetSet = new Set(mappedValues);

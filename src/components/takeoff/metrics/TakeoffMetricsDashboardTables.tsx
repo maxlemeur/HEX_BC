@@ -48,11 +48,11 @@ function StatusBadge({ status }: { status: string }) {
 
 function ConfidenceCell({ value }: { value: number | null }) {
   if (value == null) {
-    return <span className="text-[var(--slate-400)]">-</span>;
+    return <span className="text-subtle-foreground">-</span>;
   }
 
   return (
-    <span className="font-semibold text-[var(--slate-700)]">
+    <span className="font-semibold text-foreground-secondary">
       {formatConfidence(value)}
     </span>
   );
@@ -61,7 +61,7 @@ function ConfidenceCell({ value }: { value: number | null }) {
 export function ErrorsTable({ errors }: { errors: TakeoffMetricsErrorEntry[] }) {
   if (errors.length === 0) {
     return (
-      <div className="flex h-24 items-center justify-center text-sm text-[var(--slate-500)]">
+      <div className="flex h-24 items-center justify-center text-sm text-muted-foreground">
         Aucune erreur sur la période.
       </div>
     );
@@ -70,7 +70,7 @@ export function ErrorsTable({ errors }: { errors: TakeoffMetricsErrorEntry[] }) 
   return (
     <div className="table-scroll">
       <table className="w-full min-w-[400px] text-sm">
-        <thead className="bg-[var(--slate-50)] text-left text-xs uppercase tracking-wide text-[var(--slate-500)]">
+        <thead className="bg-surface-subtle text-left text-xs uppercase tracking-wide text-muted-foreground">
           <tr>
             <th className="px-4 py-3">Code</th>
             <th className="px-4 py-3 text-right">Occurrences</th>
@@ -79,10 +79,10 @@ export function ErrorsTable({ errors }: { errors: TakeoffMetricsErrorEntry[] }) 
         </thead>
         <tbody>
           {errors.map((entry) => (
-            <tr key={entry.errorCode} className="border-t border-[var(--slate-100)]">
+            <tr key={entry.errorCode} className="border-t border-border-subtle">
               <td className="px-4 py-3 font-mono text-xs">{entry.errorCode}</td>
               <td className="px-4 py-3 text-right font-semibold">{entry.count}</td>
-              <td className="px-4 py-3 text-right text-[var(--slate-500)]">
+              <td className="px-4 py-3 text-right text-muted-foreground">
                 {formatDate(entry.lastOccurrence)}
               </td>
             </tr>
@@ -96,7 +96,7 @@ export function ErrorsTable({ errors }: { errors: TakeoffMetricsErrorEntry[] }) 
 export function RecentJobsTable({ jobs }: { jobs: TakeoffMetricsRecentJob[] }) {
   if (jobs.length === 0) {
     return (
-      <div className="flex h-24 items-center justify-center text-sm text-[var(--slate-500)]">
+      <div className="flex h-24 items-center justify-center text-sm text-muted-foreground">
         Aucune extraction sur la période.
       </div>
     );
@@ -105,7 +105,7 @@ export function RecentJobsTable({ jobs }: { jobs: TakeoffMetricsRecentJob[] }) {
   return (
     <div className="table-scroll">
       <table className="w-full min-w-[700px] text-sm">
-        <thead className="bg-[var(--slate-50)] text-left text-xs uppercase tracking-wide text-[var(--slate-500)]">
+        <thead className="bg-surface-subtle text-left text-xs uppercase tracking-wide text-muted-foreground">
           <tr>
             <th className="px-4 py-3">Statut</th>
             <th className="px-4 py-3">Niveau</th>
@@ -118,18 +118,18 @@ export function RecentJobsTable({ jobs }: { jobs: TakeoffMetricsRecentJob[] }) {
         </thead>
         <tbody>
           {jobs.map((job) => (
-            <tr key={job.id} className="border-t border-[var(--slate-100)]">
+            <tr key={job.id} className="border-t border-border-subtle">
               <td className="px-4 py-3">
                 <StatusBadge status={job.status} />
               </td>
               <td className="px-4 py-3 font-semibold">{job.level}</td>
-              <td className="px-4 py-3 text-[var(--slate-600)]">{job.model ?? "-"}</td>
+              <td className="px-4 py-3 text-slate-600">{job.model ?? "-"}</td>
               <td className="px-4 py-3 text-right">{formatDurationMs(job.durationMs)}</td>
               <td className="px-4 py-3 text-right">{formatCostCents(job.costCents)}</td>
               <td className="px-4 py-3 text-right">
                 <ConfidenceCell value={job.confidence} />
               </td>
-              <td className="px-4 py-3 text-right text-[var(--slate-500)]">
+              <td className="px-4 py-3 text-right text-muted-foreground">
                 {formatDate(job.createdAt)}
               </td>
             </tr>
@@ -143,7 +143,7 @@ export function RecentJobsTable({ jobs }: { jobs: TakeoffMetricsRecentJob[] }) {
 export function CostByLevelTable({ data }: { data: TakeoffMetricsCostByLevel[] }) {
   if (data.length === 0) {
     return (
-      <div className="flex h-24 items-center justify-center text-sm text-[var(--slate-500)]">
+      <div className="flex h-24 items-center justify-center text-sm text-muted-foreground">
         Aucune donnée de coût.
       </div>
     );
@@ -152,7 +152,7 @@ export function CostByLevelTable({ data }: { data: TakeoffMetricsCostByLevel[] }
   return (
     <div className="table-scroll">
       <table className="w-full min-w-[720px] text-sm">
-        <thead className="bg-[var(--slate-50)] text-left text-xs uppercase tracking-wide text-[var(--slate-500)]">
+        <thead className="bg-surface-subtle text-left text-xs uppercase tracking-wide text-muted-foreground">
           <tr>
             <th className="px-4 py-3">Niveau</th>
             <th className="px-4 py-3 text-right">Coût</th>
@@ -164,7 +164,7 @@ export function CostByLevelTable({ data }: { data: TakeoffMetricsCostByLevel[] }
         </thead>
         <tbody>
           {data.map((entry) => (
-            <tr key={entry.level} className="border-t border-[var(--slate-100)]">
+            <tr key={entry.level} className="border-t border-border-subtle">
               <td className="px-4 py-3 font-semibold">{entry.level}</td>
               <td className="px-4 py-3 text-right">{formatCostCents(entry.totalCostCents)}</td>
               <td className="px-4 py-3 text-right font-semibold">{entry.jobCount}</td>
@@ -186,7 +186,7 @@ export function CorrectionEventsTable({
 }) {
   if (events.length === 0) {
     return (
-      <div className="flex h-24 items-center justify-center text-sm text-[var(--slate-500)]">
+      <div className="flex h-24 items-center justify-center text-sm text-muted-foreground">
         Aucune correction explicite enregistrée sur la période.
       </div>
     );
@@ -195,7 +195,7 @@ export function CorrectionEventsTable({
   return (
     <div className="table-scroll">
       <table className="w-full min-w-[420px] text-sm">
-        <thead className="bg-[var(--slate-50)] text-left text-xs uppercase tracking-wide text-[var(--slate-500)]">
+        <thead className="bg-surface-subtle text-left text-xs uppercase tracking-wide text-muted-foreground">
           <tr>
             <th className="px-4 py-3">Signal</th>
             <th className="px-4 py-3 text-right">Occurrences</th>
@@ -203,7 +203,7 @@ export function CorrectionEventsTable({
         </thead>
         <tbody>
           {events.map((event) => (
-            <tr key={event.type} className="border-t border-[var(--slate-100)]">
+            <tr key={event.type} className="border-t border-border-subtle">
               <td className="px-4 py-3">{event.label}</td>
               <td className="px-4 py-3 text-right font-semibold">{formatNumber(event.count)}</td>
             </tr>
@@ -221,7 +221,7 @@ export function CorrectionByLevelTable({
 }) {
   if (rows.length === 0) {
     return (
-      <div className="flex h-24 items-center justify-center text-sm text-[var(--slate-500)]">
+      <div className="flex h-24 items-center justify-center text-sm text-muted-foreground">
         Aucun dossier exploitable pour la lecture métier.
       </div>
     );
@@ -230,7 +230,7 @@ export function CorrectionByLevelTable({
   return (
     <div className="table-scroll">
       <table className="w-full min-w-[720px] text-sm">
-        <thead className="bg-[var(--slate-50)] text-left text-xs uppercase tracking-wide text-[var(--slate-500)]">
+        <thead className="bg-surface-subtle text-left text-xs uppercase tracking-wide text-muted-foreground">
           <tr>
             <th className="px-4 py-3">Niveau</th>
             <th className="px-4 py-3 text-right">Dossiers corrigés</th>
@@ -242,7 +242,7 @@ export function CorrectionByLevelTable({
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={row.level} className="border-t border-[var(--slate-100)]">
+            <tr key={row.level} className="border-t border-border-subtle">
               <td className="px-4 py-3 font-semibold">{row.level}</td>
               <td className="px-4 py-3 text-right">{formatNumber(row.correctedJobs)}</td>
               <td className="px-4 py-3 text-right">{formatNumber(row.quicklyValidatedJobs)}</td>
@@ -266,7 +266,7 @@ export function PilotWeeklyTable({
 }) {
   if (rows.length === 0) {
     return (
-      <div className="flex h-24 items-center justify-center text-sm text-[var(--slate-500)]">
+      <div className="flex h-24 items-center justify-center text-sm text-muted-foreground">
         Aucune semaine pilote disponible.
       </div>
     );
@@ -274,7 +274,7 @@ export function PilotWeeklyTable({
 
   return (
     <table className="w-full min-w-[760px] text-sm">
-      <thead className="bg-[var(--slate-50)] text-left text-xs uppercase tracking-wide text-[var(--slate-500)]">
+      <thead className="bg-surface-subtle text-left text-xs uppercase tracking-wide text-muted-foreground">
         <tr>
           <th className="px-4 py-3">Semaine</th>
           <th className="px-4 py-3 text-right">Volume</th>
@@ -286,7 +286,7 @@ export function PilotWeeklyTable({
       </thead>
       <tbody>
         {rows.map((row) => (
-          <tr key={row.key} className="border-t border-[var(--slate-100)]">
+          <tr key={row.key} className="border-t border-border-subtle">
             <td className="px-4 py-3 font-semibold">{row.label}</td>
             <td className="px-4 py-3 text-right">{formatNumber(row.totalJobs)}</td>
             <td className="px-4 py-3 text-right">

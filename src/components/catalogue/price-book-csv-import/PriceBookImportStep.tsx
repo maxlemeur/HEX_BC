@@ -21,9 +21,9 @@ export function PriceBookImportStep({
   onSubmitImport,
 }: Readonly<PriceBookImportStepProps>) {
   return (
-    <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4">
-      <h3 className="text-sm font-semibold text-[var(--slate-800)]">Etape 4 - Importer</h3>
-      <p className="mt-1 text-xs text-[var(--slate-500)]">
+    <div className="rounded-xl border border-border bg-surface-subtle p-4">
+      <h3 className="text-sm font-semibold text-slate-800">Etape 4 - Importer</h3>
+      <p className="mt-1 text-xs text-muted-foreground">
         Vous pouvez importer les lignes pretes maintenant, meme si des corrections restent a faire.
       </p>
 
@@ -39,7 +39,7 @@ export function PriceBookImportStep({
       </div>
 
       {importSummary ? (
-        <div className="mt-3 text-xs text-[var(--slate-600)]">
+        <div className="mt-3 text-xs text-slate-600">
           Importees: {formatNumber(importSummary.imported)} | Ignorees (hors perimetre):{" "}
           {formatNumber(importSummary.ignored)} | A corriger: {formatNumber(importSummary.toFix)} |
           Deja existantes: {formatNumber(importSummary.duplicatesSkipped)}

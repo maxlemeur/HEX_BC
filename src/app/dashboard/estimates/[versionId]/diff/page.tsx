@@ -392,7 +392,7 @@ export default async function EstimateDiffPage({
 
           <div className="flex flex-col items-end gap-2">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold uppercase tracking-[0.04em] text-[var(--slate-500)]">
+              <span className="text-xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">
                 Mode
               </span>
               <Link
@@ -428,7 +428,7 @@ export default async function EstimateDiffPage({
             </div>
 
             <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold uppercase tracking-[0.04em] text-[var(--slate-500)]">
+              <span className="text-xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">
                 Vue
               </span>
               <Link
@@ -467,7 +467,7 @@ export default async function EstimateDiffPage({
 
         {compareTotalCount > COMPARE_OPTIONS_PAGE_SIZE ? (
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-            <p className="text-xs text-[var(--slate-500)]">
+            <p className="text-xs text-muted-foreground">
               Options {compareVisibleStart}-{compareVisibleEnd} sur{" "}
               {compareTotalCount}
             </p>
@@ -511,7 +511,7 @@ export default async function EstimateDiffPage({
         ) : null}
 
         {compareParamIsInvalid ? (
-          <p className="mt-3 text-xs text-[var(--warning)]">
+          <p className="mt-3 text-xs text-warning">
             Le parametre compare est invalide ou inaccessible. La comparaison a
             bascule sur la version disponible la plus recente.
           </p>
@@ -519,7 +519,7 @@ export default async function EstimateDiffPage({
       </section>
 
       {!hasCompareOptions ? (
-        <div className="dashboard-card p-6 text-sm text-[var(--slate-600)]">
+        <div className="dashboard-card p-6 text-sm text-slate-600">
           Cette version n&apos;a pas d&apos;autre version du meme projet a comparer.
         </div>
       ) : null}

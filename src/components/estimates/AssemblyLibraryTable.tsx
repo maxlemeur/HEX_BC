@@ -139,10 +139,10 @@ function AssemblyContentPreview({
   return (
     <div className="ml-9">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Contenu de l&apos;ouvrage
         </p>
-        <span className="rounded-full bg-surface px-2.5 py-1 text-xs font-medium text-[var(--slate-600)] shadow-sm">
+        <span className="rounded-full bg-surface px-2.5 py-1 text-xs font-medium text-slate-600 shadow-sm">
           {formatContentCount(
             detail?.items.length ?? assembly.itemCount,
             detail?.members?.length ?? assembly.memberCount ?? 0
@@ -151,27 +151,27 @@ function AssemblyContentPreview({
       </div>
 
       <div className="mb-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
-          <span className="text-xs text-[var(--slate-500)]">Référence</span>
-          <p className="mt-0.5 font-mono text-sm font-semibold text-[var(--slate-800)]">
+        <div className="rounded-lg border border-border bg-surface px-3 py-2">
+          <span className="text-xs text-muted-foreground">Référence</span>
+          <p className="mt-0.5 font-mono text-sm font-semibold text-slate-800">
             {detail?.referenceCode ?? assembly.referenceCode ?? assembly.id.slice(0, 8)}
           </p>
         </div>
-        <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
-          <span className="text-xs text-[var(--slate-500)]">Coût direct</span>
-          <p className="mt-0.5 text-sm font-semibold text-[var(--slate-800)]">
+        <div className="rounded-lg border border-border bg-surface px-3 py-2">
+          <span className="text-xs text-muted-foreground">Coût direct</span>
+          <p className="mt-0.5 text-sm font-semibold text-slate-800">
             {formatCurrency(metrics?.directCostCents ?? assembly.directCostCents)}
           </p>
         </div>
-        <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
-          <span className="text-xs text-[var(--slate-500)]">Temps MO total</span>
-          <p className="mt-0.5 text-sm font-semibold text-[var(--slate-800)]">
+        <div className="rounded-lg border border-border bg-surface px-3 py-2">
+          <span className="text-xs text-muted-foreground">Temps MO total</span>
+          <p className="mt-0.5 text-sm font-semibold text-slate-800">
             {formatNumber(metrics?.laborHours ?? assembly.averageTimeHours, "0")} h
           </p>
         </div>
-        <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
-          <span className="text-xs text-[var(--slate-500)]">Prix cible</span>
-          <p className="mt-0.5 text-sm font-semibold text-[var(--slate-800)]">
+        <div className="rounded-lg border border-border bg-surface px-3 py-2">
+          <span className="text-xs text-muted-foreground">Prix cible</span>
+          <p className="mt-0.5 text-sm font-semibold text-slate-800">
             {formatCurrency(
               detail?.targetPriceCents ?? assembly.targetPriceCents
             )}
@@ -180,22 +180,22 @@ function AssemblyContentPreview({
       </div>
 
       {!isLoading && !error && detail?.members?.length ? (
-        <div className="mb-3 overflow-x-auto rounded-lg border border-[var(--slate-200)] bg-white">
+        <div className="mb-3 overflow-x-auto rounded-lg border border-border bg-surface">
           <table className="w-full min-w-[620px] text-sm">
             <thead>
-              <tr className="bg-[var(--slate-50)] text-left text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+              <tr className="bg-surface-subtle text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 <th className="px-4 py-2.5">Sous-ouvrage</th>
                 <th className="px-4 py-2.5">Référence</th>
                 <th className="px-4 py-2.5">Quantité</th>
                 <th className="px-4 py-2.5 text-right">Coût intégré</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[var(--slate-100)]">
+            <tbody className="divide-y divide-border-subtle">
               {[...detail.members]
                 .sort((first, second) => first.position - second.position)
                 .map((member) => (
                   <tr key={member.id}>
-                    <td className="px-4 py-3 font-semibold text-[var(--slate-800)]">
+                    <td className="px-4 py-3 font-semibold text-slate-800">
                       {member.child_assembly?.name ?? "Ouvrage indisponible"}
                     </td>
                     <td className="px-4 py-3 font-mono">
@@ -222,7 +222,7 @@ function AssemblyContentPreview({
 
       {isLoading ? (
         <div
-          className="rounded-lg border border-[var(--slate-200)] bg-surface px-4 py-5 text-sm text-[var(--slate-500)]"
+          className="rounded-lg border border-border bg-surface px-4 py-5 text-sm text-muted-foreground"
           role="status"
         >
           Chargement du contenu…
@@ -239,10 +239,10 @@ function AssemblyContentPreview({
           </button>
         </div>
       ) : detail?.items.length ? (
-        <div className="overflow-x-auto rounded-lg border border-[var(--slate-200)] bg-surface">
+        <div className="overflow-x-auto rounded-lg border border-border bg-surface">
           <table className="w-full min-w-[960px] text-sm">
             <thead>
-              <tr className="bg-[var(--slate-50)] text-left text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+              <tr className="bg-surface-subtle text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 <th className="px-4 py-2.5">Désignation</th>
                 <th className="px-4 py-2.5">Type</th>
                 <th className="px-4 py-2.5">Unité</th>
@@ -254,12 +254,12 @@ function AssemblyContentPreview({
                 <th className="px-4 py-2.5">K MO</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[var(--slate-100)]">
+            <tbody className="divide-y divide-border-subtle">
               {[...detail.items]
                 .sort((first, second) => first.position - second.position)
                 .map((item) => (
                   <tr key={item.id}>
-                    <td className="px-4 py-3 font-medium text-[var(--slate-800)]">
+                    <td className="px-4 py-3 font-medium text-slate-800">
                       {formatLegacyGeneratedText(item.title)}
                     </td>
                     <td className="px-4 py-3">
@@ -297,7 +297,7 @@ function AssemblyContentPreview({
           </table>
         </div>
       ) : (
-        <div className="rounded-lg border border-dashed border-[var(--slate-300)] bg-surface px-4 py-5 text-sm text-[var(--slate-500)]">
+        <div className="rounded-lg border border-dashed border-border-strong bg-surface px-4 py-5 text-sm text-muted-foreground">
           Cet ouvrage ne contient aucune ligne directe.
         </div>
       )}
@@ -416,7 +416,7 @@ export function AssemblyLibraryTable({
             <tr>
               <td
                 colSpan={5}
-                className="py-10 text-center text-[var(--slate-500)]"
+                className="py-10 text-center text-muted-foreground"
               >
                 Aucun ouvrage disponible.
               </td>
@@ -437,7 +437,7 @@ export function AssemblyLibraryTable({
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--slate-400)] transition-colors hover:bg-[var(--slate-100)] hover:text-[var(--slate-700)]"
+                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-subtle-foreground transition-colors hover:bg-muted hover:text-foreground-secondary"
                           onClick={() => toggleAssembly(assembly)}
                           aria-controls={previewId}
                           aria-expanded={isExpanded}
@@ -451,12 +451,12 @@ export function AssemblyLibraryTable({
                             {isExpanded ? "\u25BC" : "\u25B6"}
                           </span>
                         </button>
-                        <div className="font-semibold text-[var(--slate-800)]">
+                        <div className="font-semibold text-slate-800">
                           {assembly.name}
                         </div>
                       </div>
                     </td>
-                    <td className="text-[var(--slate-600)]">
+                    <td className="text-slate-600">
                       {assembly.description?.trim()
                         ? formatLegacyGeneratedText(assembly.description.trim())
                         : "-"}
@@ -484,10 +484,10 @@ export function AssemblyLibraryTable({
                           &middot;&middot;&middot;
                         </button>
                         {openMenuId === assembly.id && (
-                          <div className="absolute right-0 top-full z-20 mt-1 min-w-[160px] rounded-xl border border-[var(--slate-200)] bg-surface py-1 shadow-xl">
+                          <div className="absolute right-0 top-full z-20 mt-1 min-w-[160px] rounded-xl border border-border bg-surface py-1 shadow-xl">
                             <button
                               type="button"
-                              className="w-full px-4 py-2 text-left text-sm text-[var(--slate-700)] hover:bg-[var(--slate-50)]"
+                              className="w-full px-4 py-2 text-left text-sm text-foreground-secondary hover:bg-surface-subtle"
                               onClick={() => {
                                 setOpenMenuId(null);
                                 onEdit(assembly);
@@ -497,7 +497,7 @@ export function AssemblyLibraryTable({
                             </button>
                             <button
                               type="button"
-                              className="w-full px-4 py-2 text-left text-sm text-[var(--slate-700)] hover:bg-[var(--slate-50)]"
+                              className="w-full px-4 py-2 text-left text-sm text-foreground-secondary hover:bg-surface-subtle"
                               onClick={() => {
                                 setOpenMenuId(null);
                                 onRename(assembly);
@@ -507,7 +507,7 @@ export function AssemblyLibraryTable({
                             </button>
                             <button
                               type="button"
-                              className="w-full px-4 py-2 text-left text-sm text-[var(--slate-700)] hover:bg-[var(--slate-50)]"
+                              className="w-full px-4 py-2 text-left text-sm text-foreground-secondary hover:bg-surface-subtle"
                               onClick={() => {
                                 setOpenMenuId(null);
                                 onDuplicate(assembly);
@@ -515,7 +515,7 @@ export function AssemblyLibraryTable({
                             >
                               Dupliquer
                             </button>
-                            <div className="my-1 border-t border-[var(--slate-200)]" />
+                            <div className="my-1 border-t border-border" />
                             <button
                               type="button"
                               className="w-full px-4 py-2 text-left text-sm text-danger hover:bg-error-light"
@@ -532,7 +532,7 @@ export function AssemblyLibraryTable({
                     </td>
                   </tr>
                   {isExpanded ? (
-                    <tr id={previewId} className="bg-[var(--slate-50)]">
+                    <tr id={previewId} className="bg-surface-subtle">
                       <td colSpan={5} className="!px-6 !py-4">
                         <AssemblyContentPreview
                           assembly={assembly}

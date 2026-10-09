@@ -664,7 +664,7 @@ export function AffairesPageClient({
           className={`inline-flex min-h-11 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors sm:min-h-0 ${
             favoritesOnly
               ? "border-amber-300 bg-amber-50 text-amber-800"
-              : "border-[var(--slate-200)] bg-white text-[var(--slate-600)] hover:border-[var(--slate-300)] hover:bg-[var(--slate-50)]"
+              : "border-border bg-surface text-slate-600 hover:border-border-strong hover:bg-surface-subtle"
           }`}
           aria-pressed={favoritesOnly}
         >
@@ -704,10 +704,10 @@ export function AffairesPageClient({
       />
 
       <div
-        className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-[var(--slate-200)] bg-white px-3 py-2"
+        className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2"
         aria-live="polite"
       >
-        <span className="text-sm font-medium text-[var(--slate-700)]">
+        <span className="text-sm font-medium text-foreground-secondary">
           {selectedProjectIds.length} affaire
           {selectedProjectIds.length > 1 ? "s" : ""} selectionnee
           {selectedProjectIds.length > 1 ? "s" : ""}
@@ -794,7 +794,7 @@ export function AffairesPageClient({
 
       {/* Pagination */}
       <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap items-center gap-2 text-sm text-[var(--slate-500)]">
+        <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
           <span>Afficher</span>
           {PAGE_SIZE_OPTIONS.map((size) => (
             <button
@@ -803,8 +803,8 @@ export function AffairesPageClient({
               onClick={() => handlePageSizeChange(size)}
               className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
                 pageSize === size
-                  ? "bg-[var(--slate-900)] text-white"
-                  : "bg-[var(--slate-100)] text-[var(--slate-600)] hover:bg-[var(--slate-200)]"
+                  ? "bg-slate-900 text-white"
+                  : "bg-muted text-slate-600 hover:bg-slate-200"
               }`}
             >
               {size}

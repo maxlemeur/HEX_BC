@@ -343,14 +343,14 @@ export function CatalogueManager() {
   return (
     <div className="space-y-6">
       {/* M-17: Tab navigation to separate catalogue CRUD from liaison */}
-      <div className="flex gap-1 rounded-xl bg-[var(--slate-100)] p-1">
+      <div className="flex gap-1 rounded-xl bg-muted p-1">
         <button
           type="button"
           onClick={() => setActiveTab("catalogue")}
           className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
             activeTab === "catalogue"
-              ? "bg-white text-[var(--slate-900)] shadow-sm"
-              : "text-[var(--slate-500)] hover:text-[var(--slate-700)]"
+              ? "bg-surface text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground-secondary"
           }`}
         >
           Catalogue articles
@@ -360,8 +360,8 @@ export function CatalogueManager() {
           onClick={() => setActiveTab("liaison")}
           className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
             activeTab === "liaison"
-              ? "bg-white text-[var(--slate-900)] shadow-sm"
-              : "text-[var(--slate-500)] hover:text-[var(--slate-700)]"
+              ? "bg-surface text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground-secondary"
           }`}
         >
           Liaison lignes importées
@@ -377,8 +377,8 @@ export function CatalogueManager() {
           <section className="dashboard-card p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="text-lg font-semibold text-[var(--slate-900)]">Catalogue articles</h2>
-                <p className="text-sm text-[var(--slate-500)]">
+                <h2 className="text-lg font-semibold text-foreground">Catalogue articles</h2>
+                <p className="text-sm text-muted-foreground">
                   Gérez les produits du catalogue (référence, désignation, prix unitaire).
                 </p>
               </div>
@@ -418,20 +418,20 @@ export function CatalogueManager() {
                 <tbody>
                   {isLoading ? (
                     <tr>
-                      <td colSpan={6} className="text-center text-[var(--slate-500)]">
+                      <td colSpan={6} className="text-center text-muted-foreground">
                         Chargement...
                       </td>
                     </tr>
                   ) : items.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="text-center text-[var(--slate-500)]">
+                      <td colSpan={6} className="text-center text-muted-foreground">
                         Aucun article catalogue.
                       </td>
                     </tr>
                   ) : (
                     items.map((item) => (
                       <tr key={item.id}>
-                        <td className="font-medium text-[var(--slate-900)]">
+                        <td className="font-medium text-foreground">
                           {item.reference ?? item.hex_code ?? "-"}
                         </td>
                         <td>{item.designation || "-"}</td>
@@ -470,7 +470,7 @@ export function CatalogueManager() {
           </section>
 
           <section className="dashboard-card p-6">
-            <h2 className="text-lg font-semibold text-[var(--slate-900)]">
+            <h2 className="text-lg font-semibold text-foreground">
               {editingItem ? "Modifier un article" : "Ajouter un article"}
             </h2>
 
@@ -534,12 +534,12 @@ export function CatalogueManager() {
                   inputMode="numeric"
                 />
                 {/* M-20: Helper text explaining bp */}
-                <p className="mt-1 text-xs text-[var(--slate-500)]">
+                <p className="mt-1 text-xs text-muted-foreground">
                   En points de base (ex: 2000 = 20%, 550 = 5,5%)
                 </p>
               </div>
 
-              <label className="inline-flex items-center gap-2 text-sm text-[var(--slate-700)] lg:col-span-2">
+              <label className="inline-flex items-center gap-2 text-sm text-foreground-secondary lg:col-span-2">
                 <input
                   type="checkbox"
                   checked={formState.is_active}
@@ -575,10 +575,10 @@ export function CatalogueManager() {
       {activeTab === "liaison" ? (
         <section className="dashboard-card p-6">
           {/* M-22: French title */}
-          <h2 className="text-lg font-semibold text-[var(--slate-900)]">
+          <h2 className="text-lg font-semibold text-foreground">
             Liaison lignes importées &gt; catalogue
           </h2>
-          <p className="mt-1 text-sm text-[var(--slate-500)]">
+          <p className="mt-1 text-sm text-muted-foreground">
             Associe les lignes mappées par référence et désignation aux produits du catalogue.
           </p>
 
@@ -616,7 +616,7 @@ export function CatalogueManager() {
           </div>
 
           {showAdvancedOptions ? (
-            <div className="mt-4 grid gap-4 rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4 lg:grid-cols-2">
+            <div className="mt-4 grid gap-4 rounded-xl border border-border bg-surface-subtle p-4 lg:grid-cols-2">
               <div>
                 {/* M-21: Renamed "Limite scan" */}
                 <label className="form-label" htmlFor="catalogue-link-limit">
@@ -637,7 +637,7 @@ export function CatalogueManager() {
                 />
               </div>
               <div className="flex flex-col justify-end gap-2">
-                <label className="inline-flex items-center gap-2 text-sm text-[var(--slate-700)]">
+                <label className="inline-flex items-center gap-2 text-sm text-foreground-secondary">
                   <input
                     type="checkbox"
                     checked={linkCreateMissing}
@@ -645,7 +645,7 @@ export function CatalogueManager() {
                   />
                   Créer les articles manquants
                 </label>
-                <label className="inline-flex items-center gap-2 text-sm text-[var(--slate-700)]">
+                <label className="inline-flex items-center gap-2 text-sm text-foreground-secondary">
                   <input
                     type="checkbox"
                     checked={linkUpdatePayload}
@@ -659,7 +659,7 @@ export function CatalogueManager() {
 
           <div className="mt-4 flex flex-wrap items-center gap-3">
             {/* M-21: Renamed "Dry run" */}
-            <label className="inline-flex items-center gap-2 text-sm text-[var(--slate-700)]">
+            <label className="inline-flex items-center gap-2 text-sm text-foreground-secondary">
               <input
                 type="checkbox"
                 checked={linkDryRun}
@@ -690,13 +690,13 @@ export function CatalogueManager() {
               {/* M-19: Completion summary */}
               <div className={`rounded-xl border p-4 ${
                 linkSummary.unmatched_count === 0
-                  ? "border-[var(--success)] bg-[var(--success-light)]"
-                  : "border-[var(--warning)] bg-warning-light"
+                  ? "border-success bg-success-light"
+                  : "border-warning bg-warning-light"
               }`}>
                 <div className="flex items-center gap-3">
                   <div className={`flex h-10 w-10 items-center justify-center rounded-full ${
                     linkSummary.unmatched_count === 0
-                      ? "bg-[var(--success)] text-white"
+                      ? "bg-success text-white"
                       : "bg-amber-400 text-white"
                   }`}>
                     {linkSummary.unmatched_count === 0 ? (
@@ -710,10 +710,10 @@ export function CatalogueManager() {
                     )}
                   </div>
                   <div>
-                    <p className="font-semibold text-[var(--slate-900)]">
+                    <p className="font-semibold text-foreground">
                       {linkSummary.dry_run ? "Simulation terminée" : "Liaison terminée"}
                     </p>
-                    <p className="text-sm text-[var(--slate-600)]">
+                    <p className="text-sm text-slate-600">
                       {linkSummary.scanned_rows > 0
                         ? `Taux de liaison : ${Math.round((linkSummary.linked_count / linkSummary.scanned_rows) * 100)} %`
                         : "Aucune ligne scannée"
@@ -725,28 +725,28 @@ export function CatalogueManager() {
 
               {/* Summary counters */}
               <div className="grid gap-3 sm:grid-cols-4">
-                <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-3 text-center">
-                  <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">Scannées</p>
-                  <p className="mt-1 text-lg font-bold text-[var(--slate-900)]">{linkSummary.scanned_rows}</p>
+                <div className="rounded-xl border border-border bg-surface-subtle px-4 py-3 text-center">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Scannées</p>
+                  <p className="mt-1 text-lg font-bold text-foreground">{linkSummary.scanned_rows}</p>
                 </div>
-                <div className="rounded-xl border border-[var(--success)]/30 bg-[var(--success-light)] px-4 py-3 text-center">
-                  <p className="text-[11px] uppercase tracking-wide text-[var(--success)]">Liées</p>
-                  <p className="mt-1 text-lg font-bold text-[var(--success)]">{linkSummary.linked_count}</p>
+                <div className="rounded-xl border border-success/30 bg-success-light px-4 py-3 text-center">
+                  <p className="text-[11px] uppercase tracking-wide text-success">Liées</p>
+                  <p className="mt-1 text-lg font-bold text-success">{linkSummary.linked_count}</p>
                 </div>
-                <div className="rounded-xl border border-[var(--info)]/30 bg-[var(--info-light)] px-4 py-3 text-center">
-                  <p className="text-[11px] uppercase tracking-wide text-[var(--info)]">Créées catalogue</p>
-                  <p className="mt-1 text-lg font-bold text-[var(--info)]">{linkSummary.created_catalogue_count}</p>
+                <div className="rounded-xl border border-info/30 bg-info-light px-4 py-3 text-center">
+                  <p className="text-[11px] uppercase tracking-wide text-info">Créées catalogue</p>
+                  <p className="mt-1 text-lg font-bold text-info">{linkSummary.created_catalogue_count}</p>
                 </div>
                 <div className={`rounded-xl border px-4 py-3 text-center ${
                   linkSummary.unmatched_count > 0
                     ? "border-danger/30 bg-error-light"
-                    : "border-[var(--slate-200)] bg-[var(--slate-50)]"
+                    : "border-border bg-surface-subtle"
                 }`}>
                   <p className={`text-[11px] uppercase tracking-wide ${
-                    linkSummary.unmatched_count > 0 ? "text-danger" : "text-[var(--slate-500)]"
+                    linkSummary.unmatched_count > 0 ? "text-danger" : "text-muted-foreground"
                   }`}>Sans match</p>
                   <p className={`mt-1 text-lg font-bold ${
-                    linkSummary.unmatched_count > 0 ? "text-danger" : "text-[var(--slate-900)]"
+                    linkSummary.unmatched_count > 0 ? "text-danger" : "text-foreground"
                   }`}>{linkSummary.unmatched_count}</p>
                 </div>
               </div>
@@ -760,7 +760,7 @@ export function CatalogueManager() {
                   >
                     Retour aux imports
                   </Link>
-                  <p className="text-sm text-[var(--slate-500)]">
+                  <p className="text-sm text-muted-foreground">
                     Flux terminé. Vous pouvez lancer un nouvel import ou consulter le catalogue.
                   </p>
                 </div>

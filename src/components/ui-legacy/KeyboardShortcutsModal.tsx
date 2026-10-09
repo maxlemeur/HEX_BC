@@ -155,8 +155,8 @@ function Kbd({ children }: { children: React.ReactNode }) {
     <kbd
       className={cn(
         "inline-flex h-6 min-w-6 items-center justify-center rounded-md",
-        "border border-[var(--border)] bg-[var(--muted)]",
-        "px-1.5 font-mono text-[11px] font-medium text-[var(--muted-foreground)]",
+        "border border-border bg-muted",
+        "px-1.5 font-mono text-[11px] font-medium text-muted-foreground",
         "shadow-[0_1px_0_1px_var(--border)]"
       )}
     >
@@ -188,9 +188,9 @@ export function KeyboardShortcutsModal({
     <Modal.Root open={open} onOpenChange={onOpenChange}>
       <Modal.Content className="max-w-xl p-0 overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--brand-blue)]/10 text-[var(--brand-blue)]">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 width="16"
@@ -214,16 +214,16 @@ export function KeyboardShortcutsModal({
               </svg>
             </div>
             <div>
-              <Modal.Title className="text-base font-semibold text-[var(--foreground)]">
+              <Modal.Title className="text-base font-semibold text-foreground">
                 Raccourcis clavier
               </Modal.Title>
-              <p className="text-xs text-[var(--muted-foreground)]">
+              <p className="text-xs text-muted-foreground">
                 Accélérez votre travail dans l&apos;éditeur
               </p>
             </div>
           </div>
           <Modal.Close
-            className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
             aria-label="Fermer"
           >
             <svg
@@ -254,8 +254,8 @@ export function KeyboardShortcutsModal({
                 className={cn(
                   "rounded-xl border p-4 transition-colors",
                   isHighlighted
-                    ? "border-[var(--brand-orange)]/30 bg-[var(--brand-orange)]/[0.04]"
-                    : "border-[var(--border)] bg-transparent"
+                    ? "border-brand-orange/30 bg-brand-orange/[0.04]"
+                    : "border-border bg-transparent"
                 )}
               >
                 <div className="mb-3 flex items-center gap-2">
@@ -263,8 +263,8 @@ export function KeyboardShortcutsModal({
                     className={cn(
                       "flex h-6 w-6 items-center justify-center rounded-md",
                       isHighlighted
-                        ? "bg-[var(--brand-orange)]/10 text-[var(--brand-orange)]"
-                        : "bg-[var(--muted)] text-[var(--muted-foreground)]"
+                        ? "bg-brand-orange/10 text-brand-orange"
+                        : "bg-muted text-muted-foreground"
                     )}
                   >
                     {group.icon}
@@ -273,14 +273,14 @@ export function KeyboardShortcutsModal({
                     className={cn(
                       "text-xs font-semibold uppercase tracking-wider",
                       isHighlighted
-                        ? "text-[var(--brand-orange)]"
-                        : "text-[var(--muted-foreground)]"
+                        ? "text-brand-orange"
+                        : "text-muted-foreground"
                     )}
                   >
                     {group.title}
                   </h3>
                   {isHighlighted ? (
-                    <span className="ml-auto rounded-full bg-[var(--brand-orange)]/10 px-2 py-0.5 text-[10px] font-semibold text-[var(--brand-orange)]">
+                    <span className="ml-auto rounded-full bg-brand-orange/10 px-2 py-0.5 text-[10px] font-semibold text-brand-orange">
                       Contexte actif
                     </span>
                   ) : null}
@@ -290,16 +290,16 @@ export function KeyboardShortcutsModal({
                   {group.shortcuts.map((shortcut) => (
                     <div
                       key={shortcut.label}
-                      className="flex items-center justify-between rounded-lg px-2 py-1.5 transition-colors hover:bg-[var(--muted)]/50"
+                      className="flex items-center justify-between rounded-lg px-2 py-1.5 transition-colors hover:bg-muted/50"
                     >
-                      <span className="text-sm text-[var(--foreground)]">
+                      <span className="text-sm text-foreground">
                         {shortcut.label}
                       </span>
                       <span className="flex items-center gap-1">
                         {shortcut.keys.map((key, i) => (
                           <span key={`${shortcut.label}-${key}-${i}`} className="flex items-center gap-1">
                             {i > 0 ? (
-                              <span className="text-[10px] text-[var(--muted-foreground)]">
+                              <span className="text-[10px] text-muted-foreground">
                                 +
                               </span>
                             ) : null}
@@ -316,11 +316,11 @@ export function KeyboardShortcutsModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between border-t border-[var(--border)] px-5 py-3">
-          <p className="text-[11px] text-[var(--muted-foreground)]">
+        <div className="flex items-center justify-between border-t border-border px-5 py-3">
+          <p className="text-[11px] text-muted-foreground">
             Appuyez sur <Kbd>?</Kbd> pour ouvrir ce panneau
           </p>
-          <Modal.Close className="text-xs font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors">
+          <Modal.Close className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">
             Fermer
           </Modal.Close>
         </div>

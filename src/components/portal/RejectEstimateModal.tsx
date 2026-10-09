@@ -80,21 +80,21 @@ export function RejectEstimateModal({
         <form onSubmit={handleSubmit}>
           <Modal.Body>
             <div className="space-y-4">
-              <p className="text-sm text-[var(--slate-600)]">
+              <p className="text-sm text-slate-600">
                 Êtes-vous sûr de vouloir refuser ce devis ? Cette action est
                 définitive.
               </p>
               <div>
                 <label
                   htmlFor="reject-reason"
-                  className="mb-1.5 block text-sm font-medium text-[var(--slate-700)]"
+                  className="mb-1.5 block text-sm font-medium text-foreground-secondary"
                 >
                   Motif du refus{" "}
-                  <span className="text-[var(--slate-400)]">(optionnel)</span>
+                  <span className="text-subtle-foreground">(optionnel)</span>
                 </label>
                 <textarea
                   id="reject-reason"
-                  className="form-textarea w-full rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2 text-sm text-[var(--slate-800)] placeholder:text-[var(--slate-400)] focus:border-[var(--brand-blue)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-blue)]/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="form-textarea w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-slate-800 placeholder:text-subtle-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
                   rows={3}
                   placeholder="Indiquez la raison de votre refus..."
                   value={reason}

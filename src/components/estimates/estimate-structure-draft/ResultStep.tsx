@@ -28,7 +28,7 @@ export function ResultStep({
         <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 text-lg text-emerald-700">
           {"\u2713"}
         </span>
-        <h3 className="text-lg font-semibold text-[var(--slate-900)]">
+        <h3 className="text-lg font-semibold text-foreground">
           Structure appliquee
         </h3>
       </div>
@@ -46,24 +46,24 @@ export function ResultStep({
           </p>
           <p className="mt-1 text-sm text-amber-600">fusion(s)</p>
         </div>
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-center">
+        <div className="rounded-xl border border-border bg-surface-subtle p-4 text-center">
           <p className="text-2xl font-semibold text-slate-600">
             {applyResult.skippedCount}
           </p>
-          <p className="mt-1 text-sm text-slate-500">ignoree(s)</p>
+          <p className="mt-1 text-sm text-muted-foreground">ignoree(s)</p>
         </div>
       </div>
 
       {createdNodes.length > 0 ? (
         <div>
-          <h4 className="text-sm font-semibold text-[var(--slate-700)]">
+          <h4 className="text-sm font-semibold text-foreground-secondary">
             Sections creees
           </h4>
           <ul className="mt-2 space-y-1">
             {createdNodes.map((node) => (
               <li
                 key={node.id}
-                className="rounded-lg border-l-4 border-emerald-400 bg-emerald-50 px-3 py-2 text-sm text-[var(--slate-800)]"
+                className="rounded-lg border-l-4 border-emerald-400 bg-emerald-50 px-3 py-2 text-sm text-slate-800"
               >
                 {node.path.join(" > ")}
               </li>
@@ -74,14 +74,14 @@ export function ResultStep({
 
       {mergedNodes.length > 0 ? (
         <div>
-          <h4 className="text-sm font-semibold text-[var(--slate-700)]">
+          <h4 className="text-sm font-semibold text-foreground-secondary">
             Sections fusionnees
           </h4>
           <ul className="mt-2 space-y-1">
             {mergedNodes.map((node) => (
               <li
                 key={node.id}
-                className="rounded-lg border-l-4 border-amber-400 bg-amber-50 px-3 py-2 text-sm text-[var(--slate-800)]"
+                className="rounded-lg border-l-4 border-amber-400 bg-amber-50 px-3 py-2 text-sm text-slate-800"
               >
                 {node.path.join(" > ")}
               </li>

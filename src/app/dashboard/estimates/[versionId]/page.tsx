@@ -357,7 +357,7 @@ export default async function EstimateDetailPage({
   }
 
   return (
-    <div className="min-h-screen bg-[var(--slate-100)] animate-fade-in">
+    <div className="min-h-screen bg-muted animate-fade-in">
       {version.project_id && project?.name && (
         <AffaireBreadcrumb
           projectId={version.project_id}
@@ -371,7 +371,7 @@ export default async function EstimateDetailPage({
           <h1 className="page-title">Chiffrage</h1>
           <p className="page-description">
             Version V{version.version_number}{" "}
-              {project?.name ? <span className="text-[var(--slate-500)]">— {project.name}</span> : null}
+              {project?.name ? <span className="text-muted-foreground">— {project.name}</span> : null}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -394,7 +394,7 @@ export default async function EstimateDetailPage({
             <summary className="btn btn-secondary btn-sm cursor-pointer list-none select-none">
               Plus d&apos;actions
             </summary>
-            <div className="absolute right-0 top-full z-20 mt-2 flex flex-col gap-1 rounded-xl border border-[var(--slate-200)] bg-white p-2 shadow-xl" style={{ minWidth: "180px" }}>
+            <div className="absolute right-0 top-full z-20 mt-2 flex flex-col gap-1 rounded-xl border border-border bg-surface p-2 shadow-xl" style={{ minWidth: "180px" }}>
               <Link
                 className="btn btn-ghost btn-sm w-full justify-start"
                 href={`/dashboard/estimates/${versionId}/diff`}
@@ -422,12 +422,12 @@ export default async function EstimateDetailPage({
             <div className="dashboard-card mb-6 p-6">
               <div className="grid grid-cols-2 gap-6 sm:grid-cols-4">
                 <div>
-                  <p className="text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">Projet</p>
-                  <p className="mt-1 text-sm font-semibold text-[var(--slate-800)]">{project?.name ?? "\u2014"}</p>
-                  {project?.client_name ? <p className="text-xs text-[var(--slate-500)]">{project.client_name}</p> : null}
+                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Projet</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-800">{project?.name ?? "\u2014"}</p>
+                  {project?.client_name ? <p className="text-xs text-muted-foreground">{project.client_name}</p> : null}
                 </div>
                 <div>
-                  <p className="text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">Statut</p>
+                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Statut</p>
                   <div className="mt-1">
                     <StatusBadge status={version.status} />
                     {canEditVersion ? (
@@ -442,14 +442,14 @@ export default async function EstimateDetailPage({
                   </div>
                 </div>
                 <div>
-                  <p className="text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">Total HT</p>
-                  <p className="mt-1 text-lg font-bold text-[var(--slate-900)]">{formatEUR(totalHtCents ?? 0)}</p>
+                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Total HT</p>
+                  <p className="mt-1 text-lg font-bold text-foreground">{formatEUR(totalHtCents ?? 0)}</p>
                 </div>
                 <div>
-                  <p className="text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">Total TTC</p>
-                  <p className="mt-1 text-lg font-bold text-[var(--slate-900)]">{formatEUR(totalTtcCents ?? 0)}</p>
+                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Total TTC</p>
+                  <p className="mt-1 text-lg font-bold text-foreground">{formatEUR(totalTtcCents ?? 0)}</p>
                   {expiry ? (
-                    <p className={`mt-1 text-xs ${expiry.expired ? "text-[var(--danger)]" : "text-[var(--slate-500)]"}`}>
+                    <p className={`mt-1 text-xs ${expiry.expired ? "text-danger" : "text-muted-foreground"}`}>
                       {expiry.expired ? "Expiré le" : "Valide jusqu\u0027au"} {expiry.expiryDate}
                     </p>
                   ) : null}

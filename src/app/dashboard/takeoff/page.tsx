@@ -87,7 +87,7 @@ export default async function TakeoffPage({ searchParams }: Props) {
 
       {items.length === 0 ? (
         <div className="dashboard-card mt-6 p-6">
-          <p className="text-sm text-[var(--slate-700)]">
+          <p className="text-sm text-foreground-secondary">
             Aucune affaire disponible pour lancer une analyse de plans.
           </p>
         </div>
@@ -96,7 +96,7 @@ export default async function TakeoffPage({ searchParams }: Props) {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[600px] text-sm">
               <thead>
-                <tr className="border-b border-[var(--slate-200)] text-left text-xs uppercase tracking-wide text-[var(--slate-500)]">
+                <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <th scope="col" className="px-4 py-3 font-semibold">Projet</th>
                   <th scope="col" className="px-4 py-3 font-semibold">Version</th>
                   <th scope="col" className="px-4 py-3 font-semibold">Statut</th>
@@ -116,24 +116,24 @@ export default async function TakeoffPage({ searchParams }: Props) {
                   return (
                     <tr
                       key={item.projectId}
-                      className="border-b border-[var(--slate-100)] align-top"
+                      className="border-b border-border-subtle align-top"
                     >
                       <td className="px-4 py-4">
-                        <p className="font-semibold text-[var(--slate-800)]">{item.projectName}</p>
-                        <p className="text-xs text-[var(--slate-500)]">
+                        <p className="font-semibold text-slate-800">{item.projectName}</p>
+                        <p className="text-xs text-muted-foreground">
                           {item.projectReference ?? "Sans référence"}
                           {item.projectClient
                             ? ` - ${item.projectClient}`
                             : ""}
                         </p>
                       </td>
-                      <td className="px-4 py-4 text-[var(--slate-700)]">
+                      <td className="px-4 py-4 text-foreground-secondary">
                         {item.currentVersionNumber === null
                           ? "—"
                           : `V${item.currentVersionNumber}`}
                       </td>
-                      <td className="px-4 py-4 text-[var(--slate-700)]">{statusLabel}</td>
-                      <td className="px-4 py-4 text-[var(--slate-700)]">
+                      <td className="px-4 py-4 text-foreground-secondary">{statusLabel}</td>
+                      <td className="px-4 py-4 text-foreground-secondary">
                         {formatUpdatedAt(item.currentUpdatedAt)}
                       </td>
                       <td className="px-4 py-4 text-right">
@@ -152,7 +152,7 @@ export default async function TakeoffPage({ searchParams }: Props) {
             </table>
           </div>
           {result.hasNextPage && result.nextCursor ? (
-            <div className="flex justify-end border-t border-[var(--slate-100)] px-4 py-3">
+            <div className="flex justify-end border-t border-border-subtle px-4 py-3">
               <Link
                 href={`/dashboard/takeoff?cursor=${encodeURIComponent(result.nextCursor)}`}
                 prefetch={false}

@@ -347,16 +347,16 @@ export function ValidationReviewPanel({
 
   return (
     <div className="space-y-4">
-      <section className="rounded-2xl border border-[var(--warning)]/20 bg-[var(--warning)]/5 p-4">
+      <section className="rounded-2xl border border-warning/20 bg-warning/5 p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--warning)]">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-warning">
               Priorite de revue
             </p>
-            <h2 className="mt-1 text-lg font-semibold text-[var(--slate-900)]">
+            <h2 className="mt-1 text-lg font-semibold text-foreground">
               Traitez d&apos;abord les exceptions qui peuvent biaiser le chiffrage
             </h2>
-            <p className="mt-2 max-w-3xl text-sm text-[var(--slate-700)]">
+            <p className="mt-2 max-w-3xl text-sm text-foreground-secondary">
               {statusMessage}
             </p>
           </div>
@@ -406,8 +406,8 @@ export function ValidationReviewPanel({
         <section
           className={`rounded-lg border px-4 py-3 text-sm ${
             hasSaveErrors
-              ? "border-[var(--danger)]/20 bg-[var(--danger)]/5 text-[var(--danger)]"
-              : "border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 text-[var(--slate-700)]"
+              ? "border-danger/20 bg-danger/5 text-danger"
+              : "border-primary/20 bg-primary/5 text-foreground-secondary"
           }`}
           role="status"
         >
@@ -418,13 +418,13 @@ export function ValidationReviewPanel({
       )}
 
       {(dpgfLoading || dpgfSummary || dpgfError) && (
-        <section className="rounded-lg border border-[var(--border)] bg-white p-4">
+        <section className="rounded-lg border border-border bg-surface p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-sm font-semibold text-[var(--slate-800)]">
+              <h2 className="text-sm font-semibold text-slate-800">
                 Rapprochement DPGF
               </h2>
-              <p className="mt-1 text-sm text-[var(--slate-600)]">
+              <p className="mt-1 text-sm text-slate-600">
                 Gardez les cas simples hors du chemin. Ouvrez seulement les lignes sans preuve, a confirmer ou a lier manuellement.
               </p>
             </div>
@@ -436,9 +436,9 @@ export function ValidationReviewPanel({
           </div>
 
           {dpgfLoading ? (
-            <p className="mt-3 text-sm text-[var(--slate-500)]">Chargement des ecarts DPGF...</p>
+            <p className="mt-3 text-sm text-muted-foreground">Chargement des ecarts DPGF...</p>
           ) : dpgfError ? (
-            <p className="mt-3 text-sm text-[var(--danger)]">{dpgfError}</p>
+            <p className="mt-3 text-sm text-danger">{dpgfError}</p>
           ) : dpgfSummary ? (
             <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <PriorityCard
@@ -482,8 +482,8 @@ export function ValidationReviewPanel({
         </section>
       )}
 
-      <section className="rounded-lg border border-[var(--border)] bg-white p-4">
-        <h2 className="mb-3 text-sm font-semibold text-[var(--slate-800)]">
+      <section className="rounded-lg border border-border bg-surface p-4">
+        <h2 className="mb-3 text-sm font-semibold text-slate-800">
           Resume de validation
         </h2>
 
@@ -528,19 +528,19 @@ export function ValidationReviewPanel({
         </div>
 
         {summary.total === 0 ? (
-          <p className="mt-3 text-sm text-[var(--slate-600)]" role="status">
+          <p className="mt-3 text-sm text-slate-600" role="status">
             Tous les items sont exclus. Reintegrez au moins un item pour pouvoir appliquer l&apos;extraction.
           </p>
         ) : summary.flaggedCount === 0 ? (
-          <p className="mt-3 text-sm font-medium text-[var(--success)]" role="status">
+          <p className="mt-3 text-sm font-medium text-success" role="status">
             Tous les items sont conformes. La revue peut passer a l&apos;etape suivante.
           </p>
         ) : canOpenApplyWizard && summary.priorityCount === 0 ? (
-          <p className="mt-3 text-sm text-[var(--slate-600)]" role="status">
+          <p className="mt-3 text-sm text-slate-600" role="status">
             {summary.flaggedCount} contrôle{summary.flaggedCount > 1 ? "s" : ""} humain{summary.flaggedCount > 1 ? "s" : ""} reste{summary.flaggedCount > 1 ? "nt" : ""} recommandé{summary.flaggedCount > 1 ? "s" : ""}. L&apos;application n&apos;est pas bloquée.
           </p>
         ) : (
-          <p className="mt-3 text-sm text-[var(--slate-600)]" role="status">
+          <p className="mt-3 text-sm text-slate-600" role="status">
             {summary.flaggedCount} item{summary.flaggedCount > 1 ? "s" : ""} necessite{summary.flaggedCount > 1 ? "nt" : ""} une verification,
             dont {summary.priorityCount} prioritaire{summary.priorityCount > 1 ? "s" : ""}.
           </p>
@@ -549,16 +549,16 @@ export function ValidationReviewPanel({
 
       {flaggedItems.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-medium text-[var(--slate-500)]">Filtrer :</span>
+          <span className="text-xs font-medium text-muted-foreground">Filtrer :</span>
           {FILTER_OPTIONS.map((option) => (
             <button
               key={option.value}
               type="button"
               onClick={() => setFilter(option.value)}
-              className={`min-h-11 rounded-md px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-1 sm:min-h-0 ${
+              className={`min-h-11 rounded-md px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 sm:min-h-0 ${
                 filter === option.value
-                  ? "bg-[var(--slate-800)] text-white"
-                  : "bg-[var(--slate-100)] text-[var(--slate-600)] hover:bg-[var(--slate-200)]"
+                  ? "bg-slate-800 text-white"
+                  : "bg-muted text-slate-600 hover:bg-slate-200"
               }`}
               aria-pressed={filter === option.value}
             >
@@ -584,19 +584,19 @@ export function ValidationReviewPanel({
           ))}
         </div>
       ) : flaggedItems.length > 0 ? (
-        <div className="rounded-lg border border-[var(--border)] bg-white p-6 text-center text-sm text-[var(--slate-500)]">
+        <div className="rounded-lg border border-border bg-surface p-6 text-center text-sm text-muted-foreground">
           Aucun item ne correspond au filtre selectionne.
         </div>
       ) : null}
 
       {excludedItems.length > 0 && (
-        <section className="rounded-lg border border-[var(--border)] bg-white p-4">
+        <section className="rounded-lg border border-border bg-surface p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-sm font-semibold text-[var(--slate-800)]">
+              <h2 className="text-sm font-semibold text-slate-800">
                 Items exclus
               </h2>
-              <p className="mt-1 text-sm text-[var(--slate-600)]">
+              <p className="mt-1 text-sm text-slate-600">
                 Gardez les exclusions visibles ici pour pouvoir les reintegrer sans quitter la revue validation.
               </p>
             </div>
@@ -622,11 +622,11 @@ export function ValidationReviewPanel({
         </section>
       )}
 
-      <section className="rounded-lg border border-[var(--border)] bg-white px-4 py-3">
+      <section className="rounded-lg border border-border bg-surface px-4 py-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-[var(--slate-600)]">
+          <p className="text-sm text-slate-600">
             Prochaine etape :{" "}
-            <span className="font-medium text-[var(--slate-800)]">
+            <span className="font-medium text-slate-800">
               {canOpenApplyWizard
                 ? "L'apply controle est pret. Verifiez l'impact puis confirmez."
                 : (applyReadinessMessage ?? statusMessage)}
@@ -674,10 +674,10 @@ function PriorityCard({
 }) {
   const toneClass =
     tone === "success"
-      ? "border-[var(--success)]/15 bg-[var(--success)]/5 text-[var(--success)]"
+      ? "border-success/15 bg-success/5 text-success"
       : tone === "error"
-        ? "border-[var(--danger)]/15 bg-[var(--danger)]/5 text-[var(--danger)]"
-        : "border-[var(--warning)]/15 bg-[var(--warning)]/5 text-[var(--warning)]";
+        ? "border-danger/15 bg-danger/5 text-danger"
+        : "border-warning/15 bg-warning/5 text-warning";
 
   return (
     <div className={`rounded-xl border px-3 py-3 ${toneClass}`}>
@@ -698,15 +698,15 @@ function SummaryCard({
   variant: "success" | "warning" | "error" | "neutral";
 }) {
   const colorMap = {
-    success: "text-[var(--success)]",
-    warning: "text-[var(--warning)]",
-    error: "text-[var(--danger)]",
-    neutral: "text-[var(--slate-800)]",
+    success: "text-success",
+    warning: "text-warning",
+    error: "text-danger",
+    neutral: "text-slate-800",
   };
 
   return (
-    <div className="rounded-md border border-[var(--border)] bg-[var(--slate-50)] px-3 py-2">
-      <p className="text-xs text-[var(--slate-500)]">{label}</p>
+    <div className="rounded-md border border-border bg-surface-subtle px-3 py-2">
+      <p className="text-xs text-muted-foreground">{label}</p>
       <p className={`text-lg font-semibold ${colorMap[variant]}`}>{value}</p>
     </div>
   );
@@ -744,7 +744,7 @@ function ValidationItemRow({
       : "Ajouter une preuve";
 
   return (
-    <div className="rounded-xl border border-[var(--border)] bg-white px-4 py-4">
+    <div className="rounded-xl border border-border bg-surface px-4 py-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -767,13 +767,13 @@ function ValidationItemRow({
             )}
           </div>
 
-          <p className="mt-3 text-sm font-semibold text-[var(--slate-900)]">
+          <p className="mt-3 text-sm font-semibold text-foreground">
             {item.designation || "(sans designation)"}
           </p>
 
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--slate-500)]">
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
             <span>
-              <span className="font-medium text-[var(--slate-700)]">{item.quantity}</span>{" "}
+              <span className="font-medium text-foreground-secondary">{item.quantity}</span>{" "}
               {item.unit}
             </span>
             {item.source_file_name ? (
@@ -788,14 +788,14 @@ function ValidationItemRow({
             )}
           </div>
 
-          <div className="mt-3 rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-2 text-sm text-[var(--slate-700)]">
+          <div className="mt-3 rounded-lg border border-border bg-surface-subtle px-3 py-2 text-sm text-foreground-secondary">
             {item.evidence ? item.evidence : "Aucune preuve textuelle n'est renseignee pour cet item."}
           </div>
 
           {(item._saving || item._error) && (
             <p
               className={`mt-2 text-xs ${
-                item._error ? "text-[var(--danger)]" : "text-[var(--slate-500)]"
+                item._error ? "text-danger" : "text-muted-foreground"
               }`}
               role="status"
             >

@@ -32,7 +32,7 @@ export function Input({
   return (
     <div className="space-y-1.5">
       {label ? (
-        <label className="block font-body text-sm font-medium text-slate-700" htmlFor={inputId}>
+        <label className="block font-body text-sm font-medium text-foreground-secondary" htmlFor={inputId}>
           {label}
         </label>
       ) : null}
@@ -40,12 +40,12 @@ export function Input({
       <div
         className={cn(
           "group flex h-[var(--density-input-h)] items-center rounded-button border bg-surface transition",
-          "border-slate-200 hover:border-slate-300 focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/12",
+          "border-border hover:border-border-strong focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/12",
           error ? "border-danger" : null
         )}
       >
         {prefix ? (
-          <span className="flex h-full items-center pl-3 text-slate-500">{prefix}</span>
+          <span className="flex h-full items-center pl-3 text-muted-foreground">{prefix}</span>
         ) : null}
 
         <input
@@ -65,7 +65,7 @@ export function Input({
         />
 
         {suffix ? (
-          <span className="flex h-full items-center pr-3 text-slate-500">{suffix}</span>
+          <span className="flex h-full items-center pr-3 text-muted-foreground">{suffix}</span>
         ) : null}
       </div>
 
@@ -76,7 +76,7 @@ export function Input({
       ) : null}
 
       {!error && helperText ? (
-        <p id={helperId ?? undefined} className="typo-caption text-slate-500">
+        <p id={helperId ?? undefined} className="typo-caption text-muted-foreground">
           {helperText}
         </p>
       ) : null}

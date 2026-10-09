@@ -34,11 +34,11 @@ export function GuardPanel({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-[var(--warning)] bg-warning-light p-4">
-        <p className="flex items-center gap-2 text-sm font-semibold text-[var(--warning)]">
+      <div className="rounded-xl border border-warning bg-warning-light p-4">
+        <p className="flex items-center gap-2 text-sm font-semibold text-warning">
           <span aria-hidden="true">&#9888;</span> Preuves à compléter
         </p>
-        <p className="mt-2 text-sm text-[var(--slate-700)]">
+        <p className="mt-2 text-sm text-foreground-secondary">
           {guardResult.blocked_items.length} item
           {guardResult.blocked_items.length > 1 ? "s sont bloqués" : " est bloqué"} :
           confiance faible non validée, preuve absente ou page source introuvable.
@@ -59,9 +59,9 @@ export function GuardPanel({
         ) : null}
       </div>
 
-      <div className="max-h-[200px] overflow-auto rounded-xl border border-[var(--slate-200)]">
+      <div className="max-h-[200px] overflow-auto rounded-xl border border-border">
         <table className="min-w-full text-sm">
-          <thead className="bg-[var(--slate-50)] text-left text-xs uppercase tracking-wide text-[var(--slate-600)]">
+          <thead className="bg-surface-subtle text-left text-xs uppercase tracking-wide text-slate-600">
             <tr>
               <th className="px-3 py-2">Désignation</th>
               <th className="px-3 py-2">Blocage</th>
@@ -72,12 +72,12 @@ export function GuardPanel({
             {guardResult.blocked_items.map((blocked) => (
               <tr
                 key={blocked.item_id}
-                className="border-t border-[var(--slate-200)]"
+                className="border-t border-border"
               >
-                <td className="px-3 py-2 text-[var(--slate-800)]">
+                <td className="px-3 py-2 text-slate-800">
                   {blocked.designation}
                 </td>
-                <td className="px-3 py-2 text-xs text-[var(--slate-600)]">
+                <td className="px-3 py-2 text-xs text-slate-600">
                   {blocked.reasons
                     .map((reason) => APPLY_GUARD_REASON_LABELS[reason])
                     .join(" · ")}
@@ -94,21 +94,21 @@ export function GuardPanel({
       </div>
 
       {guardResult.medium_items.length > 0 && (
-        <div className="rounded-xl border border-[var(--info)] bg-info-light p-3">
-          <p className="text-xs font-semibold text-[var(--info)]">
+        <div className="rounded-xl border border-info bg-info-light p-3">
+          <p className="text-xs font-semibold text-info">
             Confiance moyenne (non bloquante)
           </p>
-          <p className="mt-1 text-xs text-[var(--slate-600)]">
+          <p className="mt-1 text-xs text-slate-600">
             {guardResult.medium_items.length} item
             {guardResult.medium_items.length > 1 ? "s ont" : " a"} une confiance
             comprise entre {Math.round(guardResult.threshold * 100)} % et 80 %.
             Un contrôle humain reste recommandé.
           </p>
           <details className="mt-2">
-            <summary className="cursor-pointer text-xs text-[var(--info)]">
+            <summary className="cursor-pointer text-xs text-info">
               Voir les items ({guardResult.medium_items.length})
             </summary>
-            <ul className="mt-1 space-y-1 text-xs text-[var(--slate-600)]">
+            <ul className="mt-1 space-y-1 text-xs text-slate-600">
               {guardResult.medium_items.map((medium) => (
                 <li key={medium.item_id} className="flex items-center justify-between">
                   <span>{medium.designation}</span>
@@ -123,18 +123,18 @@ export function GuardPanel({
       )}
 
       {isAdmin && (
-        <div className="rounded-xl border border-[var(--danger)] bg-error-light p-4">
-          <p className="text-xs font-semibold text-[var(--danger)]">
+        <div className="rounded-xl border border-danger bg-error-light p-4">
+          <p className="text-xs font-semibold text-danger">
             Dérogation administrateur
           </p>
-          <p className="mt-1 text-xs text-[var(--slate-600)]">
+          <p className="mt-1 text-xs text-slate-600">
             Cette dérogation contourne les blocages ci-dessus. Elle exige une
             justification précise, sera enregistrée dans le journal d&apos;audit et
             ne remplace pas les preuves manquantes.
           </p>
           <label
             htmlFor={justificationId}
-            className="mt-3 block text-xs font-medium text-[var(--slate-700)]"
+            className="mt-3 block text-xs font-medium text-foreground-secondary"
           >
             Justification de la dérogation
           </label>
@@ -149,12 +149,12 @@ export function GuardPanel({
             maxLength={500}
             autoComplete="off"
           />
-          <p className="mt-1 text-right text-xs text-[var(--slate-500)] tabular-nums">
+          <p className="mt-1 text-right text-xs text-muted-foreground tabular-nums">
             {overrideJustification.length}/500
           </p>
           <button
             type="button"
-            className="btn btn-sm mt-2 border-[var(--danger)] bg-[var(--danger)] text-white hover:opacity-90"
+            className="btn btn-sm mt-2 border-danger bg-danger text-white hover:opacity-90"
             onClick={onOverrideConfirm}
             disabled={
               !canOverride || justificationLength < 10 || justificationLength > 500
@@ -163,7 +163,7 @@ export function GuardPanel({
             Appliquer avec dérogation
           </button>
           {!canOverride ? (
-            <p className="mt-2 text-xs text-[var(--danger)]" role="status">
+            <p className="mt-2 text-xs text-danger" role="status">
               Un aperçu d’impact à jour est requis avant toute dérogation.
             </p>
           ) : null}

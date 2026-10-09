@@ -30,18 +30,18 @@ export function EmptyState({
   return (
     <div
       className={cn(
-        "animate-fade-in flex flex-col items-center justify-center rounded-2xl border border-dashed border-[var(--slate-200)] bg-[var(--slate-50)]/70 px-6 py-12 text-center",
+        "animate-fade-in flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-surface-subtle/70 px-6 py-12 text-center",
         className
       )}
     >
-      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-white text-[var(--slate-400)] shadow-sm ring-1 ring-[var(--slate-200)]">
+      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-surface text-subtle-foreground shadow-sm ring-1 ring-slate-200">
         {icon}
       </div>
 
-      <Heading className="text-base font-semibold text-[var(--slate-800)]">
+      <Heading className="text-base font-semibold text-slate-800">
         {title}
       </Heading>
-      <p className="mt-1 max-w-md text-sm text-[var(--slate-500)]">
+      <p className="mt-1 max-w-md text-sm text-muted-foreground">
         {description}
       </p>
 

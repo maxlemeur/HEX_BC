@@ -47,15 +47,15 @@ export function OverrideCard({
   return (
     <div
       data-testid={`estimate-structure-draft-node-${node.id}`}
-      className="rounded-xl border border-[var(--slate-200)] bg-white p-4"
+      className="rounded-xl border border-border bg-surface p-4"
     >
       <div
         className="flex flex-wrap items-center gap-3"
         style={{ paddingLeft: `${(node.hierarchyLevel - 1) * 18}px` }}
       >
         <div className="min-w-0 flex-1">
-          <p className="font-medium text-[var(--slate-900)]">{node.path.join(" > ")}</p>
-          <p className="mt-1 text-xs text-[var(--slate-500)]">{confidenceText(node)}</p>
+          <p className="font-medium text-foreground">{node.path.join(" > ")}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{confidenceText(node)}</p>
         </div>
         <select
           className="input h-9 min-w-[170px]"
@@ -112,15 +112,15 @@ export function OverrideCard({
             ))}
           </select>
           {mergeGuidanceText ? (
-            <p className="mt-2 text-xs text-[var(--amber-700)]">{mergeGuidanceText}</p>
+            <p className="mt-2 text-xs text-warning">{mergeGuidanceText}</p>
           ) : null}
         </label>
 
-        <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--slate-500)]">
+        <div className="rounded-xl border border-border bg-surface-subtle p-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
             Preuve
           </p>
-          <p className="mt-2 text-sm text-[var(--slate-700)]">
+          <p className="mt-2 text-sm text-foreground-secondary">
             {node.provenance.length > 0
               ? node.provenance
                   .map((entry) =>

@@ -25,7 +25,7 @@ const LazyColumnMapper = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="dashboard-card p-8 text-center text-sm text-[var(--slate-500)]">
+      <div className="dashboard-card p-8 text-center text-sm text-muted-foreground">
         Chargement du mapping…
       </div>
     ),
@@ -147,8 +147,8 @@ export function MappingStep({
     return (
       <div className="dashboard-card p-8 text-center">
         <div className="mx-auto flex items-center justify-center gap-2">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--slate-200)] border-t-[var(--brand-blue)]" />
-          <span className="text-sm text-[var(--slate-500)]">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-primary" />
+          <span className="text-sm text-muted-foreground">
             Analyse des colonnes…
           </span>
         </div>
@@ -168,7 +168,7 @@ export function MappingStep({
     <div className="space-y-4">
       {templateExactMatch && (
         <div
-          className="rounded-xl border border-[var(--success)]/20 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+          className="rounded-xl border border-success/20 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
           role="status"
           aria-label={`Mapping applique depuis le template ${templateExactMatch.name}`}
         >
@@ -185,12 +185,12 @@ export function MappingStep({
 
       {autoAdvanced && showMapping && autoValidation?.can_auto_validate && (
         <div
-          className="rounded-xl border border-[var(--info)]/20 bg-[var(--info)]/5 px-4 py-3 text-sm text-[var(--slate-700)]"
+          className="rounded-xl border border-info/20 bg-info/5 px-4 py-3 text-sm text-foreground-secondary"
           role="status"
           aria-label="Mapping automatique applique"
         >
           <p className="font-medium">Mapping automatique applique</p>
-          <p className="mt-0.5 text-xs text-[var(--slate-500)]">
+          <p className="mt-0.5 text-xs text-muted-foreground">
             Vous avez choisi de modifier le mapping. Verifiez et ajustez les correspondances ci-dessous.
           </p>
         </div>

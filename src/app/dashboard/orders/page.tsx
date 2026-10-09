@@ -698,12 +698,12 @@ export default function OrdersPage() {
       {/* Table card */}
       <div className="dashboard-card overflow-visible">
         {/* Card header */}
-        <div className="flex flex-col gap-3 border-b border-[var(--slate-200)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+        <div className="flex flex-col gap-3 border-b border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <div className="flex items-center gap-3">
-            <h2 className="text-sm font-semibold text-[var(--slate-800)]">
+            <h2 className="text-sm font-semibold text-slate-800">
               Tous les bons
             </h2>
-            <span className="rounded-full bg-[var(--slate-100)] px-2.5 py-0.5 text-xs font-medium text-[var(--slate-600)]">
+            <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-slate-600">
               {orders.length}
             </span>
           </div>
@@ -740,12 +740,12 @@ export default function OrdersPage() {
         </div>
 
         {/* Mobile and tablet cards */}
-        <div className="divide-y divide-[var(--slate-200)] xl:hidden">
+        <div className="divide-y divide-border xl:hidden">
           {displayedOrders.length === 0 ? (
             <div className="p-4 sm:p-6">
               {isLoading ? (
-                <div className="flex min-h-40 flex-col items-center justify-center gap-3 text-sm text-[var(--slate-500)]">
-                  <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--slate-200)] border-t-[var(--brand-blue)]" />
+                <div className="flex min-h-40 flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
+                  <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-primary" />
                   Chargement des commandes...
                 </div>
               ) : orders.length === 0 ? (
@@ -804,12 +804,12 @@ export default function OrdersPage() {
               <article key={order.id} className="p-4 sm:p-5">
                 <div className="flex min-w-0 items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--slate-400)]">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-subtle-foreground">
                       Bon de commande
                     </p>
                     <Link
                       href={`/dashboard/orders/${order.id}`}
-                      className="mt-1 block break-words text-base font-semibold text-[var(--brand-blue)] hover:underline"
+                      className="mt-1 block break-words text-base font-semibold text-primary hover:underline"
                     >
                       {order.reference}
                     </Link>
@@ -821,39 +821,39 @@ export default function OrdersPage() {
 
                 <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
                   <div className="col-span-2 min-w-0">
-                    <dt className="text-xs text-[var(--slate-400)]">Fournisseur</dt>
-                    <dd className="mt-0.5 truncate font-medium text-[var(--slate-800)]">
+                    <dt className="text-xs text-subtle-foreground">Fournisseur</dt>
+                    <dd className="mt-0.5 truncate font-medium text-slate-800">
                       {relatedName(order.suppliers)}
                     </dd>
                   </div>
                   <div className="min-w-0">
-                    <dt className="text-xs text-[var(--slate-400)]">Chantier</dt>
-                    <dd className="mt-0.5 truncate text-[var(--slate-700)]">
+                    <dt className="text-xs text-subtle-foreground">Chantier</dt>
+                    <dd className="mt-0.5 truncate text-foreground-secondary">
                       {relatedName(order.delivery_sites)}
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-xs text-[var(--slate-400)]">Création</dt>
-                    <dd className="mt-0.5 text-[var(--slate-700)]">{formatDate(order.created_at)}</dd>
+                    <dt className="text-xs text-subtle-foreground">Création</dt>
+                    <dd className="mt-0.5 text-foreground-secondary">{formatDate(order.created_at)}</dd>
                   </div>
                   <div>
-                    <dt className="text-xs text-[var(--slate-400)]">Livraison</dt>
-                    <dd className="mt-0.5 text-[var(--slate-700)]">
+                    <dt className="text-xs text-subtle-foreground">Livraison</dt>
+                    <dd className="mt-0.5 text-foreground-secondary">
                       {formatDate(order.expected_delivery_date)}
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-xs text-[var(--slate-400)]">Documents</dt>
-                    <dd className="mt-0.5 text-[var(--slate-700)]">
+                    <dt className="text-xs text-subtle-foreground">Documents</dt>
+                    <dd className="mt-0.5 text-foreground-secondary">
                       {order.devis_count} devis
                     </dd>
                   </div>
                 </dl>
 
-                <div className="mt-4 flex items-end justify-between gap-3 border-t border-[var(--slate-100)] pt-4">
+                <div className="mt-4 flex items-end justify-between gap-3 border-t border-border-subtle pt-4">
                   <div>
-                    <p className="text-xs text-[var(--slate-400)]">Total HT</p>
-                    <p className="mt-0.5 font-mono text-base font-semibold text-[var(--slate-900)]">
+                    <p className="text-xs text-subtle-foreground">Total HT</p>
+                    <p className="mt-0.5 font-mono text-base font-semibold text-foreground">
                       {formatEUR(order.total_ht_cents)}
                     </p>
                   </div>
@@ -892,8 +892,8 @@ export default function OrdersPage() {
                   <td colSpan={9} className="text-center py-12">
                     {isLoading ? (
                       <div className="flex flex-col items-center gap-3">
-                        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--slate-200)] border-t-[var(--brand-blue)]"></div>
-                        <span className="text-[var(--slate-500)]">Chargement des commandes...</span>
+                        <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-primary"></div>
+                        <span className="text-muted-foreground">Chargement des commandes...</span>
                       </div>
                     ) : orders.length === 0 ? (
                       <EmptyState
@@ -1061,13 +1061,13 @@ export default function OrdersPage() {
                         <td>
                           <Link
                             href={`/dashboard/orders/${order.id}`}
-                            className="font-semibold text-[var(--brand-blue)] hover:text-[var(--brand-blue-light)] hover:underline"
+                            className="font-semibold text-primary hover:text-brand-blue-light hover:underline"
                           >
                             {order.reference}
                           </Link>
                         </td>
                         <td>{formatDate(order.created_at)}</td>
-                        <td className="font-medium text-[var(--slate-800)]">
+                        <td className="font-medium text-slate-800">
                           {relatedName(order.suppliers)}
                         </td>
                         <td>{relatedName(order.delivery_sites)}</td>
@@ -1077,7 +1077,7 @@ export default function OrdersPage() {
                             {statusLabel(order.status)}
                           </span>
                         </td>
-                        <td className="text-right font-mono font-medium text-[var(--slate-800)]">
+                        <td className="text-right font-mono font-medium text-slate-800">
                           {formatEUR(order.total_ht_cents)}
                         </td>
                         <td className="text-right">
@@ -1117,16 +1117,16 @@ export default function OrdersPage() {
                               {/* Articles Section */}
                               <div className="mb-2">
                                 <div className="mb-4 flex items-center gap-4">
-                                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--brand-orange)]/10">
-                                    <svg className="h-4 w-4 text-[var(--brand-orange)]" viewBox="0 0 20 20" fill="currentColor">
+                                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-orange/10">
+                                    <svg className="h-4 w-4 text-brand-orange" viewBox="0 0 20 20" fill="currentColor">
                                       <path fillRule="evenodd" d="M6 5v1H4.667a1.75 1.75 0 00-1.743 1.598l-.826 9.5A1.75 1.75 0 003.84 19H16.16a1.75 1.75 0 001.743-1.902l-.826-9.5A1.75 1.75 0 0015.333 6H14V5a4 4 0 00-8 0zm4-2.5A2.5 2.5 0 007.5 5v1h5V5A2.5 2.5 0 0010 2.5zM7.5 10a2.5 2.5 0 005 0V8.75a.75.75 0 011.5 0V10a4 4 0 01-8 0V8.75a.75.75 0 011.5 0V10z" clipRule="evenodd" />
                                     </svg>
                                   </div>
-                                  <h4 className="text-sm font-semibold text-[var(--slate-800)]">
+                                  <h4 className="text-sm font-semibold text-slate-800">
                                     Articles commandes
                                   </h4>
                                   {items && Array.isArray(items) && items.length > 0 && (
-                                    <span className="ml-2 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-[var(--brand-orange)]/15 px-1.5 text-[11px] font-semibold leading-none text-[var(--brand-orange)] ring-1 ring-[var(--brand-orange)]/20">
+                                    <span className="ml-2 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-brand-orange/15 px-1.5 text-[11px] font-semibold leading-none text-brand-orange ring-1 ring-brand-orange/20">
                                       {items.length}
                                     </span>
                                   )}
@@ -1134,29 +1134,29 @@ export default function OrdersPage() {
                               </div>
 
                               {items === "loading" ? (
-                                <div className="flex items-center gap-3 rounded-xl border border-[var(--slate-100)] bg-white p-4">
-                                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--slate-200)] border-t-[var(--brand-blue)]"></div>
-                                  <span className="text-sm text-[var(--slate-500)]">Chargement des articles...</span>
+                                <div className="flex items-center gap-3 rounded-xl border border-border-subtle bg-surface p-4">
+                                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-primary"></div>
+                                  <span className="text-sm text-muted-foreground">Chargement des articles...</span>
                                 </div>
                               ) : items === "error" ? (
-                                <div className="rounded-xl border border-[var(--error)]/20 bg-[var(--error-light)] px-4 py-3 text-sm text-[var(--error)]">
+                                <div className="rounded-xl border border-danger/20 bg-danger-light px-4 py-3 text-sm text-danger">
                                   Erreur lors du chargement des articles.
                                 </div>
                               ) : items && items.length > 0 ? (
-                                <div className="rounded-xl border border-[var(--slate-100)] bg-[var(--slate-50)]/70 p-2">
+                                <div className="rounded-xl border border-border-subtle bg-surface-subtle/70 p-2">
                                   <table className="w-full border-separate border-spacing-y-2 text-[15px] leading-relaxed">
                                     <thead>
-                                      <tr className="border-b border-[var(--slate-100)] bg-[var(--slate-50)]/70">
-                                        <th className="bg-[var(--slate-50)] px-6 py-4 text-left text-[12px] font-semibold uppercase tracking-[0.14em] text-[var(--slate-500)] first:rounded-l-lg last:rounded-r-lg">
+                                      <tr className="border-b border-border-subtle bg-surface-subtle/70">
+                                        <th className="bg-surface-subtle px-6 py-4 text-left text-[12px] font-semibold uppercase tracking-[0.14em] text-muted-foreground first:rounded-l-lg last:rounded-r-lg">
                                           Designation
                                         </th>
-                                        <th className="w-20 bg-[var(--slate-50)] px-6 py-4 text-center text-[12px] font-semibold uppercase tracking-[0.14em] text-[var(--slate-500)] first:rounded-l-lg last:rounded-r-lg">
+                                        <th className="w-20 bg-surface-subtle px-6 py-4 text-center text-[12px] font-semibold uppercase tracking-[0.14em] text-muted-foreground first:rounded-l-lg last:rounded-r-lg">
                                           Qte
                                         </th>
-                                        <th className="w-28 bg-[var(--slate-50)] px-6 py-4 text-right text-[12px] font-semibold uppercase tracking-[0.14em] text-[var(--slate-500)] first:rounded-l-lg last:rounded-r-lg">
+                                        <th className="w-28 bg-surface-subtle px-6 py-4 text-right text-[12px] font-semibold uppercase tracking-[0.14em] text-muted-foreground first:rounded-l-lg last:rounded-r-lg">
                                           P.U. HT
                                         </th>
-                                        <th className="w-28 bg-[var(--slate-50)] px-6 py-4 text-right text-[12px] font-semibold uppercase tracking-[0.14em] text-[var(--slate-500)] first:rounded-l-lg last:rounded-r-lg">
+                                        <th className="w-28 bg-surface-subtle px-6 py-4 text-right text-[12px] font-semibold uppercase tracking-[0.14em] text-muted-foreground first:rounded-l-lg last:rounded-r-lg">
                                           Total HT
                                         </th>
                                       </tr>
@@ -1164,18 +1164,18 @@ export default function OrdersPage() {
                                     <tbody>
                                       {items.map((item) => (
                                         <tr key={item.id} className="transition-colors hover:brightness-[0.99]">
-                                          <td className="bg-white px-6 py-6 text-[var(--slate-700)] first:rounded-l-xl last:rounded-r-xl">
+                                          <td className="bg-surface px-6 py-6 text-foreground-secondary first:rounded-l-xl last:rounded-r-xl">
                                             {item.designation?.trim() || item.reference?.trim() || "-"}
                                           </td>
-                                          <td className="bg-white px-6 py-6 text-center first:rounded-l-xl last:rounded-r-xl">
-                                            <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-md bg-[var(--slate-100)] px-2 text-[12px] font-semibold leading-none text-[var(--slate-700)]">
+                                          <td className="bg-surface px-6 py-6 text-center first:rounded-l-xl last:rounded-r-xl">
+                                            <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-md bg-muted px-2 text-[12px] font-semibold leading-none text-foreground-secondary">
                                               {item.quantity}
                                             </span>
                                           </td>
-                                          <td className="bg-white px-6 py-6 text-right font-mono text-[14px] text-[var(--slate-600)] first:rounded-l-xl last:rounded-r-xl">
+                                          <td className="bg-surface px-6 py-6 text-right font-mono text-[14px] text-slate-600 first:rounded-l-xl last:rounded-r-xl">
                                             {formatEUR(item.unit_price_ht_cents)}
                                           </td>
-                                          <td className="bg-white px-6 py-6 text-right font-mono text-[14px] font-semibold text-[var(--slate-800)] first:rounded-l-xl last:rounded-r-xl">
+                                          <td className="bg-surface px-6 py-6 text-right font-mono text-[14px] font-semibold text-slate-800 first:rounded-l-xl last:rounded-r-xl">
                                             {formatEUR(item.line_total_ht_cents)}
                                           </td>
                                         </tr>
@@ -1184,42 +1184,42 @@ export default function OrdersPage() {
                                   </table>
                                 </div>
                               ) : (
-                                <div className="rounded-xl border-2 border-dashed border-[var(--slate-200)] bg-[var(--slate-50)]/50 px-6 py-8 text-center">
-                                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--slate-100)]">
-                                    <svg className="h-6 w-6 text-[var(--slate-400)]" viewBox="0 0 20 20" fill="currentColor">
+                                <div className="rounded-xl border-2 border-dashed border-border bg-surface-subtle/50 px-6 py-8 text-center">
+                                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-muted">
+                                    <svg className="h-6 w-6 text-subtle-foreground" viewBox="0 0 20 20" fill="currentColor">
                                       <path fillRule="evenodd" d="M6 5v1H4.667a1.75 1.75 0 00-1.743 1.598l-.826 9.5A1.75 1.75 0 003.84 19H16.16a1.75 1.75 0 001.743-1.902l-.826-9.5A1.75 1.75 0 0015.333 6H14V5a4 4 0 00-8 0zm4-2.5A2.5 2.5 0 007.5 5v1h5V5A2.5 2.5 0 0010 2.5z" clipRule="evenodd" />
                                     </svg>
                                   </div>
-                                  <p className="mt-3 text-sm font-medium text-[var(--slate-600)]">
+                                  <p className="mt-3 text-sm font-medium text-slate-600">
                                     Aucun article
                                   </p>
-                                  <p className="mt-1 text-xs text-[var(--slate-400)]">
+                                  <p className="mt-1 text-xs text-subtle-foreground">
                                     Cette commande ne contient pas d&apos;articles
                                   </p>
                                 </div>
                               )}
 
                               {/* Devis Section */}
-                              <div className="mt-6 border-t border-[var(--slate-200)] pt-5">
+                              <div className="mt-6 border-t border-border pt-5">
                                 <div className="mb-4 flex items-center justify-between">
                                   <div className="flex items-center gap-4">
-                                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--brand-blue)]/10">
-                                      <svg className="h-4 w-4 text-[var(--brand-blue)]" viewBox="0 0 20 20" fill="currentColor">
+                                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+                                      <svg className="h-4 w-4 text-primary" viewBox="0 0 20 20" fill="currentColor">
                                         <path fillRule="evenodd" d="M4.5 2A1.5 1.5 0 003 3.5v13A1.5 1.5 0 004.5 18h11a1.5 1.5 0 001.5-1.5V7.621a1.5 1.5 0 00-.44-1.06l-4.12-4.122A1.5 1.5 0 0011.378 2H4.5zm2.25 8.5a.75.75 0 000 1.5h6.5a.75.75 0 000-1.5h-6.5zm0 3a.75.75 0 000 1.5h6.5a.75.75 0 000-1.5h-6.5z" clipRule="evenodd" />
                                       </svg>
                                     </div>
-                                    <h4 className="text-sm font-semibold text-[var(--slate-800)]">
+                                    <h4 className="text-sm font-semibold text-slate-800">
                                       Documents joints
                                     </h4>
                                     {order.devis_count > 0 && (
-                                      <span className="ml-2 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-[var(--brand-blue)]/15 px-1.5 text-[11px] font-semibold leading-none text-[var(--brand-blue)] ring-1 ring-[var(--brand-blue)]/20">
+                                      <span className="ml-2 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary/15 px-1.5 text-[11px] font-semibold leading-none text-primary ring-1 ring-primary/20">
                                         {order.devis_count}
                                       </span>
                                     )}
                                   </div>
                                   <Link
                                     href={`/dashboard/orders/${order.id}`}
-                                    className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-[var(--brand-blue)] transition-colors hover:bg-[var(--brand-blue)]/5"
+                                    className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/5"
                                   >
                                     <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
                                       <path d="M5.433 13.917l1.262-3.155A4 4 0 017.58 9.42l6.92-6.918a2.121 2.121 0 013 3l-6.92 6.918c-.383.383-.84.685-1.343.886l-3.154 1.262a.5.5 0 01-.65-.65z" />
@@ -1233,9 +1233,9 @@ export default function OrdersPage() {
                                 {order.status === "draft" && (
                                   <div className="mb-4">
                                     {showUploaderForOrder === order.id ? (
-                                      <div className="rounded-xl border border-[var(--slate-200)] bg-white p-4">
+                                      <div className="rounded-xl border border-border bg-surface p-4">
                                         <div className="mb-3 flex items-center justify-between">
-                                          <h5 className="text-sm font-medium text-[var(--slate-700)]">
+                                          <h5 className="text-sm font-medium text-foreground-secondary">
                                             Ajouter des documents
                                           </h5>
                                           <button
@@ -1246,7 +1246,7 @@ export default function OrdersPage() {
                                               // Also refresh the main orders list to update devis_count
                                               void mutate();
                                             }}
-                                            className="text-xs text-[var(--slate-500)] hover:text-[var(--slate-700)]"
+                                            className="text-xs text-muted-foreground hover:text-foreground-secondary"
                                             type="button"
                                           >
                                             Fermer
@@ -1266,7 +1266,7 @@ export default function OrdersPage() {
                                     ) : (
                                       <button
                                         onClick={() => setShowUploaderForOrder(order.id)}
-                                        className="inline-flex items-center gap-2 rounded-lg border border-dashed border-[var(--slate-300)] px-4 py-2.5 text-sm font-medium text-[var(--slate-600)] transition-colors hover:border-[var(--brand-orange)] hover:bg-[var(--brand-orange)]/5 hover:text-[var(--brand-orange)]"
+                                        className="inline-flex items-center gap-2 rounded-lg border border-dashed border-border-strong px-4 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:border-brand-orange hover:bg-brand-orange/5 hover:text-brand-orange"
                                         type="button"
                                       >
                                         <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
@@ -1279,12 +1279,12 @@ export default function OrdersPage() {
                                 )}
 
                                 {devis === "loading" ? (
-                                  <div className="flex items-center gap-3 rounded-xl border border-[var(--slate-100)] bg-white p-4">
-                                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--slate-200)] border-t-[var(--brand-blue)]"></div>
-                                    <span className="text-sm text-[var(--slate-500)]">Chargement des documents...</span>
+                                  <div className="flex items-center gap-3 rounded-xl border border-border-subtle bg-surface p-4">
+                                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-primary"></div>
+                                    <span className="text-sm text-muted-foreground">Chargement des documents...</span>
                                   </div>
                                 ) : devis === "error" ? (
-                                  <div className="rounded-xl border border-[var(--error)]/20 bg-[var(--error-light)] px-4 py-3 text-sm text-[var(--error)]">
+                                  <div className="rounded-xl border border-danger/20 bg-danger-light px-4 py-3 text-sm text-danger">
                                     Erreur lors du chargement des documents.
                                   </div>
                                 ) : devis && devis.length > 0 ? (
@@ -1292,19 +1292,19 @@ export default function OrdersPage() {
                                     {devis.map((item) => (
                                       <div
                                         key={item.id}
-                                        className="group flex items-center gap-4 rounded-xl border border-[var(--slate-100)] bg-white p-4 transition-all hover:border-[var(--slate-200)] hover:shadow-sm"
+                                        className="group flex items-center gap-4 rounded-xl border border-border-subtle bg-surface p-4 transition-all hover:border-border hover:shadow-sm"
                                       >
                                         <FileTypeIcon mimeType={item.mimeType} filename={item.originalFilename} className="!h-11 !w-11 !rounded-xl flex-shrink-0" />
                                         <div className="min-w-0 flex-1">
-                                          <p className="truncate text-sm font-semibold text-[var(--slate-800)]">
+                                          <p className="truncate text-sm font-semibold text-slate-800">
                                             {item.name}
                                           </p>
-                                          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-[var(--slate-500)]">
+                                          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
                                             <span className="truncate font-mono" title={item.originalFilename}>
                                               {item.originalFilename}
                                             </span>
                                             <span className="flex items-center gap-1.5">
-                                              <span className="h-1 w-1 rounded-full bg-[var(--slate-300)]" />
+                                              <span className="h-1 w-1 rounded-full bg-slate-300" />
                                               {formatFileSize(item.fileSizeBytes)}
                                             </span>
                                           </div>
@@ -1312,7 +1312,7 @@ export default function OrdersPage() {
                                         <div className="flex items-center gap-2">
                                           {isPreviewableType(item.mimeType) && (
                                             <button
-                                              className="inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-medium text-[var(--slate-600)] transition-colors hover:bg-[var(--slate-100)] hover:text-[var(--slate-800)] disabled:opacity-50"
+                                              className="inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-medium text-slate-600 transition-colors hover:bg-muted hover:text-slate-800 disabled:opacity-50"
                                               onClick={() => setPreviewDevis(item)}
                                               type="button"
                                               disabled={!item.downloadUrl}
@@ -1325,7 +1325,7 @@ export default function OrdersPage() {
                                             </button>
                                           )}
                                           <button
-                                            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[var(--brand-blue)] px-3 text-xs font-medium text-white transition-colors hover:bg-[var(--brand-blue-light)] disabled:opacity-50"
+                                            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-medium text-white transition-colors hover:bg-brand-blue-light disabled:opacity-50"
                                             onClick={() => {
                                               if (item.downloadUrl) {
                                                 window.open(item.downloadUrl, "_blank", "noopener,noreferrer");
@@ -1345,19 +1345,19 @@ export default function OrdersPage() {
                                     ))}
                                   </div>
                                 ) : (
-                                  <div className="rounded-xl border-2 border-dashed border-[var(--slate-200)] bg-[var(--slate-50)]/50 px-6 py-8 text-center">
-                                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--slate-100)]">
-                                      <svg className="h-6 w-6 text-[var(--slate-400)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                                  <div className="rounded-xl border-2 border-dashed border-border bg-surface-subtle/50 px-6 py-8 text-center">
+                                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-muted">
+                                      <svg className="h-6 w-6 text-subtle-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                                         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                                         <polyline points="14 2 14 8 20 8" />
                                         <line x1="16" y1="13" x2="8" y2="13" />
                                         <line x1="16" y1="17" x2="8" y2="17" />
                                       </svg>
                                     </div>
-                                    <p className="mt-3 text-sm font-medium text-[var(--slate-600)]">
+                                    <p className="mt-3 text-sm font-medium text-slate-600">
                                       Aucun document joint
                                     </p>
-                                    <p className="mt-1 text-xs text-[var(--slate-400)]">
+                                    <p className="mt-1 text-xs text-subtle-foreground">
                                       Les devis fournisseurs apparaitront ici
                                     </p>
                                   </div>

@@ -330,8 +330,8 @@ export function MembershipsManager() {
     return (
       <div className="animate-fade-in flex min-h-[400px] items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--slate-200)] border-t-[var(--brand-blue)]"></div>
-          <span className="text-[var(--slate-500)]">Chargement...</span>
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-primary"></div>
+          <span className="text-muted-foreground">Chargement...</span>
         </div>
       </div>
     );
@@ -361,7 +361,7 @@ export function MembershipsManager() {
       {success ? <div className="alert alert-success mb-6">{success}</div> : null}
 
       <div className="dashboard-card p-6 mb-8">
-        <h2 className="text-sm font-semibold text-[var(--slate-800)] mb-4">
+        <h2 className="text-sm font-semibold text-slate-800 mb-4">
           Ajouter un membre
         </h2>
 
@@ -410,7 +410,7 @@ export function MembershipsManager() {
           </div>
 
           <div className="sm:col-span-4 flex items-center justify-between gap-4">
-            <p className="text-xs text-[var(--slate-500)]">
+            <p className="text-xs text-muted-foreground">
               {search.trim().length < 2
                 ? "Saisissez au moins 2 caracteres pour rechercher des profils."
                 : `${candidates.length} candidat(s) disponible(s).`}
@@ -422,7 +422,7 @@ export function MembershipsManager() {
         </form>
 
         {selectedCandidate ? (
-          <div className="mt-4 rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-3 text-xs text-[var(--slate-600)]">
+          <div className="mt-4 rounded-xl border border-border bg-surface-subtle p-3 text-xs text-slate-600">
             Ajout en cours: <span className="font-medium">{selectedCandidate.full_name}</span>
             {selectedCandidate.work_email ? ` (${selectedCandidate.work_email})` : ""}
           </div>
@@ -430,8 +430,8 @@ export function MembershipsManager() {
       </div>
 
       <div className="dashboard-card overflow-hidden">
-        <div className="border-b border-[var(--slate-200)] px-6 py-4">
-          <h2 className="text-sm font-semibold text-[var(--slate-800)]">Membres existants</h2>
+        <div className="border-b border-border px-6 py-4">
+          <h2 className="text-sm font-semibold text-slate-800">Membres existants</h2>
         </div>
 
         <div className="table-scroll">
@@ -448,7 +448,7 @@ export function MembershipsManager() {
             <tbody>
               {memberships.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="py-10 text-center text-[var(--slate-500)]">
+                  <td colSpan={5} className="py-10 text-center text-muted-foreground">
                     Aucun membership.
                   </td>
                 </tr>
@@ -462,11 +462,11 @@ export function MembershipsManager() {
                     <tr key={membership.id}>
                       <td>
                         <div className="flex flex-col">
-                          <span className="font-medium text-[var(--slate-800)]">
+                          <span className="font-medium text-slate-800">
                             {membership.user_full_name}
                           </span>
                           {membership.user_work_email ? (
-                            <span className="text-xs text-[var(--slate-500)]">
+                            <span className="text-xs text-muted-foreground">
                               {membership.user_work_email}
                             </span>
                           ) : null}
@@ -501,10 +501,10 @@ export function MembershipsManager() {
                             Oui
                           </Badge>
                         ) : (
-                          <span className="text-xs text-[var(--slate-500)]">Non</span>
+                          <span className="text-xs text-muted-foreground">Non</span>
                         )}
                       </td>
-                      <td className="text-sm text-[var(--slate-500)]">
+                      <td className="text-sm text-muted-foreground">
                         {formatDate(membership.created_at)}
                       </td>
                       <td>

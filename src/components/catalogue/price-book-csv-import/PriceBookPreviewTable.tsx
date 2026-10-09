@@ -9,8 +9,8 @@ export function PriceBookPreviewTable({
 }>) {
   return (
     <section className="dashboard-card overflow-hidden">
-      <div className="border-b border-[var(--slate-200)] px-6 py-4">
-        <h3 className="text-sm font-semibold text-[var(--slate-800)]">Apercu - 10 premieres lignes</h3>
+      <div className="border-b border-border px-6 py-4">
+        <h3 className="text-sm font-semibold text-slate-800">Apercu - 10 premieres lignes</h3>
       </div>
 
       <div className="table-scroll">
@@ -29,7 +29,7 @@ export function PriceBookPreviewTable({
           <tbody>
             {validation.previewRows.length === 0 ? (
               <tr>
-                <td colSpan={7} className="text-center text-[var(--slate-500)]">
+                <td colSpan={7} className="text-center text-muted-foreground">
                   Aucun apercu disponible.
                 </td>
               </tr>
@@ -59,7 +59,7 @@ export function PriceBookPreviewTable({
                     <td>{row.lineNumber}</td>
                     <td className="text-sm">
                       {supplierResolved ? (
-                        <span className="text-[var(--slate-800)]">
+                        <span className="text-slate-800">
                           {supplierResolved}
                           <span className="ml-1 inline-block rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">OK</span>
                           {row.metadata?.autofilledSupplier ? (
@@ -67,19 +67,19 @@ export function PriceBookPreviewTable({
                           ) : null}
                         </span>
                       ) : supplierCsv ? (
-                        <span className="text-[var(--danger)]">{supplierCsv}</span>
+                        <span className="text-danger">{supplierCsv}</span>
                       ) : (
                         "-"
                       )}
                     </td>
                     <td className="text-sm">
                       {productResolved ? (
-                        <span className="text-[var(--slate-800)]">
+                        <span className="text-slate-800">
                           {productResolved}
                           <span className="ml-1 inline-block rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">OK</span>
                         </span>
                       ) : productCsv ? (
-                        <span className="text-[var(--danger)]">{productCsv}</span>
+                        <span className="text-danger">{productCsv}</span>
                       ) : (
                         "-"
                       )}
@@ -89,7 +89,7 @@ export function PriceBookPreviewTable({
                     <td>
                       <span className={badgeClass}>{badgeLabel}</span>
                     </td>
-                    <td className="text-sm text-[var(--slate-600)]">{row.reason ?? "-"}</td>
+                    <td className="text-sm text-slate-600">{row.reason ?? "-"}</td>
                   </tr>
                 );
               })

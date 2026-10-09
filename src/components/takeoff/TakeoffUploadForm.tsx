@@ -586,10 +586,10 @@ export function TakeoffUploadForm({
     <Wrapper className={wrapperClassName}>
       {!compact && (
         <div className="mb-6">
-          <h2 className="text-lg font-semibold text-[var(--slate-900)]">
+          <h2 className="text-lg font-semibold text-foreground">
             Nouvelle extraction
           </h2>
-          <p className="mt-1 text-sm text-[var(--slate-500)]">
+          <p className="mt-1 text-sm text-muted-foreground">
             {uploadRules.intro}
           </p>
         </div>
@@ -617,8 +617,8 @@ export function TakeoffUploadForm({
           <div
             className={`rounded-xl border-2 border-dashed p-6 text-center transition-colors ${
               dragActive
-                ? "border-[var(--brand-blue)] bg-[var(--brand-blue)]/5"
-                : "border-[var(--slate-300)] bg-[var(--slate-50)] hover:border-[var(--slate-400)]"
+                ? "border-primary bg-primary/5"
+                : "border-border-strong bg-surface-subtle hover:border-slate-400"
             }`}
             role="button"
             tabIndex={submitState === "loading" ? -1 : 0}
@@ -654,37 +654,37 @@ export function TakeoffUploadForm({
               handleFileSelection(event.dataTransfer.files?.[0] ?? null);
             }}
           >
-            <p className="text-sm font-medium text-[var(--slate-700)]">
+            <p className="text-sm font-medium text-foreground-secondary">
               {dragActive
                 ? "Deposez le fichier ici"
                 : "Glissez-deposez un fichier ou cliquez pour parcourir"}
             </p>
-            <p className="mt-1 text-xs text-[var(--slate-500)]">
+            <p className="mt-1 text-xs text-muted-foreground">
               {uploadRules.helperLabel}
             </p>
           </div>
         </div>
 
         {selectedFile ? (
-          <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4">
-            <h3 className="text-sm font-semibold text-[var(--slate-700)]">
+          <div className="rounded-xl border border-border bg-surface-subtle p-4">
+            <h3 className="text-sm font-semibold text-foreground-secondary">
               Recap fichier
             </h3>
-            <dl className="mt-2 grid gap-2 text-sm text-[var(--slate-600)] sm:grid-cols-3">
+            <dl className="mt-2 grid gap-2 text-sm text-slate-600 sm:grid-cols-3">
               <div>
-                <dt className="text-xs uppercase tracking-wide text-[var(--slate-500)]">
+                <dt className="text-xs uppercase tracking-wide text-muted-foreground">
                   Nom
                 </dt>
                 <dd className="mt-1 break-all">{selectedFile.name}</dd>
               </div>
               <div>
-                <dt className="text-xs uppercase tracking-wide text-[var(--slate-500)]">
+                <dt className="text-xs uppercase tracking-wide text-muted-foreground">
                   Taille
                 </dt>
                 <dd className="mt-1">{formatFileSize(selectedFile.size)}</dd>
               </div>
               <div>
-                <dt className="text-xs uppercase tracking-wide text-[var(--slate-500)]">
+                <dt className="text-xs uppercase tracking-wide text-muted-foreground">
                   Type
                 </dt>
                 <dd className="mt-1">{selectedFile.type || "Type MIME inconnu"}</dd>
@@ -694,26 +694,26 @@ export function TakeoffUploadForm({
         ) : null}
 
         {selectedFile && recommendation ? (
-          <div className="rounded-xl border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 p-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-[var(--slate-500)]">
+          <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Detection document
             </p>
-            <p className="mt-1 text-sm font-semibold text-[var(--slate-800)]">
+            <p className="mt-1 text-sm font-semibold text-slate-800">
               {TAKEOFF_DOCUMENT_CLASS_LABELS[recommendation.documentClass]}
             </p>
-            <p className="mt-2 text-sm text-[var(--slate-700)]">
+            <p className="mt-2 text-sm text-foreground-secondary">
               Niveau recommande :{" "}
               {recommendation.recommendedLevel ? (
-                <span className="font-semibold text-[var(--brand-blue)]">
+                <span className="font-semibold text-primary">
                   {TAKEOFF_LEVEL_BUSINESS_LABELS[recommendation.recommendedLevel]}
                 </span>
               ) : (
-                <span className="font-semibold text-[var(--warning)]">
+                <span className="font-semibold text-warning">
                   Choix manuel requis
                 </span>
               )}
             </p>
-            <p className="mt-1 text-xs text-[var(--slate-500)]">
+            <p className="mt-1 text-xs text-muted-foreground">
               Niveaux compatibles :{" "}
               {compatibleLevels.map((levelOption) => TAKEOFF_LEVEL_BUSINESS_LABELS[levelOption]).join(", ")}
             </p>
@@ -721,8 +721,8 @@ export function TakeoffUploadForm({
               <div
                 className={`mt-3 rounded-lg border px-3 py-2 text-xs ${
                   selectionWarning.severity === "critical"
-                    ? "border-[var(--warning)]/30 bg-[var(--warning)]/10 text-[var(--warning)]"
-                    : "border-[var(--brand-blue)]/20 bg-white/70 text-[var(--slate-700)]"
+                    ? "border-warning/30 bg-warning/10 text-warning"
+                    : "border-primary/20 bg-surface/70 text-foreground-secondary"
                 }`}
                 role={selectionWarning.severity === "critical" ? "alert" : "status"}
               >
@@ -748,8 +748,8 @@ export function TakeoffUploadForm({
                     key={option.level}
                     className={`flex items-center gap-2 rounded-xl border px-3 py-2 ${
                       isSelected
-                        ? "border-[var(--brand-blue)] bg-[var(--brand-blue)]/5"
-                        : "border-[var(--slate-200)] bg-white"
+                        ? "border-primary bg-primary/5"
+                        : "border-border bg-surface"
                     } ${isDisabled ? "cursor-not-allowed opacity-50" : ""}`}
                     aria-disabled={isDisabled}
                   >
@@ -760,13 +760,13 @@ export function TakeoffUploadForm({
                       disabled={isDisabled}
                       onChange={() => handleLevelChange(option.level)}
                     />
-                    <span className="text-sm text-[var(--slate-800)]">
+                    <span className="text-sm text-slate-800">
                       <span className="font-medium">{option.label}</span>
-                      <span className="ml-2 text-[var(--slate-500)]">
+                      <span className="ml-2 text-muted-foreground">
                         {option.description}
                       </span>
                       {!isCompatible ? (
-                        <span className="ml-2 text-[var(--warning)]">
+                        <span className="ml-2 text-warning">
                           indisponible pour ce document
                         </span>
                       ) : null}
@@ -781,15 +781,15 @@ export function TakeoffUploadForm({
         {(submitState === "loading" || uploadProgress > 0) && (
           <div>
             <div
-              className="h-2 w-full overflow-hidden rounded-full bg-[var(--slate-200)]"
+              className="h-2 w-full overflow-hidden rounded-full bg-slate-200"
               aria-label={`Progression upload ${uploadProgress}%`}
             >
               <div
-                className="h-full rounded-full bg-[var(--brand-blue)] transition-all duration-200"
+                className="h-full rounded-full bg-primary transition-all duration-200"
                 style={{ width: `${uploadProgress}%` }}
               />
             </div>
-            <p className="mt-1 text-xs text-[var(--slate-500)]">
+            <p className="mt-1 text-xs text-muted-foreground">
               Upload: {uploadProgress}%
             </p>
           </div>

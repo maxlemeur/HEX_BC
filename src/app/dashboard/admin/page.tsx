@@ -29,7 +29,7 @@ export default async function AdminHubPage() {
       >
         <h2
           id="admin-system-heading"
-          className="text-xs font-semibold uppercase tracking-wider text-slate-400"
+          className="text-xs font-semibold uppercase tracking-wider text-subtle-foreground"
         >
           Système
         </h2>
@@ -100,7 +100,7 @@ export default async function AdminHubPage() {
       >
         <h2
           id="admin-configuration-heading"
-          className="text-xs font-semibold uppercase tracking-wider text-slate-400"
+          className="text-xs font-semibold uppercase tracking-wider text-subtle-foreground"
         >
           Configuration
         </h2>
@@ -233,7 +233,7 @@ export default async function AdminHubPage() {
         >
           <h2
             id="admin-modules-heading"
-            className="text-xs font-semibold uppercase tracking-wider text-slate-400"
+            className="text-xs font-semibold uppercase tracking-wider text-subtle-foreground"
           >
             Modules
           </h2>

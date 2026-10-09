@@ -34,7 +34,7 @@ export const STATUS_PANEL_CSS: Record<TakeoffDpgfReviewStatus, string> = {
   reliable_match: "border-emerald-200 bg-emerald-50/70",
   to_confirm: "border-amber-200 bg-amber-50/70",
   significant_gap: "border-rose-200 bg-rose-50/70",
-  unlinked: "border-slate-200 bg-slate-50/80",
+  unlinked: "border-border bg-surface-subtle/80",
   forced_manual: "border-sky-200 bg-sky-50/70",
 };
 

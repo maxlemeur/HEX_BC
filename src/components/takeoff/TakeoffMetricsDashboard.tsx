@@ -63,7 +63,7 @@ function LoadingState() {
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-6">
       <div className="flex h-64 items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-[var(--slate-200)] border-t-[var(--brand-blue)]" />
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-border border-t-primary" />
       </div>
     </div>
   );
@@ -72,7 +72,7 @@ function LoadingState() {
 function ErrorState({ message }: { message: string }) {
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-6">
-      <div className="dashboard-card p-6 text-center text-sm text-[var(--danger)]">
+      <div className="dashboard-card p-6 text-center text-sm text-danger">
         {message}
       </div>
     </div>
@@ -103,17 +103,17 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
       <section className="dashboard-card p-6 animate-slide-in stagger-1">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-black text-[var(--slate-800)]">
+            <h1 className="text-2xl font-black text-slate-800">
               Métriques takeoff
             </h1>
-            <p className="mt-1 text-sm text-[var(--slate-500)]">
+            <p className="mt-1 text-sm text-muted-foreground">
               Observabilité des extractions, des coûts, des corrections humaines et du pilote client.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <PeriodSelector value={period} onChange={setPeriod} />
             <LevelSelector value={level} onChange={setLevel} />
-            <p className="text-xs text-[var(--slate-500)]">
+            <p className="text-xs text-muted-foreground">
               {formatGeneratedAt(data.generatedAt)}
             </p>
           </div>
@@ -124,10 +124,10 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
         <div className="dashboard-card min-w-0 p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-sm font-semibold text-[var(--slate-700)]">
+              <h2 className="text-sm font-semibold text-foreground-secondary">
                 Pilote client
               </h2>
-              <p className="mt-1 text-sm text-[var(--slate-500)]">
+              <p className="mt-1 text-sm text-muted-foreground">
                 État du pilote et définition partagée des signaux de décision.
               </p>
             </div>
@@ -136,21 +136,21 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
 
           <dl className="mt-4 space-y-3 text-sm">
             <div>
-              <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+              <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Interrupteur de sécurité
               </dt>
-              <dd className="mt-1 font-mono text-[var(--slate-700)]">
+              <dd className="mt-1 font-mono text-foreground-secondary">
                 {data.pilot.killSwitchFlagKey}
               </dd>
             </div>
             <div>
-              <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+              <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Proxy de satisfaction
               </dt>
-              <dd className="mt-1 text-[var(--slate-700)]">
+              <dd className="mt-1 text-foreground-secondary">
                 {data.pilot.satisfactionLabel}
               </dd>
-              <p className="mt-1 text-xs text-[var(--slate-500)]">
+              <p className="mt-1 text-xs text-muted-foreground">
                 {data.pilot.satisfactionDefinition}
               </p>
             </div>
@@ -272,8 +272,8 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
 
       <section className="grid gap-6 xl:grid-cols-[1fr_1.25fr] animate-slide-in stagger-3">
         <div className="dashboard-card min-w-0 overflow-hidden">
-          <div className="border-b border-[var(--slate-200)] px-4 py-3">
-            <h2 className="text-sm font-semibold text-[var(--slate-700)]">
+          <div className="border-b border-border px-4 py-3">
+            <h2 className="text-sm font-semibold text-foreground-secondary">
               Corrections enregistrées
             </h2>
           </div>
@@ -281,8 +281,8 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
         </div>
 
         <div className="dashboard-card min-w-0 overflow-hidden">
-          <div className="border-b border-[var(--slate-200)] px-4 py-3">
-            <h2 className="text-sm font-semibold text-[var(--slate-700)]">
+          <div className="border-b border-border px-4 py-3">
+            <h2 className="text-sm font-semibold text-foreground-secondary">
               Lecture métier par niveau
             </h2>
           </div>
@@ -291,11 +291,11 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
       </section>
 
       <section className="dashboard-card overflow-hidden animate-slide-in stagger-3">
-        <div className="border-b border-[var(--slate-200)] px-4 py-3">
-          <h2 className="text-sm font-semibold text-[var(--slate-700)]">
+        <div className="border-b border-border px-4 py-3">
+          <h2 className="text-sm font-semibold text-foreground-secondary">
             Suivi hebdo pilote
           </h2>
-          <p className="mt-1 text-xs text-[var(--slate-500)]">
+          <p className="mt-1 text-xs text-muted-foreground">
             Volume, coût moyen, temps moyen, taux de correction et satisfaction par semaine.
           </p>
         </div>
@@ -306,13 +306,13 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
 
       <section className="grid gap-6 xl:grid-cols-[1.6fr_1fr] animate-slide-in stagger-3">
         <div className="dashboard-card min-w-0 p-5">
-          <div className="mb-3 flex items-center gap-4 text-xs font-semibold text-[var(--slate-600)]">
+          <div className="mb-3 flex items-center gap-4 text-xs font-semibold text-slate-600">
             <span className="inline-flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-[var(--brand-blue)]" />
+              <span className="h-2 w-2 rounded-full bg-primary" />
               Créés
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-[var(--danger)]" />
+              <span className="h-2 w-2 rounded-full bg-danger" />
               Échoués
             </span>
           </div>
@@ -320,8 +320,8 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
         </div>
 
         <div className="dashboard-card min-w-0 overflow-hidden">
-          <div className="border-b border-[var(--slate-200)] px-4 py-3">
-            <h2 className="text-sm font-semibold text-[var(--slate-700)]">
+          <div className="border-b border-border px-4 py-3">
+            <h2 className="text-sm font-semibold text-foreground-secondary">
               Coût par niveau
             </h2>
           </div>
@@ -331,14 +331,14 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
 
       <section className="grid gap-6 xl:grid-cols-2 animate-fade-in stagger-3">
         <div className="dashboard-card p-5">
-          <h2 className="mb-4 text-sm font-semibold text-[var(--slate-700)]">
+          <h2 className="mb-4 text-sm font-semibold text-foreground-secondary">
             Répartition des tokens
           </h2>
           <TokenBreakdownBar data={data.tokenBreakdown} />
         </div>
 
         <div className="dashboard-card p-5">
-          <h2 className="mb-4 text-sm font-semibold text-[var(--slate-700)]">
+          <h2 className="mb-4 text-sm font-semibold text-foreground-secondary">
             Fiabilité technique
           </h2>
           <ReliabilityCards data={data.reliability} />
@@ -346,8 +346,8 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
       </section>
 
       <section className="dashboard-card overflow-hidden animate-fade-in stagger-4">
-        <div className="border-b border-[var(--slate-200)] px-4 py-3">
-          <h2 className="text-sm font-semibold text-[var(--slate-700)]">
+        <div className="border-b border-border px-4 py-3">
+          <h2 className="text-sm font-semibold text-foreground-secondary">
             Top codes erreur
           </h2>
         </div>
@@ -355,8 +355,8 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
       </section>
 
       <section className="dashboard-card overflow-hidden animate-fade-in stagger-4">
-        <div className="border-b border-[var(--slate-200)] px-4 py-3">
-          <h2 className="text-sm font-semibold text-[var(--slate-700)]">
+        <div className="border-b border-border px-4 py-3">
+          <h2 className="text-sm font-semibold text-foreground-secondary">
             Extractions récentes
           </h2>
         </div>

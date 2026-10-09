@@ -414,7 +414,7 @@ function BackToListLink() {
   return (
     <Link
       href="/dashboard/affaires"
-      className="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 py-1 text-sm text-[var(--slate-600)] transition-colors hover:bg-[var(--slate-100)] hover:text-[var(--slate-900)] sm:min-h-0"
+      className="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 py-1 text-sm text-slate-600 transition-colors hover:bg-muted hover:text-foreground sm:min-h-0"
     >
       <svg
         width="16"
@@ -621,7 +621,7 @@ function ActionBar({
             Plus
           </button>
           {moreOpen && (
-            <div className="absolute right-0 top-full z-50 mt-1 w-[min(200px,calc(100vw-2rem))] rounded-lg border border-[var(--slate-200)] bg-white py-1 shadow-lg">
+            <div className="absolute right-0 top-full z-50 mt-1 w-[min(200px,calc(100vw-2rem))] rounded-lg border border-border bg-surface py-1 shadow-lg">
               {/* New version */}
               <button
                 type="button"
@@ -630,7 +630,7 @@ function ActionBar({
                   onDuplicate();
                 }}
                 disabled={pendingAction !== null}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--slate-700)] hover:bg-[var(--slate-50)] disabled:opacity-50"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground-secondary hover:bg-surface-subtle disabled:opacity-50"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
@@ -647,7 +647,7 @@ function ActionBar({
                   onCreateVariant();
                 }}
                 disabled={pendingAction !== null}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--slate-700)] hover:bg-[var(--slate-50)] disabled:opacity-50"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground-secondary hover:bg-surface-subtle disabled:opacity-50"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M16 3h5v5" />
@@ -662,7 +662,7 @@ function ActionBar({
               {showCompare && (
                 <Link
                   href={`/dashboard/estimates/${currentVersion.id}/diff`}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--slate-700)] hover:bg-[var(--slate-50)]"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground-secondary hover:bg-surface-subtle"
                   onClick={() => setMoreOpen(false)}
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -682,7 +682,7 @@ function ActionBar({
                     setMoreOpen(false);
                     onLaunchMetre();
                   }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--slate-700)] hover:bg-[var(--slate-50)]"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground-secondary hover:bg-surface-subtle"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -744,9 +744,9 @@ function AffaireProgressStrip({
 
   // DPGF status
   if (dpgfSource !== null) {
-    items.push({ color: "bg-[var(--success)]", label: "DPGF importé" });
+    items.push({ color: "bg-success", label: "DPGF importé" });
   } else {
-    items.push({ color: "bg-[var(--brand-orange)]", label: "Pas de DPGF" });
+    items.push({ color: "bg-brand-orange", label: "Pas de DPGF" });
   }
 
   if (summary.structureMode) {
@@ -765,8 +765,8 @@ function AffaireProgressStrip({
       items.push({
         color:
           summary.structureMode.mode === "needs_update"
-            ? "bg-[var(--brand-orange)]"
-            : "bg-[var(--brand-blue)]",
+            ? "bg-brand-orange"
+            : "bg-primary",
         label: structureModeLabel,
       });
     }
@@ -774,19 +774,19 @@ function AffaireProgressStrip({
 
   // Current version
   items.push({
-    color: "bg-[var(--brand-blue)]",
+    color: "bg-primary",
     label: `V${currentVersion.versionNumber} courante - ${STATUS_LABEL[currentVersion.status] ?? currentVersion.status}`,
   });
 
   // Accepted version
   if (acceptedVersion) {
     items.push({
-      color: "bg-[var(--success)]",
+      color: "bg-success",
       label: `V${acceptedVersion.versionNumber} acceptée`,
     });
   } else {
     items.push({
-      color: "bg-[var(--slate-300)]",
+      color: "bg-slate-300",
       label: "Aucune version acceptée",
     });
   }
@@ -794,8 +794,8 @@ function AffaireProgressStrip({
   return (
     <div className="progress-strip animate-fade-in stagger-2">
       {items.map((item, i) => (
-        <span key={item.label} className="inline-flex items-center gap-1.5 text-[var(--slate-600)]">
-          {i > 0 && <span className="text-[var(--slate-300)] mx-1">&middot;</span>}
+        <span key={item.label} className="inline-flex items-center gap-1.5 text-slate-600">
+          {i > 0 && <span className="text-slate-300 mx-1">&middot;</span>}
           <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${item.color}`} />
           {item.label}
         </span>
@@ -824,65 +824,65 @@ function FinancialSummaryCard({
   const marginPct = currentVersion.marginPercent;
   const marginColorClass =
     marginPct >= 25
-      ? "text-[var(--success)]"
+      ? "text-success"
       : marginPct >= 15
-        ? "text-[var(--slate-900)]"
+        ? "text-foreground"
         : lineCount > 0
-          ? "text-[var(--danger)]"
-          : "text-[var(--slate-400)]";
+          ? "text-danger"
+          : "text-subtle-foreground";
   const isEmptyEstimate = currentVersion.totalHtCents === 0 && lineCount === 0;
 
   return (
     <section id="financial" className="dashboard-card p-5 animate-fade-in stagger-3 scroll-mt-24">
-      <h2 className="mb-4 text-sm font-semibold text-[var(--slate-800)]">
+      <h2 className="mb-4 text-sm font-semibold text-slate-800">
         Résumé financier
       </h2>
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <div>
-          <p className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-[var(--slate-500)]">
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--brand-blue)]" />
+          <p className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-muted-foreground">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-primary" />
             HT version courante
           </p>
-          <p className={`mt-1 font-bold ${isEmptyEstimate ? "text-lg text-[var(--slate-400)]" : "text-2xl text-[var(--slate-900)]"}`}>
+          <p className={`mt-1 font-bold ${isEmptyEstimate ? "text-lg text-subtle-foreground" : "text-2xl text-foreground"}`}>
             {formatEUR(currentVersion.totalHtCents)}
           </p>
         </div>
 
-        <div className={hasAccepted ? "rounded-lg bg-[var(--success)]/5 p-2 -m-2" : ""}>
-          <p className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-[var(--slate-500)]">
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--success)]" />
+        <div className={hasAccepted ? "rounded-lg bg-success/5 p-2 -m-2" : ""}>
+          <p className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-muted-foreground">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-success" />
             HT dernière acceptée
           </p>
           {acceptedVersion ? (
             <>
-              <p className="mt-1 text-2xl font-bold text-[var(--success)]">
+              <p className="mt-1 text-2xl font-bold text-success">
                 {formatEUR(acceptedVersion.totalHtCents)}
               </p>
-              <p className="mt-0.5 text-xs text-[var(--slate-500)]">
+              <p className="mt-0.5 text-xs text-muted-foreground">
                 V{acceptedVersion.versionNumber}
               </p>
             </>
           ) : (
-            <p className="mt-1 text-sm text-[var(--slate-400)]">-</p>
+            <p className="mt-1 text-sm text-subtle-foreground">-</p>
           )}
         </div>
 
         <div>
-          <p className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-[var(--slate-500)]">
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--brand-orange)]" />
+          <p className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-muted-foreground">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-orange" />
             Marge appliquée
           </p>
           <p className={`mt-1 font-bold ${isEmptyEstimate ? "text-lg" : "text-2xl"} ${marginColorClass}`}>
             {currentVersion.marginPercent.toFixed(1)}%
           </p>
-          <p className="mt-0.5 text-xs text-[var(--slate-500)]">
+          <p className="mt-0.5 text-xs text-muted-foreground">
             Coeff. {currentVersion.marginMultiplier.toFixed(3)}
           </p>
           {canEditMargin ? (
             <Link
               href={getEstimateMarginSettingsHref(currentVersion.id)}
-              className="mt-2 inline-flex min-h-9 items-center rounded-md px-2 text-xs font-semibold text-[var(--brand-blue)] transition-colors hover:bg-[var(--brand-blue)]/5 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-blue)] focus-visible:ring-offset-2"
+              className="mt-2 inline-flex min-h-9 items-center rounded-md px-2 text-xs font-semibold text-primary transition-colors hover:bg-primary/5 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
               title="Ouvrir les paramètres de marge du devis"
             >
               Modifier la marge
@@ -892,11 +892,11 @@ function FinancialSummaryCard({
         </div>
 
         <div>
-          <p className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-[var(--slate-500)]">
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--slate-400)]" />
+          <p className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-muted-foreground">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-slate-400" />
             Nombre de lignes
           </p>
-          <p className={`mt-1 font-bold ${lineCount === 0 ? "text-lg text-[var(--slate-400)]" : "text-2xl text-[var(--slate-900)]"}`}>
+          <p className={`mt-1 font-bold ${lineCount === 0 ? "text-lg text-subtle-foreground" : "text-2xl text-foreground"}`}>
             {lineCount}
           </p>
           {/* Duplicate "Éditer le devis" link removed: ActionBar "Éditer V1" serves same purpose */}
@@ -928,10 +928,10 @@ function VersionTimelineCard({
   if (timeline === null) {
     return (
       <section className="dashboard-card p-5">
-        <h2 className="mb-4 text-sm font-semibold text-[var(--slate-800)]">
+        <h2 className="mb-4 text-sm font-semibold text-slate-800">
           Versions
         </h2>
-        <div className="rounded-lg border border-[var(--warning)]/20 bg-[var(--warning)]/5 px-3 py-2 text-sm text-[var(--slate-700)]">
+        <div className="rounded-lg border border-warning/20 bg-warning/5 px-3 py-2 text-sm text-foreground-secondary">
           {errorMessage ??
             "Impossible de charger la timeline des versions."}
         </div>
@@ -944,10 +944,10 @@ function VersionTimelineCard({
   return (
     <section className="dashboard-card p-5">
       <div className="mb-4 flex items-start justify-between gap-2">
-        <h2 className="text-sm font-semibold text-[var(--slate-800)]">
+        <h2 className="text-sm font-semibold text-slate-800">
           Versions
         </h2>
-        <span className="rounded-full bg-[var(--slate-100)] px-2.5 py-0.5 text-xs font-medium text-[var(--slate-600)]">
+        <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-slate-600">
           {pagination.total_count} version
           {pagination.total_count !== 1 ? "s" : ""}
         </span>
@@ -984,7 +984,7 @@ function VersionTimelineCard({
           {/* Vertical line */}
           <div
             aria-hidden="true"
-            className="absolute bottom-1 left-[11px] top-1 w-px bg-[var(--slate-200)]"
+            className="absolute bottom-1 left-[11px] top-1 w-px bg-slate-200"
           />
 
           <ul className="space-y-3">
@@ -1001,10 +1001,10 @@ function VersionTimelineCard({
                     aria-hidden="true"
                     className={`absolute left-0 top-5 h-3 w-3 rounded-full border-2 ${
                       isCurrent
-                        ? "border-[var(--brand-blue)] bg-[var(--brand-blue)]"
+                        ? "border-primary bg-primary"
                         : isAccepted
-                          ? "border-[var(--success)] bg-[var(--success)]"
-                          : "border-[var(--slate-300)] bg-white"
+                          ? "border-success bg-success"
+                          : "border-border-strong bg-surface"
                     }`}
                   />
 
@@ -1016,14 +1016,14 @@ function VersionTimelineCard({
                     }
                     className={`block rounded-xl border px-3 py-3 transition-colors sm:px-4 ${
                       isCurrent
-                        ? "border-[var(--brand-blue)] bg-[var(--brand-blue)]/5"
-                        : "border-[var(--slate-200)] hover:bg-[var(--slate-50)]"
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:bg-surface-subtle"
                     }`}
                   >
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-sm font-semibold text-[var(--slate-800)]">
+                          <p className="text-sm font-semibold text-slate-800">
                             Version {version.version_number}
                           </p>
                           {isCurrent && (
@@ -1039,13 +1039,13 @@ function VersionTimelineCard({
                         </div>
                         {version.title && (
                           <p
-                            className="mt-0.5 truncate text-sm text-[var(--slate-600)]"
+                            className="mt-0.5 truncate text-sm text-slate-600"
                             title={version.title}
                           >
                             {version.title}
                           </p>
                         )}
-                        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-[var(--slate-500)]">
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                           <span className={STATUS_CSS[version.status] ?? "status-badge status-draft"}>
                             {STATUS_LABEL[version.status] ?? version.status}
                           </span>
@@ -1059,10 +1059,10 @@ function VersionTimelineCard({
                       </div>
 
                       <div className="shrink-0 text-left sm:text-right">
-                        <p className="text-xs text-[var(--slate-500)]">
+                        <p className="text-xs text-muted-foreground">
                           Total HT
                         </p>
-                        <p className="text-sm font-semibold text-[var(--slate-800)]">
+                        <p className="text-sm font-semibold text-slate-800">
                           {formatEUR(version.total_ht_cents)}
                         </p>
                       </div>
@@ -1077,7 +1077,7 @@ function VersionTimelineCard({
 
       {/* Pagination */}
       {pagination.total_pages > 1 && (
-        <div className="mt-4 flex items-center justify-between gap-2 border-t border-[var(--slate-200)] pt-4 text-xs text-[var(--slate-500)]">
+        <div className="mt-4 flex items-center justify-between gap-2 border-t border-border pt-4 text-xs text-muted-foreground">
           <span>
             Page {pagination.page}/{pagination.total_pages}
           </span>
@@ -1142,12 +1142,12 @@ export function DpgfSourceCard({
 }) {
   return (
     <section id="dpgf" className="dashboard-card p-5 scroll-mt-24">
-      <h2 className="mb-3 text-sm font-semibold text-[var(--slate-800)]">
+      <h2 className="mb-3 text-sm font-semibold text-slate-800">
         Source DPGF
       </h2>
 
       {errorMessage ? (
-        <div className="rounded-lg border border-[var(--warning)]/20 bg-[var(--warning)]/5 px-3 py-2 text-sm text-[var(--slate-700)]">
+        <div className="rounded-lg border border-warning/20 bg-warning/5 px-3 py-2 text-sm text-foreground-secondary">
           {errorMessage}
         </div>
       ) : dpgfSource === null ? (
@@ -1161,12 +1161,12 @@ export function DpgfSourceCard({
             strokeWidth="1.5"
             strokeLinecap="round"
             strokeLinejoin="round"
-            className="mx-auto mb-2 text-[var(--slate-300)]"
+            className="mx-auto mb-2 text-slate-300"
           >
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
             <polyline points="14 2 14 8 20 8" />
           </svg>
-          <p className="text-sm text-[var(--slate-500)]">
+          <p className="text-sm text-muted-foreground">
             Importez le bordereau de prix (DPGF) comme base pour pre-remplir la structure du devis.
           </p>
           {onStartImport ? (
@@ -1184,12 +1184,12 @@ export function DpgfSourceCard({
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <p
-                className="truncate text-sm font-medium text-[var(--slate-800)]"
+                className="truncate text-sm font-medium text-slate-800"
                 title={dpgfSource.filename}
               >
                 {dpgfSource.filename}
               </p>
-              <p className="mt-0.5 text-xs text-[var(--slate-500)]">
+              <p className="mt-0.5 text-xs text-muted-foreground">
                 {dpgfSource.sourceFormat.toUpperCase()} &middot;{" "}
                 {dpgfSource.rowCount} lignes &middot; Importé le{" "}
                 {fmtDate(dpgfSource.importedAt)}
@@ -1224,8 +1224,8 @@ export function DpgfSourceCard({
             )}
           </div>
           {onStartImport ? (
-            <div className="flex flex-col gap-3 border-t border-[var(--slate-200)] pt-3 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-xs text-[var(--slate-500)]">
+            <div className="flex flex-col gap-3 border-t border-border pt-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs text-muted-foreground">
                 Relancez le mapping depuis l&apos;Excel. Le devis reste inchangé
                 jusqu&apos;à la confirmation.
               </p>
@@ -1664,12 +1664,12 @@ export function AffaireHub({
       {/* Breadcrumb + actions bar */}
       <div className="mb-4 flex min-w-0 items-center justify-between gap-2 sm:gap-4">
         <nav aria-label="Fil d'Ariane" className="min-w-0 flex-1">
-          <ol className="flex min-w-0 items-center gap-1.5 text-sm text-[var(--slate-500)]">
+          <ol className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
             <li>
               <BackToListLink />
             </li>
-            <li aria-hidden="true" className="text-[var(--slate-300)]">/</li>
-            <li className="min-w-0 truncate font-medium text-[var(--slate-700)]">
+            <li aria-hidden="true" className="text-slate-300">/</li>
+            <li className="min-w-0 truncate font-medium text-foreground-secondary">
               {summary.project.name}
             </li>
           </ol>
@@ -1706,7 +1706,7 @@ export function AffaireHub({
 
       {/* Read-only review banner for director */}
       {isReadOnlyReview && (
-        <div className="mb-4 flex items-center gap-2 rounded-lg border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 px-4 py-2.5 text-sm text-[var(--brand-blue)]">
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-4 py-2.5 text-sm text-primary">
           <svg
             width="16"
             height="16"
@@ -1722,7 +1722,7 @@ export function AffaireHub({
             <circle cx="12" cy="12" r="3" />
           </svg>
           <span className="font-medium">Mode revue</span>
-          <span className="text-[var(--brand-blue)]/70">
+          <span className="text-primary/70">
             — Consultation uniquement, les actions d&apos;édition sont réservées aux ingénieurs.
           </span>
         </div>
@@ -1762,7 +1762,7 @@ export function AffaireHub({
                     ) : null}
                     {commandBarSuggestions.length > 0 && (
                       <>
-                        <div className="mx-0.5 h-5 w-px bg-[var(--slate-200)]" />
+                        <div className="mx-0.5 h-5 w-px bg-slate-200" />
                         <CockpitCommandBar
                           suggestions={commandBarSuggestions}
                           onExecute={handleExecuteCockpitSuggestion}
@@ -1806,7 +1806,7 @@ export function AffaireHub({
       )}
 
       {!isFreshStartState ? (
-        <div className="mb-4 rounded-xl border border-[var(--slate-200)] bg-white px-3 py-3 shadow-sm md:hidden">
+        <div className="mb-4 rounded-xl border border-border bg-surface px-3 py-3 shadow-sm md:hidden">
           <AffaireWorkflowStepper
             summary={summary}
             dpgfSource={dpgfSource}
@@ -1819,10 +1819,10 @@ export function AffaireHub({
 
       {/* Import result summary banner */}
       {importResult && (
-        <div className="mb-4 animate-fade-in rounded-xl border border-[var(--success)]/20 bg-[var(--success)]/5 px-4 py-3">
+        <div className="mb-4 animate-fade-in rounded-xl border border-success/20 bg-success/5 px-4 py-3">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-start gap-3">
-              <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--success)]/10">
+              <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-success/10">
                 <svg
                   width="14"
                   height="14"
@@ -1837,10 +1837,10 @@ export function AffaireHub({
                 </svg>
               </div>
               <div>
-                <p className="text-sm font-semibold text-[var(--slate-800)]">
+                <p className="text-sm font-semibold text-slate-800">
                   Import terminé
                 </p>
-                <p className="mt-0.5 text-xs text-[var(--slate-600)]">
+                <p className="mt-0.5 text-xs text-slate-600">
                   {importResult.stats.insertedRows} ligne
                   {importResult.stats.insertedRows > 1 ? "s" : ""} insérée
                   {importResult.stats.insertedRows > 1 ? "s" : ""}
@@ -1856,7 +1856,7 @@ export function AffaireHub({
             </div>
             <button
               type="button"
-              className="shrink-0 text-xs text-[var(--slate-400)] hover:text-[var(--slate-600)]"
+              className="shrink-0 text-xs text-subtle-foreground hover:text-slate-600"
               onClick={() => setImportResult(null)}
             >
               Fermer
@@ -2121,7 +2121,7 @@ export function AffaireHub({
       )}
 
       {!isFreshStartState ? (
-        <div className="sticky bottom-0 z-10 -mx-6 mt-6 hidden border-t border-[var(--slate-200)] bg-white/95 px-6 py-3 backdrop-blur-sm md:block">
+        <div className="sticky bottom-0 z-10 -mx-6 mt-6 hidden border-t border-border bg-surface/95 px-6 py-3 backdrop-blur-sm md:block">
           <AffaireWorkflowStepper
             summary={summary}
             dpgfSource={dpgfSource}

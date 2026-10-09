@@ -24,16 +24,16 @@ const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
 });
 
 export const STATUS_TONE: Record<AffaireRegisterEntryStatus, string> = {
-  open: "bg-[var(--warning)]/10 text-[var(--warning)]",
-  validated: "bg-[var(--success)]/10 text-[var(--success)]",
-  rejected: "bg-[var(--danger)]/10 text-[var(--danger)]",
-  clarify_with_client: "bg-[var(--brand-blue)]/10 text-[var(--brand-blue)]",
+  open: "bg-warning/10 text-warning",
+  validated: "bg-success/10 text-success",
+  rejected: "bg-danger/10 text-danger",
+  clarify_with_client: "bg-primary/10 text-primary",
 };
 
 export const SEVERITY_TONE: Record<AffaireRegisterEntrySeverity, string> = {
-  info: "bg-[var(--slate-100)] text-[var(--slate-600)]",
-  warning: "bg-[var(--warning)]/10 text-[var(--warning)]",
-  critical: "bg-[var(--danger)]/10 text-[var(--danger)]",
+  info: "bg-muted text-slate-600",
+  warning: "bg-warning/10 text-warning",
+  critical: "bg-danger/10 text-danger",
 };
 
 export type RegisterEntryWorkflowAction = {
@@ -136,11 +136,11 @@ export function getEntryStatusLabel(entry: AffaireRegisterEntry) {
 
 export function getEntryStatusTone(entry: AffaireRegisterEntry) {
   if (hasAcceptedContinuationDecision(entry)) {
-    return "bg-[var(--brand-blue)]/10 text-[var(--brand-blue)]";
+    return "bg-primary/10 text-primary";
   }
 
   if (hasRequiredRevalidation(entry)) {
-    return "bg-[var(--danger)]/10 text-[var(--danger)]";
+    return "bg-danger/10 text-danger";
   }
 
   return STATUS_TONE[entry.status];

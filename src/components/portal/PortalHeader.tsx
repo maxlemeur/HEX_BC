@@ -52,19 +52,19 @@ export function PortalHeader({
   const badge = STATUS_DISPLAY[effectiveStatus];
 
   return (
-    <div className="rounded-xl border border-[var(--slate-200)] bg-white p-6">
+    <div className="rounded-xl border border-border bg-surface p-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
-          <h1 className="text-xl font-bold text-[var(--slate-800)]">
+          <h1 className="text-xl font-bold text-slate-800">
             {projectName}
           </h1>
           <div className="flex flex-wrap items-center gap-2">
             {projectReference && (
-              <span className="rounded-lg bg-[var(--brand-orange)]/10 px-2.5 py-1 font-mono text-sm font-bold text-[var(--brand-orange)]">
+              <span className="rounded-lg bg-brand-orange/10 px-2.5 py-1 font-mono text-sm font-bold text-brand-orange">
                 {projectReference}
               </span>
             )}
-            <span className="text-sm text-[var(--slate-500)]">
+            <span className="text-sm text-muted-foreground">
               Version V{versionNumber}
             </span>
             <span
@@ -76,10 +76,10 @@ export function PortalHeader({
           </div>
         </div>
         <div className="text-right">
-          <p className="text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">
+          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
             {vatReverseCharge ? "Montant HT" : "Montant TTC"}
           </p>
-          <p className="mt-1 text-2xl font-bold text-[var(--brand-blue)]">
+          <p className="mt-1 text-2xl font-bold text-primary">
             {formatCurrency(
               vatReverseCharge ? totalHtCents : totalTtcCents,
               currency
@@ -88,8 +88,8 @@ export function PortalHeader({
           <p
             className={`mt-1 text-xs ${
               expired
-                ? "font-medium text-[var(--danger)]"
-                : "text-[var(--slate-500)]"
+                ? "font-medium text-danger"
+                : "text-muted-foreground"
             }`}
           >
             {expired ? "Expiré le" : "Valide jusqu'au"}{" "}

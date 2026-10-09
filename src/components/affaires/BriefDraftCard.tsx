@@ -174,7 +174,7 @@ function BriefSourceAnnotation({
     ).values()
   );
   return (
-    <div className="flex flex-wrap items-center gap-1.5 text-xs text-[var(--slate-400)]">
+    <div className="flex flex-wrap items-center gap-1.5 text-xs text-subtle-foreground">
       <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
         <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
         <polyline points="14 2 14 8 20 8" />
@@ -183,7 +183,7 @@ function BriefSourceAnnotation({
         <a
           key={`${source.sourceDocumentId}:${source.sourceFileName}`}
           href={buildBriefSourceHref(projectId, source)}
-          className="inline-flex items-center rounded-full border border-[var(--slate-200)] bg-[var(--slate-50)] px-2 py-0.5 text-[11px] font-medium text-[var(--brand-blue)] transition-colors hover:border-[var(--brand-blue)]/30 hover:bg-[var(--brand-blue)]/6 hover:text-[var(--brand-blue-dark)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-blue)]/30 focus-visible:ring-offset-2"
+          className="inline-flex items-center rounded-full border border-border bg-surface-subtle px-2 py-0.5 text-[11px] font-medium text-primary transition-colors hover:border-primary/30 hover:bg-primary/6 hover:text-brand-blue-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2"
           title={source.rationale ?? `Ouvrir ${source.sourceFileName} dans le dossier`}
         >
           Pièce source · {source.sourceFileName}
@@ -236,13 +236,13 @@ function BriefEditableList({
             type="text"
             value={item}
             onChange={(e) => handleChange(i, e.target.value)}
-            className="flex-1 rounded-lg border border-[var(--slate-300)] bg-surface px-2 py-1.5 text-sm text-[var(--slate-800)] focus:border-[var(--brand-blue)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-blue)]"
+            className="flex-1 rounded-lg border border-border-strong bg-surface px-2 py-1.5 text-sm text-slate-800 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
           />
           <button
             type="button"
             onClick={() => handleRemove(i)}
             aria-label={`Supprimer: ${item}`}
-            className="shrink-0 rounded-md p-1 text-[var(--slate-400)] hover:bg-[var(--warning)]/10 hover:text-danger"
+            className="shrink-0 rounded-md p-1 text-subtle-foreground hover:bg-warning/10 hover:text-danger"
           >
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <line x1="18" y1="6" x2="6" y2="18" />
@@ -255,7 +255,7 @@ function BriefEditableList({
         <button
           type="button"
           onClick={handleAdd}
-          className="text-xs font-medium text-[var(--brand-blue)] hover:underline"
+          className="text-xs font-medium text-primary hover:underline"
         >
           + Ajouter
         </button>
@@ -297,13 +297,13 @@ function BriefBlockSection({
   const paragraphSources = sourceLookup.get(`${blockKey}:0`) ?? [];
 
   return (
-    <div className={`space-y-1.5${blockKey === "missing_elements" && items && items.length > 0 ? " rounded-lg border border-[var(--warning)]/30 bg-[var(--warning)]/5 px-3 py-2.5" : ""}`}>
+    <div className={`space-y-1.5${blockKey === "missing_elements" && items && items.length > 0 ? " rounded-lg border border-warning/30 bg-warning/5 px-3 py-2.5" : ""}`}>
       <div className="flex items-center gap-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)]">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           {label}
         </h3>
         {isEditable && isEditing && (
-          <svg className="h-3.5 w-3.5 text-[var(--brand-blue)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+          <svg className="h-3.5 w-3.5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
             <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
           </svg>
@@ -320,9 +320,9 @@ function BriefBlockSection({
             value={editParagraph}
             onChange={(e) => onEditParagraphChange(e.target.value.slice(0, MAX_SUMMARY_LENGTH))}
             rows={4}
-            className="w-full rounded-lg border border-[var(--slate-300)] bg-surface px-3 py-2 text-sm text-[var(--slate-800)] focus:border-[var(--brand-blue)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-blue)]"
+            className="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-slate-800 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
           />
-          <p className="mt-0.5 text-right text-xs text-[var(--slate-400)]">
+          <p className="mt-0.5 text-right text-xs text-subtle-foreground">
             {editParagraph.length}/{MAX_SUMMARY_LENGTH}
           </p>
         </div>
@@ -332,7 +332,7 @@ function BriefBlockSection({
       ) : paragraph !== undefined ? (
         /* Read-only paragraph */
         <>
-          <p className="text-sm text-[var(--slate-700)]">{paragraph}</p>
+          <p className="text-sm text-foreground-secondary">{paragraph}</p>
           {paragraphSources.length > 0 && (
             <BriefSourceAnnotation
               projectId={projectId}
@@ -347,7 +347,7 @@ function BriefBlockSection({
             const entrySources = sourceLookup.get(`${blockKey}:${i}`) ?? [];
             return (
               <li key={i} className="flex flex-col gap-0.5">
-                <span className="text-sm text-[var(--slate-700)]">
+                <span className="text-sm text-foreground-secondary">
                   {blockKey === "missing_elements" && (
                     <Badge variant="error" size="sm" className="mr-1.5">!</Badge>
                   )}
@@ -364,7 +364,7 @@ function BriefBlockSection({
           })}
         </ul>
       ) : items && items.length === 0 && !isEditing ? (
-        <p className="text-sm italic text-[var(--slate-400)]">Aucun élément détecté</p>
+        <p className="text-sm italic text-subtle-foreground">Aucun élément détecté</p>
       ) : null}
     </div>
   );
@@ -564,10 +564,10 @@ export function BriefDraftCard({
       {/* Header */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <h2 className="text-sm font-semibold text-[var(--slate-800)]">Brief affaire</h2>
+          <h2 className="text-sm font-semibold text-slate-800">Brief affaire</h2>
           {briefDraft && <BriefStatusBadge status={briefDraft.status} />}
           {generationDate && (
-            <span className="text-xs text-[var(--slate-400)]">{generationDate}</span>
+            <span className="text-xs text-subtle-foreground">{generationDate}</span>
           )}
         </div>
         {briefDraft && !isReadOnly && (
@@ -597,9 +597,9 @@ export function BriefDraftCard({
       </div>
 
       {briefDraft && isConfirmedBrief && !isEditing && !showConfirmDialog && (
-        <div className="mt-3 rounded-lg border border-[var(--success)]/20 bg-[var(--success)]/6 px-4 py-3">
+        <div className="mt-3 rounded-lg border border-success/20 bg-success/6 px-4 py-3">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold text-[var(--slate-800)]">
+            <p className="text-sm font-semibold text-slate-800">
               Brief de référence
             </p>
             {confirmationDate ? (
@@ -608,7 +608,7 @@ export function BriefDraftCard({
               </Badge>
             ) : null}
           </div>
-          <p className="mt-1 text-sm text-[var(--slate-600)]">
+          <p className="mt-1 text-sm text-slate-600">
             Ce cadrage sert de base commune pour la suite du chiffrage. Si le dossier
             a changé, modifiez le brief pour relancer une validation.
           </p>
@@ -616,11 +616,11 @@ export function BriefDraftCard({
       )}
 
       {briefDraft && showConfirmationBanner && !isEditing && !showConfirmDialog && (
-        <div className="mt-3 rounded-lg border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/6 px-4 py-3">
-          <p className="text-sm font-semibold text-[var(--slate-800)]">
+        <div className="mt-3 rounded-lg border border-primary/20 bg-primary/6 px-4 py-3">
+          <p className="text-sm font-semibold text-slate-800">
             Validation du brief requise
           </p>
-          <p className="mt-1 text-sm text-[var(--slate-600)]">
+          <p className="mt-1 text-sm text-slate-600">
             Confirmez ce cadrage avant de poursuivre le chiffrage. Tant qu&apos;il reste
             à valider, la suite doit être relue.
           </p>
@@ -629,10 +629,10 @@ export function BriefDraftCard({
 
       {/* Executive summary banner */}
       {briefDraft && !isEditing && !showConfirmDialog && (
-        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-[var(--slate-50)] px-4 py-2.5 text-sm">
-          <span className="font-medium text-[var(--slate-700)]">{briefDraft.receivedPieces.length} pièces</span>
-          <span className="font-medium text-[var(--slate-700)]">{briefDraft.assumptions.length} hypothèses</span>
-          <span className="font-medium text-[var(--slate-700)]">{briefDraft.vigilancePoints.length} vigilance</span>
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-surface-subtle px-4 py-2.5 text-sm">
+          <span className="font-medium text-foreground-secondary">{briefDraft.receivedPieces.length} pièces</span>
+          <span className="font-medium text-foreground-secondary">{briefDraft.assumptions.length} hypothèses</span>
+          <span className="font-medium text-foreground-secondary">{briefDraft.vigilancePoints.length} vigilance</span>
           {briefDraft.missingElements.length > 0 ? (
             <span className="font-medium text-danger">{briefDraft.missingElements.length} manquant(s)</span>
           ) : (
@@ -643,12 +643,12 @@ export function BriefDraftCard({
 
       {/* Confirmation dialog */}
       {showConfirmDialog && briefDraft && (
-        <div className="mt-3 rounded-lg border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 px-4 py-3">
-          <p className="text-sm font-medium text-[var(--slate-800)]">Confirmer ce brief ?</p>
-          <p className="mt-1 text-sm text-[var(--slate-600)]">
+        <div className="mt-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
+          <p className="text-sm font-medium text-slate-800">Confirmer ce brief ?</p>
+          <p className="mt-1 text-sm text-slate-600">
             Il deviendra la référence de travail pour la suite du chiffrage.
           </p>
-          <p className="mt-1 text-xs text-[var(--slate-600)]">
+          <p className="mt-1 text-xs text-slate-600">
             {briefDraft.assumptions.length} hypothèse(s) ouverte(s), {briefDraft.missingElements.length} élément(s) manquant(s), {briefDraft.vigilancePoints.length} point(s) de vigilance.
           </p>
           <div className="mt-2 flex items-center gap-2">
@@ -700,9 +700,9 @@ export function BriefDraftCard({
 
       {/* Edit footer */}
       {isEditing && (
-        <div className="sticky bottom-0 z-10 -mx-5 mt-4 space-y-2 border-t border-[var(--slate-200)] bg-surface px-5 py-3">
+        <div className="sticky bottom-0 z-10 -mx-5 mt-4 space-y-2 border-t border-border bg-surface px-5 py-3">
           {isConfirmedBrief && (
-            <p className="text-xs text-[var(--slate-600)]">
+            <p className="text-xs text-slate-600">
               En enregistrant, ce brief repassera à valider pour sécuriser le cadrage mis à jour.
             </p>
           )}

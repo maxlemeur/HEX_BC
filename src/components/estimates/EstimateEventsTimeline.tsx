@@ -93,10 +93,10 @@ export function EstimateEventsTimeline({
     <div className="dashboard-card p-8">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-[var(--slate-800)]">
+          <h2 className="text-sm font-semibold text-slate-800">
             Timeline statut
           </h2>
-          <p className="text-xs text-[var(--slate-500)]">
+          <p className="text-xs text-muted-foreground">
             Historique append-only des transitions et verifications.
           </p>
         </div>
@@ -143,7 +143,7 @@ export function EstimateEventsTimeline({
             {events.length === 0 ? (
               <tr>
                 <td colSpan={4}>
-                  <div className="text-sm text-[var(--slate-500)]">
+                  <div className="text-sm text-muted-foreground">
                     {isLoading
                       ? "Chargement de la timeline..."
                       : "Aucun evenement pour cette version."}
@@ -156,7 +156,7 @@ export function EstimateEventsTimeline({
                   <td>{formatTimestamp(event.occurredAt)}</td>
                   <td className="font-medium">{toEventLabel(event.eventType)}</td>
                   <td>{event.actorName ?? event.createdBy ?? "-"}</td>
-                  <td className="text-xs text-[var(--slate-600)]">
+                  <td className="text-xs text-slate-600">
                     {formatMetadata(event.metadata)}
                   </td>
                 </tr>
@@ -167,7 +167,7 @@ export function EstimateEventsTimeline({
       </div>
 
       {isLoading && events.length > 0 ? (
-        <p className="mt-3 text-sm text-[var(--slate-500)]">
+        <p className="mt-3 text-sm text-muted-foreground">
           Actualisation de la timeline en cours...
         </p>
       ) : null}

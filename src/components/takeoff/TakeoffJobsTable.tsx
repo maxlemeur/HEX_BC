@@ -212,7 +212,7 @@ export default function TakeoffJobsTable({
 
       {actionError ? (
         <div
-          className="rounded-xl border border-[var(--error)] bg-[var(--error-light)] p-3 text-sm text-[var(--error)] mb-4"
+          className="rounded-xl border border-danger bg-danger-light p-3 text-sm text-danger mb-4"
           role="alert"
         >
           {actionError}
@@ -221,7 +221,7 @@ export default function TakeoffJobsTable({
 
       {actionNotice ? (
         <div
-          className="mb-4 rounded-xl border border-[var(--warning)]/40 bg-[var(--warning-light)] p-3 text-sm text-[var(--slate-700)]"
+          className="mb-4 rounded-xl border border-warning/40 bg-warning-light p-3 text-sm text-foreground-secondary"
           role="status"
         >
           {actionNotice}
@@ -272,15 +272,15 @@ export default function TakeoffJobsTable({
               return (
                 <article
                   key={job.jobId}
-                  className="rounded-xl border border-[var(--slate-200)] bg-white p-4 shadow-sm"
+                  className="rounded-xl border border-border bg-surface p-4 shadow-sm"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <span className="inline-flex items-center rounded-full bg-[var(--slate-100)] px-2 py-0.5 text-xs font-semibold text-[var(--slate-700)]">
+                      <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-semibold text-foreground-secondary">
                         {job.versionLabel}
                       </span>
                       {job.carriedOverFrom ? (
-                        <p className="mt-1 text-xs text-[var(--slate-400)]">
+                        <p className="mt-1 text-xs text-subtle-foreground">
                           Repris de {job.carriedOverFrom}
                         </p>
                       ) : null}
@@ -342,45 +342,45 @@ export default function TakeoffJobsTable({
                     {(job.dispatchStatus === "queued" ||
                       job.dispatchStatus === "trigger_failed") &&
                     job.dispatchCorrelationId ? (
-                      <div className="col-span-2 rounded-lg border border-[var(--warning)]/30 bg-[var(--warning-light)] p-2">
-                        <dt className="text-xs font-semibold text-[var(--slate-700)]">
+                      <div className="col-span-2 rounded-lg border border-warning/30 bg-warning-light p-2">
+                        <dt className="text-xs font-semibold text-foreground-secondary">
                           Démarrage différé
                         </dt>
-                        <dd className="mt-1 text-xs text-[var(--slate-600)]">
+                        <dd className="mt-1 text-xs text-slate-600">
                           La demande est conservée. Suivi {job.dispatchCorrelationId}
                         </dd>
                       </div>
                     ) : null}
                     <div>
-                      <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+                      <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                         Source
                       </dt>
-                      <dd className="mt-1 text-[var(--slate-800)]">
+                      <dd className="mt-1 text-slate-800">
                         {job.planSetLabel ?? "-"}
                       </dd>
                     </div>
                     <div>
-                      <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+                      <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                         Date
                       </dt>
-                      <dd className="mt-1 text-[var(--slate-800)]">
+                      <dd className="mt-1 text-slate-800">
                         {formatTimestamp(job.createdAt)}
                       </dd>
                     </div>
                     <div>
-                      <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+                      <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                         Éléments
                       </dt>
-                      <dd className="mt-1 text-[var(--slate-800)]">
+                      <dd className="mt-1 text-slate-800">
                         {formatCount(job.itemCount)}
                       </dd>
                     </div>
                     <div>
-                      <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+                      <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                         Couverture DPGF
                       </dt>
                       <dd
-                        className={`mt-1 ${isCoverageLow(job.coveragePercent) ? "text-[var(--error)]" : "text-[var(--slate-800)]"}`}
+                        className={`mt-1 ${isCoverageLow(job.coveragePercent) ? "text-danger" : "text-slate-800"}`}
                       >
                         {job.coveragePercent === null
                           ? "Aucun DPGF"
@@ -388,11 +388,11 @@ export default function TakeoffJobsTable({
                       </dd>
                     </div>
                     <div>
-                      <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+                      <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                         Exceptions
                       </dt>
                       <dd
-                        className={`mt-1 ${job.exceptionCount > 0 ? "text-[var(--warning)] font-semibold" : "text-[var(--slate-800)]"}`}
+                        className={`mt-1 ${job.exceptionCount > 0 ? "text-warning font-semibold" : "text-slate-800"}`}
                       >
                         {job.exceptionCount}
                       </dd>
@@ -442,11 +442,11 @@ export default function TakeoffJobsTable({
                   return (
                     <tr key={job.jobId}>
                       <td>
-                        <span className="inline-flex items-center rounded-full bg-[var(--slate-100)] px-2 py-0.5 text-xs font-semibold text-[var(--slate-700)]">
+                        <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-semibold text-foreground-secondary">
                           {job.versionLabel}
                         </span>
                         {job.carriedOverFrom && (
-                          <span className="mt-0.5 block text-xs text-[var(--slate-400)]">
+                          <span className="mt-0.5 block text-xs text-subtle-foreground">
                             Repris de {job.carriedOverFrom}
                           </span>
                         )}
@@ -454,7 +454,7 @@ export default function TakeoffJobsTable({
                       <td>{job.planSetLabel ?? "-"}</td>
                       <td>
                         <div className="flex flex-col items-start gap-1.5">
-                          <span className="text-sm font-medium text-[var(--slate-800)]">
+                          <span className="text-sm font-medium text-slate-800">
                             {job.levelLabel}
                           </span>
                           <Badge variant="neutral" size="sm">
@@ -516,7 +516,7 @@ export default function TakeoffJobsTable({
                       <td
                         className={
                           isCoverageLow(job.coveragePercent)
-                            ? "!text-[var(--error)]"
+                            ? "!text-danger"
                             : ""
                         }
                       >
@@ -527,7 +527,7 @@ export default function TakeoffJobsTable({
                       <td
                         className={
                           job.exceptionCount > 0
-                            ? "!text-[var(--warning)] font-semibold"
+                            ? "!text-warning font-semibold"
                             : ""
                         }
                       >
@@ -551,14 +551,14 @@ export default function TakeoffJobsTable({
           </div>
 
           {/* Pagination */}
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--slate-200)] p-4">
-            <p className="text-sm text-[var(--slate-500)]">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border p-4">
+            <p className="text-sm text-muted-foreground">
               {formatCount(data.pagination.total)} analyses
             </p>
             <div className="flex flex-wrap items-center gap-3">
               <label
                 htmlFor="ac-page-size"
-                className="text-xs font-semibold text-[var(--slate-500)]"
+                className="text-xs font-semibold text-muted-foreground"
               >
                 Taille
               </label>

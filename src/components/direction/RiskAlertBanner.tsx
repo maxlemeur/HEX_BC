@@ -147,14 +147,14 @@ export function RiskAlertBanner({ alerts, compact = false }: Readonly<Props>) {
     <section className={`dashboard-card ${compact ? "p-4" : "p-5"}`}>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-base font-semibold text-[var(--slate-900)]">
+          <h2 className="text-base font-semibold text-foreground">
             Alertes de portefeuille
           </h2>
-          <p className="mt-1 text-sm text-[var(--slate-500)]">
+          <p className="mt-1 text-sm text-muted-foreground">
             Les signaux ci-dessous regroupent les dossiers qui demandent un arbitrage clair.
           </p>
         </div>
-        <p className="text-xs text-[var(--slate-400)]" aria-live="polite">
+        <p className="text-xs text-subtle-foreground" aria-live="polite">
           {feedback ?? ""}
         </p>
       </div>
@@ -169,7 +169,7 @@ export function RiskAlertBanner({ alerts, compact = false }: Readonly<Props>) {
           return (
             <article
               key={alert.alertKey}
-              className="rounded-2xl border border-[var(--slate-200)] bg-[var(--slate-50)]/70 p-4"
+              className="rounded-2xl border border-border bg-surface-subtle/70 p-4"
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="space-y-2">
@@ -184,19 +184,19 @@ export function RiskAlertBanner({ alerts, compact = false }: Readonly<Props>) {
                     <Badge variant={STATUS_VARIANT[alert.status]} size="sm">
                       {STATUS_LABEL[alert.status]}
                     </Badge>
-                    <span className="text-xs font-medium text-[var(--slate-500)]">
+                    <span className="text-xs font-medium text-muted-foreground">
                       {alert.projectName}
                     </span>
                   </div>
 
                   <div>
-                    <h3 className="text-sm font-semibold text-[var(--slate-900)]">
+                    <h3 className="text-sm font-semibold text-foreground">
                       {alert.label}
                     </h3>
-                    <ul className="mt-2 space-y-1 text-sm text-[var(--slate-600)]">
+                    <ul className="mt-2 space-y-1 text-sm text-slate-600">
                       {alert.reasons.map((reason) => (
                         <li key={reason} className="flex gap-2">
-                          <span aria-hidden="true" className="mt-0.5 text-[var(--slate-400)]">
+                          <span aria-hidden="true" className="mt-0.5 text-subtle-foreground">
                             •
                           </span>
                           <span>{reason}</span>
@@ -208,18 +208,18 @@ export function RiskAlertBanner({ alerts, compact = false }: Readonly<Props>) {
 
                 <Link
                   href={href}
-                  className="rounded-full border border-[var(--slate-200)] bg-white px-3 py-2 text-xs font-medium text-[var(--slate-700)] transition hover:border-[var(--slate-300)] hover:bg-[var(--slate-100)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-blue)]"
+                  className="rounded-full border border-border bg-surface px-3 py-2 text-xs font-medium text-foreground-secondary transition hover:border-border-strong hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                 >
                   Ouvrir la revue
                 </Link>
               </div>
 
               {alert.jobId && alert.alertIds.length > 0 ? (
-                <div className="mt-4 border-t border-[var(--slate-200)] pt-4">
+                <div className="mt-4 border-t border-border pt-4">
                   {isEditing && nextStatus ? (
                     <div className="space-y-3">
                       <label className="space-y-1.5">
-                        <span className="block text-xs font-semibold text-[var(--slate-700)]">
+                        <span className="block text-xs font-semibold text-foreground-secondary">
                           Note de decision
                         </span>
                         <textarea

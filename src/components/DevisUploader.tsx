@@ -273,8 +273,8 @@ export function DevisUploader({ orderId, canManage, onUploadComplete }: DevisUpl
       <div
         className={`relative overflow-hidden rounded-xl border-2 border-dashed transition-all duration-200 ${
           dragActive
-            ? "border-[var(--brand-orange)] bg-[var(--brand-orange)]/5"
-            : "border-[var(--slate-200)] bg-white hover:border-[var(--slate-300)] hover:bg-[var(--slate-50)]"
+            ? "border-brand-orange bg-brand-orange/5"
+            : "border-border bg-surface hover:border-border-strong hover:bg-surface-subtle"
         } ${!canManage ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}
         onDragEnter={(event) => {
           event.preventDefault();
@@ -310,10 +310,10 @@ export function DevisUploader({ orderId, canManage, onUploadComplete }: DevisUpl
       >
         <div className="flex flex-col items-center px-6 py-10 text-center">
           <div className={`mb-4 flex h-14 w-14 items-center justify-center rounded-2xl transition-colors ${
-            dragActive ? "bg-[var(--brand-orange)]/10" : "bg-[var(--slate-100)]"
+            dragActive ? "bg-brand-orange/10" : "bg-muted"
           }`}>
             <svg
-              className={`h-7 w-7 transition-colors ${dragActive ? "text-[var(--brand-orange)]" : "text-[var(--slate-400)]"}`}
+              className={`h-7 w-7 transition-colors ${dragActive ? "text-brand-orange" : "text-subtle-foreground"}`}
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -322,13 +322,13 @@ export function DevisUploader({ orderId, canManage, onUploadComplete }: DevisUpl
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
             </svg>
           </div>
-          <p className="text-sm font-medium text-[var(--slate-700)]">
+          <p className="text-sm font-medium text-foreground-secondary">
             {dragActive ? "Deposez vos fichiers" : "Glissez vos fichiers ici"}
           </p>
-          <p className="mt-1.5 text-sm text-[var(--slate-500)]">
-            ou <span className="font-medium text-[var(--brand-blue)] hover:underline">parcourez</span> votre ordinateur
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            ou <span className="font-medium text-primary hover:underline">parcourez</span> votre ordinateur
           </p>
-          <p className="mt-3 text-xs text-[var(--slate-400)]">
+          <p className="mt-3 text-xs text-subtle-foreground">
             PDF, images, Excel, emails · Max {MAX_FILE_SIZE_LABEL} par fichier
           </p>
         </div>
@@ -338,16 +338,16 @@ export function DevisUploader({ orderId, canManage, onUploadComplete }: DevisUpl
       {hasItems && (
         <div className="mt-5 space-y-4">
           <div className="flex items-center justify-between">
-            <h4 className="text-sm font-semibold text-[var(--slate-700)]">
+            <h4 className="text-sm font-semibold text-foreground-secondary">
               Fichiers selectionnes
-              <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--slate-100)] px-1.5 text-xs font-medium text-[var(--slate-600)]">
+              <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1.5 text-xs font-medium text-slate-600">
                 {uploadQueue.length}
               </span>
             </h4>
             {completedCount > 0 && (
               <button
                 type="button"
-                className="text-xs font-medium text-[var(--slate-500)] transition-colors hover:text-[var(--slate-700)]"
+                className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground-secondary"
                 onClick={clearCompleted}
               >
                 Effacer termines
@@ -361,10 +361,10 @@ export function DevisUploader({ orderId, canManage, onUploadComplete }: DevisUpl
                 key={item.id}
                 className={`flex items-center gap-4 rounded-xl border p-4 transition-all ${
                   item.status === "success"
-                    ? "border-[var(--success)]/20 bg-[var(--success-light)]/50"
+                    ? "border-success/20 bg-success-light/50"
                     : item.status === "error"
-                      ? "border-[var(--error)]/20 bg-[var(--error-light)]/50"
-                      : "border-[var(--slate-100)] bg-white"
+                      ? "border-danger/20 bg-danger-light/50"
+                      : "border-border-subtle bg-surface"
                 }`}
               >
                 <FileTypeIcon mimeType={item.file.type} filename={item.file.name} className="!h-11 !w-11 !rounded-xl" />
@@ -380,31 +380,31 @@ export function DevisUploader({ orderId, canManage, onUploadComplete }: DevisUpl
                       placeholder="Nom du document..."
                     />
                   ) : (
-                    <div className="truncate text-sm font-medium text-[var(--slate-800)]">
+                    <div className="truncate text-sm font-medium text-slate-800">
                       {item.customName}
                     </div>
                   )}
 
-                  <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--slate-500)]">
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                     <span>{formatFileSize(item.file.size)}</span>
                     {item.status === "uploading" && (
-                      <span className="font-medium text-[var(--brand-orange)]">{item.progress}%</span>
+                      <span className="font-medium text-brand-orange">{item.progress}%</span>
                     )}
                     {item.status === "success" && (
-                      <span className="flex items-center gap-1 font-medium text-[var(--success)]">
+                      <span className="flex items-center gap-1 font-medium text-success">
                         <CheckIcon className="h-3.5 w-3.5" />
                         Termine
                       </span>
                     )}
                     {item.status === "error" && (
-                      <span className="font-medium text-[var(--error)]">{item.error}</span>
+                      <span className="font-medium text-danger">{item.error}</span>
                     )}
                   </div>
 
                   {item.status === "uploading" && (
-                    <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-[var(--slate-200)]">
+                    <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
                       <div
-                        className="h-full rounded-full bg-gradient-to-r from-[var(--brand-orange)] to-[var(--brand-orange-light)] transition-all duration-300"
+                        className="h-full rounded-full bg-gradient-to-r from-brand-orange to-brand-orange-light transition-all duration-300"
                         style={{ width: `${item.progress}%` }}
                       />
                     </div>
@@ -413,14 +413,14 @@ export function DevisUploader({ orderId, canManage, onUploadComplete }: DevisUpl
 
                 <div className="flex items-center">
                   {item.status === "success" && (
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--success)]/10">
-                      <CheckIcon className="h-4 w-4 text-[var(--success)]" />
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-success/10">
+                      <CheckIcon className="h-4 w-4 text-success" />
                     </div>
                   )}
                   {(item.status === "pending" || item.status === "error") && (
                     <button
                       type="button"
-                      className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--slate-400)] transition-colors hover:bg-[var(--slate-100)] hover:text-[var(--slate-600)]"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg text-subtle-foreground transition-colors hover:bg-muted hover:text-slate-600"
                       onClick={() => removeItem(item.id)}
                       disabled={isUploading}
                       aria-label={`Retirer ${item.customName}`}
@@ -463,11 +463,11 @@ export function DevisUploader({ orderId, canManage, onUploadComplete }: DevisUpl
 
       {/* Success message */}
       {successCount > 0 && (
-        <div className="mt-5 flex items-center gap-3 rounded-xl border border-[var(--success)]/20 bg-[var(--success-light)] px-4 py-3">
-          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[var(--success)]/10">
-            <CheckIcon className="h-4 w-4 text-[var(--success)]" />
+        <div className="mt-5 flex items-center gap-3 rounded-xl border border-success/20 bg-success-light px-4 py-3">
+          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-success/10">
+            <CheckIcon className="h-4 w-4 text-success" />
           </div>
-          <span className="text-sm font-medium text-[var(--success)]">
+          <span className="text-sm font-medium text-success">
             {successCount} fichier{successCount > 1 ? "s" : ""} ajoute{successCount > 1 ? "s" : ""} avec succes
           </span>
         </div>
@@ -475,7 +475,7 @@ export function DevisUploader({ orderId, canManage, onUploadComplete }: DevisUpl
 
       {/* Error message */}
       {globalError && (
-        <div className="mt-5 rounded-xl border border-[var(--error)]/20 bg-[var(--error-light)] px-4 py-3 text-sm text-[var(--error)] whitespace-pre-line">
+        <div className="mt-5 rounded-xl border border-danger/20 bg-danger-light px-4 py-3 text-sm text-danger whitespace-pre-line">
           {globalError}
         </div>
       )}

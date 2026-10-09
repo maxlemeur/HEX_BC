@@ -12,12 +12,12 @@ export function RegisterPagination({
   onApplyCursor,
 }: Readonly<RegisterPaginationProps>) {
   return (
-    <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[var(--slate-200)] bg-[var(--slate-50)]/70 px-4 py-3">
+    <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-border bg-surface-subtle/70 px-4 py-3">
       <div>
-        <p className="text-sm font-medium text-[var(--slate-700)]">
+        <p className="text-sm font-medium text-foreground-secondary">
           {cursor ? "Vue paginée sur une tranche du registre" : "Début du registre pour cette vue"}
         </p>
-        <p className="mt-1 text-xs text-[var(--slate-500)]">
+        <p className="mt-1 text-xs text-muted-foreground">
           {nextCursor
             ? "D'autres points sont disponibles. Chargez la suite pour poursuivre la revue."
             : "Vous êtes sur la dernière tranche disponible pour ces filtres."}

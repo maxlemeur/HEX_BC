@@ -59,7 +59,7 @@ export function GeneratedOuvrageFooterBar({
   }
 
   return (
-    <div className="mt-4 border-t border-slate-200 pt-4">
+    <div className="mt-4 border-t border-border pt-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div
           className={cn(
@@ -69,7 +69,7 @@ export function GeneratedOuvrageFooterBar({
             statusVariant === "green" &&
               "border-emerald-200 bg-emerald-50 text-emerald-800",
             statusVariant === "slate" &&
-              "border-slate-200 bg-slate-50 text-slate-600"
+              "border-border bg-surface-subtle text-slate-600"
           )}
         >
           {statusCopy}

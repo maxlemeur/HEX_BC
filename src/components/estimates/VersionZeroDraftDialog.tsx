@@ -78,7 +78,7 @@ function statusBadgeClass(status: string) {
     case "rejected":
       return "border-rose-200 bg-rose-50 text-rose-700";
     default:
-      return "border-slate-200 bg-slate-100 text-slate-700";
+      return "border-border bg-muted text-foreground-secondary";
   }
 }
 
@@ -310,17 +310,17 @@ export function VersionZeroDraftDialog({
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 overscroll-contain"
       data-testid="version-zero-draft-dialog"
     >
-      <div className="max-h-[92vh] w-full max-w-6xl overflow-hidden rounded-2xl border border-[var(--slate-200)] bg-white shadow-2xl">
-        <div className="flex items-start justify-between gap-4 border-b border-[var(--slate-200)] px-6 py-5">
+      <div className="max-h-[92vh] w-full max-w-6xl overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-border px-6 py-5">
           <div className="space-y-2">
             <div className="inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-amber-800">
               IA - a revoir
             </div>
             <div>
-              <h2 className="text-xl font-semibold text-[var(--slate-900)]">
+              <h2 className="text-xl font-semibold text-foreground">
                 Version zero assistee
               </h2>
-              <p className="text-sm text-[var(--slate-600)]">
+              <p className="text-sm text-slate-600">
                 Fait: aucune suggestion n&apos;est appliquee sans validation humaine explicite.
               </p>
             </div>
@@ -347,12 +347,12 @@ export function VersionZeroDraftDialog({
 
           {!review ? (
             <div className="space-y-5">
-              <div className="rounded-2xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-5">
+              <div className="rounded-2xl border border-border bg-surface-subtle p-5">
                 <div className="space-y-1">
-                  <h3 className="text-base font-semibold text-[var(--slate-900)]">
+                  <h3 className="text-base font-semibold text-foreground">
                     Generation V0
                   </h3>
-                  <p className="text-sm text-[var(--slate-600)]">
+                  <p className="text-sm text-slate-600">
                     Hypothese: la version courante est vide et un brief confirme est disponible.
                   </p>
                 </div>
@@ -365,7 +365,7 @@ export function VersionZeroDraftDialog({
                         className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 text-sm ${
                           checked
                             ? "border-emerald-300 bg-emerald-50 text-emerald-800"
-                            : "border-[var(--slate-200)] bg-white text-[var(--slate-700)]"
+                            : "border-border bg-surface text-foreground-secondary"
                         }`}
                       >
                         <input
@@ -385,7 +385,7 @@ export function VersionZeroDraftDialog({
                   })}
                 </div>
                 <div className="mt-4 flex items-center justify-between gap-3">
-                  <p className="text-sm text-[var(--slate-600)]">
+                  <p className="text-sm text-slate-600">
                     Provenance: brief confirme
                     {summary?.confirmedBriefId ? ` (${summary.confirmedBriefId})` : ""}.
                   </p>
@@ -408,42 +408,42 @@ export function VersionZeroDraftDialog({
           ) : (
             <div className="space-y-5">
               <div className="grid gap-3 md:grid-cols-4">
-                <div className="rounded-2xl border border-[var(--slate-200)] bg-white p-4">
-                  <div className="text-xs uppercase tracking-wide text-[var(--slate-500)]">
+                <div className="rounded-2xl border border-border bg-surface p-4">
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground">
                     Lignes
                   </div>
-                  <div className="mt-1 text-2xl font-semibold text-[var(--slate-900)]">
+                  <div className="mt-1 text-2xl font-semibold text-foreground">
                     {review.draft.counts.lines}
                   </div>
                 </div>
-                <div className="rounded-2xl border border-[var(--slate-200)] bg-white p-4">
-                  <div className="text-xs uppercase tracking-wide text-[var(--slate-500)]">
+                <div className="rounded-2xl border border-border bg-surface p-4">
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground">
                     En attente
                   </div>
                   <div className="mt-1 text-2xl font-semibold text-amber-700">
                     {review.draft.counts.pending}
                   </div>
                 </div>
-                <div className="rounded-2xl border border-[var(--slate-200)] bg-white p-4">
-                  <div className="text-xs uppercase tracking-wide text-[var(--slate-500)]">
+                <div className="rounded-2xl border border-border bg-surface p-4">
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground">
                     Lots manquants
                   </div>
                   <div className="mt-1 text-2xl font-semibold text-rose-700">
                     {review.draft.counts.missingLots}
                   </div>
                 </div>
-                <div className="rounded-2xl border border-[var(--slate-200)] bg-white p-4">
-                  <div className="text-xs uppercase tracking-wide text-[var(--slate-500)]">
+                <div className="rounded-2xl border border-border bg-surface p-4">
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground">
                     Confiance faible
                   </div>
-                  <div className="mt-1 text-2xl font-semibold text-[var(--slate-900)]">
+                  <div className="mt-1 text-2xl font-semibold text-foreground">
                     {review.draft.counts.lowConfidenceLines}
                   </div>
                 </div>
               </div>
 
               {review.draft.summaryText ? (
-                <div className="rounded-2xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-3 text-sm text-[var(--slate-700)]">
+                <div className="rounded-2xl border border-border bg-surface-subtle px-4 py-3 text-sm text-foreground-secondary">
                   Inference: {review.draft.summaryText}
                 </div>
               ) : null}
@@ -455,8 +455,8 @@ export function VersionZeroDraftDialog({
                     type="button"
                     className={`rounded-full border px-3 py-1.5 text-sm ${
                       filter === filterKey
-                        ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-strong)]"
-                        : "border-[var(--slate-200)] bg-white text-[var(--slate-700)]"
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border bg-surface text-foreground-secondary"
                     }`}
                     onClick={() => setFilter(filterKey)}
                   >
@@ -469,12 +469,12 @@ export function VersionZeroDraftDialog({
                 {visibleLots.map((lot) => (
                   <section
                     key={lot.id}
-                    className="rounded-2xl border border-[var(--slate-200)] bg-white p-4"
+                    className="rounded-2xl border border-border bg-surface p-4"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <div className="flex items-center gap-2">
-                          <h3 className="text-lg font-semibold text-[var(--slate-900)]">
+                          <h3 className="text-lg font-semibold text-foreground">
                             {lot.label}
                           </h3>
                           <span
@@ -485,12 +485,12 @@ export function VersionZeroDraftDialog({
                             {lot.status}
                           </span>
                           {lot.confidence !== null ? (
-                            <span className="text-xs text-[var(--slate-500)]">
+                            <span className="text-xs text-muted-foreground">
                               Confiance {confidenceText(lot.confidence)}
                             </span>
                           ) : null}
                         </div>
-                        <p className="mt-1 text-sm text-[var(--slate-600)]">
+                        <p className="mt-1 text-sm text-slate-600">
                           Provenance: {lot.provenance.join(" • ") || "Non renseignee"}
                         </p>
                       </div>
@@ -524,12 +524,12 @@ export function VersionZeroDraftDialog({
                         return (
                           <article
                             key={line.id}
-                            className="rounded-2xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4"
+                            className="rounded-2xl border border-border bg-surface-subtle p-4"
                           >
                             <div className="flex flex-wrap items-center justify-between gap-3">
                               <div>
                                 <div className="flex flex-wrap items-center gap-2">
-                                  <h4 className="font-semibold text-[var(--slate-900)]">
+                                  <h4 className="font-semibold text-foreground">
                                     {line.proposed.title}
                                   </h4>
                                   <span
@@ -539,12 +539,12 @@ export function VersionZeroDraftDialog({
                                   >
                                     {line.reviewStatus}
                                   </span>
-                                  <span className="text-xs text-[var(--slate-500)]">
+                                  <span className="text-xs text-muted-foreground">
                                     {line.confidenceLabel} {confidenceText(line.confidence)}
                                   </span>
                                 </div>
                                 {line.proposed.description ? (
-                                  <p className="mt-1 text-sm text-[var(--slate-600)]">
+                                  <p className="mt-1 text-sm text-slate-600">
                                     {line.proposed.description}
                                   </p>
                                 ) : null}
@@ -579,7 +579,7 @@ export function VersionZeroDraftDialog({
 
                             <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                               <label className="text-sm">
-                                <span className="mb-1 block text-[var(--slate-600)]">Libelle</span>
+                                <span className="mb-1 block text-slate-600">Libelle</span>
                                 <input
                                   className="form-input w-full"
                                   name={`version-zero-title-${line.id}`}
@@ -597,7 +597,7 @@ export function VersionZeroDraftDialog({
                                 />
                               </label>
                               <label className="text-sm">
-                                <span className="mb-1 block text-[var(--slate-600)]">Description</span>
+                                <span className="mb-1 block text-slate-600">Description</span>
                                 <input
                                   className="form-input w-full"
                                   name={`version-zero-description-${line.id}`}
@@ -615,7 +615,7 @@ export function VersionZeroDraftDialog({
                                 />
                               </label>
                               <label className="text-sm">
-                                <span className="mb-1 block text-[var(--slate-600)]">Quantite</span>
+                                <span className="mb-1 block text-slate-600">Quantite</span>
                                 <input
                                   className="form-input w-full"
                                   name={`version-zero-quantity-${line.id}`}
@@ -634,7 +634,7 @@ export function VersionZeroDraftDialog({
                                 />
                               </label>
                               <label className="text-sm">
-                                <span className="mb-1 block text-[var(--slate-600)]">Unite</span>
+                                <span className="mb-1 block text-slate-600">Unite</span>
                                 <input
                                   className="form-input w-full"
                                   name={`version-zero-unit-${line.id}`}
@@ -654,16 +654,16 @@ export function VersionZeroDraftDialog({
                             </div>
 
                             <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                              <div className="rounded-xl border border-[var(--slate-200)] bg-white p-3 text-sm text-[var(--slate-700)]">
-                                <div className="font-medium text-[var(--slate-900)]">Faits</div>
+                              <div className="rounded-xl border border-border bg-surface p-3 text-sm text-foreground-secondary">
+                                <div className="font-medium text-foreground">Faits</div>
                                 <ul className="mt-2 space-y-1">
                                   {line.facts.map((entry) => (
                                     <li key={entry}>• {entry}</li>
                                   ))}
                                 </ul>
                               </div>
-                              <div className="rounded-xl border border-[var(--slate-200)] bg-white p-3 text-sm text-[var(--slate-700)]">
-                                <div className="font-medium text-[var(--slate-900)]">Hypotheses / inferences</div>
+                              <div className="rounded-xl border border-border bg-surface p-3 text-sm text-foreground-secondary">
+                                <div className="font-medium text-foreground">Hypotheses / inferences</div>
                                 <ul className="mt-2 space-y-1">
                                   {[...line.hypotheses, ...line.inferences].map((entry) => (
                                     <li key={entry}>• {entry}</li>
@@ -692,8 +692,8 @@ export function VersionZeroDraftDialog({
                 ))}
               </div>
 
-              <div className="sticky bottom-0 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--slate-200)] bg-white py-4">
-                <p className="text-sm text-[var(--slate-600)]">
+              <div className="sticky bottom-0 flex flex-wrap items-center justify-between gap-3 border-t border-border bg-surface py-4">
+                <p className="text-sm text-slate-600">
                   Fait: la materialisation reste bloquee tant qu&apos;il reste des lignes en attente.
                 </p>
                 <button

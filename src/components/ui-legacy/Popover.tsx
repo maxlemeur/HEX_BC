@@ -143,10 +143,10 @@ export function Popover({
         : {})}
     >
       <div
-        className={`absolute h-3 w-3 border-slate-200 bg-surface ${currentPlacement.arrow} ${arrowClassName}`}
+        className={`absolute h-3 w-3 border-border bg-surface ${currentPlacement.arrow} ${arrowClassName}`}
       />
       <div
-        className={`relative w-max max-w-sm whitespace-normal rounded-lg border border-slate-200 bg-surface p-2.5 text-xs font-normal text-slate-600 shadow-lg ${contentClassName}`}
+        className={`relative w-max max-w-sm whitespace-normal rounded-lg border border-border bg-surface p-2.5 text-xs font-normal text-slate-600 shadow-lg ${contentClassName}`}
       >
         {children}
       </div>

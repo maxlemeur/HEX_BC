@@ -13,9 +13,9 @@ export function PriceBookRejectedRowsTable({
 
   return (
     <section className="dashboard-card overflow-hidden">
-      <div className="border-b border-[var(--slate-200)] px-6 py-4">
-        <h3 className="text-sm font-semibold text-[var(--slate-800)]">Synthese des lignes a corriger</h3>
-        <p className="mt-1 text-xs text-[var(--slate-500)]">Ligne + motif de correction.</p>
+      <div className="border-b border-border px-6 py-4">
+        <h3 className="text-sm font-semibold text-slate-800">Synthese des lignes a corriger</h3>
+        <p className="mt-1 text-xs text-muted-foreground">Ligne + motif de correction.</p>
       </div>
 
       <div className="table-scroll">
@@ -42,7 +42,7 @@ export function PriceBookRejectedRowsTable({
       </div>
 
       {validation.rejectedRowsCount > 200 ? (
-        <div className="border-t border-[var(--slate-200)] px-6 py-4 text-xs text-[var(--slate-500)]">
+        <div className="border-t border-border px-6 py-4 text-xs text-muted-foreground">
           Liste tronquee aux 200 premieres lignes a corriger.
         </div>
       ) : null}

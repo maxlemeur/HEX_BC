@@ -338,7 +338,7 @@ export function EstimateStructureDraftDialog({
           ) : null}
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-[var(--slate-200)] px-6 py-4">
+        <div className="flex items-center justify-between gap-3 border-t border-border px-6 py-4">
           {step === 4 ? (
             <div />
           ) : (

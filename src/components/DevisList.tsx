@@ -147,12 +147,12 @@ function PencilIcon({ className }: { className?: string }) {
 
 function SkeletonCard() {
   return (
-    <div className="animate-pulse rounded-xl border border-[var(--slate-100)] bg-white p-5">
+    <div className="animate-pulse rounded-xl border border-border-subtle bg-surface p-5">
       <div className="flex items-start gap-4">
-        <div className="h-12 w-12 rounded-xl bg-[var(--slate-100)]" />
+        <div className="h-12 w-12 rounded-xl bg-muted" />
         <div className="flex-1 space-y-3">
-          <div className="h-4 w-3/4 rounded-lg bg-[var(--slate-100)]" />
-          <div className="h-3 w-1/2 rounded-lg bg-[var(--slate-50)]" />
+          <div className="h-4 w-3/4 rounded-lg bg-muted" />
+          <div className="h-3 w-1/2 rounded-lg bg-surface-subtle" />
         </div>
       </div>
     </div>
@@ -222,10 +222,10 @@ function SortableDevisRow({
       style={style}
       role="listitem"
       aria-label={`Devis: ${item.name}`}
-      className={`group relative rounded-xl border bg-white transition-all duration-200 ${
+      className={`group relative rounded-xl border bg-surface transition-all duration-200 ${
         isDragging
-          ? "border-[var(--brand-orange)] shadow-xl shadow-[var(--brand-orange)]/10"
-          : "border-[var(--slate-100)] hover:border-[var(--slate-200)] hover:shadow-md"
+          ? "border-brand-orange shadow-xl shadow-[var(--brand-orange)]/10"
+          : "border-border-subtle hover:border-border hover:shadow-md"
       }`}
     >
       {/* Main content area */}
@@ -234,7 +234,7 @@ function SortableDevisRow({
         {canManage && !isEditing && (
           <button
             type="button"
-            className="mt-1 flex-shrink-0 cursor-grab rounded-lg p-1.5 text-[var(--slate-300)] opacity-0 transition-all duration-200 hover:bg-[var(--slate-50)] hover:text-[var(--slate-500)] group-hover:opacity-100 focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-[var(--brand-blue)]"
+            className="mt-1 flex-shrink-0 cursor-grab rounded-lg p-1.5 text-slate-300 opacity-0 transition-all duration-200 hover:bg-surface-subtle hover:text-muted-foreground group-hover:opacity-100 focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-primary"
             {...attributes}
             {...listeners}
             aria-label="Glisser pour reordonner"
@@ -284,31 +284,31 @@ function SortableDevisRow({
               {/* Title row */}
               <div className="flex items-center gap-3">
                 <h4
-                  className={`truncate text-base font-semibold text-[var(--slate-800)] ${
-                    canManage ? "cursor-pointer hover:text-[var(--brand-blue)]" : ""
+                  className={`truncate text-base font-semibold text-slate-800 ${
+                    canManage ? "cursor-pointer hover:text-primary" : ""
                   }`}
                   title={canManage ? "Double-cliquez pour renommer" : item.name}
                   onDoubleClick={canManage ? onStartEditing : undefined}
                 >
                   {item.name}
                 </h4>
-                <span className="flex-shrink-0 rounded-md bg-[var(--slate-100)] px-2 py-0.5 text-xs font-medium text-[var(--slate-500)]">
+                <span className="flex-shrink-0 rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
                   {fileTypeLabel}
                 </span>
               </div>
 
               {/* Meta info row */}
-              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-[var(--slate-500)]">
+              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
                 <span className="truncate font-mono text-xs" title={item.originalFilename}>
                   {item.originalFilename}
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <span className="h-1 w-1 rounded-full bg-[var(--slate-300)]" />
+                  <span className="h-1 w-1 rounded-full bg-slate-300" />
                   {formatFileSize(item.fileSizeBytes)}
                 </span>
                 {item.createdAt && (
                   <span className="flex items-center gap-1.5">
-                    <span className="h-1 w-1 rounded-full bg-[var(--slate-300)]" />
+                    <span className="h-1 w-1 rounded-full bg-slate-300" />
                     {formatDate(item.createdAt)}
                   </span>
                 )}
@@ -320,15 +320,15 @@ function SortableDevisRow({
 
       {/* Actions bar - separate section at bottom */}
       {!isEditing && (
-        <div className="flex items-center justify-between border-t border-[var(--slate-50)] bg-[var(--slate-50)]/50 px-5 py-3">
+        <div className="flex items-center justify-between border-t border-slate-50 bg-surface-subtle/50 px-5 py-3">
           {isConfirmingDelete ? (
             <div className="flex w-full items-center justify-between">
-              <span className="text-sm font-medium text-[var(--error)]">
+              <span className="text-sm font-medium text-danger">
                 Confirmer la suppression ?
               </span>
               <div className="flex items-center gap-2">
                 <button
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[var(--error)] px-3 text-sm font-medium text-white transition-colors hover:bg-danger"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-danger px-3 text-sm font-medium text-white transition-colors hover:bg-danger"
                   onClick={onConfirmDelete}
                   type="button"
                   disabled={isRemoving}
@@ -337,7 +337,7 @@ function SortableDevisRow({
                   {isRemoving ? "..." : "Supprimer"}
                 </button>
                 <button
-                  className="inline-flex h-8 items-center rounded-lg px-3 text-sm font-medium text-[var(--slate-600)] transition-colors hover:bg-[var(--slate-100)]"
+                  className="inline-flex h-8 items-center rounded-lg px-3 text-sm font-medium text-slate-600 transition-colors hover:bg-muted"
                   onClick={onCancelDelete}
                   type="button"
                   disabled={isRemoving}
@@ -353,7 +353,7 @@ function SortableDevisRow({
               <div className="flex items-center gap-2">
                 {isPreviewableType(item.mimeType, item.originalFilename) && (
                   <button
-                    className="inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-sm font-medium text-[var(--slate-600)] transition-colors hover:bg-[var(--slate-100)] hover:text-[var(--slate-800)] disabled:opacity-50"
+                    className="inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-sm font-medium text-slate-600 transition-colors hover:bg-muted hover:text-slate-800 disabled:opacity-50"
                     onClick={onPreview}
                     type="button"
                     disabled={!item.downloadUrl}
@@ -364,7 +364,7 @@ function SortableDevisRow({
                   </button>
                 )}
                 <button
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[var(--brand-blue)] px-3 text-sm font-medium text-white transition-colors hover:bg-[var(--brand-blue-light)] disabled:opacity-50"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-white transition-colors hover:bg-brand-blue-light disabled:opacity-50"
                   onClick={() => {
                     if (item.downloadUrl) {
                       window.open(item.downloadUrl, "_blank", "noopener,noreferrer");
@@ -383,7 +383,7 @@ function SortableDevisRow({
               {canManage && (
                 <div className="flex items-center gap-1">
                   <button
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[var(--slate-400)] transition-colors hover:bg-[var(--slate-100)] hover:text-[var(--slate-600)] disabled:opacity-50"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-subtle-foreground transition-colors hover:bg-muted hover:text-slate-600 disabled:opacity-50"
                     onClick={onStartEditing}
                     type="button"
                     disabled={isRemoving}
@@ -393,7 +393,7 @@ function SortableDevisRow({
                     <PencilIcon className="h-4 w-4" />
                   </button>
                   <button
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[var(--slate-400)] transition-colors hover:bg-[var(--error-light)] hover:text-[var(--error)] disabled:opacity-50"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-subtle-foreground transition-colors hover:bg-danger-light hover:text-danger disabled:opacity-50"
                     onClick={onRequestDelete}
                     type="button"
                     disabled={isRemoving}
@@ -586,21 +586,21 @@ export function DevisList({
   }
 
   return (
-    <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-[var(--slate-100)]">
+    <div className="rounded-2xl bg-surface p-6 shadow-sm ring-1 ring-slate-100">
       {/* Header */}
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
-            <h3 className="text-xl font-semibold tracking-tight text-[var(--slate-800)]">
+            <h3 className="text-xl font-semibold tracking-tight text-slate-800">
               Documents joints
             </h3>
             {items.length > 0 && (
-              <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-[var(--brand-blue)]/10 px-2 text-xs font-semibold text-[var(--brand-blue)]">
+              <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-primary/10 px-2 text-xs font-semibold text-primary">
                 {items.length}
               </span>
             )}
           </div>
-          <p className="mt-1.5 text-sm text-[var(--slate-500)]">
+          <p className="mt-1.5 text-sm text-muted-foreground">
             {items.length === 0
               ? "Aucun document attache a cette commande"
               : canManage && items.length > 1
@@ -609,7 +609,7 @@ export function DevisList({
           </p>
         </div>
         {!canManage && items.length > 0 && (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--slate-100)] px-3 py-1.5 text-xs font-medium text-[var(--slate-500)]">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground">
             <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z" clipRule="evenodd" />
             </svg>
@@ -620,13 +620,13 @@ export function DevisList({
 
       {/* Error states */}
       {error && (
-        <div className="mb-6 rounded-xl border border-[var(--error)]/20 bg-[var(--error-light)] px-4 py-3 text-sm text-[var(--error)]">
+        <div className="mb-6 rounded-xl border border-danger/20 bg-danger-light px-4 py-3 text-sm text-danger">
           {error.message}
         </div>
       )}
 
       {actionError && (
-        <div className="mb-6 rounded-xl border border-[var(--error)]/20 bg-[var(--error-light)] px-4 py-3 text-sm text-[var(--error)]">
+        <div className="mb-6 rounded-xl border border-danger/20 bg-danger-light px-4 py-3 text-sm text-danger">
           {actionError}
         </div>
       )}
@@ -641,14 +641,14 @@ export function DevisList({
 
       {/* Empty state */}
       {items.length === 0 && !isLoading ? (
-        <div className="rounded-2xl border-2 border-dashed border-[var(--slate-200)] bg-gradient-to-b from-[var(--slate-50)] to-white px-8 py-12 text-center">
-          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--slate-100)]">
-            <DocumentIcon className="h-8 w-8 text-[var(--slate-400)]" />
+        <div className="rounded-2xl border-2 border-dashed border-border bg-gradient-to-b from-slate-50 to-white px-8 py-12 text-center">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-muted">
+            <DocumentIcon className="h-8 w-8 text-subtle-foreground" />
           </div>
-          <h4 className="mt-5 text-base font-semibold text-[var(--slate-700)]">
+          <h4 className="mt-5 text-base font-semibold text-foreground-secondary">
             Aucun document
           </h4>
-          <p className="mx-auto mt-2 max-w-xs text-sm text-[var(--slate-500)]">
+          <p className="mx-auto mt-2 max-w-xs text-sm text-muted-foreground">
             Ajoutez vos devis fournisseurs pour les conserver avec la commande
           </p>
           {canManage && onAddClick && (

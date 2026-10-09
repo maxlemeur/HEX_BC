@@ -274,8 +274,8 @@ export function PlanFileUploadZone({
       <div
         className={`rounded-xl border-2 border-dashed p-6 text-center transition-colors ${
           dragActive
-            ? "border-[var(--brand-blue)] bg-[var(--brand-blue)]/5"
-            : "border-[var(--slate-300)] bg-[var(--slate-50)] hover:border-[var(--slate-400)]"
+            ? "border-primary bg-primary/5"
+            : "border-border-strong bg-surface-subtle hover:border-slate-400"
         }`}
         role="button"
         tabIndex={hasActiveUploads ? -1 : 0}
@@ -313,12 +313,12 @@ export function PlanFileUploadZone({
           }
         }}
       >
-        <p className="text-sm font-medium text-[var(--slate-700)]">
+        <p className="text-sm font-medium text-foreground-secondary">
           {dragActive
             ? "Déposez les fichiers ici"
             : "Glissez des PDF ici ou cliquez pour parcourir"}
         </p>
-        <p className="mt-1 text-xs text-[var(--slate-500)]">
+        <p className="mt-1 text-xs text-muted-foreground">
           PDF uniquement — {PLAN_PDF_MAX_SIZE_LABEL} max par fichier
         </p>
       </div>
@@ -329,14 +329,14 @@ export function PlanFileUploadZone({
           {entries.map((entry) => (
             <div
               key={entry.id}
-              className="flex items-center gap-3 rounded-lg border border-[var(--slate-200)] bg-surface px-3 py-2 text-sm"
+              className="flex items-center gap-3 rounded-lg border border-border bg-surface px-3 py-2 text-sm"
             >
-              <span className="min-w-0 flex-1 truncate text-[var(--slate-700)]">
+              <span className="min-w-0 flex-1 truncate text-foreground-secondary">
                 {entry.file.name}
               </span>
 
               {entry.status === "registering" && (
-                <span className="shrink-0 text-xs text-[var(--slate-500)]">
+                <span className="shrink-0 text-xs text-muted-foreground">
                   Enregistrement…
                 </span>
               )}
@@ -344,7 +344,7 @@ export function PlanFileUploadZone({
               {entry.status === "uploading" && (
                 <div className="flex shrink-0 items-center gap-2">
                   <div
-                    className="h-1.5 w-20 overflow-hidden rounded-full bg-[var(--slate-200)]"
+                    className="h-1.5 w-20 overflow-hidden rounded-full bg-slate-200"
                     role="progressbar"
                     aria-valuenow={entry.progress}
                     aria-valuemin={0}
@@ -352,11 +352,11 @@ export function PlanFileUploadZone({
                     aria-label={`Upload ${entry.file.name} ${entry.progress}%`}
                   >
                     <div
-                      className="h-full rounded-full bg-[var(--brand-blue)] transition-[width] duration-200"
+                      className="h-full rounded-full bg-primary transition-[width] duration-200"
                       style={{ width: `${entry.progress}%` }}
                     />
                   </div>
-                  <span className="text-xs text-[var(--slate-500)]">
+                  <span className="text-xs text-muted-foreground">
                     {entry.progress}%
                   </span>
                 </div>
@@ -394,7 +394,7 @@ export function PlanFileUploadZone({
               )}
 
               {entry.status === "pending" && (
-                <span className="shrink-0 text-xs text-[var(--slate-400)]">
+                <span className="shrink-0 text-xs text-subtle-foreground">
                   En attente…
                 </span>
               )}

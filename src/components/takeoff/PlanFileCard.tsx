@@ -30,7 +30,7 @@ function formatRelativeTime(isoDate: string) {
 
 export function PlanFileCard({ file, onDelete, deleting }: PlanFileCardProps) {
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-[var(--slate-200)] bg-surface px-4 py-3 text-sm transition hover:border-[var(--slate-300)]">
+    <div className="flex items-center gap-3 rounded-lg border border-border bg-surface px-4 py-3 text-sm transition hover:border-border-strong">
       {/* PDF icon */}
       <svg
         className="h-5 w-5 shrink-0 text-red-500"
@@ -49,10 +49,10 @@ export function PlanFileCard({ file, onDelete, deleting }: PlanFileCardProps) {
 
       {/* File info */}
       <div className="min-w-0 flex-1">
-        <p className="truncate font-medium text-[var(--slate-800)]">
+        <p className="truncate font-medium text-slate-800">
           {file.file_name}
         </p>
-        <p className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-[var(--slate-500)]">
+        <p className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
           <span>{formatFileSize(file.file_size_bytes)}</span>
           {file.page_count != null && (
             <span>
@@ -66,7 +66,7 @@ export function PlanFileCard({ file, onDelete, deleting }: PlanFileCardProps) {
       {/* Delete button */}
       <button
         type="button"
-        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--slate-400)] transition hover:bg-[var(--slate-100)] hover:text-danger disabled:opacity-50"
+        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-subtle-foreground transition hover:bg-muted hover:text-danger disabled:opacity-50"
         aria-label={`Supprimer ${file.file_name}`}
         onClick={() => onDelete(file.id)}
         disabled={deleting}

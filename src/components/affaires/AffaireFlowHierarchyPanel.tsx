@@ -154,8 +154,8 @@ function buildMissingIllustrationItem(
     title,
     subtitle: "",
     label,
-    accent: "text-slate-400",
-    frame: "border-dashed border-slate-300 bg-white/70",
+    accent: "text-subtle-foreground",
+    frame: "border-dashed border-border-strong bg-surface/70",
     isMissing: true,
     representedCount: 1,
     severityLabel: getMissingPieceSeverityLabel(piece.severity),
@@ -358,7 +358,7 @@ function ActionButton({
 
 function ResultFactPill({ label }: { label: string }) {
   return (
-    <span className="rounded-full border border-white/70 bg-white/88 px-3 py-1 text-xs font-medium text-[var(--slate-700)]">
+    <span className="rounded-full border border-white/70 bg-surface/88 px-3 py-1 text-xs font-medium text-foreground-secondary">
       {label}
     </span>
   );
@@ -738,7 +738,7 @@ function ResultCard({
   return (
     <div className="mt-4">
       <div className="relative overflow-hidden rounded-[1.5rem] border border-[#d5c6af] bg-[#e8dcc9] p-4 sm:p-6">
-        <div className="relative overflow-hidden rounded-[1rem] border-2 border-dashed border-white/45 bg-[var(--foreground)] shadow-[0_24px_60px_rgba(15,23,42,0.28)]">
+        <div className="relative overflow-hidden rounded-[1rem] border-2 border-dashed border-white/45 bg-foreground shadow-[0_24px_60px_rgba(15,23,42,0.28)]">
           <div
             className="absolute inset-0 opacity-45"
             style={{
@@ -783,11 +783,11 @@ function ResultCard({
                       <div className={`text-[11px] font-bold uppercase tracking-[0.12em] ${item.accent}`}>
                         {item.label}
                       </div>
-                      <p className="mt-2 truncate text-sm font-semibold text-[var(--slate-800)]" title={item.title}>
+                      <p className="mt-2 truncate text-sm font-semibold text-slate-800" title={item.title}>
                         {item.title}
                       </p>
                       {item.subtitle ? (
-                        <p className="mt-1 text-xs text-[var(--slate-500)]">{item.subtitle}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">{item.subtitle}</p>
                       ) : null}
                     </div>
                   ))}
@@ -801,14 +801,14 @@ function ResultCard({
                         <div className={`text-[11px] font-bold uppercase tracking-[0.12em] ${item.accent}`}>
                           {item.label}
                         </div>
-                        <p className="mt-2 truncate text-sm font-semibold text-[var(--slate-800)]" title={item.title}>
+                        <p className="mt-2 truncate text-sm font-semibold text-slate-800" title={item.title}>
                           {item.title}
                         </p>
-                        <p className="mt-1 text-xs text-[var(--slate-500)]">{item.subtitle}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">{item.subtitle}</p>
                       </div>
                     ))}
                     <div className="mt-3 flex h-8 w-px flex-col items-center justify-center bg-white/30">
-                      <span className="inline-flex h-2 w-2 rounded-full bg-white/60" />
+                      <span className="inline-flex h-2 w-2 rounded-full bg-surface/60" />
                     </div>
                     <div className="mt-1 flex w-full justify-center">
                       <div className="inline-flex items-center gap-2 rounded-full border border-white/35 bg-white/12 px-4 py-2 text-center text-sm font-medium text-white/92 backdrop-blur-sm">
@@ -817,8 +817,8 @@ function ResultCard({
                           hover
                           className="z-20"
                           placement="right"
-                          contentClassName="border-[var(--slate-200)] bg-white text-[var(--slate-700)] shadow-[0_18px_40px_rgba(15,23,42,0.22)]"
-                          arrowClassName="border-[var(--slate-200)] bg-white"
+                          contentClassName="border-border bg-surface text-foreground-secondary shadow-[0_18px_40px_rgba(15,23,42,0.22)]"
+                          arrowClassName="border-border bg-surface"
                           trigger={(
                             <button
                               type="button"
@@ -844,7 +844,7 @@ function ResultCard({
                           )}
                         >
                           <div className="space-y-2">
-                            <p className="text-xs leading-5 text-[var(--slate-700)]">
+                            <p className="text-xs leading-5 text-foreground-secondary">
                               TIMAX hesite car le document ne contient pas assez d&apos;indices pour trancher automatiquement.
                             </p>
                             {reviewEvidenceHints.length > 0 ? (
@@ -852,7 +852,7 @@ function ResultCard({
                                 {reviewEvidenceHints.map((hint) => (
                                   <span
                                     key={hint}
-                                    className="rounded-full border border-[var(--slate-200)] bg-[var(--slate-50)] px-2.5 py-1 text-[11px] font-medium text-[var(--slate-600)]"
+                                    className="rounded-full border border-border bg-surface-subtle px-2.5 py-1 text-[11px] font-medium text-slate-600"
                                   >
                                     {hint}
                                   </span>
@@ -883,16 +883,16 @@ function ResultCard({
                             disabled={isReviewActionPending}
                             className={`inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium shadow-sm transition-all ${
                               selectedReviewCategory === category
-                                ? "border-[var(--brand-blue)] bg-[var(--brand-blue)] text-white"
-                                : "border-white/35 bg-white/92 text-[var(--slate-700)] hover:-translate-y-0.5 hover:bg-white"
+                                ? "border-primary bg-primary text-white"
+                                : "border-white/35 bg-surface/92 text-foreground-secondary hover:-translate-y-0.5 hover:bg-surface"
                             } ${isReviewActionPending ? "cursor-progress opacity-80" : ""}`}
                           >
-                            <span className={selectedReviewCategory === category ? "text-white" : "text-[var(--brand-blue)]"}>
+                            <span className={selectedReviewCategory === category ? "text-white" : "text-primary"}>
                               {getCategoryStoryIcon(category)}
                             </span>
                             <span>{getReviewChoiceLabel(category)}</span>
                             {index === 0 ? (
-                              <span className="rounded-full bg-[var(--warning)]/15 px-2 py-0.5 text-[11px] font-semibold text-[var(--warning-dark)]">
+                              <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-semibold text-warning">
                                 Probable
                               </span>
                             ) : null}
@@ -901,7 +901,7 @@ function ResultCard({
                                 className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
                                   selectedReviewCategory === category
                                     ? "bg-white/18 text-white"
-                                    : "bg-[var(--slate-100)] text-[var(--slate-600)]"
+                                    : "bg-muted text-slate-600"
                                 }`}
                               >
                                 {secondaryBadge}
@@ -951,10 +951,10 @@ function ResultCard({
                       <div className={`text-[11px] font-bold uppercase tracking-[0.12em] ${reviewOverflowItem.accent}`}>
                         {reviewOverflowItem.label}
                       </div>
-                      <p className="mt-2 text-sm font-semibold text-[var(--slate-800)]">
+                      <p className="mt-2 text-sm font-semibold text-slate-800">
                         {reviewOverflowItem.title}
                       </p>
-                      <p className="mt-1 text-xs text-[var(--slate-500)]">{reviewOverflowItem.subtitle}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{reviewOverflowItem.subtitle}</p>
                     </div>
                   ) : null}
                   {reviewMissingIllustrationItems.map((item) => (
@@ -984,10 +984,10 @@ function ResultCard({
                       <div className={`text-[11px] font-bold uppercase tracking-[0.12em] ${reviewMissingOverflowItem.accent}`}>
                         {reviewMissingOverflowItem.label}
                       </div>
-                      <p className="mt-2 text-sm font-semibold text-[var(--slate-800)]">
+                      <p className="mt-2 text-sm font-semibold text-slate-800">
                         {reviewMissingOverflowItem.title}
                       </p>
-                      <p className="mt-1 text-xs text-[var(--slate-500)]">{reviewMissingOverflowItem.subtitle}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{reviewMissingOverflowItem.subtitle}</p>
                     </div>
                   ) : null}
                 </div>
@@ -1006,11 +1006,11 @@ function ResultCard({
                       </div>
                       {!(card.kind === "missing" && item.isMissing) ? (
                         <>
-                          <p className="mt-2 truncate text-sm font-semibold text-[var(--slate-800)]" title={item.title}>
+                          <p className="mt-2 truncate text-sm font-semibold text-slate-800" title={item.title}>
                             {item.title}
                           </p>
                           {item.subtitle ? (
-                            <p className="mt-1 text-xs text-[var(--slate-500)]">{item.subtitle}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">{item.subtitle}</p>
                           ) : null}
                         </>
                       ) : null}
@@ -1025,7 +1025,7 @@ function ResultCard({
                         <button
                           type="button"
                           onClick={onOpenIntakeUpload}
-                          className="mt-3 inline-flex cursor-pointer items-center rounded-md border border-[var(--brand-blue)]/18 bg-[var(--brand-blue)]/8 px-2.5 py-1 text-xs font-semibold text-[var(--brand-blue)] transition-colors hover:bg-[var(--brand-blue)]/14"
+                          className="mt-3 inline-flex cursor-pointer items-center rounded-md border border-primary/18 bg-primary/8 px-2.5 py-1 text-xs font-semibold text-primary transition-colors hover:bg-primary/14"
                           aria-label={`Ajouter ${item.title}`}
                         >
                           Ajouter
@@ -1047,8 +1047,8 @@ function ResultCard({
                             hover
                             className="z-20"
                             placement="right"
-                            contentClassName="border-[var(--slate-200)] bg-white text-[var(--slate-700)] shadow-[0_18px_40px_rgba(15,23,42,0.22)]"
-                            arrowClassName="border-[var(--slate-200)] bg-white"
+                            contentClassName="border-border bg-surface text-foreground-secondary shadow-[0_18px_40px_rgba(15,23,42,0.22)]"
+                            arrowClassName="border-border bg-surface"
                             trigger={(
                               <button
                                 type="button"
@@ -1074,7 +1074,7 @@ function ResultCard({
                             )}
                           >
                             <div className="space-y-2">
-                              <p className="text-xs leading-5 text-[var(--slate-700)]">
+                              <p className="text-xs leading-5 text-foreground-secondary">
                                 {stateWhyContent.title}
                               </p>
                               {stateWhyContent.hints.length > 0 ? (
@@ -1082,7 +1082,7 @@ function ResultCard({
                                   {stateWhyContent.hints.map((hint) => (
                                     <span
                                       key={hint}
-                                      className="rounded-full border border-[var(--slate-200)] bg-[var(--slate-50)] px-2.5 py-1 text-[11px] font-medium text-[var(--slate-600)]"
+                                      className="rounded-full border border-border bg-surface-subtle px-2.5 py-1 text-[11px] font-medium text-slate-600"
                                     >
                                       {hint}
                                     </span>
@@ -1115,10 +1115,10 @@ function ResultCard({
             ) : null}
 
             {showLowerPanel ? (
-            <div className="rounded-[1.25rem] border border-white/55 bg-white/96 p-5 shadow-[0_20px_50px_rgba(15,23,42,0.14)] backdrop-blur-md">
+            <div className="rounded-[1.25rem] border border-white/55 bg-surface/96 p-5 shadow-[0_20px_50px_rgba(15,23,42,0.14)] backdrop-blur-md">
               <div className="mb-4 flex items-start justify-between gap-3">
                 <div>
-                  <h3 className="text-sm font-semibold text-[var(--slate-800)]">
+                  <h3 className="text-sm font-semibold text-slate-800">
                     {card.kind === "missing"
                       ? "Pièces déjà reçues"
                       : card.kind === "primary"
@@ -1129,12 +1129,12 @@ function ResultCard({
                           : "Piece a confirmer"
                         : "Dossier de consultation"}
                   </h3>
-                  <p className="mt-0.5 text-xs text-[var(--slate-500)]">
+                  <p className="mt-0.5 text-xs text-muted-foreground">
                     {totalCount > 0 ? lowerPanelSummary : card.message}
                   </p>
                 </div>
                 {reviewCount > 0 ? (
-                  <div className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-[var(--slate-600)]">
+                  <div className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-slate-600">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
                     </svg>
@@ -1146,7 +1146,7 @@ function ResultCard({
               {totalCount > 0 && card.kind !== "review" && card.kind !== "missing" && card.kind !== "primary" ? (
                 <div className="mb-4">
                   <div
-                    className="flex h-2.5 w-full overflow-hidden rounded-full bg-[var(--slate-100)]"
+                    className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted"
                     role="progressbar"
                     aria-valuenow={classifiedCount}
                     aria-valuemin={0}
@@ -1154,16 +1154,16 @@ function ResultCard({
                     aria-label={`Triage : ${progressLegend}`}
                   >
                     {classifiedPct > 0 ? (
-                      <div className="h-full bg-[var(--success)] transition-all duration-500" style={{ width: `${classifiedPct}%` }} />
+                      <div className="h-full bg-success transition-all duration-500" style={{ width: `${classifiedPct}%` }} />
                     ) : null}
                     {reviewPct > 0 ? (
-                      <div className="h-full bg-[var(--warning)] transition-all duration-500" style={{ width: `${reviewPct}%` }} />
+                      <div className="h-full bg-warning transition-all duration-500" style={{ width: `${reviewPct}%` }} />
                     ) : null}
                     {processingPct > 0 ? (
-                      <div className="h-full bg-[var(--brand-blue)] transition-all duration-500" style={{ width: `${processingPct}%` }} />
+                      <div className="h-full bg-primary transition-all duration-500" style={{ width: `${processingPct}%` }} />
                     ) : null}
                   </div>
-                  <p className="mt-1.5 text-xs text-[var(--slate-500)]">{progressLegend}</p>
+                  <p className="mt-1.5 text-xs text-muted-foreground">{progressLegend}</p>
                 </div>
               ) : null}
 
@@ -1180,7 +1180,7 @@ function ResultCard({
                         />
                       ))}
                       {reviewAdditionalCount > 2 ? (
-                        <div className="rounded-lg border border-[var(--warning)]/20 bg-amber-50 px-3 py-2 text-sm text-[var(--slate-600)]">
+                        <div className="rounded-lg border border-warning/20 bg-amber-50 px-3 py-2 text-sm text-slate-600">
                           {reviewAdditionalCount - 2} autre{reviewAdditionalCount - 2 > 1 ? "s" : ""} piece{reviewAdditionalCount - 2 > 1 ? "s" : ""} a confirmer dans le dossier.
                         </div>
                       ) : null}
@@ -1304,12 +1304,12 @@ function ResultCard({
 
                   <div className={`rounded-xl border px-4 py-4 ${stateToneClassName}`}>
                     <div className="min-w-0">
-                      <h4 className="text-base font-semibold text-[var(--slate-900)]">{card.title}</h4>
-                      <p className="mt-1 text-sm leading-6 text-[var(--slate-700)]">{card.message}</p>
+                      <h4 className="text-base font-semibold text-foreground">{card.title}</h4>
+                      <p className="mt-1 text-sm leading-6 text-foreground-secondary">{card.message}</p>
                       {evidence.length > 0 ? (
                         <ul className="mt-3 grid gap-1.5">
                           {evidence.map((line) => (
-                            <li key={line} className="text-sm text-[var(--slate-700)]">
+                            <li key={line} className="text-sm text-foreground-secondary">
                               {line}
                             </li>
                           ))}
@@ -1326,7 +1326,7 @@ function ResultCard({
               card.kind !== "missing" &&
               card.kind !== "primary" &&
               (intakeWorkspace?.missingPieces.length ?? 0) === 0 ? (
-                <div className="mt-4 flex items-center gap-2 rounded-lg border border-[var(--success)]/20 bg-[var(--success)]/5 px-3 py-2 text-sm text-[var(--success)]">
+                <div className="mt-4 flex items-center gap-2 rounded-lg border border-success/20 bg-success/5 px-3 py-2 text-sm text-success">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden="true">
                     <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
                     <polyline points="22 4 12 14.01 9 11.01" />
@@ -1335,7 +1335,7 @@ function ResultCard({
                 </div>
               ) : null}
               {totalCount > 0 && (reviewCount > 0 || processingCount > 0) ? (
-                <div className="mt-4 flex items-center gap-2 rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-2 text-sm text-[var(--slate-600)]">
+                <div className="mt-4 flex items-center gap-2 rounded-lg border border-border bg-surface-subtle px-3 py-2 text-sm text-slate-600">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden="true">
                     <circle cx="12" cy="12" r="10" />
                     <line x1="12" x2="12" y1="8" y2="12" />
@@ -1411,18 +1411,18 @@ export function AffaireFlowHierarchyPanel(
   };
 
   return (
-    <section className="rounded-2xl border border-[var(--slate-200)] bg-[linear-gradient(180deg,rgba(248,250,252,0.98),rgba(255,255,255,0.96))] p-4">
+    <section className="rounded-2xl border border-border bg-[linear-gradient(180deg,rgba(248,250,252,0.98),rgba(255,255,255,0.96))] p-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--slate-500)]">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
             Prochaine etape
           </p>
           {model.showEmptyUploadCard || model.resultCard ? null : (
             <>
-              <h2 className="mt-2 text-base font-semibold text-[var(--slate-900)] text-balance">
+              <h2 className="mt-2 text-base font-semibold text-foreground text-balance">
                 {model.title}
               </h2>
-              <p className="mt-1 text-sm leading-6 text-[var(--slate-600)]">{model.summary}</p>
+              <p className="mt-1 text-sm leading-6 text-slate-600">{model.summary}</p>
             </>
           )}
         </div>
@@ -1468,7 +1468,7 @@ export function AffaireFlowHierarchyPanel(
           >
             <div className="relative overflow-hidden rounded-[1.5rem] border border-[#d5c6af] bg-[#e8dcc9] p-4 sm:p-6">
               <div
-                className={`relative min-h-[20rem] overflow-hidden rounded-[1rem] border-2 border-dashed bg-[var(--foreground)] shadow-[0_24px_60px_rgba(15,23,42,0.28)] transition duration-300 sm:min-h-[24rem] ${
+                className={`relative min-h-[20rem] overflow-hidden rounded-[1rem] border-2 border-dashed bg-foreground shadow-[0_24px_60px_rgba(15,23,42,0.28)] transition duration-300 sm:min-h-[24rem] ${
                   isEmptyUploadDragActive
                     ? "scale-[1.01] border-sky-300 ring-4 ring-sky-300/35"
                     : "border-white/45 group-hover:scale-[1.01]"
@@ -1561,13 +1561,13 @@ export function AffaireFlowHierarchyPanel(
               </div>
             </div>
           </button>
-          <div className="rounded-2xl border border-[var(--slate-200)] bg-white p-4">
+          <div className="rounded-2xl border border-border bg-surface p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
-                <h3 className="text-sm font-semibold text-[var(--slate-800)]">
+                <h3 className="text-sm font-semibold text-slate-800">
                   Le mode manuel reste disponible
                 </h3>
-                <p className="mt-1 text-sm leading-6 text-[var(--slate-600)]">
+                <p className="mt-1 text-sm leading-6 text-slate-600">
                   Vous pouvez ouvrir le devis sans DPGF et compléter la structure plus tard.
                 </p>
               </div>
@@ -1590,8 +1590,8 @@ export function AffaireFlowHierarchyPanel(
       ) : null}
 
       {!model.resultCard && model.primaryAction ? (
-        <div className="mt-4 rounded-2xl border border-[var(--brand-blue)]/15 bg-[var(--brand-blue)]/5 p-4">
-          <p className="text-sm font-medium text-[var(--slate-700)]">
+        <div className="mt-4 rounded-2xl border border-primary/15 bg-primary/5 p-4">
+          <p className="text-sm font-medium text-foreground-secondary">
             Continuez depuis l&apos;affaire avec une action dominante, puis ouvrez d&apos;autres
             surfaces seulement si le contexte l&apos;exige.
           </p>
@@ -1600,7 +1600,7 @@ export function AffaireFlowHierarchyPanel(
               action={model.primaryAction}
               onExecuteSuggestion={props.onExecuteSuggestion}
             />
-            <p className="text-xs leading-5 text-[var(--slate-500)]">
+            <p className="text-xs leading-5 text-muted-foreground">
               {model.primaryAction.description}
             </p>
           </div>
@@ -1608,13 +1608,13 @@ export function AffaireFlowHierarchyPanel(
       ) : null}
 
       {model.blockers.length > 0 ? (
-        <div className="mt-4 rounded-2xl border border-[var(--warning)]/20 bg-[var(--warning)]/6 p-4">
-          <h3 className="text-sm font-semibold text-[var(--slate-800)]">Blocages a traiter</h3>
+        <div className="mt-4 rounded-2xl border border-warning/20 bg-warning/6 p-4">
+          <h3 className="text-sm font-semibold text-slate-800">Blocages a traiter</h3>
           <ul className="mt-3 grid gap-2 md:grid-cols-2">
             {model.blockers.map((blocker) => (
               <li
                 key={blocker}
-                className="rounded-xl border border-white/80 bg-white/85 px-3 py-2 text-sm text-[var(--slate-600)]"
+                className="rounded-xl border border-white/80 bg-surface/85 px-3 py-2 text-sm text-slate-600"
               >
                 {blocker}
               </li>
@@ -1624,11 +1624,11 @@ export function AffaireFlowHierarchyPanel(
       ) : null}
 
       {model.aides.length > 0 ? (
-        <div className="mt-4 rounded-2xl border border-[var(--slate-200)] bg-white p-4">
-          <h3 className="text-sm font-semibold text-[var(--slate-800)]">
+        <div className="mt-4 rounded-2xl border border-border bg-surface p-4">
+          <h3 className="text-sm font-semibold text-slate-800">
             Outils utiles si besoin
           </h3>
-          <p className="mt-1 text-sm leading-6 text-[var(--slate-600)]">
+          <p className="mt-1 text-sm leading-6 text-slate-600">
             Ces aides restent secondaires. Ouvrez-les seulement si elles accelerent une decision ou
             une preparation utile maintenant.
           </p>
@@ -1645,11 +1645,11 @@ export function AffaireFlowHierarchyPanel(
       ) : null}
 
       {model.legacyAction ? (
-        <div className="mt-4 rounded-2xl border border-[var(--warning)]/20 bg-[var(--warning)]/5 p-4">
+        <div className="mt-4 rounded-2xl border border-warning/20 bg-warning/5 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
-              <h3 className="text-sm font-semibold text-[var(--slate-800)]">Reprise legacy</h3>
-              <p className="mt-1 text-sm leading-6 text-[var(--slate-600)]">
+              <h3 className="text-sm font-semibold text-slate-800">Reprise legacy</h3>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
                 {model.legacyAction.description}
               </p>
             </div>

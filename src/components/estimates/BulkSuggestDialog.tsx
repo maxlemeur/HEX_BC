@@ -64,11 +64,11 @@ export function BulkSuggestDialog({
           <div>
             <h2
               id="bulk-suggest-dialog-title"
-              className="text-lg font-semibold text-[var(--slate-800)]"
+              className="text-lg font-semibold text-slate-800"
             >
               Application en masse des suggestions
             </h2>
-            <p className="mt-1 text-sm text-[var(--slate-500)]">
+            <p className="mt-1 text-sm text-muted-foreground">
               Selectionnez les lignes a mettre a jour ({selectedCount}/{rows.length}).
             </p>
           </div>
@@ -123,19 +123,19 @@ export function BulkSuggestDialog({
                       </td>
                       <td>
                         <div className="space-y-1">
-                          <p className="font-medium text-[var(--slate-800)]">
+                          <p className="font-medium text-slate-800">
                             {row.itemTitle}
                           </p>
-                          <p className="text-xs text-[var(--slate-500)]">
+                          <p className="text-xs text-muted-foreground">
                             {row.ruleName} (score {row.score.toFixed(2)})
                           </p>
                         </div>
                       </td>
                       <td>
-                        <div className="space-y-1 text-xs text-[var(--slate-600)]">
+                        <div className="space-y-1 text-xs text-slate-600">
                           {row.changes.map((change) => (
                             <p key={`${row.itemId}:${change.field}:current`}>
-                              <span className="font-semibold text-[var(--slate-700)]">
+                              <span className="font-semibold text-foreground-secondary">
                                 {change.label}:
                               </span>{" "}
                               {change.currentDisplay}
@@ -144,10 +144,10 @@ export function BulkSuggestDialog({
                         </div>
                       </td>
                       <td>
-                        <div className="space-y-1 text-xs text-[var(--slate-600)]">
+                        <div className="space-y-1 text-xs text-slate-600">
                           {row.changes.map((change) => (
                             <p key={`${row.itemId}:${change.field}:proposed`}>
-                              <span className="font-semibold text-[var(--slate-700)]">
+                              <span className="font-semibold text-foreground-secondary">
                                 {change.label}:
                               </span>{" "}
                               {change.proposedDisplay}
@@ -164,18 +164,18 @@ export function BulkSuggestDialog({
         )}
 
         {showProgress && isApplying ? (
-          <div className="mt-4 rounded-xl border border-[var(--slate-200)] bg-white p-4">
+          <div className="mt-4 rounded-xl border border-border bg-surface p-4">
             <div className="flex items-center justify-between gap-3 text-sm">
-              <span className="font-medium text-[var(--slate-800)]">
+              <span className="font-medium text-slate-800">
                 Application des suggestions en cours...
               </span>
-              <span className="text-[var(--slate-500)]">
+              <span className="text-muted-foreground">
                 {resolvedProgress.percentage}% ({resolvedProgress.processed} / {resolvedProgress.total})
               </span>
             </div>
-            <div className="mt-3 h-2 w-full rounded-full bg-[var(--slate-200)]">
+            <div className="mt-3 h-2 w-full rounded-full bg-slate-200">
               <div
-                className="h-2 rounded-full bg-[var(--brand-blue)]"
+                className="h-2 rounded-full bg-primary"
                 style={{ width: `${resolvedProgress.percentage}%` }}
               />
             </div>

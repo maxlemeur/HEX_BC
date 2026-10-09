@@ -258,13 +258,13 @@ export function AffairesDenseTable({
   return (
     <div className="dashboard-card overflow-hidden">
       <ConfirmModal {...modalProps} />
-      <div className="border-b border-[var(--slate-200)] bg-[var(--slate-50)]/70 px-4 py-3">
+      <div className="border-b border-border bg-surface-subtle/70 px-4 py-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold text-[var(--slate-800)]">
+            <p className="text-sm font-semibold text-slate-800">
               Relances manager
             </p>
-            <p className="mt-1 text-xs text-[var(--slate-500)]">
+            <p className="mt-1 text-xs text-muted-foreground">
               Repère les affaires visibles à relancer en priorité, à revoir sous réserves ou à rouvrir en revalidation.
             </p>
           </div>
@@ -273,8 +273,8 @@ export function AffairesDenseTable({
               type="button"
               className={`min-h-11 rounded-full px-3 py-1.5 text-xs font-medium transition-colors sm:min-h-0 ${
                 managerFilter === "all"
-                  ? "bg-[var(--slate-900)] text-white"
-                  : "border border-[var(--slate-200)] bg-white text-[var(--slate-600)] hover:border-[var(--slate-300)]"
+                  ? "bg-slate-900 text-white"
+                  : "border border-border bg-surface text-slate-600 hover:border-border-strong"
               }`}
               onClick={() => onManagerFilterChange("all")}
             >
@@ -284,8 +284,8 @@ export function AffairesDenseTable({
               type="button"
               className={`min-h-11 rounded-full px-3 py-1.5 text-xs font-medium transition-colors sm:min-h-0 ${
                 managerFilter === "follow_up"
-                  ? "bg-[var(--danger)] text-white"
-                  : "border border-[var(--danger)]/20 bg-[var(--danger)]/5 text-[var(--danger)] hover:bg-[var(--danger)]/10"
+                  ? "bg-danger text-white"
+                  : "border border-danger/20 bg-danger/5 text-danger hover:bg-danger/10"
               } disabled:cursor-not-allowed disabled:opacity-60`}
               disabled={managerFilterDisabled}
               onClick={() => onManagerFilterChange("follow_up")}
@@ -296,8 +296,8 @@ export function AffairesDenseTable({
               type="button"
               className={`min-h-11 rounded-full px-3 py-1.5 text-xs font-medium transition-colors sm:min-h-0 ${
                 managerFilter === "reservations"
-                  ? "bg-[var(--warning)] text-white"
-                  : "border border-[var(--warning)]/20 bg-[var(--warning)]/5 text-[var(--warning)] hover:bg-[var(--warning)]/10"
+                  ? "bg-warning text-white"
+                  : "border border-warning/20 bg-warning/5 text-warning hover:bg-warning/10"
               } disabled:cursor-not-allowed disabled:opacity-60`}
               disabled={managerFilterDisabled}
               onClick={() => onManagerFilterChange("reservations")}
@@ -308,8 +308,8 @@ export function AffairesDenseTable({
               type="button"
               className={`min-h-11 rounded-full px-3 py-1.5 text-xs font-medium transition-colors sm:min-h-0 ${
                 managerFilter === "revalidation"
-                  ? "bg-[var(--brand-blue-dark)] text-white"
-                  : "border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/10 text-[var(--brand-blue-dark)] hover:bg-[var(--brand-blue)]/15"
+                  ? "bg-brand-blue-dark text-white"
+                  : "border border-primary/20 bg-primary/10 text-brand-blue-dark hover:bg-primary/15"
               } disabled:cursor-not-allowed disabled:opacity-60`}
               disabled={managerFilterDisabled}
               onClick={() => onManagerFilterChange("revalidation")}
@@ -318,7 +318,7 @@ export function AffairesDenseTable({
             </button>
           </div>
         </div>
-        <p className="mt-2 text-xs text-[var(--slate-500)]">
+        <p className="mt-2 text-xs text-muted-foreground">
           {managerQueueSummaryState === "loading" || managerQueueSummaryState === "idle"
             ? "Qualification manager en cours sur le portefeuille."
             : managerQueueSummaryState === "unavailable"
@@ -342,43 +342,43 @@ export function AffairesDenseTable({
             Liste des affaires et de leur dernière version de chiffrage
           </caption>
           <thead>
-            <tr className="border-b border-[var(--slate-200)] bg-[var(--slate-50)]">
+            <tr className="border-b border-border bg-surface-subtle">
               <th scope="col" className="w-10">
                 <span className="sr-only">Détails</span>
               </th>
               <th scope="col" className="w-10">
                 <span className="sr-only">Sélection</span>
               </th>
-              <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
+              <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Nom affaire
               </th>
-              <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
+              <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Client
               </th>
-              <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
+              <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Ref.
               </th>
-              <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
+              <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Statut courant
               </th>
               <th
                 scope="col"
-                className="px-4 py-3 text-left text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider"
+                className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider"
                 title="Dernière version acceptée par le client, conservée comme référence commerciale."
               >
                 Version acceptée
               </th>
               <th
                 scope="col"
-                className="px-4 py-3 text-center text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider"
+                className="px-4 py-3 text-center text-xs font-medium text-muted-foreground uppercase tracking-wider"
                 title="État de l’approbation interne requise avant l’envoi au client."
               >
                 Approbation
               </th>
-              <th scope="col" className="px-4 py-3 text-right text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
+              <th scope="col" className="px-4 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Total HT
               </th>
-              <th scope="col" className="px-4 py-3 text-right text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
+              <th scope="col" className="px-4 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Date MAJ
               </th>
               <th scope="col" className="w-28">
@@ -412,7 +412,7 @@ export function AffairesDenseTable({
                   <tr
                     tabIndex={0}
                     aria-label={`Ouvrir l’affaire ${item.projectName}`}
-                    className="cursor-pointer border-b border-[var(--slate-100)] transition-colors hover:bg-[var(--slate-50)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--brand-blue)] [content-visibility:auto] [contain-intrinsic-size:auto_52px]"
+                    className="cursor-pointer border-b border-border-subtle transition-colors hover:bg-surface-subtle focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary [content-visibility:auto] [contain-intrinsic-size:auto_52px]"
                     onClick={() => router.push(primaryHref)}
                     onKeyDown={(event) => {
                       if (
@@ -458,7 +458,7 @@ export function AffairesDenseTable({
                       {canSelect && onToggleProjectSelection ? (
                         <input
                           type="checkbox"
-                          className="h-4 w-4 rounded border-[var(--slate-300)] text-[var(--brand-blue)]"
+                          className="h-4 w-4 rounded border-border-strong text-primary"
                           checked={selectedProjectIds.has(item.projectId)}
                           aria-label={`Sélectionner l'affaire ${item.projectName}`}
                           onChange={() =>
@@ -467,13 +467,13 @@ export function AffairesDenseTable({
                         />
                       ) : null}
                     </td>
-                    <td className="px-4 py-3 font-medium text-[var(--slate-900)] max-w-[200px] truncate">
+                    <td className="px-4 py-3 font-medium text-foreground max-w-[200px] truncate">
                       {item.projectName}
                     </td>
-                    <td className="px-4 py-3 text-[var(--slate-600)] max-w-[160px] truncate">
+                    <td className="px-4 py-3 text-slate-600 max-w-[160px] truncate">
                       {item.projectClient ?? "-"}
                     </td>
-                    <td className="px-4 py-3 text-[var(--slate-400)] max-w-[120px] truncate">
+                    <td className="px-4 py-3 text-subtle-foreground max-w-[120px] truncate">
                       {item.projectReference ?? "-"}
                     </td>
                     <td className="px-4 py-3">
@@ -484,7 +484,7 @@ export function AffairesDenseTable({
                           acceptedVersionNumber={null}
                         />
                       ) : (
-                        <span className="text-xs font-medium text-[var(--slate-500)]">
+                        <span className="text-xs font-medium text-muted-foreground">
                           Aucun chiffrage
                         </span>
                       )}
@@ -497,7 +497,7 @@ export function AffairesDenseTable({
                           acceptedVersionNumber={null}
                         />
                       ) : (
-                        <span className="text-xs text-[var(--slate-300)]">
+                        <span className="text-xs text-slate-300">
                           -
                         </span>
                       )}
@@ -510,15 +510,15 @@ export function AffairesDenseTable({
                           {APPROVAL_BADGE[item.currentApprovalStatus].label}
                         </span>
                       ) : (
-                        <span className="text-xs text-[var(--slate-300)]">-</span>
+                        <span className="text-xs text-slate-300">-</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-right font-medium text-[var(--slate-700)] whitespace-nowrap">
+                    <td className="px-4 py-3 text-right font-medium text-foreground-secondary whitespace-nowrap">
                       {item.currentTotalHtCents !== null
                         ? formatEUR(item.currentTotalHtCents)
                         : "—"}
                     </td>
-                    <td className="px-4 py-3 text-right text-[var(--slate-400)] whitespace-nowrap">
+                    <td className="px-4 py-3 text-right text-subtle-foreground whitespace-nowrap">
                       {formatDate(item.currentUpdatedAt)}
                     </td>
                     <td className="px-2 py-3 text-center">
@@ -536,7 +536,7 @@ export function AffairesDenseTable({
                           prefetch={false}
                           title="Hub affaire"
                           aria-label={`Ouvrir le hub de l’affaire ${item.projectName}`}
-                          className="inline-flex min-h-9 min-w-9 items-center justify-center rounded p-1 text-blue-400 transition-colors hover:bg-blue-50 hover:text-blue-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-blue)]"
+                          className="inline-flex min-h-9 min-w-9 items-center justify-center rounded p-1 text-blue-400 transition-colors hover:bg-blue-50 hover:text-blue-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                           onClick={(event) => event.stopPropagation()}
                         >
                           <svg
@@ -561,7 +561,7 @@ export function AffairesDenseTable({
                             prefetch={false}
                             title="Voir le détail"
                             aria-label={`Voir le détail du chiffrage de l’affaire ${item.projectName}`}
-                            className="inline-flex min-h-9 min-w-9 items-center justify-center rounded p-1 text-emerald-400 transition-colors hover:bg-emerald-50 hover:text-emerald-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-blue)]"
+                            className="inline-flex min-h-9 min-w-9 items-center justify-center rounded p-1 text-emerald-400 transition-colors hover:bg-emerald-50 hover:text-emerald-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                             onClick={(event) => event.stopPropagation()}
                           >
                             <svg
@@ -591,7 +591,7 @@ export function AffairesDenseTable({
                             prefetch={false}
                             title="Éditer l’affaire"
                             aria-label={`Éditer l’affaire ${item.projectName}`}
-                            className="inline-flex min-h-9 min-w-9 items-center justify-center rounded p-1 text-amber-400 transition-colors hover:bg-amber-50 hover:text-amber-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-blue)]"
+                            className="inline-flex min-h-9 min-w-9 items-center justify-center rounded p-1 text-amber-400 transition-colors hover:bg-amber-50 hover:text-amber-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                             onClick={(event) => event.stopPropagation()}
                           >
                             <svg
@@ -616,7 +616,7 @@ export function AffairesDenseTable({
                             type="button"
                             title="Supprimer l’affaire"
                             aria-label={`Supprimer l’affaire ${item.projectName}`}
-                            className="inline-flex min-h-9 min-w-9 items-center justify-center rounded p-1 text-red-400 transition-colors hover:bg-red-50 hover:text-red-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-blue)]"
+                            className="inline-flex min-h-9 min-w-9 items-center justify-center rounded p-1 text-red-400 transition-colors hover:bg-red-50 hover:text-red-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                             onClick={(event) => {
                               event.stopPropagation();
                               requestDelete(item.projectId, item.projectName);
@@ -652,12 +652,12 @@ export function AffairesDenseTable({
                           aria-live="polite"
                         >
                           {cached === "loading" ? (
-                            <div className="flex items-center gap-3 rounded-xl border border-[var(--slate-100)] bg-white p-4">
-                              <div aria-hidden="true" className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--slate-200)] border-t-[var(--brand-blue)]" />
-                              <span className="text-sm text-[var(--slate-500)]">Chargement…</span>
+                            <div className="flex items-center gap-3 rounded-xl border border-border-subtle bg-surface p-4">
+                              <div aria-hidden="true" className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-primary" />
+                              <span className="text-sm text-muted-foreground">Chargement…</span>
                             </div>
                           ) : cached === "error" ? (
-                            <div className="rounded-xl border border-[var(--error)]/20 bg-[var(--error-light)] px-4 py-3 text-sm text-[var(--error)]">
+                            <div className="rounded-xl border border-danger/20 bg-danger-light px-4 py-3 text-sm text-danger">
                               Erreur lors du chargement. Repliez puis dépliez la ligne pour réessayer.
                             </div>
                           ) : cached ? (
@@ -703,38 +703,38 @@ function ExpandedContent({
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
       {/* Column 1 — Résumé financier */}
       <div className="space-y-1.5 text-sm">
-        <h4 className="text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)] mb-2">
+        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
           Résumé financier
         </h4>
         <p>
-          <span className="text-[var(--slate-500)]">Nombre de versions : </span>
+          <span className="text-muted-foreground">Nombre de versions : </span>
           <span>{versionCount}</span>
         </p>
         {cv ? (
           <>
             <p>
-              <span className="text-[var(--slate-500)]">Total HT : </span>
-              <span className="font-semibold text-[var(--slate-900)]">
+              <span className="text-muted-foreground">Total HT : </span>
+              <span className="font-semibold text-foreground">
                 {formatEUR(cv.totalHtCents)}
               </span>
             </p>
             <p>
-              <span className="text-[var(--slate-500)]">Marge : </span>
+              <span className="text-muted-foreground">Marge : </span>
               <span className="font-medium">{cv.marginPercent.toFixed(1)} %</span>
             </p>
             <p>
-              <span className="text-[var(--slate-500)]">Nb lignes : </span>
+              <span className="text-muted-foreground">Nb lignes : </span>
               <span>{summary.lineCount}</span>
             </p>
             <p>
-              <span className="text-[var(--slate-500)]">Version courante : </span>
+              <span className="text-muted-foreground">Version courante : </span>
               <span>
                 V{cv.versionNumber} — {versionStatusLabel(cv.status)}
               </span>
             </p>
             {av && (
               <p>
-                <span className="text-[var(--slate-500)]">Version acceptée : </span>
+                <span className="text-muted-foreground">Version acceptée : </span>
                 <span className="text-emerald-700 font-medium">
                   V{av.versionNumber} — {formatEUR(av.totalHtCents)}
                 </span>
@@ -742,31 +742,31 @@ function ExpandedContent({
             )}
           </>
         ) : (
-          <p className="text-[var(--slate-400)] italic">Aucun chiffrage en cours</p>
+          <p className="text-subtle-foreground italic">Aucun chiffrage en cours</p>
         )}
       </div>
 
       {/* Column 2 — Source DPGF */}
       <div className="space-y-1.5 text-sm">
-        <h4 className="text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)] mb-2">
+        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
           Source DPGF
         </h4>
         {dpgfSource ? (
           <>
             <p>
-              <span className="text-[var(--slate-500)]">Fichier : </span>
+              <span className="text-muted-foreground">Fichier : </span>
               <span className="font-medium truncate">{dpgfSource.filename}</span>
             </p>
             <p>
-              <span className="text-[var(--slate-500)]">Format : </span>
+              <span className="text-muted-foreground">Format : </span>
               <span>{dpgfSource.sourceFormat}</span>
             </p>
             <p>
-              <span className="text-[var(--slate-500)]">Lignes source : </span>
+              <span className="text-muted-foreground">Lignes source : </span>
               <span>{dpgfSource.rowCount}</span>
             </p>
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[var(--slate-500)]">Import :</span>
+              <span className="text-muted-foreground">Import :</span>
               {(() => {
                 const b = importStatusBadge(dpgfSource.importStatus);
                 return (
@@ -782,7 +782,7 @@ function ExpandedContent({
                 if (!b) return null;
                 return (
                   <>
-                    <span className="text-[var(--slate-500)]">Mapping :</span>
+                    <span className="text-muted-foreground">Mapping :</span>
                     <span
                       className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${b.className}`}
                     >
@@ -793,12 +793,12 @@ function ExpandedContent({
               })()}
             </div>
             <p>
-              <span className="text-[var(--slate-500)]">Importé le : </span>
+              <span className="text-muted-foreground">Importé le : </span>
               <span>{formatDate(dpgfSource.importedAt)}</span>
             </p>
           </>
         ) : (
-          <p className="text-[var(--slate-400)] italic border border-dashed border-[var(--slate-200)] rounded px-3 py-2">
+          <p className="text-subtle-foreground italic border border-dashed border-border rounded px-3 py-2">
             Aucune DPGF importée
           </p>
         )}
@@ -806,7 +806,7 @@ function ExpandedContent({
 
       {/* Column 3 — Actions rapides */}
       <div className="space-y-2 text-sm">
-        <h4 className="text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)] mb-2">
+        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
           Actions rapides
         </h4>
         <Link
@@ -846,7 +846,7 @@ function ExpandedContent({
         {cv && (
           <Link
             href={`/dashboard/estimates/${cv.id}/print`}
-            className="flex items-center gap-2 text-[var(--slate-600)] hover:text-[var(--slate-900)] hover:underline"
+            className="flex items-center gap-2 text-slate-600 hover:text-foreground hover:underline"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <polyline points="6 9 6 2 18 2 18 9" />

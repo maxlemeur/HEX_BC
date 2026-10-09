@@ -89,27 +89,27 @@ export function EstimateTimeline({
     <aside className="dashboard-card h-fit p-4 sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h2 className="text-sm font-semibold text-[var(--slate-800)]">
+          <h2 className="text-sm font-semibold text-slate-800">
             Historique versions
           </h2>
-          <p className="text-xs text-[var(--slate-500)]">
+          <p className="text-xs text-muted-foreground">
             {pagination.total_count} version{pagination.total_count > 1 ? "s" : ""}
           </p>
         </div>
-        <span className="rounded-full bg-[var(--slate-100)] px-2.5 py-1 text-xs font-semibold text-[var(--slate-600)]">
+        <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-semibold text-slate-600">
           Page {pagination.page}/{pagination.total_pages}
         </span>
       </div>
 
       {versions.length === 0 ? (
-        <p className="mt-4 text-sm text-[var(--slate-500)]">
+        <p className="mt-4 text-sm text-muted-foreground">
           Aucun historique disponible.
         </p>
       ) : (
         <div className="relative mt-4">
           <div
             aria-hidden="true"
-            className="absolute bottom-1 left-[11px] top-1 w-px bg-[var(--slate-200)]"
+            className="absolute bottom-1 left-[11px] top-1 w-px bg-slate-200"
           />
           <ul className="space-y-3">
             {versions.map((version) => {
@@ -131,30 +131,30 @@ export function EstimateTimeline({
                   {isVariant ? (
                     <span
                       aria-hidden="true"
-                      className="absolute left-[11px] top-6 h-px w-5 bg-[var(--slate-300)]"
+                      className="absolute left-[11px] top-6 h-px w-5 bg-slate-300"
                     />
                   ) : null}
                   <span
                     aria-hidden="true"
                     className={`absolute ${isVariant ? "left-5" : "left-0"} top-5 h-3 w-3 rounded-full border-2 ${
                       isCurrent
-                        ? "border-[var(--brand-blue)] bg-[var(--brand-blue)]"
-                        : "border-[var(--slate-300)] bg-white"
+                        ? "border-primary bg-primary"
+                        : "border-border-strong bg-surface"
                     }`}
                   />
                   <Link
                     aria-current={isCurrent ? "page" : undefined}
                     className={`block rounded-xl border px-3 py-3 transition-colors sm:px-4 ${
                       isCurrent
-                        ? "border-[var(--brand-blue)] bg-[var(--brand-blue)]/5"
-                        : "border-[var(--slate-200)] hover:bg-[var(--slate-50)]"
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:bg-surface-subtle"
                     } ${isCanceled ? "opacity-70 grayscale" : ""}`}
                     href={buildVersionHref(version.id, pagination.page)}
                   >
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-sm font-semibold text-[var(--slate-800)]">
+                          <p className="text-sm font-semibold text-slate-800">
                             {isVariant
                               ? `Variante ${variantLabel} · V${version.version_number}`
                               : `Version ${version.version_number}`}
@@ -170,13 +170,13 @@ export function EstimateTimeline({
                         </div>
                         {version.title ? (
                           <p
-                            className="mt-1 truncate text-sm text-[var(--slate-600)]"
+                            className="mt-1 truncate text-sm text-slate-600"
                             title={version.title}
                           >
                             {version.title}
                           </p>
                         ) : null}
-                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[var(--slate-500)]">
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                           <span className={statusClass(status)}>
                             {statusLabel(status)}
                           </span>
@@ -196,9 +196,9 @@ export function EstimateTimeline({
                         </div>
                       </div>
                       <div className="shrink-0 text-left sm:text-right">
-                        <p className="text-xs text-[var(--slate-500)]">Total HT</p>
+                        <p className="text-xs text-muted-foreground">Total HT</p>
                         <div className="flex items-center gap-1.5 sm:justify-end">
-                          <p className="text-sm font-semibold text-[var(--slate-800)]">
+                          <p className="text-sm font-semibold text-slate-800">
                             {formatEUR(version.total_ht_cents)}
                           </p>
                           {(() => {
@@ -214,8 +214,8 @@ export function EstimateTimeline({
                             );
                           })()}
                         </div>
-                        <p className="mt-0.5 text-xs text-[var(--slate-500)]">Total TTC</p>
-                        <p className="text-sm font-semibold text-[var(--slate-800)]">
+                        <p className="mt-0.5 text-xs text-muted-foreground">Total TTC</p>
+                        <p className="text-sm font-semibold text-slate-800">
                           {formatEUR(version.total_ttc_cents)}
                         </p>
                       </div>
@@ -229,8 +229,8 @@ export function EstimateTimeline({
       )}
 
       {pagination.total_count > pagination.page_size ? (
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--slate-200)] pt-4">
-          <p className="text-xs text-[var(--slate-500)]">
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
+          <p className="text-xs text-muted-foreground">
             {visibleStart}-{visibleEnd} sur {pagination.total_count}
           </p>
           <div className="flex items-center gap-2">

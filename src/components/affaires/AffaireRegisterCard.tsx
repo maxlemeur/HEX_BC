@@ -34,10 +34,10 @@ export function AffaireRegisterCard({
   if (errorMessage) {
     return (
       <section className="dashboard-card p-5">
-        <h2 className="text-sm font-semibold text-[var(--slate-800)]">
+        <h2 className="text-sm font-semibold text-slate-800">
           Registre hypothèses & pièces manquantes
         </h2>
-        <div className="mt-3 rounded-lg border border-[var(--warning)]/20 bg-[var(--warning)]/5 px-3 py-2 text-sm text-[var(--slate-700)]">
+        <div className="mt-3 rounded-lg border border-warning/20 bg-warning/5 px-3 py-2 text-sm text-foreground-secondary">
           {errorMessage}
         </div>
       </section>
@@ -51,10 +51,10 @@ export function AffaireRegisterCard({
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-[var(--slate-800)]">
+          <h2 className="text-sm font-semibold text-slate-800">
             Registre hypothèses & pièces manquantes
           </h2>
-          <p className="mt-0.5 text-xs text-[var(--slate-500)]">
+          <p className="mt-0.5 text-xs text-muted-foreground">
             Hypothèses & pièces manquantes du dossier.
           </p>
         </div>
@@ -64,21 +64,21 @@ export function AffaireRegisterCard({
             versionId={versionId}
           />
           {controller.hasActiveFilters ? (
-            <div className="rounded-full bg-[var(--brand-blue)]/10 px-2.5 py-1 text-xs text-[var(--brand-blue)]">
+            <div className="rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary">
               Vue filtrée
               {controller.activeFiltersLabel ? ` · ${controller.activeFiltersLabel}` : ""}
             </div>
           ) : null}
           {controller.isFilterPending ? (
             <div
-              className="rounded-full bg-[var(--slate-100)] px-2.5 py-1 text-xs text-[var(--slate-600)]"
+              className="rounded-full bg-muted px-2.5 py-1 text-xs text-slate-600"
               aria-live="polite"
             >
               Mise à jour des filtres…
             </div>
           ) : null}
           {isReadOnly ? (
-            <div className="rounded-full bg-[var(--slate-100)] px-2.5 py-1 text-xs text-[var(--slate-600)]">
+            <div className="rounded-full bg-muted px-2.5 py-1 text-xs text-slate-600">
               Consultation uniquement
             </div>
           ) : null}
@@ -98,20 +98,20 @@ export function AffaireRegisterCard({
       />
 
       <div className="mt-3 flex items-center justify-end">
-        <div className="rounded-full bg-[var(--slate-100)] px-2.5 py-1 text-xs text-[var(--slate-600)]">
+        <div className="rounded-full bg-muted px-2.5 py-1 text-xs text-slate-600">
           {controller.items.length} résultat{controller.items.length > 1 ? "s" : ""}
         </div>
       </div>
 
       {controller.isLoading ? (
         <div
-          className="mt-4 rounded-2xl border border-dashed border-[var(--slate-200)] bg-[var(--slate-50)]/80 px-4 py-8 text-center"
+          className="mt-4 rounded-2xl border border-dashed border-border bg-surface-subtle/80 px-4 py-8 text-center"
           aria-live="polite"
         >
-          <p className="text-sm font-medium text-[var(--slate-700)]">
+          <p className="text-sm font-medium text-foreground-secondary">
             Chargement du registre…
           </p>
-          <p className="mt-2 text-sm text-[var(--slate-500)]">
+          <p className="mt-2 text-sm text-muted-foreground">
             Récupération des points ouverts, avec historique récent et filtres disponibles.
           </p>
         </div>
@@ -152,8 +152,8 @@ export function AffaireRegisterCard({
         <div
           className={`mt-4 rounded-xl border px-3 py-2 text-sm ${
             controller.inlineFeedback.tone === "success"
-              ? "border-[var(--success)]/20 bg-[var(--success)]/5 text-[var(--slate-700)]"
-              : "border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 text-[var(--slate-700)]"
+              ? "border-success/20 bg-success/5 text-foreground-secondary"
+              : "border-primary/20 bg-primary/5 text-foreground-secondary"
           }`}
           aria-live="polite"
         >

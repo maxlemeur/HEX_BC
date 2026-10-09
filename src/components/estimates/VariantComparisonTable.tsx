@@ -100,10 +100,10 @@ export function VariantComparisonTable({
     <section className="dashboard-card p-4 sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h2 className="text-sm font-semibold text-[var(--slate-800)]">
+          <h2 className="text-sm font-semibold text-slate-800">
             Comparatif variantes
           </h2>
-          <p className="text-xs text-[var(--slate-500)]">
+          <p className="text-xs text-muted-foreground">
             HT, TVA, TTC et volume des lignes par version.
           </p>
         </div>
@@ -130,7 +130,7 @@ export function VariantComparisonTable({
             {items.length === 0 ? (
               <tr>
                 <td colSpan={7}>
-                  <div className="text-sm text-[var(--slate-500)]">
+                  <div className="text-sm text-muted-foreground">
                     Aucune variante disponible.
                   </div>
                 </td>
@@ -147,7 +147,7 @@ export function VariantComparisonTable({
                   <tr key={item.id}>
                     <td>
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium text-[var(--slate-800)]">
+                        <span className="font-medium text-slate-800">
                           {variant
                             ? `Variante ${item.variant_label} · V${item.version_number}`
                             : `Version ${item.version_number}`}
@@ -160,7 +160,7 @@ export function VariantComparisonTable({
                         ) : null}
                       </div>
                       {item.title ? (
-                        <div className="mt-1 text-xs text-[var(--slate-500)]" title={item.title}>
+                        <div className="mt-1 text-xs text-muted-foreground" title={item.title}>
                           {item.title}
                         </div>
                       ) : null}
@@ -183,7 +183,7 @@ export function VariantComparisonTable({
                           {isPromoting ? "Promotion..." : "Promouvoir"}
                         </button>
                       ) : (
-                        <span className="text-xs text-[var(--slate-500)]">
+                        <span className="text-xs text-muted-foreground">
                           {variant ? "Statut non promouvable" : "-"}
                         </span>
                       )}

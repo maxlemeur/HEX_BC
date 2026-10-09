@@ -68,7 +68,7 @@ export function PriceBookUploadStep({
 }: Readonly<PriceBookUploadStepProps>) {
   return (
     <>
-      <div className="rounded-xl border border-[var(--slate-200)] bg-white px-4 py-3">
+      <div className="rounded-xl border border-border bg-surface px-4 py-3">
         <div className="flex flex-wrap items-center gap-2">
           {GUIDE_STEPS.map((step, index) => {
             const stepNumber = index + 1;
@@ -82,8 +82,8 @@ export function PriceBookUploadStep({
                   isDone
                     ? "border-emerald-300 bg-emerald-50 text-emerald-700"
                     : isActive
-                      ? "border-[var(--brand-blue)] bg-[var(--brand-blue)]/10 text-[var(--brand-blue)]"
-                      : "border-[var(--slate-200)] bg-[var(--slate-50)] text-[var(--slate-500)]"
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border bg-surface-subtle text-muted-foreground"
                 }`}
               >
                 <span>{stepNumber}</span>
@@ -94,8 +94,8 @@ export function PriceBookUploadStep({
         </div>
       </div>
 
-      <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4">
-        <h3 className="text-sm font-semibold text-[var(--slate-800)]">Etape 1 - Charger le CSV</h3>
+      <div className="rounded-xl border border-border bg-surface-subtle p-4">
+        <h3 className="text-sm font-semibold text-slate-800">Etape 1 - Charger le CSV</h3>
         <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_auto_auto] lg:items-end">
           <div>
             <label className="form-label" htmlFor="price-book-csv-input">
@@ -133,7 +133,7 @@ export function PriceBookUploadStep({
           </button>
         </div>
 
-        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-[var(--slate-500)]">
+        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
           {selectedFile ? <p>{selectedFile.name}</p> : null}
           {sourceImportId ? (
             <span className="rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-emerald-700">
@@ -142,13 +142,13 @@ export function PriceBookUploadStep({
           ) : null}
           {detectedEncoding ? <p>Encodage: {detectedEncoding}</p> : null}
           {detectedProfile ? (
-            <span className="rounded-full border border-[var(--brand-blue)] bg-[var(--brand-blue)]/10 px-2 py-0.5 text-[var(--brand-blue)]">
+            <span className="rounded-full border border-primary bg-primary/10 px-2 py-0.5 text-primary">
               {getProfileLabel(detectedProfile)}
             </span>
           ) : null}
           <button
             type="button"
-            className="text-xs text-[var(--brand-blue)] underline hover:no-underline"
+            className="text-xs text-primary underline hover:no-underline"
             onClick={onDownloadCsvTemplate}
           >
             Télécharger un modèle CSV
@@ -157,19 +157,19 @@ export function PriceBookUploadStep({
       </div>
 
       {showProgress ? (
-        <div className="rounded-xl border border-[var(--slate-200)] bg-white p-4">
+        <div className="rounded-xl border border-border bg-surface p-4">
           <div className="flex items-center justify-between gap-3 text-sm">
-            <span className="font-medium text-[var(--slate-800)]">
+            <span className="font-medium text-slate-800">
               {isParsing ? "Analyse du fichier en cours..." : "Validation des lignes en cours..."}
             </span>
-            <span className="text-[var(--slate-500)]">
+            <span className="text-muted-foreground">
               {isParsing ? "Preparation..." : getProgressLabel(progress)}
             </span>
           </div>
 
-          <div className="mt-3 h-2 w-full rounded-full bg-[var(--slate-200)]">
+          <div className="mt-3 h-2 w-full rounded-full bg-slate-200">
             <div
-              className={`h-2 rounded-full bg-[var(--brand-blue)] ${isParsing ? "animate-pulse" : ""}`}
+              className={`h-2 rounded-full bg-primary ${isParsing ? "animate-pulse" : ""}`}
               style={{ width: isParsing ? "100%" : `${progress?.percentage ?? 0}%` }}
             />
           </div>
@@ -177,9 +177,9 @@ export function PriceBookUploadStep({
       ) : null}
 
       {hasRows ? (
-        <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4">
-          <h3 className="text-sm font-semibold text-[var(--slate-800)]">Etape 2 - Associer les colonnes</h3>
-          <p className="mt-1 text-xs text-[var(--slate-500)]">
+        <div className="rounded-xl border border-border bg-surface-subtle p-4">
+          <h3 className="text-sm font-semibold text-slate-800">Etape 2 - Associer les colonnes</h3>
+          <p className="mt-1 text-xs text-muted-foreground">
             {formatNumber(rowsCount)} ligne(s) detectee(s), {autoMappedCount} colonne(s) associee(s)
             automatiquement.
           </p>
@@ -205,7 +205,7 @@ export function PriceBookUploadStep({
             >
               {isValidating ? "Validation..." : "Mettre à jour l'aperçu"}
             </button>
-            <span className="text-xs text-[var(--slate-500)]">
+            <span className="text-xs text-muted-foreground">
               Champs requis : Fournisseur, Prix unitaire, et Reference ou Designation produit.
             </span>
           </div>

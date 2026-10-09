@@ -51,10 +51,10 @@ export default async function AffairePricesPage({ params }: Props) {
       />
 
       <div className="mb-6">
-        <h1 className="text-xl font-bold text-[var(--slate-900)]">
+        <h1 className="text-xl font-bold text-foreground">
           Prix fournisseurs
         </h1>
-        <p className="mt-1 text-sm text-[var(--slate-500)]">
+        <p className="mt-1 text-sm text-muted-foreground">
           Importez un bordereau CSV fournisseur dans le pipeline canonique de
           cette affaire, puis reutilisez ces prix dans le chiffrage.
         </p>

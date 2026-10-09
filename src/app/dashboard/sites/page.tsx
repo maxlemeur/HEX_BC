@@ -288,9 +288,9 @@ export default function SitesPage() {
             className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-surface shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="shrink-0 border-b border-[var(--slate-200)] px-4 py-4 sm:px-6">
+            <div className="shrink-0 border-b border-border px-4 py-4 sm:px-6">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--brand-orange)]/10">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-orange/10">
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     width="20"
@@ -314,10 +314,10 @@ export default function SitesPage() {
                   </svg>
                 </div>
                 <div>
-                  <h2 id="site-modal-title" className="text-lg font-semibold text-[var(--slate-800)]">
+                  <h2 id="site-modal-title" className="text-lg font-semibold text-slate-800">
                     {editingId ? "Modifier le chantier" : "Ajouter un chantier"}
                   </h2>
-                  <p className="text-sm text-[var(--slate-500)]">
+                  <p className="text-sm text-muted-foreground">
                     {editingId
                       ? "Mettez a jour les informations du site de livraison."
                       : "Renseignez les informations du nouveau chantier."}
@@ -424,7 +424,7 @@ export default function SitesPage() {
 
               </div>
 
-              <div className="shrink-0 border-t border-[var(--slate-200)] bg-surface px-4 py-3 sm:px-6 sm:py-4">
+              <div className="shrink-0 border-t border-border bg-surface px-4 py-3 sm:px-6 sm:py-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 {formError ? (
                   <div className="alert alert-error flex-1">
@@ -494,8 +494,8 @@ export default function SitesPage() {
 
       {/* Table card */}
       <div className="dashboard-card overflow-hidden">
-        <div className="flex items-center justify-between gap-3 border-b border-[var(--slate-200)] px-4 py-4 sm:px-6">
-          <h2 className="text-sm font-semibold text-[var(--slate-800)]">
+        <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-6">
+          <h2 className="text-sm font-semibold text-slate-800">
             Liste des chantiers
           </h2>
           <button
@@ -542,16 +542,16 @@ export default function SitesPage() {
 
         <div className="xl:hidden">
           {isLoading ? (
-            <div className="flex flex-col items-center gap-3 px-4 py-10 text-sm text-[var(--slate-500)]">
-              <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--slate-200)] border-t-[var(--brand-orange)]" />
+            <div className="flex flex-col items-center gap-3 px-4 py-10 text-sm text-muted-foreground">
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-brand-orange" />
               Chargement...
             </div>
           ) : displayedSites.length === 0 ? (
             <div className="px-4 py-10 text-center">
-              <p className="font-medium text-[var(--slate-700)]">
+              <p className="font-medium text-foreground-secondary">
                 {sites.length === 0 ? "Aucun chantier" : "Aucun resultat"}
               </p>
-              <p className="mt-1 text-sm text-[var(--slate-500)]">
+              <p className="mt-1 text-sm text-muted-foreground">
                 {sites.length === 0
                   ? "Ajoutez un chantier pour demarrer."
                   : "Modifiez vos filtres pour voir plus de resultats."}
@@ -562,43 +562,43 @@ export default function SitesPage() {
               {displayedSites.map((site, index) => (
                 <article
                   key={site.id}
-                  className="min-w-0 animate-fade-in rounded-xl border border-[var(--slate-200)] bg-white p-4"
+                  className="min-w-0 animate-fade-in rounded-xl border border-border bg-surface p-4"
                   style={{ animationDelay: `${index * 0.03}s` }}
                 >
                   <div className="flex min-w-0 items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <h3 className="break-words font-semibold text-[var(--slate-800)]">
+                      <h3 className="break-words font-semibold text-slate-800">
                         {site.name}
                       </h3>
-                      <p className="mt-1 text-sm text-[var(--slate-500)]">
+                      <p className="mt-1 text-sm text-muted-foreground">
                         {site.city ?? "Ville non renseignee"}
                       </p>
                     </div>
                     {site.project_code ? (
-                      <span className="max-w-[45%] shrink-0 truncate rounded-md bg-[var(--brand-orange)]/10 px-2 py-1 text-xs font-semibold text-[var(--brand-orange)]">
+                      <span className="max-w-[45%] shrink-0 truncate rounded-md bg-brand-orange/10 px-2 py-1 text-xs font-semibold text-brand-orange">
                         {site.project_code}
                       </span>
                     ) : null}
                   </div>
 
                   <div className="mt-4 space-y-2 text-sm">
-                    <p className="text-[var(--slate-600)]">
-                      <span className="font-medium text-[var(--slate-800)]">Contact :</span>{" "}
+                    <p className="text-slate-600">
+                      <span className="font-medium text-slate-800">Contact :</span>{" "}
                       {site.contact_name ?? "Non renseigne"}
                     </p>
                     {site.contact_phone ? (
                       <a
                         href={`tel:${site.contact_phone}`}
-                        className="block break-all text-[var(--brand-blue)] hover:underline"
+                        className="block break-all text-primary hover:underline"
                       >
                         {site.contact_phone}
                       </a>
                     ) : (
-                      <p className="text-[var(--slate-400)]">Téléphone non renseigné</p>
+                      <p className="text-subtle-foreground">Téléphone non renseigné</p>
                     )}
                   </div>
 
-                  <div className="mt-4 grid grid-cols-2 gap-2 border-t border-[var(--slate-100)] pt-3">
+                  <div className="mt-4 grid grid-cols-2 gap-2 border-t border-border-subtle pt-3">
                     <button
                       className="btn btn-secondary btn-sm w-full justify-center"
                       onClick={() => openEditForm(site)}
@@ -638,12 +638,12 @@ export default function SitesPage() {
                   <td colSpan={6} className="text-center py-12">
                     {isLoading ? (
                       <div className="flex flex-col items-center gap-3">
-                        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--slate-200)] border-t-[var(--brand-orange)]"></div>
-                        <span className="text-[var(--slate-500)]">Chargement...</span>
+                        <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-brand-orange"></div>
+                        <span className="text-muted-foreground">Chargement...</span>
                       </div>
                     ) : sites.length === 0 ? (
                       <div className="flex flex-col items-center gap-3">
-                        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--slate-100)]">
+                        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted">
                           <svg
                             xmlns="http://www.w3.org/2000/svg"
                             width="24"
@@ -658,13 +658,13 @@ export default function SitesPage() {
                           </svg>
                         </div>
                         <div className="text-center">
-                          <p className="font-medium text-[var(--slate-700)]">Aucun chantier</p>
-                          <p className="mt-1 text-sm text-[var(--slate-500)]">Cliquez sur le bouton Ajouter un chantier pour démarrer.</p>
+                          <p className="font-medium text-foreground-secondary">Aucun chantier</p>
+                          <p className="mt-1 text-sm text-muted-foreground">Cliquez sur le bouton Ajouter un chantier pour démarrer.</p>
                         </div>
                       </div>
                     ) : (
                       <div className="flex flex-col items-center gap-3">
-                        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--slate-100)]">
+                        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted">
                           <svg
                             xmlns="http://www.w3.org/2000/svg"
                             width="24"
@@ -679,8 +679,8 @@ export default function SitesPage() {
                           </svg>
                         </div>
                         <div className="text-center">
-                          <p className="font-medium text-[var(--slate-700)]">Aucun resultat</p>
-                          <p className="mt-1 text-sm text-[var(--slate-500)]">Modifiez vos filtres pour voir plus de resultats.</p>
+                          <p className="font-medium text-foreground-secondary">Aucun resultat</p>
+                          <p className="mt-1 text-sm text-muted-foreground">Modifiez vos filtres pour voir plus de resultats.</p>
                         </div>
                       </div>
                     )}
@@ -693,10 +693,10 @@ export default function SitesPage() {
                     className="animate-fade-in"
                     style={{ animationDelay: `${index * 0.03}s` }}
                   >
-                    <td className="font-semibold text-[var(--slate-800)]">{site.name}</td>
+                    <td className="font-semibold text-slate-800">{site.name}</td>
                     <td>
                       {site.project_code ? (
-                        <span className="inline-flex items-center rounded-md bg-[var(--brand-orange)]/10 px-2 py-1 text-xs font-semibold text-[var(--brand-orange)]">
+                        <span className="inline-flex items-center rounded-md bg-brand-orange/10 px-2 py-1 text-xs font-semibold text-brand-orange">
                           {site.project_code}
                         </span>
                       ) : (
@@ -709,7 +709,7 @@ export default function SitesPage() {
                       {site.contact_phone ? (
                         <a
                           href={`tel:${site.contact_phone}`}
-                          className="text-[var(--brand-blue)] hover:underline"
+                          className="text-primary hover:underline"
                         >
                           {site.contact_phone}
                         </a>

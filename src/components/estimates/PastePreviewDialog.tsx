@@ -168,13 +168,13 @@ export function PastePreviewDialog({
           <div>
             <h2
               id="paste-preview-dialog-title"
-              className="text-lg font-semibold text-[var(--slate-800)]"
+              className="text-lg font-semibold text-slate-800"
             >
               Apercu du collage
             </h2>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <span className={formatBadge.className}>{formatBadge.label}</span>
-              <span className="text-xs text-[var(--slate-500)]">
+              <span className="text-xs text-muted-foreground">
                 {includedRowsCount}/{rows.length} ligne(s) incluse(s)
               </span>
             </div>
@@ -207,20 +207,20 @@ export function PastePreviewDialog({
 
         <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
           <section
-            className="overflow-hidden rounded-xl border border-[var(--slate-200)]"
+            className="overflow-hidden rounded-xl border border-border"
             data-testid="paste-preview-mapping-section"
           >
-            <div className="border-b border-[var(--slate-200)] px-4 py-3">
-              <h3 className="text-sm font-semibold text-[var(--slate-800)]">
+            <div className="border-b border-border px-4 py-3">
+              <h3 className="text-sm font-semibold text-slate-800">
                 Mapping des colonnes
               </h3>
-              <p className="mt-1 text-xs text-[var(--slate-500)]">
+              <p className="mt-1 text-xs text-muted-foreground">
                 Associez chaque colonne source a un champ cible.
               </p>
             </div>
 
             {mapping.length === 0 ? (
-              <div className="px-4 py-6 text-sm text-[var(--slate-500)]" data-testid="paste-preview-mapping-empty">
+              <div className="px-4 py-6 text-sm text-muted-foreground" data-testid="paste-preview-mapping-empty">
                 Aucun mapping a afficher.
               </div>
             ) : (
@@ -243,7 +243,7 @@ export function PastePreviewDialog({
                       return (
                         <tr key={entry.sourceColumn}>
                           <td>
-                            <span className="font-medium text-[var(--slate-800)]">
+                            <span className="font-medium text-slate-800">
                               {entry.sourceColumn}
                             </span>
                           </td>
@@ -287,20 +287,20 @@ export function PastePreviewDialog({
           </section>
 
           <section
-            className="overflow-hidden rounded-xl border border-[var(--slate-200)]"
+            className="overflow-hidden rounded-xl border border-border"
             data-testid="paste-preview-rows-section"
           >
-            <div className="border-b border-[var(--slate-200)] px-4 py-3">
-              <h3 className="text-sm font-semibold text-[var(--slate-800)]">
+            <div className="border-b border-border px-4 py-3">
+              <h3 className="text-sm font-semibold text-slate-800">
                 Apercu des lignes
               </h3>
-              <p className="mt-1 text-xs text-[var(--slate-500)]">
+              <p className="mt-1 text-xs text-muted-foreground">
                 Incluez ou excluez les lignes avant import.
               </p>
             </div>
 
             {rows.length === 0 ? (
-              <div className="px-4 py-6 text-sm text-[var(--slate-500)]" data-testid="paste-preview-rows-empty">
+              <div className="px-4 py-6 text-sm text-muted-foreground" data-testid="paste-preview-rows-empty">
                 Aucune ligne detectee.
               </div>
             ) : (
@@ -354,7 +354,7 @@ export function PastePreviewDialog({
                           </td>
                           <td>
                             {invalidReasons.length === 0 ? (
-                              <span className="text-xs text-[var(--slate-500)]">-</span>
+                              <span className="text-xs text-muted-foreground">-</span>
                             ) : (
                               <div className="space-y-1">
                                 {invalidReasons.map((reason, reasonIndex) => (
@@ -376,7 +376,7 @@ export function PastePreviewDialog({
               </div>
             )}
 
-            <div className="border-t border-[var(--slate-200)] px-4 py-3 text-xs text-[var(--slate-500)]">
+            <div className="border-t border-border px-4 py-3 text-xs text-muted-foreground">
               {allRowsErrors.size === 0
                 ? "Aucune erreur de validation detectee sur les lignes affichees."
                 : `${allRowsErrors.size} type(s) erreur detecte(s) dans cet apercu.`}
@@ -385,7 +385,7 @@ export function PastePreviewDialog({
         </div>
 
         <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-[var(--slate-500)]">
+          <p className="text-sm text-muted-foreground">
             {includedInvalidRowsCount > 0
               ? `${includedInvalidRowsCount} ligne(s) invalide(s) sont encore incluses.`
               : "Toutes les lignes incluses sont valides."}

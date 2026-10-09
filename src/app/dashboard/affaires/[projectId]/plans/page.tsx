@@ -61,8 +61,8 @@ export default async function AffairePlansPage({ params }: Props) {
       />
 
       <div className="mb-6">
-        <h1 className="text-xl font-bold text-[var(--slate-900)]">Plans</h1>
-        <p className="mt-1 text-sm text-[var(--slate-500)]">
+        <h1 className="text-xl font-bold text-foreground">Plans</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
           Organisez vos plans PDF en jeux pour le métré de cette affaire.
         </p>
       </div>

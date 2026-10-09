@@ -25,7 +25,7 @@ export function getTakeoffCarryOverPreviewCopy(
 
   if (summary.state === "not_applicable") {
     return {
-      toneClassName: "border-[var(--slate-200)] bg-[var(--slate-50)]",
+      toneClassName: "border-border bg-surface-subtle",
       title: "Aucun carry-over takeoff a reprendre",
       description:
         "Cette creation ne repart d'aucune version takeoff precedente.",
@@ -34,7 +34,7 @@ export function getTakeoffCarryOverPreviewCopy(
 
   if (summary.state === "empty") {
     return {
-      toneClassName: "border-[var(--slate-200)] bg-[var(--slate-50)]",
+      toneClassName: "border-border bg-surface-subtle",
       title: sourceLabel
         ? `Aucune analyse takeoff a reprendre depuis ${sourceLabel}`
         : "Aucune analyse takeoff a reprendre",

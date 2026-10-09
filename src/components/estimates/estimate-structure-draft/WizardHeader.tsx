@@ -8,12 +8,12 @@ type WizardHeaderProps = {
 
 export function WizardHeader({ step, onClose, isSubmitting }: WizardHeaderProps) {
   return (
-    <div className="border-b border-[var(--slate-200)] px-6 py-5">
+    <div className="border-b border-border px-6 py-5">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2
             id="estimate-structure-draft-dialog-title"
-            className="text-lg font-semibold text-[var(--slate-900)]"
+            className="text-lg font-semibold text-foreground"
           >
             Structure IA
           </h2>
@@ -43,7 +43,7 @@ export function WizardHeader({ step, onClose, isSubmitting }: WizardHeaderProps)
                             ? "bg-emerald-100 text-emerald-700"
                             : isActive
                               ? "bg-blue-600 text-white"
-                              : "bg-slate-100 text-slate-500"
+                              : "bg-muted text-muted-foreground"
                         }`}
                       >
                         {isDone ? "\u2713" : wizardStep.step}
@@ -54,7 +54,7 @@ export function WizardHeader({ step, onClose, isSubmitting }: WizardHeaderProps)
                             ? "text-emerald-700"
                             : isActive
                               ? "text-blue-700"
-                              : "text-slate-400"
+                              : "text-subtle-foreground"
                         }`}
                       >
                         {wizardStep.label}

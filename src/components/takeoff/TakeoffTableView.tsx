@@ -193,7 +193,7 @@ function TableCard({
 
   return (
     <div
-      className={`rounded-lg border border-[var(--border)] bg-white transition-opacity ${
+      className={`rounded-lg border border-border bg-surface transition-opacity ${
         excluded ? "opacity-60" : ""
       }`}
     >
@@ -201,7 +201,7 @@ function TableCard({
       <div className="flex items-center gap-3 px-4 py-3">
         <button
           type="button"
-          className="text-[var(--slate-500)] hover:text-[var(--slate-700)]"
+          className="text-muted-foreground hover:text-foreground-secondary"
           onClick={onToggleCollapse}
           aria-label={collapsed ? "Deplier" : "Replier"}
         >
@@ -221,7 +221,7 @@ function TableCard({
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-semibold text-[var(--slate-800)]">
+            <span className="truncate text-sm font-semibold text-slate-800">
               {title}
             </span>
             <Badge variant={health.variant} size="sm">
@@ -233,12 +233,12 @@ function TableCard({
               </Badge>
             )}
           </div>
-          <div className="mt-0.5 flex items-center gap-2 text-xs text-[var(--slate-500)]">
+          <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
             <span>Page {table.page}</span>
             <span>{table.headers.length} col</span>
             <span>{tableItems.length} lignes</span>
             {anomalyCount > 0 && (
-              <span className="text-[var(--warning)]">{anomalyCount} anomalie{anomalyCount > 1 ? "s" : ""}</span>
+              <span className="text-warning">{anomalyCount} anomalie{anomalyCount > 1 ? "s" : ""}</span>
             )}
           </div>
         </div>
@@ -266,7 +266,7 @@ function TableCard({
 
       {/* Card body */}
       {!collapsed && (
-        <div className="overflow-x-auto border-t border-[var(--border)]">
+        <div className="overflow-x-auto border-t border-border">
           <table className="data-table w-full" role="grid">
             <thead>
               <tr>
@@ -292,8 +292,8 @@ function TableCard({
                     key={item.id}
                     className={[
                       isExcluded && "opacity-50",
-                      item._error && "bg-[var(--error-light)]",
-                      anomalies.length > 0 && !isExcluded && "bg-[var(--warning-light)]",
+                      item._error && "bg-danger-light",
+                      anomalies.length > 0 && !isExcluded && "bg-warning-light",
                     ]
                       .filter(Boolean)
                       .join(" ")}
@@ -325,7 +325,7 @@ function TableCard({
                               className="editable-cell"
                             />
                             {item._saving && (
-                              <span className="ml-1 inline-block h-3 w-3 animate-spin rounded-full border border-[var(--info)] border-t-transparent" />
+                              <span className="ml-1 inline-block h-3 w-3 animate-spin rounded-full border border-info border-t-transparent" />
                             )}
                           </td>
                         );
@@ -403,9 +403,9 @@ function TableCard({
 
                       // Other columns: show raw cell value (read-only display)
                       return (
-                        <td key={ci} className="text-sm text-[var(--slate-700)]">
+                        <td key={ci} className="text-sm text-foreground-secondary">
                           {cellValue || (
-                            <span className="text-[var(--slate-400)]">-</span>
+                            <span className="text-subtle-foreground">-</span>
                           )}
                         </td>
                       );
@@ -663,8 +663,8 @@ export function TakeoffTableView({
   // ---- Empty state
   if (tables.length === 0) {
     return (
-      <div className="rounded-lg border border-[var(--border)] bg-white px-6 py-12 text-center">
-        <p className="text-sm text-[var(--slate-500)]">
+      <div className="rounded-lg border border-border bg-surface px-6 py-12 text-center">
+        <p className="text-sm text-muted-foreground">
           Aucune table extraite pour cette extraction.
         </p>
       </div>
@@ -679,7 +679,7 @@ export function TakeoffTableView({
           type="search"
           placeholder="Rechercher par titre..."
           aria-label="Rechercher une table"
-          className="h-9 w-64 rounded-lg border border-[var(--border)] bg-white px-3 text-sm focus:border-[var(--ring)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+          className="h-9 w-64 rounded-lg border border-border bg-surface px-3 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
         />
@@ -687,7 +687,7 @@ export function TakeoffTableView({
         {allPages.length > 1 && (
           <select
             aria-label="Filtrer par page"
-            className="h-9 rounded-lg border border-[var(--border)] bg-white px-2 text-sm"
+            className="h-9 rounded-lg border border-border bg-surface px-2 text-sm"
             value={pageFilter}
             onChange={(e) => setPageFilter(e.target.value)}
           >
@@ -703,7 +703,7 @@ export function TakeoffTableView({
         {allTableOptions.length > 1 && (
           <select
             aria-label="Filtrer par table"
-            className="h-9 rounded-lg border border-[var(--border)] bg-white px-2 text-sm"
+            className="h-9 rounded-lg border border-border bg-surface px-2 text-sm"
             value={tableFilter}
             onChange={(e) => setTableFilter(e.target.value)}
           >
@@ -718,7 +718,7 @@ export function TakeoffTableView({
 
         <select
           aria-label="Filtrer par statut"
-          className="h-9 rounded-lg border border-[var(--border)] bg-white px-2 text-sm"
+          className="h-9 rounded-lg border border-border bg-surface px-2 text-sm"
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as InclusionStatusFilter)}
         >
@@ -731,29 +731,29 @@ export function TakeoffTableView({
         <div className="ml-auto flex gap-2">
           <button
             type="button"
-            className="text-xs text-[var(--slate-600)] hover:underline"
+            className="text-xs text-slate-600 hover:underline"
             onClick={collapseAll}
           >
             Tout replier
           </button>
           <button
             type="button"
-            className="text-xs text-[var(--slate-600)] hover:underline"
+            className="text-xs text-slate-600 hover:underline"
             onClick={expandAll}
           >
             Tout deplier
           </button>
         </div>
 
-        <span className="text-xs text-[var(--slate-500)]">
+        <span className="text-xs text-muted-foreground">
           {filteredCards.length} / {cards.length} table(s)
         </span>
       </div>
 
       {/* ---- Grouped cards ---- */}
       {filteredCards.length === 0 ? (
-        <div className="rounded-lg border border-[var(--border)] bg-white px-6 py-8 text-center">
-          <p className="text-sm text-[var(--slate-500)]">
+        <div className="rounded-lg border border-border bg-surface px-6 py-8 text-center">
+          <p className="text-sm text-muted-foreground">
             Aucune table ne correspond aux filtres.
           </p>
         </div>
@@ -763,11 +763,11 @@ export function TakeoffTableView({
             {/* Page separator */}
             {allPages.length > 1 && (
               <div className="sticky top-0 z-10 mb-3 flex items-center gap-3">
-                <div className="h-px flex-1 bg-[var(--border)]" />
-                <span className="text-xs font-medium text-[var(--slate-500)]">
+                <div className="h-px flex-1 bg-border" />
+                <span className="text-xs font-medium text-muted-foreground">
                   Page {page}
                 </span>
-                <div className="h-px flex-1 bg-[var(--border)]" />
+                <div className="h-px flex-1 bg-border" />
               </div>
             )}
 

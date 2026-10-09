@@ -113,11 +113,11 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
         closeOnEscapeKey={!isImporting}
         closeOnOverlayClick={!isImporting}
       >
-        <div className="border-b border-slate-200 px-6 py-4">
+        <div className="border-b border-border px-6 py-4">
           <Modal.Header className="mb-0">
             <div>
               <Modal.Title>Importer des produits</Modal.Title>
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="mt-1 text-sm text-muted-foreground">
                 Chargez un CSV séparé par une virgule ou un point-virgule.
               </p>
             </div>
@@ -126,11 +126,11 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
         </div>
 
         <div className="max-h-[calc(90vh-76px)] space-y-5 overflow-y-auto p-6">
-          <section className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4">
+          <section className="rounded-xl border border-dashed border-border-strong bg-surface-subtle p-4">
             <label className="block text-sm font-semibold text-slate-800" htmlFor="product-csv-file">
               Fichier CSV
             </label>
-            <p id="product-csv-help" className="mb-3 mt-1 text-xs text-slate-500">
+            <p id="product-csv-help" className="mb-3 mt-1 text-xs text-muted-foreground">
               La désignation est obligatoire. Colonnes reconnues : référence, famille, type,
               matière, nuance, dimensions, norme, unité, prix unitaire HT et TVA.
             </p>
@@ -144,7 +144,7 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
               onChange={onFileChange}
               className="block w-full text-sm text-slate-600 file:mr-4 file:rounded-lg file:border-0 file:bg-primary file:px-4 file:py-2 file:font-medium file:text-primary-foreground hover:file:brightness-105"
             />
-            {fileName ? <p className="mt-2 text-xs text-slate-500">Fichier : {fileName}</p> : null}
+            {fileName ? <p className="mt-2 text-xs text-muted-foreground">Fichier : {fileName}</p> : null}
           </section>
 
           <div aria-live="polite">
@@ -162,7 +162,7 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
               </div>
 
               {result.ignoredColumns.length > 0 ? (
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-muted-foreground">
                   Colonnes ignorées : {result.ignoredColumns.join(", ")}.
                 </p>
               ) : null}
@@ -173,11 +173,11 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
                     <h3 id="product-csv-preview-title" className="text-sm font-semibold text-slate-800">
                       Aperçu des lignes valides
                     </h3>
-                    <span className="text-xs text-slate-500">10 premières lignes</span>
+                    <span className="text-xs text-muted-foreground">10 premières lignes</span>
                   </div>
-                  <div className="overflow-x-auto rounded-xl border border-slate-200">
+                  <div className="overflow-x-auto rounded-xl border border-border">
                     <table className="w-full min-w-[760px] text-left text-sm">
-                      <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                      <thead className="bg-surface-subtle text-xs uppercase tracking-wide text-muted-foreground">
                         <tr>
                           <th className="px-3 py-2 font-semibold">Référence</th>
                           <th className="px-3 py-2 font-semibold">Désignation</th>
@@ -186,7 +186,7 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
                           <th className="px-3 py-2 text-right font-semibold">Prix HT</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100">
+                      <tbody className="divide-y divide-border-subtle">
                         {result.acceptedRows.slice(0, 10).map((row, index) => (
                           <tr key={`${row.reference ?? row.designation}-${index}`}>
                             <td className="px-3 py-2 font-mono text-xs text-slate-600">{row.reference ?? "—"}</td>
@@ -195,7 +195,7 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
                             <td className="px-3 py-2 text-slate-600">
                               {[row.material, row.grade].filter(Boolean).join(" · ") || "—"}
                             </td>
-                            <td className="px-3 py-2 text-right tabular-nums text-slate-700">
+                            <td className="px-3 py-2 text-right tabular-nums text-foreground-secondary">
                               {(row.unit_price_cents / 100).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} €
                             </td>
                           </tr>
@@ -224,7 +224,7 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
                         {result.rejectedRows.map((row) => (
                           <tr key={row.line}>
                             <td className="px-3 py-2 tabular-nums text-slate-600">{row.line}</td>
-                            <td className="px-3 py-2 text-slate-700">{row.designation || "—"}</td>
+                            <td className="px-3 py-2 text-foreground-secondary">{row.designation || "—"}</td>
                             <td className="px-3 py-2 text-red-700">{row.reasons.join(" ; ")}</td>
                           </tr>
                         ))}
@@ -236,7 +236,7 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
             </>
           ) : null}
 
-          <Modal.Footer className="border-t border-slate-200 pt-4">
+          <Modal.Footer className="border-t border-border pt-4">
             <Button type="button" variant="ghost" disabled={isImporting} onClick={onClose}>
               {success ? "Fermer" : "Annuler"}
             </Button>
@@ -268,8 +268,8 @@ function SummaryCard({
 }>) {
   const valueClass = tone === "success" ? "text-emerald-700" : tone === "danger" ? "text-red-700" : "text-slate-800";
   return (
-    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-      <p className="text-xs font-medium text-slate-500">{label}</p>
+    <div className="rounded-xl border border-border bg-surface px-4 py-3">
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
       <p className={`mt-1 text-lg font-semibold ${valueClass}`}>{value}</p>
     </div>
   );

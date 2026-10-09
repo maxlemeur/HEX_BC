@@ -193,17 +193,17 @@ export function AffaireFinishLineActions({
   return (
     <div
       id="finish-line-output"
-      className="mt-4 rounded-2xl border border-[var(--slate-200)] bg-[var(--slate-50)]/70 p-4 scroll-mt-24"
+      className="mt-4 rounded-2xl border border-border bg-surface-subtle/70 p-4 scroll-mt-24"
     >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--slate-500)]">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
             Sortie devis
           </p>
-          <h3 className="mt-2 text-sm font-semibold text-[var(--slate-800)]">
+          <h3 className="mt-2 text-sm font-semibold text-slate-800">
             PDF, email et BDC depuis le meme point
           </h3>
-          <p className="mt-1 text-sm text-[var(--slate-500)]">
+          <p className="mt-1 text-sm text-muted-foreground">
             La version a sortir reste explicite et chaque action garde son retour
             lisible dans l&apos;affaire.
           </p>
@@ -229,13 +229,13 @@ export function AffaireFinishLineActions({
       </div>
 
       {!currentVersion ? (
-        <div className="mt-4 rounded-xl border border-dashed border-[var(--slate-300)] bg-white px-4 py-4">
-          <p className="text-sm text-[var(--slate-600)]">
+        <div className="mt-4 rounded-xl border border-dashed border-border-strong bg-surface px-4 py-4">
+          <p className="text-sm text-slate-600">
             Creez d&apos;abord une version de devis pour centraliser la sortie client.
           </p>
           <Link
             href={`/dashboard/estimates/new?projectId=${projectId}`}
-            className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-[var(--brand-blue)] transition-colors hover:text-[var(--brand-blue-dark)]"
+            className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-primary transition-colors hover:text-brand-blue-dark"
           >
             Creer un devis
             <svg
@@ -256,14 +256,14 @@ export function AffaireFinishLineActions({
         </div>
       ) : (
         <>
-          <div className="mt-4 rounded-xl border border-[var(--slate-200)] bg-white px-4 py-3">
-            <p className="text-sm text-[var(--slate-600)]">{sendActionState.note}</p>
+          <div className="mt-4 rounded-xl border border-border bg-surface px-4 py-3">
+            <p className="text-sm text-slate-600">{sendActionState.note}</p>
           </div>
 
           <div className="mt-4 grid gap-3 xl:grid-cols-3">
-            <article className="rounded-xl border border-[var(--slate-200)] bg-white p-4">
-              <p className="text-sm font-semibold text-[var(--slate-800)]">PDF du devis</p>
-              <p className="mt-2 text-sm leading-6 text-[var(--slate-600)]">
+            <article className="rounded-xl border border-border bg-surface p-4">
+              <p className="text-sm font-semibold text-slate-800">PDF du devis</p>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
                 Préparez le PDF de la {formatVersionLabel(currentVersion).toLowerCase()},
                 puis téléchargez-le une fois prêt. Le document existant est réutilisé
                 s’il est encore valide.
@@ -291,7 +291,7 @@ export function AffaireFinishLineActions({
               </div>
               <Link
                 href={`/dashboard/estimates/${currentVersion.id}/print`}
-                className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-[var(--brand-blue)] transition-colors hover:text-[var(--brand-blue-dark)]"
+                className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-primary transition-colors hover:text-brand-blue-dark"
               >
                 Voir la version imprimable
                 <svg
@@ -313,8 +313,8 @@ export function AffaireFinishLineActions({
                 <p
                   className={`mt-3 text-xs font-medium ${
                     pdfFeedback.tone === "error"
-                      ? "text-[var(--danger-700)]"
-                      : "text-[var(--success)]"
+                      ? "text-danger"
+                      : "text-success"
                   }`}
                 >
                   {pdfFeedback.message}
@@ -322,9 +322,9 @@ export function AffaireFinishLineActions({
               ) : null}
             </article>
 
-            <article className="rounded-xl border border-[var(--slate-200)] bg-white p-4">
+            <article className="rounded-xl border border-border bg-surface p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-[var(--slate-800)]">
+                <p className="text-sm font-semibold text-slate-800">
                   Email client
                 </p>
                 <Badge
@@ -349,7 +349,7 @@ export function AffaireFinishLineActions({
                         : "En attente"}
                 </Badge>
               </div>
-              <p className="mt-2 text-sm leading-6 text-[var(--slate-600)]">
+              <p className="mt-2 text-sm leading-6 text-slate-600">
                 {sendActionState.note}
               </p>
               {submissionReadinessGroups.length > 0 ? (
@@ -381,11 +381,11 @@ export function AffaireFinishLineActions({
               </div>
             </article>
 
-            <article className="rounded-xl border border-[var(--slate-200)] bg-white p-4">
-              <p className="text-sm font-semibold text-[var(--slate-800)]">
+            <article className="rounded-xl border border-border bg-surface p-4">
+              <p className="text-sm font-semibold text-slate-800">
                 Export BDC
               </p>
-              <p className="mt-2 text-sm leading-6 text-[var(--slate-600)]">
+              <p className="mt-2 text-sm leading-6 text-slate-600">
                 Exporte la {formatVersionLabel(currentVersion).toLowerCase()} en BDC V1.1 sans quitter
                 l&apos;affaire.
               </p>
@@ -400,7 +400,7 @@ export function AffaireFinishLineActions({
                 </button>
               </div>
               {bdcError ? (
-                <p className="mt-3 text-xs font-medium text-[var(--danger-700)]" role="alert">
+                <p className="mt-3 text-xs font-medium text-danger" role="alert">
                   {bdcError}
                 </p>
               ) : null}

@@ -124,8 +124,8 @@ export default function ProfilePage() {
     return (
       <div className="animate-fade-in flex min-h-[400px] items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--slate-200)] border-t-[var(--brand-blue)]"></div>
-          <span className="text-[var(--slate-500)]">Chargement...</span>
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-primary"></div>
+          <span className="text-muted-foreground">Chargement...</span>
         </div>
       </div>
     );
@@ -151,30 +151,30 @@ export default function ProfilePage() {
       <div className="max-w-2xl">
         {/* Profile card */}
         <div className="dashboard-card">
-          <div className="border-b border-[var(--slate-200)] px-6 py-4">
-            <h2 className="text-sm font-semibold text-[var(--slate-800)]">
+          <div className="border-b border-border px-6 py-4">
+            <h2 className="text-sm font-semibold text-slate-800">
               Informations professionnelles
             </h2>
           </div>
 
           <form onSubmit={onSubmit} className="p-6">
             {/* Read-only section */}
-            <div className="mb-6 rounded-xl bg-[var(--slate-50)] p-4">
+            <div className="mb-6 rounded-xl bg-surface-subtle p-4">
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-[var(--slate-500)]">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     Email de connexion
                   </p>
-                  <p className="mt-1 text-sm font-medium text-[var(--slate-800)]">
+                  <p className="mt-1 text-sm font-medium text-slate-800">
                     {authEmail}
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-[var(--slate-500)]">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     Role systeme
                   </p>
                   <p className="mt-1">
-                    <span className="inline-flex items-center rounded-full bg-[var(--brand-blue)]/10 px-2.5 py-0.5 text-xs font-medium text-[var(--brand-blue)]">
+                    <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
                       {profile ? ROLE_LABELS[profile.role] : "-"}
                     </span>
                   </p>
@@ -198,7 +198,7 @@ export default function ProfilePage() {
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
                 />
-                <p className="mt-1 text-xs text-[var(--slate-500)]">
+                <p className="mt-1 text-xs text-muted-foreground">
                   Apparait sur les bons de commande
                 </p>
               </div>
@@ -248,29 +248,29 @@ export default function ProfilePage() {
                   value={workEmail}
                   onChange={(e) => setWorkEmail(e.target.value)}
                 />
-                <p className="mt-1 text-xs text-[var(--slate-500)]">
+                <p className="mt-1 text-xs text-muted-foreground">
                   Email affiche sur les bons de commande (peut etre different de l&apos;email de connexion)
                 </p>
               </div>
             </div>
 
             {/* Preview */}
-            <div className="mt-6 rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4">
-              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--slate-500)]">
+            <div className="mt-6 rounded-xl border border-border bg-surface-subtle p-4">
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Apercu sur les bons de commande
               </p>
               <div className="text-sm">
-                <p className="text-lg font-bold text-[var(--brand-blue)]">
+                <p className="text-lg font-bold text-primary">
                   {fullName || "Votre nom"}
                 </p>
-                <p className="text-[var(--slate-500)]">
+                <p className="text-muted-foreground">
                   {jobTitle || "Votre fonction"}
                 </p>
                 {phone && (
-                  <p className="mt-1 text-[var(--slate-500)]">{phone}</p>
+                  <p className="mt-1 text-muted-foreground">{phone}</p>
                 )}
                 {workEmail && (
-                  <p className="text-[var(--slate-500)]">{workEmail}</p>
+                  <p className="text-muted-foreground">{workEmail}</p>
                 )}
               </div>
             </div>

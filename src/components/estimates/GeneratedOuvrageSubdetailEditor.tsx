@@ -270,14 +270,14 @@ function GeneratedOuvrageSubdetailEditorForm({
   }
 
   return (
-    <section className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/90 p-4">
+    <section className="mt-4 rounded-2xl border border-border bg-surface-subtle/90 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
             Sous-detail compose
           </p>
-          <h4 className="mt-1 text-sm font-semibold text-slate-900">{candidateLabel}</h4>
-          <p className="mt-1 text-xs text-slate-500">
+          <h4 className="mt-1 text-sm font-semibold text-foreground">{candidateLabel}</h4>
+          <p className="mt-1 text-xs text-muted-foreground">
             Validation humaine requise avant insertion. Les couts restent indicatifs
             tant que les hypotheses ne sont pas confirmées.
           </p>
@@ -325,7 +325,7 @@ function GeneratedOuvrageSubdetailEditorForm({
           return (
             <article
               key={`${component.componentId ?? "new"}-${index}`}
-              className="rounded-xl border border-slate-200 bg-white p-4"
+              className="rounded-xl border border-border bg-surface p-4"
             >
               <button
                 type="button"
@@ -353,10 +353,10 @@ function GeneratedOuvrageSubdetailEditorForm({
                     </Badge>
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-slate-900">
+                    <p className="text-sm font-semibold text-foreground">
                       {component.designation || "Composant sans désignation"}
                     </p>
-                    <p className="mt-1 text-xs text-slate-500">
+                    <p className="mt-1 text-xs text-muted-foreground">
                       {component.quantity} {component.unit ?? "u"} · DS{" "}
                       {formatCurrency(componentDsCents, "EUR")}
                       {" · "}
@@ -366,14 +366,14 @@ function GeneratedOuvrageSubdetailEditorForm({
                     </p>
                   </div>
                 </div>
-                <span className="text-xs font-medium text-slate-500">
+                <span className="text-xs font-medium text-muted-foreground">
                   {isExpanded ? "Replier" : "Developper"}
                 </span>
               </button>
 
               {isExpanded ? (
                 <>
-                  <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
+                  <div className="mt-3 flex flex-wrap gap-2 border-t border-border-subtle pt-3">
                     <button
                       type="button"
                       className="btn btn-ghost btn-xs"
@@ -536,7 +536,7 @@ function GeneratedOuvrageSubdetailEditorForm({
                     </div>
                     <div>
                       <label className="label text-xs font-medium">DS composant</label>
-                      <div className="input input-bordered input-sm flex items-center bg-slate-50 text-slate-700">
+                      <div className="input input-bordered input-sm flex items-center bg-surface-subtle text-foreground-secondary">
                         {formatCurrency(componentDsCents, "EUR")}
                       </div>
                     </div>
@@ -567,9 +567,9 @@ function GeneratedOuvrageSubdetailEditorForm({
                   </div>
 
                   {component.sources.length > 0 ? (
-                    <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50 p-3">
+                    <div className="mt-3 rounded-lg border border-border-subtle bg-surface-subtle p-3">
                       <p className="text-xs font-medium text-slate-600">Provenance composee</p>
-                      <ul className="mt-2 space-y-1 text-xs text-slate-500">
+                      <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
                         {component.sources.map((source) => (
                           <li key={`${source.sourceFragmentId}-${source.evidenceKind}`}>
                             {source.evidenceKind} · {source.sourceFragmentId}

@@ -263,12 +263,12 @@ export default async function AdminRulesPage() {
       </div>
 
       <div className="dashboard-card mb-6 p-5">
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           Nouvelle règle
         </h2>
         <form action={createRuleAction} className="grid gap-3 lg:grid-cols-6">
           <label className="lg:col-span-1">
-            <span className="mb-1 block text-xs text-[var(--slate-500)]">Type</span>
+            <span className="mb-1 block text-xs text-muted-foreground">Type</span>
             <select name="rule_type" defaultValue="require_approval" className="form-input h-10">
               {RULE_TYPE_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -279,7 +279,7 @@ export default async function AdminRulesPage() {
           </label>
 
           <label className="lg:col-span-1">
-            <span className="mb-1 block text-xs text-[var(--slate-500)]">Scope</span>
+            <span className="mb-1 block text-xs text-muted-foreground">Scope</span>
             <select name="scope_type" defaultValue="global" className="form-input h-10">
               {SCOPE_TYPE_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -290,7 +290,7 @@ export default async function AdminRulesPage() {
           </label>
 
           <label className="lg:col-span-1">
-            <span className="mb-1 block text-xs text-[var(--slate-500)]">Scope ID</span>
+            <span className="mb-1 block text-xs text-muted-foreground">Scope ID</span>
             <input
               name="scope_id"
               type="text"
@@ -300,7 +300,7 @@ export default async function AdminRulesPage() {
           </label>
 
           <label className="lg:col-span-1">
-            <span className="mb-1 block text-xs text-[var(--slate-500)]">Seuil</span>
+            <span className="mb-1 block text-xs text-muted-foreground">Seuil</span>
             <input
               name="threshold_value"
               type="number"
@@ -310,14 +310,14 @@ export default async function AdminRulesPage() {
               defaultValue={DEFAULT_APPROVAL_THRESHOLD_EUROS}
               required
             />
-            <span className="mt-1 block text-[11px] text-[var(--slate-500)]">
+            <span className="mt-1 block text-[11px] text-muted-foreground">
               Pour une approbation, saisissez le montant en euros HT. La règle
               se déclenche dès que ce seuil est atteint.
             </span>
           </label>
 
           <label className="lg:col-span-1">
-            <span className="mb-1 block text-xs text-[var(--slate-500)]">Action</span>
+            <span className="mb-1 block text-xs text-muted-foreground">Action</span>
             <select name="action" defaultValue="require_approval" className="form-input h-10">
               {ACTION_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -328,7 +328,7 @@ export default async function AdminRulesPage() {
           </label>
 
           <div className="flex items-end gap-3 lg:col-span-1">
-            <label className="inline-flex items-center gap-2 text-sm text-[var(--slate-700)]">
+            <label className="inline-flex items-center gap-2 text-sm text-foreground-secondary">
               <input name="is_active" type="checkbox" defaultChecked />
               Active
             </label>
@@ -356,36 +356,36 @@ export default async function AdminRulesPage() {
             <tbody>
               {rules.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-10 text-center text-[var(--slate-500)]">
+                  <td colSpan={7} className="py-10 text-center text-muted-foreground">
                     Aucune règle configurée.
                   </td>
                 </tr>
               ) : (
                 rules.map((rule) => (
                   <tr key={rule.id}>
-                    <td className="text-sm text-[var(--slate-700)]">
+                    <td className="text-sm text-foreground-secondary">
                       {renderRuleTypeLabel(rule.rule_type)}
                     </td>
-                    <td className="text-sm text-[var(--slate-700)]">
+                    <td className="text-sm text-foreground-secondary">
                       {renderScopeTypeLabel(rule.scope_type)}
                     </td>
-                    <td className="font-mono text-xs text-[var(--slate-600)]">
+                    <td className="font-mono text-xs text-slate-600">
                       {rule.scope_id ?? "—"}
                     </td>
-                    <td className="text-sm text-[var(--slate-700)]">
+                    <td className="text-sm text-foreground-secondary">
                       {formatRuleThreshold(
                         rule.rule_type,
                         rule.threshold_value,
                       )}
                     </td>
-                    <td className="text-sm text-[var(--slate-700)]">{renderActionLabel(rule.action)}</td>
+                    <td className="text-sm text-foreground-secondary">{renderActionLabel(rule.action)}</td>
                     <td>
                       {rule.is_active ? (
-                        <span className="inline-flex items-center rounded-full bg-[var(--success-light)] px-2.5 py-0.5 text-xs font-medium text-[var(--success)]">
+                        <span className="inline-flex items-center rounded-full bg-success-light px-2.5 py-0.5 text-xs font-medium text-success">
                           Active
                         </span>
                       ) : (
-                        <span className="inline-flex items-center rounded-full bg-[var(--slate-100)] px-2.5 py-0.5 text-xs font-medium text-[var(--slate-600)]">
+                        <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-slate-600">
                           Inactive
                         </span>
                       )}
@@ -393,7 +393,7 @@ export default async function AdminRulesPage() {
                     <td className="text-right">
                       <div className="flex flex-col items-end gap-2">
                         <details className="dashboard-card w-full max-w-[760px] p-3 text-left">
-                          <summary className="cursor-pointer text-sm font-medium text-[var(--slate-700)]">
+                          <summary className="cursor-pointer text-sm font-medium text-foreground-secondary">
                             Éditer
                           </summary>
                           <form action={updateRuleAction} className="mt-3 grid gap-2 lg:grid-cols-6">
@@ -438,7 +438,7 @@ export default async function AdminRulesPage() {
                               ))}
                             </select>
                             <div className="flex items-center justify-between gap-2">
-                              <label className="inline-flex items-center gap-2 text-xs text-[var(--slate-700)]">
+                              <label className="inline-flex items-center gap-2 text-xs text-foreground-secondary">
                                 <input type="checkbox" name="is_active" defaultChecked={rule.is_active} />
                                 Actif
                               </label>

@@ -117,11 +117,11 @@ function EvidenceCard({
   evidence: TakeoffLineEvidence;
 }) {
   return (
-    <article className="rounded-3xl border border-[var(--border)] bg-white p-4 shadow-sm">
+    <article className="rounded-3xl border border-border bg-surface p-4 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold text-[var(--slate-950)]">{evidence.label}</p>
+            <p className="text-sm font-semibold text-slate-950">{evidence.label}</p>
             <Badge variant={EVIDENCE_TYPE_VARIANTS[evidence.type]} size="sm">
               {EVIDENCE_TYPE_LABELS[evidence.type]}
             </Badge>
@@ -132,32 +132,32 @@ function EvidenceCard({
               {EVIDENCE_STATUS_LABELS[evidence.status]}
             </Badge>
           </div>
-          <p className="text-sm text-[var(--slate-700)]">{evidence.source}</p>
-          <p className="text-xs text-[var(--slate-500)]">
+          <p className="text-sm text-foreground-secondary">{evidence.source}</p>
+          <p className="text-xs text-muted-foreground">
             {formatEvidenceConfidence(evidence.confidence_score)}
             {evidence.source_file_name ? ` · ${evidence.source_file_name}` : ""}
             {evidence.source_page ? ` · page ${evidence.source_page}` : ""}
           </p>
         </div>
-        <div className="min-w-[12rem] text-right text-xs text-[var(--slate-500)]">
+        <div className="min-w-[12rem] text-right text-xs text-muted-foreground">
           <p>{formatEvidenceDate(evidence.created_at)}</p>
           <p>{evidence.author_name ? `Par ${evidence.author_name}` : "Auteur non renseigne"}</p>
         </div>
       </div>
 
       {evidence.note ? (
-        <p className="mt-3 text-sm leading-6 text-[var(--slate-700)]">{evidence.note}</p>
+        <p className="mt-3 text-sm leading-6 text-foreground-secondary">{evidence.note}</p>
       ) : null}
 
       {(evidence.supersedes_evidence_id || evidence.replaced_by_evidence_id) ? (
-        <div className="mt-3 flex flex-wrap gap-2 text-xs text-[var(--slate-500)]">
+        <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
           {evidence.supersedes_evidence_id ? (
-            <span className="rounded-full bg-[var(--slate-100)] px-2.5 py-1">
+            <span className="rounded-full bg-muted px-2.5 py-1">
               Remplace {evidence.supersedes_evidence_id.slice(0, 8)}
             </span>
           ) : null}
           {evidence.replaced_by_evidence_id ? (
-            <span className="rounded-full bg-[var(--slate-100)] px-2.5 py-1">
+            <span className="rounded-full bg-muted px-2.5 py-1">
               Remplacee par {evidence.replaced_by_evidence_id.slice(0, 8)}
             </span>
           ) : null}
@@ -177,7 +177,7 @@ function EvidenceKindSection({
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-[var(--slate-500)]">
+        <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           {EVIDENCE_KIND_LABELS[kind]}s
         </h3>
         <Badge variant="neutral" size="sm">
@@ -310,18 +310,18 @@ export function TakeoffLineEvidencePanel({
         data-testid="takeoff-line-evidence-panel"
       >
         <div
-          className="border-b border-[var(--border)] bg-[linear-gradient(135deg,rgba(241,245,249,0.9),rgba(255,255,255,0.98))] px-5 py-5 sm:px-6"
+          className="border-b border-border bg-[linear-gradient(135deg,rgba(241,245,249,0.9),rgba(255,255,255,0.98))] px-5 py-5 sm:px-6"
           data-testid="takeoff-line-evidence-panel-header"
         >
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-xs uppercase tracking-[0.14em] text-[var(--slate-500)]">
+              <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
                 {surfaceLabel}
               </p>
-              <Modal.Title className="mt-2 text-xl text-[var(--slate-950)]">
+              <Modal.Title className="mt-2 text-xl text-slate-950">
                 {lineLabel}
               </Modal.Title>
-              <p className="mt-1 text-sm text-[var(--slate-600)]">
+              <p className="mt-1 text-sm text-slate-600">
                 {buildLineContextLabel({ sourceFileName, sourcePage })}
               </p>
             </div>
@@ -340,30 +340,30 @@ export function TakeoffLineEvidencePanel({
           </div>
 
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
-            <div className="rounded-2xl border border-white/80 bg-white/80 p-3">
-              <p className="text-xs text-[var(--slate-500)]">Actives</p>
-              <p className="mt-1 text-lg font-semibold text-[var(--slate-950)]">
+            <div className="rounded-2xl border border-white/80 bg-surface/80 p-3">
+              <p className="text-xs text-muted-foreground">Actives</p>
+              <p className="mt-1 text-lg font-semibold text-slate-950">
                 {panelData?.evidences.length ?? 0}
               </p>
             </div>
-            <div className="rounded-2xl border border-white/80 bg-white/80 p-3">
-              <p className="text-xs text-[var(--slate-500)]">Historique</p>
-              <p className="mt-1 text-lg font-semibold text-[var(--slate-950)]">
+            <div className="rounded-2xl border border-white/80 bg-surface/80 p-3">
+              <p className="text-xs text-muted-foreground">Historique</p>
+              <p className="mt-1 text-lg font-semibold text-slate-950">
                 {panelData?.history.length ?? 0}
               </p>
             </div>
-            <div className="rounded-2xl border border-white/80 bg-white/80 p-3">
-              <p className="text-xs text-[var(--slate-500)]">Job</p>
-              <p className="mt-1 text-sm font-semibold text-[var(--slate-950)]">
+            <div className="rounded-2xl border border-white/80 bg-surface/80 p-3">
+              <p className="text-xs text-muted-foreground">Job</p>
+              <p className="mt-1 text-sm font-semibold text-slate-950">
                 {jobId.slice(0, 8)}
               </p>
             </div>
           </div>
         </div>
 
-        <Modal.Body className="flex-1 space-y-5 overflow-y-auto bg-[var(--slate-50)] px-5 py-5 sm:px-6">
+        <Modal.Body className="flex-1 space-y-5 overflow-y-auto bg-surface-subtle px-5 py-5 sm:px-6">
           {isLoading && panelData === null ? (
-            <div className="rounded-3xl border border-dashed border-[var(--border)] bg-white p-5 text-sm text-[var(--slate-600)]">
+            <div className="rounded-3xl border border-dashed border-border bg-surface p-5 text-sm text-slate-600">
               Chargement des preuves detaillees...
             </div>
           ) : null}
@@ -375,7 +375,7 @@ export function TakeoffLineEvidencePanel({
           ) : null}
 
           {hasNoEvidence ? (
-            <div className="rounded-3xl border border-dashed border-[var(--border)] bg-white p-5 text-sm text-[var(--slate-600)]">
+            <div className="rounded-3xl border border-dashed border-border bg-surface p-5 text-sm text-slate-600">
               Aucune preuve detaillee n&apos;est disponible pour cette ligne.
             </div>
           ) : null}
@@ -384,10 +384,10 @@ export function TakeoffLineEvidencePanel({
             <>
               <section className="space-y-4">
                 <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-base font-semibold text-[var(--slate-950)]">
+                  <h3 className="text-base font-semibold text-slate-950">
                     Preuves actives
                   </h3>
-                  <p className="text-xs text-[var(--slate-500)]">
+                  <p className="text-xs text-muted-foreground">
                     Les faits, hypotheses et inferences encore valides pour la ligne.
                   </p>
                 </div>
@@ -402,7 +402,7 @@ export function TakeoffLineEvidencePanel({
                     ) : null
                   )}
                   {panelData.evidences.length === 0 ? (
-                    <div className="rounded-3xl border border-dashed border-[var(--border)] bg-white p-5 text-sm text-[var(--slate-600)]">
+                    <div className="rounded-3xl border border-dashed border-border bg-surface p-5 text-sm text-slate-600">
                       Aucune preuve active.
                     </div>
                   ) : null}
@@ -411,15 +411,15 @@ export function TakeoffLineEvidencePanel({
 
               <section className="space-y-4">
                 <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-base font-semibold text-[var(--slate-950)]">
+                  <h3 className="text-base font-semibold text-slate-950">
                     Historique
                   </h3>
-                  <p className="text-xs text-[var(--slate-500)]">
+                  <p className="text-xs text-muted-foreground">
                     Preuves remplacees ou invalidees, pour conserver la trace explicable.
                   </p>
                 </div>
                 {panelData.history.length === 0 ? (
-                  <div className="rounded-3xl border border-dashed border-[var(--border)] bg-white p-5 text-sm text-[var(--slate-600)]">
+                  <div className="rounded-3xl border border-dashed border-border bg-surface p-5 text-sm text-slate-600">
                     Aucun historique sur cette ligne.
                   </div>
                 ) : (

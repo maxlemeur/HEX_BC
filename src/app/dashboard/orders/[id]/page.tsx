@@ -180,9 +180,9 @@ export default async function OrderPage({
   );
 
   return (
-    <div className="min-h-screen bg-[var(--slate-100)]">
+    <div className="min-h-screen bg-muted">
       {/* Action bar */}
-      <div className="no-print sticky top-0 z-10 border-b border-[var(--slate-200)] bg-white/80 backdrop-blur-md">
+      <div className="no-print sticky top-0 z-10 border-b border-border bg-surface/80 backdrop-blur-md">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4 px-6 py-4">
           {/* Left: Back button and reference */}
           <div className="flex items-center gap-4">
@@ -203,10 +203,10 @@ export default async function OrderPage({
               </svg>
               Retour
             </Link>
-            <div className="hidden h-6 w-px bg-[var(--slate-200)] sm:block" />
+            <div className="hidden h-6 w-px bg-slate-200 sm:block" />
             <div className="hidden sm:block">
-              <span className="text-sm font-medium text-[var(--slate-500)]">Bon de commande</span>
-              <span className="ml-2 rounded-lg bg-[var(--brand-orange)]/10 px-2.5 py-1 font-mono text-sm font-bold text-[var(--brand-orange)]">
+              <span className="text-sm font-medium text-muted-foreground">Bon de commande</span>
+              <span className="ml-2 rounded-lg bg-brand-orange/10 px-2.5 py-1 font-mono text-sm font-bold text-brand-orange">
                 {order.reference}
               </span>
             </div>

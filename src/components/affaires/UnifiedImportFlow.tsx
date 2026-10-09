@@ -29,7 +29,7 @@ const LazyPlansStep = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="dashboard-card p-8 text-center text-sm text-[var(--slate-500)]">
+      <div className="dashboard-card p-8 text-center text-sm text-muted-foreground">
         Chargement…
       </div>
     ),
@@ -206,11 +206,11 @@ export function UnifiedImportFlow({
     <div className="animate-fade-in space-y-4">
       {showCancelConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="mx-4 w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
-            <h3 className="text-sm font-semibold text-[var(--slate-800)]">
+          <div className="mx-4 w-full max-w-sm rounded-2xl bg-surface p-6 shadow-xl">
+            <h3 className="text-sm font-semibold text-slate-800">
               Annuler l&apos;import ?
             </h3>
-            <p className="mt-2 text-xs text-[var(--slate-500)]">
+            <p className="mt-2 text-xs text-muted-foreground">
               Votre progression sera perdue. Le fichier importe et le mapping en cours ne seront pas conserves.
             </p>
             <div className="mt-4 flex justify-end gap-2">

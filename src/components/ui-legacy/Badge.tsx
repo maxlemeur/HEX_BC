@@ -4,7 +4,7 @@ type BadgeVariant = "neutral" | "info" | "success" | "warning" | "error";
 type BadgeSize = "sm" | "md";
 
 const BADGE_VARIANTS: Record<BadgeVariant, string> = {
-  neutral: "bg-slate-100 text-slate-700",
+  neutral: "bg-muted text-foreground-secondary",
   info: "bg-info-light text-blue-800",
   success: "bg-success-light text-emerald-800",
   warning: "bg-warning-light text-amber-900",

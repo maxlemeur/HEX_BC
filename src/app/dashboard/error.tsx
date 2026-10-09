@@ -33,10 +33,10 @@ export default function DashboardError({
           <path d="M12 16h.01" />
         </svg>
       </div>
-      <h1 className="mt-4 text-xl font-bold text-[var(--slate-900)]">
+      <h1 className="mt-4 text-xl font-bold text-foreground">
         La vue d’ensemble n’a pas pu être chargée
       </h1>
-      <p className="mt-2 text-sm leading-6 text-[var(--slate-600)]">
+      <p className="mt-2 text-sm leading-6 text-slate-600">
         Vérifiez votre connexion, puis relancez le chargement.
       </p>
       <button type="button" className="btn btn-primary mt-6 min-h-11" onClick={reset}>

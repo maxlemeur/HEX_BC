@@ -211,18 +211,18 @@ function getStatusLabel(proposal: SuggestionLearningProposal) {
 
 function getStatusClass(proposal: SuggestionLearningProposal) {
   if (proposal.review_status === "approved") {
-    return "inline-flex items-center rounded-full bg-[var(--success-light)] px-2.5 py-0.5 text-xs font-medium text-[var(--success)]";
+    return "inline-flex items-center rounded-full bg-success-light px-2.5 py-0.5 text-xs font-medium text-success";
   }
 
   if (proposal.review_status === "rejected") {
-    return "inline-flex items-center rounded-full bg-[var(--danger-light)] px-2.5 py-0.5 text-xs font-medium text-[var(--danger)]";
+    return "inline-flex items-center rounded-full bg-danger-light px-2.5 py-0.5 text-xs font-medium text-danger";
   }
 
   if (!proposal.is_active) {
-    return "inline-flex items-center rounded-full bg-[var(--slate-100)] px-2.5 py-0.5 text-xs font-medium text-[var(--slate-600)]";
+    return "inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-slate-600";
   }
 
-  return "inline-flex items-center rounded-full bg-[var(--brand-orange-light)] px-2.5 py-0.5 text-xs font-medium text-[var(--brand-orange)]";
+  return "inline-flex items-center rounded-full bg-brand-orange-light px-2.5 py-0.5 text-xs font-medium text-brand-orange";
 }
 
 function formatDateTime(value: string) {
@@ -687,31 +687,31 @@ export function SuggestionLearningAdminClient({
 
       <section className="dashboard-card p-5 mb-6">
         <div className="mb-4">
-          <h2 className="text-sm font-semibold text-[var(--slate-900)]">
+          <h2 className="text-sm font-semibold text-foreground">
             Configuration de l&apos;organisation
           </h2>
-          <p className="text-sm text-[var(--slate-500)]">
+          <p className="text-sm text-muted-foreground">
             Les paramètres sont stockés dans les fonctionnalités de l&apos;organisation.
           </p>
         </div>
 
         <div className="grid gap-4 lg:grid-cols-[1fr_auto]">
           <div className="space-y-4">
-            <div className="rounded-xl border border-[var(--slate-200)] p-4">
+            <div className="rounded-xl border border-border p-4">
               <div className="flex items-center justify-between gap-4">
                 <div>
-                  <p className="text-sm font-semibold text-[var(--slate-900)]">
+                  <p className="text-sm font-semibold text-foreground">
                     Activer l&apos;apprentissage
                   </p>
-                  <p className="text-xs text-[var(--slate-500)]">
+                  <p className="text-xs text-muted-foreground">
                     Flag {FEATURE_FLAG_LEARNING_ENABLED}
                   </p>
                 </div>
                 <span
                   className={
                     config.enabled
-                      ? "inline-flex items-center rounded-full bg-[var(--success-light)] px-2.5 py-0.5 text-xs font-medium text-[var(--success)]"
-                      : "inline-flex items-center rounded-full bg-[var(--slate-100)] px-2.5 py-0.5 text-xs font-medium text-[var(--slate-600)]"
+                      ? "inline-flex items-center rounded-full bg-success-light px-2.5 py-0.5 text-xs font-medium text-success"
+                      : "inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-slate-600"
                   }
                 >
                   {config.enabled ? "Actif" : "Inactif"}
@@ -786,8 +786,8 @@ export function SuggestionLearningAdminClient({
           {isLoading ? (
             <div className="animate-fade-in flex min-h-[260px] items-center justify-center">
               <div className="flex flex-col items-center gap-3">
-                <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--slate-200)] border-t-[var(--brand-blue)]"></div>
-                <span className="text-[var(--slate-500)]">Chargement...</span>
+                <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-primary"></div>
+                <span className="text-muted-foreground">Chargement...</span>
               </div>
             </div>
           ) : loadError ? (
@@ -811,7 +811,7 @@ export function SuggestionLearningAdminClient({
               <tbody>
                 {proposals.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-10 text-center text-[var(--slate-500)]">
+                    <td colSpan={8} className="py-10 text-center text-muted-foreground">
                       Aucune suggestion apprise pour le tenant.
                     </td>
                   </tr>
@@ -822,7 +822,7 @@ export function SuggestionLearningAdminClient({
 
                     return (
                       <tr key={proposalKey}>
-                        <td className="font-mono text-xs text-[var(--slate-700)]">
+                        <td className="font-mono text-xs text-foreground-secondary">
                           {proposal.rule_id}
                         </td>
                         <td>{FIELD_LABELS[proposal.field_name]}</td>
@@ -830,7 +830,7 @@ export function SuggestionLearningAdminClient({
                           <div className="space-y-1">
                             <p>{proposal.sample_original_value ?? "-"}</p>
                             {proposal.sample_item_title ? (
-                              <p className="text-xs text-[var(--slate-500)]">
+                              <p className="text-xs text-muted-foreground">
                                 Item: {proposal.sample_item_title}
                               </p>
                             ) : null}

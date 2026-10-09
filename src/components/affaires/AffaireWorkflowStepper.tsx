@@ -77,10 +77,10 @@ export function AffaireWorkflowStepper({
     <nav aria-label="Avancement de l'affaire" className="animate-fade-in">
       {currentStep ? (
         <div className="mb-2 flex items-center justify-between gap-3 sm:hidden">
-          <span className="text-xs font-semibold text-[var(--slate-500)]">
+          <span className="text-xs font-semibold text-muted-foreground">
             Étape {currentStepIndex + 1} sur {steps.length}
           </span>
-          <span className="truncate text-sm font-semibold text-[var(--brand-blue)]">
+          <span className="truncate text-sm font-semibold text-primary">
             {currentStep.label}
           </span>
         </div>
@@ -94,8 +94,8 @@ export function AffaireWorkflowStepper({
                 aria-hidden="true"
                 className={`hidden h-px min-w-6 flex-1 sm:block ${
                   step.status === "done"
-                    ? "bg-[var(--success)]"
-                    : "bg-[var(--slate-200)]"
+                    ? "bg-success"
+                    : "bg-slate-200"
                 }`}
               />
             )}
@@ -105,11 +105,11 @@ export function AffaireWorkflowStepper({
                 aria-label={`Étape ${i + 1} sur ${steps.length} : ${step.label}, ${getStepStatusLabel(step.status)}`}
               >
                 <span
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold sm:h-6 sm:w-6 border border-[var(--slate-200)] bg-[var(--slate-50)] text-[var(--slate-400)]"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold sm:h-6 sm:w-6 border border-border bg-surface-subtle text-subtle-foreground"
                 >
                   {i + 1}
                 </span>
-                <span className="hidden text-xs font-medium text-[var(--slate-400)] sm:inline">
+                <span className="hidden text-xs font-medium text-subtle-foreground sm:inline">
                   {step.label}
                 </span>
               </span>
@@ -117,15 +117,15 @@ export function AffaireWorkflowStepper({
               <a
                 href={`#${STEPPER_ANCHOR_MAP[step.key] ?? step.key}`}
                 aria-label={`Étape ${i + 1} sur ${steps.length} : ${step.label}, ${getStepStatusLabel(step.status)}`}
-                className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-blue)] focus-visible:ring-offset-2 sm:min-h-0 sm:min-w-0 sm:justify-start"
+                className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 sm:min-h-0 sm:min-w-0 sm:justify-start"
               >
                 <span
                   className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold sm:h-6 sm:w-6 ${
                     step.status === "done"
-                      ? "bg-[var(--success)] text-white"
+                      ? "bg-success text-white"
                       : step.status === "current"
-                        ? "border-2 border-[var(--brand-blue)] bg-white text-[var(--brand-blue)]"
-                        : "border border-[var(--slate-200)] bg-[var(--slate-50)] text-[var(--slate-400)]"
+                        ? "border-2 border-primary bg-surface text-primary"
+                        : "border border-border bg-surface-subtle text-subtle-foreground"
                   }`}
                 >
                   {step.status === "done" ? (
@@ -139,10 +139,10 @@ export function AffaireWorkflowStepper({
                 <span
                   className={`hidden text-xs font-medium sm:inline ${
                     step.status === "done"
-                      ? "text-[var(--success)]"
+                      ? "text-success"
                       : step.status === "current"
-                        ? "text-[var(--brand-blue)]"
-                        : "text-[var(--slate-400)]"
+                        ? "text-primary"
+                        : "text-subtle-foreground"
                   }`}
                 >
                   {step.label}

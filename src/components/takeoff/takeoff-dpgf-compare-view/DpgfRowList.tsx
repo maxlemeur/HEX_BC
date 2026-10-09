@@ -30,7 +30,7 @@ export function DpgfRowList({
   if (filteredRows.length === 0) {
     return (
       <section className="space-y-3">
-        <div className="rounded-[28px] border border-dashed border-[var(--border)] bg-white p-10 text-center text-sm text-[var(--slate-600)]">
+        <div className="rounded-[28px] border border-dashed border-border bg-surface p-10 text-center text-sm text-slate-600">
           Aucun résultat pour ce filtre.
         </div>
       </section>
@@ -50,7 +50,7 @@ export function DpgfRowList({
           <button
             key={row.line_id}
             type="button"
-            className={`w-full rounded-[28px] border p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 ${
+            className={`w-full rounded-[28px] border p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
               isSelected ? "border-sky-300 bg-sky-50/80" : STATUS_PANEL_CSS[row.review_status]
             }`}
             style={{ contentVisibility: "auto" }}
@@ -59,7 +59,7 @@ export function DpgfRowList({
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-xs uppercase tracking-[0.14em] text-[var(--slate-500)]">
+                  <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
                     Position {row.dpgf.position}
                   </p>
                   <Badge variant={STATUS_BADGE_VARIANT[row.review_status]} size="sm">
@@ -76,49 +76,49 @@ export function DpgfRowList({
                     </Badge>
                   ) : null}
                 </div>
-                <h3 className="mt-2 text-lg font-semibold text-[var(--slate-950)]">
+                <h3 className="mt-2 text-lg font-semibold text-slate-950">
                   {row.line_label}
                 </h3>
                 {row.dpgf.description ? (
-                  <p className="mt-1 text-sm text-[var(--slate-600)]">{row.dpgf.description}</p>
+                  <p className="mt-1 text-sm text-slate-600">{row.dpgf.description}</p>
                 ) : null}
               </div>
 
-              <div className="rounded-2xl border border-white/60 bg-white/70 px-4 py-3">
-                <p className="text-xs uppercase tracking-[0.14em] text-[var(--slate-500)]">
+              <div className="rounded-2xl border border-white/60 bg-surface/70 px-4 py-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
                   Confiance
                 </p>
-                <p className="mt-1 text-lg font-semibold text-[var(--slate-950)]">
+                <p className="mt-1 text-lg font-semibold text-slate-950">
                   {formatConfidence(row.confidence_score)}
                 </p>
                 {row.risk?.causes[0] ? (
-                  <p className="mt-1 text-xs text-[var(--slate-600)]">{row.risk.causes[0]}</p>
+                  <p className="mt-1 text-xs text-slate-600">{row.risk.causes[0]}</p>
                 ) : null}
               </div>
             </div>
 
             <div className="mt-4 grid gap-3 md:grid-cols-4">
-              <div className="rounded-2xl border border-white/70 bg-white/75 p-3">
-                <p className="text-xs text-[var(--slate-500)]">DPGF</p>
-                <p className="mt-1 text-sm font-semibold text-[var(--slate-900)]">
+              <div className="rounded-2xl border border-white/70 bg-surface/75 p-3">
+                <p className="text-xs text-muted-foreground">DPGF</p>
+                <p className="mt-1 text-sm font-semibold text-foreground">
                   {formatNumber(row.dpgf_quantity)} {row.dpgf.unit ?? ""}
                 </p>
               </div>
-              <div className="rounded-2xl border border-white/70 bg-white/75 p-3">
-                <p className="text-xs text-[var(--slate-500)]">Takeoff</p>
-                <p className="mt-1 text-sm font-semibold text-[var(--slate-900)]">
+              <div className="rounded-2xl border border-white/70 bg-surface/75 p-3">
+                <p className="text-xs text-muted-foreground">Takeoff</p>
+                <p className="mt-1 text-sm font-semibold text-foreground">
                   {quantityLabel}
                 </p>
               </div>
-              <div className="rounded-2xl border border-white/70 bg-white/75 p-3">
-                <p className="text-xs text-[var(--slate-500)]">Écart</p>
-                <p className="mt-1 text-sm font-semibold text-[var(--slate-900)]">
+              <div className="rounded-2xl border border-white/70 bg-surface/75 p-3">
+                <p className="text-xs text-muted-foreground">Écart</p>
+                <p className="mt-1 text-sm font-semibold text-foreground">
                   {formatNumber(row.delta_absolute)} · {formatPercent(row.delta_percent)}
                 </p>
               </div>
-              <div className="rounded-2xl border border-white/70 bg-white/75 p-3">
-                <p className="text-xs text-[var(--slate-500)]">Preuves</p>
-                <p className="mt-1 text-sm font-semibold text-[var(--slate-900)]">
+              <div className="rounded-2xl border border-white/70 bg-surface/75 p-3">
+                <p className="text-xs text-muted-foreground">Preuves</p>
+                <p className="mt-1 text-sm font-semibold text-foreground">
                   {row.proofs.length}
                 </p>
               </div>

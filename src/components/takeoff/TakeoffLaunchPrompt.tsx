@@ -300,13 +300,13 @@ export function TakeoffLaunchPrompt({
     <div
       role="region"
       aria-label="Proposition d'analyse automatique"
-      className={`rounded-lg border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 ${compact ? "px-4 py-3" : "px-5 py-4"}`}
+      className={`rounded-lg border border-primary/20 bg-primary/5 ${compact ? "px-4 py-3" : "px-5 py-4"}`}
     >
       <div aria-live="polite">
         {state === "launching" && (
           <div className="flex items-center gap-2">
             <svg
-              className="h-4 w-4 animate-spin text-[var(--brand-blue)]"
+              className="h-4 w-4 animate-spin text-primary"
               viewBox="0 0 24 24"
               fill="none"
               aria-hidden="true"
@@ -325,7 +325,7 @@ export function TakeoffLaunchPrompt({
                 d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
               />
             </svg>
-            <span className="text-xs font-medium text-[var(--brand-blue)]">
+            <span className="text-xs font-medium text-primary">
               {launchMode === "create_draft_from_current"
                 ? "Création du brouillon et lancement de l'analyse..."
                 : "Lancement de l'analyse..."}
@@ -345,12 +345,12 @@ export function TakeoffLaunchPrompt({
                 strokeWidth="2.5"
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                className="shrink-0 text-[var(--success)]"
+                className="shrink-0 text-success"
                 aria-hidden="true"
               >
                 <polyline points="20 6 9 17 4 12" />
               </svg>
-              <span className="text-xs font-medium text-[var(--success)]">
+              <span className="text-xs font-medium text-success">
                 {recoveryUnconfirmed
                   ? "Analyse créée, reprise à vérifier"
                   : queuedForRecovery
@@ -358,7 +358,7 @@ export function TakeoffLaunchPrompt({
                     : "Analyse transmise au traitement"}
               </span>
             </div>
-            <p className="text-xs text-[var(--slate-600)]">
+            <p className="text-xs text-slate-600">
               {launchedVersionLabel ?? resolvedVersionLabel} — {planFileCount} fichier
               {planFileCount > 1 ? "s" : ""} concerné
               {planFileCount > 1 ? "s" : ""}.
@@ -371,7 +371,7 @@ export function TakeoffLaunchPrompt({
             {createdJobId && (
               <Link
                 href={resolvedResultsHref}
-                className="inline-flex rounded-sm text-xs text-[var(--brand-blue)] underline underline-offset-2 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-blue)] focus-visible:ring-offset-2"
+                className="inline-flex rounded-sm text-xs text-primary underline underline-offset-2 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
               >
                 Suivre l&apos;avancement
               </Link>
@@ -381,8 +381,8 @@ export function TakeoffLaunchPrompt({
 
         {state === "error" && (
           <div className="space-y-2">
-            <div className="flex items-center gap-2 rounded border border-[var(--error)]/20 bg-[var(--error)]/5 px-3 py-2">
-              <span className="text-xs text-[var(--error)]">
+            <div className="flex items-center gap-2 rounded border border-danger/20 bg-danger/5 px-3 py-2">
+              <span className="text-xs text-danger">
                 {errorMessage ?? "Une erreur est survenue."}
               </span>
             </div>
@@ -409,7 +409,7 @@ export function TakeoffLaunchPrompt({
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
-              className="shrink-0 text-[var(--brand-blue)]"
+              className="shrink-0 text-primary"
               aria-hidden="true"
             >
               <path d="M14.5 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7.5L14.5 2z" />
@@ -418,47 +418,47 @@ export function TakeoffLaunchPrompt({
               <line x1="16" y1="17" x2="8" y2="17" />
               <polyline points="10 9 9 9 8 9" />
             </svg>
-            <span className="text-sm font-semibold text-[var(--slate-800)]">
+            <span className="text-sm font-semibold text-slate-800">
               {promptTitle}
             </span>
           </div>
 
           <div className="mt-2 space-y-1">
             {planSetName ? (
-              <p className="text-xs text-[var(--slate-600)]">
+              <p className="text-xs text-slate-600">
                 Jeu de plans :{" "}
-                <span className="font-medium text-[var(--slate-800)]">
+                <span className="font-medium text-slate-800">
                   {planSetName}
                 </span>{" "}
                 ({planFileCount} fichier{planFileCount > 1 ? "s" : ""})
               </p>
             ) : (
-              <p className="text-xs text-[var(--slate-600)]">
+              <p className="text-xs text-slate-600">
                 {planFileCount} fichier{planFileCount > 1 ? "s" : ""} seront analysés.
               </p>
             )}
-            <p className="text-xs text-[var(--slate-600)]">
+            <p className="text-xs text-slate-600">
               Niveau recommandé :{" "}
-              <span className="inline-flex items-center rounded-full bg-[var(--brand-blue)]/10 px-2 py-0.5 text-[10px] font-medium text-[var(--brand-blue)]">
+              <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
                 {launchRecommendation.recommendedLevel
                   ? TAKEOFF_LEVEL_BUSINESS_LABELS[launchRecommendation.recommendedLevel]
                   : "Choix manuel"}
               </span>
             </p>
-            <p className="text-xs text-[var(--slate-600)]">
+            <p className="text-xs text-slate-600">
               Version cible :{" "}
-              <span className="inline-flex items-center rounded-full bg-[var(--slate-100)] px-2 py-0.5 text-[10px] font-medium text-[var(--slate-700)]">
+              <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-foreground-secondary">
                 {resolvedVersionLabel}
               </span>
             </p>
-            <p className="text-xs text-[var(--slate-500)]">
+            <p className="text-xs text-muted-foreground">
               Résultats disponibles dans le centre d&apos;activité des métrés après lancement.
             </p>
-            <p className="text-xs text-[var(--slate-500)]">
+            <p className="text-xs text-muted-foreground">
               Bénéfice attendu : les quantités seront extraites de vos plans pour alimenter le chiffrage.
             </p>
             <fieldset className="pt-1">
-              <legend className="text-xs font-medium text-[var(--slate-600)]">
+              <legend className="text-xs font-medium text-slate-600">
                 Niveau à lancer
               </legend>
               <div className="mt-2 flex flex-wrap gap-2" role="radiogroup">
@@ -467,8 +467,8 @@ export function TakeoffLaunchPrompt({
                     key={level}
                     className={`flex items-center gap-2 rounded-full border px-3 py-1 text-xs ${
                       selectedLevel === level
-                        ? "border-[var(--brand-blue)] bg-[var(--brand-blue)]/10 text-[var(--brand-blue)]"
-                        : "border-[var(--slate-200)] bg-white text-[var(--slate-700)]"
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border bg-surface text-foreground-secondary"
                     }`}
                   >
                     <input
@@ -486,8 +486,8 @@ export function TakeoffLaunchPrompt({
               <div
                 className={`rounded border px-3 py-2 text-xs ${
                   levelWarning.severity === "critical"
-                    ? "border-[var(--warning)]/30 bg-[var(--warning)]/10 text-[var(--warning)]"
-                    : "border-[var(--brand-blue)]/15 bg-white/80 text-[var(--slate-700)]"
+                    ? "border-warning/30 bg-warning/10 text-warning"
+                    : "border-primary/15 bg-surface/80 text-foreground-secondary"
                 }`}
                 role={levelWarning.severity === "critical" ? "alert" : "status"}
               >
@@ -517,7 +517,7 @@ export function TakeoffLaunchPrompt({
             {onDismissPermanent && (
               <button
                 type="button"
-                className="rounded-sm text-xs text-[var(--slate-400)] underline underline-offset-2 hover:text-[var(--slate-600)] hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-blue)] focus-visible:ring-offset-2"
+                className="rounded-sm text-xs text-subtle-foreground underline underline-offset-2 hover:text-slate-600 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
                 onClick={onDismissPermanent}
               >
                 Ne pas proposer pour cette affaire

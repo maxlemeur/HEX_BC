@@ -287,9 +287,9 @@ export default function SuppliersPage() {
               className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-surface shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="shrink-0 border-b border-[var(--slate-200)] px-4 py-4 sm:px-6">
+            <div className="shrink-0 border-b border-border px-4 py-4 sm:px-6">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--brand-blue)]/10">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     width="20"
@@ -313,10 +313,10 @@ export default function SuppliersPage() {
                   </svg>
                 </div>
                 <div>
-                  <h2 id="supplier-modal-title" className="text-lg font-semibold text-[var(--slate-800)]">
+                  <h2 id="supplier-modal-title" className="text-lg font-semibold text-slate-800">
                     {editingId ? "Modifier le fournisseur" : "Ajouter un fournisseur"}
                   </h2>
-                  <p className="text-sm text-[var(--slate-500)]">
+                  <p className="text-sm text-muted-foreground">
                     {editingId
                       ? "Mettez a jour les informations du fournisseur."
                       : "Renseignez les informations du nouveau fournisseur."}
@@ -477,7 +477,7 @@ export default function SuppliersPage() {
 
               </div>
 
-              <div className="shrink-0 border-t border-[var(--slate-200)] bg-surface px-4 py-3 sm:px-6 sm:py-4">
+              <div className="shrink-0 border-t border-border bg-surface px-4 py-3 sm:px-6 sm:py-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 {formError ? (
                   <div className="alert alert-error flex-1">
@@ -549,8 +549,8 @@ export default function SuppliersPage() {
 
       {/* Table card */}
       <div className="dashboard-card overflow-hidden">
-        <div className="flex items-center justify-between gap-3 border-b border-[var(--slate-200)] px-4 py-4 sm:px-6">
-          <h2 className="text-sm font-semibold text-[var(--slate-800)]">
+        <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-6">
+          <h2 className="text-sm font-semibold text-slate-800">
             Liste des fournisseurs
           </h2>
           <button
@@ -597,16 +597,16 @@ export default function SuppliersPage() {
 
         <div className="xl:hidden">
           {isLoading ? (
-            <div className="flex flex-col items-center gap-3 px-4 py-10 text-sm text-[var(--slate-500)]">
-              <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--slate-200)] border-t-[var(--brand-blue)]" />
+            <div className="flex flex-col items-center gap-3 px-4 py-10 text-sm text-muted-foreground">
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-primary" />
               Chargement...
             </div>
           ) : displayedSuppliers.length === 0 ? (
             <div className="px-4 py-10 text-center">
-              <p className="font-medium text-[var(--slate-700)]">
+              <p className="font-medium text-foreground-secondary">
                 {suppliers.length === 0 ? "Aucun fournisseur" : "Aucun resultat"}
               </p>
-              <p className="mt-1 text-sm text-[var(--slate-500)]">
+              <p className="mt-1 text-sm text-muted-foreground">
                 {suppliers.length === 0
                   ? "Ajoutez un fournisseur pour demarrer."
                   : "Modifiez vos filtres pour voir plus de resultats."}
@@ -617,48 +617,48 @@ export default function SuppliersPage() {
               {displayedSuppliers.map((supplier, index) => (
                 <article
                   key={supplier.id}
-                  className="min-w-0 animate-fade-in rounded-xl border border-[var(--slate-200)] bg-white p-4"
+                  className="min-w-0 animate-fade-in rounded-xl border border-border bg-surface p-4"
                   style={{ animationDelay: `${index * 0.03}s` }}
                 >
                   <div className="flex min-w-0 items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <h3 className="break-words font-semibold text-[var(--slate-800)]">
+                      <h3 className="break-words font-semibold text-slate-800">
                         {supplier.name}
                       </h3>
-                      <p className="mt-1 text-sm text-[var(--slate-500)]">
+                      <p className="mt-1 text-sm text-muted-foreground">
                         {[supplier.city, supplier.country].filter(Boolean).join(", ") || "Localisation non renseignee"}
                       </p>
                     </div>
                   </div>
 
                   <div className="mt-4 space-y-2 text-sm">
-                    <p className="text-[var(--slate-600)]">
-                      <span className="font-medium text-[var(--slate-800)]">Contact :</span>{" "}
+                    <p className="text-slate-600">
+                      <span className="font-medium text-slate-800">Contact :</span>{" "}
                       {supplier.contact_name ?? "Non renseigne"}
                     </p>
                     {supplier.email ? (
                       <a
                         href={`mailto:${supplier.email}`}
-                        className="block break-all text-[var(--brand-blue)] hover:underline"
+                        className="block break-all text-primary hover:underline"
                       >
                         {supplier.email}
                       </a>
                     ) : (
-                      <p className="text-[var(--slate-400)]">Email non renseigne</p>
+                      <p className="text-subtle-foreground">Email non renseigne</p>
                     )}
                     {supplier.phone ? (
                       <a
                         href={`tel:${supplier.phone}`}
-                        className="block break-all text-[var(--brand-blue)] hover:underline"
+                        className="block break-all text-primary hover:underline"
                       >
                         {supplier.phone}
                       </a>
                     ) : (
-                      <p className="text-[var(--slate-400)]">Téléphone non renseigné</p>
+                      <p className="text-subtle-foreground">Téléphone non renseigné</p>
                     )}
                   </div>
 
-                  <div className="mt-4 grid grid-cols-2 gap-2 border-t border-[var(--slate-100)] pt-3">
+                  <div className="mt-4 grid grid-cols-2 gap-2 border-t border-border-subtle pt-3">
                     <button
                       className="btn btn-secondary btn-sm w-full justify-center"
                       onClick={() => openEditForm(supplier)}
@@ -698,12 +698,12 @@ export default function SuppliersPage() {
                   <td colSpan={6} className="text-center py-12">
                     {isLoading ? (
                       <div className="flex flex-col items-center gap-3">
-                        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--slate-200)] border-t-[var(--brand-blue)]"></div>
-                        <span className="text-[var(--slate-500)]">Chargement...</span>
+                        <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-primary"></div>
+                        <span className="text-muted-foreground">Chargement...</span>
                       </div>
                     ) : suppliers.length === 0 ? (
                       <div className="flex flex-col items-center gap-3">
-                        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--slate-100)]">
+                        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted">
                           <svg
                             xmlns="http://www.w3.org/2000/svg"
                             width="24"
@@ -718,13 +718,13 @@ export default function SuppliersPage() {
                           </svg>
                         </div>
                         <div className="text-center">
-                          <p className="font-medium text-[var(--slate-700)]">Aucun fournisseur</p>
-                          <p className="mt-1 text-sm text-[var(--slate-500)]">Cliquez sur le bouton Ajouter un fournisseur pour démarrer.</p>
+                          <p className="font-medium text-foreground-secondary">Aucun fournisseur</p>
+                          <p className="mt-1 text-sm text-muted-foreground">Cliquez sur le bouton Ajouter un fournisseur pour démarrer.</p>
                         </div>
                       </div>
                     ) : (
                       <div className="flex flex-col items-center gap-3">
-                        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--slate-100)]">
+                        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted">
                           <svg
                             xmlns="http://www.w3.org/2000/svg"
                             width="24"
@@ -739,8 +739,8 @@ export default function SuppliersPage() {
                           </svg>
                         </div>
                         <div className="text-center">
-                          <p className="font-medium text-[var(--slate-700)]">Aucun resultat</p>
-                          <p className="mt-1 text-sm text-[var(--slate-500)]">Modifiez vos filtres pour voir plus de resultats.</p>
+                          <p className="font-medium text-foreground-secondary">Aucun resultat</p>
+                          <p className="mt-1 text-sm text-muted-foreground">Modifiez vos filtres pour voir plus de resultats.</p>
                         </div>
                       </div>
                     )}
@@ -753,7 +753,7 @@ export default function SuppliersPage() {
                     className="animate-fade-in"
                     style={{ animationDelay: `${index * 0.03}s` }}
                   >
-                    <td className="font-semibold text-[var(--slate-800)]">
+                    <td className="font-semibold text-slate-800">
                       {supplier.name}
                     </td>
                     <td>{supplier.contact_name ?? "-"}</td>
@@ -762,7 +762,7 @@ export default function SuppliersPage() {
                       {supplier.email ? (
                         <a
                           href={`mailto:${supplier.email}`}
-                          className="text-[var(--brand-blue)] hover:underline"
+                          className="text-primary hover:underline"
                         >
                           {supplier.email}
                         </a>

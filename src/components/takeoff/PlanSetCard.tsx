@@ -248,7 +248,7 @@ export function PlanSetCard({
         >
           {/* Chevron */}
           <svg
-            className={`h-4 w-4 shrink-0 text-[var(--slate-400)] transition-transform ${expanded ? "rotate-90" : ""}`}
+            className={`h-4 w-4 shrink-0 text-subtle-foreground transition-transform ${expanded ? "rotate-90" : ""}`}
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -261,7 +261,7 @@ export function PlanSetCard({
           {/* Set info */}
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="line-clamp-2 text-sm font-semibold text-[var(--slate-800)] sm:truncate">
+              <h3 className="line-clamp-2 text-sm font-semibold text-slate-800 sm:truncate">
                 {planSet.name}
               </h3>
               <span
@@ -269,19 +269,19 @@ export function PlanSetCard({
               >
                 {flowDescriptor.label}
               </span>
-              <span className="text-[11px] text-[var(--slate-500)] sm:hidden">
+              <span className="text-[11px] text-muted-foreground sm:hidden">
                 {planSet.file_count} {planSet.file_count === 1 ? "plan" : "plans"}
               </span>
             </div>
             {planSet.description && (
-              <p className="mt-0.5 line-clamp-2 text-xs text-[var(--slate-500)] sm:truncate">
+              <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground sm:truncate">
                 {planSet.description}
               </p>
             )}
           </div>
 
           {/* Compact metadata */}
-          <div className="hidden shrink-0 items-center gap-4 text-xs text-[var(--slate-500)] sm:flex">
+          <div className="hidden shrink-0 items-center gap-4 text-xs text-muted-foreground sm:flex">
             <span>
               {planSet.file_count}{" "}
               {planSet.file_count === 1 ? "plan" : "plans"}
@@ -304,7 +304,7 @@ export function PlanSetCard({
           {/* Edit set button */}
           <button
             type="button"
-            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-[var(--slate-400)] transition hover:bg-[var(--slate-100)] hover:text-[var(--slate-700)] sm:h-8 sm:w-8"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-subtle-foreground transition hover:bg-muted hover:text-foreground-secondary sm:h-8 sm:w-8"
             aria-label={`Modifier le jeu "${planSet.name}"`}
             onClick={handleStartEdit}
           >
@@ -327,7 +327,7 @@ export function PlanSetCard({
           {/* Delete set button */}
           <button
             type="button"
-            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-[var(--slate-400)] transition hover:bg-[var(--slate-100)] hover:text-danger sm:h-8 sm:w-8"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-subtle-foreground transition hover:bg-muted hover:text-danger sm:h-8 sm:w-8"
             aria-label={`Supprimer le jeu "${planSet.name}"`}
             onClick={() => setDeleteSetModalOpen(true)}
           >
@@ -357,12 +357,12 @@ export function PlanSetCard({
         hidden={!expanded}
       >
         {expanded && (
-          <div className="border-t border-[var(--slate-200)] px-5 pb-5 pt-4">
+          <div className="border-t border-border px-5 pb-5 pt-4">
             <div
               className={`mb-4 rounded-lg border px-3 py-2 text-sm ${
                 flowDescriptor.kind === "legacy"
-                  ? "border-[var(--warning)]/20 bg-[var(--warning)]/5 text-[var(--slate-700)]"
-                  : "border-[var(--success)]/15 bg-[var(--success)]/5 text-[var(--slate-700)]"
+                  ? "border-warning/20 bg-warning/5 text-foreground-secondary"
+                  : "border-success/15 bg-success/5 text-foreground-secondary"
               }`}
             >
               {flowDescriptor.summary}
@@ -370,7 +370,7 @@ export function PlanSetCard({
 
             {/* Set edit form */}
             {editingSet && (
-              <div className="mb-4 rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] p-4">
+              <div className="mb-4 rounded-lg border border-border bg-surface-subtle p-4">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="sm:col-span-2">
                     <label
@@ -453,7 +453,7 @@ export function PlanSetCard({
             )}
 
             {files && files.length === 0 && !filesError && (
-              <p className="mt-4 text-center text-sm text-[var(--slate-500)]">
+              <p className="mt-4 text-center text-sm text-muted-foreground">
                 Aucun fichier dans ce jeu. Glissez des PDF ci-dessus.
               </p>
             )}

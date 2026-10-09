@@ -17,7 +17,7 @@ const EXCEPTION_GROUP_COLORS: Record<ExceptionGroupKey, string> = {
   quantities: "bg-red-100 text-red-800",
   missing_proofs: "bg-blue-100 text-blue-800",
   vat_conformity: "bg-purple-100 text-purple-800",
-  missing_documents: "bg-slate-100 text-slate-700",
+  missing_documents: "bg-muted text-foreground-secondary",
 };
 
 // ---------------------------------------------------------------------------
@@ -46,8 +46,8 @@ function riskScoreSeverity(score: number): { variant: "error" | "warning" | "inf
 // ---------------------------------------------------------------------------
 
 const VISUAL_STATE_BORDER: Record<string, string> = {
-  new: "border-l-[var(--brand-blue)] border-l-4",
-  commented: "border-l-[var(--success)] border-l-4",
+  new: "border-l-primary border-l-4",
+  commented: "border-l-success border-l-4",
   seen: "",
   resolved: "",
 };
@@ -93,13 +93,13 @@ export function ApprovalQueueCard({ item }: { item: ApprovalQueueItem }) {
     >
       <Link
         href={href}
-        className="group block rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-blue)] focus-visible:outline-offset-4"
+        className="group block rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-4"
       >
         {/* Header */}
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
             <h3
-              className={`line-clamp-2 break-words text-sm leading-snug ${item.visualState === "new" ? "font-bold" : "font-semibold"} text-[var(--slate-800)]`}
+              className={`line-clamp-2 break-words text-sm leading-snug ${item.visualState === "new" ? "font-bold" : "font-semibold"} text-slate-800`}
               title={item.projectName}
             >
               {item.projectName}
@@ -118,19 +118,19 @@ export function ApprovalQueueCard({ item }: { item: ApprovalQueueItem }) {
         </div>
 
         {/* Subtitle */}
-        <p className="mt-1 line-clamp-2 break-words text-xs text-[var(--slate-500)]">
+        <p className="mt-1 line-clamp-2 break-words text-xs text-muted-foreground">
           {item.clientName && <span>{item.clientName} &middot; </span>}
           {item.versionLabel}
         </p>
 
         {/* Metrics */}
-        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--slate-600)]">
+        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
           <span title="Montant HT">{formatEUR(item.amountHtCents)}</span>
           {marginPercent !== null && (
             <span title="Marge">Marge {marginPercent}%</span>
           )}
           {item.exceptionCount > 0 && (
-            <span title="Nombre d'exceptions" className="font-medium text-[var(--danger)]">
+            <span title="Nombre d'exceptions" className="font-medium text-danger">
               {item.exceptionCount} exception{item.exceptionCount > 1 ? "s" : ""}
             </span>
           )}
@@ -151,7 +151,7 @@ export function ApprovalQueueCard({ item }: { item: ApprovalQueueItem }) {
         )}
 
         {item.syntheticAlerts.length > 0 && (
-          <div className="mt-3 rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)]/70 p-3">
+          <div className="mt-3 rounded-xl border border-border bg-surface-subtle/70 p-3">
             <div className="flex flex-wrap items-center gap-2">
               <Badge
                 variant={
@@ -182,10 +182,10 @@ export function ApprovalQueueCard({ item }: { item: ApprovalQueueItem }) {
                     : "Fausse alerte"}
               </Badge>
             </div>
-            <p className="mt-2 break-words text-xs font-semibold text-[var(--slate-800)]">
+            <p className="mt-2 break-words text-xs font-semibold text-slate-800">
               {item.syntheticAlerts[0]?.label}
             </p>
-            <p className="mt-1 break-words text-xs text-[var(--slate-500)]">
+            <p className="mt-1 break-words text-xs text-muted-foreground">
               {item.syntheticAlerts[0]?.reasons[0] ??
                 "Ouvrez la revue pour arbitrer les signaux restants."}
             </p>
@@ -194,12 +194,12 @@ export function ApprovalQueueCard({ item }: { item: ApprovalQueueItem }) {
 
         {/* Submission message excerpt */}
         {item.submissionMessage && (
-          <p className="mt-2 line-clamp-2 break-words text-[11px] italic text-[var(--slate-400)]">
+          <p className="mt-2 line-clamp-2 break-words text-[11px] italic text-subtle-foreground">
             {item.submissionMessage}
           </p>
         )}
 
-        <span className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-[var(--brand-blue)] group-hover:underline">
+        <span className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-primary group-hover:underline">
           Ouvrir le dossier
           <svg
             width="14"
@@ -218,9 +218,9 @@ export function ApprovalQueueCard({ item }: { item: ApprovalQueueItem }) {
       </Link>
 
       {/* Footer */}
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--slate-100)] pt-3">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-border-subtle pt-3">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <span className="text-[11px] text-[var(--slate-400)]">{item.requestAgeLabel}</span>
+          <span className="text-[11px] text-subtle-foreground">{item.requestAgeLabel}</span>
           {item.reviewerState && (
             <Badge variant={REVIEWER_STATE_BADGE[item.reviewerState].variant} size="sm">
               {REVIEWER_STATE_BADGE[item.reviewerState].label}

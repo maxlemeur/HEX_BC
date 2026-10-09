@@ -16,7 +16,7 @@ export function PrintLevelFilter({ value }: PrintLevelFilterProps) {
       <span className="sr-only">Niveau max affiché</span>
       <select
         aria-label="Niveau max affiché"
-        className="form-input form-select h-10 w-44 bg-white text-sm font-medium"
+        className="form-input form-select h-10 w-44 bg-surface text-sm font-medium"
         value={value}
         onChange={(event) => {
           const nextValue = event.target.value;

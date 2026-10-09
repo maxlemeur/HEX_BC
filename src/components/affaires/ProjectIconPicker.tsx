@@ -55,7 +55,7 @@ export function ProjectIconPicker({ value, onChange, size = 44 }: ProjectIconPic
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="group relative flex h-full w-24 flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-[var(--slate-200)] px-3 py-2 transition-colors hover:border-[var(--brand-blue)] hover:bg-[var(--brand-blue)]/5"
+        className="group relative flex h-full w-24 flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-border px-3 py-2 transition-colors hover:border-primary hover:bg-primary/5"
         title="Changer l'icone du projet"
       >
         <svg
@@ -67,15 +67,15 @@ export function ProjectIconPicker({ value, onChange, size = 44 }: ProjectIconPic
           strokeWidth="1.5"
           strokeLinecap="round"
           strokeLinejoin="round"
-          className="text-[var(--slate-400)] transition-colors group-hover:text-[var(--brand-blue)]"
+          className="text-subtle-foreground transition-colors group-hover:text-primary"
         >
           <path d={PROJECT_ICONS[value].path} />
         </svg>
-        <span className="text-[10px] font-medium text-[var(--slate-500)] transition-colors group-hover:text-[var(--brand-blue)]">
+        <span className="text-[10px] font-medium text-muted-foreground transition-colors group-hover:text-primary">
           {PROJECT_ICONS[value].label}
         </span>
         {/* Pencil badge */}
-        <span className="absolute -bottom-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-[var(--slate-200)] text-[var(--slate-500)] transition-colors group-hover:bg-[var(--brand-blue)] group-hover:text-white">
+        <span className="absolute -bottom-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-slate-200 text-muted-foreground transition-colors group-hover:bg-primary group-hover:text-white">
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
           </svg>
@@ -83,8 +83,8 @@ export function ProjectIconPicker({ value, onChange, size = 44 }: ProjectIconPic
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full z-20 mt-1 animate-fade-in rounded-xl border border-[var(--slate-200)] bg-white p-2 shadow-lg">
-          <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--slate-400)]">
+        <div className="absolute left-0 top-full z-20 mt-1 animate-fade-in rounded-xl border border-border bg-surface p-2 shadow-lg">
+          <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-wider text-subtle-foreground">
             Type de projet
           </p>
           <div className="flex gap-1">
@@ -98,8 +98,8 @@ export function ProjectIconPicker({ value, onChange, size = 44 }: ProjectIconPic
                 }}
                 className={`flex flex-col items-center gap-1 rounded-lg p-2 transition-colors ${
                   key === value
-                    ? "bg-[var(--brand-blue)]/10 text-[var(--brand-blue)]"
-                    : "text-[var(--slate-500)] hover:bg-[var(--slate-50)] hover:text-[var(--slate-700)]"
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:bg-surface-subtle hover:text-foreground-secondary"
                 }`}
                 title={PROJECT_ICONS[key].label}
               >
@@ -129,7 +129,7 @@ export function ProjectIconPicker({ value, onChange, size = 44 }: ProjectIconPic
 export function ProjectIcon({
   iconKey,
   size = 36,
-  className = "mt-0.5 shrink-0 text-[var(--slate-400)]",
+  className = "mt-0.5 shrink-0 text-subtle-foreground",
 }: {
   iconKey: ProjectIconKey;
   size?: number;

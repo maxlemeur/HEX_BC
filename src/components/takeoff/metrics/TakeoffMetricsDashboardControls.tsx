@@ -24,7 +24,7 @@ export function PeriodSelector({
   onChange: (period: TakeoffMetricsPeriod) => void;
 }) {
   return (
-    <div className="inline-flex gap-1 rounded-full bg-[var(--slate-100)] p-1">
+    <div className="inline-flex gap-1 rounded-full bg-muted p-1">
       {TAKEOFF_METRICS_PERIODS.map((period) => (
         <button
           key={period}
@@ -32,8 +32,8 @@ export function PeriodSelector({
           onClick={() => onChange(period)}
           className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
             value === period
-              ? "bg-surface text-[var(--slate-800)] shadow-sm"
-              : "text-[var(--slate-500)] hover:text-[var(--slate-700)]"
+              ? "bg-surface text-slate-800 shadow-sm"
+              : "text-muted-foreground hover:text-foreground-secondary"
           }`}
         >
           {PERIOD_LABELS[period]}
@@ -51,10 +51,10 @@ export function LevelSelector({
   onChange: (value: "all" | TakeoffLevel) => void;
 }) {
   return (
-    <label className="inline-flex items-center gap-2 text-xs text-[var(--slate-600)]">
+    <label className="inline-flex items-center gap-2 text-xs text-slate-600">
       Niveau
       <select
-        className="rounded-md border border-[var(--slate-300)] bg-surface px-2 py-1 text-xs font-medium text-[var(--slate-700)]"
+        className="rounded-md border border-border-strong bg-surface px-2 py-1 text-xs font-medium text-foreground-secondary"
         value={value}
         onChange={(event) => onChange(event.target.value as "all" | TakeoffLevel)}
       >

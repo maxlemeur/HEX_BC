@@ -19,7 +19,7 @@ export function ImportHistoryFilters({
   statusFilter,
 }: ImportHistoryFiltersProps) {
   return (
-    <div className="flex flex-wrap items-center gap-3 border-b border-[var(--slate-200)] px-6 py-3">
+    <div className="flex flex-wrap items-center gap-3 border-b border-border px-6 py-3">
       <div className="flex gap-1">
         {IMPORT_HISTORY_STATUS_TABS.map((tab) => (
           <button
@@ -28,8 +28,8 @@ export function ImportHistoryFilters({
             onClick={() => onStatusFilterChange(tab.key)}
             className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
               statusFilter === tab.key
-                ? "bg-[var(--brand-blue)] text-white"
-                : "bg-[var(--slate-100)] text-[var(--slate-600)] hover:bg-[var(--slate-200)]"
+                ? "bg-primary text-white"
+                : "bg-muted text-slate-600 hover:bg-slate-200"
             }`}
           >
             {tab.label}

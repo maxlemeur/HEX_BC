@@ -46,11 +46,11 @@ function reviewStateLabel(reviewState: TabularPdfReviewPayload["review"]["review
 function reviewStateTone(reviewState: TabularPdfReviewPayload["review"]["review_state"]) {
   switch (reviewState) {
     case "light_validation":
-      return "border-[var(--success)] bg-[var(--success)]/5";
+      return "border-success bg-success/5";
     case "reinforced_validation":
-      return "border-[var(--warning)] bg-[var(--warning)]/5";
+      return "border-warning bg-warning/5";
     default:
-      return "border-[var(--error)] bg-[var(--error)]/5";
+      return "border-danger bg-danger/5";
   }
 }
 
@@ -78,18 +78,18 @@ export function TabularPdfReviewPanel({
     >
       <div className="flex items-start gap-4">
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-[var(--slate-800)]">
+          <p className="truncate text-sm font-semibold text-slate-800">
             {fileName}
-            <span className="ml-2 text-xs font-normal text-[var(--slate-500)]">
+            <span className="ml-2 text-xs font-normal text-muted-foreground">
               {fileSizeLabel}
             </span>
           </p>
-          <p className="mt-1 text-xs font-medium text-[var(--slate-700)]">
+          <p className="mt-1 text-xs font-medium text-foreground-secondary">
             {reviewStateLabel(pdfReview.review.review_state)} ·{" "}
             {pdfReview.review.summary.approvable_tables} tableau(x) exploitable(s) sur{" "}
             {pdfReview.review.summary.total_tables}
           </p>
-          <p className="mt-1 text-xs text-[var(--slate-500)]">
+          <p className="mt-1 text-xs text-muted-foreground">
             Le PDF rejoint le mapping standard uniquement apres approbation explicite
             des tableaux retenus.
           </p>
@@ -105,27 +105,27 @@ export function TabularPdfReviewPanel({
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <div className="rounded-lg border border-white/60 bg-white/70 px-3 py-2">
-          <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">
+        <div className="rounded-lg border border-white/60 bg-surface/70 px-3 py-2">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
             Tableaux proposes
           </p>
-          <p className="mt-1 text-lg font-semibold text-[var(--slate-900)]">
+          <p className="mt-1 text-lg font-semibold text-foreground">
             {pdfReview.review.summary.approvable_tables}
           </p>
         </div>
-        <div className="rounded-lg border border-white/60 bg-white/70 px-3 py-2">
-          <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">
+        <div className="rounded-lg border border-white/60 bg-surface/70 px-3 py-2">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
             Tableaux rejetes
           </p>
-          <p className="mt-1 text-lg font-semibold text-[var(--slate-900)]">
+          <p className="mt-1 text-lg font-semibold text-foreground">
             {pdfReview.review.summary.rejected_tables}
           </p>
         </div>
-        <div className="rounded-lg border border-white/60 bg-white/70 px-3 py-2">
-          <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">
+        <div className="rounded-lg border border-white/60 bg-surface/70 px-3 py-2">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
             Lignes retenues
           </p>
-          <p className="mt-1 text-lg font-semibold text-[var(--slate-900)]">
+          <p className="mt-1 text-lg font-semibold text-foreground">
             {pdfReview.review.summary.approvable_rows}
           </p>
         </div>
@@ -145,8 +145,8 @@ export function TabularPdfReviewPanel({
               key={buildTableKey(table.source_page, table.table_index)}
               className={`block rounded-lg border px-4 py-3 ${
                 selected
-                  ? "border-[var(--brand-blue)] bg-white"
-                  : "border-white/60 bg-white/70"
+                  ? "border-primary bg-surface"
+                  : "border-white/60 bg-surface/70"
               } ${selectable ? "cursor-pointer" : "cursor-not-allowed opacity-80"}`}
             >
               <div className="flex items-start gap-3">
@@ -164,17 +164,17 @@ export function TabularPdfReviewPanel({
                 />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-sm font-semibold text-[var(--slate-800)]">
+                    <p className="text-sm font-semibold text-slate-800">
                       {table.title || `Tableau page ${table.source_page}`}
                     </p>
-                    <span className="rounded-full bg-[var(--slate-100)] px-2 py-0.5 text-[11px] text-[var(--slate-600)]">
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-slate-600">
                       p.{table.source_page} · tableau {table.table_index + 1}
                     </span>
-                    <span className="rounded-full bg-[var(--slate-100)] px-2 py-0.5 text-[11px] text-[var(--slate-600)]">
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-slate-600">
                       {table.row_count} ligne(s)
                     </span>
                   </div>
-                  <p className="mt-1 text-xs text-[var(--slate-500)]">
+                  <p className="mt-1 text-xs text-muted-foreground">
                     Colonnes: {table.headers.join(" · ") || "Aucune"}
                   </p>
                   {table.issues.length > 0 ? (
@@ -184,8 +184,8 @@ export function TabularPdfReviewPanel({
                           key={`${table.source_page}:${table.table_index}:${issue.code}`}
                           className={`rounded-full px-2 py-0.5 text-[11px] ${
                             issue.severity === "error"
-                              ? "bg-[var(--error)]/10 text-[var(--error)]"
-                              : "bg-[var(--warning)]/10 text-[var(--warning-dark,var(--warning))]"
+                              ? "bg-danger/10 text-danger"
+                              : "bg-warning/10 text-[var(--warning-dark,var(--warning))]"
                           }`}
                         >
                           {issue.message}
@@ -194,13 +194,13 @@ export function TabularPdfReviewPanel({
                     </div>
                   ) : null}
                   {table.sample_rows.length > 0 ? (
-                    <div className="mt-2 overflow-hidden rounded-md border border-[var(--slate-200)] bg-[var(--slate-50)]">
-                      <table className="min-w-full text-left text-xs text-[var(--slate-600)]">
+                    <div className="mt-2 overflow-hidden rounded-md border border-border bg-surface-subtle">
+                      <table className="min-w-full text-left text-xs text-slate-600">
                         <tbody>
                           {table.sample_rows.slice(0, 2).map((row, rowIndex) => (
                             <tr
                               key={`${table.source_page}:${table.table_index}:sample:${rowIndex}`}
-                              className="border-t border-[var(--slate-200)] first:border-t-0"
+                              className="border-t border-border first:border-t-0"
                             >
                               {row.map((cell, cellIndex) => (
                                 <td
@@ -224,7 +224,7 @@ export function TabularPdfReviewPanel({
       </div>
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-white/60 pt-4">
-        <p className="text-xs text-[var(--slate-600)]">
+        <p className="text-xs text-slate-600">
           {approvedCount > 0
             ? `${approvedCount} tableau(x) retenu(s) avant mapping canonique.`
             : hasSelectableTable

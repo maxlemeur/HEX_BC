@@ -46,13 +46,13 @@ export function PricingStep({
         </label>
         <input
           id="wiz-date-devis"
-          className={`form-input ${errors.dateDevis ? "border-[var(--error)]" : ""}`}
+          className={`form-input ${errors.dateDevis ? "border-danger" : ""}`}
           type="date"
           value={data.dateDevis}
           onChange={(event) => updateField("dateDevis", event.target.value)}
         />
         {errors.dateDevis && (
-          <p className="mt-1 text-sm text-[var(--error)]">{errors.dateDevis}</p>
+          <p className="mt-1 text-sm text-danger">{errors.dateDevis}</p>
         )}
       </div>
 
@@ -62,14 +62,14 @@ export function PricingStep({
         </label>
         <input
           id="wiz-validite"
-          className={`form-input ${errors.validiteJours ? "border-[var(--error)]" : ""}`}
+          className={`form-input ${errors.validiteJours ? "border-danger" : ""}`}
           type="number"
           min={1}
           value={data.validiteJours}
           onChange={(event) => updateField("validiteJours", event.target.value)}
         />
         {errors.validiteJours && (
-          <p className="mt-1 text-sm text-[var(--error)]">{errors.validiteJours}</p>
+          <p className="mt-1 text-sm text-danger">{errors.validiteJours}</p>
         )}
       </div>
 
@@ -99,7 +99,7 @@ export function PricingStep({
             Marge par tranche
           </button>
         </div>
-        <p className="mt-1.5 text-xs text-[var(--slate-500)]">
+        <p className="mt-1.5 text-xs text-muted-foreground">
           Marge fixe : un coefficient unique choisi pour le devis. Marge par tranche : un coefficient choisi automatiquement selon le coût total HT.
         </p>
       </div>
@@ -138,7 +138,7 @@ export function PricingStep({
       {data.marginMode === "tiered" && (
         <div className="sm:col-span-2">
           <p className="form-label">Tranches de marge de l’organisation</p>
-          <p className="mb-2 text-sm text-[var(--slate-500)]">
+          <p className="mb-2 text-sm text-muted-foreground">
             Le barème de votre organisation sera appliqué à la création. Un
             administrateur peut le consulter et le modifier dans le paramétrage
             du devis, section « Tranches de marge ».
@@ -154,7 +154,7 @@ export function PricingStep({
         <div className="relative">
           <NumberInput
             id="wiz-tax-rate"
-            className={`form-input pr-8 ${errors.taxRateBp ? "border-[var(--error)]" : ""}`}
+            className={`form-input pr-8 ${errors.taxRateBp ? "border-danger" : ""}`}
             step="0.1"
             min={0}
             max={100}
@@ -176,7 +176,7 @@ export function PricingStep({
           <span className="estimate-tax-suffix">%</span>
         </div>
         {errors.taxRateBp && (
-          <p className="mt-1 text-sm text-[var(--error)]">{errors.taxRateBp}</p>
+          <p className="mt-1 text-sm text-danger">{errors.taxRateBp}</p>
         )}
       </div>
 
@@ -217,7 +217,7 @@ export function PricingStep({
             </option>
           ))}
         </select>
-        <p className="mt-2 text-xs text-[var(--slate-500)]">
+        <p className="mt-2 text-xs text-muted-foreground">
           Champ optionnel memorise dans les notes du projet lors de la creation.
         </p>
       </div>

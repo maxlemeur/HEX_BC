@@ -166,12 +166,12 @@ export function SupplierComparisonPanel({
               {itemTitle || "Ligne sans titre"}
             </p>
             {typeof quantity === "number" ? (
-              <p className="mt-1 text-sm text-[var(--slate-600)]">
+              <p className="mt-1 text-sm text-slate-600">
                 Quantité : {quantity} {itemUnit || "u"}
                 {typeof currentUnitPriceCents === "number" ? ` · Coût retenu : ${formatSupplierPrice(currentUnitPriceCents, estimateCurrency)} / ${itemUnit || "u"}` : ""}
               </p>
             ) : null}
-            <p className="mt-1 text-xs text-[var(--slate-600)]">Coûts de fourniture HT avant coefficients FO et marge.</p>
+            <p className="mt-1 text-xs text-slate-600">Coûts de fourniture HT avant coefficients FO et marge.</p>
           </div>
           <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>
             Fermer
@@ -228,7 +228,7 @@ export function SupplierComparisonPanel({
                         <div className="estimate-supplier-comparison-option__name">
                           {alternative.supplier_name}
                         </div>
-                        <p className="mt-1 text-sm text-slate-700 [overflow-wrap:anywhere]">
+                        <p className="mt-1 text-sm text-foreground-secondary [overflow-wrap:anywhere]">
                           {alternative.product_designation?.trim() ||
                             "Désignation non renseignée"}
                         </p>

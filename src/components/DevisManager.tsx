@@ -56,38 +56,38 @@ export function DevisManager({ orderId, initialItems, canManage }: DevisManagerP
     <div className="space-y-6">
       {/* Upload section - collapsible */}
       {canManage && (
-        <div className="overflow-hidden rounded-2xl border border-[var(--slate-200)] bg-white shadow-sm transition-all duration-300">
+        <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm transition-all duration-300">
           <button
             type="button"
-            className="flex w-full items-center justify-between px-6 py-4 text-left transition-colors hover:bg-[var(--slate-50)]"
+            className="flex w-full items-center justify-between px-6 py-4 text-left transition-colors hover:bg-surface-subtle"
             onClick={() => setShowUploader(!showUploader)}
           >
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--brand-orange)]/10">
-                <UploadCloudIcon className="h-5 w-5 text-[var(--brand-orange)]" />
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-orange/10">
+                <UploadCloudIcon className="h-5 w-5 text-brand-orange" />
               </div>
               <div>
-                <h3 className="font-semibold text-[var(--slate-800)]">
+                <h3 className="font-semibold text-slate-800">
                   Ajouter des documents
                 </h3>
-                <p className="text-sm text-[var(--slate-500)]">
+                <p className="text-sm text-muted-foreground">
                   Deposez vos devis fournisseurs (PDF, images, Excel)
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-2">
               {!showUploader && (
-                <span className="hidden rounded-full bg-[var(--brand-orange)]/10 px-3 py-1 text-xs font-medium text-[var(--brand-orange)] sm:inline-flex">
+                <span className="hidden rounded-full bg-brand-orange/10 px-3 py-1 text-xs font-medium text-brand-orange sm:inline-flex">
                   <PlusIcon className="mr-1 h-3.5 w-3.5" />
                   Ajouter
                 </span>
               )}
-              <ChevronIcon className="h-5 w-5 text-[var(--slate-400)]" expanded={showUploader} />
+              <ChevronIcon className="h-5 w-5 text-subtle-foreground" expanded={showUploader} />
             </div>
           </button>
 
           {showUploader && (
-            <div className="border-t border-[var(--slate-100)] bg-gradient-to-b from-[var(--slate-50)] to-white p-6">
+            <div className="border-t border-border-subtle bg-gradient-to-b from-slate-50 to-white p-6">
               <DevisUploaderInline orderId={orderId} />
             </div>
           )}

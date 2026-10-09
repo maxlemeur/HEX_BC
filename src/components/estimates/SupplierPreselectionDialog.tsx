@@ -74,11 +74,11 @@ export function SupplierPreselectionDialog({
           <div>
             <h2
               id="supplier-preselection-dialog-title"
-              className="text-lg font-semibold text-[var(--slate-800)]"
+              className="text-lg font-semibold text-slate-800"
             >
               Présélection fournisseurs
             </h2>
-            <p className="mt-1 text-sm text-[var(--slate-500)]">
+            <p className="mt-1 text-sm text-muted-foreground">
               TIMAX préremplit uniquement les cas simples. Les exceptions restent
               visibles pour arbitrage avant application.
             </p>
@@ -97,35 +97,35 @@ export function SupplierPreselectionDialog({
 
         {summary ? (
           <div className="grid gap-3 md:grid-cols-4">
-            <div className="rounded-xl border border-[var(--slate-200)] bg-white p-3">
-              <p className="text-xs uppercase tracking-[0.12em] text-[var(--slate-500)]">
+            <div className="rounded-xl border border-border bg-surface p-3">
+              <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">
                 Propositions
               </p>
-              <p className="mt-1 text-2xl font-semibold text-[var(--slate-800)]">
+              <p className="mt-1 text-2xl font-semibold text-slate-800">
                 {summary.proposed_items}
               </p>
             </div>
-            <div className="rounded-xl border border-[var(--slate-200)] bg-white p-3">
-              <p className="text-xs uppercase tracking-[0.12em] text-[var(--slate-500)]">
+            <div className="rounded-xl border border-border bg-surface p-3">
+              <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">
                 Exceptions
               </p>
-              <p className="mt-1 text-2xl font-semibold text-[var(--slate-800)]">
+              <p className="mt-1 text-2xl font-semibold text-slate-800">
                 {summary.exception_items}
               </p>
             </div>
-            <div className="rounded-xl border border-[var(--slate-200)] bg-white p-3">
-              <p className="text-xs uppercase tracking-[0.12em] text-[var(--slate-500)]">
+            <div className="rounded-xl border border-border bg-surface p-3">
+              <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">
                 Déjà couverts
               </p>
-              <p className="mt-1 text-2xl font-semibold text-[var(--slate-800)]">
+              <p className="mt-1 text-2xl font-semibold text-slate-800">
                 {summary.already_selected_items}
               </p>
             </div>
-            <div className="rounded-xl border border-[var(--slate-200)] bg-white p-3">
-              <p className="text-xs uppercase tracking-[0.12em] text-[var(--slate-500)]">
+            <div className="rounded-xl border border-border bg-surface p-3">
+              <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">
                 Sélection
               </p>
-              <p className="mt-1 text-2xl font-semibold text-[var(--slate-800)]">
+              <p className="mt-1 text-2xl font-semibold text-slate-800">
                 {selectedCount}/{proposals.length}
               </p>
             </div>
@@ -146,14 +146,14 @@ export function SupplierPreselectionDialog({
           <div className="mt-4">
             <div className="mb-2 flex items-center justify-between gap-3">
               <div>
-                <h3 className="text-sm font-semibold text-[var(--slate-800)]">
+                <h3 className="text-sm font-semibold text-slate-800">
                   Cas simples proposés
                 </h3>
-                <p className="text-xs text-[var(--slate-500)]">
+                <p className="text-xs text-muted-foreground">
                   Chaque ligne reste décochable avant application.
                 </p>
               </div>
-              <label className="flex items-center gap-2 text-sm text-[var(--slate-600)]">
+              <label className="flex items-center gap-2 text-sm text-slate-600">
                 <input
                   type="checkbox"
                   checked={allSelected}
@@ -192,11 +192,11 @@ export function SupplierPreselectionDialog({
                           />
                         </td>
                         <td>
-                          <p className="font-medium text-[var(--slate-800)]">
+                          <p className="font-medium text-slate-800">
                             {proposal.item_title}
                           </p>
                         </td>
-                        <td className="text-xs text-[var(--slate-600)]">
+                        <td className="text-xs text-slate-600">
                           {proposal.current_alternative ? (
                             <div className="space-y-1">
                               <p>{proposal.current_alternative.supplier_name}</p>
@@ -210,9 +210,9 @@ export function SupplierPreselectionDialog({
                             "Aucune sélection"
                           )}
                         </td>
-                        <td className="text-xs text-[var(--slate-600)]">
+                        <td className="text-xs text-slate-600">
                           <div className="space-y-1">
-                            <p className="font-semibold text-[var(--slate-800)]">
+                            <p className="font-semibold text-slate-800">
                               {proposal.proposed_alternative.supplier_name}
                             </p>
                             <p>
@@ -223,7 +223,7 @@ export function SupplierPreselectionDialog({
                             <p>{proposal.proposed_alternative.product_designation}</p>
                           </div>
                         </td>
-                        <td className="text-xs text-[var(--slate-600)]">
+                        <td className="text-xs text-slate-600">
                           {proposal.explanation}
                         </td>
                       </tr>
@@ -237,26 +237,26 @@ export function SupplierPreselectionDialog({
 
         {!isLoading && exceptions.length > 0 ? (
           <div className="mt-6">
-            <h3 className="text-sm font-semibold text-[var(--slate-800)]">
+            <h3 className="text-sm font-semibold text-slate-800">
               Exceptions à arbitrer
             </h3>
             <div className="mt-3 grid gap-3">
               {exceptions.map((exception) => (
                 <div
                   key={exception.item_id}
-                  className="rounded-xl border border-[var(--slate-200)] bg-white p-4"
+                  className="rounded-xl border border-border bg-surface p-4"
                 >
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-medium text-[var(--slate-800)]">
+                    <p className="font-medium text-slate-800">
                       {exception.item_title}
                     </p>
-                    <span className="rounded-full bg-[var(--slate-100)] px-2 py-1 text-xs font-medium text-[var(--slate-700)]">
+                    <span className="rounded-full bg-muted px-2 py-1 text-xs font-medium text-foreground-secondary">
                       {formatExceptionReason(exception.reason)}
                     </span>
                   </div>
-                  <div className="mt-2 grid gap-3 text-xs text-[var(--slate-600)] md:grid-cols-2">
+                  <div className="mt-2 grid gap-3 text-xs text-slate-600 md:grid-cols-2">
                     <div>
-                      <p className="font-semibold text-[var(--slate-700)]">
+                      <p className="font-semibold text-foreground-secondary">
                         Sélection actuelle
                       </p>
                       <p>
@@ -266,7 +266,7 @@ export function SupplierPreselectionDialog({
                       </p>
                     </div>
                     <div>
-                      <p className="font-semibold text-[var(--slate-700)]">
+                      <p className="font-semibold text-foreground-secondary">
                         Options visibles
                       </p>
                       <p>

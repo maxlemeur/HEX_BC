@@ -42,7 +42,7 @@ function getFileTypeIcon(fileName: string) {
   if (["doc", "docx"].includes(ext)) return { label: "DOC", color: "text-blue-700" };
   if (["png", "jpg", "jpeg", "gif", "svg", "webp"].includes(ext)) return { label: "IMG", color: "text-purple-600" };
   if (["eml", "msg"].includes(ext)) return { label: "MSG", color: "text-slate-600" };
-  return { label: "FILE", color: "text-slate-500" };
+  return { label: "FILE", color: "text-muted-foreground" };
 }
 
 const CATEGORY_LABELS: Record<AffaireIntakeDocumentKind, string> = {
@@ -84,8 +84,8 @@ function getCategoryBadgeVariant(category: AffaireIntakeDocumentKind): BadgeVari
 function MetadataLine({ label, value }: { label: string; value: string | null }) {
   if (!value) return null;
   return (
-    <span className="inline-flex items-center gap-1 text-xs text-[var(--slate-500)]">
-      <span className="font-medium text-[var(--slate-600)]">{label}:</span> {value}
+    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+      <span className="font-medium text-slate-600">{label}:</span> {value}
     </span>
   );
 }
@@ -159,14 +159,14 @@ export function IntakeDocumentCard({
       <div
         className={`flex items-center gap-3 rounded-lg border bg-surface px-3 py-2 transition-colors ${
           isEmphasized
-            ? "border-[var(--brand-blue)]/40 ring-2 ring-[var(--brand-blue)]/15"
-            : "border-[var(--slate-200)]"
+            ? "border-primary/40 ring-2 ring-primary/15"
+            : "border-border"
         }`}
         data-document-id={doc.documentId}
         data-highlighted={isEmphasized ? "true" : undefined}
       >
         <span className={`text-[10px] font-bold uppercase leading-none ${fileType.color}`}>{fileType.label}</span>
-        <p className="min-w-0 flex-1 truncate text-sm text-[var(--slate-700)]" title={doc.fileName}>
+        <p className="min-w-0 flex-1 truncate text-sm text-foreground-secondary" title={doc.fileName}>
           {doc.fileName}
         </p>
         <Badge variant={getCategoryBadgeVariant(doc.detectedCategory)} size="sm">
@@ -185,10 +185,10 @@ export function IntakeDocumentCard({
     <div
       className={`rounded-xl border px-4 py-3 transition-colors ${
         isEmphasized
-          ? "border-[var(--brand-blue)]/40 bg-[var(--brand-blue)]/6 ring-2 ring-[var(--brand-blue)]/15"
+          ? "border-primary/40 bg-primary/6 ring-2 ring-primary/15"
           : isAmbiguous && !isProcessing
-          ? "border-[var(--warning)]/40 bg-amber-50"
-          : "border-[var(--slate-200)] bg-surface"
+          ? "border-warning/40 bg-amber-50"
+          : "border-border bg-surface"
       }`}
       data-document-id={doc.documentId}
       data-needs-review={isAmbiguous && !isProcessing ? "true" : undefined}
@@ -199,7 +199,7 @@ export function IntakeDocumentCard({
         <div className="min-w-0 flex-1 flex items-start gap-2.5">
           <span className={`mt-0.5 text-[10px] font-bold uppercase leading-none ${fileType.color}`}>{fileType.label}</span>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-[var(--slate-800)]" title={doc.fileName}>
+            <p className="truncate text-sm font-medium text-slate-800" title={doc.fileName}>
               {doc.fileName}
             </p>
 
@@ -250,7 +250,7 @@ export function IntakeDocumentCard({
             <button
               type="button"
               onClick={() => { setSelectedCategory(doc.detectedCategory); setIsEditing(true); }}
-              className="rounded-lg px-2 py-1 text-xs font-medium text-[var(--brand-blue)] transition-colors hover:bg-[var(--brand-blue)]/5"
+              className="rounded-lg px-2 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/5"
             >
               Reclasser
             </button>
@@ -260,7 +260,7 @@ export function IntakeDocumentCard({
 
       {/* Inline reclassification */}
       {isEditing && (
-        <div className="mt-3 flex items-center gap-2 rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] p-2">
+        <div className="mt-3 flex items-center gap-2 rounded-lg border border-border bg-surface-subtle p-2">
           <label htmlFor={`reclassify-${doc.documentId}`} className="sr-only">
             Nouvelle categorie
           </label>
@@ -269,7 +269,7 @@ export function IntakeDocumentCard({
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value as AffaireIntakeDocumentKind)}
             disabled={isPending}
-            className="flex-1 rounded-lg border border-[var(--slate-300)] bg-surface px-2 py-1.5 text-sm text-[var(--slate-800)] focus:border-[var(--brand-blue)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-blue)]"
+            className="flex-1 rounded-lg border border-border-strong bg-surface px-2 py-1.5 text-sm text-slate-800 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
           >
             {CATEGORY_OPTIONS.map((cat) => (
               <option key={cat} value={cat}>
@@ -307,14 +307,14 @@ export function IntakeDocumentCard({
           <MetadataLine label="Client" value={meta.clientName} />
           <MetadataLine label="Échéance" value={meta.deadlineAt ? new Date(meta.deadlineAt).toLocaleDateString("fr-FR") : null} />
           {meta.detectedLots.length > 0 && (
-            <span className="text-xs text-[var(--slate-500)]">
-              <span className="font-medium text-[var(--slate-600)]">Lots:</span>{" "}
+            <span className="text-xs text-muted-foreground">
+              <span className="font-medium text-slate-600">Lots:</span>{" "}
               {meta.detectedLots.join(", ")}
             </span>
           )}
           {meta.detectedVariants.length > 0 && (
-            <span className="text-xs text-[var(--slate-500)]">
-              <span className="font-medium text-[var(--slate-600)]">Variantes:</span>{" "}
+            <span className="text-xs text-muted-foreground">
+              <span className="font-medium text-slate-600">Variantes:</span>{" "}
               {meta.detectedVariants.join(", ")}
             </span>
           )}
@@ -325,8 +325,8 @@ export function IntakeDocumentCard({
       {doc.issues.length > 0 && !isProcessing && (
         <ul className="mt-2 space-y-0.5 pl-6">
           {doc.issues.map((issue, i) => (
-            <li key={i} className="flex items-start gap-1.5 text-xs text-[var(--slate-600)]">
-              <svg className="mt-0.5 h-3 w-3 shrink-0 text-[var(--warning)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <li key={i} className="flex items-start gap-1.5 text-xs text-slate-600">
+              <svg className="mt-0.5 h-3 w-3 shrink-0 text-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                 <circle cx="12" cy="12" r="10" />
                 <line x1="12" x2="12" y1="8" y2="12" />
                 <line x1="12" x2="12.01" y1="16" y2="16" />

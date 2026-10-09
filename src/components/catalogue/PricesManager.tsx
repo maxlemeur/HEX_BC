@@ -286,7 +286,7 @@ export function PricesManager({
           onClick={() => setIsCsvOpen((prev) => !prev)}
         >
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--brand-blue)]/10">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--brand-blue)" strokeWidth="1.75">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                 <polyline points="17 8 12 3 7 8" />
@@ -294,10 +294,10 @@ export function PricesManager({
               </svg>
             </div>
             <div>
-              <h2 className="text-sm font-semibold text-[var(--slate-800)]">
+              <h2 className="text-sm font-semibold text-slate-800">
                 Importer un fichier de prix (CSV)
               </h2>
-              <p className="text-xs text-[var(--slate-500)]">
+              <p className="text-xs text-muted-foreground">
                 Importez vos prix depuis un fichier CSV avec un assistant guide en 5 etapes.
               </p>
             </div>
@@ -317,9 +317,9 @@ export function PricesManager({
         </button>
 
         {isCsvOpen ? (
-          <div className="border-t border-[var(--slate-200)]">
+          <div className="border-t border-border">
             {isImportLookupsLoading ? (
-              <p className="px-6 py-8 text-sm text-[var(--slate-500)]" role="status">
+              <p className="px-6 py-8 text-sm text-muted-foreground" role="status">
                 Chargement des référentiels pour l’import...
               </p>
             ) : (
@@ -336,21 +336,21 @@ export function PricesManager({
       {/* Stats cards */}
       {data && stats.total > 0 ? (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-xl border border-[var(--slate-200)] bg-white px-4 py-3">
-            <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">Total prix</p>
-            <p className="mt-1 text-lg font-semibold text-[var(--slate-900)]">{stats.total}</p>
+          <div className="rounded-xl border border-border bg-surface px-4 py-3">
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Total prix</p>
+            <p className="mt-1 text-lg font-semibold text-foreground">{stats.total}</p>
           </div>
-          <div className="rounded-xl border border-[var(--slate-200)] bg-white px-4 py-3">
-            <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">À jour</p>
+          <div className="rounded-xl border border-border bg-surface px-4 py-3">
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">À jour</p>
             <p className="mt-1 text-lg font-semibold text-emerald-700">{stats.fresh}</p>
           </div>
-          <div className="rounded-xl border border-[var(--slate-200)] bg-white px-4 py-3">
-            <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">Anciens (&gt; 90j)</p>
+          <div className="rounded-xl border border-border bg-surface px-4 py-3">
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Anciens (&gt; 90j)</p>
             <p className="mt-1 text-lg font-semibold text-danger">{stats.stale}</p>
           </div>
-          <div className="rounded-xl border border-[var(--slate-200)] bg-white px-4 py-3">
-            <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">Fournisseurs couverts</p>
-            <p className="mt-1 text-lg font-semibold text-[var(--slate-900)]">{stats.uniqueSuppliers}</p>
+          <div className="rounded-xl border border-border bg-surface px-4 py-3">
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Fournisseurs couverts</p>
+            <p className="mt-1 text-lg font-semibold text-foreground">{stats.uniqueSuppliers}</p>
           </div>
         </div>
       ) : null}

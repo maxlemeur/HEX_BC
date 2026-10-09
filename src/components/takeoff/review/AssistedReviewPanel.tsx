@@ -158,8 +158,8 @@ export function AssistedReviewPanel({
       />
 
       {/* Business-language summary */}
-      <div className="border-b border-[var(--border)] bg-[var(--slate-50)] px-4 py-2">
-        <p className="text-sm text-[var(--slate-600)]">
+      <div className="border-b border-border bg-surface-subtle px-4 py-2">
+        <p className="text-sm text-slate-600">
           Parcourez chaque item et decidez de le conserver ou de l&apos;ecarter.
           L&apos;IA a detecte {items.length} element{items.length > 1 ? "s" : ""} dans les plans.
         </p>
@@ -216,8 +216,8 @@ export function AssistedReviewPanel({
         })}
       </div>
 
-      <div className="sticky bottom-0 z-10 flex items-center justify-between border-t border-[var(--border)] bg-white px-4 py-3">
-        <p className="text-sm text-[var(--slate-600)]">
+      <div className="sticky bottom-0 z-10 flex items-center justify-between border-t border-border bg-surface px-4 py-3">
+        <p className="text-sm text-slate-600">
           {acceptedCount} item{acceptedCount !== 1 ? "s" : ""} pret{acceptedCount !== 1 ? "s" : ""} a appliquer
         </p>
         <Button

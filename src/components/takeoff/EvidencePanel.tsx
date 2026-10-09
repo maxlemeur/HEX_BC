@@ -321,22 +321,22 @@ export function EvidencePanel({
         aria-label={`Preuve de l’item : ${item.designation}`}
         tabIndex={-1}
         onKeyDown={handleKeyDown}
-        className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col border-l border-[var(--border)] bg-white shadow-xl outline-none"
+        className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col border-l border-border bg-surface shadow-xl outline-none"
       >
         {/* ---- Header ---- */}
-        <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
+        <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <div className="flex items-center gap-2">
-            <h2 className="text-sm font-semibold text-[var(--slate-800)]">
+            <h2 className="text-sm font-semibold text-slate-800">
               Preuve de l’item
             </h2>
-            <span className="text-xs text-[var(--slate-500)]">
+            <span className="text-xs text-muted-foreground">
               {itemIndex + 1}/{totalItems}
             </span>
           </div>
           <div className="flex items-center gap-1">
             <button
               type="button"
-              className="rounded p-1 text-[var(--slate-500)] transition-colors hover:bg-[var(--slate-100)] hover:text-[var(--slate-700)] disabled:opacity-30"
+              className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground-secondary disabled:opacity-30"
               onClick={() => onNavigate("prev")}
               disabled={itemIndex === 0}
               aria-label="Item précédent (flèche gauche)"
@@ -347,7 +347,7 @@ export function EvidencePanel({
             </button>
             <button
               type="button"
-              className="rounded p-1 text-[var(--slate-500)] transition-colors hover:bg-[var(--slate-100)] hover:text-[var(--slate-700)] disabled:opacity-30"
+              className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground-secondary disabled:opacity-30"
               onClick={() => onNavigate("next")}
               disabled={itemIndex === totalItems - 1}
               aria-label="Item suivant (flèche droite)"
@@ -358,7 +358,7 @@ export function EvidencePanel({
             </button>
             <button
               type="button"
-              className="ml-1 rounded p-1 text-[var(--slate-500)] transition-colors hover:bg-[var(--slate-100)] hover:text-[var(--slate-700)]"
+              className="ml-1 rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground-secondary"
               onClick={onClose}
               aria-label="Fermer (Échap)"
             >
@@ -373,21 +373,21 @@ export function EvidencePanel({
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5">
           {/* Designation */}
           <div>
-            <p className="text-xs font-medium uppercase text-[var(--slate-500)]">
+            <p className="text-xs font-medium uppercase text-muted-foreground">
               Désignation
             </p>
-            <p className="mt-1 text-sm text-[var(--slate-800)]">
-              {item.designation || <span className="italic text-[var(--slate-400)]">Vide</span>}
+            <p className="mt-1 text-sm text-slate-800">
+              {item.designation || <span className="italic text-subtle-foreground">Vide</span>}
             </p>
           </div>
 
           {/* Confidence gauge */}
           <div>
-            <p className="text-xs font-medium uppercase text-[var(--slate-500)]">
+            <p className="text-xs font-medium uppercase text-muted-foreground">
               Confiance
             </p>
             <div className="mt-2 flex items-center gap-3">
-              <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--slate-100)]">
+              <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
                 <div
                   className="h-full rounded-full transition-[width] duration-300 motion-reduce:transition-none"
                   style={{
@@ -399,22 +399,22 @@ export function EvidencePanel({
               <Badge variant={confVariant} size="sm">
                 {pct !== null ? `${pct}%` : "-"}
               </Badge>
-              <span className="text-xs text-[var(--slate-600)]">{confLabel}</span>
+              <span className="text-xs text-slate-600">{confLabel}</span>
             </div>
           </div>
 
           {/* Source */}
           {(item.source_file_name || item.source_page !== null || signedDocumentHref) && (
             <div>
-              <p className="text-xs font-medium uppercase text-[var(--slate-500)]">
+              <p className="text-xs font-medium uppercase text-muted-foreground">
                 Source
               </p>
-              <p className="mt-1 text-sm text-[var(--slate-600)]">
+              <p className="mt-1 text-sm text-slate-600">
                 {item.source_file_name && (
                   <span>{item.source_file_name}</span>
                 )}
                 {item.source_page !== null && (
-                  <span className="ml-1 text-[var(--slate-400)]">
+                  <span className="ml-1 text-subtle-foreground">
                     page {item.source_page}
                   </span>
                 )}
@@ -424,7 +424,7 @@ export function EvidencePanel({
                   href={signedDocumentHref}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="mt-2 inline-flex text-xs font-medium text-[var(--info)] hover:underline"
+                  className="mt-2 inline-flex text-xs font-medium text-info hover:underline"
                 >
                   Ouvrir le document source
                 </a>
@@ -434,14 +434,14 @@ export function EvidencePanel({
 
           {/* Anomalies */}
           {anomalies.length > 0 && (
-            <div className="rounded-lg border border-[var(--warning)]/30 bg-[var(--warning-light)] p-3">
-              <div className="flex items-center gap-1.5 text-xs font-medium text-[var(--warning)]">
+            <div className="rounded-lg border border-warning/30 bg-warning-light p-3">
+              <div className="flex items-center gap-1.5 text-xs font-medium text-warning">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
                   <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
                 </svg>
                 Anomalies détectées
               </div>
-              <ul className="mt-2 space-y-1 text-xs text-[var(--slate-700)]">
+              <ul className="mt-2 space-y-1 text-xs text-foreground-secondary">
                 {anomalies.map((a) => (
                   <li key={a}>• {ANOMALY_LABELS[a]}</li>
                 ))}
@@ -455,19 +455,19 @@ export function EvidencePanel({
               {isEditing ? (
                 <label
                   htmlFor={evidenceInputId}
-                  className="text-xs font-medium uppercase text-[var(--slate-500)]"
+                  className="text-xs font-medium uppercase text-muted-foreground"
                 >
                   Preuve
                 </label>
               ) : (
-                <p className="text-xs font-medium uppercase text-[var(--slate-500)]">
+                <p className="text-xs font-medium uppercase text-muted-foreground">
                   Preuve
                 </p>
               )}
               {!isEditing && (
                 <button
                   type="button"
-                  className="text-xs font-medium text-[var(--info)] hover:underline"
+                  className="text-xs font-medium text-info hover:underline"
                   onClick={handleStartEdit}
                 >
                   {requiresLocalizedProof
@@ -483,7 +483,7 @@ export function EvidencePanel({
                   id={evidenceInputId}
                   ref={textareaRef}
                   name="takeoff-item-evidence"
-                  className="block w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm focus:border-[var(--ring)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                  className="block w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
                   rows={5}
                   value={editValue}
                   onChange={(e) => setEditValue(e.target.value)}
@@ -495,7 +495,7 @@ export function EvidencePanel({
                   <div>
                     <label
                       htmlFor={sourcePageInputId}
-                      className="text-xs font-medium text-[var(--slate-700)]"
+                      className="text-xs font-medium text-foreground-secondary"
                     >
                       Page source
                     </label>
@@ -518,13 +518,13 @@ export function EvidencePanel({
                           ? `${sourcePageHelpId} ${sourcePageErrorId}`
                           : sourcePageHelpId
                       }
-                      className="mt-1 block w-28 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm focus:border-[var(--ring)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                      className="mt-1 block w-28 rounded-lg border border-border bg-surface px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
                       placeholder="Ex. 3"
                       autoComplete="off"
                     />
                     <p
                       id={sourcePageHelpId}
-                      className="mt-1 text-xs text-[var(--slate-500)]"
+                      className="mt-1 text-xs text-muted-foreground"
                     >
                       Numéro de la page où cette quantité peut être contrôlée.
                     </p>
@@ -532,7 +532,7 @@ export function EvidencePanel({
                       <p
                         id={sourcePageErrorId}
                         role="alert"
-                        className="mt-1 text-xs font-medium text-[var(--danger)]"
+                        className="mt-1 text-xs font-medium text-danger"
                       >
                         {pageError}
                       </p>
@@ -540,7 +540,7 @@ export function EvidencePanel({
                   </div>
                 ) : null}
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-[var(--slate-400)]">
+                  <span className="text-xs text-subtle-foreground">
                     {editValue.length}/2000
                   </span>
                   <div className="flex gap-2">
@@ -561,11 +561,11 @@ export function EvidencePanel({
             ) : (
               <div className="mt-2">
                 {item.evidence ? (
-                  <div className="rounded-lg border border-[var(--border)] bg-[var(--slate-50)] px-3 py-2.5 text-sm leading-relaxed text-[var(--slate-700)] whitespace-pre-wrap">
+                  <div className="rounded-lg border border-border bg-surface-subtle px-3 py-2.5 text-sm leading-relaxed text-foreground-secondary whitespace-pre-wrap">
                     {item.evidence}
                   </div>
                 ) : (
-                  <p className="text-sm italic text-[var(--slate-400)]">
+                  <p className="text-sm italic text-subtle-foreground">
                     Aucune preuve disponible.
                   </p>
                 )}
@@ -577,7 +577,7 @@ export function EvidencePanel({
         {requiresLocalizedProof && !verificationReadiness.canVerify ? (
           <div
             id={verificationStatusId}
-            className="mx-4 mb-3 rounded-lg border border-[var(--warning)]/30 bg-[var(--warning)]/5 px-3 py-2 text-xs text-[var(--slate-700)]"
+            className="mx-4 mb-3 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-foreground-secondary"
             role="status"
           >
             <span className="font-semibold">
@@ -590,8 +590,8 @@ export function EvidencePanel({
         ) : null}
 
         {/* ---- Footer ---- */}
-        <div className="flex items-center justify-between border-t border-[var(--border)] px-4 py-3">
-          <span className="text-[10px] text-[var(--slate-400)]">
+        <div className="flex items-center justify-between border-t border-border px-4 py-3">
+          <span className="text-[10px] text-subtle-foreground">
             ← → naviguer &middot; Échap fermer
           </span>
 

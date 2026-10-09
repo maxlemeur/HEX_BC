@@ -141,7 +141,7 @@ function InlineEntry({ entry }: { entry: EstimateDiffEntry }) {
               <span className="text-muted-foreground line-through">
                 {formatFieldValue(change, change.beforeValue)}
               </span>
-              <span className="text-center text-slate-400">-&gt;</span>
+              <span className="text-center text-subtle-foreground">-&gt;</span>
               <span className="font-medium text-foreground">
                 {formatFieldValue(change, change.afterValue)}
               </span>

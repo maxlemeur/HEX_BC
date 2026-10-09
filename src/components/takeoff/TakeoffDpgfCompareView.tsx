@@ -92,8 +92,8 @@ function SummaryCard({
   accent: string;
 }) {
   return (
-    <div className="rounded-2xl border border-[var(--border)] bg-white/90 p-4 shadow-sm">
-      <p className="text-xs uppercase tracking-[0.14em] text-[var(--slate-500)]">{label}</p>
+    <div className="rounded-2xl border border-border bg-surface/90 p-4 shadow-sm">
+      <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
       <p className={`mt-2 text-2xl font-semibold ${accent}`}>{value}</p>
     </div>
   );
@@ -356,16 +356,16 @@ export default function TakeoffDpgfCompareView({
 
   return (
     <div className="space-y-6">
-      <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-[linear-gradient(140deg,rgba(248,250,252,0.95),rgba(239,246,255,0.9))] p-5 shadow-sm">
+      <section className="overflow-hidden rounded-[28px] border border-border bg-[linear-gradient(140deg,rgba(248,250,252,0.95),rgba(239,246,255,0.9))] p-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-3xl">
-            <p className="text-xs uppercase tracking-[0.18em] text-[var(--slate-500)]">
+            <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
               Review preuves / prix / risque
             </p>
-            <h2 className="mt-2 text-2xl font-semibold text-[var(--slate-950)]">
+            <h2 className="mt-2 text-2xl font-semibold text-slate-950">
               Comparaison DPGF explicable
             </h2>
-            <p className="mt-2 text-sm leading-6 text-[var(--slate-600)]">
+            <p className="mt-2 text-sm leading-6 text-slate-600">
               Les suggestions restent visibles mais ne sont jamais appliquées sans validation
               humaine explicite.
             </p>
@@ -415,12 +415,12 @@ export default function TakeoffDpgfCompareView({
           <SummaryCard
             label="Sans preuve"
             value={data.summary.lines_without_proof}
-            accent="text-slate-700"
+            accent="text-foreground-secondary"
           />
           <SummaryCard
             label="Items orphelins"
             value={data.summary.unused_takeoff_items}
-            accent="text-[var(--slate-900)]"
+            accent="text-foreground"
           />
         </div>
       </section>
@@ -438,7 +438,7 @@ export default function TakeoffDpgfCompareView({
         onRiskAction={setRiskActionTarget}
       />
 
-      <section className="rounded-[28px] border border-[var(--border)] bg-white p-4 shadow-sm">
+      <section className="rounded-[28px] border border-border bg-surface p-4 shadow-sm">
         <div className="grid gap-3 lg:grid-cols-[minmax(220px,260px)_minmax(220px,260px)_1fr_auto]">
           <div>
             <label className="form-label" htmlFor="dpgf-status-filter">
@@ -521,7 +521,7 @@ export default function TakeoffDpgfCompareView({
           </div>
         </div>
 
-        <p className="mt-3 text-xs text-[var(--slate-500)]" aria-live="polite">
+        <p className="mt-3 text-xs text-muted-foreground" aria-live="polite">
           {filteredRows.length} ligne(s) visibles sur {data.pagination.total} pour la vue{" "}
           {currentView === "all" ? "Tout" : "Exceptions seulement"}
           {isToolbarPending ? " · filtrage..." : ""}
@@ -539,7 +539,7 @@ export default function TakeoffDpgfCompareView({
               className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
                 statusFilter === "significant_gap"
                   ? "bg-rose-100 text-rose-800"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  : "bg-muted text-slate-600 hover:bg-slate-200"
               }`}
             >
               {exceptionCounts.significant_gap} écarts forts
@@ -555,7 +555,7 @@ export default function TakeoffDpgfCompareView({
               className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
                 statusFilter === "to_confirm"
                   ? "bg-amber-100 text-amber-800"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  : "bg-muted text-slate-600 hover:bg-slate-200"
               }`}
             >
               {exceptionCounts.to_confirm} à confirmer
@@ -571,7 +571,7 @@ export default function TakeoffDpgfCompareView({
               className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
                 statusFilter === "unlinked"
                   ? "bg-slate-200 text-slate-800"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  : "bg-muted text-slate-600 hover:bg-slate-200"
               }`}
             >
               {exceptionCounts.unlinked} sans preuve

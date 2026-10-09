@@ -58,25 +58,25 @@ export function ManualLinkModal({
           <Modal.Title>Lier manuellement des items takeoff</Modal.Title>
         </Modal.Header>
         <Modal.Body>
-          <div className="rounded-2xl border border-[var(--border)] bg-[var(--slate-50)] p-4">
-            <p className="text-xs uppercase tracking-[0.14em] text-[var(--slate-500)]">
+          <div className="rounded-2xl border border-border bg-surface-subtle p-4">
+            <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
               Ligne DPGF
             </p>
-            <p className="mt-1 text-sm font-semibold text-[var(--slate-900)]">
+            <p className="mt-1 text-sm font-semibold text-foreground">
               {row?.line_label ?? "Ligne inconnue"}
             </p>
-            <p className="mt-1 text-sm text-[var(--slate-600)]">
+            <p className="mt-1 text-sm text-slate-600">
               Quantité DPGF : {formatNumber(row?.dpgf_quantity ?? null)} {row?.dpgf.unit ?? ""}
             </p>
           </div>
 
-          <div className="flex gap-1 rounded-xl bg-slate-100 p-1">
+          <div className="flex gap-1 rounded-xl bg-muted p-1">
             <button
               type="button"
               className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition ${
                 mode === "takeoff_items"
-                  ? "bg-white text-slate-900 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700"
+                  ? "bg-surface text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground-secondary"
               }`}
               onClick={() => setMode("takeoff_items")}
             >
@@ -86,8 +86,8 @@ export function ManualLinkModal({
               type="button"
               className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition ${
                 mode === "hypothesis"
-                  ? "bg-white text-slate-900 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700"
+                  ? "bg-surface text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground-secondary"
               }`}
               onClick={() => setMode("hypothesis")}
             >
@@ -98,7 +98,7 @@ export function ManualLinkModal({
           {mode === "takeoff_items" ? (
             <div className="max-h-[420px] space-y-3 overflow-y-auto pr-1">
               {candidates.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--slate-50)] p-6 text-sm text-[var(--slate-600)]">
+                <div className="rounded-2xl border border-dashed border-border bg-surface-subtle p-6 text-sm text-slate-600">
                   Aucun item takeoff disponible pour un lien manuel.
                 </div>
               ) : (
@@ -111,7 +111,7 @@ export function ManualLinkModal({
                       className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-4 transition ${
                         checked
                           ? "border-sky-300 bg-sky-50/80"
-                          : "border-[var(--border)] bg-white hover:bg-[var(--slate-50)]"
+                          : "border-border bg-surface hover:bg-surface-subtle"
                       }`}
                     >
                       <input
@@ -128,7 +128,7 @@ export function ManualLinkModal({
                       />
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-sm font-medium text-[var(--slate-900)]">
+                          <p className="text-sm font-medium text-foreground">
                             {candidate.designation}
                           </p>
                           {candidate.is_current ? (
@@ -142,16 +142,16 @@ export function ManualLinkModal({
                             </Badge>
                           ) : null}
                         </div>
-                        <p className="mt-1 text-xs text-[var(--slate-600)]">
+                        <p className="mt-1 text-xs text-slate-600">
                           {formatNumber(candidate.quantity)} {candidate.unit} ·{" "}
                           {candidate.source_file_name ?? "Source inconnue"}
                           {candidate.source_page ? ` · p.${candidate.source_page}` : ""}
                         </p>
-                        <p className="mt-1 text-xs text-[var(--slate-500)]">
+                        <p className="mt-1 text-xs text-muted-foreground">
                           {formatProofConfidence(candidate.confidence_score)}
                         </p>
                         {candidate.evidence ? (
-                          <p className="mt-2 text-xs text-[var(--slate-600)]">
+                          <p className="mt-2 text-xs text-slate-600">
                             {candidate.evidence}
                           </p>
                         ) : null}
@@ -163,7 +163,7 @@ export function ManualLinkModal({
             </div>
           ) : (
             <div className="space-y-3">
-              <p className="text-sm text-[var(--slate-600)]">
+              <p className="text-sm text-slate-600">
                 Décrivez votre hypothèse de quantité ou de périmètre pour cette ligne. Elle sera
                 enregistrée comme décision « corriger manuellement » et apparaîtra dans le panneau
                 de preuves sous forme d&apos;hypothèse après rafraîchissement.
@@ -176,7 +176,7 @@ export function ManualLinkModal({
                 onChange={(event) => setHypothesisText(event.target.value)}
                 maxLength={2000}
               />
-              <p className="text-xs text-[var(--slate-500)]">
+              <p className="text-xs text-muted-foreground">
                 {hypothesisText.length} / 2 000 caractères
               </p>
             </div>

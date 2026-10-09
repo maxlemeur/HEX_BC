@@ -65,15 +65,15 @@ export function getFileIllustrationTone(fileName: string) {
   if (MESSAGE_EXTENSIONS.has(extension)) {
     return {
       label: "MSG",
-      accent: "text-slate-700",
-      frame: "border-slate-200 bg-slate-50/90",
+      accent: "text-foreground-secondary",
+      frame: "border-border bg-surface-subtle/90",
     };
   }
 
   return {
     label: "FILE",
     accent: "text-slate-600",
-    frame: "border-slate-200 bg-white/90",
+    frame: "border-border bg-surface/90",
   };
 }
 

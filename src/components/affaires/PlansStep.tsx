@@ -246,9 +246,9 @@ export function PlansStep({
         </div>
       )}
 
-      <div className="rounded-xl border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 px-5 py-4">
+      <div className="rounded-xl border border-primary/20 bg-primary/5 px-5 py-4">
         <div className="flex items-start gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--brand-blue)]/10">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
             <svg
               width="20"
               height="20"
@@ -268,7 +268,7 @@ export function PlansStep({
               <h2
                 ref={headingRef}
                 tabIndex={-1}
-                className="text-sm font-semibold text-[var(--slate-800)] outline-none"
+                className="text-sm font-semibold text-slate-800 outline-none"
               >
                 Ajouter les plans
               </h2>
@@ -276,7 +276,7 @@ export function PlansStep({
                 Recommande
               </span>
             </div>
-            <p className="mt-0.5 text-xs text-[var(--slate-500)]">
+            <p className="mt-0.5 text-xs text-muted-foreground">
               Ajoutez vos plans PDF maintenant ou plus tard depuis la section Plans de votre affaire.
             </p>
           </div>
@@ -285,40 +285,40 @@ export function PlansStep({
 
       {/* Benefits explanation */}
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <div className="rounded-lg border border-[var(--slate-200)] bg-white px-4 py-3">
+        <div className="rounded-lg border border-border bg-surface px-4 py-3">
           <div className="flex items-center gap-2">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--brand-blue)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
               <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
               <line x1="12" y1="22.08" x2="12" y2="12" />
             </svg>
-            <span className="text-xs font-semibold text-[var(--slate-800)]">Extraction de metres</span>
+            <span className="text-xs font-semibold text-slate-800">Extraction de metres</span>
           </div>
-          <p className="mt-1 text-xs text-[var(--slate-500)]">
+          <p className="mt-1 text-xs text-muted-foreground">
             Les quantites sont extraites des plans pour alimenter le chiffrage.
           </p>
         </div>
-        <div className="rounded-lg border border-[var(--slate-200)] bg-white px-4 py-3">
+        <div className="rounded-lg border border-border bg-surface px-4 py-3">
           <div className="flex items-center gap-2">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--brand-blue)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
               <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
             </svg>
-            <span className="text-xs font-semibold text-[var(--slate-800)]">Preuves</span>
+            <span className="text-xs font-semibold text-slate-800">Preuves</span>
           </div>
-          <p className="mt-1 text-xs text-[var(--slate-500)]">
+          <p className="mt-1 text-xs text-muted-foreground">
             Chaque ligne du chiffrage est rattachee a sa source dans les plans.
           </p>
         </div>
-        <div className="rounded-lg border border-[var(--slate-200)] bg-white px-4 py-3">
+        <div className="rounded-lg border border-border bg-surface px-4 py-3">
           <div className="flex items-center gap-2">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--brand-blue)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <circle cx="11" cy="11" r="8" />
               <line x1="21" y1="21" x2="16.65" y2="16.65" />
             </svg>
-            <span className="text-xs font-semibold text-[var(--slate-800)]">Detection des ecarts</span>
+            <span className="text-xs font-semibold text-slate-800">Detection des ecarts</span>
           </div>
-          <p className="mt-1 text-xs text-[var(--slate-500)]">
+          <p className="mt-1 text-xs text-muted-foreground">
             Les ecarts entre le DPGF et les plans sont identifies automatiquement.
           </p>
         </div>
@@ -344,8 +344,8 @@ export function PlansStep({
       {isPreparing && !prepareError && (
         <div className="dashboard-card mt-4 p-6">
           <div className="flex items-center gap-3">
-            <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--slate-200)] border-t-[var(--brand-blue)]" />
-            <span className="text-sm text-[var(--slate-500)]">
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-primary" />
+            <span className="text-sm text-muted-foreground">
               On prepare tout pour vos plans...
             </span>
           </div>
@@ -354,11 +354,11 @@ export function PlansStep({
 
       {planSet && !prepareError && (
         <div className="dashboard-card mt-4 p-6">
-          <p className="mb-3 text-xs font-medium uppercase tracking-wide text-[var(--slate-500)]">
+          <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Vos plans
           </p>
-          <p className="text-sm font-semibold text-[var(--slate-800)]">{planSet.name}</p>
-          <p className="mt-1 text-xs text-[var(--slate-500)]">
+          <p className="text-sm font-semibold text-slate-800">{planSet.name}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
             Les plans seront accessibles depuis votre affaire.
           </p>
 
@@ -371,13 +371,13 @@ export function PlansStep({
           </div>
 
           {isUploadActive && (
-            <p className="mt-3 text-xs text-[var(--slate-500)]">
+            <p className="mt-3 text-xs text-muted-foreground">
               Upload en cours... terminez l&apos;envoi avant de quitter cette etape.
             </p>
           )}
 
           {(uploadedCount > 0 || uploadedSizeBytes > 0) && isUploadActive && (
-            <p className="mt-3 flex items-center gap-1.5 text-xs text-[var(--slate-500)]">
+            <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
               <span>
                 {uploadedCount} {uploadedCount > 1 ? "fichiers uploades" : "fichier uploade"} —{" "}
                 {formatBytes(uploadedSizeBytes)}
@@ -397,10 +397,10 @@ export function PlansStep({
               </div>
 
               {planSet && (
-                <div className="rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-3">
-                  <p className="text-xs font-medium text-[var(--slate-700)]">
+                <div className="rounded-lg border border-border bg-surface-subtle px-4 py-3">
+                  <p className="text-xs font-medium text-foreground-secondary">
                     Jeu de plans : <span className="font-semibold">{planSet.name}</span>
-                    <span className="ml-2 text-[var(--slate-500)]">
+                    <span className="ml-2 text-muted-foreground">
                       ({planSet.file_count + uploadedCount} {(planSet.file_count + uploadedCount) > 1 ? "fichiers" : "fichier"})
                     </span>
                   </p>
@@ -433,11 +433,11 @@ export function PlansStep({
                   }}
                 />
               ) : (
-                <div className="rounded-lg border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 px-4 py-3">
-                  <p className="text-xs font-medium text-[var(--slate-700)]">
+                <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
+                  <p className="text-xs font-medium text-foreground-secondary">
                     Prochaine etape suggeree
                   </p>
-                  <p className="mt-0.5 text-xs text-[var(--slate-500)]">
+                  <p className="mt-0.5 text-xs text-muted-foreground">
                     Lancez une analyse de metres depuis le hub de votre affaire.
                   </p>
                 </div>
@@ -446,7 +446,7 @@ export function PlansStep({
           )}
 
           {uploadSummaryWarning && (
-            <p className="mt-3 text-xs text-[var(--warning)]">{uploadSummaryWarning}</p>
+            <p className="mt-3 text-xs text-warning">{uploadSummaryWarning}</p>
           )}
         </div>
       )}

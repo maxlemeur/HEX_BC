@@ -67,11 +67,11 @@ export function TakeoffApplyWizardConfirmationStep({
         guardResult &&
         guardResult.passed &&
         guardResult.medium_items.length > 0 && (
-          <div className="rounded-xl border border-[var(--info)] bg-info-light p-3">
-            <p className="text-xs font-semibold text-[var(--info)]">
+          <div className="rounded-xl border border-info bg-info-light p-3">
+            <p className="text-xs font-semibold text-info">
               Confiance moyenne (non bloquante)
             </p>
-            <p className="mt-1 text-xs text-[var(--slate-600)]">
+            <p className="mt-1 text-xs text-slate-600">
               {guardResult.medium_items.length} item
               {guardResult.medium_items.length > 1 ? "s ont" : " a"} un score
               compris entre {Math.round(guardResult.threshold * 100)} % et moins
@@ -84,21 +84,21 @@ export function TakeoffApplyWizardConfirmationStep({
         <div
           className={`rounded-xl border p-4 text-sm ${
             guardBlocking
-              ? "border-[var(--warning)] bg-warning-light"
-              : "border-[var(--success)]/20 bg-[var(--success)]/5"
+              ? "border-warning bg-warning-light"
+              : "border-success/20 bg-success/5"
           }`}
         >
           <p
             className={`text-xs font-semibold uppercase tracking-[0.16em] ${
-              guardBlocking ? "text-[var(--warning)]" : "text-[var(--success)]"
+              guardBlocking ? "text-warning" : "text-success"
             }`}
           >
             {guardBlocking ? "Impact avant dérogation" : "Confirmation finale"}
           </p>
-          <p className="mt-2 text-sm font-semibold text-[var(--slate-800)]">
+          <p className="mt-2 text-sm font-semibold text-slate-800">
             Vérifiez une dernière fois l&apos;impact avant d&apos;écrire dans le devis.
           </p>
-          <p className="mt-1 text-sm text-[var(--slate-600)]">
+          <p className="mt-1 text-sm text-slate-600">
             {guardBlocking
               ? "Les blocages restent actifs. Cet aperçu décrit néanmoins l’impact exact d’une éventuelle dérogation."
               : "L’application reste manuelle. Rien n’est injecté tant que vous ne confirmez pas."}
@@ -128,22 +128,22 @@ export function TakeoffApplyWizardConfirmationStep({
           />
         </div>
 
-        <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4 text-sm">
-          <p className="font-semibold text-[var(--slate-800)]">Récapitulatif</p>
-          <p className="mt-2 text-[var(--slate-700)]">
+        <div className="rounded-xl border border-border bg-surface-subtle p-4 text-sm">
+          <p className="font-semibold text-slate-800">Récapitulatif</p>
+          <p className="mt-2 text-foreground-secondary">
             Version cible : {targetVersionLabel ?? "brouillon actuellement ouvert"}
             {targetVersionLabel ? " (brouillon)" : ""}
           </p>
-          <p className="mt-1 text-[var(--slate-700)]">
+          <p className="mt-1 text-foreground-secondary">
             Section cible : {selectedSectionLabel}
           </p>
-          <p className="mt-1 text-[var(--slate-700)]">
+          <p className="mt-1 text-foreground-secondary">
             Stratégie : {strategyLabel(strategy)} — {strategyDescription(strategy)}
           </p>
-          <p className="mt-1 text-[var(--slate-700)]">
+          <p className="mt-1 text-foreground-secondary">
             Source du métré : <strong>{sourceFileName ?? "job de métré"}</strong>
           </p>
-          <p className="mt-1 text-[var(--slate-700)]">
+          <p className="mt-1 text-foreground-secondary">
             Provenance attendue : fichier, preuve extraite et page source pour chaque item de niveau C.
           </p>
         </div>

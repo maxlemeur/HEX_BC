@@ -17,7 +17,7 @@ function PortalPrintButton({ className = "" }: Readonly<{ className?: string }>)
   return (
     <button
       type="button"
-      className={`inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--slate-200)] bg-white px-6 py-3 text-sm font-semibold text-[var(--slate-700)] transition-colors hover:bg-[var(--slate-50)] ${className}`}
+      className={`inline-flex items-center justify-center gap-2 rounded-xl border border-border bg-surface px-6 py-3 text-sm font-semibold text-foreground-secondary transition-colors hover:bg-surface-subtle ${className}`}
       onClick={() => window.print()}
     >
       Imprimer / Enregistrer en PDF
@@ -81,9 +81,9 @@ export function PortalActions({
   if (status === "rejected") {
     return (
       <div className="space-y-3">
-        <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-6 py-4">
+        <div className="rounded-xl border border-border bg-surface-subtle px-6 py-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--slate-200)]">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-200">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 width="16"
@@ -100,7 +100,7 @@ export function PortalActions({
                 <path d="m9 9 6 6" />
               </svg>
             </div>
-            <p className="text-sm font-medium text-[var(--slate-600)]">
+            <p className="text-sm font-medium text-slate-600">
               Ce devis a été refusé.
             </p>
           </div>
@@ -154,7 +154,7 @@ export function PortalActions({
         <PortalPrintButton className="sm:mr-auto" />
         <button
           type="button"
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-white px-6 py-3 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50"
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-surface px-6 py-3 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50"
           onClick={() => setRejectModalOpen(true)}
         >
           <svg

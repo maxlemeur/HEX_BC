@@ -174,10 +174,10 @@ export default async function OrderPrintPage({
   const printTitle = sanitizeFilename(rawTitle);
 
   return (
-    <div className="min-h-screen bg-[var(--slate-100)] print:bg-white">
+    <div className="min-h-screen bg-muted print:bg-surface">
       <PrintTitle title={printTitle} />
       {/* Print controls - hidden in print */}
-      <div className="no-print sticky top-0 z-10 border-b border-[var(--slate-200)] bg-white/80 backdrop-blur-md">
+      <div className="no-print sticky top-0 z-10 border-b border-border bg-surface/80 backdrop-blur-md">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-6 py-4">
           <div className="flex items-center gap-4">
             <Link
@@ -197,11 +197,11 @@ export default async function OrderPrintPage({
               </svg>
               Retour
             </Link>
-            <div className="hidden h-6 w-px bg-[var(--slate-200)] sm:block" />
-            <span className="hidden text-sm font-semibold text-[var(--slate-700)] sm:block">
+            <div className="hidden h-6 w-px bg-slate-200 sm:block" />
+            <span className="hidden text-sm font-semibold text-foreground-secondary sm:block">
               Apercu avant impression
             </span>
-            <span className="hidden rounded-lg bg-[var(--brand-orange)]/10 px-2.5 py-1 font-mono text-sm font-bold text-[var(--brand-orange)] sm:inline-block">
+            <span className="hidden rounded-lg bg-brand-orange/10 px-2.5 py-1 font-mono text-sm font-bold text-brand-orange sm:inline-block">
               {order.reference}
             </span>
           </div>

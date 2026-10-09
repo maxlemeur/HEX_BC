@@ -94,17 +94,17 @@ export function AcceptEstimateModal({
           <Modal.Body>
             <div className="space-y-5">
               {/* Summary */}
-              <div className="rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-3">
+              <div className="rounded-lg border border-border bg-surface-subtle px-4 py-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     {projectReference && (
-                      <span className="rounded-lg bg-[var(--brand-orange)]/10 px-2.5 py-1 font-mono text-sm font-bold text-[var(--brand-orange)]">
+                      <span className="rounded-lg bg-brand-orange/10 px-2.5 py-1 font-mono text-sm font-bold text-brand-orange">
                         {projectReference}
                       </span>
                     )}
                   </div>
                   {totalTtcFormatted && (
-                    <span className="text-lg font-bold text-[var(--brand-blue)]">
+                    <span className="text-lg font-bold text-primary">
                       {totalTtcFormatted}
                     </span>
                   )}
@@ -125,9 +125,9 @@ export function AcceptEstimateModal({
                   checked={termsAccepted}
                   onChange={(e) => setTermsAccepted(e.target.checked)}
                   disabled={isSubmitting}
-                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-[var(--slate-300)] text-emerald-600 focus:ring-emerald-500"
+                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-border-strong text-emerald-600 focus:ring-emerald-500"
                 />
-                <span className="text-sm text-[var(--slate-700)]">
+                <span className="text-sm text-foreground-secondary">
                   J&apos;accepte ce devis et ses conditions
                 </span>
               </label>

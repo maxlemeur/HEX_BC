@@ -180,7 +180,7 @@ export default function LoginPage() {
         >
           {/* Logo */}
           <motion.div custom={reduced} variants={brandItemVariants} className="mb-6 lg:mb-8">
-            <div className="inline-flex h-14 w-32 items-center justify-center overflow-hidden rounded-2xl bg-white/95 p-2 shadow-lg shadow-black/10 lg:h-16 lg:w-40 lg:rounded-3xl">
+            <div className="inline-flex h-14 w-32 items-center justify-center overflow-hidden rounded-2xl bg-surface/95 p-2 shadow-lg shadow-black/10 lg:h-16 lg:w-40 lg:rounded-3xl">
               <Image
                 src="/logo-hydro-express.jpg"
                 alt="Hydro Express"
@@ -350,7 +350,7 @@ export default function LoginPage() {
             <motion.input
               whileFocus={{ scale: 1.01, boxShadow: "0 0 0 3px rgba(30,58,95,0.1)" }}
               transition={{ type: "spring", stiffness: 300, damping: 25 }}
-              className="mt-2 h-12 w-full rounded-xl border border-border bg-white px-4 text-sm outline-none transition-colors hover:border-slate-300 focus:border-[#1E3A5F]"
+              className="mt-2 h-12 w-full rounded-xl border border-border bg-surface px-4 text-sm outline-none transition-colors hover:border-border-strong focus:border-[#1E3A5F]"
               autoComplete="email"
               inputMode="email"
               name="email"
@@ -369,7 +369,7 @@ export default function LoginPage() {
               <motion.input
                 whileFocus={{ scale: 1.01, boxShadow: "0 0 0 3px rgba(30,58,95,0.1)" }}
                 transition={{ type: "spring", stiffness: 300, damping: 25 }}
-                className="h-12 w-full rounded-xl border border-border bg-white px-4 pr-24 text-sm outline-none transition-colors hover:border-slate-300 focus:border-[#1E3A5F]"
+                className="h-12 w-full rounded-xl border border-border bg-surface px-4 pr-24 text-sm outline-none transition-colors hover:border-border-strong focus:border-[#1E3A5F]"
                 autoComplete="current-password"
                 id="password"
                 name="password"

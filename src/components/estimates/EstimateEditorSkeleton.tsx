@@ -4,7 +4,7 @@ import { ProductionRibbon, ProductionRibbonHeader } from "@/components/dashboard
 function TableRowSkeleton({ index }: { index: number }) {
   return (
     <div
-      className="flex items-center gap-3 px-4 py-3 border-b border-[var(--slate-100)]"
+      className="flex items-center gap-3 px-4 py-3 border-b border-border-subtle"
       style={{ animationDelay: `${index * 0.04}s` }}
     >
       <Skeleton width={32} height={14} />
@@ -56,7 +56,7 @@ export function EstimateEditorSkeleton() {
       {/* Table */}
       <div className="dashboard-card mt-6 overflow-hidden">
         {/* Table header */}
-        <div className="flex items-center gap-3 px-4 py-3 bg-[var(--slate-50)] border-b border-[var(--slate-200)]">
+        <div className="flex items-center gap-3 px-4 py-3 bg-surface-subtle border-b border-border">
           <Skeleton width={32} height={12} />
           <Skeleton width={200} height={12} className="flex-1" />
           <Skeleton width={60} height={12} />

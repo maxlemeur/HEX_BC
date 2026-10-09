@@ -18,13 +18,13 @@ export default function TakeoffError({
         strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
-        className="text-[var(--slate-300)]"
+        className="text-slate-300"
       >
         <circle cx="12" cy="12" r="10" />
         <path d="m15 9-6 6" />
         <path d="m9 9 6 6" />
       </svg>
-      <p className="text-sm text-[var(--slate-500)]">
+      <p className="text-sm text-muted-foreground">
         Impossible de charger les extractions de cette affaire.
       </p>
       <button type="button" className="btn btn-secondary" onClick={reset}>

@@ -93,13 +93,13 @@ export function EstimateApprovalSubmissionPanel({
   const alertGroups = groupSubmissionSignals(summary.submissionReadiness.alerts);
 
   return (
-    <section className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-4">
+    <section className="rounded-xl border border-border bg-surface-subtle px-4 py-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-[var(--slate-800)]">
+          <h3 className="text-sm font-semibold text-slate-800">
             Soumission a validation
           </h3>
-          <p className="mt-1 text-xs text-[var(--slate-500)]">
+          <p className="mt-1 text-xs text-muted-foreground">
             Verifiez les blocants, les alertes restantes et le contexte avant d&apos;envoyer le dossier.
           </p>
         </div>
@@ -121,7 +121,7 @@ export function EstimateApprovalSubmissionPanel({
       </div>
 
       {isEmpty ? (
-        <p className="mt-2 text-xs text-[var(--warning)]">
+        <p className="mt-2 text-xs text-warning">
           Le devis doit contenir au moins une ligne pour être soumis.
         </p>
       ) : null}
@@ -129,22 +129,22 @@ export function EstimateApprovalSubmissionPanel({
       {showSubmitPanel ? (
         <div
           id={submitPanelId}
-          className="mt-4 space-y-4 border-t border-[var(--slate-200)] pt-4"
+          className="mt-4 space-y-4 border-t border-border pt-4"
         >
           <div className="grid gap-3 sm:grid-cols-2">
-            <article className="rounded-xl border border-[var(--slate-200)] bg-white px-3 py-3">
-              <p className="text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)]">
+            <article className="rounded-xl border border-border bg-surface px-3 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Couverture
               </p>
-              <p className="mt-2 text-lg font-semibold text-[var(--slate-900)]">
+              <p className="mt-2 text-lg font-semibold text-foreground">
                 {formatPercent(submissionOverview.coveragePercent)}
               </p>
               {submissionOverview.coveragePercent === null ? (
-                <p className="mt-1 text-xs text-[var(--slate-500)]">
+                <p className="mt-1 text-xs text-muted-foreground">
                   Analyse metres indisponible.{" "}
                   <Link
                     href={`/dashboard/affaires/${projectId}/takeoff`}
-                    className="font-medium text-[var(--brand-blue)] underline underline-offset-2"
+                    className="font-medium text-primary underline underline-offset-2"
                   >
                     Ouvrir Plans & metres
                   </Link>
@@ -152,19 +152,19 @@ export function EstimateApprovalSubmissionPanel({
                 </p>
               ) : null}
             </article>
-            <article className="rounded-xl border border-[var(--slate-200)] bg-white px-3 py-3">
-              <p className="text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)]">
+            <article className="rounded-xl border border-border bg-surface px-3 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Exceptions
               </p>
-              <p className="mt-2 text-lg font-semibold text-[var(--slate-900)]">
+              <p className="mt-2 text-lg font-semibold text-foreground">
                 {formatCount(submissionOverview.exceptionCount)}
               </p>
               {submissionOverview.exceptionCount === null ? (
-                <p className="mt-1 text-xs text-[var(--slate-500)]">
+                <p className="mt-1 text-xs text-muted-foreground">
                   Revue des ecarts indisponible.{" "}
                   <Link
                     href={`/dashboard/affaires/${projectId}/takeoff`}
-                    className="font-medium text-[var(--brand-blue)] underline underline-offset-2"
+                    className="font-medium text-primary underline underline-offset-2"
                   >
                     Ouvrir Plans & metres
                   </Link>
@@ -172,21 +172,21 @@ export function EstimateApprovalSubmissionPanel({
                 </p>
               ) : null}
             </article>
-            <article className="rounded-xl border border-[var(--slate-200)] bg-white px-3 py-3">
-              <p className="text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)]">
+            <article className="rounded-xl border border-border bg-surface px-3 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Hypotheses ouvertes
               </p>
-              <p className="mt-2 text-lg font-semibold text-[var(--slate-900)]">
+              <p className="mt-2 text-lg font-semibold text-foreground">
                 {formatCount(submissionOverview.openAssumptionCount)}
               </p>
-              <p className="mt-1 text-xs text-[var(--slate-500)]">
+              <p className="mt-1 text-xs text-muted-foreground">
                 {submissionOverview.openMissingPieceCount === null ||
                 submissionOverview.clarifyWithClientCount === null ? (
                   <>
                     Registre affaire indisponible.{" "}
                     <Link
                       href={`/dashboard/affaires/${projectId}?registerStatus=open`}
-                      className="font-medium text-[var(--brand-blue)] underline underline-offset-2"
+                      className="font-medium text-primary underline underline-offset-2"
                     >
                       Ouvrir le registre
                     </Link>
@@ -201,19 +201,19 @@ export function EstimateApprovalSubmissionPanel({
                 )}
               </p>
             </article>
-            <article className="rounded-xl border border-[var(--slate-200)] bg-white px-3 py-3">
-              <p className="text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)]">
+            <article className="rounded-xl border border-border bg-surface px-3 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Marge
               </p>
-              <p className="mt-2 text-lg font-semibold text-[var(--slate-900)]">
+              <p className="mt-2 text-lg font-semibold text-foreground">
                 {formatPercent(submissionOverview.marginPercent)}
               </p>
               {submissionOverview.marginPercent === null ? (
-                <p className="mt-1 text-xs text-[var(--slate-500)]">
+                <p className="mt-1 text-xs text-muted-foreground">
                   Marge indisponible.{" "}
                   <Link
                     href={`/dashboard/estimates/${versionId}/edit`}
-                    className="font-medium text-[var(--brand-blue)] underline underline-offset-2"
+                    className="font-medium text-primary underline underline-offset-2"
                   >
                     Ouvrir le devis
                   </Link>
@@ -224,17 +224,17 @@ export function EstimateApprovalSubmissionPanel({
           </div>
 
           <div className="grid gap-4">
-            <section className="rounded-xl border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-4">
+            <section className="rounded-xl border border-danger/20 bg-danger/5 px-4 py-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold text-[var(--danger)]">
+                  <p className="text-sm font-semibold text-danger">
                     Blocants
                   </p>
-                  <p className="mt-1 text-xs text-[var(--slate-600)]">
+                  <p className="mt-1 text-xs text-slate-600">
                     Ces points empechent la soumission tant qu&apos;ils restent ouverts.
                   </p>
                 </div>
-                <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-[var(--danger)]">
+                <span className="rounded-full bg-surface px-2 py-0.5 text-[11px] font-medium text-danger">
                   {summary.submissionReadiness.blockers.length}
                 </span>
               </div>
@@ -242,7 +242,7 @@ export function EstimateApprovalSubmissionPanel({
                 <div className="mt-3 space-y-2">
                   {blockerGroups.map((group) => (
                     <div key={group.category} className="space-y-2">
-                      <p className="text-xs font-semibold uppercase tracking-wider text-[var(--danger)]">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-danger">
                         {group.label}
                       </p>
                       {group.items.map((entry) => {
@@ -254,18 +254,18 @@ export function EstimateApprovalSubmissionPanel({
                         return (
                           <article
                             key={entry.id}
-                            className="rounded-xl border border-[var(--danger)]/15 bg-white/90 px-3 py-3"
+                            className="rounded-xl border border-danger/15 bg-surface/90 px-3 py-3"
                           >
-                            <p className="text-sm font-semibold text-[var(--slate-800)]">
+                            <p className="text-sm font-semibold text-slate-800">
                               {entry.label}
                             </p>
-                            <p className="mt-1 text-sm text-[var(--slate-700)]">
+                            <p className="mt-1 text-sm text-foreground-secondary">
                               {entry.message}
                             </p>
                             {action ? (
                               <Link
                                 href={action.href}
-                                className="mt-3 inline-flex text-xs font-medium text-[var(--brand-blue)] underline underline-offset-2"
+                                className="mt-3 inline-flex text-xs font-medium text-primary underline underline-offset-2"
                               >
                                 {action.label}
                               </Link>
@@ -277,23 +277,23 @@ export function EstimateApprovalSubmissionPanel({
                   ))}
                 </div>
               ) : (
-                <p className="mt-3 text-sm text-[var(--slate-600)]">
+                <p className="mt-3 text-sm text-slate-600">
                   Aucun blocant dur detecte.
                 </p>
               )}
             </section>
 
-            <section className="rounded-xl border border-[var(--warning)]/20 bg-[var(--warning)]/5 px-4 py-4">
+            <section className="rounded-xl border border-warning/20 bg-warning/5 px-4 py-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold text-[var(--warning)]">
+                  <p className="text-sm font-semibold text-warning">
                     Alertes
                   </p>
-                  <p className="mt-1 text-xs text-[var(--slate-600)]">
+                  <p className="mt-1 text-xs text-slate-600">
                     Visibles pour la validation interne. Certaines alertes devront etre traitees avant l&apos;envoi client.
                   </p>
                 </div>
-                <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-[var(--warning)]">
+                <span className="rounded-full bg-surface px-2 py-0.5 text-[11px] font-medium text-warning">
                   {summary.submissionReadiness.alerts.length}
                 </span>
               </div>
@@ -301,7 +301,7 @@ export function EstimateApprovalSubmissionPanel({
                 <div className="mt-3 space-y-2">
                   {alertGroups.map((group) => (
                     <div key={group.category} className="space-y-2">
-                      <p className="text-xs font-semibold uppercase tracking-wider text-[var(--warning)]">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-warning">
                         {group.label}
                       </p>
                       {group.items.map((entry) => {
@@ -313,18 +313,18 @@ export function EstimateApprovalSubmissionPanel({
                         return (
                           <article
                             key={entry.id}
-                            className="rounded-xl border border-[var(--warning)]/15 bg-white/90 px-3 py-3"
+                            className="rounded-xl border border-warning/15 bg-surface/90 px-3 py-3"
                           >
-                            <p className="text-sm font-semibold text-[var(--slate-800)]">
+                            <p className="text-sm font-semibold text-slate-800">
                               {entry.label}
                             </p>
-                            <p className="mt-1 text-sm text-[var(--slate-700)]">
+                            <p className="mt-1 text-sm text-foreground-secondary">
                               {entry.message}
                             </p>
                             {action ? (
                               <Link
                                 href={action.href}
-                                className="mt-3 inline-flex text-xs font-medium text-[var(--brand-blue)] underline underline-offset-2"
+                                className="mt-3 inline-flex text-xs font-medium text-primary underline underline-offset-2"
                               >
                                 {action.label}
                               </Link>
@@ -336,15 +336,15 @@ export function EstimateApprovalSubmissionPanel({
                   ))}
                 </div>
               ) : (
-                <p className="mt-3 text-sm text-[var(--slate-600)]">
+                <p className="mt-3 text-sm text-slate-600">
                   Aucune alerte complementaire.
                 </p>
               )}
             </section>
           </div>
 
-          <section className="rounded-xl border border-[var(--slate-200)] bg-white px-4 py-4">
-            <p className="text-sm font-semibold text-[var(--slate-800)]">
+          <section className="rounded-xl border border-border bg-surface px-4 py-4">
+            <p className="text-sm font-semibold text-slate-800">
               Regles declenchees
             </p>
             {summary.reasons.length > 0 ? (
@@ -352,13 +352,13 @@ export function EstimateApprovalSubmissionPanel({
                 {summary.reasons.map((reason) => (
                   <article
                     key={`${reason.ruleId}-${reason.approvalId ?? "pending"}`}
-                    className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-3"
+                    className="rounded-xl border border-border bg-surface-subtle px-3 py-3"
                   >
                     <div className="flex flex-wrap items-start justify-between gap-2">
-                      <p className="text-sm font-semibold text-[var(--slate-800)]">
+                      <p className="text-sm font-semibold text-slate-800">
                         {reason.label}
                       </p>
-                      <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-[var(--slate-600)]">
+                      <span className="rounded-full bg-surface px-2 py-0.5 text-[11px] font-medium text-slate-600">
                         {reason.approvalStatus === "approved"
                           ? "Approuvee"
                           : reason.approvalStatus === "pending"
@@ -368,14 +368,14 @@ export function EstimateApprovalSubmissionPanel({
                               : "A soumettre"}
                       </span>
                     </div>
-                    <p className="mt-1 text-sm text-[var(--slate-700)]">
+                    <p className="mt-1 text-sm text-foreground-secondary">
                       {reason.message}
                     </p>
                   </article>
                 ))}
               </div>
             ) : (
-              <p className="mt-3 text-sm text-[var(--slate-600)]">
+              <p className="mt-3 text-sm text-slate-600">
                 Aucune regle d&apos;approbation active sur cette version.
               </p>
             )}
@@ -383,8 +383,8 @@ export function EstimateApprovalSubmissionPanel({
 
           <div className="grid gap-3">
             {summary.availableReviewers.length > 0 ? (
-              <label className="flex flex-col gap-1 text-sm text-[var(--slate-700)]">
-                <span className="text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">
+              <label className="flex flex-col gap-1 text-sm text-foreground-secondary">
+                <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                   Validateur
                 </span>
                 <select
@@ -405,13 +405,13 @@ export function EstimateApprovalSubmissionPanel({
                 </select>
               </label>
             ) : (
-              <div className="rounded-xl border border-dashed border-[var(--slate-200)] bg-white px-3 py-3 text-sm text-[var(--slate-600)]">
+              <div className="rounded-xl border border-dashed border-border bg-surface px-3 py-3 text-sm text-slate-600">
                 Aucun validateur admin ou director n&apos;est disponible pour ce tenant.
               </div>
             )}
 
-            <label className="flex flex-col gap-1 text-sm text-[var(--slate-700)]">
-              <span className="text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">
+            <label className="flex flex-col gap-1 text-sm text-foreground-secondary">
+              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Message de contexte
               </span>
               <textarea
@@ -426,7 +426,7 @@ export function EstimateApprovalSubmissionPanel({
           </div>
 
           <div
-            className="flex flex-wrap items-center gap-2 border-t border-[var(--slate-200)] pt-4"
+            className="flex flex-wrap items-center gap-2 border-t border-border pt-4"
             aria-live="polite"
           >
             <button
@@ -442,27 +442,27 @@ export function EstimateApprovalSubmissionPanel({
                   : "Confirmer la soumission"}
             </button>
             {isEmpty ? (
-              <p className="text-xs text-[var(--warning)]">
+              <p className="text-xs text-warning">
                 Le devis doit contenir au moins une ligne pour être soumis.
               </p>
             ) : null}
             {!isResubmission && requestableReasonsCount === 0 ? (
-              <p className="text-xs text-[var(--slate-500)]">
+              <p className="text-xs text-muted-foreground">
                 Aucune regle de validation n&apos;est actuellement declenchee sur cette version.
               </p>
             ) : null}
             {isResubmission && correctionChecklist && !correctionChecklist.allTreated ? (
-              <p className="text-xs text-[var(--danger)]">
+              <p className="text-xs text-danger">
                 Traitez tous les items de correction avant de resoumettre.
               </p>
             ) : null}
             {summary.submissionReadiness.blockers.length > 0 ? (
-              <p className="text-xs text-[var(--danger)]">
+              <p className="text-xs text-danger">
                 Corrigez les blocants avant d&apos;envoyer à la validation.
               </p>
             ) : null}
             {summary.activeCycle !== null ? (
-              <p className="text-xs text-[var(--brand-blue)]">
+              <p className="text-xs text-primary">
                 Cette version est déjà en revue.
               </p>
             ) : null}

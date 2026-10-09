@@ -306,7 +306,7 @@ export function TakeoffApplyWizard({
             <Modal.Title>Appliquer au devis</Modal.Title>
             <p
               aria-live="polite"
-              className="mt-1 text-sm text-[var(--slate-500)]"
+              className="mt-1 text-sm text-muted-foreground"
             >
               Etape {displayStep} / {totalSteps}
             </p>
@@ -336,10 +336,10 @@ export function TakeoffApplyWizard({
                     aria-current={active ? "step" : undefined}
                     className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold ${
                       active
-                        ? "bg-[var(--info)] text-white"
+                        ? "bg-info text-white"
                         : done
-                          ? "bg-[var(--success)] text-white"
-                          : "bg-[var(--slate-100)] text-[var(--slate-500)]"
+                          ? "bg-success text-white"
+                          : "bg-muted text-muted-foreground"
                     }`}
                   >
                     {value}

@@ -27,14 +27,14 @@ export function ProgressBar({
 
   return (
     <div className="flex items-center gap-2">
-      <div className={`flex-1 overflow-hidden rounded-full bg-slate-100 ${SIZE_MAP[size]}`}>
+      <div className={`flex-1 overflow-hidden rounded-full bg-muted ${SIZE_MAP[size]}`}>
         <div
           className={`rounded-full transition-all duration-500 ease-out ${SIZE_MAP[size]} ${COLOR_MAP[color]}`}
           style={{ width: `${clamped}%` }}
         />
       </div>
       {showLabel && (
-        <span className="text-xs tabular-nums text-slate-500">{clamped}%</span>
+        <span className="text-xs tabular-nums text-muted-foreground">{clamped}%</span>
       )}
     </div>
   );

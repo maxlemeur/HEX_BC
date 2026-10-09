@@ -209,10 +209,10 @@ export default function ProjectTakeoffJobList({
   if (error && !data) {
     return (
       <section className="dashboard-card mt-6 p-6">
-        <h2 className="text-xl font-black text-[var(--slate-800)]">
+        <h2 className="text-xl font-black text-slate-800">
           {resolveErrorTitle(errorStatus)}
         </h2>
-        <p className="mt-2 text-sm text-[var(--slate-600)]">{errorMessage}</p>
+        <p className="mt-2 text-sm text-slate-600">{errorMessage}</p>
       </section>
     );
   }
@@ -346,7 +346,7 @@ export default function ProjectTakeoffJobList({
 
       {actionError ? (
         <div
-          className="rounded-xl border border-[var(--error)] bg-[var(--error-light)] p-3 text-sm text-[var(--error)]"
+          className="rounded-xl border border-danger bg-danger-light p-3 text-sm text-danger"
           role="alert"
         >
           {actionError}
@@ -457,7 +457,7 @@ export default function ProjectTakeoffJobList({
                       <tr key={job.id}>
                         <td>
                           {resolvedVersionNumber !== null ? (
-                            <span className="inline-flex items-center rounded-full bg-[var(--slate-100)] px-2 py-0.5 text-xs font-semibold text-[var(--slate-700)]">
+                            <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-semibold text-foreground-secondary">
                               V{resolvedVersionNumber}
                             </span>
                           ) : (
@@ -465,11 +465,11 @@ export default function ProjectTakeoffJobList({
                           )}
                         </td>
                         <td>
-                          <div className="font-medium text-[var(--slate-800)]">
+                          <div className="font-medium text-slate-800">
                             {job.source_file_name ??
                               "Fichier inconnu"}
                           </div>
-                          <div className="mt-1 text-xs text-[var(--slate-500)]">
+                          <div className="mt-1 text-xs text-muted-foreground">
                             {job.source_file_type ??
                               "Type non renseigne"}
                           </div>
@@ -562,15 +562,15 @@ export default function ProjectTakeoffJobList({
             </table>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--slate-200)] p-4">
-            <p className="text-sm text-[var(--slate-500)]">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border p-4">
+            <p className="text-sm text-muted-foreground">
               {formatCount(totalJobs)} extractions
               {isValidating ? " (actualisation...)" : ""}
             </p>
 
             <div className="flex flex-wrap items-center gap-3">
               <label
-                className="text-xs font-semibold text-[var(--slate-500)]"
+                className="text-xs font-semibold text-muted-foreground"
                 htmlFor="takeoff-page-size"
               >
                 Page size
@@ -615,7 +615,7 @@ export default function ProjectTakeoffJobList({
               >
                 Precedent
               </button>
-              <span className="text-sm text-[var(--slate-600)]">
+              <span className="text-sm text-slate-600">
                 Page {effectivePage} / {totalPages}
               </span>
               <button
@@ -638,10 +638,10 @@ export default function ProjectTakeoffJobList({
       <section className="dashboard-card p-5 sm:p-6">
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-black text-[var(--slate-900)]">
+            <h2 className="text-lg font-black text-foreground">
               Exceptions &amp; risques
             </h2>
-            <p className="mt-1 text-sm text-[var(--slate-500)]">
+            <p className="mt-1 text-sm text-muted-foreground">
               Provenance, confiance et signaux de risque pour la version en cours
               de revue.
             </p>

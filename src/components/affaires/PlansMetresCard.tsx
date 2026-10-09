@@ -226,10 +226,10 @@ export function PlansMetresCard({
   if (errorMessage) {
     return (
       <section className="dashboard-card p-5">
-        <h2 className="mb-3 text-sm font-semibold text-[var(--slate-800)]">
+        <h2 className="mb-3 text-sm font-semibold text-slate-800">
           Plans, preuves & exceptions
         </h2>
-        <div className="rounded-lg border border-[var(--warning)]/20 bg-[var(--warning)]/5 px-3 py-2 text-sm text-[var(--slate-700)]">
+        <div className="rounded-lg border border-warning/20 bg-warning/5 px-3 py-2 text-sm text-foreground-secondary">
           {errorMessage}
         </div>
       </section>
@@ -240,11 +240,11 @@ export function PlansMetresCard({
   if (!plans || plans.planSetCount === 0) {
     return (
       <section className="dashboard-card p-5">
-        <h2 className="mb-3 text-sm font-semibold text-[var(--slate-800)]">
+        <h2 className="mb-3 text-sm font-semibold text-slate-800">
           Plans, preuves & exceptions
         </h2>
-        <div className="animate-fade-in flex flex-col items-center justify-center rounded-2xl border border-dashed border-[var(--slate-200)] bg-[var(--slate-50)]/70 px-6 py-10 text-center">
-          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-white text-[var(--slate-400)] shadow-sm ring-1 ring-[var(--slate-200)]">
+        <div className="animate-fade-in flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-surface-subtle/70 px-6 py-10 text-center">
+          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-surface text-subtle-foreground shadow-sm ring-1 ring-slate-200">
             <svg
               width="26"
               height="26"
@@ -261,10 +261,10 @@ export function PlansMetresCard({
               <path d="M9 3v18" />
             </svg>
           </div>
-          <h3 className="text-base font-semibold text-[var(--slate-800)]">
+          <h3 className="text-base font-semibold text-slate-800">
             Importez vos plans pour lancer l&apos;analyse
           </h3>
-          <p className="mt-1 max-w-md text-sm text-[var(--slate-500)]">
+          <p className="mt-1 max-w-md text-sm text-muted-foreground">
             Les plans PDF permettent d&apos;extraire automatiquement les metres, de les comparer au DPGF et de detecter les ecarts.
           </p>
           <div className="mt-5 flex items-center gap-3">
@@ -325,46 +325,46 @@ export function PlansMetresCard({
     <section className="dashboard-card p-5">
       {/* Header */}
       <div className="mb-4 flex items-start justify-between gap-2">
-        <h2 className="text-sm font-semibold text-[var(--slate-800)]">
+        <h2 className="text-sm font-semibold text-slate-800">
           Plans, preuves & exceptions
         </h2>
-        <span className="rounded-full bg-[var(--slate-100)] px-2.5 py-0.5 text-xs font-medium text-[var(--slate-600)]">
+        <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-slate-600">
           {plans.planSetCount} jeu{plans.planSetCount !== 1 ? "x" : ""}
         </span>
       </div>
 
       {/* Stats */}
-      <p className="text-sm text-[var(--slate-600)]">
+      <p className="text-sm text-slate-600">
         {plans.planFileCount} fichier{plans.planFileCount !== 1 ? "s" : ""}{" "}
         &middot; {formatFileSize(plans.totalSizeBytes)}
       </p>
 
-      <div className="mt-3 rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)]/70 px-3 py-2.5">
+      <div className="mt-3 rounded-lg border border-border bg-surface-subtle/70 px-3 py-2.5">
         <div className="flex flex-wrap items-center gap-2">
           {planSetContext.badge ? (
             <Badge variant="info" size="sm">
               {planSetContext.badge}
             </Badge>
           ) : null}
-          <p className="text-sm font-medium text-[var(--slate-800)]">
+          <p className="text-sm font-medium text-slate-800">
             {planSetContext.summary}
           </p>
         </div>
-        <p className="mt-1 text-xs text-[var(--slate-500)]">
+        <p className="mt-1 text-xs text-muted-foreground">
           {planSetContext.detail}
         </p>
       </div>
 
       {/* Latest job */}
       {latestJob && badgeVariant && (
-        <div className="mt-3 rounded-lg border border-[var(--slate-200)] px-3 py-2.5">
+        <div className="mt-3 rounded-lg border border-border px-3 py-2.5">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={badgeVariant} size="sm">
               {latestJob.label}
             </Badge>
           </div>
           {needsAction && plans.failureReasonLabel && (
-            <p className="mt-1 text-xs text-[var(--slate-500)]">
+            <p className="mt-1 text-xs text-muted-foreground">
               {plans.failureReasonLabel}
             </p>
           )}
@@ -372,25 +372,25 @@ export function PlansMetresCard({
       )}
 
       {continuitySnapshot && (
-        <div className="mt-3 rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)]/70 px-3 py-3">
+        <div className="mt-3 rounded-lg border border-border bg-surface-subtle/70 px-3 py-3">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-medium text-[var(--slate-800)]">
+            <p className="text-sm font-medium text-slate-800">
               {continuitySnapshot.title}
             </p>
           </div>
 
-          <p className="mt-1 text-xs leading-5 text-[var(--slate-500)]">
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
             {continuitySnapshot.description}
           </p>
 
           <div className="mt-3 flex flex-wrap gap-2 text-xs">
-            <span className="rounded-full bg-[var(--success)]/10 px-2.5 py-1 font-medium text-[var(--success)]">
+            <span className="rounded-full bg-success/10 px-2.5 py-1 font-medium text-success">
               {continuitySnapshot.acquiredCount} acquis
             </span>
-            <span className="rounded-full bg-[var(--brand-blue)]/10 px-2.5 py-1 font-medium text-[var(--brand-blue)]">
+            <span className="rounded-full bg-primary/10 px-2.5 py-1 font-medium text-primary">
               {continuitySnapshot.waitingCount} en attente
             </span>
-            <span className="rounded-full bg-[var(--warning)]/10 px-2.5 py-1 font-medium text-[var(--warning)]">
+            <span className="rounded-full bg-warning/10 px-2.5 py-1 font-medium text-warning">
               {continuitySnapshot.actionRequiredCount} a corriger
             </span>
           </div>
@@ -399,18 +399,18 @@ export function PlansMetresCard({
             {continuitySnapshot.history.map((entry) => (
               <li
                 key={entry.jobId}
-                className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2"
+                className="rounded-lg border border-border bg-surface px-3 py-2"
               >
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--slate-400)]">
+                  <span className="text-xs font-semibold uppercase tracking-[0.14em] text-subtle-foreground">
                     {entry.versionLabel}
                   </span>
-                  <span className="text-sm text-[var(--slate-700)]">
+                  <span className="text-sm text-foreground-secondary">
                     {entry.statusLabel}
                   </span>
                 </div>
                 {entry.carriedOverFrom ? (
-                  <p className="mt-1 text-xs text-[var(--slate-500)]">
+                  <p className="mt-1 text-xs text-muted-foreground">
                     Carry-over depuis {entry.carriedOverFrom}
                   </p>
                 ) : null}
@@ -434,7 +434,7 @@ export function PlansMetresCard({
       {/* Business summary */}
       {isCompletedState && !coverageAvailable && summarySegments.length === 0 && (
         <p
-          className="mt-2 text-xs text-[var(--slate-500)] italic"
+          className="mt-2 text-xs text-muted-foreground italic"
           aria-live="polite"
         >
           Couverture indisponible
@@ -442,16 +442,16 @@ export function PlansMetresCard({
       )}
       {summarySegments.length > 0 && (
         <p
-          className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--slate-600)]"
+          className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-600"
           aria-live="polite"
         >
           {exceptionCount !== null && exceptionCount > 0 && (
-            <span className="inline-flex items-center gap-1 text-[var(--warning)]">
+            <span className="inline-flex items-center gap-1 text-warning">
               <WarningIcon />
             </span>
           )}
           {plans.openQuestionsCount > 0 && (
-            <span className="inline-flex items-center gap-1 text-[var(--slate-500)]">
+            <span className="inline-flex items-center gap-1 text-muted-foreground">
               <QuestionIcon />
             </span>
           )}

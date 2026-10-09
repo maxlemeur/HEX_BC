@@ -93,14 +93,14 @@ export function GeneratedOuvrageSourceForm({
             </option>
           ))}
         </select>
-        <p className="mt-1 text-xs text-slate-500">
+        <p className="mt-1 text-xs text-muted-foreground">
           Sans lot choisi, l&apos;ouvrage sera insere dans la section explicite
           {" "}
           <span className="font-medium">A classer</span>.
         </p>
       </div>
 
-      <div aria-live="polite" className="text-sm text-slate-500">
+      <div aria-live="polite" className="text-sm text-muted-foreground">
         {isGenerating ? "Generation des ouvrages en cours..." : null}
       </div>
 

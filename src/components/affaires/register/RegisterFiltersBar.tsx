@@ -33,7 +33,7 @@ export function RegisterFiltersBar({
     <div className="mt-4 flex flex-wrap gap-2">
       <select
         aria-label="Filtrer par statut"
-        className="min-h-[44px] rounded-lg border border-[var(--slate-200)] bg-white px-2.5 py-1.5 text-xs text-[var(--slate-700)] sm:min-h-0"
+        className="min-h-[44px] rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-foreground-secondary sm:min-h-0"
         value={filterStatus}
         onChange={(event) =>
           onApplyFilters({
@@ -51,7 +51,7 @@ export function RegisterFiltersBar({
       </select>
       <select
         aria-label="Filtrer par sévérité"
-        className="min-h-[44px] rounded-lg border border-[var(--slate-200)] bg-white px-2.5 py-1.5 text-xs text-[var(--slate-700)] sm:min-h-0"
+        className="min-h-[44px] rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-foreground-secondary sm:min-h-0"
         value={filterSeverity}
         onChange={(event) =>
           onApplyFilters({
@@ -69,7 +69,7 @@ export function RegisterFiltersBar({
       </select>
       <select
         aria-label="Filtrer par type"
-        className="min-h-[44px] rounded-lg border border-[var(--slate-200)] bg-white px-2.5 py-1.5 text-xs text-[var(--slate-700)] sm:min-h-0"
+        className="min-h-[44px] rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-foreground-secondary sm:min-h-0"
         value={filterKind}
         onChange={(event) =>
           onApplyFilters({

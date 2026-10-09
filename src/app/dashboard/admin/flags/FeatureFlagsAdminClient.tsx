@@ -109,8 +109,8 @@ async function patchFeatureFlag(input: {
 
 function badgeClass(enabled: boolean) {
   return enabled
-    ? "inline-flex items-center rounded-full bg-[var(--success-light)] px-2.5 py-0.5 text-xs font-medium text-[var(--success)]"
-    : "inline-flex items-center rounded-full bg-[var(--slate-100)] px-2.5 py-0.5 text-xs font-medium text-[var(--slate-600)]";
+    ? "inline-flex items-center rounded-full bg-success-light px-2.5 py-0.5 text-xs font-medium text-success"
+    : "inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-slate-600";
 }
 
 function FlagStatus({ enabled }: { enabled: boolean }) {
@@ -326,7 +326,7 @@ export function FeatureFlagsAdminClient({ tenantId }: Readonly<{ tenantId: strin
         <h2 id="feature-flags-filters" className="sr-only">Filtres des fonctionnalités</h2>
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
           <div>
-            <label className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]" htmlFor="feature-flag-search-input">
+            <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground" htmlFor="feature-flag-search-input">
               Rechercher une fonctionnalité
             </label>
             <input
@@ -339,7 +339,7 @@ export function FeatureFlagsAdminClient({ tenantId }: Readonly<{ tenantId: strin
             />
           </div>
           <div>
-            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">État</span>
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">État</span>
             <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="Filtrer par état">
               {([
                 ["all", "Tous"],
@@ -352,8 +352,8 @@ export function FeatureFlagsAdminClient({ tenantId }: Readonly<{ tenantId: strin
                   aria-pressed={statusFilter === value}
                   className={`min-h-11 rounded-lg border px-3 py-2 text-sm font-medium ${
                     statusFilter === value
-                      ? "border-[var(--brand-blue)] bg-[var(--info-light)] text-[var(--brand-blue)]"
-                      : "border-[var(--slate-200)] bg-white text-[var(--slate-600)]"
+                      ? "border-primary bg-info-light text-primary"
+                      : "border-border bg-surface text-slate-600"
                   }`}
                   onClick={() => setStatusFilter(value)}
                 >
@@ -363,14 +363,14 @@ export function FeatureFlagsAdminClient({ tenantId }: Readonly<{ tenantId: strin
             </div>
           </div>
         </div>
-        <p className="mt-4 text-sm text-[var(--slate-500)]" aria-live="polite">
+        <p className="mt-4 text-sm text-muted-foreground" aria-live="polite">
           {filteredFlags.length} résultat{filteredFlags.length > 1 ? "s" : ""}
         </p>
       </section>
 
       {isLoading ? (
         <div className="flex min-h-60 items-center justify-center" role="status">
-          <span className="text-[var(--slate-500)]">Chargement des fonctionnalités…</span>
+          <span className="text-muted-foreground">Chargement des fonctionnalités…</span>
         </div>
       ) : error ? (
         <div className="alert alert-error flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between" role="alert">
@@ -381,8 +381,8 @@ export function FeatureFlagsAdminClient({ tenantId }: Readonly<{ tenantId: strin
         </div>
       ) : filteredFlags.length === 0 ? (
         <div className="dashboard-card px-4 py-10 text-center">
-          <p className="font-medium text-[var(--slate-900)]">Aucune fonctionnalité trouvée</p>
-          <p className="mt-1 text-sm text-[var(--slate-500)]">Modifiez la recherche ou le filtre d&apos;état.</p>
+          <p className="font-medium text-foreground">Aucune fonctionnalité trouvée</p>
+          <p className="mt-1 text-sm text-muted-foreground">Modifiez la recherche ou le filtre d&apos;état.</p>
         </div>
       ) : (
         <div aria-busy={isValidating} className={isValidating ? "opacity-60 transition-opacity" : "transition-opacity"}>
@@ -390,11 +390,11 @@ export function FeatureFlagsAdminClient({ tenantId }: Readonly<{ tenantId: strin
             {filteredFlags.map((flag) => (
               <article key={flag.flag_key} className="dashboard-card p-4">
                 <div className="flex items-start justify-between gap-3">
-                  <code className="min-w-0 [overflow-wrap:anywhere] text-sm font-semibold text-[var(--slate-800)]">{flag.flag_key}</code>
+                  <code className="min-w-0 [overflow-wrap:anywhere] text-sm font-semibold text-slate-800">{flag.flag_key}</code>
                   <FlagStatus enabled={flag.enabled} />
                 </div>
                 <div className="mt-4">
-                  <span className="mb-1 block text-xs font-medium text-[var(--slate-500)]">Valeur</span>
+                  <span className="mb-1 block text-xs font-medium text-muted-foreground">Valeur</span>
                   {renderValueEditor(flag)}
                 </div>
                 <div className="mt-4 flex justify-end">{renderToggle(flag)}</div>
@@ -417,7 +417,7 @@ export function FeatureFlagsAdminClient({ tenantId }: Readonly<{ tenantId: strin
                   {filteredFlags.map((flag) => (
                     <tr key={flag.flag_key}>
                       <td className="align-top">
-                        <code className="block [overflow-wrap:anywhere] text-sm text-[var(--slate-800)]">{flag.flag_key}</code>
+                        <code className="block [overflow-wrap:anywhere] text-sm text-slate-800">{flag.flag_key}</code>
                       </td>
                       <td className="align-top">{renderValueEditor(flag)}</td>
                       <td className="align-top"><FlagStatus enabled={flag.enabled} /></td>

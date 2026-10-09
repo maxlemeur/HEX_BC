@@ -196,11 +196,11 @@ export function ImportFromEstimateDialog({
           <div>
             <h2
               id="import-estimate-dialog-title"
-              className="text-lg font-semibold text-[var(--slate-800)]"
+              className="text-lg font-semibold text-slate-800"
             >
               Importer depuis un autre devis
             </h2>
-            <p className="mt-1 text-sm text-[var(--slate-500)]">
+            <p className="mt-1 text-sm text-muted-foreground">
               Etape {step} / 3
             </p>
           </div>
@@ -244,8 +244,8 @@ export function ImportFromEstimateDialog({
               </label>
             ) : null}
             {selectedSource ? (
-              <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4 text-sm text-[var(--slate-700)]">
-                <p className="font-medium text-[var(--slate-800)]">
+              <div className="rounded-xl border border-border bg-surface-subtle p-4 text-sm text-foreground-secondary">
+                <p className="font-medium text-slate-800">
                   {formatSourceLabel(selectedSource)}
                 </p>
                 <p className="mt-1">
@@ -271,10 +271,10 @@ export function ImportFromEstimateDialog({
             {!isLoadingSections && !sectionsError && sections.length > 0 ? (
               <>
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm text-[var(--slate-600)]">
+                  <p className="text-sm text-slate-600">
                     Selectionnez une ou plusieurs sections a importer.
                   </p>
-                  <label className="inline-flex items-center gap-2 text-sm text-[var(--slate-700)]">
+                  <label className="inline-flex items-center gap-2 text-sm text-foreground-secondary">
                     <input
                       type="checkbox"
                       checked={selectedSectionIds.length === sections.length}
@@ -289,11 +289,11 @@ export function ImportFromEstimateDialog({
                     Tout sélectionner
                   </label>
                 </div>
-                <div className="max-h-72 overflow-y-auto rounded-xl border border-[var(--slate-200)]">
+                <div className="max-h-72 overflow-y-auto rounded-xl border border-border">
                   {sections.map((section) => (
                     <label
                       key={section.id}
-                      className="flex items-center justify-between gap-3 border-b border-[var(--slate-100)] px-4 py-3 text-sm last:border-b-0"
+                      className="flex items-center justify-between gap-3 border-b border-border-subtle px-4 py-3 text-sm last:border-b-0"
                     >
                       <span className="inline-flex items-center gap-2">
                         <input
@@ -309,17 +309,17 @@ export function ImportFromEstimateDialog({
                             });
                           }}
                         />
-                        <span className="font-medium text-[var(--slate-800)]">
+                        <span className="font-medium text-slate-800">
                           {section.title}
                         </span>
                       </span>
-                      <span className="text-[var(--slate-600)]">
+                      <span className="text-slate-600">
                         {section.lineCount} ligne(s) · {formatEUR(section.totalHtCents)}
                       </span>
                     </label>
                   ))}
                 </div>
-                <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4 text-sm text-[var(--slate-700)]">
+                <div className="rounded-xl border border-border bg-surface-subtle p-4 text-sm text-foreground-secondary">
                   Selection: {selectedSummary.sectionCount} section(s),{" "}
                   {selectedSummary.lineCount} ligne(s), total HT{" "}
                   {formatEUR(selectedSummary.totalHtCents)}.
@@ -331,8 +331,8 @@ export function ImportFromEstimateDialog({
 
         {step === 3 ? (
           <div className="space-y-4">
-            <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4 text-sm text-[var(--slate-700)]">
-              <p className="font-medium text-[var(--slate-800)]">
+            <div className="rounded-xl border border-border bg-surface-subtle p-4 text-sm text-foreground-secondary">
+              <p className="font-medium text-slate-800">
                 Recapitulatif
               </p>
               <p className="mt-1">
@@ -346,10 +346,10 @@ export function ImportFromEstimateDialog({
             </div>
 
             <fieldset className="space-y-2">
-              <legend className="text-sm font-medium text-[var(--slate-800)]">
+              <legend className="text-sm font-medium text-slate-800">
                 Gestion des conflits de titre
               </legend>
-              <label className="flex items-start gap-2 rounded-lg border border-[var(--slate-200)] p-3 text-sm">
+              <label className="flex items-start gap-2 rounded-lg border border-border p-3 text-sm">
                 <input
                   type="radio"
                   name="import-mode"
@@ -358,14 +358,14 @@ export function ImportFromEstimateDialog({
                   onChange={() => setMode("append")}
                 />
                 <span>
-                  <span className="font-medium text-[var(--slate-800)]">Append</span>
-                  <span className="block text-[var(--slate-600)]">
+                  <span className="font-medium text-slate-800">Append</span>
+                  <span className="block text-slate-600">
                     Cree toujours une nouvelle section (suffixe &quot;(import)&quot; en cas
                     de conflit de titre).
                   </span>
                 </span>
               </label>
-              <label className="flex items-start gap-2 rounded-lg border border-[var(--slate-200)] p-3 text-sm">
+              <label className="flex items-start gap-2 rounded-lg border border-border p-3 text-sm">
                 <input
                   type="radio"
                   name="import-mode"
@@ -374,8 +374,8 @@ export function ImportFromEstimateDialog({
                   onChange={() => setMode("merge")}
                 />
                 <span>
-                  <span className="font-medium text-[var(--slate-800)]">Merge</span>
-                  <span className="block text-[var(--slate-600)]">
+                  <span className="font-medium text-slate-800">Merge</span>
+                  <span className="block text-slate-600">
                     Ajoute les lignes dans la section existante de meme titre, ou
                     cree la section si absente.
                   </span>

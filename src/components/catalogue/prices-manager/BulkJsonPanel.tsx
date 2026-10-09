@@ -76,12 +76,12 @@ export function BulkJsonPanel({ onCompleted }: Readonly<BulkJsonPanelProps>) {
         onClick={() => setShowBulkJson((previous) => !previous)}
       >
         <div>
-          <h2 className="text-lg font-semibold text-[var(--slate-900)]">Mode avancé</h2>
-          <p className="mt-1 text-sm text-[var(--slate-500)]">
+          <h2 className="text-lg font-semibold text-foreground">Mode avancé</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
             Collez un tableau JSON pour créer plusieurs prix en une seule fois.
           </p>
         </div>
-        <span className="text-[var(--slate-400)] text-lg">{showBulkJson ? "\u25B2" : "\u25BC"}</span>
+        <span className="text-subtle-foreground text-lg">{showBulkJson ? "\u25B2" : "\u25BC"}</span>
       </button>
 
       {showBulkJson ? (

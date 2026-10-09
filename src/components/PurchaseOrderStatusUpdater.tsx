@@ -94,7 +94,7 @@ export function PurchaseOrderStatusUpdater({
         </button>
       )}
       {error ? (
-        <span className="text-sm text-[var(--error)]">{error}</span>
+        <span className="text-sm text-danger">{error}</span>
       ) : null}
     </div>
   );

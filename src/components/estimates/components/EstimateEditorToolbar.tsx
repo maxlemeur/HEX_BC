@@ -586,7 +586,7 @@ export function LegacyEstimateEditorToolbar({
             ) : null}
             {onOpenEstimateStructureDraftDialog || onOpenGeneratedOuvrageDialog ? (
               <span
-                className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-400"
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-subtle-foreground"
                 title="Assistants optionnels : ils proposent du contenu à valider sans remplacer le flux principal."
               >
                 <svg
@@ -766,14 +766,14 @@ export function LegacyEstimateEditorToolbar({
                       >
                         <button
                           type="button"
-                          className={`rounded-md px-3 py-2 text-left text-sm ${qualityFilter === "all_lines" ? "bg-white font-semibold" : ""}`}
+                          className={`rounded-md px-3 py-2 text-left text-sm ${qualityFilter === "all_lines" ? "bg-surface font-semibold" : ""}`}
                           onClick={() => onQualityFilterChange("all_lines")}
                         >
                           Toutes les lignes ({qualityCounts.linesCount})
                         </button>
                         <button
                           type="button"
-                          className={`rounded-md px-3 py-2 text-left text-sm ${qualityFilter === "with_anomalies" ? "bg-white font-semibold text-orange-800" : ""}`}
+                          className={`rounded-md px-3 py-2 text-left text-sm ${qualityFilter === "with_anomalies" ? "bg-surface font-semibold text-orange-800" : ""}`}
                           onClick={() => onQualityFilterChange("with_anomalies")}
                         >
                           Lignes avec anomalies ({qualityCounts.linesWithAnomaliesCount})
@@ -1310,7 +1310,7 @@ function KeyboardShortcutsButton() {
                     {keys.map((key) => (
                       <kbd
                         key={key}
-                        className="inline-flex min-w-[24px] items-center justify-center rounded-md border border-slate-300 bg-surface-subtle px-1.5 py-0.5 text-xs font-medium text-secondary-foreground"
+                        className="inline-flex min-w-[24px] items-center justify-center rounded-md border border-border-strong bg-surface-subtle px-1.5 py-0.5 text-xs font-medium text-secondary-foreground"
                       >
                         {key}
                       </kbd>

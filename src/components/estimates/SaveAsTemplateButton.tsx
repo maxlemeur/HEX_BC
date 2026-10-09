@@ -88,7 +88,7 @@ export function SaveAsTemplateButton({ versionId, className }: SaveAsTemplateBut
           <Modal.Header>
             <div>
               <Modal.Title>Sauvegarder comme modele</Modal.Title>
-              <p className="mt-1 text-sm text-[var(--slate-500)]">
+              <p className="mt-1 text-sm text-muted-foreground">
                 Le modele reprend sections, lignes et parametres de cette version.
               </p>
             </div>
@@ -111,7 +111,7 @@ export function SaveAsTemplateButton({ versionId, className }: SaveAsTemplateBut
             />
 
             <div>
-              <label className="block text-xs font-semibold text-[var(--slate-700)]" htmlFor="template-description">
+              <label className="block text-xs font-semibold text-foreground-secondary" htmlFor="template-description">
                 Description
               </label>
               <textarea

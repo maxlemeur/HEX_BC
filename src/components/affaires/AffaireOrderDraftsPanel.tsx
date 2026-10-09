@@ -353,17 +353,17 @@ export function AffaireOrderDraftsPanel({
   return (
     <div
       id="finish-line-orders"
-      className="mt-4 rounded-2xl border border-[var(--slate-200)] bg-white p-4 scroll-mt-24"
+      className="mt-4 rounded-2xl border border-border bg-surface p-4 scroll-mt-24"
     >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--slate-500)]">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
             Finish line commandes
           </p>
-          <h3 className="mt-2 text-sm font-semibold text-[var(--slate-800)]">
+          <h3 className="mt-2 text-sm font-semibold text-slate-800">
             Brouillons par fournisseur, sans ressaisie
           </h3>
-          <p className="mt-1 text-sm text-[var(--slate-500)]">
+          <p className="mt-1 text-sm text-muted-foreground">
             Les exceptions restent en tete, puis vous creez uniquement les
             brouillons utiles depuis les choix fournisseur deja retenus.
           </p>
@@ -378,7 +378,7 @@ export function AffaireOrderDraftsPanel({
         </Badge>
       </div>
 
-      <div className="mt-4 rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-3 text-sm text-[var(--slate-600)]">
+      <div className="mt-4 rounded-xl border border-border bg-surface-subtle px-4 py-3 text-sm text-slate-600">
         {readyToOrder?.status === "ready"
           ? `${readyToOrder.coveredLinesCount} ligne${readyToOrder.coveredLinesCount > 1 ? "s" : ""} sont deja commandables. Choisissez un chantier puis confirmez les brouillons.`
           : readyToOrder?.status === "blocked"
@@ -390,8 +390,8 @@ export function AffaireOrderDraftsPanel({
       </div>
 
       {loadError && !preparation ? (
-        <div className="mt-4 rounded-xl border border-[var(--danger-200)] bg-[var(--danger-50)] px-4 py-4">
-          <p className="text-sm font-medium text-[var(--danger-700)]">{loadError}</p>
+        <div className="mt-4 rounded-xl border border-danger-border bg-danger-subtle px-4 py-4">
+          <p className="text-sm font-medium text-danger">{loadError}</p>
           <button
             type="button"
             className="btn btn-secondary btn-sm mt-3"
@@ -401,19 +401,19 @@ export function AffaireOrderDraftsPanel({
           </button>
         </div>
       ) : isLoading && !preparation ? (
-        <div className="mt-4 rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-4">
-          <p className="text-sm font-medium text-[var(--slate-700)]">
+        <div className="mt-4 rounded-xl border border-border bg-surface-subtle px-4 py-4">
+          <p className="text-sm font-medium text-foreground-secondary">
             Preparation des brouillons fournisseurs...
           </p>
-          <p className="mt-1 text-sm text-[var(--slate-500)]">
+          <p className="mt-1 text-sm text-muted-foreground">
             TIMAX relit les lignes commandables et isole les exceptions avant creation.
           </p>
         </div>
       ) : preparation ? (
         <>
           {loadError ? (
-            <div className="mt-4 rounded-xl border border-[var(--warning-200)] bg-[var(--warning-50)]/70 px-4 py-4">
-              <p className="text-sm font-medium text-[var(--warning-800)]">{loadError}</p>
+            <div className="mt-4 rounded-xl border border-warning-border bg-warning-subtle/70 px-4 py-4">
+              <p className="text-sm font-medium text-warning">{loadError}</p>
               <button
                 type="button"
                 className="btn btn-secondary btn-sm mt-3"
@@ -425,13 +425,13 @@ export function AffaireOrderDraftsPanel({
           ) : null}
 
           {preparation.blockedLines.length > 0 ? (
-            <article className="mt-4 rounded-xl border border-[var(--warning-200)] bg-[var(--warning-50)]/70 p-4">
+            <article className="mt-4 rounded-xl border border-warning-border bg-warning-subtle/70 p-4">
               <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
                 <div>
-                  <p className="text-sm font-semibold text-[var(--slate-800)]">
+                  <p className="text-sm font-semibold text-slate-800">
                     A traiter avant la creation
                   </p>
-                  <p className="mt-1 text-sm text-[var(--slate-600)]">
+                  <p className="mt-1 text-sm text-slate-600">
                     {preparation.summary.blockedLines} ligne
                     {preparation.summary.blockedLines > 1 ? "s restent" : " reste"} hors
                     brouillon pour garder une creation fiable.
@@ -450,14 +450,14 @@ export function AffaireOrderDraftsPanel({
                 {blockedLinesPreview.map((line) => (
                   <div
                     key={line.itemId}
-                    className="rounded-xl border border-[var(--warning-200)] bg-white px-4 py-3"
+                    className="rounded-xl border border-warning-border bg-surface px-4 py-3"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="text-sm font-semibold text-[var(--slate-800)]">
+                        <p className="text-sm font-semibold text-slate-800">
                           {line.itemTitle}
                         </p>
-                        <p className="mt-1 text-sm text-[var(--slate-600)]">
+                        <p className="mt-1 text-sm text-slate-600">
                           {formatReasonLabel(line.reason)}
                         </p>
                       </div>
@@ -470,7 +470,7 @@ export function AffaireOrderDraftsPanel({
               </div>
 
               {preparation.blockedLines.length > MAX_BLOCKED_LINES ? (
-                <p className="mt-3 text-xs text-[var(--slate-500)]">
+                <p className="mt-3 text-xs text-muted-foreground">
                   {preparation.blockedLines.length - MAX_BLOCKED_LINES} autre
                   {preparation.blockedLines.length - MAX_BLOCKED_LINES > 1 ? "s" : ""} ligne
                   {preparation.blockedLines.length - MAX_BLOCKED_LINES > 1 ? "s restent" : " reste"} a
@@ -493,24 +493,24 @@ export function AffaireOrderDraftsPanel({
               </div>
             </article>
           ) : (
-            <article className="mt-4 rounded-xl border border-[var(--success-200)] bg-[var(--success-50)]/70 p-4">
-              <p className="text-sm font-semibold text-[var(--slate-800)]">
+            <article className="mt-4 rounded-xl border border-success-border bg-success-subtle/70 p-4">
+              <p className="text-sm font-semibold text-slate-800">
                 Aucune ligne bloquante
               </p>
-              <p className="mt-1 text-sm text-[var(--slate-600)]">
+              <p className="mt-1 text-sm text-slate-600">
                 La selection fournisseur actuelle suffit pour preparer les brouillons de commandes.
               </p>
             </article>
           )}
 
           {creationResult && creationResult.orders.length > 0 ? (
-            <article className="mt-4 rounded-xl border border-[var(--success-200)] bg-[var(--success-50)]/70 p-4">
+            <article className="mt-4 rounded-xl border border-success-border bg-success-subtle/70 p-4">
               <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
                 <div>
-                  <p className="text-sm font-semibold text-[var(--slate-800)]">
+                  <p className="text-sm font-semibold text-slate-800">
                     Brouillons crees
                   </p>
-                  <p className="mt-1 text-sm text-[var(--slate-600)]">
+                  <p className="mt-1 text-sm text-slate-600">
                     {creationResult.summary.draftOrdersCreated} brouillon
                     {creationResult.summary.draftOrdersCreated > 1 ? "s" : ""} cree
                     {creationResult.summary.draftOrdersCreated > 1 ? "s" : ""} pour{" "}
@@ -531,12 +531,12 @@ export function AffaireOrderDraftsPanel({
                 {creationResult.orders.map((order) => (
                   <div
                     key={order.purchaseOrderId}
-                    className="rounded-xl border border-[var(--success-200)] bg-white px-4 py-3"
+                    className="rounded-xl border border-success-border bg-surface px-4 py-3"
                   >
-                    <p className="text-sm font-semibold text-[var(--slate-800)]">
+                    <p className="text-sm font-semibold text-slate-800">
                       {order.supplierName}
                     </p>
-                    <p className="mt-1 text-sm text-[var(--slate-600)]">
+                    <p className="mt-1 text-sm text-slate-600">
                       {order.reference} · {order.itemCount} ligne
                       {order.itemCount > 1 ? "s" : ""} · {formatEUR(order.totalHtCents)}
                     </p>
@@ -561,13 +561,13 @@ export function AffaireOrderDraftsPanel({
           ) : null}
 
           {preparation.groups.length > 0 ? (
-            <article className="mt-4 rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)]/70 p-4">
+            <article className="mt-4 rounded-xl border border-border bg-surface-subtle/70 p-4">
               <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
                 <div>
-                  <p className="text-sm font-semibold text-[var(--slate-800)]">
+                  <p className="text-sm font-semibold text-slate-800">
                     Brouillons proposes
                   </p>
-                  <p className="mt-1 text-sm text-[var(--slate-600)]">
+                  <p className="mt-1 text-sm text-slate-600">
                     {preparation.summary.supplierGroups} regroupement
                     {preparation.summary.supplierGroups > 1 ? "s" : ""} fournisseur
                     {preparation.summary.supplierGroups > 1 ? "s" : ""} sont prets a etre
@@ -581,10 +581,10 @@ export function AffaireOrderDraftsPanel({
               </div>
 
               <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                <label className="flex flex-col gap-2 text-sm text-[var(--slate-700)]">
+                <label className="flex flex-col gap-2 text-sm text-foreground-secondary">
                   <span className="font-medium">Chantier de livraison</span>
                   <select
-                    className="rounded-xl border border-[var(--slate-300)] bg-white px-3 py-2"
+                    className="rounded-xl border border-border-strong bg-surface px-3 py-2"
                     value={deliverySiteId}
                     onChange={(event) => setDeliverySiteId(event.target.value)}
                   >
@@ -597,10 +597,10 @@ export function AffaireOrderDraftsPanel({
                   </select>
                 </label>
 
-                <label className="flex flex-col gap-2 text-sm text-[var(--slate-700)]">
+                <label className="flex flex-col gap-2 text-sm text-foreground-secondary">
                   <span className="font-medium">Livraison cible</span>
-                  <div className="rounded-xl border border-[var(--slate-300)] bg-white px-3 py-3">
-                    <label className="flex items-center gap-2 text-sm text-[var(--slate-700)]">
+                  <div className="rounded-xl border border-border-strong bg-surface px-3 py-3">
+                    <label className="flex items-center gap-2 text-sm text-foreground-secondary">
                       <input
                         type="checkbox"
                         className="h-4 w-4"
@@ -614,7 +614,7 @@ export function AffaireOrderDraftsPanel({
                     {expectedDeliveryDate !== "TBD" ? (
                       <input
                         type="date"
-                        className="mt-3 w-full rounded-xl border border-[var(--slate-300)] bg-white px-3 py-2"
+                        className="mt-3 w-full rounded-xl border border-border-strong bg-surface px-3 py-2"
                         value={expectedDeliveryDate}
                         onChange={(event) => setExpectedDeliveryDate(event.target.value)}
                       />
@@ -624,8 +624,8 @@ export function AffaireOrderDraftsPanel({
               </div>
 
               {selectedSite ? (
-                <div className="mt-3 rounded-xl border border-[var(--slate-200)] bg-white px-4 py-3 text-sm text-[var(--slate-600)]">
-                  <p className="font-medium text-[var(--slate-800)]">
+                <div className="mt-3 rounded-xl border border-border bg-surface px-4 py-3 text-sm text-slate-600">
+                  <p className="font-medium text-slate-800">
                     {formatSiteLabel(selectedSite)}
                   </p>
                   {selectedSite.address ? <p>{selectedSite.address}</p> : null}
@@ -645,10 +645,10 @@ export function AffaireOrderDraftsPanel({
                 </div>
               ) : null}
 
-              <label className="mt-3 flex flex-col gap-2 text-sm text-[var(--slate-700)]">
+              <label className="mt-3 flex flex-col gap-2 text-sm text-foreground-secondary">
                 <span className="font-medium">Note reprise sur chaque brouillon (optionnel)</span>
                 <textarea
-                  className="min-h-24 rounded-xl border border-[var(--slate-300)] bg-white px-3 py-2"
+                  className="min-h-24 rounded-xl border border-border-strong bg-surface px-3 py-2"
                   value={notes}
                   onChange={(event) => setNotes(event.target.value)}
                   placeholder="Exemple: livraison a planifier avec le chef de chantier."
@@ -663,8 +663,8 @@ export function AffaireOrderDraftsPanel({
                       key={group.groupKey}
                       className={`rounded-xl border px-4 py-4 ${
                         isSelected
-                          ? "border-[var(--brand-blue)] bg-white"
-                          : "border-[var(--slate-200)] bg-white/70"
+                          ? "border-primary bg-surface"
+                          : "border-border bg-surface/70"
                       }`}
                     >
                       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -676,10 +676,10 @@ export function AffaireOrderDraftsPanel({
                             onChange={() => handleToggleGroup(group.groupKey)}
                           />
                           <div>
-                            <p className="text-sm font-semibold text-[var(--slate-800)]">
+                            <p className="text-sm font-semibold text-slate-800">
                               {group.supplierName}
                             </p>
-                            <p className="mt-1 text-sm text-[var(--slate-600)]">
+                            <p className="mt-1 text-sm text-slate-600">
                               {group.lineCount} ligne{group.lineCount > 1 ? "s" : ""} ·{" "}
                               {formatEUR(group.totalHtCents)}
                             </p>
@@ -690,13 +690,13 @@ export function AffaireOrderDraftsPanel({
                         </Badge>
                       </div>
 
-                      <div className="mt-3 grid gap-2 text-sm text-[var(--slate-600)] lg:grid-cols-2">
+                      <div className="mt-3 grid gap-2 text-sm text-slate-600 lg:grid-cols-2">
                         {group.lines.slice(0, MAX_GROUP_LINES).map((line) => (
                           <div
                             key={line.itemId}
-                            className="rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-2"
+                            className="rounded-lg border border-border bg-surface-subtle px-3 py-2"
                           >
-                            <p className="font-medium text-[var(--slate-800)]">
+                            <p className="font-medium text-slate-800">
                               {line.itemTitle}
                             </p>
                             <p className="mt-1">
@@ -710,7 +710,7 @@ export function AffaireOrderDraftsPanel({
                       </div>
 
                       {group.lines.length > MAX_GROUP_LINES ? (
-                        <p className="mt-3 text-xs text-[var(--slate-500)]">
+                        <p className="mt-3 text-xs text-muted-foreground">
                           {group.lines.length - MAX_GROUP_LINES} autre
                           {group.lines.length - MAX_GROUP_LINES > 1 ? "s" : ""} ligne
                           {group.lines.length - MAX_GROUP_LINES > 1 ? "s sont" : " est"} incluse
@@ -723,7 +723,7 @@ export function AffaireOrderDraftsPanel({
               </div>
 
               {createError ? (
-                <p className="mt-4 text-sm font-medium text-[var(--danger-700)]" role="alert">
+                <p className="mt-4 text-sm font-medium text-danger" role="alert">
                   {createError}
                 </p>
               ) : null}
@@ -752,11 +752,11 @@ export function AffaireOrderDraftsPanel({
               </div>
             </article>
           ) : (
-            <article className="mt-4 rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-4">
-              <p className="text-sm font-semibold text-[var(--slate-800)]">
+            <article className="mt-4 rounded-xl border border-border bg-surface-subtle px-4 py-4">
+              <p className="text-sm font-semibold text-slate-800">
                 Aucun brouillon a creer pour l&apos;instant
               </p>
-              <p className="mt-1 text-sm text-[var(--slate-600)]">
+              <p className="mt-1 text-sm text-slate-600">
                 Tant qu&apos;aucun regroupement fournisseur stable n&apos;est propose, la
                 finish line commandes reste pilotee par correction.
               </p>

@@ -655,11 +655,11 @@ export function AssemblyEditorDialog({
         containerClassName="sm:max-w-6xl"
         className="max-h-[calc(100dvh-1rem)] overflow-y-auto p-0"
       >
-        <div className="sticky top-0 z-20 border-b border-[var(--slate-200)] bg-white px-4 py-3 sm:px-5">
+        <div className="sticky top-0 z-20 border-b border-border bg-surface px-4 py-3 sm:px-5">
           <Modal.Header className="mb-0">
             <div>
               <Modal.Title>{modalTitle}</Modal.Title>
-              <p className="mt-1 text-sm text-[var(--slate-500)]">
+              <p className="mt-1 text-sm text-muted-foreground">
                 Définissez les composants, leurs coûts et le temps de main-d’œuvre.
               </p>
             </div>
@@ -720,30 +720,30 @@ export function AssemblyEditorDialog({
             </div>
           </div>
 
-          <div className="grid gap-2 rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-2 sm:grid-cols-3">
+          <div className="grid gap-2 rounded-xl border border-border bg-surface-subtle px-3 py-2 sm:grid-cols-3">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Coût direct estimé
               </p>
-              <p className="text-base font-semibold text-[var(--slate-900)]">
+              <p className="text-base font-semibold text-foreground">
                 {formatEUR(directCostCents)}
               </p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Temps MO total
               </p>
-              <p className="text-base font-semibold text-[var(--slate-900)]">
+              <p className="text-base font-semibold text-foreground">
                 {new Intl.NumberFormat("fr-FR", {
                   maximumFractionDigits: 2,
                 }).format(laborHours)} h
               </p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Contenu
               </p>
-              <p className="text-base font-semibold text-[var(--slate-900)]">
+              <p className="text-base font-semibold text-foreground">
                 {items.length} ligne(s) · {members.length} sous-ouvrage(s)
               </p>
             </div>
@@ -751,11 +751,11 @@ export function AssemblyEditorDialog({
 
           <div
             data-testid="assembly-items-grid"
-            className="overflow-x-auto rounded-xl border border-[var(--slate-200)] bg-white"
+            className="overflow-x-auto rounded-xl border border-border bg-surface"
           >
             <div
               data-testid="assembly-items-header"
-              className="hidden min-w-[1100px] grid-cols-[minmax(240px,1fr)_90px_52px_72px_82px_96px_64px_72px_112px_64px_90px_64px] items-stretch gap-0 bg-[var(--slate-50)] p-0 text-[11px] font-semibold uppercase tracking-wide text-[var(--slate-500)] lg:grid lg:[&>span]:flex lg:[&>span]:h-10 lg:[&>span]:items-center lg:[&>span]:border-r lg:[&>span]:border-[var(--slate-200)] lg:[&>span]:px-2 lg:[&>span:last-child]:border-r-0"
+              className="hidden min-w-[1100px] grid-cols-[minmax(240px,1fr)_90px_52px_72px_82px_96px_64px_72px_112px_64px_90px_64px] items-stretch gap-0 bg-surface-subtle p-0 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground lg:grid lg:[&>span]:flex lg:[&>span]:h-10 lg:[&>span]:items-center lg:[&>span]:border-r lg:[&>span]:border-border lg:[&>span]:px-2 lg:[&>span:last-child]:border-r-0"
             >
               <span>Désignation</span>
               <span>Type</span>
@@ -783,7 +783,7 @@ export function AssemblyEditorDialog({
               <span aria-hidden="true" />
             </div>
 
-            <div className="divide-y divide-[var(--slate-200)]">
+            <div className="divide-y divide-border">
               {items.map((item, index) => {
                 const rowPrefix = `assembly-item-${index}`;
                 const isLabor = item.costType === "labor";
@@ -799,12 +799,12 @@ export function AssemblyEditorDialog({
                   <section
                     key={item.key}
                     data-testid="assembly-item-row"
-                    className="grid gap-3 bg-white p-3 sm:grid-cols-2 lg:min-w-[1100px] lg:grid-cols-[minmax(240px,1fr)_90px_52px_72px_82px_96px_64px_72px_112px_64px_90px_64px] lg:items-stretch lg:gap-0 lg:p-0 lg:[&>div]:min-w-0 lg:[&>div]:border-r lg:[&>div]:border-[var(--slate-200)]"
+                    className="grid gap-3 bg-surface p-3 sm:grid-cols-2 lg:min-w-[1100px] lg:grid-cols-[minmax(240px,1fr)_90px_52px_72px_82px_96px_64px_72px_112px_64px_90px_64px] lg:items-stretch lg:gap-0 lg:p-0 lg:[&>div]:min-w-0 lg:[&>div]:border-r lg:[&>div]:border-border"
                     aria-labelledby={`${rowPrefix}-title`}
                   >
                     <h3
                       id={`${rowPrefix}-title`}
-                      className="col-span-full text-sm font-semibold text-[var(--slate-800)] lg:sr-only"
+                      className="col-span-full text-sm font-semibold text-slate-800 lg:sr-only"
                     >
                       Ligne {index + 1}
                     </h3>
@@ -1032,7 +1032,7 @@ export function AssemblyEditorDialog({
                       <span className="form-label mb-1 text-xs lg:sr-only">
                         Coût direct de la ligne
                       </span>
-                      <output className="flex h-9 items-center justify-end whitespace-nowrap rounded-lg bg-[var(--slate-50)] px-2 text-right text-[13px] font-semibold tabular-nums text-[var(--slate-800)] ring-1 ring-inset ring-[var(--slate-200)] lg:h-10 lg:rounded-none lg:ring-0">
+                      <output className="flex h-9 items-center justify-end whitespace-nowrap rounded-lg bg-surface-subtle px-2 text-right text-[13px] font-semibold tabular-nums text-slate-800 ring-1 ring-inset ring-slate-200 lg:h-10 lg:rounded-none lg:ring-0">
                         {formatEUR(computeDraftDirectCost(item, laborRoles))}
                       </output>
                     </div>
@@ -1062,13 +1062,13 @@ export function AssemblyEditorDialog({
             </button>
           </div>
 
-          <section className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-3">
+          <section className="rounded-xl border border-border bg-surface-subtle p-3">
             <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h3 className="text-sm font-semibold text-[var(--slate-900)]">
+                <h3 className="text-sm font-semibold text-foreground">
                   Sous-ouvrages
                 </h3>
-                <p className="mt-0.5 text-xs text-[var(--slate-500)]">
+                <p className="mt-0.5 text-xs text-muted-foreground">
                   Références vivantes dans la bibliothèque, limitées à deux niveaux.
                 </p>
               </div>
@@ -1083,7 +1083,7 @@ export function AssemblyEditorDialog({
             </div>
 
             {members.length === 0 ? (
-              <p className="rounded-lg border border-dashed border-[var(--slate-300)] bg-white px-3 py-4 text-sm text-[var(--slate-500)]">
+              <p className="rounded-lg border border-dashed border-border-strong bg-surface px-3 py-4 text-sm text-muted-foreground">
                 Aucun sous-ouvrage. Vous pouvez composer cet ouvrage à partir
                 d&apos;ouvrages existants de la bibliothèque.
               </p>
@@ -1110,7 +1110,7 @@ export function AssemblyEditorDialog({
                   return (
                     <div
                       key={member.key}
-                      className="grid gap-2 rounded-lg border border-[var(--slate-200)] bg-white p-3 md:grid-cols-[minmax(240px,1fr)_120px_140px_auto] md:items-end"
+                      className="grid gap-2 rounded-lg border border-border bg-surface p-3 md:grid-cols-[minmax(240px,1fr)_120px_140px_auto] md:items-end"
                     >
                       <div>
                         <label
@@ -1181,7 +1181,7 @@ export function AssemblyEditorDialog({
                       </div>
                       <div>
                         <span className="form-label">Coût intégré</span>
-                        <output className="flex h-10 items-center justify-end rounded-lg bg-[var(--slate-50)] px-3 font-semibold tabular-nums text-[var(--slate-800)] ring-1 ring-inset ring-[var(--slate-200)]">
+                        <output className="flex h-10 items-center justify-end rounded-lg bg-surface-subtle px-3 font-semibold tabular-nums text-slate-800 ring-1 ring-inset ring-slate-200">
                           {formatEUR(memberCost)}
                         </output>
                       </div>
@@ -1208,7 +1208,7 @@ export function AssemblyEditorDialog({
             </div>
           ) : null}
 
-          <Modal.Footer className="sticky bottom-0 -mx-4 -mb-4 border-t border-[var(--slate-200)] bg-white px-4 py-3 sm:-mx-5 sm:-mb-5 sm:px-5">
+          <Modal.Footer className="sticky bottom-0 -mx-4 -mb-4 border-t border-border bg-surface px-4 py-3 sm:-mx-5 sm:-mb-5 sm:px-5">
             <button
               type="button"
               className="btn btn-secondary"

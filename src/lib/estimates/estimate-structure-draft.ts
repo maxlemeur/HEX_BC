@@ -123,9 +123,9 @@ export function actionBadgeClass(action: EstimateStructureDraftNodeAction) {
     case "merge":
       return "bg-amber-50 text-amber-800 border-amber-200";
     case "skip":
-      return "bg-slate-100 text-slate-600 border-slate-200";
+      return "bg-muted text-slate-600 border-border";
     default:
-      return "bg-slate-100 text-slate-600 border-slate-200";
+      return "bg-muted text-slate-600 border-border";
   }
 }
 

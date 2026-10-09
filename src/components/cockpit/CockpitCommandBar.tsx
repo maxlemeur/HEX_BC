@@ -92,12 +92,12 @@ function ManageRow({
   onTogglePinned: (actionId: string, isPinned: boolean) => void;
 }) {
   return (
-    <div className="rounded px-2 py-2 hover:bg-slate-50">
-      <div className="flex items-center gap-2 text-sm text-[var(--slate-700)]">
-        <span className="shrink-0 text-[var(--slate-500)]">{INTENT_ICONS[suggestion.intent]}</span>
+    <div className="rounded px-2 py-2 hover:bg-surface-subtle">
+      <div className="flex items-center gap-2 text-sm text-foreground-secondary">
+        <span className="shrink-0 text-muted-foreground">{INTENT_ICONS[suggestion.intent]}</span>
         <span className="min-w-0 flex-1 truncate">{suggestion.label}</span>
       </div>
-      <div className="mt-2 flex items-center gap-4 text-xs text-[var(--slate-500)]">
+      <div className="mt-2 flex items-center gap-4 text-xs text-muted-foreground">
         <label className="flex cursor-pointer items-center gap-2">
           <input
             type="checkbox"
@@ -192,7 +192,7 @@ export function CockpitCommandBar({
         >
           {INTENT_ICONS[suggestion.intent]}
           {suggestion.label}
-          {suggestion.isPinned ? <span className="text-[10px] uppercase text-[var(--brand-blue)]">Pin</span> : null}
+          {suggestion.isPinned ? <span className="text-[10px] uppercase text-primary">Pin</span> : null}
         </button>
       ))}
 
@@ -214,12 +214,12 @@ export function CockpitCommandBar({
             +{overflowSuggestions.length} autre{overflowSuggestions.length !== 1 ? "s" : ""}
           </button>
           {showOverflowMenu ? (
-            <div className="absolute left-0 top-full z-20 mt-1 min-w-[280px] rounded-lg border border-slate-200 bg-surface p-2 shadow-lg">
+            <div className="absolute left-0 top-full z-20 mt-1 min-w-[280px] rounded-lg border border-border bg-surface p-2 shadow-lg">
               {overflowSuggestions.map((suggestion) => (
                 <button
                   key={suggestion.actionId}
                   type="button"
-                  className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-sm hover:bg-slate-50"
+                  className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-sm hover:bg-surface-subtle"
                   onClick={() => {
                     setShowOverflowMenu(false);
                     onExecute(suggestion);
@@ -227,7 +227,7 @@ export function CockpitCommandBar({
                 >
                   {INTENT_ICONS[suggestion.intent]}
                   <span className="flex-1">{suggestion.label}</span>
-                  {suggestion.isPinned ? <span className="text-[10px] uppercase text-[var(--brand-blue)]">Pin</span> : null}
+                  {suggestion.isPinned ? <span className="text-[10px] uppercase text-primary">Pin</span> : null}
                 </button>
               ))}
             </div>
@@ -238,7 +238,7 @@ export function CockpitCommandBar({
       <div className="relative inline-block">
         <button
           type="button"
-          className="text-xs text-slate-500 underline hover:text-slate-700"
+          className="text-xs text-muted-foreground underline hover:text-foreground-secondary"
           aria-expanded={showManageMenu}
           onClick={() => {
             setShowManageMenu((current) => !current);
@@ -248,7 +248,7 @@ export function CockpitCommandBar({
           Gerer
         </button>
         {showManageMenu ? (
-          <div className="absolute right-0 top-full z-20 mt-1 min-w-[320px] rounded-lg border border-slate-200 bg-surface p-2 shadow-lg">
+          <div className="absolute right-0 top-full z-20 mt-1 min-w-[320px] rounded-lg border border-border bg-surface p-2 shadow-lg">
             {suggestions.map((suggestion) => (
               <ManageRow
                 key={suggestion.actionId}
@@ -262,7 +262,7 @@ export function CockpitCommandBar({
       </div>
 
       {!hasVisibleSuggestions ? (
-        <span className="text-xs text-[var(--slate-500)]">
+        <span className="text-xs text-muted-foreground">
           Toutes les actions sont masquees.
         </span>
       ) : null}

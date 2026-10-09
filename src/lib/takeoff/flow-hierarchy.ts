@@ -20,7 +20,7 @@ export function resolvePlanSetFlowDescriptor(
       summary:
         "Jeu rattache a une version de devis historique. A conserver comme recours explicite, pas comme voie par defaut.",
       badgeClassName:
-        "bg-[var(--warning)]/10 text-[var(--warning)] ring-1 ring-[var(--warning)]/20",
+        "bg-warning/10 text-warning ring-1 ring-warning/20",
     };
   }
 
@@ -30,7 +30,7 @@ export function resolvePlanSetFlowDescriptor(
     summary:
       "Jeu gere au niveau de l'affaire. C'est la voie par defaut pour lancer et reprendre le metre.",
     badgeClassName:
-      "bg-[var(--success)]/10 text-[var(--success)] ring-1 ring-[var(--success)]/20",
+      "bg-success/10 text-success ring-1 ring-success/20",
   };
 }
 

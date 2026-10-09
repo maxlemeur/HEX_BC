@@ -54,7 +54,7 @@ export function TakeoffDeprecationBanner({
             <strong>Cette vue reste un fallback legacy.</strong> {resolvedDescription}
           </p>
         </div>
-        <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--slate-500)]">
+        <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
           {resolvedProvenanceLabel}
         </p>
       </div>

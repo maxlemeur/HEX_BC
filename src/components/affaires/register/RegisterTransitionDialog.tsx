@@ -54,11 +54,11 @@ export function RegisterTransitionDialog({
           <div>
             <h3
               id="affaire-register-transition-title"
-              className="text-lg font-semibold text-[var(--slate-800)]"
+              className="text-lg font-semibold text-slate-800"
             >
               {prompt.title}
             </h3>
-            <p className="mt-1 text-sm text-[var(--slate-500)]">
+            <p className="mt-1 text-sm text-muted-foreground">
               {prompt.description}
             </p>
           </div>
@@ -72,38 +72,38 @@ export function RegisterTransitionDialog({
           </button>
         </div>
 
-        <div className="mt-4 rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+        <div className="mt-4 rounded-xl border border-border bg-surface-subtle px-4 py-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Entree concernee
           </p>
-          <p className="mt-2 text-sm font-medium text-[var(--slate-800)]">
+          <p className="mt-2 text-sm font-medium text-slate-800">
             {pendingTransition.entry.text}
           </p>
-          <p className="mt-1 text-xs text-[var(--slate-500)]">
+          <p className="mt-1 text-xs text-muted-foreground">
             {pendingTransition.entry.scopeLabel} ·{" "}
             {AFFAIRE_REGISTER_STATUS_LABELS[pendingTransition.entry.status]}
           </p>
-          <div className="mt-3 inline-flex rounded-full border border-[var(--slate-200)] bg-white px-2.5 py-1 text-xs font-medium text-[var(--slate-600)]">
+          <div className="mt-3 inline-flex rounded-full border border-border bg-surface px-2.5 py-1 text-xs font-medium text-slate-600">
             {prompt.changeLabel}
           </div>
         </div>
 
-        <div className="mt-4 rounded-xl border border-[var(--brand-blue)]/15 bg-[var(--brand-blue)]/5 px-4 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--brand-blue)]">
+        <div className="mt-4 rounded-xl border border-primary/15 bg-primary/5 px-4 py-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-primary">
             {prompt.impactTitle}
           </p>
-          <div className="mt-2 space-y-1.5 text-sm text-[var(--slate-700)]">
+          <div className="mt-2 space-y-1.5 text-sm text-foreground-secondary">
             {prompt.impactItems.map((item) => (
               <p key={item}>{item}</p>
             ))}
           </div>
         </div>
 
-        <label className="mt-4 flex flex-col gap-1 text-xs text-[var(--slate-600)]">
+        <label className="mt-4 flex flex-col gap-1 text-xs text-slate-600">
           {prompt.commentLabel}
           <textarea
             rows={4}
-            className="min-h-[44px] rounded-lg border border-[var(--slate-200)] bg-white px-2.5 py-1.5 text-xs text-[var(--slate-700)] sm:min-h-0"
+            className="min-h-[44px] rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-foreground-secondary sm:min-h-0"
             value={transitionComment}
             onChange={(event) => onChangeComment(event.target.value)}
             placeholder={prompt.commentPlaceholder}
@@ -111,11 +111,11 @@ export function RegisterTransitionDialog({
         </label>
 
         {pendingTransition.kind === "request_revalidation" ? (
-          <div className="mt-4 grid gap-4 rounded-xl border border-[var(--danger)]/15 bg-[var(--danger)]/5 px-4 py-4">
-            <label className="flex flex-col gap-1 text-xs text-[var(--slate-600)]">
+          <div className="mt-4 grid gap-4 rounded-xl border border-danger/15 bg-danger/5 px-4 py-4">
+            <label className="flex flex-col gap-1 text-xs text-slate-600">
               Cause de revalidation
               <select
-                className="min-h-[44px] rounded-lg border border-[var(--slate-200)] bg-white px-2.5 py-1.5 text-sm text-[var(--slate-700)]"
+                className="min-h-[44px] rounded-lg border border-border bg-surface px-2.5 py-1.5 text-sm text-foreground-secondary"
                 value={revalidationForm.cause}
                 onChange={(event) =>
                   onChangeRevalidationCause(
@@ -133,10 +133,10 @@ export function RegisterTransitionDialog({
               </select>
             </label>
 
-            <label className="flex flex-col gap-1 text-xs text-[var(--slate-600)]">
+            <label className="flex flex-col gap-1 text-xs text-slate-600">
               Piece ou additif declenchant (facultatif)
               <input
-                className="min-h-[44px] rounded-lg border border-[var(--slate-200)] bg-white px-2.5 py-1.5 text-sm text-[var(--slate-700)]"
+                className="min-h-[44px] rounded-lg border border-border bg-surface px-2.5 py-1.5 text-sm text-foreground-secondary"
                 value={revalidationForm.triggerFileName}
                 onChange={(event) =>
                   onChangeRevalidationTriggerFileName(event.target.value)
@@ -145,18 +145,18 @@ export function RegisterTransitionDialog({
               />
             </label>
 
-            <fieldset className="grid gap-2 text-xs text-[var(--slate-600)]">
-              <legend className="text-xs font-medium text-[var(--slate-700)]">
+            <fieldset className="grid gap-2 text-xs text-slate-600">
+              <legend className="text-xs font-medium text-foreground-secondary">
                 Etapes impactees a relancer
               </legend>
-              <p className="text-[11px] text-[var(--slate-500)]">
+              <p className="text-[11px] text-muted-foreground">
                 Ciblez uniquement les etapes reellement rouvertes.
               </p>
               {Object.entries(AFFAIRE_REGISTER_REVALIDATION_IMPACTED_STAGE_LABELS).map(
                 ([value, label]) => (
                   <label
                     key={value}
-                    className="flex items-center gap-2 rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2 text-sm text-[var(--slate-700)]"
+                    className="flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground-secondary"
                   >
                     <input
                       type="checkbox"

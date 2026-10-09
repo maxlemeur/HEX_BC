@@ -217,7 +217,7 @@ function Content({
               aria-labelledby={titleId}
               tabIndex={-1}
               className={cn(
-                "rounded-[18px] border border-slate-200 bg-surface p-6 shadow-modal",
+                "rounded-[18px] border border-border bg-surface p-6 shadow-modal",
                 className
               )}
               onMouseDown={(event) => {
@@ -311,7 +311,7 @@ function Close({
       type={type}
       className={cn(
         "font-body inline-flex h-11 min-w-11 items-center justify-center rounded-button-sm px-3 text-sm font-medium sm:h-8 sm:min-w-8",
-        "text-slate-600 transition hover:bg-slate-100 hover:text-slate-900",
+        "text-slate-600 transition hover:bg-muted hover:text-foreground",
         className
       )}
       onClick={(event) => {

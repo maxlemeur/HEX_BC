@@ -24,20 +24,20 @@ export function RegisterSummaryCards({
   return (
     <div className="mt-3 space-y-2">
       <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
-        <article className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-2">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+        <article className="rounded-xl border border-border bg-surface-subtle px-3 py-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             Points ouverts
           </p>
-          <p className="mt-1 text-xl font-semibold text-[var(--slate-900)]">
+          <p className="mt-1 text-xl font-semibold text-foreground">
             {summary.openQuestionsCount}
           </p>
-          <p className="mt-1 text-xs text-[var(--slate-500)]">
+          <p className="mt-1 text-xs text-muted-foreground">
             {itemCount} visible{itemCount > 1 ? "s" : ""}
           </p>
         </article>
         <button
           type="button"
-          className="rounded-xl border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-3 py-2 text-left transition-colors hover:bg-[var(--danger)]/10"
+          className="rounded-xl border border-danger/20 bg-danger/5 px-3 py-2 text-left transition-colors hover:bg-danger/10"
           onClick={() =>
             onApplyFilters({
               status: "open",
@@ -47,26 +47,26 @@ export function RegisterSummaryCards({
             })
           }
         >
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--danger)]">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-danger">
             Critiques
           </p>
-          <p className="mt-1 text-xl font-semibold text-[var(--slate-900)]">
+          <p className="mt-1 text-xl font-semibold text-foreground">
             {summary.criticalOpenCount}
           </p>
-          <p className="mt-1 text-xs text-[var(--slate-500)]">Bloquant validation</p>
+          <p className="mt-1 text-xs text-muted-foreground">Bloquant validation</p>
         </button>
-        <article className="rounded-xl border border-[var(--warning)]/20 bg-[var(--warning)]/5 px-3 py-2">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--warning)]">
+        <article className="rounded-xl border border-warning/20 bg-warning/5 px-3 py-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-warning">
             Non-critiques
           </p>
-          <p className="mt-1 text-xl font-semibold text-[var(--slate-900)]">
+          <p className="mt-1 text-xl font-semibold text-foreground">
             {summary.nonCriticalOpenCount}
           </p>
-          <p className="mt-1 text-xs text-[var(--slate-500)]">Actifs, non bloquants</p>
+          <p className="mt-1 text-xs text-muted-foreground">Actifs, non bloquants</p>
         </article>
         <button
           type="button"
-          className="rounded-xl border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 px-3 py-2 text-left transition-colors hover:bg-[var(--brand-blue)]/10"
+          className="rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-left transition-colors hover:bg-primary/10"
           onClick={() =>
             onApplyFilters({
               status: "clarify_with_client",
@@ -76,13 +76,13 @@ export function RegisterSummaryCards({
             })
           }
         >
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-blue)]">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">
             Clarif. client
           </p>
-          <p className="mt-1 text-xl font-semibold text-[var(--slate-900)]">
+          <p className="mt-1 text-xl font-semibold text-foreground">
             {summary.clarifyWithClientCount}
           </p>
-          <p className="mt-1 text-xs text-[var(--slate-500)]">Bloque envoi client</p>
+          <p className="mt-1 text-xs text-muted-foreground">Bloque envoi client</p>
         </button>
       </div>
 
@@ -91,7 +91,7 @@ export function RegisterSummaryCards({
           {summary.openAssumptionCount > 0 ? (
             <button
               type="button"
-              className="rounded-xl border border-[var(--warning)]/20 bg-white px-3 py-2 text-left transition-colors hover:bg-[var(--warning)]/5"
+              className="rounded-xl border border-warning/20 bg-surface px-3 py-2 text-left transition-colors hover:bg-warning/5"
               onClick={() =>
                 onApplyFilters({
                   status: "open",
@@ -101,13 +101,13 @@ export function RegisterSummaryCards({
                 })
               }
             >
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--warning)]">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-warning">
                 Hypotheses ouvertes
               </p>
-              <p className="mt-1 text-lg font-semibold text-[var(--slate-900)]">
+              <p className="mt-1 text-lg font-semibold text-foreground">
                 {summary.openAssumptionCount}
               </p>
-              <p className="mt-1 text-xs text-[var(--slate-500)]">
+              <p className="mt-1 text-xs text-muted-foreground">
                 Traces de continuation et points a confirmer
               </p>
             </button>
@@ -116,7 +116,7 @@ export function RegisterSummaryCards({
           {summary.openMissingPieceCount > 0 ? (
             <button
               type="button"
-              className="rounded-xl border border-[var(--danger)]/20 bg-white px-3 py-2 text-left transition-colors hover:bg-[var(--danger)]/5"
+              className="rounded-xl border border-danger/20 bg-surface px-3 py-2 text-left transition-colors hover:bg-danger/5"
               onClick={() =>
                 onApplyFilters({
                   status: "open",
@@ -126,13 +126,13 @@ export function RegisterSummaryCards({
                 })
               }
             >
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--danger)]">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-danger">
                 Pieces manquantes suivies
               </p>
-              <p className="mt-1 text-lg font-semibold text-[var(--slate-900)]">
+              <p className="mt-1 text-lg font-semibold text-foreground">
                 {summary.openMissingPieceCount}
               </p>
-              <p className="mt-1 text-xs text-[var(--slate-500)]">
+              <p className="mt-1 text-xs text-muted-foreground">
                 Manques traces dans le registre pour la suite du dossier
               </p>
             </button>

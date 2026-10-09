@@ -26,9 +26,9 @@ const HELP_TONE_STYLES: Record<
   { card: string; heading: string; badge: string }
 > = {
   general: {
-    card: "border-slate-200 bg-white",
-    heading: "text-slate-700",
-    badge: "bg-slate-100 text-slate-600",
+    card: "border-border bg-surface",
+    heading: "text-foreground-secondary",
+    badge: "bg-muted text-slate-600",
   },
   supply: {
     card: "border-blue-200 bg-blue-50/60",
@@ -173,7 +173,7 @@ export function EstimateColumnsHelpPanel() {
   return (
     <>
       <button
-        className="inline-flex h-6 items-center justify-center rounded-md border border-slate-200 bg-white px-2 text-[10px] font-semibold normal-case tracking-normal text-slate-600 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
+        className="inline-flex h-6 items-center justify-center rounded-md border border-border bg-surface px-2 text-[10px] font-semibold normal-case tracking-normal text-slate-600 shadow-sm transition-colors hover:border-border-strong hover:bg-surface-subtle hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
         type="button"
         aria-expanded={open}
         aria-haspopup="dialog"
@@ -189,7 +189,7 @@ export function EstimateColumnsHelpPanel() {
           containerClassName="ml-auto h-full sm:max-w-xl"
           data-testid="estimate-columns-help-panel"
         >
-          <Modal.Header className="mb-0 shrink-0 border-b border-slate-200 bg-white px-5 py-5 sm:px-6">
+          <Modal.Header className="mb-0 shrink-0 border-b border-border bg-surface px-5 py-5 sm:px-6">
             <div className="min-w-0">
               <p className="text-xs font-semibold uppercase tracking-[0.14em] text-violet-600">
                 Guide du chiffrage
@@ -207,7 +207,7 @@ export function EstimateColumnsHelpPanel() {
             </Modal.Close>
           </Modal.Header>
 
-          <Modal.Body className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-slate-50 px-5 py-5 sm:px-6">
+          <Modal.Body className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-surface-subtle px-5 py-5 sm:px-6">
             {HELP_SECTIONS.map((section) => {
               const tone = HELP_TONE_STYLES[section.tone];
 
@@ -223,13 +223,13 @@ export function EstimateColumnsHelpPanel() {
                   >
                     {section.title}
                   </h3>
-                  <dl className="mt-3 divide-y divide-slate-200/80">
+                  <dl className="mt-3 divide-y divide-border/80">
                     {section.items.map((item) => (
                       <div
                         className="grid gap-1 py-3 first:pt-0 last:pb-0 sm:grid-cols-[136px_minmax(0,1fr)] sm:gap-3"
                         key={item.label}
                       >
-                        <dt className="flex flex-wrap items-start gap-1.5 font-semibold text-slate-900">
+                        <dt className="flex flex-wrap items-start gap-1.5 font-semibold text-foreground">
                           <span>{item.label}</span>
                           <span
                             className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${tone.badge}`}
@@ -244,7 +244,7 @@ export function EstimateColumnsHelpPanel() {
                     ))}
                   </dl>
                   {section.note ? (
-                    <p className="mt-3 border-t border-slate-200/80 pt-3 text-xs leading-5 text-slate-500">
+                    <p className="mt-3 border-t border-border/80 pt-3 text-xs leading-5 text-muted-foreground">
                       {section.note}
                     </p>
                   ) : null}

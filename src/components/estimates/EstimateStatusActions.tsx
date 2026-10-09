@@ -175,7 +175,7 @@ export function EstimateStatusActions({
     <>
       {emailDispatchProblem ? (
         <div
-          className="mt-2 rounded-md border border-[var(--warn,#b45309)]/30 bg-[var(--warn-bg,#fffbeb)] px-2.5 py-2 text-xs text-[var(--slate-700)]"
+          className="mt-2 rounded-md border border-[var(--warn,#b45309)]/30 bg-[var(--warn-bg,#fffbeb)] px-2.5 py-2 text-xs text-foreground-secondary"
           data-testid="estimate-email-dispatch-problem"
         >
           <p>
@@ -190,7 +190,7 @@ export function EstimateStatusActions({
           <div className="mt-2 flex flex-wrap gap-2">
             <button
               type="button"
-              className="rounded-md border border-[var(--brand-blue)] bg-[var(--brand-blue)] px-2 py-1 text-xs font-medium text-white"
+              className="rounded-md border border-primary bg-primary px-2 py-1 text-xs font-medium text-white"
               disabled={isPending}
               onClick={() => setSendModalOpen(true)}
             >
@@ -200,7 +200,7 @@ export function EstimateStatusActions({
               <>
                 <input
                   type="text"
-                  className="w-56 rounded-md border border-[var(--slate-200)] bg-white px-2 py-1 text-xs text-[var(--slate-700)]"
+                  className="w-56 rounded-md border border-border bg-surface px-2 py-1 text-xs text-foreground-secondary"
                   placeholder="Identifiant du message fournisseur"
                   aria-label="Identifiant du message chez le fournisseur email"
                   value={providerMessageId}
@@ -209,7 +209,7 @@ export function EstimateStatusActions({
                 />
                 <button
                   type="button"
-                  className="rounded-md border border-[var(--slate-200)] bg-white px-2 py-1 text-xs font-medium text-[var(--slate-600)] disabled:opacity-50"
+                  className="rounded-md border border-border bg-surface px-2 py-1 text-xs font-medium text-slate-600 disabled:opacity-50"
                   disabled={isPending || providerMessageId.trim().length === 0}
                   onClick={() => void handleMarkEmailSent()}
                 >
@@ -224,7 +224,7 @@ export function EstimateStatusActions({
         {showEmailButton && (
           <button
             type="button"
-            className="inline-flex items-center gap-1.5 rounded-md border border-[var(--brand-blue)] bg-[var(--brand-blue)] px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-[var(--brand-blue)]/90 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-md border border-primary bg-primary px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
             disabled={isPending}
             onClick={() => setSendModalOpen(true)}
           >
@@ -240,19 +240,19 @@ export function EstimateStatusActions({
           <button
             key={transition.nextStatus}
             type="button"
-            className="inline-flex items-center gap-1.5 rounded-md border border-[var(--slate-200)] bg-white px-2.5 py-1 text-xs font-medium text-[var(--slate-600)] transition-colors hover:bg-[var(--slate-50)] disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-xs font-medium text-slate-600 transition-colors hover:bg-surface-subtle disabled:opacity-50"
             disabled={isPending}
             onClick={() => void handleStatusChange(transition.nextStatus)}
           >
             {isPending ? (
-              <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-[var(--slate-300)] border-t-[var(--slate-600)]" />
+              <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-border-strong border-t-slate-600" />
             ) : null}
             {transition.label}
           </button>
         ))}
       </div>
       {error && (
-        <p className="mt-2 text-xs text-[var(--error)]" role="alert">
+        <p className="mt-2 text-xs text-danger" role="alert">
           {error}
         </p>
       )}

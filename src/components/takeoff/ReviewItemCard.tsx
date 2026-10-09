@@ -142,12 +142,12 @@ export function ReviewItemCard({
 
   // Card style by state
   const cardClass = isMarkedForReview
-    ? "border-l-4 border-l-[var(--warning)] bg-amber-50/50"
+    ? "border-l-4 border-l-warning bg-amber-50/50"
     : isAccepted
-      ? "border-l-4 border-l-[var(--success)] bg-emerald-50/50"
+      ? "border-l-4 border-l-success bg-emerald-50/50"
       : isRejected
-        ? "border-l-4 border-l-[var(--danger)] bg-rose-50/50 opacity-70"
-        : "border border-[var(--border)] bg-white";
+        ? "border-l-4 border-l-danger bg-rose-50/50 opacity-70"
+        : "border border-border bg-surface";
 
   // Source reference
   const sourceRef = item.source_file_name
@@ -180,7 +180,7 @@ export function ReviewItemCard({
         {/* Header row: designation + confidence + anomaly */}
         <div className="mb-2 flex items-start gap-2">
           <p
-            className={`min-w-0 flex-1 text-sm font-medium text-[var(--slate-800)] ${
+            className={`min-w-0 flex-1 text-sm font-medium text-slate-800 ${
               isRejected ? "line-through" : ""
             }`}
           >
@@ -194,7 +194,7 @@ export function ReviewItemCard({
                   .map((a) => ANOMALY_LABELS[a])
                   .join(", ")}
               >
-                <WarningIcon className="h-4 w-4 text-[var(--warning)]" />
+                <WarningIcon className="h-4 w-4 text-warning" />
               </span>
             )}
             <Badge variant={badgeVariant} size="sm">
@@ -204,13 +204,13 @@ export function ReviewItemCard({
         </div>
 
         {/* Details row: quantity + unit + source */}
-        <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--slate-600)]">
+        <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-600">
           <span>
             <span className="font-medium">{item.quantity}</span>{" "}
             {item.unit}
           </span>
           {sourceRef && (
-            <span className="text-[var(--slate-400)]">{sourceRef}</span>
+            <span className="text-subtle-foreground">{sourceRef}</span>
           )}
         </div>
 

@@ -54,19 +54,19 @@ export function TakeoffApplyWizardPreviewStep({
 }) {
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4">
+      <div className="rounded-xl border border-border bg-surface-subtle p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--slate-500)]">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
               Preview d&apos;impact
             </p>
-            <p className="mt-2 text-sm font-semibold text-[var(--slate-800)]">
+            <p className="mt-2 text-sm font-semibold text-slate-800">
               {strategyLabel(strategy)}
             </p>
-            <p className="mt-1 text-sm text-[var(--slate-600)]">
+            <p className="mt-1 text-sm text-slate-600">
               {strategyDescription(strategy)}
             </p>
-            <p className="mt-1 text-xs text-[var(--slate-500)]">
+            <p className="mt-1 text-xs text-muted-foreground">
               {strategyCaution(strategy)}
             </p>
           </div>
@@ -81,7 +81,7 @@ export function TakeoffApplyWizardPreviewStep({
         </div>
       </div>
 
-      <div className="flex items-center justify-between rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-3 text-xs text-[var(--slate-700)]">
+      <div className="flex items-center justify-between rounded-xl border border-border bg-surface-subtle p-3 text-xs text-foreground-secondary">
         <div className="flex flex-wrap items-center gap-4">
           <span>
             Items retenus: <strong>{previewData?.summary.included_count ?? includedCount}</strong>
@@ -137,17 +137,17 @@ export function TakeoffApplyWizardPreviewStep({
             />
           </div>
 
-          <div className="rounded-xl border border-[var(--slate-200)] bg-white p-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--slate-500)]">
+          <div className="rounded-xl border border-border bg-surface p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
               Provenance visible avant confirmation
             </p>
-            <p className="mt-2 text-sm text-[var(--slate-700)]">
+            <p className="mt-2 text-sm text-foreground-secondary">
               Source du metre :{" "}
-              <span className="font-medium text-[var(--slate-800)]">
+              <span className="font-medium text-slate-800">
                 {sourceFileName ?? "job takeoff"}
               </span>
             </p>
-            <p className="mt-1 text-sm text-[var(--slate-600)]">
+            <p className="mt-1 text-sm text-slate-600">
               Chaque ligne garde sa reference takeoff quand elle est disponible.
             </p>
           </div>

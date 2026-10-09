@@ -21,7 +21,7 @@ const TakeoffDpgfCompareView = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="dashboard-card p-6 text-sm text-[var(--slate-600)]">
+      <div className="dashboard-card p-6 text-sm text-slate-600">
         Chargement de la comparaison DPGF...
       </div>
     ),
@@ -104,45 +104,45 @@ function SummaryStatsBar({
     : 0;
 
   return (
-    <div className="flex flex-wrap gap-4 rounded-lg border border-[var(--border)] bg-[var(--slate-50)] px-4 py-3 text-sm">
+    <div className="flex flex-wrap gap-4 rounded-lg border border-border bg-surface-subtle px-4 py-3 text-sm">
       {tablesCount > 0 && (
         <span>
-          <span className="font-medium text-[var(--slate-800)]">{tablesCount}</span>{" "}
-          <span className="text-[var(--slate-500)]">Tables</span>
+          <span className="font-medium text-slate-800">{tablesCount}</span>{" "}
+          <span className="text-muted-foreground">Tables</span>
         </span>
       )}
       <span>
-        <span className="font-medium text-[var(--slate-800)]">{total}</span>{" "}
-        <span className="text-[var(--slate-500)]">Total</span>
+        <span className="font-medium text-slate-800">{total}</span>{" "}
+        <span className="text-muted-foreground">Total</span>
       </span>
       <span>
-        <span className="font-medium text-[var(--success)]">{included}</span>{" "}
-        <span className="text-[var(--slate-500)]">Inclus</span>
+        <span className="font-medium text-success">{included}</span>{" "}
+        <span className="text-muted-foreground">Inclus</span>
       </span>
       <span>
-        <span className="font-medium text-[var(--slate-500)]">{excluded}</span>{" "}
-        <span className="text-[var(--slate-500)]">Exclus</span>
+        <span className="font-medium text-muted-foreground">{excluded}</span>{" "}
+        <span className="text-muted-foreground">Exclus</span>
       </span>
       <span>
-        <span className="font-medium text-[var(--info)]">{verified}</span>{" "}
-        <span className="text-[var(--slate-500)]">Verifies</span>
+        <span className="font-medium text-info">{verified}</span>{" "}
+        <span className="text-muted-foreground">Verifies</span>
       </span>
       <span>
-        <span className="font-medium text-[var(--warning)]">{withAnomalies}</span>{" "}
-        <span className="text-[var(--slate-500)]">Anomalies</span>
+        <span className="font-medium text-warning">{withAnomalies}</span>{" "}
+        <span className="text-muted-foreground">Anomalies</span>
       </span>
 
       {/* Level C extras */}
       {isLevelC && (
         <>
-          <span className="border-l border-[var(--border)] pl-4">
-            <span className="font-medium text-[var(--slate-800)]">{evidencePct}%</span>{" "}
-            <span className="text-[var(--slate-500)]">Couverture evidence</span>
+          <span className="border-l border-border pl-4">
+            <span className="font-medium text-slate-800">{evidencePct}%</span>{" "}
+            <span className="text-muted-foreground">Couverture evidence</span>
           </span>
           {lowConfidenceCount > 0 && (
             <span>
-              <span className="font-medium text-[var(--danger)]">{lowConfidenceCount}</span>{" "}
-              <span className="text-[var(--slate-500)]">Confiance faible</span>
+              <span className="font-medium text-danger">{lowConfidenceCount}</span>{" "}
+              <span className="text-muted-foreground">Confiance faible</span>
             </span>
           )}
         </>
@@ -199,7 +199,7 @@ export function TakeoffReviewExpert({
       {/* ---- Tab bar ---- */}
       {(hasTables || hasCompareTab || hasDpgfTab) && (
         <div
-          className="flex gap-1 border-b border-[var(--border)]"
+          className="flex gap-1 border-b border-border"
           role="tablist"
           aria-label="Vues de review"
         >
@@ -210,8 +210,8 @@ export function TakeoffReviewExpert({
               aria-selected={activeTab === "tables"}
               className={`px-4 py-2 text-sm font-medium transition-colors ${
                 activeTab === "tables"
-                  ? "border-b-2 border-[var(--info)] text-[var(--info)]"
-                  : "text-[var(--slate-500)] hover:text-[var(--slate-700)]"
+                  ? "border-b-2 border-info text-info"
+                  : "text-muted-foreground hover:text-foreground-secondary"
               }`}
               onClick={() => onSetActiveTab("tables")}
             >
@@ -224,8 +224,8 @@ export function TakeoffReviewExpert({
             aria-selected={activeTab === "items"}
             className={`px-4 py-2 text-sm font-medium transition-colors ${
               activeTab === "items"
-                ? "border-b-2 border-[var(--info)] text-[var(--info)]"
-                : "text-[var(--slate-500)] hover:text-[var(--slate-700)]"
+                ? "border-b-2 border-info text-info"
+                : "text-muted-foreground hover:text-foreground-secondary"
             }`}
             onClick={() => onSetActiveTab("items")}
           >
@@ -238,8 +238,8 @@ export function TakeoffReviewExpert({
               aria-selected={activeTab === "compare"}
               className={`px-4 py-2 text-sm font-medium transition-colors ${
                 activeTab === "compare"
-                  ? "border-b-2 border-[var(--info)] text-[var(--info)]"
-                  : "text-[var(--slate-500)] hover:text-[var(--slate-700)]"
+                  ? "border-b-2 border-info text-info"
+                  : "text-muted-foreground hover:text-foreground-secondary"
               }`}
               onClick={() => onSetActiveTab("compare")}
             >
@@ -253,8 +253,8 @@ export function TakeoffReviewExpert({
               aria-selected={activeTab === "dpgf"}
               className={`px-4 py-2 text-sm font-medium transition-colors ${
                 activeTab === "dpgf"
-                  ? "border-b-2 border-[var(--info)] text-[var(--info)]"
-                  : "text-[var(--slate-500)] hover:text-[var(--slate-700)]"
+                  ? "border-b-2 border-info text-info"
+                  : "text-muted-foreground hover:text-foreground-secondary"
               }`}
               onClick={() => onSetActiveTab("dpgf")}
             >
@@ -267,11 +267,11 @@ export function TakeoffReviewExpert({
       {/* ---- Content area ---- */}
       {activeTab === "dpgf" ? (
         dpgfCompareLoading ? (
-          <section className="dashboard-card p-6 text-sm text-[var(--slate-600)]">
+          <section className="dashboard-card p-6 text-sm text-slate-600">
             Chargement de la comparaison DPGF vs Takeoff...
           </section>
         ) : dpgfCompareError ? (
-          <section className="dashboard-card p-6 text-sm text-[var(--danger)]">
+          <section className="dashboard-card p-6 text-sm text-danger">
             {dpgfCompareError}
           </section>
         ) : dpgfCompareData ? (
@@ -282,7 +282,7 @@ export function TakeoffReviewExpert({
             onRefresh={onRefreshDpgfCompare}
           />
         ) : (
-          <section className="dashboard-card p-6 text-sm text-[var(--slate-600)]">
+          <section className="dashboard-card p-6 text-sm text-slate-600">
             Aucune ligne DPGF ou aucun item takeoff disponible.
           </section>
         )
@@ -350,11 +350,11 @@ export function TakeoffReviewExpert({
           </section>
 
           {compareLoading ? (
-            <section className="dashboard-card p-6 text-sm text-[var(--slate-600)]">
+            <section className="dashboard-card p-6 text-sm text-slate-600">
               Chargement de la comparaison...
             </section>
           ) : compareError ? (
-            <section className="dashboard-card p-6 text-sm text-[var(--danger)]">
+            <section className="dashboard-card p-6 text-sm text-danger">
               {compareError}
             </section>
           ) : compareData ? (
@@ -366,7 +366,7 @@ export function TakeoffReviewExpert({
               applySelectionError={applySelectionError}
             />
           ) : (
-            <section className="dashboard-card p-6 text-sm text-[var(--slate-600)]">
+            <section className="dashboard-card p-6 text-sm text-slate-600">
               Selectionnez une autre extraction pour afficher le diff.
             </section>
           )}

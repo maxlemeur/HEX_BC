@@ -32,27 +32,27 @@ export function ApplicationStep({
 }: ApplicationStepProps) {
   return (
     <div className="space-y-5">
-      <div className="rounded-2xl border border-[var(--slate-200)] p-4">
-        <h3 className="text-sm font-semibold text-[var(--slate-900)]">
+      <div className="rounded-2xl border border-border p-4">
+        <h3 className="text-sm font-semibold text-foreground">
           Mode d&apos;application
         </h3>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
-          <label className="rounded-xl border border-[var(--slate-200)] p-4">
+          <label className="rounded-xl border border-border p-4">
             <input
               type="radio"
               name="estimate-structure-apply-mode"
               checked={mode === "merge_existing"}
               onChange={() => onModeChange("merge_existing")}
             />
-            <span className="ml-3 font-medium text-[var(--slate-900)]">
+            <span className="ml-3 font-medium text-foreground">
               Fusionner avec l&apos;existant
             </span>
-            <p className="mt-2 text-sm text-[var(--slate-500)]">
+            <p className="mt-2 text-sm text-muted-foreground">
               Utilise les doublons detectes et cree le reste.
             </p>
           </label>
           <label
-            className={`rounded-xl border border-[var(--slate-200)] p-4 ${
+            className={`rounded-xl border border-border p-4 ${
               hasExistingItems ? "opacity-50" : ""
             }`}
           >
@@ -63,21 +63,21 @@ export function ApplicationStep({
               onChange={() => onModeChange("create_empty")}
               disabled={hasExistingItems}
             />
-            <span className="ml-3 font-medium text-[var(--slate-900)]">
+            <span className="ml-3 font-medium text-foreground">
               Creer a vide
             </span>
-            <p className="mt-2 text-sm text-[var(--slate-500)]">
+            <p className="mt-2 text-sm text-muted-foreground">
               Reserve aux versions sans structure existante.
             </p>
           </label>
         </div>
       </div>
 
-      <div className="rounded-2xl border border-[var(--slate-200)] p-4">
-        <h3 className="text-sm font-semibold text-[var(--slate-900)]">
+      <div className="rounded-2xl border border-border p-4">
+        <h3 className="text-sm font-semibold text-foreground">
           Overrides par noeud
         </h3>
-        <p className="mt-1 text-sm text-[var(--slate-500)]">
+        <p className="mt-1 text-sm text-muted-foreground">
           Fait: seules les cibles de fusion compatibles avec le parent final sont proposees.
         </p>
         <div className="mt-4 space-y-3">

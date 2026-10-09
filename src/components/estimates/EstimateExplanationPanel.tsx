@@ -169,11 +169,11 @@ function SummaryMetricCard({
   value: string;
 }) {
   return (
-    <div className="rounded-2xl border border-[var(--border)] bg-[var(--slate-50)] p-4">
-      <p className="text-xs uppercase tracking-[0.12em] text-[var(--slate-500)]">
+    <div className="rounded-2xl border border-border bg-surface-subtle p-4">
+      <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">
         {label}
       </p>
-      <p className="mt-2 text-sm font-semibold text-[var(--slate-950)]">{value}</p>
+      <p className="mt-2 text-sm font-semibold text-slate-950">{value}</p>
     </div>
   );
 }
@@ -188,7 +188,7 @@ function StatementSection({
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-[var(--slate-500)]">
+        <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           {title}
         </h3>
         <Badge variant="neutral" size="sm">
@@ -200,10 +200,10 @@ function StatementSection({
           {entries.map((entry) => (
             <article
               key={`${title}-${entry.label}`}
-              className="rounded-2xl border border-[var(--border)] bg-white p-3"
+              className="rounded-2xl border border-border bg-surface p-3"
             >
-              <p className="text-sm font-medium text-[var(--slate-950)]">{entry.label}</p>
-              <p className="mt-1 text-xs text-[var(--slate-500)]">
+              <p className="text-sm font-medium text-slate-950">{entry.label}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
                 {entry.source_label ?? "Source non renseignee"}
                 {typeof entry.confidence_score === "number"
                   ? ` · ${Math.round(entry.confidence_score * 100)}%`
@@ -213,7 +213,7 @@ function StatementSection({
           ))}
         </div>
       ) : (
-        <div className="rounded-2xl border border-dashed border-[var(--border)] bg-white p-4 text-sm text-[var(--slate-600)]">
+        <div className="rounded-2xl border border-dashed border-border bg-surface p-4 text-sm text-slate-600">
           Aucun element pour cette section.
         </div>
       )}
@@ -356,16 +356,16 @@ export function EstimateExplanationPanel({
         className="ml-auto flex h-full max-h-[calc(100vh-2rem)] max-w-3xl flex-col overflow-hidden rounded-[28px] p-0 sm:rounded-l-[28px] sm:rounded-r-none"
         data-testid="estimate-explanation-panel"
       >
-        <div className="border-b border-[var(--border)] bg-[linear-gradient(135deg,rgba(241,245,249,0.9),rgba(255,255,255,0.98))] px-5 py-5 sm:px-6">
+        <div className="border-b border-border bg-[linear-gradient(135deg,rgba(241,245,249,0.9),rgba(255,255,255,0.98))] px-5 py-5 sm:px-6">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-xs uppercase tracking-[0.14em] text-[var(--slate-500)]">
+              <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
                 {surfaceLabel}
               </p>
-              <Modal.Title className="mt-2 text-xl text-[var(--slate-950)]">
+              <Modal.Title className="mt-2 text-xl text-slate-950">
                 {title}
               </Modal.Title>
-              <p className="mt-1 text-sm text-[var(--slate-600)]">
+              <p className="mt-1 text-sm text-slate-600">
                 {kind === "price"
                   ? "Lecture seule. Aucun prix ne sera applique automatiquement."
                   : "Lecture seule. Le delta reste purement explicatif."}
@@ -386,8 +386,8 @@ export function EstimateExplanationPanel({
 
           {explanation ? (
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
-              <div className="rounded-2xl border border-white/80 bg-white/80 p-3">
-                <p className="text-xs text-[var(--slate-500)]">Confiance</p>
+              <div className="rounded-2xl border border-white/80 bg-surface/80 p-3">
+                <p className="text-xs text-muted-foreground">Confiance</p>
                 <div className="mt-1 flex flex-wrap items-center gap-2">
                   <Badge
                     variant={CONFIDENCE_VARIANTS[explanation.confidence_label]}
@@ -395,20 +395,20 @@ export function EstimateExplanationPanel({
                   >
                     {CONFIDENCE_LABELS[explanation.confidence_label]}
                   </Badge>
-                  <span className="text-sm font-semibold text-[var(--slate-950)]">
+                  <span className="text-sm font-semibold text-slate-950">
                     {formatConfidenceScore(explanation.confidence_score)}
                   </span>
                 </div>
               </div>
-              <div className="rounded-2xl border border-white/80 bg-white/80 p-3">
-                <p className="text-xs text-[var(--slate-500)]">Provenance</p>
-                <p className="mt-1 text-sm font-semibold text-[var(--slate-950)]">
+              <div className="rounded-2xl border border-white/80 bg-surface/80 p-3">
+                <p className="text-xs text-muted-foreground">Provenance</p>
+                <p className="mt-1 text-sm font-semibold text-slate-950">
                   {explanation.provenance.length} source(s)
                 </p>
               </div>
-              <div className="rounded-2xl border border-white/80 bg-white/80 p-3">
-                <p className="text-xs text-[var(--slate-500)]">Moteur</p>
-                <p className="mt-1 text-sm font-semibold text-[var(--slate-950)]">
+              <div className="rounded-2xl border border-white/80 bg-surface/80 p-3">
+                <p className="text-xs text-muted-foreground">Moteur</p>
+                <p className="mt-1 text-sm font-semibold text-slate-950">
                   {explanation.used_fallback ? "Fallback" : explanation.provider}
                 </p>
               </div>
@@ -416,9 +416,9 @@ export function EstimateExplanationPanel({
           ) : null}
         </div>
 
-        <Modal.Body className="flex-1 space-y-5 overflow-y-auto bg-[var(--slate-50)] px-5 py-5 sm:px-6">
+        <Modal.Body className="flex-1 space-y-5 overflow-y-auto bg-surface-subtle px-5 py-5 sm:px-6">
           {currentState.kind === "loading" ? (
-            <div className="rounded-3xl border border-dashed border-[var(--border)] bg-white p-5 text-sm text-[var(--slate-600)]">
+            <div className="rounded-3xl border border-dashed border-border bg-surface p-5 text-sm text-slate-600">
               Chargement de l&apos;explication...
             </div>
           ) : null}
@@ -431,21 +431,21 @@ export function EstimateExplanationPanel({
 
           {explanation ? (
             <>
-              <section className="rounded-3xl border border-[var(--border)] bg-white p-5">
+              <section className="rounded-3xl border border-border bg-surface p-5">
                 <div className="space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <h3 className="text-base font-semibold text-[var(--slate-950)]">
+                      <h3 className="text-base font-semibold text-slate-950">
                         Resume court
                       </h3>
-                      <p className="mt-1 text-sm leading-6 text-[var(--slate-700)]">
+                      <p className="mt-1 text-sm leading-6 text-foreground-secondary">
                         {explanation.summary_short}
                       </p>
                     </div>
                   </div>
 
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--slate-500)]">
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                       Synthese impact
                     </p>
                     <div
@@ -504,7 +504,7 @@ export function EstimateExplanationPanel({
                     <p className="mt-2 text-sm text-rose-700">{detailState.message}</p>
                   ) : null}
                   {explanation.summary_detail ? (
-                    <p className="mt-3 text-sm leading-7 text-[var(--slate-700)]">
+                    <p className="mt-3 text-sm leading-7 text-foreground-secondary">
                       {explanation.summary_detail}
                     </p>
                   ) : null}
@@ -512,9 +512,9 @@ export function EstimateExplanationPanel({
               </section>
 
               {explanation.risk_signals.length > 0 ? (
-                <section className="rounded-3xl border border-[var(--border)] bg-white p-5">
+                <section className="rounded-3xl border border-border bg-surface p-5">
                   <div className="flex items-center justify-between gap-3">
-                    <h3 className="text-base font-semibold text-[var(--slate-950)]">
+                    <h3 className="text-base font-semibold text-slate-950">
                       Signaux de risque
                     </h3>
                     <Badge variant="neutral" size="sm">
@@ -539,9 +539,9 @@ export function EstimateExplanationPanel({
               <StatementSection title="Hypotheses" entries={explanation.hypotheses} />
               <StatementSection title="Inferences" entries={explanation.inferences} />
 
-              <section className="rounded-3xl border border-[var(--border)] bg-white p-5">
+              <section className="rounded-3xl border border-border bg-surface p-5">
                 <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-base font-semibold text-[var(--slate-950)]">
+                  <h3 className="text-base font-semibold text-slate-950">
                     Provenance
                   </h3>
                   <Badge variant="neutral" size="sm">
@@ -552,12 +552,12 @@ export function EstimateExplanationPanel({
                   {explanation.provenance.map((source) => (
                     <article
                       key={`${source.source_kind}-${source.label}-${source.source_ref ?? "none"}`}
-                      className="rounded-2xl border border-[var(--border)] bg-[var(--slate-50)] p-3"
+                      className="rounded-2xl border border-border bg-surface-subtle p-3"
                     >
-                      <p className="text-sm font-medium text-[var(--slate-950)]">
+                      <p className="text-sm font-medium text-slate-950">
                         {source.label}
                       </p>
-                      <p className="mt-1 text-xs text-[var(--slate-500)]">
+                      <p className="mt-1 text-xs text-muted-foreground">
                         {source.source_kind}
                         {source.source_ref ? ` · ${source.source_ref}` : ""}
                         {typeof source.confidence_score === "number"

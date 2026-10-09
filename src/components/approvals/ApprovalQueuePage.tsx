@@ -119,22 +119,22 @@ export function ApprovalQueuePage({
 
       <div className="flex flex-col items-stretch justify-between gap-3 sm:flex-row sm:items-center">
         <div role="status" aria-live="polite" aria-atomic="true">
-          <h1 className="text-lg font-semibold text-[var(--slate-800)]">
+          <h1 className="text-lg font-semibold text-slate-800">
             File d&apos;approbation
           </h1>
-          <p className="text-sm text-[var(--slate-500)]">
+          <p className="text-sm text-muted-foreground">
             <strong>{initialData.length}</strong> affaire{initialData.length !== 1 ? "s" : ""} en attente de revue
           </p>
         </div>
 
         <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-3 sm:flex sm:items-center">
-          <label className="flex cursor-pointer items-center gap-2 text-xs text-[var(--slate-600)]">
+          <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-600">
             <input
               type="checkbox"
               name="onlyExceptions"
               checked={onlyExceptions}
               onChange={handleExceptionsToggle}
-              className="h-4 w-4 rounded border-[var(--slate-300)] text-[var(--brand-blue)] focus:ring-[var(--brand-blue)]"
+              className="h-4 w-4 rounded border-border-strong text-primary focus:ring-primary"
             />
             Exceptions seulement
           </label>

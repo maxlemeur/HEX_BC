@@ -495,7 +495,7 @@ export function EstimateSettingsPanel({
                 Autoliquidation — travaux immobiliers sous-traités éligibles
               </option>
             </select>
-            <p className="mt-1 text-xs text-[var(--slate-500)]">
+            <p className="mt-1 text-xs text-muted-foreground">
               {settings.contractor_role === "subcontractor"
                 ? "À sélectionner uniquement pour une sous-traitance de travaux immobiliers relevant de l’article 283, 2 nonies du CGI. Le devis est alors émis hors taxe avec la mention « Autoliquidation » ; la TVA est due par le preneur."
                 : "Régime normal : la TVA est facturée au taux applicable."}
@@ -663,7 +663,7 @@ export function EstimateSettingsPanel({
                       )}
                     </strong>
                   </div>
-                  <p className="text-xs text-[var(--slate-500)]">
+                  <p className="text-xs text-muted-foreground">
                     Optionnel, cet ajustement s’applique uniquement au total TTC
                     à payer.
                   </p>

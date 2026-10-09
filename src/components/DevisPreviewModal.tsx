@@ -88,8 +88,8 @@ function DownloadIcon({ className }: { className?: string }) {
 function LoadingSpinner() {
   return (
     <div className="flex flex-col items-center justify-center gap-3">
-      <div className="h-10 w-10 animate-spin rounded-full border-4 border-[var(--slate-200)] border-t-[var(--brand-orange)]" />
-      <p className="text-sm text-[var(--slate-500)]">Chargement...</p>
+      <div className="h-10 w-10 animate-spin rounded-full border-4 border-border border-t-brand-orange" />
+      <p className="text-sm text-muted-foreground">Chargement...</p>
     </div>
   );
 }
@@ -309,7 +309,7 @@ export function DevisPreviewModal({ open, onClose, devis }: DevisPreviewModalPro
             <h2 id="devis-preview-title" className="truncate text-lg font-semibold text-white">
               {devis.name}
             </h2>
-            <p className="text-sm text-slate-400">
+            <p className="text-sm text-subtle-foreground">
               {devis.originalFilename}
             </p>
           </div>
@@ -341,7 +341,7 @@ export function DevisPreviewModal({ open, onClose, devis }: DevisPreviewModalPro
               <p className="text-lg font-medium text-white">
                 Apercu non disponible
               </p>
-              <p className="mt-2 text-sm text-slate-400">
+              <p className="mt-2 text-sm text-subtle-foreground">
                 Ce type de fichier ({devis.mimeType}) ne peut pas etre previsualise.
               </p>
               <button
@@ -380,19 +380,19 @@ export function DevisPreviewModal({ open, onClose, devis }: DevisPreviewModalPro
                     <div className="mt-3 space-y-1 text-xs text-slate-300">
                       {emailPreview.from && (
                         <div className="flex flex-wrap gap-2">
-                          <span className="text-slate-400">De :</span>
+                          <span className="text-subtle-foreground">De :</span>
                           <span className="break-all text-slate-100">{emailPreview.from}</span>
                         </div>
                       )}
                       {emailPreview.to && (
                         <div className="flex flex-wrap gap-2">
-                          <span className="text-slate-400">A :</span>
+                          <span className="text-subtle-foreground">A :</span>
                           <span className="break-all text-slate-100">{emailPreview.to}</span>
                         </div>
                       )}
                       {emailPreview.date && (
                         <div className="flex flex-wrap gap-2">
-                          <span className="text-slate-400">Date :</span>
+                          <span className="text-subtle-foreground">Date :</span>
                           <span className="text-slate-100">{emailPreview.date}</span>
                         </div>
                       )}
@@ -400,7 +400,7 @@ export function DevisPreviewModal({ open, onClose, devis }: DevisPreviewModalPro
                   </div>
 
                   {emailPreview.text ? (
-                    <div className="rounded-xl bg-white p-5 text-sm text-slate-900 shadow-lg">
+                    <div className="rounded-xl bg-surface p-5 text-sm text-foreground shadow-lg">
                       <pre className="whitespace-pre-wrap leading-relaxed">
                         {emailPreview.text}
                       </pre>
@@ -408,7 +408,7 @@ export function DevisPreviewModal({ open, onClose, devis }: DevisPreviewModalPro
                   ) : emailPreview.html ? (
                     <iframe
                       title={devis.name}
-                      className="h-[70vh] w-full rounded-xl bg-white shadow-lg"
+                      className="h-[70vh] w-full rounded-xl bg-surface shadow-lg"
                       sandbox=""
                       referrerPolicy="no-referrer"
                       srcDoc={buildEmailHtmlDocument(emailPreview.html)}
@@ -435,7 +435,7 @@ export function DevisPreviewModal({ open, onClose, devis }: DevisPreviewModalPro
                               <div className="truncate text-sm text-white">
                                 {attachment.filename}
                               </div>
-                              <div className="mt-0.5 text-xs text-slate-400">
+                              <div className="mt-0.5 text-xs text-subtle-foreground">
                                 {attachment.mimeType}
                                 {attachment.size > 0 ? ` · ${formatAttachmentSize(attachment.size)}` : ""}
                               </div>
@@ -483,10 +483,10 @@ export function DevisPreviewModal({ open, onClose, devis }: DevisPreviewModalPro
                           Fermer
                         </button>
                       </div>
-                        <p className="mt-1 text-xs text-slate-400">
+                        <p className="mt-1 text-xs text-subtle-foreground">
                           {activeAttachment.filename}
                         </p>
-                        <div className="mt-3 rounded-lg bg-white">
+                        <div className="mt-3 rounded-lg bg-surface">
                           {activeAttachment.mimeType.startsWith("image/") ? (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img
@@ -498,7 +498,7 @@ export function DevisPreviewModal({ open, onClose, devis }: DevisPreviewModalPro
                           <iframe
                             src={`${activeAttachmentUrl}#toolbar=1&navpanes=0`}
                             title={activeAttachment.filename}
-                            className="h-[70vh] w-full rounded-lg bg-white"
+                            className="h-[70vh] w-full rounded-lg bg-surface"
                           />
                         )}
                       </div>
@@ -522,7 +522,7 @@ export function DevisPreviewModal({ open, onClose, devis }: DevisPreviewModalPro
                 <iframe
                   src={`${devis.downloadUrl}#toolbar=1&navpanes=0`}
                   title={devis.name}
-                  className={`h-full w-full rounded-lg bg-white ${isPreviewLoading || previewError ? "hidden" : ""}`}
+                  className={`h-full w-full rounded-lg bg-surface ${isPreviewLoading || previewError ? "hidden" : ""}`}
                   onLoad={handleLoad}
                   onError={handleError}
                 />

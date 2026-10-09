@@ -88,8 +88,8 @@ export function StructureReview({
   if (isLoading) {
     return (
       <div className="dashboard-card p-6" aria-busy="true">
-        <div className="h-4 w-44 animate-pulse rounded bg-[var(--slate-200)]" />
-        <div className="mt-4 h-20 animate-pulse rounded-xl bg-[var(--slate-100)]" />
+        <div className="h-4 w-44 animate-pulse rounded bg-slate-200" />
+        <div className="mt-4 h-20 animate-pulse rounded-xl bg-muted" />
       </div>
     );
   }
@@ -102,11 +102,11 @@ export function StructureReview({
         <div>
           <h3
             id="structure-review-title"
-            className="text-sm font-semibold text-[var(--slate-900)]"
+            className="text-sm font-semibold text-foreground"
           >
             Structure du DPGF
           </h3>
-          <p className="mt-1 max-w-2xl text-xs text-[var(--slate-500)]">
+          <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
             Confirmez les titres détectés. Les lignes ordinaires sans prix seront
             conservées avec une valeur de 0 €.
           </p>
@@ -118,14 +118,14 @@ export function StructureReview({
           <span className="rounded-full bg-amber-50 px-2.5 py-1 font-medium text-amber-700">
             {preview.summary.zero_price_rows} ligne(s) à 0 €
           </span>
-          <span className="rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-600">
+          <span className="rounded-full bg-muted px-2.5 py-1 font-medium text-slate-600">
             {preview.summary.ignored_footer_rows} pied(s) ignoré(s)
           </span>
         </div>
       </div>
 
       {preview.candidates.length === 0 ? (
-        <p className="mt-4 rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-3 text-sm text-[var(--slate-600)]">
+        <p className="mt-4 rounded-xl border border-border bg-surface-subtle px-4 py-3 text-sm text-slate-600">
           Aucun titre candidat n&apos;a été détecté. Toutes les lignes opérationnelles
           seront importées dans la section racine.
         </p>
@@ -149,13 +149,13 @@ export function StructureReview({
             return (
               <div
                 key={candidate.row_index}
-                className={`grid gap-3 rounded-xl border border-[var(--slate-200)] bg-white p-3 md:grid-cols-[minmax(0,1fr)_9rem_8rem] md:items-center ${
+                className={`grid gap-3 rounded-xl border border-border bg-surface p-3 md:grid-cols-[minmax(0,1fr)_9rem_8rem] md:items-center ${
                   isIndented ? "ml-4 border-l-4 border-l-blue-300" : ""
                 }`}
               >
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="truncate text-sm font-medium text-[var(--slate-900)]">
+                    <p className="truncate text-sm font-medium text-foreground">
                       {candidate.title}
                     </p>
                     <span
@@ -168,7 +168,7 @@ export function StructureReview({
                       Confiance {candidate.confidence === "high" ? "forte" : "moyenne"}
                     </span>
                   </div>
-                  <p className="mt-1 text-xs text-[var(--slate-500)]">
+                  <p className="mt-1 text-xs text-muted-foreground">
                     {sourceLabel || `Ligne importée ${candidate.row_index + 1}`}
                     {candidate.reasons.includes("bold_designation")
                       ? " · titre en gras"
@@ -176,7 +176,7 @@ export function StructureReview({
                   </p>
                 </div>
 
-                <label className="text-xs font-medium text-[var(--slate-600)]">
+                <label className="text-xs font-medium text-slate-600">
                   Type
                   <select
                     aria-label={`Type de ${candidate.title}`}
@@ -206,7 +206,7 @@ export function StructureReview({
                   </select>
                 </label>
 
-                <label className="text-xs font-medium text-[var(--slate-600)]">
+                <label className="text-xs font-medium text-slate-600">
                   Niveau
                   <select
                     aria-label={`Niveau de ${candidate.title}`}

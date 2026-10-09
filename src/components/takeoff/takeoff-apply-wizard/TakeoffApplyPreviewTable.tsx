@@ -32,17 +32,17 @@ export function TakeoffApplyPreviewTable({
 }) {
   return (
     <div className="space-y-2">
-      <p className="text-xs text-[var(--slate-500)] sm:hidden">
+      <p className="text-xs text-muted-foreground sm:hidden">
         Faites glisser le tableau horizontalement pour verifier chaque parametre.
       </p>
       <div
         aria-label="Preview detaillee des lignes a appliquer"
-        className="max-h-[380px] overflow-auto rounded-xl border border-[var(--slate-200)]"
+        className="max-h-[380px] overflow-auto rounded-xl border border-border"
         role="region"
         tabIndex={0}
       >
       <table className="min-w-[760px] text-sm">
-        <thead className="bg-[var(--slate-50)] text-left text-xs uppercase tracking-wide text-[var(--slate-600)]">
+        <thead className="bg-surface-subtle text-left text-xs uppercase tracking-wide text-slate-600">
           <tr>
             <th className="px-3 py-2">Item</th>
             <th className="px-3 py-2">Impact</th>
@@ -58,35 +58,35 @@ export function TakeoffApplyPreviewTable({
             const source = sourceByItemId.get(item.item_id);
 
             return (
-              <tr key={item.item_id} className="border-t border-[var(--slate-200)] align-top">
+              <tr key={item.item_id} className="border-t border-border align-top">
                 <td className="px-3 py-2">
-                  <p className="font-medium text-[var(--slate-800)]">{item.original.designation}</p>
-                  <p className="text-xs text-[var(--slate-500)]">
+                  <p className="font-medium text-slate-800">{item.original.designation}</p>
+                  <p className="text-xs text-muted-foreground">
                     Apres: {item.transformed.designation}
                   </p>
                 </td>
-                <td className="px-3 py-2 text-xs text-[var(--slate-700)]">
-                  <p className="font-medium text-[var(--slate-800)]">
+                <td className="px-3 py-2 text-xs text-foreground-secondary">
+                  <p className="font-medium text-slate-800">
                     {summarizeAction(item)}
                   </p>
-                  <p className="mt-1 text-[var(--slate-500)]">
+                  <p className="mt-1 text-muted-foreground">
                     {item.transformed.quantity} {item.transformed.unit}
                   </p>
                 </td>
-                <td className="px-3 py-2 text-xs text-[var(--slate-700)]">
+                <td className="px-3 py-2 text-xs text-foreground-secondary">
                   {source ? (
                     <>
-                      <p className="font-medium text-[var(--slate-800)]">
+                      <p className="font-medium text-slate-800">
                         {source.source_file_name ?? "Source takeoff"}
                       </p>
-                      <p className="mt-1 text-[var(--slate-500)]">
+                      <p className="mt-1 text-muted-foreground">
                         {source.source_page !== null
                           ? `page ${source.source_page}`
                           : "page non renseignee"}
                       </p>
                     </>
                   ) : (
-                    <span className="text-[var(--slate-500)]">
+                    <span className="text-muted-foreground">
                       Provenance non remontee
                     </span>
                   )}
@@ -175,10 +175,10 @@ export function TakeoffApplyPreviewTable({
                     />
                   )}
                   {(override?.action === "skip" || override?.action === "none") && (
-                    <span className="text-xs text-[var(--slate-500)]">Aucun parametre</span>
+                    <span className="text-xs text-muted-foreground">Aucun parametre</span>
                   )}
                   {!override && (
-                    <span className="text-xs text-[var(--slate-500)]">
+                    <span className="text-xs text-muted-foreground">
                       Utiliser la regle proposee
                     </span>
                   )}

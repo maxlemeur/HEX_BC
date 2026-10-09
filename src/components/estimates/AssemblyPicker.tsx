@@ -204,15 +204,15 @@ export function AssemblyPicker({
         aria-label="Fermer le sélecteur d'ouvrages"
       />
       <aside className="absolute right-0 top-0 flex h-full w-full max-w-3xl flex-col bg-surface shadow-2xl">
-        <div className="flex items-start justify-between border-b border-[var(--slate-200)] px-6 py-4">
+        <div className="flex items-start justify-between border-b border-border px-6 py-4">
           <div>
-            <h2 className="text-lg font-semibold text-[var(--slate-800)]">
+            <h2 className="text-lg font-semibold text-slate-800">
               Ajouter un ouvrage
             </h2>
-            <p className="mt-1 text-sm text-[var(--slate-500)]">
+            <p className="mt-1 text-sm text-muted-foreground">
               Recherchez un ouvrage, vérifiez son coût puis ajoutez-le au chiffrage.
             </p>
-            <p className="mt-1 text-xs font-medium text-[var(--slate-600)]">
+            <p className="mt-1 text-xs font-medium text-slate-600">
               Emplacement :{" "}
               {anchorLabel ??
                 (anchorItemId ? "après la ligne active" : "à la fin du devis")}
@@ -224,7 +224,7 @@ export function AssemblyPicker({
         </div>
 
         <div className="grid flex-1 grid-cols-1 gap-0 overflow-hidden md:grid-cols-[300px_1fr]">
-          <div className="border-b border-[var(--slate-200)] md:border-b-0 md:border-r">
+          <div className="border-b border-border md:border-b-0 md:border-r">
             <div className="p-4">
               <label className="form-label" htmlFor="assembly-picker-search">
                 Rechercher
@@ -239,11 +239,11 @@ export function AssemblyPicker({
             </div>
             <div className="max-h-[calc(100vh-220px)] overflow-auto px-2 pb-3">
               {isLoading ? (
-                <div className="px-3 py-4 text-sm text-[var(--slate-500)]">Chargement...</div>
+                <div className="px-3 py-4 text-sm text-muted-foreground">Chargement...</div>
               ) : loadError ? (
                 <div className="px-3 py-4 text-sm text-rose-600">{loadError.message}</div>
               ) : filteredAssemblies.length === 0 ? (
-                <div className="px-3 py-4 text-sm text-[var(--slate-500)]">
+                <div className="px-3 py-4 text-sm text-muted-foreground">
                   Aucun ouvrage trouvé.
                 </div>
               ) : (
@@ -253,13 +253,13 @@ export function AssemblyPicker({
                     type="button"
                     className={`mb-2 w-full rounded-lg border px-3 py-2 text-left ${
                       selectedAssemblyId === assembly.id
-                        ? "border-[var(--brand-blue)] bg-info-light"
-                        : "border-[var(--slate-200)] bg-surface"
+                        ? "border-primary bg-info-light"
+                        : "border-border bg-surface"
                     }`}
                     onClick={() => setSelectedAssemblyId(assembly.id)}
                   >
-                    <div className="font-medium text-[var(--slate-800)]">{assembly.name}</div>
-                    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-[var(--slate-500)]">
+                    <div className="font-medium text-slate-800">{assembly.name}</div>
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                       <span>
                         {assembly.itemCount} composant{assembly.itemCount > 1 ? "s" : ""}
                       </span>
@@ -275,48 +275,48 @@ export function AssemblyPicker({
           <div className="flex min-h-0 flex-col">
             <div className="flex-1 overflow-auto p-4">
               {!selectedAssemblyId ? (
-                <div className="text-sm text-[var(--slate-500)]">
+                <div className="text-sm text-muted-foreground">
                   Sélectionnez un ouvrage pour afficher son aperçu et son impact financier.
                 </div>
               ) : !selectedDetail ? (
-                <div className="text-sm text-[var(--slate-500)]">Chargement de l&apos;aperçu...</div>
+                <div className="text-sm text-muted-foreground">Chargement de l&apos;aperçu...</div>
               ) : (
                 <div>
-                  <h3 className="text-base font-semibold text-[var(--slate-800)]">
+                  <h3 className="text-base font-semibold text-slate-800">
                     {selectedDetail.name}
                   </h3>
-                  <p className="mt-1 text-sm text-[var(--slate-500)]">
+                  <p className="mt-1 text-sm text-muted-foreground">
                     {selectedDetail.description?.trim() || "Sans description"}
                   </p>
 
                   <div className="mt-4 grid grid-cols-2 gap-2 xl:grid-cols-4">
-                    <div className="rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-2">
-                      <p className="text-xs text-[var(--slate-500)]">Coût direct</p>
-                      <p className="mt-0.5 font-semibold text-[var(--slate-900)]">
+                    <div className="rounded-lg border border-border bg-surface-subtle px-3 py-2">
+                      <p className="text-xs text-muted-foreground">Coût direct</p>
+                      <p className="mt-0.5 font-semibold text-foreground">
                         {formatCurrency(selectedDetail.directCostCents)}
                       </p>
                     </div>
-                    <div className="rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-2">
-                      <p className="text-xs text-[var(--slate-500)]">Temps MO</p>
-                      <p className="mt-0.5 font-semibold text-[var(--slate-900)]">
+                    <div className="rounded-lg border border-border bg-surface-subtle px-3 py-2">
+                      <p className="text-xs text-muted-foreground">Temps MO</p>
+                      <p className="mt-0.5 font-semibold text-foreground">
                         {formatHours(selectedDetail.averageTimeHours)} h
                       </p>
                     </div>
-                    <div className="rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-2">
-                      <p className="text-xs text-[var(--slate-500)]">Prix cible HT</p>
-                      <p className="mt-0.5 font-semibold text-[var(--slate-900)]">
+                    <div className="rounded-lg border border-border bg-surface-subtle px-3 py-2">
+                      <p className="text-xs text-muted-foreground">Prix cible HT</p>
+                      <p className="mt-0.5 font-semibold text-foreground">
                         {formatCurrency(selectedDetail.targetPriceCents)}
                       </p>
                     </div>
-                    <div className="rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-2">
-                      <p className="text-xs text-[var(--slate-500)]">Composants</p>
-                      <p className="mt-0.5 font-semibold text-[var(--slate-900)]">
+                    <div className="rounded-lg border border-border bg-surface-subtle px-3 py-2">
+                      <p className="text-xs text-muted-foreground">Composants</p>
+                      <p className="mt-0.5 font-semibold text-foreground">
                         {selectedDetail.items.length}
                       </p>
                     </div>
                   </div>
 
-                  <div className="mt-4 table-scroll rounded-lg border border-[var(--slate-200)]">
+                  <div className="mt-4 table-scroll rounded-lg border border-border">
                     <table className="data-table">
                       <thead>
                         <tr>
@@ -348,12 +348,12 @@ export function AssemblyPicker({
               )}
             </div>
 
-            <div className="border-t border-[var(--slate-200)] p-4">
+            <div className="border-t border-border p-4">
               {actionError ? <div className="alert alert-error mb-3">{actionError}</div> : null}
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <Link
                   href="/dashboard/estimates/assemblies"
-                  className="text-sm font-medium text-[var(--brand-blue)] hover:underline"
+                  className="text-sm font-medium text-primary hover:underline"
                 >
                   Gérer la bibliothèque d&apos;ouvrages
                 </Link>

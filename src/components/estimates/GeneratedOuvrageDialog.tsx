@@ -633,10 +633,10 @@ export function GeneratedOuvrageDialog({
         aria-modal="true"
         aria-label="Générer des ouvrages"
         tabIndex={-1}
-        className="relative w-full max-w-5xl rounded-xl bg-white shadow-2xl outline-none"
+        className="relative w-full max-w-5xl rounded-xl bg-surface shadow-2xl outline-none"
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+        <div className="flex items-center justify-between border-b border-border px-6 py-4">
           <h2 className="text-lg font-semibold">Générer des ouvrages</h2>
           <button
             type="button"

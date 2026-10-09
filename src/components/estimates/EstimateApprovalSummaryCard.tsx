@@ -16,23 +16,23 @@ const APPROVAL_STATUS_STYLES: Record<
 > = {
   not_required: {
     label: "Non requise",
-    className: "bg-[var(--slate-100)] text-[var(--slate-700)]",
+    className: "bg-muted text-foreground-secondary",
   },
   required: {
     label: "A valider",
-    className: "bg-[var(--warning-light)] text-[var(--warning)]",
+    className: "bg-warning-light text-warning",
   },
   in_review: {
     label: "En revue",
-    className: "bg-[var(--brand-blue)]/10 text-[var(--brand-blue)]",
+    className: "bg-primary/10 text-primary",
   },
   approved: {
     label: "Approuvee",
-    className: "bg-[var(--success)]/10 text-[var(--success)]",
+    className: "bg-success/10 text-success",
   },
   changes_requested: {
     label: "Modifications demandees",
-    className: "bg-[var(--danger)]/10 text-[var(--danger)]",
+    className: "bg-danger/10 text-danger",
   },
 };
 
@@ -133,8 +133,8 @@ export function EstimateApprovalSummaryCard({
     <section className="dashboard-card p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-[var(--slate-800)]">{title}</h2>
-          <p className="mt-1 text-xs text-[var(--slate-500)]">
+          <h2 className="text-sm font-semibold text-slate-800">{title}</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
             Analyse du {formatDateTime(summary.evaluatedAt)}
           </p>
         </div>
@@ -146,9 +146,9 @@ export function EstimateApprovalSummaryCard({
       </div>
 
       {summary.latestDecision ? (
-        <div className="mt-4 rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-3 text-sm text-[var(--slate-700)]">
-          <p className="font-medium text-[var(--slate-800)]">Dernier cycle</p>
-          <p className="mt-1 text-xs text-[var(--slate-600)]">
+        <div className="mt-4 rounded-xl border border-border bg-surface-subtle px-4 py-3 text-sm text-foreground-secondary">
+          <p className="font-medium text-slate-800">Dernier cycle</p>
+          <p className="mt-1 text-xs text-slate-600">
             {summary.latestDecision.cycleNumber
               ? `Cycle ${summary.latestDecision.cycleNumber}`
               : "Decision recente"}
@@ -168,7 +168,7 @@ export function EstimateApprovalSummaryCard({
       ) : null}
 
       {summary.reasons.length === 0 ? (
-        <p className="mt-4 text-sm text-[var(--slate-600)]">
+        <p className="mt-4 text-sm text-slate-600">
           Aucun seuil d&apos;approbation n&apos;est actuellement declenche sur cette
           version.
         </p>
@@ -185,25 +185,25 @@ export function EstimateApprovalSummaryCard({
             return (
               <article
                 key={`${reason.ruleId}-${reason.approvalId ?? "none"}`}
-                className="rounded-xl border border-[var(--slate-200)] bg-white/80 px-4 py-3"
+                className="rounded-xl border border-border bg-surface/80 px-4 py-3"
               >
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
-                    <p className="text-sm font-semibold text-[var(--slate-800)]">
+                    <p className="text-sm font-semibold text-slate-800">
                       {reason.label}
                     </p>
-                    <p className="mt-1 text-sm text-[var(--slate-600)]">
+                    <p className="mt-1 text-sm text-slate-600">
                       {reason.message}
                     </p>
                   </div>
-                  <span className="rounded-full bg-[var(--slate-100)] px-2 py-0.5 text-[11px] font-medium text-[var(--slate-600)]">
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-slate-600">
                     {DECISION_LABELS[decisionKey]}
                   </span>
                 </div>
-                <p className="mt-2 text-xs text-[var(--slate-500)]">
+                <p className="mt-2 text-xs text-muted-foreground">
                   Valeur constatee : {formatActualValue(reason)}
                   {reason.actualValue !== null && reason.thresholdValue !== undefined && (
-                    <span className="ml-1 text-[var(--slate-400)]">
+                    <span className="ml-1 text-subtle-foreground">
                       (seuil : {formatThresholdValue(reason)})
                     </span>
                   )}
@@ -215,8 +215,8 @@ export function EstimateApprovalSummaryCard({
       )}
 
       {summary.unavailableSignals.length > 0 ? (
-        <div className="mt-4 rounded-xl border border-dashed border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-3 text-xs text-[var(--slate-600)]">
-          <p className="font-medium text-[var(--slate-700)]">
+        <div className="mt-4 rounded-xl border border-dashed border-border bg-surface-subtle px-4 py-3 text-xs text-slate-600">
+          <p className="font-medium text-foreground-secondary">
             Signaux non encore disponibles
           </p>
           <p className="mt-1">
@@ -229,7 +229,7 @@ export function EstimateApprovalSummaryCard({
         </div>
       ) : null}
 
-      {children ? <div className="mt-4 border-t border-[var(--slate-200)] pt-4">{children}</div> : null}
+      {children ? <div className="mt-4 border-t border-border pt-4">{children}</div> : null}
     </section>
   );
 }

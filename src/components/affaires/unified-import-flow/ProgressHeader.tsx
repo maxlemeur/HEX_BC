@@ -20,17 +20,17 @@ export function ProgressHeader({ currentStep, steps }: ProgressHeaderProps) {
             {index > 0 && (
               <div
                 className={`hidden h-px w-6 sm:block ${
-                  isDone ? "bg-[var(--success)]" : "bg-[var(--slate-200)]"
+                  isDone ? "bg-success" : "bg-slate-200"
                 }`}
               />
             )}
             <div
               className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
                 isCurrent
-                  ? "bg-[var(--brand-blue)] text-white"
+                  ? "bg-primary text-white"
                   : isDone
-                    ? "bg-[var(--success)]/10 text-[var(--success)]"
-                    : "bg-[var(--slate-100)] text-[var(--slate-400)]"
+                    ? "bg-success/10 text-success"
+                    : "bg-muted text-subtle-foreground"
               }`}
             >
               {isDone ? (

@@ -10,7 +10,7 @@ export default function Error({ error, reset }: { error: Error & { digest?: stri
           <p className="page-description">Impossible de charger la revue d&apos;extraction.</p>
         </div>
       </div>
-      <p className="text-sm text-[var(--slate-600)]">{error.message}</p>
+      <p className="text-sm text-slate-600">{error.message}</p>
       <button type="button" className="btn btn-secondary btn-sm" onClick={reset}>Reessayer</button>
     </div>
   );

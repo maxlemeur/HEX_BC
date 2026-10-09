@@ -42,15 +42,15 @@ export function ReviewProgressBar({
   const allReviewed = reviewedCount === totalCount && totalCount > 0;
 
   return (
-    <div className="sticky top-0 z-10 border-b border-[var(--border)] bg-white px-4 py-3">
+    <div className="sticky top-0 z-10 border-b border-border bg-surface px-4 py-3">
       {/* Progress label */}
-      <p className="mb-2 text-sm font-medium text-[var(--slate-700)]">
+      <p className="mb-2 text-sm font-medium text-foreground-secondary">
         Progression : {reviewedCount}/{totalCount} items revus
       </p>
 
       {/* Segmented bar */}
       <div
-        className="flex h-2.5 w-full overflow-hidden rounded-full bg-[var(--slate-100)]"
+        className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted"
         role="progressbar"
         aria-valuenow={reviewedCount}
         aria-valuemin={0}
@@ -59,19 +59,19 @@ export function ReviewProgressBar({
       >
         {acceptedPct > 0 && (
           <div
-            className="h-full bg-[var(--success)] transition-all duration-500"
+            className="h-full bg-success transition-all duration-500"
             style={{ width: `${acceptedPct}%` }}
           />
         )}
         {markedPct > 0 && (
           <div
-            className="h-full bg-[var(--warning)] transition-all duration-500"
+            className="h-full bg-warning transition-all duration-500"
             style={{ width: `${markedPct}%` }}
           />
         )}
         {rejectedPct > 0 && (
           <div
-            className="h-full bg-[var(--danger)] transition-all duration-500"
+            className="h-full bg-danger transition-all duration-500"
             style={{ width: `${rejectedPct}%` }}
           />
         )}
@@ -84,7 +84,7 @@ export function ReviewProgressBar({
             xmlns="http://www.w3.org/2000/svg"
             viewBox="0 0 20 20"
             fill="currentColor"
-            className="h-3.5 w-3.5 text-[var(--success)]"
+            className="h-3.5 w-3.5 text-success"
             aria-hidden="true"
           >
             <path
@@ -93,19 +93,19 @@ export function ReviewProgressBar({
               clipRule="evenodd"
             />
           </svg>
-          <span className="font-medium text-[var(--slate-700)]">
+          <span className="font-medium text-foreground-secondary">
             {acceptedCount}
           </span>{" "}
-          <span className="text-[var(--slate-500)]">acceptes</span>
+          <span className="text-muted-foreground">acceptes</span>
         </span>
 
         {markedForReviewCount > 0 && (
           <span className="flex items-center gap-1.5">
-            <span className="inline-block h-2.5 w-2.5 rounded-full bg-[var(--warning)]" />
-            <span className="font-medium text-[var(--slate-700)]">
+            <span className="inline-block h-2.5 w-2.5 rounded-full bg-warning" />
+            <span className="font-medium text-foreground-secondary">
               {markedForReviewCount}
             </span>{" "}
-            <span className="text-[var(--slate-500)]">a revoir</span>
+            <span className="text-muted-foreground">a revoir</span>
           </span>
         )}
 
@@ -114,29 +114,29 @@ export function ReviewProgressBar({
             xmlns="http://www.w3.org/2000/svg"
             viewBox="0 0 20 20"
             fill="currentColor"
-            className="h-3.5 w-3.5 text-[var(--danger)]"
+            className="h-3.5 w-3.5 text-danger"
             aria-hidden="true"
           >
             <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
           </svg>
-          <span className="font-medium text-[var(--slate-700)]">
+          <span className="font-medium text-foreground-secondary">
             {rejectedCount}
           </span>{" "}
-          <span className="text-[var(--slate-500)]">rejetes</span>
+          <span className="text-muted-foreground">rejetes</span>
         </span>
 
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2.5 w-2.5 rounded-full bg-[var(--slate-300)]" />
-          <span className="font-medium text-[var(--slate-700)]">
+          <span className="inline-block h-2.5 w-2.5 rounded-full bg-slate-300" />
+          <span className="font-medium text-foreground-secondary">
             {pendingCount}
           </span>{" "}
-          <span className="text-[var(--slate-500)]">en attente</span>
+          <span className="text-muted-foreground">en attente</span>
         </span>
       </div>
 
       {/* 100% message */}
       {allReviewed && (
-        <p className="mt-2 text-sm font-medium text-[var(--success)]">
+        <p className="mt-2 text-sm font-medium text-success">
           Tous les items ont ete revus !
         </p>
       )}

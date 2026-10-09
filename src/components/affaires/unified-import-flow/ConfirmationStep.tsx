@@ -141,7 +141,7 @@ export function ConfirmationStep({
 
     return (
       <div
-        className="dashboard-card border border-[var(--success)]/25 p-6"
+        className="dashboard-card border border-success/25 p-6"
         role="status"
       >
         <div className="flex items-start gap-3">
@@ -161,10 +161,10 @@ export function ConfirmationStep({
             </svg>
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-[var(--slate-900)]">
+            <h3 className="text-sm font-semibold text-foreground">
               {isVersionCreated ? "Devis créé" : "Mapping enregistré"}
             </h3>
-            <p className="mt-1 text-sm text-[var(--slate-600)]">
+            <p className="mt-1 text-sm text-slate-600">
               Le résultat de l&apos;import est disponible avant de continuer.
             </p>
           </div>
@@ -203,7 +203,7 @@ export function ConfirmationStep({
               {confirmationResult.stats.insertedSections ?? 0}
             </p>
           </div>
-          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
+          <div className="rounded-xl border border-border bg-surface-subtle px-4 py-4">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-600">
               Lignes à 0 €
             </p>
@@ -214,7 +214,7 @@ export function ConfirmationStep({
         </div>
 
         {isVersionCreated && (
-          <p className="mt-4 text-xs text-[var(--slate-500)]">
+          <p className="mt-4 text-xs text-muted-foreground">
             Les lignes sans quantité ou avec une quantité égale à 0 sont conservées.
             Leur total reste à 0 jusqu&apos;à la saisie d&apos;une quantité.
           </p>
@@ -235,47 +235,47 @@ export function ConfirmationStep({
 
   return (
     <div className="dashboard-card p-6">
-      <h3 className="text-sm font-semibold text-[var(--slate-800)]">
+      <h3 className="text-sm font-semibold text-slate-800">
         Confirmation
       </h3>
-      <p className="mt-1 text-xs text-[var(--slate-500)]">
+      <p className="mt-1 text-xs text-muted-foreground">
         Verifiez le resume avant de continuer.
       </p>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-3">
-          <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">
+        <div className="rounded-xl border border-border bg-surface-subtle px-4 py-3">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
             Champs mappes
           </p>
-          <p className="mt-1 text-lg font-semibold text-[var(--slate-800)]">
+          <p className="mt-1 text-lg font-semibold text-slate-800">
             {validation?.mapped_targets_count ?? "-"}
           </p>
         </div>
         <div
           className={`rounded-xl border px-4 py-3 ${
             validation?.is_valid
-              ? "border-[var(--success)] bg-emerald-50"
-              : "border-[var(--slate-200)] bg-[var(--slate-50)]"
+              ? "border-success bg-emerald-50"
+              : "border-border bg-surface-subtle"
           }`}
         >
-          <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
             Validation
           </p>
           <p
             className={`mt-1 text-sm font-semibold ${
               validation?.is_valid
                 ? "text-emerald-700"
-                : "text-[var(--slate-800)]"
+                : "text-slate-800"
             }`}
           >
             {validation?.is_valid ? "Pret" : "Mapping en cours…"}
           </p>
         </div>
-        <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-3">
-          <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">
+        <div className="rounded-xl border border-border bg-surface-subtle px-4 py-3">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
             Champs manquants
           </p>
-          <p className="mt-1 text-lg font-semibold text-[var(--slate-800)]">
+          <p className="mt-1 text-lg font-semibold text-slate-800">
             {validation?.missing_required_fields.length ?? "-"}
           </p>
         </div>
@@ -289,25 +289,25 @@ export function ConfirmationStep({
             </p>
             <div className="mt-3 grid gap-3 sm:grid-cols-3">
               <div>
-                <p className="text-xs text-[var(--slate-500)]">Sections retenues</p>
-                <p className="mt-1 text-lg font-semibold text-[var(--slate-900)]">
+                <p className="text-xs text-muted-foreground">Sections retenues</p>
+                <p className="mt-1 text-lg font-semibold text-foreground">
                   {selectedSectionCount}
                 </p>
               </div>
               <div>
-                <p className="text-xs text-[var(--slate-500)]">Lignes à 0 €</p>
-                <p className="mt-1 text-lg font-semibold text-[var(--slate-900)]">
+                <p className="text-xs text-muted-foreground">Lignes à 0 €</p>
+                <p className="mt-1 text-lg font-semibold text-foreground">
                   {structurePreview.summary.zero_price_rows}
                 </p>
               </div>
               <div>
-                <p className="text-xs text-[var(--slate-500)]">Pied de tableau ignoré</p>
-                <p className="mt-1 text-lg font-semibold text-[var(--slate-900)]">
+                <p className="text-xs text-muted-foreground">Pied de tableau ignoré</p>
+                <p className="mt-1 text-lg font-semibold text-foreground">
                   {structurePreview.summary.ignored_footer_rows}
                 </p>
               </div>
             </div>
-            <p className="mt-3 text-xs text-[var(--slate-500)]">
+            <p className="mt-3 text-xs text-muted-foreground">
               Le serveur revalidera les titres, leurs niveaux et les lignes de fin avant
               de créer la version.
             </p>
@@ -315,44 +315,44 @@ export function ConfirmationStep({
         )}
 
         {isCarryOverPreviewLoading ? (
-          <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-4 text-sm text-[var(--slate-500)]">
+          <div className="rounded-xl border border-border bg-surface-subtle px-4 py-4 text-sm text-muted-foreground">
             Analyse du carry-over takeoff…
           </div>
         ) : carryOverPreview ? (
           <div
             className={`rounded-xl border px-4 py-4 ${carryOverPreviewCopy?.toneClassName ?? ""}`}
           >
-            <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
               Carry-over takeoff
             </p>
-            <p className="mt-1 text-sm font-semibold text-[var(--slate-900)]">
+            <p className="mt-1 text-sm font-semibold text-foreground">
               {carryOverPreviewCopy?.title}
             </p>
-            <p className="mt-1 text-sm text-[var(--slate-600)]">
+            <p className="mt-1 text-sm text-slate-600">
               {carryOverPreviewCopy?.description}
             </p>
             <div className="mt-3 grid gap-2 sm:grid-cols-3">
-              <div className="rounded-lg border border-white/60 bg-white/70 px-3 py-2">
-                <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">
+              <div className="rounded-lg border border-white/60 bg-surface/70 px-3 py-2">
+                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
                   Acquis
                 </p>
-                <p className="mt-1 text-lg font-semibold text-[var(--slate-900)]">
+                <p className="mt-1 text-lg font-semibold text-foreground">
                   {carryOverPreview.acquiredJobs}
                 </p>
               </div>
-              <div className="rounded-lg border border-white/60 bg-white/70 px-3 py-2">
-                <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">
+              <div className="rounded-lg border border-white/60 bg-surface/70 px-3 py-2">
+                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
                   En cours
                 </p>
-                <p className="mt-1 text-lg font-semibold text-[var(--slate-900)]">
+                <p className="mt-1 text-lg font-semibold text-foreground">
                   {carryOverPreview.inProgressJobs}
                 </p>
               </div>
-              <div className="rounded-lg border border-white/60 bg-white/70 px-3 py-2">
-                <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">
+              <div className="rounded-lg border border-white/60 bg-surface/70 px-3 py-2">
+                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
                   A relancer
                 </p>
-                <p className="mt-1 text-lg font-semibold text-[var(--slate-900)]">
+                <p className="mt-1 text-lg font-semibold text-foreground">
                   {carryOverPreview.actionRequiredJobs}
                 </p>
               </div>

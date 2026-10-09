@@ -167,7 +167,7 @@ function LiveDuration({ startedAt }: { startedAt: string | null }) {
 function Spinner() {
   return (
     <svg
-      className="inline-block h-4 w-4 animate-spin text-[var(--info)]"
+      className="inline-block h-4 w-4 animate-spin text-info"
       xmlns="http://www.w3.org/2000/svg"
       fill="none"
       viewBox="0 0 24 24"
@@ -209,7 +209,7 @@ function SkeletonCard({ versionId }: { versionId: string }) {
           {Array.from({ length: 6 }).map((_, i) => (
             <div
               key={i}
-              className="h-4 animate-pulse rounded bg-[var(--slate-200)]"
+              className="h-4 animate-pulse rounded bg-slate-200"
               style={{ width: `${60 + (i % 3) * 15}%` }}
             />
           ))}
@@ -277,28 +277,28 @@ function JobDetailsGrid({ job }: { job: TakeoffJobSummary }) {
   return (
     <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
       <div>
-        <dt className="text-xs font-medium text-[var(--slate-500)]">Fichier</dt>
+        <dt className="text-xs font-medium text-muted-foreground">Fichier</dt>
         <dd className="mt-1 text-sm">
           {job.source_file_name ?? "-"}
           {job.source_file_type && (
-            <span className="ml-1 text-xs text-[var(--slate-500)]">
+            <span className="ml-1 text-xs text-muted-foreground">
               ({job.source_file_type})
             </span>
           )}
         </dd>
       </div>
       <div>
-        <dt className="text-xs font-medium text-[var(--slate-500)]">Taille</dt>
+        <dt className="text-xs font-medium text-muted-foreground">Taille</dt>
         <dd className="mt-1 text-sm">
           {formatFileSize(job.source_file_size_bytes)}
         </dd>
       </div>
       <div>
-        <dt className="text-xs font-medium text-[var(--slate-500)]">Niveau</dt>
+        <dt className="text-xs font-medium text-muted-foreground">Niveau</dt>
         <dd className="mt-1 text-sm">{job.level}</dd>
       </div>
       <div>
-        <dt className="text-xs font-medium text-[var(--slate-500)]">
+        <dt className="text-xs font-medium text-muted-foreground">
           Strategie
         </dt>
         <dd className="mt-1 text-sm">
@@ -306,7 +306,7 @@ function JobDetailsGrid({ job }: { job: TakeoffJobSummary }) {
         </dd>
       </div>
       <div>
-        <dt className="text-xs font-medium text-[var(--slate-500)]">
+        <dt className="text-xs font-medium text-muted-foreground">
           Etat provider
         </dt>
         <dd className="mt-1 text-sm">
@@ -317,7 +317,7 @@ function JobDetailsGrid({ job }: { job: TakeoffJobSummary }) {
         </dd>
       </div>
       <div>
-        <dt className="text-xs font-medium text-[var(--slate-500)]">
+        <dt className="text-xs font-medium text-muted-foreground">
           Maj provider
         </dt>
         <dd className="mt-1 text-sm">
@@ -325,11 +325,11 @@ function JobDetailsGrid({ job }: { job: TakeoffJobSummary }) {
         </dd>
       </div>
       <div>
-        <dt className="text-xs font-medium text-[var(--slate-500)]">ID extraction</dt>
+        <dt className="text-xs font-medium text-muted-foreground">ID extraction</dt>
         <dd className="mt-1 font-mono text-xs">{job.id}</dd>
       </div>
       <div>
-        <dt className="text-xs font-medium text-[var(--slate-500)]">
+        <dt className="text-xs font-medium text-muted-foreground">
           ID batch provider
         </dt>
         <dd className="mt-1 font-mono text-xs">
@@ -337,25 +337,25 @@ function JobDetailsGrid({ job }: { job: TakeoffJobSummary }) {
         </dd>
       </div>
       <div>
-        <dt className="text-xs font-medium text-[var(--slate-500)]">
+        <dt className="text-xs font-medium text-muted-foreground">
           Cree le
         </dt>
         <dd className="mt-1 text-sm">{formatTimestamp(job.created_at)}</dd>
       </div>
       <div>
-        <dt className="text-xs font-medium text-[var(--slate-500)]">
+        <dt className="text-xs font-medium text-muted-foreground">
           Demarre le
         </dt>
         <dd className="mt-1 text-sm">{formatTimestamp(job.started_at)}</dd>
       </div>
       <div>
-        <dt className="text-xs font-medium text-[var(--slate-500)]">
+        <dt className="text-xs font-medium text-muted-foreground">
           Termine le
         </dt>
         <dd className="mt-1 text-sm">{formatTimestamp(job.completed_at)}</dd>
       </div>
       <div>
-        <dt className="text-xs font-medium text-[var(--slate-500)]">Duree</dt>
+        <dt className="text-xs font-medium text-muted-foreground">Duree</dt>
         <dd className="mt-1 text-sm">
           {isProcessing && !hasDuration ? (
             <LiveDuration startedAt={job.started_at} />
@@ -365,7 +365,7 @@ function JobDetailsGrid({ job }: { job: TakeoffJobSummary }) {
         </dd>
       </div>
       <div>
-        <dt className="text-xs font-medium text-[var(--slate-500)]">
+        <dt className="text-xs font-medium text-muted-foreground">
           Relances
         </dt>
         <dd className="mt-1 text-sm">
@@ -374,7 +374,7 @@ function JobDetailsGrid({ job }: { job: TakeoffJobSummary }) {
       </div>
       {job.metrics.token_count !== null && (
         <div>
-          <dt className="text-xs font-medium text-[var(--slate-500)]">
+          <dt className="text-xs font-medium text-muted-foreground">
             Tokens
           </dt>
           <dd className="mt-1 text-sm">
@@ -384,7 +384,7 @@ function JobDetailsGrid({ job }: { job: TakeoffJobSummary }) {
       )}
       {job.metrics.cost_cents !== null && (
         <div>
-          <dt className="text-xs font-medium text-[var(--slate-500)]">Cout</dt>
+          <dt className="text-xs font-medium text-muted-foreground">Cout</dt>
           <dd className="mt-1 text-sm">
             {formatCostCents(job.metrics.cost_cents)}
           </dd>
@@ -398,8 +398,8 @@ function JobErrorSection({ job }: { job: TakeoffJobSummary }) {
   if (!job.error_code && !job.error_message) return null;
 
   return (
-    <div className="mt-4 rounded-md border border-[var(--error)] bg-[var(--error-light)] p-4">
-      <p className="text-sm font-medium text-[var(--error)]">
+    <div className="mt-4 rounded-md border border-danger bg-danger-light p-4">
+      <p className="text-sm font-medium text-danger">
         {job.error_code && (
           <span className="mr-2 font-mono text-xs">[{job.error_code}]</span>
         )}
@@ -671,14 +671,14 @@ export default function TakeoffJobMonitor({
         {(job.dispatch_status === "queued" ||
           job.dispatch_status === "trigger_failed") && (
           <div
-            className="mt-4 rounded-md border border-[var(--warning)]/40 bg-[var(--warning-light)] p-3"
+            className="mt-4 rounded-md border border-warning/40 bg-warning-light p-3"
             role="status"
           >
-            <p className="text-sm font-medium text-[var(--slate-800)]">
+            <p className="text-sm font-medium text-slate-800">
               Démarrage immédiat indisponible, reprise automatique active.
             </p>
             {job.dispatch_correlation_id ? (
-              <p className="mt-1 text-xs text-[var(--slate-600)]">
+              <p className="mt-1 text-xs text-slate-600">
                 Identifiant de suivi : {job.dispatch_correlation_id}
               </p>
             ) : null}
@@ -687,24 +687,24 @@ export default function TakeoffJobMonitor({
       </section>
 
       {actionError && (
-        <div className="mt-4 rounded-md border border-[var(--error)] bg-[var(--error-light)] p-3">
-          <p className="text-sm text-[var(--error)]">{actionError}</p>
+        <div className="mt-4 rounded-md border border-danger bg-danger-light p-3">
+          <p className="text-sm text-danger">{actionError}</p>
         </div>
       )}
       {actionNotice && (
         <div
-          className="mt-4 rounded-md border border-[var(--warning)]/40 bg-[var(--warning-light)] p-3"
+          className="mt-4 rounded-md border border-warning/40 bg-warning-light p-3"
           role="status"
         >
-          <p className="text-sm text-[var(--slate-700)]">{actionNotice}</p>
+          <p className="text-sm text-foreground-secondary">{actionNotice}</p>
         </div>
       )}
       {applySuccess && (
-        <div className="mt-4 rounded-md border border-[var(--success)]/30 bg-[var(--success-light)] p-3">
-          <p className="text-sm font-medium text-[var(--success)]">
+        <div className="mt-4 rounded-md border border-success/30 bg-success-light p-3">
+          <p className="text-sm font-medium text-success">
             Application au devis terminee.
           </p>
-          <p className="mt-1 text-xs text-[var(--slate-600)]">
+          <p className="mt-1 text-xs text-slate-600">
             Version: {applySuccess.versionId} · Section: {applySuccess.sectionLabel} ·
             Strategie: {getStrategyLabel(applySuccess.strategy)} · Crees:{" "}
             {applySuccess.createdCount} · Maj: {applySuccess.updatedCount} · Ignores:{" "}
@@ -713,8 +713,8 @@ export default function TakeoffJobMonitor({
         </div>
       )}
       {!isApplyWizardOpen && applyError && (
-        <div className="mt-4 rounded-md border border-[var(--error)] bg-[var(--error-light)] p-3">
-          <p className="text-sm text-[var(--error)]">{applyError}</p>
+        <div className="mt-4 rounded-md border border-danger bg-danger-light p-3">
+          <p className="text-sm text-danger">{applyError}</p>
         </div>
       )}
 
@@ -738,7 +738,7 @@ export default function TakeoffJobMonitor({
           </button>
         )}
         {isCompleted && !canOpenApplyWizard && (
-          <span className="self-center text-xs text-[var(--slate-500)]">
+          <span className="self-center text-xs text-muted-foreground">
             Aucun item inclus a appliquer.
           </span>
         )}
@@ -766,7 +766,7 @@ export default function TakeoffJobMonitor({
             {resubmitState === "loading" ? "Resoumission..." : "Resoumettre"}
           </button>
         ) : status === "failed" && job.can_resubmit === false ? (
-          <span className="text-xs text-[var(--slate-500)] self-center">
+          <span className="text-xs text-muted-foreground self-center">
             Aucune resoumission disponible pour ce job.
           </span>
         ) : null}
@@ -793,7 +793,7 @@ export default function TakeoffJobMonitor({
       </div>
 
       {isPolling && (
-        <p className="mt-3 text-xs text-[var(--slate-500)]">
+        <p className="mt-3 text-xs text-muted-foreground">
           Actualisation automatique en cours...
         </p>
       )}

@@ -121,15 +121,15 @@ export function AffairesCardList({
           >
             <Link
               href={primaryHref}
-              className="block p-4 pb-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-blue)] focus-visible:ring-offset-2"
+              className="block p-4 pb-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
             >
               <div className="flex items-start justify-between gap-2 mb-2">
                 <div className="min-w-0">
-                  <h3 className="font-semibold text-sm text-[var(--slate-900)] truncate">
+                  <h3 className="font-semibold text-sm text-foreground truncate">
                     {item.projectName}
                   </h3>
                   {item.projectClient && (
-                    <p className="text-xs text-[var(--slate-500)] truncate mt-0.5">
+                    <p className="text-xs text-muted-foreground truncate mt-0.5">
                       {item.projectClient}
                     </p>
                   )}
@@ -143,14 +143,14 @@ export function AffairesCardList({
                       DPGF
                     </span>
                   )}
-                  <span className="text-xs text-[var(--slate-400)]">
+                  <span className="text-xs text-subtle-foreground">
                     {item.versionCount} version{item.versionCount !== 1 ? "s" : ""}
                   </span>
                 </div>
               </div>
 
               {item.projectReference && (
-                <p className="text-xs text-[var(--slate-400)] mb-2 truncate">
+                <p className="text-xs text-subtle-foreground mb-2 truncate">
                   Ref. {item.projectReference}
                 </p>
               )}
@@ -163,7 +163,7 @@ export function AffairesCardList({
                     acceptedVersionNumber={item.acceptedVersionNumber}
                   />
                 ) : (
-                  <span className="text-xs font-medium text-[var(--slate-500)]">
+                  <span className="text-xs font-medium text-muted-foreground">
                     Aucun chiffrage
                   </span>
                 )}
@@ -177,24 +177,24 @@ export function AffairesCardList({
               </div>
 
               <div className="flex items-center justify-between text-xs">
-                <span className="font-medium text-[var(--slate-700)]">
+                <span className="font-medium text-foreground-secondary">
                   {item.currentTotalHtCents !== null
                     ? `${formatEUR(item.currentTotalHtCents)} HT`
                     : "—"}
                 </span>
-                <span className="text-[var(--slate-400)]">
+                <span className="text-subtle-foreground">
                   {formatDate(item.currentUpdatedAt)}
                 </span>
               </div>
             </Link>
 
             {/* Actions */}
-            <div className="flex items-center gap-1 px-4 pb-4 pt-3 border-t border-[var(--slate-100)]">
+            <div className="flex items-center gap-1 px-4 pb-4 pt-3 border-t border-border-subtle">
               {canDelete && onToggleProjectSelection ? (
                 <label className="mr-1 inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center sm:min-h-8 sm:min-w-8">
                   <input
                     type="checkbox"
-                    className="h-4 w-4 rounded border-[var(--slate-300)] text-[var(--brand-blue)]"
+                    className="h-4 w-4 rounded border-border-strong text-primary"
                     checked={selectedProjectIds.has(item.projectId)}
                     aria-label={`Selectionner l'affaire ${item.projectName}`}
                     onChange={() =>

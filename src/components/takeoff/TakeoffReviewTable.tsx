@@ -137,13 +137,13 @@ function ClickableConfidenceBadge({
   return (
     <button
       type="button"
-      className="group flex items-center gap-1.5 rounded px-1 py-0.5 transition-colors hover:bg-[var(--slate-100)]"
+      className="group flex items-center gap-1.5 rounded px-1 py-0.5 transition-colors hover:bg-muted"
       onClick={onClick}
       title={tooltip}
     >
       <ConfidenceBadge confidence={confidence} />
       {/* Mini confidence bar */}
-      <div className="h-1.5 w-8 overflow-hidden rounded-full bg-[var(--slate-100)]">
+      <div className="h-1.5 w-8 overflow-hidden rounded-full bg-muted">
         <div
           className="h-full rounded-full transition-all duration-300"
           style={{ width: barWidth, backgroundColor: barColor }}
@@ -154,7 +154,7 @@ function ClickableConfidenceBadge({
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 20 20"
         fill="currentColor"
-        className={`h-3.5 w-3.5 ${hasEvidence ? "text-[var(--info)]" : "text-[var(--slate-300)]"}`}
+        className={`h-3.5 w-3.5 ${hasEvidence ? "text-info" : "text-slate-300"}`}
         aria-label={hasEvidence ? "Evidence disponible" : "Pas d'evidence"}
       >
         <path
@@ -180,7 +180,7 @@ function AnomalyWarnings({ anomalies }: { anomalies: AnomalyType[] }) {
           xmlns="http://www.w3.org/2000/svg"
           viewBox="0 0 20 20"
           fill="currentColor"
-          className="h-4 w-4 text-[var(--warning)]"
+          className="h-4 w-4 text-warning"
           aria-label={`${anomalies.length} anomalie(s)`}
         >
           <path
@@ -201,7 +201,7 @@ function AnomalyWarnings({ anomalies }: { anomalies: AnomalyType[] }) {
 function CategoryTag({ metadata }: { metadata: Record<string, unknown> }) {
   const category =
     typeof metadata.category === "string" ? metadata.category : null;
-  if (!category) return <span className="text-xs text-[var(--slate-400)]">-</span>;
+  if (!category) return <span className="text-xs text-subtle-foreground">-</span>;
   return <Badge variant="neutral" size="sm">{category}</Badge>;
 }
 
@@ -217,13 +217,13 @@ function SourceReference({
   sourcePage: number | null;
 }) {
   if (!sourceFileName && sourcePage === null) {
-    return <span className="text-xs text-[var(--slate-400)]">-</span>;
+    return <span className="text-xs text-subtle-foreground">-</span>;
   }
   return (
-    <span className="text-xs text-[var(--slate-600)]" title={sourceFileName ?? undefined}>
+    <span className="text-xs text-slate-600" title={sourceFileName ?? undefined}>
       {sourceFileName ? sourceFileName.slice(0, 20) : ""}
       {sourcePage !== null && (
-        <span className="ml-1 text-[var(--slate-400)]">p.{sourcePage}</span>
+        <span className="ml-1 text-subtle-foreground">p.{sourcePage}</span>
       )}
     </span>
   );
@@ -519,21 +519,21 @@ export default function TakeoffReviewTable({
   );
 
   return (
-    <div className="space-y-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 rounded-lg" ref={containerRef} tabIndex={0} onKeyDown={handleKeyDown}>
+    <div className="space-y-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-lg" ref={containerRef} tabIndex={0} onKeyDown={handleKeyDown}>
       {/* ---- Filters ---- */}
       <div className="flex flex-wrap items-center gap-3">
         {/* Search */}
         <input
           type="search"
           placeholder="Rechercher par désignation..."
-          className="h-9 w-64 rounded-lg border border-[var(--border)] bg-white px-3 text-sm focus:border-[var(--ring)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+          className="h-9 w-64 rounded-lg border border-border bg-surface px-3 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
         />
 
         {/* Inclusion filter */}
         <select
-          className="h-9 rounded-lg border border-[var(--border)] bg-white px-2 text-sm"
+          className="h-9 rounded-lg border border-border bg-surface px-2 text-sm"
           value={inclusionFilter}
           onChange={(e) => setInclusionFilter(e.target.value as InclusionFilter)}
         >
@@ -544,7 +544,7 @@ export default function TakeoffReviewTable({
 
         {/* Verification filter */}
         <select
-          className="h-9 rounded-lg border border-[var(--border)] bg-white px-2 text-sm"
+          className="h-9 rounded-lg border border-border bg-surface px-2 text-sm"
           value={verificationFilter}
           onChange={(e) =>
             setVerificationFilter(e.target.value as VerificationFilter)
@@ -558,7 +558,7 @@ export default function TakeoffReviewTable({
         {/* Category filter */}
         {allCategories.length > 0 && (
           <select
-            className="h-9 rounded-lg border border-[var(--border)] bg-white px-2 text-sm"
+            className="h-9 rounded-lg border border-border bg-surface px-2 text-sm"
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
           >
@@ -574,7 +574,7 @@ export default function TakeoffReviewTable({
         {/* Page filter */}
         {allPages.length > 1 && (
           <select
-            className="h-9 rounded-lg border border-[var(--border)] bg-white px-2 text-sm"
+            className="h-9 rounded-lg border border-border bg-surface px-2 text-sm"
             value={pageFilter}
             onChange={(e) => setPageFilter(e.target.value)}
           >
@@ -590,7 +590,7 @@ export default function TakeoffReviewTable({
         {/* Table filter */}
         {allTableIndices.length > 1 && (
           <select
-            className="h-9 rounded-lg border border-[var(--border)] bg-white px-2 text-sm"
+            className="h-9 rounded-lg border border-border bg-surface px-2 text-sm"
             value={tableFilter}
             onChange={(e) => setTableFilter(e.target.value)}
           >
@@ -605,7 +605,7 @@ export default function TakeoffReviewTable({
 
         {/* Anomaly filter */}
         <select
-          className="h-9 rounded-lg border border-[var(--border)] bg-white px-2 text-sm"
+          className="h-9 rounded-lg border border-border bg-surface px-2 text-sm"
           value={anomalyFilter}
           onChange={(e) => setAnomalyFilter(e.target.value as AnomalyFilter)}
         >
@@ -616,7 +616,7 @@ export default function TakeoffReviewTable({
 
         {/* Confidence filter */}
         <select
-          className="h-9 rounded-lg border border-[var(--border)] bg-white px-2 text-sm"
+          className="h-9 rounded-lg border border-border bg-surface px-2 text-sm"
           value={confidenceFilter}
           onChange={(e) => setConfidenceFilter(e.target.value as ConfidenceFilter)}
         >
@@ -629,7 +629,7 @@ export default function TakeoffReviewTable({
 
         {/* Sort */}
         <select
-          className="h-9 rounded-lg border border-[var(--border)] bg-white px-2 text-sm"
+          className="h-9 rounded-lg border border-border bg-surface px-2 text-sm"
           value={sortField}
           onChange={(e) => handleSortFieldSelect(e.target.value as SortField)}
         >
@@ -640,7 +640,7 @@ export default function TakeoffReviewTable({
         </select>
         <button
           type="button"
-          className="h-9 rounded-lg border border-[var(--border)] bg-white px-2 text-sm hover:bg-[var(--slate-50)]"
+          className="h-9 rounded-lg border border-border bg-surface px-2 text-sm hover:bg-surface-subtle"
           onClick={() =>
             setSortDirection((d) => (d === "asc" ? "desc" : "asc"))
           }
@@ -649,21 +649,21 @@ export default function TakeoffReviewTable({
           {sortDirection === "asc" ? "\u2191" : "\u2193"}
         </button>
 
-        <span className="ml-auto text-xs text-[var(--slate-500)]">
+        <span className="ml-auto text-xs text-muted-foreground">
           {filteredItems.length} / {items.length} affiche(s)
         </span>
       </div>
 
       {/* ---- Keyboard shortcuts hint ---- */}
-      <p className="text-xs text-[var(--slate-400)]">
-        Raccourcis : <kbd className="rounded border border-[var(--border)] px-1">E</kbd> exclure/inclure,{" "}
-        <kbd className="rounded border border-[var(--border)] px-1">V</kbd> verifier,{" "}
-        <kbd className="rounded border border-[var(--border)] px-1">P</kbd> preuve
+      <p className="text-xs text-subtle-foreground">
+        Raccourcis : <kbd className="rounded border border-border px-1">E</kbd> exclure/inclure,{" "}
+        <kbd className="rounded border border-border px-1">V</kbd> verifier,{" "}
+        <kbd className="rounded border border-border px-1">P</kbd> preuve
       </p>
 
       {/* ---- Bulk actions bar ---- */}
       {selectedCount > 0 && (
-        <div className="flex items-center gap-3 rounded-lg border border-[var(--info)] bg-[var(--info-light)] px-4 py-2 text-sm">
+        <div className="flex items-center gap-3 rounded-lg border border-info bg-info-light px-4 py-2 text-sm">
           <span className="font-medium">
             {filteredSelectedCount} selectionne(s)
           </span>
@@ -683,7 +683,7 @@ export default function TakeoffReviewTable({
           </Button>
           <button
             type="button"
-            className="text-xs text-[var(--slate-600)] hover:underline"
+            className="text-xs text-slate-600 hover:underline"
             onClick={clearSelection}
           >
             Tout deselectionner
@@ -692,7 +692,7 @@ export default function TakeoffReviewTable({
       )}
 
       {/* ---- Table ---- */}
-      <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
+      <div className="overflow-x-auto rounded-lg border border-border">
         <table role="grid" className="data-table w-full">
           <thead>
             <tr>
@@ -745,7 +745,7 @@ export default function TakeoffReviewTable({
           <tbody>
             {filteredItems.length === 0 ? (
               <tr>
-                <td colSpan={10} className="py-8 text-center text-sm text-[var(--slate-500)]">
+                <td colSpan={10} className="py-8 text-center text-sm text-muted-foreground">
                   Aucun item ne correspond aux filtres.
                 </td>
               </tr>
@@ -755,7 +755,7 @@ export default function TakeoffReviewTable({
                 const isExcluded = item.is_excluded;
                 const rowClassName = [
                   isExcluded && "opacity-50",
-                  item._error && "bg-[var(--error-light)]",
+                  item._error && "bg-danger-light",
                 ]
                   .filter(Boolean)
                   .join(" ");
@@ -798,7 +798,7 @@ export default function TakeoffReviewTable({
                         className="editable-cell"
                       />
                       {item._saving && (
-                        <span className="ml-1 inline-block h-3 w-3 animate-spin rounded-full border border-[var(--info)] border-t-transparent" />
+                        <span className="ml-1 inline-block h-3 w-3 animate-spin rounded-full border border-info border-t-transparent" />
                       )}
                     </td>
 
@@ -904,7 +904,7 @@ export default function TakeoffReviewTable({
                       {isExcluded ? (
                         <button
                           type="button"
-                          className="text-xs font-medium text-[var(--info)] hover:underline"
+                          className="text-xs font-medium text-info hover:underline"
                           onClick={() => onIncludeItems([item.id])}
                         >
                           Inclure
@@ -912,7 +912,7 @@ export default function TakeoffReviewTable({
                       ) : (
                         <button
                           type="button"
-                          className="text-xs font-medium text-[var(--danger)] hover:underline"
+                          className="text-xs font-medium text-danger hover:underline"
                           onClick={() => onExcludeItems([item.id])}
                         >
                           Exclure

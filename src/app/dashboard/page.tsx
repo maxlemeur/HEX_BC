@@ -34,7 +34,7 @@ function StatusBadge({ item }: Readonly<{ item: AffaireListItem }>) {
       : status === "sent"
         ? "bg-blue-50 text-blue-700"
         : status === "archived"
-          ? "bg-slate-100 text-slate-600"
+          ? "bg-muted text-slate-600"
           : "bg-amber-50 text-amber-800";
 
   return (
@@ -89,13 +89,13 @@ export default async function DashboardPage() {
     <div className="mx-auto max-w-7xl space-y-6 animate-fade-in sm:space-y-8">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--brand-orange-dark)]">
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-brand-orange-dark">
             Centre de pilotage
           </p>
-          <h1 className="mt-1 text-3xl font-bold tracking-tight text-[var(--slate-900)] sm:text-4xl">
+          <h1 className="mt-1 text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
             Vue d’ensemble
           </h1>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--slate-600)] sm:text-base">
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
             Retrouvez les dossiers à reprendre et les accès utiles pour votre rôle.
           </p>
         </div>
@@ -117,14 +117,14 @@ export default async function DashboardPage() {
               key={metric.label}
               className="dashboard-card min-w-0 p-4 sm:p-5"
             >
-              <dt className="text-xs font-semibold text-[var(--slate-500)] sm:text-sm">
+              <dt className="text-xs font-semibold text-muted-foreground sm:text-sm">
                 {metric.label}
               </dt>
               <dd
                 className={`mt-2 text-3xl font-bold tabular-nums tracking-tight ${
                   metric.accent
-                    ? "text-[var(--brand-orange-dark)]"
-                    : "text-[var(--slate-900)]"
+                    ? "text-brand-orange-dark"
+                    : "text-foreground"
                 }`}
               >
                 {metric.value.toLocaleString("fr-FR")}
@@ -139,38 +139,38 @@ export default async function DashboardPage() {
           aria-labelledby="recent-affaires-heading"
           className="dashboard-card min-w-0 overflow-hidden"
         >
-          <div className="flex items-center justify-between gap-3 border-b border-[var(--slate-100)] px-4 py-4 sm:px-5">
+          <div className="flex items-center justify-between gap-3 border-b border-border-subtle px-4 py-4 sm:px-5">
             <div>
-              <h2 id="recent-affaires-heading" className="font-semibold text-[var(--slate-900)]">
+              <h2 id="recent-affaires-heading" className="font-semibold text-foreground">
                 Affaires récentes
               </h2>
-              <p className="mt-0.5 text-xs text-[var(--slate-500)]">
+              <p className="mt-0.5 text-xs text-muted-foreground">
                 Les cinq derniers dossiers mis à jour
               </p>
             </div>
             <Link
               href="/dashboard/affaires"
-              className="inline-flex min-h-11 shrink-0 items-center text-sm font-semibold text-[var(--brand-blue)] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-blue)]"
+              className="inline-flex min-h-11 shrink-0 items-center text-sm font-semibold text-primary hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
             >
               Tout voir
             </Link>
           </div>
 
           {recentAffaires.length > 0 ? (
-            <ul className="divide-y divide-[var(--slate-100)]">
+            <ul className="divide-y divide-border-subtle">
               {recentAffaires.map((item) => (
                 <li key={item.projectId}>
                   <Link
                     href={`/dashboard/affaires/${item.projectId}`}
                     prefetch={false}
-                    className="flex min-h-16 items-center gap-3 px-4 py-3 transition-colors hover:bg-[var(--slate-50)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--brand-blue)] sm:px-5"
+                    className="flex min-h-16 items-center gap-3 px-4 py-3 transition-colors hover:bg-surface-subtle focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary sm:px-5"
                     aria-label={`Ouvrir l'affaire ${item.projectName}`}
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-[var(--slate-800)]">
+                      <p className="truncate text-sm font-semibold text-slate-800">
                         {item.projectName}
                       </p>
-                      <p className="mt-1 truncate text-xs text-[var(--slate-500)]">
+                      <p className="mt-1 truncate text-xs text-muted-foreground">
                         {item.projectClient || item.projectReference || "Client non renseigné"}
                         <span aria-hidden="true"> · </span>
                         <time dateTime={item.currentUpdatedAt}>
@@ -215,7 +215,7 @@ export default async function DashboardPage() {
             aria-labelledby="quick-access-heading"
             className="dashboard-card p-4 sm:p-5"
           >
-            <h2 id="quick-access-heading" className="font-semibold text-[var(--slate-900)]">
+            <h2 id="quick-access-heading" className="font-semibold text-foreground">
               Accès rapides
             </h2>
             <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
@@ -224,17 +224,17 @@ export default async function DashboardPage() {
                   key={shortcut.href}
                   href={shortcut.href}
                   prefetch={false}
-                  className="group flex min-h-14 items-center gap-3 rounded-lg border border-transparent px-3 py-2 transition-colors hover:border-[var(--slate-200)] hover:bg-[var(--slate-50)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-blue)]"
+                  className="group flex min-h-14 items-center gap-3 rounded-lg border border-transparent px-3 py-2 transition-colors hover:border-border hover:bg-surface-subtle focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                 >
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold text-[var(--slate-800)]">
+                    <p className="text-sm font-semibold text-slate-800">
                       {shortcut.label}
                     </p>
-                    <p className="mt-0.5 text-xs leading-5 text-[var(--slate-500)]">
+                    <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
                       {shortcut.description}
                     </p>
                   </div>
-                  <span className="text-[var(--slate-400)] transition-transform group-hover:translate-x-0.5 group-hover:text-[var(--brand-blue)]">
+                  <span className="text-subtle-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary">
                     <ShortcutIcon />
                   </span>
                 </Link>
@@ -246,10 +246,10 @@ export default async function DashboardPage() {
             aria-labelledby="resume-affaire-heading"
             className="dashboard-card p-4 sm:p-5"
           >
-            <h2 id="resume-affaire-heading" className="font-semibold text-[var(--slate-900)]">
+            <h2 id="resume-affaire-heading" className="font-semibold text-foreground">
               Continuer votre travail
             </h2>
-            <p className="mt-1 text-sm leading-6 text-[var(--slate-500)]">
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
               Revenez au dernier dossier consulté sur cet appareil.
             </p>
             <div className="mt-4">

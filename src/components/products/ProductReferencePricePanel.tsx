@@ -96,11 +96,11 @@ export function ProductReferencePricePanel({ productId, onValidated }: {
   }
 
   return (
-    <section className="space-y-4 rounded-xl border border-[var(--slate-200)] bg-white p-5" aria-label="Prix de référence">
+    <section className="space-y-4 rounded-xl border border-border bg-surface p-5" aria-label="Prix de référence">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">Prix de référence</h2>
-          <p className="text-sm text-[var(--slate-500)]">Moyenne des dernières offres comparables de moins de six mois, une par fournisseur.</p>
+          <p className="text-sm text-muted-foreground">Moyenne des dernières offres comparables de moins de six mois, une par fournisseur.</p>
         </div>
         <button type="button" className="btn btn-secondary btn-sm" disabled={busy || isValidating} onClick={() => void mutate()}>Actualiser la proposition</button>
       </div>
@@ -122,12 +122,12 @@ export function ProductReferencePricePanel({ productId, onValidated }: {
           <button type="button" className="btn btn-secondary" disabled={busy || isValidating} onClick={recalculate}>Calculer la moyenne</button>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
-          <div className="rounded-lg bg-[var(--slate-50)] p-3">
+          <div className="rounded-lg bg-surface-subtle p-3">
             <p className="text-sm">Référence actuelle{proposal.offer_count === 0 && proposal.current_price_cents !== null ? " · à actualiser" : ""}</p>
             <p className="text-xl font-semibold">{proposal.current_price_cents === null ? "Prix manquant" : `${formatEUR(proposal.current_price_cents)} / ${proposal.unit}`}</p>
-            {data.latest_validation ? <p className="mt-1 text-xs text-[var(--slate-500)]">
+            {data.latest_validation ? <p className="mt-1 text-xs text-muted-foreground">
               {data.latest_validation.mode === "average" ? "Moyenne validée" : "Choix manuel justifié"} le {new Date(data.latest_validation.validated_at).toLocaleString("fr-FR")}
-            </p> : <p className="mt-1 text-xs text-[var(--slate-500)]">Valeur antérieure conservée</p>}
+            </p> : <p className="mt-1 text-xs text-muted-foreground">Valeur antérieure conservée</p>}
           </div>
           <div className="rounded-lg bg-blue-50 p-3">
             <p className="text-sm">Moyenne proposée · à valider</p>
@@ -140,27 +140,27 @@ export function ProductReferencePricePanel({ productId, onValidated }: {
           Écart supérieur à 15 % : {proposal.dispersion_percent?.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} % entre le minimum et le maximum. Toutes les offres retenues restent dans la moyenne.
         </p> : null}
         {proposal.zero_price_requires_review ? <p role="alert" className="text-sm text-amber-800">Une offre à prix nul nécessite une vérification. Aucune moyenne ne peut être validée avant traitement de cette anomalie.</p> : null}
-        <details className="rounded-lg border border-[var(--slate-200)] p-3" open>
+        <details className="rounded-lg border border-border p-3" open>
           <summary className="cursor-pointer text-sm font-semibold">Offres retenues et exclues ({proposal.offers.length})</summary>
           <div className="mt-3 overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead><tr><th className="p-2">Fournisseur / référence</th><th className="p-2">Prix HT</th><th className="p-2">Conditions</th><th className="p-2">Calcul</th></tr></thead>
-              <tbody>{proposal.offers.map((offer) => <tr key={offer.id} className="border-t border-[var(--slate-100)]">
-                <td className="p-2">{offer.supplier_name}<span className="block text-xs text-[var(--slate-500)]">{offer.supplier_sku ?? "Référence manquante"}</span></td>
+              <tbody>{proposal.offers.map((offer) => <tr key={offer.id} className="border-t border-border-subtle">
+                <td className="p-2">{offer.supplier_name}<span className="block text-xs text-muted-foreground">{offer.supplier_sku ?? "Référence manquante"}</span></td>
                 <td className="whitespace-nowrap p-2">{(offer.unit_price_cents / 100).toLocaleString("fr-FR", { style: "currency", currency: offer.currency })} / {offer.unit}</td>
                 <td className="p-2"><span className="block">Dès {offer.min_quantity} {offer.unit} · {offer.valid_from} → {offer.valid_to ?? "Fin non renseignée"}</span>
-                  {data.can_validate ? <select className="mt-1 rounded border border-[var(--slate-200)] p-1" aria-label={`Transport pour ${offer.supplier_name} (${offer.id})`}
+                  {data.can_validate ? <select className="mt-1 rounded border border-border p-1" aria-label={`Transport pour ${offer.supplier_name} (${offer.id})`}
                     value={offer.transport_mode ?? ""} disabled={busy || isValidating}
                     onChange={(event) => { void save({ action: "set-transport", offer_id: offer.id, transport_mode: event.target.value || null, expected_updated_at: offer.updated_at }); }}>
                     <option value="">Transport à préciser</option><option value="excluded">Hors transport</option><option value="included">Transport inclus</option>
                   </select> : <span className="block">{transportLabel(offer.transport_mode)}</span>}
                 </td>
-                <td className={`p-2 ${offer.exclusion ? "text-[var(--slate-500)]" : "font-medium text-emerald-700"}`}>{offer.exclusion ? exclusions[offer.exclusion] : "Retenue"}</td>
+                <td className={`p-2 ${offer.exclusion ? "text-muted-foreground" : "font-medium text-emerald-700"}`}>{offer.exclusion ? exclusions[offer.exclusion] : "Retenue"}</td>
               </tr>)}</tbody>
             </table>
           </div>
         </details>
-        {data.can_validate ? <div className="space-y-3 border-t border-[var(--slate-200)] pt-3">
+        {data.can_validate ? <div className="space-y-3 border-t border-border pt-3">
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={manual} disabled={busy} onChange={(event) => setManual(event.target.checked)} />Choisir un prix manuel avec justification</label>
           {manual ? <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-sm">Prix choisi HT (€ / {proposal.unit})<input className="form-input mt-1" value={manualPrice} inputMode="decimal" disabled={busy} onChange={(event) => setManualPrice(event.target.value)} /></label>
@@ -169,8 +169,8 @@ export function ProductReferencePricePanel({ productId, onValidated }: {
           <button type="button" className="btn btn-primary" disabled={busy || isValidating || basisChanged || !proposal.quantity || !proposal.transport_mode || (!manual && proposal.proposed_price_cents === null)} onClick={validate}>
             {busy ? "Enregistrement…" : manual ? "Valider le prix justifié" : "Valider la moyenne comme référence"}
           </button>
-          <p className="text-xs text-[var(--slate-500)]">La validation enregistre votre identité, la date et les offres examinées. Les coûts des devis existants restent inchangés.</p>
-        </div> : <p className="text-sm text-[var(--slate-500)]">Un responsable autorisé doit valider la proposition.</p>}
+          <p className="text-xs text-muted-foreground">La validation enregistre votre identité, la date et les offres examinées. Les coûts des devis existants restent inchangés.</p>
+        </div> : <p className="text-sm text-muted-foreground">Un responsable autorisé doit valider la proposition.</p>}
       </> : null}
     </section>
   );

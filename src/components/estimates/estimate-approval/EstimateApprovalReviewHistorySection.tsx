@@ -16,13 +16,13 @@ export function EstimateApprovalReviewHistorySection({
   }
 
   return (
-    <section className="rounded-xl border border-[var(--slate-200)] bg-white px-4 py-4">
+    <section className="rounded-xl border border-border bg-surface px-4 py-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-[var(--slate-800)]">
+          <h3 className="text-sm font-semibold text-slate-800">
             Dernière décision
           </h3>
-          <p className="mt-1 text-xs text-[var(--slate-500)]">
+          <p className="mt-1 text-xs text-muted-foreground">
             Cycle {latestReview.cycleNumber} décidé le {formatDateTime(latestReview.decidedAt)}
             {latestReview.deciderName ? ` par ${latestReview.deciderName}` : ""}.
           </p>
@@ -31,9 +31,9 @@ export function EstimateApprovalReviewHistorySection({
       </div>
 
       {latestReview.assignedReviewer ? (
-        <p className="mt-4 text-sm text-[var(--slate-700)]">
+        <p className="mt-4 text-sm text-foreground-secondary">
           Validateur assigne:{" "}
-          <span className="font-medium text-[var(--slate-800)]">
+          <span className="font-medium text-slate-800">
             {latestReview.assignedReviewer.fullName}
           </span>
           {latestReview.assignedReviewer.workEmail
@@ -42,18 +42,18 @@ export function EstimateApprovalReviewHistorySection({
         </p>
       ) : null}
       {latestReview.submissionMessage ? (
-        <div className="mt-4 rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)]">
+        <div className="mt-4 rounded-xl border border-border bg-surface-subtle px-3 py-3">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Message de contexte
           </p>
-          <p className="mt-1 text-sm text-[var(--slate-700)]">
+          <p className="mt-1 text-sm text-foreground-secondary">
             {latestReview.submissionMessage}
           </p>
         </div>
       ) : null}
 
       {latestReview.comments.length === 0 ? (
-        <p className="mt-4 text-sm text-[var(--slate-600)]">
+        <p className="mt-4 text-sm text-slate-600">
           Aucun commentaire ciblé n&apos;a été enregistré sur ce cycle.
         </p>
       ) : (
@@ -67,7 +67,7 @@ export function EstimateApprovalReviewHistorySection({
             .filter((group) => group.comments.length > 0)
             .map((group) => (
               <div key={group.scopeType}>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)]">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   {SCOPE_LABELS[group.scopeType]}
                   {group.comments.length > 1 ? ` (${group.comments.length})` : ""}
                 </p>
@@ -75,21 +75,21 @@ export function EstimateApprovalReviewHistorySection({
                   {group.comments.map((comment) => (
                     <article
                       key={comment.id}
-                      className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-3"
+                      className="rounded-xl border border-border bg-surface-subtle px-3 py-3"
                     >
                       <div className="flex flex-wrap items-start justify-between gap-2">
-                        <p className="text-sm font-semibold text-[var(--slate-800)]">
+                        <p className="text-sm font-semibold text-slate-800">
                           {comment.scopeLabel}
                         </p>
-                        <span className="text-xs text-[var(--slate-500)]">
+                        <span className="text-xs text-muted-foreground">
                           {formatDateTime(comment.createdAt)}
                         </span>
                       </div>
-                      <p className="mt-2 text-sm text-[var(--slate-700)]">
+                      <p className="mt-2 text-sm text-foreground-secondary">
                         {comment.comment}
                       </p>
                       {comment.authorName ? (
-                        <p className="mt-2 text-xs text-[var(--slate-500)]">
+                        <p className="mt-2 text-xs text-muted-foreground">
                           Par {comment.authorName}
                         </p>
                       ) : null}
@@ -102,22 +102,22 @@ export function EstimateApprovalReviewHistorySection({
       )}
 
       {olderReviews.length > 0 ? (
-        <details className="mt-4 rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-3">
-          <summary className="cursor-pointer text-sm font-medium text-[var(--slate-700)]">
+        <details className="mt-4 rounded-xl border border-border bg-surface-subtle px-3 py-3">
+          <summary className="cursor-pointer text-sm font-medium text-foreground-secondary">
             Voir les cycles précédents ({olderReviews.length})
           </summary>
           <div className="mt-3 space-y-3">
             {olderReviews.map((cycle) => (
               <div
                 key={cycle.id}
-                className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-3"
+                className="rounded-lg border border-border bg-surface px-3 py-3"
               >
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
-                    <p className="text-sm font-semibold text-[var(--slate-800)]">
+                    <p className="text-sm font-semibold text-slate-800">
                       Cycle {cycle.cycleNumber}
                     </p>
-                    <p className="mt-1 text-xs text-[var(--slate-500)]">
+                    <p className="mt-1 text-xs text-muted-foreground">
                       Demandé le {formatDateTime(cycle.requestedAt)} · Décidé le{" "}
                       {formatDateTime(cycle.decidedAt)}
                     </p>
@@ -125,20 +125,20 @@ export function EstimateApprovalReviewHistorySection({
                   <DecisionBadge decision={cycle.decision} />
                 </div>
                 {cycle.assignedReviewer ? (
-                  <p className="mt-3 text-sm text-[var(--slate-700)]">
+                  <p className="mt-3 text-sm text-foreground-secondary">
                     Validateur assigne: {cycle.assignedReviewer.fullName}
                   </p>
                 ) : null}
                 {cycle.submissionMessage ? (
-                  <p className="mt-2 text-sm text-[var(--slate-600)]">
+                  <p className="mt-2 text-sm text-slate-600">
                     {cycle.submissionMessage}
                   </p>
                 ) : null}
                 {cycle.comments.length > 0 ? (
                   <ul className="mt-3 space-y-2">
                     {cycle.comments.map((comment) => (
-                      <li key={comment.id} className="text-sm text-[var(--slate-700)]">
-                        <span className="font-medium text-[var(--slate-800)]">
+                      <li key={comment.id} className="text-sm text-foreground-secondary">
+                        <span className="font-medium text-slate-800">
                           {comment.scopeLabel}
                         </span>
                         : {comment.comment}
@@ -146,7 +146,7 @@ export function EstimateApprovalReviewHistorySection({
                     ))}
                   </ul>
                 ) : (
-                  <p className="mt-3 text-sm text-[var(--slate-500)]">
+                  <p className="mt-3 text-sm text-muted-foreground">
                     Aucun commentaire ciblé sur ce cycle.
                   </p>
                 )}

@@ -64,7 +64,7 @@ export function EstimateChecklist({
 
   return (
     <aside
-      className="h-fit w-full rounded-2xl border border-slate-200 bg-white p-4 shadow-sm xl:sticky xl:top-4"
+      className="h-fit w-full rounded-2xl border border-border bg-surface p-4 shadow-sm xl:sticky xl:top-4"
       data-testid="estimate-checklist"
       aria-labelledby="estimate-finalization-title"
     >

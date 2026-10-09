@@ -157,18 +157,18 @@ function MiniDropZone({
 
   if (selectedFile && !fileError) {
     return (
-      <div className="flex items-center justify-between gap-3 rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-2.5">
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-surface-subtle px-3 py-2.5">
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium text-[var(--slate-800)]">
+          <p className="truncate text-sm font-medium text-slate-800">
             {selectedFile.name}
           </p>
-          <p className="text-xs text-[var(--slate-500)]">
+          <p className="text-xs text-muted-foreground">
             {(selectedFile.size / 1024).toFixed(1)} Ko
           </p>
         </div>
         <button
           type="button"
-          className="shrink-0 text-xs font-medium text-[var(--slate-500)] hover:text-[var(--slate-700)]"
+          className="shrink-0 text-xs font-medium text-muted-foreground hover:text-foreground-secondary"
           onClick={() => {
             onFileClear();
             if (fileInputRef.current) fileInputRef.current.value = "";
@@ -192,8 +192,8 @@ function MiniDropZone({
         onDragLeave={() => setIsDragOver(false)}
         className={`relative rounded-lg border-2 border-dashed px-4 py-5 text-center transition-colors ${
           isDragOver
-            ? "border-[var(--brand-blue)] bg-[var(--brand-blue)]/5"
-            : "border-[var(--slate-300)] bg-[var(--slate-50)] hover:border-[var(--slate-400)]"
+            ? "border-primary bg-primary/5"
+            : "border-border-strong bg-surface-subtle hover:border-slate-400"
         }`}
       >
         <div className="flex flex-col items-center gap-1.5">
@@ -210,10 +210,10 @@ function MiniDropZone({
             <path d="m17 8-5-5-5 5" />
             <path d="M12 3v12" />
           </svg>
-          <p className="text-xs font-medium text-[var(--slate-600)]">
+          <p className="text-xs font-medium text-slate-600">
             Deposez un fichier DPGF (optionnel)
           </p>
-          <p className="text-[10px] text-[var(--slate-400)]">
+          <p className="text-[10px] text-subtle-foreground">
             CSV, XLSX ou XLS
           </p>
         </div>
@@ -230,7 +230,7 @@ function MiniDropZone({
         />
       </div>
       {fileError && (
-        <p className="text-xs text-[var(--error)]">{fileError}</p>
+        <p className="text-xs text-danger">{fileError}</p>
       )}
     </div>
   );
@@ -243,13 +243,13 @@ function MiniDropZone({
 function PhaseOverlay({ phase }: { phase: DialogPhase }) {
   return (
     <div className="flex flex-col items-center gap-4 py-10" aria-live="polite">
-      <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-[var(--slate-200)] border-t-[var(--brand-blue)]" />
-      <p className="text-sm font-medium text-[var(--slate-700)]">
+      <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-border border-t-primary" />
+      <p className="text-sm font-medium text-foreground-secondary">
         {PHASE_MESSAGES[phase]}
       </p>
-      <div className="h-1.5 w-48 overflow-hidden rounded-full bg-[var(--slate-200)]">
+      <div className="h-1.5 w-48 overflow-hidden rounded-full bg-slate-200">
         <div
-          className="h-full rounded-full bg-[var(--brand-blue)]"
+          className="h-full rounded-full bg-primary"
           style={{
             width: "100%",
             animation: "qcd-indeterminate 1.5s ease-in-out infinite",
@@ -713,24 +713,24 @@ export function QuickCreateAffaireDialog({
               />
 
               {/* Import DPGF section — shared by both modes */}
-              <details open className="rounded-lg border border-[var(--slate-200)] p-3">
-                <summary className="cursor-pointer text-sm font-medium text-[var(--slate-700)]">
+              <details open className="rounded-lg border border-border p-3">
+                <summary className="cursor-pointer text-sm font-medium text-foreground-secondary">
                   Import DPGF{" "}
                   <span className="ml-0.5 inline-flex cursor-help align-middle" title="Décomposition du Prix Global et Forfaitaire — fichier Excel décrivant les postes à chiffrer">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-subtle-foreground"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
                   </span>{" "}
                   (optionnel)
                 </summary>
 
                 <div className="mt-3 space-y-3">
                   {/* Tab toggle */}
-                  <div className="flex gap-0.5 rounded-lg bg-[var(--slate-100)] p-0.5">
+                  <div className="flex gap-0.5 rounded-lg bg-muted p-0.5">
                     <button
                       type="button"
                       className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                         importTab === "upload"
-                          ? "bg-white text-[var(--slate-800)] shadow-sm"
-                          : "text-[var(--slate-500)] hover:text-[var(--slate-700)]"
+                          ? "bg-surface text-slate-800 shadow-sm"
+                          : "text-muted-foreground hover:text-foreground-secondary"
                       }`}
                       onClick={() => setImportTab("upload")}
                     >
@@ -740,8 +740,8 @@ export function QuickCreateAffaireDialog({
                       type="button"
                       className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                         importTab === "existing"
-                          ? "bg-white text-[var(--slate-800)] shadow-sm"
-                          : "text-[var(--slate-500)] hover:text-[var(--slate-700)]"
+                          ? "bg-surface text-slate-800 shadow-sm"
+                          : "text-muted-foreground hover:text-foreground-secondary"
                       }`}
                       onClick={() => setImportTab("existing")}
                     >
@@ -755,16 +755,16 @@ export function QuickCreateAffaireDialog({
                       <div className="space-y-1.5">
                         <label
                           htmlFor="qc-import-select"
-                          className="block text-xs font-semibold text-[var(--slate-700)]"
+                          className="block text-xs font-semibold text-foreground-secondary"
                         >
                           Import disponible
                         </label>
                         {isLoadingImports ? (
-                          <p className="text-xs text-[var(--slate-500)]">
+                          <p className="text-xs text-muted-foreground">
                             Chargement...
                           </p>
                         ) : expertImports.length === 0 ? (
-                          <p className="text-xs text-[var(--slate-500)]">
+                          <p className="text-xs text-muted-foreground">
                             Aucun import termine et mappe disponible.
                           </p>
                         ) : (
@@ -839,7 +839,7 @@ export function QuickCreateAffaireDialog({
           {phase === "idle" && (
             <Link
               href="/dashboard/estimates/new"
-              className="mr-auto text-xs text-[var(--slate-500)] hover:underline"
+              className="mr-auto text-xs text-muted-foreground hover:underline"
             >
               Creation avancee
             </Link>

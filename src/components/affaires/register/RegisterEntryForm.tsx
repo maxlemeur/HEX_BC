@@ -45,10 +45,10 @@ export function RegisterEntryForm({
     return (
       <button
         type="button"
-        className="mt-4 flex w-full items-center gap-2 rounded-2xl border border-dashed border-[var(--slate-300)] bg-[var(--slate-50)]/60 px-4 py-3 text-sm font-medium text-[var(--slate-600)] transition-colors hover:border-[var(--slate-400)] hover:bg-[var(--slate-100)]/80 hover:text-[var(--slate-800)]"
+        className="mt-4 flex w-full items-center gap-2 rounded-2xl border border-dashed border-border-strong bg-surface-subtle/60 px-4 py-3 text-sm font-medium text-slate-600 transition-colors hover:border-slate-400 hover:bg-muted/80 hover:text-slate-800"
         onClick={() => onToggleExpanded(true)}
       >
-        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--slate-200)] text-xs font-bold text-[var(--slate-600)]">
+        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-200 text-xs font-bold text-slate-600">
           +
         </span>
         Ajouter un point
@@ -57,36 +57,36 @@ export function RegisterEntryForm({
   }
 
   return (
-    <div className="mt-4 rounded-2xl border border-[var(--slate-200)] bg-[var(--slate-50)]/80 p-4">
+    <div className="mt-4 rounded-2xl border border-border bg-surface-subtle/80 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-[var(--slate-800)]">
+          <h3 className="text-sm font-semibold text-slate-800">
             Ajouter un point manuel
           </h3>
-          <p className="mt-1 text-xs text-[var(--slate-500)]">
+          <p className="mt-1 text-xs text-muted-foreground">
             Utilisez ce formulaire pour tracer une hypothèse métier ou une pièce
             manquante non détectée automatiquement.
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="rounded-full bg-white px-2.5 py-1 text-xs text-[var(--slate-600)]">
+          <div className="rounded-full bg-surface px-2.5 py-1 text-xs text-slate-600">
             Création historisée
           </div>
           <button
             type="button"
-            className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-1 text-xs font-medium text-[var(--slate-600)] transition-colors hover:bg-[var(--slate-100)]"
+            className="rounded-lg border border-border bg-surface px-3 py-1 text-xs font-medium text-slate-600 transition-colors hover:bg-muted"
             onClick={() => onToggleExpanded(false)}
           >
             Fermer
           </button>
         </div>
       </div>
-      <p className="mt-3 text-xs text-[var(--slate-500)]">{formHint}</p>
+      <p className="mt-3 text-xs text-muted-foreground">{formHint}</p>
       <div className="mt-3 grid gap-3 lg:grid-cols-6">
-        <label className="flex flex-col gap-1 text-xs text-[var(--slate-600)] lg:col-span-1">
+        <label className="flex flex-col gap-1 text-xs text-slate-600 lg:col-span-1">
           Type
           <select
-            className="min-h-[44px] rounded-lg border border-[var(--slate-200)] bg-white px-2.5 py-1.5 text-xs text-[var(--slate-700)] sm:min-h-0"
+            className="min-h-[44px] rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-foreground-secondary sm:min-h-0"
             name="register-kind"
             autoComplete="off"
             value={form.kind}
@@ -101,10 +101,10 @@ export function RegisterEntryForm({
             ))}
           </select>
         </label>
-        <label className="flex flex-col gap-1 text-xs text-[var(--slate-600)] lg:col-span-1">
+        <label className="flex flex-col gap-1 text-xs text-slate-600 lg:col-span-1">
           Sévérité
           <select
-            className="min-h-[44px] rounded-lg border border-[var(--slate-200)] bg-white px-2.5 py-1.5 text-xs text-[var(--slate-700)] sm:min-h-0"
+            className="min-h-[44px] rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-foreground-secondary sm:min-h-0"
             name="register-severity"
             autoComplete="off"
             value={form.severity}
@@ -122,10 +122,10 @@ export function RegisterEntryForm({
             ))}
           </select>
         </label>
-        <label className="flex flex-col gap-1 text-xs text-[var(--slate-600)] lg:col-span-1">
+        <label className="flex flex-col gap-1 text-xs text-slate-600 lg:col-span-1">
           Scope
           <select
-            className="min-h-[44px] rounded-lg border border-[var(--slate-200)] bg-white px-2.5 py-1.5 text-xs text-[var(--slate-700)] sm:min-h-0"
+            className="min-h-[44px] rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-foreground-secondary sm:min-h-0"
             name="register-scope"
             autoComplete="off"
             value={form.scopeType}
@@ -147,11 +147,11 @@ export function RegisterEntryForm({
           </select>
         </label>
         {form.scopeType === "lot" || form.scopeType === "line" ? (
-          <label className="flex flex-col gap-1 text-xs text-[var(--slate-600)] lg:col-span-3">
+          <label className="flex flex-col gap-1 text-xs text-slate-600 lg:col-span-3">
             {form.scopeType === "lot" ? "Lot cible" : "Ligne cible"}
             <select
               aria-label={form.scopeType === "lot" ? "Lot cible" : "Ligne cible"}
-              className="min-h-[44px] rounded-lg border border-[var(--slate-200)] bg-white px-2.5 py-1.5 text-xs text-[var(--slate-700)] sm:min-h-0"
+              className="min-h-[44px] rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-foreground-secondary sm:min-h-0"
               name={form.scopeType === "lot" ? "register-lot" : "register-line"}
               autoComplete="off"
               value={form.scopeId}
@@ -172,10 +172,10 @@ export function RegisterEntryForm({
         ) : null}
         {form.scopeType === "exception" ? (
           <>
-            <label className="flex flex-col gap-1 text-xs text-[var(--slate-600)] lg:col-span-2">
+            <label className="flex flex-col gap-1 text-xs text-slate-600 lg:col-span-2">
               Référence exception
               <input
-                className="min-h-[44px] rounded-lg border border-[var(--slate-200)] bg-white px-2.5 py-1.5 text-xs text-[var(--slate-700)] sm:min-h-0"
+                className="min-h-[44px] rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-foreground-secondary sm:min-h-0"
                 name="register-exception-ref"
                 autoComplete="off"
                 spellCheck={false}
@@ -184,10 +184,10 @@ export function RegisterEntryForm({
                 onChange={(event) => onUpdateForm("scopeRef", event.target.value)}
               />
             </label>
-            <label className="flex flex-col gap-1 text-xs text-[var(--slate-600)] lg:col-span-2">
+            <label className="flex flex-col gap-1 text-xs text-slate-600 lg:col-span-2">
               Libellé exception
               <input
-                className="min-h-[44px] rounded-lg border border-[var(--slate-200)] bg-white px-2.5 py-1.5 text-xs text-[var(--slate-700)] sm:min-h-0"
+                className="min-h-[44px] rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-foreground-secondary sm:min-h-0"
                 name="register-exception-label"
                 autoComplete="off"
                 placeholder="Ex. Reserve acoustique hall..."
@@ -199,21 +199,21 @@ export function RegisterEntryForm({
         ) : null}
       </div>
       <div className="mt-3 grid gap-3 lg:grid-cols-6">
-        <label className="flex flex-col gap-1 text-xs text-[var(--slate-600)] lg:col-span-4">
+        <label className="flex flex-col gap-1 text-xs text-slate-600 lg:col-span-4">
           Texte
           <textarea
             rows={3}
-            className="min-h-[44px] rounded-lg border border-[var(--slate-200)] bg-white px-2.5 py-1.5 text-xs text-[var(--slate-700)] sm:min-h-0"
+            className="min-h-[44px] rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-foreground-secondary sm:min-h-0"
             name="register-text"
             placeholder="Décrivez le point à arbitrer, à confirmer ou la pièce attendue..."
             value={form.text}
             onChange={(event) => onUpdateForm("text", event.target.value)}
           />
         </label>
-        <label className="flex flex-col gap-1 text-xs text-[var(--slate-600)] lg:col-span-2">
+        <label className="flex flex-col gap-1 text-xs text-slate-600 lg:col-span-2">
           Source documentaire (facultatif)
           <input
-            className="min-h-[44px] rounded-lg border border-[var(--slate-200)] bg-white px-2.5 py-1.5 text-xs text-[var(--slate-700)] sm:min-h-0"
+            className="min-h-[44px] rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-foreground-secondary sm:min-h-0"
             name="register-source"
             autoComplete="off"
             placeholder="Ex. note-client-v3.pdf..."
@@ -225,10 +225,10 @@ export function RegisterEntryForm({
       <p
         className={`mt-3 text-xs ${
           canCreateEntry
-            ? "text-[var(--success)]"
+            ? "text-success"
             : scopeHelpMessage || form.text.trim().length > 0
-              ? "text-[var(--warning)]"
-              : "text-[var(--slate-500)]"
+              ? "text-warning"
+              : "text-muted-foreground"
         }`}
         aria-live="polite"
       >

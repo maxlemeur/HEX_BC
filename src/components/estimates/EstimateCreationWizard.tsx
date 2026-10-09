@@ -176,10 +176,10 @@ export function EstimateCreationWizard({
       )}
 
       <div className="dashboard-card p-8">
-        <h2 className="mb-1 text-lg font-semibold text-[var(--slate-800)]">
+        <h2 className="mb-1 text-lg font-semibold text-slate-800">
           {STEPS[currentStep].label}
         </h2>
-        <p className="mb-6 text-sm text-[var(--slate-500)]">
+        <p className="mb-6 text-sm text-muted-foreground">
           {STEPS[currentStep].description}
         </p>
 
@@ -209,7 +209,7 @@ export function EstimateCreationWizard({
           />
         )}
 
-        <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--slate-100)] pt-6">
+        <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-border-subtle pt-6">
           <div className="flex items-center gap-3">
             {currentStep > 0 && (
               <button

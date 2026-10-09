@@ -43,12 +43,12 @@ export function DeleteOrderButton({
 
   if (confirming) {
     return (
-      <div className="flex items-center gap-2 rounded-xl bg-[var(--error-light)] px-4 py-2">
-        <span className="text-sm font-medium text-[var(--error)]">
+      <div className="flex items-center gap-2 rounded-xl bg-danger-light px-4 py-2">
+        <span className="text-sm font-medium text-danger">
           Supprimer {orderReference} ?
         </span>
         <button
-          className="btn btn-sm h-8 rounded-lg bg-[var(--error)] px-3 text-xs font-bold text-white hover:bg-danger"
+          className="btn btn-sm h-8 rounded-lg bg-danger px-3 text-xs font-bold text-white hover:bg-danger"
           disabled={deleting}
           onClick={handleDelete}
           type="button"
@@ -60,7 +60,7 @@ export function DeleteOrderButton({
           )}
         </button>
         <button
-          className="btn btn-sm h-8 rounded-lg bg-white px-3 text-xs font-medium text-[var(--slate-700)] hover:bg-[var(--slate-50)]"
+          className="btn btn-sm h-8 rounded-lg bg-surface px-3 text-xs font-medium text-foreground-secondary hover:bg-surface-subtle"
           disabled={deleting}
           onClick={() => {
             setConfirming(false);
@@ -71,7 +71,7 @@ export function DeleteOrderButton({
           Non
         </button>
         {error && (
-          <span className="text-xs text-[var(--error)]">{error}</span>
+          <span className="text-xs text-danger">{error}</span>
         )}
       </div>
     );

@@ -277,7 +277,7 @@ export default async function ProcurementResetPage({
   return (
     <div className="mx-auto max-w-5xl space-y-8">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+        <p className="text-xs font-semibold uppercase tracking-wider text-subtle-foreground">
           Administration
         </p>
         <h1 className="mt-2 text-2xl font-bold text-foreground">
@@ -409,7 +409,7 @@ export default async function ProcurementResetPage({
         </p>
         <form action={resetProcurementData} className="mt-5 flex flex-col gap-3 sm:flex-row">
           <input
-            className="input max-w-xs border-red-300 bg-white"
+            className="input max-w-xs border-red-300 bg-surface"
             name="confirmation"
             placeholder="Tapez SUPPRIMER"
             required

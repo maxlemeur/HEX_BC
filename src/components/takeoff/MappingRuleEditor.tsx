@@ -455,9 +455,9 @@ export function MappingRuleEditor({
 
   const previewClassName = (() => {
     if (previewResult.state === "match") return "text-emerald-700";
-    if (previewResult.state === "no-match") return "text-[var(--slate-600)]";
+    if (previewResult.state === "no-match") return "text-slate-600";
     if (previewResult.state === "invalid") return "text-rose-700";
-    return "text-[var(--slate-500)]";
+    return "text-muted-foreground";
   })();
 
   const submitLabel =
@@ -511,12 +511,12 @@ export function MappingRuleEditor({
   return (
     <section className="dashboard-card p-6">
       <div className="mb-6">
-        <h2 className="text-lg font-semibold text-[var(--slate-900)]">
+        <h2 className="text-lg font-semibold text-foreground">
           {mode === "edit"
             ? "Édition d&apos;une règle de mapping"
             : "Nouvelle règle de mapping"}
         </h2>
-        <p className="mt-1 text-sm text-[var(--slate-500)]">
+        <p className="mt-1 text-sm text-muted-foreground">
           Configurez la correspondance de désignation et l&apos;action d&apos;enrichissement.
         </p>
       </div>
@@ -529,7 +529,7 @@ export function MappingRuleEditor({
             </label>
             <input
               id="mapping-rule-name"
-              className={`form-input ${errors.name ? "border-[var(--error)]" : ""}`}
+              className={`form-input ${errors.name ? "border-danger" : ""}`}
               value={state.name}
               onChange={(event) => {
                 setField("name", event.target.value);
@@ -563,7 +563,7 @@ export function MappingRuleEditor({
                 </option>
               ))}
             </select>
-            <p className="mt-1 text-xs text-[var(--slate-500)]">
+            <p className="mt-1 text-xs text-muted-foreground">
               {MATCH_TYPE_OPTIONS.find((option) => option.value === state.matchType)?.description}
             </p>
           </div>
@@ -574,7 +574,7 @@ export function MappingRuleEditor({
             </label>
             <input
               id="mapping-rule-match-pattern"
-              className={`form-input ${errors.matchPattern ? "border-[var(--error)]" : ""}`}
+              className={`form-input ${errors.matchPattern ? "border-danger" : ""}`}
               value={state.matchPattern}
               onChange={(event) => {
                 setField("matchPattern", event.target.value);
@@ -591,7 +591,7 @@ export function MappingRuleEditor({
           </div>
         </div>
 
-        <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4">
+        <div className="rounded-xl border border-border bg-surface-subtle p-4">
           <label className="form-label" htmlFor="mapping-rule-preview-designation">
             Test de désignation (aperçu)
           </label>
@@ -626,7 +626,7 @@ export function MappingRuleEditor({
                 </option>
               ))}
             </select>
-            <p className="mt-1 text-xs text-[var(--slate-500)]">
+            <p className="mt-1 text-xs text-muted-foreground">
               {ACTION_OPTIONS.find((option) => option.value === state.action)?.description}
             </p>
           </div>
@@ -642,7 +642,7 @@ export function MappingRuleEditor({
               max={100000}
               step={1}
               inputMode="numeric"
-              className={`form-input ${errors.priority ? "border-[var(--error)]" : ""}`}
+              className={`form-input ${errors.priority ? "border-danger" : ""}`}
               value={state.priority}
               onChange={(event) => {
                 setField("priority", event.target.value);
@@ -663,7 +663,7 @@ export function MappingRuleEditor({
             </label>
             <input
               id="mapping-rule-action-rename"
-              className={`form-input ${errors.renameDesignation ? "border-[var(--error)]" : ""}`}
+              className={`form-input ${errors.renameDesignation ? "border-danger" : ""}`}
               value={state.renameDesignation}
               onChange={(event) => {
                 setField("renameDesignation", event.target.value);
@@ -689,7 +689,7 @@ export function MappingRuleEditor({
               min={0}
               step={1}
               inputMode="numeric"
-              className={`form-input ${errors.setPriceCents ? "border-[var(--error)]" : ""}`}
+              className={`form-input ${errors.setPriceCents ? "border-danger" : ""}`}
               value={state.setPriceCents}
               onChange={(event) => {
                 setField("setPriceCents", event.target.value);
@@ -701,7 +701,7 @@ export function MappingRuleEditor({
             {errors.setPriceCents ? (
               <p className="mt-1 text-xs text-rose-700">{errors.setPriceCents}</p>
             ) : (
-              <p className="mt-1 text-xs text-[var(--slate-500)]">
+              <p className="mt-1 text-xs text-muted-foreground">
                 1890 = 18,90 dans la devise du devis.
               </p>
             )}
@@ -715,7 +715,7 @@ export function MappingRuleEditor({
             </label>
             <input
               id="mapping-rule-action-category"
-              className={`form-input ${errors.setCategoryId ? "border-[var(--error)]" : ""}`}
+              className={`form-input ${errors.setCategoryId ? "border-danger" : ""}`}
               value={state.setCategoryId}
               onChange={(event) => {
                 setField("setCategoryId", event.target.value);
@@ -737,7 +737,7 @@ export function MappingRuleEditor({
             </label>
             <select
               id="mapping-rule-action-assembly"
-              className={`form-input form-select ${errors.applyAssemblyId ? "border-[var(--error)]" : ""}`}
+              className={`form-input form-select ${errors.applyAssemblyId ? "border-danger" : ""}`}
               value={state.applyAssemblyId}
               onChange={(event) => {
                 setField("applyAssemblyId", event.target.value);
@@ -766,7 +766,7 @@ export function MappingRuleEditor({
             {errors.applyAssemblyId ? (
               <p className="mt-1 text-xs text-rose-700">{errors.applyAssemblyId}</p>
             ) : (
-              <p className="mt-1 text-xs text-[var(--slate-500)]">
+              <p className="mt-1 text-xs text-muted-foreground">
                 Chargé depuis la bibliothèque d&apos;ouvrages du tenant (limite 100).
               </p>
             )}
@@ -774,7 +774,7 @@ export function MappingRuleEditor({
         ) : null}
 
         {state.action === "skip" ? (
-          <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4 text-sm text-[var(--slate-600)]">
+          <div className="rounded-xl border border-border bg-surface-subtle p-4 text-sm text-slate-600">
             Cette action ignore l&apos;item source : aucun paramètre supplémentaire requis.
           </div>
         ) : null}
@@ -786,7 +786,7 @@ export function MappingRuleEditor({
             onChange={(event) => setField("isActive", event.target.checked)}
             disabled={isSubmitting}
           />
-          <span className="text-sm font-medium text-[var(--slate-700)]">
+          <span className="text-sm font-medium text-foreground-secondary">
             Règle active
           </span>
         </label>

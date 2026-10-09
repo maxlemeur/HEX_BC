@@ -242,7 +242,7 @@ export default function EstimateAssembliesPage() {
       {loadError ? <div className="alert alert-error mb-6">{loadError.message}</div> : null}
 
       <div className="dashboard-card overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--slate-200)] px-6 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-6 py-4">
           <div className="w-full max-w-md">
             <label className="form-label" htmlFor="assembly-search">
               Rechercher
@@ -265,7 +265,7 @@ export default function EstimateAssembliesPage() {
         </div>
 
         {isLoading ? (
-          <div className="px-6 py-8 text-sm text-[var(--slate-500)]">
+          <div className="px-6 py-8 text-sm text-muted-foreground">
             Chargement des ouvrages...
           </div>
         ) : (

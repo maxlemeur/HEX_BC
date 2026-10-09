@@ -181,13 +181,13 @@ export function SignaturePad({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <label className="text-sm font-medium text-[var(--slate-700)]">
-          Signature <span className="text-[var(--slate-400)]">(optionnel)</span>
+        <label className="text-sm font-medium text-foreground-secondary">
+          Signature <span className="text-subtle-foreground">(optionnel)</span>
         </label>
         {!isEmpty && (
           <button
             type="button"
-            className="text-xs font-medium text-[var(--slate-500)] underline hover:text-[var(--slate-700)]"
+            className="text-xs font-medium text-muted-foreground underline hover:text-foreground-secondary"
             onClick={handleClear}
             disabled={disabled}
           >
@@ -199,8 +199,8 @@ export function SignaturePad({
         ref={containerRef}
         className={`relative overflow-hidden rounded-lg border ${
           disabled
-            ? "border-[var(--slate-200)] bg-[var(--slate-100)]"
-            : "border-[var(--slate-300)] bg-[var(--slate-50)]"
+            ? "border-border bg-muted"
+            : "border-border-strong bg-surface-subtle"
         }`}
       >
         <canvas
@@ -212,13 +212,13 @@ export function SignaturePad({
         />
         {isEmpty && !disabled && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <span className="text-sm text-[var(--slate-400)]">
+            <span className="text-sm text-subtle-foreground">
               Dessinez votre signature ici
             </span>
           </div>
         )}
         {/* Sign-here line */}
-        <div className="pointer-events-none absolute bottom-4 left-6 right-6 border-b border-dashed border-[var(--slate-300)]" />
+        <div className="pointer-events-none absolute bottom-4 left-6 right-6 border-b border-dashed border-border-strong" />
       </div>
     </div>
   );

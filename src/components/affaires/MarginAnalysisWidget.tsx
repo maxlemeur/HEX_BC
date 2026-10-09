@@ -37,7 +37,7 @@ function MarginGlobalSummary({
     <div className="space-y-3">
       <div className="grid grid-cols-3 gap-4">
         <div>
-          <p className="text-xs text-[var(--slate-500)]">Marge globale</p>
+          <p className="text-xs text-muted-foreground">Marge globale</p>
           <div className="mt-1 flex items-center gap-2">
             <Badge variant={getMarginBadgeVariant(tier)} size="sm">
               {global.marginPercent.toFixed(1)}%
@@ -46,15 +46,15 @@ function MarginGlobalSummary({
         </div>
 
         <div>
-          <p className="text-xs text-[var(--slate-500)]">Montant marge</p>
-          <p className="mt-1 text-lg font-semibold text-[var(--slate-900)]">
+          <p className="text-xs text-muted-foreground">Montant marge</p>
+          <p className="mt-1 text-lg font-semibold text-foreground">
             {formatEUR(global.marginEurCents)}
           </p>
         </div>
 
         <div>
-          <p className="text-xs text-[var(--slate-500)]">Coeff. de marge</p>
-          <p className="mt-1 text-lg font-semibold text-[var(--slate-900)]">
+          <p className="text-xs text-muted-foreground">Coeff. de marge</p>
+          <p className="mt-1 text-lg font-semibold text-foreground">
             x{global.marginMultiplier.toFixed(3)}
           </p>
         </div>
@@ -67,11 +67,11 @@ function MarginGlobalSummary({
         (elle est nette, donc égale au total du devis).
       */}
       {global.globalCoefficient !== 1 || global.discountCents > 0 ? (
-        <div className="flex flex-wrap gap-x-6 gap-y-1 border-t border-[var(--slate-100)] pt-3 text-xs text-[var(--slate-500)]">
+        <div className="flex flex-wrap gap-x-6 gap-y-1 border-t border-border-subtle pt-3 text-xs text-muted-foreground">
           {global.globalCoefficient !== 1 ? (
             <span>
               Coefficient global{" "}
-              <span className="font-medium text-[var(--slate-700)] tabular-nums">
+              <span className="font-medium text-foreground-secondary tabular-nums">
                 x{global.globalCoefficient.toFixed(3)}
               </span>
             </span>
@@ -79,7 +79,7 @@ function MarginGlobalSummary({
           {global.discountCents > 0 ? (
             <span>
               Remise{" "}
-              <span className="font-medium text-[var(--slate-700)] tabular-nums">
+              <span className="font-medium text-foreground-secondary tabular-nums">
                 -{formatEUR(global.discountCents)}
               </span>
             </span>
@@ -103,7 +103,7 @@ function MarginSectionTable({
 }) {
   if (sections.length === 0) {
     return (
-      <p className="text-sm text-[var(--slate-500)]">
+      <p className="text-sm text-muted-foreground">
         Aucune section disponible.
       </p>
     );
@@ -111,7 +111,7 @@ function MarginSectionTable({
 
   return (
     <div>
-      <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--slate-500)]">
+      <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         Ventilation par lot
       </h3>
 
@@ -119,7 +119,7 @@ function MarginSectionTable({
       <div className="hidden sm:block">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-[var(--slate-200)] text-left text-xs text-[var(--slate-500)]">
+            <tr className="border-b border-border text-left text-xs text-muted-foreground">
               <th className="pb-2 pr-3 font-medium">Lot / Section</th>
               <th className="pb-2 pr-3 text-right font-medium">Cout</th>
               <th className="pb-2 pr-3 text-right font-medium">Vente HT</th>
@@ -132,22 +132,22 @@ function MarginSectionTable({
             {sections.map((section) => {
               const tier = getMarginTier(section.marginPercent);
               return (
-                <tr key={section.sectionId} className="border-b border-[var(--slate-100)]">
+                <tr key={section.sectionId} className="border-b border-border-subtle">
                   <td className="py-2 pr-3">
                     <Link
                       href={`/dashboard/estimates/${currentVersionId}/edit#section-${section.sectionId}`}
-                      className="text-[var(--slate-800)] hover:text-[var(--brand-blue)] hover:underline"
+                      className="text-slate-800 hover:text-primary hover:underline"
                     >
                       {section.sectionTitle}
                     </Link>
                   </td>
-                  <td className="py-2 pr-3 text-right tabular-nums text-[var(--slate-600)]">
+                  <td className="py-2 pr-3 text-right tabular-nums text-slate-600">
                     {formatEUR(section.costCents)}
                   </td>
-                  <td className="py-2 pr-3 text-right tabular-nums text-[var(--slate-600)]">
+                  <td className="py-2 pr-3 text-right tabular-nums text-slate-600">
                     {formatEUR(section.saleCents)}
                   </td>
-                  <td className="py-2 pr-3 text-right tabular-nums text-[var(--slate-600)]">
+                  <td className="py-2 pr-3 text-right tabular-nums text-slate-600">
                     {formatEUR(section.marginEurCents)}
                   </td>
                   <td className="py-2 pr-1 text-right">
@@ -155,7 +155,7 @@ function MarginSectionTable({
                       {section.marginPercent.toFixed(1)}%
                     </Badge>
                   </td>
-                  <td className="py-2 text-[var(--slate-400)]">
+                  <td className="py-2 text-subtle-foreground">
                     <Link
                       href={`/dashboard/estimates/${currentVersionId}/edit#section-${section.sectionId}`}
                       aria-label={`Ouvrir ${section.sectionTitle}`}
@@ -189,13 +189,13 @@ function MarginSectionTable({
             <Link
               key={section.sectionId}
               href={`/dashboard/estimates/${currentVersionId}/edit#section-${section.sectionId}`}
-              className="flex items-center justify-between rounded-lg border border-[var(--slate-200)] px-3 py-2.5 transition-colors hover:bg-[var(--slate-50)]"
+              className="flex items-center justify-between rounded-lg border border-border px-3 py-2.5 transition-colors hover:bg-surface-subtle"
             >
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-[var(--slate-800)]">
+                <p className="truncate text-sm font-medium text-slate-800">
                   {section.sectionTitle}
                 </p>
-                <p className="mt-0.5 text-xs text-[var(--slate-500)]">
+                <p className="mt-0.5 text-xs text-muted-foreground">
                   {formatEUR(section.costCents)} → {formatEUR(section.saleCents)}
                 </p>
               </div>
@@ -267,7 +267,7 @@ function MarginVersionChart({
 
   return (
     <div>
-      <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--slate-500)]">
+      <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         Evolution de la marge
       </h3>
       <svg
@@ -356,12 +356,12 @@ export function MarginAnalysisWidget({
 
   return (
     <section className="dashboard-card p-5">
-      <h2 className="mb-4 text-sm font-semibold text-[var(--slate-800)]">
+      <h2 className="mb-4 text-sm font-semibold text-slate-800">
         Analyse de marge
       </h2>
 
       {errorMessage ? (
-        <div className="rounded-lg border border-[var(--warning)]/20 bg-[var(--warning)]/5 px-3 py-2 text-sm text-[var(--slate-700)]">
+        <div className="rounded-lg border border-warning/20 bg-warning/5 px-3 py-2 text-sm text-foreground-secondary">
           {errorMessage}
         </div>
       ) : !data ? null : (

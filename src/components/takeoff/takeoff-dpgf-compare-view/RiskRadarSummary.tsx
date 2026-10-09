@@ -30,8 +30,8 @@ function SummaryCard({
   accent: string;
 }) {
   return (
-    <div className="rounded-2xl border border-[var(--border)] bg-white/90 p-4 shadow-sm">
-      <p className="text-xs uppercase tracking-[0.14em] text-[var(--slate-500)]">{label}</p>
+    <div className="rounded-2xl border border-border bg-surface/90 p-4 shadow-sm">
+      <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
       <p className={`mt-2 text-2xl font-semibold ${accent}`}>{value}</p>
     </div>
   );
@@ -56,13 +56,13 @@ export function RiskRadarSummary({
 }: Readonly<RiskRadarSummaryProps>) {
   return (
     <section className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(340px,0.9fr)]">
-      <div className="rounded-[28px] border border-[var(--border)] bg-white p-5 shadow-sm">
+      <div className="rounded-[28px] border border-border bg-surface p-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-xs uppercase tracking-[0.14em] text-[var(--slate-500)]">
+            <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
               Radar affaire
             </p>
-            <h3 className="mt-2 text-xl font-semibold text-[var(--slate-950)]">
+            <h3 className="mt-2 text-xl font-semibold text-slate-950">
               Risque explicable sur la version
             </h3>
           </div>
@@ -74,16 +74,16 @@ export function RiskRadarSummary({
         </div>
 
         {riskRadarLoading ? (
-          <p className="mt-3 text-sm text-[var(--slate-600)]">Chargement du radar de risque…</p>
+          <p className="mt-3 text-sm text-slate-600">Chargement du radar de risque…</p>
         ) : riskRadarError ? (
-          <p className="mt-3 text-sm text-[var(--danger)]">
+          <p className="mt-3 text-sm text-danger">
             {isTakeoffApiError(riskRadarError)
               ? riskRadarError.message
               : "Impossible de charger le radar de risque."}
           </p>
         ) : riskRadar ? (
           <>
-            <p className="mt-3 text-sm leading-6 text-[var(--slate-600)]">
+            <p className="mt-3 text-sm leading-6 text-slate-600">
               Causes dominantes :{" "}
               {riskRadar.summary.top_causes.length > 0
                 ? riskRadar.summary.top_causes.join(" · ")
@@ -93,7 +93,7 @@ export function RiskRadarSummary({
               <SummaryCard
                 label="Projet"
                 value={riskRadar.summary.project_score}
-                accent="text-[var(--slate-950)]"
+                accent="text-slate-950"
               />
               <SummaryCard
                 label="A traiter"
@@ -129,13 +129,13 @@ export function RiskRadarSummary({
         ) : null}
       </div>
 
-      <div className="rounded-[28px] border border-[var(--border)] bg-white p-5 shadow-sm">
+      <div className="rounded-[28px] border border-border bg-surface p-5 shadow-sm">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-xs uppercase tracking-[0.14em] text-[var(--slate-500)]">
+            <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
               A traiter
             </p>
-            <h3 className="mt-2 text-xl font-semibold text-[var(--slate-950)]">
+            <h3 className="mt-2 text-xl font-semibold text-slate-950">
               Signaux prioritaires
             </h3>
           </div>
@@ -144,14 +144,14 @@ export function RiskRadarSummary({
 
         <div className="mt-4 space-y-3">
           {openRiskItems.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--slate-50)] p-4 text-sm text-[var(--slate-600)]">
+            <div className="rounded-2xl border border-dashed border-border bg-surface-subtle p-4 text-sm text-slate-600">
               Aucun signal ouvert a traiter.
             </div>
           ) : (
             openRiskItems.slice(0, 6).map((item) => (
               <article
                 key={item.alert_id}
-                className="rounded-2xl border border-[var(--border)] bg-[var(--slate-50)] p-4"
+                className="rounded-2xl border border-border bg-surface-subtle p-4"
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -163,14 +163,14 @@ export function RiskRadarSummary({
                         {RISK_STATUS_LABELS[item.status]}
                       </Badge>
                     </div>
-                    <p className="mt-2 text-sm font-semibold text-[var(--slate-950)]">
+                    <p className="mt-2 text-sm font-semibold text-slate-950">
                       {item.scope_label}
                     </p>
-                    <p className="mt-1 text-xs text-[var(--slate-600)]">
+                    <p className="mt-1 text-xs text-slate-600">
                       {item.cause_label} · {item.risk_score}/100
                     </p>
                     {item.reason_labels[0] ? (
-                      <p className="mt-2 text-sm text-[var(--slate-700)]">{item.reason_labels[0]}</p>
+                      <p className="mt-2 text-sm text-foreground-secondary">{item.reason_labels[0]}</p>
                     ) : null}
                   </div>
                   {item.line_id ? (

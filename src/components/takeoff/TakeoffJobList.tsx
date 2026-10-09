@@ -162,10 +162,10 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
   if (error && !data) {
     return (
       <section className="dashboard-card mt-6 p-6">
-        <h2 className="text-xl font-black text-[var(--slate-800)]">
+        <h2 className="text-xl font-black text-slate-800">
           {resolveErrorTitle(errorStatus)}
         </h2>
-        <p className="mt-2 text-sm text-[var(--slate-600)]">{errorMessage}</p>
+        <p className="mt-2 text-sm text-slate-600">{errorMessage}</p>
       </section>
     );
   }
@@ -258,7 +258,7 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
 
       {actionError ? (
         <div
-          className="rounded-xl border border-[var(--error)] bg-[var(--error-light)] p-3 text-sm text-[var(--error)]"
+          className="rounded-xl border border-danger bg-danger-light p-3 text-sm text-danger"
           role="alert"
         >
           {actionError}
@@ -286,7 +286,7 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
               <tbody>
                 {jobs.length === 0 ? (
                   <tr>
-                  <td colSpan={8} className="text-center text-sm text-[var(--slate-500)]">
+                  <td colSpan={8} className="text-center text-sm text-muted-foreground">
                       Aucune extraction trouvée pour ces filtres.
                     </td>
                   </tr>
@@ -328,10 +328,10 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
                     return (
                       <tr key={job.id}>
                         <td>
-                          <div className="font-medium text-[var(--slate-800)]">
+                          <div className="font-medium text-slate-800">
                             {job.source_file_name ?? "Fichier inconnu"}
                           </div>
-                          <div className="mt-1 text-xs text-[var(--slate-500)]">
+                          <div className="mt-1 text-xs text-muted-foreground">
                             {job.source_file_type ?? "Type non renseigne"}
                           </div>
                         </td>
@@ -405,14 +405,14 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
             </table>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--slate-200)] p-4">
-              <p className="text-sm text-[var(--slate-500)]">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border p-4">
+              <p className="text-sm text-muted-foreground">
               {formatCount(totalJobs)} extractions
               {isValidating ? " (actualisation...)" : ""}
             </p>
 
             <div className="flex flex-wrap items-center gap-3">
-              <label className="text-xs font-semibold text-[var(--slate-500)]" htmlFor="takeoff-page-size">
+              <label className="text-xs font-semibold text-muted-foreground" htmlFor="takeoff-page-size">
                 Page size
               </label>
               <select
@@ -443,7 +443,7 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
               >
                 Precedent
               </button>
-              <span className="text-sm text-[var(--slate-600)]">
+              <span className="text-sm text-slate-600">
                 Page {effectivePage} / {totalPages}
               </span>
               <button

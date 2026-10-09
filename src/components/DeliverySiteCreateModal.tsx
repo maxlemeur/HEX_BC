@@ -132,11 +132,11 @@ export function DeliverySiteCreateModal({
       }}
     >
       <Modal.Content className="max-w-3xl overflow-hidden p-0" closeOnOverlayClick={!isSubmitting}>
-        <div className="border-b border-[var(--slate-200)] px-6 py-4">
+        <div className="border-b border-border px-6 py-4">
           <Modal.Header className="mb-0">
             <div>
               <Modal.Title>Nouveau chantier</Modal.Title>
-              <p className="text-sm text-[var(--slate-500)]">
+              <p className="text-sm text-muted-foreground">
                 Ajoutez une adresse de livraison sans quitter le bon de commande.
               </p>
             </div>
@@ -171,7 +171,7 @@ export function DeliverySiteCreateModal({
           />
 
           <div className="space-y-1.5 sm:col-span-2">
-            <label className="block text-xs font-semibold text-[var(--slate-700)]" htmlFor="modal-site-address">
+            <label className="block text-xs font-semibold text-foreground-secondary" htmlFor="modal-site-address">
               Adresse
             </label>
             <textarea

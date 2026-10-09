@@ -96,10 +96,10 @@ export function RiskPortfolioDashboard({ cards }: Readonly<Props>) {
     <section className="space-y-3">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold text-[var(--slate-900)]">
+          <h2 className="text-base font-semibold text-foreground">
             Portefeuille marge, risque et completude
           </h2>
-          <p className="mt-1 text-sm text-[var(--slate-500)]">
+          <p className="mt-1 text-sm text-muted-foreground">
             Chaque carte donne un scan rapide, les points a surveiller et l&apos;entree vers le cockpit affaire.
           </p>
         </div>
@@ -113,19 +113,19 @@ export function RiskPortfolioDashboard({ cards }: Readonly<Props>) {
             <Link
               key={card.projectId}
               href={`/dashboard/affaires/${card.projectId}`}
-              className="dashboard-card block p-5 transition-shadow hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-blue)]"
+              className="dashboard-card block p-5 transition-shadow hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="truncate text-base font-semibold text-[var(--slate-900)]">
+                    <h3 className="truncate text-base font-semibold text-foreground">
                       {card.projectName}
                     </h3>
                     <Badge variant={risk.variant} size="sm">
                       {risk.label}
                     </Badge>
                   </div>
-                  <p className="mt-1 text-sm text-[var(--slate-500)]">
+                  <p className="mt-1 text-sm text-muted-foreground">
                     {card.clientName ?? "Client non precise"}
                     {card.ownerName ? ` · ${card.ownerName}` : ""}
                   </p>
@@ -135,58 +135,58 @@ export function RiskPortfolioDashboard({ cards }: Readonly<Props>) {
                   <Badge variant={APPROVAL_VARIANT[card.approvalStatus]} size="sm">
                     {APPROVAL_LABEL[card.approvalStatus]}
                   </Badge>
-                  <span className="rounded-full border border-[var(--slate-200)] px-2.5 py-1 text-xs font-medium text-[var(--slate-600)]">
+                  <span className="rounded-full border border-border px-2.5 py-1 text-xs font-medium text-slate-600">
                     Échéance {formatTargetDate(card.sendTargetAt)}
                   </span>
                 </div>
               </div>
 
               <div className="mt-4 grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
-                <div className="rounded-2xl bg-[var(--slate-50)] px-3 py-3">
-                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--slate-400)]">
+                <div className="rounded-2xl bg-surface-subtle px-3 py-3">
+                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-subtle-foreground">
                     Montant HT
                   </p>
-                  <p className="mt-2 text-sm font-semibold text-[var(--slate-900)]">
+                  <p className="mt-2 text-sm font-semibold text-foreground">
                     {formatEUR(card.amountHtCents)}
                   </p>
                 </div>
-                <div className="rounded-2xl bg-[var(--slate-50)] px-3 py-3">
-                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--slate-400)]">
+                <div className="rounded-2xl bg-surface-subtle px-3 py-3">
+                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-subtle-foreground">
                     Marge
                   </p>
-                  <p className="mt-2 text-sm font-semibold text-[var(--slate-900)]">
+                  <p className="mt-2 text-sm font-semibold text-foreground">
                     {formatPercent(card.marginBp)}
                   </p>
                 </div>
-                <div className="rounded-2xl bg-[var(--slate-50)] px-3 py-3">
-                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--slate-400)]">
+                <div className="rounded-2xl bg-surface-subtle px-3 py-3">
+                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-subtle-foreground">
                     Couverture DPGF
                   </p>
-                  <p className="mt-2 text-sm font-semibold text-[var(--slate-900)]">
+                  <p className="mt-2 text-sm font-semibold text-foreground">
                     {formatCoverage(card.coveragePercent)}
                   </p>
                 </div>
-                <div className="rounded-2xl bg-[var(--slate-50)] px-3 py-3">
-                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--slate-400)]">
+                <div className="rounded-2xl bg-surface-subtle px-3 py-3">
+                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-subtle-foreground">
                     Hypotheses
                   </p>
-                  <p className="mt-2 text-sm font-semibold text-[var(--slate-900)]">
+                  <p className="mt-2 text-sm font-semibold text-foreground">
                     {card.openHypothesesCount}
                   </p>
                 </div>
               </div>
 
-              <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-[var(--slate-600)]">
-                <span className="rounded-full bg-[var(--slate-100)] px-2.5 py-1 font-medium">
+              <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+                <span className="rounded-full bg-muted px-2.5 py-1 font-medium">
                   Score {card.riskScore}/100
                 </span>
-                <span className="rounded-full bg-[var(--slate-100)] px-2.5 py-1 font-medium">
+                <span className="rounded-full bg-muted px-2.5 py-1 font-medium">
                   {card.exceptionCount} exception{card.exceptionCount > 1 ? "s" : ""}
                 </span>
                 {card.lotLabels.slice(0, 2).map((label) => (
                   <span
                     key={label}
-                    className="rounded-full border border-[var(--slate-200)] px-2.5 py-1 text-xs font-medium"
+                    className="rounded-full border border-border px-2.5 py-1 text-xs font-medium"
                   >
                     {label}
                   </span>
@@ -194,14 +194,14 @@ export function RiskPortfolioDashboard({ cards }: Readonly<Props>) {
               </div>
 
               {card.alerts.length > 0 ? (
-                <div className="mt-4 rounded-2xl border border-[var(--slate-200)] bg-white/80 p-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--slate-400)]">
+                <div className="mt-4 rounded-2xl border border-border bg-surface/80 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-subtle-foreground">
                     Alerte synthetique
                   </p>
-                  <p className="mt-2 text-sm font-semibold text-[var(--slate-900)]">
+                  <p className="mt-2 text-sm font-semibold text-foreground">
                     {card.alerts[0]?.label}
                   </p>
-                  <p className="mt-1 text-sm text-[var(--slate-600)]">
+                  <p className="mt-1 text-sm text-slate-600">
                     {card.alerts[0]?.reasons[0] ?? "Ouvrez le cockpit pour arbitrer le dossier."}
                   </p>
                 </div>

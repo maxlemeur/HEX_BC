@@ -89,10 +89,10 @@ export function ExportDropdown({
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-2 w-48 rounded-xl border border-[var(--slate-200)] bg-white p-2 shadow-lg z-50">
+        <div className="absolute right-0 top-full mt-2 w-48 rounded-xl border border-border bg-surface p-2 shadow-lg z-50">
           <button
             type="button"
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-[var(--slate-700)] hover:bg-[var(--slate-50)] transition-colors"
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-foreground-secondary hover:bg-surface-subtle transition-colors"
             onClick={handleExcelClick}
             disabled={loading}
           >
@@ -108,7 +108,7 @@ export function ExportDropdown({
           </button>
           <button
             type="button"
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-[var(--slate-700)] hover:bg-[var(--slate-50)] transition-colors"
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-foreground-secondary hover:bg-surface-subtle transition-colors"
             onClick={handleCSVClick}
             disabled={loading}
           >

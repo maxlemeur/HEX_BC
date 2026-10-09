@@ -57,13 +57,13 @@ export function PricesTable({
       className={`dashboard-card overflow-hidden transition-opacity ${isValidating && items.length > 0 ? "opacity-70" : ""}`}
       aria-busy={isValidating}
     >
-      <div className="flex flex-col gap-3 border-b border-[var(--slate-200)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+      <div className="flex flex-col gap-3 border-b border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <div>
-          <h2 className="text-sm font-semibold text-[var(--slate-800)]">
+          <h2 className="text-sm font-semibold text-slate-800">
             Liste des prix fournisseurs
           </h2>
           {filteredItemsCount > 0 ? (
-            <p className="mt-0.5 text-xs text-[var(--slate-500)]">
+            <p className="mt-0.5 text-xs text-muted-foreground">
               {pageStart}–{pageEnd} sur {filteredItemsCount} prix
             </p>
           ) : null}
@@ -111,16 +111,16 @@ export function PricesTable({
       ) : null}
 
       {items.length > 0 ? (
-        <ul className="divide-y divide-[var(--slate-200)]" aria-label="Offres fournisseurs">
+        <ul className="divide-y divide-border" aria-label="Offres fournisseurs">
           {items.map((item) => (
             <li key={item.id} className="px-4 py-3 sm:px-6">
               <div className="grid items-start gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto]">
                 <div className="min-w-0">
-                  <a href="/dashboard/suppliers" className="text-sm font-semibold text-[var(--brand-blue)] hover:underline">
+                  <a href="/dashboard/suppliers" className="text-sm font-semibold text-primary hover:underline">
                     {item._supplierName}
                   </a>
-                  <p className="break-words text-sm text-[var(--slate-800)]">{item._productName}</p>
-                  <p className="mt-1 text-xs text-[var(--slate-600)]">
+                  <p className="break-words text-sm text-slate-800">{item._productName}</p>
+                  <p className="mt-1 text-xs text-slate-600">
                     Réf. fournisseur : {item.supplier_sku || "non renseignée"}
                     {typeof item.min_quantity === "number" ? ` · minimum ${item.min_quantity} ${item.unit || "u"}` : ""}
                   </p>
@@ -138,16 +138,16 @@ export function PricesTable({
                   </button>
                 </div>
               </div>
-              <details className="mt-2 text-xs text-[var(--slate-600)]">
+              <details className="mt-2 text-xs text-slate-600">
                 <summary className="cursor-pointer py-1">Conditions et historique du tarif</summary>
-                <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] p-3">
+                <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border border-border bg-surface-subtle p-3">
                   <span>Validité : {item.valid_from || item.valid_to
                     ? `${formatDate(item.valid_from)} → ${item.valid_to ? formatDate(item.valid_to) : "fin à régulariser"}`
                     : "Non définie"}</span>
                   <span>Mis à jour le {formatDate(item.updated_at ?? item.created_at)}</span>
                   <span>Transport : {item.transport_mode === "included" ? "inclus" : item.transport_mode === "excluded" ? "non inclus" : "à préciser"}</span>
                   <FreshnessBadge level={item._freshnessLevel} ageDays={item._ageDays} />
-                  {item.product_url ? <a href={item.product_url} target="_blank" rel="noopener noreferrer" className="text-[var(--brand-blue)] underline">Fiche article du fournisseur</a> : null}
+                  {item.product_url ? <a href={item.product_url} target="_blank" rel="noopener noreferrer" className="text-primary underline">Fiche article du fournisseur</a> : null}
                   {item.notes ? <p className="w-full whitespace-pre-wrap">{item.notes}</p> : null}
                 </div>
               </details>
@@ -156,18 +156,18 @@ export function PricesTable({
         </ul>
       ) : (
         <div className="px-5 py-10 text-center">
-          <p className="font-medium text-[var(--slate-700)]">
+          <p className="font-medium text-foreground-secondary">
             {isLoading ? "Chargement..." : totalItemsCount === 0 ? "Aucun prix fournisseur" : "Aucun résultat"}
           </p>
-          {!isLoading ? <p className="mt-1 text-sm text-[var(--slate-500)]">
+          {!isLoading ? <p className="mt-1 text-sm text-muted-foreground">
             {totalItemsCount === 0 ? "Ajoutez un prix manuellement ou importez un fichier CSV pour démarrer." : "Modifiez vos filtres pour voir plus de résultats."}
           </p> : null}
           {!isLoading && totalItemsCount === 0 ? <button type="button" className="btn btn-primary btn-sm mt-5 min-h-11" onClick={onCreate}>Ajouter un fournisseur / tarif</button> : null}
         </div>
       )}
       {filteredItemsCount > 0 ? (
-        <div className="flex flex-col gap-4 border-t border-[var(--slate-200)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <div className="flex flex-wrap items-center gap-2 text-sm text-[var(--slate-500)]">
+        <div className="flex flex-col gap-4 border-t border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
             <span>Afficher</span>
             {pageSizes.map((size) => (
               <button
@@ -175,8 +175,8 @@ export function PricesTable({
                 type="button"
                 className={`min-h-9 rounded-lg px-3 text-xs font-semibold transition-colors ${
                   pageSize === size
-                    ? "bg-[var(--slate-900)] text-white"
-                    : "bg-[var(--slate-100)] text-[var(--slate-600)] hover:bg-[var(--slate-200)]"
+                    ? "bg-slate-900 text-white"
+                    : "bg-muted text-slate-600 hover:bg-slate-200"
                 }`}
                 onClick={() => onPageSizeChange(size)}
               >
@@ -194,7 +194,7 @@ export function PricesTable({
             >
               Précédent
             </button>
-            <span className="px-2 text-center text-xs text-[var(--slate-500)]">
+            <span className="px-2 text-center text-xs text-muted-foreground">
               {page} / {totalPages}
             </span>
             <button

@@ -42,7 +42,7 @@ export function TemplateLibraryTable({
         <tbody>
           {templates.length === 0 ? (
             <tr>
-              <td colSpan={5} className="py-10 text-center text-[var(--slate-500)]">
+              <td colSpan={5} className="py-10 text-center text-muted-foreground">
                 Aucun template disponible.
               </td>
             </tr>
@@ -50,9 +50,9 @@ export function TemplateLibraryTable({
             templates.map((template) => (
               <tr key={template.id}>
                 <td>
-                  <div className="font-semibold text-[var(--slate-800)]">{template.name}</div>
+                  <div className="font-semibold text-slate-800">{template.name}</div>
                 </td>
-                <td className="text-[var(--slate-600)]">
+                <td className="text-slate-600">
                   {template.description?.trim() || "-"}
                 </td>
                 <td className="font-mono">{template.itemCount}</td>

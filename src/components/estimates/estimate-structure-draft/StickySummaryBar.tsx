@@ -6,14 +6,14 @@ type StickySummaryBarProps = {
 
 export function StickySummaryBar({ counts }: StickySummaryBarProps) {
   return (
-    <div className="sticky top-0 z-10 -mx-6 -mt-5 mb-4 border-b border-[var(--slate-200)] bg-white/95 px-6 py-3 backdrop-blur-sm">
+    <div className="sticky top-0 z-10 -mx-6 -mt-5 mb-4 border-b border-border bg-surface/95 px-6 py-3 backdrop-blur-sm">
       <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
-        <span className="font-medium text-[var(--slate-700)]">
+        <span className="font-medium text-foreground-secondary">
           {counts.selectedLots} lot(s)
         </span>
         <span className="text-emerald-700">{counts.createCount} creation(s)</span>
         <span className="text-amber-700">{counts.mergeCount} fusion(s)</span>
-        <span className="text-slate-500">{counts.skipCount} ignore(s)</span>
+        <span className="text-muted-foreground">{counts.skipCount} ignore(s)</span>
         {counts.lowConfidenceCount > 0 && (
           <span className="text-rose-600">
             {counts.lowConfidenceCount} confiance faible

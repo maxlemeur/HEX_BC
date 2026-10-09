@@ -30,7 +30,7 @@ const LazyDataPreview = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="dashboard-card p-8 text-center text-sm text-[var(--slate-500)]">
+      <div className="dashboard-card p-8 text-center text-sm text-muted-foreground">
         Chargement de l&apos;apercu…
       </div>
     ),
@@ -180,7 +180,7 @@ export function PreviewStep({
     <div className="space-y-4">
       {templateExactMatch && (
         <div
-          className="rounded-xl border border-[var(--success)]/20 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+          className="rounded-xl border border-success/20 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
           role="status"
           aria-label={`Mapping applique depuis le template ${templateExactMatch.name}`}
         >
@@ -197,13 +197,13 @@ export function PreviewStep({
 
       {wasAutoAdvanced && (
         <div
-          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--info)]/20 bg-[var(--info)]/5 px-4 py-3 text-sm text-[var(--slate-700)]"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-info/20 bg-info/5 px-4 py-3 text-sm text-foreground-secondary"
           role="status"
           aria-label="Mapping automatique applique"
         >
           <div>
             <p className="font-medium">Mapping automatique applique</p>
-            <p className="mt-0.5 text-xs text-[var(--slate-500)]">
+            <p className="mt-0.5 text-xs text-muted-foreground">
               Les colonnes ont ete associees automatiquement avec une confiance elevee.
             </p>
           </div>
