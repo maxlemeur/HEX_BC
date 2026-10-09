@@ -120,7 +120,7 @@ try {
   Go-EditorTab -Session $Session
   Add-Chapter -Session $Session -Title "Section EST-027"
   Add-Line -Session $Session -Designation "Ligne USD"
-  Set-LineValues -Session $Session -Quantity "1" -Unit "u" -PriceFo "1,234.56" -TypeFo "Matériaux" -Kfo "1" -HoursMo "0" -Kmo "1"
+  Set-LineValues -Session $Session -Quantity "1" -Unit "u" -PriceFo "1,234.56" -TypeFo "Materiaux" -Kfo "1" -HoursMo "0" -Kmo "1"
   Invoke-AB $Session "eval" "document.activeElement && typeof document.activeElement.blur === 'function' ? document.activeElement.blur() : null" | Out-Null
 
   Go-ParamsTab -Session $Session

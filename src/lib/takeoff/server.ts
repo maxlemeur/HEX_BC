@@ -7247,7 +7247,7 @@ async function removeCreatedJobIfPresent(input: {
     .eq("id" as never, input.jobId as never);
 
   if (error) {
-    console.error("Failed to rollback takeoff job création", {
+    console.error("Failed to rollback takeoff job creation", {
       jobId: input.jobId,
       tenantId: input.tenantId,
       error,

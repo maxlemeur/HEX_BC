@@ -1639,7 +1639,7 @@ export function buildEstimateSupplierPreselectionReview(input: {
 }
 
 const DEFAULT_ESTIMATE_CATEGORIES = [
-  { name: "Matériaux", position: 1 },
+  { name: "Materiaux", position: 1 },
   { name: "Main d'oeuvre", position: 2 },
   { name: "Sous-traitance", position: 3 },
 ] as const;
@@ -1834,7 +1834,7 @@ function getServiceRoleSupabaseClient() {
     return createServiceRoleClient();
   } catch (error) {
     throw internalError(
-      "Configuration Supabase service rôle manquante pour executer le workflow protege.",
+      "Configuration Supabase service role manquante pour executer le workflow protege.",
       error
     );
   }
@@ -5030,8 +5030,8 @@ export async function suggestEstimateCataloguePrices(
 
   const productColumns =
     "id, designation, reference, category, product_type, material, grade, dimensions, standard, unit, unit_price_cents, updated_at";
-  const productContainsFilter = `designation.ilike.%${safeSearch}%,référence.ilike.%${safeSearch}%,category.ilike.%${safeSearch}%,product_type.ilike.%${safeSearch}%,material.ilike.%${safeSearch}%,grade.ilike.%${safeSearch}%,dimensions.ilike.%${safeSearch}%,standard.ilike.%${safeSearch}%`;
-  const productPrefixFilter = `designation.ilike.${safeSearch}%,référence.ilike.${safeSearch}%`;
+  const productContainsFilter = `designation.ilike.%${safeSearch}%,reference.ilike.%${safeSearch}%,category.ilike.%${safeSearch}%,product_type.ilike.%${safeSearch}%,material.ilike.%${safeSearch}%,grade.ilike.%${safeSearch}%,dimensions.ilike.%${safeSearch}%,standard.ilike.%${safeSearch}%`;
+  const productPrefixFilter = `designation.ilike.${safeSearch}%,reference.ilike.${safeSearch}%`;
 
   const [prefixProductResult, productResult, supplierResult] = await Promise.all([
     supabase

@@ -213,7 +213,7 @@ describe("streamEstimateVersionBdcV11Xlsx", () => {
       supply_types: [
         {
           id: "supply-1",
-          name: "Matériaux",
+          name: "Materiaux",
         },
       ],
       labor_roles: [
@@ -288,7 +288,7 @@ describe("streamEstimateVersionBdcV11Xlsx", () => {
     expect(lineRow[2]).toBe("line-1");
     expect(lineRow[3]).toBe("  Coffrage");
     expect(lineRow[5]).toBe(2);
-    expect(lineRow[6]).toBe("Matériaux");
+    expect(lineRow[6]).toBe("Materiaux");
     expect(lineRow[13]).toBe("Poseur");
     expect(lineRow[14]).toBe("Maconnerie");
     expect(lineRow[18]).toBe("Fournisseur A");

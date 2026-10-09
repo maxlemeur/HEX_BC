@@ -435,7 +435,7 @@ try {
   Add-Chapter -Session $Session -Title "Chapitre inline"
   Add-Line -Session $Session -Designation "Ligne inline"
   try {
-    Set-LineValues -Session $Session -Quantity "1" -Unit "u" -PriceFo "12" -TypeFo "Matériaux" -Kfo "1" -HoursMo "0" -Kmo "1"
+    Set-LineValues -Session $Session -Quantity "1" -Unit "u" -PriceFo "12" -TypeFo "Materiaux" -Kfo "1" -HoursMo "0" -Kmo "1"
   } catch {
     Write-Host "EST-102 WARN: line numeric fields are not editable in this layout."
   }

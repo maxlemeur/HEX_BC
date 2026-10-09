@@ -1336,7 +1336,7 @@ function buildFallbackAffaireBrief(input: {
   if (!clientName) {
     assumptionEntries.push(
       createBriefEntry(
-        "Le client ou maître d'ouvrage reste à confirmer humainement.",
+        "Le client ou maitre d'ouvrage reste a confirmer humainement.",
         pickDocumentIdsForBrief(input.documents, () => true)
       )
     );
@@ -1345,7 +1345,7 @@ function buildFallbackAffaireBrief(input: {
   if (lots.length === 0) {
     assumptionEntries.push(
       createBriefEntry(
-        "Les lots concernes doivent être vérifiés avant lancement du chiffrage détaillé.",
+        "Les lots concernes doivent etre verifies avant lancement du chiffrage detaille.",
         pickDocumentIdsForBrief(input.documents, () => true)
       )
     );

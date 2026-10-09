@@ -178,7 +178,7 @@ describe("streamEstimateVersionDpgfXlsx", () => {
       supply_types: [
         {
           id: "supply-1",
-          name: "Matériaux",
+          name: "Materiaux",
         },
       ],
       labor_roles: [
@@ -249,7 +249,7 @@ describe("streamEstimateVersionDpgfXlsx", () => {
     expect(lineRow[3]).toBe(3);
     expect(lineRow[4]).toBe("m3");
     expect(lineRow[5]).toBe(125.5);
-    expect(lineRow[6]).toBe("Matériaux");
+    expect(lineRow[6]).toBe("Materiaux");
     expect(lineRow[7]).toBe(1.1);
     expect(lineRow[8]).toBe(4);
     expect(lineRow[9]).toBe(1.2);

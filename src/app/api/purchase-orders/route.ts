@@ -188,7 +188,7 @@ export async function POST(request: Request) {
   if (updateError) {
     await supabase.from("purchase_orders").delete().eq("id", orderId);
     return NextResponse.json(
-      { error: "Unable to set order référence." },
+      { error: "Unable to set order reference." },
       { status: 400 }
     );
   }

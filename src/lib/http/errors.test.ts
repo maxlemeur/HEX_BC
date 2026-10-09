@@ -105,7 +105,7 @@ describe("buildErrorResponseBody", () => {
       },
     });
     expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("[imports] API error détails"),
+      expect.stringContaining("[imports] API error details"),
       expect.objectContaining({ table: "dpgf_imports" })
     );
 

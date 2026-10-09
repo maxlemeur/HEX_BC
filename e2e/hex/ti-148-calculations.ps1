@@ -21,7 +21,7 @@ try {
   Go-EditorTab -Session $Session
   Add-Chapter -Session $Session -Title "Chapitre 1"
   Add-Line -Session $Session -Designation "Planches bois"
-  Set-LineValues -Session $Session -Quantity "2" -Unit "m2" -PriceFo "100" -TypeFo "Matériaux" -Kfo "1.2" -HoursMo "3" -Kmo "0.5"
+  Set-LineValues -Session $Session -Quantity "2" -Unit "m2" -PriceFo "100" -TypeFo "Materiaux" -Kfo "1.2" -HoursMo "3" -Kmo "0.5"
 
   Go-ParamsTab -Session $Session
   Invoke-AB $Session "find" "label" "Marge" "fill" "1.2" "--exact"

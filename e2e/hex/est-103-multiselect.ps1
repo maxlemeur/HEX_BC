@@ -499,7 +499,7 @@ JSON.stringify((() => {
     nextLabel = String(nextOption.textContent ?? '').trim();
   } else {
     categoryControl.focus();
-    categoryControl.value = String(categoryControl.value ?? '').trim() || 'Matériaux';
+    categoryControl.value = String(categoryControl.value ?? '').trim() || 'Materiaux';
     categoryControl.dispatchEvent(new Event('input', { bubbles: true }));
     categoryControl.dispatchEvent(new Event('change', { bubbles: true }));
     nextLabel = String(categoryControl.value ?? '').trim();

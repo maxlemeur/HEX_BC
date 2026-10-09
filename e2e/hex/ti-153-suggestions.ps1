@@ -46,7 +46,7 @@ try {
 (() => {
   const selects = Array.from(document.querySelectorAll('select'));
   for (const sel of selects) {
-    const opt = Array.from(sel.options).find(o => o.text.trim() === 'Matériaux');
+    const opt = Array.from(sel.options).find(o => o.text.trim() === 'Materiaux');
     if (opt) {
       sel.value = opt.value;
       sel.dispatchEvent(new Event('change', { bubbles: true }));
@@ -122,7 +122,7 @@ JSON.stringify((() => {
   }
   $data = $jsonText | ConvertFrom-Json
 
-  if ($data.unit -ne "m2" -or $data.typeFo -ne "Matériaux") {
+  if ($data.unit -ne "m2" -or $data.typeFo -ne "Materiaux") {
     Write-Host "Suggestions not applied in current config (unit=$($data.unit), typeFo=$($data.typeFo)); skipping strict assertion."
   }
 
