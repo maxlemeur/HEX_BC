@@ -920,7 +920,7 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
       pilotageSection.getByText("Brouillons par fournisseur, sans ressaisie")
     ).toBeVisible();
     await expect(pilotageSection.getByText("À traiter avant la création")).toBeVisible();
-    await expect(pilotageSection.getByText("Brouillons proposes")).toBeVisible();
+    await expect(pilotageSection.getByText("Brouillons proposés")).toBeVisible();
     await expect(pilotageSection.getByText("Best Supplier")).toBeVisible();
 
     await pilotageSection

@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 const {
+  confirmMock,
   confirmUnifiedImportFlowMock,
   getUnifiedImportFlowTakeoffCarryOverPreviewMock,
   mockPush,
@@ -10,6 +11,7 @@ const {
   useImportFlowMock,
   useUiModeMock,
 } = vi.hoisted(() => ({
+  confirmMock: vi.fn(),
   confirmUnifiedImportFlowMock: vi.fn(),
   getUnifiedImportFlowTakeoffCarryOverPreviewMock: vi.fn(),
   mockPush: vi.fn(),
@@ -54,6 +56,10 @@ vi.mock("next/dynamic", async () => {
       },
   };
 });
+
+vi.mock("@/components/feedback/confirm-provider", () => ({
+  useConfirm: () => confirmMock,
+}));
 
 vi.mock("@/hooks/useImportFlow", () => ({
   useImportFlow: useImportFlowMock,
@@ -293,15 +299,27 @@ describe("UnifiedImportFlow", () => {
       ).toBeInTheDocument();
     });
 
+    let resolveConfirm: (confirmed: boolean) => void = () => undefined;
+    confirmMock.mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveConfirm = resolve;
+        }),
+    );
+
     await user.click(screen.getByRole("button", { name: "Annuler" }));
 
     await waitFor(() => {
-      expect(screen.getByText("Annuler l'import ?")).toBeInTheDocument();
+      expect(confirmMock).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Annuler l’import ?", tone: "danger" }),
+      );
     });
     expect(onCancel).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "Annuler l'import" }));
-    expect(onCancel).toHaveBeenCalledTimes(1);
+    resolveConfirm(true);
+    await waitFor(() => {
+      expect(onCancel).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("pins confirmation to the previewed carry-over source version", async () => {
@@ -489,7 +507,7 @@ describe("UnifiedImportFlow", () => {
     );
 
     expect(
-      await screen.findByText(/Detection des tableaux puis validation explicite/i)
+      await screen.findByText(/Détection des tableaux puis validation explicite/i)
     ).toBeInTheDocument();
 
     await user.upload(
@@ -503,7 +521,7 @@ describe("UnifiedImportFlow", () => {
       expect(screen.getByText("lot-cvc.csv")).toBeInTheDocument();
     });
     expect(
-      screen.queryByText(/Detection des tableaux puis validation explicite/i)
+      screen.queryByText(/Détection des tableaux puis validation explicite/i)
     ).not.toBeInTheDocument();
 
     deferredReview.reject(new Error("Analyse du PDF tabulaire impossible."));

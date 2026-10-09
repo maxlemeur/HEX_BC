@@ -3,8 +3,9 @@
 import Link from "next/link";
 import useSWR from "swr";
 
-import { Badge } from "@/components/ui-legacy/Badge";
-import type { BadgeProps } from "@/components/ui-legacy/Badge";
+import { Badge } from "@/components/ui/badge";
+import type { BadgeProps } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { formatFileSize } from "@/components/takeoff/PlanFileCard";
 import { fetchTakeoffActivityCenter } from "@/lib/takeoff/client";
 import {
@@ -19,6 +20,8 @@ import {
   type TakeoffVisibleJobStatus,
 } from "@/lib/takeoff/visible-status";
 import { CircleHelpIcon, PanelsTopLeftIcon, TriangleAlertIcon } from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -76,7 +79,7 @@ const FE_STATUS_BADGE: Record<string, BadgeVariant> = {
   provider_pending: "info",
   completed: "success",
   review_required: "warning",
-  action_required: "error",
+  action_required: "danger",
 };
 
 const TAKEOFF_CONTINUITY_PAGE_SIZE = 50;
@@ -196,13 +199,13 @@ export function PlansMetresCard({
   /* Error state */
   if (errorMessage) {
     return (
-      <section className="dashboard-card p-5">
-        <h2 className="mb-3 text-sm font-semibold text-slate-800">
+      <section className="rounded-lg border border-border bg-surface shadow-card p-5">
+        <h2 className="mb-3 text-sm font-semibold text-foreground">
           Plans, preuves & exceptions
         </h2>
-        <div className="rounded-lg border border-warning/20 bg-warning/5 px-3 py-2 text-sm text-foreground-secondary">
-          {errorMessage}
-        </div>
+        <Alert variant="warning">
+          <AlertDescription>{errorMessage}</AlertDescription>
+        </Alert>
       </section>
     );
   }
@@ -210,24 +213,24 @@ export function PlansMetresCard({
   /* Empty state */
   if (!plans || plans.planSetCount === 0) {
     return (
-      <section className="dashboard-card p-5">
-        <h2 className="mb-3 text-sm font-semibold text-slate-800">
+      <section className="rounded-lg border border-border bg-surface shadow-card p-5">
+        <h2 className="mb-3 text-sm font-semibold text-foreground">
           Plans, preuves & exceptions
         </h2>
         <div className="animate-fade-in flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-surface-subtle/70 px-6 py-10 text-center">
-          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-surface text-subtle-foreground shadow-sm ring-1 ring-slate-200">
+          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-surface text-subtle-foreground shadow-sm ring-1 ring-border">
             <PanelsTopLeftIcon strokeWidth="1.5" aria-hidden="true" size={26} />
           </div>
-          <h3 className="text-base font-semibold text-slate-800">
+          <h3 className="text-base font-semibold text-foreground">
             Importez vos plans pour lancer l&apos;analyse
           </h3>
           <p className="mt-1 max-w-md text-sm text-muted-foreground">
-            Les plans PDF permettent d&apos;extraire automatiquement les métrés, de les comparer au DPGF et de detecter les écarts.
+            Les plans PDF permettent d&apos;extraire automatiquement les métrés, de les comparer au DPGF et de détecter les écarts.
           </p>
           <div className="mt-5 flex items-center gap-3">
             <Link
               href={`/dashboard/affaires/${projectId}/plans`}
-              className="btn btn-primary btn-sm inline-flex"
+              className={buttonVariants({ variant: "primary", size: "md" })}
             >
               Ajouter les plans
             </Link>
@@ -279,19 +282,19 @@ export function PlansMetresCard({
   }
 
   return (
-    <section className="dashboard-card p-5">
+    <section className="rounded-lg border border-border bg-surface shadow-card p-5">
       {/* Header */}
       <div className="mb-4 flex items-start justify-between gap-2">
-        <h2 className="text-sm font-semibold text-slate-800">
+        <h2 className="text-sm font-semibold text-foreground">
           Plans, preuves & exceptions
         </h2>
-        <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-slate-600">
+        <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
           {plans.planSetCount} jeu{plans.planSetCount !== 1 ? "x" : ""}
         </span>
       </div>
 
       {/* Stats */}
-      <p className="text-sm text-slate-600">
+      <p className="text-sm text-muted-foreground">
         {plans.planFileCount} fichier{plans.planFileCount !== 1 ? "s" : ""}{" "}
         &middot; {formatFileSize(plans.totalSizeBytes)}
       </p>
@@ -299,11 +302,11 @@ export function PlansMetresCard({
       <div className="mt-3 rounded-lg border border-border bg-surface-subtle/70 px-3 py-2.5">
         <div className="flex flex-wrap items-center gap-2">
           {planSetContext.badge ? (
-            <Badge variant="info" size="sm">
+            <Badge variant="info">
               {planSetContext.badge}
             </Badge>
           ) : null}
-          <p className="text-sm font-medium text-slate-800">
+          <p className="text-sm font-medium text-foreground">
             {planSetContext.summary}
           </p>
         </div>
@@ -316,7 +319,7 @@ export function PlansMetresCard({
       {latestJob && badgeVariant && (
         <div className="mt-3 rounded-lg border border-border px-3 py-2.5">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={badgeVariant} size="sm">
+            <Badge variant={badgeVariant}>
               {latestJob.label}
             </Badge>
           </div>
@@ -331,7 +334,7 @@ export function PlansMetresCard({
       {continuitySnapshot && (
         <div className="mt-3 rounded-lg border border-border bg-surface-subtle/70 px-3 py-3">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-medium text-slate-800">
+            <p className="text-sm font-medium text-foreground">
               {continuitySnapshot.title}
             </p>
           </div>
@@ -341,15 +344,15 @@ export function PlansMetresCard({
           </p>
 
           <div className="mt-3 flex flex-wrap gap-2 text-xs">
-            <span className="rounded-full bg-success/10 px-2.5 py-1 font-medium text-success">
+            <Badge variant="success">
               {continuitySnapshot.acquiredCount} acquis
-            </span>
-            <span className="rounded-full bg-primary/10 px-2.5 py-1 font-medium text-primary">
+            </Badge>
+            <Badge variant="info">
               {continuitySnapshot.waitingCount} en attente
-            </span>
-            <span className="rounded-full bg-warning/10 px-2.5 py-1 font-medium text-warning">
+            </Badge>
+            <Badge variant="warning">
               {continuitySnapshot.actionRequiredCount} à corriger
-            </span>
+            </Badge>
           </div>
 
           <ol className="mt-3 space-y-2">
@@ -379,7 +382,7 @@ export function PlansMetresCard({
             <div className="mt-3">
               <Link
                 href={`/dashboard/affaires/${projectId}/takeoff`}
-                className="btn btn-secondary btn-sm inline-flex"
+                className={cn(buttonVariants({ variant: "outline", size: "md" }))}
               >
                 {continuityActionLabel}
               </Link>
@@ -399,7 +402,7 @@ export function PlansMetresCard({
       )}
       {summarySegments.length > 0 && (
         <p
-          className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-600"
+          className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground"
           aria-live="polite"
         >
           {exceptionCount !== null && exceptionCount > 0 && (
@@ -420,14 +423,14 @@ export function PlansMetresCard({
       <div className="mt-4 flex flex-wrap gap-2">
         <Link
           href={`/dashboard/affaires/${projectId}/plans`}
-          className="btn btn-secondary btn-sm inline-flex"
+          className={cn(buttonVariants({ variant: "outline", size: "md" }))}
         >
           Voir les plans
         </Link>
         {canReview ? (
           <Link
             href={`/dashboard/affaires/${projectId}/takeoff/${latestJob.jobId}/review?versionId=${latestJob.reviewVersionId}&view=dpgf&dpgfView=exceptions_only`}
-            className="btn btn-secondary btn-sm inline-flex"
+            className={cn(buttonVariants({ variant: "outline", size: "md" }))}
           >
             Revoir l&apos;analyse
           </Link>
@@ -435,7 +438,7 @@ export function PlansMetresCard({
         {plans.openQuestionsCount > 0 ? (
           <Link
             href={`/dashboard/affaires/${projectId}`}
-            className="btn btn-secondary btn-sm inline-flex"
+            className={cn(buttonVariants({ variant: "outline", size: "md" }))}
           >
             Ouvrir le registre
           </Link>
@@ -446,7 +449,7 @@ export function PlansMetresCard({
               type="button"
               disabled={!onLaunchMetre}
               onClick={onLaunchMetre}
-              className={`btn btn-secondary btn-sm inline-flex${!onLaunchMetre ? " opacity-50" : ""}`}
+              className={cn(buttonVariants({ variant: "outline", size: "md" }))}
             >
               Relancer l&apos;analyse
             </button>
@@ -454,13 +457,13 @@ export function PlansMetresCard({
               type="button"
               disabled={!onLaunchMetre}
               onClick={onLaunchMetre}
-              className={`btn btn-secondary btn-sm inline-flex${!onLaunchMetre ? " opacity-50" : ""}`}
+              className={cn(buttonVariants({ variant: "outline", size: "md" }))}
             >
               Changer de niveau
             </button>
             <Link
               href={`/dashboard/affaires/${projectId}/plans`}
-              className="btn btn-secondary btn-sm inline-flex"
+              className={cn(buttonVariants({ variant: "outline", size: "md" }))}
             >
               Vérifier les plans
             </Link>
@@ -469,7 +472,7 @@ export function PlansMetresCard({
         {isQueuedOrProcessing ? (
           <Link
             href={`/dashboard/affaires/${projectId}/takeoff`}
-            className="btn btn-secondary btn-sm inline-flex"
+            className={cn(buttonVariants({ variant: "outline", size: "md" }))}
           >
             Suivre l&apos;analyse
           </Link>
@@ -479,7 +482,7 @@ export function PlansMetresCard({
             type="button"
             disabled={!onLaunchMetre}
             onClick={onLaunchMetre}
-            className={`btn btn-secondary btn-sm inline-flex${!onLaunchMetre ? " opacity-50" : ""}`}
+            className={cn(buttonVariants({ variant: "outline", size: "md" }))}
           >
             Analyser les plans
           </button>

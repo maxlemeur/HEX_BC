@@ -5,8 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { reclassifyAffaireDocument } from "@/app/dashboard/affaires/_actions/intake";
-import { Badge } from "@/components/ui-legacy/Badge";
-import { Popover } from "@/components/ui-legacy/Popover";
+import { Badge } from "@/components/ui/badge";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   AFFAIRE_INTAKE_DOCUMENT_PRIORITY_LABELS,
   isAffaireIntakePrimaryEligibleKind,
@@ -37,6 +37,8 @@ import { IntakeCategoryCard, categorySort } from "./IntakeCategoryCard";
 import { IntakeDocumentCard } from "./IntakeDocumentCard";
 import { CircleAlertIcon, CircleCheckBigIcon, CircleHelpIcon, FileIcon, FileTextIcon, FunnelIcon, MailIcon, PanelsTopLeftIcon, PaperclipIcon, UploadIcon } from "lucide-react";
 import { foldText } from "@/lib/text/fold";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 type IllustrationItem = {
   key: string;
@@ -51,19 +53,22 @@ type IllustrationItem = {
   severityToneClassName?: string | null;
 };
 
+const WHY_TRIGGER_CLASS =
+  "inline-flex size-6 cursor-pointer items-center justify-center rounded-full bg-white/10 text-white/80 transition-colors hover:bg-white/20 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white";
+
 const MAX_HERO_VALIDATED_ITEMS = 2;
 const MAX_HERO_MISSING_ITEMS = 2;
 
 function getActionClassName(variant: PanelAction["variant"]) {
   if (variant === "primary") {
-    return "btn btn-primary btn-sm";
+    return buttonVariants({ variant: "primary", size: "md" });
   }
 
   if (variant === "secondary") {
-    return "btn btn-secondary btn-sm";
+    return cn(buttonVariants({ variant: "outline", size: "md" }));
   }
 
-  return "btn btn-ghost btn-sm";
+  return buttonVariants({ variant: "ghost", size: "md" });
 }
 
 function getHubReadinessBadge(input: {
@@ -164,7 +169,7 @@ function buildMissingIllustrationItem(
     severityToneClassName:
       piece.severity === "critical"
         ? "border-danger/20 bg-danger-subtle text-danger"
-        : "border-amber-300/70 bg-amber-100 text-amber-800",
+        : "border-warning-border/70 bg-warning-light text-warning",
   };
 }
 
@@ -185,8 +190,8 @@ function buildValidatedIllustrationItem(
       ? `${categoryLabel} ${AFFAIRE_INTAKE_DOCUMENT_PRIORITY_LABELS[priority].toLowerCase()}`
       : categoryLabel,
     label,
-    accent: "text-emerald-700",
-    frame: "border-emerald-200 bg-emerald-50/90",
+    accent: "text-success",
+    frame: "border-success-border bg-success-subtle/90",
     isMissing: false,
     representedCount: 1,
   };
@@ -203,8 +208,8 @@ function buildComplementarySummaryIllustrationItem(input: {
     title: `Autres ${categoryLabel} (${input.count})`,
     subtitle: `${input.count} document${input.count > 1 ? "s" : ""} complémentaire${input.count > 1 ? "s" : ""}`,
     label: `${categoryLabel.toUpperCase()} COMPLÉMENTAIRE`,
-    accent: "text-emerald-700",
-    frame: "border-emerald-200 bg-emerald-50/90",
+    accent: "text-success",
+    frame: "border-success-border bg-success-subtle/90",
     isMissing: false,
     representedCount: input.count,
   };
@@ -221,8 +226,8 @@ function buildMissingPrimaryIllustrationItem(input: {
     title: `${input.count} ${categoryLabel}`,
     subtitle: "Principal à définir",
     label: `${categoryLabel.toUpperCase()} SANS PRINCIPAL`,
-    accent: "text-amber-800",
-    frame: "border-amber-200 bg-amber-50/90",
+    accent: "text-warning",
+    frame: "border-warning-border bg-warning-subtle/90",
     isMissing: false,
     representedCount: 0,
   };
@@ -233,9 +238,9 @@ function buildReviewOverflowIllustrationItem(count: number): IllustrationItem {
     key: "review-overflow",
     title: `Autres pièces à confirmer (${count})`,
     subtitle: `${count} document${count > 1 ? "s" : ""} restent à classer`,
-    label: "AUTRES A CONFIRMER",
-    accent: "text-amber-800",
-    frame: "border-amber-200 bg-amber-50/90",
+    label: "AUTRES À CONFIRMER",
+    accent: "text-warning",
+    frame: "border-warning-border bg-warning-subtle/90",
     isMissing: false,
     representedCount: count,
   };
@@ -250,8 +255,8 @@ function buildValidatedOverflowIllustrationItem(count: number): IllustrationItem
     title: `Autres valides (${count})`,
     subtitle: `${count} ${noun} ${verb} ${adjective} dans le dossier`,
     label: "AUTRES VALIDES",
-    accent: "text-emerald-700",
-    frame: "border-emerald-200 bg-emerald-50/90",
+    accent: "text-success",
+    frame: "border-success-border bg-success-subtle/90",
     isMissing: false,
     representedCount: count,
   };
@@ -265,8 +270,8 @@ function buildMissingOverflowIllustrationItem(count: number): IllustrationItem {
     title: `Autres manquants (${count})`,
     subtitle: `${count} ${noun} ${verb} à ajouter`,
     label: "AUTRES MANQUANTS",
-    accent: "text-amber-800",
-    frame: "border-amber-200 bg-amber-50/90",
+    accent: "text-warning",
+    frame: "border-warning-border bg-warning-subtle/90",
     isMissing: true,
     representedCount: count,
   };
@@ -633,18 +638,18 @@ function ResultCard({
 
   const stateToneClassName =
     card.kind === "review"
-      ? "border-amber-400 bg-amber-100"
+      ? "border-warning-border bg-warning-light"
       : card.kind === "primary"
-        ? "border-amber-300 bg-amber-50"
+        ? "border-warning-border bg-warning-subtle"
       : card.kind === "missing"
         ? "border-danger/20 bg-error-light"
         : card.kind === "brief"
           ? card.readinessStatus === "not_ready"
-            ? "border-amber-300 bg-amber-50"
-            : "border-sky-200 bg-sky-50"
+            ? "border-warning-border bg-warning-subtle"
+            : "border-info-border bg-info-subtle"
           : card.kind === "structure"
-            ? "border-indigo-200 bg-indigo-50"
-            : "border-emerald-200 bg-emerald-50";
+            ? "border-info-border bg-info-subtle"
+            : "border-success-border bg-success-subtle";
   const illustrationItems: IllustrationItem[] = [
     ...visibleValidatedContextItems,
     ...(validatedOverflowItem ? [validatedOverflowItem] : []),
@@ -765,10 +770,10 @@ function ResultCard({
                       className={`relative mt-1 w-[9rem] rounded-2xl border px-3 py-3 shadow-[0_16px_40px_rgba(15,23,42,0.14)] backdrop-blur-sm transition-transform ${item.frame}`}
                       style={{ transform: "rotate(-2deg)" }}
                     >
-                      <div className={`text-[11px] font-bold uppercase tracking-[0.12em] ${item.accent}`}>
+                      <div className={`text-micro font-bold uppercase tracking-[0.12em] ${item.accent}`}>
                         {item.label}
                       </div>
-                      <p className="mt-2 truncate text-sm font-semibold text-slate-800" title={item.title}>
+                      <p className="mt-2 truncate text-sm font-semibold text-foreground" title={item.title}>
                         {item.title}
                       </p>
                       {item.subtitle ? (
@@ -783,10 +788,10 @@ function ResultCard({
                         className={`relative w-[9rem] rounded-2xl border px-3 py-3 shadow-[0_16px_40px_rgba(15,23,42,0.14)] backdrop-blur-sm transition-transform ${item.frame}`}
                         style={{ transform: "rotate(-2deg)" }}
                       >
-                        <div className={`text-[11px] font-bold uppercase tracking-[0.12em] ${item.accent}`}>
+                        <div className={`text-micro font-bold uppercase tracking-[0.12em] ${item.accent}`}>
                           {item.label}
                         </div>
-                        <p className="mt-2 truncate text-sm font-semibold text-slate-800" title={item.title}>
+                        <p className="mt-2 truncate text-sm font-semibold text-foreground" title={item.title}>
                           {item.title}
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">{item.subtitle}</p>
@@ -797,33 +802,26 @@ function ResultCard({
                     </div>
                     <div className="mt-1 flex w-full justify-center">
                       <div className="inline-flex items-center gap-2 rounded-full border border-white/35 bg-white/12 px-4 py-2 text-center text-sm font-medium text-white/92 backdrop-blur-sm">
-                        <span>TIMAX hesite entre</span>
-                        <Popover
-                          hover
-                          className="z-20"
-                          placement="right"
-                          contentClassName="border-border bg-surface text-foreground-secondary shadow-[0_18px_40px_rgba(15,23,42,0.22)]"
-                          arrowClassName="border-border bg-surface"
-                          trigger={(
-                            <button
-                              type="button"
-                              aria-label="Pourquoi TIMAX hesite"
-                              className="inline-flex h-5 w-5 cursor-pointer items-center justify-center rounded-full bg-white/10 text-sky-50/80 transition-colors hover:bg-white/18 hover:text-white"
-                            >
-                              <CircleHelpIcon aria-hidden="true" size={11} />
-                            </button>
-                          )}
-                        >
+                        <span>TIMAX hésite entre</span>
+                        <Popover>
+                          <PopoverTrigger
+                            openOnHover
+                            aria-label="Pourquoi TIMAX hésite"
+                            className={WHY_TRIGGER_CLASS}
+                          >
+                            <CircleHelpIcon aria-hidden="true" size={11} />
+                          </PopoverTrigger>
+                          <PopoverContent side="right" className="w-72 max-w-[calc(100vw-2rem)]">
                           <div className="space-y-2">
                             <p className="text-xs leading-5 text-foreground-secondary">
-                              TIMAX hesite car le document ne contient pas assez d&apos;indices pour trancher automatiquement.
+                              TIMAX hésite car le document ne contient pas assez d&apos;indices pour trancher automatiquement.
                             </p>
                             {reviewEvidenceHints.length > 0 ? (
                               <div className="flex flex-wrap gap-2">
                                 {reviewEvidenceHints.map((hint) => (
                                   <span
                                     key={hint}
-                                    className="rounded-full border border-border bg-surface-subtle px-2.5 py-1 text-[11px] font-medium text-slate-600"
+                                    className="rounded-full border border-border bg-surface-subtle px-2.5 py-1 text-micro font-medium text-muted-foreground"
                                   >
                                     {hint}
                                   </span>
@@ -831,6 +829,7 @@ function ResultCard({
                               </div>
                             ) : null}
                           </div>
+                          </PopoverContent>
                         </Popover>
                       </div>
                     </div>
@@ -863,16 +862,16 @@ function ResultCard({
                             </span>
                             <span>{getReviewChoiceLabel(category)}</span>
                             {index === 0 ? (
-                              <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-semibold text-warning">
+                              <span className="rounded-full bg-warning/15 px-2 py-0.5 text-micro font-semibold text-warning">
                                 Probable
                               </span>
                             ) : null}
                             {secondaryBadge ? (
                               <span
-                                className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                                className={`rounded-full px-2 py-0.5 text-micro font-semibold ${
                                   selectedReviewCategory === category
                                     ? "bg-white/18 text-white"
-                                    : "bg-muted text-slate-600"
+                                    : "bg-muted text-muted-foreground"
                                 }`}
                               >
                                 {secondaryBadge}
@@ -903,9 +902,9 @@ function ResultCard({
                           type="button"
                           onClick={handleConfirmReviewCategory}
                           disabled={isReviewActionPending}
-                          className="btn btn-primary btn-sm"
+                          className={buttonVariants({ variant: "primary", size: "md" })}
                         >
-                          {isReviewActionPending ? "Confirmation..." : "Confirmer la catégorie"}
+                          {isReviewActionPending ? "Confirmation…" : "Confirmer la catégorie"}
                         </button>
                       </div>
                     ) : null}
@@ -919,10 +918,10 @@ function ResultCard({
                       className={`relative mt-1 w-[9rem] rounded-2xl border px-3 py-3 shadow-[0_16px_40px_rgba(15,23,42,0.14)] backdrop-blur-sm transition-transform ${reviewOverflowItem.frame}`}
                       style={{ transform: "rotate(2deg)" }}
                     >
-                      <div className={`text-[11px] font-bold uppercase tracking-[0.12em] ${reviewOverflowItem.accent}`}>
+                      <div className={`text-micro font-bold uppercase tracking-[0.12em] ${reviewOverflowItem.accent}`}>
                         {reviewOverflowItem.label}
                       </div>
-                      <p className="mt-2 text-sm font-semibold text-slate-800">
+                      <p className="mt-2 text-sm font-semibold text-foreground">
                         {reviewOverflowItem.title}
                       </p>
                       <p className="mt-1 text-xs text-muted-foreground">{reviewOverflowItem.subtitle}</p>
@@ -934,12 +933,12 @@ function ResultCard({
                       className={`relative mt-2 w-[8rem] rounded-2xl border px-3 py-2.5 opacity-90 shadow-[0_12px_28px_rgba(15,23,42,0.12)] backdrop-blur-sm transition-transform ${item.frame}`}
                       style={{ transform: "rotate(2deg)" }}
                     >
-                      <div className={`text-[11px] font-bold uppercase tracking-[0.12em] ${item.accent}`}>
+                      <div className={`text-micro font-bold uppercase tracking-[0.12em] ${item.accent}`}>
                         {item.label}
                       </div>
                       {item.severityLabel ? (
                         <div
-                          className={`mt-3 inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${item.severityToneClassName}`}
+                          className={`mt-3 inline-flex rounded-full border px-2 py-0.5 text-micro font-semibold ${item.severityToneClassName}`}
                         >
                           {item.severityLabel}
                         </div>
@@ -952,10 +951,10 @@ function ResultCard({
                       className={`relative mt-2 w-[8rem] rounded-2xl border px-3 py-2.5 opacity-90 shadow-[0_12px_28px_rgba(15,23,42,0.12)] backdrop-blur-sm transition-transform ${reviewMissingOverflowItem.frame}`}
                       style={{ transform: "rotate(2deg)" }}
                     >
-                      <div className={`text-[11px] font-bold uppercase tracking-[0.12em] ${reviewMissingOverflowItem.accent}`}>
+                      <div className={`text-micro font-bold uppercase tracking-[0.12em] ${reviewMissingOverflowItem.accent}`}>
                         {reviewMissingOverflowItem.label}
                       </div>
-                      <p className="mt-2 text-sm font-semibold text-slate-800">
+                      <p className="mt-2 text-sm font-semibold text-foreground">
                         {reviewMissingOverflowItem.title}
                       </p>
                       <p className="mt-1 text-xs text-muted-foreground">{reviewMissingOverflowItem.subtitle}</p>
@@ -972,12 +971,12 @@ function ResultCard({
                       className={`relative w-[8.5rem] rounded-2xl border px-3 py-3 shadow-[0_16px_40px_rgba(15,23,42,0.14)] backdrop-blur-sm transition-transform ${item.frame}`}
                       style={{ transform: `rotate(${index % 2 === 0 ? "-2deg" : "2deg"})` }}
                     >
-                      <div className={`text-[11px] font-bold uppercase tracking-[0.12em] ${item.accent}`}>
+                      <div className={`text-micro font-bold uppercase tracking-[0.12em] ${item.accent}`}>
                         {item.label}
                       </div>
                       {!(card.kind === "missing" && item.isMissing) ? (
                         <>
-                          <p className="mt-2 truncate text-sm font-semibold text-slate-800" title={item.title}>
+                          <p className="mt-2 truncate text-sm font-semibold text-foreground" title={item.title}>
                             {item.title}
                           </p>
                           {item.subtitle ? (
@@ -987,7 +986,7 @@ function ResultCard({
                       ) : null}
                       {card.kind === "missing" && item.isMissing && item.severityLabel ? (
                         <div
-                          className={`mt-2 inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${item.severityToneClassName}`}
+                          className={`mt-2 inline-flex rounded-full border px-2 py-0.5 text-micro font-semibold ${item.severityToneClassName}`}
                         >
                           {item.severityLabel}
                         </div>
@@ -1014,22 +1013,15 @@ function ResultCard({
                       <div className="inline-flex items-center gap-2 rounded-full border border-white/35 bg-white/12 px-4 py-2 text-center text-sm font-medium text-white/92 backdrop-blur-sm">
                         <span>{getStateHeroBadgeLabel(card)}</span>
                         {stateWhyContent ? (
-                          <Popover
-                            hover
-                            className="z-20"
-                            placement="right"
-                            contentClassName="border-border bg-surface text-foreground-secondary shadow-[0_18px_40px_rgba(15,23,42,0.22)]"
-                            arrowClassName="border-border bg-surface"
-                            trigger={(
-                              <button
-                                type="button"
-                                aria-label={`Pourquoi ${getStateHeroBadgeLabel(card)}`}
-                                className="inline-flex h-5 w-5 cursor-pointer items-center justify-center rounded-full bg-white/10 text-sky-50/80 transition-colors hover:bg-white/18 hover:text-white"
-                              >
-                                <CircleHelpIcon aria-hidden="true" size={11} />
-                              </button>
-                            )}
-                          >
+                          <Popover>
+                            <PopoverTrigger
+                              openOnHover
+                              aria-label={`Pourquoi ${getStateHeroBadgeLabel(card)}`}
+                              className={WHY_TRIGGER_CLASS}
+                            >
+                              <CircleHelpIcon aria-hidden="true" size={11} />
+                            </PopoverTrigger>
+                            <PopoverContent side="right" className="w-72 max-w-[calc(100vw-2rem)]">
                             <div className="space-y-2">
                               <p className="text-xs leading-5 text-foreground-secondary">
                                 {stateWhyContent.title}
@@ -1039,7 +1031,7 @@ function ResultCard({
                                   {stateWhyContent.hints.map((hint) => (
                                     <span
                                       key={hint}
-                                      className="rounded-full border border-border bg-surface-subtle px-2.5 py-1 text-[11px] font-medium text-slate-600"
+                                      className="rounded-full border border-border bg-surface-subtle px-2.5 py-1 text-micro font-medium text-muted-foreground"
                                     >
                                       {hint}
                                     </span>
@@ -1047,6 +1039,7 @@ function ResultCard({
                                 </div>
                               ) : null}
                             </div>
+                            </PopoverContent>
                           </Popover>
                         ) : null}
                       </div>
@@ -1075,7 +1068,7 @@ function ResultCard({
             <div className="rounded-[1.25rem] border border-white/55 bg-surface/96 p-5 shadow-[0_20px_50px_rgba(15,23,42,0.14)] backdrop-blur-md">
               <div className="mb-4 flex items-start justify-between gap-3">
                 <div>
-                  <h3 className="text-sm font-semibold text-slate-800">
+                  <h3 className="text-sm font-semibold text-foreground">
                     {card.kind === "missing"
                       ? "Pièces déjà reçues"
                       : card.kind === "primary"
@@ -1091,7 +1084,7 @@ function ResultCard({
                   </p>
                 </div>
                 {reviewCount > 0 ? (
-                  <div className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-slate-600">
+                  <div className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-muted-foreground">
                     <FunnelIcon aria-hidden="true" size={12} />
                     À revoir ({reviewCount})
                   </div>
@@ -1135,7 +1128,7 @@ function ResultCard({
                         />
                       ))}
                       {reviewAdditionalCount > 2 ? (
-                        <div className="rounded-lg border border-warning/20 bg-amber-50 px-3 py-2 text-sm text-slate-600">
+                        <div className="rounded-lg border border-warning/20 bg-warning-subtle px-3 py-2 text-sm text-muted-foreground">
                           {reviewAdditionalCount - 2} autre{reviewAdditionalCount - 2 > 1 ? "s" : ""} pièce{reviewAdditionalCount - 2 > 1 ? "s" : ""} à confirmer dans le dossier.
                         </div>
                       ) : null}
@@ -1145,9 +1138,9 @@ function ResultCard({
                   {showReviewContextSection ? (
                     <section aria-label="Contexte déjà classé">
                       <div className="mb-2 flex items-center gap-2">
-                        <CircleCheckBigIcon className="shrink-0 text-emerald-700" aria-hidden="true" size={16} />
-                        <h4 className="text-xs font-semibold text-emerald-900">Contexte déjà classé</h4>
-                        <Badge variant="success" size="sm">{classifiedCount}</Badge>
+                        <CircleCheckBigIcon className="shrink-0 text-success" aria-hidden="true" size={16} />
+                        <h4 className="text-xs font-semibold text-success">Contexte déjà classé</h4>
+                        <Badge variant="success">{classifiedCount}</Badge>
                       </div>
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         {sortedCategories.map((category) => (
@@ -1172,9 +1165,9 @@ function ResultCard({
                   {sortedCategories.length > 0 ? (
                     <section aria-label="Pièces déjà reçues">
                       <div className="mb-2 flex items-center gap-2">
-                        <CircleCheckBigIcon className="shrink-0 text-emerald-700" aria-hidden="true" size={16} />
-                        <h4 className="text-xs font-semibold text-emerald-900">Déjà dans le dossier</h4>
-                        <Badge variant="success" size="sm">{classifiedCount}</Badge>
+                        <CircleCheckBigIcon className="shrink-0 text-success" aria-hidden="true" size={16} />
+                        <h4 className="text-xs font-semibold text-success">Déjà dans le dossier</h4>
+                        <Badge variant="success">{classifiedCount}</Badge>
                       </div>
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         {sortedCategories.map((category) => (
@@ -1198,8 +1191,8 @@ function ResultCard({
                 <div className="space-y-4">
                   <section aria-label="Choix principal">
                     <div className="mb-2 flex items-center gap-2">
-                      <CircleAlertIcon className="shrink-0 text-amber-700" aria-hidden="true" size={16} />
-                      <h4 className="text-xs font-semibold text-amber-900">Choisir le document principal</h4>
+                      <CircleAlertIcon className="shrink-0 text-warning" aria-hidden="true" size={16} />
+                      <h4 className="text-xs font-semibold text-warning">Choisir le document principal</h4>
                     </div>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       {sortedCategories
@@ -1224,9 +1217,9 @@ function ResultCard({
                   {sortedCategories.length > 0 ? (
                     <section aria-label="Documents classés par catégorie">
                       <div className="mb-2 flex items-center gap-2">
-                        <CircleCheckBigIcon className="shrink-0 text-emerald-700" aria-hidden="true" size={16} />
-                        <h4 className="text-xs font-semibold text-emerald-900">Valides</h4>
-                        <Badge variant="success" size="sm">{classifiedCount}</Badge>
+                        <CircleCheckBigIcon className="shrink-0 text-success" aria-hidden="true" size={16} />
+                        <h4 className="text-xs font-semibold text-success">Valides</h4>
+                        <Badge variant="success">{classifiedCount}</Badge>
                       </div>
                       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                         {sortedCategories.map((category) => (
@@ -1274,7 +1267,7 @@ function ResultCard({
                 </div>
               ) : null}
               {totalCount > 0 && (reviewCount > 0 || processingCount > 0) ? (
-                <div className="mt-4 flex items-center gap-2 rounded-lg border border-border bg-surface-subtle px-3 py-2 text-sm text-slate-600">
+                <div className="mt-4 flex items-center gap-2 rounded-lg border border-border bg-surface-subtle px-3 py-2 text-sm text-muted-foreground">
                   <CircleAlertIcon className="shrink-0" aria-hidden="true" size={16} />
                   {card.kind === "review"
                     ? `${reviewCount + processingCount} document${reviewCount + processingCount > 1 ? "s" : ""} à revoir dans le dossier.`
@@ -1357,15 +1350,15 @@ export function AffaireFlowHierarchyPanel(
               <h2 className="mt-2 text-base font-semibold text-foreground text-balance">
                 {model.title}
               </h2>
-              <p className="mt-1 text-sm leading-6 text-slate-600">{model.summary}</p>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">{model.summary}</p>
             </>
           )}
         </div>
         <div className="flex flex-wrap justify-end gap-2">
-          <Badge variant={model.statusVariant} size="sm" withDot>
+          <Badge variant={model.statusVariant} dot>
             {model.statusLabel}
           </Badge>
-          <Badge variant={readinessBadge.variant} size="sm" withDot>
+          <Badge variant={readinessBadge.variant} dot>
             {readinessBadge.label}
           </Badge>
         </div>
@@ -1455,7 +1448,7 @@ export function AffaireFlowHierarchyPanel(
                   </p>
 
                   <div className="mt-6">
-                    <span className="btn btn-secondary btn-sm border-white/35 bg-white/15 text-white hover:bg-white/25">
+                    <span className={cn(buttonVariants({ variant: "outline", size: "md" }), "border-white/35 bg-white/15 text-white hover:bg-white/25")}>
                       Sélectionner les fichiers
                     </span>
                   </div>
@@ -1486,14 +1479,14 @@ export function AffaireFlowHierarchyPanel(
           <div className="rounded-2xl border border-border bg-surface p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
-                <h3 className="text-sm font-semibold text-slate-800">
+                <h3 className="text-sm font-semibold text-foreground">
                   Le mode manuel reste disponible
                 </h3>
-                <p className="mt-1 text-sm leading-6 text-slate-600">
+                <p className="mt-1 text-sm leading-6 text-muted-foreground">
                   Vous pouvez ouvrir le devis sans DPGF et compléter la structure plus tard.
                 </p>
               </div>
-              <Link href={manualEstimateHref} className="btn btn-secondary btn-sm shrink-0">
+              <Link href={manualEstimateHref} className={cn(buttonVariants({ variant: "outline", size: "md" }), "shrink-0")}>
                 Continuer en manuel
               </Link>
             </div>
@@ -1531,12 +1524,12 @@ export function AffaireFlowHierarchyPanel(
 
       {model.blockers.length > 0 ? (
         <div className="mt-4 rounded-2xl border border-warning/20 bg-warning/6 p-4">
-          <h3 className="text-sm font-semibold text-slate-800">Blocages à traiter</h3>
+          <h3 className="text-sm font-semibold text-foreground">Blocages à traiter</h3>
           <ul className="mt-3 grid gap-2 md:grid-cols-2">
             {model.blockers.map((blocker) => (
               <li
                 key={blocker}
-                className="rounded-xl border border-white/80 bg-surface/85 px-3 py-2 text-sm text-slate-600"
+                className="rounded-xl border border-white/80 bg-surface/85 px-3 py-2 text-sm text-muted-foreground"
               >
                 {blocker}
               </li>
@@ -1547,10 +1540,10 @@ export function AffaireFlowHierarchyPanel(
 
       {model.aides.length > 0 ? (
         <div className="mt-4 rounded-2xl border border-border bg-surface p-4">
-          <h3 className="text-sm font-semibold text-slate-800">
+          <h3 className="text-sm font-semibold text-foreground">
             Outils utiles si besoin
           </h3>
-          <p className="mt-1 text-sm leading-6 text-slate-600">
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">
             Ces aides restent secondaires. Ouvrez-les seulement si elles accelerent une décision ou
             une préparation utile maintenant.
           </p>
@@ -1570,8 +1563,8 @@ export function AffaireFlowHierarchyPanel(
         <div className="mt-4 rounded-2xl border border-warning/20 bg-warning/5 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
-              <h3 className="text-sm font-semibold text-slate-800">Reprise legacy</h3>
-              <p className="mt-1 text-sm leading-6 text-slate-600">
+              <h3 className="text-sm font-semibold text-foreground">Reprise legacy</h3>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">
                 {model.legacyAction.description}
               </p>
             </div>

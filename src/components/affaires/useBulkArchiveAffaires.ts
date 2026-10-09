@@ -71,7 +71,7 @@ export function useBulkArchiveAffaires({
           title: `Archiver ${targetCount} affaire${targetCount > 1 ? "s" : ""}`,
           message: `Vous allez archiver ${targetCount} affaire${targetCount > 1 ? "s" : ""} sélectionnée${targetCount > 1 ? "s" : ""}. Elles disparaitront de la liste active, mais leur historique restera conserve.`,
           confirmLabel: archiving
-            ? "Archivage..."
+            ? "Archivage…"
             : `Archiver ${targetCount} affaire${targetCount > 1 ? "s" : ""}`,
           variant: "default" as const,
           confirmDisabled: archiving,

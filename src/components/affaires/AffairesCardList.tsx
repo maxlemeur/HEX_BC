@@ -1,23 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { FolderIcon, PlusIcon, SearchIcon } from "lucide-react";
 
 import { formatEUR } from "@/lib/money";
-import { EmptyState } from "@/components/ui-legacy/EmptyState";
-import { ConfirmModal } from "@/components/ui-legacy/ConfirmModal";
-import { AffaireStatusBadges } from "./AffaireStatusBadges";
-import { AffaireFavoriteButton } from "./AffaireFavoriteButton";
+import { EmptyState } from "@/components/layout/empty-state";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { AffaireConfirmDialog } from "./AffaireConfirmDialog";
+import { AffaireApprovalBadge, AffaireStatusBadges } from "./AffaireStatusBadges";
+import { AffaireRowActions, getAffaireListItemState } from "./AffaireRowActions";
 import { useDeleteAffaire } from "./useDeleteAffaire";
 import type { AffaireListItem } from "./types";
-import { EyeIcon, FolderIcon, HouseIcon, SearchIcon, SquarePenIcon, TrashIcon } from "lucide-react";
-
-const APPROVAL_BADGE: Record<string, { label: string; className: string }> = {
-  required: { label: "À valider", className: "bg-amber-50 text-amber-900 border-amber-200" },
-  in_review: { label: "En revue", className: "bg-blue-50 text-blue-800 border-blue-200" },
-  approved: { label: "Approuvee", className: "bg-emerald-50 text-emerald-800 border-emerald-200" },
-  changes_requested: { label: "À reprendre", className: "bg-red-50 text-red-800 border-red-200" },
-};
 
 type AffairesEmptyVariant = "no-data" | "filtered";
 
@@ -33,12 +28,14 @@ type Props = {
 
 const EMPTY_SELECTED_PROJECT_IDS: ReadonlySet<string> = new Set();
 
+const AFFAIRE_DATE_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+});
+
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("fr-FR", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
+  return AFFAIRE_DATE_FORMATTER.format(new Date(iso));
 }
 
 export function AffairesCardList({
@@ -50,196 +47,137 @@ export function AffairesCardList({
   selectedProjectIds = EMPTY_SELECTED_PROJECT_IDS,
   onToggleProjectSelection,
 }: Readonly<Props>) {
-  const router = useRouter();
   const { requestDelete, modalProps } = useDeleteAffaire();
 
   if (items.length === 0) {
     return emptyVariant === "no-data" ? (
       <EmptyState
-        icon={
-          <FolderIcon strokeWidth="1.5" aria-hidden="true" size={26} />
-        }
+        icon={<FolderIcon aria-hidden="true" />}
         title="Créez votre première affaire"
         description="Démarrez un nouveau projet pour lancer votre premier chiffrage."
-        actionLabel="Nouvelle affaire"
-        onAction={onCreateAffaire}
+        action={
+          onCreateAffaire ? (
+            <Button size="lg" leftIcon={<PlusIcon aria-hidden="true" />} onClick={onCreateAffaire}>
+              Nouvelle affaire
+            </Button>
+          ) : undefined
+        }
       />
     ) : (
       <EmptyState
-        icon={
-          <SearchIcon strokeWidth="1.5" aria-hidden="true" size={26} />
-        }
-        title="Aucune affaire trouvee"
+        icon={<SearchIcon aria-hidden="true" />}
+        title="Aucune affaire trouvée"
         description="Modifiez vos filtres ou votre recherche pour afficher des résultats."
       />
     );
   }
 
   return (
-    <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
-      <ConfirmModal {...modalProps} />
-      {items.map((item) => {
-        const hasCurrentVersion =
-          item.hasCurrentVersion &&
-          item.currentVersionId !== null &&
-          item.currentVersionNumber !== null &&
-          item.currentStatus !== null;
+    <>
+      <AffaireConfirmDialog {...modalProps} />
+      <ul className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3" aria-label="Affaires">
+        {items.map((item) => {
+          const { hasCurrentVersion, isDraftOnly } = getAffaireListItemState(item);
 
-        const primaryHref = `/dashboard/affaires/${item.projectId}`;
-
-        const canDelete =
-          !hasCurrentVersion || item.currentStatus === "draft";
-
-        return (
-          <div
-            key={item.projectId}
-            className="dashboard-card animate-fade-in relative overflow-hidden transition-shadow hover:shadow-md [content-visibility:auto] [contain-intrinsic-size:auto_220px]"
-          >
-            <Link
-              href={primaryHref}
-              className="block p-4 pb-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+          return (
+            <li
+              key={item.projectId}
+              className="min-w-0 [content-visibility:auto] [contain-intrinsic-size:auto_220px]"
             >
-              <div className="flex items-start justify-between gap-2 mb-2">
-                <div className="min-w-0">
-                  <h3 className="font-semibold text-sm text-foreground truncate">
-                    {item.projectName}
-                  </h3>
-                  {item.projectClient && (
-                    <p className="text-xs text-muted-foreground truncate mt-0.5">
-                      {item.projectClient}
+              <Card className="relative flex h-full flex-col overflow-hidden transition-shadow hover:shadow-card-hover">
+                <Link
+                  href={`/dashboard/affaires/${item.projectId}`}
+                  prefetch={false}
+                  className="block flex-1 rounded-t-lg p-4 pb-3 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
+                >
+                  <div className="mb-2 flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <h2 className="truncate text-sm font-semibold text-foreground">
+                        {item.projectName}
+                      </h2>
+                      {item.projectClient && (
+                        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                          {item.projectClient}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {item.hasDpgf && (
+                        <Badge variant="info" size="sm">
+                          DPGF
+                        </Badge>
+                      )}
+                      <span className="text-xs text-muted-foreground">
+                        {item.versionCount} version{item.versionCount !== 1 ? "s" : ""}
+                      </span>
+                    </div>
+                  </div>
+
+                  {item.projectReference && (
+                    <p className="mb-2 truncate text-xs text-muted-foreground">
+                      Réf. {item.projectReference}
                     </p>
                   )}
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  {item.hasDpgf && (
-                    <span
-                      className="inline-flex items-center px-2 py-1 rounded text-[10px] font-semibold bg-blue-50 text-blue-800 border border-blue-200"
-                      title="DPGF charge"
-                    >
-                      DPGF
+
+                  <div className="mb-3 flex flex-wrap items-center gap-1.5">
+                    {hasCurrentVersion ? (
+                      <AffaireStatusBadges
+                        currentVersionNumber={item.currentVersionNumber!}
+                        currentStatus={item.currentStatus!}
+                        acceptedVersionNumber={item.acceptedVersionNumber}
+                      />
+                    ) : (
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Aucun chiffrage
+                      </span>
+                    )}
+                    <AffaireApprovalBadge approvalStatus={item.currentApprovalStatus} />
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <span className="font-medium text-foreground-secondary">
+                      {item.currentTotalHtCents !== null
+                        ? `${formatEUR(item.currentTotalHtCents)} HT`
+                        : "—"}
                     </span>
+                    <span className="text-muted-foreground">
+                      {formatDate(item.currentUpdatedAt)}
+                    </span>
+                  </div>
+                </Link>
+
+                <div className="flex items-center gap-1 border-t border-border-subtle px-3 py-2">
+                  {isDraftOnly && onToggleProjectSelection ? (
+                    <label className="mr-auto inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-control px-1 text-xs text-muted-foreground sm:min-h-8">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-border-strong text-primary"
+                        checked={selectedProjectIds.has(item.projectId)}
+                        aria-label={`Sélectionner l'affaire ${item.projectName}`}
+                        onChange={() => onToggleProjectSelection(item.projectId)}
+                      />
+                      <span aria-hidden="true">Sélectionner</span>
+                    </label>
+                  ) : (
+                    <span className="mr-auto" />
                   )}
-                  <span className="text-xs text-subtle-foreground">
-                    {item.versionCount} version{item.versionCount !== 1 ? "s" : ""}
-                  </span>
-                </div>
-              </div>
-
-              {item.projectReference && (
-                <p className="text-xs text-subtle-foreground mb-2 truncate">
-                  Ref. {item.projectReference}
-                </p>
-              )}
-
-              <div className="mb-3 flex flex-wrap items-center gap-1.5">
-                {hasCurrentVersion ? (
-                  <AffaireStatusBadges
-                    currentVersionNumber={item.currentVersionNumber!}
-                    currentStatus={item.currentStatus!}
-                    acceptedVersionNumber={item.acceptedVersionNumber}
-                  />
-                ) : (
-                  <span className="text-xs font-medium text-muted-foreground">
-                    Aucun chiffrage
-                  </span>
-                )}
-                {item.currentApprovalStatus && APPROVAL_BADGE[item.currentApprovalStatus] && (
-                  <span
-                    className={`inline-flex items-center px-2 py-1 rounded text-[10px] font-semibold border ${APPROVAL_BADGE[item.currentApprovalStatus].className}`}
-                  >
-                    {APPROVAL_BADGE[item.currentApprovalStatus].label}
-                  </span>
-                )}
-              </div>
-
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-medium text-foreground-secondary">
-                  {item.currentTotalHtCents !== null
-                    ? `${formatEUR(item.currentTotalHtCents)} HT`
-                    : "—"}
-                </span>
-                <span className="text-subtle-foreground">
-                  {formatDate(item.currentUpdatedAt)}
-                </span>
-              </div>
-            </Link>
-
-            {/* Actions */}
-            <div className="flex items-center gap-1 px-4 pb-4 pt-3 border-t border-border-subtle">
-              {canDelete && onToggleProjectSelection ? (
-                <label className="mr-1 inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center sm:min-h-8 sm:min-w-8">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 rounded border-border-strong text-primary"
-                    checked={selectedProjectIds.has(item.projectId)}
-                    aria-label={`Sélectionner l'affaire ${item.projectName}`}
-                    onChange={() =>
-                      onToggleProjectSelection(item.projectId)
+                  <AffaireRowActions
+                    item={item}
+                    touch
+                    isFavoritePending={favoritePendingIds.includes(item.projectId)}
+                    onToggleFavorite={() =>
+                      onToggleFavorite(item.projectId, !item.isFavorite)
+                    }
+                    onRequestDelete={() =>
+                      requestDelete(item.projectId, item.projectName)
                     }
                   />
-                </label>
-              ) : null}
-              <AffaireFavoriteButton
-                isFavorite={item.isFavorite}
-                isPending={favoritePendingIds.includes(item.projectId)}
-                onToggle={() =>
-                  onToggleFavorite(item.projectId, !item.isFavorite)
-                }
-              />
-              {/* Hub affaire – toujours visible */}
-              <button
-                type="button"
-                title="Hub affaire"
-                aria-label="Ouvrir le hub de l'affaire"
-                className="inline-flex min-h-11 min-w-11 items-center justify-center rounded text-blue-400 transition-colors hover:bg-blue-50 hover:text-blue-600 sm:min-h-8 sm:min-w-8"
-                onClick={() => router.push(`/dashboard/affaires/${item.projectId}`)}
-              >
-                <HouseIcon aria-hidden="true" size={14} />
-              </button>
-              {/* Detail estimation – visible quand non-brouillon */}
-              {hasCurrentVersion && item.currentStatus !== "draft" && (
-                <button
-                  type="button"
-                  title="Voir le détail"
-                  aria-label="Voir le détail du chiffrage"
-                  className="inline-flex min-h-11 min-w-11 items-center justify-center rounded text-emerald-400 transition-colors hover:bg-emerald-50 hover:text-emerald-600 sm:min-h-8 sm:min-w-8"
-                  onClick={() => router.push(`/dashboard/estimates/${item.currentVersionId}`)}
-                >
-                  <EyeIcon aria-hidden="true" size={14} />
-                </button>
-              )}
-              {/* Editer – visible quand brouillon */}
-              {canDelete && (
-                <button
-                  type="button"
-                  title="Éditer l'affaire"
-                  aria-label="Éditer l'affaire"
-                  className="inline-flex min-h-11 min-w-11 items-center justify-center rounded text-amber-400 transition-colors hover:bg-amber-50 hover:text-amber-600 sm:min-h-8 sm:min-w-8"
-                  onClick={() => router.push(
-                    hasCurrentVersion
-                      ? `/dashboard/estimates/${item.currentVersionId}/edit`
-                      : `/dashboard/affaires/${item.projectId}`
-                  )}
-                >
-                  <SquarePenIcon aria-hidden="true" size={14} />
-                </button>
-              )}
-              {/* Supprimer – visible quand brouillon */}
-              {canDelete && (
-                <button
-                  type="button"
-                  title="Supprimer l'affaire"
-                  aria-label="Supprimer l'affaire"
-                  className="inline-flex min-h-11 min-w-11 items-center justify-center rounded text-red-400 transition-colors hover:bg-red-50 hover:text-red-600 sm:min-h-8 sm:min-w-8"
-                  onClick={() => requestDelete(item.projectId, item.projectName)}
-                >
-                  <TrashIcon aria-hidden="true" size={14} />
-                </button>
-              )}
-            </div>
-          </div>
-        );
-      })}
-    </div>
+                </div>
+              </Card>
+            </li>
+          );
+        })}
+      </ul>
+    </>
   );
 }

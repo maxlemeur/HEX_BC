@@ -12,7 +12,7 @@ type FilterSearchProps = {
 export function FilterSearch({
   value,
   onChange,
-  placeholder = "Rechercher...",
+  placeholder = "Rechercher…",
   isPending = false,
 }: FilterSearchProps) {
   return (

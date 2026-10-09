@@ -25,7 +25,7 @@ export function RegisterSummaryCards({
     <div className="mt-3 space-y-2">
       <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
         <article className="rounded-xl border border-border bg-surface-subtle px-3 py-2">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <p className="text-micro font-semibold uppercase tracking-wide text-muted-foreground">
             Points ouverts
           </p>
           <p className="mt-1 text-xl font-semibold text-foreground">
@@ -47,7 +47,7 @@ export function RegisterSummaryCards({
             })
           }
         >
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-danger">
+          <p className="text-micro font-semibold uppercase tracking-wide text-danger">
             Critiques
           </p>
           <p className="mt-1 text-xl font-semibold text-foreground">
@@ -56,7 +56,7 @@ export function RegisterSummaryCards({
           <p className="mt-1 text-xs text-muted-foreground">Bloquant validation</p>
         </button>
         <article className="rounded-xl border border-warning/20 bg-warning/5 px-3 py-2">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-warning">
+          <p className="text-micro font-semibold uppercase tracking-wide text-warning">
             Non-critiques
           </p>
           <p className="mt-1 text-xl font-semibold text-foreground">
@@ -76,7 +76,7 @@ export function RegisterSummaryCards({
             })
           }
         >
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">
+          <p className="text-micro font-semibold uppercase tracking-wide text-primary">
             Clarif. client
           </p>
           <p className="mt-1 text-xl font-semibold text-foreground">
@@ -101,7 +101,7 @@ export function RegisterSummaryCards({
                 })
               }
             >
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-warning">
+              <p className="text-micro font-semibold uppercase tracking-wide text-warning">
                 Hypothèses ouvertes
               </p>
               <p className="mt-1 text-lg font-semibold text-foreground">
@@ -126,7 +126,7 @@ export function RegisterSummaryCards({
                 })
               }
             >
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-danger">
+              <p className="text-micro font-semibold uppercase tracking-wide text-danger">
                 Pièces manquantes suivies
               </p>
               <p className="mt-1 text-lg font-semibold text-foreground">

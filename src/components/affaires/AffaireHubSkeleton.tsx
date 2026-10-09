@@ -25,7 +25,7 @@ export function AffaireHubSkeleton() {
       </div>
 
       {/* Financial summary card */}
-      <div className="dashboard-card p-5 mb-6">
+      <div className="rounded-lg border border-border bg-surface shadow-card p-5 mb-6">
         <Skeleton width={140} height={16} className="mb-4" />
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {Array.from({ length: 4 }, (_, i) => (
@@ -38,7 +38,7 @@ export function AffaireHubSkeleton() {
       </div>
 
       {/* Version timeline card */}
-      <div className="dashboard-card p-5 mb-6">
+      <div className="rounded-lg border border-border bg-surface shadow-card p-5 mb-6">
         <Skeleton width={120} height={16} className="mb-4" />
         <div className="space-y-4">
           {Array.from({ length: 3 }, (_, i) => (
@@ -56,11 +56,11 @@ export function AffaireHubSkeleton() {
 
       {/* DPGF source + Quick actions */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="dashboard-card p-5">
+        <div className="rounded-lg border border-border bg-surface shadow-card p-5">
           <Skeleton width={120} height={16} className="mb-3" />
           <Skeleton variant="rect" height={48} />
         </div>
-        <div className="dashboard-card p-5">
+        <div className="rounded-lg border border-border bg-surface shadow-card p-5">
           <Skeleton width={120} height={16} className="mb-3" />
           <Skeleton variant="rect" height={48} />
         </div>

@@ -366,7 +366,7 @@ test.describe("VNEXT US-6.1 - import flow carry-over", () => {
     ).toBeVisible({ timeout: 60_000 });
     await page.getByRole("button", { name: /Lancer l'import structure/i }).click();
 
-    const uploadStep = page.getByText("Glissez-deposez votre fichier DPGF ici");
+    const uploadStep = page.getByText("Glissez-déposez votre fichier DPGF ici");
     await expect(uploadStep).toBeVisible();
 
     await page.locator('input[type="file"]').first().setInputFiles(fixturePath);

@@ -2,7 +2,7 @@
 
 import { useCallback, useState, useTransition } from "react";
 
-import { Badge } from "@/components/ui-legacy/Badge";
+import { Badge } from "@/components/ui/badge";
 import type {
   AffaireIntakeDocumentKind,
   AffaireIntakeDocumentPriority,
@@ -17,6 +17,8 @@ import {
   setAffaireDocumentAsPrimary,
 } from "@/app/dashboard/affaires/_actions/intake";
 import { CircleAlertIcon, CircleIcon } from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 export type IntakeDocumentData = {
   documentId: string;
@@ -38,11 +40,11 @@ type IntakeDocumentCardProps = {
 
 function getFileTypeIcon(fileName: string) {
   const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
-  if (ext === "pdf") return { label: "PDF", color: "text-red-600" };
-  if (["xlsx", "xls", "csv"].includes(ext)) return { label: "XLS", color: "text-emerald-700" };
-  if (["doc", "docx"].includes(ext)) return { label: "DOC", color: "text-blue-700" };
+  if (ext === "pdf") return { label: "PDF", color: "text-danger" };
+  if (["xlsx", "xls", "csv"].includes(ext)) return { label: "XLS", color: "text-success" };
+  if (["doc", "docx"].includes(ext)) return { label: "DOC", color: "text-info" };
   if (["png", "jpg", "jpeg", "gif", "svg", "webp"].includes(ext)) return { label: "IMG", color: "text-purple-600" };
-  if (["eml", "msg"].includes(ext)) return { label: "MSG", color: "text-slate-600" };
+  if (["eml", "msg"].includes(ext)) return { label: "MSG", color: "text-muted-foreground" };
   return { label: "FILE", color: "text-muted-foreground" };
 }
 
@@ -66,14 +68,14 @@ const CATEGORY_OPTIONS: AffaireIntakeDocumentKind[] = [
   "a_classer",
 ];
 
-type BadgeVariant = "neutral" | "info" | "success" | "warning" | "error";
+type BadgeVariant = "neutral" | "info" | "success" | "warning" | "danger";
 
 function getConfidenceDisplay(confidence: number): { label: string; variant: BadgeVariant } {
   if (confidence >= 0.95) return { label: "Certain", variant: "success" };
   if (confidence >= 0.80) return { label: "Confiant", variant: "success" };
   if (confidence >= 0.65) return { label: "Probable", variant: "info" };
   if (confidence >= 0.40) return { label: "À vérifier", variant: "warning" };
-  return { label: "À confirmer", variant: "error" };
+  return { label: "À confirmer", variant: "danger" };
 }
 
 function getCategoryBadgeVariant(category: AffaireIntakeDocumentKind): BadgeVariant {
@@ -86,7 +88,7 @@ function MetadataLine({ label, value }: { label: string; value: string | null })
   if (!value) return null;
   return (
     <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-      <span className="font-medium text-slate-600">{label}:</span> {value}
+      <span className="font-medium text-muted-foreground">{label}:</span> {value}
     </span>
   );
 }
@@ -166,15 +168,15 @@ export function IntakeDocumentCard({
         data-document-id={doc.documentId}
         data-highlighted={isEmphasized ? "true" : undefined}
       >
-        <span className={`text-[10px] font-bold uppercase leading-none ${fileType.color}`}>{fileType.label}</span>
+        <span className={`text-micro font-bold uppercase leading-none ${fileType.color}`}>{fileType.label}</span>
         <p className="min-w-0 flex-1 truncate text-sm text-foreground-secondary" title={doc.fileName}>
           {doc.fileName}
         </p>
-        <Badge variant={getCategoryBadgeVariant(doc.detectedCategory)} size="sm">
+        <Badge variant={getCategoryBadgeVariant(doc.detectedCategory)}>
           {CATEGORY_LABELS[doc.detectedCategory]}
         </Badge>
         {isPriorityEligible ? (
-          <Badge variant={documentPriority === "primary" ? "success" : "neutral"} size="sm">
+          <Badge variant={documentPriority === "primary" ? "success" : "neutral"}>
             {AFFAIRE_INTAKE_DOCUMENT_PRIORITY_LABELS[documentPriority]}
           </Badge>
         ) : null}
@@ -188,7 +190,7 @@ export function IntakeDocumentCard({
         isEmphasized
           ? "border-primary/40 bg-primary/6 ring-2 ring-primary/15"
           : isAmbiguous && !isProcessing
-          ? "border-warning/40 bg-amber-50"
+          ? "border-warning/40 bg-warning-subtle"
           : "border-border bg-surface"
       }`}
       data-document-id={doc.documentId}
@@ -198,33 +200,32 @@ export function IntakeDocumentCard({
       {/* Header row */}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1 flex items-start gap-2.5">
-          <span className={`mt-0.5 text-[10px] font-bold uppercase leading-none ${fileType.color}`}>{fileType.label}</span>
+          <span className={`mt-0.5 text-micro font-bold uppercase leading-none ${fileType.color}`}>{fileType.label}</span>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-slate-800" title={doc.fileName}>
+            <p className="truncate text-sm font-medium text-foreground" title={doc.fileName}>
               {doc.fileName}
             </p>
 
             {/* Category + confidence badges */}
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
               {isProcessing ? (
-                <Badge variant="neutral" size="sm">
+                <Badge variant="neutral">
                   <CircleIcon className="mr-1 h-3 w-3 animate-spin" aria-hidden="true" />
-                  Classification en cours...
+                  Classification en cours…
                 </Badge>
               ) : (
                 <>
-                  <Badge variant={getCategoryBadgeVariant(doc.detectedCategory)} size="sm">
+                  <Badge variant={getCategoryBadgeVariant(doc.detectedCategory)}>
                     {CATEGORY_LABELS[doc.detectedCategory]}
                   </Badge>
                   {isPriorityEligible ? (
                     <Badge
                       variant={documentPriority === "primary" ? "success" : "neutral"}
-                      size="sm"
                     >
                       {AFFAIRE_INTAKE_DOCUMENT_PRIORITY_LABELS[documentPriority]}
                     </Badge>
                   ) : null}
-                  <Badge variant={confidenceDisplay.variant} size="sm">
+                  <Badge variant={confidenceDisplay.variant}>
                     {confidenceDisplay.label} ({Math.round(doc.confidence * 100)}%)
                   </Badge>
                 </>
@@ -241,7 +242,7 @@ export function IntakeDocumentCard({
                 type="button"
                 onClick={handleSetPrimary}
                 disabled={isPending}
-                className="rounded-lg px-2 py-1 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-50 disabled:opacity-60"
+                className="rounded-lg px-2 py-1 text-xs font-medium text-success transition-colors hover:bg-success-subtle disabled:opacity-60"
               >
                 Définir comme principal
               </button>
@@ -268,7 +269,7 @@ export function IntakeDocumentCard({
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value as AffaireIntakeDocumentKind)}
             disabled={isPending}
-            className="flex-1 rounded-lg border border-border-strong bg-surface px-2 py-1.5 text-sm text-slate-800 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            className="flex-1 rounded-lg border border-border-strong bg-surface px-2 py-1.5 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
           >
             {CATEGORY_OPTIONS.map((cat) => (
               <option key={cat} value={cat}>
@@ -280,15 +281,15 @@ export function IntakeDocumentCard({
             type="button"
             onClick={handleReclassify}
             disabled={isPending}
-            className="btn btn-primary btn-sm text-xs"
+            className={buttonVariants({ variant: "primary", size: "sm" })}
           >
-            {isPending ? "..." : "Valider"}
+            {isPending ? "Validation…" : "Valider"}
           </button>
           <button
             type="button"
             onClick={() => { setIsEditing(false); setError(null); }}
             disabled={isPending}
-            className="btn btn-secondary btn-sm text-xs"
+            className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
           >
             Annuler
           </button>
@@ -307,13 +308,13 @@ export function IntakeDocumentCard({
           <MetadataLine label="Échéance" value={meta.deadlineAt ? new Date(meta.deadlineAt).toLocaleDateString("fr-FR") : null} />
           {meta.detectedLots.length > 0 && (
             <span className="text-xs text-muted-foreground">
-              <span className="font-medium text-slate-600">Lots:</span>{" "}
+              <span className="font-medium text-muted-foreground">Lots:</span>{" "}
               {meta.detectedLots.join(", ")}
             </span>
           )}
           {meta.detectedVariants.length > 0 && (
             <span className="text-xs text-muted-foreground">
-              <span className="font-medium text-slate-600">Variantes:</span>{" "}
+              <span className="font-medium text-muted-foreground">Variantes:</span>{" "}
               {meta.detectedVariants.join(", ")}
             </span>
           )}
@@ -324,7 +325,7 @@ export function IntakeDocumentCard({
       {doc.issues.length > 0 && !isProcessing && (
         <ul className="mt-2 space-y-0.5 pl-6">
           {doc.issues.map((issue, i) => (
-            <li key={i} className="flex items-start gap-1.5 text-xs text-slate-600">
+            <li key={i} className="flex items-start gap-1.5 text-xs text-muted-foreground">
               <CircleAlertIcon className="mt-0.5 h-3 w-3 shrink-0 text-warning" aria-hidden="true" />
               {issue}
             </li>

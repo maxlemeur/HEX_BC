@@ -81,7 +81,7 @@ export function FilterPill({ config, value, onChange, onClear }: FilterPillProps
         onClick={() => setIsOpen(!isOpen)}
         aria-expanded={isOpen}
         aria-haspopup="listbox"
-        aria-label={`Filtrer par ${config.label}${hasSelection ? `, ${selectedValues.length} selectionne(s)` : ""}`}
+        aria-label={`Filtrer par ${config.label}${hasSelection ? `, ${selectedValues.length} sélectionné(s)` : ""}`}
       >
         <span className="filter-pill__label">{getDisplayLabel()}</span>
         {isMultiSelect && selectedValues.length > 1 && (

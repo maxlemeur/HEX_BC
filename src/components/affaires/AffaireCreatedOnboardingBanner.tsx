@@ -33,7 +33,7 @@ export function AffaireCreatedOnboardingBanner({
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
         <div className="animate-onboarding-pulse rounded-lg border border-primary/20 bg-surface px-4 py-3">
           <p className="text-xs font-semibold text-primary">1</p>
-          <p className="mt-1 text-sm font-medium text-slate-800">
+          <p className="mt-1 text-sm font-medium text-foreground">
             Déposez votre dossier
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -51,7 +51,7 @@ export function AffaireCreatedOnboardingBanner({
 
         <div className="rounded-lg border border-border bg-surface px-4 py-3">
           <p className="text-xs font-semibold text-primary">2</p>
-          <p className="mt-1 text-sm font-medium text-slate-800">
+          <p className="mt-1 text-sm font-medium text-foreground">
             Continuer en manuel
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -68,7 +68,7 @@ export function AffaireCreatedOnboardingBanner({
 
         <div className="rounded-lg border border-border bg-surface px-4 py-3">
           <p className="text-xs font-semibold text-primary">3</p>
-          <p className="mt-1 text-sm font-medium text-slate-800">
+          <p className="mt-1 text-sm font-medium text-foreground">
             Importer la DPGF
           </p>
           <p className="mt-1 text-xs text-muted-foreground">

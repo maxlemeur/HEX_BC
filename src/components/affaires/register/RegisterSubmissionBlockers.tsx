@@ -14,6 +14,8 @@ import {
 } from "@/lib/affaires/register";
 
 import { formatDateTime, SEVERITY_TONE, STATUS_TONE } from "./registerViewModel";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 const BUSINESS_IMPACT_LABELS: Record<AffaireRegisterBusinessImpact, string> = {
   affects_hub_readiness: "Affecte le travail",
@@ -64,7 +66,7 @@ function getBlockingEntryState(entry: AffaireRegisterEntry) {
       badgeLabel: "Revalidation requise",
       badgeClass: "bg-danger-subtle text-danger",
       message: "Une nouvelle revue ciblee est requise avant remise.",
-      resolutionHint: "Pour debloquer: relancer la revue ciblee demandee.",
+      resolutionHint: "Pour débloquer : relancer la revue ciblée demandée.",
       actionLabel: "Voir les revalidations",
       filters: {
         status: null,
@@ -213,10 +215,10 @@ export function RegisterSubmissionBlockers({
     <section className="mt-4 rounded-2xl border border-danger/15 bg-[linear-gradient(180deg,rgba(255,247,237,0.98),rgba(255,255,255,0.96))] p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-slate-800">
+          <h3 className="text-sm font-semibold text-foreground">
             À traiter avant remise
           </h3>
-          <p className="mt-1 text-sm leading-6 text-slate-600">
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">
             Blocages actifs: {summary.criticalOpenCount} critique
             {summary.criticalOpenCount !== 1 ? "s" : ""} ouverte
             {summary.criticalOpenCount !== 1 ? "s" : ""} ·{" "}
@@ -234,7 +236,7 @@ export function RegisterSubmissionBlockers({
           {summary.criticalOpenCount > 0 ? (
             <button
               type="button"
-              className="btn btn-secondary btn-sm"
+              className={cn(buttonVariants({ variant: "outline", size: "md" }))}
               onClick={() =>
                 onApplyFilters({
                   status: "open",
@@ -251,7 +253,7 @@ export function RegisterSubmissionBlockers({
           {summary.clarifyWithClientCount > 0 ? (
             <button
               type="button"
-              className="btn btn-secondary btn-sm"
+              className={cn(buttonVariants({ variant: "outline", size: "md" }))}
               onClick={() =>
                 onApplyFilters({
                   status: "clarify_with_client",
@@ -284,7 +286,7 @@ export function RegisterSubmissionBlockers({
           <div className="mt-3">
             <button
               type="button"
-              className="btn btn-secondary btn-sm"
+              className={cn(buttonVariants({ variant: "outline", size: "md" }))}
               onClick={() =>
                 onApplyFilters({
                   status: null,
@@ -316,7 +318,7 @@ export function RegisterSubmissionBlockers({
                 className="rounded-2xl border border-white/80 bg-surface/90 p-4 shadow-[0_10px_30px_rgba(15,23,42,0.06)]"
               >
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-slate-600">
+                  <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
                     {AFFAIRE_REGISTER_KIND_LABELS[entry.kind]}
                   </span>
                   <span
@@ -349,13 +351,13 @@ export function RegisterSubmissionBlockers({
                 <p className="mt-3 text-xs font-medium text-danger">
                   {blockingState.message}
                 </p>
-                <p className="mt-1 text-xs text-slate-600">
+                <p className="mt-1 text-xs text-muted-foreground">
                   {blockingState.resolutionHint}
                 </p>
                 <div className="mt-3">
                   <button
                     type="button"
-                    className="btn btn-secondary btn-sm"
+                    className={cn(buttonVariants({ variant: "outline", size: "md" }))}
                     onClick={() => onApplyFilters(blockingState.filters)}
                   >
                     {blockingState.actionLabel}
@@ -366,13 +368,13 @@ export function RegisterSubmissionBlockers({
           })}
 
           {hasMoreBlockingEntries ? (
-            <div className="rounded-xl border border-dashed border-danger/20 bg-surface/70 px-3 py-2 text-sm text-slate-600">
+            <div className="rounded-xl border border-dashed border-danger/20 bg-surface/70 px-3 py-2 text-sm text-muted-foreground">
               D&apos;autres points bloquants existent sur cette vue ou une autre tranche du registre.
             </div>
           ) : null}
         </div>
       ) : (
-        <div className="mt-4 rounded-xl border border-dashed border-danger/20 bg-surface/70 px-3 py-3 text-sm text-slate-600">
+        <div className="mt-4 rounded-xl border border-dashed border-danger/20 bg-surface/70 px-3 py-3 text-sm text-muted-foreground">
           Ces points bloquants ne sont pas visibles dans la vue courante. Utilisez les filtres
           pour les traiter en priorité.
         </div>

@@ -158,7 +158,7 @@ export function IntakeDropzone({
       }
 
       setState({ phase: "uploading", fileCount: validFiles.length });
-      setAnnouncement(`Upload de ${validFiles.length} fichier${validFiles.length > 1 ? "s" : ""} en cours...`);
+      setAnnouncement(`Upload de ${validFiles.length} fichier${validFiles.length > 1 ? "s" : ""} en cours…`);
 
       const formData = new FormData();
       for (const file of validFiles) {
@@ -193,7 +193,7 @@ export function IntakeDropzone({
         setState({ phase: "done", results: data.files });
 
         const parts: string[] = [];
-        if (uploaded > 0) parts.push(`${uploaded} televerse${uploaded > 1 ? "s" : ""}`);
+        if (uploaded > 0) parts.push(`${uploaded} téléversé${uploaded > 1 ? "s" : ""}`);
         if (rejected > 0) parts.push(`${rejected} rejete${rejected > 1 ? "s" : ""}`);
         setAnnouncement(parts.join(", ") + ".");
 

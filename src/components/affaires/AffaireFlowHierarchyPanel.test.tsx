@@ -480,7 +480,7 @@ describe("AffaireFlowHierarchyPanel", () => {
         "Le brief confirme permet d'ouvrir une trame éditable du devis, sans import DPGF obligatoire.",
       ).length,
     ).toBeGreaterThan(0);
-    expect(screen.queryByText("CCTP principal detecte")).not.toBeInTheDocument();
+    expect(screen.queryByText("CCTP principal détecté")).not.toBeInTheDocument();
     expect(screen.queryByText(/Lots CCTP:/)).not.toBeInTheDocument();
   });
 

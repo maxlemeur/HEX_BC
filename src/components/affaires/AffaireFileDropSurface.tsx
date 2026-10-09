@@ -58,7 +58,7 @@ export function AffaireFileDropSurface({
         className={`${hiddenSurface ? "sr-only" : `rounded-xl border-2 border-dashed transition-colors ${
           dragActive
             ? "border-primary bg-primary/5"
-            : "border-border-strong bg-surface-subtle hover:border-slate-400"
+            : "border-border-strong bg-surface-subtle hover:border-border-strong"
         } ${compact ? "p-4" : "p-6"} ${
           disabled || isUploading ? "pointer-events-none opacity-60" : "cursor-pointer"
         }`}`}
@@ -111,7 +111,7 @@ export function AffaireFileDropSurface({
             <CircleIcon className="h-5 w-5 animate-spin text-primary" aria-hidden="true" />
             <span className="text-sm font-medium text-foreground-secondary">
               Upload de {uploadingFileCount} fichier
-              {uploadingFileCount && uploadingFileCount > 1 ? "s" : ""}...
+              {uploadingFileCount && uploadingFileCount > 1 ? "s" : ""}…
             </span>
           </div>
         ) : (

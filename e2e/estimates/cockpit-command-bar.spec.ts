@@ -331,7 +331,7 @@ async function clickCockpitAction(page: Page, label: string) {
     .first();
   await expect(overflowToggle).toBeVisible();
   await overflowToggle.click();
-  await page.getByRole("button", { name: label, exact: true }).click();
+  await page.getByRole("menuitem", { name: label, exact: true }).click();
 }
 
 test.describe("EST-374 — Command bar contextuelle du cockpit affaire", () => {

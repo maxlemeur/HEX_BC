@@ -1,14 +1,21 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { MouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 import { formatEUR } from "@/lib/money";
-import { EmptyState } from "@/components/ui-legacy/EmptyState";
-import { ConfirmModal } from "@/components/ui-legacy/ConfirmModal";
-import { AffaireStatusBadges } from "./AffaireStatusBadges";
-import { AffaireFavoriteButton } from "./AffaireFavoriteButton";
+import { cn } from "@/lib/utils";
+import { EmptyTableRow } from "@/components/layout/empty-state";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Spinner } from "@/components/ui/spinner";
+import { AffaireConfirmDialog } from "./AffaireConfirmDialog";
+import { AffaireApprovalBadge, AffaireStatusBadges } from "./AffaireStatusBadges";
+import { AffaireRowActions, getAffaireListItemState } from "./AffaireRowActions";
 import { useDeleteAffaire } from "./useDeleteAffaire";
 import {
   fetchAffaireDenseExpandData,
@@ -19,21 +26,18 @@ import type {
   AffaireManagerQueueFilter,
   AffaireManagerQueueSummary,
 } from "./types";
-import { ChevronRightIcon, EyeIcon, FolderIcon, HouseIcon, PrinterIcon, SearchIcon, SquarePenIcon, TrashIcon } from "lucide-react";
+import { ChevronRightIcon, EyeIcon, FolderIcon, HouseIcon, PlusIcon, PrinterIcon, SearchIcon, SquarePenIcon } from "lucide-react";
 
 const AFFAIRE_DATE_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
   day: "2-digit",
   month: "short",
   year: "numeric",
 });
-const APPROVAL_BADGE: Record<string, { label: string; className: string }> = {
-  required: { label: "À valider", className: "bg-amber-50 text-amber-900 border-amber-200" },
-  in_review: { label: "En revue", className: "bg-blue-50 text-blue-800 border-blue-200" },
-  approved: { label: "Approuvée", className: "bg-emerald-50 text-emerald-800 border-emerald-200" },
-  changes_requested: { label: "À reprendre", className: "bg-red-50 text-red-800 border-red-200" },
-};
+const TABLE_COLUMN_COUNT = 11;
+const INTERACTIVE_ROW_TARGET = "a, button, input, label, select, textarea, [role='menuitem']";
 
 type AffairesEmptyVariant = "no-data" | "filtered";
+type BadgeVariant = NonNullable<BadgeProps["variant"]>;
 
 type Props = {
   items: AffaireListItem[];
@@ -64,6 +68,31 @@ function formatManagerQueueCount(count: number, label: string): string {
   return `${count} affaire${count > 1 ? "s" : ""} ${label}`;
 }
 
+const MANAGER_CHIP_BASE =
+  "inline-flex min-h-11 items-center rounded-full border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-0";
+
+const MANAGER_CHIP_TONE: Record<
+  AffaireManagerQueueFilter,
+  { active: string; idle: string }
+> = {
+  all: {
+    active: "border-foreground bg-foreground text-surface",
+    idle: "border-border bg-surface text-foreground-secondary hover:border-border-strong",
+  },
+  follow_up: {
+    active: "border-danger bg-danger text-danger-foreground",
+    idle: "border-danger-border bg-danger-subtle text-danger hover:bg-danger-light",
+  },
+  reservations: {
+    active: "border-warning bg-warning text-warning-foreground",
+    idle: "border-warning-border bg-warning-subtle text-warning hover:bg-warning-light",
+  },
+  revalidation: {
+    active: "border-primary bg-primary text-primary-foreground",
+    idle: "border-info-border bg-info-subtle text-primary hover:bg-info-light",
+  },
+};
+
 function AffairesEmptyState({
   emptyVariant,
   onCreateAffaire,
@@ -71,32 +100,27 @@ function AffairesEmptyState({
   emptyVariant: AffairesEmptyVariant;
   onCreateAffaire?: () => void;
 }) {
-  return (
-    <tr>
-      <td colSpan={11} className="py-16 text-center">
-        {emptyVariant === "no-data" ? (
-          <EmptyState
-            icon={
-              <FolderIcon strokeWidth="1.5" aria-hidden="true" size={26} />
-            }
-            title="Créez votre première affaire"
-            description="Démarrez un nouveau projet pour lancer votre premier chiffrage."
-            actionLabel="Nouvelle affaire"
-            onAction={onCreateAffaire}
-            className="mx-auto max-w-xl"
-          />
-        ) : (
-          <EmptyState
-            icon={
-              <SearchIcon strokeWidth="1.5" aria-hidden="true" size={26} />
-            }
-            title="Aucune affaire trouvée"
-            description="Modifiez vos filtres ou votre recherche pour afficher des résultats."
-            className="mx-auto max-w-xl"
-          />
-        )}
-      </td>
-    </tr>
+  return emptyVariant === "no-data" ? (
+    <EmptyTableRow
+      colSpan={TABLE_COLUMN_COUNT}
+      icon={<FolderIcon aria-hidden="true" />}
+      title="Créez votre première affaire"
+      description="Démarrez un nouveau projet pour lancer votre premier chiffrage."
+      action={
+        onCreateAffaire ? (
+          <Button size="lg" leftIcon={<PlusIcon aria-hidden="true" />} onClick={onCreateAffaire}>
+            Nouvelle affaire
+          </Button>
+        ) : undefined
+      }
+    />
+  ) : (
+    <EmptyTableRow
+      colSpan={TABLE_COLUMN_COUNT}
+      icon={<SearchIcon aria-hidden="true" />}
+      title="Aucune affaire trouvée"
+      description="Modifiez vos filtres ou votre recherche pour afficher des résultats."
+    />
   );
 }
 
@@ -115,30 +139,30 @@ function versionStatusLabel(status: string): string {
   }
 }
 
-function importStatusBadge(status: string) {
+function importStatusBadge(status: string): { label: string; variant: BadgeVariant } {
   switch (status) {
     case "done":
-      return { label: "Importé", className: "bg-emerald-50 text-emerald-700 border-emerald-200" };
+      return { label: "Importé", variant: "success" };
     case "running":
-      return { label: "En cours", className: "bg-blue-50 text-blue-700 border-blue-200" };
+      return { label: "En cours", variant: "info" };
     case "failed":
-      return { label: "Échec", className: "bg-red-50 text-red-700 border-red-200" };
+      return { label: "Échec", variant: "danger" };
     default:
-      return { label: status, className: "bg-gray-50 text-gray-600 border-gray-200" };
+      return { label: status, variant: "neutral" };
   }
 }
 
-function mappingStatusBadge(status: string | null) {
+function mappingStatusBadge(status: string | null): { label: string; variant: BadgeVariant } | null {
   if (!status) return null;
   switch (status) {
     case "mapped":
-      return { label: "Mappé", className: "bg-emerald-50 text-emerald-700 border-emerald-200" };
+      return { label: "Mappé", variant: "success" };
     case "partial":
-      return { label: "Partiel", className: "bg-amber-50 text-amber-700 border-amber-200" };
+      return { label: "Partiel", variant: "warning" };
     case "unmapped":
-      return { label: "Non mappe", className: "bg-gray-50 text-gray-600 border-gray-200" };
+      return { label: "Non mappé", variant: "neutral" };
     default:
-      return { label: status, className: "bg-gray-50 text-gray-600 border-gray-200" };
+      return { label: status, variant: "neutral" };
   }
 }
 
@@ -222,6 +246,18 @@ export function AffairesDenseTable({
     [ensureExpandData, expandedIds]
   );
 
+  // Mouse shortcut only: the project name link is the keyboard and screen-reader path.
+  const handleRowClick = useCallback(
+    (event: MouseEvent<HTMLTableRowElement>, href: string) => {
+      if (event.defaultPrevented || event.button !== 0) return;
+      const target = event.target as HTMLElement;
+      if (target.closest(INTERACTIVE_ROW_TARGET)) return;
+      if (window.getSelection?.()?.toString()) return;
+      router.push(href);
+    },
+    [router]
+  );
+
   const managerCounts = managerQueueSummary?.counts ?? {
     followUp: 0,
     reservations: 0,
@@ -230,68 +266,43 @@ export function AffairesDenseTable({
   const managerQualificationIncomplete = (managerQueueSummary?.incompleteCount ?? 0) > 0;
   const managerFilterDisabled =
     managerQueueSummaryState !== "ready" || managerQualificationIncomplete;
+  const managerChips: Array<{ filter: AffaireManagerQueueFilter; label: string }> = [
+    { filter: "all", label: "Toutes" },
+    { filter: "follow_up", label: `À relancer en priorité (${managerCounts.followUp})` },
+    { filter: "reservations", label: `À revoir sous réserves (${managerCounts.reservations})` },
+    { filter: "revalidation", label: `À rouvrir en revalidation (${managerCounts.revalidation})` },
+  ];
 
   return (
-    <div className="dashboard-card overflow-hidden">
-      <ConfirmModal {...modalProps} />
+    <Card className="overflow-hidden">
+      <AffaireConfirmDialog {...modalProps} />
       <div className="border-b border-border bg-surface-subtle/70 px-4 py-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold text-slate-800">
+            <h2 className="text-sm font-semibold text-foreground">
               Relances manager
-            </p>
+            </h2>
             <p className="mt-1 text-xs text-muted-foreground">
               Repère les affaires visibles à relancer en priorité, à revoir sous réserves ou à rouvrir en revalidation.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              className={`min-h-11 rounded-full px-3 py-1.5 text-xs font-medium transition-colors sm:min-h-0 ${
-                managerFilter === "all"
-                  ? "bg-slate-900 text-white"
-                  : "border border-border bg-surface text-slate-600 hover:border-border-strong"
-              }`}
-              onClick={() => onManagerFilterChange("all")}
-            >
-              Toutes
-            </button>
-            <button
-              type="button"
-              className={`min-h-11 rounded-full px-3 py-1.5 text-xs font-medium transition-colors sm:min-h-0 ${
-                managerFilter === "follow_up"
-                  ? "bg-danger text-white"
-                  : "border border-danger/20 bg-danger/5 text-danger hover:bg-danger/10"
-              } disabled:cursor-not-allowed disabled:opacity-60`}
-              disabled={managerFilterDisabled}
-              onClick={() => onManagerFilterChange("follow_up")}
-            >
-              À relancer en priorité ({managerCounts.followUp})
-            </button>
-            <button
-              type="button"
-              className={`min-h-11 rounded-full px-3 py-1.5 text-xs font-medium transition-colors sm:min-h-0 ${
-                managerFilter === "reservations"
-                  ? "bg-warning text-white"
-                  : "border border-warning/20 bg-warning/5 text-warning hover:bg-warning/10"
-              } disabled:cursor-not-allowed disabled:opacity-60`}
-              disabled={managerFilterDisabled}
-              onClick={() => onManagerFilterChange("reservations")}
-            >
-              À revoir sous réserves ({managerCounts.reservations})
-            </button>
-            <button
-              type="button"
-              className={`min-h-11 rounded-full px-3 py-1.5 text-xs font-medium transition-colors sm:min-h-0 ${
-                managerFilter === "revalidation"
-                  ? "bg-brand-blue-dark text-white"
-                  : "border border-primary/20 bg-primary/10 text-brand-blue-dark hover:bg-primary/15"
-              } disabled:cursor-not-allowed disabled:opacity-60`}
-              disabled={managerFilterDisabled}
-              onClick={() => onManagerFilterChange("revalidation")}
-            >
-              À rouvrir en revalidation ({managerCounts.revalidation})
-            </button>
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Filtrer par relance manager">
+            {managerChips.map(({ filter, label }) => {
+              const isActive = managerFilter === filter;
+              const tone = MANAGER_CHIP_TONE[filter];
+              return (
+                <button
+                  key={filter}
+                  type="button"
+                  className={cn(MANAGER_CHIP_BASE, isActive ? tone.active : tone.idle)}
+                  aria-pressed={isActive}
+                  disabled={filter !== "all" && managerFilterDisabled}
+                  onClick={() => onManagerFilterChange(filter)}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
@@ -312,7 +323,12 @@ export function AffairesDenseTable({
                 : `${formatManagerQueueCount(managerCounts.followUp, "à relancer en priorité")} dans le portefeuille.`}
         </p>
       </div>
-      <div className="overflow-x-auto">
+      <div
+        className="relative overflow-x-auto"
+        role="region"
+        aria-label="Liste des affaires"
+        tabIndex={0}
+      >
         <table className="w-full text-sm">
           <caption className="sr-only">
             Liste des affaires et de leur dernière version de chiffrage
@@ -332,23 +348,15 @@ export function AffairesDenseTable({
                 Client
               </th>
               <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Ref.
+                Réf.
               </th>
               <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Statut courant
               </th>
-              <th
-                scope="col"
-                className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider"
-                title="Dernière version acceptée par le client, conservée comme référence commerciale."
-              >
+              <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Version acceptée
               </th>
-              <th
-                scope="col"
-                className="px-4 py-3 text-center text-xs font-medium text-muted-foreground uppercase tracking-wider"
-                title="État de l’approbation interne requise avant l’envoi au client."
-              >
+              <th scope="col" className="px-4 py-3 text-center text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Approbation
               </th>
               <th scope="col" className="px-4 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
@@ -370,14 +378,7 @@ export function AffairesDenseTable({
               />
             ) : (
               items.map((item) => {
-                const hasCurrentVersion =
-                  item.hasCurrentVersion &&
-                  item.currentVersionId !== null &&
-                  item.currentVersionNumber !== null &&
-                  item.currentStatus !== null;
-                const canSelect =
-                  !hasCurrentVersion || item.currentStatus === "draft";
-
+                const { hasCurrentVersion, isDraftOnly } = getAffaireListItemState(item);
                 const primaryHref = `/dashboard/affaires/${item.projectId}`;
                 const expanded = isExpanded(item.projectId);
                 const cached = expandCache[item.projectId];
@@ -386,28 +387,14 @@ export function AffairesDenseTable({
                 return (
                   <Fragment key={item.projectId}>
                   <tr
-                    tabIndex={0}
-                    aria-label={`Ouvrir l’affaire ${item.projectName}`}
-                    className="cursor-pointer border-b border-border-subtle transition-colors hover:bg-surface-subtle focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary [content-visibility:auto] [contain-intrinsic-size:auto_52px]"
-                    onClick={() => router.push(primaryHref)}
-                    onKeyDown={(event) => {
-                      if (
-                        event.target === event.currentTarget &&
-                        event.key === "Enter"
-                      ) {
-                        event.preventDefault();
-                        router.push(primaryHref);
-                      }
-                    }}
+                    className="cursor-pointer border-b border-border-subtle transition-colors hover:bg-surface-subtle [content-visibility:auto] [contain-intrinsic-size:auto_52px]"
+                    onClick={(event) => handleRowClick(event, primaryHref)}
                   >
                     <td>
                       <button
                         type="button"
                         className={`expand-button ${expanded ? "expanded" : ""}`}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleToggleExpand(item.projectId);
-                        }}
+                        onClick={() => handleToggleExpand(item.projectId)}
                         aria-controls={detailsId}
                         aria-expanded={expanded}
                         aria-label={`${expanded ? "Replier" : "Déplier"} les détails de l’affaire ${item.projectName}`}
@@ -419,7 +406,7 @@ export function AffairesDenseTable({
                       className="px-2 py-3 text-center"
                       onClick={(event) => event.stopPropagation()}
                     >
-                      {canSelect && onToggleProjectSelection ? (
+                      {isDraftOnly && onToggleProjectSelection ? (
                         <input
                           type="checkbox"
                           className="h-4 w-4 rounded border-border-strong text-primary"
@@ -431,13 +418,19 @@ export function AffairesDenseTable({
                         />
                       ) : null}
                     </td>
-                    <td className="px-4 py-3 font-medium text-foreground max-w-[200px] truncate">
-                      {item.projectName}
+                    <td className="max-w-[200px] px-4 py-3">
+                      <Link
+                        href={primaryHref}
+                        prefetch={false}
+                        className="block truncate rounded-sm font-medium text-foreground hover:text-primary hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                      >
+                        {item.projectName}
+                      </Link>
                     </td>
-                    <td className="px-4 py-3 text-slate-600 max-w-[160px] truncate">
+                    <td className="px-4 py-3 text-foreground-secondary max-w-[160px] truncate">
                       {item.projectClient ?? "-"}
                     </td>
-                    <td className="px-4 py-3 text-subtle-foreground max-w-[120px] truncate">
+                    <td className="px-4 py-3 text-muted-foreground max-w-[120px] truncate">
                       {item.projectReference ?? "-"}
                     </td>
                     <td className="px-4 py-3">
@@ -461,116 +454,58 @@ export function AffairesDenseTable({
                           acceptedVersionNumber={null}
                         />
                       ) : (
-                        <span className="text-xs text-slate-300">
+                        <span className="text-xs text-subtle-foreground">
                           -
                         </span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-center">
-                      {item.currentApprovalStatus && APPROVAL_BADGE[item.currentApprovalStatus] ? (
-                        <span
-                          className={`inline-flex items-center px-2 py-1 rounded text-[10px] font-semibold border ${APPROVAL_BADGE[item.currentApprovalStatus].className}`}
-                        >
-                          {APPROVAL_BADGE[item.currentApprovalStatus].label}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-slate-300">-</span>
-                      )}
+                      <AffaireApprovalBadge approvalStatus={item.currentApprovalStatus} />
+                      {!item.currentApprovalStatus ? (
+                        <span className="text-xs text-subtle-foreground">-</span>
+                      ) : null}
                     </td>
                     <td className="px-4 py-3 text-right font-medium text-foreground-secondary whitespace-nowrap">
                       {item.currentTotalHtCents !== null
                         ? formatEUR(item.currentTotalHtCents)
                         : "—"}
                     </td>
-                    <td className="px-4 py-3 text-right text-subtle-foreground whitespace-nowrap">
+                    <td className="px-4 py-3 text-right text-muted-foreground whitespace-nowrap">
                       {formatDate(item.currentUpdatedAt)}
                     </td>
                     <td className="px-2 py-3 text-center">
-                      <div className="inline-flex items-center gap-1">
-                        <AffaireFavoriteButton
-                          isFavorite={item.isFavorite}
-                          isPending={favoritePendingIdSet.has(item.projectId)}
-                          onToggle={() =>
-                            onToggleFavorite(item.projectId, !item.isFavorite)
-                          }
-                        />
-                        {/* Hub affaire – toujours visible */}
-                        <Link
-                          href={`/dashboard/affaires/${item.projectId}`}
-                          prefetch={false}
-                          title="Hub affaire"
-                          aria-label={`Ouvrir le hub de l’affaire ${item.projectName}`}
-                          className="inline-flex min-h-9 min-w-9 items-center justify-center rounded p-1 text-blue-400 transition-colors hover:bg-blue-50 hover:text-blue-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          <HouseIcon aria-hidden="true" size={16} />
-                        </Link>
-                        {/* Detail estimation – visible quand non-brouillon */}
-                        {hasCurrentVersion && item.currentStatus !== "draft" && (
-                          <Link
-                            href={`/dashboard/estimates/${item.currentVersionId}`}
-                            prefetch={false}
-                            title="Voir le détail"
-                            aria-label={`Voir le détail du chiffrage de l’affaire ${item.projectName}`}
-                            className="inline-flex min-h-9 min-w-9 items-center justify-center rounded p-1 text-emerald-400 transition-colors hover:bg-emerald-50 hover:text-emerald-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-                            onClick={(event) => event.stopPropagation()}
-                          >
-                            <EyeIcon aria-hidden="true" size={16} />
-                          </Link>
-                        )}
-                        {/* Editer – visible quand brouillon */}
-                        {(!hasCurrentVersion || item.currentStatus === "draft") && (
-                          <Link
-                            href={
-                              hasCurrentVersion
-                                ? `/dashboard/estimates/${item.currentVersionId}/edit`
-                                : `/dashboard/affaires/${item.projectId}`
-                            }
-                            prefetch={false}
-                            title="Éditer l’affaire"
-                            aria-label={`Éditer l’affaire ${item.projectName}`}
-                            className="inline-flex min-h-9 min-w-9 items-center justify-center rounded p-1 text-amber-400 transition-colors hover:bg-amber-50 hover:text-amber-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-                            onClick={(event) => event.stopPropagation()}
-                          >
-                            <SquarePenIcon aria-hidden="true" size={16} />
-                          </Link>
-                        )}
-                        {/* Supprimer – visible quand brouillon */}
-                        {(!hasCurrentVersion || item.currentStatus === "draft") && (
-                          <button
-                            type="button"
-                            title="Supprimer l’affaire"
-                            aria-label={`Supprimer l’affaire ${item.projectName}`}
-                            className="inline-flex min-h-9 min-w-9 items-center justify-center rounded p-1 text-red-400 transition-colors hover:bg-red-50 hover:text-red-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              requestDelete(item.projectId, item.projectName);
-                            }}
-                          >
-                            <TrashIcon aria-hidden="true" size={16} />
-                          </button>
-                        )}
-                      </div>
+                      <AffaireRowActions
+                        item={item}
+                        isFavoritePending={favoritePendingIdSet.has(item.projectId)}
+                        onToggleFavorite={() =>
+                          onToggleFavorite(item.projectId, !item.isFavorite)
+                        }
+                        onRequestDelete={() =>
+                          requestDelete(item.projectId, item.projectName)
+                        }
+                      />
                     </td>
                   </tr>
 
                   {expanded ? (
                     <tr id={detailsId} className="expanded-content-row">
-                      <td colSpan={11}>
+                      <td colSpan={TABLE_COLUMN_COUNT}>
                         <div
                           className="expanded-content animate-expand-down"
                           aria-busy={cached === "loading"}
                           aria-live="polite"
                         >
                           {cached === "loading" ? (
-                            <div className="flex items-center gap-3 rounded-xl border border-border-subtle bg-surface p-4">
-                              <div aria-hidden="true" className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-primary" />
+                            <div className="flex items-center gap-3 rounded-lg border border-border-subtle bg-surface p-4">
+                              <Spinner aria-hidden="true" className="text-primary" />
                               <span className="text-sm text-muted-foreground">Chargement…</span>
                             </div>
                           ) : cached === "error" ? (
-                            <div className="rounded-xl border border-danger/20 bg-danger-light px-4 py-3 text-sm text-danger">
-                              Erreur lors du chargement. Repliez puis dépliez la ligne pour réessayer.
-                            </div>
+                            <Alert variant="danger">
+                              <AlertDescription className="text-danger">
+                                Erreur lors du chargement. Repliez puis dépliez la ligne pour réessayer.
+                              </AlertDescription>
+                            </Alert>
                           ) : cached ? (
                             <ExpandedContent
                               data={cached}
@@ -589,13 +524,16 @@ export function AffairesDenseTable({
           </tbody>
         </table>
       </div>
-    </div>
+    </Card>
   );
 }
 
 /* ------------------------------------------------------------------ */
 /*  Expanded content — 3 column grid                                   */
 /* ------------------------------------------------------------------ */
+
+const QUICK_LINK_CLASS =
+  "flex min-h-9 items-center gap-2 rounded-sm text-primary hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
 
 function ExpandedContent({
   data,
@@ -609,14 +547,16 @@ function ExpandedContent({
   const { summary, dpgfSource } = data;
   const cv = summary.currentVersion;
   const av = summary.acceptedVersion;
+  const importBadge = dpgfSource ? importStatusBadge(dpgfSource.importStatus) : null;
+  const mappingBadge = dpgfSource ? mappingStatusBadge(dpgfSource.mappingStatus) : null;
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
       {/* Column 1 — Résumé financier */}
       <div className="space-y-1.5 text-sm">
-        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
           Résumé financier
-        </h4>
+        </h3>
         <p>
           <span className="text-muted-foreground">Nombre de versions : </span>
           <span>{versionCount}</span>
@@ -646,22 +586,22 @@ function ExpandedContent({
             {av && (
               <p>
                 <span className="text-muted-foreground">Version acceptée : </span>
-                <span className="text-emerald-700 font-medium">
+                <span className="text-success font-medium">
                   V{av.versionNumber} — {formatEUR(av.totalHtCents)}
                 </span>
               </p>
             )}
           </>
         ) : (
-          <p className="text-subtle-foreground italic">Aucun chiffrage en cours</p>
+          <p className="text-muted-foreground italic">Aucun chiffrage en cours</p>
         )}
       </div>
 
       {/* Column 2 — Source DPGF */}
       <div className="space-y-1.5 text-sm">
-        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
           Source DPGF
-        </h4>
+        </h3>
         {dpgfSource ? (
           <>
             <p>
@@ -678,30 +618,15 @@ function ExpandedContent({
             </p>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-muted-foreground">Import :</span>
-              {(() => {
-                const b = importStatusBadge(dpgfSource.importStatus);
-                return (
-                  <span
-                    className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${b.className}`}
-                  >
-                    {b.label}
-                  </span>
-                );
-              })()}
-              {(() => {
-                const b = mappingStatusBadge(dpgfSource.mappingStatus);
-                if (!b) return null;
-                return (
-                  <>
-                    <span className="text-muted-foreground">Mapping :</span>
-                    <span
-                      className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${b.className}`}
-                    >
-                      {b.label}
-                    </span>
-                  </>
-                );
-              })()}
+              {importBadge ? (
+                <Badge variant={importBadge.variant} size="sm">{importBadge.label}</Badge>
+              ) : null}
+              {mappingBadge ? (
+                <>
+                  <span className="text-muted-foreground">Mapping :</span>
+                  <Badge variant={mappingBadge.variant} size="sm">{mappingBadge.label}</Badge>
+                </>
+              ) : null}
             </div>
             <p>
               <span className="text-muted-foreground">Importé le : </span>
@@ -709,47 +634,35 @@ function ExpandedContent({
             </p>
           </>
         ) : (
-          <p className="text-subtle-foreground italic border border-dashed border-border rounded px-3 py-2">
+          <p className="text-muted-foreground italic border border-dashed border-border rounded px-3 py-2">
             Aucune DPGF importée
           </p>
         )}
       </div>
 
       {/* Column 3 — Actions rapides */}
-      <div className="space-y-2 text-sm">
-        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+      <div className="space-y-1 text-sm">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
           Actions rapides
-        </h4>
-        <Link
-          href={`/dashboard/affaires/${projectId}`}
-          className="flex items-center gap-2 text-blue-600 hover:text-blue-800 hover:underline"
-        >
+        </h3>
+        <Link href={`/dashboard/affaires/${projectId}`} className={QUICK_LINK_CLASS}>
           <HouseIcon aria-hidden="true" size={14} />
-          Hub affaire
+          Ouvrir l’affaire
         </Link>
         {cv && cv.status !== "draft" && (
-          <Link
-            href={`/dashboard/estimates/${cv.id}`}
-            className="flex items-center gap-2 text-emerald-600 hover:text-emerald-800 hover:underline"
-          >
+          <Link href={`/dashboard/estimates/${cv.id}`} className={QUICK_LINK_CLASS}>
             <EyeIcon aria-hidden="true" size={14} />
-            Voir l&apos;estimation
+            Voir le chiffrage
           </Link>
         )}
         {cv && cv.status === "draft" && (
-          <Link
-            href={`/dashboard/estimates/${cv.id}/edit`}
-            className="flex items-center gap-2 text-amber-600 hover:text-amber-800 hover:underline"
-          >
+          <Link href={`/dashboard/estimates/${cv.id}/edit`} className={QUICK_LINK_CLASS}>
             <SquarePenIcon aria-hidden="true" size={14} />
             Éditer le chiffrage
           </Link>
         )}
         {cv && (
-          <Link
-            href={`/dashboard/estimates/${cv.id}/print`}
-            className="flex items-center gap-2 text-slate-600 hover:text-foreground hover:underline"
-          >
+          <Link href={`/dashboard/estimates/${cv.id}/print`} className={QUICK_LINK_CLASS}>
             <PrinterIcon aria-hidden="true" size={14} />
             Exporter
           </Link>

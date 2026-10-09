@@ -371,7 +371,7 @@ describe("AffairesPageClient", () => {
         "/dashboard/affaires?size=1000",
         { scroll: false }
       );
-      expect(screen.getByText("0 affaire sélectionnée")).toBeInTheDocument();
+      expect(screen.getByText("Aucune affaire sélectionnée")).toBeInTheDocument();
     });
   });
 

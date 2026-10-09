@@ -45,7 +45,7 @@ describe("CockpitCommandBar", () => {
       />,
     );
 
-    expect(screen.getByText("Toutes les actions sont masquees.")).toBeInTheDocument();
+    expect(screen.getByText("Toutes les actions sont masquées.")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Gérer" }));
 

@@ -95,10 +95,10 @@ function buildRevalidationNote(entry: AffaireRegisterEntry) {
     : null;
   const impactedStages = formatRevalidationImpactedStages(entry);
   const details = [
-    cause ? `Cause: ${cause}` : null,
-    impactedStages ? `Étapes à revoir: ${impactedStages}` : null,
+    cause ? `Cause : ${cause}` : null,
+    impactedStages ? `Étapes à revoir : ${impactedStages}` : null,
     entry.revalidationRequest?.triggerFileName
-      ? `Pièce declenchante: ${entry.revalidationRequest.triggerFileName}`
+      ? `Pièce déclenchante : ${entry.revalidationRequest.triggerFileName}`
       : null,
     entry.revalidationRequest?.comment?.trim() || null,
   ]
@@ -565,7 +565,7 @@ export function resolveTransitionFeedback(transition: PendingTransition) {
   if (transition.kind === "request_revalidation") {
     return {
       inlineMessage:
-        "Revalidation demandee. Le point est rouvert avec une reprise ciblee des étapes impactees.",
+        "Revalidation demandée. Le point est rouvert avec une reprise ciblée des étapes impactées.",
       toastTitle: "Revalidation tracee",
       toastDescription:
         "La reouverture ciblee a été enregistrée sans reset global du dossier.",

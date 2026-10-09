@@ -33,8 +33,8 @@ export function AffaireRegisterCard({
 
   if (errorMessage) {
     return (
-      <section className="dashboard-card p-5">
-        <h2 className="text-sm font-semibold text-slate-800">
+      <section className="rounded-lg border border-border bg-surface shadow-card p-5">
+        <h2 className="text-sm font-semibold text-foreground">
           Registre hypothèses & pièces manquantes
         </h2>
         <div className="mt-3 rounded-lg border border-warning/20 bg-warning/5 px-3 py-2 text-sm text-foreground-secondary">
@@ -46,12 +46,12 @@ export function AffaireRegisterCard({
 
   return (
     <section
-      className="dashboard-card p-5"
+      className="rounded-lg border border-border bg-surface shadow-card p-5"
       aria-busy={controller.isFilterPending || controller.isMutationPending}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-slate-800">
+          <h2 className="text-sm font-semibold text-foreground">
             Registre hypothèses & pièces manquantes
           </h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
@@ -71,14 +71,14 @@ export function AffaireRegisterCard({
           ) : null}
           {controller.isFilterPending ? (
             <div
-              className="rounded-full bg-muted px-2.5 py-1 text-xs text-slate-600"
+              className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground"
               aria-live="polite"
             >
               Mise à jour des filtres…
             </div>
           ) : null}
           {isReadOnly ? (
-            <div className="rounded-full bg-muted px-2.5 py-1 text-xs text-slate-600">
+            <div className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
               Consultation uniquement
             </div>
           ) : null}
@@ -98,7 +98,7 @@ export function AffaireRegisterCard({
       />
 
       <div className="mt-3 flex items-center justify-end">
-        <div className="rounded-full bg-muted px-2.5 py-1 text-xs text-slate-600">
+        <div className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
           {controller.items.length} résultat{controller.items.length > 1 ? "s" : ""}
         </div>
       </div>

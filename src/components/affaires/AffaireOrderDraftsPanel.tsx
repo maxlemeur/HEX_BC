@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { Badge } from "@/components/ui-legacy/Badge";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui-legacy/Toast";
 import {
   createEstimatePurchaseOrderDrafts,
@@ -17,6 +17,8 @@ import {
 } from "@/lib/estimates/client";
 import { formatEUR } from "@/lib/money";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 type AffaireOrderDraftsPanelProps = {
   projectId: string;
@@ -72,7 +74,7 @@ function getReadyBadgeVariant(
     case "ready":
       return "success";
     case "blocked":
-      return "error";
+      return "danger";
     case "waiting":
     case "unavailable":
       return "neutral";
@@ -360,7 +362,7 @@ export function AffaireOrderDraftsPanel({
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
             Finish line commandes
           </p>
-          <h3 className="mt-2 text-sm font-semibold text-slate-800">
+          <h3 className="mt-2 text-sm font-semibold text-foreground">
             Brouillons par fournisseur, sans ressaisie
           </h3>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -370,15 +372,14 @@ export function AffaireOrderDraftsPanel({
         </div>
         <Badge
           variant={getReadyBadgeVariant(readyToOrder?.status ?? "waiting")}
-          size="sm"
-          withDot
+          dot
           className="self-start"
         >
           {getReadyBadgeLabel(readyToOrder?.status ?? "waiting")}
         </Badge>
       </div>
 
-      <div className="mt-4 rounded-xl border border-border bg-surface-subtle px-4 py-3 text-sm text-slate-600">
+      <div className="mt-4 rounded-xl border border-border bg-surface-subtle px-4 py-3 text-sm text-muted-foreground">
         {readyToOrder?.status === "ready"
           ? `${readyToOrder.coveredLinesCount} ligne${readyToOrder.coveredLinesCount > 1 ? "s" : ""} sont déjà commandables. Choisissez un chantier puis confirmez les brouillons.`
           : readyToOrder?.status === "blocked"
@@ -394,7 +395,7 @@ export function AffaireOrderDraftsPanel({
           <p className="text-sm font-medium text-danger">{loadError}</p>
           <button
             type="button"
-            className="btn btn-secondary btn-sm mt-3"
+            className={cn(buttonVariants({ variant: "outline", size: "md" }), "mt-3")}
             onClick={() => void refreshPreparation()}
           >
             Recharger la préparation
@@ -403,7 +404,7 @@ export function AffaireOrderDraftsPanel({
       ) : isLoading && !preparation ? (
         <div className="mt-4 rounded-xl border border-border bg-surface-subtle px-4 py-4">
           <p className="text-sm font-medium text-foreground-secondary">
-            Préparation des brouillons fournisseurs...
+            Préparation des brouillons fournisseurs…
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
             TIMAX relit les lignes commandables et isole les exceptions avant création.
@@ -416,7 +417,7 @@ export function AffaireOrderDraftsPanel({
               <p className="text-sm font-medium text-warning">{loadError}</p>
               <button
                 type="button"
-                className="btn btn-secondary btn-sm mt-3"
+                className={cn(buttonVariants({ variant: "outline", size: "md" }), "mt-3")}
                 onClick={() => void refreshPreparation()}
               >
                 Recharger la préparation
@@ -428,10 +429,10 @@ export function AffaireOrderDraftsPanel({
             <article className="mt-4 rounded-xl border border-warning-border bg-warning-subtle/70 p-4">
               <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
                 <div>
-                  <p className="text-sm font-semibold text-slate-800">
+                  <p className="text-sm font-semibold text-foreground">
                     À traiter avant la création
                   </p>
-                  <p className="mt-1 text-sm text-slate-600">
+                  <p className="mt-1 text-sm text-muted-foreground">
                     {preparation.summary.blockedLines} ligne
                     {preparation.summary.blockedLines > 1 ? "s restent" : " reste"} hors
                     brouillon pour garder une création fiable.
@@ -439,7 +440,7 @@ export function AffaireOrderDraftsPanel({
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {blockedReasonCounts.map(([reason, count]) => (
-                    <Badge key={reason} variant="warning" size="sm">
+                    <Badge key={reason} variant="warning">
                       {formatReasonSummary(reason, count)}
                     </Badge>
                   ))}
@@ -454,14 +455,14 @@ export function AffaireOrderDraftsPanel({
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="text-sm font-semibold text-slate-800">
+                        <p className="text-sm font-semibold text-foreground">
                           {line.itemTitle}
                         </p>
-                        <p className="mt-1 text-sm text-slate-600">
+                        <p className="mt-1 text-sm text-muted-foreground">
                           {formatReasonLabel(line.reason)}
                         </p>
                       </div>
-                      <Badge variant="warning" size="sm">
+                      <Badge variant="warning">
                         {line.quantity ?? "-"} u
                       </Badge>
                     </div>
@@ -481,12 +482,12 @@ export function AffaireOrderDraftsPanel({
               <div className="mt-4 flex flex-wrap gap-3">
                 <Link
                   href={`/dashboard/affaires/${projectId}/prices`}
-                  className="btn btn-secondary btn-sm"
+                  className={cn(buttonVariants({ variant: "outline", size: "md" }))}
                 >
                   Revoir les fournisseurs
                 </Link>
                 {versionHref ? (
-                  <Link href={versionHref} className="btn btn-ghost btn-sm">
+                  <Link href={versionHref} className={buttonVariants({ variant: "ghost", size: "md" })}>
                     Reprendre le devis
                   </Link>
                 ) : null}
@@ -494,10 +495,10 @@ export function AffaireOrderDraftsPanel({
             </article>
           ) : (
             <article className="mt-4 rounded-xl border border-success-border bg-success-subtle/70 p-4">
-              <p className="text-sm font-semibold text-slate-800">
+              <p className="text-sm font-semibold text-foreground">
                 Aucune ligne bloquante
               </p>
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 text-sm text-muted-foreground">
                 La sélection fournisseur actuelle suffit pour préparer les brouillons de commandes.
               </p>
             </article>
@@ -507,12 +508,12 @@ export function AffaireOrderDraftsPanel({
             <article className="mt-4 rounded-xl border border-success-border bg-success-subtle/70 p-4">
               <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
                 <div>
-                  <p className="text-sm font-semibold text-slate-800">
+                  <p className="text-sm font-semibold text-foreground">
                     Brouillons créés
                   </p>
-                  <p className="mt-1 text-sm text-slate-600">
+                  <p className="mt-1 text-sm text-muted-foreground">
                     {creationResult.summary.draftOrdersCreated} brouillon
-                    {creationResult.summary.draftOrdersCreated > 1 ? "s" : ""} cree
+                    {creationResult.summary.draftOrdersCreated > 1 ? "s" : ""} créé
                     {creationResult.summary.draftOrdersCreated > 1 ? "s" : ""} pour{" "}
                     {creationResult.summary.draftLinesCreated} ligne
                     {creationResult.summary.draftLinesCreated > 1 ? "s" : ""}.
@@ -520,7 +521,7 @@ export function AffaireOrderDraftsPanel({
                 </div>
                 <button
                   type="button"
-                  className="btn btn-secondary btn-sm"
+                  className={cn(buttonVariants({ variant: "outline", size: "md" }))}
                   onClick={() => void refreshPreparation()}
                 >
                   Relire la préparation
@@ -533,23 +534,23 @@ export function AffaireOrderDraftsPanel({
                     key={order.purchaseOrderId}
                     className="rounded-xl border border-success-border bg-surface px-4 py-3"
                   >
-                    <p className="text-sm font-semibold text-slate-800">
+                    <p className="text-sm font-semibold text-foreground">
                       {order.supplierName}
                     </p>
-                    <p className="mt-1 text-sm text-slate-600">
+                    <p className="mt-1 text-sm text-muted-foreground">
                       {order.reference} · {order.itemCount} ligne
                       {order.itemCount > 1 ? "s" : ""} · {formatEUR(order.totalHtCents)}
                     </p>
                     <div className="mt-3 flex flex-wrap gap-3">
                       <Link
                         href={`/dashboard/orders/${order.purchaseOrderId}`}
-                        className="btn btn-secondary btn-sm"
+                        className={cn(buttonVariants({ variant: "outline", size: "md" }))}
                       >
                         Ouvrir le brouillon
                       </Link>
                       <Link
                         href={`/dashboard/orders/${order.purchaseOrderId}/edit`}
-                        className="btn btn-ghost btn-sm"
+                        className={buttonVariants({ variant: "ghost", size: "md" })}
                       >
                         Ajuster si besoin
                       </Link>
@@ -564,18 +565,18 @@ export function AffaireOrderDraftsPanel({
             <article className="mt-4 rounded-xl border border-border bg-surface-subtle/70 p-4">
               <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
                 <div>
-                  <p className="text-sm font-semibold text-slate-800">
-                    Brouillons proposes
+                  <p className="text-sm font-semibold text-foreground">
+                    Brouillons proposés
                   </p>
-                  <p className="mt-1 text-sm text-slate-600">
+                  <p className="mt-1 text-sm text-muted-foreground">
                     {preparation.summary.supplierGroups} regroupement
                     {preparation.summary.supplierGroups > 1 ? "s" : ""} fournisseur
                     {preparation.summary.supplierGroups > 1 ? "s" : ""} sont prêts à être
                     confirmés.
                   </p>
                 </div>
-                <Badge variant="info" size="sm">
-                  {selectedGroups.length} selectionne
+                <Badge variant="info">
+                  {selectedGroups.length} sélectionné
                   {selectedGroups.length > 1 ? "s" : ""}
                 </Badge>
               </div>
@@ -624,8 +625,8 @@ export function AffaireOrderDraftsPanel({
               </div>
 
               {selectedSite ? (
-                <div className="mt-3 rounded-xl border border-border bg-surface px-4 py-3 text-sm text-slate-600">
-                  <p className="font-medium text-slate-800">
+                <div className="mt-3 rounded-xl border border-border bg-surface px-4 py-3 text-sm text-muted-foreground">
+                  <p className="font-medium text-foreground">
                     {formatSiteLabel(selectedSite)}
                   </p>
                   {selectedSite.address ? <p>{selectedSite.address}</p> : null}
@@ -676,27 +677,27 @@ export function AffaireOrderDraftsPanel({
                             onChange={() => handleToggleGroup(group.groupKey)}
                           />
                           <div>
-                            <p className="text-sm font-semibold text-slate-800">
+                            <p className="text-sm font-semibold text-foreground">
                               {group.supplierName}
                             </p>
-                            <p className="mt-1 text-sm text-slate-600">
+                            <p className="mt-1 text-sm text-muted-foreground">
                               {group.lineCount} ligne{group.lineCount > 1 ? "s" : ""} ·{" "}
                               {formatEUR(group.totalHtCents)}
                             </p>
                           </div>
                         </div>
-                        <Badge variant={isSelected ? "info" : "neutral"} size="sm">
+                        <Badge variant={isSelected ? "info" : "neutral"}>
                           {isSelected ? "Inclus" : "Hors création"}
                         </Badge>
                       </div>
 
-                      <div className="mt-3 grid gap-2 text-sm text-slate-600 lg:grid-cols-2">
+                      <div className="mt-3 grid gap-2 text-sm text-muted-foreground lg:grid-cols-2">
                         {group.lines.slice(0, MAX_GROUP_LINES).map((line) => (
                           <div
                             key={line.itemId}
                             className="rounded-lg border border-border bg-surface-subtle px-3 py-2"
                           >
-                            <p className="font-medium text-slate-800">
+                            <p className="font-medium text-foreground">
                               {line.itemTitle}
                             </p>
                             <p className="mt-1">
@@ -731,19 +732,19 @@ export function AffaireOrderDraftsPanel({
               <div className="mt-4 flex flex-wrap gap-3">
                 <button
                   type="button"
-                  className="btn btn-primary btn-sm"
+                  className={buttonVariants({ variant: "primary", size: "md" })}
                   onClick={() => void handleCreateDrafts()}
                   disabled={!canCreateDrafts}
                 >
                   {isCreating
-                    ? "Création des brouillons..."
+                    ? "Création des brouillons…"
                     : selectedGroups.length > 1
                       ? `Créer ${selectedGroups.length} brouillons`
                       : "Créer le brouillon"}
                 </button>
                 <button
                   type="button"
-                  className="btn btn-ghost btn-sm"
+                  className={buttonVariants({ variant: "ghost", size: "md" })}
                   onClick={() => void refreshPreparation()}
                   disabled={isLoading || isCreating}
                 >
@@ -753,10 +754,10 @@ export function AffaireOrderDraftsPanel({
             </article>
           ) : (
             <article className="mt-4 rounded-xl border border-border bg-surface-subtle px-4 py-4">
-              <p className="text-sm font-semibold text-slate-800">
+              <p className="text-sm font-semibold text-foreground">
                 Aucun brouillon à créer pour l&apos;instant
               </p>
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 text-sm text-muted-foreground">
                 Tant qu&apos;aucun regroupement fournisseur stable n&apos;est propose, la
                 finish line commandes reste pilotee par correction.
               </p>

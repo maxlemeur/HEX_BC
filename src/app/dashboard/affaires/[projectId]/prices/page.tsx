@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { PricesManager } from "@/components/catalogue/PricesManager";
-import { HubBreadcrumb } from "@/components/HubBreadcrumb";
+import { PageHeader } from "@/components/layout/page-header";
 import { getUserContext } from "@/lib/auth/server";
 import { fetchAffaireProjectBasic } from "@/lib/affaires/server";
 
@@ -42,23 +42,15 @@ export default async function AffairePricesPage({ params }: Props) {
 
   return (
     <>
-      <HubBreadcrumb
-        hubHref="/dashboard/affaires"
-        hubLabel="Affaires"
-        intermediateHref={`/dashboard/affaires/${projectId}`}
-        intermediateLabel={project.name}
-        currentLabel="Prix fournisseurs"
+      <PageHeader
+        title="Prix fournisseurs"
+        description="Importez un bordereau CSV fournisseur dans le pipeline canonique de cette affaire, puis réutilisez ces prix dans le chiffrage."
+        breadcrumbs={[
+          { label: "Affaires", href: "/dashboard/affaires" },
+          { label: project.name, href: `/dashboard/affaires/${projectId}` },
+          { label: "Prix fournisseurs" },
+        ]}
       />
-
-      <div className="mb-6">
-        <h1 className="text-xl font-bold text-foreground">
-          Prix fournisseurs
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Importez un bordereau CSV fournisseur dans le pipeline canonique de
-          cette affaire, puis reutilisez ces prix dans le chiffrage.
-        </p>
-      </div>
 
       <PricesManager embedded />
     </>

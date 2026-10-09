@@ -1,10 +1,20 @@
 "use client";
 
-import { type ReactNode, useCallback, useRef, useState } from "react";
+import { type ReactNode, useCallback, useRef } from "react";
 
 import type { CockpitSuggestion, CockpitIntent } from "@/lib/cockpit/suggestions";
 import { useCockpitCommandBar } from "@/hooks/useCockpitCommandBar";
+import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { LucideEye, LucideFileText, LucidePlay, LucideShieldCheck, LucideUpload, SquareMenuIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 function PlayIcon() {
   return (
@@ -55,6 +65,14 @@ const INTENT_ICONS: Record<CockpitIntent, ReactNode> = {
   prepare_validation: <ShieldCheckIcon />,
 };
 
+function PinnedBadge() {
+  return (
+    <Badge variant="brand" size="sm">
+      Épinglée
+    </Badge>
+  );
+}
+
 type CockpitCommandBarProps = {
   suggestions: CockpitSuggestion[];
   onExecute: (suggestion: CockpitSuggestion) => void;
@@ -72,13 +90,13 @@ function ManageRow({
   onTogglePinned: (actionId: string, isPinned: boolean) => void;
 }) {
   return (
-    <div className="rounded px-2 py-2 hover:bg-surface-subtle">
+    <li className="rounded-md px-2 py-2 hover:bg-surface-subtle">
       <div className="flex items-center gap-2 text-sm text-foreground-secondary">
         <span className="shrink-0 text-muted-foreground">{INTENT_ICONS[suggestion.intent]}</span>
         <span className="min-w-0 flex-1 truncate">{suggestion.label}</span>
       </div>
       <div className="mt-2 flex items-center gap-4 text-xs text-muted-foreground">
-        <label className="flex cursor-pointer items-center gap-2">
+        <label className="flex min-h-8 cursor-pointer items-center gap-2">
           <input
             type="checkbox"
             className="accent-primary"
@@ -87,17 +105,17 @@ function ManageRow({
           />
           Visible
         </label>
-        <label className="flex cursor-pointer items-center gap-2">
+        <label className="flex min-h-8 cursor-pointer items-center gap-2">
           <input
             type="checkbox"
             className="accent-primary"
             checked={suggestion.isPinned}
             onChange={(event) => onTogglePinned(suggestion.actionId, event.target.checked)}
           />
-          Epinglee
+          Épinglée
         </label>
       </div>
-    </div>
+    </li>
   );
 }
 
@@ -114,14 +132,16 @@ export function CockpitCommandBar({
     setActiveIndex,
   } = useCockpitCommandBar(suggestions);
   const pillRefs = useRef<(HTMLButtonElement | null)[]>([]);
-  const [showOverflowMenu, setShowOverflowMenu] = useState(false);
-  const [showManageMenu, setShowManageMenu] = useState(false);
   const totalPills = filteredSuggestions.length + (overflowSuggestions.length > 0 ? 1 : 0);
   const hasVisibleSuggestions = filteredSuggestions.length > 0 || overflowSuggestions.length > 0;
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent) => {
       if (totalPills === 0) return;
+      // Arrow keys inside an open menu or popover belong to that popup.
+      if (!(event.target instanceof HTMLElement) || !pillRefs.current.includes(event.target as HTMLButtonElement)) {
+        return;
+      }
 
       let nextIndex = activeIndex;
       if (event.key === "ArrowRight" || event.key === "ArrowDown") {
@@ -150,7 +170,7 @@ export function CockpitCommandBar({
     return null;
   }
 
-  const pillClass = "btn btn-secondary btn-sm inline-flex items-center gap-1.5";
+  const pillClass = cn(buttonVariants({ variant: "outline", size: "md" }));
 
   return (
     <div
@@ -172,63 +192,45 @@ export function CockpitCommandBar({
         >
           {INTENT_ICONS[suggestion.intent]}
           {suggestion.label}
-          {suggestion.isPinned ? <span className="text-[10px] uppercase text-primary">Pin</span> : null}
+          {suggestion.isPinned ? <PinnedBadge /> : null}
         </button>
       ))}
 
       {overflowSuggestions.length > 0 ? (
-        <div className="relative inline-block">
-          <button
-            ref={(element) => {
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            ref={(element: HTMLButtonElement | null) => {
               pillRefs.current[filteredSuggestions.length] = element;
             }}
-            type="button"
             className={pillClass}
             tabIndex={filteredSuggestions.length === activeIndex ? 0 : -1}
-            aria-expanded={showOverflowMenu}
-            onClick={() => {
-              setShowOverflowMenu((current) => !current);
-              setShowManageMenu(false);
-            }}
           >
             +{overflowSuggestions.length} autre{overflowSuggestions.length !== 1 ? "s" : ""}
-          </button>
-          {showOverflowMenu ? (
-            <div className="absolute left-0 top-full z-20 mt-1 min-w-[280px] rounded-lg border border-border bg-surface p-2 shadow-lg">
-              {overflowSuggestions.map((suggestion) => (
-                <button
-                  key={suggestion.actionId}
-                  type="button"
-                  className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-sm hover:bg-surface-subtle"
-                  onClick={() => {
-                    setShowOverflowMenu(false);
-                    onExecute(suggestion);
-                  }}
-                >
-                  {INTENT_ICONS[suggestion.intent]}
-                  <span className="flex-1">{suggestion.label}</span>
-                  {suggestion.isPinned ? <span className="text-[10px] uppercase text-primary">Pin</span> : null}
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </div>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-auto min-w-72">
+            {overflowSuggestions.map((suggestion) => (
+              <DropdownMenuItem
+                key={suggestion.actionId}
+                className="min-h-10 px-2"
+                onClick={() => onExecute(suggestion)}
+              >
+                {INTENT_ICONS[suggestion.intent]}
+                <span className="flex-1">{suggestion.label}</span>
+                {suggestion.isPinned ? <PinnedBadge /> : null}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
       ) : null}
 
-      <div className="relative inline-block">
-        <button
-          type="button"
-          className="text-xs text-muted-foreground underline hover:text-foreground-secondary"
-          aria-expanded={showManageMenu}
-          onClick={() => {
-            setShowManageMenu((current) => !current);
-            setShowOverflowMenu(false);
-          }}
+      <Popover>
+        <PopoverTrigger
+          className={cn(buttonVariants({ variant: "link", size: "xs" }), "text-xs font-medium text-muted-foreground hover:text-foreground-secondary")}
         >
           Gérer
-        </button>
-        {showManageMenu ? (
-          <div className="absolute right-0 top-full z-20 mt-1 min-w-[320px] rounded-lg border border-border bg-surface p-2 shadow-lg">
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-80 max-w-[calc(100vw-2rem)]" aria-label="Gérer les actions contextuelles">
+          <ul className="flex flex-col">
             {suggestions.map((suggestion) => (
               <ManageRow
                 key={suggestion.actionId}
@@ -237,13 +239,13 @@ export function CockpitCommandBar({
                 onTogglePinned={onTogglePinned}
               />
             ))}
-          </div>
-        ) : null}
-      </div>
+          </ul>
+        </PopoverContent>
+      </Popover>
 
       {!hasVisibleSuggestions ? (
         <span className="text-xs text-muted-foreground">
-          Toutes les actions sont masquees.
+          Toutes les actions sont masquées.
         </span>
       ) : null}
 

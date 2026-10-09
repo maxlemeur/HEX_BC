@@ -254,15 +254,15 @@ describe("AffaireRegisterCard", () => {
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Cause de revalidation")).toHaveValue("addendum_received");
     expect(
-      screen.getByLabelText("Pièce ou additif declenchant (facultatif)")
+      screen.getByLabelText("Pièce ou additif déclenchant (facultatif)")
     ).toHaveValue("");
 
     await user.selectOptions(screen.getByLabelText("Cause de revalidation"), "late_critical_piece");
     await user.clear(
-      screen.getByLabelText("Pièce ou additif declenchant (facultatif)")
+      screen.getByLabelText("Pièce ou additif déclenchant (facultatif)")
     );
     await user.type(
-      screen.getByLabelText("Pièce ou additif declenchant (facultatif)"),
+      screen.getByLabelText("Pièce ou additif déclenchant (facultatif)"),
       "additif-cfo.pdf"
     );
     await user.type(
@@ -613,7 +613,7 @@ describe("AffaireRegisterCard", () => {
     expect(screen.getByText("Trace de revalidation")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Cause: Additif reçu · Étapes à revoir: Readiness pré-remise · Pièce declenchante: additif-cfo.pdf"
+        "Cause : Additif reçu · Étapes à revoir : Readiness pré-remise · Pièce déclenchante : additif-cfo.pdf"
       )
     ).toBeInTheDocument();
   });

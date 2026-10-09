@@ -22,6 +22,9 @@ import type {
   StructurePreviewData,
 } from "./types";
 import { ArrowRightIcon } from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { cn } from "@/lib/utils";
 
 const LazyDataPreview = dynamic(
   () =>
@@ -31,7 +34,7 @@ const LazyDataPreview = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="dashboard-card p-8 text-center text-sm text-muted-foreground">
+      <div className="rounded-lg border border-border bg-surface shadow-card p-8 text-center text-sm text-muted-foreground">
         Chargement de l&apos;aperçu…
       </div>
     ),
@@ -174,21 +177,25 @@ export function PreviewStep({
   );
 
   if (error || structureError) {
-    return <div className="alert alert-error">{error ?? structureError}</div>;
+    return (
+      <Alert variant="danger">
+        <AlertDescription className="text-danger">{error ?? structureError}</AlertDescription>
+      </Alert>
+    );
   }
 
   return (
     <div className="space-y-4">
       {templateExactMatch && (
         <div
-          className="rounded-xl border border-success/20 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+          className="rounded-xl border border-success/20 bg-success-subtle px-4 py-3 text-sm text-success"
           role="status"
           aria-label={`Mapping applique depuis le template ${templateExactMatch.name}`}
         >
           <p className="font-medium">
             Mapping applique depuis le template &laquo;{templateExactMatch.name}&raquo;
             {templateExactMatch.supplier_name && (
-              <span className="ml-1 font-normal text-emerald-600">
+              <span className="ml-1 font-normal text-success">
                 ({templateExactMatch.supplier_name})
               </span>
             )}
@@ -211,7 +218,7 @@ export function PreviewStep({
           {onEditMapping && (
             <button
               type="button"
-              className="btn btn-secondary btn-sm"
+              className={cn(buttonVariants({ variant: "outline", size: "md" }))}
               onClick={onEditMapping}
             >
               Modifier le mapping
@@ -237,7 +244,7 @@ export function PreviewStep({
 
       <div className="flex items-center justify-between">
         {onBack ? (
-          <button type="button" className="btn btn-secondary btn-sm" onClick={onBack}>
+          <button type="button" className={cn(buttonVariants({ variant: "outline", size: "md" }))} onClick={onBack}>
             Retour
           </button>
         ) : (
@@ -245,7 +252,7 @@ export function PreviewStep({
         )}
         <button
           type="button"
-          className="btn btn-primary"
+          className={buttonVariants({ variant: "primary", size: "lg" })}
           disabled={isLoading || isStructureLoading || structureValidationError !== null}
           onClick={() =>
             startTransition(() =>

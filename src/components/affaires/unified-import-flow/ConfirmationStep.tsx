@@ -16,6 +16,9 @@ import type {
   StructurePreviewData,
 } from "./types";
 import { CheckIcon } from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { cn } from "@/lib/utils";
 
 type ConfirmationStepProps = {
   importId: string;
@@ -142,37 +145,37 @@ export function ConfirmationStep({
 
     return (
       <div
-        className="dashboard-card border border-success/25 p-6"
+        className="rounded-lg border border-border bg-surface shadow-card border border-success/25 p-6"
         role="status"
       >
         <div className="flex items-start gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-success-light text-success">
             <CheckIcon strokeWidth="2.5" aria-hidden="true" size={18} />
           </div>
           <div>
             <h3 className="text-sm font-semibold text-foreground">
               {isVersionCreated ? "Devis créé" : "Mapping enregistré"}
             </h3>
-            <p className="mt-1 text-sm text-slate-600">
+            <p className="mt-1 text-sm text-muted-foreground">
               Le résultat de l&apos;import est disponible avant de continuer.
             </p>
           </div>
         </div>
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-emerald-700">
+          <div className="rounded-xl border border-success-border bg-success-subtle px-4 py-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-success">
               {isVersionCreated ? "Lignes créées" : "Lignes prêtes"}
             </p>
-            <p className="mt-1 text-2xl font-semibold text-emerald-800">
+            <p className="mt-1 text-2xl font-semibold text-success">
               {primaryCount}
             </p>
           </div>
-          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-amber-700">
+          <div className="rounded-xl border border-warning-border bg-warning-subtle px-4 py-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-warning">
               Lignes rejetées
             </p>
-            <p className="mt-1 text-2xl font-semibold text-amber-800">
+            <p className="mt-1 text-2xl font-semibold text-warning">
               {rejectedCount}
             </p>
           </div>
@@ -184,19 +187,19 @@ export function ConfirmationStep({
               {ignoredCount}
             </p>
           </div>
-          <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-blue-700">
+          <div className="rounded-xl border border-info-border bg-info-subtle px-4 py-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-info">
               Sections créées
             </p>
-            <p className="mt-1 text-2xl font-semibold text-blue-800">
+            <p className="mt-1 text-2xl font-semibold text-info">
               {confirmationResult.stats.insertedSections ?? 0}
             </p>
           </div>
           <div className="rounded-xl border border-border bg-surface-subtle px-4 py-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-600">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Lignes à 0 €
             </p>
-            <p className="mt-1 text-2xl font-semibold text-slate-800">
+            <p className="mt-1 text-2xl font-semibold text-foreground">
               {confirmationResult.stats.zeroPriceRows ?? 0}
             </p>
           </div>
@@ -212,7 +215,7 @@ export function ConfirmationStep({
         <div className="mt-6 flex justify-end">
           <button
             type="button"
-            className="btn btn-primary"
+            className={buttonVariants({ variant: "primary", size: "lg" })}
             onClick={() => onSuccess(confirmationResult)}
           >
             Continuer
@@ -223,48 +226,48 @@ export function ConfirmationStep({
   }
 
   return (
-    <div className="dashboard-card p-6">
-      <h3 className="text-sm font-semibold text-slate-800">
+    <div className="rounded-lg border border-border bg-surface shadow-card p-6">
+      <h3 className="text-sm font-semibold text-foreground">
         Confirmation
       </h3>
       <p className="mt-1 text-xs text-muted-foreground">
-        Vérifiez le resume avant de continuer.
+        Vérifiez le résumé avant de continuer.
       </p>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
         <div className="rounded-xl border border-border bg-surface-subtle px-4 py-3">
-          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+          <p className="text-micro uppercase tracking-wide text-muted-foreground">
             Champs mappes
           </p>
-          <p className="mt-1 text-lg font-semibold text-slate-800">
+          <p className="mt-1 text-lg font-semibold text-foreground">
             {validation?.mapped_targets_count ?? "-"}
           </p>
         </div>
         <div
           className={`rounded-xl border px-4 py-3 ${
             validation?.is_valid
-              ? "border-success bg-emerald-50"
+              ? "border-success bg-success-subtle"
               : "border-border bg-surface-subtle"
           }`}
         >
-          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+          <p className="text-micro uppercase tracking-wide text-muted-foreground">
             Validation
           </p>
           <p
             className={`mt-1 text-sm font-semibold ${
               validation?.is_valid
-                ? "text-emerald-700"
-                : "text-slate-800"
+                ? "text-success"
+                : "text-foreground"
             }`}
           >
             {validation?.is_valid ? "Prêt" : "Mapping en cours…"}
           </p>
         </div>
         <div className="rounded-xl border border-border bg-surface-subtle px-4 py-3">
-          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+          <p className="text-micro uppercase tracking-wide text-muted-foreground">
             Champs manquants
           </p>
-          <p className="mt-1 text-lg font-semibold text-slate-800">
+          <p className="mt-1 text-lg font-semibold text-foreground">
             {validation?.missing_required_fields.length ?? "-"}
           </p>
         </div>
@@ -272,8 +275,8 @@ export function ConfirmationStep({
 
       <div className="mt-4">
         {structurePreview && (
-          <div className="mt-4 rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-4">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-blue-700">
+          <div className="mt-4 rounded-xl border border-blue-100 bg-info-subtle/60 px-4 py-4">
+            <p className="text-micro font-medium uppercase tracking-wide text-info">
               Structure source
             </p>
             <div className="mt-3 grid gap-3 sm:grid-cols-3">
@@ -311,18 +314,18 @@ export function ConfirmationStep({
           <div
             className={`rounded-xl border px-4 py-4 ${carryOverPreviewCopy?.toneClassName ?? ""}`}
           >
-            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+            <p className="text-micro uppercase tracking-wide text-muted-foreground">
               Carry-over takeoff
             </p>
             <p className="mt-1 text-sm font-semibold text-foreground">
               {carryOverPreviewCopy?.title}
             </p>
-            <p className="mt-1 text-sm text-slate-600">
+            <p className="mt-1 text-sm text-muted-foreground">
               {carryOverPreviewCopy?.description}
             </p>
             <div className="mt-3 grid gap-2 sm:grid-cols-3">
               <div className="rounded-lg border border-white/60 bg-surface/70 px-3 py-2">
-                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                <p className="text-micro uppercase tracking-wide text-muted-foreground">
                   Acquis
                 </p>
                 <p className="mt-1 text-lg font-semibold text-foreground">
@@ -330,7 +333,7 @@ export function ConfirmationStep({
                 </p>
               </div>
               <div className="rounded-lg border border-white/60 bg-surface/70 px-3 py-2">
-                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                <p className="text-micro uppercase tracking-wide text-muted-foreground">
                   En cours
                 </p>
                 <p className="mt-1 text-lg font-semibold text-foreground">
@@ -338,7 +341,7 @@ export function ConfirmationStep({
                 </p>
               </div>
               <div className="rounded-lg border border-white/60 bg-surface/70 px-3 py-2">
-                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                <p className="text-micro uppercase tracking-wide text-muted-foreground">
                   À relancer
                 </p>
                 <p className="mt-1 text-lg font-semibold text-foreground">
@@ -351,25 +354,26 @@ export function ConfirmationStep({
       </div>
 
       {confirmError && (
-        <div className="alert alert-error mt-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
+        <Alert variant="danger" className="mt-4">
+          <AlertDescription className="flex flex-wrap items-center justify-between gap-2 text-danger">
             <span>{confirmError}</span>
-            <button
-              type="button"
-              className="btn btn-sm font-medium underline underline-offset-2 hover:no-underline"
+            <Button
+              variant="link"
+              size="sm"
+              className="text-danger"
               onClick={() => setConfirmError(null)}
             >
               Réessayer
-            </button>
-          </div>
-        </div>
+            </Button>
+          </AlertDescription>
+        </Alert>
       )}
 
       <div className="mt-6 flex flex-wrap items-center gap-3">
         {onBack && (
           <button
             type="button"
-            className="btn btn-secondary btn-sm"
+            className={cn(buttonVariants({ variant: "outline", size: "md" }))}
             disabled={isConfirming}
             onClick={onBack}
           >
@@ -379,7 +383,7 @@ export function ConfirmationStep({
         <div className="flex flex-1 flex-wrap justify-end gap-3">
           <button
             type="button"
-            className="btn btn-secondary"
+            className={cn(buttonVariants({ variant: "outline", size: "lg" }))}
             disabled={isConfirming}
             onClick={() => void handleConfirm(false)}
           >
@@ -387,7 +391,7 @@ export function ConfirmationStep({
           </button>
           <button
             type="button"
-            className="btn btn-primary"
+            className={buttonVariants({ variant: "primary", size: "lg" })}
             disabled={isConfirming || isCarryOverPreviewLoading}
             onClick={() => void handleConfirm(true)}
           >

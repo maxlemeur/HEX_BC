@@ -6,6 +6,8 @@ import {
   type AffaireRegisterEntrySeverity,
   type AffaireRegisterEntryStatus,
 } from "@/lib/affaires/register";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 type RegisterFiltersBarProps = {
   filterStatus: string;
@@ -86,7 +88,7 @@ export function RegisterFiltersBar({
         ))}
       </select>
       {hasActiveFilters ? (
-        <button type="button" className="btn btn-secondary btn-sm" onClick={onResetFilters}>
+        <button type="button" className={cn(buttonVariants({ variant: "outline", size: "md" }))} onClick={onResetFilters}>
           Réinitialiser
         </button>
       ) : null}

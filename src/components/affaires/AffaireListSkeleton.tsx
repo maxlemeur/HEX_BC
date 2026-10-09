@@ -3,7 +3,7 @@ import { Skeleton } from "@/components/ui-legacy/Skeleton";
 function CardSkeleton({ index }: { index: number }) {
   return (
     <div
-      className="dashboard-card p-4 animate-pulse"
+      className="rounded-lg border border-border bg-surface shadow-card p-4 animate-pulse"
       style={{ animationDelay: `${index * 0.05}s` }}
     >
       {/* Title + version count */}

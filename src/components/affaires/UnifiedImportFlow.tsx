@@ -6,6 +6,7 @@ import { startTransition, useCallback, useMemo, useState } from "react";
 
 import type { ConfirmUnifiedImportFlowResult } from "@/app/dashboard/affaires/_actions/import-flow";
 import type { ColumnMapping } from "@/components/mappings/ColumnMapper";
+import { useConfirm } from "@/components/feedback/confirm-provider";
 import { useUiMode } from "@/hooks/useUiMode";
 import type { MappingTemplateExactMatch } from "@/lib/mappings/server";
 
@@ -21,6 +22,8 @@ import {
 } from "./unified-import-flow/types";
 import { UploadStep } from "./unified-import-flow/UploadStep";
 import { ChevronLeftIcon } from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 const LazyPlansStep = dynamic(
   () =>
@@ -30,7 +33,7 @@ const LazyPlansStep = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="dashboard-card p-8 text-center text-sm text-muted-foreground">
+      <div className="rounded-lg border border-border bg-surface shadow-card p-8 text-center text-sm text-muted-foreground">
         Chargement…
       </div>
     ),
@@ -52,6 +55,7 @@ export function UnifiedImportFlow({
 }: UnifiedImportFlowProps) {
   const { isSimplified } = useUiMode();
   const router = useRouter();
+  const confirm = useConfirm();
 
   const [step, setStep] = useState<Step>("upload");
   const [confirmResult, setConfirmResult] =
@@ -62,7 +66,6 @@ export function UnifiedImportFlow({
   const [autoAppliedTemplateMatch, setAutoAppliedTemplateMatch] =
     useState<MappingTemplateExactMatch | null>(null);
   const [previewData, setPreviewData] = useState<PreviewStepResult | null>(null);
-  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   const hasStartedImport = importId !== null;
   const stepperSteps = useMemo(
@@ -170,7 +173,16 @@ export function UnifiedImportFlow({
     const currentIndex = (stepperSteps as readonly Step[]).indexOf(step);
     if (currentIndex <= 0) {
       if (hasStartedImport) {
-        setShowCancelConfirm(true);
+        void confirm({
+          title: "Annuler l’import ?",
+          description:
+            "Votre progression sera perdue. Le fichier importé et le mapping en cours ne seront pas conservés.",
+          confirmLabel: "Annuler l’import",
+          cancelLabel: "Continuer l’import",
+          tone: "danger",
+        }).then((confirmed) => {
+          if (confirmed) onCancel?.();
+        });
         return;
       }
 
@@ -179,13 +191,13 @@ export function UnifiedImportFlow({
     }
 
     startTransition(() => setStep(stepperSteps[currentIndex - 1]));
-  }, [hasStartedImport, onCancel, step, stepperSteps]);
+  }, [confirm, hasStartedImport, onCancel, step, stepperSteps]);
 
   const backButton = (
     <button
       type="button"
       onClick={handleBack}
-      className="btn btn-secondary btn-sm inline-flex shrink-0 items-center gap-1.5"
+      className={cn(buttonVariants({ variant: "outline", size: "md" }), "shrink-0 gap-1.5")}
     >
       <ChevronLeftIcon aria-hidden="true" size={14} />
       {step === "upload" ? "Annuler" : "Retour"}
@@ -194,38 +206,6 @@ export function UnifiedImportFlow({
 
   return (
     <div className="animate-fade-in space-y-4">
-      {showCancelConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="mx-4 w-full max-w-sm rounded-2xl bg-surface p-6 shadow-xl">
-            <h3 className="text-sm font-semibold text-slate-800">
-              Annuler l&apos;import ?
-            </h3>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Votre progression sera perdue. Le fichier importe et le mapping en cours ne seront pas conservés.
-            </p>
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => setShowCancelConfirm(false)}
-              >
-                Continuer l&apos;import
-              </button>
-              <button
-                type="button"
-                className="btn btn-sm bg-red-600 text-white hover:bg-red-700"
-                onClick={() => {
-                  setShowCancelConfirm(false);
-                  onCancel?.();
-                }}
-              >
-                Annuler l&apos;import
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       <div className="flex items-center justify-between gap-3">
         <ProgressHeader currentStep={step} steps={stepperSteps} />
         {step !== "plans" && confirmResult === null && backButton}

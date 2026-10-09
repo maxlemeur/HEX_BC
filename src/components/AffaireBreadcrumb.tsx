@@ -37,14 +37,14 @@ export function AffaireBreadcrumb({
         <ChevronLeftIcon aria-hidden="true" size={14} />
         Affaires
       </Link>
-      <span className="hidden text-slate-300 sm:inline">/</span>
+      <span className="hidden text-subtle-foreground sm:inline">/</span>
       <Link
         href={projectHref}
         className="hidden max-w-[200px] truncate rounded-md px-1.5 py-0.5 transition-colors hover:bg-secondary hover:text-secondary-foreground sm:inline-flex"
       >
         {projectName}
       </Link>
-      <span className="hidden text-slate-300 sm:inline">/</span>
+      <span className="hidden text-subtle-foreground sm:inline">/</span>
 
       <span className="font-medium text-secondary-foreground">
         {currentLabel}

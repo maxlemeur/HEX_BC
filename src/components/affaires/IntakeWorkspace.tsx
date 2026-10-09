@@ -14,7 +14,7 @@ import {
   isAffaireIntakeDocumentNeedingReview,
   isAffaireIntakeDocumentProcessing,
 } from "@/lib/affaires/intake";
-import { Badge } from "@/components/ui-legacy/Badge";
+import { Badge } from "@/components/ui/badge";
 import {
   COCKPIT_OPEN_SURFACE_EVENT,
   type CockpitOpenSurfaceEventDetail,
@@ -399,14 +399,14 @@ export function IntakeWorkspace({
       className={
         shouldRenderEntryShell
           ? "animate-fade-in"
-          : "dashboard-card p-5 animate-fade-in"
+          : "rounded-lg border border-border bg-surface shadow-card p-5 animate-fade-in"
       }
       aria-label="Intake dossier affaire"
     >
       {shouldRenderEntryShell ? null : (
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold text-slate-800">
+            <h2 className="text-sm font-semibold text-foreground">
               Dossier de consultation
             </h2>
             <p className="mt-0.5 text-xs text-muted-foreground">
@@ -425,7 +425,7 @@ export function IntakeWorkspace({
                 className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
                   isFilterActive
                     ? "bg-warning-subtle text-warning ring-1 ring-warning/30"
-                    : "text-slate-600 hover:bg-muted"
+                    : "text-muted-foreground hover:bg-muted"
                 }`}
                 aria-pressed={isFilterActive}
               >
@@ -510,30 +510,30 @@ export function IntakeWorkspace({
       {focusedDocument && (
         <div className="mb-4 rounded-xl border border-primary/20 bg-primary/6 px-4 py-3">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold text-slate-800">
+            <p className="text-sm font-semibold text-foreground">
               Source du brief
             </p>
             {focusBannerTitle ? (
-              <Badge variant="info" size="sm">
+              <Badge variant="info">
                 {focusBannerTitle}
               </Badge>
             ) : null}
             {focusBannerEntryLabel ? (
-              <Badge variant="neutral" size="sm">
+              <Badge variant="neutral">
                 {focusBannerEntryLabel}
               </Badge>
             ) : null}
             {focusBannerCategory ? (
-              <Badge variant="neutral" size="sm">
+              <Badge variant="neutral">
                 {focusBannerCategory}
               </Badge>
             ) : null}
           </div>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-muted-foreground">
             {focusBannerTitle
               ? `${focusBannerTitle} s'appuie sur cette pièce du dossier.`
               : "Cette pièce du dossier est utilisée comme source du brief."}{" "}
-            <span className="font-medium text-slate-800">
+            <span className="font-medium text-foreground">
               {focusedDocument.fileName}
             </span>
           </p>
@@ -554,10 +554,10 @@ export function IntakeWorkspace({
           {/* En cours d'analyse */}
           {processingDocs.length > 0 && (
             <section aria-label="Documents en cours d'analyse" className="mt-4">
-              <div className="flex items-center gap-2 rounded-lg bg-blue-100 border border-blue-300 px-3 py-2 mb-2">
-                <CircleIcon className="h-4 w-4 animate-spin shrink-0 text-blue-700" aria-hidden="true" />
-                <h3 className="text-xs font-semibold text-blue-900">En cours d&apos;analyse</h3>
-                <Badge variant="info" size="sm">{processingDocs.length}</Badge>
+              <div className="flex items-center gap-2 rounded-lg bg-info-light border border-info-border px-3 py-2 mb-2">
+                <CircleIcon className="h-4 w-4 animate-spin shrink-0 text-info" aria-hidden="true" />
+                <h3 className="text-xs font-semibold text-info">En cours d&apos;analyse</h3>
+                <Badge variant="info">{processingDocs.length}</Badge>
               </div>
               <div className="space-y-2">
                 {processingDocs.map((doc) => (
@@ -576,10 +576,10 @@ export function IntakeWorkspace({
           {/* A confirmer */}
           {reviewDocs.length > 0 && (
             <section aria-label="Documents à confirmer" className="mt-4">
-              <div className="flex items-center gap-2 rounded-lg bg-amber-100 border border-amber-400 px-3 py-2 mb-2">
-                <TriangleAlertIcon className="shrink-0 text-amber-700" aria-hidden="true" size={16} />
-                <h3 className="text-xs font-semibold text-amber-900">À confirmer</h3>
-                <Badge variant="warning" size="sm">{reviewDocs.length}</Badge>
+              <div className="flex items-center gap-2 rounded-lg bg-warning-light border border-warning-border px-3 py-2 mb-2">
+                <TriangleAlertIcon className="shrink-0 text-warning" aria-hidden="true" size={16} />
+                <h3 className="text-xs font-semibold text-warning">À confirmer</h3>
+                <Badge variant="warning">{reviewDocs.length}</Badge>
               </div>
               <div className="space-y-2">
                 {reviewDocs.map((doc) => (
@@ -599,9 +599,9 @@ export function IntakeWorkspace({
           {classifiedDocs.length > 0 && (
             <section aria-label="Documents classés par catégorie" className="mt-4">
               <div className="flex items-center gap-2 mb-2">
-                <CircleCheckBigIcon className="shrink-0 text-emerald-700" aria-hidden="true" size={16} />
-                <h3 className="text-xs font-semibold text-emerald-900">Valides</h3>
-                <Badge variant="success" size="sm">{classifiedCount}</Badge>
+                <CircleCheckBigIcon className="shrink-0 text-success" aria-hidden="true" size={16} />
+                <h3 className="text-xs font-semibold text-success">Valides</h3>
+                <Badge variant="success">{classifiedCount}</Badge>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {sortedCategories.map((cat) => (
@@ -662,7 +662,7 @@ export function IntakeWorkspace({
         </div>
       )}
       {hasDocuments && !triageComplete && (needsReviewCount > 0 || processingCount > 0) && (
-        <div className="mt-4 flex items-center gap-2 rounded-lg border border-border bg-surface-subtle px-3 py-2 text-sm text-slate-600">
+        <div className="mt-4 flex items-center gap-2 rounded-lg border border-border bg-surface-subtle px-3 py-2 text-sm text-muted-foreground">
           <CircleAlertIcon className="shrink-0" aria-hidden="true" size={16} />
           <span>
             Triage en cours — {needsReviewCount + processingCount} document{(needsReviewCount + processingCount) > 1 ? "s" : ""} restent à confirmer.

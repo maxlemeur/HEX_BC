@@ -1,7 +1,14 @@
 "use client";
 
-import { Button } from "@/components/ui-legacy/Button";
-import { Modal } from "@/components/ui-legacy/Modal";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import type { CockpitSuggestion } from "@/lib/cockpit/suggestions";
 
 type CockpitCommandPreviewProps = {
@@ -16,27 +23,25 @@ export function CockpitCommandPreview({
   onCancel,
 }: Readonly<CockpitCommandPreviewProps>) {
   return (
-    <Modal.Root open onOpenChange={(open) => !open && onCancel()}>
-      <Modal.Content>
-        <Modal.Header>
-          <Modal.Title>{suggestion.label}</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          <p className="text-sm text-slate-600">{suggestion.preview}</p>
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="ghost" size="sm" onClick={onCancel}>
+    <Dialog open onOpenChange={(open) => !open && onCancel()}>
+      <DialogContent size="sm">
+        <DialogHeader>
+          <DialogTitle>{suggestion.label}</DialogTitle>
+          <DialogDescription>{suggestion.preview}</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="ghost" size="lg" onClick={onCancel}>
             Annuler
           </Button>
           <Button
-            variant={suggestion.confirmTone === "info" ? "primary" : "danger"}
-            size="sm"
+            variant={suggestion.confirmTone === "info" ? "primary" : "danger-solid"}
+            size="lg"
             onClick={onConfirm}
           >
             Confirmer
           </Button>
-        </Modal.Footer>
-      </Modal.Content>
-    </Modal.Root>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -41,12 +41,13 @@ vi.mock("next/link", () => ({
   },
 }));
 
-vi.mock("@/components/ui-legacy/ConfirmModal", () => ({
-  ConfirmModal: () => null,
+vi.mock("./AffaireConfirmDialog", () => ({
+  AffaireConfirmDialog: () => null,
 }));
 
 vi.mock("./AffaireStatusBadges", () => ({
   AffaireStatusBadges: () => <div data-testid="affaire-status-badges">Statut</div>,
+  AffaireApprovalBadge: () => null,
 }));
 
 vi.mock("./useDeleteAffaire", () => ({
@@ -135,14 +136,14 @@ describe("AffairesDenseTable", () => {
     cleanup();
   });
 
-  it("supports keyboard navigation on the affaire row", () => {
+  it("exposes the affaire as a real link and keeps the row click for the mouse", () => {
     renderTable();
 
-    fireEvent.keyDown(
-      screen.getByRole("row", { name: "Ouvrir l’affaire Affaire Alpha" }),
-      { key: "Enter" }
-    );
+    const nameLink = screen.getByRole("link", { name: "Affaire Alpha" });
+    expect(nameLink).toHaveAttribute("href", "/dashboard/affaires/project-1");
+    expect(nameLink.closest("tr")).not.toHaveAttribute("tabindex");
 
+    fireEvent.click(screen.getByText("Client Demo"));
     expect(pushMock).toHaveBeenCalledWith("/dashboard/affaires/project-1");
   });
 
@@ -181,7 +182,7 @@ describe("AffairesDenseTable", () => {
   });
 
 
-  it("allows manual selection only for draft affaires", () => {
+  it("allows manual selection and deletion only for draft affaires", async () => {
     const onToggleProjectSelection = vi.fn();
     renderTable({
       items: [
@@ -202,11 +203,25 @@ describe("AffairesDenseTable", () => {
     expect(draftCheckbox).toBeChecked();
     expect(screen.getAllByRole("checkbox")).toHaveLength(1);
     expect(
-      screen.getByRole("link", { name: "Éditer l’affaire Affaire Alpha" })
+      screen.getByRole("link", {
+        name: "Éditer le chiffrage de l’affaire Affaire Alpha",
+      })
     ).toHaveAttribute("href", "/dashboard/estimates/version-1/edit");
     expect(
-      screen.getByRole("button", { name: "Supprimer l’affaire Affaire Alpha" })
-    ).toBeInTheDocument();
+      screen.getByRole("link", {
+        name: "Voir le chiffrage de l’affaire Affaire envoyee",
+      })
+    ).toHaveAttribute("href", "/dashboard/estimates/version-1");
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Plus d’actions pour l’affaire Affaire Alpha",
+      })
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Supprimer l’affaire" })
+    );
+    expect(requestDeleteMock).toHaveBeenCalledWith("project-1", "Affaire Alpha");
+    expect(pushMock).not.toHaveBeenCalled();
 
     fireEvent.click(draftCheckbox);
     expect(onToggleProjectSelection).toHaveBeenCalledWith("project-1");

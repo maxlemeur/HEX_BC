@@ -96,7 +96,7 @@ export function AffaireWorkflowStepper({
                 className={`hidden h-px min-w-6 flex-1 sm:block ${
                   step.status === "done"
                     ? "bg-success"
-                    : "bg-slate-200"
+                    : "bg-border"
                 }`}
               />
             )}

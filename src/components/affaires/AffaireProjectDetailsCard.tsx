@@ -1,6 +1,10 @@
 "use client";
 
+import { PencilIcon } from "lucide-react";
+
 import { ProjectIcon, PROJECT_ICONS, type ProjectIconKey } from "@/components/affaires/ProjectIconPicker";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 
 export type AffaireProjectDetailsValues = {
   projectName: string;
@@ -25,6 +29,8 @@ type AffaireProjectDetailsCardProps = {
   onReferenceChange?: (value: string) => void;
   onEdit?: () => void;
   footer?: React.ReactNode;
+  /** Page heading kept while the fiche is edited in place (the view mode renders the h1). */
+  editHeading?: string;
 };
 
 function renderValue(value: string, fallback: string) {
@@ -44,11 +50,12 @@ export function AffaireProjectDetailsCard({
   onSiteAddressChange,
   onEdit,
   footer,
+  editHeading,
 }: Readonly<AffaireProjectDetailsCardProps>) {
   const defaultIcon = (
     <div className="flex w-24 shrink-0 flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-transparent px-3 py-2">
       <ProjectIcon iconKey={iconKey} size={44} className="text-subtle-foreground" />
-      <span className="text-[10px] font-medium text-muted-foreground">
+      <span className="text-micro font-medium text-muted-foreground">
         {PROJECT_ICONS[iconKey]?.label}
       </span>
     </div>
@@ -57,6 +64,7 @@ export function AffaireProjectDetailsCard({
   if (mode === "edit") {
     return (
       <section className="animate-fade-in space-y-5">
+        {editHeading ? <h1 className="sr-only">{editHeading}</h1> : null}
         <div className="flex items-stretch gap-4">
           {iconSlot ?? defaultIcon}
           <div className="grid min-w-0 flex-1 gap-x-6 gap-y-4 lg:grid-cols-[7fr_3fr]">
@@ -74,7 +82,7 @@ export function AffaireProjectDetailsCard({
                   type="text"
                   value={values.projectName}
                   onChange={(e) => onProjectNameChange?.(e.target.value)}
-                  placeholder="Ex : Residence Les Jardins — Lot CVC"
+                  placeholder="Ex : Résidence Les Jardins — Lot CVC"
                   className={`w-full border-0 border-b-2 bg-transparent pb-2 text-3xl font-semibold text-foreground placeholder:text-subtle-foreground focus:outline-none transition-colors ${
                     projectNameError
                       ? "border-danger"
@@ -121,7 +129,7 @@ export function AffaireProjectDetailsCard({
                 type="text"
                 value={values.reference}
                 onChange={(e) => onReferenceChange?.(e.target.value)}
-                placeholder="Ref. projet (optionnel)"
+                placeholder="Réf. projet (optionnel)"
                 className="mt-2 w-full border-0 border-b-2 border-border bg-transparent pb-2 text-base font-medium text-foreground placeholder:text-subtle-foreground transition-colors focus:border-primary focus:outline-none"
               />
             </div>
@@ -140,9 +148,9 @@ export function AffaireProjectDetailsCard({
         </div>
 
         {errorMessage ? (
-          <div role="alert" className="alert alert-error text-sm">
-            {errorMessage}
-          </div>
+          <Alert variant="danger">
+            <AlertDescription className="text-danger">{errorMessage}</AlertDescription>
+          </Alert>
         ) : null}
 
         {footer ? <div>{footer}</div> : null}
@@ -155,13 +163,15 @@ export function AffaireProjectDetailsCard({
   return (
     <section className="relative animate-fade-in rounded-xl border border-border border-l-4 border-l-brand-orange bg-surface px-4 py-5 shadow-sm sm:px-5 lg:px-6 lg:py-6">
       {onEdit ? (
-        <button
-          type="button"
-          className="absolute right-4 top-4 min-h-11 rounded-lg px-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-surface-subtle hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 sm:right-5 lg:right-6 lg:top-5"
+        <Button
+          variant="ghost"
+          size="md"
+          className="absolute right-2 top-3 size-11 px-0 sm:right-5 sm:top-4 sm:h-9 sm:w-auto sm:px-3.5 lg:right-6 lg:top-5"
+          leftIcon={<PencilIcon aria-hidden="true" />}
           onClick={onEdit}
         >
-          Modifier la fiche
-        </button>
+          <span className="sr-only sm:not-sr-only">Modifier la fiche</span>
+        </Button>
       ) : null}
 
       <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end lg:gap-8">
@@ -171,8 +181,8 @@ export function AffaireProjectDetailsCard({
               <ProjectIcon iconKey={iconKey} size={42} />
             </div>
 
-            <div className="min-w-0 pr-28 sm:pr-32 lg:pr-0">
-              <h1 className="truncate font-display text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+            <div className="min-w-0 pr-8 sm:pr-40 lg:pr-0">
+              <h1 className="line-clamp-3 break-words font-display text-2xl font-semibold tracking-tight text-foreground sm:line-clamp-1 sm:text-3xl">
                 {renderValue(values.projectName, "Non renseigné")}
               </h1>
               <p className="mt-1 text-sm font-medium text-muted-foreground">
@@ -215,9 +225,9 @@ export function AffaireProjectDetailsCard({
       </div>
 
       {errorMessage ? (
-        <div role="alert" className="alert alert-error mt-4 text-sm">
-          {errorMessage}
-        </div>
+        <Alert variant="danger" className="mt-4">
+          <AlertDescription className="text-danger">{errorMessage}</AlertDescription>
+        </Alert>
       ) : null}
     </section>
   );

@@ -1,3 +1,6 @@
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+
 type RegisterPaginationProps = {
   cursor: string | null;
   nextCursor: string | null;
@@ -26,7 +29,7 @@ export function RegisterPagination({
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
-          className="btn btn-secondary btn-sm"
+          className={cn(buttonVariants({ variant: "outline", size: "md" }))}
           disabled={!cursor || isFilterPending}
           onClick={() => onApplyCursor(null)}
         >
@@ -34,7 +37,7 @@ export function RegisterPagination({
         </button>
         <button
           type="button"
-          className="btn btn-secondary btn-sm"
+          className={cn(buttonVariants({ variant: "outline", size: "md" }))}
           disabled={!nextCursor || isFilterPending}
           onClick={() => onApplyCursor(nextCursor)}
         >

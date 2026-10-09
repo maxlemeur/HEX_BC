@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
-import { Badge } from "@/components/ui-legacy/Badge";
-import { EmptyState } from "@/components/ui-legacy/EmptyState";
+import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/layout/empty-state";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { useToast } from "@/components/ui-legacy/Toast";
 import type {
   AffaireIntakeBriefBlockKey,
@@ -36,7 +37,7 @@ type BriefDraftCardProps = {
   hideConfirmAction?: boolean;
 };
 
-type BadgeVariant = "neutral" | "info" | "success" | "warning" | "error";
+type BadgeVariant = "neutral" | "info" | "success" | "warning" | "danger";
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
@@ -71,7 +72,7 @@ const PROVENANCE_LABELS: Partial<Record<AffaireIntakeBriefBlockKey, { label: str
   scope: { label: "Détecté", variant: "info" },
   assumptions: { label: "Hypothèse", variant: "warning" },
   vigilance_points: { label: "Vigilance", variant: "warning" },
-  missing_elements: { label: "Manquant", variant: "error" },
+  missing_elements: { label: "Manquant", variant: "danger" },
 };
 
 /* ------------------------------------------------------------------ */
@@ -137,9 +138,9 @@ function hasEditableBriefChanges(
 
 function BriefStatusBadge({ status }: { status: "a_confirmer" | "confirme" }) {
   if (status === "confirme") {
-    return <Badge variant="success" size="sm">Confirmé</Badge>;
+    return <Badge variant="success">Confirmé</Badge>;
   }
-  return <Badge variant="warning" size="sm">À confirmer</Badge>;
+  return <Badge variant="warning">À confirmer</Badge>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -181,7 +182,7 @@ function BriefSourceAnnotation({
         <a
           key={`${source.sourceDocumentId}:${source.sourceFileName}`}
           href={buildBriefSourceHref(projectId, source)}
-          className="inline-flex items-center rounded-full border border-border bg-surface-subtle px-2 py-0.5 text-[11px] font-medium text-primary transition-colors hover:border-primary/30 hover:bg-primary/6 hover:text-brand-blue-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2"
+          className="inline-flex items-center rounded-full border border-border bg-surface-subtle px-2 py-0.5 text-micro font-medium text-primary transition-colors hover:border-primary/30 hover:bg-primary/6 hover:text-brand-blue-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2"
           title={source.rationale ?? `Ouvrir ${source.sourceFileName} dans le dossier`}
         >
           Pièce source · {source.sourceFileName}
@@ -234,7 +235,7 @@ function BriefEditableList({
             type="text"
             value={item}
             onChange={(e) => handleChange(i, e.target.value)}
-            className="flex-1 rounded-lg border border-border-strong bg-surface px-2 py-1.5 text-sm text-slate-800 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            className="flex-1 rounded-lg border border-border-strong bg-surface px-2 py-1.5 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
           />
           <button
             type="button"
@@ -301,7 +302,7 @@ function BriefBlockSection({
           <SquarePenIcon className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
         )}
         {provenance && (
-          <Badge variant={provenance.variant} size="sm">{provenance.label}</Badge>
+          <Badge variant={provenance.variant}>{provenance.label}</Badge>
         )}
       </div>
 
@@ -312,7 +313,7 @@ function BriefBlockSection({
             value={editParagraph}
             onChange={(e) => onEditParagraphChange(e.target.value.slice(0, MAX_SUMMARY_LENGTH))}
             rows={4}
-            className="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-slate-800 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            className="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
           />
           <p className="mt-0.5 text-right text-xs text-subtle-foreground">
             {editParagraph.length}/{MAX_SUMMARY_LENGTH}
@@ -341,7 +342,7 @@ function BriefBlockSection({
               <li key={i} className="flex flex-col gap-0.5">
                 <span className="text-sm text-foreground-secondary">
                   {blockKey === "missing_elements" && (
-                    <Badge variant="error" size="sm" className="mr-1.5">!</Badge>
+                    <Badge variant="danger" className="mr-1.5">!</Badge>
                   )}
                   {item}
                 </span>
@@ -552,11 +553,11 @@ export function BriefDraftCard({
     requiresConfirmation && !isReadOnly && !hideConfirmAction;
 
   return (
-    <section className="dashboard-card p-5" aria-label="Brief affaire">
+    <section className="rounded-lg border border-border bg-surface shadow-card p-5" aria-label="Brief affaire">
       {/* Header */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <h2 className="text-sm font-semibold text-slate-800">Brief affaire</h2>
+          <h2 className="text-sm font-semibold text-foreground">Brief affaire</h2>
           {briefDraft && <BriefStatusBadge status={briefDraft.status} />}
           {generationDate && (
             <span className="text-xs text-subtle-foreground">{generationDate}</span>
@@ -568,39 +569,37 @@ export function BriefDraftCard({
               <button
                 type="button"
                 onClick={handleStartEdit}
-                className="btn btn-ghost btn-sm text-xs"
+                className={buttonVariants({ variant: "ghost", size: "sm" })}
               >
                 Modifier
               </button>
             )}
             {!isEditing && briefDraft.status === "a_confirmer" && !hideConfirmAction && (
-              <button
-                type="button"
+              <Button
+                size="sm"
                 onClick={() => setShowConfirmDialog(true)}
-                disabled={isPending}
-                aria-busy={isPending}
-                className="btn btn-primary btn-sm text-xs"
+                loading={isPending}
               >
-                {isPending ? "..." : "Confirmer le brief"}
-              </button>
+                Confirmer le brief
+              </Button>
             )}
           </div>
         )}
       </div>
 
       {briefDraft && isConfirmedBrief && !isEditing && !showConfirmDialog && (
-        <div className="mt-3 rounded-lg border border-success/20 bg-success/6 px-4 py-3">
+        <div className="mt-3 rounded-lg border border-success-border bg-success-subtle px-4 py-3">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold text-slate-800">
+            <p className="text-sm font-semibold text-foreground">
               Brief de référence
             </p>
             {confirmationDate ? (
-              <Badge variant="success" size="sm">
+              <Badge variant="success">
                 Confirmé le {confirmationDate}
               </Badge>
             ) : null}
           </div>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-muted-foreground">
             Ce cadrage sert de base commune pour la suite du chiffrage. Si le dossier
             a changé, modifiez le brief pour relancer une validation.
           </p>
@@ -608,11 +607,11 @@ export function BriefDraftCard({
       )}
 
       {briefDraft && showConfirmationBanner && !isEditing && !showConfirmDialog && (
-        <div className="mt-3 rounded-lg border border-primary/20 bg-primary/6 px-4 py-3">
-          <p className="text-sm font-semibold text-slate-800">
+        <div className="mt-3 rounded-lg border border-info-border bg-info-subtle px-4 py-3">
+          <p className="text-sm font-semibold text-foreground">
             Validation du brief requise
           </p>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-muted-foreground">
             Confirmez ce cadrage avant de poursuivre le chiffrage. Tant qu&apos;il reste
             à valider, la suite doit être relue.
           </p>
@@ -636,20 +635,20 @@ export function BriefDraftCard({
       {/* Confirmation dialog */}
       {showConfirmDialog && briefDraft && (
         <div className="mt-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
-          <p className="text-sm font-medium text-slate-800">Confirmer ce brief ?</p>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="text-sm font-medium text-foreground">Confirmer ce brief ?</p>
+          <p className="mt-1 text-sm text-muted-foreground">
             Il deviendra la référence de travail pour la suite du chiffrage.
           </p>
-          <p className="mt-1 text-xs text-slate-600">
+          <p className="mt-1 text-xs text-muted-foreground">
             {briefDraft.assumptions.length} hypothèse(s) ouverte(s), {briefDraft.missingElements.length} élément(s) manquant(s), {briefDraft.vigilancePoints.length} point(s) de vigilance.
           </p>
           <div className="mt-2 flex items-center gap-2">
-            <button type="button" onClick={() => { setShowConfirmDialog(false); handleConfirm(); }} disabled={isPending} className="btn btn-primary btn-sm text-xs">
-              {isPending ? "..." : "Oui, confirmer"}
-            </button>
-            <button type="button" onClick={() => setShowConfirmDialog(false)} disabled={isPending} className="btn btn-secondary btn-sm text-xs">
+            <Button size="sm" onClick={() => { setShowConfirmDialog(false); handleConfirm(); }} loading={isPending}>
+              Oui, confirmer
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setShowConfirmDialog(false)} disabled={isPending}>
               Annuler
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -657,9 +656,8 @@ export function BriefDraftCard({
       {!briefDraft && (
         <div className="mt-4">
           <EmptyState
-            icon={
-              <FileIcon className="h-6 w-6" strokeWidth="1.5" aria-hidden="true" />
-            }
+            variant="plain"
+            icon={<FileIcon aria-hidden="true" />}
             title="Aucun brief généré"
             description="Le brief sera généré automatiquement après le traitement des documents."
           />
@@ -691,28 +689,17 @@ export function BriefDraftCard({
       {isEditing && (
         <div className="sticky bottom-0 z-10 -mx-5 mt-4 space-y-2 border-t border-border bg-surface px-5 py-3">
           {isConfirmedBrief && (
-            <p className="text-xs text-slate-600">
+            <p className="text-xs text-muted-foreground">
               En enregistrant, ce brief repassera à valider pour sécuriser le cadrage mis à jour.
             </p>
           )}
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={isPending}
-              aria-busy={isPending}
-              className="btn btn-primary btn-sm text-xs"
-            >
-              {isPending ? "..." : isConfirmedBrief ? "Enregistrer et revalider" : "Enregistrer"}
-            </button>
-            <button
-              type="button"
-              onClick={handleCancelEdit}
-              disabled={isPending}
-              className="btn btn-secondary btn-sm text-xs"
-            >
+            <Button size="sm" onClick={handleSave} loading={isPending}>
+              {isConfirmedBrief ? "Enregistrer et revalider" : "Enregistrer"}
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleCancelEdit} disabled={isPending}>
               Annuler
-            </button>
+            </Button>
           </div>
         </div>
       )}

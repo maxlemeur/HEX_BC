@@ -8,8 +8,16 @@ import {
   launchTakeoffFromPlanSet,
   launchTakeoffFromSourceVersionPlanSet,
 } from "@/app/dashboard/affaires/_actions/takeoff";
-import { Badge } from "@/components/ui-legacy/Badge";
-import { Modal } from "@/components/ui-legacy/Modal";
+import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { NativeSelect } from "@/components/ui/native-select";
 import { useToast } from "@/components/ui-legacy/Toast";
 import {
   TAKEOFF_LEVEL_BUSINESS_LABELS,
@@ -23,6 +31,8 @@ import {
   type TakeoffLevel,
 } from "@/lib/takeoff/client";
 import { CheckIcon } from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 type PlanSetTakeoffLevel = Extract<TakeoffLevel, "B" | "C">;
 
@@ -456,22 +466,18 @@ function LaunchMetreDialogContent({
   ]);
 
   return (
-    <Modal.Root open={open} onOpenChange={handleOpenChange}>
-      <Modal.Content
-        closeOnOverlayClick={!isSubmitting}
-        closeOnEscapeKey={!isSubmitting}
-      >
-        <Modal.Header>
-          <Modal.Title>Analyser les plans</Modal.Title>
-          <Modal.Close disabled={isSubmitting} />
-        </Modal.Header>
-        <Modal.Body className="max-h-[calc(100dvh-10rem)] overflow-y-auto overscroll-contain pr-1">
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent size="md" showCloseButton={!isSubmitting}>
+        <DialogHeader>
+          <DialogTitle>Analyser les plans</DialogTitle>
+        </DialogHeader>
+        <DialogBody>
           {launchSuccess ? (
             <div aria-live="polite" className="space-y-4 py-4 text-center">
-              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-success/10">
+              <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-success-light">
                 <CheckIcon stroke="var(--success)" strokeWidth="2.5" aria-hidden="true" />
               </div>
-              <p className="text-sm font-semibold text-slate-800">
+              <p className="text-sm font-semibold text-foreground">
                 {launchRecoveryUnconfirmed
                   ? "Analyse créée, reprise à vérifier"
                   : launchQueuedForRecovery
@@ -491,14 +497,14 @@ function LaunchMetreDialogContent({
               <div className="flex flex-col gap-2 pt-2 sm:flex-row sm:items-center sm:justify-center sm:gap-3">
                 <button
                   type="button"
-                  className="btn btn-secondary btn-sm w-full justify-center sm:w-auto"
+                  className={cn(buttonVariants({ variant: "outline", size: "md" }), "w-full sm:w-auto")}
                   onClick={() => onOpenChange(false)}
                 >
                   Fermer
                 </button>
                 <Link
                   href={`/dashboard/affaires/${projectId}/takeoff`}
-                  className="btn btn-primary btn-sm inline-flex w-full justify-center sm:w-auto"
+                  className={cn(buttonVariants({ variant: "primary", size: "md" }), "w-full sm:w-auto")}
                   onClick={() => onOpenChange(false)}
                 >
                   Centre d&apos;activité
@@ -509,7 +515,7 @@ function LaunchMetreDialogContent({
             <div className="space-y-4">
               {isLoadingPlanSets && !hasUsablePlanSet ? (
                 <div className="py-6 text-center" role="status">
-                  <p className="text-sm text-slate-600">
+                  <p className="text-sm text-muted-foreground">
                     Chargement des jeux de plans…
                   </p>
                 </div>
@@ -524,10 +530,10 @@ function LaunchMetreDialogContent({
                         >
                           Jeu de plans à analyser
                         </label>
-                        <select
+                        <NativeSelect
                           id="launch-metre-plan-set"
                           name="launch-metre-plan-set"
-                          className="form-select mb-2 w-full"
+                          wrapperClassName="mb-2"
                           value={selectedPlanSet.id}
                           onChange={(event) => {
                             setSelectedPlanSetId(event.target.value);
@@ -547,7 +553,7 @@ function LaunchMetreDialogContent({
                                 : "vide"}
                             </option>
                           ))}
-                        </select>
+                        </NativeSelect>
                       </>
                     ) : (
                       <p className="mb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -555,7 +561,7 @@ function LaunchMetreDialogContent({
                       </p>
                     )}
                     <div className="flex items-center gap-2">
-                      <Badge variant="info" size="sm">
+                      <Badge variant="info">
                         {selectedPlanSet.name}
                       </Badge>
                       <span className="text-xs text-muted-foreground">
@@ -569,21 +575,20 @@ function LaunchMetreDialogContent({
                         : "Vérifiez que ce jeu contient bien les plans à analyser."}
                     </p>
                     {planSetsLoadError ? (
-                      <div
-                        className="mt-3 rounded-lg border border-warning/20 bg-warning/5 px-3 py-2 text-xs text-foreground-secondary"
-                        role="status"
-                      >
-                        <p>
-                          La liste complète des jeux n’a pas pu être actualisée.
-                        </p>
-                        <button
-                          type="button"
-                          className="mt-1 font-semibold underline"
-                          onClick={() => void reloadPlanSets()}
-                        >
-                          Réessayer
-                        </button>
-                      </div>
+                      <Alert variant="warning" className="mt-3">
+                        <AlertDescription className="text-xs">
+                          <p>
+                            La liste complète des jeux n’a pas pu être actualisée.
+                          </p>
+                          <button
+                            type="button"
+                            className="mt-1 font-semibold text-warning underline"
+                            onClick={() => void reloadPlanSets()}
+                          >
+                            Réessayer
+                          </button>
+                        </AlertDescription>
+                      </Alert>
                     ) : null}
                   </div>
 
@@ -596,10 +601,9 @@ function LaunchMetreDialogContent({
                         <label className="sr-only" htmlFor="launch-metre-target-version">
                           Version cible
                         </label>
-                        <select
+                        <NativeSelect
                           id="launch-metre-target-version"
                           name="launch-metre-target-version"
-                          className="form-select"
                           value={selectedVersionOption.id}
                           onChange={(event) => setSelectedVersionId(event.target.value)}
                           disabled={isSubmitting || !hasTargetVersion}
@@ -610,9 +614,9 @@ function LaunchMetreDialogContent({
                               {option.label}
                             </option>
                           ))}
-                        </select>
+                        </NativeSelect>
                         <div className="flex items-center gap-2">
-                          <Badge variant="info" size="sm">
+                          <Badge variant="info">
                             {versionLabel}
                           </Badge>
                           <span className="text-xs text-muted-foreground">
@@ -651,7 +655,7 @@ function LaunchMetreDialogContent({
                             className="mt-0.5"
                           />
                           <div>
-                            <span className="text-sm font-medium text-slate-800">
+                            <span className="text-sm font-medium text-foreground">
                               {level.label}
                             </span>
                             <p className="text-xs text-muted-foreground">
@@ -682,7 +686,7 @@ function LaunchMetreDialogContent({
                             className={`mt-1 text-xs ${
                               selectionWarning.severity === "critical"
                                 ? "text-warning"
-                                : "text-slate-600"
+                                : "text-muted-foreground"
                             }`}
                           >
                             {selectionWarning.message}
@@ -693,24 +697,21 @@ function LaunchMetreDialogContent({
                   </fieldset>
 
                   <div className="rounded-lg border border-border bg-surface-subtle px-3 py-2">
-                    <p className="text-xs text-slate-600">
+                    <p className="text-xs text-muted-foreground">
                       Résultats disponibles dans le centre d&apos;activité des métrés après lancement.
                     </p>
                   </div>
 
                   {errorMessage ? (
-                    <div
-                      className="rounded-lg border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger"
-                      role="alert"
-                    >
-                      {errorMessage}
-                    </div>
+                    <Alert variant="danger">
+                      <AlertDescription className="text-danger">{errorMessage}</AlertDescription>
+                    </Alert>
                   ) : null}
 
                   <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
                     <button
                       type="button"
-                      className="btn btn-secondary btn-sm w-full justify-center sm:w-auto"
+                      className={cn(buttonVariants({ variant: "outline", size: "md" }), "w-full sm:w-auto")}
                       onClick={() => onOpenChange(false)}
                       disabled={isSubmitting}
                     >
@@ -718,7 +719,7 @@ function LaunchMetreDialogContent({
                     </button>
                     <button
                       type="button"
-                      className="btn btn-primary btn-sm w-full justify-center sm:w-auto"
+                      className={cn(buttonVariants({ variant: "primary", size: "md" }), "w-full sm:w-auto")}
                       onClick={() => void handleLaunch()}
                       disabled={isSubmitting || !hasTargetVersion}
                     >
@@ -730,14 +731,14 @@ function LaunchMetreDialogContent({
                 </>
               ) : (
                 <div className="py-4 text-center">
-                  <p className="text-sm text-slate-600">
+                  <p className="text-sm text-muted-foreground">
                     Aucun jeu de plans exploitable n&apos;est disponible pour cette affaire.
                   </p>
                   <div className="mt-4 flex flex-wrap justify-center gap-2">
                     {planSetsLoadError ? (
                       <button
                         type="button"
-                        className="btn btn-secondary btn-sm"
+                        className={cn(buttonVariants({ variant: "outline", size: "md" }))}
                         onClick={() => void reloadPlanSets()}
                       >
                         Réessayer
@@ -745,7 +746,7 @@ function LaunchMetreDialogContent({
                     ) : null}
                     <Link
                       href={`/dashboard/affaires/${projectId}/plans`}
-                      className="btn btn-secondary btn-sm inline-flex"
+                      className={cn(buttonVariants({ variant: "outline", size: "md" }))}
                     >
                       Voir les plans
                     </Link>
@@ -754,22 +755,24 @@ function LaunchMetreDialogContent({
               )}
 
               {!hasTargetVersion ? (
-                <div className="rounded-lg border border-warning/20 bg-warning/5 px-3 py-2 text-sm text-foreground-secondary">
+                <Alert variant="warning">
+                  <AlertDescription>
                   Créez d&apos;abord une première version pour lancer l&apos;analyse sur une cible de chiffrage.
                   <div className="mt-3">
                     <Link
                       href={`/dashboard/estimates/new?projectId=${projectId}`}
-                      className="btn btn-secondary btn-sm inline-flex"
+                      className={cn(buttonVariants({ variant: "outline", size: "md" }))}
                     >
                       Créer une première version
                     </Link>
                   </div>
-                </div>
+                  </AlertDescription>
+                </Alert>
               ) : null}
             </div>
           )}
-        </Modal.Body>
-      </Modal.Content>
-    </Modal.Root>
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
   );
 }

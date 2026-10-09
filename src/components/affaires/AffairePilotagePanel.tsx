@@ -1,7 +1,7 @@
 import Link from "next/link";
 
-import { Badge } from "@/components/ui-legacy/Badge";
-import { EmptyState } from "@/components/ui-legacy/EmptyState";
+import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/layout/empty-state";
 import type {
   AffaireHubDpgfSourceResult,
   AffaireHubFinishLineSummaryResult,
@@ -51,7 +51,7 @@ function getStepBadgeVariant(status: PilotageStepStatus) {
     case "in_progress":
       return "info";
     case "blocked":
-      return "error";
+      return "danger";
     case "waiting":
       return "neutral";
   }
@@ -73,7 +73,7 @@ function getStepBadgeLabel(status: PilotageStepStatus) {
 function getExceptionBadgeVariant(severity: PilotageExceptionSeverity) {
   switch (severity) {
     case "critical":
-      return "error";
+      return "danger";
     case "warning":
       return "warning";
     case "info":
@@ -97,7 +97,7 @@ function getFinishLineBadgeVariant(status: FinishLineCard["status"]) {
     case "ready":
       return "success";
     case "blocked":
-      return "error";
+      return "danger";
     case "warning":
       return "warning";
     case "waiting":
@@ -167,7 +167,7 @@ const GHOST_STEPS: PilotageStep[] = [
     key: "brief",
     label: "Brief",
     status: "waiting",
-    summary: "Le brief apparait une fois les pièces déposées.",
+    summary: "Le brief apparaît une fois les pièces déposées.",
   },
   {
     key: "devis",
@@ -243,7 +243,7 @@ export function AffairePilotagePanel({
       : [];
 
   return (
-    <section className={`dashboard-card p-5 animate-fade-in${ghost ? " relative" : ""}`}>
+    <section className={`rounded-lg border border-border bg-surface shadow-card p-5 animate-fade-in${ghost ? " relative" : ""}`}>
       {ghost && (
         <div className="absolute inset-x-0 top-0 z-10 rounded-t-xl bg-muted px-4 py-2 text-center text-xs font-medium text-muted-foreground">
           Ce panneau s&apos;activera une fois l&apos;affaire créée
@@ -252,7 +252,7 @@ export function AffairePilotagePanel({
       <div className={ghost ? "pointer-events-none pt-6 opacity-60" : ""}>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <h2 className="text-sm font-semibold text-slate-800">
+            <h2 className="text-sm font-semibold text-foreground">
               Pilotage de l&apos;affaire
             </h2>
           </div>
@@ -270,16 +270,16 @@ export function AffairePilotagePanel({
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                     Finish line
                   </p>
-                  <h3 className="mt-2 text-sm font-semibold text-slate-800">
+                  <h3 className="mt-2 text-sm font-semibold text-foreground">
                     {card.label}
                   </h3>
                 </div>
-                <Badge variant={getFinishLineBadgeVariant(card.status)} size="sm" withDot>
+                <Badge variant={getFinishLineBadgeVariant(card.status)} dot>
                   {getFinishLineBadgeLabel(card.status)}
                 </Badge>
               </div>
 
-              <p className="mt-3 text-sm leading-6 text-slate-600">
+              <p className="mt-3 text-sm leading-6 text-muted-foreground">
                 {card.summary}
               </p>
 
@@ -287,7 +287,7 @@ export function AffairePilotagePanel({
                 {card.details.map((detail) => (
                   <li
                     key={`${card.key}-${detail}`}
-                    className="rounded-lg bg-surface-subtle px-3 py-2 text-sm text-slate-600"
+                    className="rounded-lg bg-surface-subtle px-3 py-2 text-sm text-muted-foreground"
                   >
                     {detail}
                   </li>
@@ -316,7 +316,7 @@ export function AffairePilotagePanel({
       <div className="mt-5 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
         <div className="rounded-2xl border border-border bg-surface-subtle/70 p-4">
           <div className="mb-4 flex items-center justify-between gap-3">
-            <h3 className="text-sm font-semibold text-slate-800">
+            <h3 className="text-sm font-semibold text-foreground">
               Timeline du flux principal
             </h3>
             <span className="text-xs text-subtle-foreground">
@@ -347,7 +347,7 @@ export function AffairePilotagePanel({
                       className={`mt-2 h-full min-h-10 w-px ${
                         step.status === "done"
                           ? "bg-success/30"
-                          : "bg-slate-200"
+                          : "bg-border"
                       }`}
                       aria-hidden="true"
                     />
@@ -356,14 +356,14 @@ export function AffairePilotagePanel({
 
                 <div className="min-w-0 flex-1 rounded-xl border border-border bg-surface px-3 py-3">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-sm font-semibold text-slate-800">
+                    <p className="text-sm font-semibold text-foreground">
                       {step.label}
                     </p>
-                    <Badge variant={getStepBadgeVariant(step.status)} size="sm" withDot>
+                    <Badge variant={getStepBadgeVariant(step.status)} dot>
                       {getStepBadgeLabel(step.status)}
                     </Badge>
                   </div>
-                  <p className="mt-1.5 text-sm leading-6 text-slate-600">
+                  <p className="mt-1.5 text-sm leading-6 text-muted-foreground">
                     {step.summary}
                   </p>
                 </div>
@@ -374,7 +374,7 @@ export function AffairePilotagePanel({
 
         <div className="rounded-2xl border border-border bg-surface p-4">
           <div className="mb-4 flex items-center justify-between gap-3">
-            <h3 className="text-sm font-semibold text-slate-800">
+            <h3 className="text-sm font-semibold text-foreground">
               Exceptions à traiter
             </h3>
             <span className="text-xs text-subtle-foreground">
@@ -384,12 +384,10 @@ export function AffairePilotagePanel({
 
           {exceptions.length === 0 ? (
             <EmptyState
-              icon={
-                <CircleCheckIcon strokeWidth="1.5" aria-hidden="true" size={26} />
-              }
+              icon={<CircleCheckIcon aria-hidden="true" />}
               title="Rien d'urgent à reprendre"
               description="Le dossier peut avancer sans repasser par une revue exhaustive."
-              className="border border-dashed border-border bg-surface-subtle/70 py-10"
+              headingLevel={4}
             />
           ) : (
             <ul className="space-y-3">
@@ -401,16 +399,15 @@ export function AffairePilotagePanel({
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge
                       variant={getExceptionBadgeVariant(exception.severity)}
-                      size="sm"
-                      withDot
+                      dot
                     >
                       {getExceptionBadgeLabel(exception.severity)}
                     </Badge>
-                    <p className="text-sm font-semibold text-slate-800">
+                    <p className="text-sm font-semibold text-foreground">
                       {exception.title}
                     </p>
                   </div>
-                  <p className="mt-1.5 text-sm leading-6 text-slate-600">
+                  <p className="mt-1.5 text-sm leading-6 text-muted-foreground">
                     {exception.summary}
                   </p>
                   <div className="mt-3">

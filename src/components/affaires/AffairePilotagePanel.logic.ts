@@ -586,7 +586,7 @@ export function buildFinishLineCards(input: {
         key: "send",
         label: "Prêt à envoyer",
         status: "waiting",
-        summary: "La sortie devis apparait une fois un premier devis brouillon cree.",
+        summary: "La sortie devis apparaît une fois un premier devis brouillon créé.",
         details: ["Créez une version de devis pour vérifier la sortie client."],
         action: buildReadyToSendAction(input),
       },
@@ -633,7 +633,7 @@ export function buildFinishLineCards(input: {
     status: submissionReadiness?.status ?? "unavailable",
     summary:
       submissionReadiness?.status === "ready"
-        ? "Le devis peut sortir sans étape cachee supplementaire."
+        ? "Le devis peut sortir sans étape cachée supplémentaire."
         : submissionReadiness?.status === "warning"
           ? `${submissionReadiness.alerts.length} point${submissionReadiness.alerts.length > 1 ? "s" : ""} à vérifier avant l'envoi.`
           : submissionReadiness?.status === "blocked"
@@ -816,7 +816,7 @@ export function buildPilotageSteps(input: {
       key: "brief",
       label: "Brief",
       status: "waiting",
-      summary: "Le brief apparait une fois les pièces du dossier déposées.",
+      summary: "Le brief apparaît une fois les pièces du dossier déposées.",
     };
   } else if (input.intakeWorkspace?.briefDraft === null) {
     briefStep = {
@@ -953,7 +953,7 @@ export function buildPilotageSteps(input: {
           ? `${exceptionCount} écart${exceptionCount > 1 ? "s" : ""} majeur${exceptionCount > 1 ? "s" : ""} à revoir.`
           : takeoffCoverageAvailable
             ? "La revue des métrés reste requise avant d'appliquer les quantités dans le devis."
-            : "La revue des métrés reste requise, mais le resume compare est indisponible.",
+            : "La revue des métrés reste requise, mais le résumé comparé est indisponible.",
     };
   } else if (
     latestJob &&
@@ -990,7 +990,7 @@ export function buildPilotageSteps(input: {
       key: "metre",
       label: "Métré & preuves",
       status: "in_progress",
-      summary: "Les plans sont synchronises et l'analyse peut être relancee.",
+      summary: "Les plans sont synchronisés et l'analyse peut être relancée.",
     };
   }
 
@@ -1023,7 +1023,7 @@ export function buildPilotageSteps(input: {
       key: "validation",
       label: "Validation & sortie",
       status: "done",
-      summary: "Le devis est prêt a sortir sans validation supplementaire.",
+      summary: "Le devis est prêt à sortir sans validation supplémentaire.",
     };
   } else if (input.approvalSummary?.approvalStatus === "in_review") {
     validationStep = {
@@ -1131,7 +1131,7 @@ export function buildPilotageExceptions(input: {
       id: "dpgf-import-failed",
       title: "Corriger l'import du DPGF",
       summary:
-        "Le dernier import du DPGF a echoue. Reprenez cette étape avant de structurer le devis.",
+        "Le dernier import du DPGF a échoué. Reprenez cette étape avant de structurer le devis.",
       severity: "critical",
       action: {
         kind: "href",

@@ -30,7 +30,7 @@ function validateProjectName(value: string) {
     return "Le nom du projet est obligatoire.";
   }
   if (trimmed.length > 200) {
-    return "Le nom du projet ne doit pas depasser 200 caracteres.";
+    return "Le nom du projet ne doit pas dépasser 200 caractères.";
   }
   return null;
 }
@@ -142,6 +142,7 @@ export function AffairePersistedProjectDetails({
         projectNameError={projectNameError}
         errorMessage={errorMessage}
         footer={mode === "view" ? toolbar : undefined}
+        editHeading={savedValues.projectName}
         onEdit={mode === "view" ? () => setMode("edit") : undefined}
         onProjectNameChange={(value) => {
         setDraftValues((current) => ({ ...current, projectName: value }));

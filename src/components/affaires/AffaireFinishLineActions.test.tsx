@@ -221,7 +221,7 @@ describe("AffaireFinishLineActions", () => {
 
     expect(button).toBeDisabled();
     expect(
-      screen.getAllByText(/L'envoi email reste reserve aux versions brouillon ou envoyée/i)
+      screen.getAllByText(/L'envoi par email reste réservé aux versions brouillon ou envoyées/i)
         .length
     ).toBeGreaterThan(0);
   });

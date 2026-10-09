@@ -1,13 +1,13 @@
 "use client";
 
-import { Badge } from "@/components/ui-legacy/Badge";
+import { Badge } from "@/components/ui/badge";
 import type { AffaireIntakeWorkspaceMissingPiece } from "@/lib/affaires/intake";
 import { PlusIcon, TriangleAlertIcon } from "lucide-react";
 
-type BadgeVariant = "info" | "warning" | "error";
+type BadgeVariant = "info" | "warning" | "danger";
 
 const SEVERITY_VARIANT: Record<string, BadgeVariant> = {
-  critical: "error",
+  critical: "danger",
   warning: "warning",
   info: "info",
 };
@@ -53,7 +53,7 @@ export function IntakeMissingPieces({ pieces, onAddFile }: IntakeMissingPiecesPr
     >
       <div className="mb-2 flex items-center gap-2">
         <TriangleAlertIcon className={hasCritical ? "text-danger" : "text-warning"} aria-hidden="true" size={16} />
-        <h3 className="text-sm font-semibold text-slate-800">
+        <h3 className="text-sm font-semibold text-foreground">
           Pièces manquantes au dossier
         </h3>
       </div>
@@ -67,7 +67,6 @@ export function IntakeMissingPieces({ pieces, onAddFile }: IntakeMissingPiecesPr
             <div className="flex items-center gap-2">
               <Badge
                 variant={SEVERITY_VARIANT[piece.severity] ?? "info"}
-                size="sm"
               >
                 {SEVERITY_LABEL[piece.severity] ?? piece.severity}
               </Badge>

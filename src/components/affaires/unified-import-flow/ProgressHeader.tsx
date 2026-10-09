@@ -21,7 +21,7 @@ export function ProgressHeader({ currentStep, steps }: ProgressHeaderProps) {
             {index > 0 && (
               <div
                 className={`hidden h-px w-6 sm:block ${
-                  isDone ? "bg-success" : "bg-slate-200"
+                  isDone ? "bg-success" : "bg-border"
                 }`}
               />
             )}
@@ -41,7 +41,7 @@ export function ProgressHeader({ currentStep, steps }: ProgressHeaderProps) {
               )}
               <span className="hidden sm:inline">{STEP_LABELS[step]}</span>
               {step === "plans" && (
-                <span className="ml-1 hidden text-[10px] font-normal opacity-70 sm:inline">
+                <span className="ml-1 hidden text-micro font-normal opacity-70 sm:inline">
                   optionnel
                 </span>
               )}

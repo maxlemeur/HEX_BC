@@ -9,7 +9,7 @@ import { exportEstimate } from "@/lib/estimates/client";
 import type { EstimateStatus } from "@/lib/estimates/status";
 import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDownloadButton";
 import { SendEstimateModal } from "@/components/estimates/SendEstimateModal";
-import { Badge } from "@/components/ui-legacy/Badge";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui-legacy/Toast";
 import { AffaireOrderDraftsPanel } from "./AffaireOrderDraftsPanel";
 import {
@@ -18,6 +18,8 @@ import {
   resolveSubmissionReadiness,
 } from "./AffairePilotagePanel.logic";
 import { ArrowRightIcon } from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 type AffaireFinishLineActionsProps = {
   projectId: string;
@@ -88,7 +90,7 @@ function getSendActionState(
   if (currentVersion && !canSendEstimateByEmail(currentVersion)) {
     return {
       status: "unavailable" as const,
-      note: `L'envoi email reste reserve aux versions brouillon ou envoyée. Cette version est ${formatVersionStatus(currentVersion.status).toLowerCase()}.`,
+      note: `L'envoi par email reste réservé aux versions brouillon ou envoyées. Cette version est ${formatVersionStatus(currentVersion.status).toLowerCase()}.`,
       disabled: true,
     };
   }
@@ -105,7 +107,7 @@ function getSendActionState(
   if (submissionReadiness.status === "ready") {
     return {
       status: "ready" as const,
-      note: "Le mail joint le PDF de la version visible ici. Une confirmation explicite reste demandee.",
+      note: "Le mail joint le PDF de la version visible ici. Une confirmation explicite reste demandée.",
       disabled: false,
     };
   }
@@ -136,7 +138,7 @@ function getSendActionState(
     status: "unavailable" as const,
     note:
       submissionReadiness.errorMessage ??
-      "Les preconditions d'envoi sont indisponibles pour le moment.",
+      "Les préconditions d'envoi sont indisponibles pour le moment.",
     disabled: true,
   };
 }
@@ -173,7 +175,7 @@ export function AffaireFinishLineActions({
     try {
       const result = await exportEstimate(currentVersion.id, "xlsx", { mode: "bdc" });
       toast.success({
-        title: "BDC exporte",
+        title: "BDC exporté",
         description: result.filename,
       });
     } catch (error) {
@@ -201,11 +203,11 @@ export function AffaireFinishLineActions({
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
             Sortie devis
           </p>
-          <h3 className="mt-2 text-sm font-semibold text-slate-800">
+          <h3 className="mt-2 text-sm font-semibold text-foreground">
             PDF, email et BDC depuis le même point
           </h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            La version a sortir reste explicite et chaque action garde son retour
+            La version à sortir reste explicite et chaque action garde son retour
             lisible dans l&apos;affaire.
           </p>
         </div>
@@ -216,11 +218,10 @@ export function AffaireFinishLineActions({
               : sendActionState.status === "warning"
                 ? "warning"
                 : sendActionState.status === "blocked"
-                  ? "error"
+                  ? "danger"
                   : "info"
           }
-          size="sm"
-          withDot
+          dot
           className="self-start"
         >
           {currentVersion
@@ -231,7 +232,7 @@ export function AffaireFinishLineActions({
 
       {!currentVersion ? (
         <div className="mt-4 rounded-xl border border-dashed border-border-strong bg-surface px-4 py-4">
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-muted-foreground">
             Créez d&apos;abord une version de devis pour centraliser la sortie client.
           </p>
           <Link
@@ -245,13 +246,13 @@ export function AffaireFinishLineActions({
       ) : (
         <>
           <div className="mt-4 rounded-xl border border-border bg-surface px-4 py-3">
-            <p className="text-sm text-slate-600">{sendActionState.note}</p>
+            <p className="text-sm text-muted-foreground">{sendActionState.note}</p>
           </div>
 
           <div className="mt-4 grid gap-3 xl:grid-cols-3">
             <article className="rounded-xl border border-border bg-surface p-4">
-              <p className="text-sm font-semibold text-slate-800">PDF du devis</p>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
+              <p className="text-sm font-semibold text-foreground">PDF du devis</p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
                 Préparez le PDF de la {formatVersionLabel(currentVersion).toLowerCase()},
                 puis téléchargez-le une fois prêt. Le document existant est réutilisé
                 s’il est encore validé.
@@ -259,7 +260,7 @@ export function AffaireFinishLineActions({
               <div className="mt-4" data-testid="affaire-finish-line-pdf">
                 <EstimatePdfDownloadButton
                   versionId={currentVersion.id}
-                  className="btn btn-secondary btn-sm"
+                  className={cn(buttonVariants({ variant: "outline", size: "md" }))}
                   label="Préparer le PDF"
                   processingLabel="Génération du PDF…"
                   showInlineError={false}
@@ -299,7 +300,7 @@ export function AffaireFinishLineActions({
 
             <article className="rounded-xl border border-border bg-surface p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-slate-800">
+                <p className="text-sm font-semibold text-foreground">
                   Email client
                 </p>
                 <Badge
@@ -309,11 +310,10 @@ export function AffaireFinishLineActions({
                       : sendActionState.status === "warning"
                         ? "warning"
                         : sendActionState.status === "blocked"
-                          ? "error"
+                          ? "danger"
                           : "neutral"
                   }
-                  size="sm"
-                  withDot
+                  dot
                 >
                   {sendActionState.status === "ready"
                     ? "Prêt"
@@ -324,7 +324,7 @@ export function AffaireFinishLineActions({
                         : "En attente"}
                 </Badge>
               </div>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
                 {sendActionState.note}
               </p>
               {submissionReadinessGroups.length > 0 ? (
@@ -332,9 +332,9 @@ export function AffaireFinishLineActions({
                   {submissionReadinessGroups.map((group) => (
                     <li key={group.category}>
                       <Badge
-                        variant={group.blockerCount > 0 ? "error" : "warning"}
-                        size="sm"
-                        withDot
+                        variant={group.blockerCount > 0 ? "danger" : "warning"}
+                        dot
+                        className="h-auto min-h-6 whitespace-normal py-0.5"
                       >
                         {describeSubmissionReadinessGroup(group)}
                       </Badge>
@@ -345,7 +345,7 @@ export function AffaireFinishLineActions({
               <div className="mt-4" data-testid="affaire-finish-line-email">
                 <button
                   type="button"
-                  className="btn btn-primary btn-sm"
+                  className={buttonVariants({ variant: "primary", size: "md" })}
                   onClick={() => setSendModalOpen(true)}
                   disabled={sendActionState.disabled}
                 >
@@ -357,21 +357,21 @@ export function AffaireFinishLineActions({
             </article>
 
             <article className="rounded-xl border border-border bg-surface p-4">
-              <p className="text-sm font-semibold text-slate-800">
+              <p className="text-sm font-semibold text-foreground">
                 Export BDC
               </p>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
                 Exporte la {formatVersionLabel(currentVersion).toLowerCase()} en BDC V1.1 sans quitter
                 l&apos;affaire.
               </p>
               <div className="mt-4" data-testid="affaire-finish-line-bdc">
                 <button
                   type="button"
-                  className="btn btn-secondary btn-sm"
+                  className={cn(buttonVariants({ variant: "outline", size: "md" }))}
                   onClick={() => void handleExportBdc()}
                   disabled={isExportingBdc}
                 >
-                  {isExportingBdc ? "Export du BDC..." : "Exporter le BDC"}
+                  {isExportingBdc ? "Export du BDC…" : "Exporter le BDC"}
                 </button>
               </div>
               {bdcError ? (

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 
-import { Badge } from "@/components/ui-legacy/Badge";
+import { Badge } from "@/components/ui/badge";
 import type { AffaireHubMarginAnalysisResult } from "@/lib/affaires/server";
 import { formatEUR } from "@/lib/money";
 import { ChevronRightIcon } from "lucide-react";
@@ -19,8 +19,8 @@ function getMarginTier(percent: number): "good" | "fair" | "poor" {
   return "poor";
 }
 
-function getMarginBadgeVariant(tier: string): "success" | "warning" | "error" {
-  return tier === "good" ? "success" : tier === "fair" ? "warning" : "error";
+function getMarginBadgeVariant(tier: string): "success" | "warning" | "danger" {
+  return tier === "good" ? "success" : tier === "fair" ? "warning" : "danger";
 }
 
 /* ------------------------------------------------------------------ */
@@ -40,7 +40,7 @@ function MarginGlobalSummary({
         <div>
           <p className="text-xs text-muted-foreground">Marge globale</p>
           <div className="mt-1 flex items-center gap-2">
-            <Badge variant={getMarginBadgeVariant(tier)} size="sm">
+            <Badge variant={getMarginBadgeVariant(tier)}>
               {global.marginPercent.toFixed(1)}%
             </Badge>
           </div>
@@ -137,22 +137,22 @@ function MarginSectionTable({
                   <td className="py-2 pr-3">
                     <Link
                       href={`/dashboard/estimates/${currentVersionId}/edit#section-${section.sectionId}`}
-                      className="text-slate-800 hover:text-primary hover:underline"
+                      className="text-foreground hover:text-primary hover:underline"
                     >
                       {section.sectionTitle}
                     </Link>
                   </td>
-                  <td className="py-2 pr-3 text-right tabular-nums text-slate-600">
+                  <td className="py-2 pr-3 text-right tabular-nums text-muted-foreground">
                     {formatEUR(section.costCents)}
                   </td>
-                  <td className="py-2 pr-3 text-right tabular-nums text-slate-600">
+                  <td className="py-2 pr-3 text-right tabular-nums text-muted-foreground">
                     {formatEUR(section.saleCents)}
                   </td>
-                  <td className="py-2 pr-3 text-right tabular-nums text-slate-600">
+                  <td className="py-2 pr-3 text-right tabular-nums text-muted-foreground">
                     {formatEUR(section.marginEurCents)}
                   </td>
                   <td className="py-2 pr-1 text-right">
-                    <Badge variant={getMarginBadgeVariant(tier)} size="sm">
+                    <Badge variant={getMarginBadgeVariant(tier)}>
                       {section.marginPercent.toFixed(1)}%
                     </Badge>
                   </td>
@@ -182,7 +182,7 @@ function MarginSectionTable({
               className="flex items-center justify-between rounded-lg border border-border px-3 py-2.5 transition-colors hover:bg-surface-subtle"
             >
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-slate-800">
+                <p className="truncate text-sm font-medium text-foreground">
                   {section.sectionTitle}
                 </p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
@@ -190,7 +190,7 @@ function MarginSectionTable({
                 </p>
               </div>
               <div className="ml-3 flex shrink-0 items-center gap-2">
-                <Badge variant={getMarginBadgeVariant(tier)} size="sm">
+                <Badge variant={getMarginBadgeVariant(tier)}>
                   {section.marginPercent.toFixed(1)}%
                 </Badge>
                 <ChevronRightIcon aria-hidden="true" stroke="var(--slate-400)" size={14} />
@@ -334,8 +334,8 @@ export function MarginAnalysisWidget({
   if (!data && !errorMessage) return null;
 
   return (
-    <section className="dashboard-card p-5">
-      <h2 className="mb-4 text-sm font-semibold text-slate-800">
+    <section className="rounded-lg border border-border bg-surface shadow-card p-5">
+      <h2 className="mb-4 text-sm font-semibold text-foreground">
         Analyse de marge
       </h2>
 

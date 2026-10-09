@@ -232,7 +232,7 @@ describe("AffaireOrderDraftsPanel", () => {
     expect(
       screen.getByText("Recharge preparation indisponible")
     ).toBeInTheDocument();
-    expect(screen.getByText("Brouillons proposes")).toBeInTheDocument();
+    expect(screen.getByText("Brouillons proposés")).toBeInTheDocument();
   });
 
   it("submits the explicit TBD delivery-date state", async () => {
@@ -346,6 +346,6 @@ describe("AffaireOrderDraftsPanel", () => {
         /Les regroupements ont changé/i
       );
     });
-    expect(screen.getByText("Brouillons proposes")).toBeInTheDocument();
+    expect(screen.getByText("Brouillons proposés")).toBeInTheDocument();
   });
 });

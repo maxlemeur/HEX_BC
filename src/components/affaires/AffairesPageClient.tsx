@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   useCallback,
@@ -12,14 +13,17 @@ import {
 
 import { useUiMode } from "@/hooks/useUiMode";
 import { useIsWideViewport } from "@/hooks/useIsTablet";
-import { ConfirmModal } from "@/components/ui-legacy/ConfirmModal";
+import { PageHeader } from "@/components/layout/page-header";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { useToast } from "@/components/ui-legacy/Toast";
+import { cn } from "@/lib/utils";
 import { toggleAffaireFavoriteAction } from "@/app/dashboard/affaires/_actions/favorites";
 import { fetchAffaireManagerQueueSummaryAction } from "@/app/dashboard/affaires/_actions/manager-queue";
 import { FilterSearch } from "@/components/TableFilterBar/FilterSearch";
 import { SortControl } from "@/components/TableFilterBar/SortControl";
 import { ResultCount } from "@/components/TableFilterBar/ResultCount";
 import { EstimateStatusChips } from "@/components/estimates/EstimateStatusChips";
+import { AffaireConfirmDialog } from "./AffaireConfirmDialog";
 import { AffairesCardList } from "./AffairesCardList";
 import { useBulkArchiveAffaires } from "./useBulkArchiveAffaires";
 import { useBulkDeleteAffaires } from "./useBulkDeleteAffaires";
@@ -34,7 +38,7 @@ import type {
 import type { SortOption, SortState } from "@/components/TableFilterBar/types";
 import { AFFAIRE_PAGE_SIZE_OPTIONS } from "@/lib/affaires/schemas";
 import type { EstimateStatus } from "@/lib/estimates/client";
-import { StarIcon } from "lucide-react";
+import { ArchiveIcon, ChevronLeftIcon, ChevronRightIcon, PlusIcon, StarIcon, TrashIcon } from "lucide-react";
 
 const AffairesDenseTable = dynamic(
   () =>
@@ -625,35 +629,40 @@ export function AffairesPageClient({
   const hasNextPage = data.list.hasNextPage;
   const emptyVariant = data.counters.totalCount === 0 ? "no-data" : "filtered";
 
+  const selectedCount = selectedProjectIds.length;
+  const selectionLabel =
+    selectedCount === 0
+      ? "Aucune affaire sélectionnée"
+      : `${selectedCount} affaire${selectedCount > 1 ? "s" : ""} sélectionnée${selectedCount > 1 ? "s" : ""}`;
+
   return (
     <div className="animate-fade-in">
-      <ConfirmModal {...bulkArchive.modalProps} />
-      <ConfirmModal {...bulkDelete.modalProps} />
-      {/* Header */}
-      <div className="page-header flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
-        <div className="min-w-0">
-          <h1 className="page-title">Affaires</h1>
-          <p className="page-description">
-            Suivez vos affaires et leurs versions de chiffrage.
-          </p>
-        </div>
-        <button
-          type="button"
-          className="btn btn-primary btn-lg w-full shrink-0 sm:w-auto"
-          onClick={handleCreateAffaire}
-        >
-          + Nouvelle affaire
-        </button>
-      </div>
+      <AffaireConfirmDialog {...bulkArchive.modalProps} />
+      <AffaireConfirmDialog {...bulkDelete.modalProps} />
+      <PageHeader
+        title="Affaires"
+        description="Suivez vos affaires et leurs versions de chiffrage."
+        actions={
+          <Link
+            href="/dashboard/affaires/new"
+            className={buttonVariants({ variant: "primary", size: "lg", className: "w-full sm:w-auto" })}
+          >
+            <PlusIcon aria-hidden="true" />
+            Nouvelle affaire
+          </Link>
+        }
+      />
 
       {/* Filter toolbar */}
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <FilterSearch
-          value={searchValue}
-          onChange={setSearchValue}
-          placeholder="Rechercher par nom ou client..."
-          isPending={isSearchPending}
-        />
+        <div className="w-full min-w-0 sm:w-auto sm:min-w-64 sm:flex-1">
+          <FilterSearch
+            value={searchValue}
+            onChange={setSearchValue}
+            placeholder="Rechercher par nom ou client…"
+            isPending={isSearchPending}
+          />
+        </div>
         <EstimateStatusChips
           counts={data.counters.statusCounts as Record<EstimateStatus, number>}
           selected={selectedStatuses as EstimateStatus[]}
@@ -662,24 +671,23 @@ export function AffairesPageClient({
         <button
           type="button"
           onClick={handleToggleFavoritesOnly}
-          className={`inline-flex min-h-11 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors sm:min-h-0 ${
+          className={cn(
+            "inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:min-h-0",
             favoritesOnly
-              ? "border-amber-300 bg-amber-50 text-amber-800"
-              : "border-border bg-surface text-slate-600 hover:border-border-strong hover:bg-surface-subtle"
-          }`}
+              ? "bg-warning text-warning-foreground"
+              : "bg-warning-light text-warning hover:bg-warning-border"
+          )}
           aria-pressed={favoritesOnly}
         >
           <StarIcon fill={favoritesOnly ? "currentColor" : "none"} aria-hidden="true" size={14} />
           Favoris
         </button>
-        <div className="grid w-full gap-2 sm:flex sm:w-auto sm:items-center">
-          <SortControl
-            options={SORT_OPTIONS}
-            value={sortState}
-            onSortChange={handleSortChange}
-            onDirectionToggle={handleSortToggle}
-          />
-        </div>
+        <SortControl
+          options={SORT_OPTIONS}
+          value={sortState}
+          onSortChange={handleSortChange}
+          onDirectionToggle={handleSortToggle}
+        />
       </div>
 
       {/* Result count */}
@@ -693,47 +701,51 @@ export function AffairesPageClient({
       />
 
       <div
-        className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2"
-        aria-live="polite"
+        className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2"
+        role="toolbar"
+        aria-label="Actions groupées sur les brouillons"
       >
-        <span className="text-sm font-medium text-foreground-secondary">
-          {selectedProjectIds.length} affaire
-          {selectedProjectIds.length > 1 ? "s" : ""} sélectionnée
-          {selectedProjectIds.length > 1 ? "s" : ""}
+        <span
+          className="mr-auto text-sm font-medium text-foreground-secondary"
+          aria-live="polite"
+        >
+          {selectionLabel}
         </span>
-        <button
-          type="button"
-          className="btn btn-secondary btn-sm"
+        <Button
+          variant="outline"
+          size="md"
           disabled={visibleDraftIds.length === 0}
           aria-pressed={allVisibleDraftsSelected}
           onClick={handleToggleAllVisibleDrafts}
         >
           {allVisibleDraftsSelected ? "Retirer" : "Sélectionner"} les brouillons
           affichés ({visibleDraftIds.length})
-        </button>
-        {selectedProjectIds.length > 0 ? (
+        </Button>
+        {selectedCount > 0 ? (
           <>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
+            <Button
+              variant="ghost"
+              size="md"
               onClick={() => setSelectedProjectIds([])}
             >
               Tout désélectionner
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
+            </Button>
+            <Button
+              variant="outline"
+              size="md"
+              leftIcon={<ArchiveIcon aria-hidden="true" />}
               onClick={() => bulkArchive.requestArchive(selectedProjectIds)}
             >
               Archiver
-            </button>
-            <button
-              type="button"
-              className="btn btn-danger btn-sm"
+            </Button>
+            <Button
+              variant="danger"
+              size="md"
+              leftIcon={<TrashIcon aria-hidden="true" />}
               onClick={() => bulkDelete.requestDelete(selectedProjectIds)}
             >
               Supprimer
-            </button>
+            </Button>
           </>
         ) : null}
       </div>
@@ -782,46 +794,52 @@ export function AffairesPageClient({
       </div>
 
       {/* Pagination */}
-      <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-          <span>Afficher</span>
+      <nav
+        className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+        aria-label="Pagination des affaires"
+      >
+        <div
+          className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground"
+          role="group"
+          aria-label="Nombre d’affaires par page"
+        >
+          <span className="mr-1">Afficher</span>
           {PAGE_SIZE_OPTIONS.map((size) => (
-            <button
+            <Button
               key={size}
-              type="button"
+              variant={pageSize === size ? "primary" : "ghost"}
+              size="xs"
+              className="min-w-9"
+              aria-pressed={pageSize === size}
               onClick={() => handlePageSizeChange(size)}
-              className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                pageSize === size
-                  ? "bg-slate-900 text-white"
-                  : "bg-muted text-slate-600 hover:bg-slate-200"
-              }`}
             >
               {size}
-            </button>
+            </Button>
           ))}
-          <span>par page</span>
+          <span className="ml-1">par page</span>
         </div>
 
         <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
-          <button
-            type="button"
+          <Button
+            variant="outline"
+            size="md"
+            leftIcon={<ChevronLeftIcon aria-hidden="true" />}
             onClick={handlePrevPage}
             disabled={!hasPrevPage}
-            className="btn btn-secondary btn-sm disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Précédent
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="outline"
+            size="md"
+            rightIcon={<ChevronRightIcon aria-hidden="true" />}
             onClick={handleNextPage}
             disabled={!hasNextPage}
-            className="btn btn-secondary btn-sm disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Suivant
-          </button>
+          </Button>
         </div>
-      </div>
-
+      </nav>
     </div>
   );
 }

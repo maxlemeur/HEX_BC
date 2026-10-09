@@ -11,6 +11,9 @@ import {
   VALID_EXTENSIONS,
 } from "./types";
 import { UploadIcon } from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { cn } from "@/lib/utils";
 
 type UploadStepProps = {
   projectId: string;
@@ -176,13 +179,13 @@ export function UploadStep({ projectId, onImportReady }: UploadStepProps) {
   return (
     <div className="space-y-4">
       {waitingForParse ? (
-        <div className="dashboard-card p-6">
+        <div className="rounded-lg border border-border bg-surface shadow-card p-6">
           <div className="flex items-center gap-4">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
               <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-slate-800">
+              <p className="text-sm font-semibold text-foreground">
                 Traitement en cours…
               </p>
               <p className="mt-0.5 text-xs text-muted-foreground">
@@ -192,7 +195,7 @@ export function UploadStep({ projectId, onImportReady }: UploadStepProps) {
           </div>
         </div>
       ) : (
-        <div className="dashboard-card p-6">
+        <div className="rounded-lg border border-border bg-surface shadow-card p-6">
           <div
             onDrop={handleDrop}
             onDragOver={(event) => {
@@ -203,7 +206,7 @@ export function UploadStep({ projectId, onImportReady }: UploadStepProps) {
             className={`relative rounded-xl border-2 border-dashed p-8 text-center transition-colors ${
               isDragOver
                 ? "border-primary bg-primary/5"
-                : "border-border-strong bg-surface-subtle hover:border-slate-400"
+                : "border-border-strong bg-surface-subtle hover:border-border-strong"
             }`}
           >
             <div className="flex flex-col items-center gap-3">
@@ -212,7 +215,7 @@ export function UploadStep({ projectId, onImportReady }: UploadStepProps) {
               </div>
               <div>
                 <p className="text-sm font-medium text-foreground-secondary">
-                  Glissez-deposez votre fichier DPGF ici
+                  Glissez-déposez votre fichier DPGF ici
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   CSV, XLSX, XLS ou PDF tabulaire — ou cliquez pour parcourir
@@ -237,7 +240,7 @@ export function UploadStep({ projectId, onImportReady }: UploadStepProps) {
           {selectedFile && !fileError && getFileExtension(selectedFile.name) !== "pdf" && (
             <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-border px-4 py-3">
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-slate-800">
+                <p className="truncate text-sm font-medium text-foreground">
                   {selectedFile.name}
                 </p>
                 <p className="text-xs text-muted-foreground">
@@ -247,7 +250,7 @@ export function UploadStep({ projectId, onImportReady }: UploadStepProps) {
               <div className="flex shrink-0 items-center gap-2">
                 <button
                   type="button"
-                  className="btn btn-secondary btn-sm"
+                  className={cn(buttonVariants({ variant: "outline", size: "md" }))}
                   onClick={() => {
                     invalidatePendingPdfReview();
                     setSelectedFile(null);
@@ -262,7 +265,7 @@ export function UploadStep({ projectId, onImportReady }: UploadStepProps) {
                 </button>
                 <button
                   type="button"
-                  className="btn btn-primary btn-sm"
+                  className={buttonVariants({ variant: "primary", size: "md" })}
                   onClick={() => void handleSubmit()}
                   disabled={isSubmitting}
                 >
@@ -284,7 +287,7 @@ export function UploadStep({ projectId, onImportReady }: UploadStepProps) {
               <div className="mt-4 rounded-lg border border-primary bg-primary/5 px-4 py-4">
                 <div className="flex items-center gap-3 text-sm text-foreground-secondary">
                   <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
-                  Detection des tableaux puis validation explicite...
+                  Détection des tableaux puis validation explicite…
                 </div>
               </div>
             ) : pdfReview ? (
@@ -334,12 +337,20 @@ export function UploadStep({ projectId, onImportReady }: UploadStepProps) {
         </div>
       )}
 
-      {fileError && <div className="alert alert-error">{fileError}</div>}
-      {submitError && <div className="alert alert-error">{submitError}</div>}
+      {fileError && (
+        <Alert variant="danger">
+          <AlertDescription className="text-danger">{fileError}</AlertDescription>
+        </Alert>
+      )}
+      {submitError && (
+        <Alert variant="danger">
+          <AlertDescription className="text-danger">{submitError}</AlertDescription>
+        </Alert>
+      )}
 
       {isSubmitting && (
         <div>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200">
+          <div className="h-2 w-full overflow-hidden rounded-full bg-border">
             {uploadProgress !== null ? (
               <div
                 className="h-full rounded-full bg-primary transition-all duration-300"

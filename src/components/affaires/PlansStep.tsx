@@ -24,6 +24,9 @@ import {
 import { TakeoffLaunchPrompt } from "@/components/takeoff/TakeoffLaunchPrompt";
 import { useTakeoffAutoProposeDismissed } from "@/hooks/useTakeoffAutoProposeDismissed";
 import { CheckIcon, CircleCheckBigIcon, FileIcon, LinkIcon, PackageIcon, SearchIcon } from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { cn } from "@/lib/utils";
 
 type PlansStepProps = {
   projectId: string;
@@ -238,9 +241,9 @@ export function PlansStep({
   return (
     <section aria-label="Ajouter les plans (optionnel)">
       {showSuccessBanner && (
-        <div className="mb-4 flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3" role="status">
-          <CircleCheckBigIcon aria-hidden="true" className="shrink-0 text-green-600" size={20} />
-          <span className="text-sm font-medium text-green-800">Chiffrage cree avec succès</span>
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-success-border bg-success-subtle px-4 py-3" role="status">
+          <CircleCheckBigIcon aria-hidden="true" className="shrink-0 text-success" size={20} />
+          <span className="text-sm font-medium text-success">Chiffrage créé avec succès</span>
         </div>
       )}
 
@@ -254,11 +257,11 @@ export function PlansStep({
               <h2
                 ref={headingRef}
                 tabIndex={-1}
-                className="text-sm font-semibold text-slate-800 outline-none"
+                className="text-sm font-semibold text-foreground outline-none"
               >
                 Ajouter les plans
               </h2>
-              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+              <span className="rounded-full bg-success-light px-2 py-0.5 text-micro font-semibold uppercase tracking-wide text-success">
                 Recommande
               </span>
             </div>
@@ -274,7 +277,7 @@ export function PlansStep({
         <div className="rounded-lg border border-border bg-surface px-4 py-3">
           <div className="flex items-center gap-2">
             <PackageIcon stroke="var(--brand-blue)" strokeWidth="1.5" aria-hidden="true" size={16} />
-            <span className="text-xs font-semibold text-slate-800">Extraction de métrés</span>
+            <span className="text-xs font-semibold text-foreground">Extraction de métrés</span>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
             Les quantités sont extraites des plans pour alimenter le chiffrage.
@@ -283,16 +286,16 @@ export function PlansStep({
         <div className="rounded-lg border border-border bg-surface px-4 py-3">
           <div className="flex items-center gap-2">
             <LinkIcon stroke="var(--brand-blue)" strokeWidth="1.5" aria-hidden="true" size={16} />
-            <span className="text-xs font-semibold text-slate-800">Preuves</span>
+            <span className="text-xs font-semibold text-foreground">Preuves</span>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            Chaque ligne du chiffrage est rattachee a sa source dans les plans.
+            Chaque ligne du chiffrage est rattachée à sa source dans les plans.
           </p>
         </div>
         <div className="rounded-lg border border-border bg-surface px-4 py-3">
           <div className="flex items-center gap-2">
             <SearchIcon stroke="var(--brand-blue)" strokeWidth="1.5" aria-hidden="true" size={16} />
-            <span className="text-xs font-semibold text-slate-800">Detection des écarts</span>
+            <span className="text-xs font-semibold text-foreground">Detection des écarts</span>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
             Les écarts entre le DPGF et les plans sont identifies automatiquement.
@@ -301,39 +304,38 @@ export function PlansStep({
       </div>
 
       {prepareError && (
-        <div className="mt-4" role="alert" aria-live="assertive">
-          <div className="alert alert-error">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span>{prepareError}</span>
-              <button
-                type="button"
-                className="btn btn-sm font-medium underline underline-offset-2 hover:no-underline"
-                onClick={() => void loadOrCreateDefaultPlanSet()}
-              >
-                Réessayer
-              </button>
-            </div>
-          </div>
-        </div>
+        <Alert variant="danger" className="mt-4">
+          <AlertDescription className="flex flex-wrap items-center justify-between gap-2 text-danger">
+            <span>{prepareError}</span>
+            <Button
+              variant="link"
+              size="sm"
+              className="text-danger"
+              onClick={() => void loadOrCreateDefaultPlanSet()}
+            >
+              Réessayer
+            </Button>
+          </AlertDescription>
+        </Alert>
       )}
 
       {isPreparing && !prepareError && (
-        <div className="dashboard-card mt-4 p-6">
+        <div className="rounded-lg border border-border bg-surface shadow-card mt-4 p-6">
           <div className="flex items-center gap-3">
             <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-primary" />
             <span className="text-sm text-muted-foreground">
-              On prepare tout pour vos plans...
+              On prépare tout pour vos plans…
             </span>
           </div>
         </div>
       )}
 
       {planSet && !prepareError && (
-        <div className="dashboard-card mt-4 p-6">
+        <div className="rounded-lg border border-border bg-surface shadow-card mt-4 p-6">
           <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Vos plans
           </p>
-          <p className="text-sm font-semibold text-slate-800">{planSet.name}</p>
+          <p className="text-sm font-semibold text-foreground">{planSet.name}</p>
           <p className="mt-1 text-xs text-muted-foreground">
             Les plans seront accessibles depuis votre affaire.
           </p>
@@ -363,9 +365,9 @@ export function PlansStep({
 
           {!isUploadActive && uploadedCount > 0 && (
             <div className="mt-4 space-y-3">
-              <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3">
-                <CheckIcon strokeWidth="2.5" className="shrink-0 text-green-600" aria-hidden="true" size={14} />
-                <span className="text-xs font-medium text-green-800">
+              <div className="flex items-center gap-2 rounded-lg border border-success-border bg-success-subtle px-4 py-3">
+                <CheckIcon strokeWidth="2.5" className="shrink-0 text-success" aria-hidden="true" size={14} />
+                <span className="text-xs font-medium text-success">
                   {uploadedCount} {uploadedCount > 1 ? "fichiers uploades" : "fichier uploade"} — {formatBytes(uploadedSizeBytes)}
                 </span>
               </div>
@@ -409,7 +411,7 @@ export function PlansStep({
               ) : (
                 <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
                   <p className="text-xs font-medium text-foreground-secondary">
-                    Prochaine étape suggeree
+                    Prochaine étape suggérée
                   </p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     Lancez une analyse de métrés depuis le hub de votre affaire.
@@ -428,7 +430,7 @@ export function PlansStep({
       <div className="mt-6 flex items-center justify-between">
         <button
           type="button"
-          className="btn btn-secondary"
+          className={cn(buttonVariants({ variant: "outline", size: "lg" }))}
           onClick={handleSkip}
           disabled={isUploadActive}
           aria-label="Continuer sans ajouter de plans"
@@ -437,7 +439,7 @@ export function PlansStep({
         </button>
         <button
           type="button"
-          className="btn btn-primary"
+          className={buttonVariants({ variant: "primary", size: "lg" })}
           onClick={handleFinish}
           disabled={isPreparing || isUploadActive}
         >

@@ -18,14 +18,14 @@ export function RegisterTimeline({
     <section className="mt-6 rounded-2xl border border-border bg-surface-subtle/70 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-slate-800">
+          <h3 className="text-sm font-semibold text-foreground">
             Historique récent du registre
           </h3>
           <p className="mt-1 text-xs text-muted-foreground">
             Actions historisées pour expliciter qui a fait quoi sur les points du dossier.
           </p>
         </div>
-        <div className="rounded-full bg-surface px-2.5 py-1 text-xs text-slate-600">
+        <div className="rounded-full bg-surface px-2.5 py-1 text-xs text-muted-foreground">
           {timelineEvents.length} événement{timelineEvents.length > 1 ? "s" : ""}
         </div>
       </div>
@@ -48,14 +48,14 @@ export function RegisterTimeline({
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-slate-600">
+                    <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
                       {AFFAIRE_REGISTER_EVENT_LABELS[event.eventType]}
                     </span>
-                    <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-slate-600">
+                    <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
                       {AFFAIRE_REGISTER_KIND_LABELS[event.entryKind]}
                     </span>
                   </div>
-                  <p className="mt-3 text-sm font-medium text-slate-800">
+                  <p className="mt-3 text-sm font-medium text-foreground">
                     {event.scopeLabel}: {event.entryText}
                   </p>
                   <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">

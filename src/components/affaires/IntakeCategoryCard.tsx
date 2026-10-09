@@ -7,7 +7,7 @@ import {
   AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS,
   isAffaireIntakePrimaryEligibleKind,
 } from "@/lib/affaires/intake";
-import { Badge } from "@/components/ui-legacy/Badge";
+import { Badge } from "@/components/ui/badge";
 import { IntakeDocumentCard, type IntakeDocumentData } from "./IntakeDocumentCard";
 import { ChevronDownIcon, CircleAlertIcon, DownloadIcon, FileIcon, FileTextIcon, MailIcon, PanelsTopLeftIcon, PaperclipIcon } from "lucide-react";
 
@@ -49,13 +49,13 @@ const CATEGORY_ICONS: Record<AffaireIntakeDocumentKind, React.ReactNode> = {
 };
 
 const CATEGORY_COLORS: Record<AffaireIntakeDocumentKind, string> = {
-  dpgf: "text-blue-600",
+  dpgf: "text-info",
   plans: "text-violet-600",
-  cctp: "text-amber-600",
-  bpu_dqe: "text-emerald-600",
+  cctp: "text-warning",
+  bpu_dqe: "text-success",
   annexes: "text-muted-foreground",
   emails: "text-muted-foreground",
-  a_classer: "text-amber-500",
+  a_classer: "text-warning",
 };
 
 /** Display order for categories in the grid. */
@@ -120,26 +120,26 @@ export function IntakeCategoryCard({
         <span className={`mt-0.5 shrink-0 ${colorClass}`}>{icon}</span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-slate-800">
+            <span className="text-sm font-semibold text-foreground">
               {label}
             </span>
-            <Badge variant="neutral" size="sm">
+            <Badge variant="neutral">
               {count}
             </Badge>
             {isAffaireIntakePrimaryEligibleKind(category) && primaryCount > 0 && (
-              <Badge variant="success" size="sm">Principal</Badge>
+              <Badge variant="success">Principal</Badge>
             )}
             {isAffaireIntakePrimaryEligibleKind(category) && secondaryCount > 0 && (
-              <Badge variant="neutral" size="sm">
+              <Badge variant="neutral">
                 Autres {secondaryCount}
               </Badge>
             )}
             {/* Contextual badges */}
             {category === "dpgf" && dpgfAlreadyImported && (
-              <Badge variant="success" size="sm">Importe</Badge>
+              <Badge variant="success">Importée</Badge>
             )}
             {category === "plans" && plansSynced && (
-              <Badge variant="success" size="sm">Synchronises</Badge>
+              <Badge variant="success">Synchronisés</Badge>
             )}
           </div>
           {/* File name previews */}

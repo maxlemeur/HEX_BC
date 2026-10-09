@@ -402,7 +402,7 @@ export function QuickCreateAffaireDialog({
     } else if (match.status === "failed" || match.status === "error") {
       pendingImportIdRef.current = null;
       setPhase("idle");
-      setServerError("Le fichier n\u2019a pas pu être analyse.");
+      setServerError("Le fichier n\u2019a pas pu être analysé.");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, imports]);
@@ -830,7 +830,7 @@ export function QuickCreateAffaireDialog({
               href="/dashboard/estimates/new"
               className="mr-auto text-xs text-muted-foreground hover:underline"
             >
-              Création avancee
+              Création avancée
             </Link>
           )}
           <Modal.Close disabled={isBusy}>Annuler</Modal.Close>

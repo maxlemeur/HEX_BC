@@ -33,7 +33,7 @@ export type SetAffaireDocumentAsPrimaryInput = z.infer<
 
 const updateAffaireBriefInputSchema = z.object({
   projectId: z.string().uuid("projectId invalide."),
-  summary: z.string().trim().min(1, "Le resume est requis.").max(900),
+  summary: z.string().trim().min(1, "Le résumé est requis.").max(900),
   scope: z.array(z.string()).max(12),
   vigilancePoints: z.array(z.string()).max(12),
   assumptions: z.array(z.string()).max(12),

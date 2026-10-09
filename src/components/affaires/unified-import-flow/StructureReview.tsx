@@ -6,6 +6,7 @@ import type {
   StructureDecision,
   StructurePreviewData,
 } from "./types";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 type StructureReviewProps = {
   preview: StructurePreviewData | null;
@@ -87,8 +88,8 @@ export function StructureReview({
 
   if (isLoading) {
     return (
-      <div className="dashboard-card p-6" aria-busy="true">
-        <div className="h-4 w-44 animate-pulse rounded bg-slate-200" />
+      <div className="rounded-lg border border-border bg-surface shadow-card p-6" aria-busy="true">
+        <div className="h-4 w-44 animate-pulse rounded bg-border" />
         <div className="mt-4 h-20 animate-pulse rounded-xl bg-muted" />
       </div>
     );
@@ -97,7 +98,7 @@ export function StructureReview({
   if (!preview) return null;
 
   return (
-    <section className="dashboard-card p-6" aria-labelledby="structure-review-title">
+    <section className="rounded-lg border border-border bg-surface shadow-card p-6" aria-labelledby="structure-review-title">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3
@@ -112,20 +113,20 @@ export function StructureReview({
           </p>
         </div>
         <div className="flex flex-wrap gap-2 text-xs">
-          <span className="rounded-full bg-blue-50 px-2.5 py-1 font-medium text-blue-700">
+          <span className="rounded-full bg-info-subtle px-2.5 py-1 font-medium text-info">
             {preview.summary.candidate_rows} titre(s)
           </span>
-          <span className="rounded-full bg-amber-50 px-2.5 py-1 font-medium text-amber-700">
+          <span className="rounded-full bg-warning-subtle px-2.5 py-1 font-medium text-warning">
             {preview.summary.zero_price_rows} ligne(s) à 0 €
           </span>
-          <span className="rounded-full bg-muted px-2.5 py-1 font-medium text-slate-600">
+          <span className="rounded-full bg-muted px-2.5 py-1 font-medium text-muted-foreground">
             {preview.summary.ignored_footer_rows} pied(s) ignoré(s)
           </span>
         </div>
       </div>
 
       {preview.candidates.length === 0 ? (
-        <p className="mt-4 rounded-xl border border-border bg-surface-subtle px-4 py-3 text-sm text-slate-600">
+        <p className="mt-4 rounded-xl border border-border bg-surface-subtle px-4 py-3 text-sm text-muted-foreground">
           Aucun titre candidat n&apos;a été détecté. Toutes les lignes opérationnelles
           seront importées dans la section racine.
         </p>
@@ -159,10 +160,10 @@ export function StructureReview({
                       {candidate.title}
                     </p>
                     <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                      className={`rounded-full px-2 py-0.5 text-micro font-semibold uppercase tracking-wide ${
                         candidate.confidence === "high"
-                          ? "bg-emerald-50 text-emerald-700"
-                          : "bg-amber-50 text-amber-700"
+                          ? "bg-success-subtle text-success"
+                          : "bg-warning-subtle text-warning"
                       }`}
                     >
                       Confiance {candidate.confidence === "high" ? "forte" : "moyenne"}
@@ -176,7 +177,7 @@ export function StructureReview({
                   </p>
                 </div>
 
-                <label className="text-xs font-medium text-slate-600">
+                <label className="text-xs font-medium text-muted-foreground">
                   Type
                   <select
                     aria-label={`Type de ${candidate.title}`}
@@ -206,7 +207,7 @@ export function StructureReview({
                   </select>
                 </label>
 
-                <label className="text-xs font-medium text-slate-600">
+                <label className="text-xs font-medium text-muted-foreground">
                   Niveau
                   <select
                     aria-label={`Niveau de ${candidate.title}`}
@@ -235,9 +236,9 @@ export function StructureReview({
       )}
 
       {validationError && (
-        <div className="alert alert-error mt-4" role="alert">
-          {validationError}
-        </div>
+        <Alert variant="danger" className="mt-4">
+          <AlertDescription className="text-danger">{validationError}</AlertDescription>
+        </Alert>
       )}
     </section>
   );

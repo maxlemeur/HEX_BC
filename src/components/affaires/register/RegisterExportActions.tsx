@@ -4,6 +4,8 @@ import { useState } from "react";
 
 import { fetchAffaireRegisterReviewExportAction } from "@/app/dashboard/affaires/_actions/register";
 import { useToast } from "@/components/ui-legacy/Toast";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 function downloadBlob(content: string, filename: string, type: string) {
   const blob = new Blob([content], { type });
@@ -78,11 +80,11 @@ export function RegisterExportActions({
   return (
     <button
       type="button"
-      className="btn btn-secondary btn-sm"
+      className={cn(buttonVariants({ variant: "outline", size: "md" }))}
       disabled={isExporting}
       onClick={handleExport}
     >
-      {isExporting ? "Export..." : "Exporter revue"}
+      {isExporting ? "Export…" : "Exporter revue"}
     </button>
   );
 }

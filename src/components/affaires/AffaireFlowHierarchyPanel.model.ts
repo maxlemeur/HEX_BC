@@ -276,7 +276,7 @@ function describePreliminaryStructureContext(intakeWorkspace: AffaireFlowHierarc
     return {
       title: "Structure préliminaire éditable",
       message: "Le brief est confirmé. Ouvrez une trame éditable du devis à partir du brief et du CCTP principal, sans import DPGF obligatoire.",
-      facts: dedupe(["Brief confirme", "CCTP principal detecte", "Sans import DPGF obligatoire"]),
+      facts: dedupe(["Brief confirmé", "CCTP principal détecté", "Sans import DPGF obligatoire"]),
       evidence: dedupe([
         readyPrimaryCctp.fileName ?? "",
         readyPrimaryCctp.availableLots.length > 0 ? `Lots CCTP: ${readyPrimaryCctp.availableLots.slice(0, 2).join(", ")}` : "",
@@ -289,7 +289,7 @@ function describePreliminaryStructureContext(intakeWorkspace: AffaireFlowHierarc
     return {
       title: "Structure préliminaire éditable",
       message: "Ouvrez une trame éditable du devis à partir du CCTP principal, sans import DPGF obligatoire.",
-      facts: dedupe(["CCTP principal detecte", "Sans import DPGF obligatoire"]),
+      facts: dedupe(["CCTP principal détecté", "Sans import DPGF obligatoire"]),
       evidence: dedupe([
         readyPrimaryCctp.fileName ?? "",
         readyPrimaryCctp.availableLots.length > 0 ? `Lots CCTP: ${readyPrimaryCctp.availableLots.slice(0, 2).join(", ")}` : "",
@@ -300,7 +300,7 @@ function describePreliminaryStructureContext(intakeWorkspace: AffaireFlowHierarc
   return {
     title: "Structure préliminaire éditable",
     message: "Le brief confirme permet d'ouvrir une trame éditable du devis, sans import DPGF obligatoire.",
-    facts: dedupe(["Brief confirme", "Sans import DPGF obligatoire"]),
+    facts: dedupe(["Brief confirmé", "Sans import DPGF obligatoire"]),
     evidence: dedupe([briefLots.length > 0 ? `Lots brief: ${briefLots.slice(0, 2).join(", ")}` : ""]).filter(Boolean),
   };
 }
@@ -576,7 +576,7 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
           : "Les pièces critiques sont présentes. Confirmez le cadrage métier avant de chiffrer.",
       readinessStatus: readinessLevel,
       action: primaryAction,
-      facts: dedupe([hasDpgf ? "DPGF detecte" : "", hasPlans ? "Plans détectés" : "", hasCctp ? "CCTP detecte" : ""]).filter(Boolean),
+      facts: dedupe([hasDpgf ? "DPGF détecté" : "", hasPlans ? "Plans détectés" : "", hasCctp ? "CCTP détecté" : ""]).filter(Boolean),
       evidence: dedupe([
         briefDraft?.projectObject ?? "",
         briefDraft?.lots.length ? `Lots: ${briefDraft.lots.slice(0, 2).join(", ")}` : "",
@@ -796,7 +796,7 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
             : "Structure à remettre à jour"
           : hasWorkReservations
             ? "Structure generable sous réserves"
-            : "Brief confirme",
+            : "Brief confirmé",
       message: hasStructureDraft
         ? hasWorkReservations
           ? hasContinuationHypothesisDriver && !hasDocumentReservations

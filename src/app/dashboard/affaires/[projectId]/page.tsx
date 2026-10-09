@@ -266,7 +266,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       plansSummary = plansSummaryResult.value;
     } else {
       sectionErrors.plansSummary =
-        "Impossible de charger le resume plans & métrés pour le moment.";
+        "Impossible de charger le résumé plans & métrés pour le moment.";
     }
 
     if (projectVersionsResult?.status === "fulfilled") {

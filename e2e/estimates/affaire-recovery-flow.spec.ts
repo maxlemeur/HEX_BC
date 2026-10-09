@@ -377,14 +377,14 @@ test.describe("US-6.2 - reprise apres attente, erreur ou echec partiel", () => {
     ).toBeVisible();
     await expect(plansSection.getByText("1 acquis")).toBeVisible();
     await expect(plansSection.getByText("0 en attente")).toBeVisible();
-    await expect(plansSection.getByText("1 a corriger")).toBeVisible();
+    await expect(plansSection.getByText("1 à corriger")).toBeVisible();
     const partialRecoveryHistory = plansSection.locator("ol").first();
     await expect(
       partialRecoveryHistory.locator("li").filter({ hasText: "V2" }).first()
-    ).toContainText("Échec a corriger");
+    ).toContainText("Échec à corriger");
     await expect(
       partialRecoveryHistory.locator("li").filter({ hasText: "V1" }).first()
-    ).toContainText("Analyse terminee");
+    ).toContainText("Analyse terminée");
 
     const resumeLink = plansSection.getByRole("link", { name: "Reprendre l'analyse" });
     await expect(resumeLink).toHaveAttribute(
@@ -451,14 +451,14 @@ test.describe("US-6.2 - reprise apres attente, erreur ou echec partiel", () => {
     ).toBeVisible();
     await expect(plansSection.getByText("1 acquis")).toBeVisible();
     await expect(plansSection.getByText("1 en attente")).toBeVisible();
-    await expect(plansSection.getByText("0 a corriger")).toBeVisible();
+    await expect(plansSection.getByText("0 à corriger")).toBeVisible();
     const pendingRecoveryHistory = plansSection.locator("ol").first();
     await expect(
       pendingRecoveryHistory.locator("li").filter({ hasText: "V2" }).first()
     ).toContainText("En attente provider");
     await expect(
       pendingRecoveryHistory.locator("li").filter({ hasText: "V1" }).first()
-    ).toContainText("Analyse terminee");
+    ).toContainText("Analyse terminée");
 
     const followLink = plansSection.getByRole("link", { name: "Suivre la reprise" });
     await expect(followLink).toHaveAttribute(
