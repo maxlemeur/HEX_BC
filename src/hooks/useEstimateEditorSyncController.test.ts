@@ -465,7 +465,7 @@ describe("useEstimateEditorSyncController contract", () => {
     expect(readOnly.result.current.meta).toMatchObject({
       isReadOnly: true,
       isSaveBlocked: true,
-      readOnlyActionErrorMessage: "Mode consultation active.",
+      readOnlyActionErrorMessage: "Mode consultation activé.",
     });
     expect(mocks.batchEstimateOperations).not.toHaveBeenCalled();
   });

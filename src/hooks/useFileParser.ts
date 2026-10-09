@@ -106,7 +106,7 @@ function runWorkerParser(
     };
     const timeoutId = window.setTimeout(() => {
       worker.terminate();
-      reject(new Error("Le parsing local a depasse le delai autorise."));
+      reject(new Error("L'analyse locale du fichier a dépassé le délai autorisé."));
     }, WORKER_TIMEOUT_MS);
 
     const cleanup = () => {
@@ -154,7 +154,7 @@ export function useFileParser() {
 
       const parser = resolveParserKind(file);
       if (!parser) {
-        throw new Error("Format non supporte. Utilisez un fichier CSV ou XLSX.");
+        throw new Error("Format non pris en charge. Utilisez un fichier CSV ou XLSX.");
       }
 
       const buffer = await file.arrayBuffer();

@@ -743,7 +743,7 @@ export async function syncTakeoffLineEvidences(input: {
 
     if (insertResult.error) {
       throw toTakeoffError(
-        mapSupabaseError(insertResult.error as never, "Impossible de persister les preuves synchronisees."),
+        mapSupabaseError(insertResult.error as never, "Impossible d'enregistrer les preuves synchronisées."),
         {
           fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
           retryable: false,

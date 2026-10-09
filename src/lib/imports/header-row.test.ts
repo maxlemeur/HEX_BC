@@ -126,7 +126,7 @@ describe("parseImportFile with header-row options", () => {
         })
     );
 
-    const rejection = expect(parsingPromise).rejects.toThrow("Delai de traitement depasse");
+    const rejection = expect(parsingPromise).rejects.toThrow("Délai de traitement dépassé");
     await vi.advanceTimersByTimeAsync(250);
 
     await rejection;

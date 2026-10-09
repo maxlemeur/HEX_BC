@@ -103,7 +103,7 @@ describe("useFileParser", () => {
     );
     await getPostedRequest(worker);
     const rejection = expect(parsing).rejects.toThrow(
-      "Le parsing local a depasse le delai autorise."
+      "L'analyse locale du fichier a dépassé le délai autorisé."
     );
 
     await vi.advanceTimersByTimeAsync(20_000);
@@ -134,7 +134,7 @@ describe("useFileParser", () => {
     );
 
     await expect(result.current.parseFile(unsupportedFile)).rejects.toThrow(
-      "Format non supporte. Utilisez un fichier CSV ou XLSX."
+      "Format non pris en charge. Utilisez un fichier CSV ou XLSX."
     );
     expect(unsupportedFile.arrayBuffer).not.toHaveBeenCalled();
   });

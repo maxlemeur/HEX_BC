@@ -54,7 +54,7 @@ export function throwAssemblyCompositionErrorIfNeeded(
   }
   if (errorMessageContains(error, "cannot contain itself")) {
     throw badRequest(
-      "Un ouvrage ne peut pas se contenir lui-meme.",
+      "Un ouvrage ne peut pas se contenir lui-même.",
       error,
       "ESTIMATE_ASSEMBLY_SELF_REFERENCE"
     );

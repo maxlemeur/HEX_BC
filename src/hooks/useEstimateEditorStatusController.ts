@@ -174,8 +174,8 @@ export function useEstimateEditorStatusController({
   isDraftLockAcquiring,
   draftLockAcquiringMessage = "Acquisition du verrou de brouillon en cours.",
   isForcingDraftUnlock,
-  forceUnlockMessage = "Deverrouillage force en cours.",
-  viewerReadOnlyMessage = "Mode consultation active.",
+  forceUnlockMessage = "Déverrouillage forcé en cours.",
+  viewerReadOnlyMessage = "Mode consultation activé.",
   isFlushInProgress,
   flushBufferedItemUpdates,
   hasPendingUpdatesNow,
@@ -464,7 +464,7 @@ export function useEstimateEditorStatusController({
         reportScopedError(
           scope,
           flushResult === "blocked"
-            ? "Impossible de changer le statut tant que les modifications locales ne sont pas synchronisees."
+            ? "Impossible de changer le statut tant que les modifications locales ne sont pas synchronisées."
             : "Impossible de synchroniser les modifications avant changement de statut."
         );
         return null;
@@ -706,7 +706,7 @@ export function useEstimateEditorStatusController({
         if (!latestGating.canSend && !(force && isAdmin)) {
           reportScopedError(
             scope,
-            "Les preconditions d'envoi ne sont plus remplies."
+            "Les préconditions d'envoi ne sont plus remplies."
           );
           return;
         }

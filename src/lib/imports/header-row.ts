@@ -186,13 +186,13 @@ export function resolveHeaderRowIndex(
     const manualIndex = manualHeaderRow - 1;
     if (manualIndex < 0 || manualIndex >= matrix.length) {
       throw new Error(
-        `La ligne d'en-tete ${manualHeaderRow} est hors limites pour ce fichier.`
+        `La ligne d'en-tête ${manualHeaderRow} est hors limites pour ce fichier.`
       );
     }
 
     const row = Array.isArray(matrix[manualIndex]) ? matrix[manualIndex] : [];
     if (!hasNonEmptyCell(row)) {
-      throw new Error(`La ligne d'en-tete ${manualHeaderRow} est vide.`);
+      throw new Error(`La ligne d'en-tête ${manualHeaderRow} est vide.`);
     }
 
     return manualIndex;

@@ -310,9 +310,9 @@ describe("merge validation and apply overrides", () => {
 
   it("summarizes source coverage for assembly-only previews", () => {
     const summary = buildSourceCoverageSummary(assemblyOnlySources);
-    expect(summary).toContain("1 source(s) alimente(nt) cette preview");
-    expect(summary).toContain("aucun brief confirme");
-    expect(summary).toContain("bibliotheque d'ouvrages");
-    expect(summary).toContain("non preselectionnees");
+    expect(summary).toContain("1 source(s) alimente(nt) cet aperçu");
+    expect(summary).toContain("aucun brief confirmé");
+    expect(summary).toContain("bibliothèque d'ouvrages");
+    expect(summary).toContain("non présélectionnées");
   });
 });

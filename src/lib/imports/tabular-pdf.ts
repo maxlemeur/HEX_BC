@@ -288,7 +288,7 @@ function summarizeTableIssues(table: TabularPdfDetectedTable): TabularPdfTableIs
     issues.push({
       code: "duplicate_headers",
       severity: "warning",
-      message: "Des en-tetes dupliques seront dedoublonnes avant le mapping.",
+      message: "Des en-têtes en double seront dédoublonnés avant le mapping.",
     });
   }
 
@@ -296,7 +296,7 @@ function summarizeTableIssues(table: TabularPdfDetectedTable): TabularPdfTableIs
     issues.push({
       code: "empty_table",
       severity: "error",
-      message: "Le tableau detecte ne contient aucune ligne exploitable.",
+      message: "Le tableau détecté ne contient aucune ligne exploitable.",
     });
     return issues;
   }

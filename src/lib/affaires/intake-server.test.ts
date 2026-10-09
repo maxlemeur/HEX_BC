@@ -51,7 +51,7 @@ describe("affaire intake resource budgets", () => {
 
     expect(() =>
       __securityTesting__.validateAffaireIntakeUploadBatch(files)
-    ).toThrow(/ne peut pas depasser 20 fichiers/);
+    ).toThrow(/ne peut pas dépasser 20 fichiers/);
   });
 
   it("rejects an excessive cumulative batch while preserving ordinary batches", () => {

@@ -225,7 +225,7 @@ describe("EstimateStructureDraftDialog", () => {
     await screen.findByText("Provenance utilisée");
     expect(
       screen.getByText(
-        /Fait: 1 source\(s\) alimente\(nt\) cette preview\. Fait: aucun brief confirme n'est disponible pour cette affaire\./i
+        /Fait : 1 source\(s\) alimente\(nt\) cet aperçu\. Fait : aucun brief confirmé n'est disponible pour cette affaire\./i
       )
     ).toBeInTheDocument();
     expect(generateEstimateStructureDraft).toHaveBeenCalledWith("version-1", {
@@ -351,7 +351,7 @@ describe("EstimateStructureDraftDialog", () => {
 
     await screen.findByText(/Contexte pauvre détecté/i);
     expect(
-      screen.getByText(/les suggestions faibles sont de-priorisees et non preselectionnees/i)
+      screen.getByText(/les suggestions faibles sont dépriorisées et non présélectionnées/i)
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Continuer" }));

@@ -798,7 +798,7 @@ function validateXlsxArchiveBudget(buffer: Buffer) {
       throw new Error("Les entrées XLSX ZIP64 ne sont pas prises en charge.");
     }
     if ((flags & 0x1) !== 0) {
-      throw new Error("Les classeurs XLSX chiffres ne sont pas pris en charge.");
+      throw new Error("Les classeurs XLSX chiffrés ne sont pas pris en charge.");
     }
     if (compressionMethod !== 0 && compressionMethod !== 8) {
       throw new Error("Méthode de compression XLSX non prise en charge.");
@@ -1127,7 +1127,7 @@ async function requireAffaireProjectAccess(
         : isOwner || isAdmin;
 
   if (!hasAccess) {
-    throw forbidden("Accès refuse à cette affaire.");
+    throw forbidden("Accès refusé à cette affaire.");
   }
 
   return {
@@ -2227,7 +2227,7 @@ function collectFilesFromFormData(formData: FormData) {
 function validateAffaireIntakeUploadBatch(files: File[]) {
   if (files.length > AFFAIRE_INTAKE_MAX_FILES_PER_UPLOAD) {
     throw badRequest(
-      `Un lot intake ne peut pas depasser ${AFFAIRE_INTAKE_MAX_FILES_PER_UPLOAD} fichiers.`
+      `Un lot de pièces ne peut pas dépasser ${AFFAIRE_INTAKE_MAX_FILES_PER_UPLOAD} fichiers.`
     );
   }
 

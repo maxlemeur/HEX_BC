@@ -293,7 +293,7 @@ export function useDraftLock({
       setError(
         resolveDraftLockErrorMessage(
           acquireError,
-          "Impossible d'acquerir le verrou de brouillon."
+          "Impossible d'acquérir le verrou de brouillon."
         )
       );
       return false;

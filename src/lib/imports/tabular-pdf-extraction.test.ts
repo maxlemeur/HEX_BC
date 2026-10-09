@@ -139,7 +139,7 @@ describe("detectTabularPdfTablesFromLayout", () => {
         new Promise<never>(() => undefined),
         Date.now() + 5
       )
-    ).rejects.toThrow(/delai maximal d'analyse PDF/);
+    ).rejects.toThrow(/délai maximal d'analyse PDF/);
   });
 
   it("terminates a stuck PDF.js worker without invoking pdftotext on timeout", async () => {
@@ -169,7 +169,7 @@ describe("detectTabularPdfTablesFromLayout", () => {
       fallback
     );
 
-    await expect(extraction).rejects.toThrow(/delai maximal d'analyse PDF/);
+    await expect(extraction).rejects.toThrow(/délai maximal d'analyse PDF/);
     await expect(workerExit).resolves.toEqual(expect.any(Number));
     expect((worker as NodeWorker | null)?.threadId).toBe(-1);
     expect(fallback).not.toHaveBeenCalled();

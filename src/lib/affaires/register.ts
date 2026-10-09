@@ -119,7 +119,7 @@ export const AFFAIRE_REGISTER_STATUS_LABELS: Record<
 > = {
   open: "Ouverte",
   validated: "Validée",
-  rejected: "Rejetee",
+  rejected: "Rejetée",
   clarify_with_client: "À clarifier avec client",
 };
 
@@ -136,14 +136,14 @@ export const AFFAIRE_REGISTER_EVENT_LABELS: Record<
   string
 > = {
   created: "Entrée créée",
-  synced: "Resynchronisee",
-  status_changed: "Statut modifie",
+  synced: "Resynchronisée",
+  status_changed: "Statut modifié",
   follow_up_updated: "Pilotage métier mis à jour",
-  clarify_with_client_requested: "Clarification client demandee",
+  clarify_with_client_requested: "Clarification client demandée",
   continued_with_hypothesis: "Continuation acceptée sous hypothèse",
-  revalidation_requested: "Revalidation demandee",
+  revalidation_requested: "Revalidation demandée",
   deactivated: "Entrée archivée",
-  reactivated: "Entrée reactivee",
+  reactivated: "Entrée réactivée",
 };
 
 export const AFFAIRE_REGISTER_SCOPE_LABELS: Record<
@@ -161,8 +161,8 @@ export const AFFAIRE_REGISTER_REVALIDATION_CAUSE_LABELS: Record<
 > = {
   addendum_received: "Additif reçu",
   late_critical_piece: "Pièce critique reçue tardivement",
-  document_replaced: "Document remplace",
-  manual_reopen: "Reouverture manuelle",
+  document_replaced: "Document remplacé",
+  manual_reopen: "Réouverture manuelle",
 };
 export const AFFAIRE_REGISTER_REVALIDATION_IMPACTED_STAGE_LABELS: Record<
   AffaireRegisterRevalidationImpactedStage,
@@ -182,7 +182,7 @@ export const AFFAIRE_REGISTER_BUSINESS_IMPACT_LABELS: Record<
   blocks_submission: "Bloque la pré-remise",
   affects_structure_generation: "Impacte la structure du devis",
   affects_takeoff: "Impacte les plans et le métré",
-  requires_client_answer: "Necessite une réponse client",
+  requires_client_answer: "Nécessite une réponse client",
 };
 export const AFFAIRE_REGISTER_REVIEW_EXPORT_SECTION_LABELS: Record<
   AffaireRegisterReviewExportSection,
@@ -198,10 +198,10 @@ export const AFFAIRE_REGISTER_REVIEW_EXPORT_SECTION_DESCRIPTIONS: Record<
   AffaireRegisterReviewExportSection,
   string
 > = {
-  hypothesis: "Hypothèses ouvertes ou acceptées sous reserve pour poursuivre l'étude.",
+  hypothesis: "Hypothèses ouvertes ou acceptées sous réserve pour poursuivre l'étude.",
   exclusion:
-    "Points explicitement ecartes du perimetre et a rendre visibles avant remise.",
-  missing_piece: "Pièces manquantes encore ouvertes a rendre visibles avant remise.",
+    "Points explicitement écartés du périmètre et à rendre visibles avant remise.",
+  missing_piece: "Pièces manquantes encore ouvertes à rendre visibles avant remise.",
   clarification: "Points qui attendent explicitement un retour client.",
   revalidation: "Points déjà résolus puis rouverts après additif ou pièce tardive.",
 };
@@ -1162,7 +1162,7 @@ export function buildAffaireRegisterReviewExport(input: {
     ]
       .filter(Boolean)
       .join(" - "),
-    `Points exportes: ${rows.length}`,
+    `Points exportés : ${rows.length}`,
     `Critiques actives: ${criticalRows.length} - Bloquants pré-remise: ${blockingRows.length}`,
     `Hypothèses: ${hypothesisCount} - Pièces manquantes: ${missingPieceCount} - Clarifications: ${clarificationCount} - Revalidations: ${revalidationCount} - Exclusions: ${exclusionCount}`,
     ...criticalRows.slice(0, 5).map((row) => {

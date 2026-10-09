@@ -1378,7 +1378,7 @@ export async function generateVersionZeroDraft(input: {
 
   if (selectedLots.length === 0) {
     throw badRequest(
-      "Aucun lot exploitable n'a été trouve dans le brief confirme.",
+      "Aucun lot exploitable n'a été trouvé dans le brief confirmé.",
       undefined,
       "EST384_NO_LOTS"
     );

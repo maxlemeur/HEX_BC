@@ -73,7 +73,7 @@ export async function ensureTakeoffApplyDraftLock(
       errorMessage:
         acquireError instanceof Error
           ? acquireError.message
-          : "Impossible d'acquerir le verrou de brouillon.",
+          : "Impossible d'acquérir le verrou de brouillon.",
     };
   }
 }

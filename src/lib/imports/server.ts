@@ -146,7 +146,7 @@ function unauthorized(message = "Unauthorized") {
   });
 }
 
-function forbidden(message = "Accès refuse.", details?: unknown, code = "FORBIDDEN") {
+function forbidden(message = "Accès refusé.", details?: unknown, code = "FORBIDDEN") {
   return new ImportsApiError({
     status: 403,
     code,
@@ -199,7 +199,7 @@ function mapSupabaseError(error: PostgrestError, fallbackMessage: string): Impor
   const normalizedMessage = (error.message ?? "").toLowerCase();
 
   if (error.code === "42501" || normalizedMessage.includes("row-level security")) {
-    return forbidden("Accès refuse.", error, "FORBIDDEN");
+    return forbidden("Accès refusé.", error, "FORBIDDEN");
   }
 
   if (error.code === "PGRST116") {

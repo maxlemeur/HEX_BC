@@ -896,7 +896,7 @@ async function loadLotLabel(input: {
     .maybeSingle();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de charger le lot selectionne.");
+    throw mapSupabaseError(error, "Impossible de charger le lot sélectionné.");
   }
 
   if (!data) {
@@ -904,7 +904,7 @@ async function loadLotLabel(input: {
   }
 
   if ((data as { item_type?: string }).item_type !== "section") {
-    throw badRequest("Le lot selectionne doit être un chapitre du devis.");
+    throw badRequest("Le lot sélectionné doit être un chapitre du devis.");
   }
 
   return normalizeText((data as { title: string }).title, 180);
@@ -1281,7 +1281,7 @@ function buildGeneratedOuvragePrompt(input: {
         `kind=${fragment.source_kind}`,
         `label=${fragment.label}`,
         fragment.source_file_name ? `file=${fragment.source_file_name}` : null,
-        fragment.selection_label ? `sélection=${fragment.selection_label}` : null,
+        fragment.selection_label ? `selection=${fragment.selection_label}` : null,
       ].filter((value): value is string => Boolean(value));
       return [
         `- [${fragment.id}] ${metaParts.join(" | ")}`,
@@ -2564,21 +2564,21 @@ async function loadGeneratedOuvrageSubdetail(input: {
   if (draftResult.error) {
     throw mapSupabaseError(
       draftResult.error as never,
-      "Impossible de charger le sous-detail persiste."
+      "Impossible de charger le sous-détail enregistré."
     );
   }
 
   if (itemResult.error) {
     throw mapSupabaseError(
       itemResult.error as never,
-      "Impossible de charger les composants du sous-detail."
+      "Impossible de charger les composants du sous-détail."
     );
   }
 
   if (itemSourceResult.error) {
     throw mapSupabaseError(
       itemSourceResult.error as never,
-      "Impossible de charger la provenance du sous-detail."
+      "Impossible de charger la provenance du sous-détail."
     );
   }
 
@@ -2717,7 +2717,7 @@ async function persistGeneratedOuvrageSubdetail(input: {
   if (persistedDraftResponse.error || !persistedDraftResponse.data) {
     throw mapSupabaseError(
       persistedDraftResponse.error as never,
-      "Impossible de persister le brouillon de sous-detail."
+      "Impossible d'enregistrer le brouillon de sous-détail."
     );
   }
 
@@ -2731,7 +2731,7 @@ async function persistGeneratedOuvrageSubdetail(input: {
   if (deleteItemsError) {
     throw mapSupabaseError(
       deleteItemsError,
-      "Impossible de remplacer les composants du sous-detail."
+      "Impossible de remplacer les composants du sous-détail."
     );
   }
 
@@ -2771,7 +2771,7 @@ async function persistGeneratedOuvrageSubdetail(input: {
   if (insertItemsError || !insertedItems) {
     throw mapSupabaseError(
       insertItemsError,
-      "Impossible de persister les composants du sous-detail."
+      "Impossible d'enregistrer les composants du sous-détail."
     );
   }
 
@@ -2800,7 +2800,7 @@ async function persistGeneratedOuvrageSubdetail(input: {
     if (insertSourcesError) {
       throw mapSupabaseError(
         insertSourcesError,
-        "Impossible de persister les preuves du sous-detail."
+        "Impossible d'enregistrer les preuves du sous-détail."
       );
     }
   }
@@ -3158,7 +3158,7 @@ export async function generateOuvragesFromText(
       });
     } catch (cleanupError) {
       throw internalError(
-        "La generation du brouillon a echoue et son archivage automatique a aussi echoue.",
+        "La génération du brouillon a échoué et son archivage automatique a aussi échoué.",
         {
           draftId: draft.id,
           cause: error,
@@ -3181,7 +3181,7 @@ export async function generateOuvragesFromText(
 
   if (!updatedDraft || !generation) {
     throw internalError(
-      "Le brouillon d'ouvrages genere est incomplet après materialisation.",
+      "Le brouillon d'ouvrages généré est incomplet après matérialisation.",
       { draftId: draft.id },
       "EST381_DRAFT_GENERATION_INCOMPLETE"
     );
@@ -3396,7 +3396,7 @@ export async function updateGeneratedOuvrageSubdetailDraft(
 
   if (candidate.resolution_status !== "pending") {
     throw conflict(
-      "Le sous-detail n'est éditable que tant que l'ouvrage parent est en attente.",
+      "Le sous-détail n'est éditable que tant que l'ouvrage parent est en attente.",
       { candidateId: candidate.id, status: candidate.resolution_status },
       "EST383_CANDIDATE_NOT_PENDING"
     );
@@ -3510,7 +3510,7 @@ export async function updateGeneratedOuvrageSubdetailDraft(
 
   if (!reloaded.draft) {
     throw internalError(
-      "Le sous-detail n'a pas pu être recharge après sauvegarde.",
+      "Le sous-détail n'a pas pu être rechargé après sauvegarde.",
       { draftId: parsed.draftId, candidateId: parsed.candidateId },
       "EST383_SUBDETAIL_RELOAD_MISSING"
     );
@@ -3602,7 +3602,7 @@ export async function insertGeneratedOuvrages(
 
     if (typeof acceptedCandidate.quantity !== "number") {
       throw badRequest(
-        "La quantité doit être renseignee avant l'insertion du candidat.",
+        "La quantité doit être renseignée avant l'insertion du candidat.",
         { candidateId: candidate.id },
         "EST381_CANDIDATE_QUANTITY_REQUIRED"
       );
@@ -3643,7 +3643,7 @@ export async function insertGeneratedOuvrages(
 
       if (!subdetail.draft || subdetail.items.length === 0) {
         throw conflict(
-          "Le sous-detail doit être généré puis revu avant insertion.",
+          "Le sous-détail doit être généré puis revu avant insertion.",
           { candidateId: preparedCandidate.candidate.id },
           "EST383_SUBDETAIL_REQUIRED"
         );
@@ -3651,7 +3651,7 @@ export async function insertGeneratedOuvrages(
 
       if (subdetail.draft.status !== "reviewed") {
         throw conflict(
-          "Le sous-detail doit être explicitement valide avant insertion.",
+          "Le sous-détail doit être explicitement validé avant insertion.",
           {
             candidateId: preparedCandidate.candidate.id,
             subdetailStatus: subdetail.draft.status,
@@ -3684,7 +3684,7 @@ export async function insertGeneratedOuvrages(
         })
       ) {
         throw conflict(
-          "Le sous-detail valide ne correspond plus aux valeurs actuelles du candidat. Merci de revalider le sous-detail.",
+          "Le sous-détail validé ne correspond plus aux valeurs actuelles du candidat. Merci de revalider le sous-détail.",
           {
             candidateId: preparedCandidate.candidate.id,
             reviewedCandidate,
@@ -3944,7 +3944,7 @@ export async function insertGeneratedOuvrages(
       if (snapshotError) {
         throw mapSupabaseError(
           snapshotError,
-          "Impossible de figer le snapshot du sous-detail applique."
+          "Impossible de figer l'instantané du sous-détail appliqué."
         );
       }
 
@@ -4017,7 +4017,7 @@ export async function insertGeneratedOuvrages(
       if (appliedSubdetailsError) {
         throw mapSupabaseError(
           appliedSubdetailsError,
-          "Impossible de finaliser le statut applique du sous-detail."
+          "Impossible de finaliser le statut appliqué du sous-détail."
         );
       }
     }
@@ -4032,7 +4032,7 @@ export async function insertGeneratedOuvrages(
       });
     } catch (rollbackError) {
       throw internalError(
-        "L'insertion des ouvrages a echoue et la restauration automatique est incomplete.",
+        "L'insertion des ouvrages a échoué et la restauration automatique est incomplète.",
         {
           draftId: loaded.draft.id,
           cause: error,

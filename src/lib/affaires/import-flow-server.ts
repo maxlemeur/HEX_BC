@@ -226,7 +226,7 @@ export async function fetchMappedRowsForImport(input: {
     .order("id", { ascending: true });
 
   if (error) {
-    throw new Error("Impossible de charger les lignes mappees.");
+    throw new Error("Impossible de charger les lignes mappées.");
   }
 
   return (data ?? []).map((row) => ({

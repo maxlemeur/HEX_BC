@@ -807,9 +807,9 @@ export function buildClipboardPreviewRows(
     }
 
     if (!fieldToSource.designation) {
-      reasons.push("Colonne designation non mappee.");
+      reasons.push("Colonne désignation non mappée.");
     } else if (!values.designation) {
-      reasons.push("Designation manquante.");
+      reasons.push("Désignation manquante.");
     }
 
     if (!hasMappedValue) {

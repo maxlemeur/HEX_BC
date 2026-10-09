@@ -818,7 +818,7 @@ async function loadEstimateTermsTemplate(input: {
 
     throw mapSupabaseError(
       error,
-      "Impossible de charger les conditions generales du devis.",
+      "Impossible de charger les conditions générales du devis.",
     );
   }
   if (!data) {
@@ -1312,7 +1312,7 @@ export function buildEstimatePdfDocument(input: {
 
         <View style={businessPdfStyles.titleGrid}>
           <View style={businessPdfStyles.issuer}>
-            <Text style={businessPdfStyles.issuerLabel}>Emis par</Text>
+            <Text style={businessPdfStyles.issuerLabel}>Émis par</Text>
             <Text style={businessPdfStyles.issuerName}>
               {input.issuer.name}
             </Text>

@@ -156,7 +156,7 @@ function throwDispatchRpcError(
     message.includes("STATUS_FORBIDDEN")
   ) {
     throw forbidden(
-      "Accès à l'envoi du devis refuse.",
+      "Accès à l'envoi du devis refusé.",
       { code: error.code },
       "ESTIMATE_EMAIL_DISPATCH_FORBIDDEN"
     );
@@ -288,7 +288,7 @@ export async function reserveEstimateEmailDispatch(input: {
       p_body: input.body,
       p_from_address: input.fromAddress,
     },
-    "Impossible de reserver l'envoi du devis."
+    "Impossible de réserver l'envoi du devis."
   );
 }
 

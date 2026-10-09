@@ -400,7 +400,7 @@ async function waitWithinDeadline<T>(
 ): Promise<T> {
   const remainingMs = deadline - Date.now();
   if (remainingMs <= 0) {
-    throw budgetError("Le delai maximal d'analyse PDF est depasse.");
+    throw budgetError("Le délai maximal d'analyse PDF est dépassé.");
   }
 
   let timeout: ReturnType<typeof setTimeout> | null = null;
@@ -409,7 +409,7 @@ async function waitWithinDeadline<T>(
       promise,
       new Promise<never>((_resolve, reject) => {
         timeout = setTimeout(
-          () => reject(budgetError("Le delai maximal d'analyse PDF est depasse.")),
+          () => reject(budgetError("Le délai maximal d'analyse PDF est dépassé.")),
           remainingMs
         );
       }),
@@ -859,7 +859,7 @@ async function runPdfJsWorkerWithDeadline(
 
     timeout = setTimeout(() => {
       settle(() => {
-        reject(budgetError("Le delai maximal d'analyse PDF est depasse."));
+        reject(budgetError("Le délai maximal d'analyse PDF est dépassé."));
       });
     }, effectiveTimeoutMs);
 

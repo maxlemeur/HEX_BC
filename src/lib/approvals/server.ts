@@ -30,7 +30,7 @@ const CAUSE_TO_EXCEPTION_GROUP: Record<TakeoffRiskCauseCode, ExceptionGroupKey> 
 const EXCEPTION_GROUP_LABELS: Record<ExceptionGroupKey, string> = {
   price: "Prix",
   quantities: "Quantités",
-  vat_conformity: "Conformite TVA",
+  vat_conformity: "Conformité TVA",
   missing_proofs: "Preuves manquantes",
   missing_documents: "Pièces manquantes",
 };

@@ -271,7 +271,7 @@ describe("useEstimateEditorPasteController validation barrier", () => {
 
     expect(harness.ensureGroupedActionCanProceed).toHaveBeenCalledTimes(1);
     expect(harness.reportError).toHaveBeenCalledWith(
-      "Aucune ligne valide à inserer."
+      "Aucune ligne valide à insérer."
     );
     expect(mocks.computeEstimateLineValues).not.toHaveBeenCalled();
     expect(mocks.batchEstimateOperations).not.toHaveBeenCalled();

@@ -83,7 +83,7 @@ export function ApprovalReviewRequestEmailTemplate({
           <Section style={contentStyle}>
             <Text style={footerStyle}>
               Ouvrez l&apos;application Hydro Express pour consulter le dossier, le contexte
-              de soumission et les points de validation associes.
+              de soumission et les points de validation associés.
             </Text>
           </Section>
         </Container>

@@ -325,13 +325,13 @@ function joinNonEmpty(values: string[], separator = " - "): string {
 function suggestFixForIssue(code: PriceBookRowIssueCode): string | null {
   switch (code) {
     case "SUPPLIER_REQUIRED":
-      return "Renseigner le fournisseur ou utiliser le bouton de resolution automatique.";
+      return "Renseigner le fournisseur ou utiliser le bouton de résolution automatique.";
     case "SUPPLIER_UNKNOWN":
       return "Vérifier le nom fournisseur ou créer le fournisseur manquant.";
     case "SUPPLIER_AMBIGUOUS":
       return "Préciser le nom exact du fournisseur pour lever l'ambiguite.";
     case "PRODUCT_REQUIRED":
-      return "Renseigner une référence ou une designation produit.";
+      return "Renseigner une référence ou une désignation produit.";
     case "PRODUCT_UNKNOWN":
       return "Vérifier la référence produit ou créer le produit manquant.";
     case "PRODUCT_AMBIGUOUS":
@@ -341,9 +341,9 @@ function suggestFixForIssue(code: PriceBookRowIssueCode): string | null {
     case "PRICE_INVALID":
       return "Saisir un prix numerique (virgule ou point).";
     case "PRICE_NON_POSITIVE":
-      return "Le prix doit être strictement supérieur a zero.";
+      return "Le prix doit être strictement supérieur à zéro.";
     case "DUPLICATE_CANDIDATE":
-      return "Doublon detecte dans ce fichier d'import.";
+      return "Doublon détecté dans ce fichier d'import.";
     case "NO_SUPPLIER_PRICE":
       return "Aucun prix fournisseur sur cette ligne.";
     case "ZOD_VALIDATION_ERROR":
@@ -566,7 +566,7 @@ function normalizeMMBdcRows(
         lineNumber,
         issues: [{
           code: "NO_SUPPLIER_PRICE",
-          message: "Ligne ignoree: aucun prix fournisseur renseigne.",
+          message: "Ligne ignorée : aucun prix fournisseur renseigné.",
         }],
         values: {
           supplier_name: "",
@@ -871,7 +871,7 @@ export async function validatePriceBookRows(
         if (!hasProductInput) {
           issues.push({
             code: "PRODUCT_REQUIRED",
-            message: "Produit requis (référence ou designation).",
+            message: "Produit requis (référence ou désignation).",
           });
         }
 
@@ -899,7 +899,7 @@ export async function validatePriceBookRows(
               const searchValue = mappedValues.product_reference || mappedValues.product_designation;
               issues.push({
                 code: "PRODUCT_UNKNOWN",
-                message: `Produit inconnu : "${searchValue}". Vérifiez la référence ou designation dans la page Produits.`,
+                message: `Produit inconnu : "${searchValue}". Vérifiez la référence ou la désignation dans la page Produits.`,
               });
             } else if (resolvedInfo.product_match === "ambiguous") {
               const searchValue = mappedValues.product_reference || mappedValues.product_designation;
@@ -942,7 +942,7 @@ export async function validatePriceBookRows(
         if (dedupeKeys.has(dedupeKey)) {
           issues.push({
             code: "DUPLICATE_CANDIDATE",
-            message: "Doublon detecte dans le fichier d'import.",
+            message: "Doublon détecté dans le fichier d'import.",
           });
         } else {
           dedupeKeys.add(dedupeKey);

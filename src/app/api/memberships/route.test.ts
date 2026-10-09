@@ -308,7 +308,7 @@ describe("GET /api/memberships", () => {
       ok: false,
       error: expect.objectContaining({
         code: "FORBIDDEN",
-        message: "Aucun tenant actif pour cet utilisateur.",
+        message: "Aucune organisation active pour cet utilisateur.",
       }),
     });
     expect(createServiceRoleClient).not.toHaveBeenCalled();

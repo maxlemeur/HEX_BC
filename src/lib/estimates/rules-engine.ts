@@ -1864,7 +1864,7 @@ async function enrichSubmissionReadinessWithAffaireRegister(input: {
         message:
           versionZeroSummary.activeDraft.counts.pending > 0
             ? `La V0 IA comporte encore ${versionZeroSummary.activeDraft.counts.pending} ligne(s) en attente de validation humaine.`
-            : "Une V0 IA active doit être materialisee ou abandonnee avant soumission.",
+            : "Une V0 IA active doit être matérialisée ou abandonnée avant soumission.",
         category: "estimate_quality",
         actionLabel: isEstimateAiDraftEnabled() ? "Ouvrir la V0" : undefined,
         actionHref: isEstimateAiDraftEnabled()
@@ -2934,11 +2934,11 @@ function toApprovalDecisionCsvDecisionLabel(
   decision: EstimateApprovalDecisionFilter
 ) {
   if (decision === "approved") {
-    return "Approuvee";
+    return "Approuvée";
   }
 
   if (decision === "approved_with_reservations") {
-    return "Approuvee sous reserve";
+    return "Approuvée sous réserve";
   }
 
   return "Retour correction";
@@ -3426,7 +3426,7 @@ async function loadApprovalSummaryItems(input: {
   if (error) {
     throw mapSupabaseError(
       error,
-      "Impossible de charger les lignes pour le resume d'approbation."
+      "Impossible de charger les lignes pour le résumé d'approbation."
     );
   }
 
@@ -3593,7 +3593,7 @@ async function syncEstimateApprovalSummary(input: {
   if (updateError) {
     throw mapSupabaseError(
       updateError,
-      "Impossible de projeter le resume d'approbation."
+      "Impossible de projeter le résumé d'approbation."
     );
   }
 
@@ -4173,7 +4173,7 @@ async function resolveAssignedReviewerOrThrow(input: {
   const assignedReviewer =
     availableReviewers.find((reviewer) => reviewer.userId === input.reviewerUserId) ?? null;
   if (!assignedReviewer) {
-    throw badRequest("Le validateur assigne n'est pas autorise sur ce tenant.");
+    throw badRequest("Le validateur assigné n'est pas autorisé dans cette organisation.");
   }
 
   return assignedReviewer;

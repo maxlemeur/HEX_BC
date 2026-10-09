@@ -241,7 +241,7 @@ function parseProducts(
         row: rowNumber,
         column: "designation",
         code: "PRODUCT_DESIGNATION_REQUIRED",
-        message: "La designation du produit est obligatoire.",
+        message: "La désignation du produit est obligatoire.",
       });
     }
 

@@ -130,7 +130,7 @@ export function assertSectionSubtreePlacementAllowed(input: {
     input.maxSectionDepth
   ) {
     throw badRequest(
-      `Ce deplacement depasse la profondeur max ${input.maxSectionDepth}.`
+      `Ce déplacement dépasse la profondeur maximale (${input.maxSectionDepth}).`
     );
   }
 }

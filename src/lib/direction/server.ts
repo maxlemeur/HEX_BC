@@ -791,7 +791,7 @@ async function listDirectionPlansMetricsByProjectId(
       if (error) {
         throw mapSupabaseError(
           error,
-          "Impossible de charger la synthese batch du registre direction."
+          "Impossible de charger la synthèse du registre direction."
         );
       }
 
@@ -1012,7 +1012,7 @@ export async function fetchDirectionDashboardPageData(
   assertDirectionAccess(context.tenantRole);
   await writeDirectionDebugLog(
     "server",
-    `page-data:start tenant=${context.tenantId} rôle=${context.tenantRole} versions=${versions.length} ownerFilter=${query.ownerUserId ?? "all"} lotFilter=${query.lot ?? "all"} horizon=${query.horizon} onlyExceptions=${query.onlyExceptions ? "true" : "false"}`
+    `page-data:start tenant=${context.tenantId} role=${context.tenantRole} versions=${versions.length} ownerFilter=${query.ownerUserId ?? "all"} lotFilter=${query.lot ?? "all"} horizon=${query.horizon} onlyExceptions=${query.onlyExceptions ? "true" : "false"}`
   );
 
   const versionIds = versions.map((version) => version.id);

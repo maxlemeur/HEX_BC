@@ -312,7 +312,7 @@ describe("approval decision journal", () => {
     });
 
     expect(csv).toContain("date_decision;decision;auteur");
-    expect(csv).toContain("Approuvee sous reserve");
+    expect(csv).toContain("Approuvée sous réserve");
     expect(csv).toContain("Lot CFO: Confirmer la variante avant envoi.");
     expect(csv).toContain("Seuil montant HT");
   });

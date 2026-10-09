@@ -7,7 +7,6 @@ export type TakeoffFlowDescriptor = {
   kind: TakeoffFlowKind;
   label: string;
   summary: string;
-  badgeClassName: string;
 };
 
 export function resolvePlanSetFlowDescriptor(
@@ -16,11 +15,9 @@ export function resolvePlanSetFlowDescriptor(
   if (planSet.estimate_version_id) {
     return {
       kind: "legacy",
-      label: "Fallback legacy",
+      label: "Ancien parcours",
       summary:
-        "Jeu rattache a une version de devis historique. À conserver comme recours explicite, pas comme voie par défaut.",
-      badgeClassName:
-        "bg-warning/10 text-warning ring-1 ring-warning/20",
+        "Jeu rattaché à une version de devis historique. À conserver comme recours explicite, pas comme voie par défaut.",
     };
   }
 
@@ -28,9 +25,7 @@ export function resolvePlanSetFlowDescriptor(
     kind: "principal",
     label: "Flux principal",
     summary:
-      "Jeu gere au niveau de l'affaire. C'est la voie par défaut pour lancer et reprendre le métré.",
-    badgeClassName:
-      "bg-success/10 text-success ring-1 ring-success/20",
+      "Jeu géré au niveau de l'affaire. C'est la voie par défaut pour lancer et reprendre le métré.",
   };
 }
 

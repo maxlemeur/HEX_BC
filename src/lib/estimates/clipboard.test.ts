@@ -112,7 +112,7 @@ describe("clipboard preview rows", () => {
 
     expect(result.rows[1]?.lineNumber).toBe(3);
     expect(result.rows[1]?.status).toBe("invalid");
-    expect(result.rows[1]?.reasons).toContain("Designation manquante.");
+    expect(result.rows[1]?.reasons).toContain("Désignation manquante.");
 
     expect(result.rows[2]?.lineNumber).toBe(4);
     expect(result.rows[2]?.status).toBe("invalid");
@@ -138,7 +138,7 @@ describe("clipboard preview rows", () => {
 
     expect(result.totalRows).toBe(1);
     expect(result.rows[0]?.status).toBe("invalid");
-    expect(result.rows[0]?.reasons).toContain("Colonne designation non mappee.");
+    expect(result.rows[0]?.reasons).toContain("Colonne désignation non mappée.");
   });
 });
 

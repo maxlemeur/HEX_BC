@@ -2522,7 +2522,7 @@ async function countMappedRowsForImport(input: {
     .eq("import_id", input.importId);
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de compter les lignes DPGF mappees.");
+    throw mapSupabaseError(error, "Impossible de compter les lignes DPGF mappées.");
   }
 
   return count ?? 0;
@@ -2542,7 +2542,7 @@ async function loadMappedRowsForImport(input: {
     .order("id", { ascending: true });
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de charger les lignes DPGF mappees.");
+    throw mapSupabaseError(error, "Impossible de charger les lignes DPGF mappées.");
   }
 
   return (data ?? []) as DpgfMappedRowForEstimateImport[];
@@ -7152,7 +7152,7 @@ export async function reorderEstimateItems(
     hasUnknownIds ||
     hasMissingIds
   ) {
-    throw conflict("La liste de reordonnancement est obsolete.", {
+    throw conflict("La liste de réordonnancement est obsolète.", {
       expected_ids: siblingIds,
       received_ids: input.ordered_ids,
     });
@@ -7174,7 +7174,7 @@ export async function reorderEstimateItems(
   const normalizedUpdatedCount = updatedCount ?? 0;
 
   if (normalizedUpdatedCount !== input.ordered_ids.length) {
-    throw conflict("La liste de reordonnancement est obsolete.", {
+    throw conflict("La liste de réordonnancement est obsolète.", {
       expected_ids: siblingIds,
       received_ids: input.ordered_ids,
       updated_count: normalizedUpdatedCount,
@@ -7302,7 +7302,7 @@ export async function moveEstimateItem(
     if (siblingsError) {
       throw mapSupabaseError(
         siblingsError,
-        "Impossible de charger les items de deplacement."
+        "Impossible de charger les éléments à déplacer."
       );
     }
 
@@ -7312,7 +7312,7 @@ export async function moveEstimateItem(
   const sourceSiblings = await loadSiblingIds(fromParentId);
 
   if (!sourceSiblings.includes(item.id)) {
-    throw conflict("La liste de deplacement est obsolete.", {
+    throw conflict("La liste de déplacement est obsolète.", {
       reason: "item_not_in_source_parent",
       item_id: item.id,
       from_parent_id: fromParentId,
@@ -7365,7 +7365,7 @@ export async function moveEstimateItem(
     targetHasUnknownIds ||
     targetHasMissingIds
   ) {
-    throw conflict("La liste de deplacement est obsolete.", {
+    throw conflict("La liste de déplacement est obsolète.", {
       item_id: item.id,
       from_parent_id: fromParentId,
       to_parent_id: toParentId,
@@ -7397,7 +7397,7 @@ export async function moveEstimateItem(
     input.ordered_source_ids.length + input.ordered_target_ids.length;
 
   if (normalizedUpdatedCount !== expectedUpdatedCount) {
-    throw conflict("La liste de deplacement est obsolete.", {
+    throw conflict("La liste de déplacement est obsolète.", {
       item_id: item.id,
       from_parent_id: fromParentId,
       to_parent_id: toParentId,

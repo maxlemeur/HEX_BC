@@ -542,7 +542,7 @@ describe("estimate draft locks", () => {
     ).rejects.toMatchObject({
       status: 403,
       code: "FORBIDDEN",
-      message: "Seuls les admins peuvent forcer le deverrouillage.",
+      message: "Seuls les administrateurs peuvent forcer le déverrouillage.",
     });
   });
 

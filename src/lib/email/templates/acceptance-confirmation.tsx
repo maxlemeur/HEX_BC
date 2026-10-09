@@ -31,7 +31,7 @@ export function AcceptanceConfirmationEmailTemplate({
   return (
     <Html lang="fr">
       <Head />
-      <Preview>{`Devis V${versionNumber} accepte - ${projectName}`}</Preview>
+      <Preview>{`Devis V${versionNumber} accepté - ${projectName}`}</Preview>
       <Body style={bodyStyle}>
         <Container style={containerStyle}>
           {/* Header */}
@@ -44,7 +44,7 @@ export function AcceptanceConfirmationEmailTemplate({
           {/* Title */}
           <Section style={contentStyle}>
             <Heading as="h2" style={titleStyle}>
-              Devis accepte - {projectName}
+              Devis accepté - {projectName}
             </Heading>
             <Text style={versionBadgeStyle}>Version V{versionNumber}</Text>
           </Section>

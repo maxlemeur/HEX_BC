@@ -28,9 +28,9 @@ import type { EstimateVersionRow } from "@/lib/estimates/editor-items";
 const LINKED_DPGF_LOAD_ERROR =
   "Impossible de charger la source DPGF de l'affaire.";
 const STALE_OPERATION_MESSAGE =
-  "La version active a change pendant l'opération.";
+  "La version active a changé pendant l'opération.";
 const BARRIER_BLOCKED_MESSAGE =
-  "Les modifications locales doivent être synchronisees avant cette opération.";
+  "Les modifications locales doivent être synchronisées avant cette opération.";
 
 export type EstimateEditorImportMutation =
   | "estimate-sections"
@@ -818,7 +818,7 @@ export function useEstimateEditorImportController({
       await runStructuralMutation<ImportLinkedDpgfSourceResult>({
         kind: "linked-dpgf",
         actionLabel: "importer la source DPGF liée",
-        failureMessage: "Impossible d'importer le DPGF source lie.",
+        failureMessage: "Impossible d'importer le DPGF source lié.",
         tokenRefreshFailureMessage:
           "Impossible de rafraichir le jeton de version après import du DPGF source.",
         execute: (versionId) => importLinkedDpgfSourceClient(versionId),

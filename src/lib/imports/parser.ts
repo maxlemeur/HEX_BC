@@ -269,7 +269,7 @@ const selectDpgfSheetIndex = (${DPGF_SHEET_SELECTOR_SOURCE});
 function buildParseTimeoutError(timeoutMs: number) {
   const timeoutSeconds = Math.max(1, Math.round(timeoutMs / 1000));
   return new Error(
-    `Delai de traitement depasse (${timeoutSeconds}s). Le fichier est peut-être trop volumineux ou corrompu.`
+    `Délai de traitement dépassé (${timeoutSeconds} s). Le fichier est peut-être trop volumineux ou corrompu.`
   );
 }
 

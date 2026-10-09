@@ -3073,7 +3073,7 @@ function parseEstimateEditorData(payload: unknown): EstimateEditorData {
 function parseVersionZeroDraftSummary(payload: unknown): VersionZeroDraftSummary {
   const root = getRootPayload(payload);
   if (!isRecord(root)) {
-    throw new Error("Impossible de charger le resume V0.");
+    throw new Error("Impossible de charger le résumé V0.");
   }
 
   return root as VersionZeroDraftSummary;
@@ -3862,7 +3862,7 @@ export async function fetchVersionZeroDraftSummary(
     {
       method: "GET",
     },
-    "Impossible de charger le resume de la V0."
+    "Impossible de charger le résumé de la V0."
   );
 
   return parseVersionZeroDraftSummary(payload);
@@ -4313,7 +4313,7 @@ export async function fetchEstimateOutlierDismissedFlags(
     {
       method: "GET",
     },
-    "Impossible de charger les outliers acceptes."
+    "Impossible de charger les valeurs atypiques acceptées."
   );
 
   return normalizeOutlierDismissedByItemId(payload);
@@ -4635,7 +4635,7 @@ function parseEstimateBatchOperationResult(
     op: opValue,
     status: "error",
     code: toStringValue(value.code) ?? "INTERNAL_ERROR",
-    message: toStringValue(value.message) ?? "Une opération batch a echoue.",
+    message: toStringValue(value.message) ?? "Une opération groupée a échoué.",
     details: value.details,
   };
 }
@@ -4832,7 +4832,7 @@ export async function fetchEstimateSendGating(
   );
 
   if (!parsed) {
-    throw new Error("Impossible de lire les preconditions d'envoi.");
+    throw new Error("Impossible de lire les préconditions d'envoi.");
   }
 
   return parsed;
@@ -4992,7 +4992,7 @@ export async function acquireEstimateDraftLock(
       {
         method: "POST",
       },
-      "Impossible d'acquerir le verrou de brouillon."
+      "Impossible d'acquérir le verrou de brouillon."
     );
 
     const lock = parseEstimateDraftLock(payload, versionId);
@@ -5079,7 +5079,7 @@ export async function releaseEstimateDraftLock(
         keepalive: options.keepalive,
       },
       options.force
-        ? "Impossible de forcer le deverrouillage."
+        ? "Impossible de forcer le déverrouillage."
         : "Impossible de libérer le verrou de brouillon."
     );
 

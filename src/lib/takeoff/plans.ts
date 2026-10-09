@@ -553,7 +553,7 @@ async function resolveProjectIdForEstimateVersion(input: {
     .maybeSingle();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de resoudre la version de devis.");
+    throw mapSupabaseError(error, "Impossible de résoudre la version de devis.");
   }
 
   if (!data || typeof (data as { project_id?: unknown }).project_id !== "string") {
@@ -1091,7 +1091,7 @@ export async function deletePlanSet(setId: string) {
       }
 
       throw conflict(
-        "Suppression du jeu de plans annulée car le cleanup storage a echoue.",
+        "Suppression du jeu de plans annulée car le nettoyage du stockage a échoué.",
         {
           set_id: setId,
           storage_error: cleanupError,
@@ -1421,7 +1421,7 @@ export async function deletePlanFile(setId: string, fileId: string) {
     }
 
     throw conflict(
-      "Suppression du fichier annulée car le cleanup storage a echoue.",
+      "Suppression du fichier annulée car le nettoyage du stockage a échoué.",
       {
         set_id: setId,
         file_id: fileId,

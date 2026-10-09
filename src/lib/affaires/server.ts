@@ -1077,7 +1077,7 @@ async function fetchAffaireHubDpgfSourceWithContext(
   if (mappedRowsCountResult.error) {
     throw mapSupabaseError(
       mappedRowsCountResult.error,
-      "Impossible de compter les lignes DPGF mappees."
+      "Impossible de compter les lignes DPGF mappées."
     );
   }
 
@@ -1122,7 +1122,7 @@ async function resolveTakeoffReviewVersionId(input: {
           if (currentVersionError) {
             throw mapSupabaseError(
               currentVersionError,
-              "Impossible de resoudre la version courante pour la revue takeoff."
+              "Impossible de résoudre la version courante pour la revue du métré."
             );
           }
 
@@ -1148,7 +1148,7 @@ async function resolveTakeoffReviewVersionId(input: {
   if (linkError) {
     throw mapSupabaseError(
       linkError,
-      "Impossible de resoudre la version de revue takeoff."
+      "Impossible de résoudre la version de revue du métré."
     );
   }
 

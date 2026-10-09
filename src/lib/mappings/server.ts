@@ -197,7 +197,7 @@ function unauthorized(message = "Unauthorized") {
   });
 }
 
-function forbidden(message = "Accès refuse.", details?: unknown, code = "FORBIDDEN") {
+function forbidden(message = "Accès refusé.", details?: unknown, code = "FORBIDDEN") {
   return new MappingsApiError({
     status: 403,
     code,
@@ -241,7 +241,7 @@ function mapSupabaseError(error: PostgrestError, fallbackMessage: string): Mappi
   const normalizedMessage = (error.message ?? "").toLowerCase();
 
   if (error.code === "42501" || normalizedMessage.includes("row-level security")) {
-    return forbidden("Accès refuse.", error, "FORBIDDEN");
+    return forbidden("Accès refusé.", error, "FORBIDDEN");
   }
 
   if (error.code === "PGRST116") {
@@ -1750,7 +1750,7 @@ export async function createMapping(input: {
     .eq("tenant_id", tenantId);
 
   if (deleteMappedRowsError) {
-    throw mapSupabaseError(deleteMappedRowsError, "Impossible de rafraichir les lignes mappees.");
+    throw mapSupabaseError(deleteMappedRowsError, "Impossible de rafraîchir les lignes mappées.");
   }
 
   if (mappedRowsPayload.length > 0) {
@@ -1765,7 +1765,7 @@ export async function createMapping(input: {
         if (insertMappedRowsError) {
           throw mapSupabaseError(
             insertMappedRowsError,
-            "Impossible de persister les lignes mappees."
+            "Impossible d'enregistrer les lignes mappées."
           );
         }
       }

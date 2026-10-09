@@ -44,7 +44,7 @@ describe("resolveEstimateLineTruth", () => {
       },
       qtyStatus: {
         code: "measured",
-        label: "Qte metree",
+        label: "Qté métrée",
       },
       confidence: {
         label: "forte",

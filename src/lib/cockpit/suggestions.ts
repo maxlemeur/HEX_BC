@@ -427,7 +427,7 @@ export function computeCockpitSuggestions(
         actionId: "view-exceptions",
         label: `Voir les ${exceptionCount} exception${exceptionCount !== 1 ? "s" : ""}`,
         intent: "view_exceptions",
-        preview: `${exceptionCount} écart${exceptionCount !== 1 ? "s" : ""} majeur${exceptionCount !== 1 ? "s" : ""} detecte${exceptionCount !== 1 ? "s" : ""} entre le DPGF et les métrés extraits.`,
+        preview: `${exceptionCount} écart${exceptionCount !== 1 ? "s" : ""} majeur${exceptionCount !== 1 ? "s" : ""} détecté${exceptionCount !== 1 ? "s" : ""} entre le DPGF et les métrés extraits.`,
         target: {
           kind: "navigate",
           href: `/dashboard/affaires/${projectId}/takeoff/${latestJob.jobId}/review?versionId=${latestJob.reviewVersionId}&view=dpgf&dpgfView=exceptions_only`,

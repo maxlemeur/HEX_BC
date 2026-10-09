@@ -85,19 +85,19 @@ export function sourceKindLabel(
 ) {
   switch (kind) {
     case "linked_dpgf":
-      return "DPGF lie";
+      return "DPGF lié";
     case "primary_cctp":
       return "CCTP principal";
     case "historical_versions":
       return "Historique";
     case "template_library":
-      return "Templates";
+      return "Modèles de chiffrage";
     case "assembly_library":
       return "Ouvrages";
     case "project_notes":
       return "Notes affaire";
     case "confirmed_brief":
-      return "Brief confirme";
+      return "Brief confirmé";
     default:
       return kind;
   }
@@ -108,24 +108,11 @@ export function actionLabel(action: EstimateStructureDraftNodeAction) {
     case "create":
       return "Nouveau";
     case "merge":
-      return "Fusion proposee";
+      return "Fusion proposée";
     case "skip":
-      return "Ignore";
+      return "Ignoré";
     default:
       return action;
-  }
-}
-
-export function actionBadgeClass(action: EstimateStructureDraftNodeAction) {
-  switch (action) {
-    case "create":
-      return "bg-emerald-50 text-emerald-700 border-emerald-200";
-    case "merge":
-      return "bg-amber-50 text-amber-800 border-amber-200";
-    case "skip":
-      return "bg-muted text-slate-600 border-border";
-    default:
-      return "bg-muted text-slate-600 border-border";
   }
 }
 
@@ -218,7 +205,7 @@ export function evidenceTypeLabel(
     case "history":
       return "Historique";
     case "template":
-      return "Template";
+      return "Modèle";
     case "assembly":
       return "Ouvrage";
     case "brief":
@@ -243,28 +230,28 @@ export function buildSourceCoverageSummary(
   );
   const confirmedBrief = sources.find((source) => source.kind === "confirmed_brief");
   const statements = [
-    `Fait: ${usedSources.length} source(s) alimente(nt) cette preview.`,
+    `Fait : ${usedSources.length} source(s) alimente(nt) cet aperçu.`,
   ];
   const assemblyOnlyWeakSignalMode = isAssemblyOnlyWeakSignalMode(sources);
 
   if (confirmedBrief?.available) {
-    statements.push("Fait: un brief confirme est disponible pour cette affaire.");
+    statements.push("Fait : un brief confirmé est disponible pour cette affaire.");
   } else {
-    statements.push("Fait: aucun brief confirme n'est disponible pour cette affaire.");
+    statements.push("Fait : aucun brief confirmé n'est disponible pour cette affaire.");
   }
 
   if (availableNotUsedSources.length > 0) {
     statements.push(
-      `Fait: ${availableNotUsedSources.length} source(s) supplementaire(s) reste(nt) disponible(s) sans être retenue(s).`,
+      `Fait : ${availableNotUsedSources.length} source(s) supplémentaire(s) reste(nt) disponible(s) sans être retenue(s).`,
     );
   }
 
   if (assemblyOnlyWeakSignalMode) {
     statements.push(
-      "Fait: la preview repose uniquement sur la bibliotheque d'ouvrages disponible.",
+      "Fait : l'aperçu repose uniquement sur la bibliothèque d'ouvrages disponible.",
     );
     statements.push(
-      "Inference: les suggestions faibles sont de-priorisees et non preselectionnees jusqu'a validation humaine.",
+      "Inférence : les suggestions faibles sont dépriorisées et non présélectionnées jusqu'à validation humaine.",
     );
   }
 

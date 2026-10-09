@@ -273,7 +273,7 @@ const createAffaireRegisterEntryInputSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["scopeId"],
-        message: "Le scope selectionne est requis.",
+        message: "Le périmètre sélectionné est requis.",
       });
     }
 
@@ -296,7 +296,7 @@ const createAffaireRegisterEntryInputSchema = z
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["scopeLabel"],
-          message: "Le libelle d'exception est requis.",
+          message: "Le libellé d'exception est requis.",
         });
       }
     }
@@ -787,7 +787,7 @@ async function requireAffaireRegisterProjectAccess(
     mode === "reader" ? isOwner || isAdmin || isDirector : isOwner || isAdmin;
 
   if (!hasAccess) {
-    throw forbidden("Accès refuse à ce registre affaire.");
+    throw forbidden("Accès refusé à ce registre affaire.");
   }
 
   return {
@@ -1379,7 +1379,7 @@ export async function fetchAffaireRegisterGateSummary(input: {
   const { data, error } = await query.order("updated_at", { ascending: false });
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de charger la synthese du registre affaire.");
+    throw mapSupabaseError(error, "Impossible de charger la synthèse du registre affaire.");
   }
 
   const normalized = ((data ?? []) as Array<Record<string, unknown>>)
@@ -1896,7 +1896,7 @@ async function resolveScopeForEntry(input: {
   }
 
   if (!input.versionId || !input.scopeId) {
-    throw badRequest("Le scope selectionne est incomplet.");
+    throw badRequest("Le périmètre sélectionné est incomplet.");
   }
 
   const { data, error } = await input.context.supabase
@@ -1918,7 +1918,7 @@ async function resolveScopeForEntry(input: {
 
   const expectedItemType = input.scopeType === "lot" ? "section" : "line";
   if (item.item_type !== expectedItemType) {
-    throw badRequest("Le scope selectionne ne correspond pas au type attendu.");
+    throw badRequest("Le périmètre sélectionné ne correspond pas au type attendu.");
   }
 
   const { lots, lines } = await fetchAffaireRegisterScopeOptions({
@@ -2200,7 +2200,7 @@ export async function updateAffaireRegisterEntryFollowUp(
       ownerUserId: parsed.ownerUserId,
     });
     if (!ownerOption) {
-      throw badRequest("Le responsable selectionne n'est pas disponible pour cette affaire.");
+      throw badRequest("Le responsable sélectionné n'est pas disponible pour cette affaire.");
     }
   }
 

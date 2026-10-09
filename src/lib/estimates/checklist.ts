@@ -82,7 +82,7 @@ const CHECKLIST_CRITERION_DEFINITIONS: ChecklistCriterionDefinition[] = [
   {
     key: "labor_roles",
     label: "Rôles MO",
-    description: "Chaque ligne avec du temps MO a un rôle selectionne.",
+    description: "Chaque ligne avec du temps MO a un rôle sélectionné.",
     severity: "warning",
     qualityFlag: "missing_labor_role",
   },

@@ -348,7 +348,7 @@ async function writeWorkbook(input: {
     ["Statut", input.payload.versionStatus],
     ["Total HT", toEuroAmount(input.payload.totals.saleTotalCents) ?? 0],
     ...(isVatReverseCharge
-      ? ([["Regime de TVA", ESTIMATE_VAT_REVERSE_CHARGE_NOTICE]] as Array<
+      ? ([["Régime de TVA", ESTIMATE_VAT_REVERSE_CHARGE_NOTICE]] as Array<
           [string, string | number]
         >)
       : ([
@@ -359,7 +359,7 @@ async function writeWorkbook(input: {
           ...(input.payload.totals.roundingAdjustmentCents !== 0
             ? ([
                 [
-                  "TTC calcule",
+                  "TTC calculé",
                   toEuroAmount(input.payload.totals.ttcCents) ?? 0,
                 ],
                 [

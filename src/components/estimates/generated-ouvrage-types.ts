@@ -157,9 +157,9 @@ export function describeGeneratedOuvrageMissingFields(
 ) {
   return missingFields
     .map((field) => {
-      if (field === "designation") return "designation";
-      if (field === "unit") return "unite";
-      return "quantite";
+      if (field === "designation") return "désignation";
+      if (field === "unit") return "unité";
+      return "quantité";
     })
     .join(", ");
 }

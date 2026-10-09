@@ -617,7 +617,7 @@ describe("estimate pdf generator", () => {
 
     await expect(getEstimatePdfLayoutConfiguration(VERSION_ID)).rejects.toMatchObject({
       code: "FORBIDDEN",
-      message: "Accès refuse.",
+      message: "Accès refusé.",
     });
   });
 

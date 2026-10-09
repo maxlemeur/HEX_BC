@@ -64,17 +64,17 @@ export const ESTIMATE_QUALITY_FLAG_META: Record<
   labor_split_incomplete: {
     label: "Split MO incomplet",
     description:
-      "Le split atelier/chantier est incomplet: une seule des deux composantes est renseignee.",
+      "Le split atelier/chantier est incomplet : une seule des deux composantes est renseignée.",
   },
   price_outlier: {
     label: "Prix atypique",
     description:
-      "Le prix unitaire est statistiquement atypique par rapport aux autres lignes comparees.",
+      "Le prix unitaire est statistiquement atypique par rapport aux autres lignes comparées.",
   },
   quantity_outlier: {
     label: "Quantité atypique",
     description:
-      "La quantité est statistiquement atypique par rapport aux autres lignes comparees.",
+      "La quantité est statistiquement atypique par rapport aux autres lignes comparées.",
   },
 };
 

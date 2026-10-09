@@ -466,7 +466,7 @@ export async function createTakeoffJob(
       cleanupAbortListener();
       rejectOnce(
         new TakeoffApiError(
-          "Erreur reseau pendant l'envoi du fichier.",
+          "Erreur réseau pendant l'envoi du fichier.",
           xhr.status || 0,
           null,
           "NETWORK_ERROR"
@@ -906,7 +906,7 @@ export async function fetchAllTakeoffDpgfComparison(
     }
 
     if (seenCursors.has(nextCursor)) {
-      throw new Error("Pagination DPGF incoherente: curseur duplique.");
+      throw new Error("Pagination DPGF incohérente : curseur dupliqué.");
     }
 
     seenCursors.add(nextCursor);
@@ -1025,7 +1025,7 @@ export function uploadFileToSignedUrl(
       const handleAbort = () => xhr.abort();
 
       if (signal.aborted) {
-        rejectOnce(new TakeoffApiError("Upload annule.", 0, null, "ABORTED"));
+        rejectOnce(new TakeoffApiError("Envoi annulé.", 0, null, "ABORTED"));
         return () => undefined;
       }
 
@@ -1043,7 +1043,7 @@ export function uploadFileToSignedUrl(
       cleanupAbortListener();
       rejectOnce(
         new TakeoffApiError(
-          "Erreur reseau pendant l'upload du fichier.",
+          "Erreur réseau pendant l'envoi du fichier.",
           xhr.status || 0,
           null,
           "NETWORK_ERROR"
@@ -1053,7 +1053,7 @@ export function uploadFileToSignedUrl(
 
     xhr.onabort = () => {
       cleanupAbortListener();
-      rejectOnce(new TakeoffApiError("Upload annule.", 0, null, "ABORTED"));
+      rejectOnce(new TakeoffApiError("Envoi annulé.", 0, null, "ABORTED"));
     };
 
     xhr.onload = () => {

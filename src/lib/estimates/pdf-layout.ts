@@ -258,10 +258,16 @@ export function estimateEstimatePdfPageCount(
   return quotePages + conditionsPages + termsPages;
 }
 
+const DENSITY_LABELS: Record<EstimatePdfDensity, string> = {
+  compact: "compacte",
+  standard: "standard",
+  comfortable: "aérée",
+};
+
 export function describeEstimatePdfLayout(layout: EstimatePdfLayoutOptions) {
   const detailLabel =
     layout.detailLevel === "lines"
-      ? "lignes detaillees"
+      ? "lignes détaillées"
       : `chapitres jusqu'au niveau ${layout.detailLevel}`;
   const priceLabel =
     layout.priceMode === "total_only"
@@ -269,5 +275,5 @@ export function describeEstimatePdfLayout(layout: EstimatePdfLayoutOptions) {
       : layout.priceMode === "fo_mo_and_total"
         ? "FO, MO et total HT"
         : "prix unitaire et total HT";
-  return `${detailLabel}, ${priceLabel}, densite ${layout.density}`;
+  return `${detailLabel}, ${priceLabel}, densité ${DENSITY_LABELS[layout.density]}`;
 }

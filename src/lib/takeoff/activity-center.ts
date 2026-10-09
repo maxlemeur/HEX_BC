@@ -107,7 +107,7 @@ async function resolveVersionIdsForProject(
 
     if (error) {
       throw toTakeoffError(
-        mapSupabaseError(error, "Impossible de resoudre les versions du projet."),
+        mapSupabaseError(error, "Impossible de résoudre les versions du projet."),
         { fallbackCode: TakeoffErrorCode.INTERNAL_ERROR, retryable: false }
       );
     }

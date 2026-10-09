@@ -374,7 +374,7 @@ async function releaseLockInternal(
   }
 ): Promise<ReleaseDraftLockResult> {
   if (options.force && !isTenantAdmin(context.tenantRole)) {
-    throw forbidden("Seuls les admins peuvent forcer le deverrouillage.");
+    throw forbidden("Seuls les administrateurs peuvent forcer le déverrouillage.");
   }
 
   await assertVersionAccessOrThrow(context, versionId, { requireDraft: false });
@@ -520,7 +520,7 @@ export async function acquireLock(
   }
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible d'acquerir le verrou de brouillon.");
+    throw mapSupabaseError(error, "Impossible d'acquérir le verrou de brouillon.");
   }
 
   throw notFound("Version de chiffrage introuvable.");

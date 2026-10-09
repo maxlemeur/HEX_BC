@@ -412,7 +412,7 @@ export async function withEstimateAiGenerationLease<T>(input: {
   if (error) {
     throw mapSupabaseError(
       error,
-      "Impossible de reserver le budget de generation IA."
+      "Impossible de réserver le budget de génération IA."
     );
   }
 
@@ -2974,7 +2974,7 @@ export async function applyEstimateStructureDraft(
 
       if (!mergeTarget) {
         throw badRequest(
-          "Aucune section cible n'a été trouvee pour la fusion.",
+          "Aucune section cible n'a été trouvée pour la fusion.",
           {
             node_id: node.id,
             label: node.label,

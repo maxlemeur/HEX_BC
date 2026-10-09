@@ -622,7 +622,7 @@ describe("streamEstimateVersionXlsx", () => {
     const totalHt = summaryRows.find((row) => row[0] === "Total HT")?.[1];
     const totalTax = summaryRows.find((row) => row[0] === "Total TVA")?.[1];
     const calculatedTtc = summaryRows.find(
-      (row) => row[0] === "TTC calcule"
+      (row) => row[0] === "TTC calculé"
     )?.[1];
     const rounding = summaryRows.find(
       (row) => row[0] === "Arrondi commercial"
@@ -726,7 +726,7 @@ describe("streamEstimateVersionXlsx", () => {
     const totalHt = summaryRows.find((row) => row[0] === "Total HT")?.[1];
     const totalTax = summaryRows.find((row) => row[0] === "Total TVA")?.[1];
     const calculatedTtc = summaryRows.find(
-      (row) => row[0] === "TTC calcule"
+      (row) => row[0] === "TTC calculé"
     )?.[1];
     const rounding = summaryRows.find(
       (row) => row[0] === "Arrondi commercial"

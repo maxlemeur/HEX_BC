@@ -1879,7 +1879,7 @@ export function useEstimateEditorState({
     async (targetVersionId: string) => {
       const refreshed = await fetchEstimateEditorData(targetVersionId);
       if (refreshed.version.id !== targetVersionId) {
-        throw new Error("Resume V0 incoherent avec la version active.");
+        throw new Error("Résumé V0 incohérent avec la version active.");
       }
       return refreshed.versionZeroSummary ?? null;
     },

@@ -304,7 +304,7 @@ describe("memberships service authorization", () => {
       createMembership({ user_id: TARGET_USER_ID, role: "engineer" })
     ).rejects.toMatchObject({
       status: 403,
-      message: "Aucun tenant actif pour cet utilisateur.",
+      message: "Aucune organisation active pour cet utilisateur.",
     });
 
     expect(createServiceRoleClient).not.toHaveBeenCalled();

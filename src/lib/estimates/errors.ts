@@ -194,7 +194,7 @@ export function mapSupabaseError(
     error.code === "42501" ||
     normalizedMessage.includes("row-level security")
   ) {
-    return forbidden("Accès refuse.", publicDetails, "FORBIDDEN");
+    return forbidden("Accès refusé.", publicDetails, "FORBIDDEN");
   }
 
   if (error.code === "PGRST116") {

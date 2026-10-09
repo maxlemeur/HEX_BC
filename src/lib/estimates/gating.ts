@@ -69,24 +69,24 @@ export const ESTIMATE_GATING_FLAG_META: Record<
 > = {
   ...ESTIMATE_QUALITY_FLAG_META,
   margin_not_configured: {
-    label: "Marge par tranches non configuree",
+    label: "Marge par tranches non configurée",
     description:
-      "Le mode de marge par tranches est actif mais aucune tranche n'est configuree pour ce tenant.",
+      "Le mode de marge par tranches est actif mais aucune tranche n'est configurée pour cette organisation.",
   },
   total_exceeds_budget: {
-    label: "Budget depasse",
+    label: "Budget dépassé",
     description:
-      "Le total HT du devis depasse le plafond budgetaire configure pour le projet.",
+      "Le total HT du devis dépasse le plafond budgétaire configuré pour le projet.",
   },
   no_pdf_generated: {
     label: "PDF absent",
     description:
-      "Aucun document PDF n'est généré pour cette version. Lancez une generation avant l'envoi.",
+      "Aucun document PDF n'est généré pour cette version. Lancez une génération avant l'envoi.",
   },
   rule_violation: {
-    label: "Règles métier non respectees",
+    label: "Règles métier non respectées",
     description:
-      "Des regles metier (marge, remise, approbation) ne sont pas satisfaites.",
+      "Des règles métier (marge, remise, approbation) ne sont pas satisfaites.",
   },
   critical_missing_pieces: {
     label: "Documents critiques manquants",
@@ -121,7 +121,7 @@ export const ESTIMATE_GATING_FLAG_META: Record<
   version_zero_review_pending: {
     label: "V0 IA à revoir",
     description:
-      "Une V0 assistee est encore activé sur cette version. La revue humaine explicite doit être finalisee avant envoi.",
+      "Une V0 assistée est encore active sur cette version. La revue humaine explicite doit être finalisée avant envoi.",
   },
 };
 

@@ -246,7 +246,7 @@ describe("useEstimateEditorStatusController send workflow", () => {
     );
     expect(harness.result.current.state.isSendGatingDialogOpen).toBe(true);
     expect(harness.result.current.state.error).toBe(
-      "Les preconditions d'envoi ne sont plus remplies."
+      "Les préconditions d'envoi ne sont plus remplies."
     );
     expect(harness.result.current.meta.isSendBlockedForCurrentUser).toBe(true);
   });
@@ -327,7 +327,7 @@ describe("useEstimateEditorStatusController route generations", () => {
       await harness.result.current.actions.confirmSend();
     });
     expect(harness.result.current.state.error).toBe(
-      "Les preconditions d'envoi ne sont plus remplies."
+      "Les préconditions d'envoi ne sont plus remplies."
     );
     expect(harness.result.current.state.isSendGatingDialogOpen).toBe(true);
 
@@ -675,7 +675,7 @@ describe("useEstimateEditorStatusController errors", () => {
       result: "blocked" as const,
       hasPending: false,
       message:
-        "Impossible de changer le statut tant que les modifications locales ne sont pas synchronisees.",
+        "Impossible de changer le statut tant que les modifications locales ne sont pas synchronisées.",
     },
     {
       result: "error" as const,

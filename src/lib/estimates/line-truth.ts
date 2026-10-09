@@ -259,7 +259,7 @@ function resolveQtyStatus(input: {
     return {
       code: "missing",
       label: "Qte manquante",
-      detail: "Aucune quantité n'est renseignee sur cette ligne.",
+      detail: "Aucune quantité n'est renseignée sur cette ligne.",
     };
   }
 
@@ -268,7 +268,7 @@ function resolveQtyStatus(input: {
     case "takeoff_gemini":
       return {
         code: "measured",
-        label: "Qte metree",
+        label: "Qté métrée",
         detail: "Quantité issue d'un métré sur plans.",
       };
     case "dpgf":
@@ -295,7 +295,7 @@ function resolveQtyStatus(input: {
       return {
         code: "to_confirm",
         label: "Qte à confirmer",
-        detail: "Quantité renseignee mais encore à confirmer.",
+        detail: "Quantité renseignée mais encore à confirmer.",
       };
   }
 }
@@ -310,7 +310,7 @@ function resolveConfidence(input: {
     return {
       label: "faible",
       score: null,
-      detail: "Confiance faible tant que la quantité n'est pas renseignee.",
+      detail: "Confiance faible tant que la quantité n'est pas renseignée.",
     };
   }
 

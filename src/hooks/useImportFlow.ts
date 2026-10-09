@@ -426,8 +426,8 @@ async function postServerFallback(
         }
       });
 
-      xhr.addEventListener("error", () => reject(new Error("Erreur reseau lors de l'envoi du fichier.")));
-      xhr.addEventListener("abort", () => reject(new Error("Envoi du fichier annule.")));
+      xhr.addEventListener("error", () => reject(new Error("Erreur réseau lors de l'envoi du fichier.")));
+      xhr.addEventListener("abort", () => reject(new Error("Envoi du fichier annulé.")));
 
       xhr.send(formData);
     });
@@ -518,14 +518,14 @@ export function useImportFlow(options?: UseImportFlowOptions) {
               projectId
             );
             setModeMessage(
-              "Fichier traite dans votre navigateur, envoi termine."
+              "Fichier traité dans votre navigateur, envoi terminé."
             );
             setLastMode("worker");
           } catch (workerFailure) {
             const workerFailureMessage =
               workerFailure instanceof Error
                 ? workerFailure.message
-                : "Le parsing local a echoue.";
+                : "L'analyse locale du fichier a échoué.";
             setWorkerError(workerFailureMessage);
             createdImportId = await postServerFallback(
               file,
@@ -617,7 +617,7 @@ export function useImportFlow(options?: UseImportFlowOptions) {
           setLastImportId(createdImportId);
         }
         setModeMessage(
-          "PDF tabulaire valide, import canonique cree."
+          "PDF tabulaire valide, import canonique créé."
         );
         setLastMode("server");
 

@@ -102,7 +102,7 @@ export function useEstimateEditorPasteController({
           row.designation.trim().length > 0
       );
       if (validRows.length === 0) {
-        reportError("Aucune ligne valide à inserer.");
+        reportError("Aucune ligne valide à insérer.");
         return;
       }
 
@@ -232,7 +232,7 @@ export function useEstimateEditorPasteController({
             );
             throw new Error(
               failedResult?.message ??
-                "Une opération de création groupee a echoue."
+                "Une opération de création groupée a échoué."
             );
           }
           nextVersionToken = batchResult.versionToken.updated_at;

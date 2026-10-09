@@ -556,7 +556,7 @@ describe("affaire register continuation contract", () => {
       "exclusion",
       "clarification",
     ]);
-    expect(exportResult.reviewNote).toContain("Points exportes: 3");
+    expect(exportResult.reviewNote).toContain("Points exportés : 3");
     expect(exportResult.reviewNote).toContain(
       "Hypothèses: 1 - Pièces manquantes: 0 - Clarifications: 1 - Revalidations: 0 - Exclusions: 1"
     );
@@ -566,7 +566,7 @@ describe("affaire register continuation contract", () => {
     expect(exportResult.csvContent).toContain("section;type;severite;statut");
     expect(exportResult.csvContent).toContain("'=Base tarifaire a confirmer");
     expect(exportResult.csvContent).toContain(
-      "Exclusions;Pièce manquante;Attention;Rejetee;Variante volontairement exclue du perimetre"
+      "Exclusions;Pièce manquante;Attention;Rejetée;Variante volontairement exclue du perimetre"
     );
     expect(exportResult.csvFilename).toBe("registre-revue-aff-42-hydro-express.csv");
   });

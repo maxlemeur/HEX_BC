@@ -131,7 +131,7 @@ function mapReviewSubmissionError(error: SupabaseErrorLike) {
   }
 
   if (message.includes("ESTIMATE_REVIEW_ASSIGNED_REVIEWER_INVALID")) {
-    return badRequest("Le validateur assigne n'est pas disponible pour ce tenant.");
+    return badRequest("Le validateur assigné n'est pas disponible dans cette organisation.");
   }
 
   if (message.includes("ESTIMATE_REVIEW_RULE_IDS_REQUIRED")) {

@@ -246,7 +246,7 @@ async function getDraftOrderContext() {
   const { membership, error } = await readActiveTenantMembership(supabase, user.id);
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de resoudre le tenant utilisateur.");
+    throw mapSupabaseError(error, "Impossible de résoudre l'organisation de l'utilisateur.");
   }
 
   if (!membership?.tenant_id) {

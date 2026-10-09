@@ -645,7 +645,7 @@ export function useEstimateEditorSyncController({
   const isConflictLocked = conflict !== null;
   const isSaveBlocked = isReadOnly || isConflictLocked;
   const readOnlyActionErrorMessage = isViewerReadOnly
-    ? "Mode consultation active."
+    ? "Mode consultation activé."
     : isDraftLockPending && !isDraftLockedByOther
       ? "Acquisition du verrou de brouillon en cours."
       : isDraftLockedByOther
@@ -667,7 +667,7 @@ export function useEstimateEditorSyncController({
     if (!acquired) {
       reportError(
         draftLockError ??
-          "Impossible de forcer le deverrouillage de cette version."
+          "Impossible de forcer le déverrouillage de cette version."
       );
       return;
     }
@@ -1190,7 +1190,7 @@ export function useEstimateEditorSyncController({
 
       if (flushResult === "blocked") {
         reportError(
-          `Impossible de ${actionLabel} tant que les modifications locales ne sont pas synchronisees. Rechargez la version puis réessayez.`
+          `Impossible de ${actionLabel} tant que les modifications locales ne sont pas synchronisées. Rechargez la version puis réessayez.`
         );
         return false;
       }

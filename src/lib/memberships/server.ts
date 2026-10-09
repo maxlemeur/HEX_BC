@@ -70,12 +70,12 @@ async function getAuthenticatedContext() {
   if (membershipError) {
     throw mapSupabaseError(
       membershipError,
-      "Impossible de charger le tenant courant."
+      "Impossible de charger l’organisation active."
     );
   }
 
   if (!membership) {
-    throw forbidden("Aucun tenant actif pour cet utilisateur.");
+    throw forbidden("Aucune organisation active pour cet utilisateur.");
   }
 
   return {
@@ -87,7 +87,7 @@ async function getAuthenticatedContext() {
 
 function assertTenantAdmin(role: TenantRole) {
   if (role === ADMIN_ROLE) return;
-  throw forbidden("Accès reserve aux administrateurs du tenant.");
+  throw forbidden("Accès réservé aux administrateurs de l’organisation.");
 }
 
 async function getTenantOrThrow(supabase: Supabase, tenantId: string) {
@@ -98,13 +98,13 @@ async function getTenantOrThrow(supabase: Supabase, tenantId: string) {
     .single();
 
   if (error || !data) {
-    throw notFound("Tenant introuvable.");
+    throw notFound("Organisation introuvable.");
   }
 
   const tenant = data as Pick<TenantRow, "id" | "name" | "slug" | "is_active">;
 
   if (!tenant.is_active) {
-    throw forbidden("Ce tenant est inactif.");
+    throw forbidden("Cette organisation est inactive.");
   }
 
   return tenant;
@@ -119,7 +119,7 @@ async function listMembershipRowsForTenant(supabase: Supabase, tenantId: string)
     .order("created_at", { ascending: true });
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de charger les memberships.");
+    throw mapSupabaseError(error, "Impossible de charger les membres de l’organisation.");
   }
 
   return (data ?? []) as TenantMembershipRow[];
@@ -208,7 +208,7 @@ async function getMembershipByIdOrThrow(supabase: Supabase, membershipId: string
     .single();
 
   if (error || !data) {
-    throw notFound("Membership introuvable.");
+    throw notFound("Membre introuvable.");
   }
 
   return data as TenantMembershipRow;
@@ -222,7 +222,7 @@ async function countTenantAdmins(supabase: Supabase, tenantId: string) {
     .eq("role", ADMIN_ROLE);
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de vérifier les administrateurs du tenant.");
+    throw mapSupabaseError(error, "Impossible de vérifier les administrateurs de l’organisation.");
   }
 
   return count ?? 0;
@@ -273,11 +273,11 @@ export async function createMembership(input: CreateMembershipInput) {
     .maybeSingle();
 
   if (existingMembershipError) {
-    throw mapSupabaseError(existingMembershipError, "Impossible de vérifier le membership.");
+    throw mapSupabaseError(existingMembershipError, "Impossible de vérifier si l’utilisateur est déjà membre.");
   }
 
   if (existingMembership) {
-    throw conflict("Cet utilisateur est déjà membre de ce tenant.");
+    throw conflict("Cet utilisateur est déjà membre de cette organisation.");
   }
 
   const directoryClient = createServiceRoleClient();
@@ -297,7 +297,7 @@ export async function createMembership(input: CreateMembershipInput) {
     .eq("user_id", input.user_id);
 
   if (countError) {
-    throw mapSupabaseError(countError, "Impossible de vérifier les memberships existants.");
+    throw mapSupabaseError(countError, "Impossible de vérifier les membres existants.");
   }
 
   const payload: TenantMembershipInsert = {
@@ -315,9 +315,9 @@ export async function createMembership(input: CreateMembershipInput) {
 
   if (createError || !created) {
     if (createError) {
-      throw mapSupabaseError(createError, "Impossible de créer le membership.");
+      throw mapSupabaseError(createError, "Impossible d’ajouter le membre.");
     }
-    throw conflict("Impossible de créer le membership.");
+    throw conflict("Impossible d’ajouter le membre.");
   }
 
   const membership = await mapMembershipWithProfile(supabase, created as TenantMembershipRow);
@@ -335,7 +335,7 @@ export async function updateMembership(membershipId: string, input: UpdateMember
   const targetMembership = await getMembershipByIdOrThrow(supabase, membershipId);
 
   if (targetMembership.tenant_id !== actorMembership.tenant_id) {
-    throw forbidden("Vous ne pouvez pas modifier ce membership.");
+    throw forbidden("Vous ne pouvez pas modifier ce membre.");
   }
 
   const demotingAdmin =
@@ -344,7 +344,7 @@ export async function updateMembership(membershipId: string, input: UpdateMember
   if (demotingAdmin) {
     const adminCount = await countTenantAdmins(supabase, actorMembership.tenant_id);
     if (adminCount <= 1) {
-      throw conflict("Impossible de retirer le dernier administrateur du tenant.");
+      throw conflict("Impossible de retirer le dernier administrateur de l’organisation.");
     }
   }
 
@@ -357,9 +357,9 @@ export async function updateMembership(membershipId: string, input: UpdateMember
 
   if (updateError || !updated) {
     if (updateError) {
-      throw mapSupabaseError(updateError, "Impossible de mettre à jour le membership.");
+      throw mapSupabaseError(updateError, "Impossible de mettre à jour le membre.");
     }
-    throw conflict("Impossible de mettre à jour le membership.");
+    throw conflict("Impossible de mettre à jour le membre.");
   }
 
   const membership = await mapMembershipWithProfile(supabase, updated as TenantMembershipRow);
@@ -377,17 +377,17 @@ export async function deleteMembership(membershipId: string) {
   const targetMembership = await getMembershipByIdOrThrow(supabase, membershipId);
 
   if (targetMembership.tenant_id !== actorMembership.tenant_id) {
-    throw forbidden("Vous ne pouvez pas supprimer ce membership.");
+    throw forbidden("Vous ne pouvez pas retirer ce membre.");
   }
 
   if (targetMembership.user_id === userId) {
-    throw conflict("Vous ne pouvez pas supprimer votre propre membership.");
+    throw conflict("Vous ne pouvez pas vous retirer vous-même de l’organisation.");
   }
 
   if (targetMembership.role === ADMIN_ROLE) {
     const adminCount = await countTenantAdmins(supabase, actorMembership.tenant_id);
     if (adminCount <= 1) {
-      throw conflict("Impossible de supprimer le dernier administrateur du tenant.");
+      throw conflict("Impossible de retirer le dernier administrateur de l’organisation.");
     }
   }
 
@@ -397,7 +397,7 @@ export async function deleteMembership(membershipId: string) {
     .eq("id", targetMembership.id);
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de supprimer le membership.");
+    throw mapSupabaseError(error, "Impossible de retirer le membre.");
   }
 
   return {

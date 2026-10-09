@@ -376,7 +376,7 @@ describe("useEstimateEditorAiDialogsController scope resets", () => {
 
     expect(harness.result.current.state.versionZeroSummary).toBeNull();
     expect(dependencies.reportError).not.toHaveBeenCalledWith(
-      "Resume V0 incoherent avec la version active."
+      "Résumé V0 incohérent avec la version active."
     );
   });
 

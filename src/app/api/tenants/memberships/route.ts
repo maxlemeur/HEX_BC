@@ -62,7 +62,7 @@ async function parseJsonBody(request: Request): Promise<unknown> {
 
 function assertActorIsTenantAdmin(actorMembership: TenantMembershipRow) {
   if (actorMembership.role !== "admin") {
-    throw forbidden("Accès reserve aux administrateurs du tenant.");
+    throw forbidden("Accès réservé aux administrateurs de l’organisation.");
   }
 }
 
@@ -77,11 +77,11 @@ async function getActorContext() {
     await readActiveTenantMembership(supabase, user.id);
 
   if (membershipError) {
-    throw mapSupabaseError(membershipError, "Impossible de charger le tenant courant.");
+    throw mapSupabaseError(membershipError, "Impossible de charger l’organisation active.");
   }
 
   if (!membership) {
-    throw forbidden("Aucun tenant actif pour cet utilisateur.");
+    throw forbidden("Aucune organisation active pour cet utilisateur.");
   }
 
   return {
@@ -99,15 +99,15 @@ async function getTenantOrThrow(supabase: Supabase, tenantId: string) {
     .maybeSingle();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de charger le tenant.");
+    throw mapSupabaseError(error, "Impossible de charger l’organisation.");
   }
 
   if (!data) {
-    throw notFound("Tenant introuvable.");
+    throw notFound("Organisation introuvable.");
   }
 
   if (!data.is_active) {
-    throw forbidden("Ce tenant est inactif.");
+    throw forbidden("Cette organisation est inactive.");
   }
 
   return data as Pick<TenantRow, "id" | "name" | "slug" | "is_active">;
@@ -122,7 +122,7 @@ async function listMembershipRowsForTenant(supabase: Supabase, tenantId: string)
     .order("created_at", { ascending: true });
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de charger les memberships.");
+    throw mapSupabaseError(error, "Impossible de charger les membres de l’organisation.");
   }
 
   return (data ?? []) as TenantMembershipRow[];
@@ -184,11 +184,11 @@ async function getMembershipByIdForTenantOrThrow(
     .maybeSingle();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de charger le membership cible.");
+    throw mapSupabaseError(error, "Impossible de charger le membre ciblé.");
   }
 
   if (!data) {
-    throw notFound("Membership introuvable pour le tenant courant.");
+    throw notFound("Membre introuvable dans l’organisation active.");
   }
 
   return data as TenantMembershipRow;
@@ -202,7 +202,7 @@ async function countTenantAdmins(supabase: Supabase, tenantId: string) {
     .eq("role", "admin");
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de vérifier les administrateurs du tenant.");
+    throw mapSupabaseError(error, "Impossible de vérifier les administrateurs de l’organisation.");
   }
 
   return count ?? 0;
@@ -228,7 +228,7 @@ async function setMembershipRole(input: {
   if (targetMembership.role === "admin" && input.role !== "admin") {
     const adminCount = await countTenantAdmins(input.supabase, input.actorMembership.tenant_id);
     if (adminCount <= 1) {
-      throw forbidden("Impossible de retirer le dernier administrateur du tenant.");
+      throw forbidden("Impossible de retirer le dernier administrateur de l’organisation.");
     }
   }
 
@@ -241,11 +241,11 @@ async function setMembershipRole(input: {
     .maybeSingle();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de mettre à jour le rôle du membership.");
+    throw mapSupabaseError(error, "Impossible de mettre à jour le rôle du membre.");
   }
 
   if (!data) {
-    throw notFound("Membership introuvable pour le tenant courant.");
+    throw notFound("Membre introuvable dans l’organisation active.");
   }
 
   const membership = await loadSingleMembershipRecord(input.supabase, data as TenantMembershipRow);
@@ -268,13 +268,13 @@ async function setMembershipAsDefault(input: {
   if (switchError) {
     if (switchError.message === "TENANT_DEFAULT_SWITCH_FORBIDDEN") {
       throw forbidden(
-        "Impossible de changer le tenant par défaut depuis ce compte admin."
+        "Impossible de changer l’organisation par défaut depuis ce compte administrateur."
       );
     }
 
     throw mapSupabaseError(
       switchError,
-      "Impossible de définir le tenant par défaut."
+      "Impossible de définir l’organisation par défaut."
     );
   }
 
@@ -286,11 +286,11 @@ async function setMembershipAsDefault(input: {
     .maybeSingle();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de relire le tenant par défaut.");
+    throw mapSupabaseError(error, "Impossible de relire l’organisation par défaut.");
   }
 
   if (!data) {
-    throw notFound("Membership cible introuvable.");
+    throw notFound("Accès à l’organisation introuvable.");
   }
 
   const membership = await loadSingleMembershipRecord(input.supabase, data as TenantMembershipRow);
@@ -349,7 +349,7 @@ export async function POST(request: Request) {
         return ok(data);
       }
       default:
-        throw badRequest("Action memberships non supportee.");
+        throw badRequest("Action non prise en charge.");
     }
   } catch (error) {
     return toErrorResponse(error);

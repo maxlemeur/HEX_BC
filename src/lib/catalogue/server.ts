@@ -197,7 +197,7 @@ function unauthorized(message = "Unauthorized") {
 }
 
 function forbidden(
-  message = "Accès refuse.",
+  message = "Accès refusé.",
   details?: unknown,
   code = "FORBIDDEN",
 ) {
@@ -258,7 +258,7 @@ function mapSupabaseError(
     error.code === "42501" ||
     normalizedMessage.includes("row-level security")
   ) {
-    return forbidden("Accès refuse.", error, "FORBIDDEN");
+    return forbidden("Accès refusé.", error, "FORBIDDEN");
   }
 
   if (error.code === "PGRST116") {
@@ -1081,7 +1081,7 @@ export async function linkMappedRowsToCatalogue(input: LinkMappedRowsInput) {
   if (mappedRowsError) {
     throw mapSupabaseError(
       mappedRowsError,
-      "Impossible de charger les lignes mappees.",
+      "Impossible de charger les lignes mappées.",
     );
   }
 
@@ -1292,7 +1292,7 @@ export async function linkMappedRowsToCatalogue(input: LinkMappedRowsInput) {
           if (error) {
             throw mapSupabaseError(
               error,
-              "Impossible de lier les lignes mappees au catalogue.",
+              "Impossible de lier les lignes mappées au catalogue.",
             );
           }
         }),
@@ -1472,7 +1472,7 @@ export async function listPriceLookups(input: PriceLookupsQueryInput) {
     if (result.error) {
       throw mapSupabaseError(
         result.error,
-        "Impossible de charger les suggestions du referentiel.",
+        "Impossible de charger les suggestions du référentiel.",
       );
     }
   }
@@ -1767,7 +1767,7 @@ export async function listMaterialIndices(input: IndicesListQueryInput) {
   const { data, error } = await query;
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de charger les indices matiere.");
+    throw mapSupabaseError(error, "Impossible de charger les indices matière.");
   }
 
   return {
@@ -1835,7 +1835,7 @@ export async function updateMaterialIndex(input: UpdateMaterialIndexInput) {
       source: input.item.source,
       metadata: input.item.metadata,
     },
-    "Impossible de mettre à jour l'indice matiere.",
+    "Impossible de mettre à jour l'indice matière.",
   );
 
   return {
@@ -1854,11 +1854,11 @@ export async function deleteMaterialIndex(id: string) {
     .maybeSingle();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de supprimer l'indice matiere.");
+    throw mapSupabaseError(error, "Impossible de supprimer l'indice matière.");
   }
 
   if (!data) {
-    throw notFound("Indice matiere introuvable.");
+    throw notFound("Indice matière introuvable.");
   }
 
   return {
@@ -1967,7 +1967,7 @@ export async function resolvePriceImportSuggestions(
     if (error) {
       throw mapSupabaseError(
         error,
-        "Impossible de resoudre les fournisseurs inconnus.",
+        "Impossible de résoudre les fournisseurs inconnus.",
       );
     }
 
@@ -2001,7 +2001,7 @@ export async function resolvePriceImportSuggestions(
     if (error) {
       throw mapSupabaseError(
         error,
-        "Impossible de resoudre les produits inconnus.",
+        "Impossible de résoudre les produits inconnus.",
       );
     }
 

@@ -1029,7 +1029,7 @@ function normalizeIdempotencyKey(value: string | null | undefined) {
     throw new TakeoffError({
       status: 400,
       code: TakeoffErrorCode.IDEMPOTENCY_KEY_INVALID,
-      message: "La valeur de l'en-tete Idempotency-Key est invalide.",
+      message: "La valeur de l'en-tête Idempotency-Key est invalide.",
       retryable: false,
     });
   }
@@ -1038,7 +1038,7 @@ function normalizeIdempotencyKey(value: string | null | undefined) {
     throw new TakeoffError({
       status: 422,
       code: TakeoffErrorCode.IDEMPOTENCY_KEY_INVALID,
-      message: "La valeur de l'en-tete Idempotency-Key est trop longue.",
+      message: "La valeur de l'en-tête Idempotency-Key est trop longue.",
       retryable: false,
     });
   }
@@ -3198,7 +3198,7 @@ async function resolveDpgfUnitByRowIndex(input: {
 
   if (importError) {
     throw toTakeoffError(
-      mapSupabaseError(importError, "Impossible de resoudre l'import DPGF source."),
+      mapSupabaseError(importError, "Impossible de résoudre l'import DPGF source."),
       {
         fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
         retryable: false,
@@ -3222,7 +3222,7 @@ async function resolveDpgfUnitByRowIndex(input: {
 
   if (error) {
     throw toTakeoffError(
-      mapSupabaseError(error, "Impossible de charger les lignes DPGF mappees."),
+      mapSupabaseError(error, "Impossible de charger les lignes DPGF mappées."),
       {
         fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
         retryable: false,
@@ -3614,7 +3614,7 @@ async function fetchAllTakeoffDpgfComparisonRows(input: {
     throw new TakeoffError({
       status: 500,
       code: TakeoffErrorCode.INTERNAL_ERROR,
-      message: "Impossible de recalculer la comparaison DPGF complete.",
+      message: "Impossible de recalculer la comparaison DPGF complète.",
       details: {
         job_id: input.jobId,
         version_id: input.versionId,
@@ -4009,7 +4009,7 @@ async function resolveVersionIdsForProject(input: {
 
     if (error) {
       throw toTakeoffError(
-        mapSupabaseError(error, "Impossible de resoudre les versions du projet."),
+        mapSupabaseError(error, "Impossible de résoudre les versions du projet."),
         {
           fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
           retryable: false,
@@ -4235,7 +4235,7 @@ export async function listTakeoffJobs(
       throw toTakeoffError(
         mapSupabaseError(
           versionError,
-          "Impossible de resoudre le numéro de version."
+          "Impossible de résoudre le numéro de version."
         ),
         {
           fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
@@ -6165,7 +6165,7 @@ function assertTakeoffOperatorActionRole(tenantRole: string | null | undefined) 
   throw new TakeoffError({
     status: 403,
     code: TakeoffErrorCode.FORBIDDEN,
-    message: "Accès refuse.",
+    message: "Accès refusé.",
     retryable: false,
   });
 }
@@ -6451,7 +6451,7 @@ export async function resubmitTakeoffJob(
         throw new TakeoffError({
           status: 409,
           code: TakeoffErrorCode.CONFLICT,
-          message: "Le delai de relance n'est pas encore ecoule pour ce job.",
+          message: "Le délai de relance n'est pas encore écoulé pour cette analyse.",
           details: {
             retry_count: retryCount,
             retry_backoff_ms: requiredBackoffMs,
@@ -6573,7 +6573,7 @@ export async function retryTakeoffJob(jobId: string): Promise<TakeoffJobActionRe
         throw new TakeoffError({
           status: 409,
           code: TakeoffErrorCode.CONFLICT,
-          message: "Le delai de relance n'est pas encore ecoule pour ce job.",
+          message: "Le délai de relance n'est pas encore écoulé pour cette analyse.",
           details: {
             retry_count: retryCount,
             retry_backoff_ms: requiredBackoffMs,
@@ -7464,7 +7464,7 @@ export async function createTakeoffJobFromFormData(
           status: 404,
           code: TakeoffErrorCode.TAKEOFF_JOB_NOT_FOUND,
           message:
-            "Le job Takeoff associe à la clé d'idempotence est introuvable.",
+            "L'analyse associée à la clé d'idempotence est introuvable.",
           details: {
             reason: "IDEMPOTENCY_KEY_CONFLICT_WITHOUT_JOB",
           },

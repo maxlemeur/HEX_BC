@@ -432,7 +432,7 @@ export function useEstimateEditorAiDialogsController({
           refreshedSummary &&
           refreshedSummary.versionId !== mutationScope.versionId
         ) {
-          reportError("Resume V0 incoherent avec la version active.");
+          reportError("Résumé V0 incohérent avec la version active.");
         } else {
           updateStateForScope(mutationScope.scopeKey, (current) => ({
             ...current,
@@ -443,7 +443,7 @@ export function useEstimateEditorAiDialogsController({
         reportScopedError(
           mutationScope,
           error,
-          "Impossible de rafraichir le resume V0."
+          "Impossible de rafraîchir le résumé V0."
         );
       }
 
