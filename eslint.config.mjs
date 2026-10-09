@@ -44,6 +44,45 @@ const eslintConfig = defineConfig([
       "react-hooks/use-memo": "error",
     },
   },
+  {
+    // Screens use the Base UI primitives of src/components/ui. ui-legacy only keeps the toast
+    // API, NumberInput and the shell modules it still hosts; the frozen estimate grid keeps
+    // its Modal / ConfirmModal / Popover.
+    files: ["src/**/*.{ts,tsx}", "e2e/**/*.{ts,tsx}"],
+    ignores: [
+      "src/components/ui-legacy/**",
+      "src/components/estimates/EstimateEditorTable.tsx",
+      "src/components/estimates/components/estimate-editor-table/**",
+      "src/components/estimates/components/estimate-editor-row/**",
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@/components/ui-legacy",
+              message: "Use the primitives of @/components/ui instead of the ui-legacy barrel.",
+            },
+          ],
+          patterns: [
+            {
+              // gitignore syntax: listing the folder itself would forbid re-including its files.
+              group: [
+                "@/components/ui-legacy/*",
+                "!@/components/ui-legacy/Toast",
+                "!@/components/ui-legacy/NumberInput",
+                "!@/components/ui-legacy/KeyboardShortcutsModal",
+                "!@/components/ui-legacy/CommandPaletteLoader",
+              ],
+              message:
+                "Use the primitives of @/components/ui (Button, Dialog, Input, Combobox, Skeleton…) instead of ui-legacy.",
+            },
+          ],
+        },
+      ],
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:
