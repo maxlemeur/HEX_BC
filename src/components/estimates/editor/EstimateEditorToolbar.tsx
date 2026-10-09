@@ -118,6 +118,14 @@ function isInsideNestedDialog(target: EventTarget | null) {
   );
 }
 
+/** A press on an open dialog's backdrop lands outside it: keep the menu (and the dialog) mounted. */
+function hasOpenNestedDialog() {
+  return (
+    document.querySelector('[role="dialog"][data-open], [role="alertdialog"][data-open]') !==
+    null
+  );
+}
+
 function MoreActionsDropdown({
   showAutoSaveControls,
   isAutoSaveEnabled,
@@ -166,7 +174,7 @@ function MoreActionsDropdown({
         ?.focus();
     });
     const handlePointerDown = (event: MouseEvent) => {
-      if (isInsideNestedDialog(event.target)) return;
+      if (isInsideNestedDialog(event.target) || hasOpenNestedDialog()) return;
       if (
         containerRef.current &&
         !containerRef.current.contains(event.target as Node)
