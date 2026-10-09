@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 
-type HeadingLevel = 2 | 3 | 4;
+type HeadingLevel = 1 | 2 | 3 | 4;
 
 type EmptyStateProps = {
   icon?: React.ReactNode;

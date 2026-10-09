@@ -1,17 +1,13 @@
 "use client";
 
+import { RouteError } from "@/components/layout/error-state";
 
-export default function Error({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
-  return (
-    <div className="animate-fade-in space-y-4">
-      <div className="page-header flex items-start gap-3">
-        <div>
-          <h1 className="page-title">Erreur</h1>
-          <p className="page-description">Impossible de charger la revue d&apos;extraction.</p>
-        </div>
-      </div>
-      <p className="text-sm text-slate-600">{error.message}</p>
-      <button type="button" className="btn btn-secondary btn-sm" onClick={reset}>Reessayer</button>
-    </div>
-  );
+export default function DashboardAffairesProjectIdTakeoffJobIdReviewError({
+  error,
+  retry,
+}: Readonly<{
+  error: Error & { digest?: string };
+  retry: () => void;
+}>) {
+  return <RouteError error={error} retry={retry} title="La revue du métré n’a pas pu être chargée" source="route.affaires.takeoff.review" />;
 }
