@@ -193,7 +193,7 @@ export function PurchaseOrderDocument({
           {/* Émis par */}
           <div className="min-w-0 text-sm">
             <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Emis par
+              Émis par
             </p>
             <p className="text-lg font-bold leading-tight text-brand-blue print:text-base">
               {issuerDisplay.displayName}
@@ -220,7 +220,7 @@ export function PurchaseOrderDocument({
             <p className="inline-block rounded-lg border border-border bg-surface-subtle px-4 py-1.5 font-mono text-xs uppercase tracking-wide text-muted-foreground">
               REF :{" "}
               <span className="font-bold text-brand-orange">
-                {reference ?? "AUTO-GENEREE"}
+                {reference ?? "AUTO-GÉNÉRÉE"}
               </span>
             </p>
           </div>
@@ -235,12 +235,13 @@ export function PurchaseOrderDocument({
         {/* Supplier Box */}
         <div className="purchase-order-party-card flex flex-col justify-between rounded-xl border border-border bg-surface-subtle p-6 print:p-5">
           <div>
-            <h4 className="mb-4 text-center text-xs font-bold uppercase tracking-wide text-brand-orange print:mb-2">
+            <h3 className="mb-4 text-center text-xs font-bold uppercase tracking-wide text-brand-orange print:mb-2">
               Fournisseur
-            </h4>
+            </h3>
             {editable ? (
               <div className="flex flex-col gap-2">
                 <select
+                  aria-label="Fournisseur"
                   className="doc-select w-full text-2xl font-extrabold text-brand-blue"
                   value={supplierId ?? ""}
                   onChange={(e) => onSupplierChange?.(e.target.value)}
@@ -295,9 +296,9 @@ export function PurchaseOrderDocument({
 
         {/* Delivery & Project Box */}
         <div className="purchase-order-party-card rounded-xl border border-border bg-surface-subtle p-6 print:p-5">
-          <h4 className="mb-4 text-center text-xs font-bold uppercase tracking-wide text-brand-orange print:mb-2">
+          <h3 className="mb-4 text-center text-xs font-bold uppercase tracking-wide text-brand-orange print:mb-2">
             informations livraison
-          </h4>
+          </h3>
           <div className="space-y-4 print:space-y-2">
             <div>
               <div className="flex items-center justify-between gap-3">
@@ -336,11 +337,12 @@ export function PurchaseOrderDocument({
                         }
                       }}
                     />
-                    <span className="text-sm font-medium text-slate-600">À déterminer</span>
+                    <span className="text-sm font-medium text-foreground-secondary">Date de livraison à déterminer</span>
                   </label>
                   {expectedDeliveryDate !== "TBD" && (
                     <input
                       type="date"
+                      aria-label="Date de livraison"
                       className="doc-input w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base font-semibold text-brand-blue"
                       value={expectedDeliveryDate ?? ""}
                       onChange={(e) => onExpectedDeliveryDateChange?.(e.target.value)}
@@ -356,6 +358,7 @@ export function PurchaseOrderDocument({
               {editable ? (
                 <div className="mb-2 flex flex-col gap-2">
                 <select
+                  aria-label="Chantier de livraison"
                   className="doc-select w-full text-base font-bold text-brand-blue"
                   value={deliverySiteId ?? ""}
                   onChange={(e) => onDeliverySiteChange?.(e.target.value)}
@@ -413,13 +416,14 @@ export function PurchaseOrderDocument({
 
       {/* Notes / Instructions */}
       <div className="mb-6 rounded-xl border border-border bg-surface p-5 print:mb-4 print:p-3">
-          <h4 className="mb-2 text-xs font-bold uppercase tracking-wide text-brand-blue print:mb-1">
+          <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-brand-blue print:mb-1">
             Instructions complémentaires
-          </h4>
+          </h3>
           {editable ? (
             <textarea
+              aria-label="Instructions complémentaires"
               className="doc-input min-h-[60px] w-full resize-none whitespace-pre-wrap text-sm leading-snug text-secondary-foreground print:min-h-[40px] print:text-xs"
-              placeholder="Informations complémentaires, consignes de livraison..."
+              placeholder="Informations complémentaires, consignes de livraison…"
               rows={MAX_NOTES_LINES}
               value={notes ?? ""}
               onChange={(e) => {
@@ -439,15 +443,15 @@ export function PurchaseOrderDocument({
         <table className="w-full">
           <thead>
             <tr className="table-head bg-brand-blue text-left text-xs font-bold uppercase tracking-wide text-white print-color-adjust">
-              <th className="px-6 py-4 align-middle whitespace-nowrap print:px-4 print:py-2">Designation</th>
-              <th className="w-20 px-3 py-4 text-center align-middle whitespace-nowrap print:px-2 print:py-2">Qte</th>
+              <th className="px-6 py-4 align-middle whitespace-nowrap print:px-4 print:py-2">Désignation</th>
+              <th className="w-20 px-3 py-4 text-center align-middle whitespace-nowrap print:px-2 print:py-2">Qté</th>
               <th className="w-28 px-3 py-4 text-right align-middle whitespace-nowrap print:px-2 print:py-2">P.U. HT</th>
               <th className="w-32 px-4 py-4 text-right align-middle whitespace-nowrap print:px-2 print:py-2">Total HT</th>
               {editable && <th className="w-12 px-4 py-4 align-middle"></th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-border text-[15px] print:text-foreground">
-            {items.map((item) => (
+            {items.map((item, index) => (
               <tr
                 key={item.key}
                 className={editable ? "doc-table-row-editable" : ""}
@@ -457,6 +461,7 @@ export function PurchaseOrderDocument({
                     <input
                       type="text"
                       className="doc-input w-full"
+                      aria-label={`Désignation, ligne ${index + 1}`}
                       placeholder="Désignation"
                       value={item.designation}
                       onChange={(e) =>
@@ -472,6 +477,7 @@ export function PurchaseOrderDocument({
                   {editable ? (
                     <input
                       type="number"
+                      aria-label={`Quantité, ligne ${index + 1}`}
                       className="doc-input w-14 text-center"
                       min={1}
                       value={item.quantity}
@@ -492,6 +498,7 @@ export function PurchaseOrderDocument({
                     <input
                       type="text"
                       className="doc-input w-20 text-right"
+                      aria-label={`Prix unitaire HT, ligne ${index + 1}`}
                       placeholder="0,00"
                       value={
                         item.unitPriceInput ??
@@ -518,7 +525,7 @@ export function PurchaseOrderDocument({
                       type="button"
                       className="doc-remove-btn text-danger hover:text-danger"
                       onClick={() => onItemRemove?.(item.key)}
-                      title="Supprimer"
+                      aria-label={`Supprimer la ligne ${index + 1}`}
                     >
                       <svg
                         xmlns="http://www.w3.org/2000/svg"
