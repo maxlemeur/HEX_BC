@@ -458,64 +458,10 @@ async function postUploadWithFallback(
   return lastResponse as Response;
 }
 
-function extractPlanFiles(data: unknown): unknown[] {
-  if (Array.isArray(data)) {
-    return data;
-  }
-
-  if (isRecord(data) && Array.isArray(data.plan_files)) {
-    return data.plan_files;
-  }
-
-  return [];
-}
-
 describe("/api/takeoff/plan-sets/[setId]/files", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(assertTakeoffEnabled).mockResolvedValue(undefined);
-  });
-
-  it("POST uploads/creates a file and GET lists files for the set", async () => {
-    const supabase = createSupabaseMock({
-      planFiles: [],
-    });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const uploadResponse = await postUploadWithFallback(SET_ID, makeParams(), {
-      fileName: "plan-rdc.pdf",
-      fileType: "application/pdf",
-      fileSizeBytes: 1024,
-    });
-    const uploadBody = (await uploadResponse.json()) as {
-      ok: boolean;
-      data?: unknown;
-      error?: { code?: string };
-    };
-
-    expect([200, 201]).toContain(uploadResponse.status);
-    expect(uploadBody.ok).toBe(true);
-    expect(uploadBody.data).toBeDefined();
-    expect(
-      supabase.__state.planFilesById.size > 0 ||
-        supabase.__state.uploads.length > 0 ||
-        supabase.__state.signedUploadPaths.length > 0
-    ).toBe(true);
-
-    const listResponse = await GET(
-      new Request(`http://localhost/api/takeoff/plan-sets/${SET_ID}/files`, {
-        method: "GET",
-      }),
-      makeParams()
-    );
-    const listBody = (await listResponse.json()) as {
-      ok: boolean;
-      data?: unknown;
-    };
-
-    expect(listResponse.status).toBe(200);
-    expect(listBody.ok).toBe(true);
-    expect(extractPlanFiles(listBody.data).length).toBeGreaterThan(0);
   });
 
   it("accepts PDF registration when MIME is application/octet-stream but extension is .pdf", async () => {

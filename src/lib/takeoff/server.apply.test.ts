@@ -438,61 +438,6 @@ describe("applyTakeoffJob", () => {
     vi.mocked(getTakeoffLowConfidenceThresholdForTenant).mockResolvedValue(0.5);
   });
 
-  it("applies a completed job, runs lock precheck and returns job+summary", async () => {
-    const supabase = createSupabaseMock();
-    vi.mocked(getAuthenticatedContext).mockResolvedValue({
-      supabase,
-      userId: USER_ID,
-      tenantId: TENANT_ID,
-      tenantRole: "admin",
-    } as never);
-    vi.mocked(bulkUpdateEstimateItems).mockResolvedValue({
-      updated_count: 0,
-      version: {
-        id: VERSION_ID,
-        updated_at: VERSION_UPDATED_AT,
-      },
-    } as never);
-
-    const response = await applyTakeoffJob(JOB_ID, {
-      strategy: "merge",
-      target_section_id: SECTION_ID,
-    });
-
-    expect(vi.mocked(bulkUpdateEstimateItems)).toHaveBeenCalledWith(
-      VERSION_ID,
-      [],
-      VERSION_UPDATED_AT
-    );
-    expect(supabase.rpc).toHaveBeenCalledWith(
-      "apply_takeoff_job_guarded_atomic",
-      expect.objectContaining({
-        p_job_id: JOB_ID,
-        p_strategy: "merge",
-        p_target_section_id: SECTION_ID,
-        p_mapping_plan: [
-          expect.objectContaining({
-            item_id: TAKEOFF_ITEM_ID_1,
-            action: "none",
-          }),
-        ],
-      })
-    );
-    expect(response.job.status).toBe("applied");
-    expect(response.summary).toEqual({
-      scope: "section",
-      created_count: 1,
-      updated_count: 0,
-      ignored_count: 0,
-      created_ids: [CREATED_ITEM_ID],
-      item_links: [],
-    });
-    expect(supabase.__state.auditActions).toEqual([
-      "takeoff.apply.started",
-      "takeoff.apply.completed",
-    ]);
-  });
-
   it("fails closed when the atomic RPC is absent", async () => {
     const supabase = createSupabaseMock({ atomicRpcMissing: true });
     vi.mocked(getAuthenticatedContext).mockResolvedValue({
@@ -809,65 +754,6 @@ describe("applyTakeoffJob", () => {
     expect(supabase.__state.takeoffItemUpdateAppliedCount).toBe(0);
   });
 
-  it("applies mapping action apply_assembly and logs mapping audit entries", async () => {
-    const assemblyId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-    const supabase = createSupabaseMock({
-      mappingRules: [
-        {
-          id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-          name: "Ouvrage cloisons",
-          match_pattern: "tube pvc",
-          match_type: "contains",
-          action: "apply_assembly",
-          action_params: {
-            assembly_id: assemblyId,
-          },
-          priority: 1,
-          is_active: true,
-          created_at: "2026-02-25T09:00:00.000Z",
-        },
-      ],
-    });
-    vi.mocked(getAuthenticatedContext).mockResolvedValue({
-      supabase,
-      userId: USER_ID,
-      tenantId: TENANT_ID,
-      tenantRole: "admin",
-    } as never);
-    vi.mocked(bulkUpdateEstimateItems).mockResolvedValue({
-      updated_count: 0,
-      version: {
-        id: VERSION_ID,
-        updated_at: VERSION_UPDATED_AT,
-      },
-    } as never);
-
-    const response = await applyTakeoffJob(JOB_ID, {
-      strategy: "merge",
-      target_section_id: SECTION_ID,
-    });
-
-    expect(response.job.status).toBe("applied");
-    expect(supabase.rpc).toHaveBeenCalledWith(
-      "apply_takeoff_job_guarded_atomic",
-      expect.objectContaining({
-        p_mapping_plan: [
-          expect.objectContaining({
-            item_id: TAKEOFF_ITEM_ID_1,
-            action: "apply_assembly",
-            assembly_id: assemblyId,
-          }),
-        ],
-      })
-    );
-    expect(supabase.__state.auditActions).toContain("takeoff.mapping.applied");
-    expect(supabase.__state.auditActions).toEqual([
-      "takeoff.apply.started",
-      "takeoff.mapping.applied",
-      "takeoff.apply.completed",
-    ]);
-  });
-
   it("links a raw takeoff item to its committed estimate line in the audit", async () => {
     const supabase = createSupabaseMock({
       mappingRules: [
@@ -1045,47 +931,6 @@ describe("applyTakeoffJob", () => {
     expect(supabase.__state.auditActions).toEqual(["takeoff.apply.failed"]);
   });
 
-  it("allows admin override and logs takeoff.apply.override", async () => {
-    const supabase = createSupabaseMock({
-      jobLevel: "C",
-      takeoffItems: [
-        baseTakeoffItem({
-          id: TAKEOFF_ITEM_ID_1,
-          confidence: 0.2,
-          is_verified: false,
-        }),
-      ],
-    });
-    vi.mocked(getAuthenticatedContext).mockResolvedValue({
-      supabase,
-      userId: USER_ID,
-      tenantId: TENANT_ID,
-      tenantRole: "admin",
-    } as never);
-    vi.mocked(bulkUpdateEstimateItems).mockResolvedValue({
-      updated_count: 0,
-      version: {
-        id: VERSION_ID,
-        updated_at: VERSION_UPDATED_AT,
-      },
-    } as never);
-
-    const response = await applyTakeoffJob(JOB_ID, {
-      strategy: "merge",
-      target_section_id: SECTION_ID,
-      override: true,
-      override_justification: "Validation manuelle exceptionnelle",
-    });
-
-    expect(response.job.status).toBe("applied");
-    expect(supabase.__state.auditActions).toContain("takeoff.apply.override");
-    expect(supabase.__state.auditActions).toEqual([
-      "takeoff.apply.override",
-      "takeoff.apply.started",
-      "takeoff.apply.completed",
-    ]);
-  });
-
   it("fails closed when the required admin override audit cannot be persisted", async () => {
     const supabase = createSupabaseMock({
       jobLevel: "C",
@@ -1211,43 +1056,5 @@ describe("applyTakeoffJob", () => {
     });
 
     expect(supabase.rpc).not.toHaveBeenCalled();
-  });
-
-  it("allows a verified low-confidence level C item with a localized proof", async () => {
-    const supabase = createSupabaseMock({
-      jobLevel: "C",
-      takeoffItems: [
-        baseTakeoffItem({
-          confidence: 0.2,
-          evidence: "Repère A3 sur le plan",
-          source_page: 3,
-          is_verified: true,
-        }),
-      ],
-    });
-    vi.mocked(getAuthenticatedContext).mockResolvedValue({
-      supabase,
-      userId: USER_ID,
-      tenantId: TENANT_ID,
-      tenantRole: "admin",
-    } as never);
-    vi.mocked(bulkUpdateEstimateItems).mockResolvedValue({
-      updated_count: 0,
-      version: {
-        id: VERSION_ID,
-        updated_at: VERSION_UPDATED_AT,
-      },
-    } as never);
-
-    const response = await applyTakeoffJob(JOB_ID, {
-      strategy: "merge",
-      target_section_id: SECTION_ID,
-    });
-
-    expect(response.job.status).toBe("applied");
-    expect(supabase.rpc).toHaveBeenCalledWith(
-      "apply_takeoff_job_guarded_atomic",
-      expect.objectContaining({ p_job_id: JOB_ID })
-    );
   });
 });

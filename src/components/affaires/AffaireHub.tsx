@@ -1,5 +1,8 @@
 "use client";
 
+import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
+
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -57,7 +60,6 @@ import {
   shouldShowTakeoffPrompt,
 } from "@/components/takeoff/TakeoffLaunchPrompt";
 import { useTakeoffAutoProposeDismissed } from "@/hooks/useTakeoffAutoProposeDismissed";
-import { UnifiedImportFlow } from "./UnifiedImportFlow";
 import type { CockpitIntent, CockpitSuggestion } from "@/lib/cockpit/suggestions";
 import { sortCockpitSuggestions } from "@/lib/cockpit/suggestions";
 import type { CockpitSurfaceId } from "@/lib/cockpit/suggestions";
@@ -77,6 +79,14 @@ import {
   dispatchCockpitOpenSurface,
   type CockpitExecuteActionEventDetail,
 } from "@/lib/cockpit/events";
+
+const UnifiedImportFlow = dynamic(
+  () => import("./UnifiedImportFlow").then((module) => module.UnifiedImportFlow),
+  {
+    ssr: false,
+    loading: () => <div role="status" className="dashboard-card p-8">Chargement de l’import…</div>,
+  }
+);
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -552,6 +562,7 @@ function ActionBar({
 
       {/* V0 IA — contextual */}
       {currentVersion.status === "draft" &&
+      isEstimateAiDraftEnabled() &&
       (versionZeroSummary?.activeDraft || versionZeroSummary?.canGenerate) ? (
         <Link
           href={`/dashboard/estimates/${currentVersion.id}/edit?openVersionZero=1`}
@@ -1725,6 +1736,7 @@ export function AffaireHub({
             initialValues={{
               projectName: summary.project.name,
               clientName: summary.project.clientName ?? "",
+              siteAddress: summary.project.siteAddress ?? "",
               reference: summary.project.reference ?? "",
             }}
             editing={editingProject}

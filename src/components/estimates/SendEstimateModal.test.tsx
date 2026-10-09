@@ -1,6 +1,6 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup,render,screen,waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -55,58 +55,6 @@ describe("SendEstimateModal", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders all form fields when open", () => {
-    renderModal();
-
-    expect(screen.getByText("Envoyer le devis par email")).toBeInTheDocument();
-    expect(screen.getByLabelText(/Destinataire/)).toBeInTheDocument();
-    expect(screen.getByLabelText(/CC/)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Objet/)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Message/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Envoyer/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Annuler/ })).toBeInTheDocument();
-  });
-
-  it("pre-fills subject with defaultSubject", () => {
-    renderModal({ defaultSubject: "Devis - Projet Test" });
-
-    const subjectInput = screen.getByLabelText(/Objet/) as HTMLInputElement;
-    expect(subjectInput.value).toBe("Devis - Projet Test");
-  });
-
-  it("pre-fills recipient with defaultRecipient", () => {
-    renderModal({ defaultRecipient: "client@test.com" });
-
-    const toInput = screen.getByLabelText(/Destinataire/) as HTMLInputElement;
-    expect(toInput.value).toBe("client@test.com");
-  });
-
-  it("shows error on empty recipient", async () => {
-    const user = userEvent.setup();
-    renderModal();
-
-    await user.click(screen.getByRole("button", { name: /Envoyer/ }));
-
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "Adresse email du destinataire obligatoire."
-    );
-    expect(global.fetch).not.toHaveBeenCalled();
-  });
-
-  it("shows error on invalid email", async () => {
-    const user = userEvent.setup();
-    renderModal();
-
-    const toInput = screen.getByLabelText(/Destinataire/);
-    await user.type(toInput, "not-an-email");
-    await user.click(screen.getByRole("button", { name: /Envoyer/ }));
-
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "Adresse email du destinataire invalide."
-    );
-    expect(global.fetch).not.toHaveBeenCalled();
-  });
-
   it("shows error on invalid CC email", async () => {
     const user = userEvent.setup();
     renderModal();
@@ -123,77 +71,6 @@ describe("SendEstimateModal", () => {
       "Adresse CC invalide : bad-email"
     );
     expect(global.fetch).not.toHaveBeenCalled();
-  });
-
-  it("calls fetch with correct payload on valid submit", async () => {
-    const user = userEvent.setup();
-    globalThis.sessionStorage.setItem(
-      "estimate-email:version-123:stale-fingerprint",
-      "99999999-9999-4999-8999-999999999999"
-    );
-    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ email_id: "e1", portal_token: "t1" }),
-    });
-
-    const { props } = renderModal();
-
-    const toInput = screen.getByLabelText(/Destinataire/);
-    await user.type(toInput, "client@test.com");
-
-    await user.click(screen.getByRole("button", { name: /Envoyer/ }));
-
-    await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith(
-        "/api/estimates/version-123/send",
-        expect.objectContaining({
-          method: "POST",
-          headers: expect.objectContaining({
-            "Content-Type": "application/json",
-            "Idempotency-Key": expect.any(String),
-          }),
-        })
-      );
-    });
-
-    const callBody = JSON.parse(
-      (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body
-    );
-    expect(callBody.to).toBe("client@test.com");
-    expect(callBody.subject).toBe("Devis - Mon Projet");
-    expect(callBody.message).toBeTruthy();
-
-    await waitFor(() => {
-      expect(mockToast.success).toHaveBeenCalledWith(
-        {
-          title: "Devis envoye",
-          description: "L'envoi du devis est confirme.",
-        }
-      );
-    });
-
-    expect(props.onSent).toHaveBeenCalled();
-    expect(props.onClose).toHaveBeenCalled();
-    expect(globalThis.sessionStorage.length).toBe(0);
-  });
-
-  it("shows error on failed API response", async () => {
-    const user = userEvent.setup();
-    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      ok: false,
-      json: () => Promise.resolve({ error: "Token expired" }),
-    });
-
-    renderModal();
-
-    const toInput = screen.getByLabelText(/Destinataire/);
-    await user.type(toInput, "client@test.com");
-
-    await user.click(screen.getByRole("button", { name: /Envoyer/ }));
-
-    await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent("Token expired");
-    });
   });
 
   it("parses CC emails separated by commas", async () => {

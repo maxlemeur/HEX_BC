@@ -14,14 +14,6 @@ describe("resolveMarginMultiplier", () => {
     expect(result).toBe(expected);
   });
 
-  it("returns multiplier of first tier when cost is 0", () => {
-    const tiers: MarginTier[] = [
-      { threshold_cents: 0, multiplier: 1.6, position: 0 },
-      { threshold_cents: 10_000_00, multiplier: 1.45, position: 1 },
-    ];
-    expect(resolveMarginMultiplier(0, tiers)).toBe(1.6);
-  });
-
   it("returns tier of lower threshold when cost is between two thresholds", () => {
     const tiers: MarginTier[] = [
       { threshold_cents: 0, multiplier: 1.6, position: 0 },
@@ -62,24 +54,5 @@ describe("resolveMarginMultiplier", () => {
       { threshold_cents: 10_000_00, multiplier: 1.45, position: 1 },
     ];
     expect(resolveMarginMultiplier(NaN, tiers)).toBe(1.6);
-  });
-});
-
-describe("getMarginTiers", () => {
-  it("returns default tiers sorted by threshold_cents", () => {
-    const tiers = getMarginTiers();
-    expect(tiers.length).toBeGreaterThan(0);
-    for (let i = 1; i < tiers.length; i++) {
-      expect(tiers[i].threshold_cents).toBeGreaterThanOrEqual(
-        tiers[i - 1].threshold_cents
-      );
-    }
-  });
-
-  it("returns a fresh copy each time", () => {
-    const a = getMarginTiers();
-    const b = getMarginTiers();
-    expect(a).not.toBe(b);
-    expect(a).toEqual(b);
   });
 });

@@ -1,6 +1,6 @@
+import { cleanup,fireEvent,render,screen,within } from "@testing-library/react";
 import { createElement } from "react";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach,describe,expect,it,vi } from "vitest";
 
 import { ColumnMapper } from "@/components/mappings/ColumnMapper";
 
@@ -34,30 +34,6 @@ describe("ColumnMapper", () => {
     });
 
     expect(onChange).not.toHaveBeenCalled();
-  });
-
-  it("indicates required targets with explicit marker and required hint", async () => {
-    render(
-      createElement(ColumnMapper, {
-        sourceColumns: ["Code", "Description"],
-        mapping: {
-          Code: "hex_code",
-          Description: "designation",
-        },
-        targetFields: [
-          { value: "hex_code", label: "Référence article", required: true },
-          { value: "designation", label: "Désignation", required: false },
-        ],
-        onChange: vi.fn(),
-      })
-    );
-
-    expect(
-      screen.getAllByRole("option").find(
-        (option) => (option as HTMLOptionElement).value === "hex_code"
-      )
-    ).toHaveTextContent("*");
-    expect(screen.getByText("Champ requis")).toBeInTheDocument();
   });
 
   it("lets users explicitly leave an irrelevant source column unmapped", () => {

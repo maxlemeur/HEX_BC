@@ -54,8 +54,13 @@ function scoreHeaderCandidate(row: unknown[], rowIndex: number): number {
   }
 
   const tokenSet = new Set<string>();
+  let keywordCellCount = 0;
   nonEmpty.forEach((cell) => {
-    tokenize(cell).forEach((token) => tokenSet.add(token));
+    const tokens = tokenize(cell);
+    tokens.forEach((token) => tokenSet.add(token));
+    if (tokens.some((token) => HEADER_KEYWORDS.has(token))) {
+      keywordCellCount += 1;
+    }
   });
 
   const keywordHits = Array.from(tokenSet).filter((token) =>
@@ -63,6 +68,9 @@ function scoreHeaderCandidate(row: unknown[], rowIndex: number): number {
   ).length;
 
   const numericLikeCount = nonEmpty.filter((cell) => isNumericLike(cell)).length;
+  // Quantities/prices plus vocabulary confined to one description are data,
+  // even when that description happens to mention a header word.
+  const hasDataVocabulary = numericLikeCount >= 2 && keywordCellCount === 1;
   const textLikeCount = nonEmptyCount - numericLikeCount;
   const uniqueCount = new Set(nonEmpty).size;
   const maxCellLength = nonEmpty.reduce(
@@ -76,7 +84,7 @@ function scoreHeaderCandidate(row: unknown[], rowIndex: number): number {
   // should not outrank a true (sometimes sparse) header row.
   score += Math.min(nonEmptyCount, 12) * 2;
   score += (uniqueCount / nonEmptyCount) * 6;
-  score += keywordHits * 12;
+  if (!hasDataVocabulary) score += keywordHits * 12;
   score += textLikeCount * 2;
   score -= numericLikeCount * 6;
   score -= Math.min(rowIndex, 40) * 0.1;
@@ -90,7 +98,7 @@ function scoreHeaderCandidate(row: unknown[], rowIndex: number): number {
     }
   }
 
-  if (keywordHits >= 2) {
+  if (keywordHits >= 2 && !hasDataVocabulary) {
     score += 8;
   }
 

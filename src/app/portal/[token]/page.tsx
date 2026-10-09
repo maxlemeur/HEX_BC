@@ -30,8 +30,8 @@ type EstimateProject =
 type EstimateVersion =
   Database["public"]["Tables"]["estimate_versions"]["Row"] & {
     estimate_projects:
-      | Pick<EstimateProject, "name" | "reference" | "estimate_reference" | "client_name" | "user_id">
-      | Pick<EstimateProject, "name" | "reference" | "estimate_reference" | "client_name" | "user_id">[]
+      | Pick<EstimateProject, "name" | "reference" | "estimate_reference" | "site_address" | "client_name" | "user_id">
+      | Pick<EstimateProject, "name" | "reference" | "estimate_reference" | "site_address" | "client_name" | "user_id">[]
       | null;
   };
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
@@ -92,7 +92,7 @@ export default async function PortalPage({ params }: PortalPageProps) {
     supabase
       .from("estimate_versions")
       .select(
-        "project_id, tenant_id, version_number, status, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, content_revision, calc_snapshot_content_revision, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, currency, estimate_projects ( name, reference, estimate_reference, client_name, user_id )"
+        "project_id, tenant_id, version_number, status, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, content_revision, calc_snapshot_content_revision, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, currency, estimate_projects ( name, reference, estimate_reference, site_address, client_name, user_id )"
       )
       .eq("id", versionId)
       .eq("tenant_id", portalToken.tenant_id)
@@ -298,6 +298,7 @@ export default async function PortalPage({ params }: PortalPageProps) {
           preserveStoredSnapshot={preserveStoredSnapshot}
           vatReverseCharge={vatReverseCharge}
           projectName={project?.name ?? "Devis"}
+          projectSiteAddress={project?.site_address}
           projectClient={project?.client_name}
           projectReference={project?.reference}
           estimateReference={project?.estimate_reference}

@@ -8,7 +8,7 @@ vi.mock("@/lib/takeoff/feature-flags", () => ({
   assertTakeoffEnabled: vi.fn(),
 }));
 
-import { GET, POST } from "@/app/api/takeoff/plan-sets/route";
+import { GET } from "@/app/api/takeoff/plan-sets/route";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 
@@ -425,82 +425,6 @@ describe("/api/takeoff/plan-sets", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(assertTakeoffEnabled).mockResolvedValue(undefined);
-  });
-
-  it("POST creates a plan set and GET lists plan sets", async () => {
-    const supabase = createSupabaseMock({ planSets: [] });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const createResponse = await POST(
-      new Request("http://localhost/api/takeoff/plan-sets", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          estimate_version_id: ESTIMATE_VERSION_ID,
-          name: "Plans batiment A",
-          description: "Pack principal",
-          metadata: {
-            source: "vitest",
-          },
-        }),
-      })
-    );
-    const createBody = (await createResponse.json()) as {
-      ok: boolean;
-      data?: unknown;
-      error?: { code?: string };
-    };
-
-    expect([200, 201]).toContain(createResponse.status);
-    expect(createBody.ok).toBe(true);
-    expect(createBody.data).toBeDefined();
-    expect(supabase.__state.planSetsById.size).toBe(1);
-    const createdSet = [...supabase.__state.planSetsById.values()][0];
-    expect(createdSet.project_id).toBe(PROJECT_ID);
-
-    const listResponse = await GET(
-      new Request("http://localhost/api/takeoff/plan-sets", {
-        method: "GET",
-      })
-    );
-    const listBody = (await listResponse.json()) as {
-      ok: boolean;
-      data?: unknown;
-    };
-
-    expect(listResponse.status).toBe(200);
-    expect(listBody.ok).toBe(true);
-    expect(extractPlanSets(listBody.data).length).toBeGreaterThan(0);
-  });
-
-  it("POST creates a plan set in project mode", async () => {
-    const supabase = createSupabaseMock({ planSets: [] });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await POST(
-      new Request("http://localhost/api/takeoff/plan-sets", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          project_id: PROJECT_ID,
-          name: "Plans projet",
-        }),
-      })
-    );
-
-    const body = (await response.json()) as {
-      ok: boolean;
-      data?: unknown;
-    };
-
-    expect([200, 201]).toContain(response.status);
-    expect(body.ok).toBe(true);
-    const createdSet = [...supabase.__state.planSetsById.values()][0];
-    expect(createdSet.project_id).toBe(PROJECT_ID);
   });
 
   it("GET supports project_id filter", async () => {

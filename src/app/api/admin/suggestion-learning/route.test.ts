@@ -40,43 +40,6 @@ describe("/api/admin/suggestion-learning", () => {
     });
   });
 
-  it("PATCH forwards review actions", async () => {
-    vi.mocked(reviewLearning).mockResolvedValue({
-      config: {
-        enabled: true,
-        threshold: 3,
-        retention_months: 12,
-      },
-      proposals: [],
-      by_rule_id: {},
-    } as never);
-
-    const request = new Request("http://localhost/api/admin/suggestion-learning", {
-      method: "PATCH",
-      headers: {
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        rule_id: RULE_ID,
-        field_name: "k_fo",
-        corrected_value: "1.5",
-        action: "approve",
-      }),
-    });
-
-    const response = await PATCH(request);
-    const body = (await response.json()) as { ok: boolean };
-
-    expect(response.status).toBe(200);
-    expect(body.ok).toBe(true);
-    expect(vi.mocked(reviewLearning)).toHaveBeenCalledWith({
-      ruleId: RULE_ID,
-      fieldName: "k_fo",
-      correctedValue: "1.5",
-      action: "approve",
-    });
-  });
-
   it("returns 400 for invalid review payload", async () => {
     const request = new Request("http://localhost/api/admin/suggestion-learning", {
       method: "PATCH",

@@ -33,6 +33,7 @@ export type SupplierPrice = {
   source_mapped_row_id?: string | null;
   source?: string | null;
   notes?: string | null;
+  transport_mode?: "included" | "excluded" | null;
   [key: string]: unknown;
 };
 

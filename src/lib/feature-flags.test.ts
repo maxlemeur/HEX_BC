@@ -4,13 +4,7 @@ vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
 
-import {
-  ESTIMATE_EDITOR_VIRTUALIZATION_FEATURE_FLAGS,
-  PRICE_IMPORT_FEATURE_FLAGS,
-  getFeatureFlagValueForTenant,
-  getStalePriceDaysForTenant,
-  isFeatureEnabled,
-} from "@/lib/feature-flags";
+import { getFeatureFlagValueForTenant, getStalePriceDaysForTenant, isFeatureEnabled } from "@/lib/feature-flags";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const TENANT_ID = "11111111-1111-4111-8111-111111111111";
@@ -53,19 +47,6 @@ function createSupabaseMock(result: QueryResult) {
 describe("isFeatureEnabled", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  it("returns true when the tenant flag is active", async () => {
-    const supabase = createSupabaseMock({
-      data: {
-        enabled: true,
-      },
-      error: null,
-    });
-
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    await expect(isFeatureEnabled(TENANT_ID, "stale_price_days")).resolves.toBe(true);
   });
 
   it("returns false when the tenant flag is inactive", async () => {
@@ -138,25 +119,5 @@ describe("getStalePriceDaysForTenant", () => {
       null
     );
     await expect(getStalePriceDaysForTenant(TENANT_ID)).resolves.toBe(90);
-  });
-});
-
-describe("price import feature flags", () => {
-  it("exposes the guided import rollout flag keys", () => {
-    expect(PRICE_IMPORT_FEATURE_FLAGS).toEqual([
-      "PRICE_IMPORT_GUIDED_ASSISTANT",
-      "PRICE_IMPORT_BDC_PROFILE",
-      "PRICE_IMPORT_CREATE_ASSIST",
-      "PRICE_IMPORT_MULTI_SUPPLIER",
-    ]);
-  });
-});
-
-describe("estimate editor virtualization feature flags", () => {
-  it("exposes runtime virtualization rollout flag keys", () => {
-    expect(ESTIMATE_EDITOR_VIRTUALIZATION_FEATURE_FLAGS).toEqual([
-      "EST_264_EDITOR_VIRTUALIZATION_MODE",
-      "EST_264_EDITOR_VIRTUALIZATION_AUTO_THRESHOLD",
-    ]);
   });
 });

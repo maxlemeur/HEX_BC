@@ -1,8 +1,11 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
+
+import { useEstimatePreferenceKey, useEstimatePreferenceStorage } from "@/hooks/useEstimatePreferenceStorage";
 
 export type ColumnKey =
+  | "supplier"
   | "supply_type"
   | "k_fo"
   | "h_mo_majoration"
@@ -34,6 +37,7 @@ const PRESET_COLUMNS: Record<ColumnPreset, ColumnKey[]> = {
     "ds",
     "marge",
     "marque",
+    "supplier",
   ],
   custom: [],
 };
@@ -46,6 +50,7 @@ const PRESET_LABELS: Record<ColumnPreset, string> = {
 };
 
 const ALL_ADVANCED_COLUMNS: ColumnKey[] = [
+  "supplier",
   "supply_type",
   "k_fo",
   "h_mo_majoration",
@@ -57,6 +62,7 @@ const ALL_ADVANCED_COLUMNS: ColumnKey[] = [
 ];
 
 const COLUMN_LABELS: Record<ColumnKey, string> = {
+  supplier: "Fournisseur",
   supply_type: "Type FO",
   k_fo: "K FO",
   h_mo_majoration: "Majoration MO (%)",
@@ -73,114 +79,74 @@ const STORAGE_KEY = "est-col-vis";
 const STORAGE_KEY_CUSTOM = "est-col-custom";
 const STORAGE_KEY_OVERRIDE = "est-col-override";
 
-function loadCustomColumnsFromStorage(): ColumnKey[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY_CUSTOM);
-    if (!stored) return [];
-    const parsed = JSON.parse(stored);
-    if (Array.isArray(parsed)) return parsed.filter((k: unknown) => ALL_ADVANCED_COLUMNS.includes(k as ColumnKey)) as ColumnKey[];
-  } catch {
-    // ignore
-  }
-  return [];
+function parsePreset(stored: string | null): ColumnPreset {
+  return stored === "standard" || stored === "full" || stored === "custom" ? stored : "essential";
 }
 
-function saveCustomColumnsToStorage(columns: ColumnKey[]) {
-  if (typeof window === "undefined") return;
+function parseCustomColumns(stored: string | null): ColumnKey[] {
   try {
-    localStorage.setItem(STORAGE_KEY_CUSTOM, JSON.stringify(columns));
+    const parsed = JSON.parse(stored ?? "[]");
+    return Array.isArray(parsed)
+      ? [...new Set(parsed.filter((key: unknown) => ALL_ADVANCED_COLUMNS.includes(key as ColumnKey)))] as ColumnKey[]
+      : [];
   } catch {
-    // ignore
+    return [];
   }
 }
 
-function loadOverrideFromStorage(preset: ColumnPreset): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY_OVERRIDE);
-    if (stored === "true") return true;
-    if (stored === "false") return false;
-
-    // Migration path for users who already had a non-default preset before
-    // the override key existed.
-    const shouldInferLegacyOverride = preset === "full" || preset === "custom";
-    if (shouldInferLegacyOverride) {
-      localStorage.setItem(STORAGE_KEY_OVERRIDE, "true");
-      return true;
-    }
-  } catch {
-    // ignore
-  }
-  return false;
-}
-
-function saveOverrideToStorage(value: boolean) {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(STORAGE_KEY_OVERRIDE, String(value));
-  } catch {
-    // ignore
-  }
-}
-
-function loadPresetFromStorage(): ColumnPreset {
-  if (typeof window === "undefined") return "essential";
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored === "essential" || stored === "standard" || stored === "full" || stored === "custom") {
-      return stored;
-    }
-  } catch {
-    // ignore
-  }
-  return "essential";
-}
-
-function savePresetToStorage(preset: ColumnPreset) {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(STORAGE_KEY, preset);
-  } catch {
-    // ignore
-  }
-}
+const serializePreset = (preset: ColumnPreset) => preset;
+const serializeOverride = (value: boolean) => String(value);
+const parseSchema = (value: string | null) => value === "2" ? 2 : 1;
+const serializeSchema = (value: number) => String(value);
 
 export function useColumnVisibility() {
-  const [preset, setPresetState] = useState<ColumnPreset>(loadPresetFromStorage);
-  const [customColumns, setCustomColumnsState] = useState<ColumnKey[]>(loadCustomColumnsFromStorage);
-  const [hasManualOverride, setHasManualOverrideState] = useState<boolean>(() => loadOverrideFromStorage(preset));
-
-  const setCustomColumns = useCallback((cols: ColumnKey[]) => {
-    setCustomColumnsState(cols);
-    saveCustomColumnsToStorage(cols);
-  }, []);
+  const presetKey = useEstimatePreferenceKey(STORAGE_KEY);
+  const customKey = useEstimatePreferenceKey(STORAGE_KEY_CUSTOM);
+  const overrideKey = useEstimatePreferenceKey(STORAGE_KEY_OVERRIDE);
+  const schemaKey = useEstimatePreferenceKey("est-col-schema-v2");
+  const [schemaVersion, setSchemaVersion] = useEstimatePreferenceStorage(schemaKey, parseSchema, serializeSchema);
+  const [preset, setPresetState] = useEstimatePreferenceStorage(presetKey, parsePreset, serializePreset);
+  const [customColumns, setCustomColumns] = useEstimatePreferenceStorage(customKey, parseCustomColumns);
+  const [hasManualOverride, setHasManualOverrideState] = useEstimatePreferenceStorage(
+    overrideKey,
+    (stored) => {
+      if (stored === "true") return true;
+      if (stored === "false") return false;
+      const legacyOverride = preset === "full" || preset === "custom";
+      if (legacyOverride && overrideKey && typeof window !== "undefined") {
+        try { localStorage.setItem(overrideKey, "true"); } catch { /* Optional storage. */ }
+      }
+      return legacyOverride;
+    },
+    serializeOverride,
+  );
 
   const visibleColumns = useMemo(() => {
     if (preset === "custom") {
       return new Set<ColumnKey>(customColumns);
     }
-    return new Set<ColumnKey>(PRESET_COLUMNS[preset]);
-  }, [preset, customColumns]);
+    // A saved "Complet" predating the supplier column must retain its density.
+    // Explicitly selecting Complet adopts the current schema.
+    return new Set<ColumnKey>(PRESET_COLUMNS[preset].filter(
+      (column) => column !== "supplier" || schemaVersion === 2,
+    ));
+  }, [preset, customColumns, schemaVersion]);
 
   /** User-initiated preset change — marks manual override */
   const setPreset = useCallback((next: ColumnPreset) => {
+    setSchemaVersion(2);
     setPresetState(next);
-    savePresetToStorage(next);
     setHasManualOverrideState(true);
-    saveOverrideToStorage(true);
-  }, []);
+  }, [setPresetState, setHasManualOverrideState, setSchemaVersion]);
 
   /** System-initiated preset change — does NOT mark manual override */
   const setPresetAuto = useCallback((next: ColumnPreset) => {
     setPresetState(next);
-    savePresetToStorage(next);
-  }, []);
+  }, [setPresetState]);
 
   const clearManualOverride = useCallback(() => {
     setHasManualOverrideState(false);
-    saveOverrideToStorage(false);
-  }, []);
+  }, [setHasManualOverrideState]);
 
   const hiddenAdvancedCount = useMemo(
     () => ALL_ADVANCED_COLUMNS.filter((col) => !visibleColumns.has(col)).length,
@@ -197,9 +163,7 @@ export function useColumnVisibility() {
 
   const toggleColumn = useCallback(
     (key: ColumnKey) => {
-      const currentCols = preset === "custom"
-        ? new Set(customColumns)
-        : new Set(PRESET_COLUMNS[preset]);
+      const currentCols = new Set(visibleColumns);
       if (currentCols.has(key)) {
         currentCols.delete(key);
       } else {
@@ -225,7 +189,7 @@ export function useColumnVisibility() {
         setPreset("custom");
       }
     },
-    [preset, customColumns, setPreset, setCustomColumns]
+    [visibleColumns, setPreset, setCustomColumns]
   );
 
   return {
@@ -243,5 +207,11 @@ export function useColumnVisibility() {
     hasManualOverride,
     clearManualOverride,
     toggleAdvancedColumns,
+    resetColumns: () => {
+      setSchemaVersion(2);
+      setCustomColumns([]);
+      setPresetState("essential");
+      setHasManualOverrideState(false);
+    },
   };
 }

@@ -1,7 +1,10 @@
-import { render, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { EstimateEditorRow } from "@/components/estimates/components/EstimateEditorRow";
+import { EstimateColumnOrderContext } from "@/components/estimates/context/EstimateColumnOrderContext";
+import { DEFAULT_ESTIMATE_COLUMN_ORDER, normalizeEstimateColumnOrder } from "@/hooks/useEstimateColumnOrder";
+import type { EstimateColumnId } from "@/hooks/useEstimateColumnWidths";
 import type { Database } from "@/types/database";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
@@ -112,8 +115,9 @@ function createItem(partial: Partial<EstimateItem> = {}): EstimateItem {
   } as EstimateItem;
 }
 
-function renderRow(isLaborSplitEnabled: boolean) {
+function renderRow(isLaborSplitEnabled: boolean, order: readonly EstimateColumnId[] = DEFAULT_ESTIMATE_COLUMN_ORDER) {
   return render(
+    <EstimateColumnOrderContext.Provider value={order}>
     <EstimateEditorRow
       versionId="version-1"
       estimateCurrency="EUR"
@@ -158,6 +162,7 @@ function renderRow(isLaborSplitEnabled: boolean) {
       hideEditingActions
       isLaborSplitEnabled={isLaborSplitEnabled}
     />
+    </EstimateColumnOrderContext.Provider>
   );
 }
 
@@ -203,12 +208,27 @@ function renderRowWithItem(
 }
 
 describe("EstimateEditorRow line cells", () => {
+  it("keeps actual line cells in the configured column order for standard and split labor", () => {
+    const order = normalizeEstimateColumnOrder(["k_fo", "supply_price", "supply_type", "labor_role", "labor_hours", "k_mo", "labor_role_workshop", "labor_hours_workshop"]);
+    const standard = renderRow(false, order);
+    const standardKeys = [...standard.container.querySelectorAll('[data-cell-id]')]
+      .map((cell) => cell.getAttribute('data-cell-id')?.split('::')[1]);
+    expect(standardKeys.indexOf("k_fo")).toBeLessThan(standardKeys.indexOf("unit_price"));
+    expect(standardKeys.indexOf("labor_role")).toBeLessThan(standardKeys.indexOf("h_mo"));
+    expect(within(standard.container).getByRole("textbox", { name: "Coefficient fourniture K FO pour Ligne test" })).toHaveValue("1");
+    standard.unmount();
+    const split = renderRow(true, order);
+    const splitKeys = [...split.container.querySelectorAll('[data-cell-id]')]
+      .map((cell) => cell.getAttribute('data-cell-id')?.split('::')[1]);
+    expect(splitKeys.indexOf("labor_role_atelier")).toBeLessThan(splitKeys.indexOf("h_mo_atelier"));
+  });
+
   it("renders the standard labor cells when labor split is disabled", () => {
     const { container } = renderRow(false);
 
     expect(container.querySelector('[data-cell-id="line-1::h_mo"]')).not.toBeNull();
     expect(container.querySelector('[data-cell-id="line-1::h_mo_atelier"]')).toBeNull();
-    expect(container.querySelectorAll("select.estimate-select")).toHaveLength(1);
+    expect(container.querySelectorAll('input[role="combobox"][aria-label^="Rôle"]')).toHaveLength(1);
 
     const kFoInput = within(container).getByRole("textbox", {
       name: "Coefficient fourniture K FO pour Ligne test",
@@ -252,7 +272,7 @@ describe("EstimateEditorRow line cells", () => {
     expect(container.querySelector('[data-cell-id="line-1::h_mo"]')).toBeNull();
     expect(container.querySelector('[data-cell-id="line-1::h_mo_atelier"]')).not.toBeNull();
     expect(container.querySelector('[data-cell-id="line-1::h_mo_chantier"]')).not.toBeNull();
-    expect(container.querySelectorAll("select.estimate-select")).toHaveLength(2);
+    expect(container.querySelectorAll('input[role="combobox"][aria-label^="Rôle"]')).toHaveLength(2);
   });
 
   it("announces source, qty status and confidence in a single badge label", () => {
@@ -288,19 +308,16 @@ describe("EstimateEditorRow line cells", () => {
 
     const roleSelect = within(view.container).getByRole("combobox", {
       name: "Rôle de main-d'œuvre pour Ligne test",
-    }) as HTMLSelectElement;
-    const selectedRoleDisplay = within(view.container).getByTestId(
-      "estimate-labor-role-value"
-    );
+    });
     const kMoInput = within(view.container).getByRole("textbox", {
       name: "Coefficient main-d'œuvre K MO pour Ligne test",
     });
 
-    expect(roleSelect.selectedOptions[0]?.textContent).toBe("0,00 €/h Poseur");
-    expect(roleSelect.selectedOptions[0]?.textContent).not.toContain("—");
-    expect(roleSelect.style.color).toBe("transparent");
-    expect(selectedRoleDisplay).toHaveTextContent("Poseur");
-    expect(selectedRoleDisplay).not.toHaveTextContent("€/h");
+    expect(roleSelect).toHaveValue("Poseur");
+    fireEvent.focus(roleSelect);
+    expect(screen.getByRole("option", { name: /Poseur/ })).toHaveTextContent("0,00 € / h");
+    fireEvent.blur(roleSelect);
+    expect(roleSelect).toHaveValue("Poseur");
     expect(roleSelect).toHaveAttribute("aria-invalid", "true");
     expect(kMoInput).toHaveAttribute(
       "title",

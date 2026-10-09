@@ -1,7 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
-
+import { MarginTiersExplanation } from "@/components/estimates/MarginTiersExplanation";
 import { NumberInput, parseLocalizedNumberInput } from "@/components/ui-legacy/NumberInput";
 import {
   PROJECT_FAMILY_OPTIONS,
@@ -9,47 +8,6 @@ import {
   type StepErrors,
   type WizardData,
 } from "@/components/estimates/estimate-creation-wizard/shared";
-import { getMarginTiers, type MarginTier } from "@/lib/estimates/margin-tiers";
-import { formatEUR } from "@/lib/money";
-
-function ReadOnlyMarginTiers({ tiers }: { tiers: MarginTier[] }) {
-  const sorted = useMemo(
-    () =>
-      [...tiers].sort(
-        (a, b) => a.threshold_cents - b.threshold_cents
-      ),
-    [tiers]
-  );
-
-  if (sorted.length === 0) {
-    return (
-      <p className="text-sm text-[var(--slate-500)]">
-        Aucune tranche de marge configurée.
-      </p>
-    );
-  }
-
-  return (
-    <div className="table-scroll mt-3">
-      <table className="data-table">
-        <thead>
-          <tr>
-            <th>Seuil</th>
-            <th>Multiplicateur</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((tier, index) => (
-            <tr key={tier.id ?? index}>
-              <td>{formatEUR(tier.threshold_cents)}</td>
-              <td>x{tier.multiplier.toFixed(2)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
 
 type PricingStepProps = {
   data: WizardData;
@@ -62,8 +20,6 @@ export function PricingStep({
   errors,
   updateField,
 }: PricingStepProps) {
-  const marginTiers = useMemo(() => getMarginTiers(), []);
-
   function handleRoundingChange(value: string) {
     if (value === "none") {
       updateField("roundingMode", "none");
@@ -144,7 +100,7 @@ export function PricingStep({
           </button>
         </div>
         <p className="mt-1.5 text-xs text-[var(--slate-500)]">
-          Marge fixe : un coefficient unique appliqué à toutes les lignes. Marge par tranche : coefficients différents selon le montant.
+          Marge fixe : un coefficient unique choisi pour le devis. Marge par tranche : un coefficient choisi automatiquement selon le coût total HT.
         </p>
       </div>
 
@@ -181,11 +137,13 @@ export function PricingStep({
 
       {data.marginMode === "tiered" && (
         <div className="sm:col-span-2">
-          <p className="form-label">Tranches de marge (tenant)</p>
+          <p className="form-label">Tranches de marge de l’organisation</p>
           <p className="mb-2 text-sm text-[var(--slate-500)]">
-            Les tranches ci-dessous sont configurées pour votre organisation et seront appliquées automatiquement.
+            Le barème de votre organisation sera appliqué à la création. Un
+            administrateur peut le consulter et le modifier dans le paramétrage
+            du devis, section « Tranches de marge ».
           </p>
-          <ReadOnlyMarginTiers tiers={marginTiers} />
+          <MarginTiersExplanation />
         </div>
       )}
 

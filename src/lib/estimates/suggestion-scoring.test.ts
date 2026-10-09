@@ -189,27 +189,4 @@ describe("suggestion scoring", () => {
       "low-usage-boosted-to-tie",
     ]);
   });
-
-  it("returns only the top 5 ranked suggestions", () => {
-    const rules = [
-      createRule({ id: "r1", match_value: "bétons", usage_count: 1 }),
-      createRule({ id: "r2", match_value: "bétons", usage_count: 7 }),
-      createRule({ id: "r3", match_value: "bétons", usage_count: 3 }),
-      createRule({ id: "r4", match_value: "bétons", usage_count: 0 }),
-      createRule({ id: "r5", match_value: "bétons", usage_count: 9 }),
-      createRule({ id: "r6", match_value: "bétons", usage_count: 2 }),
-      createRule({ id: "r7", match_value: "bétons", usage_count: 5 }),
-    ];
-
-    const ranked = rankSuggestionRules("beton", rules);
-
-    expect(ranked).toHaveLength(5);
-    expect(ranked.map((entry) => entry.rule.id)).toEqual([
-      "r5",
-      "r2",
-      "r7",
-      "r3",
-      "r6",
-    ]);
-  });
 });

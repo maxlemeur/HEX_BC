@@ -133,7 +133,7 @@ export function ReviewItemCard({
   onMarkForReview,
 }: ReviewItemCardProps) {
   const anomalies = useMemo(() => detectAnomalies(item), [item]);
-  const isRejected = isReviewed && !isAccepted;
+  const isRejected = isReviewed && !isAccepted && !isMarkedForReview;
 
   const confidenceBarColor = getConfidenceBarColor(item.confidence);
   const confidencePct =

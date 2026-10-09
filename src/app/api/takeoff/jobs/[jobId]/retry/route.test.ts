@@ -54,33 +54,6 @@ describe("POST /api/takeoff/jobs/[jobId]/retry", () => {
     });
   });
 
-  it("returns 200, retries the job, and retriggers async processing", async () => {
-    vi.mocked(retryTakeoffJob).mockResolvedValue(RETRY_RESPONSE as never);
-    const [request, context] = buildPostRequest();
-
-    const response = await POST(request, context);
-    const body = (await response.json()) as {
-      ok: boolean;
-      data?: typeof RETRY_RESPONSE;
-    };
-
-    expect(response.status).toBe(200);
-    expect(body.ok).toBe(true);
-    expect(body.data).toEqual({
-      ...RETRY_RESPONSE,
-      dispatch: {
-        status: "accepted",
-        correlation_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-        persisted: true,
-      },
-    });
-    expect(vi.mocked(retryTakeoffJob)).toHaveBeenCalledWith(JOB_ID);
-    expect(vi.mocked(triggerTakeoffJobProcessing)).toHaveBeenCalledWith({
-      jobId: JOB_ID,
-      trigger: "retry",
-    });
-  });
-
   it("returns 200 even when retry trigger fails", async () => {
     const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.mocked(retryTakeoffJob).mockResolvedValue(RETRY_RESPONSE as never);

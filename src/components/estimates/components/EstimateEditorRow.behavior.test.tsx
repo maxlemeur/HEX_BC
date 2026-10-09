@@ -526,7 +526,7 @@ describe("EstimateEditorRow behavior", () => {
   it("renders standard and labor split variants with distinct cell controls", () => {
     const { container, rerender } = renderRow(createItem({ id: "line-standard" }));
 
-    expect(container.querySelectorAll("select.estimate-select")).toHaveLength(1);
+    expect(container.querySelectorAll('input[role="combobox"][aria-label^="Rôle"]')).toHaveLength(1);
     expect(container.querySelectorAll('input[placeholder="0.0"]')).toHaveLength(1);
 
     rerender(
@@ -565,8 +565,32 @@ describe("EstimateEditorRow behavior", () => {
       />
     );
 
-    expect(container.querySelectorAll("select.estimate-select")).toHaveLength(2);
+    expect(container.querySelectorAll('input[role="combobox"][aria-label^="Rôle"]')).toHaveLength(2);
     expect(container.querySelectorAll('input[placeholder="0.0"]')).toHaveLength(2);
+  });
+
+  it("commits FO by UUID after explicit selection and preserves it on an unknown prefix", () => {
+    const type = { id: "type-tube", code: "TUB", name: "Tube", tenant_id: "tenant-1", created_at: "", updated_at: "" };
+    renderRow(createItem({ supply_type_id: type.id }), { supplyTypeById: new Map([[type.id, type]]) });
+    const input = screen.getByRole("combobox", { name: /Type de fourniture/ });
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "inconnu" } });
+    fireEvent.blur(input);
+    expect(input).toHaveValue("Tube");
+    expect(rowActionSpies.onPatchItem).not.toHaveBeenCalled();
+    fireEvent.focus(input);
+    fireEvent.click(screen.getByRole("option", { name: "Aucun type" }));
+    expect(rowActionSpies.onPatchItem).toHaveBeenCalledExactlyOnceWith("line-1", { supply_type_id: null }, { persist: true });
+  });
+
+  it("only persists the selected MO role, never its search text", () => {
+    renderRow(createItem({}));
+    const input = screen.getByRole("combobox", { name: /Rôle de main-d'œuvre/ });
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "main" } });
+    expect(rowActionSpies.onPatchItem).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(rowActionSpies.onPatchItem).toHaveBeenCalledExactlyOnceWith("line-1", { labor_role_id: "role-1" }, { persist: true });
   });
 
   it("ne propose le menu de details que lorsque la ligne en porte", () => {

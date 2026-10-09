@@ -1,32 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  DEFAULT_WEB_VITALS_SAMPLE_RATE,
-  buildWebVitalPayload,
-  normalizeWebVitalsRoute,
-  parseWebVitalsSampleRate,
-  shouldSampleWebVitals,
-} from "@/lib/performance/web-vitals";
+import { buildWebVitalPayload, normalizeWebVitalsRoute } from "@/lib/performance/web-vitals";
 
 describe("web vitals reporting", () => {
-  it("parses and clamps the sample rate", () => {
-    expect(parseWebVitalsSampleRate(undefined)).toBe(
-      DEFAULT_WEB_VITALS_SAMPLE_RATE
-    );
-    expect(parseWebVitalsSampleRate("invalid")).toBe(
-      DEFAULT_WEB_VITALS_SAMPLE_RATE
-    );
-    expect(parseWebVitalsSampleRate("-1")).toBe(0);
-    expect(parseWebVitalsSampleRate("0.25")).toBe(0.25);
-    expect(parseWebVitalsSampleRate("2")).toBe(1);
-  });
-
-  it("samples deterministically at the configured boundary", () => {
-    expect(shouldSampleWebVitals(0, 0)).toBe(false);
-    expect(shouldSampleWebVitals(0.1, 0.09)).toBe(true);
-    expect(shouldSampleWebVitals(0.1, 0.1)).toBe(false);
-    expect(shouldSampleWebVitals(1, 0.999)).toBe(true);
-  });
 
   it("removes identifiers and query strings from route dimensions", () => {
     expect(

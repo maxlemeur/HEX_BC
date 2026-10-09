@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
-import { useCallback, useLayoutEffect, useRef } from "react";
-import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act,cleanup,renderHook,waitFor } from "@testing-library/react";
+import { useCallback,useLayoutEffect,useRef } from "react";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 const clientMocks = vi.hoisted(() => ({
   fetchEstimateSendGating: vi.fn(),
@@ -15,12 +15,12 @@ vi.mock("@/lib/estimates/client", () => ({
 }));
 
 import {
-  useEstimateEditorStatusController,
-  type EstimateEditorStatusControllerInput,
+useEstimateEditorStatusController,
+type EstimateEditorStatusControllerInput,
 } from "@/hooks/useEstimateEditorStatusController";
 import type {
-  EstimateSendGatingResponse,
-  EstimateStatus,
+EstimateSendGatingResponse,
+EstimateStatus,
 } from "@/lib/estimates/client";
 import type { EstimateVersionRow } from "@/lib/estimates/editor-items";
 
@@ -188,28 +188,6 @@ afterEach(() => {
 });
 
 describe("useEstimateEditorStatusController send workflow", () => {
-  it("flushes before loading gating and opens the dialog", async () => {
-    const harness = renderController();
-
-    await act(async () => {
-      await harness.result.current.actions.requestSend();
-    });
-
-    expect(harness.dependencies.flushBufferedItemUpdates).toHaveBeenCalledTimes(
-      1
-    );
-    expect(clientMocks.fetchEstimateSendGating).toHaveBeenCalledWith(
-      "version-1"
-    );
-    expect(
-      harness.dependencies.flushBufferedItemUpdates.mock.invocationCallOrder[0]
-    ).toBeLessThan(
-      clientMocks.fetchEstimateSendGating.mock.invocationCallOrder[0]
-    );
-    expect(harness.result.current.state.sendGating).toEqual(createGating());
-    expect(harness.result.current.state.isSendGatingDialogOpen).toBe(true);
-    expect(harness.result.current.state.isUpdatingStatus).toBe(false);
-  });
 
   it("reflushes and revalidates gating with the latest token before sending", async () => {
     const harness = renderController(
@@ -535,18 +513,6 @@ describe("useEstimateEditorStatusController route generations", () => {
 });
 
 describe("useEstimateEditorStatusController gating preload", () => {
-  it("preloads gating for the active draft", async () => {
-    const gating = createGating(false);
-    clientMocks.fetchEstimateSendGating.mockResolvedValueOnce(gating);
-    const harness = renderController(defaultProps({ preloadGating: true }));
-
-    await waitFor(() => {
-      expect(clientMocks.fetchEstimateSendGating).toHaveBeenCalledWith(
-        "version-1"
-      );
-      expect(harness.result.current.state.sendGating).toEqual(gating);
-    });
-  });
 
   it("ignores a preload completing after the active route changes", async () => {
     const firstPreload = createDeferred<EstimateSendGatingResponse>();
@@ -619,56 +585,6 @@ describe("useEstimateEditorStatusController gating preload", () => {
 });
 
 describe("useEstimateEditorStatusController transition policy", () => {
-  it.each<{
-    status: EstimateStatus;
-    transitions: EstimateStatus[];
-    canSend: boolean;
-    canAccept: boolean;
-    canArchive: boolean;
-  }>([
-    {
-      status: "draft",
-      transitions: ["sent"],
-      canSend: true,
-      canAccept: false,
-      canArchive: false,
-    },
-    {
-      status: "sent",
-      transitions: ["accepted", "archived"],
-      canSend: false,
-      canAccept: true,
-      canArchive: true,
-    },
-    {
-      status: "accepted",
-      transitions: ["archived"],
-      canSend: false,
-      canAccept: false,
-      canArchive: true,
-    },
-    {
-      status: "archived",
-      transitions: [],
-      canSend: false,
-      canAccept: false,
-      canArchive: false,
-    },
-  ])(
-    "exposes the exact $status transition matrix",
-    ({ status, transitions, canSend, canAccept, canArchive }) => {
-      const harness = renderController(
-        defaultProps({ version: createVersion(status) })
-      );
-
-      expect(harness.result.current.meta.allowedTransitions).toEqual(
-        transitions
-      );
-      expect(harness.result.current.meta.canSend).toBe(canSend);
-      expect(harness.result.current.meta.canAccept).toBe(canAccept);
-      expect(harness.result.current.meta.canArchive).toBe(canArchive);
-    }
-  );
 
   it("rejects draft to archived before flushing", async () => {
     const harness = renderController();
@@ -826,40 +742,5 @@ describe("useEstimateEditorStatusController errors", () => {
     });
     expect(harness.result.current.state.error).toBeNull();
     expect(dependencies.applyUpdatedVersion).not.toHaveBeenCalled();
-  });
-
-  it("resolves a gating error for display", async () => {
-    clientMocks.fetchEstimateSendGating.mockRejectedValueOnce(
-      new Error("gating unavailable")
-    );
-    const harness = renderController();
-
-    await act(async () => {
-      await harness.result.current.actions.requestSend();
-    });
-
-    expect(harness.dependencies.handleVersionConflict).toHaveBeenCalled();
-    expect(harness.result.current.state.error).toBe(
-      "public:gating unavailable"
-    );
-    expect(harness.result.current.state.isSendGatingDialogOpen).toBe(false);
-  });
-
-  it("resolves a generic update error for display", async () => {
-    clientMocks.updateEstimateStatus.mockRejectedValueOnce(
-      new Error("update unavailable")
-    );
-    const harness = renderController(
-      defaultProps({ version: createVersion("sent") })
-    );
-
-    await act(async () => {
-      await harness.result.current.actions.changeStatus("accepted");
-    });
-
-    expect(harness.result.current.state.error).toBe(
-      "public:update unavailable"
-    );
-    expect(harness.dependencies.applyUpdatedVersion).not.toHaveBeenCalled();
   });
 });

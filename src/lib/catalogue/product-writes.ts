@@ -1,6 +1,7 @@
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import {
   badRequest,
+  conflict,
   forbidden,
   mapSupabaseError,
   notFound,
@@ -56,10 +57,25 @@ export async function createProduct(input: CreateProductInput) {
     .single();
 
   if (error) {
+    if (error.code === "23505") {
+      throw conflict("Cette référence interne existe déjà. Choisissez une autre référence ou laissez le champ vide.");
+    }
     throw mapSupabaseError(error, "Impossible de creer le produit.");
   }
 
   return { item: data };
+}
+
+export async function suggestProductReference() {
+  const { supabase } = await getAdminClient();
+  const { data, error } = await supabase.rpc("suggest_product_reference");
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de proposer une référence interne.");
+  }
+  if (typeof data !== "string" || !data.trim()) {
+    throw badRequest("Aucune référence interne n’a pu être proposée.");
+  }
+  return { reference: data };
 }
 
 export async function updateProduct(input: UpdateProductInput) {
@@ -78,6 +94,12 @@ export async function updateProduct(input: UpdateProductInput) {
     .maybeSingle();
 
   if (error) {
+    if (error.code === "23505") {
+      throw conflict("Cette référence interne existe déjà. Choisissez une autre référence.");
+    }
+    if (error.message.includes("REFERENCE_PRICE_VALIDATION_REQUIRED")) {
+      throw conflict("Le prix de référence doit être validé depuis « Examiner le prix ». Une référence validée ne peut pas changer d’unité sans nouvelle validation.");
+    }
     throw mapSupabaseError(error, "Impossible de mettre a jour le produit.");
   }
 

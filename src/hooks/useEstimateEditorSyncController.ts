@@ -70,7 +70,8 @@ type EstimateEditorSyncControllerInput = {
   isViewerReadOnly: boolean;
   hasPendingSettingsChanges: boolean;
   isSavingSettings: boolean;
-  savePendingSettings: () => Promise<void>;
+  savePendingSettings: () => Promise<boolean | void>;
+  navigate?: (href: string) => void;
   items: EditorEstimateItem[];
   settings: EstimateSettingsState | null;
   getVersionSnapshot: () => EstimateVersionRow | null;
@@ -215,6 +216,7 @@ export function useEstimateEditorSyncController({
   hasPendingSettingsChanges,
   isSavingSettings,
   savePendingSettings,
+  navigate,
   items,
   settings,
   getVersionSnapshot,
@@ -250,12 +252,14 @@ export function useEstimateEditorSyncController({
   const isAutoSaveEnabledRef = useRef(isAutoSaveEnabled);
   const savePendingSettingsRef = useRef(savePendingSettings);
   const isFlushingBufferedUpdatesRef = useRef(false);
+  const flushCompletionRef = useRef<Promise<void> | null>(null);
   const activeFlushIdRef = useRef(0);
   const routeVersionIdRef = useRef(routeVersionId);
   const routeGenerationRef = useRef(0);
   const structuralGenerationRef = useRef(0);
   const restoredConflictDraftRef = useRef(false);
   const pendingSettingsRef = useRef(hasPendingSettingsChanges);
+  const savingSettingsRef = useRef(isSavingSettings);
   const itemsRef = useRef(items);
   const isSaveBlockedRef = useRef(false);
   /** Vrai tant que cette page a detenu le verrou pour la version courante. */
@@ -351,6 +355,7 @@ export function useEstimateEditorSyncController({
   });
   useLayoutEffect(() => {
     pendingSettingsRef.current = hasPendingSettingsChanges;
+    savingSettingsRef.current = isSavingSettings;
     mutationObserverRef.current = {
       getVersionSnapshot, applyVersionFlushResult,
       persistBufferedItemUpdatesToLocal, setTotalsOutOfSync,
@@ -725,7 +730,12 @@ export function useEstimateEditorSyncController({
   }, [hasPendingSettingsChanges, isSavingSettings]);
 
   const flushBufferedItemUpdates = useCallback(async (): Promise<AutoSaveResult> => {
-    if (isFlushingBufferedUpdatesRef.current) return "noop";
+    if (isFlushingBufferedUpdatesRef.current) {
+      const generation = routeGenerationRef.current;
+      await flushCompletionRef.current;
+      if (generation !== routeGenerationRef.current) return "blocked";
+      return flushBufferedItemUpdates();
+    }
     if (hasEstimateEditorMutations(routeVersionId)) {
       const generation = routeGenerationRef.current;
       await waitForEstimateEditorMutations(routeVersionId);
@@ -762,6 +772,9 @@ export function useEstimateEditorSyncController({
     const flushGeneration = routeGenerationRef.current;
     const flushVersionId = versionSnapshot.id;
     isFlushingBufferedUpdatesRef.current = true;
+    let finishFlush!: () => void;
+    const completion = new Promise<void>((resolve) => { finishFlush = resolve; });
+    flushCompletionRef.current = completion;
 
     const versionTotalsPatch = buildVersionTotalsPatch(getPersistedTotals());
     const structuralGeneration = structuralGenerationRef.current;
@@ -915,6 +928,8 @@ export function useEstimateEditorSyncController({
       );
       return "error";
     } finally {
+      finishFlush();
+      if (flushCompletionRef.current === completion) flushCompletionRef.current = null;
       if (activeFlushIdRef.current === flushId) {
         isFlushingBufferedUpdatesRef.current = false;
       }
@@ -1050,15 +1065,41 @@ export function useEstimateEditorSyncController({
 
   const handleBlockedNavigation = useCallback(() => {
     reportError(
-      "Des modifications ne sont pas encore synchronisées. Utilisez « Sauvegarder maintenant » ou Ctrl+S, puis réessayez."
+      "La sauvegarde n’a pas abouti. Vos modifications sont conservées sur cette page. Réessayez la sauvegarde avant de quitter."
     );
   }, [reportError]);
+
+  const saveBeforeNavigation = useCallback(async () => {
+    const generation = routeGenerationRef.current;
+    if (!isOnline || isSaveBlockedRef.current || restorableDraft) return false;
+    await waitForEstimateEditorMutations(routeVersionId);
+    if (generation !== routeGenerationRef.current) return false;
+    const result = await flushBufferedItemUpdates();
+    if (result === "error" || result === "blocked") return false;
+    if (pendingSettingsRef.current || savingSettingsRef.current) {
+      const saved = await savePendingSettingsRef.current();
+      if (saved !== true) return false;
+      // Settings inputs are disabled for this operation. Its completed promise
+      // is authoritative even before React commits the matching clean state.
+      pendingSettingsRef.current = false;
+      savingSettingsRef.current = false;
+    }
+    // New edits may arrive while the first request is in flight.
+    const finalResult = await flushBufferedItemUpdates();
+    return generation === routeGenerationRef.current &&
+      finalResult !== "error" && finalResult !== "blocked" &&
+      pendingItemUpdatesRef.current.size === 0 &&
+      !hasPendingTotalsSaveRef.current && !pendingSettingsRef.current &&
+      !savingSettingsRef.current && !hasEstimateEditorMutations(routeVersionId);
+  }, [flushBufferedItemUpdates, isOnline, restorableDraft, routeVersionId]);
 
   useAutoSaveNavigationGuard({
     enabled: Boolean(routeVersionId),
     hasPendingChanges,
     isSaving: isAutoSaveSaving || isSavingSettings,
     onBlockedNavigation: handleBlockedNavigation,
+    onBeforeNavigation: saveBeforeNavigation,
+    onNavigate: navigate,
   });
 
   const enqueueItemUpdate = useCallback(

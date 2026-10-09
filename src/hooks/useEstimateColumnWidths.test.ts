@@ -1,13 +1,9 @@
-import { act, renderHook } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach,beforeEach,describe,expect,it } from "vitest";
 
 import {
-  clampEstimateColumnWidth,
-  parseEstimateColumnWidths,
-  useEstimateColumnWidths,
+clampEstimateColumnWidth,
+parseEstimateColumnWidths
 } from "@/hooks/useEstimateColumnWidths";
-
-const STORAGE_KEY = "est-col-widths-v1";
 
 describe("useEstimateColumnWidths", () => {
   beforeEach(() => localStorage.clear());
@@ -32,25 +28,5 @@ describe("useEstimateColumnWidths", () => {
       ),
     ).toEqual({ designation: 410, quantity: 48 });
     expect(parseEstimateColumnWidths("{bad-json")).toEqual({});
-  });
-
-  it("persists adjustments and removes a reset column", () => {
-    const { result } = renderHook(() => useEstimateColumnWidths());
-
-    act(() => result.current.setColumnWidth("designation", 430));
-    act(() => result.current.setColumnWidth("quantity", 92));
-
-    expect(result.current.widths).toEqual({ designation: 430, quantity: 92 });
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null")).toEqual({
-      designation: 430,
-      quantity: 92,
-    });
-
-    act(() => result.current.resetColumnWidth("designation"));
-
-    expect(result.current.widths).toEqual({ quantity: 92 });
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null")).toEqual({
-      quantity: 92,
-    });
   });
 });

@@ -21,6 +21,48 @@ type ModalContextValue = {
 
 const ModalContext = createContext<ModalContextValue | null>(null);
 
+// A return navigation can overlap the departing dialog and the product sheet.
+// Each lease restores only the state captured before the first dialog opened.
+const scrollLocks = new WeakMap<HTMLElement, { count: number; overflow: string }>();
+const backgroundLocks = new WeakMap<HTMLElement, {
+  count: number;
+  inert: boolean;
+  ariaHidden: string | null;
+}>();
+
+function lockModalBackground(body: HTMLElement, nodes: HTMLElement[]) {
+  const scrollState = scrollLocks.get(body) ?? { count: 0, overflow: body.style.overflow };
+  scrollState.count += 1;
+  scrollLocks.set(body, scrollState);
+  body.style.overflow = "hidden";
+  nodes.forEach((node) => {
+    const state = backgroundLocks.get(node) ?? {
+      count: 0, inert: Boolean(node.inert), ariaHidden: node.getAttribute("aria-hidden"),
+    };
+    state.count += 1;
+    backgroundLocks.set(node, state);
+    node.inert = true;
+    node.setAttribute("aria-hidden", "true");
+  });
+  return () => {
+    scrollState.count -= 1;
+    if (scrollState.count === 0) {
+      body.style.overflow = scrollState.overflow;
+      scrollLocks.delete(body);
+    }
+    nodes.forEach((node) => {
+      const state = backgroundLocks.get(node);
+      if (!state) return;
+      state.count -= 1;
+      if (state.count > 0) return;
+      node.inert = state.inert;
+      if (state.ariaHidden === null) node.removeAttribute("aria-hidden");
+      else node.setAttribute("aria-hidden", state.ariaHidden);
+      backgroundLocks.delete(node);
+    });
+  };
+}
+
 function useModalContext() {
   const context = use(ModalContext);
   if (!context) {
@@ -53,9 +95,6 @@ function Root({ open, onOpenChange, children }: Readonly<ModalRootProps>) {
 
     if (typeof document !== "undefined") {
       previousFocusRef.current = document.activeElement as HTMLElement | null;
-      const originalOverflow = document.body.style.overflow;
-      document.body.style.overflow = "hidden";
-
       const dialog = contentRef.current;
       const modalRoot = dialog?.closest<HTMLElement>("[data-ui-modal-root]");
       const backgroundNodes = Array.from(document.body.children).filter(
@@ -66,16 +105,7 @@ function Root({ open, onOpenChange, children }: Readonly<ModalRootProps>) {
           !node.contains(dialog) &&
           !["SCRIPT", "STYLE", "LINK"].includes(node.tagName)
       );
-      const backgroundState = backgroundNodes.map((node) => ({
-        node,
-        inert: Boolean(node.inert),
-        ariaHidden: node.getAttribute("aria-hidden"),
-      }));
-
-      backgroundNodes.forEach((node) => {
-        node.inert = true;
-        node.setAttribute("aria-hidden", "true");
-      });
+      const releaseBackgroundLock = lockModalBackground(document.body, backgroundNodes);
 
       const timer = window.setTimeout(() => {
         const container = contentRef.current;
@@ -95,15 +125,7 @@ function Root({ open, onOpenChange, children }: Readonly<ModalRootProps>) {
 
       return () => {
         window.clearTimeout(timer);
-        document.body.style.overflow = originalOverflow;
-        backgroundState.forEach(({ node, inert, ariaHidden }) => {
-          node.inert = inert;
-          if (ariaHidden === null) {
-            node.removeAttribute("aria-hidden");
-          } else {
-            node.setAttribute("aria-hidden", ariaHidden);
-          }
-        });
+        releaseBackgroundLock();
         previousFocusRef.current?.focus();
       };
     }

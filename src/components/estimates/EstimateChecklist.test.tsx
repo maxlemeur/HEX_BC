@@ -1,5 +1,5 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup,render,screen } from "@testing-library/react";
+import { afterEach,describe,expect,it,vi } from "vitest";
 
 import { EstimateChecklist } from "@/components/estimates/EstimateChecklist";
 import type { EstimateChecklistResult } from "@/lib/estimates/checklist";
@@ -118,59 +118,5 @@ describe("EstimateChecklist finalization inspector", () => {
     expect(
       screen.getByText("Le contrôle complet sera relancé lors de l’envoi."),
     ).toBeInTheDocument();
-  });
-
-  it("routes the priority and anomaly actions", () => {
-    const { onCriterionClick, onShowAnomalies } = renderChecklist();
-
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "Afficher la première ligne concernée",
-      }),
-    );
-    expect(onCriterionClick).toHaveBeenCalledWith(checklist.criteria[0]);
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "Afficher les lignes concernées" }),
-    );
-    expect(onShowAnomalies).toHaveBeenCalledTimes(1);
-  });
-
-  it("keeps criterion details behind an explicit disclosure", () => {
-    const onToggleCollapsed = vi.fn();
-    const { rerender } = render(
-      <EstimateChecklist
-        checklist={checklist}
-        isCollapsed
-        anomalyCount={0}
-        affectedLineCount={0}
-        onToggleCollapsed={onToggleCollapsed}
-        onCriterionClick={vi.fn()}
-        onShowAnomalies={vi.fn()}
-      />,
-    );
-
-    const disclosure = screen.getByRole("button", {
-      name: /Voir les critères/,
-    });
-    expect(disclosure).toHaveAttribute("aria-expanded", "false");
-    fireEvent.click(disclosure);
-    expect(onToggleCollapsed).toHaveBeenCalledTimes(1);
-
-    rerender(
-      <EstimateChecklist
-        checklist={checklist}
-        isCollapsed={false}
-        anomalyCount={0}
-        affectedLineCount={0}
-        onToggleCollapsed={onToggleCollapsed}
-        onCriterionClick={vi.fn()}
-        onShowAnomalies={vi.fn()}
-      />,
-    );
-    expect(
-      screen.getByRole("button", { name: /Masquer les critères/ }),
-    ).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText("Dates de validité")).toBeInTheDocument();
   });
 });

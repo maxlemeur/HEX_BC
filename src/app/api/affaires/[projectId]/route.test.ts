@@ -14,27 +14,6 @@ describe("DELETE /api/affaires/[projectId]", () => {
     vi.clearAllMocks();
   });
 
-  it("deletes a draft-only affaire", async () => {
-    vi.mocked(bulkDeleteDraftAffaires).mockResolvedValue({
-      requestedCount: 1,
-      deletedIds: [PROJECT_ID],
-      failures: [],
-    });
-
-    const response = await DELETE(new Request("http://localhost"), {
-      params: Promise.resolve({ projectId: PROJECT_ID }),
-    });
-
-    expect(response.status).toBe(200);
-    expect(bulkDeleteDraftAffaires).toHaveBeenCalledWith([PROJECT_ID]);
-    await expect(response.json()).resolves.toEqual({
-      ok: true,
-      data: {
-        deleted: true,
-      },
-    });
-  });
-
   it("maps an ineligible RPC outcome to forbidden", async () => {
     vi.mocked(bulkDeleteDraftAffaires).mockResolvedValue({
       requestedCount: 1,

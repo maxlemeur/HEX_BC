@@ -10,6 +10,7 @@ import {
   ok,
   toErrorResponse,
   updateSupplierPrice,
+  updateSupplierOffer,
   updateSupplierCatalogItem,
 } from "@/lib/catalogue/server";
 import {
@@ -94,6 +95,9 @@ export async function POST(request: Request) {
       case "update": {
         const data = await updateSupplierPrice(payload);
         return ok(data);
+      }
+      case "update-offer": {
+        return ok(await updateSupplierOffer(payload));
       }
       case "delete": {
         const data = await deleteSupplierPrice(payload.id);

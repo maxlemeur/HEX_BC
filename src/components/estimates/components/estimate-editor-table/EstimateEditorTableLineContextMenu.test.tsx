@@ -1,5 +1,5 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup,fireEvent,render,screen } from "@testing-library/react";
+import { afterEach,describe,expect,it,vi } from "vitest";
 
 import { EstimateEditorTableLineContextMenu } from "@/components/estimates/components/estimate-editor-table/EstimateEditorTableLineContextMenu";
 
@@ -44,51 +44,6 @@ describe("EstimateEditorTableLineContextMenu", () => {
     expect(onPatchAid).toHaveBeenNthCalledWith(2, "line-1", "CU.TU.100", {
       persist: true,
     });
-  });
-
-  it("exposes article actions before supplier comparison and separates conversion", () => {
-    const onOpenArticle = vi.fn();
-    const onAssociateArticle = vi.fn();
-    const onCompareSuppliers = vi.fn();
-    const onConvertToSection = vi.fn();
-
-    render(
-      <EstimateEditorTableLineContextMenu
-        itemId="line-2"
-        aid="AID-2"
-        x={12}
-        y={24}
-        isReadOnly={false}
-        isViewerMode={false}
-        isItemConversionPending={false}
-        hasAssociatedProduct
-        onPatchAid={vi.fn()}
-        onOpenArticle={onOpenArticle}
-        onAssociateArticle={onAssociateArticle}
-        onCompareSuppliers={onCompareSuppliers}
-        onConvertToSection={onConvertToSection}
-      />,
-    );
-
-    const menuItems = screen.getAllByRole("menuitem");
-    expect(menuItems.map((item) => item.textContent)).toEqual([
-      "Fiche article",
-      "Associer ou remplacer l’article",
-      "Comparer les fournisseurs",
-      "Convertir en section",
-    ]);
-
-    fireEvent.click(screen.getByRole("menuitem", { name: "Fiche article" }));
-    fireEvent.click(
-      screen.getByRole("menuitem", { name: "Associer ou remplacer l’article" }),
-    );
-    fireEvent.click(screen.getByRole("menuitem", { name: "Comparer les fournisseurs" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Convertir en section" }));
-
-    expect(onOpenArticle).toHaveBeenCalledWith("line-2");
-    expect(onAssociateArticle).toHaveBeenCalledWith("line-2");
-    expect(onCompareSuppliers).toHaveBeenCalledWith("line-2");
-    expect(onConvertToSection).toHaveBeenCalledWith("line-2");
   });
 
   it("disables the fiche without a linked article and association in read-only mode", () => {

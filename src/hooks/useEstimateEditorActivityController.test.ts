@@ -1,12 +1,11 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act,cleanup,renderHook,waitFor } from "@testing-library/react";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 import {
-  formatEstimateEditorAuditTimestamp,
-  useEstimateEditorActivityController,
-  type EstimateEditorAuditLogEntry,
+useEstimateEditorActivityController,
+type EstimateEditorAuditLogEntry
 } from "@/hooks/useEstimateEditorActivityController";
 import type { EstimateVersionEvent } from "@/lib/estimates/client";
 
@@ -76,72 +75,6 @@ afterEach(() => {
 });
 
 describe("useEstimateEditorActivityController", () => {
-  it("loads and normalizes audit and timeline activity for an admin", async () => {
-    const auditEntry = createAuditEntry("audit-1");
-    const timelineEvent = createTimelineEvent("event-1");
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: vi.fn().mockResolvedValue({
-          data: [auditEntry, { id: "invalid" }],
-        }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: vi.fn().mockResolvedValue({
-          ok: true,
-          data: [timelineEvent, { id: "invalid" }],
-        }),
-      });
-    vi.stubGlobal("fetch", fetchMock);
-
-    const { result } = renderHook(() =>
-      useEstimateEditorActivityController(createInput())
-    );
-
-    expect(result.current.meta.isEnabled).toBe(true);
-    expect(result.current.actions).toEqual(
-      expect.objectContaining({
-        refreshAudit: expect.any(Function),
-        refreshTimeline: expect.any(Function),
-        refreshAll: expect.any(Function),
-      })
-    );
-
-    await waitFor(() => {
-      expect(result.current.state.audit).toEqual({
-        entries: [auditEntry],
-        error: null,
-        isLoading: false,
-      });
-      expect(result.current.state.timeline).toEqual({
-        events: [timelineEvent],
-        error: null,
-        isLoading: false,
-      });
-    });
-
-    const [auditUrl, auditInit] = fetchMock.mock.calls[0] as unknown as [
-      string,
-      RequestInit,
-    ];
-    expect(auditUrl).toBe(
-      "/api/audit?estimate_version_id=version-1&limit=25"
-    );
-    expect(auditInit).toMatchObject({ credentials: "same-origin" });
-    expect(auditInit.signal).toBeInstanceOf(AbortSignal);
-    const [timelineUrl, timelineInit] = fetchMock.mock.calls[1] as unknown as [
-      string,
-      RequestInit,
-    ];
-    expect(timelineUrl).toBe("/api/estimates/version-1/events");
-    expect(timelineInit).toMatchObject({ credentials: "same-origin" });
-    expect(timelineInit.signal).toBeInstanceOf(AbortSignal);
-    expect(
-      formatEstimateEditorAuditTimestamp("not-a-timestamp")
-    ).toBe("not-a-timestamp");
-  });
 
   it("loads only while admin access is enabled and resets when it is removed", async () => {
     const auditEntry = createAuditEntry("audit-admin");

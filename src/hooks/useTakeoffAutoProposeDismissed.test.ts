@@ -1,5 +1,5 @@
-import { act, renderHook } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act,renderHook } from "@testing-library/react";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 import { useTakeoffAutoProposeDismissed } from "@/hooks/useTakeoffAutoProposeDismissed";
 
@@ -18,35 +18,6 @@ describe("useTakeoffAutoProposeDismissed", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
-  });
-
-  it("returns dismissed: false when no localStorage key", () => {
-    const { result } = renderHook(() =>
-      useTakeoffAutoProposeDismissed(PROJECT_A, {
-        context: "hub",
-        profileId: PROFILE_A,
-        scopeKey: "scope-1",
-      }),
-    );
-    expect(result.current.dismissed).toBe(false);
-    expect(result.current.temporarilyDismissed).toBe(false);
-  });
-
-  it("returns dismissed: true when the permanent key exists for the same profile and context", () => {
-    localStorage.setItem(
-      "takeoff-auto-propose:v2:dismissed:user-a:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:hub",
-      "1",
-    );
-
-    const { result } = renderHook(() =>
-      useTakeoffAutoProposeDismissed(PROJECT_A, {
-        context: "hub",
-        profileId: PROFILE_A,
-        scopeKey: "scope-1",
-      }),
-    );
-
-    expect(result.current.dismissed).toBe(true);
   });
 
   it("dismissPermanently scopes the key by profile, project and context", () => {

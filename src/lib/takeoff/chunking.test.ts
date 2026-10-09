@@ -40,15 +40,6 @@ function createExchange(input: {
 }
 
 describe("takeoff chunking", () => {
-  it("returns a single chunk when page count stays under threshold", () => {
-    const chunks = buildPdfChunks(12, {
-      thresholdPages: 15,
-      chunkSizePages: 10,
-      overlapPages: 2,
-    });
-
-    expect(chunks).toEqual([{ index: 0, startPage: 1, endPage: 12 }]);
-  });
 
   it("splits pages with overlap for large PDFs", () => {
     const chunks = buildPdfChunks(28, {

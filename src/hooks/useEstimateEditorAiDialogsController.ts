@@ -13,6 +13,7 @@ import type { GeneratedOuvrageDialogProps } from "@/components/estimates/Generat
 import type { ExistingSection } from "@/components/estimates/generated-ouvrage-types";
 import type { VersionZeroDraftDialogProps } from "@/components/estimates/VersionZeroDraftDialog";
 import type { VersionZeroDraftSummary } from "@/lib/estimates/client";
+import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
 import type {
   EditorEstimateItem,
   EstimateVersionRow,
@@ -328,6 +329,7 @@ export function useEstimateEditorAiDialogsController({
   }, [guardOpen, updateStateForScope]);
 
   const openVersionZeroDialog = useCallback(() => {
+    if (!isEstimateAiDraftEnabled()) return false;
     const routeScope = guardOpen();
     if (!routeScope) return false;
     updateStateForScope(routeScope.scopeKey, (current) => ({
@@ -470,6 +472,7 @@ export function useEstimateEditorAiDialogsController({
 
   const closeVersionZeroDialog = useCallback(
     async (result?: { materialized?: boolean }) => {
+      if (!isEstimateAiDraftEnabled()) return;
       const routeScope = captureCurrentRouteScope();
       if (!routeScope) return;
       await closeVersionZeroForScope(routeScope, result);
@@ -488,6 +491,7 @@ export function useEstimateEditorAiDialogsController({
 
       const targetScopeKey = createAiDialogsScopeKey(versionId, versionId);
       const shouldAutoOpen =
+        isEstimateAiDraftEnabled() &&
         options?.autoOpen === true && canAutoOpenVersionZero(summary);
       updateStateForScope(targetScopeKey, (current) => ({
         ...current,
@@ -593,6 +597,7 @@ export function useEstimateEditorAiDialogsController({
   const versionZeroDraftDialogProps =
     useMemo<VersionZeroDraftDialogProps | null>(() => {
       if (
+        !isEstimateAiDraftEnabled() ||
         activeVersionId !== routeVersionId ||
         !isVersionZeroDialogOpen
       ) {
@@ -672,7 +677,8 @@ export function useEstimateEditorAiDialogsController({
         ? "Revoir le brouillon IA"
         : "Préparer un brouillon IA",
       isVersionZeroActionDisabled:
-        !versionZeroSummary?.activeDraft && !versionZeroSummary?.canGenerate,
+        !isEstimateAiDraftEnabled() ||
+        (!versionZeroSummary?.activeDraft && !versionZeroSummary?.canGenerate),
     }),
     [
       existingSections,

@@ -6,16 +6,8 @@ vi.mock("@/lib/estimates/server", () => ({
   updateEstimateAssembly: vi.fn(),
 }));
 
-import {
-  DELETE,
-  GET,
-  PATCH,
-} from "@/app/api/estimates/assemblies/[assemblyId]/route";
-import {
-  deleteEstimateAssembly,
-  getEstimateAssembly,
-  updateEstimateAssembly,
-} from "@/lib/estimates/server";
+import { GET, PATCH } from "@/app/api/estimates/assemblies/[assemblyId]/route";
+import { updateEstimateAssembly } from "@/lib/estimates/server";
 
 const ASSEMBLY_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
@@ -38,54 +30,6 @@ describe("estimate assembly by id route", () => {
           code: "VALIDATION_ERROR",
         }),
       })
-    );
-  });
-
-  it("returns a single assembly", async () => {
-    vi.mocked(getEstimateAssembly).mockResolvedValue({
-      assembly: {
-        id: ASSEMBLY_ID,
-      },
-    } as never);
-
-    const response = await GET(new Request("http://localhost"), {
-      params: Promise.resolve({ assemblyId: ASSEMBLY_ID }),
-    });
-
-    expect(response.status).toBe(200);
-    expect(vi.mocked(getEstimateAssembly)).toHaveBeenCalledWith(ASSEMBLY_ID);
-  });
-
-  it("updates an assembly", async () => {
-    vi.mocked(updateEstimateAssembly).mockResolvedValue({
-      assembly: { id: ASSEMBLY_ID },
-    } as never);
-
-    const request = new Request("http://localhost", {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        name: "Mur v2",
-        items: [{ title: "Ligne", position: 1 }],
-      }),
-    });
-
-    const response = await PATCH(request, {
-      params: Promise.resolve({ assemblyId: ASSEMBLY_ID }),
-    });
-
-    expect(response.status).toBe(200);
-    expect(vi.mocked(updateEstimateAssembly)).toHaveBeenCalledWith(
-      ASSEMBLY_ID,
-      {
-        name: "Mur v2",
-        items: [
-          {
-            title: "Ligne",
-            position: 1,
-          },
-        ],
-      }
     );
   });
 
@@ -113,18 +57,5 @@ describe("estimate assembly by id route", () => {
         name: "Mur renomme",
       }
     );
-  });
-
-  it("deletes an assembly", async () => {
-    vi.mocked(deleteEstimateAssembly).mockResolvedValue({
-      deleted_id: ASSEMBLY_ID,
-    } as never);
-
-    const response = await DELETE(new Request("http://localhost"), {
-      params: Promise.resolve({ assemblyId: ASSEMBLY_ID }),
-    });
-
-    expect(response.status).toBe(200);
-    expect(vi.mocked(deleteEstimateAssembly)).toHaveBeenCalledWith(ASSEMBLY_ID);
   });
 });

@@ -1,5 +1,7 @@
 "use client";
 
+import { EstimateOrderedCells } from "@/components/estimates/context/EstimateColumnOrderContext";
+
 import {
   type ComponentProps,
   type CSSProperties,
@@ -243,11 +245,13 @@ export function EstimateEditorTableChrome({
             <div className="mt-3">{ribbonAlertsNode}</div>
           ) : null}
 
-          {activeLineBreadcrumb ? (
-            <div className="mt-2 text-xs text-[var(--slate-500)]">
-              Chemin actif: {activeLineBreadcrumb}
-            </div>
-          ) : null}
+          <div
+            className="mt-2 h-4 truncate text-xs leading-4 text-[var(--slate-500)]"
+            aria-hidden={!activeLineBreadcrumb}
+            title={activeLineBreadcrumb ? `Chemin actif: ${activeLineBreadcrumb}` : undefined}
+          >
+            {activeLineBreadcrumb ? `Chemin actif: ${activeLineBreadcrumb}` : null}
+          </div>
 
           {actionError ? (
             <div
@@ -355,7 +359,8 @@ export function EstimateEditorTableChrome({
               className="estimate-table__head"
               data-testid="estimate-editor-table-head"
             >
-              <div className="relative flex items-center gap-2">
+              <EstimateOrderedCells>
+              <div data-estimate-column="designation" className="relative flex items-center gap-2">
                 <input
                   type="checkbox"
                   className="estimate-line-checkbox"
@@ -505,6 +510,14 @@ export function EstimateEditorTableChrome({
                   ) : null}
                 </>
               )}
+              {visibleColumns.has("supplier") ? (
+                <ResizableColumnHeader
+                  columnId="supplier"
+                  label="Fournisseur"
+                  className="estimate-col--fo"
+                  {...columnResizeHandlers}
+                />
+              ) : null}
               {/* EST-E15 increment 1 — sous-detail de prix, en lecture seule. */}
               {visibleColumns.has("ds") ? (
                 <ResizableColumnHeader
@@ -544,6 +557,7 @@ export function EstimateEditorTableChrome({
                 {...columnResizeHandlers}
               />
               <div></div>
+              </EstimateOrderedCells>
             </div>
 
             <EstimateEditorBody
@@ -575,55 +589,45 @@ export function EstimateEditorTableChrome({
                 className="estimate-table__footer"
                 data-testid="estimate-editor-table-footer"
               >
-                <div className="font-semibold text-[var(--slate-800)]">
-                  Total
-                </div>
-                <div></div>
-                <div></div>
-                <div
-                  className="text-right font-medium text-[var(--slate-700)]"
-                  title="Total Fournitures"
-                >
+                <EstimateOrderedCells>
+                <div data-estimate-column="designation" className="font-semibold text-[var(--slate-800)]">Total</div>
+                <div data-estimate-column="quantity" />
+                <div data-estimate-column="unit" />
+                <div data-estimate-column="supply_price" className="text-right font-medium" title="Total Fournitures">
                   {formatCurrency(grandTotals.foTotal, currency)}
                 </div>
+                {(isLaborSplitEnabled || visibleColumns.has("supply_type")) ? <div data-estimate-column="supply_type" /> : null}
+                {(isLaborSplitEnabled || visibleColumns.has("k_fo")) ? <div data-estimate-column="k_fo" /> : null}
+                {visibleColumns.has("supplier") ? <div data-estimate-column="supplier" /> : null}
                 {isLaborSplitEnabled ? (
                   <>
-                    <div></div>
-                    <div></div>
-                    <div></div>
-                    <div></div>
-                    <div></div>
-                    <div></div>
-                    <div></div>
-                    <div></div>
-                    <div></div>
+                    <div data-estimate-column="h_mo_majoration" />
+                    <div data-estimate-column="labor_hours_workshop" />
+                    <div data-estimate-column="labor_role_workshop" />
+                    <div data-estimate-column="k_mo_workshop" />
+                    <div data-estimate-column="labor_hours_site" />
+                    <div data-estimate-column="labor_role_site" />
+                    <div data-estimate-column="k_mo_site" />
                   </>
                 ) : (
                   <>
-                    {visibleColumns.has("supply_type") ? <div></div> : null}
-                    {visibleColumns.has("k_fo") ? <div></div> : null}
-                    <div
-                      className="text-right font-medium text-[var(--slate-700)]"
-                      title="Total Main d'œuvre"
-                    >
+                    <div data-estimate-column="labor_hours" className="text-right font-medium" title="Total Main d'œuvre">
                       {formatCurrency(grandTotals.moTotal, currency)}
                     </div>
-                    {visibleColumns.has("h_mo_majoration") ? <div></div> : null}
-                    {visibleColumns.has("labor_role") ? <div></div> : null}
-                    {visibleColumns.has("k_mo") ? <div></div> : null}
+                    {visibleColumns.has("h_mo_majoration") ? <div data-estimate-column="h_mo_majoration" /> : null}
+                    {visibleColumns.has("labor_role") ? <div data-estimate-column="labor_role" /> : null}
+                    {visibleColumns.has("k_mo") ? <div data-estimate-column="k_mo" /> : null}
                   </>
                 )}
-                {visibleColumns.has("ds") ? <div></div> : null}
-                {visibleColumns.has("marge") ? <div></div> : null}
-                {visibleColumns.has("marque") ? <div></div> : null}
-                <div className="estimate-col--sale"></div>
-                <div
-                  className="estimate-col--sale text-right font-semibold text-[var(--slate-900)]"
-                  title="Total HT"
-                >
+                {visibleColumns.has("ds") ? <div data-estimate-column="ds" /> : null}
+                {visibleColumns.has("marge") ? <div data-estimate-column="marge" /> : null}
+                {visibleColumns.has("marque") ? <div data-estimate-column="marque" /> : null}
+                <div data-estimate-column="unit_price" className="estimate-col--sale" />
+                <div data-estimate-column="total_price" className="estimate-col--sale text-right font-semibold" title="Total HT">
                   {formatCurrency(grandTotals.htTotal, currency)}
                 </div>
-                <div></div>
+                <div />
+                </EstimateOrderedCells>
               </div>
             ) : null}
           </div>

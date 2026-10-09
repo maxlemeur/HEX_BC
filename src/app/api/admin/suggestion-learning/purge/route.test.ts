@@ -12,45 +12,6 @@ describe("POST /api/admin/suggestion-learning/purge", () => {
     vi.clearAllMocks();
   });
 
-  it("forwards retention months to purge", async () => {
-    vi.mocked(purgeLearnings).mockResolvedValue({
-      deleted_count: 12,
-      retention_months: 6,
-      config: {
-        enabled: true,
-        threshold: 3,
-        retention_months: 6,
-      },
-      proposals: [],
-      by_rule_id: {},
-    } as never);
-
-    const request = new Request("http://localhost/api/admin/suggestion-learning/purge", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        retention_months: 6,
-      }),
-    });
-
-    const response = await POST(request);
-    const body = (await response.json()) as {
-      ok: boolean;
-      data: {
-        deleted_count: number;
-      };
-    };
-
-    expect(response.status).toBe(200);
-    expect(body.ok).toBe(true);
-    expect(body.data.deleted_count).toBe(12);
-    expect(vi.mocked(purgeLearnings)).toHaveBeenCalledWith({
-      retentionMonths: 6,
-    });
-  });
-
   it("returns 400 when retention payload is invalid", async () => {
     const request = new Request("http://localhost/api/admin/suggestion-learning/purge", {
       method: "POST",

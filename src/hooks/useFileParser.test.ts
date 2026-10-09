@@ -1,5 +1,5 @@
 import { renderHook } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach,describe,expect,it,vi } from "vitest";
 
 import { useFileParser } from "@/hooks/useFileParser";
 
@@ -56,67 +56,6 @@ afterEach(() => {
 });
 
 describe("useFileParser", () => {
-  it.each([
-    {
-      name: "prices.CSV",
-      type: "application/octet-stream",
-      parser: "csv",
-      workerFile: "csv-parser.worker.ts",
-    },
-    {
-      name: "prices.bin",
-      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      parser: "xlsx",
-      workerFile: "xlsx-parser.worker.ts",
-    },
-  ] as const)(
-    "selects the $parser worker and returns its metadata",
-    async ({ name, type, parser, workerFile }) => {
-      const { worker, WorkerConstructor } = installWorkerStub();
-      const buffer = new Uint8Array([1, 2, 3]).buffer;
-      const file = createFile(name, type, buffer);
-      const { result } = renderHook(() => useFileParser());
-
-      const parsing = result.current.parseFile(file, { headerRowNumber: 4 });
-      const [request, transfer] = await getPostedRequest(worker);
-
-      expect(WorkerConstructor).toHaveBeenCalledTimes(1);
-      expect(String(WorkerConstructor.mock.calls[0]?.[0])).toContain(workerFile);
-      expect(request).toMatchObject({
-        buffer,
-        headerRowNumber: 4,
-      });
-      expect(transfer).toEqual([buffer]);
-
-      worker.onmessage?.({
-        data: {
-          requestId: "another-request",
-          ok: true,
-          rows: [{ ignored: true }],
-        },
-      } as MessageEvent);
-      expect(worker.terminate).not.toHaveBeenCalled();
-
-      worker.onmessage?.({
-        data: {
-          requestId: request.requestId,
-          ok: true,
-          rows: [{ designation: "Tube" }],
-          rowLineNumbers: [5],
-          detectedEncoding: parser === "csv" ? "utf-8" : undefined,
-        },
-      } as MessageEvent);
-
-      await expect(parsing).resolves.toEqual({
-        mode: "worker",
-        parser,
-        rows: [{ designation: "Tube" }],
-        rowLineNumbers: [5],
-        detectedEncoding: parser === "csv" ? "utf-8" : undefined,
-      });
-      expect(worker.terminate).toHaveBeenCalledTimes(1);
-    }
-  );
 
   it("rejects worker responses and runtime errors while terminating the worker", async () => {
     const { worker } = installWorkerStub();

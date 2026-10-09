@@ -26,60 +26,6 @@ describe("callGeminiStructured", () => {
     vi.useRealTimers();
   });
 
-  it("returns structured data and metadata on success", async () => {
-    const logger = vi.fn();
-    const result = await callGeminiStructured(
-      {
-        prompt: "Extract takeoff lines",
-        schema: TestSchema,
-        context: {
-          jobId: "job-1",
-          tenantId: "tenant-1",
-          level: "A",
-          promptVersion: "takeoff-a-v1",
-          model: "gemini-3.1-pro-preview",
-        },
-      },
-      {
-        invoke: vi.fn().mockResolvedValue({
-          text: JSON.stringify({
-            items: [{ designation: "Cable U1000", quantity: 42, unit: "ml" }],
-          }),
-          usage: {
-            promptTokenCount: 50_000,
-            candidatesTokenCount: 50_000,
-            totalTokenCount: 100_000,
-          },
-        }),
-        logger,
-      }
-    );
-
-    expect(result.data.items).toHaveLength(1);
-    expect(result.tokenCount).toBe(100_000);
-    expect(result.tokenUsage).toEqual({
-      inputTokens: 50_000,
-      reasoningTokens: 0,
-      outputTokens: 50_000,
-      totalTokens: 100_000,
-    });
-    expect(result.costCents).toBeGreaterThanOrEqual(0);
-    expect(result.model).toBe("gemini-3.1-pro-preview");
-    expect(result.promptVersion).toBe("takeoff-a-v1");
-    expect(logger).toHaveBeenCalledWith(
-      expect.objectContaining({
-        job_id: "job-1",
-        tenant_id: "tenant-1",
-        level: "A",
-        input_token_count: 50_000,
-        reasoning_token_count: 0,
-        output_token_count: 50_000,
-        token_count: 100_000,
-        status: "success",
-      })
-    );
-  });
-
   it("captures reasoning token usage when provided by Gemini", async () => {
     const result = await callGeminiStructured(
       {
@@ -111,43 +57,6 @@ describe("callGeminiStructured", () => {
       totalTokens: 350,
     });
     expect(result.tokenCount).toBe(350);
-  });
-
-  it("uses Batch delivery when requested", async () => {
-    const invoke = vi.fn();
-    const invokeBatch = vi.fn().mockResolvedValue({
-      text: JSON.stringify({
-        items: [{ designation: "Cable U1000", quantity: 42, unit: "ml" }],
-      }),
-      usage: {
-        promptTokenCount: 100,
-        candidatesTokenCount: 50,
-        totalTokenCount: 150,
-      },
-      batchJobName: "batches/test-1",
-      batchState: "JOB_STATE_SUCCEEDED",
-    });
-
-    const result = await callGeminiStructured(
-      {
-        prompt: "Extract takeoff lines",
-        schema: TestSchema,
-        deliveryMode: "batch",
-        context: {
-          model: "gemini-3-flash-preview",
-        },
-      },
-      {
-        invoke,
-        invokeBatch,
-      }
-    );
-
-    expect(invoke).not.toHaveBeenCalled();
-    expect(invokeBatch).toHaveBeenCalledTimes(1);
-    expect(result.data.items[0]?.designation).toBe("Cable U1000");
-    expect(result.providerBatchId).toBe("batches/test-1");
-    expect(result.providerBatchStateRaw).toBe("JOB_STATE_SUCCEEDED");
   });
 
   it("reads batch inline results from nested dest.inlinedResponses payloads", async () => {

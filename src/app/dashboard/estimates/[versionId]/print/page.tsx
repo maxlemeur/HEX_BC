@@ -43,8 +43,8 @@ type EstimateProject =
 type EstimateVersion =
   Database["public"]["Tables"]["estimate_versions"]["Row"] & {
     estimate_projects:
-      | Pick<EstimateProject, "name" | "reference" | "estimate_reference" | "client_name">
-      | Pick<EstimateProject, "name" | "reference" | "estimate_reference" | "client_name">[]
+      | Pick<EstimateProject, "name" | "reference" | "estimate_reference" | "site_address" | "client_name">
+      | Pick<EstimateProject, "name" | "reference" | "estimate_reference" | "site_address" | "client_name">[]
       | null;
   };
 type EstimateItem =
@@ -59,9 +59,9 @@ type PrintPageProps = {
 };
 
 const PRINT_VERSION_SELECT =
-  "project_id, tenant_id, version_number, status, seal_hash, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, content_revision, calc_snapshot_content_revision, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, currency, estimate_projects ( name, reference, estimate_reference, client_name )";
+  "project_id, tenant_id, version_number, status, seal_hash, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, content_revision, calc_snapshot_content_revision, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, currency, estimate_projects ( name, reference, estimate_reference, site_address, client_name )";
 const LEGACY_PRINT_VERSION_SELECT =
-  "project_id, tenant_id, version_number, status, seal_hash, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, content_revision, calc_snapshot_content_revision, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects ( name, reference, estimate_reference, client_name )";
+  "project_id, tenant_id, version_number, status, seal_hash, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, content_revision, calc_snapshot_content_revision, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects ( name, reference, estimate_reference, site_address, client_name )";
 
 function formatPrintDate(dateStr: string): string {
   const date = new Date(dateStr);
@@ -395,6 +395,7 @@ export default async function PrintEstimatePage({
           preserveStoredSnapshot={preserveStoredSnapshot}
           vatReverseCharge={version.contractor_role === "subcontractor"}
           projectName={project?.name ?? "Projet"}
+          projectSiteAddress={project?.site_address}
           projectClient={project?.client_name}
           projectReference={project?.reference}
           estimateReference={project?.estimate_reference}

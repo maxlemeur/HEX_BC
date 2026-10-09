@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { SupplierComparisonAlternative } from "@/components/estimates/SupplierComparisonPanel";
 import type { Database } from "@/types/database";
-import { isSupplierAlternativeCurrencyCompatible } from "@/lib/estimates/supplier-preselection";
+import { supplierOfferIneligibility } from "@/lib/estimates/supplier-offer-eligibility";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
 
@@ -183,15 +183,19 @@ export function useEstimateSupplierComparison({
       // un montant en devise etrangere le ferait passer pour un montant dans la
       // devise du devis — erreur monetaire silencieuse. Meme predicat que la
       // preselection automatique.
-      if (!isSupplierAlternativeCurrencyCompatible(alternative, estimateCurrency)) {
+      if (supplierOfferIneligibility(alternative, {
+        currency: estimateCurrency,
+        quantity: activeSupplierComparisonItem.quantity,
+        unit: activeSupplierComparisonItem.description,
+      })) {
         return;
       }
 
-      const selectedDescription = (alternative.product_designation ?? "").trim();
+      const selectedUnit = alternative.unit?.trim() || activeSupplierComparisonItem.description;
       onPatchItemWithSuggestionTracking(
         activeSupplierComparisonItem.id,
         {
-          description: selectedDescription.length > 0 ? selectedDescription : null,
+          description: selectedUnit || null,
           unit_price_ht_cents: alternative.adjusted_unit_price_cents,
           selected_supplier_price_id: alternative.supplier_price_id,
         },
@@ -263,6 +267,7 @@ export function useEstimateSupplierComparison({
     handleCloseSupplierComparisonPanel,
     activeSupplierComparisonItem,
     activeSupplierComparison,
+    supplierComparisonByItemId,
     bestSupplierPriceIdByItemId,
     isSupplierComparisonLoading,
     supplierComparisonError,

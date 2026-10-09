@@ -3,11 +3,13 @@
 import { useEffect, useRef } from "react";
 
 import {
+  bankersRound,
   formatCurrency,
   formatEUR,
   normalizeEstimateCurrency,
 } from "@/lib/money";
-import { isSupplierAlternativeCurrencyCompatible } from "@/lib/estimates/supplier-preselection";
+import type { SupplierOfferConditions } from "@/lib/estimates/supplier-offer-conditions";
+import { supplierOfferIneligibility } from "@/lib/estimates/supplier-offer-eligibility";
 
 /**
  * Affiche un prix fournisseur dans SA devise. Auparavant tout passait par
@@ -33,7 +35,7 @@ export type SupplierComparisonAlternativeKind =
   | "preferred_supplier"
   | "selected_current";
 
-export type SupplierComparisonAlternative = {
+export type SupplierComparisonAlternative = SupplierOfferConditions & {
   kind: SupplierComparisonAlternativeKind;
   supplier_price_id: string;
   supplier_id: string;
@@ -58,6 +60,9 @@ type SupplierComparisonPanelProps = {
   isReadOnly: boolean;
   /** Devise du devis : les prix libelles autrement ne sont pas injectables. */
   estimateCurrency: string;
+  quantity?: number | null;
+  itemUnit?: string | null;
+  currentUnitPriceCents?: number | null;
   onClose: () => void;
   onSelectAlternative: (alternative: SupplierComparisonAlternative) => void;
 };
@@ -107,6 +112,9 @@ export function SupplierComparisonPanel({
   error,
   isReadOnly,
   estimateCurrency,
+  quantity,
+  itemUnit,
+  currentUnitPriceCents,
   onClose,
   onSelectAlternative,
 }: SupplierComparisonPanelProps) {
@@ -157,6 +165,13 @@ export function SupplierComparisonPanel({
             <p className="estimate-supplier-comparison-panel__subtitle">
               {itemTitle || "Ligne sans titre"}
             </p>
+            {typeof quantity === "number" ? (
+              <p className="mt-1 text-sm text-[var(--slate-600)]">
+                Quantité : {quantity} {itemUnit || "u"}
+                {typeof currentUnitPriceCents === "number" ? ` · Coût retenu : ${formatSupplierPrice(currentUnitPriceCents, estimateCurrency)} / ${itemUnit || "u"}` : ""}
+              </p>
+            ) : null}
+            <p className="mt-1 text-xs text-[var(--slate-600)]">Coûts de fourniture HT avant coefficients FO et marge.</p>
           </div>
           <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>
             Fermer
@@ -191,14 +206,13 @@ export function SupplierComparisonPanel({
                   alternative,
                   isBestPrice,
                 });
-                // Sans conversion par taux, injecter ce montant le ferait passer
-                // pour un montant dans la devise du devis. Meme predicat que la
-                // preselection automatique : l arbitrage revient a l acheteur.
-                const isCurrencyCompatible =
-                  isSupplierAlternativeCurrencyCompatible(
-                    alternative,
-                    estimateCurrency
-                  );
+                const ineligibility = supplierOfferIneligibility(alternative, {
+                  currency: estimateCurrency, quantity, unit: itemUnit,
+                });
+                const retainedWithoutChange = alternative.is_selected && (
+                  currentUnitPriceCents === undefined || currentUnitPriceCents === null ||
+                  currentUnitPriceCents === alternative.adjusted_unit_price_cents
+                );
 
                 return (
                   <article
@@ -210,10 +224,14 @@ export function SupplierComparisonPanel({
                     }`}
                   >
                     <div className="estimate-supplier-comparison-option__header">
-                      <div>
+                      <div className="min-w-0 flex-1">
                         <div className="estimate-supplier-comparison-option__name">
                           {alternative.supplier_name}
                         </div>
+                        <p className="mt-1 text-sm text-slate-700 [overflow-wrap:anywhere]">
+                          {alternative.product_designation?.trim() ||
+                            "Désignation non renseignée"}
+                        </p>
                         <div className="estimate-supplier-comparison-option__reference">
                           Ref: {alternative.supplier_reference ?? "-"}
                         </div>
@@ -223,16 +241,19 @@ export function SupplierComparisonPanel({
                           alternative.adjusted_unit_price_cents,
                           alternative.currency
                         )}
+                        {alternative.unit ? <span className="text-xs"> / {alternative.unit}</span> : null}
+                        {typeof quantity === "number" && !ineligibility ? (
+                          <p className="mt-1 text-xs font-normal">
+                            Total fourniture : {formatSupplierPrice(bankersRound(alternative.adjusted_unit_price_cents * quantity), alternative.currency)} HT
+                          </p>
+                        ) : null}
                       </div>
                     </div>
 
                     <div className="estimate-supplier-comparison-option__meta">
                       <span>Date: {formatCompactDate(alternative.updated_at)}</span>
-                      {!isCurrencyCompatible ? (
-                        <span className="estimate-supplier-comparison-option__badge estimate-supplier-comparison-option__badge--stale">
-                          Devise differente
-                        </span>
-                      ) : null}
+                      {typeof alternative.min_quantity === "number" ? <span>Minimum : {alternative.min_quantity} {alternative.unit || "u"}</span> : null}
+                      {ineligibility ? <span className="estimate-supplier-comparison-option__badge estimate-supplier-comparison-option__badge--stale">{ineligibility}</span> : null}
                       {badgeLabels.map((label) => (
                         <span
                           key={`${alternative.supplier_price_id}-${label}`}
@@ -270,16 +291,14 @@ export function SupplierComparisonPanel({
                         onClick={() => onSelectAlternative(alternative)}
                         disabled={
                           isReadOnly ||
-                          alternative.is_selected ||
-                          !isCurrencyCompatible
+                          retainedWithoutChange ||
+                          Boolean(ineligibility)
                         }
                         title={
-                          !isCurrencyCompatible
-                            ? "Prix libelle dans une autre devise que le devis : conversion requise."
-                            : undefined
+                          ineligibility ?? undefined
                         }
                       >
-                        {alternative.is_selected ? "Déjà sélectionné" : "Sélectionner"}
+                        {retainedWithoutChange ? "Offre retenue" : alternative.is_selected ? "Actualiser cette offre" : "Retenir cette offre"}
                       </button>
                     </div>
                   </article>

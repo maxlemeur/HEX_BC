@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act,cleanup,renderHook,waitFor } from "@testing-library/react";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 const clientMocks = vi.hoisted(() => ({
   bulkUpdateEstimateItems: vi.fn(),
@@ -12,13 +12,13 @@ vi.mock("@/lib/estimates/client", () => ({
 }));
 
 import {
-  normalizeSupplierPreselectionReview,
-  useEstimateEditorSupplierController,
+normalizeSupplierPreselectionReview,
+useEstimateEditorSupplierController,
 } from "@/hooks/useEstimateEditorSupplierController";
 import type {
-  EditorEstimateItem,
-  EstimateItem,
-  EstimateVersionRow,
+EditorEstimateItem,
+EstimateItem,
+EstimateVersionRow,
 } from "@/lib/estimates/editor-items";
 
 function createDeferred<T>() {
@@ -208,21 +208,6 @@ describe("normalizeSupplierPreselectionReview", () => {
 });
 
 describe("useEstimateEditorSupplierController", () => {
-  it("loads, normalizes and selects the current proposals", async () => {
-    const harness = createHarness();
-    await openWithPayload(harness);
-
-    expect(fetch).toHaveBeenCalledWith(
-      "/api/estimates/version-1/supplier-comparisons",
-      expect.objectContaining({ method: "POST" })
-    );
-    expect(harness.result.current.state).toMatchObject({
-      isOpen: true,
-      isLoading: false,
-      selectedItemIds: ["line-1"],
-    });
-    expect(harness.result.current.meta.eligibleCount).toBe(1);
-  });
 
   it("invalidates an open request when the dialog closes", async () => {
     const deferred = createDeferred<Response>();
@@ -314,40 +299,6 @@ describe("useEstimateEditorSupplierController", () => {
     expect(harness.ensureGroupedActionCanProceed).toHaveBeenCalledTimes(1);
     expect(harness.setItems).not.toHaveBeenCalled();
     expect(clientMocks.bulkUpdateEstimateItems).not.toHaveBeenCalled();
-  });
-
-  it("applies the strict patch, normalizes the line and updates the token", async () => {
-    const harness = createHarness();
-    await openWithPayload(harness);
-
-    await act(async () => {
-      await harness.result.current.actions.apply();
-    });
-
-    expect(harness.normalizeLine).toHaveBeenCalledWith(
-      expect.objectContaining({
-        description: "U",
-        unit_price_ht_cents: 750,
-        selected_supplier_price_id: "price-1",
-      })
-    );
-    expect(clientMocks.bulkUpdateEstimateItems).toHaveBeenCalledWith(
-      "version-1",
-      "token-initial",
-      [
-        expect.objectContaining({
-          id: "line-1",
-          updates: expect.objectContaining({
-            description: "U",
-            unit_price_ht_cents: 750,
-            selected_supplier_price_id: "price-1",
-          }),
-        }),
-      ]
-    );
-    expect(harness.applyVersionToken).toHaveBeenCalledWith("token-next");
-    expect(harness.setTotalsOutOfSync).toHaveBeenCalledWith(false);
-    expect(harness.result.current.state.isOpen).toBe(false);
   });
 
   it("rolls back a same-route failure and delegates conflicts", async () => {

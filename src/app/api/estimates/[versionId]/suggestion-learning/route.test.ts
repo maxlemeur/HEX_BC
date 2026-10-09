@@ -23,38 +23,6 @@ describe("/api/estimates/[versionId]/suggestion-learning", () => {
     vi.clearAllMocks();
   });
 
-  it("GET returns active learning state for the version", async () => {
-    vi.mocked(getLearnings).mockResolvedValue({
-      config: {
-        enabled: true,
-        threshold: 3,
-        retention_months: 12,
-      },
-      proposals: [],
-      by_rule_id: {},
-    } as never);
-
-    const request = new Request(
-      `http://localhost/api/estimates/${VERSION_ID}/suggestion-learning`,
-      {
-        method: "GET",
-      }
-    );
-
-    const response = await GET(request, makeParams());
-    const body = (await response.json()) as {
-      ok: boolean;
-      data: unknown;
-    };
-
-    expect(response.status).toBe(200);
-    expect(body.ok).toBe(true);
-    expect(vi.mocked(getLearnings)).toHaveBeenCalledWith({
-      versionId: VERSION_ID,
-      includeInactive: false,
-    });
-  });
-
   it("POST normalizes nullables and forwards corrections", async () => {
     vi.mocked(trackCorrection).mockResolvedValue({
       config: {

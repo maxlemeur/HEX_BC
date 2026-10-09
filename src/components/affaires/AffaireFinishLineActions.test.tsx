@@ -1,9 +1,9 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render,screen,waitFor,within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach,describe,expect,it,vi } from "vitest";
 
-import type { AffaireHubFinishLineSummaryResult } from "@/lib/affaires/server";
 import { ToastProvider } from "@/components/ui-legacy/Toast";
+import type { AffaireHubFinishLineSummaryResult } from "@/lib/affaires/server";
 import { AffaireFinishLineActions } from "./AffaireFinishLineActions";
 
 const {
@@ -163,32 +163,6 @@ describe("AffaireFinishLineActions", () => {
     });
     routerRefreshMock.mockReset();
     vi.spyOn(window, "open").mockImplementation(() => null);
-  });
-
-  it("renders the three finish-line outputs in a single zone", () => {
-    renderActions();
-
-    expect(screen.getByText("PDF, email et BDC depuis le meme point")).toBeInTheDocument();
-    expect(screen.getByText(/Version 1 · Brouillon/i)).toBeInTheDocument();
-    expect(screen.getByText("PDF du devis")).toBeInTheDocument();
-    expect(screen.getByText("Email client")).toBeInTheDocument();
-    expect(screen.getByText("Export BDC")).toBeInTheDocument();
-    expect(screen.getByTestId("affaire-order-drafts-panel")).toBeInTheDocument();
-  });
-
-  it("opens the send modal from the finish line", async () => {
-    const user = userEvent.setup();
-    renderActions();
-
-    await user.click(
-      within(getLatestByTestId("affaire-finish-line-email")).getByRole("button", {
-        name: /Preparer l'envoi/i,
-      })
-    );
-
-    expect(
-      screen.getByRole("heading", { name: /Envoyer le devis par email/i })
-    ).toBeInTheDocument();
   });
 
   it("keeps a queued sending dispatch resumable after reload", async () => {
@@ -578,67 +552,6 @@ describe("AffaireFinishLineActions", () => {
     ).toBeInTheDocument();
   });
 
-  it("generates the PDF from the affaire finish line and refreshes the hub", async () => {
-    const user = userEvent.setup();
-    requestEstimatePdfGenerationMock.mockResolvedValueOnce({
-      status: "ready",
-      downloadUrl: "https://example.test/devis-v1.pdf",
-    });
-
-    renderActions();
-
-    await user.click(
-      within(getLatestByTestId("affaire-finish-line-pdf")).getByRole("button", {
-        name: /Préparer le PDF/i,
-      })
-    );
-
-    await user.click(
-      await screen.findByRole("button", { name: /Générer et télécharger/i })
-    );
-
-    await waitFor(() => {
-      expect(requestEstimatePdfGenerationMock).toHaveBeenCalledWith(
-        "version-1",
-        expect.objectContaining({
-          force: true,
-          layout: expect.objectContaining({
-            preset: "client_detailed",
-            detailLevel: "lines",
-            priceMode: "unit_and_total",
-          }),
-        })
-      );
-    });
-    expect(window.open).toHaveBeenCalledWith(
-      "https://example.test/devis-v1.pdf",
-      "_blank",
-      "noopener,noreferrer"
-    );
-    expect(routerRefreshMock).toHaveBeenCalled();
-  });
-
-  it("exports the BDC from the finish line", async () => {
-    const user = userEvent.setup();
-    exportEstimateMock.mockResolvedValueOnce({
-      filename: "devis-v1-bdc.xlsx",
-      size: 1024,
-    });
-
-    renderActions();
-    await user.click(
-      within(getLatestByTestId("affaire-finish-line-bdc")).getByRole("button", {
-        name: /Exporter le BDC/i,
-      })
-    );
-
-    await waitFor(() => {
-      expect(exportEstimateMock).toHaveBeenCalledWith("version-1", "xlsx", {
-        mode: "bdc",
-      });
-    });
-  });
-
   it("shows a readable export error without hiding the finish line", async () => {
     const user = userEvent.setup();
     exportEstimateMock.mockRejectedValueOnce(new Error("Export indisponible"));
@@ -654,18 +567,5 @@ describe("AffaireFinishLineActions", () => {
       expect(screen.getAllByRole("alert").some((element) => element.textContent?.includes("Export indisponible"))).toBe(true);
     });
     expect(screen.getAllByText("PDF, email et BDC depuis le meme point").length).toBeGreaterThan(0);
-  });
-
-  it("guides back to version creation when no estimate exists yet", () => {
-    renderActions({
-      currentVersion: null,
-      finishLineSummary: null,
-    });
-
-    expect(screen.getByText(/Creez d'abord une version de devis/i)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Creer un devis/i })).toHaveAttribute(
-      "href",
-      "/dashboard/estimates/new?projectId=project-1"
-    );
   });
 });

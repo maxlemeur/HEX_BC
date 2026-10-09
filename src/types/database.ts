@@ -214,6 +214,9 @@ export type Database = {
           updated_at: string;
           tenant_id: string;
           reference: string | null;
+          reference_quantity: number | null;
+          reference_transport_mode: string | null;
+          reference_price_validation_id: string | null;
           reference_normalized: string | null;
           designation: string;
           designation_normalized: string | null;
@@ -548,6 +551,7 @@ export type Database = {
       };
       supplier_pricebook: {
         Row: {
+          transport_mode: "included" | "excluded" | null;
           id: string;
           created_at: string;
           updated_at: string;
@@ -569,6 +573,7 @@ export type Database = {
           notes: string | null;
         };
         Insert: {
+          transport_mode?: "included" | "excluded" | null;
           id?: string;
           created_at?: string;
           updated_at?: string;
@@ -590,6 +595,7 @@ export type Database = {
           notes?: string | null;
         };
         Update: {
+          transport_mode?: "included" | "excluded" | null;
           id?: string;
           created_at?: string;
           updated_at?: string;
@@ -619,6 +625,27 @@ export type Database = {
             referencedColumns: ["id"];
           },
         ];
+      };
+      product_reference_price_validations: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          product_id: string;
+          previous_validation_id: string | null;
+          validated_by: string;
+          validated_at: string;
+          mode: "average" | "manual";
+          unit_price_cents: number;
+          quantity: number;
+          unit: string;
+          currency: string;
+          transport_mode: string;
+          justification: string | null;
+          proposal: Json;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [];
       };
       material_indices: {
         Row: {
@@ -988,6 +1015,7 @@ export type Database = {
           reference: string | null;
           estimate_reference: string | null;
           client_name: string | null;
+          site_address: string | null;
           notes: string | null;
           is_archived: boolean;
         };
@@ -1001,6 +1029,7 @@ export type Database = {
           reference?: string | null;
           estimate_reference?: string | null;
           client_name?: string | null;
+          site_address?: string | null;
           notes?: string | null;
           is_archived?: boolean;
         };
@@ -1014,6 +1043,7 @@ export type Database = {
           reference?: string | null;
           estimate_reference?: string | null;
           client_name?: string | null;
+          site_address?: string | null;
           notes?: string | null;
           is_archived?: boolean;
         };
@@ -3887,6 +3917,25 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      suggest_product_reference: {
+        Args: Record<string, never>;
+        Returns: string;
+      };
+      update_supplier_offer: {
+        Args: { p_price_id: string; p_patch: Json };
+        Returns: Json;
+      };
+      product_reference_price_proposal: {
+        Args: { p_product_id: string; p_quantity?: number; p_transport_mode?: string };
+        Returns: Json;
+      };
+      validate_product_reference_price: {
+        Args: {
+          p_product_id: string; p_quantity: number; p_transport_mode: string;
+          p_fingerprint: string; p_manual_price_cents?: number; p_justification?: string;
+        };
+        Returns: Json;
+      };
       bulk_archive_draft_affaires: {
         Args: {
           p_tenant_id: string;

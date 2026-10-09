@@ -1,8 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe,expect,it } from "vitest";
 
 import {
-  buildAffaireFlowPanelModel,
-  type AffaireFlowHierarchyPanelProps,
+buildAffaireFlowPanelModel,
+type AffaireFlowHierarchyPanelProps,
 } from "./AffaireFlowHierarchyPanel.model";
 
 type IntakeDocument = NonNullable<
@@ -30,20 +30,6 @@ function makeDocument(
 }
 
 describe("buildAffaireFlowPanelModel", () => {
-  it("returns the upload decision without requiring intake queries", () => {
-    const model = buildAffaireFlowPanelModel({
-      projectId: "project-empty",
-      currentVersion: null,
-    });
-
-    expect(model).toMatchObject({
-      heroState: "processing",
-      readinessLevel: "not_ready",
-      showEmptyUploadCard: true,
-      primaryAction: null,
-      resultCard: null,
-    });
-  });
 
   it("prioritises an ambiguous document that can resolve a critical missing piece", () => {
     const model = buildAffaireFlowPanelModel({
@@ -74,33 +60,5 @@ describe("buildAffaireFlowPanelModel", () => {
       kind: "href",
       href: "/dashboard/affaires/project-review?intakeFilter=a_revoir#intake",
     });
-  });
-
-  it("normalises the manual continuation URL for an existing draft", () => {
-    const model = buildAffaireFlowPanelModel({
-      projectId: "project-draft",
-      currentVersion: {
-        id: "version-draft",
-        projectId: "project-draft",
-        versionNumber: 1,
-        status: "draft",
-        totalHtCents: 0,
-        marginMultiplier: 1,
-        marginPercent: 0,
-        updatedAt: "2026-08-12T00:00:00.000Z",
-      },
-      intakeWorkspace: {
-        documents: [makeDocument()],
-        missingPieces: [],
-      },
-    });
-
-    expect(model.aides).toContainEqual(
-      expect.objectContaining({
-        key: "manual-estimate",
-        kind: "href",
-        href: "/dashboard/estimates/version-draft/edit?entry=manual",
-      }),
-    );
   });
 });

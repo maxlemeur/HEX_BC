@@ -52,6 +52,7 @@ import type { EstimateEditorHistoryController } from "@/hooks/useEstimateEditorH
 import { useEstimateEditorImportController } from "@/hooks/useEstimateEditorImportController";
 import { useEstimateEditorItemsController } from "@/hooks/useEstimateEditorItemsController";
 import {
+  computeDraftBreakdown,
   computeLineValuesWithLaborContext as computeLineValuesWithLaborContextFromMaps,
   useEstimateEditorCalculation,
 } from "@/hooks/useEstimateEditorCalculation";
@@ -74,7 +75,7 @@ import {
   normalizeDraftItems,
   type EstimateTotals,
 } from "@/lib/estimate-calculations";
-import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
+import { hasFreshEstimateV2Snapshot, resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
 import {
   DEFAULT_TAX_RATE_BP,
   ESTIMATE_VERSION_CONFLICT_MESSAGE,
@@ -356,6 +357,10 @@ export function useEstimateEditorState({
   const [drawerScrollTarget, setDrawerScrollTarget] = useState<SettingsSection | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const settingsSaveGenerationRef = useRef(0);
+  const settingsSavePromiseRef = useRef<{
+    versionId: string;
+    promise: Promise<boolean | undefined>;
+  } | null>(null);
   const settingsSaveRouteRef = useRef(resolvedVersionId);
   const [activeSettingsSave, setActiveSettingsSave] = useState<{
     routeVersionId: string;
@@ -506,8 +511,9 @@ export function useEstimateEditorState({
     hasPendingSettingsChanges: hasUnsavedSettings,
     isSavingSettings,
     savePendingSettings: async () => {
-      await handleSaveSettings();
+      return (await handleSaveSettings()) === true;
     },
+    navigate: (href) => router.push(href),
     items,
     settings,
     getVersionSnapshot,
@@ -841,11 +847,12 @@ export function useEstimateEditorState({
       marginMultiplier: settings?.margin_multiplier ?? 1,
       discountCents: settings?.discount_cents ?? 0,
       taxRateBp: settings?.tax_rate_bp ?? 0,
-      isReadOnly: isReadOnly || isConflictLocked,
+      isReadOnly: isReadOnly || isConflictLocked || isSavingSettings,
     }),
     [
       isConflictLocked,
       isReadOnly,
+      isSavingSettings,
       settings?.discount_cents,
       settings?.margin_multiplier,
       settings?.tax_rate_bp,
@@ -1156,6 +1163,7 @@ export function useEstimateEditorState({
 
   const updateSettings = useCallback(
     (patch: Partial<EstimateSettingsState>) => {
+      if (settingsSavePromiseRef.current?.versionId === activeRouteVersionIdRef.current) return;
       setSettings((prev) => (prev ? { ...prev, ...patch } : prev));
     },
     []
@@ -1220,7 +1228,20 @@ export function useEstimateEditorState({
     setItems(normalizeReloadedItems(targetVersionId, itemsRows));
   }, [normalizeReloadedItems, resolvedVersionId]);
 
-  async function handleSaveSettings() {
+  function handleSaveSettings(): Promise<boolean | undefined> {
+    if (settingsSavePromiseRef.current?.versionId === resolvedVersionId) {
+      return settingsSavePromiseRef.current.promise;
+    }
+    const promise = performSaveSettings().finally(() => {
+      if (settingsSavePromiseRef.current?.promise === promise) {
+        settingsSavePromiseRef.current = null;
+      }
+    });
+    settingsSavePromiseRef.current = { versionId: resolvedVersionId, promise };
+    return promise;
+  }
+
+  async function performSaveSettings() {
     if (!settings || !version || !totals) return;
     if (version.id !== resolvedVersionId) return;
     if (isReadOnly) {
@@ -1457,6 +1478,7 @@ export function useEstimateEditorState({
 
       if (isCurrentSettingsSave()) {
         clearConflictDraft({ onlyIfRestored: true });
+        return true;
       }
     } finally {
       if (isCurrentSettingsSave()) {
@@ -1611,7 +1633,7 @@ export function useEstimateEditorState({
     ]
   );
 
-  const canEditMarginTiers = isAdmin && !isSaveBlocked;
+  const canEditMarginTiers = profile?.tenant_role === "admin" && !isSaveBlocked;
 
   const handleCreateTier = useCallback(
     async (payload: { threshold_cents: number; multiplier: number }) => {
@@ -1709,8 +1731,22 @@ export function useEstimateEditorState({
       if (item.item_type !== "line") return item;
       const taxRate =
         item.tax_rate_bp ?? settings?.tax_rate_bp ?? 0;
+      let marginMultiplier = settings?.margin_multiplier ?? 1;
+      if (calcEngineVersion === 2 && settings?.margin_mode === "tiered") {
+        const currentItems = getItemsSnapshot();
+        const postPatchItems = currentItems.some((current) => current.id === item.id)
+          ? currentItems.map((current) => current.id === item.id ? item : current)
+          : [...currentItems, item];
+        marginMultiplier = computeDraftBreakdown({
+            items: postPatchItems,
+            settings,
+            calcEngineVersion,
+            isLaborSplitEnabled,
+            ...laborRateMaps,
+        }).totals.appliedMarginMultiplier;
+      }
       const { lineInput, lineValues } = computeLineValuesWithLaborContext(item, {
-        marginMultiplier: settings?.margin_multiplier ?? 1,
+        marginMultiplier,
         taxRateBp: taxRate,
         vatReverseCharge: settings?.contractor_role === "subcontractor",
       });
@@ -1727,10 +1763,12 @@ export function useEstimateEditorState({
       };
     },
     [
+      calcEngineVersion,
       computeLineValuesWithLaborContext,
-      settings?.contractor_role,
-      settings?.margin_multiplier,
-      settings?.tax_rate_bp,
+      getItemsSnapshot,
+      isLaborSplitEnabled,
+      laborRateMaps,
+      settings,
     ]
   );
 
@@ -2670,17 +2708,34 @@ export function useEstimateEditorState({
     [handleOpenSettingsDrawer, isExpert, settings, totals]
   );
 
+  const snapshotContext = version?.calc_snapshot_context;
+  const snapshotMultiplier = snapshotContext && typeof snapshotContext === "object" && !Array.isArray(snapshotContext)
+    ? snapshotContext.effective_margin_multiplier
+    : undefined;
+  const storedMarginMultiplier = hasFreshEstimateV2Snapshot(version) &&
+    typeof snapshotMultiplier === "number" && Number.isFinite(snapshotMultiplier) &&
+    snapshotMultiplier >= 0 && snapshotMultiplier <= 100
+    ? snapshotMultiplier
+    : resolveCalcEngineVersion(version) === 1 || settings?.margin_mode !== "tiered"
+      ? settings?.margin_multiplier
+      : undefined;
+
   const drawerProps: ComponentProps<typeof EstimateEditorDrawer> | null =
     version && settings
       ? {
           isOpen: isSettingsDrawerOpen,
           onClose: closeSettingsDrawer,
+          hasUnsavedSettings,
+          onDiscardSettings: () => setSettings(savedSettings),
+          onSaveBeforeClose: async () => (await handleSaveSettings()) === true,
           projectName,
           versionNumber: version.version_number,
           settings,
           totals,
           isSavingSettings,
           isSaveBlocked,
+          isFrozen: version.status !== "draft",
+          storedMarginMultiplier,
           onChangeSettings: updateSettings,
           onSaveSettings: handleSaveSettings,
           laborRoles,

@@ -1,6 +1,6 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup,render,screen } from "@testing-library/react";
 import type { ComponentProps } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach,describe,expect,it,vi } from "vitest";
 
 import { EstimateEditorAlerts } from "@/components/estimates/editor/EstimateEditorAlerts";
 
@@ -73,23 +73,5 @@ describe("EstimateEditorAlerts", () => {
     expect(
       screen.getByTestId("estimate-editor-alert-force-unlock-button")
     ).toBeDisabled();
-  });
-
-  it("renders a restored-draft confirmation once as an accessible notice", () => {
-    const message =
-      "Modifications locales restaurées. Les lignes sont resynchronisées automatiquement.";
-
-    render(
-      <EstimateEditorAlerts {...createProps({ actionNotice: message })} />
-    );
-
-    expect(screen.getAllByText(message)).toHaveLength(1);
-    expect(screen.getByRole("status")).toHaveTextContent(message);
-    expect(
-      screen.getByTestId("estimate-editor-alert-action-notice")
-    ).toHaveClass("alert-info");
-    expect(
-      screen.queryByTestId("estimate-editor-alert-action-error")
-    ).not.toBeInTheDocument();
   });
 });

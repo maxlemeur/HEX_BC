@@ -42,12 +42,13 @@ export type EstimateSupplierComparisonRiskFlag =
   | "selected_stale"
   | "selected_not_best_price";
 
-export type EstimateSupplierComparisonAlternativeContract = {
+export type EstimateSupplierComparisonAlternativeContract = import("@/lib/estimates/supplier-offer-conditions").SupplierOfferConditions & {
   kind: EstimateSupplierComparisonAlternativeKind;
   supplier_price_id: string;
   supplier_id: string;
   supplier_name: string;
   adjusted_unit_price_cents: number;
+  currency?: string | null;
   supplier_reference: string | null;
   catalogue_url: string | null;
   updated_at: string | null;

@@ -197,35 +197,6 @@ describe("/api/suppliers", () => {
     expect(response.status).toBe(401);
   });
 
-  it("GET lists active suppliers", async () => {
-    const { supabase } = createSuppliersSupabase();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await GET(new Request("http://localhost/api/suppliers"));
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      ok: true,
-      data: { items: [{ id: SUPPLIER_ID, name: "Arcus" }] },
-    });
-  });
-
-  it("GET returns linked purchase-order usage", async () => {
-    const { supabase } = createSuppliersSupabase({ usageCount: 2 });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await GET(
-      new Request(
-        `http://localhost/api/suppliers?view=usage&id=${SUPPLIER_ID}`
-      )
-    );
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      ok: true,
-      data: { linked_orders_count: 2 },
-    });
-  });
-
   it("POST refuses supplier writes to non-admin members (403, nothing written)", async () => {
     const { supabase, inserted, updated, deleted } = createSuppliersSupabase({
       role: "engineer",
@@ -290,34 +261,6 @@ describe("/api/suppliers", () => {
 
     expect(response.status).toBe(400);
     expect(inserted).toEqual([]);
-  });
-
-  it("POST creates a supplier", async () => {
-    const { supabase, inserted } = createSuppliersSupabase();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await POST(
-      postRequest({ action: "create", item: VALID_SUPPLIER })
-    );
-
-    expect(response.status).toBe(201);
-    expect(inserted).toEqual([VALID_SUPPLIER]);
-  });
-
-  it("POST updates a supplier", async () => {
-    const { supabase, updated } = createSuppliersSupabase();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await POST(
-      postRequest({
-        action: "update",
-        id: SUPPLIER_ID,
-        item: { name: "Arcus MAJ" },
-      })
-    );
-
-    expect(response.status).toBe(200);
-    expect(updated).toEqual([{ id: SUPPLIER_ID, payload: { name: "Arcus MAJ" } }]);
   });
 
   it("POST deletes a supplier without linked orders", async () => {

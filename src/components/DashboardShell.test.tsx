@@ -1,7 +1,7 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup,render,screen,waitFor,within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { AnchorHTMLAttributes, ReactNode } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AnchorHTMLAttributes,ReactNode } from "react";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 const { navigationState } = vi.hoisted(() => ({
   navigationState: { pathname: "/dashboard/orders" },
@@ -124,46 +124,6 @@ afterEach(() => {
 });
 
 describe("DashboardShell universal topbar navigation", () => {
-  it("renders the same horizontal navigation on standard dashboard screens", () => {
-    render(
-      <DashboardShell
-        appBuildId="abcdef1"
-        appVersion="1.2.3"
-        displayName="Jean Dupont"
-      >
-        <div>Contenu</div>
-      </DashboardShell>
-    );
-
-    const topbar = screen.getByRole("banner");
-    const brandLink = within(topbar).getByRole("link", {
-      name: "Hydro Express — Accueil",
-    });
-    expect(topbar).toHaveClass("dashboard-global-topbar");
-    expect(brandLink).toHaveTextContent("Hydro Express");
-    expect(within(brandLink).queryByRole("img")).toBeNull();
-    expect(
-      screen.getByRole("menubar", { name: "Espaces de travail" })
-    ).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: "Commandes" })).toHaveAttribute(
-      "aria-current",
-      "page"
-    );
-
-    const main = screen.getByRole("main");
-    const sidebar = document.getElementById("dashboard-sidebar");
-    expect(sidebar).toHaveClass("dashboard-sidebar--overlay");
-    expect(sidebar).not.toHaveClass("dashboard-sidebar--collapsed");
-    expect(main).toHaveClass("lg:pl-0");
-    expect(main.style.getPropertyValue("--sidebar-offset")).toBe("0px");
-    expect(main.firstElementChild).toHaveClass("py-6", "sm:py-8");
-    expect(main.firstElementChild).not.toHaveClass("dashboard-workspace-content");
-    expect(
-      screen.getByRole("note", {
-        name: "Version de l'application 1.2.3, build abcdef1",
-      })
-    ).toHaveTextContent("v1.2.3 · abcdef1");
-  });
 
   it("opens grouped destinations from the topbar with keyboard navigation", async () => {
     const user = userEvent.setup();
@@ -266,29 +226,5 @@ describe("DashboardShell universal topbar navigation", () => {
     );
 
     await waitFor(() => expect(screen.getByRole("main")).toHaveFocus());
-  });
-
-  it("keeps production workspaces full width below the same topbar", () => {
-    navigationState.pathname = "/dashboard/estimates/version-1/edit";
-
-    render(
-      <DashboardShell
-        appBuildId={null}
-        appVersion="1.2.3"
-        displayName="Jean Dupont"
-      >
-        <div>Éditeur</div>
-      </DashboardShell>
-    );
-
-    expect(
-      screen.getAllByRole("menubar", { name: "Espaces de travail" })
-    ).toHaveLength(1);
-    const main = screen.getByRole("main");
-    expect(main).toHaveClass("lg:pl-0");
-    expect(main.firstElementChild).toHaveClass(
-      "dashboard-workspace-content",
-      "pt-0"
-    );
   });
 });

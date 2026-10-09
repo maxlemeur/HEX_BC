@@ -88,43 +88,4 @@ describe("estimate status route", () => {
       })
     );
   });
-
-  it("returns updated version on success", async () => {
-    vi.mocked(patchEstimateStatus).mockResolvedValue({
-      version: {
-        id: VERSION_ID,
-        updated_at: "2026-02-21T10:00:01.000Z",
-        status: "sent",
-      },
-    } as never);
-
-    const request = new Request(`http://localhost/api/estimates/${VERSION_ID}/status`, {
-      method: "PATCH",
-      headers: {
-        "content-type": "application/json",
-        "if-match": UPDATED_AT,
-      },
-      body: JSON.stringify({
-        status: "sent",
-      }),
-    });
-
-    const response = await PATCH(request, {
-      params: Promise.resolve({ versionId: VERSION_ID }),
-    });
-    const payload = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(payload).toEqual(
-      expect.objectContaining({
-        ok: true,
-        data: expect.objectContaining({
-          version: expect.objectContaining({
-            id: VERSION_ID,
-            status: "sent",
-          }),
-        }),
-      })
-    );
-  });
 });

@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
 
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
+
+vi.mock("@/lib/estimates/ai-draft-availability", () => ({
+  isEstimateAiDraftEnabled: vi.fn(),
+}));
 
 import {
   useEstimateEditorAiDialogsController,
@@ -122,9 +127,38 @@ function renderController(
   return { ...rendered, dependencies };
 }
 
+beforeEach(() => {
+  vi.mocked(isEstimateAiDraftEnabled).mockReturnValue(true);
+});
+
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+});
+
+describe("parked AI estimate draft", () => {
+  it("prevents manual and automatic opening and refresh calls while preserving other AI tools", async () => {
+    vi.mocked(isEstimateAiDraftEnabled).mockReturnValue(false);
+    const harness = renderController();
+    act(() => {
+      harness.result.current.actions.hydrateVersionZeroSummary(
+        "version-1", createSummary(), { autoOpen: true }
+      );
+    });
+    expect(harness.result.current.state.isVersionZeroDialogOpen).toBe(false);
+    expect(harness.result.current.meta.versionZeroDraftDialogProps).toBeNull();
+    expect(harness.result.current.meta.isVersionZeroActionDisabled).toBe(true);
+    act(() => {
+      expect(harness.result.current.actions.openVersionZeroDialog()).toBe(false);
+      expect(harness.result.current.actions.openGeneratedOuvrageDialog()).toBe(true);
+    });
+    expect(harness.result.current.meta.generatedOuvrageDialogProps).not.toBeNull();
+    await act(async () => {
+      await harness.result.current.actions.closeVersionZeroDialog({ materialized: true });
+    });
+    expect(harness.dependencies.refreshVersionZeroSummary).not.toHaveBeenCalled();
+    expect(harness.dependencies.invalidateAfterMutation).not.toHaveBeenCalled();
+  });
 });
 
 describe("useEstimateEditorAiDialogsController hierarchy", () => {

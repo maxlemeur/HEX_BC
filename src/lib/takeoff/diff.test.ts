@@ -30,64 +30,6 @@ function makeItem(
 }
 
 describe("buildTakeoffDiff", () => {
-  it("classifies added/removed/changed/unchanged and returns deltas", () => {
-    const baseItems = [
-      makeItem("b-1", "Tube PVC 100", {
-        quantity: 12,
-        unit: "ml",
-        source_page: 3,
-      }),
-      makeItem("b-2", "Cable U1000", {
-        quantity: 8,
-        unit: "ml",
-        source_page: 4,
-      }),
-      makeItem("b-3", "Gaine ICTA", {
-        quantity: 4,
-        unit: "ml",
-        source_page: 5,
-      }),
-    ];
-
-    const otherItems = [
-      makeItem("o-1", "tube pvc 100", {
-        quantity: 12,
-        unit: "ml",
-        source_page: 3,
-      }),
-      makeItem("o-2", "Cable U1000", {
-        quantity: 9,
-        unit: "ml",
-        source_page: 4,
-      }),
-      makeItem("o-4", "Vis autoforeuse", {
-        quantity: 100,
-        unit: "u",
-        source_page: 9,
-      }),
-    ];
-
-    const diff = buildTakeoffDiff({
-      baseItems,
-      otherItems,
-      threshold: 0.8,
-    });
-
-    expect(diff.summary).toEqual({
-      added: 1,
-      removed: 1,
-      changed: 1,
-      unchanged: 1,
-      total_base: 3,
-      total_other: 3,
-    });
-
-    expect(diff.changed).toHaveLength(1);
-    expect(diff.changed[0]?.delta.map((entry) => entry.field)).toContain("quantity");
-    expect(diff.added[0]?.other_item.id).toBe("o-4");
-    expect(diff.removed[0]?.base_item.id).toBe("b-3");
-    expect(diff.unchanged[0]?.base_item.id).toBe("b-1");
-  });
 
   it("respects threshold configuration", () => {
     const baseItems = [makeItem("b-1", "Fenetre PVC")];

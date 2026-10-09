@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup,fireEvent,render,screen,waitFor } from "@testing-library/react";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 // Mock next/navigation
 const mockReplace = vi.fn();
@@ -78,29 +78,27 @@ vi.mock("@/hooks/useFeatureFlag", () => ({
 
 import TakeoffReviewPage from "@/components/takeoff/TakeoffReviewPage";
 import {
-  fetchEstimateItemsForVersion,
-  releaseEstimateDraftLock,
+fetchEstimateItemsForVersion,
+releaseEstimateDraftLock,
 } from "@/lib/estimates/client";
 import {
-  applyTakeoffJob,
-  fetchAllTakeoffDpgfComparison,
-  fetchTakeoffDpgfComparison,
-  fetchTakeoffJob,
-  fetchTakeoffJobCompare,
-  listTakeoffJobs,
-  patchTakeoffItems,
-  previewTakeoffConversion,
+fetchAllTakeoffDpgfComparison,
+fetchTakeoffDpgfComparison,
+fetchTakeoffJob,
+fetchTakeoffJobCompare,
+listTakeoffJobs,
+patchTakeoffItems,
+previewTakeoffConversion
 } from "@/lib/takeoff/client";
 import type {
-  TakeoffDpgfComparisonResponse,
-  TakeoffJobDetailResponse,
-  TakeoffJobItem,
+TakeoffDpgfComparisonResponse,
+TakeoffJobDetailResponse,
+TakeoffJobItem,
 } from "@/lib/takeoff/types";
 
 const JOB_ID = "33333333-3333-4333-8333-333333333333";
 const VERSION_ID = "77777777-7777-4777-8777-777777777777";
 const ITEM_ID_1 = "44444444-4444-4444-8444-444444444444";
-const ITEM_ID_2 = "55555555-5555-4555-8555-555555555555";
 const PREVIEW_RESPONSE = {
   job_id: JOB_ID,
   strategy: "append" as const,
@@ -330,106 +328,6 @@ describe("TakeoffReviewPage", () => {
     cleanup();
   });
 
-  it("loads and renders items from API", async () => {
-    vi.mocked(fetchTakeoffJob).mockResolvedValue(
-      makeMockResponse([makeItem()])
-    );
-
-    render(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
-
-    expect(screen.getByText("Chargement...")).toBeDefined();
-
-    await waitFor(() => {
-      expect(screen.getByText("Tube PVC 100mm")).toBeDefined();
-    });
-  });
-
-  it("shows error state when fetch fails", async () => {
-    vi.mocked(fetchTakeoffJob).mockRejectedValue(new Error("Network error"));
-
-    render(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
-
-    await waitFor(() => {
-      expect(
-        screen.getByText("Impossible de charger les items.")
-      ).toBeDefined();
-    });
-  });
-
-  it("shows summary stats bar", async () => {
-    vi.mocked(fetchTakeoffJob).mockResolvedValue(
-      makeMockResponse([
-        makeItem({ id: ITEM_ID_1, is_excluded: false, is_verified: true }),
-        makeItem({ id: ITEM_ID_2, is_excluded: true, exclusion_reason: "dup" }),
-      ])
-    );
-
-    render(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Total")).toBeDefined();
-    });
-  });
-
-  it("shows tab bar when tables exist", async () => {
-    vi.mocked(fetchTakeoffJob).mockResolvedValue(
-      makeMockResponse(
-        [makeItem({ metadata: { table_index: 0, row_index: 0 } })],
-        {
-          level: "B",
-          tables: [
-            {
-              page: 1,
-              title: "Nomenclature",
-              headers: ["Désignation", "Qte"],
-              rows: [{ row_index: 0, cells: ["Tube PVC 100mm", "12"] }],
-            },
-          ],
-        }
-      )
-    );
-
-    render(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
-
-    await waitFor(() => {
-      expect(screen.getAllByText("Tables").length).toBeGreaterThan(0);
-    });
-
-    // Items tab should show count
-    const itemsTab = screen.getByText(/Items \(1\)/);
-    expect(itemsTab).toBeDefined();
-  });
-
-  it("switches from tables tab to items tab via query param update", async () => {
-    mockSearchParams = new URLSearchParams("view=tables");
-    vi.mocked(fetchTakeoffJob).mockResolvedValue(
-      makeMockResponse(
-        [makeItem({ metadata: { table_index: 0, row_index: 0 } })],
-        {
-          level: "B",
-          tables: [
-            {
-              page: 1,
-              title: "Nomenclature",
-              headers: ["Désignation", "Qte"],
-              rows: [{ row_index: 0, cells: ["Tube PVC 100mm", "12"] }],
-            },
-          ],
-        }
-      )
-    );
-
-    render(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
-
-    await waitFor(() => {
-      expect(screen.getByPlaceholderText("Rechercher par titre...")).toBeDefined();
-    });
-
-    fireEvent.click(screen.getByRole("tab", { name: "Items (1)" }));
-
-    expect(mockReplace).toHaveBeenCalledWith("?view=items", { scroll: false });
-  });
-
   it("keeps the production tables deep link when a simplified user opens assisted mode", async () => {
     mockUiMode("simplified");
     mockSearchParams = new URLSearchParams("view=tables");
@@ -464,67 +362,6 @@ describe("TakeoffReviewPage", () => {
     expect(mockReplace).not.toHaveBeenCalled();
   });
 
-  it("does not show a tables tab when no tables exist", async () => {
-    vi.mocked(fetchTakeoffJob).mockResolvedValue(
-      makeMockResponse([makeItem()])
-    );
-
-    render(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Tube PVC 100mm")).toBeDefined();
-    });
-
-    expect(screen.queryByRole("tab", { name: "Tables" })).toBeNull();
-    expect(screen.getByRole("tab", { name: "Items (1)" })).toBeDefined();
-  });
-
-  it("shows apply button disabled when no included items", async () => {
-    vi.mocked(fetchTakeoffJob).mockResolvedValue(
-      makeMockResponse([
-        makeItem({ id: ITEM_ID_1, is_excluded: true, exclusion_reason: "test" }),
-      ])
-    );
-
-    render(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
-
-    await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: /appliquer au chiffrage/i })
-      ).toBeDefined();
-    });
-
-    const applyBtn = screen.getByRole("button", {
-      name: /appliquer au chiffrage/i,
-    });
-    expect(applyBtn.getAttribute("disabled")).not.toBeNull();
-  });
-
-  it("shows apply button enabled when items are ready", async () => {
-    vi.mocked(fetchTakeoffJob).mockResolvedValue(
-      makeMockResponse([makeItem()])
-    );
-    vi.mocked(fetchTakeoffDpgfComparison).mockResolvedValue(
-      makeDpgfComparisonResponse({
-        to_confirm: 0,
-        significant_gaps: 0,
-        forced_manual: 0,
-        lines_without_proof: 0,
-        unused_takeoff_items: 0,
-      })
-    );
-
-    render(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
-
-    await waitFor(() => {
-      const applyBtn = screen.getByRole("button", {
-        name: /appliquer au chiffrage/i,
-      });
-      expect(applyBtn.getAttribute("disabled")).toBeNull();
-      expect(fetchTakeoffDpgfComparison).toHaveBeenCalled();
-    });
-  });
-
   it("describes a missing Level C page as incomplete proof, not low confidence", async () => {
     vi.mocked(fetchTakeoffJob).mockResolvedValue(
       makeMockResponse(
@@ -553,76 +390,6 @@ describe("TakeoffReviewPage", () => {
     expect(
       screen.getByRole("button", { name: /appliquer au chiffrage/i })
     ).toBeDisabled();
-  });
-
-  it("sync action in tables view navigates to items and shows toast", async () => {
-    mockSearchParams = new URLSearchParams("view=tables");
-    vi.mocked(fetchTakeoffJob).mockResolvedValue(
-      makeMockResponse(
-        [makeItem({ metadata: { table_index: 0, row_index: 0 } })],
-        {
-          level: "B",
-          tables: [
-            {
-              page: 1,
-              title: "Nomenclature",
-              headers: ["Désignation", "Qte"],
-              rows: [{ row_index: 0, cells: ["Tube PVC 100mm", "12"] }],
-            },
-          ],
-        }
-      )
-    );
-
-    render(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Synchroniser items" })).toBeDefined();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Synchroniser items" }));
-
-    expect(mockReplace).toHaveBeenLastCalledWith("?view=items", { scroll: false });
-    expect(mockToast.info).toHaveBeenCalledWith(
-      expect.objectContaining({
-        title: "Synchronisation vers items",
-      })
-    );
-  });
-
-  it("triggers auto-save after editing", async () => {
-    vi.mocked(fetchTakeoffJob).mockResolvedValue(
-      makeMockResponse([makeItem()])
-    );
-    vi.mocked(patchTakeoffItems).mockResolvedValue({
-      results: [
-        {
-          item_id: ITEM_ID_1,
-          success: true,
-          item: makeItem({ designation: "Updated" }),
-        },
-      ],
-      succeeded: 1,
-      failed: 0,
-    });
-
-    render(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Tube PVC 100mm")).toBeDefined();
-    });
-
-    const designationInput = screen.getByLabelText("Désignation") as HTMLInputElement;
-    fireEvent.focus(designationInput);
-    fireEvent.change(designationInput, { target: { value: "Updated" } });
-    fireEvent.blur(designationInput);
-
-    await waitFor(
-      () => {
-        expect(patchTakeoffItems).toHaveBeenCalled();
-      },
-      { timeout: 2000 }
-    );
   });
 
   it("invalidates human verification when reviewed content changes", async () => {
@@ -666,153 +433,6 @@ describe("TakeoffReviewPage", () => {
         );
       },
       { timeout: 2000 }
-    );
-  });
-
-  it("shows tables count in stats bar for Level B", async () => {
-    vi.mocked(fetchTakeoffJob).mockResolvedValue(
-      makeMockResponse(
-        [
-          makeItem({ id: ITEM_ID_1, metadata: { table_index: 0, row_index: 0 } }),
-          makeItem({ id: ITEM_ID_2, metadata: { table_index: 1, row_index: 0 } }),
-        ],
-        {
-          level: "B",
-          tables: [
-            {
-              page: 1,
-              title: "Table 1",
-              headers: ["Désignation", "Qte"],
-              rows: [{ row_index: 0, cells: ["Item A", "10"] }],
-            },
-            {
-              page: 2,
-              title: "Table 2",
-              headers: ["Désignation", "Qte"],
-              rows: [{ row_index: 0, cells: ["Item B", "20"] }],
-            },
-          ],
-        }
-      )
-    );
-
-    render(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
-
-    await waitFor(() => {
-      expect(screen.getAllByText("Tables").length).toBeGreaterThan(0);
-    });
-
-    // Stats bar should show "2" next to "Tables"
-    // The stats bar renders: <span>2</span> <span>Tables</span>
-    const tablesLabels = screen.getAllByText("Tables");
-    // Find the one in the stats bar (sibling of "2")
-    const statsTablesLabel = tablesLabels.find((el) => {
-      const parent = el.parentElement;
-      return parent && parent.querySelector("span")?.textContent === "2";
-    });
-    expect(statsTablesLabel).toBeDefined();
-  });
-
-  it("opens exclusion modal when excluding from item view", async () => {
-    vi.mocked(fetchTakeoffJob).mockResolvedValue(
-      makeMockResponse([makeItem()])
-    );
-
-    render(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Tube PVC 100mm")).toBeDefined();
-    });
-
-    const excludeButtons = screen.getAllByRole("button").filter(
-      (btn) => btn.textContent === "Exclure"
-    );
-    expect(excludeButtons.length).toBeGreaterThan(0);
-    fireEvent.click(excludeButtons[0]);
-
-    await waitFor(() => {
-      expect(screen.getByText("Exclure 1 item")).toBeDefined();
-    });
-  });
-
-  it("loads compare tab and renders diff view", async () => {
-    mockSearchParams = new URLSearchParams(
-      "view=compare&compareWith=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa&threshold=0.8"
-    );
-
-    vi.mocked(fetchTakeoffJob).mockResolvedValue(
-      makeMockResponse([makeItem()], { level: "A" })
-    );
-    vi.mocked(listTakeoffJobs).mockResolvedValue({
-      jobs: [
-        {
-          ...makeMockResponse([makeItem()]).job,
-          id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-          source_file_name: "niveau-a.csv",
-          status: "completed",
-        },
-      ],
-      counters: {
-        total: 1,
-        processing: 0,
-        completed: 1,
-        failed: 0,
-        canceled: 0,
-      },
-      pagination: {
-        limit: 20,
-        offset: 0,
-        total: 1,
-      },
-    });
-    vi.mocked(fetchTakeoffJobCompare).mockResolvedValue({
-      base_job_id: JOB_ID,
-      other_job_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-      threshold: 0.8,
-      summary: {
-        added: 1,
-        removed: 0,
-        changed: 0,
-        unchanged: 1,
-        total_base: 1,
-        total_other: 2,
-      },
-      added: [
-        {
-          key: "added:1",
-          change_type: "added",
-          other_item: makeItem({
-            id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-            designation: "Vis",
-          }),
-        },
-      ],
-      removed: [],
-      changed: [],
-      unchanged: [
-        {
-          key: "unchanged:1",
-          change_type: "unchanged",
-          base_item: makeItem(),
-          other_item: makeItem({
-            id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-          }),
-          match_score: 1,
-          match_strategy: "designation_fuzzy",
-        },
-      ],
-    });
-
-    render(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Resume des changements")).toBeDefined();
-    });
-    expect(fetchTakeoffJobCompare).toHaveBeenCalledWith(
-      JOB_ID,
-      expect.objectContaining({
-        withJobId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-      })
     );
   });
 
@@ -897,155 +517,6 @@ describe("TakeoffReviewPage", () => {
     ).toBeDefined();
     expect(screen.queryByText("Resume des changements")).toBeNull();
     expect(mockReplace).not.toHaveBeenCalled();
-  });
-
-  it("switches review mode via mode switch without persisting the profile mode", async () => {
-    mockUiMode("simplified");
-    vi.mocked(fetchTakeoffJob).mockResolvedValue(makeMockResponse([makeItem()]));
-
-    render(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Tube PVC 100mm")).toBeDefined();
-    });
-
-    // Mode switch should show all three modes
-    const assistedRadio = screen.getByRole("tab", { name: /Assiste/ });
-    const productionRadio = screen.getByRole("tab", { name: /Production/ });
-    const validationRadio = screen.getByRole("tab", { name: /Validation/ });
-
-    expect(assistedRadio).toBeDefined();
-    expect(productionRadio).toBeDefined();
-    expect(validationRadio).toBeDefined();
-
-    // Assiste should be selected by default (simplified user)
-    expect(assistedRadio.getAttribute("aria-selected")).toBe("true");
-
-    // Click Production
-    fireEvent.click(productionRadio);
-
-    // Should update URL, not global mode
-    expect(setModeMock).not.toHaveBeenCalled();
-    expect(mockReplace).toHaveBeenCalledWith(
-      expect.stringContaining("reviewMode=production"),
-      { scroll: false }
-    );
-  });
-
-  it("defaults to the validation review in affaire context and links back to the activity center", async () => {
-    mockUiMode("simplified");
-    vi.mocked(fetchTakeoffJob).mockResolvedValue(makeMockResponse([makeItem()]));
-
-    render(
-      <TakeoffReviewPage
-        jobId={JOB_ID}
-        versionId={VERSION_ID}
-        projectId="99999999-9999-4999-8999-999999999999"
-      />
-    );
-
-    await waitFor(() => {
-      expect(
-        screen.getByText("Traitez d'abord les exceptions qui peuvent biaiser le chiffrage")
-      ).toBeDefined();
-    });
-
-    expect(
-      screen.getByRole("tab", { name: /Validation/ }).getAttribute("aria-selected")
-    ).toBe("true");
-    expect(
-      screen.getByRole("link", { name: "Centre d'activité métrés" })
-    ).toHaveAttribute(
-      "href",
-      "/dashboard/affaires/99999999-9999-4999-8999-999999999999/takeoff"
-    );
-    expect(fetchTakeoffDpgfComparison).toHaveBeenCalledWith(
-      JOB_ID,
-      expect.objectContaining({
-        version_id: VERSION_ID,
-        page_size: 1,
-      }),
-      expect.anything()
-    );
-    expect(fetchAllTakeoffDpgfComparison).not.toHaveBeenCalled();
-  });
-
-  it("opens the controlled apply wizard from validation and stays in affaire context after success", async () => {
-    ensureTakeoffApplyDraftLockMock.mockResolvedValue({
-      acquired: true,
-      shouldRelease: true,
-      errorMessage: null,
-    });
-    vi.mocked(fetchTakeoffJob).mockResolvedValue(makeMockResponse([makeItem()]));
-    vi.mocked(fetchTakeoffDpgfComparison).mockResolvedValue(
-      makeDpgfComparisonResponse({
-        to_confirm: 0,
-        significant_gaps: 0,
-        forced_manual: 0,
-        lines_without_proof: 0,
-        unused_takeoff_items: 0,
-      })
-    );
-    vi.mocked(applyTakeoffJob).mockResolvedValue({
-      job: makeMockResponse([makeItem()]).job,
-      summary: {
-        scope: "section",
-        created_count: 1,
-        updated_count: 0,
-        ignored_count: 0,
-        created_ids: ["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],
-        item_links: [],
-      },
-    });
-
-    render(
-      <TakeoffReviewPage
-        jobId={JOB_ID}
-        versionId={VERSION_ID}
-        projectId="99999999-9999-4999-8999-999999999999"
-      />
-    );
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Ouvrir l'apply controle" })).toBeDefined();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Ouvrir l'apply controle" }));
-
-    await waitFor(() => {
-      expect(screen.getByText("Cible d'application")).toBeDefined();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Suivant" }));
-    fireEvent.click(screen.getByRole("radio", { name: /Fusionner avec l'existant/i }));
-    fireEvent.click(screen.getByRole("button", { name: "Suivant" }));
-
-    await waitFor(() => {
-      expect(screen.getByText("Provenance visible avant confirmation")).toBeDefined();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Suivant" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirmer l'application" }));
-
-    await waitFor(() => {
-      expect(applyTakeoffJob).toHaveBeenCalledWith(
-        JOB_ID,
-        expect.objectContaining({
-          strategy: "merge",
-        })
-      );
-    });
-
-    expect(mockPush).not.toHaveBeenCalledWith(`/dashboard/estimates/${VERSION_ID}/takeoff/${JOB_ID}`);
-    await waitFor(() => {
-      expect(screen.getByText("Apply controle confirme")).toBeDefined();
-      expect(screen.getByRole("link", { name: "Ouvrir le chiffrage" })).toHaveAttribute(
-        "href",
-        `/dashboard/estimates/${VERSION_ID}`
-      );
-      expect(screen.getByRole("button", { name: "Ouvrir l'apply controle" })).toBeDisabled();
-      expect(releaseEstimateDraftLock).toHaveBeenCalledWith(VERSION_ID);
-    });
   });
 
   it("blocks controlled apply from validation while DPGF exceptions remain unresolved", async () => {

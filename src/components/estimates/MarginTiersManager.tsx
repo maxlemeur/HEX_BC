@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from "react";
 
+import { MarginTiersExplanation } from "@/components/estimates/MarginTiersExplanation";
+import { parseLocalizedNumberInput } from "@/components/ui-legacy/NumberInput";
 import { parseEuroToCents } from "@/lib/money";
 import type { Database } from "@/types/database";
 
@@ -64,41 +66,42 @@ export function MarginTiersManager({
     return next;
   }, [drafts, sortedTiers]);
 
-  async function handleAdd() {
-    setFormError(null);
-    const thresholdCents = parseEuroToCents(newThreshold || "0") ?? 0;
-    const multiplierValue = Number(newMultiplier);
-
-    if (!Number.isFinite(thresholdCents) || thresholdCents < 0) {
-      setFormError("Le seuil doit etre un montant positif.");
-      return;
+  function validateDraft(draft: TierDraft, tierId?: string) {
+    const thresholdCents = parseEuroToCents(draft.threshold);
+    const multiplierValue = parseLocalizedNumberInput(draft.multiplier);
+    if (thresholdCents === null || thresholdCents < 0) {
+      setFormError("Le seuil doit être un montant supérieur ou égal à zéro.");
+      return null;
     }
-
-    if (!Number.isFinite(multiplierValue) || multiplierValue < 0 || multiplierValue > 100) {
-      setFormError("Le multiplicateur doit etre entre 0 et 100.");
-      return;
+    if (multiplierValue === null || multiplierValue < 0 || multiplierValue > 100) {
+      setFormError("Le coefficient doit être renseigné entre 0 et 100.");
+      return null;
     }
-
-    const duplicate = tiers.some((t) => t.threshold_cents === thresholdCents);
-    if (duplicate) {
+    if (tiers.some((tier) => tier.id !== tierId && tier.threshold_cents === thresholdCents)) {
       setFormError("Une tranche avec ce seuil existe déjà.");
-      return;
+      return null;
     }
+    return { threshold_cents: thresholdCents, multiplier: multiplierValue };
+  }
 
-    await onCreate({ threshold_cents: thresholdCents, multiplier: multiplierValue });
+  async function handleAdd() {
+    if (!canEdit || isSaving) return;
+    setFormError(null);
+    const values = validateDraft({ threshold: newThreshold, multiplier: newMultiplier });
+    if (!values) return;
+    await onCreate(values);
     setNewThreshold("");
     setNewMultiplier("");
   }
 
   async function handleBlur(tier: MarginTierRow) {
+    if (!canEdit || isSaving) return;
+    setFormError(null);
     const draft = mergedDrafts[tier.id];
     if (!draft) return;
-
-    const thresholdCents = parseEuroToCents(draft.threshold || "0") ?? 0;
-    const multiplierValue = Number(draft.multiplier);
-
-    if (!Number.isFinite(thresholdCents) || thresholdCents < 0) return;
-    if (!Number.isFinite(multiplierValue) || multiplierValue < 0 || multiplierValue > 100) return;
+    const values = validateDraft(draft, tier.id);
+    if (!values) return;
+    const { threshold_cents: thresholdCents, multiplier: multiplierValue } = values;
 
     const hasChanges =
       thresholdCents !== tier.threshold_cents ||
@@ -114,6 +117,7 @@ export function MarginTiersManager({
   }
 
   async function handleDelete(tierId: string) {
+    if (!canEdit || isSaving) return;
     setFormError(null);
     await onDelete(tierId);
   }
@@ -126,8 +130,19 @@ export function MarginTiersManager({
             Tranches de marge
           </h2>
           <p className="mt-1 text-sm text-[var(--slate-500)]">
-            Definir les multiplicateurs de marge selon le montant du projet.
+            Barème commun à votre organisation, paramétrable par un administrateur.
           </p>
+          <MarginTiersExplanation tiers={tiers} />
+          <p className="mt-2 text-xs text-[var(--slate-500)]">
+            Les modifications s’appliquent aux chiffrages en cours utilisant ce
+            barème. Les montants des devis figés sont conservés.
+          </p>
+          {!canEdit ? (
+            <p className="mt-2 text-sm text-[var(--slate-500)]">
+              Consultation seule : la modification nécessite les droits
+              administrateur et un devis modifiable.
+            </p>
+          ) : null}
         </div>
       </div>
 
@@ -154,7 +169,7 @@ export function MarginTiersManager({
         <div className="estimate-role-form mt-6 grid gap-4 sm:grid-cols-[1fr_180px_auto]">
           <div>
             <label className="form-label" htmlFor="new-tier-threshold">
-              Seuil (EUR)
+              Seuil de coût HT (EUR)
             </label>
             <input
               id="new-tier-threshold"
@@ -170,7 +185,7 @@ export function MarginTiersManager({
           </div>
           <div>
             <label className="form-label" htmlFor="new-tier-multiplier">
-              Multiplicateur
+              Coefficient
             </label>
             <input
               id="new-tier-multiplier"
@@ -199,15 +214,15 @@ export function MarginTiersManager({
       )}
 
       {formError && (
-        <p className="mt-3 text-sm text-[var(--error)]">{formError}</p>
+        <p role="alert" className="mt-3 text-sm text-[var(--error)]">{formError}</p>
       )}
 
       <div className="table-scroll mt-6">
         <table className="data-table">
           <thead>
             <tr>
-              <th>Seuil (EUR)</th>
-              <th>Multiplicateur</th>
+              <th>Seuil de coût HT (EUR)</th>
+              <th>Coefficient</th>
               {canEdit && <th>Actions</th>}
             </tr>
           </thead>
@@ -216,7 +231,7 @@ export function MarginTiersManager({
               <tr>
                 <td colSpan={canEdit ? 3 : 2}>
                   <div className="text-sm text-[var(--slate-500)]">
-                    Aucune tranche definie.
+                    Aucune tranche définie : le barème par défaut est appliqué.
                   </div>
                 </td>
               </tr>
@@ -235,6 +250,7 @@ export function MarginTiersManager({
                         step="0.01"
                         min={0}
                         value={draft.threshold}
+                        aria-label={`Seuil de coût HT de la tranche ${formatThresholdInput(tier.threshold_cents)} EUR`}
                         onChange={(event) =>
                           setDrafts((prev) => ({
                             ...prev,
@@ -256,6 +272,7 @@ export function MarginTiersManager({
                         min={0}
                         max={100}
                         value={draft.multiplier}
+                        aria-label={`Coefficient de la tranche ${formatThresholdInput(tier.threshold_cents)} EUR`}
                         onChange={(event) =>
                           setDrafts((prev) => ({
                             ...prev,

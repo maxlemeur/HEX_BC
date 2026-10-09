@@ -68,14 +68,14 @@ function renderToolbar(
 }
 
 describe("EstimateEditorToolbar page actions", () => {
-  it("presents the assistant as one lightweight draft action", () => {
+  it("hides the parked AI draft action and keeps manual actions", () => {
     renderToolbar();
 
     fireEvent.click(screen.getByRole("button", { name: "Plus d'actions" }));
 
     expect(
-      screen.getByRole("menuitem", { name: "Préparer un brouillon IA" })
-    ).toBeInTheDocument();
+      screen.queryByRole("menuitem", { name: "Préparer un brouillon IA" })
+    ).not.toBeInTheDocument();
     expect(
       screen.getByRole("menuitem", { name: "Exclusions" })
     ).toBeInTheDocument();
@@ -83,14 +83,14 @@ describe("EstimateEditorToolbar page actions", () => {
     expect(screen.queryByText(/V0/)).not.toBeInTheDocument();
   });
 
-  it("uses the review wording when an AI draft already exists", () => {
+  it("keeps an existing AI draft entry hidden while the feature is parked", () => {
     renderToolbar("Revoir le brouillon IA");
 
     fireEvent.click(screen.getByRole("button", { name: "Plus d'actions" }));
 
     expect(
-      screen.getByRole("menuitem", { name: "Revoir le brouillon IA" })
-    ).toBeInTheDocument();
+      screen.queryByRole("menuitem", { name: "Revoir le brouillon IA" })
+    ).not.toBeInTheDocument();
   });
   it("closes the secondary actions with Escape and restores focus", () => {
     renderToolbar();

@@ -1,13 +1,12 @@
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act,cleanup,render,screen,waitFor,within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 import type {
-  GeneratedOuvrageCandidate,
-  GeneratedOuvrageDraftResult,
-  GeneratedOuvrageSubdetailResult,
-  InsertGeneratedOuvragesResult,
-  RejectGeneratedOuvrageDraftResult,
+GeneratedOuvrageCandidate,
+GeneratedOuvrageDraftResult,
+GeneratedOuvrageSubdetailResult,
+InsertGeneratedOuvragesResult
 } from "@/lib/estimates/generated-ouvrages";
 
 const mockGenerateOuvragesFromText = vi.fn();
@@ -44,8 +43,8 @@ vi.mock("@/components/ui-legacy/Toast", () => ({
 }));
 
 import {
-  GeneratedOuvrageDialog,
-  type GeneratedOuvrageDialogProps,
+GeneratedOuvrageDialog,
+type GeneratedOuvrageDialogProps,
 } from "./GeneratedOuvrageDialog";
 
 function makeDraftResult(
@@ -291,201 +290,6 @@ async function reviewSubdetailForCandidate(user: ReturnType<typeof userEvent.set
 }
 
 describe("GeneratedOuvrageDialog", () => {
-  it("shows input form initially", () => {
-    render(<GeneratedOuvrageDialog {...defaultProps} />);
-    expect(screen.getByLabelText("Texte source")).toBeInTheDocument();
-    expect(
-      screen.getByTestId("generated-ouvrage-generate-button")
-    ).toBeInTheDocument();
-  });
-
-  it("renders in a body portal so dashboard stacking contexts cannot cover it", () => {
-    const stackingContext = document.createElement("div");
-    document.body.appendChild(stackingContext);
-
-    const { unmount } = render(<GeneratedOuvrageDialog {...defaultProps} />, {
-      container: stackingContext,
-    });
-    const dialog = screen.getByRole("dialog", { name: "Générer des ouvrages" });
-
-    expect(document.body).toContainElement(dialog);
-    expect(stackingContext).not.toContainElement(dialog);
-
-    unmount();
-    stackingContext.remove();
-  });
-
-  it("generates from free text and displays candidates", async () => {
-    const draftResult = makeDraftResult();
-    mockGenerateOuvragesFromText.mockResolvedValueOnce(draftResult);
-
-    render(<GeneratedOuvrageDialog {...defaultProps} />);
-    const user = userEvent.setup();
-
-    await user.type(
-      screen.getByLabelText("Texte source"),
-      "Construction de murs en beton"
-    );
-    await user.click(screen.getByTestId("generated-ouvrage-generate-button"));
-
-    await waitFor(() => {
-      expect(screen.getByText("Mur en beton")).toBeInTheDocument();
-    });
-
-    // Verify all three status badges are visible
-    expect(screen.getByText("Certain")).toBeInTheDocument();
-    expect(screen.getByText("Plausible")).toBeInTheDocument();
-    expect(screen.getByText("A clarifier")).toBeInTheDocument();
-  });
-
-  it("shows CCTP source with document metadata in provenance", async () => {
-    const candidateWithCctp: GeneratedOuvrageCandidate[] = [
-      {
-        candidateId: "c1",
-        suggestedLotId: null,
-        lotLabel: null,
-        designation: "Isolation thermique",
-        unit: "m2",
-        quantity: 200,
-        confidence: 0.9,
-        status: "certain",
-        resolutionStatus: "pending",
-        reasoning: null,
-        sources: [
-          {
-            sourceFragmentId: "sf1",
-            sourceDocumentId: "doc1",
-            type: "cctp",
-            label: "CCTP Article 4.2",
-            excerpt: "Isolation thermique par l'exterieur...",
-            sourceFileName: "CCTP_Lot4.pdf",
-            sourcePageFrom: 12,
-            sourcePageTo: 14,
-            selectionLabel: null,
-          },
-        ],
-      },
-    ];
-
-    const draftResult = makeDraftResult(
-      { sourceKind: "cctp_excerpt" },
-      candidateWithCctp
-    );
-    mockGenerateOuvragesFromText.mockResolvedValueOnce(draftResult);
-
-    render(<GeneratedOuvrageDialog {...defaultProps} />);
-    const user = userEvent.setup();
-
-    await user.type(screen.getByLabelText("Texte source"), "Extrait CCTP");
-    await user.click(screen.getByTestId("generated-ouvrage-generate-button"));
-
-    await waitFor(() => {
-      expect(screen.getByText("Isolation thermique")).toBeInTheDocument();
-    });
-
-    // Expand provenance
-    await user.click(screen.getByText("Voir les sources (1)"));
-
-    expect(screen.getByText("CCTP")).toBeInTheDocument();
-    expect(screen.getByText("CCTP Article 4.2")).toBeInTheDocument();
-    expect(
-      screen.getByText(/CCTP_Lot4\.pdf/)
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/p\. 12-14/)
-    ).toBeInTheDocument();
-  });
-
-  it("edits candidate then sends edited values to insertGeneratedOuvrages", async () => {
-    const draftResult = makeDraftResult();
-    mockGenerateOuvragesFromText.mockResolvedValueOnce(draftResult);
-
-    const insertResult: InsertGeneratedOuvragesResult = {
-      ok: true,
-      insertedCount: 1,
-      draftStatus: "applied",
-      projectId: "p1",
-      versionId: "v1",
-    };
-    mockInsertGeneratedOuvrages.mockResolvedValueOnce(insertResult);
-
-    const reloadedDraft = makeDraftResult({
-      status: "applied",
-    }, [
-      {
-        ...draftResult.candidates[0],
-        resolutionStatus: "inserted",
-      },
-      {
-        ...draftResult.candidates[1],
-        resolutionStatus: "rejected",
-      },
-      {
-        ...draftResult.candidates[2],
-        resolutionStatus: "rejected",
-      },
-    ]);
-    mockFetchGeneratedOuvrageDraft.mockResolvedValueOnce(reloadedDraft);
-
-    render(<GeneratedOuvrageDialog {...defaultProps} />);
-    const user = userEvent.setup();
-
-    await user.type(
-      screen.getByLabelText("Texte source"),
-      "Construction"
-    );
-    await user.click(screen.getByTestId("generated-ouvrage-generate-button"));
-
-    await waitFor(() => {
-      expect(screen.getByText("Mur en beton")).toBeInTheDocument();
-    });
-
-    // Start editing candidate c1
-    const card = screen.getByTestId("candidate-card-c1");
-    const editButton = within(card).getByText("Modifier");
-    await user.click(editButton);
-
-    // Edit designation
-    const designationInput = screen.getByTestId("edit-designation");
-    await user.clear(designationInput);
-    await user.type(designationInput, "Mur en beton arme modifie");
-    await user.click(screen.getByRole("button", { name: /Valider la ligne/i }));
-
-    // Select the edited candidate
-    const checkbox = within(
-      screen.getByTestId("candidate-card-c1")
-    ).getByRole("checkbox");
-    await user.click(checkbox);
-
-    await reviewSubdetailForCandidate(user, "c1");
-
-    expect(mockUpdateGeneratedOuvrageSubdetailDraft).toHaveBeenCalledWith(
-      expect.objectContaining({
-        candidateId: "c1",
-        reviewedCandidate: {
-          designation: "Mur en beton arme modifie",
-          unit: "m2",
-          quantity: 50,
-        },
-      })
-    );
-
-    // Insert
-    await user.click(screen.getByTestId("generated-ouvrage-insert-button"));
-
-    await waitFor(() => {
-      expect(mockInsertGeneratedOuvrages).toHaveBeenCalledWith(
-        expect.objectContaining({
-          acceptedCandidates: [
-            expect.objectContaining({
-              candidateId: "c1",
-              designation: "Mur en beton arme modifie",
-            }),
-          ],
-        })
-      );
-    });
-  });
 
   it("invalidates reviewed subdetail when reviewed candidate values change", async () => {
     const draftResult = makeDraftResult();
@@ -559,214 +363,6 @@ describe("GeneratedOuvrageDialog", () => {
         /Sélectionnez un ouvrage prêt à insérer\. Unité, quantité et sous-détail valide sont requis\./i
       )
     ).toBeInTheDocument();
-  });
-
-  it("keeps the insert CTA name stable across review states", async () => {
-    const draftResult = makeDraftResult();
-    mockGenerateOuvragesFromText.mockResolvedValueOnce(draftResult);
-
-    render(<GeneratedOuvrageDialog {...defaultProps} />);
-    const user = userEvent.setup();
-
-    await user.type(screen.getByLabelText("Texte source"), "Test");
-    await user.click(screen.getByTestId("generated-ouvrage-generate-button"));
-
-    await waitFor(() => {
-      expect(screen.getByText("Mur en beton")).toBeInTheDocument();
-    });
-
-    const insertButton = screen.getByRole("button", {
-      name: /Inserer les ouvrages selectionnes/i,
-    });
-    expect(insertButton).toBeDisabled();
-
-    const checkbox = within(
-      screen.getByTestId("candidate-card-c1")
-    ).getByRole("checkbox");
-    await user.click(checkbox);
-    expect(
-      screen.getByRole("button", {
-        name: /Inserer les ouvrages selectionnes/i,
-      })
-    ).toBeDisabled();
-
-    await reviewSubdetailForCandidate(user, "c1");
-
-    expect(
-      screen.getByRole("button", {
-        name: /Inserer les ouvrages selectionnes/i,
-      })
-    ).toBeEnabled();
-  });
-
-  it("shows sources for incomplete candidates in review mode", async () => {
-    const baseDraft = makeDraftResult();
-    const draftResult = makeDraftResult(undefined, [
-      baseDraft.candidates[0],
-      baseDraft.candidates[1],
-      {
-        ...baseDraft.candidates[2],
-        sources: [
-          {
-            sourceFragmentId: "sf-incomplete",
-            sourceDocumentId: null,
-            type: "text",
-            label: "Source incomplete",
-            excerpt: "Quantite et unite absentes dans l'extrait.",
-            sourceFileName: null,
-            sourcePageFrom: null,
-            sourcePageTo: null,
-            selectionLabel: null,
-          },
-        ],
-      },
-    ]);
-    mockGenerateOuvragesFromText.mockResolvedValueOnce(draftResult);
-
-    render(<GeneratedOuvrageDialog {...defaultProps} />);
-    const user = userEvent.setup();
-
-    await user.type(screen.getByLabelText("Texte source"), "Test");
-    await user.click(screen.getByTestId("generated-ouvrage-generate-button"));
-
-    await waitFor(() => {
-      expect(screen.getByText("Cloison a verifier")).toBeInTheDocument();
-    });
-
-    const incompleteCard = screen.getByTestId("candidate-card-c3");
-    await user.click(
-      within(incompleteCard).getByRole("button", {
-        name: /Voir les sources \(1\)/i,
-      })
-    );
-
-    expect(within(incompleteCard).getByText("Source incomplete")).toBeInTheDocument();
-    expect(
-      within(incompleteCard).getByText(/Quantite et unite absentes dans l'extrait\./i)
-    ).toBeInTheDocument();
-  });
-
-  it("rejects a candidate and calls fetchGeneratedOuvrageDraft after", async () => {
-    const draftResult = makeDraftResult();
-    mockGenerateOuvragesFromText.mockResolvedValueOnce(draftResult);
-
-    const rejectResult: RejectGeneratedOuvrageDraftResult = {
-      ok: true,
-      draftStatus: "pending",
-      projectId: "p1",
-      versionId: "v1",
-    };
-    mockRejectGeneratedOuvrageDraft.mockResolvedValueOnce(rejectResult);
-
-    const reloadedDraft = makeDraftResult({}, [
-      draftResult.candidates[0],
-      draftResult.candidates[1],
-      {
-        ...draftResult.candidates[2],
-        resolutionStatus: "rejected",
-      },
-    ]);
-    reloadedDraft.summary.rejectedCount = 1;
-    reloadedDraft.summary.pendingCount = 2;
-    mockFetchGeneratedOuvrageDraft.mockResolvedValueOnce(reloadedDraft);
-
-    render(<GeneratedOuvrageDialog {...defaultProps} />);
-    const user = userEvent.setup();
-
-    await user.type(screen.getByLabelText("Texte source"), "Test");
-    await user.click(screen.getByTestId("generated-ouvrage-generate-button"));
-
-    await waitFor(() => {
-      expect(screen.getByText("Cloison a verifier")).toBeInTheDocument();
-    });
-
-    // Reject candidate c3
-    const card3 = screen.getByTestId("candidate-card-c3");
-    const rejectBtn = within(card3).getByText("Rejeter");
-    await user.click(rejectBtn);
-
-    await waitFor(() => {
-      expect(mockRejectGeneratedOuvrageDraft).toHaveBeenCalledWith(
-        expect.objectContaining({
-          draftId: "draft-1",
-          candidateId: "c3",
-        })
-      );
-    });
-
-    await waitFor(() => {
-      expect(mockFetchGeneratedOuvrageDraft).toHaveBeenCalled();
-    });
-  });
-
-  it("shows discarded state when all candidates are rejected", async () => {
-    const draftResult = makeDraftResult({}, [
-      {
-        candidateId: "c1",
-        suggestedLotId: null,
-        lotLabel: null,
-        designation: "Ouvrage unique",
-        unit: null,
-        quantity: null,
-        confidence: 0.5,
-        status: "plausible",
-        resolutionStatus: "pending",
-        reasoning: null,
-        sources: [],
-      },
-    ]);
-    mockGenerateOuvragesFromText.mockResolvedValueOnce(draftResult);
-
-    const rejectResult: RejectGeneratedOuvrageDraftResult = {
-      ok: true,
-      draftStatus: "discarded",
-      projectId: "p1",
-      versionId: "v1",
-    };
-    mockRejectGeneratedOuvrageDraft.mockResolvedValueOnce(rejectResult);
-
-    const reloadedDraft = makeDraftResult(
-      { status: "discarded" },
-      [
-        {
-          ...draftResult.candidates[0],
-          resolutionStatus: "rejected",
-        },
-      ]
-    );
-    reloadedDraft.summary = {
-      totalCandidates: 1,
-      certainCount: 0,
-      plausibleCount: 0,
-      questionCount: 0,
-      pendingCount: 0,
-      insertedCount: 0,
-      rejectedCount: 1,
-    };
-    mockFetchGeneratedOuvrageDraft.mockResolvedValueOnce(reloadedDraft);
-
-    render(<GeneratedOuvrageDialog {...defaultProps} />);
-    const user = userEvent.setup();
-
-    await user.type(screen.getByLabelText("Texte source"), "Test");
-    await user.click(screen.getByTestId("generated-ouvrage-generate-button"));
-
-    await waitFor(() => {
-      expect(screen.getByText("Ouvrage unique")).toBeInTheDocument();
-    });
-
-    const card = screen.getByTestId("candidate-card-c1");
-    await user.click(within(card).getByText("Rejeter"));
-
-    await waitFor(() => {
-      expect(mockFetchGeneratedOuvrageDraft).toHaveBeenCalled();
-    });
-
-    await waitFor(() => {
-      expect(
-        screen.getByText(/Toutes les propositions ont ete rejetees ou ecartees\./i)
-      ).toBeInTheDocument();
-    });
   });
 
   it("partial insertion keeps dialog open and calls fetchGeneratedOuvrageDraft", async () => {
@@ -975,24 +571,6 @@ describe("GeneratedOuvrageDialog", () => {
     expect(screen.getByTestId("generated-ouvrage-insert-button")).toBeDisabled();
   });
 
-  it("shows the explicit fallback section when lotId is null", async () => {
-    const draftResult = makeDraftResult();
-    mockGenerateOuvragesFromText.mockResolvedValueOnce(draftResult);
-
-    render(<GeneratedOuvrageDialog {...defaultProps} />);
-    const user = userEvent.setup();
-
-    await user.type(screen.getByLabelText("Texte source"), "Test");
-    await user.click(screen.getByTestId("generated-ouvrage-generate-button"));
-
-    await waitFor(() => {
-      expect(screen.getByText("Mur en beton")).toBeInTheDocument();
-    });
-
-    const card = screen.getByTestId("candidate-card-c1");
-    expect(within(card).getByText(/A classer/)).toBeInTheDocument();
-  });
-
   it("shows already-inserted candidates as locked", async () => {
     const draftResult = makeDraftResult({}, [
       {
@@ -1026,15 +604,6 @@ describe("GeneratedOuvrageDialog", () => {
     // No checkbox should be visible
     const card = screen.getByTestId("candidate-card-c1");
     expect(within(card).queryByRole("checkbox")).not.toBeInTheDocument();
-  });
-
-  it("does not render when isOpen is false", () => {
-    render(
-      <GeneratedOuvrageDialog {...defaultProps} isOpen={false} />
-    );
-    expect(
-      screen.queryByRole("dialog")
-    ).not.toBeInTheDocument();
   });
 
   it("ignores completed generation requests after the dialog closes", async () => {

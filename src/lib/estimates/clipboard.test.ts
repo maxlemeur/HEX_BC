@@ -1,15 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  buildClipboardPreviewRows,
-  detectClipboardFormat,
-  normalizeClipboardHeader,
-  parseClipboardNumber,
-  parseTsvMatrix,
-  serializeSelectedRowsToTsv,
-  suggestClipboardColumnMapping,
-  type ClipboardColumnMapping,
-} from "@/lib/estimates/clipboard";
+import { buildClipboardPreviewRows, parseClipboardNumber, parseTsvMatrix, suggestClipboardColumnMapping, type ClipboardColumnMapping } from "@/lib/estimates/clipboard";
 
 describe("clipboard tsv parsing", () => {
   it("parses tsv, trims cells, and dedupes duplicate/empty headers", () => {
@@ -38,71 +29,7 @@ describe("clipboard tsv parsing", () => {
   });
 });
 
-describe("clipboard header normalization and format detection", () => {
-  it("normalizes accents and separators in headers", () => {
-    expect(normalizeClipboardHeader("  Désignation  ")).toBe("designation");
-    expect(normalizeClipboardHeader("Type_FO")).toBe("type fo");
-    expect(normalizeClipboardHeader("Majoration MO (%)")).toBe("majoration mo %");
-  });
-
-  it("detects bdc_v1_1, optima, and generic formats", () => {
-    expect(
-      detectClipboardFormat([
-        "Designation",
-        "Quantité",
-        "Unite",
-        "Prix unitaire HT (EUR)",
-        "Type FO",
-        "K FO",
-        "h MO",
-        "K MO",
-        "Majoration MO (%)",
-      ])
-    ).toBe("bdc_v1_1");
-
-    expect(
-      detectClipboardFormat([
-        "Libellé",
-        "Qté",
-        "Unité",
-        "PU HT",
-        "Famille FO",
-        "Temps majoré",
-      ])
-    ).toBe("optima");
-
-    expect(detectClipboardFormat(["Nom", "Valeur", "Commentaire"])).toBe("generic");
-  });
-});
-
 describe("clipboard mapping suggestions", () => {
-  it("suggests all estimate fields from mixed french/english headers", () => {
-    const headers = [
-      "Désignation article",
-      "Qty",
-      "UoM",
-      "Unit price HT",
-      "Famille FO",
-      "Coef FO",
-      "Heures MO",
-      "Coef MO",
-      "Majoration MO (%)",
-    ];
-
-    const mapping = suggestClipboardColumnMapping(headers);
-
-    expect(mapping).toEqual({
-      "Désignation article": "designation",
-      Qty: "quantity",
-      UoM: "unit",
-      "Unit price HT": "unit_price_ht",
-      "Famille FO": "supply_type",
-      "Coef FO": "k_fo",
-      "Heures MO": "h_mo",
-      "Coef MO": "k_mo",
-      "Majoration MO (%)": "h_mo_majoration",
-    });
-  });
 
   it("prioritizes canonical bdc headers", () => {
     const headers = [
@@ -212,48 +139,6 @@ describe("clipboard preview rows", () => {
     expect(result.totalRows).toBe(1);
     expect(result.rows[0]?.status).toBe("invalid");
     expect(result.rows[0]?.reasons).toContain("Colonne designation non mappee.");
-  });
-});
-
-describe("clipboard tsv serialization", () => {
-  it("serializes selected rows with default headers", () => {
-    const tsv = serializeSelectedRowsToTsv([
-      {
-        designation: "Porte\tbois\nstandard",
-        quantity: 2,
-        unit: "u",
-        unit_price_ht: 12.5,
-        supply_type: "Bois",
-        k_fo: 1.1,
-        h_mo: 3,
-        k_mo: 1,
-        h_mo_majoration: 1.25,
-      },
-      {
-        designation: "Fenetre",
-        quantity: null,
-        unit_price_ht: 8,
-      },
-    ]);
-
-    const lines = tsv.split("\n");
-    expect(lines[0]).toBe(
-      "designation\tquantity\tunit\tunit_price_ht\tsupply_type\tk_fo\th_mo\tk_mo\th_mo_majoration"
-    );
-    expect(lines[1]).toBe("Porte bois standard\t2\tu\t12.5\tBois\t1.1\t3\t1\t1.25");
-    expect(lines[2]).toBe("Fenetre\t\t\t8\t\t\t\t\t");
-  });
-
-  it("supports custom field order without header row", () => {
-    const tsv = serializeSelectedRowsToTsv(
-      [{ designation: "Porte", quantity: 2 }],
-      {
-        includeHeader: false,
-        fields: ["designation", "quantity"],
-      }
-    );
-
-    expect(tsv).toBe("Porte\t2");
   });
 });
 

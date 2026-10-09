@@ -384,7 +384,7 @@ describe("computeCockpitSuggestions", () => {
     );
   });
 
-  it("suggests generating the estimate structure when V0 can be generated", () => {
+  it("hides the V0 generation suggestion while the assistant is parked", () => {
     const result = computeCockpitSuggestions(
       makeInput({
         currentVersion: { id: "version-1", status: "draft" },
@@ -392,15 +392,7 @@ describe("computeCockpitSuggestions", () => {
       }),
     );
 
-    expect(result.find((suggestion) => suggestion.intent === "generate_structure")).toEqual(
-      expect.objectContaining({
-        label: "Générer la structure du devis",
-        target: {
-          kind: "navigate",
-          href: "/dashboard/estimates/version-1/edit?openVersionZero=1",
-        },
-      }),
-    );
+    expect(result.find((suggestion) => suggestion.intent === "generate_structure")).toBeUndefined();
   });
 
   it("suggests the explicit hybrid continuation when a manual structure can import the linked DPGF", () => {

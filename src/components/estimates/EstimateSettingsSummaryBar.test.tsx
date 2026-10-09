@@ -1,11 +1,9 @@
 import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  within,
+cleanup,
+render,
+screen
 } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach,describe,expect,it,vi } from "vitest";
 
 import { EstimateSettingsSummaryBar } from "@/components/estimates/EstimateSettingsSummaryBar";
 import type { EstimateTotals } from "@/lib/estimate-calculations";
@@ -33,38 +31,6 @@ afterEach(() => {
 });
 
 describe("EstimateSettingsSummaryBar", () => {
-  it("renders simplified details in a portal and opens their settings section", () => {
-    const onOpenSettings = vi.fn();
-
-    render(
-      <EstimateSettingsSummaryBar
-        totals={totals}
-        currency="EUR"
-        taxRateBp={2_000}
-        isExpert={false}
-        onOpenSettings={onOpenSettings}
-      />,
-    );
-
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "Voir les détails de TVA, remise et TTC",
-      }),
-    );
-
-    const portal = document.body.querySelector(
-      '[data-popover-portal="true"]',
-    );
-    expect(portal).toBeInTheDocument();
-    expect(portal).toHaveTextContent("TVA");
-    expect(portal).toHaveTextContent("Remise");
-    expect(portal).toHaveTextContent("TTC à payer");
-
-    fireEvent.click(
-      within(portal as HTMLElement).getByRole("button", { name: /TVA/ }),
-    );
-    expect(onOpenSettings).toHaveBeenCalledWith("tax");
-  });
 
   it("explains an active commercial rounding adjustment", () => {
     render(

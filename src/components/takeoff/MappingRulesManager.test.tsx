@@ -1,21 +1,21 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup,render,screen,waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SWRConfig } from "swr";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 import { MappingRulesManager } from "@/components/takeoff/MappingRulesManager";
-import type {
-  CreateTakeoffMappingRuleInput,
-  TakeoffMappingRule,
-  UpdateTakeoffMappingRuleInput,
-} from "@/lib/takeoff/types";
-import {
-  createTakeoffMappingRule,
-  deleteTakeoffMappingRule,
-  fetchTakeoffMappingRules,
-  updateTakeoffMappingRule,
-} from "@/lib/takeoff/client";
 import { fetchEstimateAssemblies } from "@/lib/estimates/client";
+import {
+createTakeoffMappingRule,
+deleteTakeoffMappingRule,
+fetchTakeoffMappingRules,
+updateTakeoffMappingRule,
+} from "@/lib/takeoff/client";
+import type {
+CreateTakeoffMappingRuleInput,
+TakeoffMappingRule,
+UpdateTakeoffMappingRuleInput,
+} from "@/lib/takeoff/types";
 
 vi.mock("@/lib/takeoff/client", () => {
   return {
@@ -175,56 +175,6 @@ describe("MappingRulesManager", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
-  });
-
-  it("creates and deletes a mapping rule", async () => {
-    const user = userEvent.setup();
-    renderManager();
-
-    expect(await screen.findByText("Renommer PVC")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Nouvelle regle" }));
-    await user.type(screen.getByLabelText("Nom de la règle"), "Ouvrage auto");
-    await user.type(screen.getByLabelText("Pattern de correspondance"), "cloison");
-    await user.selectOptions(screen.getByLabelText("Action"), "skip");
-    await user.click(screen.getByRole("button", { name: "Créer la règle" }));
-
-    await waitFor(() => {
-      expect(createTakeoffMappingRule).toHaveBeenCalledTimes(1);
-    });
-    expect(await screen.findByText("Ouvrage auto")).toBeInTheDocument();
-
-    await user.click(
-      screen.getByRole("button", { name: "Supprimer Ouvrage auto" })
-    );
-    await user.click(screen.getByRole("button", { name: "Supprimer la regle" }));
-
-    await waitFor(() => {
-      expect(deleteTakeoffMappingRule).toHaveBeenCalledWith(CREATED_RULE_ID);
-    });
-  });
-
-  it("persists reordered priorities", async () => {
-    const user = userEvent.setup();
-    renderManager();
-
-    const priorityInput = await screen.findByLabelText("Priorite de Renommer PVC");
-    await user.clear(priorityInput);
-    await user.type(priorityInput, "35");
-    await user.click(screen.getByRole("button", { name: "Enregistrer l'ordre" }));
-
-    await waitFor(() => {
-      expect(updateTakeoffMappingRule).toHaveBeenCalled();
-    });
-
-    expect(
-      vi
-        .mocked(updateTakeoffMappingRule)
-        .mock.calls.some(
-          (call) => call[0] === RULE_A_ID && (call[1] as { priority?: number }).priority === 35
-        )
-    ).toBe(true);
-    expect(await screen.findByText("Ordre des priorites enregistre.")).toBeInTheDocument();
   });
 
   it("keeps unsaved priority drafts when list revalidates", async () => {

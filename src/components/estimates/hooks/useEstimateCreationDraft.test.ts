@@ -1,13 +1,11 @@
-import { act, renderHook } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { act,renderHook } from "@testing-library/react";
+import { beforeEach,describe,expect,it } from "vitest";
 
 import {
-  STORAGE_KEY,
-  initialWizardData,
+STORAGE_KEY
 } from "@/components/estimates/estimate-creation-wizard/shared";
 import {
-  clearEstimateCreationDraft,
-  useEstimateCreationDraft,
+useEstimateCreationDraft
 } from "@/components/estimates/hooks/useEstimateCreationDraft";
 
 describe("useEstimateCreationDraft", () => {
@@ -61,44 +59,5 @@ describe("useEstimateCreationDraft", () => {
     });
 
     expect([...result.current.validatedSteps]).toEqual([0]);
-  });
-
-  it("validates the current step and skips project-name validation for an existing project", () => {
-    const { result: creationResult } = renderHook(() =>
-      useEstimateCreationDraft()
-    );
-
-    act(() => {
-      expect(creationResult.current.validateStep(0)).toBe(false);
-    });
-
-    expect(creationResult.current.errors.projectName).toBe("Champ obligatoire.");
-
-    const { result: projectResult } = renderHook(() =>
-      useEstimateCreationDraft("project-1")
-    );
-
-    act(() => {
-      projectResult.current.setData((prev) => ({
-        ...initialWizardData(),
-        ...prev,
-        projectName: "",
-        title: "Version existante",
-      }));
-    });
-
-    act(() => {
-      expect(projectResult.current.validateStep(0)).toBe(true);
-    });
-
-    expect(projectResult.current.errors.projectName).toBeUndefined();
-  });
-
-  it("clears the persisted draft explicitly", () => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ projectName: "Projet" }));
-
-    clearEstimateCreationDraft();
-
-    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 });

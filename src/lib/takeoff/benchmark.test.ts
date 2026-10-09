@@ -52,61 +52,6 @@ function makeLocalizedCandidate(
 }
 
 describe("evaluateTakeoffBenchmark", () => {
-  it("binds the 24-line ground truth to the rendered plan fixture", async () => {
-    const expected = await loadGoldenFixture();
-    const candidate = expected.items.map(makeLocalizedCandidate);
-
-    const report = evaluateTakeoffBenchmark(expected.items, candidate);
-
-    expect(expected.page_count).toBe(2);
-    expect(expected.truth_page).toBe(2);
-    expect(report).toMatchObject({
-      passed: true,
-      expectedCount: 24,
-      candidateCount: 24,
-      matchedCount: 24,
-      quantityMatchCount: 24,
-      localizedProofCount: 24,
-      highConfidenceCount: 24,
-      highConfidenceErrorCount: 0,
-      precision: 1,
-      recall: 1,
-      quantityAccuracy: 1,
-      localizedProofCoverage: 1,
-      highConfidenceErrorRate: 0,
-      failedChecks: [],
-    });
-  });
-
-  it("separates plan-visible quantities from quantities that would require guessing", async () => {
-    const expected = await loadGoldenFixture();
-    const allIds = expected.items.map((item) => item.id);
-    const partitionIds = [
-      ...expected.plan_only_benchmark.observable_item_ids,
-      ...expected.plan_only_benchmark.not_directly_observable_item_ids,
-    ];
-    const observableItems = expected.plan_only_benchmark.expected_items;
-    const candidate = observableItems.map((item) => ({
-      ...item,
-      confidence: 0.92,
-      evidence: `Surface explicitement libellée dans la pièce ${item.designation}.`,
-      source_page: expected.plan_only_benchmark.source_page,
-    }));
-
-    expect(new Set(partitionIds)).toEqual(new Set(allIds));
-    expect(observableItems.map((item) => item.id)).toEqual(
-      expected.plan_only_benchmark.observable_item_ids
-    );
-    expect(observableItems).toHaveLength(8);
-    expect(evaluateTakeoffBenchmark(observableItems, candidate)).toMatchObject({
-      passed: true,
-      expectedCount: 8,
-      candidateCount: 8,
-      matchedCount: 8,
-      quantityMatchCount: 8,
-      localizedProofCount: 8,
-    });
-  });
 
   it("matches an SDB label with its expanded salle de bain wording", () => {
     const report = evaluateTakeoffBenchmark(

@@ -16,6 +16,9 @@ import {
 } from "@/components/ui-legacy/SearchableSelect";
 import { useToast } from "@/components/ui-legacy/Toast";
 import { parseEuroToCents } from "@/lib/money";
+import { maxPriceValidTo, resolvePriceValidity } from "@/lib/catalogue/price-validity";
+import { ProductReferenceSuggestion } from "@/components/products/ProductReferenceSuggestion";
+import { useOptionalUserContext } from "@/components/UserContext";
 
 type EntityMode = "existing" | "new";
 
@@ -55,6 +58,7 @@ type PriceDraft = {
   min_quantity: string;
   unit_price_euros: string;
   currency: string;
+  transport_mode: "included" | "excluded" | "";
   valid_from: string;
   valid_to: string;
   source: string;
@@ -111,6 +115,7 @@ const EMPTY_PRICE: PriceDraft = {
   min_quantity: "1",
   unit_price_euros: "",
   currency: "EUR",
+  transport_mode: "",
   valid_from: "",
   valid_to: "",
   source: "",
@@ -137,7 +142,7 @@ function priceDraftFromItem(
   defaultProductId: string | null,
 ): PriceDraft {
   if (!item) {
-    return { ...EMPTY_PRICE, product_id: defaultProductId ?? "" };
+    return { ...EMPTY_PRICE, ...resolvePriceValidity(), product_id: defaultProductId ?? "" };
   }
 
   return {
@@ -149,8 +154,9 @@ function priceDraftFromItem(
     min_quantity: String(item.min_quantity ?? 1),
     unit_price_euros: toEuroInput(item.unit_price_cents),
     currency: item.currency ?? "EUR",
+    transport_mode: item.transport_mode === "included" || item.transport_mode === "excluded" ? item.transport_mode : "",
     valid_from: item.valid_from ?? "",
-    valid_to: item.valid_to ?? "",
+    valid_to: item.valid_to ?? maxPriceValidTo(item.valid_from || new Date().toISOString().slice(0, 10)),
     source: item.source ?? "",
     notes: item.notes ?? "",
   };
@@ -170,6 +176,7 @@ export function SupplierOfferFormModal({
   onSaved,
 }: Readonly<SupplierOfferFormModalProps>) {
   const toast = useToast();
+  const userContext = useOptionalUserContext();
   const [supplierMode, setSupplierMode] = useState<EntityMode>("existing");
   const [productMode, setProductMode] = useState<EntityMode>("existing");
   const [supplierDraft, setSupplierDraft] = useState(EMPTY_SUPPLIER);
@@ -186,6 +193,7 @@ export function SupplierOfferFormModal({
 
   const editingId = item?.id ?? null;
   const isEditing = editingId !== null;
+  const canEditTransport = userContext?.profile?.tenant_role === "admin" && Boolean(catalogItem);
   const selectedProductLabel = useMemo(
     () =>
       productOptions.find((option) => option.value === priceDraft.product_id)
@@ -298,7 +306,19 @@ export function SupplierOfferFormModal({
     key: K,
     value: PriceDraft[K],
   ) {
-    setPriceDraft((current) => ({ ...current, [key]: value }));
+    setPriceDraft((current) => {
+      if (key === "valid_from" && value) {
+        const previousMaximum = current.valid_from ? maxPriceValidTo(current.valid_from) : "";
+        return {
+          ...current,
+          valid_from: value,
+          valid_to: !current.valid_to || current.valid_to === previousMaximum
+            ? maxPriceValidTo(value)
+            : current.valid_to,
+        };
+      }
+      return { ...current, [key]: value };
+    });
   }
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -346,8 +366,7 @@ export function SupplierOfferFormModal({
         min_quantity: minQuantity,
         unit_price_cents: unitPriceCents,
         currency: priceDraft.currency.trim().toUpperCase() || "EUR",
-        valid_from: priceDraft.valid_from || null,
-        valid_to: priceDraft.valid_to || null,
+        ...resolvePriceValidity(priceDraft.valid_from, priceDraft.valid_to),
         source: nullableText(priceDraft.source),
         notes: nullableText(priceDraft.notes),
       };
@@ -357,12 +376,22 @@ export function SupplierOfferFormModal({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            action: "update",
+            action: catalogItem ? "update-offer" : "update",
             id: editingId,
-            item: price,
+            item: {
+              ...price,
+              ...(catalogItem ? {
+                ...(canEditTransport && (priceDraft.transport_mode || null) !== (item?.transport_mode ?? null)
+                  ? { transport_mode: priceDraft.transport_mode || null } : {}),
+                ...(nullableText(priceDraft.supplier_sku) !== (catalogItem.supplier_sku ?? null)
+                  ? { supplier_sku: nullableText(priceDraft.supplier_sku) } : {}),
+                ...(nullableText(priceDraft.product_url) !== (catalogItem.product_url ?? null)
+                  ? { product_url: nullableText(priceDraft.product_url) } : {}),
+              } : {}),
+            },
           }),
         });
-        toast.success({ title: "Prix fournisseur mis à jour." });
+        toast.success({ title: "Offre fournisseur mise à jour." });
       } else {
         const newProductPrice = parseEuroToCents(productDraft.unit_price_euros);
         if (productMode === "new" && newProductPrice === null) {
@@ -436,12 +465,12 @@ export function SupplierOfferFormModal({
       open={open}
       onOpenChange={(nextOpen) => !nextOpen && handleClose()}
     >
-      <Modal.Content className="max-h-[94vh] max-w-5xl overflow-hidden p-0">
-        <Modal.Header className="border-b border-[var(--slate-200)] px-6 py-5">
+      <Modal.Content className="flex max-h-[min(94dvh,calc(100dvh-2rem))] max-w-5xl flex-col overflow-hidden p-0">
+        <Modal.Header className="mb-0 shrink-0 border-b border-[var(--slate-200)] px-6 py-5">
           <div>
             <Modal.Title>
               {isEditing
-                ? "Modifier un tarif fournisseur"
+                ? "Modifier l’offre fournisseur"
                 : "Ajouter un fournisseur / tarif"}
             </Modal.Title>
             <p className="mt-1 text-sm text-[var(--slate-500)]">
@@ -452,8 +481,8 @@ export function SupplierOfferFormModal({
           <Modal.Close disabled={isSaving}>Fermer</Modal.Close>
         </Modal.Header>
 
-        <form onSubmit={onSubmit}>
-          <Modal.Body className="max-h-[calc(94vh-10rem)] space-y-5 overflow-y-auto px-6 py-5">
+        <form className="flex min-h-0 flex-col" onSubmit={onSubmit}>
+          <Modal.Body className="min-h-0 space-y-5 overflow-y-auto px-6 py-5">
             <section className="rounded-xl border border-[var(--slate-200)] p-4">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                 <div>
@@ -521,6 +550,13 @@ export function SupplierOfferFormModal({
                     value={productDraft.reference}
                     onChange={(value) => updateProduct("reference", value)}
                   />
+                  <div className="md:col-span-2 lg:col-span-4">
+                    <ProductReferenceSuggestion
+                      enabled={open && productMode === "new"}
+                      value={productDraft.reference}
+                      onUse={(reference) => updateProduct("reference", reference)}
+                    />
+                  </div>
                   <TextField
                     className="lg:col-span-3"
                     label="Désignation *"
@@ -692,14 +728,14 @@ export function SupplierOfferFormModal({
                 <TextField
                   label="Référence fournisseur"
                   value={priceDraft.supplier_sku}
-                  disabled={Boolean(catalogItem) || isEditing}
+                  disabled={(!isEditing && Boolean(catalogItem)) || (isEditing && !catalogItem)}
                   onChange={(value) => updatePrice("supplier_sku", value)}
                 />
                 <TextField
                   label="URL fournisseur"
                   type="url"
                   value={priceDraft.product_url}
-                  disabled={Boolean(catalogItem) || isEditing}
+                  disabled={(!isEditing && Boolean(catalogItem)) || (isEditing && !catalogItem)}
                   onChange={(value) => updatePrice("product_url", value)}
                 />
               </div>
@@ -710,9 +746,9 @@ export function SupplierOfferFormModal({
               ) : null}
               {catalogItem ? (
                 <p className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-900">
-                  Cette fiche article–fournisseur existe déjà. Sa référence et
-                  son URL seront réutilisées ; elles se modifient séparément
-                  depuis la liste.
+                  {isEditing
+                    ? "La référence fournisseur et l’URL sont partagées par les tarifs de cet article chez ce fournisseur. Seul le tarif ouvert est modifié."
+                    : "La référence fournisseur et l’URL de la fiche existante seront réutilisées. Pour les changer, ouvrez une offre depuis la liste."}
                 </p>
               ) : null}
             </section>
@@ -761,6 +797,8 @@ export function SupplierOfferFormModal({
                   label="Valide au"
                   type="date"
                   value={priceDraft.valid_to}
+                  min={priceDraft.valid_from || undefined}
+                  max={priceDraft.valid_from ? maxPriceValidTo(priceDraft.valid_from) : undefined}
                   onChange={(value) => updatePrice("valid_to", value)}
                 />
                 <TextField
@@ -768,6 +806,23 @@ export function SupplierOfferFormModal({
                   value={priceDraft.source}
                   onChange={(value) => updatePrice("source", value)}
                 />
+                {isEditing ? (
+                  <div>
+                    <label className="space-y-1.5 text-xs font-semibold text-[var(--slate-700)]">
+                      Transport
+                      <select className="form-input form-select" aria-label="Transport"
+                        value={priceDraft.transport_mode} disabled={!canEditTransport}
+                        onChange={(event) => updatePrice("transport_mode", event.target.value as PriceDraft["transport_mode"])}>
+                        <option value="">À préciser</option>
+                        <option value="included">Inclus</option>
+                        <option value="excluded">Exclu</option>
+                      </select>
+                    </label>
+                    {!canEditTransport ? <p className="mt-1 text-xs text-[var(--slate-500)]">
+                      Un administrateur peut préciser les conditions de transport.
+                    </p> : null}
+                  </div>
+                ) : null}
                 <TextField
                   label="Notes"
                   value={priceDraft.notes}
@@ -776,6 +831,9 @@ export function SupplierOfferFormModal({
               </div>
             </section>
 
+            <p className="text-xs text-[var(--slate-500)]">
+              Validité maximale : six mois à partir de la date de début. Une fin non renseignée est calculée automatiquement.
+            </p>
             {formError ? (
               <div className="alert alert-error" role="alert">
                 {formError}
@@ -783,7 +841,7 @@ export function SupplierOfferFormModal({
             ) : null}
           </Modal.Body>
 
-          <Modal.Footer className="mt-0 border-t border-[var(--slate-200)] px-6 py-4">
+          <Modal.Footer className="mt-0 shrink-0 border-t border-[var(--slate-200)] px-6 py-4">
             <button
               className="btn btn-secondary"
               type="button"
@@ -800,7 +858,7 @@ export function SupplierOfferFormModal({
               {isSaving
                 ? "Enregistrement..."
                 : isEditing
-                  ? "Mettre à jour le tarif"
+                  ? "Enregistrer l’offre"
                   : "Ajouter le fournisseur / tarif"}
             </button>
           </Modal.Footer>
@@ -817,6 +875,8 @@ function TextField({
   className = "",
   type = "text",
   disabled = false,
+  min,
+  max,
 }: {
   label: string;
   value: string;
@@ -824,6 +884,8 @@ function TextField({
   className?: string;
   type?: React.HTMLInputTypeAttribute;
   disabled?: boolean;
+  min?: string;
+  max?: string;
 }) {
   return (
     <label
@@ -835,6 +897,8 @@ function TextField({
         type={type}
         value={value}
         disabled={disabled}
+        min={min}
+        max={max}
         onChange={(event) => onChange(event.target.value)}
       />
     </label>

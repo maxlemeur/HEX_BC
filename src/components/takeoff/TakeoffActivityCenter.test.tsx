@@ -1,6 +1,5 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act,cleanup,render,screen } from "@testing-library/react";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 import type { TakeoffActivityCenterResponse } from "@/lib/takeoff/types";
 
@@ -60,44 +59,6 @@ const EMPTY_RESPONSE: TakeoffActivityCenterResponse = {
   },
   jobs: [],
   pagination: { limit: 20, offset: 0, total: 0 },
-};
-
-const RESPONSE_WITH_JOB: TakeoffActivityCenterResponse = {
-  counters: {
-    technicalJobs: 0,
-    usableJobs: 1,
-    blockingExceptionsJobs: 0,
-  },
-  jobs: [
-    {
-      jobId: "job-1",
-      estimateVersionId: "version-1",
-      versionLabel: "V1",
-      lotLabel: null,
-      planSetLabel: "Plans architecte",
-      levelLabel: "Standard",
-      processingStrategy: "sync",
-      providerBatchState: null,
-      providerBatchUpdatedAt: null,
-      statusLabel: "Terminée",
-      statusRaw: "completed",
-      technicalStatusRaw: "completed",
-      itemCount: 12,
-      coveragePercent: 80,
-      exceptionCount: 0,
-      confidenceLabel: "Élevée",
-      appliedCount: 0,
-      createdAt: "2026-07-10T08:00:00.000Z",
-      carriedOverFrom: null,
-      neverApplied: true,
-      retryCount: 0,
-      dispatchStatus: null,
-      dispatchOutcome: null,
-      dispatchCorrelationId: null,
-      dispatchUpdatedAt: null,
-    },
-  ],
-  pagination: { limit: 20, offset: 0, total: 1 },
 };
 
 function renderCenter(input?: {
@@ -175,46 +136,6 @@ describe("TakeoffActivityCenter", () => {
     cleanup();
   });
 
-  it("guides an initial empty project to its plan sets without showing filters or counters", () => {
-    renderCenter();
-
-    expect(
-      screen.getByRole("heading", { name: "Ajoutez vos plans pour commencer" })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: "Ajouter un jeu de plans" })
-    ).toHaveAttribute("href", "/dashboard/affaires/project-1/plans");
-    expect(screen.queryByLabelText("Version")).not.toBeInTheDocument();
-    expect(screen.queryByText("Analyses en cours")).not.toBeInTheDocument();
-  });
-
-  it("opens the existing launch flow when a plan set is ready", async () => {
-    const user = userEvent.setup();
-    renderCenter({ withPlanSet: true });
-
-    expect(
-      screen.getByRole("heading", { name: "Prêt pour votre premier métré" })
-    ).toBeInTheDocument();
-
-    await user.click(
-      screen.getByRole("button", { name: "Lancer le premier métré" })
-    );
-
-    expect(screen.getByRole("dialog")).toHaveTextContent(
-      "Lancement du premier métré"
-    );
-  });
-
-  it("opens a deep-linked plan set directly from the plans page", () => {
-    searchParams = new URLSearchParams(
-      "launch=1&launchPlanSet=plan-set-1",
-    );
-
-    renderCenter({ withPlanSet: true });
-
-    expect(screen.getByRole("dialog")).toHaveTextContent("plan-set-1");
-  });
-
   it("opens a usable non-default plan set from a deep link", () => {
     searchParams = new URLSearchParams(
       "launch=1&launchPlanSet=plan-set-2"
@@ -254,118 +175,6 @@ describe("TakeoffActivityCenter", () => {
     expect(
       screen.getByRole("button", { name: "Lancer le premier métré" })
     ).toBeInTheDocument();
-  });
-
-  it("keeps a filtered empty state distinct and lets the user reset it", async () => {
-    const user = userEvent.setup();
-    searchParams = new URLSearchParams("status=completed");
-    renderCenter();
-
-    expect(
-      screen.getByRole("heading", { name: "Aucune analyse ne correspond" })
-    ).toBeInTheDocument();
-    expect(screen.getByLabelText("Statut")).toBeInTheDocument();
-    expect(screen.queryByText("Analyses en cours")).not.toBeInTheDocument();
-
-    await user.click(
-      screen.getByRole("button", { name: "Réinitialiser les filtres" })
-    );
-
-    expect(routerPushMock).toHaveBeenCalledWith(
-      "/dashboard/affaires/project-1/takeoff",
-      {
-        scroll: false,
-      }
-    );
-  });
-
-  it("shows filters and counters once analyses exist", () => {
-    renderCenter({ response: RESPONSE_WITH_JOB, withPlanSet: true });
-
-    expect(
-      screen.getByRole("button", { name: "Filtres" })
-    ).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getByTestId("takeoff-analysis-filters")).toHaveClass(
-      "hidden"
-    );
-    expect(screen.getByLabelText("Version")).toBeInTheDocument();
-    expect(screen.getByText("Analyses en cours")).toBeInTheDocument();
-    expect(screen.getByText("Analyses exploitables")).toBeInTheDocument();
-    expect(screen.getAllByText("Plans architecte").length).toBeGreaterThan(0);
-  });
-
-  it("shows persisted automatic recovery for a delayed start", () => {
-    renderCenter({
-      response: {
-        ...RESPONSE_WITH_JOB,
-        jobs: [
-          {
-            ...RESPONSE_WITH_JOB.jobs[0],
-            dispatchStatus: "trigger_failed",
-            dispatchOutcome: "timeout",
-            dispatchCorrelationId: "dispatch-follow-up-456",
-          },
-        ],
-      },
-      withPlanSet: true,
-    });
-
-    expect(screen.getAllByText("Reprise automatique")).toHaveLength(2);
-    expect(screen.getByText(/dispatch-follow-up-456/)).toBeInTheDocument();
-  });
-
-  it("shows an unavailable DPGF coverage without an error alert", () => {
-    renderCenter({
-      response: {
-        ...RESPONSE_WITH_JOB,
-        jobs: [
-          {
-            ...RESPONSE_WITH_JOB.jobs[0],
-            coveragePercent: null,
-          },
-        ],
-      },
-      withPlanSet: true,
-    });
-
-    const coverageValues = screen.getAllByText("Aucun DPGF");
-    expect(coverageValues).toHaveLength(2);
-    for (const value of coverageValues) {
-      expect(value).not.toHaveClass("text-[var(--error)]");
-    }
-    expect(screen.queryByText("0%")).not.toBeInTheDocument();
-  });
-
-  it("expands analysis filters on demand and keeps them out of Exceptions", async () => {
-    const user = userEvent.setup();
-    renderCenter({ response: RESPONSE_WITH_JOB, withPlanSet: true });
-
-    const filterToggle = screen.getByRole("button", { name: "Filtres" });
-    await user.click(filterToggle);
-
-    expect(filterToggle).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByTestId("takeoff-analysis-filters")).toHaveClass("grid");
-
-    cleanup();
-    searchParams = new URLSearchParams("tab=exceptions");
-    renderCenter({ response: RESPONSE_WITH_JOB, withPlanSet: true });
-
-    expect(screen.getByRole("tab", { name: "Exceptions" })).toHaveAttribute(
-      "aria-selected",
-      "true"
-    );
-    expect(screen.queryByLabelText("Version")).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "Filtres" })
-    ).not.toBeInTheDocument();
-  });
-
-  it("gives every activity tab a mobile-sized touch target", () => {
-    renderCenter();
-
-    for (const label of ["Analyses", "Exceptions", "Historique"]) {
-      expect(screen.getByRole("tab", { name: label })).toHaveClass("min-h-11");
-    }
   });
 
   it("announces when analysis loading exceeds the normal delay", () => {

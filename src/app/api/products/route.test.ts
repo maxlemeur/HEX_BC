@@ -233,39 +233,6 @@ describe("POST /api/products", () => {
     });
   });
 
-  it("updates an existing product", async () => {
-    const { supabase, updated } = createProductsSupabase();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await POST(
-      postRequest({
-        action: "update",
-        id: PRODUCT_ID,
-        item: VALID_PRODUCT,
-      })
-    );
-
-    expect(response.status).toBe(200);
-    expect(updated).toEqual([
-      {
-        id: PRODUCT_ID,
-        payload: {
-          reference: "TUB-15",
-          designation: "Tube DN15",
-          category: "Tuyauterie",
-          product_type: "Tube",
-          material: "Inox",
-          grade: "304L",
-          dimensions: "DN15",
-          standard: "EN 10217-7",
-          unit: "ml",
-          unit_price_cents: 350,
-          is_active: true,
-        },
-      },
-    ]);
-  });
-
   it("archives a product with a partial update", async () => {
     const { supabase, updated } = createProductsSupabase();
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);

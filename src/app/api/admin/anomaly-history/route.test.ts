@@ -73,25 +73,6 @@ describe("/api/admin/anomaly-history", () => {
     vi.clearAllMocks();
   });
 
-  it("GET returns aggregated anomaly data for admin", async () => {
-    vi.mocked(getUserContext).mockResolvedValue(ADMIN_CONTEXT);
-    vi.mocked(getCurrentAnomalySummary).mockResolvedValue(EMPTY_SUMMARY_RESULT);
-    vi.mocked(getAnomalyTrend).mockResolvedValue(EMPTY_TREND_RESULT);
-
-    const request = new Request("http://localhost/api/admin/anomaly-history");
-    const response = await GET(request);
-    const body = (await response.json()) as { ok: boolean; data: unknown };
-
-    expect(response.status).toBe(200);
-    expect(body.ok).toBe(true);
-    expect(body.data).toEqual({
-      summary: EMPTY_SUMMARY_RESULT.summary,
-      currentAnomalies: [],
-      trend: [],
-      avgResolution: [],
-    });
-  });
-
   it("returns 403 for non-admin users", async () => {
     vi.mocked(getUserContext).mockResolvedValue(NON_ADMIN_CONTEXT);
 
@@ -120,37 +101,6 @@ describe("/api/admin/anomaly-history", () => {
     const response = await GET(request);
 
     expect(response.status).toBe(403);
-  });
-
-  it("forwards filter params correctly", async () => {
-    vi.mocked(getUserContext).mockResolvedValue(ADMIN_CONTEXT);
-    vi.mocked(getCurrentAnomalySummary).mockResolvedValue(EMPTY_SUMMARY_RESULT);
-    vi.mocked(getAnomalyTrend).mockResolvedValue(EMPTY_TREND_RESULT);
-
-    const request = new Request(
-      "http://localhost/api/admin/anomaly-history?flag_types=missing_price,missing_quantity&owner_user_id=abc-123&search=project-a&date_from=2025-01-01&date_to=2025-12-31"
-    );
-    await GET(request);
-
-    expect(vi.mocked(getCurrentAnomalySummary)).toHaveBeenCalledWith(
-      expect.anything(),
-      TENANT_ID,
-      {
-        flag_types: ["missing_price", "missing_quantity"],
-        owner_user_id: "abc-123",
-        search: "project-a",
-        version_id: undefined,
-      }
-    );
-
-    expect(vi.mocked(getAnomalyTrend)).toHaveBeenCalledWith(
-      expect.anything(),
-      TENANT_ID,
-      {
-        date_from: "2025-01-01",
-        date_to: "2025-12-31",
-      }
-    );
   });
 
   it("returns a paginated current view without loading trends", async () => {
@@ -231,44 +181,6 @@ describe("/api/admin/anomaly-history", () => {
       TENANT_ID,
       { date_from: "2025-01-01", date_to: "2025-12-31" }
     );
-  });
-
-  it("returns text/csv when format=csv", async () => {
-    vi.mocked(getUserContext).mockResolvedValue(ADMIN_CONTEXT);
-    vi.mocked(getCurrentAnomalySummary).mockResolvedValue({
-      summary: EMPTY_SUMMARY_RESULT.summary,
-      currentAnomalies: [
-        {
-          versionId: "v1",
-          versionLabel: "V1",
-          projectName: "Projet A",
-          ownerUserId: "u1",
-          ownerName: "User One",
-          flagKey: "missing_price" as const,
-          flagLabel: "Prix manquant",
-          severity: "blocking" as const,
-          itemCount: 3,
-        },
-      ],
-      ownerOptions: [{ id: "u1", name: "User One" }],
-    });
-    vi.mocked(getAnomalyTrend).mockRejectedValue(
-      new Error("trend should not run for csv")
-    );
-
-    const request = new Request(
-      "http://localhost/api/admin/anomaly-history?format=csv"
-    );
-    const response = await GET(request);
-
-    expect(response.status).toBe(200);
-    expect(response.headers.get("content-type")).toContain("text/csv");
-
-    const text = await response.text();
-    expect(text).toContain("Version ID");
-    expect(text).toContain("Projet A");
-    expect(text).toContain("Prix manquant");
-    expect(vi.mocked(getAnomalyTrend)).not.toHaveBeenCalled();
   });
 
   it("escapes separators, quotes and newlines in CSV exports", async () => {

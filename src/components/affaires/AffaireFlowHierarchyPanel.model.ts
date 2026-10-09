@@ -8,6 +8,7 @@ import { AFFAIRE_REGISTER_REVALIDATION_IMPACTED_STAGE_LABELS, type AffaireRegist
 import type { AffaireHubDpgfSourceResult, AffaireHubFinishLineSummaryResult, AffaireHubSummaryResult } from "@/lib/affaires/server";
 import type { CockpitSuggestion } from "@/lib/cockpit/suggestions";
 import type { VersionZeroDraftSummary } from "@/lib/estimates/client";
+import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
 
 import { resolveSubmissionReadiness } from "./AffairePilotagePanel.logic";
 import { getReviewProbableCategories, sortReviewDocuments } from "./AffaireFlowHierarchyPanel.review-logic";
@@ -909,6 +910,7 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
   } else if (
     allowSecondaryAides &&
     input.currentVersion?.status === "draft" &&
+    isEstimateAiDraftEnabled() &&
     (input.versionZeroSummary?.activeDraft || input.versionZeroSummary?.canGenerate)
   ) {
     aides.push(

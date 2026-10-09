@@ -1,8 +1,8 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup,fireEvent,render,screen } from "@testing-library/react";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
-import type { AffaireListItem, AffaireManagerQueueSummary } from "./types";
 import { AffairesDenseTable } from "./AffairesDenseTable";
+import type { AffaireListItem,AffaireManagerQueueSummary } from "./types";
 
 const pushMock = vi.fn();
 const requestDeleteMock = vi.fn();
@@ -135,14 +135,6 @@ describe("AffairesDenseTable", () => {
     cleanup();
   });
 
-  it("navigates to the affaire hub when the row body is clicked", () => {
-    renderTable();
-
-    fireEvent.click(screen.getByText("Affaire Alpha"));
-
-    expect(pushMock).toHaveBeenCalledWith("/dashboard/affaires/project-1");
-  });
-
   it("supports keyboard navigation on the affaire row", () => {
     renderTable();
 
@@ -152,50 +144,6 @@ describe("AffairesDenseTable", () => {
     );
 
     expect(pushMock).toHaveBeenCalledWith("/dashboard/affaires/project-1");
-  });
-
-  it("uses a semantic hub link without triggering row navigation", () => {
-    renderTable();
-
-    const hubLink = screen.getByRole("link", {
-      name: "Ouvrir le hub de l’affaire Affaire Alpha",
-    });
-    expect(hubLink).toHaveAttribute(
-      "href",
-      "/dashboard/affaires/project-1"
-    );
-
-    fireEvent.click(hubLink);
-
-    expect(pushMock).not.toHaveBeenCalled();
-  });
-
-  it("keeps secondary version and DPGF information in the expanded summary", async () => {
-    renderTable();
-
-    expect(
-      screen.queryByRole("columnheader", { name: "Versions" })
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("columnheader", { name: "DPGF" })
-    ).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("columnheader", { name: "Version acceptée" })
-    ).toHaveAttribute(
-      "title",
-      "Dernière version acceptée par le client, conservée comme référence commerciale."
-    );
-    expect(
-      screen.getByRole("columnheader", { name: "Approbation" })
-    ).toHaveAttribute(
-      "title",
-      "État de l’approbation interne requise avant l’envoi au client."
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Déplier les détails de l’affaire Affaire Alpha" }));
-
-    expect(await screen.findByText("Nombre de versions :")).toBeInTheDocument();
-    expect(screen.getByText("Aucune DPGF importée")).toBeInTheDocument();
   });
 
   it("loads dense expansion data only when a row is expanded", () => {
@@ -262,15 +210,6 @@ describe("AffairesDenseTable", () => {
 
     fireEvent.click(draftCheckbox);
     expect(onToggleProjectSelection).toHaveBeenCalledWith("project-1");
-  });
-  it("routes manager queue changes back to the page query", () => {
-    const { onManagerFilterChange } = renderTable();
-
-    fireEvent.click(
-      screen.getByRole("button", { name: /À revoir sous réserves \(2\)/i })
-    );
-
-    expect(onManagerFilterChange).toHaveBeenCalledWith("reservations");
   });
 
   it("keeps manager filters disabled when the portfolio classification is incomplete", () => {

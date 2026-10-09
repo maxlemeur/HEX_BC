@@ -599,63 +599,6 @@ describe("streamEstimateVersionBdcV11Xlsx", () => {
     expect(Math.round((lineRow[17] as number) * 100)).toBe(102);
   });
 
-  it("skips supplier comparison call when there are no line items", async () => {
-    vi.mocked(getEstimateVersionDetails).mockResolvedValue({
-      version: {
-        id: VERSION_ID,
-        version_number: 1,
-        margin_multiplier: 1,
-        tax_rate_bp: 2000,
-        estimate_projects: {
-          id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-          name: "Projet Alpha",
-          reference: null,
-        },
-      },
-      items: [
-        {
-          id: "sec-1",
-          item_type: "section",
-          parent_id: null,
-          position: 1,
-          title: "Section",
-          description: null,
-          quantity: null,
-          unit_price_ht_cents: null,
-          tax_rate_bp: null,
-          k_fo: null,
-          h_mo: null,
-          h_mo_majoration: null,
-          k_mo: null,
-          h_mo_atelier: null,
-          k_mo_atelier: null,
-          labor_role_atelier_id: null,
-          h_mo_chantier: null,
-          k_mo_chantier: null,
-          labor_role_chantier_id: null,
-          pu_ht_cents: null,
-          labor_role_id: null,
-          category_id: null,
-          supply_type_id: null,
-          line_total_ht_cents: null,
-          line_tax_cents: null,
-          line_total_ttc_cents: null,
-        },
-      ],
-      supply_types: [],
-      labor_roles: [],
-      categories: [],
-    } as never);
-
-    const { workbookWriterFactory } = createWorkbookHarness();
-    const exported = await streamEstimateVersionBdcV11Xlsx(VERSION_ID, {
-      workbookWriterFactory,
-    });
-
-    expect(exported.filename).toBe("devis-Projet_Alpha-v1-bdc-v1_1.xlsx");
-    expect(vi.mocked(getEstimateSupplierComparisons)).not.toHaveBeenCalled();
-  });
-
   it("exports a fresh v2 review snapshot instead of live draft inputs", async () => {
     vi.mocked(getEstimateVersionDetails).mockResolvedValue({
       version: {

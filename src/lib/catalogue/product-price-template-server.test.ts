@@ -125,6 +125,7 @@ describe("product price template server", () => {
           product_url: "https://example.com/tube",
           currency: "EUR",
           valid_from: "2026-07-10",
+          valid_to: "2027-01-10",
           notes: "Tarif catalogue",
         }),
       ],

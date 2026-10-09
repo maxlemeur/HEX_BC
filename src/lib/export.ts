@@ -8,7 +8,6 @@ export type ExportColumn<T> = {
 
 export type ExportOptions = {
   filename: string;
-  sheetName?: string;
 };
 
 export type ExportSheet<T extends Record<string, unknown>> = {
@@ -67,24 +66,6 @@ function buildWorksheet<T extends Record<string, unknown>>(
   worksheet["!cols"] = colWidths;
 
   return worksheet;
-}
-
-export async function exportToExcel<T extends Record<string, unknown>>(
-  data: T[],
-  columns: ExportColumn<T>[],
-  options: ExportOptions
-): Promise<void> {
-  const xlsx = await import("xlsx");
-  const worksheet = buildWorksheet(xlsx, data, columns);
-
-  const workbook = xlsx.utils.book_new();
-  xlsx.utils.book_append_sheet(
-    workbook,
-    worksheet,
-    options.sheetName ?? "Export"
-  );
-
-  xlsx.writeFile(workbook, `${options.filename}.xlsx`);
 }
 
 export async function exportToExcelWithSheets(

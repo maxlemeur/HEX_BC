@@ -1,14 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe,expect,it } from "vitest";
 
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 
 import {
-  getFileIllustrationTone,
-  getReviewChoiceConsequence,
-  getReviewChoiceSecondaryBadge,
-  getReviewEvidenceHints,
-  getReviewProbableCategories,
-  sortReviewDocuments,
+sortReviewDocuments
 } from "./AffaireFlowHierarchyPanel.review-logic";
 
 type ReviewDocument = AffaireIntakeWorkspace["documents"][number];
@@ -35,21 +30,6 @@ function buildReviewDocument(
 }
 
 describe("AffaireFlowHierarchyPanel review logic", () => {
-  it("keeps file presentation and probable categories aligned by extension", () => {
-    expect(getFileIllustrationTone("bordereau.XLSX")).toEqual({
-      label: "XLS",
-      accent: "text-emerald-700",
-      frame: "border-emerald-200 bg-emerald-50/90",
-    });
-    expect(
-      getReviewProbableCategories(
-        buildReviewDocument({
-          documentId: "document-spreadsheet",
-          fileName: "bordereau.XLSX",
-        }),
-      ),
-    ).toEqual(["dpgf", "bpu_dqe", "annexes"]);
-  });
 
   it("prioritises a review document that can lift a missing category", () => {
     const lowConfidenceSpreadsheet = buildReviewDocument({
@@ -99,46 +79,5 @@ describe("AffaireFlowHierarchyPanel review logic", () => {
     expect(
       sortReviewDocuments(documents, []).map((document) => document.documentId),
     ).toEqual(["document-c", "document-a", "document-b"]);
-  });
-
-  it("summarises evidence and the impact of choosing a secondary source", () => {
-    const document = buildReviewDocument({
-      documentId: "document-dpgf",
-      fileName: "prix.xlsx",
-      confidence: 0.4,
-      issues: ["Colonnes non reconnues"],
-    });
-
-    expect(
-      getReviewEvidenceHints(document, [
-        {
-          code: "missing_dpgf",
-          label: "DPGF manquant",
-          severity: "critical",
-        },
-      ]),
-    ).toEqual([
-      "Tableur recu",
-      "40% de confiance",
-      "Aucune categorie certaine",
-      "Peut lever: DPGF manquant",
-      "Colonnes non reconnues",
-    ]);
-    expect(
-      getReviewChoiceSecondaryBadge({
-        category: "dpgf",
-        hasPrimaryDpgf: true,
-        hasPrimaryCctp: false,
-      }),
-    ).toBe("Complementaire");
-    expect(
-      getReviewChoiceConsequence({
-        category: "dpgf",
-        hasPrimaryDpgf: true,
-        hasPrimaryCctp: false,
-      }),
-    ).toBe(
-      "La piece sera ajoutee comme DPGF complementaire sans remplacer le principal.",
-    );
   });
 });

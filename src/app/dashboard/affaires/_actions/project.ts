@@ -13,6 +13,7 @@ const updateAffaireProjectMetadataSchema = z.object({
   projectId: z.string().uuid("projectId invalide."),
   projectName: z.string().trim().min(1, "Nom projet requis.").max(200),
   clientName: z.string().trim().max(200).nullable().optional(),
+  siteAddress: z.string().trim().max(1000).nullable().optional(),
   reference: z.string().trim().max(200).nullable().optional(),
 });
 
@@ -50,6 +51,9 @@ export async function updateAffaireProjectMetadataAction(
       name: parsed.projectName.trim(),
       client_name: normalizeNullableText(parsed.clientName),
       reference: normalizeNullableText(parsed.reference),
+      ...(parsed.siteAddress !== undefined
+        ? { site_address: normalizeNullableText(parsed.siteAddress) }
+        : {}),
     })
     .eq("id", parsed.projectId)
     .eq("tenant_id", membership.tenant_id)
@@ -60,7 +64,7 @@ export async function updateAffaireProjectMetadataAction(
   }
 
   const { data, error } = await query
-    .select("id, name, client_name, reference")
+    .select("id, name, client_name, reference, site_address")
     .maybeSingle();
 
   if (error) {
@@ -79,6 +83,7 @@ export async function updateAffaireProjectMetadataAction(
     projectId: data.id,
     projectName: data.name,
     clientName: data.client_name,
+    siteAddress: data.site_address,
     reference: data.reference,
   };
 }

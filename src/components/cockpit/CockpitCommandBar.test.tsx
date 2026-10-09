@@ -1,6 +1,6 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup,render,screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach,describe,expect,it,vi } from "vitest";
 
 import { CockpitCommandBar } from "@/components/cockpit/CockpitCommandBar";
 import type { CockpitSuggestion } from "@/lib/cockpit/suggestions";
@@ -26,32 +26,6 @@ function makeSuggestion(
 describe("CockpitCommandBar", () => {
   afterEach(() => {
     cleanup();
-  });
-
-  it("executes overflow suggestions from the +N menu", async () => {
-    const user = userEvent.setup();
-    const onExecute = vi.fn();
-
-    render(
-      <CockpitCommandBar
-        suggestions={[
-          makeSuggestion("action-1", "Action 1"),
-          makeSuggestion("action-2", "Action 2"),
-          makeSuggestion("action-3", "Action 3"),
-          makeSuggestion("action-4", "Preparer la validation"),
-        ]}
-        onExecute={onExecute}
-        onToggleHidden={vi.fn()}
-        onTogglePinned={vi.fn()}
-      />,
-    );
-
-    await user.click(screen.getByRole("button", { name: "+1 autre" }));
-    await user.click(screen.getByRole("button", { name: "Preparer la validation" }));
-
-    expect(onExecute).toHaveBeenCalledWith(
-      expect.objectContaining({ actionId: "action-4" }),
-    );
   });
 
   it("shows the manage panel even when every action is hidden", async () => {

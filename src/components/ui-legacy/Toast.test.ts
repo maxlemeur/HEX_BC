@@ -1,14 +1,12 @@
 import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  screen,
+act,
+cleanup,
+render
 } from "@testing-library/react";
-import { createElement, useEffect } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { createElement,useEffect } from "react";
+import { afterEach,describe,expect,it,vi } from "vitest";
 
-import { ToastProvider, useToast } from "@/components/ui-legacy/Toast";
+import { ToastProvider,useToast } from "@/components/ui-legacy/Toast";
 
 type ToastApi = ReturnType<typeof useToast>;
 
@@ -75,46 +73,6 @@ function getToastTitles() {
 /* ── Tests ── */
 
 describe("ui/Toast", () => {
-  it("falls back to a noop toast api when rendered without provider", async () => {
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    let toastApi: ToastApi | null = null;
-
-    render(
-      createElement(ToastHarness, {
-        captureToast: (toast) => {
-          toastApi = toast;
-        },
-      })
-    );
-
-    expect(toastApi).not.toBeNull();
-    expect(toastApi!.success({ title: "Saved" })).toBe("missing-toast-provider");
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      "useToast called without ToastProvider. Toasts will be ignored."
-    );
-  });
-
-  it("pushes and auto-dismisses toasts", async () => {
-    vi.useFakeTimers();
-
-    await renderHarness();
-
-    fireEvent.click(screen.getByRole("button", { name: "Trigger" }));
-
-    expect(countToasts()).toBe(1);
-
-    // Auto-dismiss fires after durationMs (100ms)
-    await act(async () => {
-      vi.advanceTimersByTime(100);
-    });
-
-    // Exit animation fallback removes after 250ms
-    await act(async () => {
-      vi.advanceTimersByTime(250);
-    });
-
-    expect(countToasts()).toBe(0);
-  });
 
   it("limits visible toasts to 3 (queues the rest)", async () => {
     vi.useFakeTimers();

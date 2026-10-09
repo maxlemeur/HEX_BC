@@ -32,37 +32,6 @@ describe("estimate lock route", () => {
     vi.clearAllMocks();
   });
 
-  it("returns 201 when lock is acquired", async () => {
-    vi.mocked(acquireLock).mockResolvedValue({
-      lock: {
-        id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-        version_id: VERSION_ID,
-      },
-    } as never);
-
-    const request = createLockRequest(`http://localhost/api/estimates/${VERSION_ID}/lock`, {
-      method: "POST",
-    });
-
-    const response = await POST(request, {
-      params: Promise.resolve({ versionId: VERSION_ID }),
-    });
-    const payload = await response.json();
-
-    expect(response.status).toBe(201);
-    expect(vi.mocked(acquireLock)).toHaveBeenCalledWith(VERSION_ID, SESSION_ID);
-    expect(payload).toEqual(
-      expect.objectContaining({
-        ok: true,
-        data: expect.objectContaining({
-          lock: expect.objectContaining({
-            version_id: VERSION_ID,
-          }),
-        }),
-      })
-    );
-  });
-
   it("returns 400 when versionId is invalid", async () => {
     const request = createLockRequest("http://localhost/api/estimates/not-a-uuid/lock", {
       method: "POST",

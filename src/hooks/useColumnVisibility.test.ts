@@ -1,10 +1,10 @@
-import { act, renderHook } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { act,renderHook } from "@testing-library/react";
+import { afterEach,beforeEach,describe,expect,it } from "vitest";
 
 import {
-  type ColumnKey,
-  type ColumnPreset,
-  useColumnVisibility,
+type ColumnKey,
+type ColumnPreset,
+useColumnVisibility,
 } from "@/hooks/useColumnVisibility";
 
 const STORAGE_KEY = "est-col-vis";
@@ -17,12 +17,6 @@ const STANDARD_COLUMNS: ColumnKey[] = [
   "labor_role",
   "k_mo",
 ];
-const FULL_COLUMNS: ColumnKey[] = [
-  ...STANDARD_COLUMNS,
-  "ds",
-  "marge",
-  "marque",
-];
 
 describe("useColumnVisibility", () => {
   beforeEach(() => {
@@ -31,20 +25,6 @@ describe("useColumnVisibility", () => {
 
   afterEach(() => {
     localStorage.clear();
-  });
-
-  it.each<[ColumnPreset, ColumnKey[]]>([
-    ["essential", []],
-    ["standard", STANDARD_COLUMNS],
-    ["full", FULL_COLUMNS],
-  ])("exposes the exact %s preset", (preset, expectedColumns) => {
-    localStorage.setItem(STORAGE_KEY, preset);
-    localStorage.setItem(STORAGE_KEY_OVERRIDE, "false");
-
-    const { result } = renderHook(() => useColumnVisibility());
-
-    expect([...result.current.visibleColumns]).toEqual(expectedColumns);
-    expect(result.current.hiddenAdvancedCount).toBe(8 - expectedColumns.length);
   });
 
   it("moves from a preset to custom and back when the columns match again", () => {

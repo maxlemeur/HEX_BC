@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, renderHook } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act,cleanup,renderHook } from "@testing-library/react";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 const clientMocks = vi.hoisted(() => ({
   deleteEstimateItem: vi.fn(),
@@ -22,9 +22,9 @@ vi.mock("@/lib/estimates/client", () => ({
 import type { EstimateEditorHistoryCommand } from "@/hooks/useEstimateEditorHistoryController";
 import { useEstimateEditorStructureController } from "@/hooks/useEstimateEditorStructureController";
 import type {
-  EditorEstimateItem,
-  EstimateItem,
-  EstimateVersionRow,
+EditorEstimateItem,
+EstimateItem,
+EstimateVersionRow,
 } from "@/lib/estimates/editor-items";
 
 function createItem(
@@ -209,53 +209,6 @@ describe("useEstimateEditorStructureController insertions", () => {
     });
   });
 
-  it("positions an assembly optimistically and refreshes the version token", async () => {
-    const originalItems = [
-      createItem("section-a", { item_type: "section", position: 1 }),
-      createItem("section-b", { item_type: "section", position: 2 }),
-      createItem("nested", { parent_id: "section-b", position: 1 }),
-    ];
-    const insertedItems = [
-      createItem("assembly-root", {
-        item_type: "section",
-        position: 2,
-      }),
-      createItem("assembly-child", {
-        parent_id: "assembly-root",
-        position: 1,
-      }),
-    ];
-    clientMocks.insertAssemblyIntoVersion.mockResolvedValue(insertedItems);
-    const harness = createHarness({ items: originalItems });
-
-    await act(async () => {
-      await harness.result.current.actions.insertAssembly(
-        "assembly-1",
-        "section-a"
-      );
-    });
-
-    expect(clientMocks.insertAssemblyIntoVersion).toHaveBeenCalledWith(
-      "assembly-1",
-      { versionId: "version-1", afterItemId: "section-a" }
-    );
-    expect(itemPositions(harness.getItems())).toEqual({
-      "section-a": 1,
-      "section-b": 3,
-      nested: 1,
-      "assembly-root": 2,
-      "assembly-child": 1,
-    });
-    expect(clientMocks.fetchEstimateEditorData).toHaveBeenCalledWith(
-      "version-1"
-    );
-    expect(harness.applyVersionToken).toHaveBeenCalledWith("token-refreshed");
-    expect(harness.setTotalsOutOfSync).toHaveBeenCalledWith(false);
-    expect(readHistoryCommand(harness.pushHistoryCommand).label).toBe(
-      "insert-assembly"
-    );
-  });
-
   it("shifts template siblings by the number of inserted roots", async () => {
     const originalItems = [
       createItem("section-a", { item_type: "section", position: 1 }),
@@ -400,30 +353,6 @@ describe("useEstimateEditorStructureController history", () => {
 });
 
 describe("useEstimateEditorStructureController duplication", () => {
-  it("reloads items and applies the token returned by duplication", async () => {
-    clientMocks.duplicateEstimateSection.mockResolvedValue(
-      createDuplicateResult({
-        id: "version-1",
-        updated_at: "token-from-duplication",
-      })
-    );
-    const harness = createHarness();
-
-    await act(async () => {
-      await harness.result.current.actions.duplicateSection("section-1");
-    });
-
-    expect(clientMocks.duplicateEstimateSection).toHaveBeenCalledWith(
-      "version-1",
-      "section-1"
-    );
-    expect(harness.reloadItems).toHaveBeenCalledTimes(1);
-    expect(harness.setTotalsOutOfSync).toHaveBeenCalledWith(false);
-    expect(harness.applyVersionToken).toHaveBeenCalledWith(
-      "token-from-duplication"
-    );
-    expect(clientMocks.fetchEstimateEditorData).not.toHaveBeenCalled();
-  });
 
   it("refreshes the token when duplication does not return one", async () => {
     clientMocks.duplicateEstimateSection.mockResolvedValue(

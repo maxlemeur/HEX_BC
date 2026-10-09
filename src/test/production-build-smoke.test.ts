@@ -99,7 +99,7 @@ function createHarness(
 }
 
 describe("production build smoke", () => {
-  it("builds with Webpack, starts on loopback, probes the bundle and cleans up", async () => {
+  it("runs the canonical build, starts on loopback, probes the bundle and cleans up", async () => {
     const harness = createHarness();
 
     await runProductionBuildSmoke(harness.dependencies);
@@ -107,7 +107,7 @@ describe("production build smoke", () => {
     expect(harness.commands).toHaveLength(2);
     expect(harness.commands[0]).toMatchObject({
       command: "npm",
-      args: ["run", "build", "--", "--webpack"],
+      args: ["run", "build"],
       cwd: "C:/workspace/miaouffrage",
     });
     expect(harness.commands[1]).toMatchObject({

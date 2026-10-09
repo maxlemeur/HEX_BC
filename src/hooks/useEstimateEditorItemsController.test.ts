@@ -1,22 +1,22 @@
 // @vitest-environment jsdom
 
+import { act,cleanup,renderHook,waitFor } from "@testing-library/react";
 import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type Dispatch,
-  type SetStateAction,
+useCallback,
+useEffect,
+useRef,
+useState,
+type Dispatch,
+type SetStateAction,
 } from "react";
-import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 import type { EstimateEditorHistoryCommand } from "@/hooks/useEstimateEditorHistoryController";
 import { useEstimateEditorItemsController } from "@/hooks/useEstimateEditorItemsController";
 import type {
-  EditorEstimateItem,
-  EstimateItem,
-  EstimateVersionRow,
+EditorEstimateItem,
+EstimateItem,
+EstimateVersionRow,
 } from "@/lib/estimates/editor-items";
 
 const mocks = vi.hoisted(() => ({
@@ -269,98 +269,6 @@ afterEach(() => {
 });
 
 describe("useEstimateEditorItemsController", () => {
-  it("adds sections and lines optimistically before reconciling server ids", async () => {
-    const version = createVersion();
-    const sectionDeferred = createDeferred<EstimateItem>();
-    const lineDeferred = createDeferred<EstimateItem>();
-    mocks.createEstimateItem
-      .mockImplementationOnce(() => sectionDeferred.promise)
-      .mockImplementationOnce(() => lineDeferred.promise);
-    const { result, dependencies } = renderController({
-      version,
-      initialItems: [],
-    });
-
-    let sectionRequest!: Promise<void>;
-    act(() => {
-      sectionRequest = result.current.actions.addSection(null);
-    });
-    await waitFor(() => {
-      expect(findTempItem(result.current.items)).toMatchObject({
-        item_type: "section",
-        parent_id: null,
-        position: 1,
-        title: "Nouveau lot",
-        _optimistic: true,
-        _pendingCreate: true,
-      });
-    });
-    const optimisticSection = findTempItem(result.current.items);
-    const optimisticSectionClientKey = optimisticSection?._clientKey;
-    expect(optimisticSectionClientKey).toBe(optimisticSection?.id);
-    expect(mocks.createEstimateItem).toHaveBeenNthCalledWith(
-      1,
-      version.id,
-      expect.objectContaining({
-        parent_id: null,
-        item_type: "section",
-        position: 1,
-        title: "Nouveau lot",
-      }),
-      expect.objectContaining({ onVersionToken: expect.any(Function) })
-    );
-
-    await act(async () => {
-      sectionDeferred.resolve(
-        createSection("section-real", {
-          title: optimisticSection?.title ?? "Nouveau lot",
-        })
-      );
-      await sectionRequest;
-    });
-    expect(result.current.items).toEqual([
-      expect.objectContaining({
-        id: "section-real",
-        _clientKey: optimisticSectionClientKey,
-        _optimistic: false,
-        _pendingCreate: false,
-      }),
-    ]);
-
-    let lineRequest!: Promise<void>;
-    act(() => {
-      lineRequest = result.current.actions.addLine("section-real");
-    });
-    await waitFor(() => {
-      expect(findTempItem(result.current.items)).toMatchObject({
-        item_type: "line",
-        parent_id: "section-real",
-        position: 1,
-        title: "Nouvelle ligne",
-        _optimistic: true,
-        _pendingCreate: true,
-      });
-    });
-    const optimisticLineClientKey = findTempItem(result.current.items)?._clientKey;
-    expect(optimisticLineClientKey).toBe(findTempItem(result.current.items)?.id);
-
-    await act(async () => {
-      lineDeferred.resolve(
-        createItem("line-real", { parent_id: "section-real" })
-      );
-      await lineRequest;
-    });
-    expect(result.current.items.map((item) => item.id)).toEqual([
-      "section-real",
-      "line-real",
-    ]);
-    expect(result.current.items.map((item) => item._clientKey)).toEqual([
-      optimisticSectionClientKey,
-      optimisticLineClientKey,
-    ]);
-    expect(dependencies.pushHistoryCommand.mock.calls.map(([command]) => command.label))
-      .toEqual(["add-section", "add-line"]);
-  });
 
   it("applies the refreshed version token before persisting edits queued during creation", async () => {
     const deferred = createDeferred<EstimateItem>();

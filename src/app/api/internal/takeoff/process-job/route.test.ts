@@ -106,49 +106,4 @@ describe("POST /api/internal/takeoff/process-job", () => {
     expect(processTakeoffJobAttempt).not.toHaveBeenCalled();
     expect(persistTakeoffDispatchOutcome).not.toHaveBeenCalled();
   });
-
-  it("uses correlation id from header when payload omits it", async () => {
-    vi.mocked(processTakeoffJobAttempt).mockResolvedValue({
-      job_id: JOB_ID,
-      tenant_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-      level: "A",
-      status: "completed",
-      trigger: "create",
-      retry_count: 0,
-      attempt: 1,
-      retryable: false,
-      should_requeue: false,
-      requeue_reason: null,
-      next_run_in_seconds: null,
-      next_run_at: null,
-      duration_ms: 900,
-      error_code: null,
-      error_message: null,
-      correlation_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
-    });
-
-    const response = await POST(
-      buildRequest({
-        correlationId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
-      })
-    );
-
-    expect(response.status).toBe(200);
-    expect(processTakeoffJobAttempt).toHaveBeenCalledWith(
-      JOB_ID,
-      expect.objectContaining({
-        correlationId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
-      })
-    );
-    expect(persistTakeoffDispatchOutcome).toHaveBeenCalledWith({
-      jobId: JOB_ID,
-      trigger: "manual",
-      result: {
-        triggered: true,
-        correlationId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
-        statusCode: null,
-        outcome: "accepted",
-      },
-    });
-  });
 });

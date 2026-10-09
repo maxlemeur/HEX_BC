@@ -323,6 +323,26 @@ function renderEstimateEditorTable(options?: {
 }
 
 describe("EstimateEditorTable integration", () => {
+  it("aligns reordered headers and totals and resets personal display without patching a line", () => {
+    localStorage.setItem("est-col-vis:user-1", "full");
+    localStorage.setItem("est-col-override:user-1", "true");
+    localStorage.setItem("est-col-order-v1:user-1", JSON.stringify(["k_fo", "supply_price", "supply_type"]));
+    localStorage.setItem("est-col-widths-v1:user-1", JSON.stringify({ designation: 440 }));
+    const { onPatchItem } = renderEstimateEditorTable();
+    const head = screen.getByTestId("estimate-editor-table-head");
+    expect(head.textContent?.indexOf("K FO")).toBeLessThan(head.textContent?.indexOf("PR FO") ?? -1);
+    const footerColumns = [...screen.getByTestId("estimate-editor-table-footer").children]
+      .map((cell) => cell.getAttribute("data-estimate-column"));
+    expect(footerColumns.indexOf("k_fo")).toBeLessThan(footerColumns.indexOf("supply_price"));
+    expect(screen.getByTestId("estimate-editor-table").style.getPropertyValue("--estimate-grid-desktop")).toMatch(/^440px/);
+    fireEvent.click(screen.getByRole("tab", { name: /Affichage & contrôle/ }));
+    fireEvent.click(screen.getByTestId("estimate-editor-display-button"));
+    fireEvent.click(screen.getByRole("button", { name: "Réinitialiser les colonnes et leurs largeurs" }));
+    expect(localStorage.getItem("est-col-widths-v1:user-1")).toBeNull();
+    expect(screen.getByTestId("estimate-editor-table").style.getPropertyValue("--estimate-grid-desktop")).toMatch(/^minmax/);
+    expect(onPatchItem).not.toHaveBeenCalled();
+  });
+
   let writeText: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -389,7 +409,7 @@ describe("EstimateEditorTable integration", () => {
   });
 
   it("transmet les colonnes du preset complet aux lignes en mode MO éclatée", () => {
-    localStorage.setItem("est-col-vis", "full");
+    localStorage.setItem("est-col-vis:user-1", "full");
     renderEstimateEditorTable({ isLaborSplitEnabled: true });
 
     expect(
@@ -401,8 +421,8 @@ describe("EstimateEditorTable integration", () => {
   });
 
   it("masque Majoration MO (%) du preset Complet, activable via Personnalisé", () => {
-    localStorage.setItem("est-col-vis", "full");
-    localStorage.setItem("est-col-override", "true");
+    localStorage.setItem("est-col-vis:user-1", "full");
+    localStorage.setItem("est-col-override:user-1", "true");
     renderEstimateEditorTable();
 
     expect(screen.queryByText("Majoration MO (%)")).not.toBeInTheDocument();
@@ -495,9 +515,9 @@ describe("EstimateEditorTable integration", () => {
   it("renders clean column labels, a sale group, and centralized help", () => {
     // Preset « Personnalisé » avec toutes les colonnes : Majoration MO (%) est
     // sortie du preset « Complet » et n'est plus visible que sur opt-in.
-    localStorage.setItem("est-col-vis", "custom");
+    localStorage.setItem("est-col-vis:user-1", "custom");
     localStorage.setItem(
-      "est-col-custom",
+      "est-col-custom:user-1",
       JSON.stringify([
         "supply_type",
         "k_fo",
@@ -509,7 +529,7 @@ describe("EstimateEditorTable integration", () => {
         "marque",
       ]),
     );
-    localStorage.setItem("est-col-override", "true");
+    localStorage.setItem("est-col-override:user-1", "true");
     renderEstimateEditorTable();
 
     const superHead = document.querySelector(".estimate-table__super-head");
@@ -558,13 +578,13 @@ describe("EstimateEditorTable integration", () => {
   });
 
   it("migrates legacy full preset to manual override when override key is missing", () => {
-    localStorage.setItem("est-col-vis", "full");
-    localStorage.removeItem("est-col-override");
+    localStorage.setItem("est-col-vis:user-1", "full");
+    localStorage.removeItem("est-col-override:user-1");
 
     renderEstimateEditorTable({ uiMode: "simplified" });
 
-    expect(localStorage.getItem("est-col-override")).toBe("true");
-    expect(localStorage.getItem("est-col-vis")).toBe("full");
+    expect(localStorage.getItem("est-col-override:user-1")).toBe("true");
+    expect(localStorage.getItem("est-col-vis:user-1")).toBe("full");
   });
 
   it("uses the existing essential view on mobile without overwriting the desktop preset", () => {
@@ -588,15 +608,15 @@ describe("EstimateEditorTable integration", () => {
     });
 
     try {
-      localStorage.setItem("est-col-vis", "full");
-      localStorage.setItem("est-col-override", "true");
+      localStorage.setItem("est-col-vis:user-1", "full");
+      localStorage.setItem("est-col-override:user-1", "true");
 
       renderEstimateEditorTable();
 
       expect(
         document.querySelector('[data-estimate-item-id="line-1"]'),
       ).toHaveAttribute("data-visible-columns", "");
-      expect(localStorage.getItem("est-col-vis")).toBe("full");
+      expect(localStorage.getItem("est-col-vis:user-1")).toBe("full");
     } finally {
       Object.defineProperty(window, "matchMedia", {
         configurable: true,

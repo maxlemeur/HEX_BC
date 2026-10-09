@@ -1,5 +1,11 @@
 "use client";
 
+import { EstimateOrderedCells } from "@/components/estimates/context/EstimateColumnOrderContext";
+
+import { EstimateTypeCombobox } from "@/components/estimates/EstimateTypeCombobox";
+import { formatCurrency } from "@/lib/money";
+import { resolveLaborRoleHourlyRate } from "@/lib/estimates/editor-items";
+
 import {
   type EstimateQualityFlagKey,
 } from "@/lib/estimate-quality";
@@ -47,7 +53,7 @@ type LaborSplitCellsProps = {
   hMoAtelierEditorProps: SpreadsheetEditorProps<HTMLInputElement>;
   laborRoleAtelierCell: SpreadsheetCell;
   laborRoleAtelierCellProps: SpreadsheetCellProps;
-  laborRoleAtelierEditorProps: SpreadsheetEditorProps<HTMLSelectElement>;
+  laborRoleAtelierEditorProps: SpreadsheetEditorProps<HTMLInputElement>;
   kMoAtelierCell: SpreadsheetCell;
   kMoAtelierCellProps: SpreadsheetCellProps;
   kMoAtelierEditorProps: SpreadsheetEditorProps<HTMLInputElement>;
@@ -56,7 +62,7 @@ type LaborSplitCellsProps = {
   hMoChantierEditorProps: SpreadsheetEditorProps<HTMLInputElement>;
   laborRoleChantierCell: SpreadsheetCell;
   laborRoleChantierCellProps: SpreadsheetCellProps;
-  laborRoleChantierEditorProps: SpreadsheetEditorProps<HTMLSelectElement>;
+  laborRoleChantierEditorProps: SpreadsheetEditorProps<HTMLInputElement>;
   kMoChantierCell: SpreadsheetCell;
   kMoChantierCellProps: SpreadsheetCellProps;
   kMoChantierEditorProps: SpreadsheetEditorProps<HTMLInputElement>;
@@ -101,9 +107,10 @@ export function LaborSplitCells({
   const hasIncompleteSplit = qualityFlags.includes("labor_split_incomplete");
 
   return (
-    <>
+    <EstimateOrderedCells>
       <div
         {...hMoMajorationCellProps}
+        data-estimate-column="h_mo_majoration"
         role="gridcell"
         onKeyDown={toCellKeyDownHandler(hMoMajorationCellProps.onKeyDown)}
         className={toCellClassName(
@@ -152,6 +159,7 @@ export function LaborSplitCells({
       </div>
       <div
         {...hMoAtelierCellProps}
+        data-estimate-column="labor_hours_workshop"
         role="gridcell"
         onKeyDown={toCellKeyDownHandler(hMoAtelierCellProps.onKeyDown)}
         className={toCellClassName(
@@ -194,6 +202,7 @@ export function LaborSplitCells({
       </div>
       <div
         {...laborRoleAtelierCellProps}
+        data-estimate-column="labor_role_workshop"
         role="gridcell"
         onKeyDown={toCellKeyDownHandler(laborRoleAtelierCellProps.onKeyDown)}
         className={toCellClassName(
@@ -202,39 +211,19 @@ export function LaborSplitCells({
           "estimate-cell estimate-col--mo"
         )}
       >
-        <select
-          className="estimate-input estimate-select"
-          ref={laborRoleAtelierEditorProps.ref}
-          tabIndex={laborRoleAtelierEditorProps.tabIndex}
-          value={splitFields.labor_role_atelier_id ?? ""}
-          aria-label={`Rôle de main-d’œuvre en atelier pour ${item.title || "sans titre"}`}
-          onFocus={laborRoleAtelierEditorProps.onFocus}
-          onBlur={laborRoleAtelierEditorProps.onBlur}
-          onKeyDown={laborRoleAtelierEditorProps.onKeyDown}
-          onChange={(event) =>
-            onPatchItem(
-              item.id,
-              { labor_role_atelier_id: event.target.value || null },
-              { persist: true }
-            )
-          }
+        <EstimateTypeCombobox
+          value={splitFields.labor_role_atelier_id ?? null}
+          options={laborRoles.map((role) => ({ id: role.id, label: role.name, detail: `${formatCurrency(resolveLaborRoleHourlyRate(role, "atelier"), "EUR")} / h`, disabled: !role.is_active }))}
+          label={`Rôle de main-d’œuvre en atelier pour ${item.title || "sans titre"}`}
+          emptyLabel="Aucun rôle"
+          editorProps={laborRoleAtelierEditorProps}
+          onCommit={(id) => onPatchItem(item.id, { labor_role_atelier_id: id }, { persist: true })}
           disabled={isReadOnly}
-        >
-          <option value="">-</option>
-          {laborRoles.map((role) => (
-            <option
-              key={role.id}
-              value={role.id}
-              disabled={!role.is_active}
-            >
-              {role.name}
-              {!role.is_active ? " (inactif)" : ""}
-            </option>
-          ))}
-        </select>
+        />
       </div>
       <div
         {...kMoAtelierCellProps}
+        data-estimate-column="k_mo_workshop"
         role="gridcell"
         onKeyDown={toCellKeyDownHandler(kMoAtelierCellProps.onKeyDown)}
         className={toCellClassName(
@@ -275,6 +264,7 @@ export function LaborSplitCells({
       </div>
       <div
         {...hMoChantierCellProps}
+        data-estimate-column="labor_hours_site"
         role="gridcell"
         onKeyDown={toCellKeyDownHandler(hMoChantierCellProps.onKeyDown)}
         className={toCellClassName(
@@ -317,6 +307,7 @@ export function LaborSplitCells({
       </div>
       <div
         {...laborRoleChantierCellProps}
+        data-estimate-column="labor_role_site"
         role="gridcell"
         onKeyDown={toCellKeyDownHandler(laborRoleChantierCellProps.onKeyDown)}
         className={toCellClassName(
@@ -325,39 +316,19 @@ export function LaborSplitCells({
           "estimate-cell estimate-col--mo"
         )}
       >
-        <select
-          className="estimate-input estimate-select"
-          ref={laborRoleChantierEditorProps.ref}
-          tabIndex={laborRoleChantierEditorProps.tabIndex}
-          value={splitFields.labor_role_chantier_id ?? ""}
-          aria-label={`Rôle de main-d’œuvre sur chantier pour ${item.title || "sans titre"}`}
-          onFocus={laborRoleChantierEditorProps.onFocus}
-          onBlur={laborRoleChantierEditorProps.onBlur}
-          onKeyDown={laborRoleChantierEditorProps.onKeyDown}
-          onChange={(event) =>
-            onPatchItem(
-              item.id,
-              { labor_role_chantier_id: event.target.value || null },
-              { persist: true }
-            )
-          }
+        <EstimateTypeCombobox
+          value={splitFields.labor_role_chantier_id ?? null}
+          options={laborRoles.map((role) => ({ id: role.id, label: role.name, detail: `${formatCurrency(resolveLaborRoleHourlyRate(role, "chantier"), "EUR")} / h`, disabled: !role.is_active }))}
+          label={`Rôle de main-d’œuvre sur chantier pour ${item.title || "sans titre"}`}
+          emptyLabel="Aucun rôle"
+          editorProps={laborRoleChantierEditorProps}
+          onCommit={(id) => onPatchItem(item.id, { labor_role_chantier_id: id }, { persist: true })}
           disabled={isReadOnly}
-        >
-          <option value="">-</option>
-          {laborRoles.map((role) => (
-            <option
-              key={role.id}
-              value={role.id}
-              disabled={!role.is_active}
-            >
-              {role.name}
-              {!role.is_active ? " (inactif)" : ""}
-            </option>
-          ))}
-        </select>
+        />
       </div>
       <div
         {...kMoChantierCellProps}
+        data-estimate-column="k_mo_site"
         role="gridcell"
         onKeyDown={toCellKeyDownHandler(kMoChantierCellProps.onKeyDown)}
         className={toCellClassName(
@@ -396,6 +367,6 @@ export function LaborSplitCells({
           disabled={isReadOnly}
         />
       </div>
-    </>
+    </EstimateOrderedCells>
   );
 }

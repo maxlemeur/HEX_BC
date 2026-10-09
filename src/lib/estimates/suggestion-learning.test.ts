@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  applyLearningBoost,
-  assertTrackedFieldName,
-  type SuggestionLearningProposal,
-} from "@/lib/estimates/suggestion-learning";
+import { applyLearningBoost, type SuggestionLearningProposal } from "@/lib/estimates/suggestion-learning";
 
 function createProposal(
   input: Partial<SuggestionLearningProposal> &
@@ -30,14 +26,6 @@ function createProposal(
 }
 
 describe("suggestion learning", () => {
-  it("assertTrackedFieldName validates tracked fields", () => {
-    expect(assertTrackedFieldName("description")).toBe("description");
-    expect(assertTrackedFieldName("supply_type_id")).toBe("supply_type_id");
-
-    expect(() => assertTrackedFieldName("unknown_field")).toThrowError(
-      "field_name invalide."
-    );
-  });
 
   it("applyLearningBoost prioritizes approved overrides over auto", () => {
     const result = applyLearningBoost({

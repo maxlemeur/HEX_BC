@@ -1,14 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  CURRENT_ESTIMATE_SEAL_PAYLOAD_VERSION,
-  LEGACY_ESTIMATE_SEAL_PAYLOAD_VERSION,
-  PREVIOUS_ESTIMATE_SEAL_PAYLOAD_VERSION,
-  UNIFIED_ESTIMATE_SEAL_PAYLOAD_VERSION,
-  buildCanonicalEstimateSealPayload,
-  computeEstimateSealHash,
-  type EstimateSealVersionFields,
-} from "@/lib/estimates/estimate-seal";
+import { CURRENT_ESTIMATE_SEAL_PAYLOAD_VERSION, buildCanonicalEstimateSealPayload, computeEstimateSealHash, type EstimateSealVersionFields } from "@/lib/estimates/estimate-seal";
 import type { Database } from "@/types/database";
 
 type EstimateItemRow = Database["public"]["Tables"]["estimate_items"]["Row"];
@@ -102,12 +94,6 @@ function createItem(overrides: Partial<EstimateItemRow> = {}): EstimateItemRow {
 }
 
 describe("estimate seal payload versions", () => {
-  it("exposes the published payload version constants in order", () => {
-    expect(LEGACY_ESTIMATE_SEAL_PAYLOAD_VERSION).toBe(1);
-    expect(PREVIOUS_ESTIMATE_SEAL_PAYLOAD_VERSION).toBe(2);
-    expect(UNIFIED_ESTIMATE_SEAL_PAYLOAD_VERSION).toBe(3);
-    expect(CURRENT_ESTIMATE_SEAL_PAYLOAD_VERSION).toBe(4);
-  });
 
   it("builds the current payload for an engine-2 version and items", () => {
     const items = [

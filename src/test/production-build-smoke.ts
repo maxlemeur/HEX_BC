@@ -617,11 +617,11 @@ export async function runProductionBuildSmoke(
       authStub.url
     );
 
-    dependencies.log("Building the production bundle with Webpack...");
+    dependencies.log("Building the production bundle with the canonical build script...");
     await dependencies.runCommand(
       {
         command: npm.command,
-        args: [...npm.argsPrefix, "run", "build", "--", "--webpack"],
+        args: [...npm.argsPrefix, "run", "build"],
         cwd: dependencies.cwd,
         environment,
       },

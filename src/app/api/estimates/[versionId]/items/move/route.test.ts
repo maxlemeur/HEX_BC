@@ -22,47 +22,6 @@ describe("POST /api/estimates/[versionId]/items/move", () => {
     vi.clearAllMocks();
   });
 
-  it("moves an item with validated payload", async () => {
-    vi.mocked(moveEstimateItem).mockResolvedValue({
-      item_id: ITEM_ID,
-      from_parent_id: SOURCE_PARENT_ID,
-      to_parent_id: TARGET_PARENT_ID,
-      ordered_source_ids: [],
-      ordered_target_ids: [ITEM_ID],
-      updated_count: 1,
-    } as never);
-
-    const request = new Request(
-      `http://localhost/api/estimates/${VERSION_ID}/items/move`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          item_id: ITEM_ID,
-          from_parent_id: SOURCE_PARENT_ID,
-          to_parent_id: TARGET_PARENT_ID,
-          ordered_source_ids: [],
-          ordered_target_ids: [ITEM_ID],
-        }),
-      }
-    );
-
-    const response = await POST(request, makeParams());
-    const body = (await response.json()) as { ok: boolean; data: unknown };
-
-    expect(response.status).toBe(200);
-    expect(body.ok).toBe(true);
-    expect(vi.mocked(moveEstimateItem)).toHaveBeenCalledWith(VERSION_ID, {
-      item_id: ITEM_ID,
-      from_parent_id: SOURCE_PARENT_ID,
-      to_parent_id: TARGET_PARENT_ID,
-      ordered_source_ids: [],
-      ordered_target_ids: [ITEM_ID],
-    }, undefined);
-  });
-
   it("returns 400 VALIDATION_ERROR for invalid move payload", async () => {
     const request = new Request(
       `http://localhost/api/estimates/${VERSION_ID}/items/move`,

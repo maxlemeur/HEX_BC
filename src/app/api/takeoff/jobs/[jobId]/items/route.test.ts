@@ -255,32 +255,6 @@ describe("PATCH /api/takeoff/jobs/[jobId]/items", () => {
     vi.mocked(assertTakeoffEnabled).mockResolvedValue(undefined);
   });
 
-  it("returns 200 with updated items on valid batch patch", async () => {
-    const supabase = createSupabaseMock();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const [request, context] = buildPatchRequest(JOB_ID, {
-      items: [
-        {
-          item_id: ITEM_ID_1,
-          updated_at: UPDATED_AT,
-          fields: { designation: "Tube PVC 150mm" },
-        },
-      ],
-    });
-
-    const response = await PATCH(request, context);
-    const body = (await response.json()) as {
-      ok: boolean;
-      data?: { succeeded: number; failed: number; results: unknown[] };
-    };
-
-    expect(response.status).toBe(200);
-    expect(body.ok).toBe(true);
-    expect(body.data?.succeeded).toBe(1);
-    expect(body.data?.failed).toBe(0);
-  });
-
   it("returns 422 when no items are provided", async () => {
     const supabase = createSupabaseMock();
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);

@@ -34,7 +34,7 @@ type EstimateEditorCalculationResult = {
   persistedTotals: EstimateTotals | null;
 };
 
-function computeDraftBreakdown(input: {
+export function computeDraftBreakdown(input: {
   items: EditorEstimateItem[];
   settings: EstimateSettingsState;
   calcEngineVersion: CalcEngineVersion;

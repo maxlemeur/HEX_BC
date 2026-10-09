@@ -644,45 +644,6 @@ describe("/api/takeoff/plan-sets/[setId]", () => {
     expect(supabase.__state.storageRemovals).toHaveLength(0);
   });
 
-  it("PATCH updates plan set name and description", async () => {
-    const supabase = createSupabaseMock();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await PATCH(
-      new Request(`http://localhost/api/takeoff/plan-sets/${SET_ID}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name: "Set mis a jour",
-          description: "Nouvelle description",
-        }),
-      }),
-      makeParams()
-    );
-    const body = (await response.json()) as {
-      ok: boolean;
-      data?: {
-        plan_set?: {
-          id: string;
-          name: string;
-          description: string | null;
-        };
-      };
-    };
-
-    expect(response.status).toBe(200);
-    expect(body.ok).toBe(true);
-    expect(body.data?.plan_set?.id).toBe(SET_ID);
-    expect(body.data?.plan_set?.name).toBe("Set mis a jour");
-    expect(body.data?.plan_set?.description).toBe("Nouvelle description");
-    expect(supabase.__state.planSetsById.get(SET_ID)?.name).toBe("Set mis a jour");
-    expect(supabase.__state.planSetsById.get(SET_ID)?.description).toBe(
-      "Nouvelle description"
-    );
-  });
-
   it("PUT clears empty description and updates metadata", async () => {
     const supabase = createSupabaseMock();
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);

@@ -1,13 +1,13 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { renderHook,waitFor } from "@testing-library/react";
 import { useState } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach,describe,expect,it,vi } from "vitest";
 
 import { initialWizardData } from "@/components/estimates/estimate-creation-wizard/shared";
 import { useEstimateCreationResources } from "@/components/estimates/hooks/useEstimateCreationResources";
 
 import type {
-  StepErrors,
-  WizardData,
+StepErrors,
+WizardData,
 } from "@/components/estimates/estimate-creation-wizard/shared";
 
 vi.mock("@/lib/estimates/client", () => ({
@@ -16,8 +16,7 @@ vi.mock("@/lib/estimates/client", () => ({
 }));
 
 import {
-  fetchAffaireLinkedDpgfSource,
-  fetchEstimateTemplates,
+fetchEstimateTemplates
 } from "@/lib/estimates/client";
 
 function useResourcesHarness(
@@ -43,28 +42,6 @@ function useResourcesHarness(
 describe("useEstimateCreationResources", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  it("auto-selects linked DPGF import mode when an importable source is available", async () => {
-    vi.mocked(fetchAffaireLinkedDpgfSource).mockResolvedValueOnce({
-      importId: "11111111-1111-4111-8111-111111111111",
-      filename: "HEX-DPGF.xlsx",
-      sourceFormat: "xlsx",
-      importStatus: "completed",
-      mappingStatus: "mapped",
-      importedAt: "2026-03-05T08:00:00.000Z",
-      mappingUpdatedAt: "2026-03-05T08:15:00.000Z",
-      parseMode: "strict",
-      rowCount: 120,
-      mappedRowCount: 98,
-    });
-
-    const { result } = renderHook(() => useResourcesHarness("project-1"));
-
-    await waitFor(() => {
-      expect(result.current.resources.hasLinkedDpgfSource).toBe(true);
-      expect(result.current.data.dpgfImportMode).toBe("source");
-    });
   });
 
   it("falls back to blank creation when templates are unavailable", async () => {

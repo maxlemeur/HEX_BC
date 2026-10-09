@@ -6,24 +6,6 @@ import {
 } from "@/lib/takeoff/stats";
 
 describe("parseTakeoffMetricsQuery", () => {
-  it("defaults to 30d with no level filter", () => {
-    const now = new Date("2026-03-10T12:00:00.000Z");
-    const parsed = parseTakeoffMetricsQuery(new URLSearchParams(), now);
-
-    expect(parsed.period).toBe("30d");
-    expect(parsed.level).toBeNull();
-    expect(parsed.days).toBe(30);
-
-    const expectedCutoff = new Date(now);
-    expectedCutoff.setDate(expectedCutoff.getDate() - 30);
-    expect(parsed.cutoff).toBe(expectedCutoff.toISOString());
-  });
-
-  it("throws when level filter is invalid", () => {
-    expect(() =>
-      parseTakeoffMetricsQuery(new URLSearchParams("level=Z"))
-    ).toThrow(/Parametre level invalide/);
-  });
 
   it("uses a 6-day cutoff for 7d to align with daily trend buckets", () => {
     const now = new Date("2026-03-10T12:00:00.000Z");

@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -55,6 +55,22 @@ describe("SupplierOfferFormModal", () => {
     mocks.fetchApi.mockResolvedValue({ item: { id: "price-1" } });
   });
 
+  it("recalculates the six-month default when the start changes and blocks a later end", () => {
+    renderOffer();
+    const start = screen.getByLabelText("Valide du");
+    const end = screen.getByLabelText("Valide au");
+    fireEvent.change(start, { target: { value: "2026-08-31" } });
+    expect(end).toHaveValue("2027-02-28");
+    expect(end).toHaveAttribute("max", "2027-02-28");
+    fireEvent.change(end, { target: { value: "2027-03-01" } });
+    expect((end as HTMLInputElement).checkValidity()).toBe(false);
+    fireEvent.change(end, { target: { value: "2026-09-15" } });
+    fireEvent.change(start, { target: { value: "2026-09-01" } });
+    expect(end).toHaveValue("2026-09-15");
+    expect((end as HTMLInputElement).checkValidity()).toBe(true);
+    expect(mocks.fetchApi).not.toHaveBeenCalled();
+  });
+
   it("stages a new supplier and article until the final atomic submission", async () => {
     const user = userEvent.setup();
     renderOffer();
@@ -77,14 +93,14 @@ describe("SupplierOfferFormModal", () => {
     );
     await user.type(screen.getByLabelText("Prix unitaire HT *"), "15,00");
 
-    expect(mocks.fetchApi).not.toHaveBeenCalled();
+    expect(mocks.fetchApi.mock.calls.filter(([, request]) => request?.method === "POST")).toHaveLength(0);
 
     await user.click(
       screen.getByRole("button", { name: "Ajouter le fournisseur / tarif" }),
     );
 
-    await waitFor(() => expect(mocks.fetchApi).toHaveBeenCalledTimes(1));
-    const [, request] = mocks.fetchApi.mock.calls[0] as [string, RequestInit];
+    await waitFor(() => expect(mocks.fetchApi.mock.calls.filter(([, request]) => request?.method === "POST")).toHaveLength(1));
+    const [, request] = mocks.fetchApi.mock.calls.find(([, request]) => request?.method === "POST") as [string, RequestInit];
     const payload = JSON.parse(String(request.body)) as Record<string, unknown>;
 
     expect(payload).toMatchObject({
@@ -130,7 +146,7 @@ describe("SupplierOfferFormModal", () => {
     expect(screen.getByLabelText("Référence fournisseur")).toBeDisabled();
     expect(screen.getByLabelText("URL fournisseur")).toBeDisabled();
     expect(
-      screen.getByText(/Cette fiche article–fournisseur existe déjà/),
+      screen.getByText(/La référence fournisseur et l’URL de la fiche existante/),
     ).toBeInTheDocument();
 
     await user.type(screen.getByLabelText("Prix unitaire HT *"), "12,50");

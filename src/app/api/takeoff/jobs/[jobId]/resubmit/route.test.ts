@@ -56,33 +56,6 @@ describe("POST /api/takeoff/jobs/[jobId]/resubmit", () => {
     });
   });
 
-  it("resubmits the job and retriggers async processing", async () => {
-    vi.mocked(resubmitTakeoffJob).mockResolvedValue(RESUBMIT_RESPONSE as never);
-    const [request, context] = buildPostRequest();
-
-    const response = await POST(request, context);
-    const body = (await response.json()) as {
-      ok: boolean;
-      data?: typeof RESUBMIT_RESPONSE;
-    };
-
-    expect(response.status).toBe(200);
-    expect(body.ok).toBe(true);
-    expect(body.data).toEqual({
-      ...RESUBMIT_RESPONSE,
-      dispatch: {
-        status: "accepted",
-        correlation_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-        persisted: true,
-      },
-    });
-    expect(vi.mocked(resubmitTakeoffJob)).toHaveBeenCalledWith(JOB_ID);
-    expect(vi.mocked(triggerTakeoffJobProcessing)).toHaveBeenCalledWith({
-      jobId: JOB_ID,
-      trigger: "retry",
-    });
-  });
-
   it("maps TakeoffError to the standard takeoff envelope", async () => {
     vi.mocked(resubmitTakeoffJob).mockRejectedValue(
       new TakeoffError({

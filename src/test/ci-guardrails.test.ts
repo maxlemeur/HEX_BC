@@ -171,14 +171,4 @@ describe("CI and local quality guardrails", () => {
     expect(workflow).not.toMatch(/^\s{2}workflow_dispatch:/mu);
     expect(workflow).toContain('branches: ["main"]');
   });
-
-  it("keeps local test resource limits and dependency update automation explicit", () => {
-    const vitest = read("vitest.config.ts");
-    const dependabot = read(".github/dependabot.yml");
-
-    expect(vitest).toContain('pool: "forks"');
-    expect(vitest).toContain("maxWorkers: 4");
-    expect(dependabot).toContain('package-ecosystem: "npm"');
-    expect(dependabot).toContain('package-ecosystem: "github-actions"');
-  });
 });

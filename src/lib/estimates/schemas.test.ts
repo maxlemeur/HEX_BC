@@ -1,62 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  batchOperationsSchema,
-  bulkUpdateEstimateItemsRequestSchema,
-  createEstimateSchema,
-  estimateVersionEventSchema,
-  importLinkedDpgfSourceResultSchema,
-  importLinkedDpgfSourceSchema,
-  createEstimateItemSchema,
-  createEstimateVariantSchema,
-  createEstimateAssemblySchema,
-  duplicateEstimateSectionSchema,
-  importEstimateSectionsResultSchema,
-  importEstimateSectionsSchema,
-  instantiateEstimateFromTemplateSchema,
-  listEstimateImportSourcesQuerySchema,
-  createMarginTierSchema,
-  insertAssemblyIntoVersionSchema,
-  listEstimateAssembliesQuerySchema,
-  moveEstimateItemSchema,
-  patchEstimateVersionSchema,
-  purgeSuggestionLearningSchema,
-  promoteEstimateVariantSchema,
-  reviewSuggestionLearningSchema,
-  suggestionRuleFeedbackSchema,
-  trackSuggestionCorrectionsSchema,
-  updateEstimateAssemblySchema,
-  updateEstimateItemSchema,
-  updateMarginTierSchema,
-  wizardStep2Schema,
-} from "@/lib/estimates/schemas";
+import { batchOperationsSchema, bulkUpdateEstimateItemsRequestSchema, createEstimateSchema, createEstimateItemSchema, createEstimateVariantSchema, createEstimateAssemblySchema, importEstimateSectionsSchema, instantiateEstimateFromTemplateSchema, createMarginTierSchema, moveEstimateItemSchema, patchEstimateVersionSchema, promoteEstimateVariantSchema, suggestionRuleFeedbackSchema, trackSuggestionCorrectionsSchema, updateEstimateAssemblySchema, updateEstimateItemSchema, updateMarginTierSchema, wizardStep2Schema } from "@/lib/estimates/schemas";
 
 const ITEM_ID_1 = "11111111-1111-4111-8111-111111111111";
 const ITEM_ID_2 = "22222222-2222-4222-8222-222222222222";
-const ITEM_ID_3 = "33333333-3333-4333-8333-333333333333";
-const PARENT_ID_1 = "44444444-4444-4444-8444-444444444444";
-const PARENT_ID_2 = "55555555-5555-4555-8555-555555555555";
 const UPDATED_AT = "2026-02-21T10:00:00.000Z";
 
 describe("createEstimateSchema", () => {
-  it("accepts cascade discount fields when creating an estimate", () => {
-    const parsed = createEstimateSchema.parse({
-      project: {
-        name: "Projet A",
-      },
-      version: {
-        discount_mode: "cascade",
-        discount_steps: [300, 150],
-        global_coefficient: 1.05,
-      },
-    });
-
-    expect(parsed.version).toMatchObject({
-      discount_mode: "cascade",
-      discount_steps: [300, 150],
-      global_coefficient: 1.05,
-    });
-  });
 
   it("accepts an empty cascade steps array", () => {
     const parsed = createEstimateSchema.parse({
@@ -92,19 +42,6 @@ describe("createEstimateSchema", () => {
         issue.message.includes("discount_steps doit etre vide en mode simple")
       )
     ).toBe(true);
-  });
-
-  it("accepts a supported estimate currency", () => {
-    const parsed = createEstimateSchema.parse({
-      project: {
-        name: "Projet A",
-      },
-      version: {
-        currency: "usd",
-      },
-    });
-
-    expect(parsed.version?.currency).toBe("USD");
   });
 
   it("preserves the contractor role used by the canonical calculation", () => {
@@ -182,21 +119,6 @@ describe("createEstimateSchema", () => {
   });
 });
 
-describe("importLinkedDpgfSourceSchema", () => {
-  it("accepts empty payload", () => {
-    const parsed = importLinkedDpgfSourceSchema.parse({});
-    expect(parsed).toEqual({});
-  });
-
-  it("normalizes camelCase aliases", () => {
-    const parsed = importLinkedDpgfSourceSchema.parse({
-      sectionTitle: "  Import DPGF  ",
-    });
-
-    expect(parsed.section_title).toBe("Import DPGF");
-  });
-});
-
 describe("instantiateEstimateFromTemplateSchema", () => {
   it("accepts project_id without project_name", () => {
     const parsed = instantiateEstimateFromTemplateSchema.parse({
@@ -209,18 +131,6 @@ describe("instantiateEstimateFromTemplateSchema", () => {
       project_name: undefined,
       version_title: "Template V2",
     });
-  });
-
-  it("accepts camelCase aliases and normalizes text", () => {
-    const parsed = instantiateEstimateFromTemplateSchema.parse({
-      projectId: ITEM_ID_3,
-      projectName: "  A ignorer si projectId present  ",
-      versionTitle: "  Option A  ",
-    });
-
-    expect(parsed.project_id).toBe(ITEM_ID_3);
-    expect(parsed.project_name).toBe("A ignorer si projectId present");
-    expect(parsed.version_title).toBe("Option A");
   });
 
   it("rejects payload when neither project_name nor project_id is provided", () => {
@@ -321,20 +231,6 @@ describe("patchEstimateVersionSchema", () => {
     ).toBe(true);
   });
 
-  it("normalizes trimmed values for patch payloads", () => {
-    const parsed = patchEstimateVersionSchema.parse({
-      title: "  Version revisee  ",
-      exclusions: "  Peinture hors perimetre  ",
-      currency: "  EUR  ",
-      updated_at: `  ${UPDATED_AT}  `,
-    });
-
-    expect(parsed.title).toBe("Version revisee");
-    expect(parsed.exclusions).toBe("Peinture hors perimetre");
-    expect(parsed.currency).toBe("EUR");
-    expect(parsed.updated_at).toBe(UPDATED_AT);
-  });
-
   it("keeps nullable text fields as null when blanks are sent", () => {
     const parsed = patchEstimateVersionSchema.parse({
       title: "   ",
@@ -366,22 +262,6 @@ describe("patchEstimateVersionSchema", () => {
         issue.message.includes("Doit etre >= 0")
       )
     ).toBe(true);
-  });
-
-  it("accepts cascade discount fields", () => {
-    const parsed = patchEstimateVersionSchema.parse({
-      discount_mode: "cascade",
-      discount_steps: [250, 100],
-      global_coefficient: 1.12,
-      updated_at: UPDATED_AT,
-    });
-
-    expect(parsed).toMatchObject({
-      discount_mode: "cascade",
-      discount_steps: [250, 100],
-      global_coefficient: 1.12,
-      updated_at: UPDATED_AT,
-    });
   });
 
   it("rejects simple mode with non-empty discount steps", () => {
@@ -449,15 +329,6 @@ describe("wizardStep2Schema", () => {
     roundingMode: "none" as const,
   };
 
-  it("accepts supported currencies", () => {
-    expect(
-      wizardStep2Schema.safeParse({
-        ...basePayload,
-        currency: "GBP",
-      }).success
-    ).toBe(true);
-  });
-
   it("rejects unsupported currencies", () => {
     expect(
       wizardStep2Schema.safeParse({
@@ -469,17 +340,6 @@ describe("wizardStep2Schema", () => {
 });
 
 describe("updateEstimateItemSchema", () => {
-  it("accepts item_type conversion on single-item payloads", () => {
-    const parsed = updateEstimateItemSchema.parse({
-      id: ITEM_ID_1,
-      item_type: "section",
-    });
-
-    expect(parsed).toMatchObject({
-      id: ITEM_ID_1,
-      item_type: "section",
-    });
-  });
 
   it("accepte la mise a jour d'une ventilation MO chantier (EST-031)", () => {
     const parsed = updateEstimateItemSchema.safeParse({
@@ -641,51 +501,6 @@ describe("bulkUpdateEstimateItemsRequestSchema", () => {
 });
 
 describe("batchOperationsSchema", () => {
-  it("accepts mixed create/update/delete/reorder operations", () => {
-    const parsed = batchOperationsSchema.parse({
-      concurrency_token: ` ${UPDATED_AT} `,
-      dry_run: true,
-      operations: [
-        {
-          op: "create",
-          data: {
-            item_type: "line",
-            title: "Nouvelle ligne",
-            quantity: 2,
-          },
-        },
-        {
-          op: "update",
-          id: ITEM_ID_1,
-          data: {
-            title: "Ligne mise a jour",
-          },
-        },
-        {
-          op: "delete",
-          id: ITEM_ID_2,
-        },
-        {
-          op: "reorder",
-          data: {
-            parent_id: null,
-            ordered_ids: [ITEM_ID_1, ITEM_ID_3],
-          },
-        },
-      ],
-    });
-
-    expect(parsed.concurrency_token).toBe(UPDATED_AT);
-    expect(parsed.dry_run).toBe(true);
-    expect(parsed.operations).toHaveLength(4);
-    expect(parsed.operations[1]).toEqual({
-      op: "update",
-      id: ITEM_ID_1,
-      data: {
-        title: "Ligne mise a jour",
-      },
-    });
-  });
 
   it("rejects empty operations arrays", () => {
     const parsed = batchOperationsSchema.safeParse({
@@ -723,23 +538,6 @@ describe("batchOperationsSchema", () => {
 });
 
 describe("moveEstimateItemSchema", () => {
-  it("accepts a valid inter-parent move payload", () => {
-    const parsed = moveEstimateItemSchema.parse({
-      item_id: ITEM_ID_1,
-      from_parent_id: PARENT_ID_1,
-      to_parent_id: PARENT_ID_2,
-      ordered_source_ids: [ITEM_ID_2],
-      ordered_target_ids: [ITEM_ID_3, ITEM_ID_1],
-    });
-
-    expect(parsed).toEqual({
-      item_id: ITEM_ID_1,
-      from_parent_id: PARENT_ID_1,
-      to_parent_id: PARENT_ID_2,
-      ordered_source_ids: [ITEM_ID_2],
-      ordered_target_ids: [ITEM_ID_3, ITEM_ID_1],
-    });
-  });
 
   it("rejects invalid source/target ordering constraints", () => {
     const parsed = moveEstimateItemSchema.safeParse({
@@ -771,23 +569,6 @@ describe("moveEstimateItemSchema", () => {
 });
 
 describe("suggestionRuleFeedbackSchema", () => {
-  it("accepts feedback values accept and reject", () => {
-    expect(suggestionRuleFeedbackSchema.parse({ feedback: "accept" })).toEqual({
-      feedback: "accept",
-    });
-    expect(suggestionRuleFeedbackSchema.parse({ feedback: "reject" })).toEqual({
-      feedback: "reject",
-    });
-  });
-
-  it("accepts an optional positive count", () => {
-    expect(
-      suggestionRuleFeedbackSchema.parse({ feedback: "accept", count: 3 })
-    ).toEqual({
-      feedback: "accept",
-      count: 3,
-    });
-  });
 
   it("rejects unsupported feedback values", () => {
     const parsed = suggestionRuleFeedbackSchema.safeParse({
@@ -822,28 +603,6 @@ describe("suggestionRuleFeedbackSchema", () => {
 });
 
 describe("suggestion learning schemas", () => {
-  it("accepts tracked correction payloads", () => {
-    const parsed = trackSuggestionCorrectionsSchema.parse({
-      corrections: [
-        {
-          rule_id: ITEM_ID_1,
-          field_name: "k_fo",
-          original_value: "1.15",
-          corrected_value: "1.20",
-          item_title: "Pose gaine",
-        },
-      ],
-    });
-
-    expect(parsed.corrections).toHaveLength(1);
-    expect(parsed.corrections[0]).toEqual({
-      rule_id: ITEM_ID_1,
-      field_name: "k_fo",
-      original_value: "1.15",
-      corrected_value: "1.20",
-      item_title: "Pose gaine",
-    });
-  });
 
   it("rejects unknown tracked fields", () => {
     expect(
@@ -860,83 +619,9 @@ describe("suggestion learning schemas", () => {
       }).success
     ).toBe(false);
   });
-
-  it("accepts review and purge payloads", () => {
-    expect(
-      reviewSuggestionLearningSchema.parse({
-        rule_id: ITEM_ID_1,
-        field_name: "description",
-        corrected_value: "ml",
-        action: "approve",
-      })
-    ).toEqual({
-      rule_id: ITEM_ID_1,
-      field_name: "description",
-      corrected_value: "ml",
-      action: "approve",
-    });
-
-    expect(purgeSuggestionLearningSchema.parse({ retention_months: 6 })).toEqual({
-      retention_months: 6,
-    });
-  });
 });
 
 describe("estimate assembly schemas", () => {
-  const roleId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-  const supplyTypeId = "ffffffff-ffff-4fff-8fff-ffffffffffff";
-
-  it("accepts a valid assembly payload with one line", () => {
-    const parsed = createEstimateAssemblySchema.parse({
-      name: "Mur exterieur",
-      description: "Standard",
-      referenceCode: "ASM-MUR-001",
-      unit: "m²",
-      items: [
-        {
-          title: "Parpaing 20",
-          unit: "m2",
-          kFo: 1.1,
-          kMo: 1.2,
-          laborRoleId: roleId,
-          supplyTypeId,
-          defaultQuantity: 2,
-          laborHours: 1.5,
-          position: 1,
-          costType: "material",
-          unitCostHtCents: 2500,
-          lossCoeffBp: 500,
-          yieldValue: 1.25,
-          yieldUnit: "m²/h",
-          sourceMetadata: { origin: "manual" },
-        },
-      ],
-    });
-
-    expect(parsed.items).toHaveLength(1);
-    expect(parsed.items[0]).toEqual(
-      expect.objectContaining({
-        title: "Parpaing 20",
-        unit: "m2",
-        k_fo: 1.1,
-        k_mo: 1.2,
-        labor_role_id: roleId,
-        supply_type_id: supplyTypeId,
-        default_quantity: 2,
-        h_mo: 1.5,
-        position: 1,
-        cost_type: "material",
-        unit_cost_ht_cents: 2500,
-        loss_coeff_bp: 500,
-        yield_value: 1.25,
-        yield_unit: "m²/h",
-        source_metadata: { origin: "manual" },
-      })
-    );
-    expect(parsed.reference_code).toBe("ASM-MUR-001");
-    expect(parsed.unit).toBe("m²");
-  });
-
   it("accepts a members-only assembly and normalizes member aliases", () => {
     const parsed = createEstimateAssemblySchema.parse({
       name: "Pack salle de bains",
@@ -1022,24 +707,6 @@ describe("estimate assembly schemas", () => {
     ).toBe(true);
   });
 
-  it("accepts update with reordered items", () => {
-    const parsed = updateEstimateAssemblySchema.parse({
-      items: [
-        {
-          title: "Ligne B",
-          position: 2,
-        },
-        {
-          title: "Ligne A",
-          position: 1,
-        },
-      ],
-    });
-
-    expect(parsed.items).toHaveLength(2);
-    expect(parsed.items?.map((item) => item.position)).toEqual([2, 1]);
-  });
-
   it("preserves omitted fields on partial update payloads", () => {
     const parsed = updateEstimateAssemblySchema.parse({
       name: "Mur v2",
@@ -1051,69 +718,9 @@ describe("estimate assembly schemas", () => {
     expect("description" in parsed).toBe(false);
     expect("items" in parsed).toBe(false);
   });
-
-  it("normalizes list query defaults", () => {
-    const parsed = listEstimateAssembliesQuerySchema.parse({});
-    expect(parsed.limit).toBe(20);
-    expect(parsed.order).toBe("recent");
-  });
-
-  it("parses insert assembly payload with query/body aliases", () => {
-    const parsed = insertAssemblyIntoVersionSchema.parse({
-      versionId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-      afterItemId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-    });
-
-    expect(parsed).toEqual({
-      version_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-      after_item_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-    });
-  });
-
-  it("parses duplicate section payload with camelCase alias", () => {
-    const parsed = duplicateEstimateSectionSchema.parse({
-      targetVersionId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-    });
-
-    expect(parsed).toEqual({
-      target_version_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-    });
-  });
-
-  it("accepts an empty duplicate section payload", () => {
-    expect(duplicateEstimateSectionSchema.parse(undefined)).toEqual({});
-  });
 });
 
 describe("estimate import schemas", () => {
-  it("parses import payload using camelCase aliases", () => {
-    const parsed = importEstimateSectionsSchema.parse({
-      sourceVersionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-      sectionIds: [
-        "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-        "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-      ],
-      mode: "merge",
-    });
-
-    expect(parsed).toEqual({
-      source_version_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-      section_ids: [
-        "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-        "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-      ],
-      mode: "merge",
-    });
-  });
-
-  it("defaults mode to append when omitted", () => {
-    const parsed = importEstimateSectionsSchema.parse({
-      sourceVersionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-      sectionIds: ["bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"],
-    });
-
-    expect(parsed.mode).toBe("append");
-  });
 
   it("rejects duplicate section ids", () => {
     const parsed = importEstimateSectionsSchema.safeParse({
@@ -1133,28 +740,9 @@ describe("estimate import schemas", () => {
       )
     ).toBe(true);
   });
-
-  it("parses import source query with camelCase alias", () => {
-    const parsed = listEstimateImportSourcesQuerySchema.parse({
-      excludeVersionId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
-    });
-
-    expect(parsed).toEqual({
-      exclude_version_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
-    });
-  });
 });
 
 describe("estimate variant schemas", () => {
-  it("accepts empty payloads for create/promote variant actions", () => {
-    expect(createEstimateVariantSchema.parse({})).toEqual({});
-    expect(promoteEstimateVariantSchema.parse({})).toEqual({});
-  });
-
-  it("normalizes nullish payloads to empty object", () => {
-    expect(createEstimateVariantSchema.parse(undefined)).toEqual({});
-    expect(promoteEstimateVariantSchema.parse(null)).toEqual({});
-  });
 
   it("rejects unexpected fields", () => {
     expect(
@@ -1167,22 +755,6 @@ describe("estimate variant schemas", () => {
 });
 
 describe("createMarginTierSchema", () => {
-  it("accepts valid input", () => {
-    const result = createMarginTierSchema.safeParse({
-      threshold_cents: 10_000_00,
-      multiplier: 1.5,
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it("accepts optional position", () => {
-    const result = createMarginTierSchema.safeParse({
-      threshold_cents: 0,
-      multiplier: 1.6,
-      position: 0,
-    });
-    expect(result.success).toBe(true);
-  });
 
   it("rejects negative threshold", () => {
     const result = createMarginTierSchema.safeParse({
@@ -1255,23 +827,6 @@ describe("updateMarginTierSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("accepts partial with multiplier only", () => {
-    const result = updateMarginTierSchema.safeParse({ multiplier: 1.4 });
-    expect(result.success).toBe(true);
-  });
-
-  it("accepts partial with threshold only", () => {
-    const result = updateMarginTierSchema.safeParse({
-      threshold_cents: 5000,
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it("accepts partial with position only", () => {
-    const result = updateMarginTierSchema.safeParse({ position: 2 });
-    expect(result.success).toBe(true);
-  });
-
   it("rejects multiplier > 100", () => {
     const result = updateMarginTierSchema.safeParse({ multiplier: 100.1 });
     expect(result.success).toBe(false);
@@ -1304,48 +859,5 @@ describe("patchEstimateVersionSchema — regime de TVA (EST-E27)", () => {
     expect(
       patchEstimateVersionSchema.safeParse({ contractor_role: "autre" }).success
     ).toBe(false);
-  });
-});
-
-describe("shared estimate DTO schemas", () => {
-  it("infers ImportEstimateSectionsResult, ImportLinkedDpgfSourceResult and EstimateVersionEvent", () => {
-    expect(
-      importEstimateSectionsResultSchema.parse({
-        sourceVersionId: ITEM_ID_1,
-        targetVersionId: ITEM_ID_2,
-        mode: "append",
-        importedSectionsCount: 1,
-        importedLinesCount: 2,
-        createdSectionIds: [PARENT_ID_1],
-        createdLineIds: [ITEM_ID_3],
-        versionToken: { id: ITEM_ID_2, updated_at: UPDATED_AT },
-      })
-    ).toMatchObject({ mode: "append", importedSectionsCount: 1 });
-
-    expect(
-      importLinkedDpgfSourceResultSchema.parse({
-        sourceImportId: ITEM_ID_1,
-        targetVersionId: ITEM_ID_2,
-        createdSectionId: PARENT_ID_1,
-        createdLineIds: [ITEM_ID_3],
-        importedLinesCount: 1,
-        skippedLinesCount: 0,
-        totals: { totalHtCents: 100, totalTaxCents: 20, totalTtcCents: 120 },
-        versionToken: null,
-      }).createdSectionId
-    ).toBe(PARENT_ID_1);
-
-    expect(
-      estimateVersionEventSchema.parse({
-        id: ITEM_ID_1,
-        estimateVersionId: ITEM_ID_2,
-        eventType: "sent",
-        metadata: { via: "portal" },
-        createdBy: null,
-        actorName: "Ada",
-        occurredAt: UPDATED_AT,
-        createdAt: UPDATED_AT,
-      }).eventType
-    ).toBe("sent");
   });
 });

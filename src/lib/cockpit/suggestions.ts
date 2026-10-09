@@ -12,6 +12,7 @@ import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import type { EstimateApprovalSummary } from "@/lib/estimates/rules-engine";
 import type { EstimateStructureModeSummary } from "@/lib/estimates/structure-mode";
 import type { VersionZeroDraftSummary } from "@/lib/estimates/version-zero-drafts";
+import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
 import { canLaunchNewTakeoffAnalysis } from "@/lib/takeoff/visible-status";
 
 export type CockpitIntent =
@@ -332,7 +333,7 @@ export function computeCockpitSuggestions(
 
   if (
     currentVersion?.status === "draft" &&
-    versionZeroSummary &&
+    isEstimateAiDraftEnabled() && versionZeroSummary &&
     (versionZeroSummary.activeDraft || versionZeroSummary.canGenerate) &&
     !isReadOnlyReview
   ) {

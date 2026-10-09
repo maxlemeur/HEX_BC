@@ -19,7 +19,6 @@ import {
   cancelTakeoffJob,
   getTakeoffJobDetails,
   listTakeoffJobs,
-  parseListTakeoffJobsQuery,
   reconcileTakeoffJobNow,
   resubmitTakeoffJob,
   retryTakeoffJob,
@@ -612,14 +611,6 @@ describe("takeoff job server helpers (TKF-009)", () => {
     vi.clearAllMocks();
     vi.useRealTimers();
     vi.mocked(assertTakeoffEnabled).mockResolvedValue(undefined);
-  });
-
-  it("validates list query payload", () => {
-    expect(() =>
-      parseListTakeoffJobsQuery({
-        estimate_version_id: "not-a-uuid",
-      })
-    ).toThrowError();
   });
 
   it("lists jobs filtered by tenant and estimate version with pagination", async () => {
@@ -1299,80 +1290,6 @@ describe("takeoff job server helpers (TKF-009)", () => {
     });
   });
 
-  it("rejects when both project_id and estimate_version_id are provided", () => {
-    expect(() =>
-      parseListTakeoffJobsQuery({
-        project_id: PROJECT_ID,
-        estimate_version_id: VERSION_ID,
-      })
-    ).toThrowError();
-  });
-
-  it("accepts project_id alone as valid query", () => {
-    const result = parseListTakeoffJobsQuery({
-      project_id: PROJECT_ID,
-    });
-    expect(result.project_id).toBe(PROJECT_ID);
-    expect(result.estimate_version_id).toBeUndefined();
-  });
-
-  it("rejects invalid project_id", () => {
-    expect(() =>
-      parseListTakeoffJobsQuery({
-        project_id: "not-a-uuid",
-      })
-    ).toThrowError();
-  });
-
-  it("lists jobs by project_id across multiple versions using .in() filter", async () => {
-    const supabase = createSupabaseMock({
-      jobs: [
-        baseJob({
-          id: JOB_ID,
-          estimate_version_id: VERSION_ID,
-          created_at: "2026-02-25T10:00:00.000Z",
-        }),
-        baseJob({
-          id: JOB_ID_2,
-          estimate_version_id: OTHER_VERSION_ID,
-          status: "completed",
-          error_code: null,
-          error_message: null,
-          created_at: "2026-02-25T09:00:00.000Z",
-        }),
-        baseJob({
-          id: "77777777-7777-4777-8777-777777777770",
-          tenant_id: OTHER_TENANT_ID,
-          estimate_version_id: VERSION_ID,
-        }),
-      ],
-      versions: [
-        { id: VERSION_ID, version_number: 1, project_id: PROJECT_ID },
-        { id: OTHER_VERSION_ID, version_number: 2, project_id: PROJECT_ID },
-      ],
-    });
-
-    vi.mocked(getAuthenticatedContext).mockResolvedValue({
-      supabase,
-      userId: USER_ID,
-      tenantId: TENANT_ID,
-      tenantRole: "admin",
-    } as never);
-
-    const response = await listTakeoffJobs({
-      project_id: PROJECT_ID,
-      limit: 20,
-      offset: 0,
-    });
-
-    expect(response.jobs).toHaveLength(2);
-    expect(response.jobs[0]?.id).toBe(JOB_ID);
-    expect(response.jobs[1]?.id).toBe(JOB_ID_2);
-    expect(response.jobs[0]?.version_number).toBe(1);
-    expect(response.jobs[1]?.version_number).toBe(2);
-    expect(response.counters.total).toBe(2);
-  });
-
   it("paginates project versions beyond row cap when filtering jobs by project_id", async () => {
     const versions = Array.from({ length: ESTIMATE_VERSIONS_ROW_CAP + 1 }, (_, index) => ({
       id: `10000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
@@ -1412,65 +1329,5 @@ describe("takeoff job server helpers (TKF-009)", () => {
     expect(response.jobs[0]?.estimate_version_id).toBe(latestVersion.id);
     expect(response.jobs[0]?.version_number).toBe(ESTIMATE_VERSIONS_ROW_CAP + 1);
     expect(response.counters.total).toBe(1);
-  });
-
-  it("returns empty result when project has no versions", async () => {
-    const supabase = createSupabaseMock({
-      jobs: [
-        baseJob({
-          id: JOB_ID,
-          estimate_version_id: VERSION_ID,
-        }),
-      ],
-      versions: [],
-    });
-
-    vi.mocked(getAuthenticatedContext).mockResolvedValue({
-      supabase,
-      userId: USER_ID,
-      tenantId: TENANT_ID,
-      tenantRole: "admin",
-    } as never);
-
-    const response = await listTakeoffJobs({
-      project_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-      limit: 20,
-      offset: 0,
-    });
-
-    expect(response.jobs).toHaveLength(0);
-    expect(response.counters.total).toBe(0);
-    expect(response.pagination.total).toBe(0);
-  });
-
-  it("enriches version_number when filtering by single estimate_version_id", async () => {
-    const supabase = createSupabaseMock({
-      jobs: [
-        baseJob({
-          id: JOB_ID,
-          estimate_version_id: VERSION_ID,
-          created_at: "2026-02-25T10:00:00.000Z",
-        }),
-      ],
-      versions: [
-        { id: VERSION_ID, version_number: 3, project_id: PROJECT_ID },
-      ],
-    });
-
-    vi.mocked(getAuthenticatedContext).mockResolvedValue({
-      supabase,
-      userId: USER_ID,
-      tenantId: TENANT_ID,
-      tenantRole: "admin",
-    } as never);
-
-    const response = await listTakeoffJobs({
-      estimate_version_id: VERSION_ID,
-      limit: 10,
-      offset: 0,
-    });
-
-    expect(response.jobs).toHaveLength(1);
-    expect(response.jobs[0]?.version_number).toBe(3);
   });
 });

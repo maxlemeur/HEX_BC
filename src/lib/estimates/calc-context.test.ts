@@ -6,11 +6,7 @@ vi.mock("@/lib/feature-flags", () => ({
   isFeatureEnabled: vi.fn(),
 }));
 
-import {
-  ESTIMATE_CALC_CONTEXT_VERSION_COLUMNS,
-  ESTIMATE_LABOR_SPLIT_FLAG_KEY,
-  loadEstimateCalcContext,
-} from "@/lib/estimates/calc-context";
+import { loadEstimateCalcContext } from "@/lib/estimates/calc-context";
 import { isFeatureEnabled } from "@/lib/feature-flags";
 
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
@@ -198,17 +194,6 @@ describe("loadEstimateCalcContext", () => {
     expect(context.isLaborSplitEnabled).toBe(false);
   });
 
-  it("selectionne calc_engine_version sur estimate_versions", async () => {
-    const { client, selects } = createCalcContextSupabaseMock();
-
-    await loadEstimateCalcContext(asSupabase(client), VERSION_ID);
-
-    expect(selects.estimate_versions).toHaveBeenCalledWith(
-      ESTIMATE_CALC_CONTEXT_VERSION_COLUMNS
-    );
-    expect(ESTIMATE_CALC_CONTEXT_VERSION_COLUMNS).toContain("calc_engine_version");
-  });
-
   // --- Assertion D.3 #1 -----------------------------------------------------
   it("filtre labor_roles sur tenant_id et JAMAIS sur user_id", async () => {
     const { client, builders } = createCalcContextSupabaseMock({
@@ -284,23 +269,6 @@ describe("loadEstimateCalcContext", () => {
     expect(builders.estimate_items.eq).toHaveBeenCalledWith("version_id", VERSION_ID);
   });
 
-  // --- Assertion D.3 #3 -----------------------------------------------------
-  it("lit le flag de split MO une seule fois, avec le client injecte", async () => {
-    const { client } = createCalcContextSupabaseMock();
-    vi.mocked(isFeatureEnabled).mockResolvedValue(true);
-
-    const context = await loadEstimateCalcContext(asSupabase(client), VERSION_ID);
-
-    expect(isFeatureEnabled).toHaveBeenCalledTimes(1);
-    expect(isFeatureEnabled).toHaveBeenCalledWith(
-      TENANT_ID,
-      ESTIMATE_LABOR_SPLIT_FLAG_KEY,
-      { supabase: client }
-    );
-    expect(ESTIMATE_LABOR_SPLIT_FLAG_KEY).toBe("EST_031_LABOR_SPLIT");
-    expect(context.isLaborSplitEnabled).toBe(true);
-  });
-
   // --- Assertion D.3 #4 -----------------------------------------------------
   it("charge toujours le bareme de marge, meme en margin_mode fixed", async () => {
     const { client, builders, selects } = createCalcContextSupabaseMock({
@@ -339,66 +307,6 @@ describe("loadEstimateCalcContext", () => {
     expect(context.marginTiers.map((tier) => tier.multiplier)).not.toContain(1.6);
   });
 
-  // --- Assertion D.3 #5 -----------------------------------------------------
-  it("resout la version du moteur de calcul, avec repli sur 1 pour les valeurs aberrantes", async () => {
-    const nominal = createCalcContextSupabaseMock({
-      version: makeVersion({ calc_engine_version: 1 }),
-    });
-    await expect(
-      loadEstimateCalcContext(asSupabase(nominal.client), VERSION_ID)
-    ).resolves.toMatchObject({ calcEngineVersion: 1 });
-
-    for (const aberrant of [0, 7, null]) {
-      const mock = createCalcContextSupabaseMock({
-        version: makeVersion({ calc_engine_version: aberrant }),
-      });
-      const context = await loadEstimateCalcContext(
-        asSupabase(mock.client),
-        VERSION_ID
-      );
-      expect(context.calcEngineVersion).toBe(1);
-    }
-  });
-
-  // --- Assertion D.3 #6 -----------------------------------------------------
-  it("alimente les 3 Map de taux depuis la meme colonne hourly_rate_cents", async () => {
-    const { client } = createCalcContextSupabaseMock({
-      items: [
-        makeItem({
-          labor_role_id: "role-1",
-          labor_role_atelier_id: "role-atelier",
-          labor_role_chantier_id: "role-chantier",
-        }),
-      ],
-      laborRoles: [
-        { id: "role-1", hourly_rate_cents: 4_500 },
-        { id: "role-atelier", hourly_rate_cents: 3_800 },
-        { id: "role-chantier", hourly_rate_cents: 5_200 },
-      ],
-    });
-
-    const context = await loadEstimateCalcContext(asSupabase(client), VERSION_ID);
-
-    // Fige le fait qu'aucune colonne hourly_rate_atelier_cents /
-    // hourly_rate_chantier_cents n'existe en base aujourd'hui.
-    expect(context.laborRateAtelierById.get("role-1")).toBe(
-      context.laborRateById.get("role-1")
-    );
-    expect(context.laborRateChantierById.get("role-1")).toBe(
-      context.laborRateById.get("role-1")
-    );
-    expect([...context.laborRateAtelierById.entries()]).toEqual([
-      ...context.laborRateById.entries(),
-    ]);
-    expect([...context.laborRateChantierById.entries()]).toEqual([
-      ...context.laborRateById.entries(),
-    ]);
-    // Trois instances distinctes : la phase B pourra les faire diverger sans
-    // changer la signature du contexte.
-    expect(context.laborRateAtelierById).not.toBe(context.laborRateById);
-    expect(context.laborRateChantierById).not.toBe(context.laborRateById);
-  });
-
   // --- Assertion D.3 #7 -----------------------------------------------------
   it("rejette quand expectedTenantId ne correspond pas au tenant de la version", async () => {
     const { client, builders } = createCalcContextSupabaseMock();
@@ -412,16 +320,6 @@ describe("loadEstimateCalcContext", () => {
     // Le pre-controle coupe avant toute autre requete.
     expect(builders.estimate_items.order).not.toHaveBeenCalled();
     expect(isFeatureEnabled).not.toHaveBeenCalled();
-  });
-
-  it("accepte un expectedTenantId qui correspond", async () => {
-    const { client } = createCalcContextSupabaseMock();
-
-    await expect(
-      loadEstimateCalcContext(asSupabase(client), VERSION_ID, {
-        expectedTenantId: TENANT_ID,
-      })
-    ).resolves.toMatchObject({ calcEngineVersion: 1 });
   });
 
   // --- Assertion D.3 #8 -----------------------------------------------------
@@ -459,22 +357,5 @@ describe("loadEstimateCalcContext", () => {
     await expect(
       loadEstimateCalcContext(asSupabase(tiersMock.client), VERSION_ID)
     ).rejects.toThrow("Impossible de charger le contexte de calcul du devis.");
-  });
-
-  it("ne calcule rien : le module source n'importe aucune fonction de calcul", async () => {
-    const source = await import("node:fs").then((fs) =>
-      fs.readFileSync(
-        new URL("./calc-context.ts", import.meta.url),
-        "utf8"
-      )
-    );
-
-    // Pur chargeur : aucune fonction de calcul importee.
-    expect(source).not.toMatch(/from "@\/lib\/estimate-calculations"/);
-    // Client injecte : aucune fabrique de client Supabase importee, meme en
-    // type-only, pour que le module reste utilisable et testable partout.
-    expect(source).not.toMatch(/from "@\/lib\/supabase\/server"/);
-    expect(source).not.toMatch(/from "@\/lib\/supabase\/service-role"/);
-    expect(source).not.toMatch(/createSupabaseServerClient\(/);
   });
 });

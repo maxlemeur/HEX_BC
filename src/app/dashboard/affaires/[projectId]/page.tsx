@@ -39,6 +39,7 @@ import {
   listEstimateApprovalDecisionJournal,
 } from "@/lib/estimates/rules-engine";
 import { fetchVersionZeroDraftSummary } from "@/lib/estimates/version-zero-drafts";
+import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
 import { fetchCockpitCommandPreferences } from "@/lib/cockpit/preferences";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { computeCockpitSuggestions } from "@/lib/cockpit/suggestions";
@@ -172,7 +173,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       versionId: currentVersionId,
     }),
     currentVersionId && summary.currentVersion?.status === "draft"
-      ? fetchVersionZeroDraftSummary({ versionId: currentVersionId })
+      && isEstimateAiDraftEnabled() ? fetchVersionZeroDraftSummary({ versionId: currentVersionId })
       : Promise.resolve(null),
     fetchCockpitCommandPreferences(projectId),
     currentVersionId ? fetchAffaireHubFinishLineSummary(currentVersionId) : Promise.resolve(null),

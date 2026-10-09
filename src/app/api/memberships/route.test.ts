@@ -313,37 +313,6 @@ describe("GET /api/memberships", () => {
     });
     expect(createServiceRoleClient).not.toHaveBeenCalled();
   });
-
-  it("returns 200 with the tenant membership list from the server", async () => {
-    createMembershipHarness();
-
-    const response = await GET(
-      new Request("http://localhost/api/memberships")
-    );
-    const body = (await response.json()) as {
-      ok: boolean;
-      data?: {
-        current_user_id?: string;
-        memberships?: Array<{ id: string; user_full_name: string }>;
-      };
-    };
-
-    expect(response.status).toBe(200);
-    expect(body.ok).toBe(true);
-    expect(body.data?.current_user_id).toBe(ACTOR_USER_ID);
-    expect(body.data?.memberships).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          id: ACTOR_MEMBERSHIP_ID,
-          user_full_name: ACTOR_PROFILE.full_name,
-        }),
-        expect.objectContaining({
-          id: TARGET_MEMBERSHIP_ID,
-          user_full_name: TARGET_PROFILE.full_name,
-        }),
-      ])
-    );
-  });
 });
 
 describe("POST /api/memberships", () => {

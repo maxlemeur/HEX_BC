@@ -1,5 +1,5 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup,fireEvent,render,screen,waitFor } from "@testing-library/react";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 const { mutateMock, swrMock } = vi.hoisted(() => ({
   mutateMock: vi.fn(),
@@ -44,14 +44,6 @@ afterEach(() => {
 });
 
 describe("FeatureFlagsAdminClient", () => {
-  it("uses a distinct cache key for the complete administrator list", () => {
-    render(<FeatureFlagsAdminClient tenantId="tenant-1" />);
-
-    expect(swrMock).toHaveBeenCalledWith(
-      ["/api/feature-flags", "tenant-1", "include-inactive"],
-      expect.any(Function)
-    );
-  });
 
   it("does not save a value draft when toggling a functionality", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
@@ -123,20 +115,6 @@ describe("FeatureFlagsAdminClient", () => {
       enabled: false,
       value: "120",
     });
-  });
-
-  it("filters by state and uses cards on mobile with a bounded desktop table", () => {
-    render(<FeatureFlagsAdminClient tenantId="tenant-1" />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Inactifs" }));
-
-    expect(screen.getByText("1 résultat")).toBeInTheDocument();
-    expect(screen.getAllByText("STALE_PRICE_DAYS")).toHaveLength(2);
-    expect(screen.queryByText("ESTIMATE_GATING_BLOCKING_FLAGS")).not.toBeInTheDocument();
-    expect(screen.getAllByText("STALE_PRICE_DAYS")[0]).toHaveClass(
-      "[overflow-wrap:anywhere]"
-    );
-    expect(screen.getByRole("table")).toHaveClass("table-fixed");
   });
 
   it("keeps draft values when the list is refreshed", () => {

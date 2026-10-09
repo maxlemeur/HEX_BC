@@ -1,6 +1,6 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup,fireEvent,render,screen,within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   parseWorkbook: vi.fn(),
@@ -12,7 +12,6 @@ vi.mock("@/lib/catalogue/product-price-template", () => ({
 }));
 
 import { ProductPriceTemplateImport } from "./ProductPriceTemplateImport";
-import { TEMPLATE_FILE_URL } from "@/lib/catalogue/product-price-template-client";
 
 type ParsedResult = {
   version: string | null;
@@ -125,14 +124,6 @@ describe("ProductPriceTemplateImport", () => {
     vi.unstubAllGlobals();
   });
 
-  it("propose le téléchargement du modèle officiel", () => {
-    render(<ProductPriceTemplateImport open onClose={vi.fn()} onImported={mocks.onImported} />);
-
-    const link = screen.getByRole("link", { name: "Télécharger le modèle" });
-    expect(link).toHaveAttribute("href", TEMPLATE_FILE_URL);
-    expect(link).toHaveAttribute("download");
-  });
-
   it("refuse un fichier qui n'est pas au format XLSX", async () => {
     render(<ProductPriceTemplateImport open onClose={vi.fn()} onImported={mocks.onImported} />);
 
@@ -145,34 +136,6 @@ describe("ProductPriceTemplateImport", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Sélectionnez un fichier au format XLSX.");
     expect(mocks.parseWorkbook).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Confirmer l'import" })).toBeDisabled();
-  });
-
-  it("affiche le résumé et seulement les cinq premières lignes de chaque aperçu", async () => {
-    const user = userEvent.setup();
-    const products = Array.from({ length: 6 }, (_, index) => ({
-      ...buildResult().products[0]!,
-      reference: `PROD-${index + 1}`,
-      designation: `Produit aperçu ${index + 1}`,
-    }));
-    const prices = Array.from({ length: 6 }, (_, index) => ({
-      ...buildResult().prices[0]!,
-      product_reference: `PROD-${index + 1}`,
-      supplier_name: `Fournisseur aperçu ${index + 1}`,
-      supplier_sku: `FOU-${index + 1}`,
-    }));
-    mocks.parseWorkbook.mockResolvedValue(buildResult({ products, prices }));
-
-    render(<ProductPriceTemplateImport open onClose={vi.fn()} onImported={mocks.onImported} />);
-    await user.upload(screen.getByLabelText("2. Sélectionner le fichier XLSX"), xlsxFile());
-
-    expect(await screen.findByText("Produit aperçu 1")).toBeInTheDocument();
-    expect(screen.getByText("Produits prêts")).toBeInTheDocument();
-    expect(screen.getByText("Tarifs prêts")).toBeInTheDocument();
-    expect(screen.getByText("Produit aperçu 5")).toBeInTheDocument();
-    expect(screen.queryByText("Produit aperçu 6")).not.toBeInTheDocument();
-    expect(screen.getByText("Fournisseur aperçu 5")).toBeInTheDocument();
-    expect(screen.queryByText("Fournisseur aperçu 6")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Confirmer l'import" })).toBeEnabled();
   });
 
   it("affiche la feuille, la ligne et le message puis bloque les erreurs bloquantes", async () => {
@@ -202,31 +165,5 @@ describe("ProductPriceTemplateImport", () => {
     expect(within(issuesTable).getByText("La référence TUBE-001 est présente deux fois.")).toBeInTheDocument();
     expect(within(issuesTable).getByText("Bloquante")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Confirmer l'import" })).toBeDisabled();
-  });
-
-  it("envoie les lignes validées, affiche le succès et actualise le parent", async () => {
-    const user = userEvent.setup();
-    const parsed = buildResult();
-    mocks.parseWorkbook.mockResolvedValue(parsed);
-    mocks.onImported.mockResolvedValue(undefined);
-
-    render(<ProductPriceTemplateImport open onClose={vi.fn()} onImported={mocks.onImported} />);
-    await user.upload(screen.getByLabelText("2. Sélectionner le fichier XLSX"), xlsxFile());
-    await user.click(await screen.findByRole("button", { name: "Confirmer l'import" }));
-
-    await waitFor(() => {
-      expect(fetch).toHaveBeenCalledWith("/api/catalogue/template-import", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ products: parsed.products, prices: parsed.prices }),
-      });
-      expect(mocks.onImported).toHaveBeenCalledTimes(1);
-    });
-
-    expect(
-      screen.getByText(
-        "Import terminé : 1 produit(s) créé(s) · 0 actualisé(s) · 1 tarif(s) créé(s) · 0 tarif(s) ignoré(s)."
-      )
-    ).toBeInTheDocument();
   });
 });

@@ -163,6 +163,27 @@ function expectSectionSummary(
 }
 
 describe("EstimateDocument - EST-121", () => {
+  it("places the reference and date in the heading and the project in the chantier card", () => {
+    const markup = renderEstimateDocument([], {
+      estimateReference: "HEX_D26001MM",
+      projectName: "Rénovation bureau",
+      dateDevis: "2026-08-18",
+    });
+    const clientStart = markup.indexOf(">Client</h3>");
+    const chantierStart = markup.indexOf(">Chantier</h3>");
+    expect(markup.indexOf("HEX_D26001MM")).toBeLessThan(clientStart);
+    expect(markup.indexOf("18/08/2026")).toBeLessThan(clientStart);
+    expect(markup.indexOf("Rénovation bureau")).toBeGreaterThan(chantierStart);
+    expect(markup).toContain("Adresse du chantier non renseignée");
+    expect(markup).not.toContain("Informations devis");
+  });
+
+  it("renders a multiline chantier address", () => {
+    const markup = renderEstimateDocument([], { projectSiteAddress: "12 rue du Test\n75001 Paris" });
+    expect(markup).toContain("12 rue du Test\n75001 Paris");
+    expect(markup).not.toContain("Adresse du chantier non renseignée");
+  });
+
   it("separe la TVA, l'arrondi commercial et le montant a payer", () => {
     const markup = renderEstimateDocument([], {
       totalHtCents: 76_039,

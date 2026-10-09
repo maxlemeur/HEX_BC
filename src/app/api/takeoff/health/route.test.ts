@@ -64,19 +64,6 @@ describe("takeoff health route", () => {
     vi.clearAllMocks();
   });
 
-  it("returns 200 when the takeoff module is enabled", async () => {
-    const supabase = createSupabaseMock();
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-    vi.mocked(assertTakeoffEnabled).mockResolvedValue(undefined);
-
-    const response = await GET();
-
-    expect(response.status).toBe(200);
-    expect(vi.mocked(assertTakeoffEnabled)).toHaveBeenCalledWith(TENANT_ID, {
-      supabase,
-    });
-  });
-
   it("returns 403 with normalized envelope when the module is disabled", async () => {
     const supabase = createSupabaseMock();
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);

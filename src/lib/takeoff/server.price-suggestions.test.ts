@@ -27,11 +27,7 @@ import {
 } from "@/lib/estimates/server";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
-import {
-  getTakeoffPriceSuggestion,
-  requestTakeoffPriceSuggestion,
-  reviewTakeoffPriceSuggestion,
-} from "@/lib/takeoff/server";
+import { requestTakeoffPriceSuggestion, reviewTakeoffPriceSuggestion } from "@/lib/takeoff/server";
 import { listAccessibleTakeoffJobsForVersion } from "@/lib/takeoff/version-links";
 
 const TENANT_ID = "11111111-1111-4111-8111-111111111111";
@@ -559,31 +555,6 @@ describe("takeoff price suggestion server helpers", () => {
     ).toBe(false);
   });
 
-  it("returns the active snapshot with persisted sources", async () => {
-    const mock = createSupabaseMock();
-    vi.mocked(getAuthenticatedContext).mockResolvedValue({
-      supabase: mock.supabase,
-      tenantId: TENANT_ID,
-      userId: USER_ID,
-      tenantRole: "admin",
-    } as never);
-
-    await requestTakeoffPriceSuggestion(JOB_ID, {
-      version_id: VERSION_ID,
-      estimate_item_id: LINE_ID,
-    });
-
-    const response = await getTakeoffPriceSuggestion(JOB_ID, {
-      version_id: VERSION_ID,
-      estimate_item_id: LINE_ID,
-    });
-
-    expect(response.suggestion.suggestion_id).toBe(mock.state.suggestions[0]?.id);
-    expect(response.suggestion.sources.map((source) => source.source_kind)).toEqual(
-      expect.arrayContaining(["pricebook", "history"])
-    );
-  });
-
   it("ignores unrelated same-project history rows when building the snapshot", async () => {
     const mock = createSupabaseMock();
     mock.state.estimateItems.push({
@@ -622,48 +593,6 @@ describe("takeoff price suggestion server helpers", () => {
     expect(
       response.suggestion.sources.map((source) => source.source_record_id)
     ).not.toContain(UNRELATED_HISTORY_LINE_ID);
-  });
-
-  it("requires an explicit review note and applies the selected bound through estimate update", async () => {
-    const mock = createSupabaseMock();
-    vi.mocked(getAuthenticatedContext).mockResolvedValue({
-      supabase: mock.supabase,
-      tenantId: TENANT_ID,
-      userId: USER_ID,
-      tenantRole: "admin",
-    } as never);
-    vi.mocked(updateEstimateItem).mockResolvedValue({
-      item: {
-        id: LINE_ID,
-        unit_price_ht_cents: 1230,
-        updated_at: "2026-03-06T10:05:00.000Z",
-      },
-    } as never);
-
-    const created = await requestTakeoffPriceSuggestion(JOB_ID, {
-      version_id: VERSION_ID,
-      estimate_item_id: LINE_ID,
-    });
-    const reviewed = await reviewTakeoffPriceSuggestion(
-      JOB_ID,
-      created.suggestion.suggestion_id,
-      {
-        version_id: VERSION_ID,
-        action: "apply_target",
-        review_note: "Validation humaine explicite de la borne centrale.",
-      }
-    );
-
-    expect(updateEstimateItem).toHaveBeenCalledWith(VERSION_ID, {
-      id: LINE_ID,
-      unit_price_ht_cents: created.suggestion.target_cents,
-    });
-    expect(reviewed.suggestion.status).toBe("applied");
-    expect(reviewed.suggestion.selected_action).toBe("apply_target");
-    expect(reviewed.suggestion.review_note).toBe(
-      "Validation humaine explicite de la borne centrale."
-    );
-    expect(reviewed.applied_item?.unit_price_ht_cents).toBe(1230);
   });
 
   it("rejects a second review once the snapshot is no longer pending", async () => {

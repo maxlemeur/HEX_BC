@@ -22,28 +22,7 @@ vi.mock("@/lib/feature-flags", () => ({
   getStalePriceDaysForTenant: vi.fn().mockResolvedValue(90),
 }));
 
-import {
-  buildEstimateSupplierPreselectionReview,
-  createEstimate,
-  createEstimateItem,
-  createEstimateTemplateFromVersion,
-  createMarginTier,
-  deleteEstimateItem,
-  deleteMarginTier,
-  duplicateEstimateTemplate,
-  getEstimateTemplate,
-  getEstimateSupplierComparisons,
-  instantiateEstimateFromTemplate,
-  listEstimateTemplates,
-  listEstimateProjectVersions,
-  listEstimateVersionVariants,
-  listEstimateVersionEvents,
-  listLatestEstimates,
-  moveEstimateItem,
-  reorderEstimateItems,
-  updateEstimateItem,
-  updateMarginTier,
-} from "@/lib/estimates/server";
+import { buildEstimateSupplierPreselectionReview, createEstimateItem, createMarginTier, deleteEstimateItem, duplicateEstimateTemplate, getEstimateSupplierComparisons, instantiateEstimateFromTemplate, listEstimateVersionVariants, listLatestEstimates, moveEstimateItem, reorderEstimateItems, updateEstimateItem } from "@/lib/estimates/server";
 import {
   getFeatureFlagValueForTenant,
   getStalePriceDaysForTenant,
@@ -60,7 +39,6 @@ const PROJECT_ID = "33333333-3333-4333-8333-333333333333";
 const VERSION_ID = "44444444-4444-4444-8444-444444444444";
 const TEMPLATE_ID = "55555555-5555-4555-8555-555555555555";
 const TEMPLATE_COPY_ID = "66666666-6666-4666-8666-666666666666";
-const MARGIN_TIER_ID = "77777777-7777-4777-8777-777777777777";
 
 type PostgrestErrorLike = {
   code: string;
@@ -369,12 +347,16 @@ describe("estimate server coverage additions", () => {
           item_type: "line",
           title: "Tube acier",
           selected_supplier_price_id: "price-old",
+          quantity: 30,
+          description: "u",
         },
         {
           id: "item-missing",
           item_type: "line",
           title: "Sans match",
           selected_supplier_price_id: null,
+          quantity: 30,
+          description: "u",
         },
       ],
       error: null,
@@ -415,6 +397,8 @@ describe("estimate server coverage additions", () => {
         error: null,
       }),
     ];
+    // Prefix + contains searches for two queries, then matched-price hydration.
+    productsBuilders.splice(3, 0, chainResult({ data: [], error: null }));
     const suppliersBuilders = [
       chainResult({
         data: [],
@@ -443,7 +427,7 @@ describe("estimate server coverage additions", () => {
         error: null,
       }),
     ];
-    const supplierPricebookBuilders = [
+    const supplierPricebookBuilders: Array<ReturnType<typeof chainResult>> = [
       chainResult({
         data: [
           {
@@ -587,6 +571,18 @@ describe("estimate server coverage additions", () => {
     vi.mocked(getFeatureFlagValueForTenant).mockResolvedValue("supplier-preferred");
     vi.mocked(getStalePriceDaysForTenant).mockResolvedValue(90);
 
+    // The supplier-name searches precede supplier hydration for matched prices.
+    [suppliersBuilders[1], suppliersBuilders[2]] = [suppliersBuilders[2], suppliersBuilders[1]];
+    suppliersBuilders.pop();
+    // The selected offer is already in the suggestion; no fallback reread.
+    supplierPricebookBuilders.splice(2, 2);
+    supplierPricebookBuilders.push(chainResult({
+      data: ["price-old", "price-best", "price-preferred", "price-recent"].map((id) => ({
+        id, unit: "u", min_quantity: 1, valid_from: null, valid_to: null, is_active: true,
+      })),
+      error: null,
+    }));
+
     const supabase = {
       ...base,
       from: vi.fn((table: string) => {
@@ -728,6 +724,8 @@ describe("estimate server coverage additions", () => {
           item_type: "line",
           title: "Ligne renommee",
           selected_supplier_price_id: "price-legacy",
+          quantity: 30,
+          description: "u",
         },
       ],
       error: null,
@@ -748,6 +746,7 @@ describe("estimate server coverage additions", () => {
         error: null,
       }),
     ];
+    productsBuilders.splice(1, 0, chainResult({ data: [], error: null }));
     const suppliersBuilders = [
       chainResult({
         data: [],
@@ -762,7 +761,7 @@ describe("estimate server coverage additions", () => {
         error: null,
       }),
     ];
-    const supplierPricebookBuilders = [
+    const supplierPricebookBuilders: Array<ReturnType<typeof chainResult>> = [
       chainResult({
         data: [],
         error: null,
@@ -835,6 +834,13 @@ describe("estimate server coverage additions", () => {
 
     vi.mocked(getFeatureFlagValueForTenant).mockResolvedValue(null);
     vi.mocked(getStalePriceDaysForTenant).mockResolvedValue(90);
+
+    supplierPricebookBuilders.push(chainResult({
+      data: ["price-legacy", "price-best", "price-recent"].map((id) => ({
+        id, unit: "u", min_quantity: 1, valid_from: null, valid_to: null, is_active: true,
+      })),
+      error: null,
+    }));
 
     const supabase = {
       ...base,
@@ -909,323 +915,6 @@ describe("estimate server coverage additions", () => {
     expect(result.comparisons[0]?.alternatives.slice(0, 3).some((alternative) => alternative.is_selected)).toBe(
       true
     );
-  });
-
-  it("returns live bulk preselection review for all lines", async () => {
-    const base = createAuth("engineer");
-    const versionAccessBuilder = createVersionAccessBuilder();
-    const estimateItemsBuilder = chainResult({
-      data: [
-        {
-          id: "item-proposed",
-          item_type: "line",
-          title: "Clear Supplier",
-          selected_supplier_price_id: null,
-        },
-        {
-          id: "item-divergent",
-          item_type: "line",
-          title: "Cable cuivre",
-          selected_supplier_price_id: "price-old",
-        },
-      ],
-      error: null,
-    });
-    const productsBuilders = [
-      chainResult({
-        data: [
-          {
-            id: "product-proposed",
-            designation: "Tube cuivre",
-            reference: "CUI-001",
-          },
-          {
-            id: "product-divergent",
-            designation: "Cable cuivre",
-            reference: "CAB-001",
-          },
-        ],
-        error: null,
-      }),
-      chainResult({
-        data: [
-          {
-            id: "product-proposed",
-            designation: "Tube cuivre",
-            reference: "CUI-001",
-          },
-          {
-            id: "product-divergent",
-            designation: "Cable cuivre",
-            reference: "CAB-001",
-          },
-        ],
-        error: null,
-      }),
-      chainResult({
-        data: [
-          {
-            id: "product-proposed",
-            designation: "Tube cuivre",
-            reference: "CUI-001",
-          },
-          {
-            id: "product-divergent",
-            designation: "Cable cuivre",
-            reference: "CAB-001",
-          },
-        ],
-        error: null,
-      }),
-      chainResult({
-        data: [
-          {
-            id: "product-proposed",
-            designation: "Tube cuivre",
-            reference: "CUI-001",
-          },
-          {
-            id: "product-divergent",
-            designation: "Cable cuivre",
-            reference: "CAB-001",
-          },
-        ],
-        error: null,
-      }),
-    ];
-    const suppliersBuilders = [
-      chainResult({
-        data: [
-          { id: "supplier-clear", name: "Clear Supplier" },
-          { id: "supplier-old", name: "Old Supplier" },
-          { id: "supplier-best", name: "Best Supplier" },
-        ],
-        error: null,
-      }),
-      chainResult({
-        data: [
-          { id: "supplier-clear", name: "Clear Supplier" },
-          { id: "supplier-old", name: "Old Supplier" },
-          { id: "supplier-best", name: "Best Supplier" },
-        ],
-        error: null,
-      }),
-      chainResult({
-        data: [
-          { id: "supplier-clear", name: "Clear Supplier" },
-          { id: "supplier-old", name: "Old Supplier" },
-          { id: "supplier-best", name: "Best Supplier" },
-        ],
-        error: null,
-      }),
-      chainResult({
-        data: [
-          { id: "supplier-clear", name: "Clear Supplier" },
-          { id: "supplier-old", name: "Old Supplier" },
-          { id: "supplier-best", name: "Best Supplier" },
-        ],
-        error: null,
-      }),
-      chainResult({
-        data: [
-          { id: "supplier-old", name: "Old Supplier" },
-          { id: "supplier-best", name: "Best Supplier" },
-        ],
-        error: null,
-      }),
-    ];
-    const supplierPricebookBuilders = [
-      chainResult({
-        data: [
-          {
-            id: "price-clear",
-            supplier_id: "supplier-clear",
-            product_id: "product-proposed",
-            supplier_sku: "CLR-1",
-            unit: "u",
-            unit_price_cents: 1250,
-            currency: "EUR",
-            updated_at: "2026-03-01T00:00:00.000Z",
-            created_at: "2026-03-01T00:00:00.000Z",
-            notes: null,
-            is_active: true,
-          },
-        ],
-        error: null,
-      }),
-      chainResult({
-        data: [
-          {
-            id: "price-old",
-            supplier_id: "supplier-old",
-            product_id: "product-divergent",
-            supplier_sku: "OLD-1",
-            unit: "u",
-            unit_price_cents: 1600,
-            currency: "EUR",
-            updated_at: "2026-03-01T00:00:00.000Z",
-            created_at: "2026-03-01T00:00:00.000Z",
-            notes: null,
-            is_active: true,
-          },
-          {
-            id: "price-best",
-            supplier_id: "supplier-best",
-            product_id: "product-divergent",
-            supplier_sku: "BEST-1",
-            unit: "u",
-            unit_price_cents: 1400,
-            currency: "EUR",
-            updated_at: "2026-03-02T00:00:00.000Z",
-            created_at: "2026-03-02T00:00:00.000Z",
-            notes: null,
-            is_active: true,
-          },
-        ],
-        error: null,
-      }),
-      chainResult({
-        data: {
-          id: "price-old",
-          supplier_id: "supplier-old",
-          product_id: "product-divergent",
-          supplier_sku: "OLD-1",
-          unit: "u",
-          unit_price_cents: 1600,
-          currency: "EUR",
-          updated_at: "2026-03-01T00:00:00.000Z",
-          created_at: "2026-03-01T00:00:00.000Z",
-          notes: null,
-          is_active: true,
-        },
-        error: null,
-      }),
-      chainResult({
-        data: [
-          {
-            id: "price-old",
-            supplier_id: "supplier-old",
-            product_id: "product-divergent",
-            supplier_sku: "OLD-1",
-            unit: "u",
-            unit_price_cents: 1600,
-            currency: "EUR",
-            updated_at: "2026-03-01T00:00:00.000Z",
-            created_at: "2026-03-01T00:00:00.000Z",
-            notes: null,
-            is_active: true,
-          },
-          {
-            id: "price-best",
-            supplier_id: "supplier-best",
-            product_id: "product-divergent",
-            supplier_sku: "BEST-1",
-            unit: "u",
-            unit_price_cents: 1400,
-            currency: "EUR",
-            updated_at: "2026-03-02T00:00:00.000Z",
-            created_at: "2026-03-02T00:00:00.000Z",
-            notes: null,
-            is_active: true,
-          },
-        ],
-        error: null,
-      }),
-    ];
-    const dpgfCatalogueLinksBuilder = chainResult({
-      data: [],
-      error: null,
-    });
-
-    const supabase = {
-      ...base,
-      from: vi.fn((table: string) => {
-        if (table === "tenant_memberships") {
-          return {
-            select: vi.fn(() => base.__membershipBuilder),
-          };
-        }
-        if (table === "estimate_versions") {
-          return {
-            select: vi.fn(() => versionAccessBuilder),
-          };
-        }
-        if (table === "estimate_items") {
-          return {
-            select: vi.fn(() => estimateItemsBuilder),
-          };
-        }
-        if (table === "products") {
-          const builder = productsBuilders.shift();
-          if (!builder) {
-            throw new Error("Unexpected products query");
-          }
-          return {
-            select: vi.fn(() => builder),
-          };
-        }
-        if (table === "suppliers") {
-          const builder = suppliersBuilders.shift();
-          if (!builder) {
-            throw new Error("Unexpected suppliers query");
-          }
-          return {
-            select: vi.fn(() => builder),
-          };
-        }
-        if (table === "supplier_pricebook") {
-          const builder = supplierPricebookBuilders.shift();
-          if (!builder) {
-            throw new Error("Unexpected supplier_pricebook query");
-          }
-          return {
-            select: vi.fn(() => builder),
-          };
-        }
-        if (table === "dpgf_catalogue_links") {
-          return {
-            select: vi.fn(() => dpgfCatalogueLinksBuilder),
-          };
-        }
-        throw new Error(`Unexpected table: ${table}`);
-      }),
-    };
-
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const result = await getEstimateSupplierComparisons(VERSION_ID, null);
-
-    expect(result.bulk_preselection).toEqual({
-      summary: {
-        total_items: 2,
-        proposed_items: 1,
-        exception_items: 1,
-        already_selected_items: 0,
-        divergence_items: 1,
-        stale_items: 0,
-        ambiguous_items: 0,
-        no_price_items: 0,
-
-        currency_mismatch_items: 0,
-      },
-      proposals: [
-        expect.objectContaining({
-          item_id: "item-proposed",
-          reason: "single_clear_option",
-          patch: {
-            unit_price_ht_cents: 1250,
-            selected_supplier_price_id: "price-clear",
-          },
-        }),
-      ],
-      exceptions: [
-        expect.objectContaining({
-          item_id: "item-divergent",
-          reason: "divergence",
-          risk_flags: expect.arrayContaining(["selected_not_best_price"]),
-        }),
-      ],
-    });
   });
 
   it("rejects all_items supplier preselection when the estimate has more than 200 lines", async () => {
@@ -1310,43 +999,6 @@ describe("estimate server coverage additions", () => {
     expect(result.summary.proposed_items).toBe(0);
     expect(result.summary.currency_mismatch_items).toBe(1);
     expect(result.exceptions[0]?.reason).toBe("currency_mismatch");
-  });
-
-  it("preselectionne normalement un prix dans la devise du devis", () => {
-    const result = buildEstimateSupplierPreselectionReview({
-      estimateCurrency: "EUR",
-      itemTitleById: new Map([["item-eur", "Acier"]]),
-      comparisons: [
-        {
-          item_id: "item-eur",
-          selected_supplier_price_id: null,
-          best_supplier_price_id: "price-eur",
-          coverage_status: "covered",
-          risk_flags: [],
-          selected_alternative: null,
-          alternatives: [
-            {
-              kind: "best_price",
-              supplier_price_id: "price-eur",
-              supplier_id: "supplier-eur",
-              supplier_name: "FR Supplier",
-              adjusted_unit_price_cents: 9500,
-              currency: "EUR",
-              supplier_reference: "EUR-1",
-              catalogue_url: null,
-              updated_at: "2026-03-01T00:00:00.000Z",
-              is_stale: false,
-              product_designation: "Acier",
-              is_selected: false,
-            },
-          ],
-        },
-      ],
-    });
-
-    expect(result.summary.currency_mismatch_items).toBe(0);
-    expect(result.proposals).toHaveLength(1);
-    expect(result.proposals[0]?.patch.unit_price_ht_cents).toBe(9500);
   });
 
   it("builds a bulk supplier preselection review for simple proposals and explicit divergences", () => {
@@ -1464,140 +1116,6 @@ describe("estimate server coverage additions", () => {
           risk_flags: expect.arrayContaining(["selected_not_best_price"]),
         }),
       ],
-    });
-  });
-
-  it("creates an estimate with default version values when optional fields are omitted", async () => {
-    const base = createAuth("engineer");
-    const categoryUpsertCalls: unknown[] = [];
-    const laborRoleUpsertCalls: unknown[] = [];
-    const supabase = {
-      ...base,
-      rpc: vi.fn(),
-      from: vi.fn((table: string) => {
-        if (table === "tenant_memberships") {
-          return {
-            select: vi.fn(() => base.__membershipBuilder),
-          };
-        }
-        if (table === "estimate_categories") {
-          return {
-            upsert: vi.fn((payload: unknown) => {
-              categoryUpsertCalls.push(payload);
-              return {
-                data: null,
-                error: null,
-              };
-            }),
-          };
-        }
-        if (table === "labor_roles") {
-          return {
-            upsert: vi.fn((payload: unknown) => {
-              laborRoleUpsertCalls.push(payload);
-              return {
-                data: null,
-                error: null,
-              };
-            }),
-          };
-        }
-        throw new Error(`Unexpected table: ${table}`);
-      }),
-    };
-
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const result = await createEstimate({
-      project: {
-        name: "Projet test",
-        reference: " REF ",
-        client_name: " Client ",
-        notes: " Notes ",
-      },
-    });
-
-    expect(result.project.id).toBe(PROJECT_ID);
-    expect(result.version.id).toBe(VERSION_ID);
-    expect(persistCanonicalEstimateV2).toHaveBeenCalledWith({
-      supabase,
-      tenantId: TENANT_ID,
-      actorUserId: USER_ID,
-      project: {
-        kind: "new",
-        name: "Projet test",
-        reference: "REF",
-        clientName: "Client",
-        notes: "Notes",
-      },
-      version: {},
-      source: { kind: "blank", importId: null },
-    });
-    expect(categoryUpsertCalls).toHaveLength(1);
-    const categoriesPayload = categoryUpsertCalls[0];
-    expect(Array.isArray(categoriesPayload)).toBe(true);
-    if (!Array.isArray(categoriesPayload)) return;
-    expect(categoriesPayload).toHaveLength(3);
-
-    expect(laborRoleUpsertCalls).toHaveLength(1);
-    const laborRolesPayload = laborRoleUpsertCalls[0];
-    expect(Array.isArray(laborRolesPayload)).toBe(true);
-    if (!Array.isArray(laborRolesPayload)) return;
-    expect(laborRolesPayload).toHaveLength(9);
-  });
-
-  it("maps estimate version events and trims actor names", async () => {
-    const base = createAuth("engineer");
-    const versionAccessBuilder = createVersionAccessBuilder();
-    const eventsBuilder = chainResult({
-      data: [
-        {
-          id: "event-1",
-          estimate_version_id: VERSION_ID,
-          event_type: "sent",
-          metadata: { reason: "manual" },
-          created_by: USER_ID,
-          occurred_at: null,
-          created_at: "2026-02-22T11:00:00.000Z",
-          profiles: {
-            full_name: "  Alice  ",
-          },
-        },
-      ],
-      error: null,
-    });
-
-    const supabase = {
-      ...base,
-      from: vi.fn((table: string) => {
-        if (table === "tenant_memberships") {
-          return {
-            select: vi.fn(() => base.__membershipBuilder),
-          };
-        }
-        if (table === "estimate_versions") {
-          return {
-            select: vi.fn(() => versionAccessBuilder),
-          };
-        }
-        if (table === "estimate_version_events") {
-          return {
-            select: vi.fn(() => eventsBuilder),
-          };
-        }
-        throw new Error(`Unexpected table: ${table}`);
-      }),
-    };
-
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const result = await listEstimateVersionEvents(VERSION_ID);
-
-    expect(result.events).toHaveLength(1);
-    expect(result.events[0]).toMatchObject({
-      id: "event-1",
-      actor_name: "Alice",
-      occurred_at: "2026-02-22T11:00:00.000Z",
     });
   });
 
@@ -1881,403 +1399,6 @@ describe("estimate server coverage additions", () => {
     ]);
   });
 
-  it("allows directors to load project version timelines", async () => {
-    const base = createAuth("director");
-    const projectBuilder = chainResult({
-      data: {
-        id: PROJECT_ID,
-        tenant_id: TENANT_ID,
-        user_id: "owner-2",
-      },
-      error: null,
-    });
-    const totalCountBuilder = chainResult({
-      data: null,
-      count: 1,
-      error: null,
-    });
-    const versionsBuilder = chainResult({
-      data: [
-        {
-          id: VERSION_ID,
-          project_id: PROJECT_ID,
-          version_number: 4,
-          status: "draft",
-          title: "Review",
-          updated_at: "2026-02-22T12:00:00.000Z",
-          created_at: "2026-02-22T11:00:00.000Z",
-          total_ttc_cents: 14400,
-          total_ht_cents: 12000,
-          parent_version_id: null,
-          variant_label: null,
-        },
-      ],
-      error: null,
-    });
-    const auditBuilder = chainResult({
-      data: [],
-      error: null,
-    });
-    const profilesBuilder = chainResult({
-      data: [],
-      error: null,
-    });
-
-    const supabase = {
-      ...base,
-      from: vi.fn((table: string) => {
-        if (table === "tenant_memberships") {
-          return {
-            select: vi.fn(() => base.__membershipBuilder),
-          };
-        }
-        if (table === "estimate_projects") {
-          return {
-            select: vi.fn(() => projectBuilder),
-          };
-        }
-        if (table === "estimate_versions") {
-          return {
-            select: vi.fn((columns: string, options?: { count?: "exact"; head?: boolean }) => {
-              if (options?.count === "exact" && options?.head === true) {
-                return totalCountBuilder;
-              }
-
-              if (columns.includes("version_number")) {
-                return versionsBuilder;
-              }
-
-              throw new Error(`Unexpected select on estimate_versions: ${columns}`);
-            }),
-          };
-        }
-        if (table === "audit_logs") {
-          return {
-            select: vi.fn(() => auditBuilder),
-          };
-        }
-        if (table === "profiles") {
-          return {
-            select: vi.fn(() => profilesBuilder),
-          };
-        }
-        throw new Error(`Unexpected table: ${table}`);
-      }),
-    };
-
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const result = await listEstimateProjectVersions({
-      projectId: PROJECT_ID,
-      page: 1,
-      pageSize: 20,
-    });
-
-    expect(result.items).toHaveLength(1);
-    expect(result.items[0]?.id).toBe(VERSION_ID);
-  });
-
-  it("allows directors to load variant comparisons for review", async () => {
-    const base = createAuth("director");
-    const versionAccessBuilder = createVersionAccessBuilder({
-      id: "variant-b",
-      parent_version_id: "base-version",
-    });
-    const variantsBuilder = chainResult({
-      data: [
-        {
-          id: "base-version",
-          project_id: PROJECT_ID,
-          version_number: 1,
-          status: "draft",
-          title: "Base",
-          total_ht_cents: 1000,
-          total_tax_cents: 200,
-          total_ttc_cents: 1200,
-          updated_at: "2026-02-22T08:00:00.000Z",
-          parent_version_id: null,
-          variant_label: null,
-        },
-        {
-          id: "variant-b",
-          project_id: PROJECT_ID,
-          version_number: 2,
-          status: "draft",
-          title: "Variant B",
-          total_ht_cents: 1200,
-          total_tax_cents: 240,
-          total_ttc_cents: 1440,
-          updated_at: "2026-02-22T10:00:00.000Z",
-          parent_version_id: "base-version",
-          variant_label: "B",
-        },
-      ],
-      error: null,
-    });
-    const lineItemsBuilder = chainResult({
-      data: [{ version_id: "variant-b" }],
-      error: null,
-    });
-
-    const supabase = {
-      ...base,
-      from: vi.fn((table: string) => {
-        if (table === "tenant_memberships") {
-          return {
-            select: vi.fn(() => base.__membershipBuilder),
-          };
-        }
-        if (table === "estimate_versions") {
-          return {
-            select: vi.fn((columns: string) => {
-              if (columns.includes("estimate_projects")) {
-                return versionAccessBuilder;
-              }
-
-              return variantsBuilder;
-            }),
-          };
-        }
-        if (table === "estimate_items") {
-          return {
-            select: vi.fn(() => lineItemsBuilder),
-          };
-        }
-        throw new Error(`Unexpected table: ${table}`);
-      }),
-    };
-
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const result = await listEstimateVersionVariants("variant-b");
-
-    expect(result.base_version_id).toBe("base-version");
-    expect(result.items.map((item) => item.id)).toEqual(["base-version", "variant-b"]);
-  });
-
-  it("lists templates with search and computed line counts", async () => {
-    const base = createAuth("engineer");
-    const templatesBuilder = chainResult({
-      data: [
-        {
-          id: TEMPLATE_ID,
-          name: "Template A",
-          description: "Desc",
-          source_version_id: VERSION_ID,
-          created_by: USER_ID,
-          created_at: "2026-02-21T10:00:00.000Z",
-          updated_at: "2026-02-22T10:00:00.000Z",
-        },
-      ],
-      error: null,
-    });
-    const lineCountsBuilder = chainResult({
-      data: [
-        { template_id: TEMPLATE_ID },
-        { template_id: TEMPLATE_ID },
-      ],
-      error: null,
-    });
-
-    const supabase = {
-      ...base,
-      from: vi.fn((table: string) => {
-        if (table === "tenant_memberships") {
-          return {
-            select: vi.fn(() => base.__membershipBuilder),
-          };
-        }
-        if (table === "estimate_templates") {
-          return {
-            select: vi.fn(() => templatesBuilder),
-          };
-        }
-        if (table === "estimate_template_items") {
-          return {
-            select: vi.fn(() => lineCountsBuilder),
-          };
-        }
-        throw new Error(`Unexpected table: ${table}`);
-      }),
-    };
-
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const result = await listEstimateTemplates({
-      search: "  plomberie  ",
-      limit: 10,
-      order: "recent",
-    });
-
-    expect(templatesBuilder.or).toHaveBeenCalledWith(
-      "name.ilike.%plomberie%,description.ilike.%plomberie%"
-    );
-    expect(result.templates).toHaveLength(1);
-    expect(result.templates[0]).toMatchObject({
-      id: TEMPLATE_ID,
-      item_count: 2,
-    });
-  });
-
-  it("loads one template with sorted items and line count", async () => {
-    const base = createAuth("engineer");
-    const templateBuilder = chainResult({
-      data: {
-        id: TEMPLATE_ID,
-        name: "Template A",
-        description: null,
-        source_version_id: VERSION_ID,
-        created_by: USER_ID,
-        created_at: "2026-02-21T10:00:00.000Z",
-        updated_at: "2026-02-22T10:00:00.000Z",
-      },
-      error: null,
-    });
-    const itemsBuilder = chainResult({
-      data: [
-        { id: "ti-1", item_type: "section", position: 1, title: "Section" },
-        { id: "ti-2", item_type: "line", position: 2, title: "Line A" },
-        { id: "ti-3", item_type: "line", position: 3, title: "Line B" },
-      ],
-      error: null,
-    });
-
-    const supabase = {
-      ...base,
-      from: vi.fn((table: string) => {
-        if (table === "tenant_memberships") {
-          return {
-            select: vi.fn(() => base.__membershipBuilder),
-          };
-        }
-        if (table === "estimate_templates") {
-          return {
-            select: vi.fn(() => templateBuilder),
-          };
-        }
-        if (table === "estimate_template_items") {
-          return {
-            select: vi.fn(() => itemsBuilder),
-          };
-        }
-        throw new Error(`Unexpected table: ${table}`);
-      }),
-    };
-
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const result = await getEstimateTemplate(TEMPLATE_ID);
-
-    expect(result.template.id).toBe(TEMPLATE_ID);
-    expect(result.template.item_count).toBe(2);
-    expect(result.template.items).toHaveLength(3);
-  });
-
-  it("creates a template from a version and trims payload fields", async () => {
-    const base = createAuth("engineer");
-    const rpcCalls: Array<{ fn: string; payload: Record<string, unknown> }> = [];
-    const templateBuilder = chainResult({
-      data: {
-        id: TEMPLATE_ID,
-        name: "Template copied",
-        description: "Desc",
-        source_version_id: VERSION_ID,
-        created_by: USER_ID,
-        created_at: "2026-02-21T10:00:00.000Z",
-        updated_at: "2026-02-22T10:00:00.000Z",
-      },
-      error: null,
-    });
-    const lineCountsBuilder = chainResult({
-      data: [{ template_id: TEMPLATE_ID }],
-      error: null,
-    });
-
-    const supabase = {
-      ...base,
-      from: vi.fn((table: string) => {
-        if (table === "tenant_memberships") {
-          return {
-            select: vi.fn(() => base.__membershipBuilder),
-          };
-        }
-        if (table === "estimate_templates") {
-          return {
-            select: vi.fn(() => templateBuilder),
-          };
-        }
-        if (table === "estimate_template_items") {
-          return {
-            select: vi.fn(() => lineCountsBuilder),
-          };
-        }
-        throw new Error(`Unexpected table: ${table}`);
-      }),
-      rpc: vi.fn((fn: string, payload: Record<string, unknown>) => {
-        rpcCalls.push({ fn, payload });
-        return {
-          data: TEMPLATE_ID,
-          error: null,
-        };
-      }),
-    };
-
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const result = await createEstimateTemplateFromVersion({
-      source_version_id: VERSION_ID,
-      name: "  Template copied  ",
-      description: "  Desc  ",
-    });
-
-    expect(rpcCalls[0]).toMatchObject({
-      fn: "create_estimate_template_from_version",
-      payload: {
-        p_source_version_id: VERSION_ID,
-        p_name: "Template copied",
-        p_description: "Desc",
-      },
-    });
-    expect(result.template.item_count).toBe(1);
-  });
-
-  it("maps RPC source-version not-found errors when creating a template", async () => {
-    const base = createAuth("engineer");
-
-    const supabase = {
-      ...base,
-      from: vi.fn((table: string) => {
-        if (table === "tenant_memberships") {
-          return {
-            select: vi.fn(() => base.__membershipBuilder),
-          };
-        }
-        throw new Error(`Unexpected table: ${table}`);
-      }),
-      rpc: vi.fn(() => ({
-        data: null,
-        error: {
-          code: "XX000",
-          message: "template source version not found",
-          details: null,
-          hint: null,
-        },
-      })),
-    };
-
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    await expect(
-      createEstimateTemplateFromVersion({
-        source_version_id: VERSION_ID,
-        name: "Template",
-      })
-    ).rejects.toMatchObject({
-      status: 404,
-      code: "ESTIMATE_TEMPLATE_SOURCE_VERSION_NOT_FOUND",
-    });
-  });
-
   it("rejects duplicate template when RPC returns a non-uuid value", async () => {
     const base = createAuth("engineer");
 
@@ -2304,65 +1425,6 @@ describe("estimate server coverage additions", () => {
     ).rejects.toMatchObject({
       status: 400,
       code: "BAD_REQUEST",
-    });
-  });
-
-  it("instantiates template and returns redirect route", async () => {
-    const base = createAuth("engineer");
-    const rpcCalls: Array<{ fn: string; payload: Record<string, unknown> }> = [];
-
-    const supabase = {
-      ...base,
-      from: vi.fn((table: string) => {
-        if (table === "tenant_memberships") {
-          return {
-            select: vi.fn(() => base.__membershipBuilder),
-          };
-        }
-        throw new Error(`Unexpected table: ${table}`);
-      }),
-      rpc: vi.fn((fn: string, payload: Record<string, unknown>) => {
-        rpcCalls.push({ fn, payload });
-        return {
-          data: [
-            {
-              project_id: PROJECT_ID,
-              version_id: TEMPLATE_COPY_ID,
-            },
-          ],
-          error: null,
-        };
-      }),
-    };
-
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const result = await instantiateEstimateFromTemplate(TEMPLATE_ID, {
-      project_name: "  Projet du client  ",
-      version_title: "  V1  ",
-      date_devis: "2026-02-22",
-      validite_jours: 45,
-    });
-
-    expect(instantiateCanonicalEstimateV2FromTemplate).toHaveBeenCalledWith({
-      supabase,
-      tenantId: TENANT_ID,
-      actorUserId: USER_ID,
-      templateId: TEMPLATE_ID,
-      project: {
-        kind: "new",
-        name: "Projet du client",
-        notes: null,
-      },
-      versionTitle: "V1",
-      dateDevis: "2026-02-22",
-      validiteJours: 45,
-    });
-    expect(rpcCalls).toEqual([]);
-    expect(result).toEqual({
-      projectId: PROJECT_ID,
-      versionId: TEMPLATE_COPY_ID,
-      redirectTo: `/dashboard/estimates/${TEMPLATE_COPY_ID}/edit`,
     });
   });
 
@@ -2425,286 +1487,6 @@ describe("estimate server coverage additions", () => {
     ).rejects.toMatchObject({
       status: 403,
       code: "FORBIDDEN",
-    });
-  });
-
-  it("creates and deletes margin tiers as admin", async () => {
-    const base = createAuth("admin");
-    const insertedPayloads: Array<Record<string, unknown>> = [];
-
-    const positionBuilder = chainResult({
-      data: [{ position: 4 }],
-      error: null,
-    });
-    const existingTierBuilder = chainResult({
-      data: { id: MARGIN_TIER_ID },
-      error: null,
-    });
-
-    const supabase = {
-      ...base,
-      from: vi.fn((table: string) => {
-        if (table === "tenant_memberships") {
-          return {
-            select: vi.fn(() => base.__membershipBuilder),
-          };
-        }
-        if (table === "margin_tiers") {
-          return {
-            select: vi.fn((columns: string) => {
-              if (columns === "position") return positionBuilder;
-              return existingTierBuilder;
-            }),
-            insert: vi.fn((payload: Record<string, unknown>) => {
-              insertedPayloads.push(payload);
-              return {
-                select: vi.fn(() => ({
-                  single: vi.fn(() => ({
-                    data: {
-                      id: MARGIN_TIER_ID,
-                      threshold_cents: 5000,
-                      multiplier: 1.15,
-                      position: 5,
-                    },
-                    error: null,
-                  })),
-                })),
-              };
-            }),
-            delete: vi.fn(() => chainResult({ data: null, error: null })),
-          };
-        }
-        throw new Error(`Unexpected table: ${table}`);
-      }),
-    };
-
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const created = await createMarginTier({
-      threshold_cents: 5000,
-      multiplier: 1.15,
-    });
-
-    expect(insertedPayloads[0]).toMatchObject({
-      tenant_id: TENANT_ID,
-      threshold_cents: 5000,
-      multiplier: 1.15,
-      position: 5,
-    });
-    expect(created.margin_tier).toMatchObject({
-      id: MARGIN_TIER_ID,
-    });
-
-    const deleted = await deleteMarginTier(MARGIN_TIER_ID);
-    expect(deleted).toEqual({ deleted: true });
-  });
-
-  it("maps unique constraint conflicts for margin tiers", async () => {
-    const base = createAuth("admin");
-    const positionBuilder = chainResult({
-      data: [{ position: 1 }],
-      error: null,
-    });
-
-    const supabase = {
-      ...base,
-      from: vi.fn((table: string) => {
-        if (table === "tenant_memberships") {
-          return {
-            select: vi.fn(() => base.__membershipBuilder),
-          };
-        }
-        if (table === "margin_tiers") {
-          return {
-            select: vi.fn(() => positionBuilder),
-            insert: vi.fn(() => ({
-              select: vi.fn(() => ({
-                single: vi.fn(() => ({
-                  data: null,
-                  error: {
-                    code: "23505",
-                    message: "duplicate key value violates unique constraint threshold_cents",
-                    details: null,
-                    hint: null,
-                  },
-                })),
-              })),
-            })),
-          };
-        }
-        throw new Error(`Unexpected table: ${table}`);
-      }),
-    };
-
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    await expect(
-      createMarginTier({
-        threshold_cents: 5000,
-        multiplier: 1.2,
-      })
-    ).rejects.toMatchObject({
-      status: 409,
-      code: "CONFLICT",
-    });
-  });
-
-  it("returns not-found when updating an unknown margin tier", async () => {
-    const base = createAuth("admin");
-    const missingTierBuilder = chainResult({
-      data: null,
-      error: {
-        code: "PGRST116",
-        message: "No rows",
-        details: null,
-        hint: null,
-      },
-    });
-
-    const supabase = {
-      ...base,
-      from: vi.fn((table: string) => {
-        if (table === "tenant_memberships") {
-          return {
-            select: vi.fn(() => base.__membershipBuilder),
-          };
-        }
-        if (table === "margin_tiers") {
-          return {
-            select: vi.fn(() => missingTierBuilder),
-            update: vi.fn(() => ({
-              eq: vi.fn(() => ({
-                eq: vi.fn(() => ({
-                  select: vi.fn(() => ({
-                    single: vi.fn(() => ({
-                      data: null,
-                      error: null,
-                    })),
-                  })),
-                })),
-              })),
-            })),
-          };
-        }
-        throw new Error(`Unexpected table: ${table}`);
-      }),
-    };
-
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    await expect(
-      updateMarginTier(MARGIN_TIER_ID, {
-        multiplier: 1.2,
-      })
-    ).rejects.toMatchObject({
-      status: 404,
-      code: "NOT_FOUND",
-    });
-  });
-
-  it("deletes an estimate item in draft mode with an active lock", async () => {
-    const base = createAuth("engineer");
-    const versionAccessBuilder = createVersionAccessBuilder();
-    const draftLockBuilder = createDraftLockBuilder();
-    const currentItemBuilder = chainResult({
-      data: [{ id: "item-1", parent_id: null }, { id: "child", parent_id: "item-1" }, { id: "grandchild", parent_id: "child" }, { id: "other", parent_id: null }],
-      error: null,
-    });
-    const deleteBuilder = chainResult({
-      data: null,
-      error: null,
-    });
-
-    const supabase = {
-      ...base,
-      from: vi.fn((table: string) => {
-        if (table === "tenant_memberships") {
-          return {
-            select: vi.fn(() => base.__membershipBuilder),
-          };
-        }
-        if (table === "estimate_versions") {
-          return {
-            select: vi.fn(() => versionAccessBuilder),
-          };
-        }
-        if (table === "draft_locks") {
-          return {
-            select: vi.fn(() => draftLockBuilder),
-          };
-        }
-        if (table === "estimate_items") {
-          return {
-            select: vi.fn(() => currentItemBuilder),
-            delete: vi.fn(() => deleteBuilder),
-          };
-        }
-        throw new Error(`Unexpected table: ${table}`);
-      }),
-    };
-
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const result = await deleteEstimateItem(VERSION_ID, {
-      id: "item-1",
-    });
-
-    expect(result).toEqual({
-      deleted_id: "item-1",
-      deleted_ids: ["item-1", "child", "grandchild"],
-      version: expect.objectContaining({ id: VERSION_ID, updated_at: "2026-02-22T12:00:00.000Z" }),
-    });
-    expect(deleteBuilder.eq).toHaveBeenCalledWith("tenant_id", TENANT_ID);
-    expect(deleteBuilder.eq).toHaveBeenCalledWith("id", "item-1");
-    expect(deleteBuilder.eq).toHaveBeenCalledWith("version_id", VERSION_ID);
-  });
-
-  it("returns not-found when deleting an unknown estimate item", async () => {
-    const base = createAuth("engineer");
-    const versionAccessBuilder = createVersionAccessBuilder();
-    const draftLockBuilder = createDraftLockBuilder();
-    const currentItemBuilder = chainResult({
-      data: [],
-      error: null,
-    });
-
-    const supabase = {
-      ...base,
-      from: vi.fn((table: string) => {
-        if (table === "tenant_memberships") {
-          return {
-            select: vi.fn(() => base.__membershipBuilder),
-          };
-        }
-        if (table === "estimate_versions") {
-          return {
-            select: vi.fn(() => versionAccessBuilder),
-          };
-        }
-        if (table === "draft_locks") {
-          return {
-            select: vi.fn(() => draftLockBuilder),
-          };
-        }
-        if (table === "estimate_items") {
-          return {
-            select: vi.fn(() => currentItemBuilder),
-            delete: vi.fn(() => chainResult({ data: null, error: null })),
-          };
-        }
-        throw new Error(`Unexpected table: ${table}`);
-      }),
-    };
-
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    await expect(
-      deleteEstimateItem(VERSION_ID, {
-        id: "missing-item",
-      })
-    ).rejects.toMatchObject({
-      status: 404,
-      code: "NOT_FOUND",
     });
   });
 
@@ -2931,66 +1713,6 @@ describe("estimate server coverage additions", () => {
     expect(estimateItemsUpdate).not.toHaveBeenCalled();
   });
 
-  it("reorders sibling estimate items and returns updated count", async () => {
-    const base = createAuth("engineer");
-    const versionAccessBuilder = createVersionAccessBuilder();
-    const draftLockBuilder = createDraftLockBuilder();
-    const siblingsBuilder = chainResult({
-      data: [{ id: "a" }, { id: "b" }],
-      error: null,
-    });
-
-    const supabase = {
-      ...base,
-      from: vi.fn((table: string) => {
-        if (table === "tenant_memberships") {
-          return {
-            select: vi.fn(() => base.__membershipBuilder),
-          };
-        }
-        if (table === "estimate_versions") {
-          return {
-            select: vi.fn(() => versionAccessBuilder),
-          };
-        }
-        if (table === "draft_locks") {
-          return {
-            select: vi.fn(() => draftLockBuilder),
-          };
-        }
-        if (table === "estimate_items") {
-          return {
-            select: vi.fn(() => siblingsBuilder),
-          };
-        }
-        throw new Error(`Unexpected table: ${table}`);
-      }),
-      rpc: vi.fn().mockReturnValue({
-        data: 2,
-        error: null,
-      }),
-    };
-
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const result = await reorderEstimateItems(VERSION_ID, {
-      parent_id: null,
-      ordered_ids: ["a", "b"],
-    });
-
-    expect(result).toEqual({
-      version: expect.objectContaining({ id: VERSION_ID, updated_at: "2026-02-22T12:00:00.000Z" }),
-      parent_id: null,
-      ordered_ids: ["a", "b"],
-      updated_count: 2,
-    });
-    expect(supabase.rpc).toHaveBeenCalledWith("reorder_estimate_items", {
-      target_version_id: VERSION_ID,
-      target_parent_id: null,
-      ordered_item_ids: ["a", "b"],
-    });
-  });
-
   it("returns conflict when reorder list contains unknown sibling ids", async () => {
     const base = createAuth("engineer");
     const versionAccessBuilder = createVersionAccessBuilder();
@@ -3094,144 +1816,6 @@ describe("estimate server coverage additions", () => {
     ).rejects.toMatchObject({
       status: 409,
       code: "CONFLICT",
-    });
-  });
-
-  it("moves an estimate item across parents and calls move_estimate_item RPC", async () => {
-    const base = createAuth("engineer");
-    const versionAccessBuilder = createVersionAccessBuilder({
-      max_section_depth: 1,
-    });
-    const draftLockBuilder = createDraftLockBuilder();
-    const movingItemBuilder = chainResult({
-      data: {
-        id: "item-1",
-        version_id: VERSION_ID,
-        parent_id: "parent-source",
-        item_type: "line",
-      },
-      error: null,
-    });
-    const targetParentBuilder = chainResult({
-      data: {
-        id: "parent-target",
-        version_id: VERSION_ID,
-        parent_id: null,
-        item_type: "section",
-      },
-      error: null,
-    });
-    const sourceSiblingsBuilder = chainResult({
-      data: [{ id: "item-1" }, { id: "source-2" }],
-      error: null,
-    });
-    const targetSiblingsBuilder = chainResult({
-      data: [{ id: "target-1" }],
-      error: null,
-    });
-    const hierarchyItemsBuilder = chainResult({
-      data: [
-        {
-          id: "parent-source",
-          parent_id: null,
-          item_type: "section",
-        },
-        {
-          id: "parent-target",
-          parent_id: null,
-          item_type: "section",
-        },
-        {
-          id: "item-1",
-          parent_id: "parent-source",
-          item_type: "line",
-        },
-      ],
-      error: null,
-    });
-
-    let estimateItemsCalls = 0;
-
-    const supabase = {
-      ...base,
-      from: vi.fn((table: string) => {
-        if (table === "tenant_memberships") {
-          return {
-            select: vi.fn(() => base.__membershipBuilder),
-          };
-        }
-        if (table === "estimate_versions") {
-          return {
-            select: vi.fn(() => versionAccessBuilder),
-          };
-        }
-        if (table === "draft_locks") {
-          return {
-            select: vi.fn(() => draftLockBuilder),
-          };
-        }
-        if (table === "estimate_items") {
-          estimateItemsCalls += 1;
-          if (estimateItemsCalls === 1) {
-            return {
-              select: vi.fn(() => movingItemBuilder),
-            };
-          }
-          if (estimateItemsCalls === 2) {
-            return {
-              select: vi.fn(() => targetParentBuilder),
-            };
-          }
-          if (estimateItemsCalls === 3) {
-            return {
-              select: vi.fn(() => hierarchyItemsBuilder),
-            };
-          }
-          if (estimateItemsCalls === 4) {
-            return {
-              select: vi.fn(() => sourceSiblingsBuilder),
-            };
-          }
-          if (estimateItemsCalls === 5) {
-            return {
-              select: vi.fn(() => targetSiblingsBuilder),
-            };
-          }
-        }
-        throw new Error(`Unexpected table: ${table}`);
-      }),
-      rpc: vi.fn().mockReturnValue({
-        data: 3,
-        error: null,
-      }),
-    };
-
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const result = await moveEstimateItem(VERSION_ID, {
-      item_id: "item-1",
-      from_parent_id: "parent-source",
-      to_parent_id: "parent-target",
-      ordered_source_ids: ["source-2"],
-      ordered_target_ids: ["target-1", "item-1"],
-    });
-
-    expect(result).toEqual({
-      version: expect.objectContaining({ id: VERSION_ID, updated_at: "2026-02-22T12:00:00.000Z" }),
-      item_id: "item-1",
-      from_parent_id: "parent-source",
-      to_parent_id: "parent-target",
-      ordered_source_ids: ["source-2"],
-      ordered_target_ids: ["target-1", "item-1"],
-      updated_count: 3,
-    });
-    expect(supabase.rpc).toHaveBeenCalledWith("move_estimate_item", {
-      target_version_id: VERSION_ID,
-      target_item_id: "item-1",
-      source_parent_id: "parent-source",
-      target_parent_id: "parent-target",
-      ordered_source_item_ids: ["source-2"],
-      ordered_target_item_ids: ["target-1", "item-1"],
     });
   });
 

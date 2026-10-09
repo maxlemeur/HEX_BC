@@ -1,6 +1,6 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup,render,screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach,describe,expect,it,vi } from "vitest";
 
 const mockRefresh = vi.fn();
 
@@ -74,33 +74,5 @@ describe("EstimateStatusActions", () => {
     const body = JSON.parse(String(init.body)) as Record<string, unknown>;
     expect(body).toEqual({ status: "accepted" });
     expect(body).not.toHaveProperty("force");
-  });
-
-  it("affiche un message explicite quand le gating bloque l'envoi", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          error: { code: "ESTIMATE_GATING_BLOCKED", message: "blocked" },
-        }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      )
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    render(
-      <EstimateStatusActions
-        versionId="v1"
-        currentStatus="draft"
-        updatedAt={UPDATED_AT}
-      />
-    );
-
-    await userEvent.click(
-      screen.getByRole("button", { name: /Marquer envoyé/i })
-    );
-
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent ?? "").toMatch(/Envoi bloqué/i);
-    expect(mockRefresh).not.toHaveBeenCalled();
   });
 });

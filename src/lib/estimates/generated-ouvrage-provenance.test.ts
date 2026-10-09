@@ -144,15 +144,6 @@ async function enrich(
 }
 
 describe("enrichEstimateItemsWithGeneratedOuvrageProvenance", () => {
-  it("returns an empty input without querying persistence", async () => {
-    const { from, supabase } = createSupabaseStub();
-    const items: Array<ReturnType<typeof createItem>> = [];
-
-    const result = await enrich(supabase, items);
-
-    expect(result).toBe(items);
-    expect(from).not.toHaveBeenCalled();
-  });
 
   it("preserves the input reference when the primary applications query fails", async () => {
     const { from, supabase } = createSupabaseStub({

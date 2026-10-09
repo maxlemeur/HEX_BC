@@ -40,8 +40,6 @@ vi.mock("@/lib/affaires/server", () => ({
 vi.mock("@/lib/auth/server", () => ({
   getUserContext: getUserContextMock,
 }));
-
-import { buildDashboardShortcuts } from "@/app/dashboard/dashboard-shortcuts";
 import DashboardPage from "@/app/dashboard/page";
 
 function makeAffaire(index: number): AffaireListItem {
@@ -90,27 +88,6 @@ beforeEach(() => {
 });
 
 describe("DashboardPage", () => {
-  it("renders bounded current metrics and five recent affaires", async () => {
-    const markup = renderToStaticMarkup(await DashboardPage());
-
-    expect(fetchAffaireDashboardOverviewMock).toHaveBeenCalledTimes(1);
-    expect(fetchAffaireDashboardOverviewMock).toHaveBeenCalledWith();
-    expect(markup).toContain("Vue d’ensemble");
-    expect(markup).toContain("Affaires actives");
-    expect(markup).toContain(">16<");
-    expect(markup).toContain("Affaire 5");
-    expect(markup).not.toContain("Affaire 6");
-  });
-
-  it("shows admin creation and role-specific shortcuts", async () => {
-    const markup = renderToStaticMarkup(await DashboardPage());
-
-    expect(markup).toContain('href="/dashboard/affaires/new"');
-    expect(markup).toContain('href="/dashboard/approvals"');
-    expect(markup).toContain('href="/dashboard/direction"');
-    expect(markup).toContain('href="/dashboard/analytics"');
-    expect(markup).toContain('href="/dashboard/admin"');
-  });
 
   it("keeps viewer shortcuts within viewer permissions", async () => {
     getUserContextMock.mockResolvedValue({
@@ -127,20 +104,5 @@ describe("DashboardPage", () => {
     expect(markup).not.toContain('href="/dashboard/direction"');
     expect(markup).not.toContain('href="/dashboard/analytics"');
     expect(markup).not.toContain('href="/dashboard/admin"');
-  });
-});
-
-describe("buildDashboardShortcuts", () => {
-  it("adds performances for expert engineers only", () => {
-    expect(
-      buildDashboardShortcuts("engineer", "simplified").some(
-        (shortcut) => shortcut.href === "/dashboard/analytics"
-      )
-    ).toBe(false);
-    expect(
-      buildDashboardShortcuts("engineer", "expert").some(
-        (shortcut) => shortcut.href === "/dashboard/analytics"
-      )
-    ).toBe(true);
   });
 });

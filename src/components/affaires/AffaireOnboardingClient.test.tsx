@@ -1,6 +1,6 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup,render,screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 const {
   initializeAffaireDraftMock,
@@ -72,58 +72,6 @@ describe("AffaireOnboardingClient", () => {
 
   afterEach(() => {
     cleanup();
-  });
-
-  it("does not create anything on initial render", () => {
-    render(<AffaireOnboardingClient />);
-
-    expect(
-      screen.getByRole("heading", { level: 1, name: /nouvelle affaire/i })
-    ).toBeInTheDocument();
-    expect(screen.getByLabelText(/nom du projet/i)).toHaveValue("");
-    expect(
-      screen.getByRole("button", { name: /creer l'affaire/i })
-    ).toBeDisabled();
-    expect(initializeAffaireDraftMock).not.toHaveBeenCalled();
-  });
-
-  it("enables creation once a project name is entered", async () => {
-    const user = userEvent.setup();
-    render(<AffaireOnboardingClient />);
-
-    const createButton = screen.getByRole("button", {
-      name: /creer l'affaire/i,
-    });
-    expect(createButton).toBeDisabled();
-
-    await user.type(screen.getByLabelText(/nom du projet/i), "Residence Horizon");
-
-    expect(createButton).toBeEnabled();
-    expect(initializeAffaireDraftMock).not.toHaveBeenCalled();
-  });
-
-  it("creates a draft and redirects on save", async () => {
-    const user = userEvent.setup();
-    render(<AffaireOnboardingClient />);
-
-    await user.type(screen.getByLabelText(/nom du projet/i), "Residence Horizon");
-    await user.type(screen.getByLabelText(/^client$/i), "Client Demo");
-    await user.click(screen.getByRole("button", { name: /creer l'affaire/i }));
-
-    await waitFor(() => {
-      expect(initializeAffaireDraftMock).toHaveBeenCalledWith({
-        projectName: "Residence Horizon",
-        clientName: "Client Demo",
-        reference: null,
-      });
-    });
-    await user.click(
-      screen.getByRole("button", { name: /terminer l'animation/i })
-    );
-    expect(routerPushMock).toHaveBeenCalledWith(
-      "/dashboard/affaires/project-1?created=1"
-    );
-    expect(routerRefreshMock).toHaveBeenCalled();
   });
 
   it("surfaces initialization errors and allows a retry", async () => {

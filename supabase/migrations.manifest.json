@@ -213,6 +213,14 @@
     "20260819230500_drop_product_tax_rate.sql": "f14a7671e3fedf7f0deb0f3206959e23600c39c627e080b5c996a2417440be2c",
     "20260820194939_atomic_estimate_draft_lock_takeover.sql": "86f7501b8b280b1e0e19655ca9ecc5e44bb4ce8dfb8e4e7c40b166e805d2014f",
     "20260823195011_promote_inconsistent_estimate_line_natures.sql": "152582480d0726f1acf98cd8d9e48e1fe63921873f3ce69887514cf3f3955b99",
-    "20260825200420_link_estimate_items_to_products.sql": "e745e78ee82ff10f6434c098bda0bc8134030835479033fa2eaa8c31dd2e447e"
+    "20260825200420_link_estimate_items_to_products.sql": "e745e78ee82ff10f6434c098bda0bc8134030835479033fa2eaa8c31dd2e447e",
+    "20260906101101_add_estimate_project_site_address.sql": "3b1d2d0a2716eb29183a569c53fb568b9747f40a419f777a63838eb9c88004d6",
+    "20260906110121_supplier_price_validity_six_months.sql": "3e3d892f825a060cafe887941e01c7ab03d92bf1dd7a02143f2bcc0fc12caa9b",
+    "20260906145000_supplier_reference_price_proposals.sql": "e961c262ced45563486b4f2e860d675ae15dedaa7e1e75419be10675313d4653",
+    "20261002155954_product_internal_reference_auto.sql": "b1f24d5de4a2a804e3f7460ac4b8c4d5cd2d635b57fb634af851eea1d12e2c6e",
+    "20261002160807_supplier_offer_atomic_edit.sql": "351b72cbc6b6fa7164832a225d53fbbed5d888669b1cbd9e86afcf8758eb5bb4",
+    "20261002175735_fix_estimate_duplication_parameter_qualification.sql": "71bddc67af9c06aa6fe04b5620dd40bb6d4f32422df3db5d82ef8de86ba3898c",
+    "20261006210154_restore_bulk_estimate_labor_split.sql": "db4d586abf4ffb37ade5abcb7ea2a5721ac638a20734fd57741fee62efdc7220",
+    "20261007062228_restore_bulk_estimate_aid.sql": "c76ca56503a60c0fa2393b84eceba7c262c0de1e568d0eee4b4de3e31ae2b6e4"
   }
 }

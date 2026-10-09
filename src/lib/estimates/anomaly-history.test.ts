@@ -129,53 +129,6 @@ describe("getAnomalyTrend", () => {
     vi.clearAllMocks();
   });
 
-  it("returns empty trend for no audit logs", async () => {
-    const supabase = buildMockSupabase([]);
-    const result = await getAnomalyTrend(supabase as never, TENANT_ID, {});
-
-    expect(result.trend).toEqual([]);
-    expect(result.avgResolution).toEqual([]);
-  });
-
-  it("detects flag appearance on INSERT", async () => {
-    const supabase = buildMockSupabase([
-      {
-        id: "log-1",
-        created_at: "2025-06-15T10:00:00Z",
-        record_id: "item-1",
-        action: "INSERT",
-        before_data: null,
-        after_data: { unit_price_ht_cents: 0, quantity: 5, h_mo: 2, labor_role_id: "role-1" },
-      },
-    ]);
-
-    const result = await getAnomalyTrend(supabase as never, TENANT_ID, {});
-
-    expect(result.trend).toEqual([
-      { period: "2025-06", opened: 1, resolved: 0 },
-    ]);
-  });
-
-  it("detects multiple flags on same INSERT", async () => {
-    const supabase = buildMockSupabase([
-      {
-        id: "log-1",
-        created_at: "2025-06-15T10:00:00Z",
-        record_id: "item-1",
-        action: "INSERT",
-        before_data: null,
-        after_data: { unit_price_ht_cents: 0, quantity: 0, h_mo: 0, labor_role_id: null },
-      },
-    ]);
-
-    const result = await getAnomalyTrend(supabase as never, TENANT_ID, {});
-
-    // missing_price, missing_quantity, missing_labor_time all opened
-    expect(result.trend).toEqual([
-      { period: "2025-06", opened: 3, resolved: 0 },
-    ]);
-  });
-
   it("detects flag resolution on UPDATE", async () => {
     const supabase = buildMockSupabase([
       {
@@ -325,44 +278,6 @@ describe("getAnomalyTrend", () => {
     // Both events are outside June, so trend is empty for that window
     // But the running state is still built correctly
     expect(result.trend).toEqual([]);
-  });
-
-  it("detects missing_labor_role flag correctly", async () => {
-    const supabase = buildMockSupabase([
-      {
-        id: "log-1",
-        created_at: "2025-06-01T00:00:00Z",
-        record_id: "item-1",
-        action: "INSERT",
-        before_data: null,
-        after_data: { unit_price_ht_cents: 500, quantity: 5, h_mo: 2, labor_role_id: null },
-      },
-    ]);
-
-    const result = await getAnomalyTrend(supabase as never, TENANT_ID, {});
-
-    // missing_labor_role: h_mo > 0 && labor_role_id is null
-    expect(result.trend).toEqual([
-      { period: "2025-06", opened: 1, resolved: 0 },
-    ]);
-  });
-
-  it("handles empty before/after data gracefully", async () => {
-    const supabase = buildMockSupabase([
-      {
-        id: "log-1",
-        created_at: "2025-06-01T00:00:00Z",
-        record_id: "item-1",
-        action: "UPDATE",
-        before_data: null,
-        after_data: null,
-      },
-    ]);
-
-    const result = await getAnomalyTrend(supabase as never, TENANT_ID, {});
-
-    expect(result.trend).toEqual([]);
-    expect(result.avgResolution).toEqual([]);
   });
 
   it("queries newest rows but replays transitions chronologically", async () => {

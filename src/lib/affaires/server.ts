@@ -129,7 +129,7 @@ export type AffaireDashboardOverviewResult = {
 
 type AffaireHubProjectRow = Pick<
   EstimateProjectRow,
-  "id" | "tenant_id" | "user_id" | "name" | "reference" | "client_name" | "is_archived"
+  "id" | "tenant_id" | "user_id" | "name" | "reference" | "client_name" | "site_address" | "is_archived"
 >;
 
 type AffaireHubVersionRow = Pick<
@@ -166,6 +166,7 @@ export type AffaireHubProject = {
   name: string;
   reference: string | null;
   clientName: string | null;
+  siteAddress?: string | null;
 };
 
 export type AffaireHubVersionSummary = {
@@ -796,7 +797,7 @@ async function fetchAffaireHubProjectOrThrow(
 ): Promise<AffaireHubProjectRow> {
   let query = context.supabase
     .from("estimate_projects")
-    .select("id, tenant_id, user_id, name, reference, client_name, is_archived")
+    .select("id, tenant_id, user_id, name, reference, client_name, site_address, is_archived")
     .eq("id", projectId)
     .eq("tenant_id", context.tenantId)
     .eq("is_archived", false);
@@ -1015,6 +1016,7 @@ async function fetchAffaireHubSummaryWithContext(
       name: project.name,
       reference: project.reference,
       clientName: project.client_name,
+      siteAddress: project.site_address ?? null,
     },
     currentVersion: currentVersion ? toAffaireHubVersionSummary(currentVersion) : null,
     acceptedVersion: acceptedVersion ? toAffaireHubVersionSummary(acceptedVersion) : null,
@@ -1661,6 +1663,7 @@ async function fetchAffaireManagerReadinessWithContext(
     name: item.projectName,
     reference: item.projectReference,
     client_name: item.projectClient,
+    site_address: null,
     is_archived: false,
   } satisfies AffaireHubProjectRow;
 

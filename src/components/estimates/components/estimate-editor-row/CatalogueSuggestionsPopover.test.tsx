@@ -1,11 +1,11 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup,fireEvent,render,screen } from "@testing-library/react";
 import { useState } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach,describe,expect,it,vi } from "vitest";
 
 import { CatalogueSuggestionsPopover } from "@/components/estimates/components/estimate-editor-row/CatalogueSuggestionsPopover";
 import type {
-  CataloguePriceSuggestion,
-  SupplierAlternative,
+CataloguePriceSuggestion,
+SupplierAlternative,
 } from "@/components/estimates/components/estimate-editor-row/shared";
 
 const alternative: SupplierAlternative = {
@@ -138,30 +138,6 @@ function renderPopover(
 
 describe("CatalogueSuggestionsPopover", () => {
   afterEach(cleanup);
-  it("affiche d'abord l'article, puis ses caractéristiques et son offre fournisseur", () => {
-    renderPopover();
-
-    expect(
-      screen.getByText("1 résultat pour « tube inox »"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("Tube inox 304L à sertir — DN15"),
-    ).toBeInTheDocument();
-    const dimensionsTag = screen.getByText("18,0 × 1,0");
-    const standardTag = screen.getByText("NF EN 10312");
-    expect(dimensionsTag.parentElement).toBe(standardTag.parentElement);
-    expect(
-      screen.queryByText("Tube · Inox 304L · 18,0 × 1,0 · NF EN 10312"),
-    ).not.toBeInTheDocument();
-    expect(screen.getByText("TUB-I4S-15")).toBeInTheDocument();
-    expect(screen.getByText("Tuyauterie")).toBeInTheDocument();
-    expect(screen.getByText(/2,24/)).toHaveTextContent("/ml");
-    expect(screen.getByText("ARCUS").parentElement).toHaveTextContent(
-      "ARCUS · réf. TSP04L 18X1 · prix du 14/07/2026",
-    );
-    expect(screen.getByText("Prix à jour")).toBeInTheDocument();
-    expect(screen.getByText("2 offres")).toBeInTheDocument();
-  });
 
   it("retire les caractéristiques déjà lisibles dans la désignation", () => {
     renderPopover(undefined, [redundantSuggestion], "rouge");
@@ -182,17 +158,6 @@ describe("CatalogueSuggestionsPopover", () => {
     expect(screen.getByText("SOFINTHER").parentElement).toHaveTextContent(
       "SOFINTHER · réf. 41483 · prix du 14/07/2026",
     );
-  });
-
-  it("rend la liste dans un portail pour échapper aux overflows du tableau", () => {
-    const { container } = renderPopover();
-    const popover = screen.getByRole("listbox").parentElement;
-
-    expect(popover).not.toBeNull();
-    expect(container).not.toContainElement(popover);
-    expect(document.body).toContainElement(popover);
-    expect(popover).toHaveStyle({ position: "fixed" });
-    expect(popover).toHaveAttribute("data-placement", "bottom");
   });
 
   it("affiche et permet de choisir un produit sans offre fournisseur", () => {

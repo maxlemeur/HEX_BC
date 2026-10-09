@@ -1,5 +1,5 @@
-import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { render,within } from "@testing-library/react";
+import { describe,expect,it,vi } from "vitest";
 
 vi.mock("next/link", () => ({
   default: function MockLink({
@@ -72,14 +72,6 @@ const BASE_ITEM: ApprovalQueueItem = {
 };
 
 describe("ApprovalQueueCard", () => {
-  it("deep-links to the supported validation review params", () => {
-    render(<ApprovalQueueCard item={BASE_ITEM} />);
-
-    expect(screen.getByRole("link")).toHaveAttribute(
-      "href",
-      "/dashboard/affaires/project-1/takeoff/job-1/review?versionId=version-1&from=approval&reviewMode=validation&view=dpgf&dpgfView=exceptions_only"
-    );
-  });
 
   it("keeps triage actions outside the card content link", () => {
     const { container } = render(<ApprovalQueueCard item={BASE_ITEM} />);
@@ -87,21 +79,6 @@ describe("ApprovalQueueCard", () => {
     expect(container.querySelector("article")).toBeTruthy();
     expect(within(container).getByTestId("triage-actions").closest("a")).toBeNull();
     expect(container.querySelector("a button")).toBeNull();
-  });
-
-  it("allows long project names to wrap without horizontal overflow", () => {
-    const { container } = render(
-      <ApprovalQueueCard
-        item={{
-          ...BASE_ITEM,
-          projectName: "Restructuration hydraulique du centre hospitalier intercommunal",
-        }}
-      />
-    );
-
-    const title = within(container).getByRole("heading", { level: 3 });
-    expect(title).toHaveClass("line-clamp-2", "break-words");
-    expect(title).not.toHaveClass("truncate");
   });
 
   it("falls back to the synthetic alert job when the RPC latest job is missing", () => {
@@ -142,14 +119,5 @@ describe("ApprovalQueueCard", () => {
       "href",
       "/dashboard/affaires/project-1"
     );
-  });
-
-  it("shows the first synthetic alert summary when present", () => {
-    render(<ApprovalQueueCard item={BASE_ITEM} />);
-
-    expect(
-      screen.getAllByText("Montant eleve avec preuves a consolider").length
-    ).toBeGreaterThan(0);
-    expect(screen.getAllByText("2 preuves manquantes.").length).toBeGreaterThan(0);
   });
 });

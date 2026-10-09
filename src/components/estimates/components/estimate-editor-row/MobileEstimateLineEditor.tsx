@@ -1,10 +1,13 @@
 "use client";
 
+import { EstimateTypeCombobox } from "@/components/estimates/EstimateTypeCombobox";
+import type { SupplyType } from "@/components/estimates/components/estimate-editor-row/shared";
+import { resolveLaborRoleHourlyRate } from "@/lib/estimates/editor-items";
+
 import { type ReactNode } from "react";
 import { Modal } from "@/components/ui-legacy/Modal";
 import { DecimalDraftInput } from "@/components/estimates/components/estimate-editor-row/DecimalDraftInput";
 import {
-  formatLaborRoleOptionLabel,
   formatMajorationPercentInput,
   parseMajorationPercentToCoefficient,
   type EstimateItem,
@@ -28,7 +31,7 @@ type MobileEstimateLineEditorProps = {
   itemNumber: string | null;
   estimateCurrency: SupportedEstimateCurrency;
   unitValue: string;
-  supplyTypeValue: string;
+  supplyTypes: SupplyType[];
   laborRoles: LaborRole[];
   isReadOnly: boolean;
   isLaborSplitEnabled: boolean;
@@ -68,7 +71,7 @@ export function MobileEstimateLineEditor({
   itemNumber,
   estimateCurrency,
   unitValue,
-  supplyTypeValue,
+  supplyTypes,
   laborRoles,
   isReadOnly,
   isLaborSplitEnabled,
@@ -82,8 +85,6 @@ export function MobileEstimateLineEditor({
     onPatchItem,
     onUnitChange,
     onUnitCommit,
-    onSupplyTypeChange,
-    onSupplyTypeCommit,
   } = useEstimateEditorRowActions();
   const majorationPercent = formatMajorationPercentInput(item.h_mo_majoration);
   const inputClassName = "form-input min-h-12 w-full text-base";
@@ -276,16 +277,15 @@ export function MobileEstimateLineEditor({
             <div className="space-y-3 border-t border-[var(--slate-200)] p-3">
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Type fourniture">
-                  <input
+                  <EstimateTypeCombobox
+                    key={`${item.id}:fo`}
                     className={inputClassName}
-                    value={supplyTypeValue}
-                    aria-label={`Type de fourniture pour ${lineLabel}`}
-                    list="estimate-fo-type-options"
+                    value={item.supply_type_id}
+                    options={supplyTypes.map((type) => ({ id: type.id, code: type.code, label: type.name }))}
+                    label={`Type de fourniture pour ${lineLabel}`}
+                    emptyLabel="Aucun type"
                     disabled={isReadOnly}
-                    onChange={(event) =>
-                      onSupplyTypeChange(item.id, event.currentTarget.value)
-                    }
-                    onBlur={() => onSupplyTypeCommit(item.id)}
+                    onCommit={(id) => onPatchItem(item.id, { supply_type_id: id }, { persist: true })}
                   />
                 </Field>
                 <Field label="Coefficient K FO">
@@ -342,26 +342,16 @@ export function MobileEstimateLineEditor({
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-3">
                     <Field label="Rôle atelier">
-                      <select
-                        className={`${inputClassName} form-select`}
-                        value={item.labor_role_atelier_id ?? ""}
-                        aria-label={`Rôle de main-d’œuvre en atelier pour ${lineLabel}`}
+                      <EstimateTypeCombobox
+                        key={`${item.id}:atelier`}
+                        className={inputClassName}
+                        value={item.labor_role_atelier_id ?? null}
+                        options={laborRoles.map((role) => ({ id: role.id, label: role.name, detail: `${formatCurrency(resolveLaborRoleHourlyRate(role, "atelier"), "EUR")} / h`, disabled: !role.is_active }))}
+                        label={`Rôle de main-d’œuvre en atelier pour ${lineLabel}`}
+                        emptyLabel="Aucun rôle"
                         disabled={isReadOnly}
-                        onChange={(event) =>
-                          onPatchItem(
-                            item.id,
-                            { labor_role_atelier_id: event.currentTarget.value || null },
-                            { persist: true },
-                          )
-                        }
-                      >
-                        <option value="">Non défini</option>
-                        {laborRoles.map((role) => (
-                          <option key={role.id} value={role.id} disabled={!role.is_active}>
-                            {formatLaborRoleOptionLabel(role)}
-                          </option>
-                        ))}
-                      </select>
+                        onCommit={(id) => onPatchItem(item.id, { labor_role_atelier_id: id }, { persist: true })}
+                      />
                     </Field>
                     <Field label="K MO atelier">
                       <DecimalDraftInput
@@ -381,26 +371,16 @@ export function MobileEstimateLineEditor({
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <Field label="Rôle chantier">
-                      <select
-                        className={`${inputClassName} form-select`}
-                        value={item.labor_role_chantier_id ?? ""}
-                        aria-label={`Rôle de main-d’œuvre sur chantier pour ${lineLabel}`}
+                      <EstimateTypeCombobox
+                        key={`${item.id}:chantier`}
+                        className={inputClassName}
+                        value={item.labor_role_chantier_id ?? null}
+                        options={laborRoles.map((role) => ({ id: role.id, label: role.name, detail: `${formatCurrency(resolveLaborRoleHourlyRate(role, "chantier"), "EUR")} / h`, disabled: !role.is_active }))}
+                        label={`Rôle de main-d’œuvre sur chantier pour ${lineLabel}`}
+                        emptyLabel="Aucun rôle"
                         disabled={isReadOnly}
-                        onChange={(event) =>
-                          onPatchItem(
-                            item.id,
-                            { labor_role_chantier_id: event.currentTarget.value || null },
-                            { persist: true },
-                          )
-                        }
-                      >
-                        <option value="">Non défini</option>
-                        {laborRoles.map((role) => (
-                          <option key={role.id} value={role.id} disabled={!role.is_active}>
-                            {formatLaborRoleOptionLabel(role)}
-                          </option>
-                        ))}
-                      </select>
+                        onCommit={(id) => onPatchItem(item.id, { labor_role_chantier_id: id }, { persist: true })}
+                      />
                     </Field>
                     <Field label="K MO chantier">
                       <DecimalDraftInput
@@ -422,26 +402,16 @@ export function MobileEstimateLineEditor({
               ) : (
                 <div className="grid grid-cols-2 gap-3">
                   <Field label="Rôle main d’œuvre">
-                    <select
-                      className={`${inputClassName} form-select`}
-                      value={item.labor_role_id ?? ""}
-                      aria-label={`Rôle de main-d’œuvre pour ${lineLabel}`}
-                      disabled={isReadOnly}
-                      onChange={(event) =>
-                        onPatchItem(
-                          item.id,
-                          { labor_role_id: event.currentTarget.value || null },
-                          { persist: true },
-                        )
-                      }
-                    >
-                      <option value="">Non défini</option>
-                      {laborRoles.map((role) => (
-                        <option key={role.id} value={role.id} disabled={!role.is_active}>
-                          {formatLaborRoleOptionLabel(role)}
-                        </option>
-                      ))}
-                    </select>
+                    <EstimateTypeCombobox
+                        key={`${item.id}:default`}
+                        className={inputClassName}
+                        value={item.labor_role_id ?? null}
+                        options={laborRoles.map((role) => ({ id: role.id, label: role.name, detail: `${formatCurrency(resolveLaborRoleHourlyRate(role, "default"), "EUR")} / h`, disabled: !role.is_active }))}
+                        label={`Rôle de main-d’œuvre pour ${lineLabel}`}
+                        emptyLabel="Aucun rôle"
+                        disabled={isReadOnly}
+                        onCommit={(id) => onPatchItem(item.id, { labor_role_id: id }, { persist: true })}
+                      />
                   </Field>
                   <Field label="Coefficient K MO">
                     <DecimalDraftInput

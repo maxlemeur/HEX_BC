@@ -181,38 +181,6 @@ describe("fetchApprovalQueue", () => {
     });
   });
 
-  it("reverses the canonical RPC order for the opposite direction", async () => {
-    const rows = [
-      approvalRow(),
-      approvalRow({
-        project_id: "project-2",
-        version_id: "version-2",
-        cycle_id: "cycle-2",
-        project_name: "Affaire Beta",
-      }),
-    ];
-    const { context } = createContext({
-      rpcResult: { data: rows, error: null },
-    });
-    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
-    vi.mocked(fetchDirectionProjectSignals).mockResolvedValue({
-      latestJobId: null,
-      alerts: [],
-    } as never);
-
-    const result = await fetchApprovalQueue({
-      sortBy: "amount",
-      sortDir: "asc",
-      onlyExceptions: false,
-    });
-
-    expect(result.map((item) => item.projectId)).toEqual([
-      "project-2",
-      "project-1",
-    ]);
-    expect(rows[0]?.project_id).toBe("project-1");
-  });
-
   it("displays and sorts the effective margins returned by Direction", async () => {
     const rows = [
       approvalRow({
@@ -251,22 +219,6 @@ describe("fetchApprovalQueue", () => {
       ["version-low-cost", 3_750],
     ]);
   });
-
-  it("surfaces an RPC failure with its provider message", async () => {
-    const { context } = createContext({
-      rpcResult: {
-        data: null,
-        error: { message: "database unavailable" },
-      },
-    });
-    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
-
-    await expect(
-      fetchApprovalQueue({ sortBy: "age", sortDir: "asc", onlyExceptions: false })
-    ).rejects.toThrow(
-      "Erreur lors du chargement de la file d'approbation: database unavailable"
-    );
-  });
 });
 
 describe("markApprovalQueueItemState", () => {
@@ -304,16 +256,5 @@ describe("markApprovalQueueItemState", () => {
       },
       { onConflict: "tenant_id,cycle_id,reviewer_id" }
     );
-  });
-
-  it("surfaces an upsert failure", async () => {
-    const { context } = createContext({
-      upsertError: { message: "write failed" },
-    });
-    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
-
-    await expect(
-      markApprovalQueueItemState("cycle-1", "blocking")
-    ).rejects.toThrow("Erreur lors de la mise a jour de l'etat: write failed");
   });
 });

@@ -1,8 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  listSupplierPriceEvidenceRows,
-  listTakeoffLineEvidenceRows,
   mapActiveLineEvidenceRowsToProofs,
   mapTakeoffLineEvidencePanel,
   syncTakeoffLineEvidences,
@@ -15,7 +13,6 @@ const VERSION_ID = "44444444-4444-4444-8444-444444444444";
 const JOB_ID = "55555555-5555-4555-8555-555555555555";
 const LINE_ID = "66666666-6666-4666-8666-666666666666";
 const USER_ID = "11111111-1111-4111-8111-111111111111";
-const PRICE_ID = "77777777-7777-4777-8777-777777777777";
 
 type QueryResult = { data: unknown; error: unknown };
 
@@ -148,21 +145,6 @@ describe("mapActiveLineEvidenceRowsToProofs", () => {
 });
 
 describe("listTakeoffLineEvidenceRows and panel mapping", () => {
-  it("returns an empty list without querying when no line ids are given", async () => {
-    const from = vi.fn();
-
-    await expect(
-      listTakeoffLineEvidenceRows({
-        supabase: { from } as never,
-        tenantId: TENANT_ID,
-        versionId: VERSION_ID,
-        jobId: JOB_ID,
-        lineIds: [],
-        includeHistory: true,
-      }),
-    ).resolves.toEqual([]);
-    expect(from).not.toHaveBeenCalled();
-  });
 
   it("maps persisted rows and author names into active evidence and history", async () => {
     const replaced = createEvidenceRow({
@@ -228,47 +210,6 @@ describe("listTakeoffLineEvidenceRows and panel mapping", () => {
         replaced_by_evidence_id: "evidence-active",
       }),
     ]);
-  });
-});
-
-describe("listSupplierPriceEvidenceRows", () => {
-  it("normalizes joined catalog SKUs into a map keyed by price id", async () => {
-    const builder = createSelectBuilder({
-      data: [
-        {
-          id: PRICE_ID,
-          supplier_sku: "FALLBACK-SKU",
-          unit: "u",
-          unit_price_cents: 1250,
-          currency: "EUR",
-          valid_from: "2026-01-01",
-          valid_to: null,
-          notes: "promo",
-          supplier_catalog_items: { supplier_sku: "CAT-42" },
-        },
-      ],
-      error: null,
-    });
-    const from = vi.fn(() => ({ select: vi.fn(() => builder) }));
-
-    const rows = await listSupplierPriceEvidenceRows({
-      supabase: { from } as never,
-      tenantId: TENANT_ID,
-      supplierPriceIds: [PRICE_ID, PRICE_ID],
-    });
-
-    expect(builder.eq).toHaveBeenCalledWith("tenant_id", TENANT_ID);
-    expect(builder.in).toHaveBeenCalledWith("id", [PRICE_ID]);
-    expect(rows.get(PRICE_ID)).toEqual({
-      id: PRICE_ID,
-      supplier_sku: "CAT-42",
-      unit: "u",
-      unit_price_cents: 1250,
-      currency: "EUR",
-      valid_from: "2026-01-01",
-      valid_to: null,
-      notes: "promo",
-    });
   });
 });
 

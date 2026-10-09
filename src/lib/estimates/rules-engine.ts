@@ -13,6 +13,7 @@ import { openEstimateReviewCycle } from "@/lib/estimates/review-cycle-submission
 import { resolveEffectiveMarginBp } from "@/lib/estimates/effective-margin";
 import type { EstimateReadinessCategory } from "@/lib/estimates/readiness";
 import { fetchVersionZeroDraftSummary } from "@/lib/estimates/version-zero-drafts";
+import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
 import {
   normalizeEstimateApprovalDecision,
   resolveApprovalDecisionOutcome,
@@ -1865,8 +1866,10 @@ async function enrichSubmissionReadinessWithAffaireRegister(input: {
             ? `La V0 IA comporte encore ${versionZeroSummary.activeDraft.counts.pending} ligne(s) en attente de validation humaine.`
             : "Une V0 IA active doit etre materialisee ou abandonnee avant soumission.",
         category: "estimate_quality",
-        actionLabel: "Ouvrir la V0",
-        actionHref: `/dashboard/estimates/${input.versionId}/edit?openVersionZero=1`,
+        actionLabel: isEstimateAiDraftEnabled() ? "Ouvrir la V0" : undefined,
+        actionHref: isEstimateAiDraftEnabled()
+          ? `/dashboard/estimates/${input.versionId}/edit?openVersionZero=1`
+          : undefined,
       })
     );
   }

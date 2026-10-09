@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { EstimateColumnOrderControls } from "@/components/estimates/components/EstimateColumnOrderControls";
 
 import {
   ESTIMATE_QUALITY_FLAG_KEYS,
@@ -112,6 +113,9 @@ export function EstimateEditorCommandBar({
   onToggleColumn,
   hiddenAdvancedCount,
   onToggleAdvancedColumns,
+  columnOrder,
+  onMoveColumn,
+  onResetColumns,
   isFinalizationPanelOpen = false,
   onToggleFinalizationPanel,
   isLaborSplitEnabled = false,
@@ -124,11 +128,7 @@ export function EstimateEditorCommandBar({
   const isSimplifiedMode = uiMode === "simplified";
   const [activeRibbonTab, setActiveRibbonTab] =
     useState<EditorRibbonTab>("chiffrage");
-  const availableColumnPresets = isSimplifiedMode
-    ? (["essential"] as const)
-    : (Object.keys(columnPresetLabels) as Array<
-        keyof typeof columnPresetLabels
-      >);
+  const availableColumnPresets = Object.keys(columnPresetLabels) as Array<keyof typeof columnPresetLabels>;
   const {
     isOpen: insertOpen,
     toggle: insertToggle,
@@ -515,8 +515,8 @@ export function EstimateEditorCommandBar({
                       ) : null}
                     </button>
                   )
-                ) : (
-                  <>
+                ) : null}
+                <>
                     <div className="mt-2 grid grid-cols-2 gap-2">
                       {availableColumnPresets.map((preset) => (
                         <button
@@ -550,8 +550,22 @@ export function EstimateEditorCommandBar({
                         ))}
                       </div>
                     ) : null}
-                  </>
-                )}
+                </>
+                {columnOrder && onMoveColumn ? (
+                  <EstimateColumnOrderControls
+                    order={columnOrder}
+                    isLaborSplitEnabled={isLaborSplitEnabled}
+                    onMoveColumn={onMoveColumn}
+                  />
+                ) : null}
+                {onResetColumns ? (
+                  <button type="button" className="btn btn-secondary btn-sm mt-3 w-full" onClick={onResetColumns}>
+                    Réinitialiser les colonnes et leurs largeurs
+                  </button>
+                ) : null}
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Préférences personnelles enregistrées sur ce navigateur. Le document client reste indépendant.
+                </p>
               </section>
 
               {!isSimplifiedMode && qualityCounts.totalFlagsCount > 0 ? (

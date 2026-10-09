@@ -323,6 +323,7 @@ export default function LoginPage() {
           initial="hidden"
           animate="visible"
           className="relative w-full max-w-md space-y-6"
+          method="post"
           onSubmit={onSubmit}
         >
           {/* Heading */}

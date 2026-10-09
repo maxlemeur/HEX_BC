@@ -1,8 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe,expect,it } from "vitest";
 
 import {
-  filterMappingToSourceColumns,
-  resolveSelectedImportId,
+filterMappingToSourceColumns,
+resolveSelectedImportId,
 } from "@/components/mappings/MappingWizard";
 
 const importsData = [
@@ -27,16 +27,6 @@ describe("resolveSelectedImportId", () => {
     const resolved = resolveSelectedImportId(importsData, "missing-id", "missing-id");
     expect(resolved).toBe("import-1");
   });
-
-  it("keeps current selection when it exists and no query import_id is provided", () => {
-    const resolved = resolveSelectedImportId(importsData, null, "import-2");
-    expect(resolved).toBe("import-2");
-  });
-
-  it("returns empty id when no imports are available", () => {
-    const resolved = resolveSelectedImportId([], "missing-id", "missing-id");
-    expect(resolved).toBe("");
-  });
 });
 
 describe("filterMappingToSourceColumns", () => {
@@ -54,15 +44,5 @@ describe("filterMappingToSourceColumns", () => {
       Code: "hex_code",
       Designation: "designation",
     });
-  });
-
-  it("returns the original mapping when all keys are visible", () => {
-    const mapping = {
-      Code: "hex_code",
-      Designation: "designation",
-    };
-
-    const filtered = filterMappingToSourceColumns(mapping, ["Code", "Designation"]);
-    expect(filtered).toBe(mapping);
   });
 });

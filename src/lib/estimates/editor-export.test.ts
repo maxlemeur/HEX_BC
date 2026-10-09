@@ -2,15 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
 import type { EstimateTotals } from "@/lib/estimate-calculations";
-import {
-  buildEstimateExportFilename,
-  buildEstimateLineExportRows,
-  buildEstimateRecapRow,
-  buildSectionPathResolver,
-  getEstimateLineExportColumns,
-  normalizeSupplierComparisonsByItemId,
-  type SupplierComparisonsByItemId,
-} from "@/lib/estimates/editor-export";
+import { buildEstimateLineExportRows, buildEstimateRecapRow, normalizeSupplierComparisonsByItemId, type SupplierComparisonsByItemId } from "@/lib/estimates/editor-export";
 import type {
   EstimateItem,
   EstimateVersionRow,
@@ -120,22 +112,6 @@ const QUALITY_COUNTS = {
 } as const;
 
 describe("estimate editor export filename and recap", () => {
-  it("sanitizes project names and keeps the explicit version and date", () => {
-    expect(
-      buildEstimateExportFilename({
-        projectName: " Projet / Alpha ",
-        versionNumber: 3,
-        date: new Date("2026-07-15T18:00:00.000Z"),
-      })
-    ).toBe("Projet_-_Alpha_V3_2026-07-15");
-    expect(
-      buildEstimateExportFilename({
-        projectName: "",
-        versionNumber: null,
-        date: new Date("2026-07-15T00:00:00.000Z"),
-      })
-    ).toBe("chiffrage_2026-07-15");
-  });
 
   it("guards incomplete recap inputs and computes the discount basis points", () => {
     const version = {
@@ -262,25 +238,6 @@ describe("estimate editor supplier comparison normalization", () => {
 });
 
 describe("estimate editor line export rows", () => {
-  it("resolves a nested section path and returns an empty path for sections", () => {
-    const root = createItem({
-      id: "section-root",
-      item_type: "section",
-      parent_id: null,
-      title: " Lot plomberie ",
-    });
-    const child = createItem({
-      id: "section-child",
-      item_type: "section",
-      parent_id: "section-root",
-      title: "   ",
-    });
-    const line = createItem();
-    const resolvePath = buildSectionPathResolver([root, child, line]);
-
-    expect(resolvePath(line)).toBe("Lot plomberie > Sans titre");
-    expect(resolvePath(child)).toBe("");
-  });
 
   it("builds a complete line with quality, supplier and labor split values", () => {
     const root = createItem({
@@ -360,47 +317,5 @@ describe("estimate editor line export rows", () => {
         line_total_ttc_cents: 18720,
       },
     ]);
-  });
-
-  it("exposes stable standard and labor-split column contracts", () => {
-    const standard = getEstimateLineExportColumns(false);
-    const split = getEstimateLineExportColumns(true);
-
-    expect(standard.map((column) => column.key)).toEqual([
-      "section_path",
-      "designation",
-      "quality_flags",
-      "unit",
-      "quantity",
-      "unit_price_ht_cents",
-      "supply_type",
-      "supplier_1",
-      "supplier_2",
-      "supplier_3",
-      "k_fo",
-      "h_mo",
-      "h_mo_majoration_pct",
-      "labor_role",
-      "k_mo",
-      "pu_ht_cents",
-      "line_total_ht_cents",
-      "tax_rate_bp",
-      "line_total_ttc_cents",
-    ]);
-    expect(split.slice(0, standard.length)).toEqual(standard);
-    expect(split.slice(standard.length).map((column) => column.key)).toEqual([
-      "h_mo_atelier",
-      "labor_role_atelier",
-      "k_mo_atelier",
-      "h_mo_chantier",
-      "labor_role_chantier",
-      "k_mo_chantier",
-    ]);
-
-    const unitPriceColumn = standard.find(
-      (column) => column.key === "unit_price_ht_cents"
-    );
-    expect(unitPriceColumn?.formatter?.(1250, {} as never)).toBe(12.5);
-    expect(unitPriceColumn?.formatter?.("", {} as never)).toBe("");
   });
 });

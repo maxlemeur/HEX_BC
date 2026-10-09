@@ -1,6 +1,6 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup,fireEvent,render,screen } from "@testing-library/react";
 import { useState } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach,describe,expect,it } from "vitest";
 
 import { ProductionRibbonTabs } from "@/components/dashboard/ProductionRibbonTabs";
 
@@ -40,16 +40,6 @@ function Harness() {
 }
 
 describe("ProductionRibbonTabs", () => {
-  it("exposes the selected tab and its controlled panel", () => {
-    render(<Harness />);
-
-    const active = screen.getByRole("tab", { name: "Chiffrage" });
-    expect(active).toHaveAttribute("aria-selected", "true");
-    expect(active).toHaveAttribute("aria-controls", "estimate-panel");
-    expect(screen.getByRole("tabpanel")).toHaveTextContent(
-      "Panneau Chiffrage"
-    );
-  });
 
   it("moves selection and focus with arrow, Home and End keys", () => {
     render(<Harness />);

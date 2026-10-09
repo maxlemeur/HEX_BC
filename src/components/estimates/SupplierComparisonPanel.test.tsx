@@ -74,7 +74,7 @@ describe("SupplierComparisonPanel", () => {
     render(
       <SupplierComparisonPanel
         isOpen
-        itemTitle="Faux plafond acoustique"
+        itemTitle="rouge"
         alternatives={alternatives}
         bestSupplierPriceId="price-best"
         isLoading={false}
@@ -90,13 +90,14 @@ describe("SupplierComparisonPanel", () => {
     expect(screen.getByText("Recent Supplier")).toBeInTheDocument();
     expect(screen.getByText("Preferred Supplier")).toBeInTheDocument();
     expect(screen.getByText("Old Supplier")).toBeInTheDocument();
+    expect(screen.getAllByText("Faux plafond acoustique")).toHaveLength(4);
     expect(screen.getByText("Meilleur prix")).toBeInTheDocument();
     expect(screen.getByText("Prix le plus recent")).toBeInTheDocument();
     expect(screen.getByText("Fournisseur prefere")).toBeInTheDocument();
     expect(screen.getByText("Sélection actuelle")).toBeInTheDocument();
     expect(screen.getByText("Prix ancien")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Déjà sélectionné" })
+      screen.getByRole("button", { name: "Offre retenue" })
     ).toBeDisabled();
   });
 
@@ -118,7 +119,7 @@ describe("SupplierComparisonPanel", () => {
       />
     );
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Sélectionner" })[1]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Retenir cette offre" })[1]!);
 
     expect(onSelectAlternative).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -180,10 +181,10 @@ describe("SupplierComparisonPanel", () => {
       />
     );
 
-    const buttons = screen.getAllByRole("button", { name: "Sélectionner" });
+    const buttons = screen.getAllByRole("button", { name: "Retenir cette offre" });
     expect(buttons[0]).toBeDisabled();
     expect(buttons[1]).not.toBeDisabled();
-    expect(screen.getByText("Devise differente")).toBeTruthy();
+    expect(screen.getByText("Conversion de devise requise")).toBeTruthy();
   });
 
   it("laisse selectionner un prix sans devise renseignee", () => {
@@ -205,7 +206,7 @@ describe("SupplierComparisonPanel", () => {
     );
 
     expect(
-      screen.getAllByRole("button", { name: "Sélectionner" })[0]
+      screen.getAllByRole("button", { name: "Retenir cette offre" })[0]
     ).not.toBeDisabled();
   });
 

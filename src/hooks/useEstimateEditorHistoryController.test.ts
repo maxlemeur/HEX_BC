@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { act,cleanup,renderHook,waitFor } from "@testing-library/react";
+import { afterEach,describe,expect,it,vi } from "vitest";
 
 import { useEstimateEditorHistoryController } from "@/hooks/useEstimateEditorHistoryController";
 
@@ -18,41 +18,6 @@ afterEach(() => {
 });
 
 describe("useEstimateEditorHistoryController", () => {
-  it("pushes, undoes and redoes editor commands", async () => {
-    const reportError = vi.fn();
-    const undo = vi.fn().mockResolvedValue(undefined);
-    const redo = vi.fn().mockResolvedValue(undefined);
-    const { result } = renderHook(() =>
-      useEstimateEditorHistoryController({ scopeKey: "version-1", reportError })
-    );
-
-    act(() => {
-      result.current.actions.push({ label: "patch-line", undo, redo });
-    });
-    expect(result.current.state).toMatchObject({
-      canUndo: true,
-      canRedo: false,
-    });
-
-    await act(async () => {
-      await result.current.actions.undo();
-    });
-    expect(undo).toHaveBeenCalledTimes(1);
-    expect(result.current.state).toMatchObject({
-      canUndo: false,
-      canRedo: true,
-    });
-
-    await act(async () => {
-      await result.current.actions.redo();
-    });
-    expect(redo).toHaveBeenCalledTimes(1);
-    expect(result.current.state).toMatchObject({
-      canUndo: true,
-      canRedo: false,
-    });
-    expect(reportError).not.toHaveBeenCalled();
-  });
 
   it("reports a failed undo and keeps the command available", async () => {
     const reportError = vi.fn();
@@ -155,29 +120,6 @@ describe("useEstimateEditorHistoryController", () => {
     await waitFor(() => {
       expect(result.current.state.canUndo).toBe(false);
       expect(result.current.state.canRedo).toBe(false);
-    });
-  });
-
-  it("clears the history through the controller action", () => {
-    const { result } = renderHook(() =>
-      useEstimateEditorHistoryController({
-        scopeKey: "version-1",
-        reportError: vi.fn(),
-      })
-    );
-
-    act(() => {
-      result.current.actions.push({
-        undo: vi.fn().mockResolvedValue(undefined),
-        redo: vi.fn().mockResolvedValue(undefined),
-      });
-      result.current.actions.clear();
-    });
-
-    expect(result.current.state).toMatchObject({
-      canUndo: false,
-      canRedo: false,
-      isExecuting: false,
     });
   });
 

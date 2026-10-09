@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 
 import { Modal } from "@/components/ui-legacy/Modal";
+import { ProductReferenceSuggestion } from "@/components/products/ProductReferenceSuggestion";
 import { parseEuroToCents } from "@/lib/money";
 
 export type ProductRecord = {
@@ -19,6 +20,9 @@ export type ProductRecord = {
   standard?: string | null;
   unit?: string | null;
   unit_price_cents: number;
+  reference_quantity?: number | null;
+  reference_transport_mode?: string | null;
+  reference_price_validation_id?: string | null;
   is_active: boolean;
   _referencePriceSourceOrderId?: string | null;
   _referencePriceSourceOrderReference?: string | null;
@@ -228,9 +232,13 @@ export function ProductFormModal({
                     }
                   />
                   <p className="mt-1.5 text-xs text-[var(--slate-500)]">
-                    Sert au rapprochement automatique avec les DPGF et les
-                    imports fournisseurs.
+                    Référence interne de l’article, distincte des références fournisseur.
                   </p>
+                  <ProductReferenceSuggestion
+                    enabled={open && !isEditing}
+                    value={form.reference}
+                    onUse={(reference) => setForm((current) => ({ ...current, reference }))}
+                  />
                 </div>
 
                 <div>
@@ -363,6 +371,7 @@ export function ProductFormModal({
                     <input
                       id="product-price"
                       className="form-input"
+                      readOnly={isEditing}
                       inputMode="decimal"
                       placeholder="0,00"
                       // `.form-input` impose padding:0 16px : la reserve pour le
@@ -381,9 +390,9 @@ export function ProductFormModal({
                     </span>
                   </div>
                   <p className="mt-1.5 text-xs text-[var(--slate-500)]">
-                    {product?._referencePriceSourceOrderId
-                      ? "Ce montant vient du dernier achat confirmé. Le modifier le remplace par une saisie interne."
-                      : "Laissez vide : le dernier achat confirmé prendra le relais."}
+                    {isEditing
+                      ? "Utilisez « Examiner le prix » dans le catalogue pour valider une moyenne fournisseur ou justifier un autre prix."
+                      : "Prix initial facultatif. Les offres fournisseurs permettront ensuite de proposer une référence à valider."}
                   </p>
                 </div>
               </div>

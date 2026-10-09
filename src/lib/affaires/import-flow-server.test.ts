@@ -4,10 +4,7 @@ import type {
   ValidImportFlowLine,
   ValidImportFlowSection,
 } from "@/lib/affaires/import-flow";
-import {
-  toRpcImportItems,
-  toRpcImportLines,
-} from "@/lib/affaires/import-flow-server";
+import { toRpcImportItems } from "@/lib/affaires/import-flow-server";
 
 const line: ValidImportFlowLine = {
   itemType: "line",
@@ -61,20 +58,6 @@ const levelTwo: ValidImportFlowSection = {
 };
 
 describe("DPGF RPC payload materialization", () => {
-  it("keeps the historical line-only payload compatible", () => {
-    expect(toRpcImportLines([line])).toEqual([
-      expect.objectContaining({
-        item_type: "line",
-        mapped_row_id: "mapped-line",
-        title: "Tube acier",
-        description: "ml",
-        notes: "Sous-sol",
-        quantity: 200,
-        unit_price_ht_cents: 4074,
-        h_mo: 1.2,
-      }),
-    ]);
-  });
 
   it("serializes ordered sections and lines with mapping provenance", () => {
     const payload = toRpcImportItems([levelOne, levelTwo, line], {

@@ -104,9 +104,9 @@ type SupabaseErrorLike = {
 };
 
 const VERSION_ACCESS_SELECT =
-  "id, tenant_id, project_id, version_number, status, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, calc_snapshot_content_revision, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, currency, content_revision, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, client_name)";
+  "id, tenant_id, project_id, version_number, status, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, calc_snapshot_content_revision, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, currency, content_revision, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, site_address, client_name)";
 const LEGACY_VERSION_ACCESS_SELECT =
-  "id, tenant_id, project_id, version_number, status, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, calc_snapshot_content_revision, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, currency, content_revision, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, client_name)";
+  "id, tenant_id, project_id, version_number, status, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, calc_snapshot_content_revision, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, currency, content_revision, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, site_address, client_name)";
 type LaborRoleRate = Pick<
   Database["public"]["Tables"]["labor_roles"]["Row"],
   "id" | "hourly_rate_cents"
@@ -120,6 +120,7 @@ type EmbeddedProject = Pick<
   | "name"
   | "reference"
   | "estimate_reference"
+  | "site_address"
   | "client_name"
 >;
 
@@ -1318,10 +1319,17 @@ export function buildEstimatePdfDocument(input: {
             {input.issuer.role ? <Text>{input.issuer.role}</Text> : null}
             {input.issuer.phone ? <Text>{input.issuer.phone}</Text> : null}
             {input.issuer.email ? <Text>{input.issuer.email}</Text> : null}
-            <Text>Le {formatDate(input.version.date_devis)}</Text>
           </View>
           <View style={businessPdfStyles.documentTitleBlock}>
             <Text style={businessPdfStyles.documentTitle}>Devis</Text>
+            {formattedEstimateReference ? (
+              <Text style={{ fontSize: 10, fontWeight: 700, marginBottom: 4 }}>
+                {formattedEstimateReference}
+              </Text>
+            ) : null}
+            <Text style={{ fontSize: 9, marginBottom: 6 }}>
+              Le {formatDate(input.version.date_devis)}
+            </Text>
             <View style={businessPdfStyles.versionBadge} wrap={false}>
               <Text style={businessPdfStyles.versionBadgeText}>
                 Version :{" "}
@@ -1334,52 +1342,26 @@ export function buildEstimatePdfDocument(input: {
           <View style={{ width: "31%" }} />
         </View>
 
+        <Text style={{ fontSize: 8, textAlign: "center", marginBottom: 12 }}>
+          Validité : {input.version.validite_jours} jours — {vatReverseCharge
+            ? "Autoliquidation"
+            : `TVA : ${formatPercent(input.version.tax_rate_bp)} %`}
+        </Text>
+
         <View style={businessPdfStyles.infoGrid}>
           <View style={businessPdfStyles.infoCard}>
             <Text style={businessPdfStyles.infoCardTitle}>Client</Text>
             <Text style={businessPdfStyles.clientName}>
               {input.project.client_name?.trim() || "Client a renseigner"}
             </Text>
-            <Text style={businessPdfStyles.fieldLabel}>Affaire</Text>
-            <Text style={businessPdfStyles.fieldValue}>
-              {input.project.name}
-            </Text>
-            {formattedEstimateReference ? (
-              <Text>Reference devis : {formattedEstimateReference}</Text>
-            ) : null}
             {input.project.reference ? (
               <Text>Reference projet : {input.project.reference}</Text>
             ) : null}
           </View>
           <View style={businessPdfStyles.infoCard}>
-            <Text style={businessPdfStyles.infoCardTitle}>
-              Informations devis
-            </Text>
-            <View style={businessPdfStyles.infoRow}>
-              <Text>Date du devis</Text>
-              <Text style={{ fontWeight: 700 }}>
-                {formatDate(input.version.date_devis)}
-              </Text>
-            </View>
-            <View style={businessPdfStyles.infoRow}>
-              <Text>Validite</Text>
-              <Text style={{ fontWeight: 700 }}>
-                {input.version.validite_jours} jours
-              </Text>
-            </View>
-            {vatReverseCharge ? (
-              <View style={businessPdfStyles.infoRow}>
-                <Text>Régime fiscal</Text>
-                <Text style={{ fontWeight: 700 }}>Autoliquidation</Text>
-              </View>
-            ) : (
-              <View style={businessPdfStyles.infoRow}>
-                <Text>TVA</Text>
-                <Text style={{ fontWeight: 700 }}>
-                  {formatPercent(input.version.tax_rate_bp)} %
-                </Text>
-              </View>
-            )}
+            <Text style={businessPdfStyles.infoCardTitle}>Chantier</Text>
+            <Text style={businessPdfStyles.clientName}>{input.project.name}</Text>
+            <Text>{input.project.site_address?.trim() || "Adresse du chantier non renseignée"}</Text>
           </View>
         </View>
 

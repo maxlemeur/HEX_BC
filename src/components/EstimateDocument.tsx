@@ -31,6 +31,7 @@ import {
 
 export type EstimateDocumentProps = {
   projectName: string;
+  projectSiteAddress?: string | null;
   projectClient?: string | null;
   projectReference?: string | null;
   estimateReference?: string | null;
@@ -184,6 +185,7 @@ function EstimateTermsPage({
 
 export function EstimateDocument({
   projectName,
+  projectSiteAddress,
   projectClient,
   projectReference,
   estimateReference,
@@ -312,15 +314,16 @@ export function EstimateDocument({
                   {issuerDisplay.displayEmail}
                 </p>
               ) : null}
-              <p className="mt-2 text-xs font-medium text-muted-foreground">
-                Le {formatDate(dateDevis)}
-              </p>
             </div>
 
             <div className="min-w-0 justify-self-center pt-3 text-center print:pt-2">
               <h2 className="mb-2 whitespace-nowrap text-[30px] font-black uppercase tracking-tight text-foreground print:mb-1 print:text-[25px]">
                 Devis
               </h2>
+              {formattedEstimateReference ? (
+                <p className="mb-1 text-sm font-semibold">{formattedEstimateReference}</p>
+              ) : null}
+              <p className="mb-2 text-xs">Le {formatDate(dateDevis)}</p>
               <p className="inline-block rounded-lg border border-border bg-surface-subtle px-4 py-1.5 font-mono text-xs uppercase tracking-wide text-muted-foreground">
                 Version :{" "}
                 <span className="font-bold text-brand-orange">
@@ -333,6 +336,39 @@ export function EstimateDocument({
           </div>
         </div>
 
+        <dl className="mb-4 flex justify-center flex-wrap gap-x-6 gap-y-2 text-xs">
+          <div className="flex items-center justify-between gap-4">
+            <dt>Validité</dt>
+            <dd className="font-semibold text-secondary-foreground">
+              {validiteLabel}
+            </dd>
+          </div>
+          {discountCents > 0 ? (
+            <div className="flex items-center justify-between gap-4">
+              <dt>Remise</dt>
+              <dd className="font-semibold text-secondary-foreground">
+                {discountLabel}
+              </dd>
+            </div>
+          ) : null}
+          {taxEnabled ? (
+            <div className="flex items-center justify-between gap-4">
+              <dt>TVA</dt>
+              <dd className="font-semibold text-secondary-foreground">
+                {taxLabel}
+              </dd>
+            </div>
+          ) : null}
+          {isVatReverseCharge ? (
+            <div className="flex items-center justify-between gap-4">
+              <dt>TVA</dt>
+              <dd className="font-semibold text-secondary-foreground">
+                Autoliquidation
+              </dd>
+            </div>
+          ) : null}
+        </dl>
+
         <div className="mb-8 grid gap-4 sm:grid-cols-2 sm:gap-8 print:mb-4 print:gap-7">
           <section className="purchase-order-party-card rounded-xl border border-border bg-surface-subtle p-4 sm:p-6 print:p-5">
             <h3 className="mb-4 text-center text-xs font-bold uppercase tracking-wide text-brand-orange print:mb-2">
@@ -341,17 +377,6 @@ export function EstimateDocument({
             <p className="text-2xl font-extrabold leading-tight text-foreground">
               {projectClient?.trim() || "Client à renseigner"}
             </p>
-            <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Affaire
-            </p>
-            <p className="mt-1 text-[15px] font-semibold leading-snug text-secondary-foreground">
-              {projectName || "Projet"}
-            </p>
-            {formattedEstimateReference ? (
-              <p className="mt-2 text-sm font-semibold text-secondary-foreground">
-                Référence devis : {formattedEstimateReference}
-              </p>
-            ) : null}
             {projectReference?.trim() ? (
               <p className="mt-2 text-sm text-muted-foreground">
                 Référence projet : {projectReference}
@@ -361,48 +386,13 @@ export function EstimateDocument({
 
           <section className="purchase-order-party-card rounded-xl border border-border bg-surface-subtle p-4 sm:p-6 print:p-5">
             <h3 className="mb-4 text-center text-xs font-bold uppercase tracking-wide text-brand-orange print:mb-2">
-              Informations devis
+              Chantier
             </h3>
-            <dl className="space-y-3 text-sm text-slate-600">
-              <div className="flex items-center justify-between gap-4">
-                <dt>Date du devis</dt>
-                <dd className="font-semibold text-secondary-foreground">
-                  {formatDate(dateDevis)}
-                </dd>
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <dt>Validité</dt>
-                <dd className="font-semibold text-secondary-foreground">
-                  {validiteLabel}
-                </dd>
-              </div>
-              {discountCents > 0 ? (
-                <div className="flex items-center justify-between gap-4">
-                  <dt>Remise</dt>
-                  <dd className="font-semibold text-secondary-foreground">
-                    {discountLabel}
-                  </dd>
-                </div>
-              ) : null}
-              {taxEnabled ? (
-                <div className="flex items-center justify-between gap-4">
-                  <dt>TVA</dt>
-                  <dd className="font-semibold text-secondary-foreground">
-                    {taxLabel}
-                  </dd>
-                </div>
-              ) : null}
-              {isVatReverseCharge ? (
-                <div className="flex items-center justify-between gap-4">
-                  <dt>TVA</dt>
-                  <dd className="font-semibold text-secondary-foreground">
-                    Autoliquidation
-                  </dd>
-                </div>
-              ) : null}
-            </dl>
+            <p className="break-words text-2xl font-extrabold leading-tight">{projectName || "Projet"}</p>
+            <p className="mt-2 whitespace-pre-line break-words text-sm text-muted-foreground">{projectSiteAddress?.trim() || "Adresse du chantier non renseignée"}</p>
           </section>
         </div>
+
 
         <div className="mb-6 overflow-x-auto rounded-xl border border-border shadow-sm print:mb-4 print:overflow-visible">
           <table className={`w-full ${tableMinWidth} md:min-w-0`}>

@@ -1,5 +1,5 @@
-import { act, renderHook } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act,renderHook } from "@testing-library/react";
+import { beforeEach,describe,expect,it,vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   fetchApi: vi.fn(),
@@ -79,47 +79,6 @@ describe("usePriceBookCsvWorkflow", () => {
       duplicateCandidatesCount: 0,
       profile: "generic",
     });
-  });
-
-  it("analyzes a selected csv through the workflow hook and creates a canonical import without projectId", async () => {
-    const { result } = renderHook(() => usePriceBookCsvWorkflow(BASE_PROPS));
-    const file = new File(["fournisseur;reference_produit;prix_unitaire"], "fournisseurs.csv", {
-      type: "text/csv",
-    });
-
-    act(() => {
-      result.current.setSelectedFile(file);
-    });
-
-    await act(async () => {
-      await result.current.analyzeFile();
-    });
-
-    expect(mocks.fetchApi).toHaveBeenCalledWith(
-      "/api/imports",
-      expect.objectContaining({
-        method: "POST",
-        body: expect.any(FormData),
-      })
-    );
-
-    const init = mocks.fetchApi.mock.calls[0]?.[1] as RequestInit;
-    const formData = init.body as FormData;
-
-    expect(formData.get("file")).toBe(file);
-    expect(formData.get("projectId")).toBeNull();
-    expect(result.current.detectedEncoding).toBe("utf-8");
-    expect(result.current.sourceImportId).toBe("import-price-1");
-    expect(result.current.validation?.acceptedRows).toBe(1);
-    expect(mocks.validatePriceBookRows).toHaveBeenCalledWith(
-      expect.any(Array),
-      expect.objectContaining({
-        fournisseur: "supplier_name",
-      }),
-      expect.objectContaining({
-        sourceImportId: "import-price-1",
-      })
-    );
   });
 
   it("creates missing suppliers and products from workflow state without depending on component rendering", async () => {

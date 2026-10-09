@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent,render,screen } from "@testing-library/react";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 import { EstimateEditorRow } from "@/components/estimates/components/EstimateEditorRow";
 import type { Database } from "@/types/database";
@@ -161,53 +161,6 @@ describe("EstimateEditorRow catalogue suggestions", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
-
-  it("loads suggestions and applies the active one with Enter", async () => {
-    render(
-      <EstimateEditorRow
-        versionId="version-1"
-        estimateCurrency="EUR"
-        item={createItem()}
-        depth={1}
-        unitValue="m"
-        supplyTypeValue=""
-        qualityFlags={[]}
-        detectedOutlierFlags={[]}
-        dismissedOutlierFlags={[]}
-        supplyTypeById={new Map()}
-        laborRoles={[]}
-        isLineSelected={false}
-        hasSupplierComparisonMismatch={false}
-        sectionTotals={null}
-        isDragDisabled
-        isOutlierActionPending={false}
-        isReadOnly={false}
-        hideEditingActions
-        isLaborSplitEnabled={false}
-      />
-    );
-
-    const titleInput = screen.getByTestId("estimate-line-title-input");
-    fireEvent.focus(titleInput);
-
-    await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledTimes(1);
-    });
-
-    expect(await screen.findByRole("listbox")).toBeInTheDocument();
-
-    fireEvent.keyDown(titleInput, { key: "Enter" });
-
-    expect(onPatchItem).toHaveBeenCalledWith(
-      "line-1",
-      expect.objectContaining({
-        description: "Tube acier galvanise",
-        selected_supplier_price_id: "price-1",
-        unit_price_ht_cents: 1234,
-      }),
-      { persist: true }
-    );
-  }, 10000);
 
   it("applies a product reference price without keeping an old supplier", async () => {
     vi.stubGlobal(

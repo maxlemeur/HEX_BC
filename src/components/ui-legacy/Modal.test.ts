@@ -92,6 +92,29 @@ describe("ui/Modal", () => {
     cleanup();
   });
 
+  it("keeps scroll locked during overlapping dialogs and releases it after out-of-order close", () => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "auto";
+    const pair = (first: boolean, second: boolean) => createElement(
+      "div",
+      null,
+      createElement(TestModal, { open: first }),
+      createElement(TestModal, { open: second }),
+    );
+    const view = render(pair(true, false));
+    const backgroundRoot = view.container;
+    expect(document.body.style.overflow).toBe("hidden");
+    view.rerender(pair(true, true));
+    view.rerender(pair(false, true));
+    expect(document.body.style.overflow).toBe("hidden");
+    expect(backgroundRoot).toHaveProperty("inert", true);
+    view.rerender(pair(false, false));
+    expect(document.body.style.overflow).toBe("auto");
+    expect(backgroundRoot).not.toHaveProperty("inert", true);
+    expect(backgroundRoot).not.toHaveAttribute("aria-hidden");
+    document.body.style.overflow = previousOverflow;
+  });
+
   it("portals the dialog into document.body above page stacking contexts", () => {
     render(createElement(TestModal));
 

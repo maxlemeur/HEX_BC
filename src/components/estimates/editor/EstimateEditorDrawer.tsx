@@ -1,6 +1,7 @@
 "use client";
 
-import type { ComponentProps } from "react";
+import { useState, type ComponentProps } from "react";
+import { Modal } from "@/components/ui-legacy/Modal";
 
 import { EstimateEventsTimeline } from "@/components/estimates/EstimateEventsTimeline";
 import { EstimateSettingsPanel, type EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
@@ -30,12 +31,17 @@ type AuditLogEntry = {
 type EstimateEditorDrawerProps = {
   isOpen: boolean;
   onClose: () => void;
+  hasUnsavedSettings: boolean;
+  onDiscardSettings: () => void;
+  onSaveBeforeClose: () => Promise<boolean>;
   projectName: string;
   versionNumber: number;
   settings: EstimateSettingsState;
   totals: EstimateTotals | null;
   isSavingSettings: boolean;
   isSaveBlocked: boolean;
+  isFrozen?: boolean;
+  storedMarginMultiplier?: number;
   onChangeSettings: EstimateSettingsPanelProps["onChange"];
   onSaveSettings: EstimateSettingsPanelProps["onSave"];
   laborRoles: LaborRole[];
@@ -68,12 +74,17 @@ type EstimateEditorDrawerProps = {
 export function EstimateEditorDrawer({
   isOpen,
   onClose,
+  hasUnsavedSettings,
+  onDiscardSettings,
+  onSaveBeforeClose,
   projectName,
   versionNumber,
   settings,
   totals,
   isSavingSettings,
   isSaveBlocked,
+  isFrozen = false,
+  storedMarginMultiplier,
   onChangeSettings,
   onSaveSettings,
   laborRoles,
@@ -102,13 +113,62 @@ export function EstimateEditorDrawer({
   onRefreshAuditLogs,
   formatAuditTimestamp,
 }: EstimateEditorDrawerProps) {
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [savingBeforeClose, setSavingBeforeClose] = useState(false);
+  const [saveError, setSaveError] = useState(false);
+  const requestClose = () => {
+    if (isSavingSettings || savingBeforeClose) return;
+    if (hasUnsavedSettings) {
+      setSaveError(false);
+      setConfirmClose(true);
+    } else {
+      onClose();
+    }
+  };
+  const saveAndClose = async () => {
+    if (savingBeforeClose || isSavingSettings) return;
+    setSavingBeforeClose(true);
+    setSaveError(false);
+    try {
+      if (await onSaveBeforeClose()) {
+        setConfirmClose(false);
+        onClose();
+      } else {
+        setSaveError(true);
+      }
+    } catch {
+      setSaveError(true);
+    } finally {
+      setSavingBeforeClose(false);
+    }
+  };
   if (!isOpen) return null;
 
   return (
     <>
+      <Modal.Root open={confirmClose} onOpenChange={(open) => {
+        if (!savingBeforeClose) setConfirmClose(open);
+      }}>
+        <Modal.Content closeOnEscapeKey={!savingBeforeClose} closeOnOverlayClick={!savingBeforeClose} containerClassName="sm:max-w-lg">
+          <Modal.Header><Modal.Title>Enregistrer les modifications du paramétrage ?</Modal.Title></Modal.Header>
+          <Modal.Body>
+            <p>Vos modifications ne sont pas encore enregistrées. Vous pouvez les enregistrer, les abandonner ou continuer à modifier le paramétrage.</p>
+            {saveError && <p role="alert" className="text-danger">L’enregistrement n’a pas abouti. Le paramétrage reste ouvert ; vérifiez les erreurs avant de réessayer.</p>}
+          </Modal.Body>
+          <Modal.Footer>
+            <button type="button" className="btn btn-secondary btn-sm" disabled={savingBeforeClose} onClick={() => setConfirmClose(false)} data-modal-autofocus="true">Continuer à modifier</button>
+            <button type="button" className="btn btn-secondary btn-sm" disabled={savingBeforeClose} onClick={() => {
+              onDiscardSettings();
+              setConfirmClose(false);
+              onClose();
+            }}>Abandonner les modifications</button>
+            <button type="button" className="btn btn-primary btn-sm" disabled={savingBeforeClose || isSaveBlocked || isSavingSettings} onClick={() => void saveAndClose()}>{savingBeforeClose ? "Enregistrement…" : "Enregistrer"}</button>
+          </Modal.Footer>
+        </Modal.Content>
+      </Modal.Root>
       <div
         className="fixed inset-0 z-40 bg-black/20"
-        onClick={onClose}
+        onClick={requestClose}
         aria-hidden="true"
         data-testid="estimate-editor-drawer-backdrop"
       />
@@ -118,8 +178,8 @@ export function EstimateEditorDrawer({
         aria-label="Paramétrage du devis"
         className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-full lg:max-w-7xl flex-col border-l border-[var(--slate-200)] bg-surface shadow-xl"
         onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            onClose();
+          if (event.key === "Escape" && !confirmClose) {
+            requestClose();
           }
         }}
         tabIndex={-1}
@@ -130,7 +190,7 @@ export function EstimateEditorDrawer({
           <button
             type="button"
             className="btn btn-ghost btn-sm"
-            onClick={onClose}
+            onClick={requestClose}
             aria-label="Fermer"
             data-testid="estimate-editor-drawer-close-button"
           >
@@ -144,7 +204,9 @@ export function EstimateEditorDrawer({
             settings={settings}
             totals={totals}
             isSaving={isSavingSettings}
-            isReadOnly={isSaveBlocked}
+            isReadOnly={isSaveBlocked || isSavingSettings}
+            isFrozen={isFrozen}
+            storedMarginMultiplier={storedMarginMultiplier}
             error={null}
             onChange={onChangeSettings}
             onSave={onSaveSettings}
@@ -158,17 +220,15 @@ export function EstimateEditorDrawer({
             onUpdate={onUpdateRole}
           />
 
-          {settings.margin_mode === "tiered" ? (
-            <MarginTiersManager
-              tiers={(settings.margin_tiers ?? []) as MarginTierRow[]}
-              isSaving={isSavingMarginTiers}
-              error={marginTiersError}
-              canEdit={canEditMarginTiers}
-              onCreate={onCreateTier}
-              onUpdate={onUpdateTier}
-              onDelete={onDeleteTier}
-            />
-          ) : null}
+          <MarginTiersManager
+            tiers={(settings.margin_tiers ?? []) as MarginTierRow[]}
+            isSaving={isSavingMarginTiers}
+            error={marginTiersError}
+            canEdit={canEditMarginTiers}
+            onCreate={onCreateTier}
+            onUpdate={onUpdateTier}
+            onDelete={onDeleteTier}
+          />
 
           <EstimateSuggestionRulesManager
             rules={suggestionRules}

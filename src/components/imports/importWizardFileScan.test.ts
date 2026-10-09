@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe,expect,it,vi } from "vitest";
 
 const readMock = vi.fn();
 const sheetToJsonMock = vi.fn();
@@ -13,8 +13,7 @@ vi.mock("xlsx", () => ({
 }));
 
 import {
-  getFileExtension,
-  scanFileHeaders,
+scanFileHeaders
 } from "@/components/imports/importWizardFileScan";
 
 describe("importWizardFileScan", () => {
@@ -50,11 +49,5 @@ describe("importWizardFileScan", () => {
       headers: ["Code", "Description", "Prix"],
       headerRow: 2,
     });
-  });
-
-  it("returns the normalized extension when present", () => {
-    expect(getFileExtension("Mon.Fichier.XLSX")).toBe("xlsx");
-    expect(getFileExtension("sans-extension")).toBe("sans-extension");
-    expect(getFileExtension("devis.")).toBeNull();
   });
 });

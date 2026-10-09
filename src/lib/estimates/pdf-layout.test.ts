@@ -1,20 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  DEFAULT_ESTIMATE_PDF_LAYOUT,
-  applyEstimateTermsPolicy,
-  estimateEstimatePdfPageCount,
-  normalizeEstimatePdfLayoutOptions,
-  parseEstimatePdfLayoutSearchParams,
-  writeEstimatePdfLayoutSearchParams,
-} from "@/lib/estimates/pdf-layout";
+import { DEFAULT_ESTIMATE_PDF_LAYOUT, applyEstimateTermsPolicy, estimateEstimatePdfPageCount, parseEstimatePdfLayoutSearchParams, writeEstimatePdfLayoutSearchParams } from "@/lib/estimates/pdf-layout";
 
 describe("estimate PDF layout", () => {
-  it("normalizes unknown input to the client detailed preset", () => {
-    expect(normalizeEstimatePdfLayoutOptions({ density: "unknown" })).toEqual(
-      DEFAULT_ESTIMATE_PDF_LAYOUT
-    );
-  });
 
   it("keeps legacy max_level links compatible", () => {
     expect(

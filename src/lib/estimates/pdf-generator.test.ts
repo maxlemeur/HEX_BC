@@ -157,6 +157,7 @@ function createSupabasePdfMock(input?: PdfMockInput) {
           reference: "REF-001",
           estimate_reference: "HEX_D26001MM",
           client_name: "Client test",
+          site_address: "12 rue du Test\n75001 Paris",
         },
       },
       error: null,
@@ -464,6 +465,12 @@ describe("estimate pdf generator", () => {
       "Peinture et percements structurels hors perimetre."
     );
     expect(renderedDocumentJson).toContain("HEX_D26001MM");
+    expect(renderedDocumentJson.indexOf("HEX_D26001MM")).toBeLessThan(
+      renderedDocumentJson.indexOf('"children":"Client"'),
+    );
+    expect(renderedDocumentJson).toContain('"children":"Chantier"');
+    expect(renderedDocumentJson).not.toContain("Informations devis");
+    expect(renderedDocumentJson).toContain("12 rue du Test");
 
     expect(serviceRoleSupabase.__mocks.upload).toHaveBeenCalledWith(
       expectedPath,

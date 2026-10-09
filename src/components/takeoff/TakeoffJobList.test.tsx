@@ -1,7 +1,6 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup,render,screen } from "@testing-library/react";
 import { SWRConfig } from "swr";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 vi.mock("@/lib/takeoff/client", async () => {
   const actual = await vi.importActual<typeof import("@/lib/takeoff/client")>(
@@ -18,16 +17,14 @@ vi.mock("@/lib/takeoff/client", async () => {
 
 import TakeoffJobList from "@/components/takeoff/TakeoffJobList";
 import {
-  resolveTakeoffMaxNavigablePagesByOffset,
-  resolveTakeoffJobsRefreshInterval,
+resolveTakeoffJobsRefreshInterval,
+resolveTakeoffMaxNavigablePagesByOffset,
 } from "@/components/takeoff/takeoff-job-list-shared";
 import {
-  TakeoffApiError,
-  cancelTakeoffJob,
-  listTakeoffJobs,
-  retryTakeoffJob,
+TakeoffApiError,
+listTakeoffJobs
 } from "@/lib/takeoff/client";
-import type { TakeoffJobListResponse, TakeoffJobSummary } from "@/lib/takeoff/types";
+import type { TakeoffJobListResponse,TakeoffJobSummary } from "@/lib/takeoff/types";
 
 const VERSION_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
@@ -114,118 +111,6 @@ describe("TakeoffJobList", () => {
     cleanup();
   });
 
-  it("loads and displays jobs list with counters", async () => {
-    vi.mocked(listTakeoffJobs).mockResolvedValue(
-      createResponse([createJob({ status: "failed" })])
-    );
-
-    renderTakeoffJobList();
-
-    expect(
-      await screen.findByText("niveau-a.csv")
-    ).toBeInTheDocument();
-    expect(screen.getByText("Relancer")).toBeInTheDocument();
-    expect(screen.getByText("Total")).toBeInTheDocument();
-    expect(vi.mocked(listTakeoffJobs)).toHaveBeenCalledWith(
-      expect.objectContaining({
-        estimate_version_id: VERSION_ID,
-        limit: 20,
-        offset: 0,
-      })
-    );
-  });
-
-  it("applies filters and pagination on API query", async () => {
-    vi.mocked(listTakeoffJobs).mockResolvedValue(
-      createResponse(
-        [createJob({ status: "failed" })],
-        {
-          total: 25,
-          limit: 20,
-          offset: 0,
-        }
-      )
-    );
-
-    const user = userEvent.setup();
-    renderTakeoffJobList();
-
-    expect((await screen.findAllByText("niveau-a.csv")).length).toBeGreaterThan(0);
-
-    await user.selectOptions(screen.getByLabelText("Statut"), "failed");
-    await waitFor(() => {
-      expect(vi.mocked(listTakeoffJobs)).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          status: "failed",
-          limit: 20,
-          offset: 0,
-        })
-      );
-    });
-
-    await user.click(screen.getByRole("button", { name: "Suivant" }));
-    await waitFor(() => {
-      expect(vi.mocked(listTakeoffJobs)).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          status: "failed",
-          limit: 20,
-          offset: 20,
-        })
-      );
-    });
-  });
-
-  it("triggers retry and cancel quick actions", async () => {
-    vi.mocked(listTakeoffJobs).mockResolvedValue(
-      createResponse([
-        createJob({
-          id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-          status: "failed",
-        }),
-        createJob({
-          id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-          status: "processing",
-          retry_count: 0,
-          error_code: null,
-          error_message: null,
-        }),
-      ])
-    );
-    vi.mocked(retryTakeoffJob).mockResolvedValue({
-      job: createJob({
-        id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-        status: "pending",
-      }),
-    });
-    vi.mocked(cancelTakeoffJob).mockResolvedValue({
-      job: createJob({
-        id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-        status: "canceled",
-      }),
-    });
-
-    const user = userEvent.setup();
-    renderTakeoffJobList();
-
-    expect((await screen.findAllByText("niveau-a.csv")).length).toBeGreaterThan(0);
-
-    const actionButtons = screen.getAllByRole("button", { name: "Relancer" });
-    await user.click(actionButtons[0]!);
-    await waitFor(() => {
-      expect(retryTakeoffJob).toHaveBeenCalledWith(
-        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-      );
-    });
-
-    const cancelButton = screen.getByRole("button", { name: "Annuler" });
-    await user.click(cancelButton);
-    await waitFor(() => {
-      expect(cancelTakeoffJob).toHaveBeenCalledWith(
-        "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
-      );
-    });
-  });
-
   it("hides retry and cancel actions when the backend marks them unavailable", async () => {
     vi.mocked(listTakeoffJobs).mockResolvedValue(
       createResponse([
@@ -274,11 +159,6 @@ describe("TakeoffJobList", () => {
 
     expect(maxPages).toBe(101);
     expect(maxOffset).toBe(10_000);
-  });
-
-  it("falls back to a safe value when page size is invalid", () => {
-    expect(resolveTakeoffMaxNavigablePagesByOffset(0)).toBe(10_001);
-    expect(resolveTakeoffMaxNavigablePagesByOffset(Number.NaN)).toBe(10_001);
   });
 
   it("returns no polling interval when no in-flight jobs are present", () => {

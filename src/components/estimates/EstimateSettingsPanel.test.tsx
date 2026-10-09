@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   EstimateSettingsPanel,
@@ -92,29 +92,48 @@ describe("EstimateSettingsPanel", () => {
     expect((taxInput as HTMLInputElement).value).toBe("5.5");
   });
 
-  it("keeps typing stable on cascade numeric inputs", async () => {
+  it("keeps historical successive discounts read-only when changing other settings", async () => {
     const user = userEvent.setup();
+    const onChange = vi.fn();
 
     render(
-      <ControlledEstimateSettingsPanel
-        initialSettings={{
+      <EstimateSettingsPanel
+        projectName="Projet test"
+        versionNumber={1}
+        settings={{
           ...baseSettings,
           discount_mode: "cascade",
           discount_steps: [500],
           global_coefficient: 1.05,
         }}
+        totals={null}
+        isSaving={false}
+        isReadOnly={false}
+        error={null}
+        onChange={onChange}
+        onSave={() => undefined}
       />
     );
 
-    const globalCoefficientInput = screen.getByLabelText("Coefficient global");
-    await user.clear(globalCoefficientInput);
-    await user.type(globalCoefficientInput, "1.2");
-    expect((globalCoefficientInput as HTMLInputElement).value).toBe("1.2");
+    expect(screen.getByText("Remises historiques conservées")).toBeInTheDocument();
+    expect(screen.getByText(/Coefficient global : ×1.05/)).toHaveTextContent("Remises : 5 %");
+    expect(screen.queryByRole("button", { name: "Cascade" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Coefficient global")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Etape 1 (%)")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Remise (EUR HT)")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Marge par tranche" }));
+    expect(onChange).toHaveBeenCalledExactlyOnceWith({ margin_mode: "tiered" });
+  });
 
-    const stepInput = screen.getByLabelText("Etape 1 (%)");
-    await user.clear(stepInput);
-    await user.type(stepInput, "7.5");
-    expect((stepInput as HTMLInputElement).value).toBe("7.5");
+  it("offers only a simple discount on new estimates and explains non-progressive margin tiers", async () => {
+    const user = userEvent.setup();
+    render(<ControlledEstimateSettingsPanel initialSettings={baseSettings} />);
+    expect(screen.queryByRole("button", { name: "Cascade" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Remise (EUR HT)")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Marge par tranche" }));
+    expect(screen.getByText(/Le coût total HT des lignes/)).toHaveTextContent("n’est pas découpé en tranches progressives");
+    expect(screen.getByText(/Au passage d’un seuil/)).toBeInTheDocument();
+    expect(screen.getByText(/Barème par défaut/)).toBeInTheDocument();
   });
 
   it("requires an explicit eligible-work choice for reverse charge", async () => {

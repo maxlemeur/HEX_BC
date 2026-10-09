@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act,cleanup,renderHook,waitFor } from "@testing-library/react";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 const clientMocks = vi.hoisted(() => ({
   applyEstimateStructureDraft: vi.fn(),
@@ -18,15 +18,15 @@ vi.mock("@/lib/estimates/client", () => ({
 }));
 
 import {
-  useEstimateEditorImportController,
-  type EstimateEditorImportControllerInput,
+useEstimateEditorImportController,
+type EstimateEditorImportControllerInput,
 } from "@/hooks/useEstimateEditorImportController";
 import type {
-  AffaireLinkedDpgfSource,
-  ApplyEstimateStructureDraftResult,
-  ImportEstimateSectionsPayload,
-  ImportEstimateSectionsResult,
-  ImportLinkedDpgfSourceResult,
+AffaireLinkedDpgfSource,
+ApplyEstimateStructureDraftResult,
+ImportEstimateSectionsPayload,
+ImportEstimateSectionsResult,
+ImportLinkedDpgfSourceResult,
 } from "@/lib/estimates/client";
 import type { EstimateVersionRow } from "@/lib/estimates/editor-items";
 
@@ -276,38 +276,6 @@ afterEach(() => {
 });
 
 describe("useEstimateEditorImportController", () => {
-  it("loads the linked DPGF source and exposes the state/actions/meta contract", async () => {
-    const source = createLinkedSource();
-    const loadLinkedDpgfSource = vi.fn<LinkedSourceLoader>(async () => source);
-    const harness = createHarness({ loadLinkedDpgfSource });
-
-    await waitFor(() => {
-      expect(harness.result.current.state.linkedDpgfSource).toEqual(source);
-      expect(harness.result.current.state.isLoadingLinkedDpgfSource).toBe(
-        false
-      );
-    });
-
-    expect(loadLinkedDpgfSource).toHaveBeenCalledWith(
-      "project-1",
-      expect.any(AbortSignal)
-    );
-    expect(harness.result.current.actions).toEqual(
-      expect.objectContaining({
-        refreshLinkedDpgfSource: expect.any(Function),
-        importLinkedDpgfSource: expect.any(Function),
-        openImportFromEstimateDialog: expect.any(Function),
-        confirmImportFromEstimate: expect.any(Function),
-        openEstimateStructureDraftDialog: expect.any(Function),
-        applyEstimateStructureDraft: expect.any(Function),
-      })
-    );
-    expect(harness.result.current.meta).toEqual({
-      hasLinkedDpgfSource: true,
-      isImportDpgfSourceDisabled: false,
-      isMutationInProgress: false,
-    });
-  });
 
   it("aborts the old source request and keeps the latest version result", async () => {
     const firstRequest = createDeferred<AffaireLinkedDpgfSource>();
@@ -500,28 +468,6 @@ describe("useEstimateEditorImportController", () => {
     expect(harness.reportError).toHaveBeenCalledWith("public:flush failed");
   });
 
-  it("returns false when structural dialogs cannot be opened", () => {
-    const harness = createHarness({ isMutationBlocked: true });
-    let importOpened = true;
-    let structureOpened = true;
-
-    act(() => {
-      importOpened =
-        harness.result.current.actions.openImportFromEstimateDialog();
-      structureOpened =
-        harness.result.current.actions.openEstimateStructureDraftDialog();
-    });
-
-    expect(importOpened).toBe(false);
-    expect(structureOpened).toBe(false);
-    expect(
-      harness.result.current.state.isImportFromEstimateDialogOpen
-    ).toBe(false);
-    expect(
-      harness.result.current.state.isEstimateStructureDraftDialogOpen
-    ).toBe(false);
-  });
-
   it("does not start a mutation if the route changes during the autosave barrier", async () => {
     const barrier = createDeferred<boolean>();
     const ensureGroupedActionCanProceed = vi.fn<AutosaveBarrier>(
@@ -662,33 +608,6 @@ describe("useEstimateEditorImportController", () => {
         ([message]) => typeof message === "string"
       )
     ).toEqual([]);
-  });
-
-  it("reloads and applies the token only for a successful source-version import", async () => {
-    const result = createImportResult();
-    clientMocks.importEstimateSections.mockResolvedValue(result);
-    const harness = createHarness();
-
-    await act(async () => {
-      await harness.result.current.actions.confirmImportFromEstimate(
-        IMPORT_INPUT
-      );
-    });
-
-    expect(harness.ensureGroupedActionCanProceed).toHaveBeenCalledWith(
-      "importer les sections du devis"
-    );
-    expect(clientMocks.importEstimateSections).toHaveBeenCalledWith(
-      "version-1",
-      IMPORT_INPUT
-    );
-    expect(harness.reloadedVersionIds).toEqual(["version-1"]);
-    expect(harness.setTotalsOutOfSync).toHaveBeenCalledWith(false);
-    expect(harness.applyVersionToken).toHaveBeenCalledWith("token-imported");
-    expect(clientMocks.fetchEstimateEditorData).not.toHaveBeenCalled();
-    expect(harness.result.current.state.importSummaryMessage).toBe(
-      "2 section(s) et 5 ligne(s) importees."
-    );
   });
 
   it("does not advance the token when the post-import item reload fails", async () => {

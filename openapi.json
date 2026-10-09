@@ -1396,6 +1396,226 @@
         }
       }
     },
+    "/api/catalogue/reference-price": {
+      "get": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Proposer un prix de référence comparable",
+        "description": "Moyenne d’une offre valable de moins de six mois par fournisseur pour une quantité, une unité, EUR et un traitement du transport identiques. Alerte si (max-min)/min > 15 %, sans exclusion liée à cet écart. Lecture seule.",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "query",
+            "description": "Article à examiner.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ReferencePriceProductId"
+            }
+          },
+          {
+            "name": "quantity",
+            "in": "query",
+            "description": "Quantité de référence, sinon celle du produit.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ReferencePriceQuantity"
+            }
+          },
+          {
+            "name": "transport_mode",
+            "in": "query",
+            "description": "Traitement du transport, sinon celui de la référence validée.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ReferencePriceTransport"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Proposition, exclusions et dernière validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiReferencePriceProposal"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Paramètres invalides.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Article introuvable dans le tenant actif.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Migration de référence non activée.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Valider une référence ou préciser le transport d’une offre",
+        "description": "Réservé aux administrateurs du tenant actif. La validation recalcule la proposition et vérifie son empreinte, puis conserve auteur, date et sources. Aucun devis existant n’est réécrit. Un prix manuel exige une justification.",
+        "requestBody": {
+          "description": "Validation explicite ou condition de transport.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReferencePriceAction"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Décision enregistrée.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiSuccessUnknown"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requête invalide.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Responsable autorisé requis.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "La proposition ou l’offre a changé.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Migration de référence non activée.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/catalogue/template-import": {
       "post": {
         "tags": [
@@ -11991,7 +12211,7 @@
         "summary": "Gerer les prix fournisseurs",
         "description": "Cree atomiquement un article et/ou un fournisseur inconnus, leur fiche fournisseur unique et un tarif. Permet aussi de modifier un tarif ou sa fiche fournisseur par des actions distinctes.",
         "requestBody": {
-          "description": "Cree un article, un fournisseur, leur fiche unique et un tarif de facon atomique, ou modifie une ressource existante.",
+          "description": "Cree un article, un fournisseur, leur fiche unique et un tarif de facon atomique, ou modifie une ressource existante. La validite est limitee a six mois calendaires depuis valid_from ; une fin absente a la creation est calculee automatiquement.",
           "required": true,
           "content": {
             "application/json": {
@@ -12479,6 +12699,87 @@
           },
           "500": {
             "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/products/reference-suggestion": {
+      "get": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Proposer une référence interne d’article",
+        "description": "Suggestion provisoire réservée aux administrateurs du catalogue. L’insertion attribue la référence définitive si le champ est vide, sans réserver la suggestion ni modifier un article existant.",
+        "responses": {
+          "200": {
+            "description": "Référence proposée.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductReferenceSuggestionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Administrateur du catalogue requis.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Suggestion indisponible.",
             "content": {
               "application/json": {
                 "schema": {
@@ -19980,6 +20281,467 @@
           }
         ]
       },
+      "ReferencePriceProductId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ReferencePriceQuantity": {
+        "type": "number",
+        "exclusiveMinimum": 0,
+        "maximum": 999999999.999
+      },
+      "ReferencePriceTransport": {
+        "type": "string",
+        "enum": [
+          "included",
+          "excluded"
+        ]
+      },
+      "ApiReferencePriceProposal": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "proposal": {
+                "type": "object",
+                "properties": {
+                  "product_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "designation": {
+                    "type": "string"
+                  },
+                  "quantity": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "unit": {
+                    "type": "string"
+                  },
+                  "currency": {
+                    "type": "string",
+                    "const": "EUR"
+                  },
+                  "transport_mode": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "included",
+                          "excluded"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "as_of": {
+                    "type": "string"
+                  },
+                  "current_price_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "validation_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "product_updated_at": {
+                    "type": "string"
+                  },
+                  "offer_count": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "proposed_price_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "minimum_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "maximum_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dispersion_percent": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dispersion_alert": {
+                    "type": "boolean"
+                  },
+                  "zero_price_requires_review": {
+                    "type": "boolean"
+                  },
+                  "offers": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "supplier_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "supplier_name": {
+                          "type": "string"
+                        },
+                        "supplier_sku": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "unit_price_cents": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "unit": {
+                          "type": "string"
+                        },
+                        "currency": {
+                          "type": "string"
+                        },
+                        "min_quantity": {
+                          "type": "number"
+                        },
+                        "valid_from": {
+                          "type": "string"
+                        },
+                        "valid_to": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "updated_at": {
+                          "type": "string"
+                        },
+                        "transport_mode": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "included",
+                                "excluded"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "exclusion": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "inactive",
+                                "missing_supplier_reference",
+                                "future",
+                                "expired",
+                                "missing_quantity",
+                                "quantity",
+                                "unit",
+                                "currency",
+                                "missing_transport",
+                                "transport",
+                                "zero_price",
+                                "older_supplier_offer"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "supplier_id",
+                        "supplier_name",
+                        "supplier_sku",
+                        "unit_price_cents",
+                        "unit",
+                        "currency",
+                        "min_quantity",
+                        "valid_from",
+                        "valid_to",
+                        "updated_at",
+                        "transport_mode",
+                        "exclusion"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "fingerprint": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "product_id",
+                  "designation",
+                  "quantity",
+                  "unit",
+                  "currency",
+                  "transport_mode",
+                  "as_of",
+                  "current_price_cents",
+                  "validation_id",
+                  "product_updated_at",
+                  "offer_count",
+                  "proposed_price_cents",
+                  "minimum_cents",
+                  "maximum_cents",
+                  "dispersion_percent",
+                  "dispersion_alert",
+                  "zero_price_requires_review",
+                  "offers",
+                  "fingerprint"
+                ],
+                "additionalProperties": false
+              },
+              "can_validate": {
+                "type": "boolean"
+              },
+              "latest_validation": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "mode": {
+                        "type": "string",
+                        "enum": [
+                          "average",
+                          "manual"
+                        ]
+                      },
+                      "validated_by": {
+                        "type": "string"
+                      },
+                      "validated_at": {
+                        "type": "string"
+                      },
+                      "unit_price_cents": {
+                        "type": "number"
+                      },
+                      "justification": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "mode",
+                      "validated_by",
+                      "validated_at",
+                      "unit_price_cents",
+                      "justification"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "proposal",
+              "can_validate",
+              "latest_validation"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ReferencePriceAction": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "validate"
+              },
+              "product_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "quantity": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 999999999.999
+              },
+              "transport_mode": {
+                "type": "string",
+                "enum": [
+                  "included",
+                  "excluded"
+                ]
+              },
+              "fingerprint": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{32}$"
+              },
+              "manual_price_cents": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2147483647
+              },
+              "justification": {
+                "type": "string",
+                "maxLength": 2000
+              }
+            },
+            "required": [
+              "action",
+              "product_id",
+              "quantity",
+              "transport_mode",
+              "fingerprint"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "set-transport"
+              },
+              "product_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "offer_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "transport_mode": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "included",
+                      "excluded"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "expected_updated_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              }
+            },
+            "required": [
+              "action",
+              "product_id",
+              "offer_id",
+              "transport_mode",
+              "expected_updated_at"
+            ]
+          }
+        ]
+      },
       "ImportCatalogueTemplateRequest": {
         "type": "object",
         "properties": {
@@ -20687,6 +21449,17 @@
                       }
                     ]
                   },
+                  "site_address": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 1000
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "notes": {
                     "anyOf": [
                       {
@@ -20943,6 +21716,17 @@
                                   }
                                 ]
                               },
+                              "site_address": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 1000
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
                               "notes": {
                                 "anyOf": [
                                   {
@@ -21000,6 +21784,17 @@
                                   "anyOf": [
                                     {
                                       "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "site_address": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 1000
                                     },
                                     {
                                       "type": "null"
@@ -21309,6 +22104,17 @@
                                   }
                                 ]
                               },
+                              "site_address": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 1000
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
                               "notes": {
                                 "anyOf": [
                                   {
@@ -21372,6 +22178,17 @@
                                     }
                                   ]
                                 },
+                                "site_address": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 1000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "notes": {
                                   "anyOf": [
                                     {
@@ -21415,6 +22232,49 @@
                 "items": {
                   "type": "object",
                   "properties": {
+                    "selected_supplier_details": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "price_id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "name": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "reference": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "price_id",
+                            "name",
+                            "reference"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "id": {
                       "type": "string",
                       "format": "uuid",
@@ -22330,6 +23190,17 @@
                                   }
                                 ]
                               },
+                              "site_address": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 1000
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
                               "notes": {
                                 "anyOf": [
                                   {
@@ -22387,6 +23258,17 @@
                                   "anyOf": [
                                     {
                                       "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "site_address": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 1000
                                     },
                                     {
                                       "type": "null"
@@ -24764,6 +25646,49 @@
                 "items": {
                   "type": "object",
                   "properties": {
+                    "selected_supplier_details": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "price_id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "name": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "reference": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "price_id",
+                            "name",
+                            "reference"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "id": {
                       "type": "string",
                       "format": "uuid",
@@ -25448,6 +26373,49 @@
               "item": {
                 "type": "object",
                 "properties": {
+                  "selected_supplier_details": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "price_id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "name": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "reference": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "price_id",
+                          "name",
+                          "reference"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "id": {
                     "type": "string",
                     "format": "uuid",
@@ -26023,6 +26991,49 @@
               "item": {
                 "type": "object",
                 "properties": {
+                  "selected_supplier_details": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "price_id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "name": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "reference": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "price_id",
+                          "name",
+                          "reference"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "id": {
                     "type": "string",
                     "format": "uuid",
@@ -27915,6 +28926,49 @@
                         {
                           "type": "object",
                           "properties": {
+                            "unit": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "min_quantity": {
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "valid_from": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "valid_to": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "is_active": {
+                              "type": "boolean"
+                            },
                             "kind": {
                               "type": "string",
                               "enum": [
@@ -28007,6 +29061,49 @@
                       "items": {
                         "type": "object",
                         "properties": {
+                          "unit": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "min_quantity": {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "valid_from": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "valid_to": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "is_active": {
+                            "type": "boolean"
+                          },
                           "kind": {
                             "type": "string",
                             "enum": [
@@ -30334,6 +31431,19 @@
                       "format": "uuid",
                       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                     },
+                    "quantity": {
+                      "type": "number"
+                    },
+                    "unit": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "selected_supplier_price_id": {
                       "anyOf": [
                         {
@@ -30384,6 +31494,49 @@
                         {
                           "type": "object",
                           "properties": {
+                            "unit": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "min_quantity": {
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "valid_from": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "valid_to": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "is_active": {
+                              "type": "boolean"
+                            },
                             "kind": {
                               "type": "string",
                               "enum": [
@@ -30476,6 +31629,49 @@
                       "items": {
                         "type": "object",
                         "properties": {
+                          "unit": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "min_quantity": {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "valid_from": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "valid_to": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "is_active": {
+                            "type": "boolean"
+                          },
                           "kind": {
                             "type": "string",
                             "enum": [
@@ -30649,6 +31845,49 @@
                             {
                               "type": "object",
                               "properties": {
+                                "unit": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "min_quantity": {
+                                  "anyOf": [
+                                    {
+                                      "type": "number"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "valid_from": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "valid_to": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "is_active": {
+                                  "type": "boolean"
+                                },
                                 "kind": {
                                   "type": "string",
                                   "enum": [
@@ -30739,6 +31978,49 @@
                         "proposed_alternative": {
                           "type": "object",
                           "properties": {
+                            "unit": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "min_quantity": {
+                              "anyOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "valid_from": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "valid_to": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "is_active": {
+                              "type": "boolean"
+                            },
                             "kind": {
                               "type": "string",
                               "enum": [
@@ -30916,6 +32198,49 @@
                             {
                               "type": "object",
                               "properties": {
+                                "unit": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "min_quantity": {
+                                  "anyOf": [
+                                    {
+                                      "type": "number"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "valid_from": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "valid_to": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "is_active": {
+                                  "type": "boolean"
+                                },
                                 "kind": {
                                   "type": "string",
                                   "enum": [
@@ -31008,6 +32333,49 @@
                           "items": {
                             "type": "object",
                             "properties": {
+                              "unit": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "min_quantity": {
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "valid_from": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "valid_to": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "is_active": {
+                                "type": "boolean"
+                              },
                               "kind": {
                                 "type": "string",
                                 "enum": [
@@ -34905,6 +36273,7 @@
                     ]
                   },
                   "valid_to": {
+                    "description": "Fin de validité, au plus six mois calendaires après valid_from. Absente : calculée automatiquement.",
                     "anyOf": [
                       {
                         "type": "string"
@@ -35031,6 +36400,7 @@
                     ]
                   },
                   "valid_to": {
+                    "description": "Fin de validité, au plus six mois calendaires après le début enregistré. Null : recalculée à début + six mois ; omise : conservée.",
                     "anyOf": [
                       {
                         "type": "string"
@@ -35088,6 +36458,145 @@
                         "type": "null"
                       },
                       {}
+                    ]
+                  }
+                }
+              }
+            },
+            "required": [
+              "action",
+              "id",
+              "item"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "update-offer"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "item": {
+                "type": "object",
+                "properties": {
+                  "unit": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      },
+                      {}
+                    ]
+                  },
+                  "min_quantity": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "unit_price_cents": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "currency": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 3
+                  },
+                  "valid_from": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      },
+                      {}
+                    ]
+                  },
+                  "valid_to": {
+                    "description": "Fin de validité, au plus six mois calendaires après le début enregistré. Null : recalculée à début + six mois ; omise : conservée.",
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      },
+                      {}
+                    ]
+                  },
+                  "is_active": {
+                    "type": "boolean"
+                  },
+                  "source": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      },
+                      {}
+                    ]
+                  },
+                  "notes": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      },
+                      {}
+                    ]
+                  },
+                  "supplier_sku": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      },
+                      {}
+                    ]
+                  },
+                  "product_url": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "transport_mode": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "included",
+                          "excluded"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
                     ]
                   }
                 }
@@ -35261,6 +36770,7 @@
                       ]
                     },
                     "valid_to": {
+                      "description": "Fin de validité, au plus six mois calendaires après valid_from. Absente : calculée automatiquement.",
                       "anyOf": [
                         {
                           "type": "string"
@@ -35446,6 +36956,7 @@
                       ]
                     },
                     "valid_to": {
+                      "description": "Fin de validité, au plus six mois calendaires après valid_from. Absente : calculée automatiquement.",
                       "anyOf": [
                         {
                           "type": "string"
@@ -35835,6 +37346,33 @@
             ]
           }
         ]
+      },
+      "ProductReferenceSuggestionResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "reference": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "reference"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
       },
       "CreatePurchaseOrderRequest": {
         "type": "object",

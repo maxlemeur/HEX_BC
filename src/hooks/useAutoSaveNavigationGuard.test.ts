@@ -8,14 +8,10 @@ import {
   shouldBlockInternalNavigation,
   shouldGuardAnchorNavigation,
   useAutoSaveNavigationGuard,
+  type UseAutoSaveNavigationGuardOptions,
 } from "@/hooks/useAutoSaveNavigationGuard";
 
-type GuardHarnessProps = {
-  enabled: boolean;
-  hasPendingChanges: boolean;
-  isSaving: boolean;
-  onBlockedNavigation: () => void;
-};
+type GuardHarnessProps = UseAutoSaveNavigationGuardOptions;
 
 function renderNavigationGuard(initialProps: GuardHarnessProps) {
   return renderHook(
@@ -163,6 +159,48 @@ describe("useAutoSaveNavigationGuard helpers", () => {
 });
 
 describe("useAutoSaveNavigationGuard behavior", () => {
+  it("saves once then continues the original navigation without a second click", async () => {
+    let finishSave!: (saved: boolean) => void;
+    const onBeforeNavigation = vi.fn(() => new Promise<boolean>((resolve) => { finishSave = resolve; }));
+    const onNavigate = vi.fn();
+    const onBlockedNavigation = vi.fn();
+    renderNavigationGuard({ enabled: true, hasPendingChanges: true, isSaving: false,
+      onBeforeNavigation, onNavigate, onBlockedNavigation });
+    const { child, anchor } = appendAnchor({ href: "/dashboard/products" });
+    dispatchAnchorClick(child);
+    dispatchAnchorClick(child);
+    expect(onBeforeNavigation).toHaveBeenCalledTimes(1);
+    expect(onNavigate).not.toHaveBeenCalled();
+    await act(async () => { finishSave(true); });
+    expect(onNavigate).toHaveBeenCalledWith(anchor.href);
+    expect(onBlockedNavigation).not.toHaveBeenCalled();
+  });
+
+  it("keeps the user on the page after a failed save and permits a retry", async () => {
+    const onBeforeNavigation = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const onNavigate = vi.fn();
+    const onBlockedNavigation = vi.fn();
+    renderNavigationGuard({ enabled: true, hasPendingChanges: true, isSaving: false,
+      onBeforeNavigation, onNavigate, onBlockedNavigation });
+    const { child } = appendAnchor({ href: "/dashboard/products" });
+    await act(async () => { dispatchAnchorClick(child); });
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(onBlockedNavigation).toHaveBeenCalledTimes(1);
+    await act(async () => { dispatchAnchorClick(child); });
+    expect(onNavigate).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not resume a pending navigation after the guard unmounts", async () => {
+    let finishSave!: (saved: boolean) => void;
+    const onNavigate = vi.fn();
+    const { unmount } = renderNavigationGuard({ enabled: true, hasPendingChanges: true, isSaving: false,
+      onBeforeNavigation: () => new Promise<boolean>((resolve) => { finishSave = resolve; }),
+      onNavigate, onBlockedNavigation: vi.fn() });
+    dispatchAnchorClick(appendAnchor({ href: "/dashboard/products" }).child);
+    unmount();
+    await act(async () => { finishSave(true); });
+    expect(onNavigate).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     window.history.replaceState(
       { page: "edit" },

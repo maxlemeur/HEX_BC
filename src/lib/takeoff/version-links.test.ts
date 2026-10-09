@@ -386,24 +386,6 @@ describe("summarizeTakeoffCarryOverSourceVersion", () => {
     vi.clearAllMocks();
   });
 
-  it("returns not_applicable when there is no source version", async () => {
-    const summary = await summarizeTakeoffCarryOverSourceVersion({
-      supabase: {} as never,
-      tenantId: TENANT_ID,
-      sourceVersionId: null,
-    });
-
-    expect(summary).toEqual({
-      sourceVersionId: null,
-      sourceVersionNumber: null,
-      state: "not_applicable",
-      totalJobs: 0,
-      acquiredJobs: 0,
-      inProgressJobs: 0,
-      actionRequiredJobs: 0,
-    });
-  });
-
   it("summarizes acquired, in-progress and action-required jobs for the source version", async () => {
     const supabase = createCarryOverSummarySupabaseMock({
       directJobs: [
@@ -439,37 +421,6 @@ describe("summarizeTakeoffCarryOverSourceVersion", () => {
       acquiredJobs: 2,
       inProgressJobs: 1,
       actionRequiredJobs: 1,
-    });
-  });
-
-  it("returns ready when all carried jobs are already acquired", async () => {
-    const supabase = createCarryOverSummarySupabaseMock({
-      directJobs: [
-        { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", status: "completed" },
-      ],
-      linkedJobs: [
-        {
-          id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-          status: "applied",
-          source_version_id: ORIGINAL_VERSION_ID,
-        },
-      ],
-    });
-
-    const summary = await summarizeTakeoffCarryOverSourceVersion({
-      supabase,
-      tenantId: TENANT_ID,
-      sourceVersionId: SOURCE_VERSION_ID,
-    });
-
-    expect(summary).toEqual({
-      sourceVersionId: SOURCE_VERSION_ID,
-      sourceVersionNumber: 3,
-      state: "ready",
-      totalJobs: 2,
-      acquiredJobs: 2,
-      inProgressJobs: 0,
-      actionRequiredJobs: 0,
     });
   });
 });

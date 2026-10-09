@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { isValidDateOnly } from "@/lib/date-only";
+import { resolvePriceValidity } from "@/lib/catalogue/price-validity";
 
 const UUID_ERROR_MESSAGE = "Identifiant invalide.";
 
@@ -274,7 +275,9 @@ const supplierPriceWriteFieldsSchema = z.object({
   unit_price_cents: nonNegativeIntegerSchema,
   currency: z.string().trim().min(3).max(3).optional(),
   valid_from: optionalDateSchema,
-  valid_to: optionalDateSchema,
+  valid_to: optionalDateSchema.describe(
+    "Fin de validité, au plus six mois calendaires après valid_from. Absente : calculée automatiquement.",
+  ),
   is_active: z.boolean().optional(),
   source_import_id: optionalUuidSchema,
   source_mapped_row_id: optionalUuidSchema,
@@ -318,6 +321,21 @@ const supplierPriceCreateFieldsSchema = supplierPriceWriteFieldsSchema.extend({
   currency: z.string().trim().min(3).max(3).optional().default("EUR"),
 });
 
+function ensurePriceValidity(
+  payload: { valid_from?: string | null; valid_to?: string | null },
+  ctx: z.RefinementCtx,
+) {
+  try {
+    resolvePriceValidity(payload.valid_from, payload.valid_to);
+  } catch (error) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["valid_to"],
+      message: error instanceof Error ? error.message : "Validité invalide.",
+    });
+  }
+}
+
 const supplierPriceUpdateFieldsSchema = supplierPriceWriteFieldsSchema
   .omit({
     supplier_id: true,
@@ -331,7 +349,9 @@ const supplierPriceUpdateFieldsSchema = supplierPriceWriteFieldsSchema
   .extend({
     unit: optionalTextUpdateSchema,
     valid_from: optionalDateUpdateSchema,
-    valid_to: optionalDateUpdateSchema,
+    valid_to: optionalDateUpdateSchema.describe(
+      "Fin de validité, au plus six mois calendaires après le début enregistré. Null : recalculée à début + six mois ; omise : conservée.",
+    ),
     source: optionalTextUpdateSchema,
     notes: optionalTextUpdateSchema,
   });
@@ -340,11 +360,14 @@ const createSupplierPriceBodySchema = supplierPriceCreateFieldsSchema.superRefin
   (payload, ctx) => {
     ensureSupplierIdentifier(payload, ctx);
     ensureProductIdentifier(payload, ctx);
+    ensurePriceValidity(payload, ctx);
   }
 );
 
 const updateSupplierPriceBodySchema = supplierPriceUpdateFieldsSchema.partial().superRefine(
   (payload, ctx) => {
+    // Partial updates are finally checked against the stored dates by PostgreSQL.
+    if (payload.valid_from && payload.valid_to) ensurePriceValidity(payload, ctx);
     if (Object.keys(payload).length > 0) return;
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -363,6 +386,25 @@ export const updateSupplierPriceSchema = z.object({
   action: z.literal("update"),
   id: z.string().uuid(UUID_ERROR_MESSAGE),
   item: updateSupplierPriceBodySchema,
+});
+
+export const updateSupplierOfferSchema = z.object({
+  action: z.literal("update-offer"),
+  id: z.string().uuid(UUID_ERROR_MESSAGE),
+  item: supplierPriceUpdateFieldsSchema
+    .omit({ source_import_id: true, source_mapped_row_id: true })
+    .extend({
+      supplier_sku: optionalTextUpdateSchema,
+      product_url: optionalHttpUrlSchema.optional(),
+      transport_mode: z.enum(["included", "excluded"]).nullable().optional(),
+    })
+    .partial()
+    .superRefine((payload, ctx) => {
+      if (payload.valid_from && payload.valid_to) ensurePriceValidity(payload, ctx);
+      if (Object.keys(payload).length === 0) {
+        ctx.addIssue({ code: "custom", message: "Aucun champ de mise a jour fourni." });
+      }
+    }),
 });
 
 export const deleteSupplierPriceSchema = z.object({
@@ -385,6 +427,7 @@ const bulkCreatePriceItemSchema = supplierPriceCreateFieldsSchema
   })
   .superRefine((payload, ctx) => {
     ensureProductIdentifier(payload, ctx);
+    ensurePriceValidity(payload, ctx);
   });
 
 const MAX_BULK_CREATE_PRICES_BATCH_SIZE = 5000;
@@ -407,6 +450,7 @@ export const bulkCreateSupplierPricesAtomicSchema = z.object({
 export const pricesActionSchema = z.discriminatedUnion("action", [
   createSupplierPriceSchema,
   updateSupplierPriceSchema,
+  updateSupplierOfferSchema,
   deleteSupplierPriceSchema,
   updateSupplierCatalogItemSchema,
   bulkCreateSupplierPricesSchema,
@@ -589,6 +633,7 @@ export type SupplierCatalogItemLookupQueryInput = z.infer<
 >;
 export type CreateSupplierPriceInput = z.infer<typeof createSupplierPriceSchema>["item"];
 export type UpdateSupplierPriceInput = z.infer<typeof updateSupplierPriceSchema>;
+export type UpdateSupplierOfferInput = z.infer<typeof updateSupplierOfferSchema>;
 export type BulkCreateSupplierPricesInput = z.infer<typeof bulkCreateSupplierPricesSchema>["items"];
 export type BulkCreateSupplierPricesAtomicInput = z.infer<
   typeof bulkCreateSupplierPricesAtomicSchema

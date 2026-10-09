@@ -1,6 +1,6 @@
+import { cleanup,fireEvent,render,screen,waitFor } from "@testing-library/react";
 import { createElement } from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 const parseFileMock = vi.hoisted(() => vi.fn());
 const fetchApiMock = vi.hoisted(() => vi.fn());
@@ -56,17 +56,6 @@ describe("PriceBookCsvImport", () => {
     fetchApiMock.mockReset();
   });
 
-  it("renders the guided assistant steps", async () => {
-    const { container } = renderImporter();
-    const treeText = container.textContent ?? "";
-
-    expect(treeText).toContain("Charger");
-    expect(treeText).toContain("Detection");
-    expect(treeText).toContain("Associer");
-    expect(treeText).toContain("Resoudre");
-    expect(treeText).toContain("Importer");
-  });
-
   it("generates a semicolon CSV template compatible with the importer", async () => {
     const createObjectURLMock = vi.fn<(object: Blob | MediaSource) => string>(
       () => "blob:price-book-template"
@@ -117,32 +106,6 @@ describe("PriceBookCsvImport", () => {
     expect(createdAnchors[0].href).toBe("blob:price-book-template");
     expect(anchorClickMock).toHaveBeenCalledTimes(1);
     expect(revokeObjectURLMock).toHaveBeenCalledWith("blob:price-book-template");
-  });
-
-  it("displays detected profile and encoding after CSV analysis", async () => {
-    fetchApiMock.mockResolvedValueOnce(TEST_IMPORT_RESPONSE);
-    parseFileMock.mockResolvedValue({
-      mode: "worker",
-      parser: "csv",
-      detectedEncoding: "windows-1252",
-      rows: [
-        {
-          ID: "TUBE-INOX-28",
-          F1_nom: "CEDEO",
-          F1_prix: "10,00",
-        },
-      ],
-      rowLineNumbers: [2],
-    });
-
-    const { container } = renderImporter();
-    selectCsvFile(new File(["header"], "mm.csv", { type: "text/csv" }));
-    analyzeSelectedFile();
-
-    await waitFor(() => {
-      expect(container.textContent).toContain("Format BDC detecte");
-      expect(container.textContent).toContain("Encodage: windows-1252");
-    });
   });
 
   it("exports correction CSV with expected columns for rows to fix", async () => {

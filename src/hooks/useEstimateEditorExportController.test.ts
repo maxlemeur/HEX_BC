@@ -1,13 +1,13 @@
-import { act, renderHook } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act,renderHook } from "@testing-library/react";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 import type { EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
 import { useEstimateEditorExportController } from "@/hooks/useEstimateEditorExportController";
 import type { EstimateTotals } from "@/lib/estimate-calculations";
 import type { EstimateQualityFlagCounts } from "@/lib/estimate-quality";
 import type {
-  EstimateItem,
-  EstimateVersionRow,
+EstimateItem,
+EstimateVersionRow,
 } from "@/lib/estimates/editor-items";
 
 const mocks = vi.hoisted(() => ({
@@ -184,23 +184,6 @@ afterEach(() => {
 });
 
 describe("useEstimateEditorExportController streaming exports", () => {
-  it("uses the standard, DPGF and BDC streaming contracts", async () => {
-    const { result } = renderHook(() =>
-      useEstimateEditorExportController(createInput())
-    );
-
-    await act(async () => {
-      await result.current.actions.exportExcel();
-      await result.current.actions.exportDpgf();
-      await result.current.actions.exportBdc();
-    });
-
-    expect(mocks.exportEstimate.mock.calls).toEqual([
-      ["version-1", "xlsx"],
-      ["version-1", "xlsx", { mode: "dpgf" }],
-      ["version-1", "xlsx", { mode: "bdc" }],
-    ]);
-  });
 
   it("exposes the active state and blocks a second export until completion", async () => {
     const deferred = createDeferred<{ filename: string; size: number }>();

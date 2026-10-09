@@ -30,6 +30,8 @@ import type {
 } from "@/components/TableFilterBar";
 import { ProductCsvImport } from "@/components/products/ProductCsvImport";
 import { ProductPriceTemplateImport } from "@/components/products/ProductPriceTemplateImport";
+import { ProductReferencePricePanel } from "@/components/products/ProductReferencePricePanel";
+import { Modal } from "@/components/ui-legacy/Modal";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -116,6 +118,10 @@ function formatDateOnly(value: string | null) {
 }
 
 function referencePriceSourceLabel(product: ProductView) {
+  if (product.reference_price_validation_id) {
+    return `Référence validée · pour ${product.reference_quantity} ${product.unit || "u"}`;
+  }
+  if (product.unit_price_cents === 0) return "À définir à partir des offres";
   if (!product._referencePriceSourceOrderId) return "Saisie interne";
 
   const source = [
@@ -165,10 +171,14 @@ export default function ProductsPage() {
     null,
   );
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [referenceProduct, setReferenceProduct] = useState<ProductRecord | null>(null);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isTemplateImportOpen, setIsTemplateImportOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const requestedProductId = searchParams.get("product_id");
+  const productReturnQuery = searchParams.toString();
+  const [isOpeningProduct, setIsOpeningProduct] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
   const querySearch = searchParams.get("q") ?? "";
@@ -217,6 +227,32 @@ export default function ProductsPage() {
     },
     [pathname, router, searchParams],
   );
+
+  useEffect(() => {
+    if (!requestedProductId) return;
+    let cancelled = false;
+    setIsOpeningProduct(true);
+    setFormError(null);
+    void fetchApi<{ items: ProductRecord[] }>(
+      `/api/catalogue?id=${encodeURIComponent(requestedProductId)}&include_inactive=true&limit=1`,
+    ).then((response) => {
+      if (cancelled) return;
+      const product = response.items.find((item) => item.id === requestedProductId);
+      if (!product) throw new Error("Ce produit est introuvable ou n’est plus accessible.");
+      setEditingProduct(product);
+      setIsFormOpen(true);
+      const next = new URLSearchParams(productReturnQuery);
+      next.delete("product_id");
+      router.replace(next.size ? `${pathname}?${next}` : pathname, { scroll: false });
+    }).catch((error: unknown) => {
+      if (!cancelled) {
+        setFormError(error instanceof Error ? error.message : "Impossible d’ouvrir la fiche produit.");
+      }
+    }).finally(() => {
+      if (!cancelled) setIsOpeningProduct(false);
+    });
+    return () => { cancelled = true; };
+  }, [pathname, productReturnQuery, requestedProductId, router]);
 
   useEffect(() => {
     setSearchInput(querySearch);
@@ -383,7 +419,7 @@ export default function ProductsPage() {
     setSuccessMessage(null);
 
     try {
-      await fetchApi("/api/products", {
+      const saved = await fetchApi<{ item: { reference?: string | null } }>("/api/products", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
@@ -396,7 +432,9 @@ export default function ProductsPage() {
       setIsFormOpen(false);
       setEditingProduct(null);
       setSuccessMessage(
-        editingProduct ? "Produit mis à jour." : "Produit ajouté à la base.",
+        editingProduct
+          ? "Produit mis à jour."
+          : `Produit ajouté à la base.${saved.item.reference ? ` Référence : ${saved.item.reference}.` : ""}`,
       );
     } catch (error) {
       setFormError(
@@ -517,9 +555,10 @@ export default function ProductsPage() {
                   Règle de prix actuelle
                 </DropdownMenuLabel>
                 <p className="px-2 pb-2 text-xs leading-relaxed text-[var(--slate-500)]">
-                  Le prix de référence reprend le dernier achat confirmé. À
-                  défaut, la saisie interne est utilisée. Les autres offres
-                  restent dans les tarifs fournisseurs.
+                  Le prix de référence est validé explicitement à partir des
+                  offres comparables ou d’une saisie justifiée. Les nouveaux
+                  tarifs ne remplacent pas automatiquement ce prix ni les
+                  coûts des devis existants.
                 </p>
               </DropdownMenuGroup>
 
@@ -571,6 +610,11 @@ export default function ProductsPage() {
         </div>
       </div>
 
+      {isOpeningProduct ? (
+        <div className="mb-5 text-sm text-[var(--slate-500)]" role="status">
+          Ouverture de la fiche produit…
+        </div>
+      ) : null}
       {successMessage ? (
         <div className="alert alert-success mb-5" role="status">
           {successMessage}
@@ -780,14 +824,18 @@ export default function ProductsPage() {
                     </td>
                     <td className="text-right">
                       <div className="whitespace-nowrap font-mono text-xs font-semibold text-[var(--slate-900)] sm:text-sm">
-                        {formatEUR(product.unit_price_cents)}
-                        <span className="ml-1 text-[10px] font-normal text-[var(--slate-500)] sm:text-xs">
+                        {product.unit_price_cents === 0 && !product.reference_price_validation_id ? "Prix manquant" : formatEUR(product.unit_price_cents)}
+                        {product.unit_price_cents !== 0 || product.reference_price_validation_id ? <span className="ml-1 text-[10px] font-normal text-[var(--slate-500)] sm:text-xs">
                           /{product.unit || "u"}
-                        </span>
+                        </span> : null}
                       </div>
                       <div className="mt-0.5 hidden text-xs text-[var(--slate-500)] md:block">
                         {referencePriceSourceLabel(product)}
                       </div>
+                      <button type="button" className="mt-1 text-xs text-[var(--brand-blue)] underline underline-offset-2"
+                        onClick={() => setReferenceProduct(product)} aria-label={`Examiner le prix de ${product.designation}`}>
+                        Examiner le prix
+                      </button>
                       {product._bestSupplierPriceCents !== null ? (
                         <div className="mt-1 text-[10px] text-emerald-700 sm:text-xs">
                           Fournisseur{" "}
@@ -922,6 +970,12 @@ export default function ProductsPage() {
         ) : null}
       </div>
 
+      <Modal.Root open={Boolean(referenceProduct)} onOpenChange={(open) => { if (!open) setReferenceProduct(null); }}>
+        <Modal.Content className="max-h-[90dvh] max-w-5xl overflow-y-auto">
+          <Modal.Header><Modal.Title>{referenceProduct?.designation}</Modal.Title><Modal.Close>Fermer</Modal.Close></Modal.Header>
+          {referenceProduct ? <ProductReferencePricePanel key={referenceProduct.id} productId={referenceProduct.id} onValidated={() => { void mutate(); }} /> : null}
+        </Modal.Content>
+      </Modal.Root>
       <ProductFormModal
         key={`${editingProduct?.id ?? "new"}:${isFormOpen ? "open" : "closed"}`}
         open={isFormOpen}

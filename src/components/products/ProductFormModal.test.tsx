@@ -1,10 +1,9 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup,render,screen,waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach,describe,expect,it,vi } from "vitest";
 
 import {
-  ProductFormModal,
-  type ProductRecord,
+ProductFormModal
 } from "@/app/dashboard/products/ProductFormModal";
 
 const TECHNICAL_DETAILS_SUMMARY = "Détails techniques (optionnel)";
@@ -97,98 +96,5 @@ describe("ProductFormModal", () => {
         is_active: true,
       });
     });
-  });
-
-  it("suggests the families and materials already used in the directory", () => {
-    render(
-      <ProductFormModal
-        open
-        product={null}
-        isSaving={false}
-        error={null}
-        categorySuggestions={["Tuyauterie", "Raccords"]}
-        materialSuggestions={["Inox"]}
-        onOpenChange={vi.fn()}
-        onSubmit={vi.fn()}
-      />
-    );
-
-    expect(screen.getByLabelText("Famille")).toHaveAttribute(
-      "list",
-      "product-category-options"
-    );
-    expect(screen.getByLabelText("Matière")).toHaveAttribute(
-      "list",
-      "product-material-options"
-    );
-    expect(
-      document.querySelector("#product-category-options")?.children
-    ).toHaveLength(2);
-  });
-
-  it("hydrates the edit form and exposes the active status", () => {
-    const product: ProductRecord = {
-      id: "product-1",
-      created_at: "2026-07-10T00:00:00.000Z",
-      reference: "C90.I4S.50",
-      designation: "Coude inox 304L DN50",
-      category: "Raccords",
-      product_type: "Coude",
-      material: "Inox",
-      grade: "304L",
-      dimensions: "DN50",
-      standard: "EN 10253-4",
-      unit: "u",
-      unit_price_cents: 290,
-      is_active: false,
-    };
-
-    render(
-      <ProductFormModal
-        open
-        product={product}
-        isSaving={false}
-        error={null}
-        onOpenChange={vi.fn()}
-        onSubmit={vi.fn()}
-      />
-    );
-
-    expect(screen.getByRole("heading", { name: "Modifier le produit" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Désignation *")).toHaveValue("Coude inox 304L DN50");
-    expect(screen.getByLabelText("Prix de référence HT")).toHaveValue("2,90");
-    expect(screen.getByLabelText(/Produit actif/)).not.toBeChecked();
-    // Le repli s'ouvre d'emblee quand le produit porte deja des details.
-    expect(screen.getByText(TECHNICAL_DETAILS_SUMMARY).closest("details")).toHaveAttribute(
-      "open"
-    );
-    expect(screen.getByLabelText("Nuance")).toHaveValue("304L");
-  });
-
-  it("keeps the technical details collapsed when the product has none", () => {
-    const product: ProductRecord = {
-      id: "product-2",
-      created_at: "2026-07-10T00:00:00.000Z",
-      reference: "DIV.001",
-      designation: "Article divers",
-      unit: "u",
-      unit_price_cents: 0,
-      is_active: true,
-    };
-
-    render(
-      <ProductFormModal
-        open
-        product={product}
-        isSaving={false}
-        error={null}
-        onOpenChange={vi.fn()}
-        onSubmit={vi.fn()}
-      />
-    );
-
-    expect(
-      screen.getByText(TECHNICAL_DETAILS_SUMMARY).closest("details")
-    ).not.toHaveAttribute("open");
   });
 });

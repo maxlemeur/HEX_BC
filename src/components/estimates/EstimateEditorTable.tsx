@@ -83,6 +83,8 @@ import {
   type EstimateColumnWidths,
   useEstimateColumnWidths,
 } from "@/hooks/useEstimateColumnWidths";
+import { useEstimateColumnOrder, DEFAULT_ESTIMATE_COLUMN_ORDER, SPREADSHEET_ESTIMATE_COLUMN_IDS } from "@/hooks/useEstimateColumnOrder";
+import { EstimateColumnOrderContext } from "@/components/estimates/context/EstimateColumnOrderContext";
 import { useIsMobileViewport } from "@/hooks/useIsTablet";
 import { useUiMode } from "@/hooks/useUiMode";
 import {
@@ -411,6 +413,12 @@ function toSupplierComparisonAlternative(
     catalogue_url: catalogueUrl,
     product_designation: productDesignation,
     is_selected: isSelected,
+    unit: toNonEmptyString(record.unit),
+    min_quantity: typeof record.min_quantity === "number" && Number.isFinite(record.min_quantity)
+      ? record.min_quantity : null,
+    valid_from: toNonEmptyString(record.valid_from),
+    valid_to: toNonEmptyString(record.valid_to),
+    is_active: typeof record.is_active === "boolean" ? record.is_active : undefined,
   };
 }
 
@@ -712,7 +720,9 @@ export function resolveEstimateEditorGridStyle(
   visibleColumns: ReadonlySet<ColumnKey>,
   isLaborSplitEnabled: boolean,
   customWidths: Readonly<EstimateColumnWidths> = {},
+  order: readonly EstimateColumnId[] = DEFAULT_ESTIMATE_COLUMN_ORDER,
 ): CSSProperties | undefined {
+  const columnIds: EstimateColumnId[] = [];
   const desktopColumns: string[] = [];
   const tabletColumns: string[] = [];
   let desktopMinWidth = 0;
@@ -725,6 +735,7 @@ export function resolveEstimateEditorGridStyle(
     desktopTrack = `${desktopWidth}px`,
     tabletTrack = `${tabletWidth}px`,
   ) => {
+    columnIds.push(columnId);
     const customWidth = customWidths[columnId];
     desktopColumns.push(customWidth ? `${customWidth}px` : desktopTrack);
     tabletColumns.push(customWidth ? `${customWidth}px` : tabletTrack);
@@ -767,6 +778,7 @@ export function resolveEstimateEditorGridStyle(
     // Ce second regime empechait toute colonne optionnelle en mode split.
     pushFixed("supply_type", 112, 100); // Type FO
     pushFixed("k_fo", 60, 56); // K FO
+    addOptionalColumn("supplier", 180, 160);
     pushFixed("h_mo_majoration", 96, 88); // Majoration MO
     pushFixed("labor_hours_workshop", 72, 68); // h MO atelier
     pushFixed("labor_role_workshop", 104, 96); // Type MO atelier
@@ -777,6 +789,7 @@ export function resolveEstimateEditorGridStyle(
   } else {
     addOptionalColumn("supply_type", 112, 100);
     addOptionalColumn("k_fo", 56, 56);
+    addOptionalColumn("supplier", 180, 160);
     pushFixed("labor_hours", 56, 56); // h MO
     addOptionalColumn("h_mo_majoration", 104, 96);
     addOptionalColumn("labor_role", 112, 100);
@@ -791,14 +804,18 @@ export function resolveEstimateEditorGridStyle(
   pushFixed("unit_price", 88, 82); // P.U.
   pushFixed("total_price", 100, 94); // Prix total
 
-  desktopColumns.push("42px");
-  tabletColumns.push("40px");
+  const indices = columnIds.map((id, index) => ({ id, index }))
+    .sort((left, right) => order.indexOf(left.id) - order.indexOf(right.id));
+  const orderedDesktop = indices.map(({ index }) => desktopColumns[index]);
+  const orderedTablet = indices.map(({ index }) => tabletColumns[index]);
+  orderedDesktop.push("42px");
+  orderedTablet.push("40px");
   desktopMinWidth += 42;
   tabletMinWidth += 40;
 
   return {
-    "--estimate-grid-desktop": desktopColumns.join(" "),
-    "--estimate-grid-tablet": tabletColumns.join(" "),
+    "--estimate-grid-desktop": orderedDesktop.join(" "),
+    "--estimate-grid-tablet": orderedTablet.join(" "),
     "--estimate-desktop-min-width": `${desktopMinWidth}px`,
     "--estimate-tablet-min-width": `${Math.max(tabletMinWidth, 900)}px`,
   } as CSSProperties;
@@ -886,10 +903,12 @@ export function EstimateEditorTable({
   onOpenSettings,
 }: EstimateEditorTableProps) {
   const columnVisibility = useColumnVisibility();
+  const columnOrder = useEstimateColumnOrder();
   const {
     widths: customColumnWidths,
     setColumnWidth,
     resetColumnWidth,
+    resetColumnWidths,
   } = useEstimateColumnWidths();
   const columnPreset = columnVisibility.preset;
   const setColumnPresetAuto = columnVisibility.setPresetAuto;
@@ -1028,8 +1047,9 @@ export function EstimateEditorTable({
         viewportVisibleColumns,
         isLaborSplitEnabled,
         customColumnWidths,
+        columnOrder.order,
       ),
-    [customColumnWidths, viewportVisibleColumns, isLaborSplitEnabled],
+    [customColumnWidths, viewportVisibleColumns, isLaborSplitEnabled, columnOrder.order],
   );
 
   const handleColumnResizeStart = useCallback(
@@ -1120,6 +1140,7 @@ export function EstimateEditorTable({
   // Compute super-header FO/MO group spans for the grid
   const superHeaderSpans = useMemo(() => {
     const foStart = 4; // PR.FO is always column 4 (after designation, qty, unit)
+    const supplierSpan = viewportVisibleColumns.has("supplier") ? 1 : 0;
     const priceBreakdownSpan =
       (viewportVisibleColumns.has("ds") ? 1 : 0) +
       (viewportVisibleColumns.has("marge") ? 1 : 0) +
@@ -1127,14 +1148,14 @@ export function EstimateEditorTable({
     if (isLaborSplitEnabled) {
       return {
         foStart,
-        foSpan: 3,
-        moStart: 7,
+        foSpan: 3 + supplierSpan,
+        moStart: 7 + supplierSpan,
         moSpan: 7,
-        puStart: 14 + priceBreakdownSpan,
+        puStart: 14 + supplierSpan + priceBreakdownSpan,
       };
     }
     const foSpan =
-      1 +
+      1 + supplierSpan +
       (viewportVisibleColumns.has("supply_type") ? 1 : 0) +
       (viewportVisibleColumns.has("k_fo") ? 1 : 0);
     const moStart = foStart + foSpan;
@@ -1280,13 +1301,6 @@ export function EstimateEditorTable({
     });
   }, []);
 
-  const handleSupplyTypeDraftChange = useCallback((itemId: string, value: string) => {
-    setSupplyTypeDrafts((prev) => {
-      if (prev[itemId] === value) return prev;
-      return { ...prev, [itemId]: value };
-    });
-  }, []);
-
   const patchItemWithSuggestionTracking = useCallback(
     (itemId: string, patch: ItemPatch, options?: { persist?: boolean }) => {
       onPatchItem(itemId, patch, options);
@@ -1339,43 +1353,6 @@ export function EstimateEditorTable({
       itemById,
       onPatchItem,
       onTrackSuggestionCorrections,
-    ]
-  );
-
-  const handleSupplyTypeCommit = useCallback(
-    (itemId: string) => {
-      if (isReadOnly) return;
-      const value = (mergedSupplyTypeDrafts[itemId] ?? "").trim();
-      if (!value) {
-        patchItemWithSuggestionTracking(
-          itemId,
-          { supply_type_id: null },
-          { persist: true }
-        );
-        return;
-      }
-
-      const existing = supplyTypeByLowerName.get(value.toLowerCase());
-      if (existing) {
-        patchItemWithSuggestionTracking(
-          itemId,
-          { supply_type_id: existing.id },
-          { persist: true }
-        );
-        return;
-      }
-
-      patchItemWithSuggestionTracking(
-        itemId,
-        { supply_type_id: null },
-        { persist: true }
-      );
-    },
-    [
-      isReadOnly,
-      mergedSupplyTypeDrafts,
-      patchItemWithSuggestionTracking,
-      supplyTypeByLowerName,
     ]
   );
 
@@ -1532,6 +1509,7 @@ export function EstimateEditorTable({
     handleCloseSupplierComparisonPanel,
     activeSupplierComparisonItem,
     activeSupplierComparison,
+    supplierComparisonByItemId,
     bestSupplierPriceIdByItemId,
     isSupplierComparisonLoading,
     supplierComparisonError,
@@ -1896,7 +1874,9 @@ export function EstimateEditorTable({
   });
 
   const hiddenSpreadsheetColumnKeys = useMemo(() => {
-    if (isLaborSplitEnabled) return new Set<string>(); // labor split not affected
+    if (isLaborSplitEnabled) {
+      return new Set<string>(viewportVisibleColumns.has("supplier") ? [] : ["supplier"]);
+    }
     const hidden = new Set<string>();
     // Partiel a dessein : toutes les colonnes ne sont pas des cellules
     // navigables. Le sous-detail de prix (ds / marge / marque) est en lecture
@@ -1904,6 +1884,7 @@ export function EstimateEditorTable({
     const columnKeyToSpreadsheetKey: Partial<Record<ColumnKey, string>> = {
       supply_type: "supply_type",
       k_fo: "k_fo",
+      supplier: "supplier",
       h_mo_majoration: "h_mo_majoration",
       labor_role: "labor_role",
       k_mo: "k_mo",
@@ -1935,7 +1916,7 @@ export function EstimateEditorTable({
     if (!hasVisibleRowsForRender) return [] as SpreadsheetNavigationRow[];
 
     return visibleItemsInOrderForRender.map((item) => {
-      const allKeys = getSpreadsheetColumnKeys(item.item_type, isLaborSplitEnabled);
+      const allKeys = getSpreadsheetColumnKeys(item.item_type, isLaborSplitEnabled, viewportVisibleColumns.has("supplier"));
       if (hiddenSpreadsheetColumnKeys.size === 0) {
         return {
           rowId: getEstimateEditorItemClientKey(item),
@@ -1944,12 +1925,16 @@ export function EstimateEditorTable({
       }
       return {
         rowId: getEstimateEditorItemClientKey(item),
-        columnKeys: allKeys.filter((key) => !hiddenSpreadsheetColumnKeys.has(key)),
+        columnKeys: allKeys.filter((key) => !hiddenSpreadsheetColumnKeys.has(key))
+          .sort((left, right) => columnOrder.order.indexOf(SPREADSHEET_ESTIMATE_COLUMN_IDS[left])
+            - columnOrder.order.indexOf(SPREADSHEET_ESTIMATE_COLUMN_IDS[right])),
       };
     });
   }, [
     hasVisibleRowsForRender,
     hiddenSpreadsheetColumnKeys,
+    viewportVisibleColumns,
+    columnOrder.order,
     isLaborSplitEnabled,
     visibleItemsInOrderForRender,
   ]);
@@ -2042,8 +2027,6 @@ export function EstimateEditorTable({
       onPatchItem: patchItemWithSuggestionTracking,
       onUnitChange: handleUnitDraftChange,
       onUnitCommit: handleUnitCommit,
-      onSupplyTypeChange: handleSupplyTypeDraftChange,
-      onSupplyTypeCommit: handleSupplyTypeCommit,
       onAddLine,
       onAddSection,
       onConvertLineToSection: handleConvertLineToSection,
@@ -2054,8 +2037,6 @@ export function EstimateEditorTable({
       handleConvertLineToSection,
       handleLineSelectionInteraction,
       handleOpenSupplierComparisonContextMenu,
-      handleSupplyTypeCommit,
-      handleSupplyTypeDraftChange,
       handleUnitCommit,
       handleUnitDraftChange,
       onAddLine,
@@ -2120,6 +2101,7 @@ export function EstimateEditorTable({
           laborRoles={laborRoles}
           isLineSelected={item.item_type === "line" && isLineSelected(item.id)}
           hasSupplierComparisonMismatch={hasSupplierComparisonMismatch}
+          supplierComparison={supplierComparisonByItemId[item.id]}
           sectionTotals={sectionTotals}
           isDragDisabled={!canReorder || isPendingCreateItem(item)}
           isOutlierActionPending={Boolean(outlierActionPendingByItemId[item.id])}
@@ -2152,6 +2134,7 @@ export function EstimateEditorTable({
     },
     [
       bestSupplierPriceIdByItemId,
+      supplierComparisonByItemId,
       canReorder,
       viewportVisibleColumns,
       detectedOutlierFlagsByItemId,
@@ -2405,6 +2388,7 @@ export function EstimateEditorTable({
   }, []);
 
   return (
+    <EstimateColumnOrderContext.Provider value={columnOrder.order}>
     <EstimateEditorProvider value={estimateEditorContextValue}>
       <EstimateEditorRowActionsProvider value={rowActionsContextValue}>
         <EstimateSpreadsheetProvider navigation={spreadsheetNavigation}>
@@ -2487,6 +2471,13 @@ export function EstimateEditorTable({
                 columnVisibleColumns={columnVisibility.visibleColumns}
                 allAdvancedColumns={columnVisibility.allAdvancedColumns}
                 columnLabels={columnVisibility.columnLabels}
+                columnOrder={columnOrder.order}
+                onMoveColumn={columnOrder.moveColumn}
+                onResetColumns={() => {
+                  columnVisibility.resetColumns();
+                  resetColumnWidths();
+                  columnOrder.resetColumnOrder();
+                }}
                 onToggleColumn={columnVisibility.toggleColumn}
                 hiddenAdvancedCount={columnVisibility.hiddenAdvancedCount}
                 onToggleAdvancedColumns={columnVisibility.toggleAdvancedColumns}
@@ -2557,7 +2548,7 @@ export function EstimateEditorTable({
               itemNumber={itemNumberById[mobileEditorItem.id] ?? null}
               estimateCurrency={currency}
               unitValue={mergedUnitDrafts[mobileEditorItem.id] ?? ""}
-              supplyTypeValue={mergedSupplyTypeDrafts[mobileEditorItem.id] ?? ""}
+              supplyTypes={supplyTypes}
               laborRoles={laborRoles}
               isReadOnly={isReadOnly}
               isLaborSplitEnabled={isLaborSplitEnabled}
@@ -2671,6 +2662,9 @@ export function EstimateEditorTable({
         <SupplierComparisonPanel
           isOpen
           itemTitle={activeSupplierComparisonItem.title}
+          quantity={activeSupplierComparisonItem.quantity}
+          itemUnit={activeSupplierComparisonItem.description}
+          currentUnitPriceCents={activeSupplierComparisonItem.unit_price_ht_cents}
           alternatives={activeSupplierComparison?.alternatives ?? []}
           bestSupplierPriceId={
             activeSupplierComparison?.best_supplier_price_id ?? null
@@ -2728,5 +2722,6 @@ export function EstimateEditorTable({
         </EstimateSpreadsheetProvider>
       </EstimateEditorRowActionsProvider>
     </EstimateEditorProvider>
+    </EstimateColumnOrderContext.Provider>
   );
 }

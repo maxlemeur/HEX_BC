@@ -63,6 +63,7 @@ vi.mock("@/lib/estimates/margin-tiers", () => ({
 vi.mock("@/lib/money", () => ({
   SUPPORTED_ESTIMATE_CURRENCIES: ["EUR", "USD", "GBP"],
   formatEUR: (cents: number) => `${(cents / 100).toFixed(2)} EUR`,
+  formatCurrency: (cents: number, currency: string) => `${(cents / 100).toFixed(2)} ${currency}`,
 }));
 
 // Lazy-import after mocks are wired
@@ -423,7 +424,7 @@ describe("EstimateCreationWizard", () => {
     expect(vi.mocked(createEstimate)).toHaveBeenCalledTimes(1);
   });
 
-  it("shows margin tiers table when tiered mode selected", async () => {
+  it("explains the organization scale without presenting hardcoded defaults as its configured tiers", async () => {
     const { user } = setup();
 
     await user.type(screen.getByLabelText(/Nom du projet/), "Project Tiers");
@@ -435,11 +436,11 @@ describe("EstimateCreationWizard", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Tranches de marge/)).toBeInTheDocument();
-      expect(screen.getByText("Seuil")).toBeInTheDocument();
-      expect(screen.getByText("Multiplicateur")).toBeInTheDocument();
-      expect(screen.getByText("x1.60")).toBeInTheDocument();
-      expect(screen.getByText("x1.45")).toBeInTheDocument();
+      expect(screen.getByText("Tranches de marge de l’organisation")).toBeInTheDocument();
+      expect(screen.getByText(/Le barème de votre organisation sera appliqué/)).toBeInTheDocument();
+      expect(screen.getByText(/n’est pas découpé en tranches progressives/)).toBeInTheDocument();
+      expect(screen.getByText(/Exemple : coût de/)).toHaveTextContent("1000.00 EUR × 1.20 = 1200.00 EUR");
+      expect(screen.queryByText("x1.60")).not.toBeInTheDocument();
     });
   });
 

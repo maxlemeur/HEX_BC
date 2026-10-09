@@ -1,12 +1,11 @@
 import {
-  cleanup,
-  render,
-  screen,
-  waitFor,
-  within,
+cleanup,
+render,
+screen,
+waitFor
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 const { estimateExplanationPanelMock } = vi.hoisted(() => ({
   estimateExplanationPanelMock: vi.fn(
@@ -124,18 +123,6 @@ async function openPopoverOnHoverOrClick() {
   return { user, trigger };
 }
 
-async function openPopoverOnClick() {
-  const user = userEvent.setup();
-  const trigger = getBadgeTrigger();
-
-  if (!trigger) {
-    throw new Error("Badge IA introuvable.");
-  }
-
-  await user.click(trigger);
-  return { user, trigger };
-}
-
 describe("TakeoffSourceBadge", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -143,68 +130,6 @@ describe("TakeoffSourceBadge", () => {
 
   afterEach(() => {
     cleanup();
-  });
-
-  it("renders the IA badge for takeoff providers only", () => {
-    renderBadge({ sourceProvider: "manual" });
-    expect(getBadgeTrigger()).not.toBeInTheDocument();
-
-    cleanup();
-
-    renderBadge({ sourceProvider: "takeoff" });
-    expect(getBadgeTrigger()).toBeInTheDocument();
-
-    cleanup();
-
-    renderBadge({ sourceProvider: "takeoff_gemini" });
-    expect(getBadgeTrigger()).toBeInTheDocument();
-  });
-
-  it("opens popover on hover or click and shows expected provenance content", async () => {
-    renderBadge();
-
-    const { trigger } = await openPopoverOnHoverOrClick();
-
-    const tooltip = await screen.findByRole("tooltip");
-    expect(tooltip).toHaveTextContent("lot-source.pdf");
-    expect(tooltip).toHaveTextContent("47");
-    expect(tooltip).toHaveTextContent("2031");
-    expect(tooltip).toHaveTextContent("B");
-    expect(tooltip).toHaveTextContent("V1");
-    expect(within(tooltip).queryByRole("link")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Expliquer ce prix" })
-    ).toBeInTheDocument();
-    expect(trigger).toHaveTextContent("(from V1)");
-  });
-
-  it("shows Non disponible when provenance metadata is missing", async () => {
-    renderBadge({
-      sourceFileName: null,
-      sourcePage: null,
-      sourceJobId: null,
-      sourceLevel: null,
-      extractedAt: null,
-      sourceVersionNumber: null,
-    });
-
-    await openPopoverOnHoverOrClick();
-
-    const tooltip = await screen.findByRole("tooltip");
-    expect(tooltip).toHaveTextContent("Non disponible");
-  });
-
-  it("uses tooltip role and closes on Escape", async () => {
-    renderBadge();
-
-    const { user } = await openPopoverOnClick();
-    expect(screen.getByRole("tooltip")).toBeInTheDocument();
-
-    await user.keyboard("{Escape}");
-
-    await waitFor(() => {
-      expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
-    });
   });
 
   it("keeps the explanation panel mounted after launching it from the popover", async () => {

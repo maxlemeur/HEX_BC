@@ -79,12 +79,14 @@ export function AffairePersistedProjectDetails({
           projectName: draftValues.projectName,
           clientName: draftValues.clientName || null,
           reference: draftValues.reference || null,
+          siteAddress: draftValues.siteAddress || null,
         });
 
         const nextValues = {
           projectName: result.projectName,
           clientName: result.clientName ?? "",
           reference: result.reference ?? "",
+          siteAddress: result.siteAddress ?? "",
         };
 
         setSavedValues(nextValues);
@@ -161,6 +163,9 @@ export function AffairePersistedProjectDetails({
         if (errorMessage) {
           setErrorMessage(null);
         }
+      }}
+      onSiteAddressChange={(value) => {
+        setDraftValues((current) => ({ ...current, siteAddress: value }));
       }}
       onReferenceChange={(value) => {
         setDraftValues((current) => ({ ...current, reference: value }));

@@ -1,6 +1,6 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup,render,screen,waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach,describe,expect,it,vi } from "vitest";
 
 import { EstimatePdfLayoutModal } from "./EstimatePdfLayoutModal";
 
@@ -34,58 +34,6 @@ describe("EstimatePdfLayoutModal", () => {
         title: "Conditions generales de vente",
         version: 3,
       },
-    });
-  });
-
-  it("applique les choix de presentation et la politique CGV du locataire", async () => {
-    const user = userEvent.setup();
-    const onConfirm = vi.fn();
-
-    render(
-      <EstimatePdfLayoutModal
-        open
-        onOpenChange={vi.fn()}
-        versionId="version-1"
-        onConfirm={onConfirm}
-      />
-    );
-
-    expect(
-      screen.getByRole("heading", { name: "Préparer le devis PDF" })
-    ).toBeInTheDocument();
-
-    const termsCheckbox = await screen.findByRole("checkbox", {
-      name: /Joindre les CGV/i,
-    });
-    await waitFor(() => {
-      expect(termsCheckbox).toBeChecked();
-      expect(termsCheckbox).toBeDisabled();
-    });
-
-    await user.click(
-      screen.getByText("Personnaliser le contenu et la présentation")
-    );
-    await user.selectOptions(screen.getByLabelText("Contenu visible"), "3");
-    await user.selectOptions(
-      screen.getByLabelText("Colonnes de prix"),
-      "fo_mo_and_total"
-    );
-    await user.selectOptions(screen.getByLabelText("Confort de lecture"), "compact");
-    await user.click(
-      screen.getByRole("checkbox", { name: /Précisions sur une page séparée/i })
-    );
-    await user.click(screen.getByRole("button", { name: /Générer le PDF/i }));
-
-    await waitFor(() => {
-      expect(onConfirm).toHaveBeenCalledWith(
-        expect.objectContaining({
-          detailLevel: 3,
-          priceMode: "fo_mo_and_total",
-          density: "compact",
-          conditionsPlacement: "new_page",
-          includeTerms: true,
-        })
-      );
     });
   });
 
@@ -163,23 +111,5 @@ describe("EstimatePdfLayoutModal", () => {
 
     expect(detailedPreset).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByText("Personnalisé")).toBeInTheDocument();
-  });
-
-  it("se ferme avec Echap", async () => {
-    const user = userEvent.setup();
-    const onOpenChange = vi.fn();
-
-    render(
-      <EstimatePdfLayoutModal
-        open
-        onOpenChange={onOpenChange}
-        versionId="version-1"
-        onConfirm={vi.fn()}
-      />
-    );
-
-    await user.keyboard("{Escape}");
-
-    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });

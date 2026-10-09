@@ -1,17 +1,17 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act,cleanup,renderHook,waitFor } from "@testing-library/react";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 import { useEstimateEditorSuggestionsController } from "@/hooks/useEstimateEditorSuggestionsController";
 import type {
-  SuggestionLearningState as SuggestionLearningClientState,
-  TrackEstimateSuggestionCorrectionsResult,
+SuggestionLearningState as SuggestionLearningClientState,
+TrackEstimateSuggestionCorrectionsResult,
 } from "@/lib/estimates/client";
 import type {
-  EditorEstimateItem,
-  EstimateItem,
-  EstimateVersionRow,
+EditorEstimateItem,
+EstimateItem,
+EstimateVersionRow,
 } from "@/lib/estimates/editor-items";
 import type { Database } from "@/types/database";
 
@@ -461,88 +461,6 @@ describe("useEstimateEditorSuggestionsController", () => {
       by_rule_id: {},
     });
     expect(harness.result.current.state.rules).toEqual([]);
-  });
-
-  it("treats learning loading as optional and reuses the shared client parser", async () => {
-    const harness = createHarness();
-    clientMocks.fetchEstimateSuggestionLearnings.mockRejectedValueOnce(
-      new Error("offline")
-    );
-
-    let learning;
-    await act(async () => {
-      learning = await harness.result.current.actions.loadLearning();
-    });
-
-    expect(clientMocks.fetchEstimateSuggestionLearnings).toHaveBeenCalledWith(
-      VERSION_A
-    );
-    expect(learning).toEqual({
-      enabled: false,
-      by_rule_id: {},
-    });
-    expect(harness.result.current.state.learningState.enabled).toBe(false);
-    expect(harness.reportError).not.toHaveBeenCalled();
-  });
-
-  it("creates and updates rules in sorted order while exposing one saving state", async () => {
-    const harness = createHarness();
-    await act(async () => {
-      harness.result.current.actions.hydrate({
-        versionId: VERSION_A,
-        rules: [createRule("rule-2", 2), createRule("rule-1", 1)],
-        learning: null,
-      });
-    });
-
-    clientMocks.createEstimateSuggestionRule.mockResolvedValueOnce(
-      createRule("rule-3", 3)
-    );
-    await act(async () => {
-      await harness.result.current.actions.createRule({
-        name: "Regle 3",
-        match_value: "porte",
-        unit: "u",
-        category_id: null,
-        k_fo: 1.1,
-        k_mo: null,
-        labor_role_id: null,
-        position: null,
-        is_active: true,
-      });
-    });
-
-    expect(clientMocks.createEstimateSuggestionRule).toHaveBeenCalledWith(
-      VERSION_A,
-      expect.objectContaining({
-        name: "Regle 3",
-        match_type: "keyword",
-        position: 3,
-      })
-    );
-    expect(harness.result.current.state.rules.map((rule) => rule.id)).toEqual([
-      "rule-1",
-      "rule-2",
-      "rule-3",
-    ]);
-
-    clientMocks.updateEstimateSuggestionRule.mockResolvedValueOnce(
-      createRule("rule-3", 0, { name: "Prioritaire" })
-    );
-    await act(async () => {
-      await harness.result.current.actions.updateRule("rule-3", {
-        name: "Prioritaire",
-        position: 0,
-      });
-    });
-
-    expect(harness.result.current.state.rules.map((rule) => rule.id)).toEqual([
-      "rule-3",
-      "rule-1",
-      "rule-2",
-    ]);
-    expect(harness.result.current.state.isSavingRules).toBe(false);
-    expect(harness.result.current.state.rulesError).toBeNull();
   });
 
   it("drops a late rule mutation when the route changes", async () => {

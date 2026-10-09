@@ -33,12 +33,17 @@ import {
   getStatusCss,
   getStatusLabel,
 } from "@/components/takeoff/takeoff-job-list-shared";
-import {
-  TakeoffApplyWizard,
-  type TakeoffApplyWizardSubmitPayload,
-} from "@/components/takeoff/TakeoffApplyWizard";
+import type { TakeoffApplyWizardSubmitPayload } from "@/components/takeoff/TakeoffApplyWizard";
 import { releaseEstimateDraftLock } from "@/lib/estimates/client";
 import { ensureTakeoffApplyDraftLock } from "@/lib/takeoff/apply-draft-lock";
+
+const TakeoffApplyWizard = dynamic(
+  () => import("@/components/takeoff/TakeoffApplyWizard").then((module) => module.TakeoffApplyWizard),
+  {
+    ssr: false,
+    loading: () => <div role="status" className="dashboard-card p-8">Chargement des options d’application…</div>,
+  }
+);
 
 const LazyTakeoffReviewExpert = dynamic(
   () =>
@@ -1538,7 +1543,7 @@ export default function TakeoffReviewPage({
       />
 
       {/* ---- Apply wizard ---- */}
-      <TakeoffApplyWizard
+      {applyWizardOpen ? <TakeoffApplyWizard
         open={applyWizardOpen}
         jobId={jobId}
         versionId={versionId}
@@ -1557,7 +1562,7 @@ export default function TakeoffReviewPage({
         confidenceThreshold={lowConfidenceThreshold}
         isAdmin={isAdmin}
         onReturnToReview={() => setApplyWizardOpen(false)}
-      />
+      /> : null}
 
       {/* ---- Evidence panel ---- */}
       {evidencePanelItemId != null && (() => {

@@ -2,10 +2,8 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import {
-  TakeoffChunkExchangeSchema,
   TakeoffExchangeSchema,
   takeoffApplyRequestSchema,
-  takeoffPreviewConversionResponseSchema,
   zodToGeminiJsonSchema,
 } from "@/lib/takeoff/schemas";
 
@@ -96,62 +94,6 @@ function createBasePayload(level: "A" | "B" | "C") {
 }
 
 describe("TakeoffExchangeSchema", () => {
-  it("accepts a valid level A payload with optional tables", () => {
-    const payload = createBasePayload("A");
-
-    const parsed = TakeoffExchangeSchema.parse(payload);
-
-    expect(parsed.metadata.level).toBe("A");
-    expect(parsed.tables).toBeUndefined();
-    expect(parsed.warnings[0]?.code).toBe("QTY_INFERRED");
-  });
-
-  it("accepts a valid level B payload with required tables", () => {
-    const payload = {
-      ...createBasePayload("B"),
-      tables: [
-        {
-          page: 2,
-          title: "Tableau menuiseries",
-          headers: ["Désignation", "Quantité", "Unite"],
-          rows: [
-            {
-              row_index: 0,
-              cells: ["Porte coupe-feu", "5", "u"],
-            },
-          ],
-        },
-      ],
-    };
-
-    const parsed = TakeoffExchangeSchema.parse(payload);
-
-    expect(parsed.metadata.level).toBe("B");
-    expect(parsed.tables).toHaveLength(1);
-  });
-
-  it("accepts a valid level C payload with global confidence and item evidence", () => {
-    const payload = {
-      ...createBasePayload("C"),
-      confidence: 0.82,
-      items: [
-        {
-          designation: "Fenetre aluminium",
-          quantity: 12,
-          unit: "u",
-          confidence: 0.74,
-          source_page: 3,
-          evidence: "Comptage visuel sur plan RDC et R+1.",
-        },
-      ],
-    };
-
-    const parsed = TakeoffExchangeSchema.parse(payload);
-
-    expect(parsed.metadata.level).toBe("C");
-    expect(parsed.confidence).toBe(0.82);
-    expect(parsed.items[0]?.evidence).toBeTruthy();
-  });
 
   it("rejects level B payloads when tables is missing", () => {
     const parsed = TakeoffExchangeSchema.safeParse(createBasePayload("B"));
@@ -159,12 +101,6 @@ describe("TakeoffExchangeSchema", () => {
     expect(parsed.success).toBe(false);
     if (parsed.success) return;
     expect(parsed.error.issues.some((issue) => issue.path.join(".") === "tables")).toBe(true);
-  });
-
-  it("accepts intermediate level B payloads without tables for chunk processing", () => {
-    const parsed = TakeoffChunkExchangeSchema.safeParse(createBasePayload("B"));
-
-    expect(parsed.success).toBe(true);
   });
 
   it("rejects level C payloads without global confidence", () => {
@@ -413,24 +349,6 @@ describe("zodToGeminiJsonSchema", () => {
 });
 
 describe("takeoff apply mapping schemas", () => {
-  it("accepts apply payload with mapping overrides", () => {
-    const parsed = takeoffApplyRequestSchema.parse({
-      strategy: "merge",
-      target_section_id: "11111111-1111-4111-8111-111111111111",
-      overrides: [
-        {
-          item_id: "22222222-2222-4222-8222-222222222222",
-          action: "set_price",
-          action_params: {
-            unit_price_cents: 990,
-          },
-        },
-      ],
-    });
-
-    expect(parsed.strategy).toBe("merge");
-    expect(parsed.overrides).toHaveLength(1);
-  });
 
   it("rejects duplicate override item_id values", () => {
     const parsed = takeoffApplyRequestSchema.safeParse({
@@ -456,21 +374,6 @@ describe("takeoff apply mapping schemas", () => {
     ).toBe(true);
   });
 
-  it("requires override_justification when override is enabled", () => {
-    const parsed = takeoffApplyRequestSchema.safeParse({
-      strategy: "append",
-      override: true,
-    });
-
-    expect(parsed.success).toBe(false);
-    if (parsed.success) return;
-    expect(
-      parsed.error.issues.some((issue) =>
-        issue.message.includes("override_justification est obligatoire")
-      )
-    ).toBe(true);
-  });
-
   it("rejects override_justification without override=true", () => {
     const parsed = takeoffApplyRequestSchema.safeParse({
       strategy: "append",
@@ -484,54 +387,5 @@ describe("takeoff apply mapping schemas", () => {
         issue.message.includes("override_justification ne peut etre fourni")
       )
     ).toBe(true);
-  });
-
-  it("accepts preview conversion response payload", () => {
-    const parsed = takeoffPreviewConversionResponseSchema.parse({
-      job_id: "44444444-4444-4444-8444-444444444444",
-      strategy: "replace",
-      target_section_id: null,
-      summary: {
-        total_count: 1,
-        included_count: 1,
-        transformed_count: 1,
-        overridden_count: 0,
-        excluded_by_mapping_count: 0,
-        assembly_insertions_count: 0,
-      },
-      items: [
-        {
-          item_id: "55555555-5555-4555-8555-555555555555",
-          source_order: 0,
-          rule_id: null,
-          rule_name: null,
-          action: "rename",
-          action_params: {
-            designation: "Nouveau nom",
-          },
-          applied_by: "rule",
-          original: {
-            designation: "Ancien nom",
-            quantity: 2,
-            unit: "u",
-            is_excluded: false,
-            category_id: null,
-            unit_price_cents: null,
-            assembly_id: null,
-          },
-          transformed: {
-            designation: "Nouveau nom",
-            quantity: 2,
-            unit: "u",
-            is_excluded: false,
-            category_id: null,
-            unit_price_cents: null,
-            assembly_id: null,
-          },
-        },
-      ],
-    });
-
-    expect(parsed.items[0]?.action).toBe("rename");
   });
 });

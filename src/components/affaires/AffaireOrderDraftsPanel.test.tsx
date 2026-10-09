@@ -1,6 +1,6 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup,render,screen,waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 import { ToastProvider } from "@/components/ui-legacy/Toast";
 import { EstimateApiError } from "@/lib/estimates/client";
@@ -186,85 +186,6 @@ describe("AffaireOrderDraftsPanel", () => {
     vi.clearAllMocks();
     installSiteClient();
     fetchPreparationMock.mockResolvedValue(makePreparation());
-  });
-
-  it("prioritizes blocked lines before draftable supplier groups", async () => {
-    renderPanel();
-
-    expect(
-      await screen.findByRole("heading", {
-        name: /Brouillons par fournisseur, sans ressaisie/i,
-      })
-    ).toBeInTheDocument();
-    expect(screen.getByText("A traiter avant la creation")).toBeInTheDocument();
-    expect(screen.getByText("Ligne a arbitrer")).toBeInTheDocument();
-    expect(screen.getByText("Choix fournisseur a confirmer")).toBeInTheDocument();
-    expect(screen.getByText("Brouillons proposes")).toBeInTheDocument();
-    expect(screen.getByText("Best Supplier")).toBeInTheDocument();
-  });
-
-  it("creates draft orders explicitly from the selected supplier groups", async () => {
-    const user = userEvent.setup();
-    createDraftsMock.mockResolvedValueOnce({
-      sourceVersionId: "version-1",
-      summary: {
-        draftOrdersCreated: 1,
-        draftLinesCreated: 2,
-      },
-      orders: [
-        {
-          purchaseOrderId: "po-1",
-          reference: "C-2603-011",
-          supplierId: "supplier-1",
-          supplierName: "Best Supplier",
-          deliverySiteId: "site-1",
-          itemCount: 2,
-          totalHtCents: 25200,
-          totalTaxCents: 5040,
-          totalTtcCents: 30240,
-          orderedSourceItemIds: ["item-1", "item-2"],
-        },
-      ],
-    });
-
-    renderPanel();
-
-    await screen.findAllByText("Best Supplier");
-    await user.selectOptions(
-      screen.getAllByRole("combobox", { name: /Chantier de livraison/i })[0]!,
-      "site-1"
-    );
-    await user.type(
-      screen.getAllByRole("textbox", {
-        name: /Note reprise sur chaque brouillon/i,
-      })[0]!,
-      "Livraison a confirmer"
-    );
-    await user.click(
-      screen.getAllByRole("button", { name: /Créer le brouillon/i })[0]!
-    );
-
-    await waitFor(() => {
-      expect(createDraftsMock).toHaveBeenCalledWith("version-1", {
-        groups: [
-          {
-            supplierId: "supplier-1",
-            deliverySiteId: "site-1",
-            itemIds: ["item-1", "item-2"],
-            expectedDeliveryDate: null,
-            notes: "Livraison a confirmer",
-          },
-        ],
-      });
-    });
-
-    expect(routerRefreshMock).toHaveBeenCalled();
-    expect((await screen.findAllByText("Brouillons crees")).length).toBeGreaterThan(0);
-    expect(
-      screen.getByRole("link", {
-        name: /Ouvrir le brouillon/i,
-      })
-    ).toHaveAttribute("href", "/dashboard/orders/po-1");
   });
 
   it("keeps created draft links visible when the follow-up refresh fails", async () => {

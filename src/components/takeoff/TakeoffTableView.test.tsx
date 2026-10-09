@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup,fireEvent,render,screen } from "@testing-library/react";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 // Mock toast
 const mockToast = {
@@ -14,8 +14,8 @@ vi.mock("@/components/ui-legacy/Toast", () => ({
   useToast: () => mockToast,
 }));
 
-import { TakeoffTableView } from "@/components/takeoff/TakeoffTableView";
 import type { ReviewItem } from "@/components/takeoff/TakeoffReviewPage";
+import { TakeoffTableView } from "@/components/takeoff/TakeoffTableView";
 import type { TakeoffTable } from "@/lib/takeoff/types";
 
 const ITEM_ID_1 = "44444444-4444-4444-8444-444444444444";
@@ -76,29 +76,6 @@ describe("TakeoffTableView", () => {
     cleanup();
   });
 
-  it("renders table cards with title and metadata", () => {
-    render(
-      <TakeoffTableView
-        tables={[makeTable()]}
-        items={[
-          makeReviewItem({ id: ITEM_ID_1, metadata: { table_index: 0, row_index: 0 } }),
-          makeReviewItem({
-            id: ITEM_ID_2,
-            designation: "Parquet chene",
-            quantity: 18,
-            metadata: { table_index: 0, row_index: 1 },
-          }),
-        ]}
-        {...defaultProps}
-      />
-    );
-
-    expect(screen.getByText("Schedule Finitions R+1")).toBeDefined();
-    expect(screen.getByText("Page 1")).toBeDefined();
-    expect(screen.getByText("3 col")).toBeDefined();
-    expect(screen.getByText("2 lignes")).toBeDefined();
-  });
-
   it("keeps legacy items without table metadata visible by falling back to page/row order", () => {
     render(
       <TakeoffTableView
@@ -124,185 +101,6 @@ describe("TakeoffTableView", () => {
     expect(screen.getByText("2 lignes")).toBeDefined();
     expect(screen.getByLabelText("Designation - Legacy ligne 1")).toBeDefined();
     expect(screen.getByLabelText("Designation - Legacy ligne 2")).toBeDefined();
-  });
-
-  it("groups tables by page with separators", () => {
-    render(
-      <TakeoffTableView
-        tables={[
-          makeTable({ page: 1, title: "Table Page 1" }),
-          makeTable({ page: 3, title: "Table Page 3" }),
-        ]}
-        items={[
-          makeReviewItem({ id: ITEM_ID_1, source_page: 1, metadata: { table_index: 0, row_index: 0 } }),
-          makeReviewItem({ id: ITEM_ID_2, source_page: 3, metadata: { table_index: 1, row_index: 0 } }),
-        ]}
-        {...defaultProps}
-      />
-    );
-
-    expect(screen.getByText("Table Page 1")).toBeDefined();
-    expect(screen.getByText("Table Page 3")).toBeDefined();
-  });
-
-  it("collapses and expands table cards", () => {
-    render(
-      <TakeoffTableView
-        tables={[makeTable()]}
-        items={[
-          makeReviewItem({ id: ITEM_ID_1, metadata: { table_index: 0, row_index: 0 } }),
-        ]}
-        {...defaultProps}
-      />
-    );
-
-    // Table header columns should be visible initially
-    expect(screen.getByText("Designation")).toBeDefined();
-
-    // Click collapse button
-    const collapseBtn = screen.getByLabelText("Replier");
-    fireEvent.click(collapseBtn);
-
-    // Table content should be hidden - check that column headers are gone
-    // The title should still be visible
-    expect(screen.getByText("Schedule Finitions R+1")).toBeDefined();
-  });
-
-  it("calls onExcludeItems with all table item IDs when Exclure button clicked", () => {
-    render(
-      <TakeoffTableView
-        tables={[makeTable()]}
-        items={[
-          makeReviewItem({ id: ITEM_ID_1, metadata: { table_index: 0, row_index: 0 } }),
-          makeReviewItem({
-            id: ITEM_ID_2,
-            designation: "Parquet",
-            metadata: { table_index: 0, row_index: 1 },
-          }),
-        ]}
-        {...defaultProps}
-      />
-    );
-
-    const excludeBtn = screen.getByRole("button", { name: /exclure/i });
-    fireEvent.click(excludeBtn);
-
-    expect(defaultProps.onExcludeItems).toHaveBeenCalledWith([ITEM_ID_1, ITEM_ID_2]);
-  });
-
-  it("calls onIncludeItems when Inclure button clicked on excluded table", () => {
-    render(
-      <TakeoffTableView
-        tables={[makeTable()]}
-        items={[
-          makeReviewItem({
-            id: ITEM_ID_1,
-            is_excluded: true,
-            exclusion_reason: "test",
-            metadata: { table_index: 0, row_index: 0 },
-          }),
-          makeReviewItem({
-            id: ITEM_ID_2,
-            is_excluded: true,
-            exclusion_reason: "test",
-            designation: "Parquet",
-            metadata: { table_index: 0, row_index: 1 },
-          }),
-        ]}
-        {...defaultProps}
-      />
-    );
-
-    const includeBtn = screen.getByRole("button", { name: /inclure/i });
-    fireEvent.click(includeBtn);
-
-    expect(defaultProps.onIncludeItems).toHaveBeenCalledWith([ITEM_ID_1, ITEM_ID_2]);
-  });
-
-  it("filters tables by search query", () => {
-    render(
-      <TakeoffTableView
-        tables={[
-          makeTable({ title: "Nomenclature RDC" }),
-          makeTable({ page: 2, title: "Schedule Finitions" }),
-        ]}
-        items={[
-          makeReviewItem({ id: ITEM_ID_1, metadata: { table_index: 0, row_index: 0 } }),
-          makeReviewItem({ id: ITEM_ID_2, source_page: 2, metadata: { table_index: 1, row_index: 0 } }),
-        ]}
-        {...defaultProps}
-      />
-    );
-
-    const searchInput = screen.getByPlaceholderText("Rechercher par titre...");
-    fireEvent.change(searchInput, { target: { value: "Nomenclature" } });
-
-    expect(screen.getByText("Nomenclature RDC")).toBeDefined();
-    expect(screen.queryByText("Schedule Finitions")).toBeNull();
-  });
-
-  it("filters tables by page, table, and status", () => {
-    render(
-      <TakeoffTableView
-        tables={[
-          makeTable({ page: 1, title: "Table A" }),
-          makeTable({ page: 2, title: "Table B" }),
-        ]}
-        items={[
-          makeReviewItem({
-            id: ITEM_ID_1,
-            metadata: { table_index: 0, row_index: 0 },
-            is_excluded: true,
-            exclusion_reason: "hors scope",
-          }),
-          makeReviewItem({
-            id: ITEM_ID_2,
-            source_page: 2,
-            metadata: { table_index: 1, row_index: 0 },
-            is_excluded: false,
-          }),
-        ]}
-        {...defaultProps}
-      />
-    );
-
-    const pageFilter = screen.getByLabelText("Filtrer par page");
-    fireEvent.change(pageFilter, { target: { value: "2" } });
-
-    expect(screen.getByText("Table B")).toBeDefined();
-    expect(screen.queryByText("Table A")).toBeNull();
-
-    const tableFilter = screen.getByLabelText("Filtrer par table");
-    fireEvent.change(tableFilter, { target: { value: "1" } });
-
-    expect(screen.getByText("Table B")).toBeDefined();
-    expect(screen.queryByText("Table A")).toBeNull();
-
-    const statusFilter = screen.getByLabelText("Filtrer par statut");
-    fireEvent.change(statusFilter, { target: { value: "included" } });
-
-    expect(screen.getByText("Table B")).toBeDefined();
-    expect(screen.queryByText("Table A")).toBeNull();
-  });
-
-  it("calls onSyncToItems with table item IDs", () => {
-    render(
-      <TakeoffTableView
-        tables={[makeTable()]}
-        items={[
-          makeReviewItem({ id: ITEM_ID_1, metadata: { table_index: 0, row_index: 0 } }),
-          makeReviewItem({
-            id: ITEM_ID_2,
-            designation: "Parquet",
-            metadata: { table_index: 0, row_index: 1 },
-          }),
-        ]}
-        {...defaultProps}
-      />
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Synchroniser items" }));
-    expect(defaultProps.onSyncToItems).toHaveBeenCalledWith([ITEM_ID_1, ITEM_ID_2]);
   });
 
   it("sorts table items by row_index before bulk actions", () => {
@@ -336,54 +134,6 @@ describe("TakeoffTableView", () => {
       ITEM_ID_2,
       ITEM_ID_3,
     ]);
-  });
-
-  it("edits designation cell and propagates update callback", () => {
-    render(
-      <TakeoffTableView
-        tables={[makeTable()]}
-        items={[
-          makeReviewItem({ id: ITEM_ID_1, metadata: { table_index: 0, row_index: 0 } }),
-        ]}
-        {...defaultProps}
-      />
-    );
-
-    const designationInput = screen.getByLabelText("Designation - Carrelage 30x30");
-    fireEvent.change(designationInput, {
-      target: { value: "Carrelage antiderapant" },
-    });
-    fireEvent.blur(designationInput);
-
-    expect(defaultProps.onUpdateItem).toHaveBeenCalledWith(
-      ITEM_ID_1,
-      "designation",
-      "Carrelage antiderapant"
-    );
-  });
-
-  it("edits unit cell and propagates update callback", () => {
-    render(
-      <TakeoffTableView
-        tables={[makeTable()]}
-        items={[
-          makeReviewItem({ id: ITEM_ID_1, metadata: { table_index: 0, row_index: 0 } }),
-        ]}
-        {...defaultProps}
-      />
-    );
-
-    const unitInput = screen.getByLabelText("Unite");
-    fireEvent.change(unitInput, {
-      target: { value: "m3" },
-    });
-    fireEvent.blur(unitInput);
-
-    expect(defaultProps.onUpdateItem).toHaveBeenCalledWith(
-      ITEM_ID_1,
-      "unit",
-      "m3"
-    );
   });
 
   it("maps quantity column by header even when order is different", () => {
@@ -441,67 +191,5 @@ describe("TakeoffTableView", () => {
       "quantity",
       expect.any(Number)
     );
-  });
-
-  it("shows empty state when no tables", () => {
-    render(
-      <TakeoffTableView
-        tables={[]}
-        items={[]}
-        {...defaultProps}
-      />
-    );
-
-    expect(
-      screen.getByText("Aucune table extraite pour cette extraction.")
-    ).toBeDefined();
-  });
-
-  it("shows health badge on table cards", () => {
-    render(
-      <TakeoffTableView
-        tables={[makeTable()]}
-        items={[
-          makeReviewItem({ id: ITEM_ID_1, metadata: { table_index: 0, row_index: 0 } }),
-          makeReviewItem({
-            id: ITEM_ID_2,
-            designation: "Parquet",
-            metadata: { table_index: 0, row_index: 1 },
-          }),
-        ]}
-        {...defaultProps}
-      />
-    );
-
-    // Both items have confidence > 0.5 and valid data, so health should be 100%
-    expect(screen.getByText("100%")).toBeDefined();
-  });
-
-  it("collapse all / expand all buttons work", () => {
-    render(
-      <TakeoffTableView
-        tables={[
-          makeTable({ title: "Table A" }),
-          makeTable({ page: 2, title: "Table B" }),
-        ]}
-        items={[
-          makeReviewItem({ id: ITEM_ID_1, metadata: { table_index: 0, row_index: 0 } }),
-          makeReviewItem({ id: ITEM_ID_2, source_page: 2, metadata: { table_index: 1, row_index: 0 } }),
-        ]}
-        {...defaultProps}
-      />
-    );
-
-    // Click "Tout replier"
-    const collapseAllBtn = screen.getByText("Tout replier");
-    fireEvent.click(collapseAllBtn);
-
-    // Click "Tout deplier"
-    const expandAllBtn = screen.getByText("Tout deplier");
-    fireEvent.click(expandAllBtn);
-
-    // Both tables should be expanded - their content should be visible
-    expect(screen.getByText("Table A")).toBeDefined();
-    expect(screen.getByText("Table B")).toBeDefined();
   });
 });

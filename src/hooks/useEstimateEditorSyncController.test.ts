@@ -572,6 +572,66 @@ describe("useEstimateEditorSyncController contract", () => {
 });
 
 describe("useEstimateEditorSyncController buffered updates", () => {
+  // A shared-data E2E cannot safely inject failed/slow settings writes into the
+  // locked demonstration estimate. This isolates the actual navigation race.
+  it("waits for a settings save already in progress even after its dirty flag clears", async () => {
+    const save = createDeferred<boolean>();
+    const input = createInput({ isSavingSettings: true, savePendingSettings: vi.fn(() => save.promise) });
+    renderHook(() => useEstimateEditorSyncController(input));
+    await settleDeferredEffects();
+    const guard = mocks.useAutoSaveNavigationGuard.mock.calls.at(-1)?.[0];
+    let allowed: boolean | undefined;
+    const navigation = guard.onBeforeNavigation().then((value: boolean) => { allowed = value; });
+    await settleDeferredEffects();
+    expect(allowed).toBeUndefined();
+    await act(async () => { save.resolve(true); await navigation; });
+    expect(allowed).toBe(true);
+  });
+  it("waits for an in-flight save and drains newer edits before navigation", async () => {
+    const save = createDeferred<ReturnType<typeof createBatchResult>>();
+    mocks.batchEstimateOperations.mockReturnValueOnce(save.promise);
+    const input = createInput();
+    const { result } = renderHook(() => useEstimateEditorSyncController(input));
+    await settleDeferredEffects();
+    act(() => { result.current.actions.enqueueItemUpdate("line-1", { title: "First" }); });
+    let initialFlush!: Promise<string>;
+    act(() => { initialFlush = result.current.actions.flushBufferedItemUpdates(); });
+    act(() => { result.current.actions.enqueueItemUpdate("line-1", { title: "Second" }); });
+    const guard = mocks.useAutoSaveNavigationGuard.mock.calls.at(-1)?.[0];
+    let navigationAllowed: boolean | undefined;
+    const navigation = guard.onBeforeNavigation().then((allowed: boolean) => { navigationAllowed = allowed; });
+    expect(navigationAllowed).toBeUndefined();
+    await act(async () => {
+      save.resolve(createBatchResult("version-1", "token-batch"));
+      await initialFlush;
+      await navigation;
+    });
+    expect(navigationAllowed).toBe(true);
+    expect(mocks.batchEstimateOperations).toHaveBeenCalledTimes(2);
+    expect(result.current.actions.hasPendingUpdatesNow()).toBe(false);
+  });
+
+  it("saves pending settings before leaving and refuses navigation on failure", async () => {
+    const saveSettings = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const input = createInput({ hasPendingSettingsChanges: true, savePendingSettings: saveSettings });
+    renderHook(() => useEstimateEditorSyncController(input));
+    await settleDeferredEffects();
+    const guard = mocks.useAutoSaveNavigationGuard.mock.calls.at(-1)?.[0];
+    await act(async () => { expect(await guard.onBeforeNavigation()).toBe(false); });
+    await act(async () => { expect(await guard.onBeforeNavigation()).toBe(true); });
+    expect(saveSettings).toHaveBeenCalledTimes(2);
+  });
+
+  it("retains failed edits and does not approve navigation", async () => {
+    mocks.batchEstimateOperations.mockRejectedValueOnce(new Error("Network unavailable"));
+    const input = createInput();
+    const { result } = renderHook(() => useEstimateEditorSyncController(input));
+    await settleDeferredEffects();
+    act(() => { result.current.actions.enqueueItemUpdate("line-1", { title: "Preserve this" }); });
+    const guard = mocks.useAutoSaveNavigationGuard.mock.calls.at(-1)?.[0];
+    await act(async () => { expect(await guard.onBeforeNavigation()).toBe(false); });
+    expect(result.current.actions.hasPendingUpdatesNow()).toBe(true);
+  });
   it("waits for deletion and excludes deleted descendants from the next autosave", async () => {
     const version = createVersion();
     const input = createInput({
@@ -881,7 +941,7 @@ describe("useEstimateEditorSyncController buffered updates", () => {
       navigationGuardInput?.onBlockedNavigation();
     });
     expect(input.reportError).toHaveBeenLastCalledWith(
-      "Des modifications ne sont pas encore synchronisées. Utilisez « Sauvegarder maintenant » ou Ctrl+S, puis réessayez."
+      "La sauvegarde n’a pas abouti. Vos modifications sont conservées sur cette page. Réessayez la sauvegarde avant de quitter."
     );
 
     let flushResult: string | undefined;

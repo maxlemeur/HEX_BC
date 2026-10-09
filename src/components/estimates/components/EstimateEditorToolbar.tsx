@@ -19,6 +19,7 @@ import {
   useEstimateEditorMeta,
 } from "@/components/estimates/context/EstimateEditorContext";
 import type { ColumnKey, ColumnPreset } from "@/hooks/useColumnVisibility";
+import type { EstimateColumnId } from "@/hooks/useEstimateColumnWidths";
 import { useIsCompactViewport } from "@/hooks/useIsTablet";
 import { usePopover } from "@/hooks/usePopover";
 import { EstimateEditorCommandBar } from "@/components/estimates/components/EstimateEditorCommandBar";
@@ -83,6 +84,9 @@ export type EstimateEditorToolbarProps = {
   onToggleColumn: (key: ColumnKey) => void;
   hiddenAdvancedCount: number;
   onToggleAdvancedColumns: () => void;
+  columnOrder?: readonly EstimateColumnId[];
+  onMoveColumn?: (id: EstimateColumnId, direction: -1 | 1) => void;
+  onResetColumns?: () => void;
   isFinalizationPanelOpen?: boolean;
   onToggleFinalizationPanel?: () => void;
   isLaborSplitEnabled?: boolean;

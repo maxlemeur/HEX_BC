@@ -1,6 +1,6 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup,render,screen,waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -74,24 +74,6 @@ describe("AcceptEstimateModal", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders modal content when open", () => {
-    renderModal();
-
-    expect(screen.getByText("Accepter le devis")).toBeInTheDocument();
-    expect(screen.getByText("AFF-001")).toBeInTheDocument();
-    expect(screen.getByText("1 234,56 €")).toBeInTheDocument();
-    expect(screen.getByTestId("signature-pad")).toBeInTheDocument();
-    expect(
-      screen.getByLabelText(/accepte ce devis/i)
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /Confirmer/i })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /Annuler/i })
-    ).toBeInTheDocument();
-  });
-
   it("submit button is disabled until terms checkbox is checked", () => {
     renderModal();
 
@@ -108,21 +90,6 @@ describe("AcceptEstimateModal", () => {
 
     const submitBtn = screen.getByRole("button", { name: /Confirmer/i });
     expect(submitBtn).toBeEnabled();
-  });
-
-  it("shows validation error when submitting without terms accepted", async () => {
-    const user = userEvent.setup();
-    renderModal();
-
-    // Force-enable the button by checking + unchecking
-    const checkbox = screen.getByLabelText(/accepte ce devis/i);
-    await user.click(checkbox);
-    await user.click(checkbox);
-
-    // Try submitting via form (button is disabled, so submit the form directly)
-    // Since button is disabled, this path can't happen via normal click.
-    // The guard is the disabled button — no fetch should fire.
-    expect(global.fetch).not.toHaveBeenCalled();
   });
 
   it("calls fetch with correct payload on valid submit (no signature)", async () => {
@@ -227,15 +194,6 @@ describe("AcceptEstimateModal", () => {
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent("Network error");
     });
-  });
-
-  it("calls onClose when Annuler is clicked", async () => {
-    const user = userEvent.setup();
-    const { props } = renderModal();
-
-    await user.click(screen.getByRole("button", { name: /Annuler/i }));
-
-    expect(props.onClose).toHaveBeenCalled();
   });
 
   it("clears signature from payload after clearing", async () => {

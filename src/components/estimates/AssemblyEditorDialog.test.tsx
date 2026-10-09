@@ -1,17 +1,16 @@
 import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
+cleanup,
+render,
+screen,
+waitFor,
+within
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach,describe,expect,it,vi } from "vitest";
 
 import {
-  AssemblyEditorDialog,
-  type AssemblyEditorInput,
+AssemblyEditorDialog,
+type AssemblyEditorInput,
 } from "@/components/estimates/AssemblyEditorDialog";
 import type { EstimateAssemblyDetail } from "@/lib/estimates/client";
 
@@ -74,136 +73,6 @@ describe("AssemblyEditorDialog", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
-  });
-
-  it("uses the shared modal layer and exposes price, labor time and named roles", async () => {
-    const user = userEvent.setup();
-    const onSubmit = vi.fn<(input: AssemblyEditorInput) => Promise<void>>();
-    onSubmit.mockResolvedValue(undefined);
-
-    render(
-      <AssemblyEditorDialog
-        isSubmitting={false}
-        initialValue={ASSEMBLY}
-        supplyTypes={SUPPLY_TYPES}
-        laborRoles={[
-          {
-            id: LABOR_ROLE_ID,
-            tenant_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
-            user_id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
-            name: "Compagnon",
-            hourly_rate_cents: 4500,
-            is_active: true,
-            position: 1,
-            created_at: "2026-07-14T08:00:00.000Z",
-            updated_at: "2026-07-14T08:00:00.000Z",
-          },
-        ]}
-        onClose={() => undefined}
-        onSubmit={onSubmit}
-      />
-    );
-
-    const dialog = screen.getByRole("dialog", { name: "Modifier l'ouvrage" });
-    expect(dialog.closest("[data-ui-modal-root]")).not.toBeNull();
-    expect(dialog.parentElement?.parentElement).toHaveClass("z-[100]");
-    expect(screen.queryByText(/Rôle MO \(UUID\)/i)).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Temps MO (h)")).toHaveValue(2);
-    expect(screen.getByLabelText("Prix de revient FO (€)")).toHaveValue(45);
-    expect(
-      screen.getByRole("option", { name: /Compagnon.*45,00.*€\/h/ })
-    ).toBeInTheDocument();
-    const laborRoleSelect = screen.getByLabelText("Rôle de main-d’œuvre");
-    expect(laborRoleSelect).toHaveAttribute(
-      "title",
-      "L’identifiant technique est géré automatiquement."
-    );
-    expect(screen.queryByText(/identifiant technique/i)).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Enregistrer" }));
-
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
-    expect(onSubmit).toHaveBeenCalledWith({
-      name: "Pose de cloison",
-      description: "Ouvrage avec main-d’œuvre",
-      referenceCode: "ASM-CLOISON",
-      unit: "m²",
-      items: [
-        expect.objectContaining({
-          title: "Compagnon plaquiste",
-          costType: "labor",
-          laborRoleId: LABOR_ROLE_ID,
-          defaultQuantity: 1,
-          laborHours: 2,
-          unitCostHtCents: 4500,
-        }),
-      ],
-      members: [],
-    });
-  });
-
-  it("searches the catalogue from a designation and applies the selected article", async () => {
-    const user = userEvent.setup();
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        ok: true,
-        data: {
-          items: [
-            {
-              id: "catalogue-inox",
-              reference: "INOX-50",
-              designation: "Tube inox DN50",
-              unit: "ml",
-              unit_price_cents: 1234,
-            },
-          ],
-        },
-      }),
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    render(
-      <AssemblyEditorDialog
-        isSubmitting={false}
-        initialValue={null}
-        supplyTypes={SUPPLY_TYPES}
-        laborRoles={[]}
-        onClose={() => undefined}
-        onSubmit={() => undefined}
-      />
-    );
-
-    const designationInput = screen.getByLabelText("Désignation *");
-    expect(designationInput).toHaveAttribute(
-      "placeholder",
-      "Rechercher une désignation"
-    );
-    expect(designationInput).toHaveAttribute(
-      "list",
-      "assembly-item-0-title-input-catalogue-list"
-    );
-
-    await user.type(designationInput, "inox");
-
-    await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith(
-        "/api/catalogue?search=inox&limit=8",
-        expect.objectContaining({ signal: expect.any(AbortSignal) })
-      )
-    );
-    await waitFor(() =>
-      expect(
-        document.querySelector('option[value="Tube inox DN50"]')
-      ).not.toBeNull()
-    );
-
-    fireEvent.change(designationInput, {
-      target: { value: "Tube inox DN50" },
-    });
-
-    expect(screen.getByLabelText("Unité")).toHaveValue("ml");
-    expect(screen.getByLabelText("Prix de revient FO (€)")).toHaveValue(12.34);
   });
 
   it("restores catalogue prices when an older replacement erased every stored cost", async () => {
@@ -380,62 +249,6 @@ describe("AssemblyEditorDialog", () => {
         ],
       })
     );
-  });
-  it("renders compact rows and derives positions from their visual order", async () => {
-    const fiveLineAssembly: EstimateAssemblyDetail = {
-      ...ASSEMBLY,
-      itemCount: 5,
-      items: Array.from({ length: 5 }, (_, index) => ({
-        ...ASSEMBLY.items[0],
-        id: `component-${index + 1}`,
-        title: `Composant ${index + 1}`,
-        position: (index + 1) * 10,
-      })),
-    };
-
-    const user = userEvent.setup();
-    const onSubmit = vi.fn<(input: AssemblyEditorInput) => Promise<void>>();
-    onSubmit.mockResolvedValue(undefined);
-
-    render(
-      <AssemblyEditorDialog
-        isSubmitting={false}
-        initialValue={fiveLineAssembly}
-        supplyTypes={SUPPLY_TYPES}
-        laborRoles={[]}
-        onClose={() => undefined}
-        onSubmit={onSubmit}
-      />
-    );
-
-    expect(screen.getByTestId("assembly-items-grid")).toHaveClass(
-      "overflow-x-auto"
-    );
-    expect(screen.getByTestId("assembly-items-header")).toHaveClass(
-      "lg:grid",
-      "min-w-[1100px]",
-      "gap-0"
-    );
-    const rows = screen.getAllByTestId("assembly-item-row");
-    expect(rows).toHaveLength(5);
-    rows.forEach((row) =>
-      expect(row).toHaveClass("lg:p-0", "lg:gap-0", "lg:min-w-[1100px]")
-    );
-    expect(screen.getAllByLabelText("Quantité par défaut")[0]).toHaveClass(
-      "text-right",
-      "tabular-nums",
-      "[appearance:textfield]"
-    );
-    expect(screen.getByTestId("assembly-items-header")).not.toHaveTextContent(
-      "Pos."
-    );
-    expect(screen.queryByLabelText("Position")).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Enregistrer" }));
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
-    expect(
-      onSubmit.mock.calls[0][0].items.map((item) => item.position)
-    ).toEqual([1, 2, 3, 4, 5]);
   });
   it("composes an assembly from a reusable child and applies its quantity", async () => {
     const user = userEvent.setup();

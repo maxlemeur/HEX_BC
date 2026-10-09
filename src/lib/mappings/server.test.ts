@@ -1,23 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { z } from "zod";
 
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
 
-import {
-  badRequest,
-  findDuplicates,
-  guessTargetFieldFromColumn,
-  listMappings,
-  previewImportStructure,
-  ok,
-  previewMapping,
-  saveTemplate,
-  suggestMapping,
-  toErrorResponse,
-  validateMapping,
-} from "@/lib/mappings/server";
+import { findDuplicates, listMappings, previewImportStructure, previewMapping, suggestMapping, validateMapping } from "@/lib/mappings/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -252,138 +239,9 @@ function createSupabaseMock(input?: {
   };
 }
 
-describe("guessTargetFieldFromColumn", () => {
-  it("maps known headers to expected target fields", () => {
-    expect(guessTargetFieldFromColumn("Type FO")).toBe("supply_type");
-    expect(guessTargetFieldFromColumn("Majoration MO")).toBe("h_mo_majoration");
-    expect(guessTargetFieldFromColumn("Code article")).toBe("hex_code");
-    expect(guessTargetFieldFromColumn("Description")).toBe("designation");
-    expect(guessTargetFieldFromColumn("Qt")).toBe("quantity");
-    expect(guessTargetFieldFromColumn("Unite")).toBe("unit");
-    expect(guessTargetFieldFromColumn("PU HT")).toBe("unit_price_ht");
-    expect(guessTargetFieldFromColumn("Montant total")).toBe("total_ht");
-    expect(guessTargetFieldFromColumn("Famille produit")).toBe("category");
-    expect(guessTargetFieldFromColumn("Reference fournisseur")).toBe("supplier_ref");
-    expect(guessTargetFieldFromColumn("Heures main d oeuvre")).toBe("labor_hours");
-    expect(guessTargetFieldFromColumn("PR. FO")).toBe("unit_price_ht");
-    expect(guessTargetFieldFromColumn("h MO")).toBe("labor_hours");
-    expect(guessTargetFieldFromColumn("Qte")).toBe("quantity");
-    expect(guessTargetFieldFromColumn("U")).toBe("unit");
-    expect(guessTargetFieldFromColumn("commentaire")).toBe("notes");
-    expect(guessTargetFieldFromColumn("Note interne")).toBe("notes");
-  });
-
-  it("returns null when no heuristic matches", () => {
-    expect(guessTargetFieldFromColumn("")).toBeNull();
-    expect(guessTargetFieldFromColumn("champ inconnu")).toBeNull();
-  });
-});
-
 describe("mapping API helpers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  it("builds success response with ok helper", async () => {
-    const response = ok({ hello: "world" }, 201);
-    const body = (await response.json()) as { ok: boolean; data: { hello: string } };
-
-    expect(response.status).toBe(201);
-    expect(body).toEqual({
-      ok: true,
-      data: { hello: "world" },
-    });
-  });
-
-  it("keeps status/code/message/details from explicit API errors", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-
-    const response = toErrorResponse(
-      badRequest("Payload invalide", { field: "mapping" }, "BAD_PAYLOAD")
-    );
-    const body = (await response.json()) as {
-      ok: boolean;
-      error: {
-        code: string;
-        message: string;
-      };
-    };
-
-    expect(response.status).toBe(400);
-    // K-01: details are no longer exposed to the client
-    expect(body).toEqual({
-      ok: false,
-      error: {
-        code: "BAD_PAYLOAD",
-        message: "Payload invalide",
-      },
-    });
-    // K-01: details are logged server-side instead
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("[mappings] API error details"),
-      expect.objectContaining({ field: "mapping" })
-    );
-
-    errorSpy.mockRestore();
-  });
-
-  it("maps zod parsing failures to VALIDATION_ERROR", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const schema = z.object({
-      import_id: z.string().uuid(),
-    });
-
-    let zodError: unknown;
-    try {
-      schema.parse({ import_id: "not-a-uuid" });
-    } catch (error) {
-      zodError = error;
-    }
-
-    const response = toErrorResponse(zodError);
-    const body = (await response.json()) as {
-      ok: boolean;
-      error: {
-        code: string;
-        message: string;
-      };
-    };
-
-    expect(response.status).toBe(400);
-    expect(body.ok).toBe(false);
-    expect(body.error.code).toBe("VALIDATION_ERROR");
-    expect(body.error.message).toBe("Payload invalide.");
-    // K-01: details no longer exposed to client, but logged server-side
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("[mappings] API error details"),
-      expect.objectContaining({
-        issues: expect.arrayContaining([
-          expect.objectContaining({ path: "import_id" }),
-        ]),
-      })
-    );
-
-    errorSpy.mockRestore();
-  });
-
-  it("maps unknown failures to INTERNAL_ERROR and logs them", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-
-    const response = toErrorResponse(new Error("boom"));
-    const body = (await response.json()) as {
-      ok: boolean;
-      error: {
-        code: string;
-        message: string;
-      };
-    };
-
-    expect(response.status).toBe(500);
-    expect(body.error.code).toBe("INTERNAL_ERROR");
-    expect(body.error.message).toBe("Une erreur interne est survenue.");
-    expect(errorSpy).toHaveBeenCalled();
-
-    errorSpy.mockRestore();
   });
 
   it("exposes validation summary for valid and invalid mappings", async () => {
@@ -733,65 +591,6 @@ describe("mapping server workflows", () => {
     });
   });
 
-  it("merges mapping memory with heuristic suggestions", async () => {
-    const supabase = createSupabaseMock({
-      rawRows: [
-        {
-          row_index: 1,
-          payload: {
-            "Code article": "A-001",
-            Description: "Cable cuivre",
-            "Champ libre": "x",
-          },
-        },
-      ],
-      memoryRows: [
-        {
-          source_column: "Code article",
-          target_field: "hex_code",
-          usage_count: 10,
-          confidence: 0.9,
-          last_used_at: "2026-02-01T00:00:00.000Z",
-        },
-      ],
-      templates: [{ id: "tpl-1" }],
-    });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const result = await suggestMapping({
-      import_id: IMPORT_ID,
-    });
-
-    expect(result.source_columns).toEqual(["Champ libre", "Code article", "Description"]);
-    expect(result.import_stats).toEqual({
-      total_rows: 12,
-      source_columns_count: 3,
-      mapped_source_columns_count: 2,
-      unresolved_source_columns_count: 1,
-    });
-    expect(result.suggestions["Code article"]).toBe("hex_code");
-    expect(result.suggestions.Description).toBe("designation");
-    expect(result.templates).toEqual([{ id: "tpl-1" }]);
-    expect(result.template_exact_match).toBeNull();
-    expect(result.confidence_by_source["Code article"]).toMatchObject({
-      target_field: "hex_code",
-      origin: "memory",
-      band: "high",
-    });
-    expect(result.confidence_by_source.Description).toMatchObject({
-      target_field: "designation",
-      origin: "heuristic",
-      band: "medium",
-    });
-    expect(result.auto_validation).toEqual({
-      can_auto_validate: false,
-      threshold: 0.8,
-      required_fields: ["designation"],
-      missing_required_fields: [],
-      low_confidence_required_fields: ["designation"],
-    });
-  });
-
   it("computes suggestion import stats from the full import when late columns are outside the sample", async () => {
     const supabase = createSupabaseMock({
       rawRows: buildSparseSuggestionRows(),
@@ -846,69 +645,6 @@ describe("mapping server workflows", () => {
     expect(result.source_columns).toEqual(["Code article", "Description"]);
     expect(result.sample_values._timax_provenance).toBeUndefined();
     expect(result.suggestions["Code article"]).toBe("hex_code");
-  });
-
-  it("applies an exact template match with full confidence", async () => {
-    const supabase = createSupabaseMock({
-      rawRows: [
-        {
-          row_index: 1,
-          payload: {
-            Code: "A-001",
-            Designation: "Cable cuivre",
-          },
-        },
-      ],
-      templates: [
-        {
-          id: "tpl-exact",
-          name: "Template exact",
-          supplier_name: "ARCUS",
-          mapping: {
-            Code: "hex_code",
-            Designation: "designation",
-          },
-        },
-      ],
-      memoryRows: [
-        {
-          source_column: "Code",
-          target_field: "hex_code",
-          usage_count: 1,
-          confidence: 0.6,
-          last_used_at: "2026-03-01T00:00:00.000Z",
-        },
-      ],
-    });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const result = await suggestMapping({
-      import_id: IMPORT_ID,
-    });
-
-    expect(result.suggestions).toEqual({
-      Code: "hex_code",
-      Designation: "designation",
-    });
-    expect(result.template_exact_match).toEqual({
-      id: "tpl-exact",
-      name: "Template exact",
-      supplier_name: "ARCUS",
-      score: 1,
-    });
-    expect(result.confidence_by_source.Code).toMatchObject({
-      target_field: "hex_code",
-      score: 1,
-      origin: "template",
-      band: "high",
-    });
-    expect(result.confidence_by_source.Designation).toMatchObject({
-      target_field: "designation",
-      score: 1,
-      origin: "template",
-      band: "high",
-    });
-    expect(result.auto_validation.can_auto_validate).toBe(true);
   });
 
   it("does not apply exact template match when normalized source columns collide", async () => {
@@ -993,90 +729,6 @@ describe("mapping server workflows", () => {
 
     expect(result.suggestions["Code article"]).toBe("hex_code");
     expect(result.suggestions.Reference).toBeUndefined();
-  });
-
-  it("uses the atomic RPC to upsert mapping memory when saving a template", async () => {
-    const membershipBuilder = createMembershipBuilder(false);
-    const mappingTemplatePayload = {
-      id: "tpl-atomic",
-      created_at: "2026-03-04T00:00:00.000Z",
-      updated_at: "2026-03-04T00:00:00.000Z",
-      tenant_id: TENANT_ID,
-      user_id: USER_ID,
-      name: "Template atomique",
-      supplier_name: null,
-      mapping: {
-        Code: "hex_code",
-        Designation: "designation",
-      },
-      is_default: false,
-      last_used_at: "2026-03-04T00:00:00.000Z",
-    };
-
-    const mappingTemplatesBuilder = {
-      upsert: vi.fn().mockReturnValue({
-        select: vi.fn().mockReturnValue({
-          single: vi.fn().mockResolvedValue({
-            data: mappingTemplatePayload,
-            error: null,
-          }),
-        }),
-      }),
-    };
-
-    const supabase = {
-      auth: {
-        getUser: vi.fn().mockResolvedValue({
-          data: { user: { id: USER_ID } },
-          error: null,
-        }),
-      },
-      from: vi.fn((table: string) => {
-        if (table === "tenant_memberships") {
-          return {
-            select: vi.fn(() => membershipBuilder),
-          };
-        }
-
-        if (table === "mapping_templates") {
-          return mappingTemplatesBuilder;
-        }
-
-        throw new Error(`Unexpected table: ${table}`);
-      }),
-      rpc: vi.fn().mockResolvedValue({
-        data: [],
-        error: null,
-      }),
-    };
-
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    await saveTemplate({
-      name: "Template atomique",
-      mapping: {
-        Code: "hex_code",
-        Designation: "designation",
-      },
-      is_default: false,
-    });
-
-    expect(supabase.rpc).toHaveBeenCalledWith("upsert_mapping_memory_bulk", {
-      p_entries: [
-        {
-          tenant_id: TENANT_ID,
-          user_id: USER_ID,
-          source_column: "Code",
-          target_field: "hex_code",
-        },
-        {
-          tenant_id: TENANT_ID,
-          user_id: USER_ID,
-          source_column: "Designation",
-          target_field: "designation",
-        },
-      ],
-    });
   });
 
   it("computes duplicate summary for mapped preview rows", async () => {

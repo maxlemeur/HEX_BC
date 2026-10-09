@@ -27,6 +27,7 @@ describe("AffairePersistedProjectDetails", () => {
       projectName: "Affaire mise a jour",
       clientName: "Client final",
       reference: "REF-002",
+      siteAddress: "12 rue du Test\n75001 Paris",
     });
   });
 
@@ -59,6 +60,7 @@ describe("AffairePersistedProjectDetails", () => {
     await user.type(screen.getByLabelText(/^client$/i), "Client final");
     await user.clear(screen.getByLabelText(/reference/i));
     await user.type(screen.getByLabelText(/reference/i), "REF-002");
+    await user.type(screen.getByLabelText(/adresse du chantier/i), "12 rue du Test{enter}75001 Paris");
     await user.click(screen.getByRole("button", { name: /enregistrer/i }));
 
     await waitFor(() => {
@@ -67,6 +69,7 @@ describe("AffairePersistedProjectDetails", () => {
         projectName: "Affaire mise a jour",
         clientName: "Client final",
         reference: "REF-002",
+      siteAddress: "12 rue du Test\n75001 Paris",
       });
     });
     expect(toastSuccessMock).toHaveBeenCalledWith({

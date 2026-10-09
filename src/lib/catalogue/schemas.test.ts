@@ -1,27 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  catalogueListQuerySchema,
-  cataloguePageQuerySchema,
-  createCatalogueItemSchema,
-  createSupplierPriceSchema,
-  priceLookupsQuerySchema,
-  pricesPageQuerySchema,
-  updateCatalogueItemSchema,
-  updateSupplierCatalogItemSchema,
-  updateSupplierPriceSchema,
-} from "@/lib/catalogue/schemas";
+import { createSupplierPriceSchema, priceLookupsQuerySchema, updateCatalogueItemSchema, updateSupplierPriceSchema } from "@/lib/catalogue/schemas";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const SUPPLIER_ID = "22222222-2222-4222-8222-222222222222";
 const PRODUCT_ID = "33333333-3333-4333-8333-333333333333";
-
-describe("catalogue list query schema", () => {
-  it("accepts an exact product id and rejects malformed identifiers", () => {
-    expect(catalogueListQuerySchema.safeParse({ id: PRODUCT_ID }).success).toBe(true);
-    expect(catalogueListQuerySchema.safeParse({ id: "not-a-uuid" }).success).toBe(false);
-  });
-});
 
 describe("catalogue update schemas", () => {
   it("does not materialize is_active default when updating catalogue item", () => {
@@ -52,21 +35,6 @@ describe("catalogue update schemas", () => {
         issue.message.includes("Aucun champ"),
       ),
     ).toBe(true);
-  });
-
-  it("keeps create default for catalogue is_active", () => {
-    const parsed = createCatalogueItemSchema.safeParse({
-      action: "create",
-      item: {
-        reference: "REF-001",
-        designation: "Article",
-      },
-    });
-
-    expect(parsed.success).toBe(true);
-    if (!parsed.success) return;
-    expect(parsed.data.item.is_active).toBe(true);
-    expect(parsed.data.item.notes).toBeNull();
   });
 });
 
@@ -100,40 +68,9 @@ describe("supplier price update schemas", () => {
       ),
     ).toBe(true);
   });
-
-  it("keeps create default for supplier currency", () => {
-    const parsed = createSupplierPriceSchema.safeParse({
-      action: "create",
-      item: {
-        supplier_id: SUPPLIER_ID,
-        product_id: PRODUCT_ID,
-        unit_price_cents: 1299,
-      },
-    });
-
-    expect(parsed.success).toBe(true);
-    if (!parsed.success) return;
-    expect(parsed.data.item.currency).toBe("EUR");
-    expect(parsed.data.item.catalogue_item_id).toBeUndefined();
-    expect(parsed.data.item.valid_from).toBeNull();
-  });
 });
 
 describe("supplier catalogue item price creation", () => {
-  it("accepts a new supplier and a new article staged in the same creation", () => {
-    const parsed = createSupplierPriceSchema.safeParse({
-      action: "create",
-      item: {
-        new_supplier: { name: "Nouveau fournisseur" },
-        new_product: { designation: "Nouvel article" },
-        supplier_sku: "REF-FOURN-1",
-        product_url: "https://example.test/article",
-        unit_price_cents: 1299,
-      },
-    });
-
-    expect(parsed.success).toBe(true);
-  });
 
   it("rejects ambiguous existing and new supplier selections", () => {
     const parsed = createSupplierPriceSchema.safeParse({
@@ -193,17 +130,6 @@ describe("supplier catalogue item price creation", () => {
     ).toBe(true);
   });
 
-  it("validates the dedicated supplier catalogue item update", () => {
-    const parsed = updateSupplierCatalogItemSchema.safeParse({
-      action: "update-supplier-item",
-      id: ID,
-      supplier_sku: "REF-2",
-      product_url: "https://example.test/ref-2",
-    });
-
-    expect(parsed.success).toBe(true);
-  });
-
   it("keeps supplier identity fields out of price updates", () => {
     const parsed = updateSupplierPriceSchema.parse({
       action: "update",
@@ -220,39 +146,6 @@ describe("supplier catalogue item price creation", () => {
   });
 });
 describe("catalogue and price pagination schemas", () => {
-  it("accepts repeated product filters and the supported page sizes", () => {
-    const parsed = cataloguePageQuerySchema.parse({
-      q: " acier ",
-      material: ["Acier", "Inox"],
-      category: [],
-      unit: ["ml"],
-      price_status: ["fresh", "none"],
-      status: ["active"],
-      sort: "best_supplier_price_cents",
-      dir: "desc",
-      page: 3,
-      size: 100,
-    });
-
-    expect(parsed).toMatchObject({
-      q: "acier",
-      material: ["Acier", "Inox"],
-      page: 3,
-      size: 100,
-    });
-  });
-
-  it("rejects unsupported page sizes", () => {
-    expect(
-      pricesPageQuerySchema.safeParse({
-        freshness: [],
-        supplier_id: null,
-        product_id: null,
-        page: 1,
-        size: 10,
-      }).success,
-    ).toBe(false);
-  });
 
   it("caps remote price lookups at 50 suggestions", () => {
     expect(

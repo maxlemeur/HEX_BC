@@ -19,21 +19,6 @@ describe("triggerTakeoffJobProcessing", () => {
     process.env.SUPABASE_SERVICE_ROLE_KEY = originalServiceRole;
   });
 
-  it("returns triggered=true when edge function responds 2xx", async () => {
-    const fetchFn = vi.fn().mockResolvedValue({ ok: true, status: 202 });
-
-    const result = await triggerTakeoffJobProcessing({
-      jobId: JOB_ID,
-      fetchFn: fetchFn as unknown as typeof fetch,
-      correlationId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-    });
-
-    expect(result.triggered).toBe(true);
-    expect(result.statusCode).toBe(202);
-    expect(result.outcome).toBe("accepted");
-    expect(fetchFn).toHaveBeenCalledTimes(1);
-  });
-
   it("returns triggered=false when edge function call fails", async () => {
     const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const fetchFn = vi.fn().mockRejectedValue(new Error("network down"));

@@ -1,6 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  ...(process.env.E2E_ARMY === "1"
+    ? {
+        distDir: ".e2e/army/next",
+        typescript: { tsconfigPath: ".e2e/army/tsconfig.json" },
+      }
+    : {}),
   outputFileTracingIncludes: {
     "/api/imports": [
       "./node_modules/pdfjs-dist/legacy/build/pdf.mjs",

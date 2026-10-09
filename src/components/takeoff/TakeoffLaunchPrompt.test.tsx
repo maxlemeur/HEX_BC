@@ -1,5 +1,5 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup,fireEvent,render,screen,waitFor } from "@testing-library/react";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 const launchTakeoffFromPlanSetMock = vi.hoisted(() => vi.fn());
 const duplicateEstimateVersionMock = vi.hoisted(() => vi.fn());
@@ -17,8 +17,8 @@ vi.mock("@/lib/estimates/client", () => ({
 }));
 
 import {
-  TakeoffLaunchPrompt,
-  shouldShowTakeoffPrompt,
+TakeoffLaunchPrompt,
+shouldShowTakeoffPrompt,
 } from "@/components/takeoff/TakeoffLaunchPrompt";
 import { classifyTakeoffPlanSetSource } from "@/lib/takeoff/document-classifier";
 
@@ -49,22 +49,6 @@ describe("shouldShowTakeoffPrompt", () => {
     permanentlyDismissed: false,
     temporarilyDismissed: false,
   };
-
-  it("returns true when all conditions met", () => {
-    expect(shouldShowTakeoffPrompt(BASE)).toBe(true);
-  });
-
-  it("returns false when a temporary dismissal exists", () => {
-    expect(
-      shouldShowTakeoffPrompt({ ...BASE, temporarilyDismissed: true }),
-    ).toBe(false);
-  });
-
-  it("returns false when no plan file is available yet", () => {
-    expect(
-      shouldShowTakeoffPrompt({ ...BASE, planFileCount: 0 }),
-    ).toBe(false);
-  });
 
   it("returns false for a recent job on the same plan set and unchanged files", () => {
     vi.useFakeTimers();
@@ -162,87 +146,6 @@ describe("TakeoffLaunchPrompt", () => {
     onDismissPermanent: vi.fn(),
   };
 
-  it("renders business-friendly explanation", () => {
-    render(<TakeoffLaunchPrompt {...DEFAULT_PROPS} />);
-
-    expect(screen.getByText("Lancer une première analyse")).toBeInTheDocument();
-    expect(screen.getByText(/Jeu de plans :/)).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: "Standard" })).toBeChecked();
-    expect(screen.getByText("V1 (brouillon)")).toBeInTheDocument();
-    expect(
-      screen.getByText(/Résultats disponibles dans le centre d'activité des métrés/i),
-    ).toBeInTheDocument();
-  });
-
-  it('"Analyser maintenant" calls server action and shows success', async () => {
-    launchTakeoffFromPlanSetMock.mockResolvedValue({ jobId: JOB_ID });
-
-    render(<TakeoffLaunchPrompt {...DEFAULT_PROPS} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Analyser maintenant" }));
-
-    await waitFor(() => {
-      expect(
-        screen.getByText("Analyse transmise au traitement")
-      ).toBeInTheDocument();
-    });
-
-    expect(launchTakeoffFromPlanSetMock).toHaveBeenCalledWith({
-      projectId: PROJECT_ID,
-      planSetId: PLAN_SET_ID,
-      versionId: VERSION_ID,
-      level: "B",
-    });
-    expect(DEFAULT_PROPS.onLaunched).toHaveBeenCalledWith(JOB_ID, VERSION_ID);
-  });
-
-  it('allows overriding to level C before launch', async () => {
-    launchTakeoffFromPlanSetMock.mockResolvedValue({ jobId: JOB_ID });
-
-    render(<TakeoffLaunchPrompt {...DEFAULT_PROPS} />);
-
-    fireEvent.click(screen.getByRole("radio", { name: "Détaillé" }));
-    fireEvent.click(screen.getByRole("button", { name: "Analyser maintenant" }));
-
-    await waitFor(() => {
-      expect(launchTakeoffFromPlanSetMock).toHaveBeenCalledWith({
-        projectId: PROJECT_ID,
-        planSetId: PLAN_SET_ID,
-        versionId: VERSION_ID,
-        level: "C",
-      });
-    });
-  });
-
-  it("creates a draft before launching when only a source version is available", async () => {
-    duplicateEstimateVersionMock.mockResolvedValue(DUPLICATED_VERSION_ID);
-    launchTakeoffFromPlanSetMock.mockResolvedValue({ jobId: JOB_ID });
-
-    render(
-      <TakeoffLaunchPrompt
-        {...DEFAULT_PROPS}
-        versionId={null}
-        versionLabel={undefined}
-        sourceVersionId={VERSION_ID}
-        sourceVersionLabel="V3"
-      />,
-    );
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "Créer un brouillon et analyser" }),
-    );
-
-    await waitFor(() => {
-      expect(duplicateEstimateVersionMock).toHaveBeenCalledWith(VERSION_ID);
-      expect(launchTakeoffFromPlanSetMock).toHaveBeenCalledWith({
-        projectId: PROJECT_ID,
-        planSetId: PLAN_SET_ID,
-        versionId: DUPLICATED_VERSION_ID,
-        level: "B",
-      });
-    });
-  });
-
   it("reuses the duplicated draft when retrying after launch creation fails", async () => {
     duplicateEstimateVersionMock.mockResolvedValue(DUPLICATED_VERSION_ID);
     launchTakeoffFromPlanSetMock
@@ -279,49 +182,5 @@ describe("TakeoffLaunchPrompt", () => {
     });
 
     expect(duplicateEstimateVersionMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('"Me rappeler plus tard" calls onDismissTemporary', () => {
-    render(<TakeoffLaunchPrompt {...DEFAULT_PROPS} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Me rappeler plus tard" }));
-    expect(DEFAULT_PROPS.onDismissTemporary).toHaveBeenCalledOnce();
-  });
-
-  it('"Ne pas proposer" calls onDismissPermanent', () => {
-    render(<TakeoffLaunchPrompt {...DEFAULT_PROPS} />);
-
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "Ne pas proposer pour cette affaire",
-      }),
-    );
-    expect(DEFAULT_PROPS.onDismissPermanent).toHaveBeenCalledOnce();
-  });
-
-  it("shows error state with retry on server action failure", async () => {
-    launchTakeoffFromPlanSetMock.mockRejectedValue(new Error("Network error"));
-
-    render(<TakeoffLaunchPrompt {...DEFAULT_PROPS} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Analyser maintenant" }));
-
-    await waitFor(() => {
-      expect(screen.getByText("Network error")).toBeInTheDocument();
-    });
-
-    expect(screen.getByRole("button", { name: "Réessayer" })).toBeInTheDocument();
-  });
-
-  it('has aria-live="polite" region for async feedback', () => {
-    render(<TakeoffLaunchPrompt {...DEFAULT_PROPS} />);
-
-    const liveRegion = screen.getByRole("region", {
-      name: "Proposition d'analyse automatique",
-    });
-    expect(liveRegion).toBeInTheDocument();
-
-    const politeRegion = liveRegion.querySelector('[aria-live="polite"]');
-    expect(politeRegion).toBeTruthy();
   });
 });

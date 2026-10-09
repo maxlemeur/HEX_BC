@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, renderHook } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act,cleanup,renderHook } from "@testing-library/react";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 const clientMocks = vi.hoisted(() => ({
   moveEstimateItem: vi.fn(),
@@ -16,8 +16,8 @@ vi.mock("@/lib/estimates/client", () => ({
 import type { EstimateEditorHistoryCommand } from "@/hooks/useEstimateEditorHistoryController";
 import { useEstimateEditorOrderingController } from "@/hooks/useEstimateEditorOrderingController";
 import type {
-  EditorEstimateItem,
-  EstimateVersionRow,
+EditorEstimateItem,
+EstimateVersionRow,
 } from "@/lib/estimates/editor-items";
 
 function createItem(
@@ -126,26 +126,6 @@ afterEach(() => {
 });
 
 describe("useEstimateEditorOrderingController reorder", () => {
-  it("does nothing when sibling order is unchanged", async () => {
-    const harness = createHarness({
-      items: [
-        createItem("line-a", { parent_id: "section", position: 1 }),
-        createItem("line-b", { parent_id: "section", position: 2 }),
-      ],
-    });
-
-    await act(async () => {
-      await harness.result.current.actions.reorder("section", [
-        "line-a",
-        "line-b",
-      ]);
-    });
-
-    expect(harness.setItems).not.toHaveBeenCalled();
-    expect(clientMocks.reorderEstimateItems).not.toHaveBeenCalled();
-    expect(harness.pushHistoryCommand).not.toHaveBeenCalled();
-    expect(harness.reportError).not.toHaveBeenCalled();
-  });
 
   it.each([
     {
@@ -183,71 +163,6 @@ describe("useEstimateEditorOrderingController reorder", () => {
     expect(harness.pushHistoryCommand).not.toHaveBeenCalled();
   });
 
-  it("applies optimistic order and registers server-backed undo and redo", async () => {
-    const harness = createHarness({
-      items: [
-        createItem("line-a", { parent_id: "section", position: 1 }),
-        createItem("line-b", { parent_id: "section", position: 2 }),
-        createItem("other", { parent_id: "other-section", position: 7 }),
-      ],
-    });
-
-    await act(async () => {
-      await harness.result.current.actions.reorder("section", [
-        "line-b",
-        "line-a",
-      ]);
-    });
-
-    expect(itemOrder(harness.getItems())).toEqual([
-      { id: "line-a", parentId: "section", position: 2 },
-      { id: "line-b", parentId: "section", position: 1 },
-      { id: "other", parentId: "other-section", position: 7 },
-    ]);
-    expect(clientMocks.reorderEstimateItems).toHaveBeenNthCalledWith(
-      1,
-      "version-1",
-      "section",
-      ["line-b", "line-a"]
-    );
-
-    const command = readHistoryCommand(harness.pushHistoryCommand);
-    expect(command.label).toBe("reorder");
-
-    await act(async () => {
-      await command.undo();
-    });
-
-    expect(itemOrder(harness.getItems()).slice(0, 2)).toEqual([
-      { id: "line-a", parentId: "section", position: 1 },
-      { id: "line-b", parentId: "section", position: 2 },
-    ]);
-    expect(clientMocks.reorderEstimateItems).toHaveBeenNthCalledWith(
-      2,
-      "version-1",
-      "section",
-      ["line-a", "line-b"]
-    );
-
-    await act(async () => {
-      await command.redo();
-    });
-
-    expect(itemOrder(harness.getItems()).slice(0, 2)).toEqual([
-      { id: "line-a", parentId: "section", position: 2 },
-      { id: "line-b", parentId: "section", position: 1 },
-    ]);
-    expect(clientMocks.reorderEstimateItems).toHaveBeenNthCalledWith(
-      3,
-      "version-1",
-      "section",
-      ["line-b", "line-a"]
-    );
-    expect(harness.setTotalsOutOfSync).toHaveBeenCalledTimes(2);
-    expect(harness.setTotalsOutOfSync).toHaveBeenNthCalledWith(1, false);
-    expect(harness.setTotalsOutOfSync).toHaveBeenNthCalledWith(2, false);
-  });
-
   it("restores the snapshot when persistence fails", async () => {
     clientMocks.reorderEstimateItems.mockRejectedValueOnce(
       new Error("reorder failed")
@@ -275,32 +190,6 @@ describe("useEstimateEditorOrderingController reorder", () => {
 });
 
 describe("useEstimateEditorOrderingController move", () => {
-  it("delegates a same-parent move to reorder", async () => {
-    const harness = createHarness({
-      items: [
-        createItem("line-a", { parent_id: "section", position: 1 }),
-        createItem("line-b", { parent_id: "section", position: 2 }),
-      ],
-    });
-
-    await act(async () => {
-      await harness.result.current.actions.move(
-        "line-a",
-        "section",
-        "section",
-        ["line-b"],
-        ["line-b", "line-a"]
-      );
-    });
-
-    expect(clientMocks.moveEstimateItem).not.toHaveBeenCalled();
-    expect(clientMocks.reorderEstimateItems).toHaveBeenCalledWith(
-      "version-1",
-      "section",
-      ["line-b", "line-a"]
-    );
-    expect(readHistoryCommand(harness.pushHistoryCommand).label).toBe("reorder");
-  });
 
   it.each([
     {

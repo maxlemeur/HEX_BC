@@ -75,7 +75,7 @@ describe("supplier catalogue price server", () => {
       min_quantity: 1,
       unit_price_cents: 4200,
       currency: "EUR",
-      valid_from: null,
+      valid_from: "2026-09-06",
       valid_to: null,
       is_active: true,
       source_import_id: null,
@@ -93,6 +93,8 @@ describe("supplier catalogue price server", () => {
         price: expect.objectContaining({
           unit_price_cents: 4200,
           currency: "EUR",
+          valid_from: "2026-09-06",
+          valid_to: "2027-03-06",
         }),
       }),
     });
@@ -528,7 +530,7 @@ describe("catalogue server regressions", () => {
       unit: null,
       min_quantity: null,
       currency: "EUR",
-      valid_from: null,
+      valid_from: "2026-08-31",
       valid_to: null,
       source_import_id: null,
       source_mapped_row_id: null,
@@ -562,8 +564,8 @@ describe("catalogue server regressions", () => {
     expect(supabase.rpc).toHaveBeenCalledTimes(1);
     expect(supabase.rpc).toHaveBeenCalledWith("bulk_create_supplier_prices", {
       price_rows: [
-        expect.objectContaining({ unit_price_cents: 100 }),
-        expect.objectContaining({ unit_price_cents: 200 }),
+        expect.objectContaining({ unit_price_cents: 100, valid_to: "2027-02-28" }),
+        expect.objectContaining({ unit_price_cents: 200, valid_to: "2027-02-28" }),
       ],
     });
     expect(result).toEqual({
@@ -660,6 +662,19 @@ describe("catalogue server regressions", () => {
   });
 
   it("maps paginated prices and keeps the freshness boundary supplied by SQL", async () => {
+    const membership = {
+      select: vi.fn(), eq: vi.fn(), order: vi.fn(),
+      limit: vi.fn().mockResolvedValue({ data: [{ tenant_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", role: "admin" }], error: null }),
+    };
+    membership.select.mockReturnValue(membership);
+    membership.eq.mockReturnValue(membership);
+    membership.order.mockReturnValue(membership);
+    const conditions = {
+      select: vi.fn(), eq: vi.fn(),
+      in: vi.fn().mockResolvedValue({ data: [{ id: "88888888-8888-4888-8888-888888888888", transport_mode: "included" }], error: null }),
+    };
+    conditions.select.mockReturnValue(conditions);
+    conditions.eq.mockReturnValue(conditions);
     const rpc = vi.fn((name: string) => {
       if (name === "supplier_prices_page") {
         return Promise.resolve({
@@ -697,6 +712,11 @@ describe("catalogue server regressions", () => {
     });
     vi.mocked(createSupabaseServerClient).mockResolvedValue({
       ...createAuthenticatedSupabaseBase(),
+      from: vi.fn((table: string) => {
+        if (table === "tenant_memberships") return membership;
+        if (table === "supplier_pricebook") return conditions;
+        throw new Error(`Unexpected table: ${table}`);
+      }),
       rpc,
     } as never);
 

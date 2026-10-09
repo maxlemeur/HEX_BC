@@ -3,11 +3,11 @@ import path from "node:path";
 import { gzipSync } from "node:zlib";
 
 type ClientModuleManifest = {
-  chunks?: unknown;
+  chunks: string[];
 };
 
 type RouteClientReferenceManifest = {
-  clientModules?: Record<string, ClientModuleManifest>;
+  clientModules: Record<string, ClientModuleManifest>;
 };
 
 export type PerformanceBudget = {
@@ -32,17 +32,52 @@ export type PerformanceBudgetMeasurement = {
 };
 
 function parseClientReferenceManifest(source: string) {
-  const assignmentMarker = "] = ";
-  const assignmentIndex = source.lastIndexOf(assignmentMarker);
-  if (assignmentIndex === -1) {
+  const assignment = /globalThis\.__RSC_MANIFEST\[\s*"(?:[^"\\]|\\.)*"\s*\]\s*=\s*/.exec(source);
+  if (!assignment) {
     throw new Error("Invalid Next.js client reference manifest assignment.");
   }
 
   const json = source
-    .slice(assignmentIndex + assignmentMarker.length)
+    .slice(assignment.index + assignment[0].length)
     .trim()
     .replace(/;$/, "");
-  return JSON.parse(json) as RouteClientReferenceManifest;
+  const parsed: unknown = JSON.parse(json);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Invalid Next.js client reference manifest.");
+  }
+  const clientModules = (parsed as { clientModules?: unknown }).clientModules;
+  if (!clientModules || typeof clientModules !== "object" || Array.isArray(clientModules)) {
+    throw new Error("Invalid Next.js client reference manifest modules.");
+  }
+  Object.values(clientModules).forEach((module: unknown) => {
+    if (!module || typeof module !== "object" || Array.isArray(module)) {
+      throw new Error("Invalid Next.js client reference manifest module.");
+    }
+    const chunks = (module as { chunks?: unknown }).chunks;
+    if (!Array.isArray(chunks) || !chunks.every((chunk: unknown) => typeof chunk === "string")) {
+      throw new Error("Invalid Next.js client reference manifest chunks.");
+    }
+  });
+  return parsed as RouteClientReferenceManifest;
+}
+
+function clientChunkPath(chunk: string) {
+  const encodedPath = chunk.split(/[?#]/, 1)[0];
+  if (!encodedPath.endsWith(".js")) return null;
+  let decodedPath: string;
+  try {
+    decodedPath = decodeURIComponent(encodedPath.replace(/^\/_next\//, ""));
+  } catch (cause) {
+    throw new Error("Invalid Next.js client chunk path: " + chunk, { cause });
+  }
+  if (
+    !decodedPath.startsWith("static/chunks/") ||
+    /[\\\0]/.test(decodedPath) ||
+    decodedPath.split("/").some((part) => !part || part === "." || part === "..")
+  ) {
+    throw new Error("Invalid Next.js client chunk path: " + chunk);
+  }
+  return decodedPath;
 }
 
 function isPerformanceBudget(value: unknown): value is PerformanceBudget {
@@ -91,14 +126,15 @@ export function measurePerformanceBudget(input: {
   );
   const chunks = new Set<string>();
 
-  Object.values(manifest.clientModules ?? {}).forEach((module) => {
-    if (!Array.isArray(module.chunks)) return;
+  Object.values(manifest.clientModules).forEach((module) => {
     module.chunks.forEach((chunk) => {
-      if (typeof chunk === "string" && chunk.endsWith(".js")) {
-        chunks.add(chunk.replace(/^\/_next\//, ""));
-      }
+      const chunkPath = clientChunkPath(chunk);
+      if (chunkPath) chunks.add(chunkPath);
     });
   });
+  if (chunks.size === 0) {
+    throw new Error("Invalid Next.js client reference manifest: no JavaScript chunks.");
+  }
 
   let rawBytes = 0;
   let gzipBytes = 0;

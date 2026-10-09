@@ -1,5 +1,11 @@
 "use client";
 
+import { EstimateOrderedCells } from "@/components/estimates/context/EstimateColumnOrderContext";
+
+import { formatCurrency } from "@/lib/money";
+
+import { EstimateTypeCombobox } from "@/components/estimates/EstimateTypeCombobox";
+
 import {
   type EstimateQualityFlagKey,
 } from "@/lib/estimate-quality";
@@ -12,7 +18,6 @@ import {
   type LaborRole,
   type SpreadsheetCell,
   type SpreadsheetNavigationResult,
-  formatLaborRoleOptionLabel,
   getMissingLaborRateMessage,
   parseMajorationPercentToCoefficient,
   toCellClassName,
@@ -37,7 +42,7 @@ type StandardMoCellsProps = {
   hMoMajorationEditorProps: SpreadsheetEditorProps<HTMLInputElement>;
   laborRoleCell: SpreadsheetCell;
   laborRoleCellProps: SpreadsheetCellProps;
-  laborRoleEditorProps: SpreadsheetEditorProps<HTMLSelectElement>;
+  laborRoleEditorProps: SpreadsheetEditorProps<HTMLInputElement>;
   kMoCell: SpreadsheetCell;
   kMoCellProps: SpreadsheetCellProps;
   kMoEditorProps: SpreadsheetEditorProps<HTMLInputElement>;
@@ -81,9 +86,10 @@ export function StandardMoCells({
   );
 
   return (
-    <>
+    <EstimateOrderedCells>
       <div
         {...hMoCellProps}
+        data-estimate-column="labor_hours"
         role="gridcell"
         onKeyDown={toCellKeyDownHandler(hMoCellProps.onKeyDown)}
         className={toCellClassName(
@@ -126,6 +132,7 @@ export function StandardMoCells({
       {(!visibleColumns || visibleColumns.has("h_mo_majoration")) ? (
         <div
           {...hMoMajorationCellProps}
+        data-estimate-column="h_mo_majoration"
           role="gridcell"
           onKeyDown={toCellKeyDownHandler(hMoMajorationCellProps.onKeyDown)}
           className={toCellClassName(
@@ -176,6 +183,7 @@ export function StandardMoCells({
       {(!visibleColumns || visibleColumns.has("labor_role")) ? (
         <div
           {...laborRoleCellProps}
+        data-estimate-column="labor_role"
           role="gridcell"
           onKeyDown={toCellKeyDownHandler(laborRoleCellProps.onKeyDown)}
           className={toCellClassName(
@@ -189,57 +197,22 @@ export function StandardMoCells({
             }`
           )}
         >
-          <div className="relative min-w-0 w-full">
-            <span
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-y-0 left-1 right-7 z-10 flex items-center truncate text-xs text-slate-700"
-              data-testid="estimate-labor-role-value"
-            >
-              {selectedLaborRole
-                ? `${selectedLaborRole.name}${
-                    !selectedLaborRole.is_active ? " (inactif)" : ""
-                  }`
-                : "-"}
-            </span>
-            <select
-              className="estimate-input estimate-select text-transparent"
-              style={{ color: "transparent" }}
-              ref={laborRoleEditorProps.ref}
-              tabIndex={laborRoleEditorProps.tabIndex}
-              value={item.labor_role_id ?? ""}
-              aria-label={`Rôle de main-d'œuvre pour ${item.title || "sans titre"}`}
-              aria-invalid={missingLaborRateMessage ? true : undefined}
-              title={missingLaborRateMessage ?? undefined}
-              onFocus={laborRoleEditorProps.onFocus}
-              onBlur={laborRoleEditorProps.onBlur}
-              onKeyDown={laborRoleEditorProps.onKeyDown}
-              onChange={(event) =>
-                onPatchItem(
-                  item.id,
-                  { labor_role_id: event.target.value || null },
-                  { persist: true }
-                )
-              }
-              disabled={isReadOnly}
-            >
-              <option className="text-slate-700" value="">-</option>
-              {laborRoles.map((role) => (
-                <option
-                  className="text-slate-700"
-                  key={role.id}
-                  value={role.id}
-                  disabled={!role.is_active}
-                >
-                  {formatLaborRoleOptionLabel(role)}
-                </option>
-              ))}
-            </select>
-          </div>
+          <EstimateTypeCombobox
+            value={item.labor_role_id}
+            options={laborRoles.map((role) => ({ id: role.id, label: role.name, detail: `${formatCurrency(role.hourly_rate_cents, "EUR")} / h`, disabled: !role.is_active }))}
+            label={`Rôle de main-d'œuvre pour ${item.title || "sans titre"}`}
+            emptyLabel="Aucun rôle"
+            error={missingLaborRateMessage ?? undefined}
+            editorProps={laborRoleEditorProps}
+            onCommit={(id) => onPatchItem(item.id, { labor_role_id: id }, { persist: true })}
+            disabled={isReadOnly}
+          />
         </div>
       ) : null}
       {(!visibleColumns || visibleColumns.has("k_mo")) ? (
         <div
           {...kMoCellProps}
+        data-estimate-column="k_mo"
           role="gridcell"
           onKeyDown={toCellKeyDownHandler(kMoCellProps.onKeyDown)}
           className={toCellClassName(
@@ -282,6 +255,6 @@ export function StandardMoCells({
           />
         </div>
       ) : null}
-    </>
+    </EstimateOrderedCells>
   );
 }

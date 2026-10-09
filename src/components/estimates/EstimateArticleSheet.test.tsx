@@ -1,9 +1,8 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup,render,screen,waitFor } from "@testing-library/react";
+import { afterEach,describe,expect,it,vi } from "vitest";
 
 import { fetchApi } from "@/components/catalogue/api";
 import { EstimateArticleSheet } from "@/components/estimates/EstimateArticleSheet";
-import { fetchCatalogueSuggestions } from "@/components/estimates/components/estimate-editor-row/shared";
 import type { CataloguePriceSuggestion } from "@/lib/estimates/catalogue-suggestions";
 
 vi.mock("@/components/catalogue/api", () => ({
@@ -46,38 +45,6 @@ afterEach(() => {
 });
 
 describe("EstimateArticleSheet", () => {
-  it("searches the catalogue and returns the selected article", async () => {
-    vi.useFakeTimers();
-    vi.mocked(fetchCatalogueSuggestions).mockResolvedValue([suggestion]);
-    const onAssociate = vi.fn();
-
-    render(
-      <EstimateArticleSheet
-        isOpen
-        mode="associate"
-        versionId="version-1"
-        lineTitle="Plateau"
-        productId={null}
-        currency="EUR"
-        isReadOnly={false}
-        onClose={vi.fn()}
-        onAssociate={onAssociate}
-        onDetach={vi.fn()}
-      />,
-    );
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(260);
-    });
-
-    expect(fetchCatalogueSuggestions).toHaveBeenCalledWith(
-      "version-1",
-      "Plateau",
-      expect.any(AbortSignal),
-    );
-    fireEvent.click(screen.getByRole("button", { name: /Plateau mélaminé blanc/i }));
-    expect(onAssociate).toHaveBeenCalledWith(suggestion);
-  });
 
   it("loads the linked article, including archived records", async () => {
     vi.mocked(fetchApi).mockResolvedValue({

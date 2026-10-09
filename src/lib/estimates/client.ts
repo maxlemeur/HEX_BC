@@ -1,4 +1,5 @@
 import { downloadBlob } from "@/lib/browser-download";
+import { normalizeEstimateCurrency } from "@/lib/money";
 import {
   hasEstimateEditorMutationSession,
   runEstimateEditorMutation,
@@ -48,6 +49,7 @@ type EstimateProjectRow =
 type EstimateVersionRow =
   Database["public"]["Tables"]["estimate_versions"]["Row"];
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"] & {
+  selected_supplier_details?: import("@/lib/estimates/supplier-offer-conditions").SelectedSupplierDetails | null;
   source_provider?: string | null;
   source_job_id?: string | null;
   source_file_name?: string | null;
@@ -82,7 +84,6 @@ export type EstimateVersionEventType =
   | "approval_status_changed"
   | "approval_decided";
 
-const ESTIMATE_CURRENCY_VALUES = ["EUR", "USD", "GBP"] as const;
 const ESTIMATE_VERSION_API_PATH_PATTERN =
   /^\/api\/estimates\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:[/?]|$)/i;
 const ESTIMATE_DRAFT_LOCK_SESSION_STORE_KEY =
@@ -1132,18 +1133,6 @@ function normalizeOutlierDismissedByItemId(
   });
 
   return parsedMap;
-}
-
-function normalizeEstimateCurrency(value: unknown): string | null {
-  const parsed = toStringValue(value);
-  if (!parsed) return null;
-
-  const normalized = parsed.toUpperCase();
-  if ((ESTIMATE_CURRENCY_VALUES as readonly string[]).includes(normalized)) {
-    return normalized;
-  }
-
-  return null;
 }
 
 function getRootPayload(payload: unknown): unknown {
@@ -2256,8 +2245,8 @@ function normalizeEstimateListItem(value: unknown): EstimateListItem | null {
     toNumber(value.total_ht_cents) ??
     toNumber(value.total);
   const currency =
-    normalizeEstimateCurrency(value.currency) ??
-    normalizeEstimateCurrency(value.currency_code) ??
+    normalizeEstimateCurrency(toStringValue(value.currency)) ??
+    normalizeEstimateCurrency(toStringValue(value.currency_code)) ??
     "EUR";
 
   if (
@@ -2284,6 +2273,7 @@ function normalizeEstimateListItem(value: unknown): EstimateListItem | null {
 
   const projectClient =
     toStringValue(value.projectClient) ??
+    toStringValue(value.project_client_name) ??
     toStringValue(value.project_client) ??
     (projectNode ? toStringValue(projectNode.client_name) : null) ??
     null;

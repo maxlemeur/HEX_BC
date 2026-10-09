@@ -48,6 +48,9 @@ vi.mock("@/components/catalogue/PriceBookCsvImport", () => ({
 vi.mock("@/components/products/ProductPriceTemplateImport", () => ({
   ProductPriceTemplateImport: () => null,
 }));
+vi.mock("@/components/products/ProductReferencePricePanel", () => ({
+  ProductReferencePricePanel: () => null,
+}));
 
 import { PricesManager } from "@/components/catalogue/PricesManager";
 
@@ -96,6 +99,12 @@ describe("PricesManager paginé", () => {
     productRangeMock.mockResolvedValue({ data: [], error: null });
   });
   afterEach(cleanup);
+
+  it("links back to the focused product sheet", () => {
+    render(createElement(PricesManager, { productId: "product-1" }));
+    expect(screen.getByRole("link", { name: "Retour à la fiche produit" }).getAttribute("href"))
+      .toBe("/dashboard/products?product_id=product-1");
+  });
 
   it("renders server data, counters and the server filter bar", () => {
     render(createElement(PricesManager));

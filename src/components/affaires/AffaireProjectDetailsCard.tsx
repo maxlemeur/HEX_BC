@@ -6,6 +6,7 @@ export type AffaireProjectDetailsValues = {
   projectName: string;
   clientName: string;
   reference: string;
+  siteAddress?: string;
 };
 
 type AffaireProjectDetailsCardProps = {
@@ -20,6 +21,7 @@ type AffaireProjectDetailsCardProps = {
   errorMessage?: string | null;
   onProjectNameChange?: (value: string) => void;
   onClientNameChange?: (value: string) => void;
+  onSiteAddressChange?: (value: string) => void;
   onReferenceChange?: (value: string) => void;
   onEdit?: () => void;
   footer?: React.ReactNode;
@@ -39,6 +41,7 @@ export function AffaireProjectDetailsCard({
   onProjectNameChange,
   onClientNameChange,
   onReferenceChange,
+  onSiteAddressChange,
   onEdit,
   footer,
 }: Readonly<AffaireProjectDetailsCardProps>) {
@@ -122,6 +125,17 @@ export function AffaireProjectDetailsCard({
                 className="mt-2 w-full border-0 border-b-2 border-[var(--slate-200)] bg-transparent pb-2 text-base font-medium text-[var(--slate-900)] placeholder:text-[var(--slate-400)] transition-colors focus:border-[var(--brand-blue)] focus:outline-none"
               />
             </div>
+            {onSiteAddressChange ? (
+              <div className="lg:col-span-2">
+                <label htmlFor="details-site-address" className="block text-xs font-semibold uppercase tracking-wider text-[var(--slate-700)]">
+                  Adresse du chantier
+                </label>
+                <textarea id="details-site-address" value={values.siteAddress ?? ""}
+                  onChange={(event) => onSiteAddressChange(event.target.value)}
+                  maxLength={1000} rows={3} placeholder="Rue, code postal et ville"
+                  className="mt-2 w-full rounded-lg border border-[var(--slate-200)] bg-transparent p-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-blue)]" />
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -185,6 +199,12 @@ export function AffaireProjectDetailsCard({
               </dd>
             </div>
           </dl>
+          {values.siteAddress !== undefined ? (
+            <div className="mt-4 lg:ml-[5.5rem]">
+              <p className="text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)]">Adresse du chantier</p>
+              <p className="mt-1 whitespace-pre-line break-words text-sm text-[var(--slate-700)]">{renderValue(values.siteAddress, "Non renseignée")}</p>
+            </div>
+          ) : null}
         </div>
 
         {footer ? (

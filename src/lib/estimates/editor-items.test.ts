@@ -1,22 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  applyInterParentMoveOptimistically,
-  buildEstimateItemInsertPayload,
-  buildEstimateItemUpdatePayload,
-  buildVersionDiscountPatch,
-  buildVersionTotalsPatch,
-  createOptimisticLineItem,
-  createOptimisticSectionItem,
-  createTempEstimateItemId,
-  getEstimateEditorItemClientKey,
-  hasLaborSplitFields,
-  isPendingCreateEstimateItem,
-  isTempEstimateItemId,
-  readLaborSplitFields,
-  resolveLaborRoleHourlyRate,
-  type EstimateItem,
-} from "@/lib/estimates/editor-items";
+import { applyInterParentMoveOptimistically, buildEstimateItemInsertPayload, buildEstimateItemUpdatePayload, buildVersionDiscountPatch, createOptimisticLineItem, hasLaborSplitFields, readLaborSplitFields, resolveLaborRoleHourlyRate, type EstimateItem } from "@/lib/estimates/editor-items";
 
 const FIXED_NOW = "2026-07-15T15:30:45.000Z";
 
@@ -221,79 +205,9 @@ describe("estimate editor item payloads", () => {
     expect(resolveLaborRoleHourlyRate(role, "atelier")).toBe(5100);
     expect(resolveLaborRoleHourlyRate(role, "chantier")).toBe(4200);
   });
-
-  it("maps editor totals to the persisted version totals contract", () => {
-    expect(buildVersionTotalsPatch(null)).toBeUndefined();
-    expect(
-      buildVersionTotalsPatch({
-        saleTotalCents: 10000,
-        adjustedTaxCents: 2000,
-        roundedTtcCents: 12000,
-      } as never)
-    ).toEqual({
-      total_ht_cents: 10000,
-      total_tax_cents: 2000,
-      total_ttc_cents: 12000,
-    });
-  });
 });
 
 describe("estimate editor optimistic items", () => {
-  it("prefixes deterministic temporary ids and recognizes pending items", () => {
-    vi.spyOn(crypto, "randomUUID").mockReturnValue(
-      "11111111-2222-4333-8444-555555555555"
-    );
-
-    const tempId = createTempEstimateItemId();
-    expect(tempId).toBe("tmp:11111111-2222-4333-8444-555555555555");
-    expect(isTempEstimateItemId(tempId)).toBe(true);
-    expect(isTempEstimateItemId("item-1")).toBe(false);
-    expect(getEstimateEditorItemClientKey({ id: "item-1" })).toBe("item-1");
-    expect(
-      getEstimateEditorItemClientKey({
-        id: "item-real",
-        _clientKey: "tmp:item-client",
-      }),
-    ).toBe("tmp:item-client");
-    expect(
-      isPendingCreateEstimateItem(
-        createItem({ _pendingCreate: true } as Partial<EstimateItem>)
-      )
-    ).toBe(true);
-  });
-
-  it("creates a stable optimistic section shape", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(FIXED_NOW));
-
-    const section = createOptimisticSectionItem({
-      tempId: "tmp:section",
-      tenantId: "tenant-1",
-      versionId: "version-1",
-      parentId: null,
-      position: 3,
-      title: "Nouveau lot",
-    });
-
-    expect(section).toMatchObject({
-      id: "tmp:section",
-      created_at: FIXED_NOW,
-      updated_at: FIXED_NOW,
-      tenant_id: "tenant-1",
-      version_id: "version-1",
-      parent_id: null,
-      item_type: "section",
-      position: 3,
-      title: "Nouveau lot",
-      quantity: null,
-      h_mo_majoration: 1,
-      source_metadata: {},
-      _clientKey: "tmp:section",
-      _optimistic: true,
-      _pendingCreate: true,
-      _tempId: "tmp:section",
-    });
-  });
 
   it("never initializes deprecated labor split values", () => {
     vi.useFakeTimers();

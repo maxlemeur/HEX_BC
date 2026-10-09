@@ -72,6 +72,7 @@ import {
   estimateExplanationResponseSchema,
 } from "@/lib/estimates/explanation-schemas";
 import { pricesActionSchema } from "@/lib/catalogue/schemas";
+import { referencePriceActionSchema, referencePriceResponseSchema } from "@/lib/catalogue/reference-price-schemas";
 import { estimateEmailIdempotencyKeyHeaderParameter, estimateStatusSchema } from "@/lib/openapi/estimate-email-contract";
 import { estimateExportFormatQueryParameter, estimateExportModeQueryParameter } from "@/lib/openapi/estimate-export-contract";
 import { TakeoffErrorCode } from "@/lib/takeoff/errors";
@@ -244,6 +245,7 @@ const estimateProjectSchema = z
     name: z.string(),
     reference: z.string().nullable().optional(),
     client_name: z.string().nullable().optional(),
+    site_address: z.string().max(1000).nullable().optional(),
     notes: z.string().nullable().optional(),
     is_archived: z.boolean().optional(),
   })
@@ -289,6 +291,11 @@ const estimateVersionSchema = z
 
 const estimateItemSchema = z
   .object({
+    selected_supplier_details: z.object({
+      price_id: uuidSchema,
+      name: z.string().nullable(),
+      reference: z.string().nullable(),
+    }).nullable().optional(),
     id: uuidSchema,
     version_id: uuidSchema,
     parent_id: uuidSchema.nullable().optional(),
@@ -503,6 +510,11 @@ const suggestedCataloguePriceSchema = z.object({
 });
 
 const estimateSupplierComparisonAlternativeSchema = z.object({
+  unit: z.string().nullable().optional(),
+  min_quantity: z.number().nullable().optional(),
+  valid_from: z.string().nullable().optional(),
+  valid_to: z.string().nullable().optional(),
+  is_active: z.boolean().optional(),
   kind: z.enum([
     "best_price",
     "most_recent",
@@ -523,6 +535,8 @@ const estimateSupplierComparisonAlternativeSchema = z.object({
 
 const estimateSupplierComparisonSchema = z.object({
   item_id: uuidSchema,
+  quantity: z.number().optional(),
+  unit: z.string().nullable().optional(),
   selected_supplier_price_id: uuidSchema.nullable(),
   best_supplier_price_id: uuidSchema.nullable(),
   coverage_status: z.enum(["covered", "ambiguous", "no_price", "stale"]),
@@ -3034,7 +3048,7 @@ const createEstimateBody = jsonBody({
 const supplierPricesActionBody = jsonBody({
   name: "SupplierPricesActionBody",
   description:
-    "Cree un article, un fournisseur, leur fiche unique et un tarif de facon atomique, ou modifie une ressource existante.",
+    "Cree un article, un fournisseur, leur fiche unique et un tarif de facon atomique, ou modifie une ressource existante. La validite est limitee a six mois calendaires depuis valid_from ; une fin absente a la creation est calculee automatiquement.",
   schema: pricesActionSchema,
 });
 
@@ -3414,6 +3428,57 @@ const apiEstimatePdfLayoutConfigurationSchemaDefinition = schemaDefinition(
 );
 
 export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
+  {
+    method: "get",
+    path: "/api/products/reference-suggestion",
+    summary: "Proposer une référence interne d’article",
+    description: "Suggestion provisoire réservée aux administrateurs du catalogue. L’insertion attribue la référence définitive si le champ est vide, sans réserver la suggestion ni modifier un article existant.",
+    tags: ["Catalogue"],
+    responses: {
+      "200": jsonResponse("Référence proposée.", schemaDefinition(
+        "ProductReferenceSuggestionResponse",
+        successEnvelopeSchema(z.object({ reference: z.string().min(1) })), "output"
+      )),
+      "401": jsonResponse("Authentification requise.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "403": jsonResponse("Administrateur du catalogue requis.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "500": jsonResponse("Suggestion indisponible.", openApiSharedSchemaDefinitions.apiFailureResponse),
+    },
+  },
+  {
+    method: "get",
+    path: "/api/catalogue/reference-price",
+    summary: "Proposer un prix de référence comparable",
+    description: "Moyenne d’une offre valable de moins de six mois par fournisseur pour une quantité, une unité, EUR et un traitement du transport identiques. Alerte si (max-min)/min > 15 %, sans exclusion liée à cet écart. Lecture seule.",
+    tags: ["Catalogue"],
+    parameters: [
+      queryParameter({ name: "product_id", description: "Article à examiner.", schemaName: "ReferencePriceProductId", schema: uuidSchema, required: true }),
+      queryParameter({ name: "quantity", description: "Quantité de référence, sinon celle du produit.", schemaName: "ReferencePriceQuantity", schema: z.number().positive().max(999999999.999), required: false }),
+      queryParameter({ name: "transport_mode", description: "Traitement du transport, sinon celui de la référence validée.", schemaName: "ReferencePriceTransport", schema: z.enum(["included", "excluded"]), required: false }),
+    ],
+    responses: {
+      "200": jsonResponse("Proposition, exclusions et dernière validation.", successResponseSchemaDefinition("ApiReferencePriceProposal", referencePriceResponseSchema)),
+      "400": jsonResponse("Paramètres invalides.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "401": jsonResponse("Authentification requise.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "404": jsonResponse("Article introuvable dans le tenant actif.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "503": jsonResponse("Migration de référence non activée.", openApiSharedSchemaDefinitions.apiFailureResponse),
+    },
+  },
+  {
+    method: "post",
+    path: "/api/catalogue/reference-price",
+    summary: "Valider une référence ou préciser le transport d’une offre",
+    description: "Réservé aux administrateurs du tenant actif. La validation recalcule la proposition et vérifie son empreinte, puis conserve auteur, date et sources. Aucun devis existant n’est réécrit. Un prix manuel exige une justification.",
+    tags: ["Catalogue"],
+    requestBody: jsonBody({ name: "ReferencePriceAction", description: "Validation explicite ou condition de transport.", schema: referencePriceActionSchema }),
+    responses: {
+      "200": jsonResponse("Décision enregistrée."),
+      "400": jsonResponse("Requête invalide.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "401": jsonResponse("Authentification requise.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "403": jsonResponse("Responsable autorisé requis.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "409": jsonResponse("La proposition ou l’offre a changé.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "503": jsonResponse("Migration de référence non activée.", openApiSharedSchemaDefinitions.apiFailureResponse),
+    },
+  },
   {
     method: "post",
     path: "/api/prices",

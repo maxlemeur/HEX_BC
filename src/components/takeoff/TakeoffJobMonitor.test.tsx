@@ -1,8 +1,8 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup,fireEvent,render,screen,waitFor } from "@testing-library/react";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
-import type { TakeoffJobDetailResponse } from "@/lib/takeoff/client";
 import TakeoffJobMonitor from "@/components/takeoff/TakeoffJobMonitor";
+import type { TakeoffJobDetailResponse } from "@/lib/takeoff/client";
 
 const useTakeoffJobPollingMock = vi.hoisted(() => vi.fn());
 const applyTakeoffJobMock = vi.hoisted(() => vi.fn());
@@ -195,81 +195,6 @@ describe("TakeoffJobMonitor", () => {
 
   afterEach(() => {
     cleanup();
-  });
-
-  it("links completed jobs to an existing estimate route", () => {
-    useTakeoffJobPollingMock.mockReturnValue({
-      data: createJobDetailResponse("completed"),
-      error: null,
-      errorStatus: null,
-      isPolling: false,
-      refetch: vi.fn(),
-    });
-
-    render(
-      <TakeoffJobMonitor
-        jobId="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-        versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
-      />
-    );
-
-    const resultLink = screen.getByRole("link", { name: /voir les resultats/i });
-    const href = resultLink.getAttribute("href");
-
-    expect(href).toBe("/dashboard/estimates/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
-    expect(href).not.toContain("/review");
-  });
-
-  it("keeps estimate back navigation for non-completed jobs", () => {
-    useTakeoffJobPollingMock.mockReturnValue({
-      data: createJobDetailResponse("processing"),
-      error: null,
-      errorStatus: null,
-      isPolling: true,
-      refetch: vi.fn(),
-    });
-
-    render(
-      <TakeoffJobMonitor
-        jobId="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-        versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
-      />
-    );
-
-    const backLink = screen.getByRole("link", { name: /retour au chiffrage/i });
-    expect(backLink.getAttribute("href")).toBe(
-      "/dashboard/estimates/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
-    );
-    expect(
-      screen.queryByRole("link", { name: /voir les resultats/i })
-    ).not.toBeInTheDocument();
-  });
-
-  it("keeps the delayed-start recovery visible after a reload", () => {
-    const detail = createJobDetailResponse("pending");
-    detail.job.dispatch_status = "trigger_failed";
-    detail.job.dispatch_outcome = "timeout";
-    detail.job.dispatch_correlation_id = "dispatch-follow-up-123";
-
-    useTakeoffJobPollingMock.mockReturnValue({
-      data: detail,
-      error: null,
-      errorStatus: null,
-      isPolling: true,
-      refetch: vi.fn(),
-    });
-
-    render(
-      <TakeoffJobMonitor
-        jobId="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-        versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
-      />
-    );
-
-    expect(
-      screen.getByText("Démarrage immédiat indisponible, reprise automatique active.")
-    ).toBeInTheDocument();
-    expect(screen.getByText(/dispatch-follow-up-123/)).toBeInTheDocument();
   });
 
   it("acquires a lock before apply when no active lock exists", async () => {

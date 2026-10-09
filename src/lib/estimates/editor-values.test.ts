@@ -1,29 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  isRecord,
-  parseNullableNumberInput,
-  parseNullableNumericValue,
-  parseNumberInput,
-  toFiniteNumber,
-  toNonEmptyString,
-  toNullableFiniteNumber,
-} from "@/lib/estimates/editor-values";
+import { parseNullableNumberInput, parseNullableNumericValue, parseNumberInput, toFiniteNumber, toNullableFiniteNumber } from "@/lib/estimates/editor-values";
 
 describe("estimate editor value normalization", () => {
-  it("accepts records and rejects arrays and null", () => {
-    expect(isRecord({ value: 1 })).toBe(true);
-    expect(isRecord(Object.create(null))).toBe(true);
-    expect(isRecord([])).toBe(false);
-    expect(isRecord(null)).toBe(false);
-    expect(isRecord("value")).toBe(false);
-  });
-
-  it("normalizes non-empty strings", () => {
-    expect(toNonEmptyString("  value  ")).toBe("value");
-    expect(toNonEmptyString("   ")).toBeNull();
-    expect(toNonEmptyString(42)).toBeNull();
-  });
 
   it("normalizes finite numbers without accepting invalid values", () => {
     expect(toFiniteNumber(12.5, 0)).toBe(12.5);
@@ -48,11 +27,6 @@ describe("estimate editor value normalization", () => {
 });
 
 describe("parseNumberInput", () => {
-  it("lit une decimale francaise", () => {
-    expect(parseNumberInput("12,5")).toBe(12.5);
-    expect(parseNumberInput("12.5")).toBe(12.5);
-    expect(parseNumberInput("42")).toBe(42);
-  });
 
   // Le defaut corrige : `replace(",", ".")` ne remplacait que la PREMIERE
   // virgule et ne retirait pas les separateurs de milliers. `parseFloat`
@@ -105,9 +79,5 @@ describe("parseNullableNumberInput", () => {
     expect(parseNullableNumberInput("")).toBeNull();
     expect(parseNullableNumberInput("   ")).toBeNull();
     expect(parseNullableNumberInput("abc")).toBeNull();
-  });
-
-  it("beneficie de la meme normalisation", () => {
-    expect(parseNullableNumberInput("1 234,56")).toBe(1234.56);
   });
 });

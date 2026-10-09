@@ -16,18 +16,4 @@ describe("normalizeDocumentIssuerDisplay", () => {
       displayEmail: "maxime.michel@hydroexpress.fr",
     });
   });
-
-  it("keeps an explicit profile name unchanged", () => {
-    expect(
-      normalizeDocumentIssuerDisplay({
-        issuerName: "Maxime Michel",
-        issuerRole: "Charge d'affaires",
-        issuerEmail: "maxime.michel@hydroexpress.fr",
-      })
-    ).toEqual({
-      displayName: "Maxime Michel",
-      displayRole: "Charge d'affaires",
-      displayEmail: "maxime.michel@hydroexpress.fr",
-    });
-  });
 });

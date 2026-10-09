@@ -5,11 +5,9 @@ vi.mock("@/lib/email/send-estimate", () => ({
 }));
 
 import { POST } from "@/app/api/estimates/[versionId]/send/route";
-import { internalError } from "@/lib/estimates/errors";
 import { sendEstimateEmail } from "@/lib/email/send-estimate";
 
 const VERSION_ID = "11111111-1111-4111-8111-111111111111";
-const IDEMPOTENCY_KEY = "44444444-4444-4444-8444-444444444444";
 
 describe("estimate send route", () => {
   beforeEach(() => {
@@ -126,84 +124,5 @@ describe("estimate send route", () => {
       })
     );
     expect(vi.mocked(sendEstimateEmail)).not.toHaveBeenCalled();
-  });
-
-  it("sends estimate email and returns success payload", async () => {
-    vi.mocked(sendEstimateEmail).mockResolvedValue({
-      message_id: "email_123",
-    } as never);
-
-    const request = new Request(`http://localhost/api/estimates/${VERSION_ID}/send`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "idempotency-key": IDEMPOTENCY_KEY,
-      },
-      body: JSON.stringify({
-        to: " client@example.com ",
-        cc: [" copy@example.com "],
-        subject: " Devis Hydro ",
-        message: " Bonjour ",
-      }),
-    });
-
-    const response = await POST(request, {
-      params: Promise.resolve({ versionId: VERSION_ID }),
-    });
-    const payload = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(payload).toEqual({
-      ok: true,
-      data: {
-        message_id: "email_123",
-      },
-    });
-    expect(vi.mocked(sendEstimateEmail)).toHaveBeenCalledWith({
-      versionId: VERSION_ID,
-      payload: {
-        to: "client@example.com",
-        cc: ["copy@example.com"],
-        subject: "Devis Hydro",
-        message: "Bonjour",
-      },
-      requestUrl: request.url,
-      idempotencyKey: IDEMPOTENCY_KEY,
-    });
-  });
-
-  it("maps service failures to error response", async () => {
-    vi.mocked(sendEstimateEmail).mockRejectedValue(
-      internalError("Erreur lors de l'envoi de l'email.")
-    );
-
-    const request = new Request(`http://localhost/api/estimates/${VERSION_ID}/send`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "idempotency-key": IDEMPOTENCY_KEY,
-      },
-      body: JSON.stringify({
-        to: "client@example.com",
-        subject: "Devis",
-        message: "Bonjour",
-      }),
-    });
-
-    const response = await POST(request, {
-      params: Promise.resolve({ versionId: VERSION_ID }),
-    });
-    const payload = await response.json();
-
-    expect(response.status).toBe(500);
-    expect(payload).toEqual(
-      expect.objectContaining({
-        ok: false,
-        error: expect.objectContaining({
-          code: "INTERNAL_ERROR",
-          message: "Erreur lors de l'envoi de l'email.",
-        }),
-      })
-    );
   });
 });

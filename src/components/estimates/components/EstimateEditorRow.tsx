@@ -18,6 +18,7 @@ import {
   useEstimateEditorRowActions,
 } from "@/components/estimates/context/EstimateEditorRowActionsContext";
 import { useEstimateSpreadsheetNavigation } from "@/components/estimates/context/EstimateSpreadsheetContext";
+import type { SupplierComparisonResult } from "@/components/estimates/hooks/useEstimateSupplierComparison";
 import {
   LineRow,
 } from "@/components/estimates/components/estimate-editor-row/LineRow";
@@ -107,6 +108,7 @@ export type EstimateEditorRowProps = {
   laborRoles: LaborRole[];
   isLineSelected: boolean;
   hasSupplierComparisonMismatch: boolean;
+  supplierComparison?: SupplierComparisonResult;
   visibleColumns?: ColumnVisibilitySet;
   sectionTotals: SectionTotals | null;
   isDragDisabled: boolean;
@@ -213,6 +215,7 @@ function areEstimateEditorRowPropsEqual(
     previous.laborRoles === next.laborRoles &&
     previous.isLineSelected === next.isLineSelected &&
     previous.hasSupplierComparisonMismatch === next.hasSupplierComparisonMismatch &&
+    previous.supplierComparison === next.supplierComparison &&
     previous.visibleColumns === next.visibleColumns &&
     areSectionTotalsEqual(previous.sectionTotals, next.sectionTotals) &&
     previous.isDragDisabled === next.isDragDisabled &&
@@ -242,7 +245,6 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
   itemNumber,
   depth,
   unitValue,
-  supplyTypeValue,
   qualityFlags,
   detectedOutlierFlags,
   dismissedOutlierFlags,
@@ -250,6 +252,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
   laborRoles,
   isLineSelected,
   hasSupplierComparisonMismatch,
+  supplierComparison,
   sectionTotals,
   isDragDisabled,
   isOutlierActionPending,
@@ -281,8 +284,6 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
     onPatchItem,
     onUnitChange,
     onUnitCommit,
-    onSupplyTypeChange,
-    onSupplyTypeCommit,
     onAddLine,
     onAddSection,
     onConvertLineToSection,
@@ -480,6 +481,11 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
     rowId: clientKey,
     columnKey: SPREADSHEET_COLUMN_KEYS.kFo,
   };
+  const supplierCell: SpreadsheetCell = {
+    rowId: clientKey,
+    columnKey: SPREADSHEET_COLUMN_KEYS.supplier,
+  };
+  const supplierCellProps = navigation.getCellProps(supplierCell);
   const kFoCellProps = navigation.getCellProps(kFoCell);
   const kFoEditorProps = navigation.getEditorProps<HTMLInputElement>(kFoCell);
   const hMoCell: SpreadsheetCell = {
@@ -501,7 +507,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
     columnKey: SPREADSHEET_COLUMN_KEYS.laborRole,
   };
   const laborRoleCellProps = navigation.getCellProps(laborRoleCell);
-  const laborRoleEditorProps = navigation.getEditorProps<HTMLSelectElement>(
+  const laborRoleEditorProps = navigation.getEditorProps<HTMLInputElement>(
     laborRoleCell
   );
   const kMoCell: SpreadsheetCell = {
@@ -523,7 +529,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
     columnKey: SPREADSHEET_COLUMN_KEYS.laborRoleAtelier,
   };
   const laborRoleAtelierCellProps = navigation.getCellProps(laborRoleAtelierCell);
-  const laborRoleAtelierEditorProps = navigation.getEditorProps<HTMLSelectElement>(
+  const laborRoleAtelierEditorProps = navigation.getEditorProps<HTMLInputElement>(
     laborRoleAtelierCell
   );
   const kMoAtelierCell: SpreadsheetCell = {
@@ -547,7 +553,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
     columnKey: SPREADSHEET_COLUMN_KEYS.laborRoleChantier,
   };
   const laborRoleChantierCellProps = navigation.getCellProps(laborRoleChantierCell);
-  const laborRoleChantierEditorProps = navigation.getEditorProps<HTMLSelectElement>(
+  const laborRoleChantierEditorProps = navigation.getEditorProps<HTMLInputElement>(
     laborRoleChantierCell
   );
   const kMoChantierCell: SpreadsheetCell = {
@@ -591,6 +597,8 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
       supplyTypeCell={supplyTypeCell}
       supplyTypeCellProps={supplyTypeCellProps}
       supplyTypeEditorProps={supplyTypeEditorProps}
+      supplierCell={supplierCell}
+      supplierCellProps={supplierCellProps}
       kFoCell={kFoCell}
       kFoCellProps={kFoCellProps}
       kFoEditorProps={kFoEditorProps}
@@ -629,7 +637,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
       totalCell={totalCell}
       totalCellProps={totalCellProps}
       unitValue={unitValue}
-      supplyTypeValue={supplyTypeValue}
+      supplyTypeOptions={Array.from(supplyTypeById.values(), (type) => ({ id: type.id, code: type.code, label: type.name }))}
       qualityFlags={qualityFlags}
       detectedOutlierFlags={detectedOutlierFlags}
       dismissedOutlierFlags={dismissedOutlierFlags}
@@ -637,6 +645,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
       visibleColumns={visibleColumns}
       isLineSelected={isLineSelected}
       hasSupplierComparisonMismatch={hasSupplierComparisonMismatch}
+      supplierComparison={supplierComparison}
       isOutlierActionPending={isOutlierActionPending}
       isReadOnly={isReadOnly}
       hideEditingActions={hideEditingActions}
@@ -666,8 +675,6 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
       onPatchItem={onPatchItem}
       onUnitChange={onUnitChange}
       onUnitCommit={onUnitCommit}
-      onSupplyTypeChange={onSupplyTypeChange}
-      onSupplyTypeCommit={onSupplyTypeCommit}
       onDeleteItem={onDeleteItem}
       onOpenArticle={onOpenArticle}
       onAssociateArticle={onAssociateArticle}

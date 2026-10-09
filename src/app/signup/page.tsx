@@ -55,7 +55,7 @@ export default function SignupPage() {
           Utilisez un email professionnel pour créer votre accès.
         </p>
 
-        <form className="mt-8 space-y-4" onSubmit={onSubmit}>
+        <form className="mt-8 space-y-4" method="post" onSubmit={onSubmit}>
           <label className="block">
             <span className="text-sm font-medium">Email</span>
             <input

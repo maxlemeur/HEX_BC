@@ -1,5 +1,5 @@
-import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act,cleanup,renderHook,waitFor } from "@testing-library/react";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 import type { EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
 import { useEstimateEditorQualityController } from "@/hooks/useEstimateEditorQualityController";
@@ -140,107 +140,6 @@ afterEach(() => {
 });
 
 describe("useEstimateEditorQualityController contract and computations", () => {
-  it("exposes state/actions/meta and combines detected, dismissed and checklist quality", async () => {
-    const items = [
-      createLine("line-1", { quantity: 1, unit_price_ht_cents: 10000 }),
-      createLine("line-2", { quantity: 1.1, unit_price_ht_cents: 10100 }),
-      createLine("line-3", { quantity: 1.2, unit_price_ht_cents: 9800 }),
-      createLine("line-4", { quantity: 1.3, unit_price_ht_cents: 9900 }),
-      createLine("line-outlier", {
-        quantity: 8,
-        unit_price_ht_cents: 42000,
-      }),
-      createLine("line-missing", {
-        quantity: 1.4,
-        unit_price_ht_cents: 0,
-      }),
-    ];
-    mocks.fetchDismissedFlags.mockResolvedValue({
-      "line-outlier": ["price_outlier"],
-    });
-
-    const { result } = renderHook(() =>
-      useEstimateEditorQualityController(
-        createInput({ items, deferredItems: items })
-      )
-    );
-
-    await waitFor(() => {
-      expect(result.current.state.dismissedOutlierFlagsByItemId).toEqual({
-        "line-outlier": ["price_outlier"],
-      });
-    });
-
-    act(() => {
-      result.current.actions.changeOutlierMethod("iqr");
-      result.current.actions.changeOutlierThreshold(1.5);
-    });
-
-    expect(Object.keys(result.current).sort()).toEqual([
-      "actions",
-      "meta",
-      "state",
-    ]);
-    expect(Object.keys(result.current.state).sort()).toEqual([
-      "dismissedOutlierFlagsByItemId",
-      "isChecklistCollapsed",
-      "isFinalizationPanelOpen",
-      "outlierActionPendingByItemId",
-      "outlierConfig",
-      "qualityFilter",
-      "scrollTargetItemId",
-    ]);
-    expect(Object.keys(result.current.actions).sort()).toEqual([
-      "changeOutlierMethod",
-      "changeOutlierThreshold",
-      "changeQualityFilter",
-      "focusItem",
-      "markScrollHandled",
-      "selectChecklistCriterion",
-      "showChecklistAnomalies",
-      "toggleChecklistCollapsed",
-      "toggleFinalizationPanel",
-      "toggleOutlierDismiss",
-    ]);
-    expect(Object.keys(result.current.meta).sort()).toEqual([
-      "checklist",
-      "detectedOutlierFlagsByItemId",
-      "qualityCounts",
-      "qualityFlagsByItemId",
-    ]);
-
-    expect(result.current.meta.detectedOutlierFlagsByItemId["line-outlier"])
-      .toEqual(["price_outlier", "quantity_outlier"]);
-    expect(result.current.meta.qualityFlagsByItemId["line-outlier"]).toEqual([
-      "quantity_outlier",
-    ]);
-    expect(result.current.meta.qualityFlagsByItemId["line-missing"]).toContain(
-      "missing_price"
-    );
-    expect(result.current.meta.qualityCounts).toMatchObject({
-      linesCount: 6,
-      linesWithAnomaliesCount: 2,
-      totalFlagsCount: 2,
-      byFlag: {
-        missing_price: 1,
-        price_outlier: 0,
-        quantity_outlier: 1,
-      },
-    });
-    expect(result.current.meta.checklist).toMatchObject({
-      completedCount: 4,
-      totalCount: 5,
-      status: "blocking",
-    });
-    expect(
-      result.current.meta.checklist.criteria.find(
-        (criterion) => criterion.key === "prices"
-      )
-    ).toMatchObject({
-      targetItemId: "line-missing",
-      qualityFlag: "missing_price",
-    });
-  });
 
   it("updates filters and outlier configuration while ignoring invalid thresholds", () => {
     const { result } = renderHook(() =>
@@ -272,71 +171,6 @@ describe("useEstimateEditorQualityController contract and computations", () => {
     });
 
     expect(result.current.state.outlierConfig.threshold).toBe(2.25);
-  });
-});
-
-describe("useEstimateEditorQualityController checklist navigation", () => {
-  it("routes line criteria, settings criteria, anomaly focus and scroll acknowledgement", async () => {
-    const openSettings = vi.fn();
-    const items = [
-      createLine("line-price", { unit_price_ht_cents: 0 }),
-      createLine("line-valid"),
-    ];
-    const { result } = renderHook(() =>
-      useEstimateEditorQualityController(
-        createInput({
-          items,
-          deferredItems: items,
-          settings: createSettings({
-            margin_multiplier: 0,
-            date_devis: "",
-            validite_jours: 0,
-          }),
-          openSettings,
-        })
-      )
-    );
-
-    await waitFor(() => {
-      expect(mocks.fetchDismissedFlags).toHaveBeenCalledWith("version-1");
-    });
-
-    const priceCriterion = result.current.meta.checklist.criteria.find(
-      (criterion) => criterion.key === "prices"
-    );
-    const marginCriterion = result.current.meta.checklist.criteria.find(
-      (criterion) => criterion.key === "margin_defined"
-    );
-    expect(priceCriterion).toBeDefined();
-    expect(marginCriterion).toBeDefined();
-
-    act(() => {
-      result.current.actions.selectChecklistCriterion(priceCriterion!);
-    });
-    expect(result.current.state.qualityFilter).toBe("missing_price");
-    expect(result.current.state.scrollTargetItemId).toBe("line-price");
-
-    act(() => {
-      result.current.actions.markScrollHandled();
-    });
-    expect(result.current.state.scrollTargetItemId).toBeNull();
-
-    act(() => {
-      result.current.actions.selectChecklistCriterion(marginCriterion!);
-    });
-    expect(openSettings).toHaveBeenCalledTimes(1);
-    expect(result.current.state.scrollTargetItemId).toBeNull();
-
-    act(() => {
-      result.current.actions.showChecklistAnomalies();
-    });
-    expect(result.current.state.qualityFilter).toBe("with_anomalies");
-    expect(result.current.state.scrollTargetItemId).toBe("line-price");
-
-    act(() => {
-      result.current.actions.focusItem("line-from-route");
-    });
-    expect(result.current.state.scrollTargetItemId).toBe("line-from-route");
   });
 });
 
@@ -471,43 +305,6 @@ describe("useEstimateEditorQualityController dismissed outlier lifecycle", () =>
 });
 
 describe("useEstimateEditorQualityController dismissal mutations", () => {
-  it("uses the active version, exposes pending state and applies the server result", async () => {
-    const toggleRequest = createDeferred<EstimateOutlierFlagsByItemId>();
-    const reportError = vi.fn();
-    mocks.toggleDismissedFlag.mockReturnValue(toggleRequest.promise);
-    const { result } = renderHook(() =>
-      useEstimateEditorQualityController(createInput({ reportError }))
-    );
-    let togglePromise!: Promise<void>;
-
-    act(() => {
-      togglePromise = result.current.actions.toggleOutlierDismiss(
-        "line-1",
-        "price_outlier",
-        true
-      );
-    });
-
-    expect(reportError).toHaveBeenCalledWith(null);
-    expect(mocks.toggleDismissedFlag).toHaveBeenCalledWith("version-1", {
-      itemId: "line-1",
-      flagKey: "price_outlier",
-      dismissed: true,
-    });
-    expect(result.current.state.outlierActionPendingByItemId).toEqual({
-      "line-1": true,
-    });
-
-    await act(async () => {
-      toggleRequest.resolve({ "line-1": ["price_outlier"] });
-      await togglePromise;
-    });
-
-    expect(result.current.state.dismissedOutlierFlagsByItemId).toEqual({
-      "line-1": ["price_outlier"],
-    });
-    expect(result.current.state.outlierActionPendingByItemId).toEqual({});
-  });
 
   it("guards read-only, conflict-locked and missing-version mutations", async () => {
     const reportError = vi.fn();

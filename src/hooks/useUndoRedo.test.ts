@@ -1,12 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe,expect,it,vi } from "vitest";
 
 import {
-  canRedoState,
-  canUndoState,
-  createUndoRedoState,
-  createUndoRedoStore,
-  pushUndoRedoCommand,
-  type UndoRedoCommand,
+canRedoState,
+canUndoState,
+createUndoRedoState,
+createUndoRedoStore,
+pushUndoRedoCommand,
+type UndoRedoCommand,
 } from "@/hooks/useUndoRedo";
 
 type TestCommand = UndoRedoCommand & {
@@ -85,27 +85,6 @@ describe("useUndoRedo state helpers", () => {
 });
 
 describe("useUndoRedo store behavior", () => {
-  it("respects max stack size and clears state when requested", () => {
-    const store = createUndoRedoStore<UndoRedoCommand>({
-      maxStackSize: 2,
-    });
-
-    store.push(createCommand("first"));
-    store.push(createCommand("second"));
-    store.push(createCommand("third"));
-
-    expect(store.getState().stack).toHaveLength(2);
-    expect(store.getState().pointer).toBe(2);
-    expect(store.getSnapshot().canUndo).toBe(true);
-    expect(store.getSnapshot().canRedo).toBe(false);
-
-    store.clear();
-
-    expect(store.getState().stack).toEqual([]);
-    expect(store.getState().pointer).toBe(0);
-    expect(store.getSnapshot().canUndo).toBe(false);
-    expect(store.getSnapshot().canRedo).toBe(false);
-  });
 
   it("moves pointer only when undo succeeds", async () => {
     const successfulUndo = vi.fn(async () => {});

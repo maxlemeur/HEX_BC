@@ -1345,6 +1345,7 @@ describe("affaires hub server", () => {
                 name: "Affaire Alpha",
                 reference: "AFF-001",
                 client_name: "Client Alpha",
+                site_address: "12 rue du Test",
                 is_archived: false,
               },
               error: null,
@@ -1409,6 +1410,7 @@ describe("affaires hub server", () => {
       name: "Affaire Alpha",
       reference: "AFF-001",
       clientName: "Client Alpha",
+      siteAddress: "12 rue du Test",
     });
     expect(summary.versionsCount).toBe(3);
     expect(summary.lineCount).toBe(42);

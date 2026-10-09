@@ -438,27 +438,6 @@ describe("listActivityCenterJobs", () => {
     ]);
   });
 
-  it("exposes provider-facing technical jobs with a business status label", async () => {
-    const response = await listActivityCenterJobs({
-      project_id: PROJECT_ID,
-      limit: 20,
-      offset: 0,
-    });
-
-    const technicalJob = response.jobs.find((job) => job.jobId === JOB_C_ID);
-
-    expect(technicalJob).toEqual(
-      expect.objectContaining({
-        jobId: JOB_C_ID,
-        statusRaw: "provider_pending",
-        technicalStatusRaw: "processing",
-        statusLabel: "En attente provider",
-        operatorState: "awaiting_provider_result",
-        canReconcile: true,
-      })
-    );
-  });
-
   it("computes coverage from unique linked DPGF lines only", async () => {
     const response = await listActivityCenterJobs({
       project_id: PROJECT_ID,

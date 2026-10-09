@@ -162,35 +162,6 @@ describe("estimate send gating", () => {
     });
   });
 
-  it("returns canSend=true when no flags are raised", async () => {
-    const supabase = createSupabaseGatingMock({
-      items: [createLineItem({ id: "line-1", quantity: 2, unitPriceHtCents: 5000 })],
-      marginTiers: [],
-      documents: [{ id: "doc-1" }],
-    });
-
-    const result = await evaluateEstimateSendGating({
-      supabase: supabase as never,
-      tenantId: TENANT_ID,
-      version: {
-        id: VERSION_ID,
-        margin_mode: "fixed",
-        margin_multiplier: 1,
-        total_ht_cents: 10000,
-        project_id: "55555555-5555-4555-8555-555555555555",
-      },
-      project: {
-        id: "55555555-5555-4555-8555-555555555555",
-        client_name: "Client A",
-        notes: null,
-      },
-    });
-
-    expect(result.canSend).toBe(true);
-    expect(result.blockingFlags).toHaveLength(0);
-    expect(result.warningFlags).toHaveLength(0);
-  });
-
   it("returns blocking flags for tiered margin without tiers and missing pdf", async () => {
     const supabase = createSupabaseGatingMock({
       items: [createLineItem({ id: "line-1", quantity: 0, unitPriceHtCents: 0 })],

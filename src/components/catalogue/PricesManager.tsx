@@ -15,13 +15,13 @@ import type {
 } from "@/components/TableFilterBar";
 import { BulkJsonPanel } from "@/components/catalogue/prices-manager/BulkJsonPanel";
 import { DeletePriceModal } from "@/components/catalogue/prices-manager/DeletePriceModal";
-import { SupplierCatalogItemModal } from "@/components/catalogue/prices-manager/SupplierCatalogItemModal";
 import { SupplierOfferFormModal } from "@/components/catalogue/prices-manager/SupplierOfferFormModal";
 import { PricesTable } from "@/components/catalogue/prices-manager/PricesTable";
 import type { EnrichedPrice } from "@/components/catalogue/prices-manager/types";
 import { usePriceLookups } from "@/components/catalogue/prices-manager/usePriceLookups";
 import { useSupplierPricesList } from "@/components/catalogue/prices-manager/useSupplierPricesList";
 import { ProductPriceTemplateImport } from "@/components/products/ProductPriceTemplateImport";
+import { ProductReferencePricePanel } from "@/components/products/ProductReferencePricePanel";
 import { TEMPLATE_FILE_URL } from "@/lib/catalogue/product-price-template-client";
 
 // --- Filter & Sort config ---
@@ -71,7 +71,6 @@ export function PricesManager({
   // --- Delete confirmation state ---
   const [deleteTarget, setDeleteTarget] = useState<EnrichedPrice | null>(null);
 
-  const [supplierItemTarget, setSupplierItemTarget] = useState<EnrichedPrice | null>(null);
   // --- CSV import collapsible ---
   const [isCsvOpen, setIsCsvOpen] = useState(embedded);
   const [isTemplateImportOpen, setIsTemplateImportOpen] = useState(false);
@@ -161,7 +160,7 @@ export function PricesManager({
     searchProducts,
     reloadLookups,
   } = usePriceLookups({
-    formOpen: isFormOpen || Boolean(productId),
+    formOpen: (isFormOpen && editingItem === null) || (!isFormOpen && Boolean(productId)),
     importOpen: isCsvOpen,
     selectedSupplierId,
     selectedProductId,
@@ -202,9 +201,6 @@ export function PricesManager({
     void refresh().catch(() => undefined);
   }, [refresh]);
 
-  function openSupplierItemForm(item: EnrichedPrice) {
-    setSupplierItemTarget(item);
-  }
 
   return (
     <div className="space-y-6">
@@ -246,9 +242,16 @@ export function PricesManager({
             <span className="font-semibold">Tarifs du produit :</span>{" "}
             {focusedProductName ?? "chargement du produit..."}
           </div>
-          <Link className="btn btn-secondary btn-sm" href="/dashboard/products">Retour aux produits</Link>
+          <Link
+            className="btn btn-secondary btn-sm"
+            href={`/dashboard/products?product_id=${encodeURIComponent(productId)}`}
+          >
+            Retour à la fiche produit
+          </Link>
         </div>
       ) : null}
+
+      {productId ? <ProductReferencePricePanel key={productId} productId={productId} /> : null}
 
       {!embedded ? (
         <section className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-950">
@@ -386,7 +389,6 @@ export function PricesManager({
         onEdit={openEditForm}
         onDelete={setDeleteTarget}
         page={page}
-        onEditSupplierItem={openSupplierItemForm}
         pageSize={pageSize}
         pageSizes={PRICE_PAGE_SIZES}
         totalPages={totalPages}
@@ -401,20 +403,14 @@ export function PricesManager({
       <SupplierOfferFormModal
         open={isFormOpen}
         item={editingItem}
-        supplierOptions={supplierOptions}
-        productOptions={productOptions}
+        supplierOptions={editingItem ? [{ value: editingItem.supplier_id, label: editingItem._supplierName }] : supplierOptions}
+        productOptions={editingItem ? [{ value: editingItem.product_id, label: editingItem._productName }] : productOptions}
         isSupplierLoading={isSupplierLoading}
         isProductLoading={isProductLoading}
         onSupplierQueryChange={searchSuppliers}
         onProductQueryChange={searchProducts}
         defaultProductId={productId}
         onClose={closeForm}
-        onSaved={refresh}
-      />
-
-      <SupplierCatalogItemModal
-        item={supplierItemTarget}
-        onClose={() => setSupplierItemTarget(null)}
         onSaved={refresh}
       />
 

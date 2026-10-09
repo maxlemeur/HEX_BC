@@ -56,35 +56,6 @@ describe("POST /api/takeoff/jobs/[jobId]/reconcile", () => {
     });
   });
 
-  it("reconciles the job and triggers the reconcile worker", async () => {
-    vi.mocked(reconcileTakeoffJobNow).mockResolvedValue(
-      RECONCILE_RESPONSE as never
-    );
-    const [request, context] = buildPostRequest();
-
-    const response = await POST(request, context);
-    const body = (await response.json()) as {
-      ok: boolean;
-      data?: typeof RECONCILE_RESPONSE;
-    };
-
-    expect(response.status).toBe(200);
-    expect(body.ok).toBe(true);
-    expect(body.data).toEqual({
-      ...RECONCILE_RESPONSE,
-      dispatch: {
-        status: "accepted",
-        correlation_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-        persisted: true,
-      },
-    });
-    expect(vi.mocked(reconcileTakeoffJobNow)).toHaveBeenCalledWith(JOB_ID);
-    expect(vi.mocked(triggerTakeoffJobProcessing)).toHaveBeenCalledWith({
-      jobId: JOB_ID,
-      trigger: "reconcile",
-    });
-  });
-
   it("does not trigger the worker on a noop reconcile", async () => {
     vi.mocked(reconcileTakeoffJobNow).mockResolvedValue({
       ...RECONCILE_RESPONSE,

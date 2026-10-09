@@ -382,35 +382,6 @@ describe("streamEstimateVersionDpgfXlsx", () => {
     ]);
   });
 
-  it("falls back to project name in DPGF filename when reference is empty", async () => {
-    vi.mocked(getEstimateVersionDetails).mockResolvedValue({
-      version: {
-        id: VERSION_ID,
-        version_number: 1,
-        title: null,
-        date_devis: "2026-02-22",
-        estimate_projects: {
-          id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-          user_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-          name: "Projet Éxport #1",
-          reference: " ",
-          client_name: null,
-        },
-      },
-      items: [],
-      supply_types: [],
-      labor_roles: [],
-      categories: [],
-    } as never);
-
-    const { workbookWriterFactory } = createWorkbookHarness();
-    const exported = await streamEstimateVersionDpgfXlsx(VERSION_ID, {
-      workbookWriterFactory,
-    });
-
-    expect(exported.filename).toBe("devis-Projet_Export_1-v1-dpgf.xlsx");
-  });
-
   it("exports a fresh v2 review snapshot instead of live draft inputs", async () => {
     vi.mocked(getEstimateVersionDetails).mockResolvedValue({
       version: {

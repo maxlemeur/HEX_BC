@@ -57,8 +57,8 @@ type EstimateProject =
 type EstimateVersion =
   Database["public"]["Tables"]["estimate_versions"]["Row"] & {
     estimate_projects:
-      | Pick<EstimateProject, "name" | "reference" | "estimate_reference" | "client_name">
-      | Pick<EstimateProject, "name" | "reference" | "estimate_reference" | "client_name">[]
+      | Pick<EstimateProject, "name" | "reference" | "estimate_reference" | "site_address" | "client_name">
+      | Pick<EstimateProject, "name" | "reference" | "estimate_reference" | "site_address" | "client_name">[]
       | null;
   };
 type EstimateItem =
@@ -158,7 +158,7 @@ export default async function EstimateDetailPage({
   const versionPromise = supabase
     .from("estimate_versions")
     .select(
-      "project_id, tenant_id, version_number, status, seal_hash, title, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, content_revision, calc_snapshot_content_revision, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, estimate_projects ( name, reference, client_name )"
+      "project_id, tenant_id, version_number, status, seal_hash, title, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, content_revision, calc_snapshot_content_revision, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, estimate_projects ( name, reference, estimate_reference, site_address, client_name )"
     )
     .eq("id", versionId)
     .single();
@@ -499,7 +499,8 @@ export default async function EstimateDetailPage({
             preserveStoredSnapshot={preserveStoredSnapshot}
             vatReverseCharge={version.contractor_role === "subcontractor"}
             projectName={project?.name ?? "Projet"}
-            projectClient={project?.client_name}
+            projectSiteAddress={project?.site_address}
+          projectClient={project?.client_name}
             projectReference={project?.reference}
             estimateReference={project?.estimate_reference}
             versionNumber={version.version_number}

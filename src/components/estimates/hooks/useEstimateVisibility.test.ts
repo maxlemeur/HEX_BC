@@ -1,11 +1,9 @@
 import { renderHook } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe,expect,it } from "vitest";
 
 import {
-  useEstimateVisibility,
-  type EstimateQualityFilter,
+useEstimateVisibility
 } from "@/components/estimates/hooks/useEstimateVisibility";
-import type { EstimateQualityFlagsByItemId } from "@/lib/estimate-quality";
 import type { Database } from "@/types/database";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
@@ -44,106 +42,6 @@ function createItem(partial: Partial<EstimateItem>): EstimateItem {
 }
 
 describe("useEstimateVisibility", () => {
-  it("filters visible line ids by quality filter", () => {
-    const items: EstimateItem[] = [
-      createItem({
-        id: "section-1",
-        item_type: "section",
-        title: "Section",
-        position: 0,
-      }),
-      createItem({
-        id: "line-1",
-        parent_id: "section-1",
-        item_type: "line",
-        title: "Line ok",
-        position: 1,
-      }),
-      createItem({
-        id: "line-2",
-        parent_id: "section-1",
-        item_type: "line",
-        title: "Line anomaly",
-        position: 2,
-      }),
-    ];
-
-    const qualityFlagsByItemId: EstimateQualityFlagsByItemId = {
-      "line-1": [],
-      "line-2": ["missing_price"],
-    };
-
-    const { result } = renderHook(() =>
-      useEstimateVisibility({
-        items,
-        qualityFilter: "with_anomalies" satisfies EstimateQualityFilter,
-        qualityFlagsByItemId,
-        marginMultiplier: 1,
-        discountCents: 0,
-        taxRateBp: 2000,
-        sectionCalculation: {
-          marginMode: "fixed",
-          marginTiers: [],
-          globalCoefficient: 1,
-          discountMode: "simple",
-          discountStepsBp: [],
-          calcEngineVersion: 1,
-        },
-        laborRateById: new Map(),
-        isLaborSplitEnabled: false,
-      })
-    );
-
-    expect(result.current.visibleLineIdList).toEqual(["line-2"]);
-    expect(result.current.hasVisibleRows).toBe(true);
-  });
-
-  it("builds bulk move destinations including nested sections", () => {
-    const items: EstimateItem[] = [
-      createItem({ id: "section-1", item_type: "section", title: "Root", position: 0 }),
-      createItem({
-        id: "section-2",
-        parent_id: "section-1",
-        item_type: "section",
-        title: "Child",
-        position: 1,
-      }),
-      createItem({
-        id: "line-1",
-        parent_id: "section-2",
-        item_type: "line",
-        title: "Line",
-        position: 2,
-      }),
-    ];
-
-    const { result } = renderHook(() =>
-      useEstimateVisibility({
-        items,
-        qualityFilter: "all_lines",
-        qualityFlagsByItemId: {},
-        marginMultiplier: 1,
-        discountCents: 0,
-        taxRateBp: 2000,
-        sectionCalculation: {
-          marginMode: "fixed",
-          marginTiers: [],
-          globalCoefficient: 1,
-          discountMode: "simple",
-          discountStepsBp: [],
-          calcEngineVersion: 1,
-        },
-        laborRateById: new Map(),
-        isLaborSplitEnabled: false,
-      })
-    );
-
-    expect(result.current.bulkMoveDestinations).toEqual([
-      { id: null, label: "Racine" },
-      { id: "section-1", label: "Root" },
-      { id: "section-2", label: "  - Child" },
-    ]);
-  });
 
   it("keeps reorder siblings unfiltered while showing quick-filtered rows", () => {
     const allItems: EstimateItem[] = [

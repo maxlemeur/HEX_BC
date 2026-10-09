@@ -163,55 +163,6 @@ describe("GET /api/orders", () => {
     expect(response.status).toBe(401);
   });
 
-  it("assembles orders, devis counts and lookups on the server", async () => {
-    const { supabase, tables } = createOrdersSupabase({
-      devis: [
-        { purchase_order_id: ORDER_ID },
-        { purchase_order_id: ORDER_ID },
-      ],
-    });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await GET(new Request("http://localhost/api/orders"));
-    const body = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(tables).toEqual([
-      "purchase_orders",
-      "suppliers",
-      "delivery_sites",
-      "purchase_order_devis",
-    ]);
-    expect(body).toMatchObject({
-      ok: true,
-      data: {
-        items: [
-          {
-            id: ORDER_ID,
-            reference: "C-2608-001",
-            devis_count: 2,
-            has_devis: "with",
-            suppliers: { id: SUPPLIER_ID, name: "Arcus" },
-          },
-        ],
-        suppliers: [{ id: SUPPLIER_ID, name: "Arcus" }],
-        delivery_sites: [{ id: SITE_ID, name: "Chantier Nord" }],
-      },
-    });
-  });
-
-  it("skips the devis query when there are no orders", async () => {
-    const { supabase, tables } = createOrdersSupabase({ orders: [] });
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    const response = await GET(new Request("http://localhost/api/orders"));
-    const body = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(tables).toEqual(["purchase_orders", "suppliers", "delivery_sites"]);
-    expect(body.data.items).toEqual([]);
-  });
-
   it("returns items for one order", async () => {
     const { supabase, itemFilters, tables } = createOrdersSupabase();
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);

@@ -1,8 +1,12 @@
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
+import {
+  PRICE_VALIDITY_ERROR,
+  resolvePriceValidity,
+} from "@/lib/catalogue/price-validity";
 
-import { readAuthenticatedUser } from "@/lib/auth/tenant-context";
+import { getAuthenticatedTenantContext, readAuthenticatedUser } from "@/lib/auth/tenant-context";
 import { toErrorResponse as toSharedErrorResponse } from "@/lib/http/errors";
 
 import type {
@@ -26,6 +30,7 @@ import type {
   UpdateMaterialIndexInput,
   UpdateSupplierCatalogItemInput,
   UpdateSupplierPriceInput,
+  UpdateSupplierOfferInput,
 } from "./schemas";
 
 type JsonRecord = Record<string, unknown>;
@@ -241,6 +246,13 @@ function mapSupabaseError(
 ): CatalogueApiError {
   const normalizedMessage =
     `${error.message ?? ""} ${error.details ?? ""}`.toLowerCase();
+
+  if (
+    normalizedMessage.includes("supplier_pricebook_validity") ||
+    normalizedMessage.includes("supplier_pricebook_check")
+  ) {
+    return badRequest(PRICE_VALIDITY_ERROR, error, "BAD_REQUEST");
+  }
 
   if (
     error.code === "42501" ||
@@ -1335,7 +1347,7 @@ export async function listSupplierPrices(input: PricesListQueryInput) {
 }
 
 export async function listSupplierPricesPage(input: PricesPageQueryInput) {
-  const { supabase } = await getAuthenticatedContext();
+  const { supabase, tenantId } = await getAuthenticatedTenantContext();
   const rpcInput = {
     p_q: input.q || null,
     p_freshness: input.freshness,
@@ -1386,8 +1398,22 @@ export async function listSupplierPricesPage(input: PricesPageQueryInput) {
     totalItems = asSafeInteger(rpcRecords(countProbe.data)[0]?.total_count);
   }
 
+  // The pagination RPC predates freight conditions. Enrich only the visible
+  // offer IDs; keep its authoritative shared SKU/URL projection intact.
+  const priceIds = pageRows.map((row) => row.id).filter((id): id is string => typeof id === "string");
+  const transportById = new Map<string, string | null>();
+  if (priceIds.length > 0) {
+    const { data, error } = await supabase.from(SUPPLIER_PRICES_TABLE)
+      .select("id, transport_mode")
+      .eq("tenant_id", tenantId)
+      .in("id", priceIds);
+    if (error) throw mapSupabaseError(error, "Impossible de charger les conditions de transport des offres.");
+    data?.forEach((offer) => transportById.set(offer.id, offer.transport_mode));
+  }
+
   const items = pageRows.map((row) => ({
     ...normalizeSupplierPriceRecord(row),
+    transport_mode: transportById.get(String(row.id)) ?? null,
     _supplierName:
       typeof row.supplier_name === "string"
         ? row.supplier_name
@@ -1466,9 +1492,18 @@ export async function listPriceLookups(input: PriceLookupsQueryInput) {
   };
 }
 
+function validatePriceValidity(validFrom?: string | null, validTo?: string | null) {
+  try {
+    return resolvePriceValidity(validFrom, validTo);
+  } catch (error) {
+    throw badRequest(error instanceof Error ? error.message : PRICE_VALIDITY_ERROR);
+  }
+}
+
 export async function createSupplierPrice(input: CreateSupplierPriceInput) {
   const { supabase } = await getAuthenticatedContext();
   const productId = resolveProductId(input);
+  const validity = validatePriceValidity(input.valid_from, input.valid_to);
 
   const { data, error } = await supabase.rpc(CREATE_SUPPLIER_CATALOG_PRICE_RPC, {
     payload: {
@@ -1483,8 +1518,7 @@ export async function createSupplierPrice(input: CreateSupplierPriceInput) {
         min_quantity: input.min_quantity,
         unit_price_cents: input.unit_price_cents,
         currency: input.currency,
-        valid_from: input.valid_from,
-        valid_to: input.valid_to,
+        ...validity,
         is_active: input.is_active,
         source_import_id: input.source_import_id,
         source_mapped_row_id: input.source_mapped_row_id,
@@ -1621,6 +1655,19 @@ export async function deleteSupplierPrice(id: string) {
   };
 }
 
+export async function updateSupplierOffer(input: UpdateSupplierOfferInput) {
+  const { supabase } = await getAuthenticatedContext();
+  const { data, error } = await supabase.rpc("update_supplier_offer", {
+    p_price_id: input.id,
+    p_patch: sanitizeWritePayload(input.item),
+  });
+  if (error) throw mapSupabaseError(error, "Impossible de mettre à jour l’offre fournisseur.");
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw notFound("Offre fournisseur introuvable.");
+  }
+  return { item: normalizeSupplierPriceRecord(data as JsonRecord) };
+}
+
 type BulkCreateSupplierPricesMode = "rpc";
 
 function buildBulkCreateSupplierPricesPayload(
@@ -1643,8 +1690,7 @@ function buildBulkCreateSupplierPricesPayload(
       min_quantity: item.min_quantity ?? undefined,
       unit_price_cents: item.unit_price_cents,
       currency: item.currency,
-      valid_from: item.valid_from ?? currentDateIso(),
-      valid_to: item.valid_to,
+      ...validatePriceValidity(item.valid_from, item.valid_to),
       is_active: item.is_active,
       source_import_id: item.source_import_id,
       source_mapped_row_id: item.source_mapped_row_id,

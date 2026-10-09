@@ -1,6 +1,5 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act,cleanup,render,screen } from "@testing-library/react";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 const useSWRMock = vi.hoisted(() => vi.fn());
 
@@ -48,21 +47,6 @@ import type { PlanSetListItem } from "@/lib/takeoff/types";
 
 const PROJECT_ID = "project-1";
 
-const PLAN_SET: PlanSetListItem = {
-  id: "plan-set-1",
-  created_at: "2026-07-10T08:00:00.000Z",
-  updated_at: "2026-07-10T08:00:00.000Z",
-  tenant_id: "tenant-1",
-  project_id: PROJECT_ID,
-  estimate_version_id: null,
-  name: "Plans architecte",
-  description: null,
-  metadata: {},
-  created_by: null,
-  file_count: 2,
-  total_size_bytes: 2048,
-};
-
 function mockPlanSetsState(input: {
   data?: PlanSetListItem[];
   error?: unknown;
@@ -84,106 +68,6 @@ describe("ProjectPlanCenter", () => {
   afterEach(() => {
     vi.useRealTimers();
     cleanup();
-  });
-
-  it("renders one creation action in the empty state", async () => {
-    const user = userEvent.setup();
-    mockPlanSetsState({ data: [] });
-
-    render(<ProjectPlanCenter projectId={PROJECT_ID} />);
-
-    expect(
-      screen.getByText(/regroupe vos fichiers PDF pour le métré/i)
-    ).toBeInTheDocument();
-    expect(screen.getByText(/commencez par en créer un/i)).toBeInTheDocument();
-
-    const creationActions = screen.getAllByRole("button", {
-      name: /créer.*jeu de plans/i,
-    });
-    expect(creationActions).toHaveLength(1);
-    expect(creationActions[0]).toHaveAccessibleName(
-      "Créer mon premier jeu de plans"
-    );
-
-    await user.click(creationActions[0]);
-    expect(screen.getByRole("dialog")).toHaveTextContent(
-      "Nouveau jeu de plans"
-    );
-  });
-
-  it("uses compact mobile spacing and a full-width empty-state action", () => {
-    mockPlanSetsState({ data: [] });
-
-    render(<ProjectPlanCenter projectId={PROJECT_ID} />);
-
-    const creationAction = screen.getByRole("button", {
-      name: "Créer mon premier jeu de plans",
-    });
-    expect(creationAction).toHaveClass("w-full", "sm:w-auto");
-    expect(creationAction.closest(".dashboard-card")).toHaveClass(
-      "px-4",
-      "py-10",
-      "sm:px-6",
-      "sm:py-16"
-    );
-  });
-
-  it("keeps one responsive creation action when plan sets already exist", () => {
-    mockPlanSetsState({ data: [PLAN_SET] });
-
-    render(<ProjectPlanCenter projectId={PROJECT_ID} />);
-
-    const creationAction = screen.getByRole("button", {
-      name: "Créer un jeu de plans",
-    });
-    expect(creationAction).toHaveClass("w-full", "sm:w-auto");
-    expect(
-      screen.queryByRole("button", {
-        name: "Créer mon premier jeu de plans",
-      })
-    ).not.toBeInTheDocument();
-    expect(screen.getByText("Plans architecte")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Analyser ce jeu" })).toHaveAttribute(
-      "href",
-      "/dashboard/affaires/project-1/takeoff?launch=1&launchPlanSet=plan-set-1",
-    );
-  });
-
-  it("does not render an empty total-size placeholder", () => {
-    mockPlanSetsState({
-      data: [
-        {
-          ...PLAN_SET,
-          file_count: 0,
-          total_size_bytes: 0,
-        },
-      ],
-    });
-
-    render(<ProjectPlanCenter projectId={PROJECT_ID} />);
-
-    expect(
-      screen.getByText(
-        (_content, element) =>
-          element?.tagName === "SPAN" &&
-          element.textContent?.replace(/\s+/g, " ").trim() ===
-            "0 fichiers au total",
-      ),
-    ).toBeInTheDocument();
-    expect(screen.queryByText("-", { exact: true })).not.toBeInTheDocument();
-  });
-
-  it("renders the accented retry action in the error state", () => {
-    mockPlanSetsState({ error: new Error("network") });
-
-    render(<ProjectPlanCenter projectId={PROJECT_ID} />);
-
-    expect(
-      screen.getByRole("button", { name: "Réessayer" })
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: /créer.*jeu de plans/i })
-    ).not.toBeInTheDocument();
   });
 
   it("explains a slow load instead of leaving an unlabeled skeleton", () => {

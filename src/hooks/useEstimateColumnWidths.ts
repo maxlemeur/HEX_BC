@@ -1,12 +1,15 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
+
+import { useEstimatePreferenceKey, useEstimatePreferenceStorage } from "@/hooks/useEstimatePreferenceStorage";
 
 export type EstimateColumnId =
   | "designation"
   | "quantity"
   | "unit"
   | "supply_price"
+  | "supplier"
   | "supply_type"
   | "k_fo"
   | "labor_hours"
@@ -33,6 +36,7 @@ const COLUMN_IDS = new Set<EstimateColumnId>([
   "quantity",
   "unit",
   "supply_price",
+  "supplier",
   "supply_type",
   "k_fo",
   "labor_hours",
@@ -97,30 +101,13 @@ export function parseEstimateColumnWidths(value: string | null) {
   }
 }
 
-function loadColumnWidths() {
-  if (typeof window === "undefined") return {};
-  try {
-    return parseEstimateColumnWidths(localStorage.getItem(STORAGE_KEY));
-  } catch {
-    return {};
-  }
-}
-
-function saveColumnWidths(widths: EstimateColumnWidths) {
-  if (typeof window === "undefined") return;
-  try {
-    if (Object.keys(widths).length === 0) {
-      localStorage.removeItem(STORAGE_KEY);
-      return;
-    }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(widths));
-  } catch {
-    // Les préférences de largeur restent facultatives si le stockage est bloqué.
-  }
+function serializeWidths(widths: EstimateColumnWidths) {
+  return Object.keys(widths).length === 0 ? null : JSON.stringify(widths);
 }
 
 export function useEstimateColumnWidths() {
-  const [widths, setWidths] = useState<EstimateColumnWidths>(loadColumnWidths);
+  const key = useEstimatePreferenceKey(STORAGE_KEY);
+  const [widths, setWidths] = useEstimatePreferenceStorage(key, parseEstimateColumnWidths, serializeWidths);
 
   const setColumnWidth = useCallback(
     (columnId: EstimateColumnId, width: number) => {
@@ -129,11 +116,10 @@ export function useEstimateColumnWidths() {
           ...current,
           [columnId]: clampEstimateColumnWidth(columnId, width),
         };
-        saveColumnWidths(next);
         return next;
       });
     },
-    [],
+    [setWidths],
   );
 
   const resetColumnWidth = useCallback((columnId: EstimateColumnId) => {
@@ -141,10 +127,9 @@ export function useEstimateColumnWidths() {
       if (current[columnId] === undefined) return current;
       const next = { ...current };
       delete next[columnId];
-      saveColumnWidths(next);
       return next;
     });
-  }, []);
+  }, [setWidths]);
 
-  return { widths, setColumnWidth, resetColumnWidth };
+  return { widths, setColumnWidth, resetColumnWidth, resetColumnWidths: () => setWidths({}) };
 }

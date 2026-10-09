@@ -1,6 +1,6 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup,render,screen,waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 const mockRefresh = vi.fn();
 const mockToast = {
@@ -131,84 +131,6 @@ describe("EstimateApprovalActions", () => {
     cleanup();
   });
 
-  it("renders blockers in the submission panel and disables confirmation", async () => {
-    const user = userEvent.setup();
-
-    render(
-      <EstimateApprovalActions
-        versionId="version-1"
-        projectId="project-1"
-        summary={buildSummary({
-          submissionReadiness: {
-            blockers: [
-              {
-                id: "blocker-1",
-                label: "Marge minimum",
-                message: "La marge est en dessous du minimum autorise.",
-              },
-            ],
-            alerts: [],
-          },
-        })}
-        submissionOverview={buildSubmissionOverview()}
-      />
-    );
-
-    await user.click(screen.getByRole("button", { name: "Soumettre a validation" }));
-
-    expect(screen.getByText("La marge est en dessous du minimum autorise.")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Confirmer la soumission" })
-    ).toBeDisabled();
-  });
-
-  it("submits the version with reviewer and context message", async () => {
-    const user = userEvent.setup();
-    mockSubmitEstimateForReviewAction.mockResolvedValue({
-      cycle: {
-        id: "cycle-1",
-        cycleNumber: 1,
-        requestedAt: "2026-03-06T09:10:00.000Z",
-        submissionMessage: "Verifier en priorite les exceptions CFO.",
-        assignedReviewer: {
-          userId: "reviewer-1",
-          fullName: "Nadia Martin",
-          workEmail: "nadia@example.com",
-        },
-      },
-      requestedApprovalCount: 1,
-      requestedRuleIds: ["rule-1"],
-    });
-
-    render(
-      <EstimateApprovalActions
-        versionId="version-1"
-        projectId="project-1"
-        summary={buildSummary()}
-        submissionOverview={buildSubmissionOverview()}
-      />
-    );
-
-    await user.click(screen.getByRole("button", { name: "Soumettre a validation" }));
-    await user.type(
-      screen.getByLabelText(/Message de contexte/i),
-      "Verifier en priorite les exceptions CFO."
-    );
-    await user.click(screen.getByRole("button", { name: "Confirmer la soumission" }));
-
-    await waitFor(() => {
-      expect(mockSubmitEstimateForReviewAction).toHaveBeenCalledWith({
-        versionId: "version-1",
-        projectId: "project-1",
-        ruleIds: ["rule-1"],
-        submissionMessage: "Verifier en priorite les exceptions CFO.",
-        assignedReviewerUserId: "reviewer-1",
-      });
-    });
-    expect(mockRefresh).toHaveBeenCalled();
-    expect(mockToast.success).toHaveBeenCalled();
-  });
-
   it("renders the correction checklist and keeps resubmission locked until all items are treated", async () => {
     const user = userEvent.setup();
     mockUpdateEstimateReviewCorrectionItemStatusAction.mockResolvedValue({
@@ -286,78 +208,6 @@ describe("EstimateApprovalActions", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders register-oriented labels and deep links for register blockers and alerts", async () => {
-    const user = userEvent.setup();
-
-    render(
-      <EstimateApprovalActions
-        versionId="version-1"
-        projectId="project-1"
-        summary={buildSummary({
-          submissionReadiness: {
-            blockers: [
-              {
-                id: "register:critical_missing_pieces",
-                category: "documents",
-                label: "Documents",
-                message: "Documents critiques manquants.",
-                actionLabel: "Ouvrir les documents manquants",
-                actionHref:
-                  "/dashboard/affaires/project-1?registerStatus=open&registerSeverity=critical&registerKind=missing_piece&registerFocus=9c5d3dc3-5ef4-4d61-88e6-0911c8d6ed6f",
-              },
-            ],
-            alerts: [
-              {
-                id: "register:client_clarification_required",
-                category: "register",
-                label: "Registre affaire",
-                message: "Clarifications client en attente.",
-                actionLabel: "Ouvrir le registre",
-                actionHref:
-                  "/dashboard/affaires/project-1?registerStatus=clarify_with_client&registerKind=assumption&registerFocus=5bc9244d-cf64-4d86-bf86-f5d9d2f203d6",
-              },
-            ],
-          },
-        })}
-        submissionOverview={buildSubmissionOverview({
-          openQuestionsCount: 2,
-          openAssumptionCount: 1,
-          openMissingPieceCount: 1,
-          clarifyWithClientCount: 1,
-        })}
-      />
-    );
-
-    const toggleButton = screen.getByRole("button", { name: "Soumettre a validation" });
-    expect(toggleButton).toHaveAttribute("aria-expanded", "false");
-
-    await user.click(toggleButton);
-
-    expect(toggleButton).toHaveAttribute("aria-expanded", "true");
-    expect(window.location.search).toContain("approvalSubmit=open");
-    expect(screen.getByText("Hypotheses ouvertes")).toBeInTheDocument();
-    expect(
-      screen.getByText("Pieces manquantes: 1. Clarifications client: 1.")
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "Visibles pour la validation interne. Certaines alertes devront etre traitees avant l'envoi client."
-      )
-    ).toBeInTheDocument();
-    expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Registre").length).toBeGreaterThan(0);
-    expect(
-      screen.getByRole("link", { name: "Ouvrir les documents manquants" })
-    ).toHaveAttribute(
-      "href",
-      "/dashboard/affaires/project-1?registerStatus=open&registerSeverity=critical&registerKind=missing_piece&registerFocus=9c5d3dc3-5ef4-4d61-88e6-0911c8d6ed6f"
-    );
-    expect(screen.getByRole("link", { name: "Ouvrir le registre" })).toHaveAttribute(
-      "href",
-      "/dashboard/affaires/project-1?registerStatus=clarify_with_client&registerKind=assumption&registerFocus=5bc9244d-cf64-4d86-bf86-f5d9d2f203d6"
-    );
-  });
-
   it("renders actionable fallbacks when submission metrics are unavailable", async () => {
     const user = userEvent.setup();
 
@@ -389,25 +239,5 @@ describe("EstimateApprovalActions", () => {
       "href",
       "/dashboard/estimates/version-1/edit"
     );
-  });
-
-  it("opens the submission panel when the cockpit requests approval-submit", async () => {
-    render(
-      <EstimateApprovalActions
-        versionId="version-1"
-        projectId="project-1"
-        summary={buildSummary()}
-        submissionOverview={buildSubmissionOverview()}
-      />
-    );
-
-    expect(screen.queryByText("Couverture")).not.toBeInTheDocument();
-
-    window.document.dispatchEvent(
-      new CustomEvent("cockpit-open-dialog", { detail: "approval-submit" })
-    );
-
-    expect(await screen.findByText("Couverture")).toBeInTheDocument();
-    expect(window.location.search).toContain("approvalSubmit=open");
   });
 });

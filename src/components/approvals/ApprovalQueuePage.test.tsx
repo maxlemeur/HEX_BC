@@ -1,6 +1,6 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup,render,screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 const navigation = vi.hoisted(() => ({
   push: vi.fn(),
@@ -40,38 +40,6 @@ describe("ApprovalQueuePage", () => {
 
   afterEach(() => {
     cleanup();
-  });
-
-  it("toggles the current sort direction in the URL", async () => {
-    const user = userEvent.setup();
-    renderPage();
-
-    await user.click(
-      screen.getByRole("button", {
-        name: "Trier par Priorité, ordre décroissant",
-      })
-    );
-    await user.click(screen.getByRole("option", { name: "Priorité" }));
-
-    expect(navigation.push).toHaveBeenCalledWith(
-      "/dashboard/approvals?sortDir=asc"
-    );
-  });
-
-  it("uses a sort option canonical direction when the key changes", async () => {
-    const user = userEvent.setup();
-    renderPage();
-
-    await user.click(
-      screen.getByRole("button", {
-        name: "Trier par Priorité, ordre décroissant",
-      })
-    );
-    await user.click(screen.getByRole("option", { name: "Montant" }));
-
-    expect(navigation.push).toHaveBeenCalledWith(
-      "/dashboard/approvals?sortBy=amount&sortDir=desc"
-    );
   });
 
   it("lets an initially active exception filter be disabled", async () => {

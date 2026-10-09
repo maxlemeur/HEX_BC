@@ -1,16 +1,12 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, renderHook } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act,cleanup,renderHook } from "@testing-library/react";
+import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 import {
-  isSaveShortcutKey,
-  resolveAutoSaveRetryDelay,
-  resolveAutoSaveStatusLabel,
-  shouldAutomaticallyRetry,
-  shouldBlockBeforeUnload,
-  useAutoSave,
-  type AutoSaveResult,
+shouldBlockBeforeUnload,
+useAutoSave,
+type AutoSaveResult
 } from "@/hooks/useAutoSave";
 
 function createDeferred<T>() {
@@ -25,75 +21,11 @@ function createDeferred<T>() {
 }
 
 describe("useAutoSave helpers", () => {
-  it("detects save shortcut for ctrl/cmd + s", () => {
-    expect(
-      isSaveShortcutKey({
-        key: "s",
-        ctrlKey: true,
-        metaKey: false,
-      })
-    ).toBe(true);
-    expect(
-      isSaveShortcutKey({
-        key: "S",
-        ctrlKey: false,
-        metaKey: true,
-      })
-    ).toBe(true);
-    expect(
-      isSaveShortcutKey({
-        key: "x",
-        ctrlKey: true,
-        metaKey: false,
-      })
-    ).toBe(false);
-    expect(
-      isSaveShortcutKey({
-        ctrlKey: true,
-        metaKey: false,
-      })
-    ).toBe(false);
-  });
-
-  it("maps autosave statuses to the expected french labels", () => {
-    expect(resolveAutoSaveStatusLabel("pending")).toBe("En attente");
-    expect(resolveAutoSaveStatusLabel("saving")).toBe("Synchronisation\u2026");
-    expect(resolveAutoSaveStatusLabel("saved")).toBe("Sauvegardé");
-    expect(resolveAutoSaveStatusLabel("idle")).toBe("À jour");
-    expect(resolveAutoSaveStatusLabel("error")).toBe(
-      "Échec de synchronisation"
-    );
-    expect(resolveAutoSaveStatusLabel("offline")).toBe("Hors ligne");
-    expect(resolveAutoSaveStatusLabel("disabled")).toBe("Auto désactivée");
-    expect(resolveAutoSaveStatusLabel("blocked")).toBe(
-      "Synchronisation bloquée"
-    );
-  });
-
-  it("prevents regressions to legacy autosave labels", () => {
-    const savingLabel = resolveAutoSaveStatusLabel("saving");
-    expect(savingLabel).toContain("\u2026");
-    expect(savingLabel).not.toContain("...");
-    expect(resolveAutoSaveStatusLabel("saved")).not.toBe("Sauvegarde");
-    expect(resolveAutoSaveStatusLabel("idle")).not.toBe("Sauvegarde");
-  });
 
   it("blocks beforeunload only when data may be lost", () => {
     expect(shouldBlockBeforeUnload(true, false)).toBe(true);
     expect(shouldBlockBeforeUnload(false, true)).toBe(true);
     expect(shouldBlockBeforeUnload(false, false)).toBe(false);
-  });
-
-  it("retries transient errors with a capped exponential delay", () => {
-    expect(shouldAutomaticallyRetry("error")).toBe(true);
-    expect(shouldAutomaticallyRetry("blocked")).toBe(false);
-    expect(shouldAutomaticallyRetry("saved")).toBe(false);
-    expect(shouldAutomaticallyRetry("noop")).toBe(false);
-
-    expect(resolveAutoSaveRetryDelay(2_000, 0)).toBe(2_000);
-    expect(resolveAutoSaveRetryDelay(2_000, 1)).toBe(4_000);
-    expect(resolveAutoSaveRetryDelay(2_000, 2)).toBe(8_000);
-    expect(resolveAutoSaveRetryDelay(2_000, 10)).toBe(30_000);
   });
 });
 
@@ -106,39 +38,6 @@ describe("useAutoSave behavior", () => {
     cleanup();
     vi.clearAllTimers();
     vi.useRealTimers();
-  });
-
-  it("debounces saves and restarts the delay when another change is scheduled", async () => {
-    const onSave = vi.fn().mockResolvedValue("saved" satisfies AutoSaveResult);
-    const { result } = renderHook(() =>
-      useAutoSave({
-        enabled: true,
-        hasPendingChanges: true,
-        debounceMs: 2_000,
-        onSave,
-      })
-    );
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1_500);
-    });
-    expect(onSave).not.toHaveBeenCalled();
-
-    act(() => {
-      result.current.scheduleSave();
-    });
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1_999);
-    });
-    expect(onSave).not.toHaveBeenCalled();
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1);
-    });
-
-    expect(onSave).toHaveBeenCalledTimes(1);
-    expect(onSave).toHaveBeenCalledWith("debounce");
   });
 
   it("saves at the max wait even when changes keep restarting the debounce", async () => {

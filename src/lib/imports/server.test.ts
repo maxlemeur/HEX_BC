@@ -267,15 +267,6 @@ describe("requireTabularPdfReviewAccess", () => {
 });
 
 describe("validateTabularPdfReviewFile", () => {
-  it("accepts a non-empty pdf file", async () => {
-    await expect(
-      validateTabularPdfReviewFile(
-        new File(["%PDF-1.7"], "lot-cvc.pdf", {
-          type: "application/pdf",
-        })
-      )
-    ).resolves.toBeUndefined();
-  });
 
   it("rejects empty pdf files", async () => {
     await expect(

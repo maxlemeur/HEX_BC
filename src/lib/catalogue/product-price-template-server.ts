@@ -1,5 +1,6 @@
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
+import { maxPriceValidTo } from "@/lib/catalogue/price-validity";
 
 import { CatalogueApiError } from "@/lib/catalogue/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -327,7 +328,7 @@ export async function importProductPriceTemplate(
       unit_price_cents: price.unit_price_cents,
       currency: price.currency,
       valid_from: price.valid_from,
-      valid_to: null,
+      valid_to: maxPriceValidTo(price.valid_from),
       is_active: true,
       notes: price.comment,
     };

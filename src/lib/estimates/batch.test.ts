@@ -14,10 +14,7 @@ vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
 
-import {
-  executeEstimateBatch,
-  resolveEstimateBatchMaxOperations,
-} from "@/lib/estimates/batch";
+import { executeEstimateBatch } from "@/lib/estimates/batch";
 import { badRequest, conflict } from "@/lib/estimates/errors";
 import {
   bulkUpdateEstimateItems,
@@ -850,34 +847,5 @@ describe("executeEstimateBatch", () => {
       expect.anything()
     );
     consoleErrorSpy.mockRestore();
-  });
-});
-
-describe("resolveEstimateBatchMaxOperations", () => {
-  const originalBatchLimit = process.env.ESTIMATE_BATCH_MAX_OPERATIONS;
-
-  afterEach(() => {
-    if (originalBatchLimit === undefined) {
-      delete process.env.ESTIMATE_BATCH_MAX_OPERATIONS;
-      return;
-    }
-    process.env.ESTIMATE_BATCH_MAX_OPERATIONS = originalBatchLimit;
-  });
-
-  it("falls back to 100 when env var is missing or invalid", () => {
-    delete process.env.ESTIMATE_BATCH_MAX_OPERATIONS;
-    expect(resolveEstimateBatchMaxOperations()).toBe(100);
-
-    process.env.ESTIMATE_BATCH_MAX_OPERATIONS = "0";
-    expect(resolveEstimateBatchMaxOperations()).toBe(100);
-
-    process.env.ESTIMATE_BATCH_MAX_OPERATIONS = "abc";
-    expect(resolveEstimateBatchMaxOperations()).toBe(100);
-  });
-
-  it("supports env and explicit overrides", () => {
-    process.env.ESTIMATE_BATCH_MAX_OPERATIONS = "120";
-    expect(resolveEstimateBatchMaxOperations()).toBe(120);
-    expect(resolveEstimateBatchMaxOperations(32)).toBe(32);
   });
 });

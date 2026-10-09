@@ -1,5 +1,11 @@
 "use client";
 
+import { EstimateOrderedCells } from "@/components/estimates/context/EstimateColumnOrderContext";
+import type { SupplierComparisonResult } from "@/components/estimates/hooks/useEstimateSupplierComparison";
+
+import { EstimateTypeCombobox } from "@/components/estimates/EstimateTypeCombobox";
+import type { EstimateTypeOption } from "@/lib/estimates/type-search";
+
 import {
   useEffect,
   useMemo,
@@ -87,6 +93,8 @@ type LineRowProps = {
   supplyTypeCell: SpreadsheetCell;
   supplyTypeCellProps: SpreadsheetCellProps;
   supplyTypeEditorProps: SpreadsheetEditorProps<HTMLInputElement>;
+  supplierCell: SpreadsheetCell;
+  supplierCellProps: SpreadsheetCellProps;
   kFoCell: SpreadsheetCell;
   kFoCellProps: SpreadsheetCellProps;
   kFoEditorProps: SpreadsheetEditorProps<HTMLInputElement>;
@@ -98,7 +106,7 @@ type LineRowProps = {
   hMoMajorationEditorProps: SpreadsheetEditorProps<HTMLInputElement>;
   laborRoleCell: SpreadsheetCell;
   laborRoleCellProps: SpreadsheetCellProps;
-  laborRoleEditorProps: SpreadsheetEditorProps<HTMLSelectElement>;
+  laborRoleEditorProps: SpreadsheetEditorProps<HTMLInputElement>;
   kMoCell: SpreadsheetCell;
   kMoCellProps: SpreadsheetCellProps;
   kMoEditorProps: SpreadsheetEditorProps<HTMLInputElement>;
@@ -107,7 +115,7 @@ type LineRowProps = {
   hMoAtelierEditorProps: SpreadsheetEditorProps<HTMLInputElement>;
   laborRoleAtelierCell: SpreadsheetCell;
   laborRoleAtelierCellProps: SpreadsheetCellProps;
-  laborRoleAtelierEditorProps: SpreadsheetEditorProps<HTMLSelectElement>;
+  laborRoleAtelierEditorProps: SpreadsheetEditorProps<HTMLInputElement>;
   kMoAtelierCell: SpreadsheetCell;
   kMoAtelierCellProps: SpreadsheetCellProps;
   kMoAtelierEditorProps: SpreadsheetEditorProps<HTMLInputElement>;
@@ -116,7 +124,7 @@ type LineRowProps = {
   hMoChantierEditorProps: SpreadsheetEditorProps<HTMLInputElement>;
   laborRoleChantierCell: SpreadsheetCell;
   laborRoleChantierCellProps: SpreadsheetCellProps;
-  laborRoleChantierEditorProps: SpreadsheetEditorProps<HTMLSelectElement>;
+  laborRoleChantierEditorProps: SpreadsheetEditorProps<HTMLInputElement>;
   kMoChantierCell: SpreadsheetCell;
   kMoChantierCellProps: SpreadsheetCellProps;
   kMoChantierEditorProps: SpreadsheetEditorProps<HTMLInputElement>;
@@ -125,7 +133,7 @@ type LineRowProps = {
   totalCell: SpreadsheetCell;
   totalCellProps: SpreadsheetCellProps;
   unitValue: string;
-  supplyTypeValue: string;
+  supplyTypeOptions: readonly EstimateTypeOption[];
   qualityFlags: EstimateQualityFlagKey[];
   detectedOutlierFlags: EstimateOutlierFlagKey[];
   dismissedOutlierFlags: EstimateOutlierFlagKey[];
@@ -133,6 +141,7 @@ type LineRowProps = {
   visibleColumns?: ColumnVisibilitySet;
   isLineSelected: boolean;
   hasSupplierComparisonMismatch: boolean;
+  supplierComparison?: SupplierComparisonResult;
   isOutlierActionPending: boolean;
   isReadOnly: boolean;
   hideEditingActions: boolean;
@@ -169,8 +178,6 @@ type LineRowProps = {
   ) => void;
   onUnitChange: (itemId: string, value: string) => void;
   onUnitCommit: (itemId: string) => void;
-  onSupplyTypeChange: (itemId: string, value: string) => void;
-  onSupplyTypeCommit: (itemId: string) => void;
   onDeleteItem: (itemId: string) => void;
   onOpenArticle?: (itemId: string) => void;
   onAssociateArticle?: (itemId: string) => void;
@@ -215,6 +222,8 @@ export function LineRow({
   supplyTypeCell,
   supplyTypeCellProps,
   supplyTypeEditorProps,
+  supplierCell,
+  supplierCellProps,
   kFoCell,
   kFoCellProps,
   kFoEditorProps,
@@ -253,7 +262,7 @@ export function LineRow({
   totalCell,
   totalCellProps,
   unitValue,
-  supplyTypeValue,
+  supplyTypeOptions,
   qualityFlags,
   detectedOutlierFlags,
   dismissedOutlierFlags,
@@ -261,6 +270,7 @@ export function LineRow({
   visibleColumns,
   isLineSelected,
   hasSupplierComparisonMismatch,
+  supplierComparison,
   isOutlierActionPending,
   isReadOnly,
   hideEditingActions,
@@ -290,8 +300,6 @@ export function LineRow({
   onPatchItem,
   onUnitChange,
   onUnitCommit,
-  onSupplyTypeChange,
-  onSupplyTypeCommit,
   onDeleteItem,
   onOpenArticle = () => undefined,
   onAssociateArticle = () => undefined,
@@ -331,6 +339,49 @@ export function LineRow({
     treeConnectorSegments.verticalSegments.length > 0 ||
     treeConnectorSegments.horizontalSegment !== null;
   const splitFields = readLaborSplitFields(item);
+  const isSupplierColumnVisible = visibleColumns?.has("supplier") === true;
+  const selectedSupplierOffer = item.selected_supplier_price_id
+    ? supplierComparison?.alternatives.find(
+        (offer) => offer.supplier_price_id === item.selected_supplier_price_id,
+      )
+    : undefined;
+  const savedSupplierDetails = item.selected_supplier_details?.price_id === item.selected_supplier_price_id
+    ? item.selected_supplier_details : null;
+  const selectedSupplierName = selectedSupplierOffer?.supplier_name.trim() || savedSupplierDetails?.name?.trim();
+  const selectedSupplierReference = selectedSupplierOffer?.supplier_reference?.trim() || savedSupplierDetails?.reference?.trim();
+  const selectedSupplierLabel = selectedSupplierName
+    ? `Offre retenue : ${selectedSupplierName}${selectedSupplierReference ? ` · ${selectedSupplierReference}` : ""}`
+    : "Offre fournisseur retenue";
+  const selectedSupplierText = isSupplierColumnVisible && selectedSupplierName
+    ? `${selectedSupplierName}${selectedSupplierReference ? ` · ${selectedSupplierReference}` : ""}`
+    : selectedSupplierLabel;
+  const supplierOfferContent = (
+    <div className="flex min-w-0 items-center gap-2 text-xs" data-testid={item.selected_supplier_price_id ? "estimate-line-selected-supplier" : "estimate-line-supplier-empty"}>
+      <span className="min-w-0 flex-1 truncate text-[var(--slate-600)]" aria-label={item.selected_supplier_price_id ? selectedSupplierLabel : "Aucune offre retenue"} title={item.selected_supplier_price_id ? selectedSupplierLabel : "Aucune offre retenue"}>
+        {item.selected_supplier_price_id ? selectedSupplierText : "Aucune offre retenue"}
+      </span>
+      {!hideEditingActions ? (
+        <button
+          type="button"
+          className="shrink-0 font-medium text-[var(--brand-blue)] underline underline-offset-2"
+          aria-label={`${item.selected_supplier_price_id ? "Changer d’offre" : "Choisir une offre"} pour ${item.title || "sans titre"}`}
+          disabled={isReadOnly || isPendingCreate}
+          onMouseDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onFocus={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpenSupplierComparisonPanel(item.id);
+          }}
+        >
+          {item.selected_supplier_price_id ? "Changer d’offre" : "Choisir une offre"}
+        </button>
+      ) : null}
+    </div>
+  );
   // EST-E15 increment 1 : les trois colonnes de sous-detail sont optionnelles et
   // masquees par defaut ; on ne calcule que si l'une d'elles est affichee.
   const isPriceBreakdownVisible = (column: "ds" | "marge" | "marque") =>
@@ -608,8 +659,10 @@ export function LineRow({
       onMouseDown={handleRowModifierSelection}
       onContextMenu={handleLineContextMenu}
     >
+      <EstimateOrderedCells>
       <div
         {...titleCellProps}
+        data-estimate-column="designation"
         role="gridcell"
         onKeyDown={toCellKeyDownHandler(titleCellProps.onKeyDown)}
         className={toCellClassName(
@@ -662,6 +715,7 @@ export function LineRow({
             <div
               ref={setCatalogueSuggestionsAnchor}
               className="estimate-line-designation__primary"
+              style={item.selected_supplier_price_id && !isSupplierColumnVisible ? { flexDirection: "column", alignItems: "stretch" } : undefined}
             >
               <input
                 className="estimate-input estimate-input--title"
@@ -705,6 +759,7 @@ export function LineRow({
                     : undefined
                 }
               />
+              {item.selected_supplier_price_id && !isSupplierColumnVisible ? supplierOfferContent : null}
               {showCatalogueSuggestions && catalogueSuggestionsAnchor ? (
                 <CatalogueSuggestionsPopover
                   anchor={catalogueSuggestionsAnchor}
@@ -815,6 +870,7 @@ export function LineRow({
       />
       <div
         {...unitCellProps}
+        data-estimate-column="unit"
         role="gridcell"
         onKeyDown={toCellKeyDownHandler(unitCellProps.onKeyDown)}
         className={toCellClassName(
@@ -895,6 +951,7 @@ export function LineRow({
       isLaborSplitEnabled ? (
         <div
           {...supplyTypeCellProps}
+        data-estimate-column="supply_type"
           role="gridcell"
           onKeyDown={toCellKeyDownHandler(supplyTypeCellProps.onKeyDown)}
           className={toCellClassName(
@@ -903,22 +960,13 @@ export function LineRow({
             "estimate-cell estimate-col--fo",
           )}
         >
-          <input
-            className="estimate-input"
-            ref={supplyTypeEditorProps.ref}
-            tabIndex={supplyTypeEditorProps.tabIndex}
-            list="estimate-fo-type-options"
-            value={supplyTypeValue}
-            onFocus={supplyTypeEditorProps.onFocus}
-            onKeyDown={supplyTypeEditorProps.onKeyDown}
-            onChange={(event) =>
-              onSupplyTypeChange(item.id, event.target.value)
-            }
-            onBlur={(event) => {
-              supplyTypeEditorProps.onBlur(event);
-              onSupplyTypeCommit(item.id);
-            }}
-            placeholder="Tube"
+          <EstimateTypeCombobox
+            value={item.supply_type_id}
+            options={supplyTypeOptions}
+            label={`Type de fourniture pour ${item.title || "sans titre"}`}
+            emptyLabel="Aucun type"
+            editorProps={supplyTypeEditorProps}
+            onCommit={(id) => onPatchItem(item.id, { supply_type_id: id }, { persist: true })}
             disabled={isReadOnly}
           />
         </div>
@@ -926,6 +974,7 @@ export function LineRow({
       {!visibleColumns || visibleColumns.has("k_fo") || isLaborSplitEnabled ? (
         <div
           {...kFoCellProps}
+        data-estimate-column="k_fo"
           role="gridcell"
           onKeyDown={toCellKeyDownHandler(kFoCellProps.onKeyDown)}
           className={toCellClassName(
@@ -962,6 +1011,31 @@ export function LineRow({
             placeholder="1.00"
             disabled={isReadOnly}
           />
+        </div>
+      ) : null}
+      {isSupplierColumnVisible ? (
+        <div
+          {...supplierCellProps}
+          data-estimate-column="supplier"
+          role="gridcell"
+          aria-readonly="true"
+          className={toCellClassName(navigation, supplierCell, "estimate-cell estimate-col--fo")}
+          onKeyDown={(event) => {
+            if (event.target === event.currentTarget && event.key === "Enter") {
+              event.preventDefault();
+              event.stopPropagation();
+              if (!isReadOnly && !isPendingCreate && !hideEditingActions) onOpenSupplierComparisonPanel(item.id);
+              return;
+            }
+            toCellKeyDownHandler(supplierCellProps.onKeyDown)(event);
+          }}
+          onDoubleClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (!isReadOnly && !isPendingCreate && !hideEditingActions) onOpenSupplierComparisonPanel(item.id);
+          }}
+        >
+          {supplierOfferContent}
         </div>
       ) : null}
       {isLaborSplitEnabled ? (
@@ -1032,6 +1106,7 @@ export function LineRow({
       */}
       {isPriceBreakdownVisible("ds") ? (
         <div
+          data-estimate-column="ds"
           role="gridcell"
           className="estimate-cell estimate-cell--readonly estimate-col--margin"
         >
@@ -1040,6 +1115,7 @@ export function LineRow({
       ) : null}
       {isPriceBreakdownVisible("marge") ? (
         <div
+          data-estimate-column="marge"
           role="gridcell"
           className={`estimate-cell estimate-cell--readonly estimate-col--margin${
             lineMargin.marginCents < 0 ? " estimate-cell--margin-negative" : ""
@@ -1055,6 +1131,7 @@ export function LineRow({
       ) : null}
       {isPriceBreakdownVisible("marque") ? (
         <div
+          data-estimate-column="marque"
           role="gridcell"
           className={`estimate-cell estimate-cell--readonly estimate-col--margin${
             lineMargin.marginCents < 0 ? " estimate-cell--margin-negative" : ""
@@ -1066,6 +1143,7 @@ export function LineRow({
       ) : null}
       <div
         {...puCellProps}
+        data-estimate-column="unit_price"
         role="gridcell"
         onKeyDown={toCellKeyDownHandler(puCellProps.onKeyDown)}
         className={toCellClassName(
@@ -1087,6 +1165,7 @@ export function LineRow({
       </div>
       <div
         {...totalCellProps}
+        data-estimate-column="total_price"
         role="gridcell"
         onKeyDown={toCellKeyDownHandler(totalCellProps.onKeyDown)}
         className={toCellClassName(
@@ -1197,6 +1276,7 @@ export function LineRow({
             </div>
           </details>
       </div>
+      </EstimateOrderedCells>
     </div>
   );
 }

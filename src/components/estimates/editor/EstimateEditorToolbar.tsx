@@ -8,6 +8,7 @@ import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDow
 import { SaveAsTemplateButton } from "@/components/estimates/SaveAsTemplateButton";
 import { ExportDropdown } from "@/components/ExportDropdown";
 import type { AutoSaveStatus } from "@/hooks/useAutoSave";
+import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
 import type { EstimateExportMode } from "@/lib/estimates/client";
 import type { Database } from "@/types/database";
 
@@ -390,7 +391,7 @@ function MoreActionsDropdown({
                 : "Importer le DPGF source"}
             </button>
           ) : null}
-          {onOpenVersionZeroDialog ? (
+          {isEstimateAiDraftEnabled() && onOpenVersionZeroDialog ? (
             <button
               type="button"
               role="menuitem"

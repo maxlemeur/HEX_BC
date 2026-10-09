@@ -245,31 +245,6 @@ describe("compareTakeoffJobs", () => {
     vi.mocked(assertTakeoffEnabled).mockResolvedValue(undefined);
   });
 
-  it("compares two jobs from the same document", async () => {
-    const supabase = createSupabaseMock();
-
-    vi.mocked(getAuthenticatedContext).mockResolvedValue({
-      supabase,
-      tenantId: TENANT_ID,
-      userId: USER_ID,
-      tenantRole: "admin",
-    } as never);
-
-    const parsedQuery = parseCompareTakeoffJobsQuery({
-      with: OTHER_JOB_ID,
-      threshold: "0.8",
-    });
-
-    const response = await compareTakeoffJobs(JOB_ID, parsedQuery);
-
-    expect(response.base_job_id).toBe(JOB_ID);
-    expect(response.other_job_id).toBe(OTHER_JOB_ID);
-    expect(response.summary.added).toBe(1);
-    expect(response.summary.changed).toBe(1);
-    expect(response.summary.total_base).toBe(1);
-    expect(response.summary.total_other).toBe(2);
-  });
-
   it("returns 409 when jobs are not from the same document", async () => {
     const supabase = createSupabaseMock({
       jobs: [

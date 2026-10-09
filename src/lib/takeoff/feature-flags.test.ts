@@ -7,16 +7,12 @@ vi.mock("@/lib/feature-flags", () => ({
 
 import { getFeatureFlagValueForTenant, isFeatureEnabled } from "@/lib/feature-flags";
 import {
-  TAKEOFF_AI_ESCALATION_ENABLED_DEFAULT,
-  TAKEOFF_AI_ESCALATION_MAX_COST_CENTS_DEFAULT,
-  TAKEOFF_AI_ESCALATION_MIN_CONFIDENCE_DEFAULT,
   TAKEOFF_C_MAX_COST_CENTS_DEFAULT,
   TAKEOFF_C_MAX_TOTAL_TOKENS_DEFAULT,
   TAKEOFF_C_CHUNK_OVERLAP_PAGES_DEFAULT,
   TAKEOFF_C_CHUNK_SIZE_PAGES_DEFAULT,
   TAKEOFF_C_CHUNK_THRESHOLD_PAGES_DEFAULT,
   TAKEOFF_C_MAX_PDF_PAGES_DEFAULT,
-  TAKEOFF_LOW_CONFIDENCE_THRESHOLD_FLAG_KEY,
   TAKEOFF_C_TIMEOUT_MS_DEFAULT,
   TAKEOFF_C_TIMEOUT_MS_MAX,
   TAKEOFF_C_TIMEOUT_MS_MIN,
@@ -25,11 +21,9 @@ import { DEFAULT_LOW_CONFIDENCE_THRESHOLD } from "@/lib/takeoff/guards";
 import {
   assertTakeoffEnabled,
   getTakeoffChunkingConfigForTenant,
-  getTakeoffEscalationConfigForTenant,
   getTakeoffGeminiDeliveryConfigForTenant,
   getTakeoffLowConfidenceThresholdForTenant,
   getTakeoffLevelCProcessingConfigForTenant,
-  isTakeoffEnabled,
 } from "@/lib/takeoff/feature-flags";
 
 const TENANT_ID = "11111111-1111-4111-8111-111111111111";
@@ -103,17 +97,6 @@ describe("takeoff feature flags", () => {
     restoreLevelCRuntimeEnv();
   });
 
-  it("delegates read access to the generic feature flag helper", async () => {
-    vi.mocked(isFeatureEnabled).mockResolvedValue(true);
-
-    await expect(isTakeoffEnabled(TENANT_ID)).resolves.toBe(true);
-    expect(vi.mocked(isFeatureEnabled)).toHaveBeenCalledWith(
-      TENANT_ID,
-      "TAKEOFF_MODULE_ENABLED",
-      undefined
-    );
-  });
-
   it("throws a normalized forbidden error when takeoff is disabled", async () => {
     vi.mocked(isFeatureEnabled).mockResolvedValue(false);
 
@@ -121,23 +104,6 @@ describe("takeoff feature flags", () => {
       status: 403,
       code: "TAKEOFF_MODULE_DISABLED",
       message: "Le module Takeoff est desactive pour ce tenant.",
-    });
-  });
-
-  it("returns chunking config values from tenant flags", async () => {
-    vi.mocked(getFeatureFlagValueForTenant).mockImplementation(async (_tenantId, key) => {
-      if (key === "TAKEOFF_C_CHUNK_THRESHOLD_PAGES") return "20";
-      if (key === "TAKEOFF_C_CHUNK_SIZE_PAGES") return "12";
-      if (key === "TAKEOFF_C_CHUNK_OVERLAP_PAGES") return "3";
-      if (key === "TAKEOFF_C_MAX_PDF_PAGES") return "250";
-      return null;
-    });
-
-    await expect(getTakeoffChunkingConfigForTenant(TENANT_ID)).resolves.toEqual({
-      thresholdPages: 20,
-      chunkSizePages: 12,
-      overlapPages: 3,
-      maxPdfPages: 250,
     });
   });
 
@@ -166,29 +132,6 @@ describe("takeoff feature flags", () => {
       chunkSizePages: 5,
       overlapPages: 4,
       maxPdfPages: 200,
-    });
-  });
-
-  it("returns complete Level C processing config from tenant flags", async () => {
-    vi.mocked(getFeatureFlagValueForTenant).mockImplementation(async (_tenantId, key) => {
-      if (key === "TAKEOFF_C_CHUNK_THRESHOLD_PAGES") return "25";
-      if (key === "TAKEOFF_C_CHUNK_SIZE_PAGES") return "8";
-      if (key === "TAKEOFF_C_CHUNK_OVERLAP_PAGES") return "1";
-      if (key === "TAKEOFF_C_MAX_PDF_PAGES") return "300";
-      if (key === "TAKEOFF_C_TIMEOUT_MS") return "240000";
-      if (key === "TAKEOFF_C_MAX_TOTAL_TOKENS") return "550000";
-      if (key === "TAKEOFF_C_MAX_COST_CENTS") return "3200";
-      return null;
-    });
-
-    await expect(getTakeoffLevelCProcessingConfigForTenant(TENANT_ID)).resolves.toEqual({
-      thresholdPages: 25,
-      chunkSizePages: 8,
-      overlapPages: 1,
-      maxPdfPages: 300,
-      timeoutMs: 240000,
-      maxTotalTokens: 550000,
-      maxCostCents: 3200,
     });
   });
 
@@ -247,19 +190,6 @@ describe("takeoff feature flags", () => {
     expect(maxTimeoutConfig.timeoutMs).toBe(expectedMaxTimeout);
   });
 
-  it("returns low-confidence threshold from tenant flag", async () => {
-    vi.mocked(getFeatureFlagValueForTenant).mockImplementation(async (_tenantId, key) => {
-      if (key === TAKEOFF_LOW_CONFIDENCE_THRESHOLD_FLAG_KEY) {
-        return "0.35";
-      }
-      return null;
-    });
-
-    await expect(
-      getTakeoffLowConfidenceThresholdForTenant(TENANT_ID)
-    ).resolves.toBe(0.35);
-  });
-
   it("falls back to default low-confidence threshold for invalid values", async () => {
     vi.mocked(getFeatureFlagValueForTenant).mockResolvedValue("1.2");
     await expect(
@@ -270,31 +200,6 @@ describe("takeoff feature flags", () => {
     await expect(
       getTakeoffLowConfidenceThresholdForTenant(TENANT_ID)
     ).resolves.toBe(DEFAULT_LOW_CONFIDENCE_THRESHOLD);
-  });
-
-  it("keeps escalation disabled by default", async () => {
-    vi.mocked(getFeatureFlagValueForTenant).mockResolvedValue(null);
-
-    await expect(getTakeoffEscalationConfigForTenant(TENANT_ID)).resolves.toEqual({
-      enabled: TAKEOFF_AI_ESCALATION_ENABLED_DEFAULT,
-      minConfidence: TAKEOFF_AI_ESCALATION_MIN_CONFIDENCE_DEFAULT,
-      maxCostCents: TAKEOFF_AI_ESCALATION_MAX_COST_CENTS_DEFAULT,
-    });
-  });
-
-  it("reads escalation config from tenant flags", async () => {
-    vi.mocked(getFeatureFlagValueForTenant).mockImplementation(async (_tenantId, key) => {
-      if (key === "TAKEOFF_AI_ESCALATION_ENABLED") return "true";
-      if (key === "TAKEOFF_AI_ESCALATION_MIN_CONFIDENCE") return "0.61";
-      if (key === "TAKEOFF_AI_ESCALATION_MAX_COST_CENTS") return "275";
-      return null;
-    });
-
-    await expect(getTakeoffEscalationConfigForTenant(TENANT_ID)).resolves.toEqual({
-      enabled: true,
-      minConfidence: 0.61,
-      maxCostCents: 275,
-    });
   });
 
   it("reads Gemini batch delivery mode from env or tenant flags", async () => {

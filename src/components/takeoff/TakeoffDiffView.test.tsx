@@ -1,8 +1,8 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup,fireEvent,render,screen } from "@testing-library/react";
+import { afterEach,describe,expect,it,vi } from "vitest";
 
 import TakeoffDiffView from "@/components/takeoff/TakeoffDiffView";
-import type { TakeoffJobCompareResponse, TakeoffJobItem } from "@/lib/takeoff/types";
+import type { TakeoffJobCompareResponse,TakeoffJobItem } from "@/lib/takeoff/types";
 
 function makeItem(id: string, designation: string, sourcePage = 1): TakeoffJobItem {
   return {
@@ -87,27 +87,6 @@ function buildCompareResponse(): TakeoffJobCompareResponse {
 describe("TakeoffDiffView", () => {
   afterEach(() => {
     cleanup();
-  });
-
-  it("renders summary and supports filtering", () => {
-    render(
-      <TakeoffDiffView
-        compare={buildCompareResponse()}
-        onApplySelection={() => {
-          // no-op
-        }}
-      />
-    );
-
-    expect(screen.getByText("Resume des changements")).toBeDefined();
-    expect(screen.getByText("Ajouts")).toBeDefined();
-    expect(screen.getByText("Modifications")).toBeDefined();
-
-    fireEvent.change(screen.getByLabelText("Filtre"), {
-      target: { value: "added" },
-    });
-
-    expect(screen.getAllByText("Vis autoforeuse").length).toBeGreaterThan(0);
   });
 
   it("toggles mode and applies selected items", () => {

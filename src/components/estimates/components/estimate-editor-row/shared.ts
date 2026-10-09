@@ -27,6 +27,7 @@ import type { Database } from "@/types/database";
 export type { SpreadsheetCell, SpreadsheetNavigationResult };
 
 export type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"] & {
+  selected_supplier_details?: import("@/lib/estimates/supplier-offer-conditions").SelectedSupplierDetails | null;
   source_provider?: string | null;
   source_job_id?: string | null;
   source_file_name?: string | null;
@@ -107,6 +108,7 @@ export const SPREADSHEET_COLUMN_KEYS = {
   unitPrice: "unit_price",
   supplyType: "supply_type",
   kFo: "k_fo",
+  supplier: "supplier",
   hMo: "h_mo",
   hMoAtelier: "h_mo_atelier",
   laborRoleAtelier: "labor_role_atelier",
@@ -192,13 +194,16 @@ const LINE_SPREADSHEET_COLUMN_KEYS_LABOR_SPLIT = [
 
 export function getSpreadsheetColumnKeys(
   itemType: EstimateItem["item_type"],
-  isLaborSplitEnabled: boolean
+  isLaborSplitEnabled: boolean,
+  includeSupplier = false,
 ) {
-  return itemType === "section"
+  const columns = itemType === "section"
     ? SECTION_SPREADSHEET_COLUMN_KEYS
     : isLaborSplitEnabled
       ? LINE_SPREADSHEET_COLUMN_KEYS_LABOR_SPLIT
       : LINE_SPREADSHEET_COLUMN_KEYS;
+  if (!includeSupplier || itemType === "section") return columns;
+  return [...columns.slice(0, 6), SPREADSHEET_COLUMN_KEYS.supplier, ...columns.slice(6)];
 }
 
 export function toCellClassName(
