@@ -228,7 +228,11 @@ async function auditRoute(page: Page, route: PolishRoute, url: string, drainWrit
 function assertResults(route: PolishRoute, results: ViewportResult[]) {
   for (const result of results) {
     const label = `${route.id} @${result.viewport}`;
-    expect.soft(result.status, `${label} statut HTTP`).toBeLessThan(400);
+    if (route.expectedStatus !== undefined) {
+      expect.soft(result.status, `${label} statut HTTP`).toBe(route.expectedStatus);
+    } else {
+      expect.soft(result.status, `${label} statut HTTP`).toBeLessThan(400);
+    }
     expect.soft(result.h1.length, `${label} doit avoir exactement un h1 visible`).toBe(1);
     if (route.heading !== null) {
       const expected = route.heading;

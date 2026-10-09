@@ -49,6 +49,23 @@ export function maskHost(host: string | null) {
   return [`${ref.slice(0, 3)}…${ref.slice(-3)}`, ...rest].join(".");
 }
 
+const READ_ONLY_MAPPING_ACTIONS = new Set([
+  "preview",
+  "structure-preview",
+  "suggestions",
+  "validate",
+  "duplicates",
+]);
+
+function mappingAction(request: Request) {
+  try {
+    const body: unknown = JSON.parse(request.postData() ?? "null");
+    return body && typeof body === "object" && "action" in body ? String(body.action) : "";
+  } catch {
+    return "";
+  }
+}
+
 function classifyWrite(request: Request, appOrigin: string, supabaseHost: string | null) {
   const url = new URL(request.url());
   const isApp = url.origin === appOrigin;
@@ -72,6 +89,11 @@ function classifyWrite(request: Request, appOrigin: string, supabaseHost: string
   }
   if (isApp && request.headers()["next-action"]) {
     return { verdict: "allowed" as const, reason: "server action (recorded)" };
+  }
+  if (isApp && url.pathname === "/api/mappings" && READ_ONLY_MAPPING_ACTIONS.has(mappingAction(request))) {
+    // The mapping screen computes suggestions and previews through POST; `create` and
+    // `save-template` stay blocked.
+    return { verdict: "allowed" as const, reason: "read-only mapping action (recorded)" };
   }
   return { verdict: "blocked" as const, reason: "mutation on shared data" };
 }
