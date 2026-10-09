@@ -1,4 +1,5 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -93,7 +94,7 @@ describe("SupplierComparisonPanel", () => {
     expect(screen.getAllByText("Faux plafond acoustique")).toHaveLength(4);
     expect(screen.getByText("Meilleur prix")).toBeInTheDocument();
     expect(screen.getByText("Prix le plus récent")).toBeInTheDocument();
-    expect(screen.getByText("Fournisseur prefere")).toBeInTheDocument();
+    expect(screen.getByText("Fournisseur préféré")).toBeInTheDocument();
     expect(screen.getByText("Sélection actuelle")).toBeInTheDocument();
     expect(screen.getByText("Prix ancien")).toBeInTheDocument();
     expect(
@@ -130,7 +131,7 @@ describe("SupplierComparisonPanel", () => {
   });
 
   it("affiche un prix fournisseur dans sa devise, jamais en euros", () => {
-    const { container } = render(
+    render(
       <SupplierComparisonPanel
         isOpen
         itemTitle="Faux plafond acoustique"
@@ -152,7 +153,7 @@ describe("SupplierComparisonPanel", () => {
     );
 
     const priceText =
-      container.querySelector(".estimate-supplier-comparison-option__price")
+      document.querySelector(".estimate-supplier-comparison-option__price")
         ?.textContent ?? "";
     expect(priceText).not.toContain("€");
     expect(priceText).toMatch(/\$|USD/);
@@ -210,7 +211,8 @@ describe("SupplierComparisonPanel", () => {
     ).not.toBeDisabled();
   });
 
-  it("se ferme à la touche Échap", () => {
+  it("se ferme à la touche Échap", async () => {
+    const user = userEvent.setup();
     const onClose = vi.fn();
     render(
       <SupplierComparisonPanel
@@ -227,7 +229,7 @@ describe("SupplierComparisonPanel", () => {
       />
     );
 
-    fireEvent.keyDown(window, { key: "Escape" });
-    expect(onClose).toHaveBeenCalledTimes(1);
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
 });

@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, type ComponentProps } from "react";
-import { Modal } from "@/components/ui-legacy/Modal";
+import { useRef, useState, type ComponentProps } from "react";
 
 import { EstimateEventsTimeline } from "@/components/estimates/EstimateEventsTimeline";
 import { EstimateSettingsPanel, type EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
@@ -11,7 +10,19 @@ import { MarginTiersManager } from "@/components/estimates/MarginTiersManager";
 import type { EstimateTotals } from "@/lib/estimate-calculations";
 import type { EstimateVersionEvent } from "@/lib/estimates/client";
 import type { Database } from "@/types/database";
-import { CircleXIcon, XIcon } from "lucide-react";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { IconButton } from "@/components/ui/icon-button";
+import { XIcon } from "lucide-react";
 
 type LaborRole = Database["public"]["Tables"]["labor_roles"]["Row"];
 type MarginTierRow = Database["public"]["Tables"]["margin_tiers"]["Row"];
@@ -117,6 +128,7 @@ export function EstimateEditorDrawer({
   const [confirmClose, setConfirmClose] = useState(false);
   const [savingBeforeClose, setSavingBeforeClose] = useState(false);
   const [saveError, setSaveError] = useState(false);
+  const continueEditingRef = useRef<HTMLButtonElement>(null);
   const requestClose = () => {
     if (isSavingSettings || savingBeforeClose) return;
     if (hasUnsavedSettings) {
@@ -147,28 +159,44 @@ export function EstimateEditorDrawer({
 
   return (
     <>
-      <Modal.Root open={confirmClose} onOpenChange={(open) => {
-        if (!savingBeforeClose) setConfirmClose(open);
-      }}>
-        <Modal.Content closeOnEscapeKey={!savingBeforeClose} closeOnOverlayClick={!savingBeforeClose} containerClassName="sm:max-w-lg">
-          <Modal.Header><Modal.Title>Enregistrer les modifications du paramétrage ?</Modal.Title></Modal.Header>
-          <Modal.Body>
-            <p>Vos modifications ne sont pas encore enregistrées. Vous pouvez les enregistrer, les abandonner ou continuer à modifier le paramétrage.</p>
-            {saveError && <p role="alert" className="text-danger">L’enregistrement n’a pas abouti. Le paramétrage reste ouvert ; vérifiez les erreurs avant de réessayer.</p>}
-          </Modal.Body>
-          <Modal.Footer>
-            <button type="button" className="btn btn-secondary btn-sm" disabled={savingBeforeClose} onClick={() => setConfirmClose(false)} data-modal-autofocus="true">Continuer à modifier</button>
-            <button type="button" className="btn btn-secondary btn-sm" disabled={savingBeforeClose} onClick={() => {
+      <Dialog
+        open={confirmClose}
+        onOpenChange={(open) => {
+          if (!savingBeforeClose) setConfirmClose(open);
+        }}
+        disablePointerDismissal={savingBeforeClose}
+      >
+        <DialogContent size="md" showCloseButton={false} initialFocus={continueEditingRef}>
+          <DialogHeader>
+            <DialogTitle>Enregistrer les modifications du paramétrage ?</DialogTitle>
+            <DialogDescription>
+              Vos modifications ne sont pas encore enregistrées. Vous pouvez les enregistrer, les abandonner ou continuer à modifier le paramétrage.
+            </DialogDescription>
+          </DialogHeader>
+          {saveError && (
+            <Alert variant="danger">
+              L’enregistrement n’a pas abouti. Le paramétrage reste ouvert ; vérifiez les erreurs avant de réessayer.
+            </Alert>
+          )}
+          <DialogFooter>
+            <Button ref={continueEditingRef} type="button" variant="outline" size="md" disabled={savingBeforeClose} onClick={() => setConfirmClose(false)}>
+              Continuer à modifier
+            </Button>
+            <Button type="button" variant="outline" size="md" disabled={savingBeforeClose} onClick={() => {
               onDiscardSettings();
               setConfirmClose(false);
               onClose();
-            }}>Abandonner les modifications</button>
-            <button type="button" className="btn btn-primary btn-sm" disabled={savingBeforeClose || isSaveBlocked || isSavingSettings} onClick={() => void saveAndClose()}>{savingBeforeClose ? "Enregistrement…" : "Enregistrer"}</button>
-          </Modal.Footer>
-        </Modal.Content>
-      </Modal.Root>
+            }}>
+              Abandonner les modifications
+            </Button>
+            <Button type="button" variant="primary" size="md" disabled={savingBeforeClose || isSaveBlocked || isSavingSettings} onClick={() => void saveAndClose()}>
+              {savingBeforeClose ? "Enregistrement…" : "Enregistrer"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <div
-        className="fixed inset-0 z-40 bg-black/20"
+        className="fixed inset-0 z-40 bg-[rgb(2_6_23/0.2)]"
         onClick={requestClose}
         aria-hidden="true"
         data-testid="estimate-editor-drawer-backdrop"
@@ -179,24 +207,30 @@ export function EstimateEditorDrawer({
         aria-label="Paramétrage du devis"
         className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-full lg:max-w-7xl flex-col border-l border-border bg-surface shadow-xl"
         onKeyDown={(event) => {
-          if (event.key === "Escape" && !confirmClose) {
-            requestClose();
-          }
+          if (event.key !== "Escape" || confirmClose) return;
+          // Escape pressed in a dialog opened from the drawer (portalled, but
+          // bubbling through the React tree) closes that dialog only.
+          const nearestDialog =
+            event.target instanceof Element
+              ? event.target.closest('[role="dialog"], [role="alertdialog"]')
+              : null;
+          if (nearestDialog && nearestDialog !== event.currentTarget) return;
+          requestClose();
         }}
         tabIndex={-1}
         data-testid="estimate-editor-drawer"
       >
         <div className="flex items-center justify-between border-b border-border px-4 py-3 lg:px-6 lg:py-4">
-          <h2 className="text-sm font-semibold text-slate-800">Paramétrage</h2>
-          <button
+          <h2 className="text-sm font-semibold text-foreground">Paramétrage</h2>
+          <IconButton
             type="button"
-            className="btn btn-ghost btn-sm"
+            size="icon"
+            label="Fermer"
+            tooltipSide="left"
+            icon={<XIcon aria-hidden="true" />}
             onClick={requestClose}
-            aria-label="Fermer"
             data-testid="estimate-editor-drawer-close-button"
-          >
-            <XIcon aria-hidden="true" size={18} />
-          </button>
+          />
         </div>
         <div className="flex-1 overflow-y-auto px-4 py-4 lg:px-6 lg:py-6 space-y-6">
           <EstimateSettingsPanel
@@ -249,38 +283,44 @@ export function EstimateEditorDrawer({
                 error={timelineError}
                 onRefresh={onRefreshTimeline}
               />
-              <div className="dashboard-card p-8" data-testid="estimate-editor-drawer-audit-card">
+              <Card className="p-5 sm:p-8" data-testid="estimate-editor-drawer-audit-card">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <h2 className="text-sm font-semibold text-slate-800">Audit admin</h2>
-                    <p className="text-xs text-muted-foreground">Dernières opérations journalisees sur cette version.</p>
+                    <h2 className="text-sm font-semibold text-foreground">Audit admin</h2>
+                    <p className="text-xs text-muted-foreground">Dernières opérations journalisées sur cette version.</p>
                   </div>
-                  <button
-                    className="btn btn-secondary btn-sm"
+                  <Button
                     type="button"
+                    variant="outline"
+                    size="md"
                     onClick={onRefreshAuditLogs}
                     disabled={isAuditLoading}
                     data-testid="estimate-editor-drawer-refresh-audit-button"
                   >
-                    {isAuditLoading ? "Chargement..." : "Actualiser"}
-                  </button>
+                    {isAuditLoading ? "Chargement…" : "Actualiser"}
+                  </Button>
                 </div>
 
                 {auditError ? (
-                  <div className="alert alert-error mt-6" data-testid="estimate-editor-drawer-audit-error">
-                    <CircleXIcon aria-hidden="true" size={20} />
+                  <Alert variant="danger" className="mt-6" data-testid="estimate-editor-drawer-audit-error">
                     {auditError}
-                  </div>
+                  </Alert>
                 ) : null}
 
-                <div className="table-scroll mt-6" data-testid="estimate-editor-drawer-audit-table">
+                <div
+                  className="table-scroll mt-6"
+                  role="region"
+                  aria-label="Journal d’audit de la version"
+                  tabIndex={0}
+                  data-testid="estimate-editor-drawer-audit-table"
+                >
                   <table className="data-table">
                     <thead>
                       <tr>
-                        <th>Date</th>
-                        <th>Action</th>
-                        <th>Table</th>
-                        <th>Record ID</th>
+                        <th scope="col">Date</th>
+                        <th scope="col">Action</th>
+                        <th scope="col">Table</th>
+                        <th scope="col">Identifiant</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -289,8 +329,8 @@ export function EstimateEditorDrawer({
                           <td colSpan={4}>
                             <div className="text-sm text-muted-foreground">
                               {isAuditLoading
-                                ? "Chargement des logs d'audit..."
-                                : "Aucun log d'audit récent pour cette version."}
+                                ? "Chargement du journal d’audit…"
+                                : "Aucune opération journalisée récemment pour cette version."}
                             </div>
                           </td>
                         </tr>
@@ -300,12 +340,12 @@ export function EstimateEditorDrawer({
                             <td>{formatAuditTimestamp(log.created_at)}</td>
                             <td className="font-medium uppercase">{log.action}</td>
                             <td>
-                              <span className="font-mono text-xs text-slate-600">
+                              <span className="font-mono text-xs text-muted-foreground">
                                 {log.table_name}
                               </span>
                             </td>
                             <td>
-                              <span className="font-mono text-xs text-slate-600">
+                              <span className="font-mono text-xs text-muted-foreground">
                                 {log.record_id}
                               </span>
                             </td>
@@ -317,9 +357,9 @@ export function EstimateEditorDrawer({
                 </div>
 
                 {isAuditLoading && auditLogs.length > 0 ? (
-                  <p className="mt-3 text-sm text-muted-foreground">Actualisation des logs en cours...</p>
+                  <p className="mt-3 text-sm text-muted-foreground" role="status">Actualisation du journal en cours…</p>
                 ) : null}
-              </div>
+              </Card>
             </>
           ) : null}
         </div>

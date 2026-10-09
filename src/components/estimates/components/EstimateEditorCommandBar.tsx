@@ -2,6 +2,10 @@
 
 import { useState } from "react";
 import { EstimateColumnOrderControls } from "@/components/estimates/components/EstimateColumnOrderControls";
+import { Badge } from "@/components/ui/badge";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 
 import {
   ESTIMATE_QUALITY_FLAG_KEYS,
@@ -20,6 +24,7 @@ import type {
 } from "@/components/estimates/components/EstimateEditorToolbar";
 import type { EstimateOutlierMethod } from "@/lib/estimates/outlier-detection";
 import { parseNumberInput } from "@/lib/estimates/editor-values";
+import { cn } from "@/lib/utils";
 
 const ROOT_KEY = "root";
 const INSERT_PANEL_ID = "estimate-editor-insert-panel";
@@ -41,6 +46,12 @@ const EDITOR_RIBBON_TABS = [
     panelId: "estimate-ribbon-panel-display",
   },
 ] as const;
+
+/** Full-width entries of the ribbon panels (long labels may wrap). */
+const PANEL_ITEM_CLASS =
+  "min-h-11 w-full justify-start whitespace-normal py-2 text-left text-foreground-secondary";
+const PANEL_SECTION_TITLE_CLASS =
+  "text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground";
 
 type EditorRibbonTab = (typeof EDITOR_RIBBON_TABS)[number]["id"];
 
@@ -143,18 +154,34 @@ export function EstimateEditorCommandBar({
   } = usePopover();
 
   const commandButton = (
-    <button
+    <Button
       type="button"
-      className="btn btn-secondary btn-sm min-h-10 shrink-0 whitespace-nowrap"
+      variant="outline"
+      size="md"
+      className="min-h-10"
       onClick={openCommandPalette}
       title="Rechercher une action sans parcourir les menus. Raccourci : Ctrl+K."
+      aria-keyshortcuts="Control+K"
       data-testid="estimate-editor-command-palette-button"
     >
       Commandes
-      <kbd className="rounded border border-border bg-surface-subtle px-1.5 py-0.5 text-[10px] font-semibold">
+      <kbd className="rounded border border-border bg-surface-subtle px-1.5 py-0.5 text-micro font-semibold text-muted-foreground">
         Ctrl K
       </kbd>
-    </button>
+    </Button>
+  );
+
+  const searchInput = (
+    <Input
+      type="search"
+      size="sm"
+      className="min-h-10 min-w-[220px] flex-1"
+      placeholder="Rechercher dans le chiffrage…"
+      aria-label="Rechercher dans le chiffrage"
+      value={searchTerm}
+      onChange={(event) => onSearchChange(event.target.value)}
+      data-testid="estimate-editor-search-input"
+    />
   );
 
   if (isViewerMode) {
@@ -178,23 +205,18 @@ export function EstimateEditorCommandBar({
           aria-labelledby="estimate-ribbon-panel-consultation-tab"
           className="production-ribbon__commands"
         >
-          <input
-            type="search"
-            className="form-input min-h-10 min-w-[220px] flex-1 text-sm"
-            placeholder="Rechercher dans le chiffrage..."
-            value={searchTerm}
-            onChange={(event) => onSearchChange(event.target.value)}
-            data-testid="estimate-editor-search-input"
-          />
+          {searchInput}
           {onOpenSettings ? (
-            <button
-              className="btn btn-secondary btn-sm min-h-10"
+            <Button
               type="button"
+              variant="outline"
+              size="md"
+              className="min-h-10"
               onClick={onOpenSettings}
               data-testid="estimate-editor-settings-button"
             >
               Paramétrage
-            </button>
+            </Button>
           ) : null}
           {commandButton}
         </div>
@@ -221,39 +243,42 @@ export function EstimateEditorCommandBar({
         className="production-ribbon__commands"
         hidden={activeRibbonTab !== "chiffrage"}
       >
-        <div className="flex shrink-0 items-center gap-1 rounded-lg border border-border bg-surface-subtle p-1">
-          <button
-            className="btn btn-ghost btn-sm min-h-9 px-2.5"
+        <div
+          className="flex shrink-0 items-center gap-1 rounded-lg border border-border bg-surface-subtle p-1"
+          role="group"
+          aria-label="Historique des modifications"
+        >
+          <Button
             type="button"
+            variant="ghost"
+            size="md"
+            className="min-h-9 px-2.5"
             onClick={() => void onUndo()}
             disabled={meta.isReadOnly || isUndoRedoBusy || !canUndo}
             aria-label="Annuler la dernière action"
+            aria-keyshortcuts="Control+Z"
             title="Annuler la dernière modification. Raccourci : Ctrl+Z."
             data-testid="estimate-editor-undo-button"
           >
             Annuler
-          </button>
-          <button
-            className="btn btn-ghost btn-sm min-h-9 px-2.5"
+          </Button>
+          <Button
             type="button"
+            variant="ghost"
+            size="md"
+            className="min-h-9 px-2.5"
             onClick={() => void onRedo()}
             disabled={meta.isReadOnly || isUndoRedoBusy || !canRedo}
             aria-label="Rétablir la dernière action"
+            aria-keyshortcuts="Control+Y"
             title="Rétablir la modification annulée. Raccourci : Ctrl+Y."
             data-testid="estimate-editor-redo-button"
           >
             Rétablir
-          </button>
+          </Button>
         </div>
 
-        <input
-          type="search"
-          className="form-input min-h-10 min-w-[220px] flex-1 text-sm"
-          placeholder="Rechercher dans le chiffrage..."
-          value={searchTerm}
-          onChange={(event) => onSearchChange(event.target.value)}
-          data-testid="estimate-editor-search-input"
-        />
+        {searchInput}
         {commandButton}
       </div>
 
@@ -265,33 +290,35 @@ export function EstimateEditorCommandBar({
         hidden={activeRibbonTab !== "insertion"}
       >
         <div className="relative shrink-0" ref={insertContainerRef}>
-          <button
-            className="btn btn-secondary btn-sm min-h-10"
+          <Button
             type="button"
+            variant="outline"
+            size="md"
+            className="min-h-10"
             onClick={() => {
               displayClose();
               insertToggle();
             }}
             aria-expanded={insertOpen}
-            aria-haspopup="menu"
             aria-controls={INSERT_PANEL_ID}
             title="Ajouter du contenu ou importer une structure existante."
             data-testid="estimate-editor-insert-button"
           >
             Insérer
-          </button>
+          </Button>
           {insertOpen ? (
             <div
               id={INSERT_PANEL_ID}
-              role="menu"
+              role="group"
               aria-label="Insérer dans le chiffrage"
-              className="absolute left-0 top-full z-40 mt-2 flex w-[min(320px,calc(100vw-32px))] flex-col gap-1 rounded-xl border border-border bg-surface p-2 shadow-xl"
+              className="absolute left-0 top-full z-40 mt-2 flex w-[min(320px,calc(100vw-32px))] flex-col gap-1 rounded-xl border border-border bg-surface p-2 shadow-dropdown"
             >
               {!isSimplifiedMode && onToggleQuickTemplatePicker ? (
-                <button
-                  className="btn btn-ghost btn-sm min-h-11 w-full justify-start"
+                <Button
                   type="button"
-                  role="menuitem"
+                  variant="ghost"
+                  size="md"
+                  className={PANEL_ITEM_CLASS}
                   onClick={() => {
                     insertClose();
                     onToggleQuickTemplatePicker();
@@ -299,13 +326,14 @@ export function EstimateEditorCommandBar({
                   disabled={meta.isReadOnly}
                   data-testid="estimate-editor-quick-template-button"
                 >
-                  Insérer un template
-                </button>
+                  Insérer un modèle
+                </Button>
               ) : null}
-              <button
-                className="btn btn-ghost btn-sm min-h-11 w-full justify-start"
+              <Button
                 type="button"
-                role="menuitem"
+                variant="ghost"
+                size="md"
+                className={PANEL_ITEM_CLASS}
                 onClick={() => {
                   insertClose();
                   onOpenAssemblyPicker();
@@ -314,12 +342,13 @@ export function EstimateEditorCommandBar({
                 data-testid="estimate-editor-assemblies-button"
               >
                 Ajouter un ouvrage
-              </button>
+              </Button>
               {onOpenImportFromEstimateDialog ? (
-                <button
-                  className="btn btn-ghost btn-sm min-h-11 w-full justify-start"
+                <Button
                   type="button"
-                  role="menuitem"
+                  variant="ghost"
+                  size="md"
+                  className={PANEL_ITEM_CLASS}
                   onClick={() => {
                     insertClose();
                     onOpenImportFromEstimateDialog();
@@ -328,12 +357,12 @@ export function EstimateEditorCommandBar({
                   data-testid="estimate-editor-import-from-estimate-button"
                 >
                   Importer depuis un autre devis
-                </button>
+                </Button>
               ) : null}
               {onOpenEstimateStructureDraftDialog ||
               onOpenGeneratedOuvrageDialog ? (
                 <div className="mt-1 border-t border-border px-2 pb-1 pt-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  <p className="text-micro font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                     Assistants optionnels
                   </p>
                   <p className="mt-1 text-xs leading-5 text-muted-foreground">
@@ -342,10 +371,11 @@ export function EstimateEditorCommandBar({
                 </div>
               ) : null}
               {onOpenEstimateStructureDraftDialog ? (
-                <button
-                  className="btn btn-ghost btn-sm min-h-11 w-full justify-start"
+                <Button
                   type="button"
-                  role="menuitem"
+                  variant="ghost"
+                  size="md"
+                  className={PANEL_ITEM_CLASS}
                   onClick={() => {
                     insertClose();
                     onOpenEstimateStructureDraftDialog();
@@ -354,13 +384,14 @@ export function EstimateEditorCommandBar({
                   data-testid="estimate-editor-open-structure-draft-button"
                 >
                   Proposer une structure avec l’IA
-                </button>
+                </Button>
               ) : null}
               {onOpenGeneratedOuvrageDialog ? (
-                <button
-                  className="btn btn-ghost btn-sm min-h-11 w-full justify-start"
+                <Button
                   type="button"
-                  role="menuitem"
+                  variant="ghost"
+                  size="md"
+                  className={PANEL_ITEM_CLASS}
                   onClick={() => {
                     insertClose();
                     onOpenGeneratedOuvrageDialog();
@@ -369,7 +400,7 @@ export function EstimateEditorCommandBar({
                   data-testid="estimate-editor-open-generated-ouvrage-button"
                 >
                   Générer des ouvrages à valider
-                </button>
+                </Button>
               ) : null}
             </div>
           ) : null}
@@ -385,9 +416,11 @@ export function EstimateEditorCommandBar({
         hidden={activeRibbonTab !== "display"}
       >
         <div className="relative shrink-0" ref={displayContainerRef}>
-          <button
-            className="btn btn-secondary btn-sm min-h-10"
+          <Button
             type="button"
+            variant="outline"
+            size="md"
+            className="min-h-10"
             onClick={() => {
               insertClose();
               displayToggle();
@@ -400,17 +433,17 @@ export function EstimateEditorCommandBar({
           >
             Afficher
             {qualityCounts.totalFlagsCount > 0 ? (
-              <span className="rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-semibold text-orange-700">
+              <Badge variant="warning" size="sm">
                 {qualityCounts.totalFlagsCount}
-              </span>
+              </Badge>
             ) : null}
-          </button>
+          </Button>
           {displayOpen ? (
             <div
               id={DISPLAY_PANEL_ID}
               role="dialog"
               aria-label="Options d’affichage du chiffrage"
-              className="absolute left-0 top-full z-40 mt-2 max-h-[min(620px,calc(100vh-120px))] w-[min(380px,calc(100vw-32px))] overflow-y-auto rounded-xl border border-border bg-surface p-3 shadow-xl"
+              className="absolute left-0 top-full z-40 mt-2 max-h-[min(620px,calc(100vh-120px))] w-[min(380px,calc(100vw-32px))] overflow-y-auto rounded-xl border border-border bg-surface p-3 shadow-dropdown"
             >
               {onToggleFinalizationPanel ? (
                 <section aria-labelledby="estimate-display-finalization-title">
@@ -418,7 +451,7 @@ export function EstimateEditorCommandBar({
                     <div>
                       <h3
                         id="estimate-display-finalization-title"
-                        className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground"
+                        className={PANEL_SECTION_TITLE_CLASS}
                       >
                         Finalisation
                       </h3>
@@ -426,13 +459,11 @@ export function EstimateEditorCommandBar({
                         Critères, blocages et anomalies avant l’envoi.
                       </p>
                     </div>
-                    <button
+                    <Button
                       type="button"
-                      className={`btn btn-sm min-h-10 shrink-0 ${
-                        isFinalizationPanelOpen
-                          ? "btn-primary"
-                          : "btn-secondary"
-                      }`}
+                      variant={isFinalizationPanelOpen ? "primary" : "outline"}
+                      size="md"
+                      className="min-h-10"
                       onClick={() => {
                         displayClose();
                         onToggleFinalizationPanel();
@@ -441,7 +472,7 @@ export function EstimateEditorCommandBar({
                       data-testid="estimate-editor-toggle-finalization-button"
                     >
                       {isFinalizationPanelOpen ? "Masquer" : "Afficher"}
-                    </button>
+                    </Button>
                   </div>
                 </section>
               ) : null}
@@ -456,30 +487,34 @@ export function EstimateEditorCommandBar({
               >
                 <h3
                   id="estimate-display-structure-title"
-                  className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground"
+                  className={PANEL_SECTION_TITLE_CLASS}
                 >
                   Structure
                 </h3>
                 <div className="mt-2 grid grid-cols-2 gap-2">
                   {onExpandAllSections ? (
-                    <button
-                      className="btn btn-secondary btn-sm min-h-10"
+                    <Button
                       type="button"
+                      variant="outline"
+                      size="md"
+                      className="min-h-10"
                       onClick={onExpandAllSections}
                       data-testid="estimate-editor-expand-all-sections-button"
                     >
                       Tout déplier
-                    </button>
+                    </Button>
                   ) : null}
                   {onCollapseAllSections ? (
-                    <button
-                      className="btn btn-secondary btn-sm min-h-10"
+                    <Button
                       type="button"
+                      variant="outline"
+                      size="md"
+                      className="min-h-10"
                       onClick={onCollapseAllSections}
                       data-testid="estimate-editor-collapse-all-sections-button"
                     >
                       Tout replier
-                    </button>
+                    </Button>
                   ) : null}
                 </div>
               </section>
@@ -491,7 +526,7 @@ export function EstimateEditorCommandBar({
                 <div className="flex items-center justify-between gap-2">
                   <h3
                     id="estimate-display-columns-title"
-                    className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground"
+                    className={PANEL_SECTION_TITLE_CLASS}
                   >
                     Colonnes
                   </h3>
@@ -499,58 +534,56 @@ export function EstimateEditorCommandBar({
                     {columnPresetLabels[columnPreset]}
                   </span>
                 </div>
-                {isSimplifiedMode ? (
-                  isLaborSplitEnabled ? null : (
-                    <button
-                      className="btn btn-secondary btn-sm mt-2 min-h-10 w-full justify-between"
-                      type="button"
-                      onClick={onToggleAdvancedColumns}
-                      data-testid="estimate-editor-toggle-advanced-columns-button"
-                    >
-                      Colonnes avancées
-                      {hiddenAdvancedCount > 0 ? (
-                        <span className="rounded-full bg-primary/15 px-1.5 text-[10px] font-bold text-primary">
-                          {hiddenAdvancedCount} masquées
-                        </span>
-                      ) : null}
-                    </button>
-                  )
-                ) : null}
-                <>
-                    <div className="mt-2 grid grid-cols-2 gap-2">
-                      {availableColumnPresets.map((preset) => (
-                        <button
-                          key={preset}
-                          type="button"
-                          className={`btn btn-sm min-h-10 ${
-                            columnPreset === preset
-                              ? "btn-primary"
-                              : "btn-secondary"
-                          }`}
-                          onClick={() => onColumnPresetChange(preset)}
-                        >
-                          {columnPresetLabels[preset]}
-                        </button>
-                      ))}
-                    </div>
-                    {columnPreset === "custom" ? (
-                      <div className="mt-2 space-y-1 rounded-lg border border-border p-2">
-                        {allAdvancedColumns.map((column) => (
-                          <label
-                            key={column}
-                            className="flex min-h-9 cursor-pointer items-center gap-2 text-sm text-secondary-foreground"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={columnVisibleColumns.has(column)}
-                              onChange={() => onToggleColumn(column)}
-                            />
-                            {columnLabels[column]}
-                          </label>
-                        ))}
-                      </div>
+                {isSimplifiedMode && !isLaborSplitEnabled ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="md"
+                    className="mt-2 min-h-10 w-full justify-between"
+                    onClick={onToggleAdvancedColumns}
+                    data-testid="estimate-editor-toggle-advanced-columns-button"
+                  >
+                    Colonnes avancées
+                    {hiddenAdvancedCount > 0 ? (
+                      <Badge variant="brand" size="sm">
+                        {hiddenAdvancedCount} masquées
+                      </Badge>
                     ) : null}
-                </>
+                  </Button>
+                ) : null}
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  {availableColumnPresets.map((preset) => (
+                    <Button
+                      key={preset}
+                      type="button"
+                      variant={columnPreset === preset ? "primary" : "outline"}
+                      size="md"
+                      className="min-h-10"
+                      aria-pressed={columnPreset === preset}
+                      onClick={() => onColumnPresetChange(preset)}
+                    >
+                      {columnPresetLabels[preset]}
+                    </Button>
+                  ))}
+                </div>
+                {columnPreset === "custom" ? (
+                  <div className="mt-2 space-y-1 rounded-lg border border-border p-2">
+                    {allAdvancedColumns.map((column) => (
+                      <label
+                        key={column}
+                        className="flex min-h-9 cursor-pointer items-center gap-2 text-sm text-foreground-secondary"
+                      >
+                        <input
+                          type="checkbox"
+                          className="size-4 accent-primary"
+                          checked={columnVisibleColumns.has(column)}
+                          onChange={() => onToggleColumn(column)}
+                        />
+                        {columnLabels[column]}
+                      </label>
+                    ))}
+                  </div>
+                ) : null}
                 {columnOrder && onMoveColumn ? (
                   <EstimateColumnOrderControls
                     order={columnOrder}
@@ -559,9 +592,15 @@ export function EstimateEditorCommandBar({
                   />
                 ) : null}
                 {onResetColumns ? (
-                  <button type="button" className="btn btn-secondary btn-sm mt-3 w-full" onClick={onResetColumns}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="md"
+                    className="mt-3 h-auto min-h-9 w-full whitespace-normal py-2"
+                    onClick={onResetColumns}
+                  >
                     Réinitialiser les colonnes et leurs largeurs
-                  </button>
+                  </Button>
                 ) : null}
                 <p className="mt-2 text-xs text-muted-foreground">
                   Préférences personnelles enregistrées sur ce navigateur. Le document client reste indépendant.
@@ -576,24 +615,25 @@ export function EstimateEditorCommandBar({
                   <div className="flex items-center justify-between gap-2">
                     <h3
                       id="estimate-display-quality-title"
-                      className="text-xs font-semibold uppercase tracking-[0.14em] text-orange-700"
+                      className="text-xs font-semibold uppercase tracking-[0.14em] text-warning"
                     >
                       Qualité
                     </h3>
-                    <span className="text-xs text-orange-700">
+                    <span className="text-xs text-warning">
                       {qualityCounts.totalFlagsCount} anomalie
                       {qualityCounts.totalFlagsCount > 1 ? "s" : ""}
                     </span>
                   </div>
                   <label
-                    className="mt-2 block text-xs font-medium text-secondary-foreground"
+                    className="mt-2 block text-xs font-medium text-foreground-secondary"
                     htmlFor="estimate-display-quality-filter"
                   >
                     Lignes affichées
                   </label>
-                  <select
+                  <NativeSelect
                     id="estimate-display-quality-filter"
-                    className="estimate-input estimate-select mt-1 w-full"
+                    size="sm"
+                    wrapperClassName="mt-1"
                     value={qualityFilter}
                     onChange={(event) =>
                       onQualityFilterChange(
@@ -605,18 +645,16 @@ export function EstimateEditorCommandBar({
                       Toutes les lignes ({qualityCounts.linesCount})
                     </option>
                     <option value="with_anomalies">
-                      Lignes concernées ({qualityCounts.linesWithAnomaliesCount}
-                      )
+                      Lignes concernées ({qualityCounts.linesWithAnomaliesCount})
                     </option>
                     {ESTIMATE_QUALITY_FLAG_KEYS.filter(
                       (flag) => qualityCounts.byFlag[flag] > 0,
                     ).map((flag) => (
                       <option key={flag} value={flag}>
-                        {ESTIMATE_QUALITY_FLAG_META[flag].label} (
-                        {qualityCounts.byFlag[flag]})
+                        {ESTIMATE_QUALITY_FLAG_META[flag].label} ({qualityCounts.byFlag[flag]})
                       </option>
                     ))}
-                  </select>
+                  </NativeSelect>
                 </section>
               ) : null}
 
@@ -627,20 +665,25 @@ export function EstimateEditorCommandBar({
                 >
                   <h3
                     id="estimate-display-tools-title"
-                    className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground"
-                    title="Réglages de détection et traitements groupés du chiffrage."
+                    className={PANEL_SECTION_TITLE_CLASS}
                   >
                     Contrôles avancés
                   </h3>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    Réglages de détection et traitements groupés du chiffrage.
+                  </p>
                   <div className="mt-2 grid grid-cols-[minmax(0,1fr)_96px] gap-2">
-                    <label
-                      className="text-xs font-medium text-secondary-foreground"
-                      htmlFor="estimate-outlier-method"
-                    >
-                      Détection des valeurs atypiques
-                      <select
+                    <div>
+                      <label
+                        className="text-xs font-medium text-foreground-secondary"
+                        htmlFor="estimate-outlier-method"
+                      >
+                        Détection des valeurs atypiques
+                      </label>
+                      <NativeSelect
                         id="estimate-outlier-method"
-                        className="estimate-input estimate-select mt-1 w-full"
+                        size="sm"
+                        wrapperClassName="mt-1"
                         value={outlierDetectionMethod}
                         disabled={meta.isReadOnly}
                         onChange={(event) =>
@@ -651,16 +694,19 @@ export function EstimateEditorCommandBar({
                       >
                         <option value="iqr">IQR</option>
                         <option value="zscore">Z-score</option>
-                      </select>
-                    </label>
-                    <label
-                      className="text-xs font-medium text-secondary-foreground"
-                      htmlFor="estimate-outlier-threshold"
-                    >
-                      Seuil
-                      <input
+                      </NativeSelect>
+                    </div>
+                    <div>
+                      <label
+                        className="text-xs font-medium text-foreground-secondary"
+                        htmlFor="estimate-outlier-threshold"
+                      >
+                        Seuil
+                      </label>
+                      <Input
                         id="estimate-outlier-threshold"
-                        className="estimate-input mt-1 w-full"
+                        size="sm"
+                        className="mt-1"
                         type="number"
                         step="0.1"
                         min={0.1}
@@ -672,13 +718,15 @@ export function EstimateEditorCommandBar({
                           )
                         }
                       />
-                    </label>
+                    </div>
                   </div>
                   <div className="mt-3 flex flex-col gap-2">
                     {bulkSuggestionEligibleCount > 0 ? (
-                      <button
-                        className="btn btn-secondary btn-sm min-h-10 w-full justify-start"
+                      <Button
                         type="button"
+                        variant="outline"
+                        size="md"
+                        className="h-auto min-h-10 w-full justify-start whitespace-normal py-2 text-left"
                         onClick={() => {
                           displayClose();
                           onOpenBulkSuggestDialog();
@@ -688,12 +736,14 @@ export function EstimateEditorCommandBar({
                       >
                         Examiner {bulkSuggestionEligibleCount} suggestion
                         {bulkSuggestionEligibleCount > 1 ? "s" : ""}
-                      </button>
+                      </Button>
                     ) : null}
                     {supplierPreselectionEligibleCount > 0 ? (
-                      <button
-                        className="btn btn-secondary btn-sm min-h-10 w-full justify-start"
+                      <Button
                         type="button"
+                        variant="outline"
+                        size="md"
+                        className="h-auto min-h-10 w-full justify-start whitespace-normal py-2 text-left"
                         onClick={() => {
                           displayClose();
                           onOpenSupplierPreselectionDialog();
@@ -701,18 +751,19 @@ export function EstimateEditorCommandBar({
                         disabled={meta.isReadOnly}
                         data-testid="estimate-editor-supplier-preselection-button"
                       >
-                        Présélectionner les fournisseurs (
-                        {supplierPreselectionEligibleCount})
-                      </button>
+                        Présélectionner les fournisseurs ({supplierPreselectionEligibleCount})
+                      </Button>
                     ) : null}
                   </div>
                 </section>
               ) : null}
 
               {onOpenSettings ? (
-                <button
-                  className="btn btn-secondary btn-sm mt-4 min-h-11 w-full"
+                <Button
                   type="button"
+                  variant="outline"
+                  size="md"
+                  className="mt-4 h-auto min-h-11 w-full whitespace-normal py-2"
                   onClick={() => {
                     displayClose();
                     onOpenSettings();
@@ -721,7 +772,7 @@ export function EstimateEditorCommandBar({
                   data-testid="estimate-editor-settings-button"
                 >
                   Ouvrir le paramétrage du devis
-                </button>
+                </Button>
               ) : null}
             </div>
           ) : null}
@@ -730,22 +781,24 @@ export function EstimateEditorCommandBar({
 
       {state.hasSelectedLines ? (
         <div
-          className="flex flex-wrap items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2"
+          className="flex flex-wrap items-center gap-2 rounded-xl border border-info-border bg-info-subtle px-3 py-2"
+          role="group"
           data-testid="estimate-editor-bulk-selection-bar"
           aria-label="Actions sur les lignes sélectionnées"
         >
-          <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-800">
+          <Badge variant="info">
             {state.selectedLineCount} ligne
             {state.selectedLineCount > 1 ? "s" : ""} sélectionnée
             {state.selectedLineCount > 1 ? "s" : ""}
-          </span>
+          </Badge>
 
           <label className="sr-only" htmlFor="estimate-bulk-move-target">
             Déplacer les lignes sélectionnées vers
           </label>
-          <select
+          <NativeSelect
             id="estimate-bulk-move-target"
-            className="estimate-input estimate-select min-h-9 min-w-[170px]"
+            size="sm"
+            wrapperClassName="w-auto min-w-[170px]"
             value={state.bulkMoveParentId}
             onChange={(event) =>
               actions.setBulkMoveParentId(event.target.value)
@@ -761,37 +814,42 @@ export function EstimateEditorCommandBar({
                 {destination.label}
               </option>
             ))}
-          </select>
-          <button
-            className="btn btn-secondary btn-sm min-h-9"
+          </NativeSelect>
+          <Button
             type="button"
+            variant="outline"
+            size="md"
             onClick={() => void onApplyBulkMove()}
             disabled={meta.isReadOnly}
             title="Déplacer toutes les lignes sélectionnées vers la destination choisie."
             data-testid="estimate-editor-bulk-move-apply-button"
           >
             Déplacer
-          </button>
+          </Button>
 
           <details className="relative">
             <summary
-              className="btn btn-secondary btn-sm min-h-9 cursor-pointer list-none"
+              className={cn(
+                buttonVariants({ variant: "outline", size: "md" }),
+                "cursor-pointer list-none [&::-webkit-details-marker]:hidden",
+              )}
               title="Modifier la majoration, la catégorie ou le rôle de main-d’œuvre."
             >
               Modifier les attributs
             </summary>
-            <div className="absolute right-0 top-full z-40 mt-2 w-[min(360px,calc(100vw-32px))] space-y-3 rounded-xl border border-border bg-surface p-3 shadow-xl">
+            <div className="absolute right-0 top-full z-40 mt-2 w-[min(360px,calc(100vw-32px))] space-y-3 rounded-xl border border-border bg-surface p-3 shadow-dropdown">
               <div>
                 <label
-                  className="text-xs font-medium text-secondary-foreground"
+                  className="text-xs font-medium text-foreground-secondary"
                   htmlFor="estimate-bulk-majoration"
                 >
                   Majoration MO (%)
                 </label>
                 <div className="mt-1 flex gap-2">
-                  <input
+                  <Input
                     id="estimate-bulk-majoration"
-                    className="estimate-input min-w-0 flex-1"
+                    size="sm"
+                    className="min-w-0 flex-1"
                     type="number"
                     step="0.1"
                     min={0}
@@ -802,29 +860,31 @@ export function EstimateEditorCommandBar({
                     disabled={meta.isReadOnly}
                     aria-label="Majoration MO en pourcentage"
                   />
-                  <button
-                    className="btn btn-secondary btn-sm"
+                  <Button
                     type="button"
+                    variant="outline"
+                    size="md"
                     onClick={() => void onApplyBulkMajoration()}
                     disabled={meta.isReadOnly}
                     aria-label="Appliquer majoration"
                     data-testid="estimate-editor-bulk-majoration-apply-button"
                   >
                     Appliquer
-                  </button>
+                  </Button>
                 </div>
               </div>
               <div>
                 <label
-                  className="text-xs font-medium text-secondary-foreground"
+                  className="text-xs font-medium text-foreground-secondary"
                   htmlFor="estimate-bulk-category"
                 >
                   Catégorie
                 </label>
                 <div className="mt-1 flex gap-2">
-                  <select
+                  <NativeSelect
                     id="estimate-bulk-category"
-                    className="estimate-input estimate-select min-w-0 flex-1"
+                    size="sm"
+                    wrapperClassName="min-w-0 flex-1"
                     value={state.bulkCategoryId}
                     onChange={(event) =>
                       actions.setBulkCategoryId(event.target.value)
@@ -837,29 +897,32 @@ export function EstimateEditorCommandBar({
                         {category.name}
                       </option>
                     ))}
-                  </select>
-                  <button
-                    className="btn btn-secondary btn-sm"
+                  </NativeSelect>
+                  <Button
                     type="button"
+                    variant="outline"
+                    size="md"
                     onClick={() => void onApplyBulkCategory()}
                     disabled={meta.isReadOnly}
+                    aria-label="Appliquer la catégorie"
                     data-testid="estimate-editor-bulk-category-apply-button"
                   >
                     Appliquer
-                  </button>
+                  </Button>
                 </div>
               </div>
               <div>
                 <label
-                  className="text-xs font-medium text-secondary-foreground"
+                  className="text-xs font-medium text-foreground-secondary"
                   htmlFor="estimate-bulk-labor-role"
                 >
                   Rôle de main-d’œuvre
                 </label>
                 <div className="mt-1 flex gap-2">
-                  <select
+                  <NativeSelect
                     id="estimate-bulk-labor-role"
-                    className="estimate-input estimate-select min-w-0 flex-1"
+                    size="sm"
+                    wrapperClassName="min-w-0 flex-1"
                     value={state.bulkLaborRoleId}
                     onChange={(event) =>
                       actions.setBulkLaborRoleId(event.target.value)
@@ -877,41 +940,45 @@ export function EstimateEditorCommandBar({
                         {!role.is_active ? " (inactif)" : ""}
                       </option>
                     ))}
-                  </select>
-                  <button
-                    className="btn btn-secondary btn-sm"
+                  </NativeSelect>
+                  <Button
                     type="button"
+                    variant="outline"
+                    size="md"
                     onClick={() => void onApplyBulkLaborRole()}
                     disabled={meta.isReadOnly}
+                    aria-label="Appliquer le rôle de main-d’œuvre"
                     data-testid="estimate-editor-bulk-labor-role-apply-button"
                   >
                     Appliquer
-                  </button>
+                  </Button>
                 </div>
               </div>
             </div>
           </details>
 
           <div className="min-w-0 flex-1" />
-          <button
-            className="btn btn-ghost btn-sm min-h-9"
+          <Button
             type="button"
+            variant="ghost"
+            size="md"
             onClick={actions.clearLineSelection}
             disabled={meta.isReadOnly}
             title="Retirer la sélection sans modifier les lignes."
           >
             Désélectionner
-          </button>
-          <button
-            className="btn btn-danger btn-sm min-h-9"
+          </Button>
+          <Button
             type="button"
+            variant="danger"
+            size="md"
             onClick={() => void onBulkDeleteSelection()}
             disabled={meta.isReadOnly}
             title="Supprimer définitivement les lignes sélectionnées."
             data-testid="estimate-editor-bulk-delete-selection-button"
           >
             Supprimer
-          </button>
+          </Button>
         </div>
       ) : null}
     </div>

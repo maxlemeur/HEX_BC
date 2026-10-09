@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
+import { PlusIcon, RefreshCwIcon, SearchIcon } from "lucide-react";
 import useSWR from "swr";
 
 import {
@@ -9,8 +9,15 @@ import {
   type AssemblyEditorInput,
 } from "@/components/estimates/AssemblyEditorDialog";
 import { AssemblyLibraryTable } from "@/components/estimates/AssemblyLibraryTable";
-import { ConfirmModal } from "@/components/ui-legacy/ConfirmModal";
-import { PromptModal } from "@/components/ui-legacy/PromptModal";
+import { LibraryNameDialog } from "@/components/estimates/LibraryNameDialog";
+import { useConfirm } from "@/components/feedback/confirm-provider";
+import { LoadingState } from "@/components/layout/loading-state";
+import { PageHeader } from "@/components/layout/page-header";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import {
   createEstimateAssembly,
   deleteEstimateAssembly,
@@ -24,6 +31,7 @@ import {
 } from "@/lib/estimates/client";
 
 export default function EstimateAssembliesPage() {
+  const confirm = useConfirm();
   const [search, setSearch] = useState("");
   const [busyAssemblyId, setBusyAssemblyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -38,7 +46,6 @@ export default function EstimateAssembliesPage() {
   >({});
   const [renamingAssembly, setRenamingAssembly] = useState<{ id: string; name: string } | null>(null);
   const [duplicatingAssembly, setDuplicatingAssembly] = useState<{ id: string; name: string } | null>(null);
-  const [deletingAssembly, setDeletingAssembly] = useState<{ id: string; name: string } | null>(null);
 
   const swrKey = useMemo(
     () => ["estimate-assemblies", search.trim().toLowerCase()],
@@ -195,79 +202,91 @@ export default function EstimateAssembliesPage() {
     [duplicatingAssembly, mutate]
   );
 
-  const handleDelete = useCallback((assembly: EstimateAssemblySummary) => {
-    setDeletingAssembly({ id: assembly.id, name: assembly.name });
-  }, []);
+  const handleDelete = useCallback(
+    async (assembly: EstimateAssemblySummary) => {
+      const confirmed = await confirm({
+        title: "Supprimer l'ouvrage ?",
+        description: `L'ouvrage « ${assembly.name} » sera supprimé définitivement.`,
+        confirmLabel: "Supprimer",
+        tone: "danger",
+      });
+      if (!confirmed) return;
 
-  const confirmDelete = useCallback(async () => {
-    if (!deletingAssembly) return;
-    setActionError(null);
-    setSuccessMessage(null);
-    setBusyAssemblyId(deletingAssembly.id);
-    setDeletingAssembly(null);
-    try {
-      await deleteEstimateAssembly(deletingAssembly.id);
-      setSuccessMessage("Ouvrage supprimé.");
-      await mutate();
-    } catch (error) {
-      setActionError(
-        error instanceof Error ? error.message : "Impossible de supprimer l'ouvrage."
-      );
-    } finally {
-      setBusyAssemblyId(null);
-    }
-  }, [deletingAssembly, mutate]);
+      setActionError(null);
+      setSuccessMessage(null);
+      setBusyAssemblyId(assembly.id);
+      try {
+        await deleteEstimateAssembly(assembly.id);
+        setSuccessMessage("Ouvrage supprimé.");
+        await mutate();
+      } catch (error) {
+        setActionError(
+          error instanceof Error ? error.message : "Impossible de supprimer l'ouvrage."
+        );
+      } finally {
+        setBusyAssemblyId(null);
+      }
+    },
+    [confirm, mutate]
+  );
 
   return (
     <div className="animate-fade-in">
-      <div className="page-header flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="page-title">Bibliothèque d&apos;ouvrages</h1>
-          <p className="page-description">
-            Créez et réutilisez des groupes de lignes préconfigurés dans vos chiffrages.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button className="btn btn-primary btn-sm" onClick={openCreateModal}>
+      <PageHeader
+        title="Bibliothèque d'ouvrages"
+        description="Créez et réutilisez des groupes de lignes préconfigurés dans vos chiffrages."
+        actions={
+          <Button
+            variant="primary"
+            size="md"
+            onClick={openCreateModal}
+            leftIcon={<PlusIcon aria-hidden="true" />}
+          >
             Nouvel ouvrage
-          </button>
-          <Link className="btn btn-secondary btn-sm" href="/dashboard/estimates">
-            Retour
-          </Link>
-        </div>
+          </Button>
+        }
+      />
+
+      <div className="mb-6 flex flex-col gap-3 empty:hidden">
+        {actionError ? <Alert variant="danger">{actionError}</Alert> : null}
+        {successMessage ? <Alert variant="success">{successMessage}</Alert> : null}
+        {loadError ? <Alert variant="danger">{loadError.message}</Alert> : null}
       </div>
 
-      {actionError ? <div className="alert alert-error mb-6">{actionError}</div> : null}
-      {successMessage ? <div className="alert alert-success mb-6">{successMessage}</div> : null}
-      {loadError ? <div className="alert alert-error mb-6">{loadError.message}</div> : null}
-
-      <div className="dashboard-card overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-6 py-4">
+      <Card className="overflow-hidden">
+        <div className="flex flex-wrap items-end justify-between gap-3 border-b border-border-subtle px-4 py-4 sm:px-6">
           <div className="w-full max-w-md">
-            <label className="form-label" htmlFor="assembly-search">
+            <FieldLabel htmlFor="assembly-search" className="mb-1.5">
               Rechercher
-            </label>
-            <input
-              id="assembly-search"
-              className="form-input"
-              placeholder="Nom ou description"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
+            </FieldLabel>
+            <div className="relative">
+              <SearchIcon
+                aria-hidden="true"
+                className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+              />
+              <Input
+                id="assembly-search"
+                type="search"
+                className="pl-9"
+                placeholder="Nom ou description"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+            </div>
           </div>
-          <button
-            className="btn btn-secondary btn-sm"
+          <Button
+            variant="outline"
+            size="md"
             onClick={() => void mutate()}
-            disabled={isValidating}
+            loading={isValidating}
+            leftIcon={<RefreshCwIcon aria-hidden="true" />}
           >
-            {isValidating ? "Actualisation..." : "Actualiser"}
-          </button>
+            Actualiser
+          </Button>
         </div>
 
         {isLoading ? (
-          <div className="px-6 py-8 text-sm text-muted-foreground">
-            Chargement des ouvrages...
-          </div>
+          <LoadingState label="Chargement des ouvrages…" />
         ) : (
           <AssemblyLibraryTable
             assemblies={assemblies}
@@ -277,11 +296,11 @@ export default function EstimateAssembliesPage() {
             onEdit={handleEdit}
             onRename={handleRename}
             onDuplicate={handleDuplicate}
-            onDelete={handleDelete}
+            onDelete={(assembly) => void handleDelete(assembly)}
             loadAssembly={fetchEstimateAssembly}
           />
         )}
-      </div>
+      </Card>
 
       {isModalOpen ? (
         <AssemblyEditorDialog
@@ -296,32 +315,23 @@ export default function EstimateAssembliesPage() {
         />
       ) : null}
 
-      <PromptModal
+      <LibraryNameDialog
         open={renamingAssembly !== null}
         title="Renommer l'ouvrage"
         label="Nouveau nom"
         defaultValue={renamingAssembly?.name ?? ""}
         confirmLabel="Renommer"
-        onConfirm={confirmRename}
+        onConfirm={(value) => void confirmRename(value)}
         onCancel={() => setRenamingAssembly(null)}
       />
-      <PromptModal
+      <LibraryNameDialog
         open={duplicatingAssembly !== null}
         title="Dupliquer l'ouvrage"
         label="Nom de la copie"
         defaultValue={duplicatingAssembly ? `${duplicatingAssembly.name} (copie)` : ""}
         confirmLabel="Dupliquer"
-        onConfirm={confirmDuplicate}
+        onConfirm={(value) => void confirmDuplicate(value)}
         onCancel={() => setDuplicatingAssembly(null)}
-      />
-      <ConfirmModal
-        open={deletingAssembly !== null}
-        title="Supprimer l'ouvrage"
-        message={`Supprimer l'ouvrage "${deletingAssembly?.name ?? ""}" ? Cette action est irréversible.`}
-        confirmLabel="Supprimer"
-        variant="danger"
-        onConfirm={() => void confirmDelete()}
-        onCancel={() => setDeletingAssembly(null)}
       />
     </div>
   );

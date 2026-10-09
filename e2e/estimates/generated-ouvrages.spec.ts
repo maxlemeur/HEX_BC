@@ -94,7 +94,7 @@ async function openEstimateEditor(page: Page, versionId: string) {
     }
 
     await page
-      .getByText("Chargement du chiffrage...")
+      .getByText("Chargement du chiffrage…")
       .waitFor({ state: "hidden", timeout: 30_000 })
       .catch(() => {});
     await revealGeneratedOuvrageButton(page);
@@ -107,6 +107,11 @@ async function revealGeneratedOuvrageButton(page: Page) {
   );
   if (await openButton.isVisible().catch(() => false)) return openButton;
 
+  // The "Insérer" command lives in the ribbon tab of the same name.
+  const insertTab = page.getByRole("tab", { name: "Insérer", exact: true });
+  if (await insertTab.isVisible().catch(() => false)) {
+    await insertTab.click();
+  }
   await page.getByRole("button", { name: "Insérer", exact: true }).click();
   await expect(openButton).toBeVisible({ timeout: 30_000 });
   return openButton;
@@ -227,9 +232,9 @@ test.describe("EST-381 - generated ouvrages review", () => {
       rejectCount = await dialog.getByRole("button", { name: /^Rejeter$/i }).count();
     }
 
-    await expect(dialog.getByText(/Toutes les propositions ont ete ecartees/i)).toBeVisible();
+    await expect(dialog.getByText(/Toutes les propositions ont été écartées/i)).toBeVisible();
     await expect(
-      dialog.getByRole("button", { name: /Inserer les ouvrages sélectionnés/i })
+      dialog.getByRole("button", { name: /Insérer les ouvrages sélectionnés/i })
     ).toHaveCount(0);
   });
 
@@ -271,25 +276,25 @@ test.describe("EST-381 - generated ouvrages review", () => {
     );
     await activateButton(
       insertableCard.getByRole("button", {
-        name: /^(Sous-detail|Valider le sous-detail)$/i,
+        name: /^(Sous-détail|Valider le sous-détail)$/i,
       })
     );
-    await expect(dialog.getByText(/Sous-detail compose/i)).toBeVisible({
+    await expect(dialog.getByText(/Sous-détail composé/i)).toBeVisible({
       timeout: 60_000,
     });
     const subdetailEditor = dialog
       .locator("section")
-      .filter({ hasText: /Sous-detail compose/i })
+      .filter({ hasText: /Sous-détail composé/i })
       .first();
     await subdetailEditor
-      .getByRole("button", { name: /^Valider le sous-detail$/i })
+      .getByRole("button", { name: /^Valider le sous-détail$/i })
       .click();
-    await expect(insertableCard.getByText(/Ouvrage pret/i)).toBeVisible({
+    await expect(insertableCard.getByText(/Ouvrage prêt/i)).toBeVisible({
       timeout: 60_000,
     });
     await activateButton(
       insertableCard.getByRole("button", {
-        name: /^Selectionner(?: pour insertion)?$/i,
+        name: /^Sélectionner(?: pour insertion)?$/i,
       })
     );
     await expect(insertableCard.getByRole("checkbox")).toBeChecked();
@@ -301,7 +306,7 @@ test.describe("EST-381 - generated ouvrages review", () => {
         async () => {
           if (!(await dialog.isVisible().catch(() => false))) return "closed";
           const partialInsertVisible = await dialog
-            .getByText(/ouvrage\(s\) insere\(s\)/i)
+            .getByText(/ouvrage\(s\) inséré\(s\)/i)
             .isVisible()
             .catch(() => false);
           return partialInsertVisible ? "partial" : "pending";

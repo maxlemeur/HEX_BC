@@ -1,3 +1,5 @@
+import { CheckIcon } from "lucide-react";
+
 import type { ApplyEstimateStructureDraftResult } from "@/lib/estimates/client";
 import type {
   FlatStructureDraftNode,
@@ -25,34 +27,37 @@ export function ResultStep({
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-3">
-        <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 text-lg text-emerald-700">
-          {"\u2713"}
+        <span
+          aria-hidden="true"
+          className="inline-flex size-10 items-center justify-center rounded-full bg-success-light text-success"
+        >
+          <CheckIcon className="size-5" />
         </span>
         <h3 className="text-lg font-semibold text-foreground">
           Structure appliquée
         </h3>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-center">
-          <p className="text-2xl font-semibold text-emerald-700">
+      <dl className="grid gap-4 sm:grid-cols-3">
+        <div className="flex flex-col-reverse rounded-lg border border-success-border bg-success-subtle p-4 text-center">
+          <dt className="mt-1 text-sm text-success">création(s)</dt>
+          <dd className="text-2xl font-semibold text-success tabular-nums">
             {applyResult.createdCount}
-          </p>
-          <p className="mt-1 text-sm text-emerald-600">création(s)</p>
+          </dd>
         </div>
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-center">
-          <p className="text-2xl font-semibold text-amber-700">
+        <div className="flex flex-col-reverse rounded-lg border border-warning-border bg-warning-subtle p-4 text-center">
+          <dt className="mt-1 text-sm text-warning">fusion(s)</dt>
+          <dd className="text-2xl font-semibold text-warning tabular-nums">
             {applyResult.mergedCount}
-          </p>
-          <p className="mt-1 text-sm text-amber-600">fusion(s)</p>
+          </dd>
         </div>
-        <div className="rounded-xl border border-border bg-surface-subtle p-4 text-center">
-          <p className="text-2xl font-semibold text-slate-600">
+        <div className="flex flex-col-reverse rounded-lg border border-border bg-surface-subtle p-4 text-center">
+          <dt className="mt-1 text-sm text-muted-foreground">ignorée(s)</dt>
+          <dd className="text-2xl font-semibold text-foreground-secondary tabular-nums">
             {applyResult.skippedCount}
-          </p>
-          <p className="mt-1 text-sm text-muted-foreground">ignoree(s)</p>
+          </dd>
         </div>
-      </div>
+      </dl>
 
       {createdNodes.length > 0 ? (
         <div>
@@ -63,7 +68,7 @@ export function ResultStep({
             {createdNodes.map((node) => (
               <li
                 key={node.id}
-                className="rounded-lg border-l-4 border-emerald-400 bg-emerald-50 px-3 py-2 text-sm text-slate-800"
+                className="rounded-lg border-l-4 border-success bg-success-subtle px-3 py-2 text-sm text-foreground"
               >
                 {node.path.join(" > ")}
               </li>
@@ -75,13 +80,13 @@ export function ResultStep({
       {mergedNodes.length > 0 ? (
         <div>
           <h4 className="text-sm font-semibold text-foreground-secondary">
-            Sections fusionnees
+            Sections fusionnées
           </h4>
           <ul className="mt-2 space-y-1">
             {mergedNodes.map((node) => (
               <li
                 key={node.id}
-                className="rounded-lg border-l-4 border-amber-400 bg-amber-50 px-3 py-2 text-sm text-slate-800"
+                className="rounded-lg border-l-4 border-warning bg-warning-subtle px-3 py-2 text-sm text-foreground"
               >
                 {node.path.join(" > ")}
               </li>

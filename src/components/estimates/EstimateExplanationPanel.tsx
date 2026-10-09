@@ -2,9 +2,18 @@
 
 import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 
-import { Badge } from "@/components/ui-legacy/Badge";
-import { Button } from "@/components/ui-legacy/Button";
-import { Modal } from "@/components/ui-legacy/Modal";
+import { XIcon } from "lucide-react";
+
+import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { EstimateApiError, isEstimateApiError } from "@/lib/estimates/client";
 import {
   fetchEstimateDeltaExplanation,
@@ -50,7 +59,7 @@ type DetailState = {
 const CONFIDENCE_VARIANTS = {
   high: "success",
   medium: "warning",
-  low: "error",
+  low: "danger",
 } as const;
 
 const CONFIDENCE_LABELS = {
@@ -61,11 +70,11 @@ const CONFIDENCE_LABELS = {
 
 const RISK_VARIANTS: Record<
   EstimateExplanationRiskSignal["severity"],
-  "neutral" | "warning" | "error"
+  "neutral" | "warning" | "danger"
 > = {
   low: "neutral",
   medium: "warning",
-  high: "error",
+  high: "danger",
 };
 
 function formatConfidenceScore(score: number | null | undefined) {
@@ -124,7 +133,7 @@ function formatMarginLabel(input: {
       parts.push(`actuelle ${formatMarginPercent(input.currentMarginBp)}%`);
     }
     if (typeof input.compareMarginBp === "number") {
-      parts.push(`comparee ${formatMarginPercent(input.compareMarginBp)}%`);
+      parts.push(`comparée ${formatMarginPercent(input.compareMarginBp)}%`);
     }
     return parts.join(" · ");
   }
@@ -169,11 +178,11 @@ function SummaryMetricCard({
   value: string;
 }) {
   return (
-    <div className="rounded-2xl border border-border bg-surface-subtle p-4">
+    <div className="rounded-lg border border-border bg-surface-subtle p-4">
       <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">
         {label}
       </p>
-      <p className="mt-2 text-sm font-semibold text-slate-950">{value}</p>
+      <p className="mt-2 text-sm font-semibold text-foreground">{value}</p>
     </div>
   );
 }
@@ -200,11 +209,11 @@ function StatementSection({
           {entries.map((entry) => (
             <article
               key={`${title}-${entry.label}`}
-              className="rounded-2xl border border-border bg-surface p-3"
+              className="rounded-lg border border-border bg-surface p-3"
             >
-              <p className="text-sm font-medium text-slate-950">{entry.label}</p>
+              <p className="text-sm font-medium text-foreground">{entry.label}</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                {entry.source_label ?? "Source non renseignee"}
+                {entry.source_label ?? "Source non renseignée"}
                 {typeof entry.confidence_score === "number"
                   ? ` · ${Math.round(entry.confidence_score * 100)}%`
                   : ""}
@@ -213,7 +222,7 @@ function StatementSection({
           ))}
         </div>
       ) : (
-        <div className="rounded-2xl border border-dashed border-border bg-surface p-4 text-sm text-slate-600">
+        <div className="rounded-lg border border-dashed border-border bg-surface p-4 text-sm text-muted-foreground">
           Aucun élément pour cette section.
         </div>
       )}
@@ -348,28 +357,30 @@ export function EstimateExplanationPanel({
   const title =
     kind === "price"
       ? lineLabel?.trim() || "Explication de prix"
-      : `${currentVersionLabel?.trim() || "Version courante"} vs ${compareVersionLabel?.trim() || "Version comparee"}`;
+      : `${currentVersionLabel?.trim() || "Version courante"} vs ${compareVersionLabel?.trim() || "Version comparée"}`;
 
   return (
-    <Modal.Root open={open} onOpenChange={onOpenChange}>
-      <Modal.Content
-        className="ml-auto flex h-full max-h-[calc(100vh-2rem)] max-w-3xl flex-col overflow-hidden rounded-[28px] p-0 sm:rounded-l-[28px] sm:rounded-r-none"
+    <Sheet open={open} onOpenChange={(nextOpen) => onOpenChange(nextOpen)}>
+      <SheetContent
+        side="right"
+        showCloseButton={false}
+        className="gap-0 bg-surface p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-3xl"
         data-testid="estimate-explanation-panel"
       >
-        <div className="border-b border-border bg-[linear-gradient(135deg,rgba(241,245,249,0.9),rgba(255,255,255,0.98))] px-5 py-5 sm:px-6">
+        <div className="shrink-0 border-b border-border bg-surface-subtle px-5 py-5 sm:px-6">
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
+            <div className="min-w-0">
               <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
                 {surfaceLabel}
               </p>
-              <Modal.Title className="mt-2 text-xl text-slate-950">
+              <SheetTitle className="mt-2 text-xl font-semibold text-foreground">
                 {title}
-              </Modal.Title>
-              <p className="mt-1 text-sm text-slate-600">
+              </SheetTitle>
+              <SheetDescription className="mt-1 text-foreground-secondary">
                 {kind === "price"
                   ? "Lecture seule. Aucun prix ne sera appliqué automatiquement."
                   : "Lecture seule. Le delta reste purement explicatif."}
-              </p>
+              </SheetDescription>
             </div>
             <div className="flex flex-wrap gap-2">
               <Button
@@ -380,13 +391,18 @@ export function EstimateExplanationPanel({
               >
                 Actualiser
               </Button>
-              <Modal.Close />
+              <SheetClose
+                render={<Button type="button" variant="ghost" size="icon-sm" />}
+              >
+                <XIcon aria-hidden="true" />
+                <span className="sr-only">Fermer</span>
+              </SheetClose>
             </div>
           </div>
 
           {explanation ? (
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
-              <div className="rounded-2xl border border-white/80 bg-surface/80 p-3">
+              <div className="rounded-lg border border-border bg-surface p-3">
                 <p className="text-xs text-muted-foreground">Confiance</p>
                 <div className="mt-1 flex flex-wrap items-center gap-2">
                   <Badge
@@ -395,48 +411,49 @@ export function EstimateExplanationPanel({
                   >
                     {CONFIDENCE_LABELS[explanation.confidence_label]}
                   </Badge>
-                  <span className="text-sm font-semibold text-slate-950">
+                  <span className="text-sm font-semibold text-foreground">
                     {formatConfidenceScore(explanation.confidence_score)}
                   </span>
                 </div>
               </div>
-              <div className="rounded-2xl border border-white/80 bg-surface/80 p-3">
+              <div className="rounded-lg border border-border bg-surface p-3">
                 <p className="text-xs text-muted-foreground">Provenance</p>
-                <p className="mt-1 text-sm font-semibold text-slate-950">
+                <p className="mt-1 text-sm font-semibold text-foreground">
                   {explanation.provenance.length} source(s)
                 </p>
               </div>
-              <div className="rounded-2xl border border-white/80 bg-surface/80 p-3">
+              <div className="rounded-lg border border-border bg-surface p-3">
                 <p className="text-xs text-muted-foreground">Moteur</p>
-                <p className="mt-1 text-sm font-semibold text-slate-950">
-                  {explanation.used_fallback ? "Fallback" : explanation.provider}
+                <p className="mt-1 text-sm font-semibold text-foreground">
+                  {explanation.used_fallback ? "Repli automatique" : explanation.provider}
                 </p>
               </div>
             </div>
           ) : null}
         </div>
 
-        <Modal.Body className="flex-1 space-y-5 overflow-y-auto bg-surface-subtle px-5 py-5 sm:px-6">
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto bg-surface-subtle px-5 py-5 sm:px-6">
           {currentState.kind === "loading" ? (
-            <div className="rounded-3xl border border-dashed border-border bg-surface p-5 text-sm text-slate-600">
-              Chargement de l&apos;explication...
+            <div
+              className="rounded-lg border border-dashed border-border bg-surface p-5 text-sm text-muted-foreground"
+              role="status"
+            >
+              Chargement de l’explication…
             </div>
           ) : null}
 
           {currentState.kind === "error" ? (
-            <div className="rounded-3xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-              {currentState.message}
-            </div>
+            <Alert variant="danger">{currentState.message}</Alert>
           ) : null}
 
           {explanation ? (
             <>
-              <section className="rounded-3xl border border-border bg-surface p-5">
+              <section className="rounded-lg border border-border bg-surface p-5">
                 <div className="space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <h3 className="text-base font-semibold text-slate-950">
-                        Resume court
+                      <h3 className="text-base font-semibold text-foreground">
+                        Résumé court
                       </h3>
                       <p className="mt-1 text-sm leading-6 text-foreground-secondary">
                         {explanation.summary_short}
@@ -446,7 +463,7 @@ export function EstimateExplanationPanel({
 
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                      Synthese impact
+                      Synthèse de l’impact
                     </p>
                     <div
                       className={`mt-3 grid gap-3 ${
@@ -501,7 +518,9 @@ export function EstimateExplanationPanel({
                       : "Charger le détail"}
                   </Button>
                   {detailState.status === "error" ? (
-                    <p className="mt-2 text-sm text-rose-700">{detailState.message}</p>
+                    <p className="mt-2 text-sm text-danger" role="alert">
+                      {detailState.message}
+                    </p>
                   ) : null}
                   {explanation.summary_detail ? (
                     <p className="mt-3 text-sm leading-7 text-foreground-secondary">
@@ -512,9 +531,9 @@ export function EstimateExplanationPanel({
               </section>
 
               {explanation.risk_signals.length > 0 ? (
-                <section className="rounded-3xl border border-border bg-surface p-5">
+                <section className="rounded-lg border border-border bg-surface p-5">
                   <div className="flex items-center justify-between gap-3">
-                    <h3 className="text-base font-semibold text-slate-950">
+                    <h3 className="text-base font-semibold text-foreground">
                       Signaux de risque
                     </h3>
                     <Badge variant="neutral" size="sm">
@@ -537,11 +556,11 @@ export function EstimateExplanationPanel({
 
               <StatementSection title="Faits" entries={explanation.facts} />
               <StatementSection title="Hypothèses" entries={explanation.hypotheses} />
-              <StatementSection title="Inferences" entries={explanation.inferences} />
+              <StatementSection title="Inférences" entries={explanation.inferences} />
 
-              <section className="rounded-3xl border border-border bg-surface p-5">
+              <section className="rounded-lg border border-border bg-surface p-5">
                 <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-base font-semibold text-slate-950">
+                  <h3 className="text-base font-semibold text-foreground">
                     Provenance
                   </h3>
                   <Badge variant="neutral" size="sm">
@@ -552,9 +571,9 @@ export function EstimateExplanationPanel({
                   {explanation.provenance.map((source) => (
                     <article
                       key={`${source.source_kind}-${source.label}-${source.source_ref ?? "none"}`}
-                      className="rounded-2xl border border-border bg-surface-subtle p-3"
+                      className="rounded-lg border border-border bg-surface-subtle p-3"
                     >
-                      <p className="text-sm font-medium text-slate-950">
+                      <p className="text-sm font-medium text-foreground">
                         {source.label}
                       </p>
                       <p className="mt-1 text-xs text-muted-foreground">
@@ -570,8 +589,8 @@ export function EstimateExplanationPanel({
               </section>
             </>
           ) : null}
-        </Modal.Body>
-      </Modal.Content>
-    </Modal.Root>
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }

@@ -1,11 +1,23 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
+import { SendIcon } from "lucide-react";
 
-import { Button } from "@/components/ui-legacy/Button";
-import { Input } from "@/components/ui-legacy/Input";
-import { Modal } from "@/components/ui-legacy/Modal";
 import { useToast } from "@/components/ui-legacy/Toast";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { useOptionalUserContext } from "@/components/UserContext";
 
 type SendEstimateModalProps = {
@@ -109,6 +121,12 @@ export function SendEstimateModal({
   onSent,
 }: SendEstimateModalProps) {
   const toast = useToast();
+  const fieldId = useId();
+  const toId = `${fieldId}-to`;
+  const ccId = `${fieldId}-cc`;
+  const ccHelpId = `${fieldId}-cc-help`;
+  const subjectId = `${fieldId}-subject`;
+  const messageId = `${fieldId}-message`;
 
   const [to, setTo] = useState(defaultRecipient);
   const [ccRaw, setCcRaw] = useState("");
@@ -267,81 +285,94 @@ export function SendEstimateModal({
   );
 
   return (
-    <Modal.Root open={open} onOpenChange={handleOpenChange}>
-      <Modal.Content className="max-w-2xl">
-        <Modal.Header>
-          <Modal.Title>Envoyer le devis par email</Modal.Title>
-          <Modal.Close disabled={isSubmitting} />
-        </Modal.Header>
-        <form onSubmit={handleSubmit}>
-          <Modal.Body>
-            <div className="space-y-4">
+    <Dialog
+      open={open}
+      onOpenChange={handleOpenChange}
+      disablePointerDismissal={isSubmitting}
+    >
+      <DialogContent size="lg">
+        <DialogHeader>
+          <DialogTitle>Envoyer le devis par email</DialogTitle>
+          <DialogDescription>
+            Le client reçoit le PDF et un lien vers le portail pour consulter le devis en ligne.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
+          <DialogBody>
+            <Field>
+              <FieldLabel htmlFor={toId}>Destinataire *</FieldLabel>
               <Input
-                label="Destinataire *"
-                type="text"
+                id={toId}
+                type="email"
+                inputMode="email"
+                autoComplete="email"
                 placeholder="client@example.com"
                 value={to}
                 onChange={(e) => setTo(e.target.value)}
                 disabled={isSubmitting}
               />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={ccId}>CC</FieldLabel>
               <Input
-                label="CC"
+                id={ccId}
                 type="text"
+                inputMode="email"
                 placeholder="cc1@example.com, cc2@example.com"
                 value={ccRaw}
                 onChange={(e) => setCcRaw(e.target.value)}
-                helperText="Separez les adresses par des virgules"
+                aria-describedby={ccHelpId}
                 disabled={isSubmitting}
               />
+              <FieldDescription id={ccHelpId}>
+                Séparez les adresses par des virgules.
+              </FieldDescription>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={subjectId}>Objet *</FieldLabel>
               <Input
-                label="Objet *"
+                id={subjectId}
                 type="text"
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
                 disabled={isSubmitting}
               />
-              <div>
-                <label
-                  htmlFor="send-estimate-message"
-                  className="mb-1.5 block text-sm font-medium text-foreground-secondary"
-                >
-                  Message *
-                </label>
-                <textarea
-                  id="send-estimate-message"
-                  className="form-textarea w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-slate-800 placeholder:text-subtle-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
-                  rows={6}
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  disabled={isSubmitting}
-                />
-              </div>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={messageId}>Message *</FieldLabel>
+              <Textarea
+                id={messageId}
+                rows={6}
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                disabled={isSubmitting}
+              />
+            </Field>
 
-              {formError && (
-                <div
-                  className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
-                  role="alert"
-                >
-                  {formError}
-                </div>
-              )}
-            </div>
-          </Modal.Body>
-          <Modal.Footer>
+            {formError ? <Alert variant="danger">{formError}</Alert> : null}
+          </DialogBody>
+          <DialogFooter>
             <Button
               type="button"
-              variant="secondary"
+              variant="outline"
+              size="lg"
               onClick={closeModal}
               disabled={isSubmitting}
             >
               Annuler
             </Button>
-            <Button type="submit" variant="primary" loading={isSubmitting}>
+            <Button
+              type="submit"
+              variant="primary"
+              size="lg"
+              loading={isSubmitting}
+              leftIcon={<SendIcon aria-hidden="true" />}
+            >
               Envoyer
             </Button>
-          </Modal.Footer>
+          </DialogFooter>
         </form>
-      </Modal.Content>
-    </Modal.Root>
+      </DialogContent>
+    </Dialog>
   );
 }

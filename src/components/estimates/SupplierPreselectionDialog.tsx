@@ -2,6 +2,18 @@
 
 import { useMemo } from "react";
 
+import { LoadingState } from "@/components/layout/loading-state";
+import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import type { EstimateSupplierPreselectionReview } from "@/lib/estimates/supplier-preselection";
 import { formatCurrency } from "@/lib/money";
 
@@ -60,118 +72,104 @@ export function SupplierPreselectionDialog({
     proposals.length > 0 &&
     proposals.every((proposal) => selectedIds.has(proposal.item_id));
 
-  if (!isOpen) return null;
+  const summaryTiles = summary
+    ? [
+        { label: "Propositions", value: String(summary.proposed_items) },
+        { label: "Exceptions", value: String(summary.exception_items) },
+        { label: "Déjà couverts", value: String(summary.already_selected_items) },
+        { label: "Sélection", value: `${selectedCount}/${proposals.length}` },
+      ]
+    : [];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,6,23,0.45)] p-4">
-      <div
-        className="dashboard-card w-full max-w-6xl p-6"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="supplier-preselection-dialog-title"
-      >
-        <div className="mb-4 flex items-start justify-between gap-4">
-          <div>
-            <h2
-              id="supplier-preselection-dialog-title"
-              className="text-lg font-semibold text-slate-800"
-            >
-              Présélection fournisseurs
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              TIMAX préremplit uniquement les cas simples. Les exceptions restent
-              visibles pour arbitrage avant application.
-            </p>
-          </div>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            onClick={onClose}
-            disabled={isApplying}
-          >
-            Fermer
-          </button>
-        </div>
+    <Dialog
+      open={isOpen}
+      disablePointerDismissal={isApplying}
+      onOpenChange={(open) => {
+        if (!open && !isApplying) onClose();
+      }}
+    >
+      <DialogContent size="full" className="sm:max-w-6xl">
+        <DialogHeader>
+          <DialogTitle>Présélection fournisseurs</DialogTitle>
+          <DialogDescription>
+            TIMAX préremplit uniquement les cas simples. Les exceptions restent
+            visibles pour arbitrage avant application.
+          </DialogDescription>
+        </DialogHeader>
 
-        {error ? <div className="alert alert-error">{error}</div> : null}
+        {error ? <Alert variant="danger">{error}</Alert> : null}
 
-        {summary ? (
-          <div className="grid gap-3 md:grid-cols-4">
-            <div className="rounded-xl border border-border bg-surface p-3">
-              <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">
-                Propositions
-              </p>
-              <p className="mt-1 text-2xl font-semibold text-slate-800">
-                {summary.proposed_items}
-              </p>
-            </div>
-            <div className="rounded-xl border border-border bg-surface p-3">
-              <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">
-                Exceptions
-              </p>
-              <p className="mt-1 text-2xl font-semibold text-slate-800">
-                {summary.exception_items}
-              </p>
-            </div>
-            <div className="rounded-xl border border-border bg-surface p-3">
-              <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">
-                Déjà couverts
-              </p>
-              <p className="mt-1 text-2xl font-semibold text-slate-800">
-                {summary.already_selected_items}
-              </p>
-            </div>
-            <div className="rounded-xl border border-border bg-surface p-3">
-              <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">
-                Sélection
-              </p>
-              <p className="mt-1 text-2xl font-semibold text-slate-800">
-                {selectedCount}/{proposals.length}
-              </p>
-            </div>
-          </div>
+        {summaryTiles.length > 0 ? (
+          <dl className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            {summaryTiles.map((tile) => (
+              <div
+                key={tile.label}
+                className="rounded-lg border border-border bg-surface-subtle p-3"
+              >
+                <dt className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                  {tile.label}
+                </dt>
+                <dd className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
+                  {tile.value}
+                </dd>
+              </div>
+            ))}
+          </dl>
         ) : null}
 
         {isLoading ? (
-          <div className="alert alert-info mt-4">Analyse fournisseurs en cours...</div>
+          <LoadingState label="Analyse des fournisseurs en cours…" className="py-6" />
         ) : null}
 
         {!isLoading && proposals.length === 0 && exceptions.length === 0 ? (
-          <div className="alert alert-info mt-4">
+          <Alert variant="info">
             Aucune présélection exploitable pour cette version.
-          </div>
+          </Alert>
         ) : null}
 
         {!isLoading && proposals.length > 0 ? (
-          <div className="mt-4">
-            <div className="mb-2 flex items-center justify-between gap-3">
+          <section aria-labelledby="supplier-preselection-proposals-title">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h3 className="text-sm font-semibold text-slate-800">
+                <h3
+                  id="supplier-preselection-proposals-title"
+                  className="text-sm font-semibold text-foreground"
+                >
                   Cas simples proposés
                 </h3>
                 <p className="text-xs text-muted-foreground">
                   Chaque ligne reste décochable avant application.
                 </p>
               </div>
-              <label className="flex items-center gap-2 text-sm text-slate-600">
+              <label className="flex items-center gap-2 text-sm text-foreground-secondary">
                 <input
                   type="checkbox"
+                  className="size-4 accent-primary"
                   checked={allSelected}
                   onChange={(event) => onToggleAll(event.target.checked)}
                   disabled={isApplying}
-                  aria-label="Sélectionner toutes les préselections fournisseurs"
+                  aria-label="Sélectionner toutes les présélections fournisseurs"
                 />
                 Tout sélectionner
               </label>
             </div>
-            <div className="table-scroll max-h-[280px]">
+            <div
+              className="table-scroll max-h-[280px] rounded-lg border border-border"
+              role="region"
+              aria-labelledby="supplier-preselection-proposals-title"
+              tabIndex={0}
+            >
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th className="w-12">Sel.</th>
+                    <th className="w-12">
+                      <span aria-hidden="true">Sél.</span>
+                      <span className="sr-only">Sélection</span>
+                    </th>
                     <th>Ligne</th>
                     <th>Actuel</th>
-                    <th>Préselection</th>
+                    <th>Présélection</th>
                     <th>Explication</th>
                   </tr>
                 </thead>
@@ -183,6 +181,7 @@ export function SupplierPreselectionDialog({
                         <td>
                           <input
                             type="checkbox"
+                            className="size-4 accent-primary"
                             checked={isSelected}
                             disabled={isApplying}
                             onChange={(event) =>
@@ -192,15 +191,15 @@ export function SupplierPreselectionDialog({
                           />
                         </td>
                         <td>
-                          <p className="font-medium text-slate-800">
+                          <p className="font-medium text-foreground">
                             {proposal.item_title}
                           </p>
                         </td>
-                        <td className="text-xs text-slate-600">
+                        <td className="text-xs text-foreground-secondary">
                           {proposal.current_alternative ? (
                             <div className="space-y-1">
                               <p>{proposal.current_alternative.supplier_name}</p>
-                              <p>
+                              <p className="tabular-nums">
                                 {formatAlternativeLabel(
                                   proposal.current_alternative.adjusted_unit_price_cents
                                 )}
@@ -210,12 +209,12 @@ export function SupplierPreselectionDialog({
                             "Aucune sélection"
                           )}
                         </td>
-                        <td className="text-xs text-slate-600">
+                        <td className="text-xs text-foreground-secondary">
                           <div className="space-y-1">
-                            <p className="font-semibold text-slate-800">
+                            <p className="font-semibold text-foreground">
                               {proposal.proposed_alternative.supplier_name}
                             </p>
-                            <p>
+                            <p className="tabular-nums">
                               {formatAlternativeLabel(
                                 proposal.proposed_alternative.adjusted_unit_price_cents
                               )}
@@ -223,7 +222,7 @@ export function SupplierPreselectionDialog({
                             <p>{proposal.proposed_alternative.product_designation}</p>
                           </div>
                         </td>
-                        <td className="text-xs text-slate-600">
+                        <td className="text-xs text-foreground-secondary">
                           {proposal.explanation}
                         </td>
                       </tr>
@@ -232,31 +231,34 @@ export function SupplierPreselectionDialog({
                 </tbody>
               </table>
             </div>
-          </div>
+          </section>
         ) : null}
 
         {!isLoading && exceptions.length > 0 ? (
-          <div className="mt-6">
-            <h3 className="text-sm font-semibold text-slate-800">
+          <section aria-labelledby="supplier-preselection-exceptions-title">
+            <h3
+              id="supplier-preselection-exceptions-title"
+              className="text-sm font-semibold text-foreground"
+            >
               Exceptions à arbitrer
             </h3>
-            <div className="mt-3 grid gap-3">
+            <ul className="mt-3 grid gap-3">
               {exceptions.map((exception) => (
-                <div
+                <li
                   key={exception.item_id}
-                  className="rounded-xl border border-border bg-surface p-4"
+                  className="rounded-lg border border-border bg-surface p-4"
                 >
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-medium text-slate-800">
+                    <p className="font-medium text-foreground">
                       {exception.item_title}
                     </p>
-                    <span className="rounded-full bg-muted px-2 py-1 text-xs font-medium text-foreground-secondary">
+                    <Badge variant="warning" size="sm">
                       {formatExceptionReason(exception.reason)}
-                    </span>
+                    </Badge>
                   </div>
-                  <div className="mt-2 grid gap-3 text-xs text-slate-600 md:grid-cols-2">
+                  <div className="mt-2 grid gap-3 text-xs text-foreground-secondary md:grid-cols-2">
                     <div>
-                      <p className="font-semibold text-foreground-secondary">
+                      <p className="font-semibold text-foreground">
                         Sélection actuelle
                       </p>
                       <p>
@@ -266,7 +268,7 @@ export function SupplierPreselectionDialog({
                       </p>
                     </div>
                     <div>
-                      <p className="font-semibold text-foreground-secondary">
+                      <p className="font-semibold text-foreground">
                         Options visibles
                       </p>
                       <p>
@@ -281,31 +283,31 @@ export function SupplierPreselectionDialog({
                       </p>
                     </div>
                   </div>
-                </div>
+                </li>
               ))}
-            </div>
-          </div>
+            </ul>
+          </section>
         ) : null}
 
-        <div className="mt-6 flex items-center justify-end gap-3">
-          <button
-            type="button"
-            className="btn btn-secondary"
+        <DialogFooter>
+          <Button
+            variant="outline"
+            size="lg"
             onClick={onClose}
             disabled={isApplying}
           >
             Annuler
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary"
+          </Button>
+          <Button
+            size="lg"
             onClick={onConfirm}
-            disabled={isApplying || isLoading || selectedCount === 0}
+            disabled={isLoading || selectedCount === 0}
+            loading={isApplying}
           >
-            {isApplying ? "Application..." : "Appliquer la sélection"}
-          </button>
-        </div>
-      </div>
-    </div>
+            Appliquer la sélection
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

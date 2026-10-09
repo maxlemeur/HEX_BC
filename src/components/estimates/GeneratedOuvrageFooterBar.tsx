@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 type GeneratedOuvrageFooterBarProps = {
@@ -15,6 +16,14 @@ type GeneratedOuvrageFooterBarProps = {
   onNewGeneration: () => void;
   onClose: () => void;
   onInsertSelected: () => void;
+};
+
+type StatusTone = "warning" | "success" | "neutral";
+
+const STATUS_TONE_CLASSES: Record<StatusTone, string> = {
+  warning: "border-warning-border bg-warning-subtle text-warning",
+  success: "border-success-border bg-success-subtle text-success",
+  neutral: "border-border bg-surface-subtle text-muted-foreground",
 };
 
 export function GeneratedOuvrageFooterBar({
@@ -33,76 +42,73 @@ export function GeneratedOuvrageFooterBar({
 }: GeneratedOuvrageFooterBarProps) {
   const isDiscarded = draftStatus === "discarded";
 
-  // Determine status copy and color variant
+  // Determine status copy and tone
   let statusCopy: string;
-  let statusVariant: "amber" | "green" | "slate";
+  let statusTone: StatusTone;
 
   if (isMutationBlocked) {
     statusCopy = mutationBlockedMessage;
-    statusVariant = "amber";
+    statusTone = "warning";
   } else if (isDiscarded) {
-    statusCopy = "Toutes les propositions ont été ecartees.";
-    statusVariant = "slate";
+    statusCopy = "Toutes les propositions ont été écartées.";
+    statusTone = "neutral";
   } else if (selectedCount === 0) {
     statusCopy =
-      "Sélectionnez un ouvrage prêt à insérer. Unité, quantité et sous-détail valide sont requis.";
-    statusVariant = "slate";
+      "Sélectionnez un ouvrage prêt à insérer. Unité, quantité et sous-détail validé sont requis.";
+    statusTone = "neutral";
   } else if (selectedMissingParentCount > 0) {
-    statusCopy = `${selectedMissingParentCount} ouvrage(s) selectionne(s) incomplet(s). Completez-les avant insertion.`;
-    statusVariant = "amber";
+    statusCopy = `${selectedMissingParentCount} ouvrage(s) sélectionné(s) incomplet(s). Complétez-les avant insertion.`;
+    statusTone = "warning";
   } else if (selectedMissingReviewCount > 0) {
-    statusCopy = `${selectedMissingReviewCount} ouvrage(s) selectionne(s) sans sous-detail valide. Validez-les avant insertion.`;
-    statusVariant = "amber";
+    statusCopy = `${selectedMissingReviewCount} ouvrage(s) sélectionné(s) sans sous-détail validé. Validez-les avant insertion.`;
+    statusTone = "warning";
   } else {
-    statusCopy = `${selectedReviewedCount} ouvrage(s) selectionne(s) prêt(s) à inserer.`;
-    statusVariant = "green";
+    statusCopy = `${selectedReviewedCount} ouvrage(s) sélectionné(s) prêt(s) à insérer.`;
+    statusTone = "success";
   }
 
   return (
     <div className="mt-4 border-t border-border pt-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div
+        <p
           className={cn(
             "max-w-2xl rounded-lg border px-3 py-2 text-sm",
-            statusVariant === "amber" &&
-              "border-amber-200 bg-amber-50 text-amber-800",
-            statusVariant === "green" &&
-              "border-emerald-200 bg-emerald-50 text-emerald-800",
-            statusVariant === "slate" &&
-              "border-border bg-surface-subtle text-slate-600"
+            STATUS_TONE_CLASSES[statusTone]
           )}
         >
           {statusCopy}
-        </div>
-        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
-          <button
+        </p>
+        <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2 sm:flex sm:flex-wrap sm:justify-end">
+          <Button
             type="button"
-            className="btn btn-secondary btn-sm"
+            variant="outline"
+            size="md"
             onClick={onNewGeneration}
             disabled={isInserting}
           >
-            Nouvelle generation
-          </button>
-          <button
+            Nouvelle génération
+          </Button>
+          <Button
             type="button"
-            className="btn btn-secondary btn-sm"
+            variant="outline"
+            size="md"
             onClick={onClose}
             disabled={isInserting}
           >
             Fermer
-          </button>
+          </Button>
           {!isDiscarded && (
-            <button
+            <Button
               type="button"
-              className="btn btn-primary btn-sm col-span-2 w-full sm:w-auto"
+              variant="primary"
+              size="md"
+              className="w-full min-[420px]:col-span-2 sm:w-auto"
               onClick={onInsertSelected}
-              disabled={
-                !canInsertSelected || isInserting || isMutationBlocked
-              }
+              disabled={!canInsertSelected || isInserting || isMutationBlocked}
               data-testid="generated-ouvrage-insert-button"
             >
-              Inserer les ouvrages sélectionnés
-            </button>
+              Insérer les ouvrages sélectionnés
+            </Button>
           )}
         </div>
       </div>

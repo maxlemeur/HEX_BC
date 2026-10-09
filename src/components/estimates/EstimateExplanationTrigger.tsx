@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { useState } from "react";
 
-import { Button } from "@/components/ui-legacy/Button";
+import { Button } from "@/components/ui/button";
 import type { EstimateExplanationKind } from "@/lib/estimates/explanation-schemas";
 
 const EstimateExplanationPanel = dynamic(
@@ -58,6 +58,7 @@ export function EstimateExplanationTrigger({
         variant={variant}
         className={className}
         onClick={() => setOpen(true)}
+        aria-haspopup="dialog"
       >
         {triggerLabel}
       </Button>

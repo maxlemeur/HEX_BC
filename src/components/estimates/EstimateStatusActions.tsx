@@ -4,6 +4,9 @@ import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { SendEstimateModal } from "@/components/estimates/SendEstimateModal";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import type { EstimateStatus } from "@/lib/estimates/status";
 import { SendIcon } from "lucide-react";
 
@@ -37,9 +40,7 @@ const STATUS_TRANSITIONS: Record<
   archived: [],
 };
 
-const SEND_ICON = (
-  <SendIcon aria-hidden="true" size={14} />
-);
+const SEND_ICON = <SendIcon aria-hidden="true" />;
 
 export function EstimateStatusActions({
   versionId,
@@ -161,81 +162,86 @@ export function EstimateStatusActions({
   return (
     <>
       {emailDispatchProblem ? (
-        <div
-          className="mt-2 rounded-md border border-[var(--warn,#b45309)]/30 bg-[var(--warn-bg,#fffbeb)] px-2.5 py-2 text-xs text-foreground-secondary"
+        <Alert
+          variant="warning"
+          className="mt-2 px-3 py-2 text-xs"
           data-testid="estimate-email-dispatch-problem"
         >
-          <p>
-            Envoi email{" "}
-            {emailDispatchProblem.status === "unknown"
-              ? "indéterminé"
-              : "échoué"}
-            {emailDispatchProblem.lastErrorMessage
-              ? ` : ${emailDispatchProblem.lastErrorMessage}`
-              : "."}
-          </p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <button
-              type="button"
-              className="rounded-md border border-primary bg-primary px-2 py-1 text-xs font-medium text-white"
-              disabled={isPending}
-              onClick={() => setSendModalOpen(true)}
-            >
-              Renvoyer
-            </button>
-            {canMarkEmailSent ? (
-              <>
-                <input
-                  type="text"
-                  className="w-56 rounded-md border border-border bg-surface px-2 py-1 text-xs text-foreground-secondary"
-                  placeholder="Identifiant du message fournisseur"
-                  aria-label="Identifiant du message chez le fournisseur email"
-                  value={providerMessageId}
-                  disabled={isPending}
-                  onChange={(event) => setProviderMessageId(event.target.value)}
-                />
-                <button
-                  type="button"
-                  className="rounded-md border border-border bg-surface px-2 py-1 text-xs font-medium text-slate-600 disabled:opacity-50"
-                  disabled={isPending || providerMessageId.trim().length === 0}
-                  onClick={() => void handleMarkEmailSent()}
-                >
-                  Marquer envoyé
-                </button>
-              </>
-            ) : null}
-          </div>
-        </div>
+          <AlertDescription>
+            <p>
+              Envoi email{" "}
+              {emailDispatchProblem.status === "unknown"
+                ? "indéterminé"
+                : "échoué"}
+              {emailDispatchProblem.lastErrorMessage
+                ? ` : ${emailDispatchProblem.lastErrorMessage}`
+                : "."}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="primary"
+                size="xs"
+                disabled={isPending}
+                onClick={() => setSendModalOpen(true)}
+              >
+                Renvoyer
+              </Button>
+              {canMarkEmailSent ? (
+                <>
+                  <Input
+                    type="text"
+                    size="sm"
+                    className="h-7 w-full max-w-56 text-xs"
+                    placeholder="Identifiant du message fournisseur"
+                    aria-label="Identifiant du message chez le fournisseur email"
+                    value={providerMessageId}
+                    disabled={isPending}
+                    onChange={(event) => setProviderMessageId(event.target.value)}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="xs"
+                    disabled={isPending || providerMessageId.trim().length === 0}
+                    onClick={() => void handleMarkEmailSent()}
+                  >
+                    Marquer envoyé
+                  </Button>
+                </>
+              ) : null}
+            </div>
+          </AlertDescription>
+        </Alert>
       ) : null}
       <div className="mt-2 flex flex-wrap gap-2">
         {showEmailButton && (
-          <button
+          <Button
             type="button"
-            className="inline-flex items-center gap-1.5 rounded-md border border-primary bg-primary px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
+            variant="primary"
+            size="sm"
             disabled={isPending}
             onClick={() => setSendModalOpen(true)}
+            leftIcon={SEND_ICON}
           >
-            {SEND_ICON}
             {currentStatus === "draft"
               ? "Envoyer par email"
               : currentStatus === "sending"
                 ? "Reprendre l’envoi"
                 : "Renvoyer par email"}
-          </button>
+          </Button>
         )}
         {transitions.map((transition) => (
-          <button
+          <Button
             key={transition.nextStatus}
             type="button"
-            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-xs font-medium text-slate-600 transition-colors hover:bg-surface-subtle disabled:opacity-50"
-            disabled={isPending}
+            variant="outline"
+            size="sm"
+            loading={isPending}
             onClick={() => void handleStatusChange(transition.nextStatus)}
           >
-            {isPending ? (
-              <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-border-strong border-t-slate-600" />
-            ) : null}
             {transition.label}
-          </button>
+          </Button>
         ))}
       </div>
       {error && (

@@ -9,6 +9,20 @@ import {
   useState,
 } from "react";
 
+import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import {
   fetchVersionZeroReview,
   generateVersionZeroDraft,
@@ -17,8 +31,10 @@ import {
   type VersionZeroDraftSummary,
   type VersionZeroReview,
   type VersionZeroReviewLine,
+  type VersionZeroReviewLot,
 } from "@/lib/estimates/client";
 import { parseVersionZeroQuantityInput } from "@/lib/estimates/version-zero-utils";
+import { cn } from "@/lib/utils";
 
 type ReviewFilter =
   | "all"
@@ -42,9 +58,9 @@ export type VersionZeroDraftDialogProps = {
 const FILTER_LABELS: Record<ReviewFilter, string> = {
   all: "Tout",
   pending: "À revoir",
-  accepted: "Valide",
-  edited: "Edite",
-  rejected: "Rejete",
+  accepted: "Validé",
+  edited: "Édité",
+  rejected: "Rejeté",
   low_confidence: "Confiance faible",
   missing: "Manquant",
 };
@@ -66,24 +82,35 @@ function lineMatchesFilter(line: VersionZeroReviewLine, filter: ReviewFilter) {
   }
 }
 
-function statusBadgeClass(status: string) {
-  switch (status) {
-    case "generated":
-    case "accepted":
-      return "border-emerald-200 bg-emerald-50 text-emerald-700";
-    case "partial":
-    case "edited":
-      return "border-amber-200 bg-amber-50 text-amber-800";
-    case "missing":
-    case "rejected":
-      return "border-rose-200 bg-rose-50 text-rose-700";
-    default:
-      return "border-border bg-muted text-foreground-secondary";
-  }
-}
+type StatusBadgeKey =
+  | VersionZeroReviewLot["status"]
+  | VersionZeroReviewLine["reviewStatus"];
+
+const STATUS_BADGE: Record<
+  StatusBadgeKey,
+  { label: string; variant: "success" | "warning" | "danger" | "neutral" }
+> = {
+  generated: { label: "Généré", variant: "success" },
+  accepted: { label: "Validé", variant: "success" },
+  partial: { label: "Partiel", variant: "warning" },
+  edited: { label: "Édité", variant: "warning" },
+  missing: { label: "Manquant", variant: "danger" },
+  rejected: { label: "Rejeté", variant: "danger" },
+  pending: { label: "À revoir", variant: "neutral" },
+};
+
+const CONFIDENCE_LABELS: Record<VersionZeroReviewLine["confidenceLabel"], string> = {
+  elevee: "Confiance élevée",
+  moyenne: "Confiance moyenne",
+  faible: "Confiance faible",
+};
+
+/** Native checkbox kept for keyboard and Playwright `check()`. */
+const NATIVE_CHECKBOX_CLASS =
+  "size-4 shrink-0 cursor-pointer rounded-sm accent-primary disabled:cursor-not-allowed disabled:opacity-50";
 
 function confidenceText(value: number) {
-  return `${Math.round(value * 100)}%`;
+  return `${Math.round(value * 100)}\u00a0%`;
 }
 
 export function VersionZeroDraftDialog({
@@ -274,7 +301,7 @@ export function VersionZeroDraftDialog({
     setErrorMessage(null);
     try {
       const canProceed = await ensureMutationCanProceed(
-        "matérialiser la version zero"
+        "matérialiser la version zéro"
       );
       if (!canProceed) {
         isBusyRef.current = false;
@@ -306,92 +333,106 @@ export function VersionZeroDraftDialog({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 overscroll-contain"
-      data-testid="version-zero-draft-dialog"
+    <Dialog
+      open
+      disablePointerDismissal
+      onOpenChange={(open) => {
+        if (!open) handleClose();
+      }}
     >
-      <div className="max-h-[92vh] w-full max-w-6xl overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl">
-        <div className="flex items-start justify-between gap-4 border-b border-border px-6 py-5">
-          <div className="space-y-2">
-            <div className="inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-amber-800">
-              IA - à revoir
-            </div>
-            <div>
-              <h2 className="text-xl font-semibold text-foreground">
-                Version zero assistee
-              </h2>
-              <p className="text-sm text-slate-600">
-                Fait: aucune suggestion n&apos;est appliquée sans validation humaine explicite.
-              </p>
-            </div>
-          </div>
-          <button
+      <DialogContent
+        size="xl"
+        showCloseButton={false}
+        className="max-h-[92dvh] gap-0 overflow-hidden p-0 sm:max-w-6xl sm:p-0"
+        data-testid="version-zero-draft-dialog"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border px-5 py-4 sm:px-6 sm:py-5">
+          <DialogHeader className="min-w-0 flex-1 gap-2 pr-0">
+            <Badge variant="warning" className="tracking-[0.18em] uppercase">
+              IA – à revoir
+            </Badge>
+            <DialogTitle>Version zéro assistée</DialogTitle>
+            <DialogDescription>
+              Fait : aucune suggestion n&apos;est appliquée sans validation humaine explicite.
+            </DialogDescription>
+          </DialogHeader>
+          <Button
             type="button"
-            className="btn btn-secondary btn-sm"
+            variant="outline"
+            size="md"
             onClick={handleClose}
             disabled={isBusy}
           >
             Fermer
-          </button>
+          </Button>
         </div>
 
-        <div className="max-h-[calc(92vh-88px)] overflow-y-auto px-6 py-5">
+        <DialogBody className="relative min-h-0 flex-1 gap-0 overflow-y-auto px-5 py-5 sm:px-6">
           {errorMessage ? (
-            <div
-              role="alert"
-              className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800"
-            >
+            <Alert variant="danger" className="mb-4">
               {errorMessage}
-            </div>
+            </Alert>
           ) : null}
 
           {!review ? (
             <div className="space-y-5">
-              <div className="rounded-2xl border border-border bg-surface-subtle p-5">
+              <section
+                aria-labelledby="version-zero-generation-title"
+                className="rounded-lg border border-border bg-surface-subtle p-5"
+              >
                 <div className="space-y-1">
-                  <h3 className="text-base font-semibold text-foreground">
-                    Generation V0
+                  <h3
+                    id="version-zero-generation-title"
+                    className="text-base font-semibold text-foreground"
+                  >
+                    Génération V0
                   </h3>
-                  <p className="text-sm text-slate-600">
-                    Hypothèse: la version courante est vide et un brief confirme est disponible.
+                  <p className="text-sm text-muted-foreground">
+                    Hypothèse : la version courante est vide et un brief confirmé est disponible.
                   </p>
                 </div>
-                <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                  {(summary?.availableLots ?? []).map((lot) => {
-                    const checked = selectedLots.includes(lot);
-                    return (
-                      <label
-                        key={lot}
-                        className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 text-sm ${
-                          checked
-                            ? "border-emerald-300 bg-emerald-50 text-emerald-800"
-                            : "border-border bg-surface text-foreground-secondary"
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => {
-                            setSelectedLots((current) =>
-                              checked
-                                ? current.filter((entry) => entry !== lot)
-                                : [...current, lot]
-                            );
-                          }}
-                        />
-                        <span>{lot}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-                <div className="mt-4 flex items-center justify-between gap-3">
-                  <p className="text-sm text-slate-600">
-                    Provenance: brief confirme
+                <fieldset className="mt-4">
+                  <legend className="sr-only">Lots à générer</legend>
+                  <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                    {(summary?.availableLots ?? []).map((lot) => {
+                      const checked = selectedLots.includes(lot);
+                      return (
+                        <label
+                          key={lot}
+                          className={cn(
+                            "flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 text-sm",
+                            checked
+                              ? "border-success-border bg-success-subtle text-success"
+                              : "border-border bg-surface text-foreground-secondary"
+                          )}
+                        >
+                          <input
+                            type="checkbox"
+                            className={NATIVE_CHECKBOX_CLASS}
+                            checked={checked}
+                            onChange={() => {
+                              setSelectedLots((current) =>
+                                checked
+                                  ? current.filter((entry) => entry !== lot)
+                                  : [...current, lot]
+                              );
+                            }}
+                          />
+                          <span>{lot}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </fieldset>
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm text-muted-foreground">
+                    Provenance : brief confirmé
                     {summary?.confirmedBriefId ? ` (${summary.confirmedBriefId})` : ""}.
                   </p>
-                  <button
+                  <Button
                     type="button"
-                    className="btn btn-primary btn-sm"
+                    variant="primary"
+                    size="md"
                     onClick={() => void handleGenerate()}
                     disabled={
                       isBusy ||
@@ -400,64 +441,53 @@ export function VersionZeroDraftDialog({
                       !summary?.canGenerate
                     }
                   >
-                    {isBusy ? "Generation..." : "Générer V0"}
-                  </button>
+                    {isBusy ? "Génération…" : "Générer V0"}
+                  </Button>
                 </div>
-              </div>
+              </section>
             </div>
           ) : (
             <div className="space-y-5">
-              <div className="grid gap-3 md:grid-cols-4">
-                <div className="rounded-2xl border border-border bg-surface p-4">
-                  <div className="text-xs uppercase tracking-wide text-muted-foreground">
-                    Lignes
-                  </div>
-                  <div className="mt-1 text-2xl font-semibold text-foreground">
-                    {review.draft.counts.lines}
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-border bg-surface p-4">
-                  <div className="text-xs uppercase tracking-wide text-muted-foreground">
-                    En attente
-                  </div>
-                  <div className="mt-1 text-2xl font-semibold text-amber-700">
-                    {review.draft.counts.pending}
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-border bg-surface p-4">
-                  <div className="text-xs uppercase tracking-wide text-muted-foreground">
-                    Lots manquants
-                  </div>
-                  <div className="mt-1 text-2xl font-semibold text-rose-700">
-                    {review.draft.counts.missingLots}
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-border bg-surface p-4">
-                  <div className="text-xs uppercase tracking-wide text-muted-foreground">
-                    Confiance faible
-                  </div>
-                  <div className="mt-1 text-2xl font-semibold text-foreground">
-                    {review.draft.counts.lowConfidenceLines}
-                  </div>
-                </div>
-              </div>
+              <dl className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
+                <StatTile label="Lignes" value={review.draft.counts.lines} />
+                <StatTile
+                  label="En attente"
+                  value={review.draft.counts.pending}
+                  valueClassName="text-warning"
+                />
+                <StatTile
+                  label="Lots manquants"
+                  value={review.draft.counts.missingLots}
+                  valueClassName="text-danger"
+                />
+                <StatTile
+                  label="Confiance faible"
+                  value={review.draft.counts.lowConfidenceLines}
+                />
+              </dl>
 
               {review.draft.summaryText ? (
-                <div className="rounded-2xl border border-border bg-surface-subtle px-4 py-3 text-sm text-foreground-secondary">
-                  Inference: {review.draft.summaryText}
-                </div>
+                <p className="rounded-lg border border-border bg-surface-subtle px-4 py-3 text-sm text-foreground-secondary">
+                  Inférence : {review.draft.summaryText}
+                </p>
               ) : null}
 
-              <div className="flex flex-wrap items-center gap-2">
+              <div
+                className="flex flex-wrap items-center gap-2"
+                role="group"
+                aria-label="Filtrer les lignes"
+              >
                 {(Object.keys(FILTER_LABELS) as ReviewFilter[]).map((filterKey) => (
                   <button
                     key={filterKey}
                     type="button"
-                    className={`rounded-full border px-3 py-1.5 text-sm ${
+                    aria-pressed={filter === filterKey}
+                    className={cn(
+                      "rounded-full border px-3 py-1.5 text-sm transition-colors outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
                       filter === filterKey
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border bg-surface text-foreground-secondary"
-                    }`}
+                        ? "border-primary bg-primary/10 font-medium text-primary"
+                        : "border-border bg-surface text-foreground-secondary hover:bg-surface-subtle"
+                    )}
                     onClick={() => setFilter(filterKey)}
                   >
                     {FILTER_LABELS[filterKey]}
@@ -467,31 +497,24 @@ export function VersionZeroDraftDialog({
 
               <div className="space-y-4">
                 {visibleLots.map((lot) => (
-                  <section
-                    key={lot.id}
-                    className="rounded-2xl border border-border bg-surface p-4"
-                  >
+                  <Card key={lot.id} className="p-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-2">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
                           <h3 className="text-lg font-semibold text-foreground">
                             {lot.label}
                           </h3>
-                          <span
-                            className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${statusBadgeClass(
-                              lot.status
-                            )}`}
-                          >
-                            {lot.status}
-                          </span>
+                          <Badge variant={STATUS_BADGE[lot.status].variant}>
+                            {STATUS_BADGE[lot.status].label}
+                          </Badge>
                           {lot.confidence !== null ? (
                             <span className="text-xs text-muted-foreground">
                               Confiance {confidenceText(lot.confidence)}
                             </span>
                           ) : null}
                         </div>
-                        <p className="mt-1 text-sm text-slate-600">
-                          Provenance: {lot.provenance.join(" • ") || "Non renseignee"}
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          Provenance : {lot.provenance.join(" • ") || "Non renseignée"}
                         </p>
                       </div>
                     </div>
@@ -501,9 +524,9 @@ export function VersionZeroDraftDialog({
                         {lot.riskSignals.map((signal) => (
                           <span
                             key={signal}
-                            className="rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs text-rose-700"
+                            className="rounded-full border border-danger-border bg-danger-subtle px-2.5 py-1 text-xs text-danger"
                           >
-                            Risque: {signal}
+                            Risque : {signal}
                           </span>
                         ))}
                       </div>
@@ -524,64 +547,67 @@ export function VersionZeroDraftDialog({
                         return (
                           <article
                             key={line.id}
-                            className="rounded-2xl border border-border bg-surface-subtle p-4"
+                            className="rounded-lg border border-border bg-surface-subtle p-4"
                           >
                             <div className="flex flex-wrap items-center justify-between gap-3">
-                              <div>
+                              <div className="min-w-0">
                                 <div className="flex flex-wrap items-center gap-2">
                                   <h4 className="font-semibold text-foreground">
                                     {line.proposed.title}
                                   </h4>
-                                  <span
-                                    className={`rounded-full border px-2 py-1 text-xs font-semibold ${statusBadgeClass(
-                                      line.reviewStatus
-                                    )}`}
-                                  >
-                                    {line.reviewStatus}
-                                  </span>
+                                  <Badge variant={STATUS_BADGE[line.reviewStatus].variant}>
+                                    {STATUS_BADGE[line.reviewStatus].label}
+                                  </Badge>
                                   <span className="text-xs text-muted-foreground">
-                                    {line.confidenceLabel} {confidenceText(line.confidence)}
+                                    {CONFIDENCE_LABELS[line.confidenceLabel] ?? line.confidenceLabel}{" "}
+                                    {confidenceText(line.confidence)}
                                   </span>
                                 </div>
                                 {line.proposed.description ? (
-                                  <p className="mt-1 text-sm text-slate-600">
+                                  <p className="mt-1 text-sm text-muted-foreground">
                                     {line.proposed.description}
                                   </p>
                                 ) : null}
                               </div>
                               <div className="flex flex-wrap gap-2">
-                                <button
+                                <Button
                                   type="button"
-                                  className="btn btn-secondary btn-sm"
+                                  variant="outline"
+                                  size="md"
                                   onClick={() => void handleReviewLine(line, "accepted")}
                                   disabled={isBusy || isMutationBlocked}
                                 >
                                   Accepter
-                                </button>
-                                <button
+                                </Button>
+                                <Button
                                   type="button"
-                                  className="btn btn-secondary btn-sm"
+                                  variant="outline"
+                                  size="md"
                                   onClick={() => void handleReviewLine(line, "rejected")}
                                   disabled={isBusy || isMutationBlocked}
                                 >
                                   Rejeter
-                                </button>
-                                <button
+                                </Button>
+                                <Button
                                   type="button"
-                                  className="btn btn-primary btn-sm"
+                                  variant="primary"
+                                  size="md"
                                   onClick={() => void handleReviewLine(line, "edited")}
                                   disabled={isBusy || isMutationBlocked}
                                 >
                                   Valider l&apos;édition
-                                </button>
+                                </Button>
                               </div>
                             </div>
 
                             <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                              <label className="text-sm">
-                                <span className="mb-1 block text-slate-600">Libelle</span>
-                                <input
-                                  className="form-input w-full"
+                              <div className="space-y-1.5">
+                                <FieldLabel htmlFor={`version-zero-title-${line.id}`}>
+                                  Libellé
+                                </FieldLabel>
+                                <Input
+                                  id={`version-zero-title-${line.id}`}
+                                  size="sm"
                                   name={`version-zero-title-${line.id}`}
                                   autoComplete="off"
                                   value={edits.title}
@@ -595,11 +621,14 @@ export function VersionZeroDraftDialog({
                                     }))
                                   }
                                 />
-                              </label>
-                              <label className="text-sm">
-                                <span className="mb-1 block text-slate-600">Description</span>
-                                <input
-                                  className="form-input w-full"
+                              </div>
+                              <div className="space-y-1.5">
+                                <FieldLabel htmlFor={`version-zero-description-${line.id}`}>
+                                  Description
+                                </FieldLabel>
+                                <Input
+                                  id={`version-zero-description-${line.id}`}
+                                  size="sm"
                                   name={`version-zero-description-${line.id}`}
                                   autoComplete="off"
                                   value={edits.description}
@@ -613,11 +642,14 @@ export function VersionZeroDraftDialog({
                                     }))
                                   }
                                 />
-                              </label>
-                              <label className="text-sm">
-                                <span className="mb-1 block text-slate-600">Quantité</span>
-                                <input
-                                  className="form-input w-full"
+                              </div>
+                              <div className="space-y-1.5">
+                                <FieldLabel htmlFor={`version-zero-quantity-${line.id}`}>
+                                  Quantité
+                                </FieldLabel>
+                                <Input
+                                  id={`version-zero-quantity-${line.id}`}
+                                  size="sm"
                                   name={`version-zero-quantity-${line.id}`}
                                   autoComplete="off"
                                   inputMode="decimal"
@@ -632,11 +664,14 @@ export function VersionZeroDraftDialog({
                                     }))
                                   }
                                 />
-                              </label>
-                              <label className="text-sm">
-                                <span className="mb-1 block text-slate-600">Unité</span>
-                                <input
-                                  className="form-input w-full"
+                              </div>
+                              <div className="space-y-1.5">
+                                <FieldLabel htmlFor={`version-zero-unit-${line.id}`}>
+                                  Unité
+                                </FieldLabel>
+                                <Input
+                                  id={`version-zero-unit-${line.id}`}
+                                  size="sm"
                                   name={`version-zero-unit-${line.id}`}
                                   autoComplete="off"
                                   value={edits.unit}
@@ -650,20 +685,20 @@ export function VersionZeroDraftDialog({
                                     }))
                                   }
                                 />
-                              </label>
+                              </div>
                             </div>
 
                             <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                              <div className="rounded-xl border border-border bg-surface p-3 text-sm text-foreground-secondary">
-                                <div className="font-medium text-foreground">Faits</div>
+                              <div className="rounded-lg border border-border bg-surface p-3 text-sm text-foreground-secondary">
+                                <p className="font-medium text-foreground">Faits</p>
                                 <ul className="mt-2 space-y-1">
                                   {line.facts.map((entry) => (
                                     <li key={entry}>• {entry}</li>
                                   ))}
                                 </ul>
                               </div>
-                              <div className="rounded-xl border border-border bg-surface p-3 text-sm text-foreground-secondary">
-                                <div className="font-medium text-foreground">Hypothèses / inferences</div>
+                              <div className="rounded-lg border border-border bg-surface p-3 text-sm text-foreground-secondary">
+                                <p className="font-medium text-foreground">Hypothèses / inférences</p>
                                 <ul className="mt-2 space-y-1">
                                   {[...line.hypotheses, ...line.inferences].map((entry) => (
                                     <li key={entry}>• {entry}</li>
@@ -677,9 +712,9 @@ export function VersionZeroDraftDialog({
                                 {line.missingSignals.map((signal) => (
                                   <span
                                     key={signal}
-                                    className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs text-amber-800"
+                                    className="rounded-full border border-warning-border bg-warning-subtle px-2.5 py-1 text-xs text-warning"
                                   >
-                                    Manquant: {signal}
+                                    Manquant : {signal}
                                   </span>
                                 ))}
                               </div>
@@ -688,27 +723,47 @@ export function VersionZeroDraftDialog({
                         );
                       })}
                     </div>
-                  </section>
+                  </Card>
                 ))}
               </div>
 
               <div className="sticky bottom-0 flex flex-wrap items-center justify-between gap-3 border-t border-border bg-surface py-4">
-                <p className="text-sm text-slate-600">
-                  Fait: la materialisation reste bloquee tant qu&apos;il reste des lignes en attente.
+                <p className="text-sm text-muted-foreground">
+                  Fait : la matérialisation reste bloquée tant qu&apos;il reste des lignes en attente.
                 </p>
-                <button
+                <Button
                   type="button"
-                  className="btn btn-primary btn-sm"
+                  variant="primary"
+                  size="md"
                   onClick={() => void handleMaterialize()}
                   disabled={isBusy || isMutationBlocked || !canMaterialize}
                 >
-                  {isBusy ? "Application..." : "Matérialiser dans le devis"}
-                </button>
+                  {isBusy ? "Application…" : "Matérialiser dans le devis"}
+                </Button>
               </div>
             </div>
           )}
-        </div>
-      </div>
-    </div>
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function StatTile({
+  label,
+  value,
+  valueClassName,
+}: {
+  label: string;
+  value: number;
+  valueClassName?: string;
+}) {
+  return (
+    <Card className="p-4">
+      <dt className="text-xs tracking-wide text-muted-foreground uppercase">{label}</dt>
+      <dd className={cn("mt-1 text-2xl font-semibold text-foreground tabular-nums", valueClassName)}>
+        {value}
+      </dd>
+    </Card>
   );
 }

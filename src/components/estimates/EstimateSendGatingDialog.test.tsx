@@ -1,4 +1,4 @@
-import { cleanup,render,screen } from "@testing-library/react";
+import { cleanup,render,screen,waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach,describe,expect,it,vi } from "vitest";
 
@@ -82,15 +82,15 @@ describe("EstimateSendGatingDialog", () => {
 
     const closeButton = screen.getByRole("button", { name: "Fermer" });
     const sendButton = screen.getByRole("button", { name: "Envoyer" });
-    expect(closeButton).toHaveFocus();
+    await waitFor(() => expect(closeButton).toHaveFocus());
 
     sendButton.focus();
     await user.tab();
-    expect(closeButton).toHaveFocus();
+    await waitFor(() => expect(closeButton).toHaveFocus());
 
     closeButton.focus();
     await user.tab({ shift: true });
-    expect(sendButton).toHaveFocus();
+    await waitFor(() => expect(sendButton).toHaveFocus());
     expect(onConfirm).not.toHaveBeenCalled();
     expect(onForceConfirm).not.toHaveBeenCalled();
 
@@ -108,7 +108,7 @@ describe("EstimateSendGatingDialog", () => {
       />
     );
 
-    expect(trigger).toHaveFocus();
+    await waitFor(() => expect(trigger).toHaveFocus());
     trigger.remove();
   });
 

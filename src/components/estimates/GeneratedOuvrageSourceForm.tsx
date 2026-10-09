@@ -1,5 +1,10 @@
 "use client";
 
+import { Button } from "@/components/ui/button";
+import { FieldDescription, FieldLabel } from "@/components/ui/field";
+import { NativeSelect } from "@/components/ui/native-select";
+import { Textarea } from "@/components/ui/textarea";
+
 import {
   GENERATED_OUVRAGE_FALLBACK_SECTION_LABEL,
   type ExistingSection,
@@ -42,14 +47,12 @@ export function GeneratedOuvrageSourceForm({
         });
       }}
     >
-      <div>
-        <label htmlFor="gen-source-kind" className="label text-sm font-medium">
-          Type de source
-        </label>
-        <select
+      <div className="space-y-1.5">
+        <FieldLabel htmlFor="gen-source-kind">Type de source</FieldLabel>
+        <NativeSelect
           id="gen-source-kind"
           name="sourceKind"
-          className="select select-bordered select-sm w-full"
+          size="sm"
           defaultValue="free_text"
           disabled={isGenerating}
         >
@@ -58,33 +61,30 @@ export function GeneratedOuvrageSourceForm({
               {opt.label}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       </div>
 
-      <div>
-        <label htmlFor="gen-source-text" className="label text-sm font-medium">
-          Texte source
-        </label>
-        <textarea
+      <div className="space-y-1.5">
+        <FieldLabel htmlFor="gen-source-text">Texte source</FieldLabel>
+        <Textarea
           id="gen-source-text"
           name="sourceText"
-          className="textarea textarea-bordered w-full min-h-[120px] text-sm"
-          placeholder="Collez ici le texte à analyser..."
+          className="min-h-30 text-sm"
+          placeholder="Collez ici le texte à analyser…"
           required
           disabled={isGenerating}
         />
       </div>
 
-      <div>
-        <label htmlFor="gen-preferred-lot" className="label text-sm font-medium">
-          Lot cible (optionnel)
-        </label>
-        <select
+      <div className="space-y-1.5">
+        <FieldLabel htmlFor="gen-preferred-lot">Lot cible (optionnel)</FieldLabel>
+        <NativeSelect
           id="gen-preferred-lot"
           name="preferredLotId"
-          className="select select-bordered select-sm w-full"
+          size="sm"
           defaultValue=""
           disabled={isGenerating}
+          aria-describedby="gen-preferred-lot-hint"
         >
           <option value="">{GENERATED_OUVRAGE_FALLBACK_SECTION_LABEL}</option>
           {existingSections.map((s) => (
@@ -92,26 +92,26 @@ export function GeneratedOuvrageSourceForm({
               {s.path}
             </option>
           ))}
-        </select>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Sans lot choisi, l&apos;ouvrage sera insere dans la section explicite
-          {" "}
-          <span className="font-medium">À classer</span>.
-        </p>
+        </NativeSelect>
+        <FieldDescription id="gen-preferred-lot-hint" className="text-xs">
+          Sans lot choisi, l&apos;ouvrage sera inséré dans la section explicite{" "}
+          <span className="font-medium text-foreground-secondary">À classer</span>.
+        </FieldDescription>
       </div>
 
       <div aria-live="polite" className="text-sm text-muted-foreground">
-        {isGenerating ? "Generation des ouvrages en cours..." : null}
+        {isGenerating ? "Génération des ouvrages en cours…" : null}
       </div>
 
-      <button
+      <Button
         type="submit"
-        className="btn btn-primary btn-sm"
+        variant="primary"
+        size="md"
         disabled={isGenerating}
         data-testid="generated-ouvrage-generate-button"
       >
-        {isGenerating ? "Generation..." : "Générer des propositions"}
-      </button>
+        {isGenerating ? "Génération…" : "Générer des propositions"}
+      </Button>
     </form>
   );
 }

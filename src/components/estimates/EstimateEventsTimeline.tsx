@@ -1,8 +1,10 @@
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import type {
   EstimateVersionEvent,
   EstimateVersionEventType,
 } from "@/lib/estimates/client";
-import { CircleXIcon } from "lucide-react";
 
 type EstimateEventsTimelineProps = {
   events: EstimateVersionEvent[];
@@ -13,14 +15,14 @@ type EstimateEventsTimelineProps = {
 
 const EVENT_LABELS: Record<string, string> = {
   sent: "Envoyé",
-  accepted: "Accepte",
-  archived: "Archive",
-  rejected: "Rejete",
+  accepted: "Accepté",
+  archived: "Archivé",
+  rejected: "Rejeté",
   seal_verified: "Sceau vérifié",
-  approval_submitted: "Soumission d'approbation",
-  approval_rules_evaluated: "Règles d'approbation evaluees",
-  approval_status_changed: "Statut d'approbation modifie",
-  approval_decided: "Décision d'approbation",
+  approval_submitted: "Soumission d’approbation",
+  approval_rules_evaluated: "Règles d’approbation évaluées",
+  approval_status_changed: "Statut d’approbation modifié",
+  approval_decided: "Décision d’approbation",
 };
 
 function toEventLabel(value: string) {
@@ -91,41 +93,46 @@ export function EstimateEventsTimeline({
   onRefresh,
 }: EstimateEventsTimelineProps) {
   return (
-    <div className="dashboard-card p-8">
+    <Card className="p-5 sm:p-8">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-slate-800">
-            Timeline statut
+          <h2 className="text-sm font-semibold text-foreground">
+            Historique des statuts
           </h2>
           <p className="text-xs text-muted-foreground">
-            Historique append-only des transitions et vérifications.
+            Journal non modifiable des transitions et vérifications.
           </p>
         </div>
-        <button
-          className="btn btn-secondary btn-sm"
+        <Button
           type="button"
+          variant="outline"
+          size="md"
           onClick={onRefresh}
           disabled={isLoading}
         >
-          {isLoading ? "Chargement..." : "Actualiser"}
-        </button>
+          {isLoading ? "Chargement…" : "Actualiser"}
+        </Button>
       </div>
 
       {error ? (
-        <div className="alert alert-error mt-6">
-          <CircleXIcon aria-hidden="true" size={20} />
+        <Alert variant="danger" className="mt-6">
           {error}
-        </div>
+        </Alert>
       ) : null}
 
-      <div className="table-scroll mt-6">
+      <div
+        className="table-scroll mt-6"
+        role="region"
+        aria-label="Historique des statuts de la version"
+        tabIndex={0}
+      >
         <table className="data-table">
           <thead>
             <tr>
-              <th>Date</th>
-              <th>Type</th>
-              <th>Auteur</th>
-              <th>Metadonnees</th>
+              <th scope="col">Date</th>
+              <th scope="col">Type</th>
+              <th scope="col">Auteur</th>
+              <th scope="col">Métadonnées</th>
             </tr>
           </thead>
           <tbody>
@@ -134,7 +141,7 @@ export function EstimateEventsTimeline({
                 <td colSpan={4}>
                   <div className="text-sm text-muted-foreground">
                     {isLoading
-                      ? "Chargement de la timeline..."
+                      ? "Chargement de l’historique…"
                       : "Aucun événement pour cette version."}
                   </div>
                 </td>
@@ -145,7 +152,7 @@ export function EstimateEventsTimeline({
                   <td>{formatTimestamp(event.occurredAt)}</td>
                   <td className="font-medium">{toEventLabel(event.eventType)}</td>
                   <td>{event.actorName ?? event.createdBy ?? "-"}</td>
-                  <td className="text-xs text-slate-600">
+                  <td className="text-xs text-muted-foreground">
                     {formatMetadata(event.metadata)}
                   </td>
                 </tr>
@@ -156,10 +163,10 @@ export function EstimateEventsTimeline({
       </div>
 
       {isLoading && events.length > 0 ? (
-        <p className="mt-3 text-sm text-muted-foreground">
-          Actualisation de la timeline en cours...
+        <p className="mt-3 text-sm text-muted-foreground" role="status">
+          Actualisation de l’historique en cours…
         </p>
       ) : null}
-    </div>
+    </Card>
   );
 }

@@ -1,9 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 
-import { Badge } from "@/components/ui-legacy/Badge";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
+import { Textarea } from "@/components/ui/textarea";
 import { formatCurrency } from "@/lib/money";
+import { cn } from "@/lib/utils";
 
 import type {
   GeneratedOuvrageSubdetailEditorComponent,
@@ -84,11 +90,28 @@ function serializeComponents(
   return JSON.stringify(components);
 }
 
-function riskBadgeVariant(signal: GeneratedOuvrageRiskSignal["severity"]) {
-  if (signal === "critical") return "error" as const;
-  if (signal === "warning") return "warning" as const;
-  return "neutral" as const;
-}
+/** Risk labels are free text: wrapping pills instead of single-line badges. */
+const RISK_SIGNAL_CLASSES: Record<GeneratedOuvrageRiskSignal["severity"], string> = {
+  critical: "border-danger-border bg-danger-subtle text-danger",
+  warning: "border-warning-border bg-warning-subtle text-warning",
+  info: "border-border bg-muted text-foreground-secondary",
+};
+
+const COST_TYPE_LABELS: Record<GeneratedOuvrageSubdetailEditorComponent["costType"], string> = {
+  material: "Matériau",
+  labor: "Main-d'œuvre",
+  equipment: "Matériel",
+  subcontract: "Sous-traitance",
+};
+
+const EVIDENCE_KIND_LABELS: Record<
+  GeneratedOuvrageSubdetailEditorComponent["sources"][number]["evidenceKind"],
+  string
+> = {
+  fact: "Fait",
+  hypothesis: "Hypothèse",
+  inference: "Inférence",
+};
 
 function computeComponentDsCents(component: GeneratedOuvrageSubdetailEditorComponent) {
   return Math.round(
@@ -121,6 +144,7 @@ function GeneratedOuvrageSubdetailEditorForm({
     () => toEditableComponents(subdetail)
   );
   const [expandedComponentIndex, setExpandedComponentIndex] = useState(0);
+  const formId = useId();
 
   const dsCents = components.reduce(
     (total, component) => total + computeComponentDsCents(component),
@@ -270,11 +294,11 @@ function GeneratedOuvrageSubdetailEditorForm({
   }
 
   return (
-    <section className="mt-4 rounded-2xl border border-border bg-surface-subtle/90 p-4">
+    <section className="mt-4 rounded-lg border border-border bg-surface-subtle p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-            Sous-detail compose
+        <div className="min-w-0">
+          <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+            Sous-détail composé
           </p>
           <h4 className="mt-1 text-sm font-semibold text-foreground">{candidateLabel}</h4>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -282,7 +306,7 @@ function GeneratedOuvrageSubdetailEditorForm({
             tant que les hypothèses ne sont pas confirmées.
           </p>
           {reviewStateIsCurrent ? (
-            <p className="mt-2 text-xs font-medium text-emerald-700">
+            <p className="mt-2 text-xs font-medium text-success">
               Revue enregistrée. Aucun changement local depuis la validation.
             </p>
           ) : null}
@@ -306,13 +330,15 @@ function GeneratedOuvrageSubdetailEditorForm({
       {subdetail.summary.riskSignals.length > 0 ? (
         <div className="mt-3 flex flex-wrap gap-2">
           {subdetail.summary.riskSignals.map((signal) => (
-            <Badge
+            <span
               key={`${signal.severity}-${signal.basis}-${signal.label}`}
-              variant={riskBadgeVariant(signal.severity)}
-              size="sm"
+              className={cn(
+                "inline-flex items-center rounded-full border px-2 py-0.5 text-micro font-semibold",
+                RISK_SIGNAL_CLASSES[signal.severity] ?? RISK_SIGNAL_CLASSES.info
+              )}
             >
               {signal.label}
-            </Badge>
+            </span>
           ))}
         </div>
       ) : null}
@@ -321,35 +347,37 @@ function GeneratedOuvrageSubdetailEditorForm({
         {components.map((component, index) => {
           const componentDsCents = computeComponentDsCents(component);
           const isExpanded = expandedComponentIndex === index;
+          const fieldId = `${formId}-${index}`;
 
           return (
             <article
               key={`${component.componentId ?? "new"}-${index}`}
-              className="rounded-xl border border-border bg-surface p-4"
+              className="rounded-lg border border-border bg-surface p-4"
             >
               <button
                 type="button"
-                className="flex w-full flex-col gap-3 text-left sm:flex-row sm:items-start sm:justify-between"
+                className="flex w-full flex-col gap-3 rounded-md text-left outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:flex-row sm:items-start sm:justify-between"
                 onClick={() =>
                   setExpandedComponentIndex((current) =>
                     current === index ? -1 : index
                   )
                 }
                 aria-expanded={isExpanded}
+                aria-controls={isExpanded ? `${fieldId}-panel` : undefined}
               >
-                <div className="space-y-2">
+                <div className="min-w-0 space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge variant="neutral" size="sm">
-                      {component.costType}
+                      {COST_TYPE_LABELS[component.costType] ?? component.costType}
                     </Badge>
                     <Badge variant="info" size="sm">
-                      {Math.round(component.confidence * 100)}% confiance
+                      {`${Math.round(component.confidence * 100)} % confiance`}
                     </Badge>
                     <Badge
                       variant={component.status === "manual" ? "warning" : "neutral"}
                       size="sm"
                     >
-                      {component.status === "manual" ? "Saisi manuellement" : "Suggere"}
+                      {component.status === "manual" ? "Saisi manuellement" : "Suggéré"}
                     </Badge>
                   </div>
                   <div>
@@ -362,65 +390,76 @@ function GeneratedOuvrageSubdetailEditorForm({
                       {" · "}
                       {component.facts.length} fait(s), {component.hypotheses.length} hypothèse(s),
                       {" "}
-                      {component.inferences.length} inference(s), {component.sources.length} source(s)
+                      {component.inferences.length} inférence(s), {component.sources.length} source(s)
                     </p>
                   </div>
                 </div>
-                <span className="text-xs font-medium text-muted-foreground">
-                  {isExpanded ? "Replier" : "Developper"}
+                <span className="text-xs font-medium text-primary">
+                  {isExpanded ? "Replier" : "Développer"}
                 </span>
               </button>
 
               {isExpanded ? (
-                <>
+                <div id={`${fieldId}-panel`}>
                   <div className="mt-3 flex flex-wrap gap-2 border-t border-border-subtle pt-3">
-                    <button
+                    <Button
                       type="button"
-                      className="btn btn-ghost btn-xs"
+                      variant="ghost"
+                      size="xs"
                       onClick={() => duplicateComponent(index)}
                     >
                       Dupliquer
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
-                      className="btn btn-ghost btn-xs"
+                      variant="ghost"
+                      size="xs"
                       onClick={() => splitComponent(index)}
                     >
                       Scinder
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
-                      className="btn btn-ghost btn-xs"
+                      variant="ghost"
+                      size="xs"
                       onClick={() => mergeWithPrevious(index)}
                       disabled={index === 0}
                     >
                       Fusionner
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
-                      className="btn btn-ghost btn-xs text-error"
+                      variant="ghost"
+                      size="xs"
+                      className="text-danger hover:bg-danger-subtle hover:text-danger"
                       onClick={() => removeComponent(index)}
                       disabled={components.length === 1}
                     >
                       Supprimer
-                    </button>
+                    </Button>
                   </div>
 
-                  <div className="mt-3 grid gap-3 md:grid-cols-6">
-                    <div className="md:col-span-2">
-                      <label className="label text-xs font-medium">Designation</label>
-                      <input
-                        className="input input-bordered input-sm w-full"
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2 md:grid-cols-6">
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <FieldLabel htmlFor={`${fieldId}-designation`} className="text-xs">
+                        Désignation
+                      </FieldLabel>
+                      <Input
+                        id={`${fieldId}-designation`}
+                        size="sm"
                         value={component.designation}
                         onChange={(event) =>
                           updateComponent(index, { designation: event.target.value })
                         }
                       />
                     </div>
-                    <div>
-                      <label className="label text-xs font-medium">Type</label>
-                      <select
-                        className="select select-bordered select-sm w-full"
+                    <div className="space-y-1.5">
+                      <FieldLabel htmlFor={`${fieldId}-cost-type`} className="text-xs">
+                        Type
+                      </FieldLabel>
+                      <NativeSelect
+                        id={`${fieldId}-cost-type`}
+                        size="sm"
                         value={component.costType}
                         onChange={(event) =>
                           updateComponent(index, {
@@ -429,26 +468,32 @@ function GeneratedOuvrageSubdetailEditorForm({
                           })
                         }
                       >
-                        <option value="material">Materiau</option>
-                        <option value="labor">Main d&apos;oeuvre</option>
-                        <option value="equipment">Matériel</option>
-                        <option value="subcontract">Sous-traitance</option>
-                      </select>
+                        <option value="material">{COST_TYPE_LABELS.material}</option>
+                        <option value="labor">{COST_TYPE_LABELS.labor}</option>
+                        <option value="equipment">{COST_TYPE_LABELS.equipment}</option>
+                        <option value="subcontract">{COST_TYPE_LABELS.subcontract}</option>
+                      </NativeSelect>
                     </div>
-                    <div>
-                      <label className="label text-xs font-medium">Unité</label>
-                      <input
-                        className="input input-bordered input-sm w-full"
+                    <div className="space-y-1.5">
+                      <FieldLabel htmlFor={`${fieldId}-unit`} className="text-xs">
+                        Unité
+                      </FieldLabel>
+                      <Input
+                        id={`${fieldId}-unit`}
+                        size="sm"
                         value={component.unit ?? ""}
                         onChange={(event) =>
                           updateComponent(index, { unit: event.target.value })
                         }
                       />
                     </div>
-                    <div>
-                      <label className="label text-xs font-medium">Quantité</label>
-                      <input
-                        className="input input-bordered input-sm w-full"
+                    <div className="space-y-1.5">
+                      <FieldLabel htmlFor={`${fieldId}-quantity`} className="text-xs">
+                        Quantité
+                      </FieldLabel>
+                      <Input
+                        id={`${fieldId}-quantity`}
+                        size="sm"
                         value={String(component.quantity)}
                         inputMode="decimal"
                         onChange={(event) =>
@@ -459,10 +504,13 @@ function GeneratedOuvrageSubdetailEditorForm({
                         }
                       />
                     </div>
-                    <div>
-                      <label className="label text-xs font-medium">Coût unitaire HT</label>
-                      <input
-                        className="input input-bordered input-sm w-full"
+                    <div className="space-y-1.5">
+                      <FieldLabel htmlFor={`${fieldId}-unit-cost`} className="text-xs">
+                        Coût unitaire HT
+                      </FieldLabel>
+                      <Input
+                        id={`${fieldId}-unit-cost`}
+                        size="sm"
                         value={String(component.unitCostHtCents)}
                         inputMode="numeric"
                         onChange={(event) =>
@@ -475,11 +523,14 @@ function GeneratedOuvrageSubdetailEditorForm({
                     </div>
                   </div>
 
-                  <div className="mt-3 grid gap-3 md:grid-cols-5">
-                    <div>
-                      <label className="label text-xs font-medium">Pertes (bp)</label>
-                      <input
-                        className="input input-bordered input-sm w-full"
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2 md:grid-cols-5">
+                    <div className="space-y-1.5">
+                      <FieldLabel htmlFor={`${fieldId}-loss`} className="text-xs">
+                        Pertes (bp)
+                      </FieldLabel>
+                      <Input
+                        id={`${fieldId}-loss`}
+                        size="sm"
                         value={String(component.lossCoeffBp)}
                         inputMode="numeric"
                         onChange={(event) =>
@@ -490,10 +541,13 @@ function GeneratedOuvrageSubdetailEditorForm({
                         }
                       />
                     </div>
-                    <div>
-                      <label className="label text-xs font-medium">Rendement</label>
-                      <input
-                        className="input input-bordered input-sm w-full"
+                    <div className="space-y-1.5">
+                      <FieldLabel htmlFor={`${fieldId}-yield`} className="text-xs">
+                        Rendement
+                      </FieldLabel>
+                      <Input
+                        id={`${fieldId}-yield`}
+                        size="sm"
                         value={component.yieldValue ?? ""}
                         inputMode="decimal"
                         onChange={(event) =>
@@ -505,20 +559,26 @@ function GeneratedOuvrageSubdetailEditorForm({
                         }
                       />
                     </div>
-                    <div>
-                      <label className="label text-xs font-medium">Unité rendement</label>
-                      <input
-                        className="input input-bordered input-sm w-full"
+                    <div className="space-y-1.5">
+                      <FieldLabel htmlFor={`${fieldId}-yield-unit`} className="text-xs">
+                        Unité rendement
+                      </FieldLabel>
+                      <Input
+                        id={`${fieldId}-yield-unit`}
+                        size="sm"
                         value={component.yieldUnit ?? ""}
                         onChange={(event) =>
                           updateComponent(index, { yieldUnit: event.target.value })
                         }
                       />
                     </div>
-                    <div>
-                      <label className="label text-xs font-medium">Confiance</label>
-                      <input
-                        className="input input-bordered input-sm w-full"
+                    <div className="space-y-1.5">
+                      <FieldLabel htmlFor={`${fieldId}-confidence`} className="text-xs">
+                        Confiance
+                      </FieldLabel>
+                      <Input
+                        id={`${fieldId}-confidence`}
+                        size="sm"
                         value={String(Number(component.confidence.toFixed(2)))}
                         inputMode="decimal"
                         onChange={(event) =>
@@ -534,16 +594,22 @@ function GeneratedOuvrageSubdetailEditorForm({
                         }
                       />
                     </div>
-                    <div>
-                      <label className="label text-xs font-medium">DS composant</label>
-                      <div className="input input-bordered input-sm flex items-center bg-surface-subtle text-foreground-secondary">
+                    <div className="space-y-1.5">
+                      <p id={`${fieldId}-ds-label`} className="text-xs font-medium text-foreground">
+                        DS composant
+                      </p>
+                      <output
+                        aria-labelledby={`${fieldId}-ds-label`}
+                        className="flex h-9 items-center rounded-control border border-border bg-surface-subtle px-3 text-sm text-foreground-secondary tabular-nums"
+                      >
                         {formatCurrency(componentDsCents, "EUR")}
-                      </div>
+                      </output>
                     </div>
                   </div>
 
                   <div className="mt-3 grid gap-3 md:grid-cols-3">
                     <StatementField
+                      id={`${fieldId}-facts`}
                       label="Faits"
                       value={component.facts.join("\n")}
                       onChange={(value) =>
@@ -551,6 +617,7 @@ function GeneratedOuvrageSubdetailEditorForm({
                       }
                     />
                     <StatementField
+                      id={`${fieldId}-hypotheses`}
                       label="Hypothèses"
                       value={component.hypotheses.join("\n")}
                       onChange={(value) =>
@@ -558,7 +625,8 @@ function GeneratedOuvrageSubdetailEditorForm({
                       }
                     />
                     <StatementField
-                      label="Inferences"
+                      id={`${fieldId}-inferences`}
+                      label="Inférences"
                       value={component.inferences.join("\n")}
                       onChange={(value) =>
                         updateComponent(index, { inferences: parseLines(value) })
@@ -568,18 +636,18 @@ function GeneratedOuvrageSubdetailEditorForm({
 
                   {component.sources.length > 0 ? (
                     <div className="mt-3 rounded-lg border border-border-subtle bg-surface-subtle p-3">
-                      <p className="text-xs font-medium text-slate-600">Provenance composee</p>
+                      <p className="text-xs font-medium text-foreground-secondary">Provenance composée</p>
                       <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
                         {component.sources.map((source) => (
                           <li key={`${source.sourceFragmentId}-${source.evidenceKind}`}>
-                            {source.evidenceKind} · {source.sourceFragmentId}
+                            {EVIDENCE_KIND_LABELS[source.evidenceKind] ?? source.evidenceKind} · {source.sourceFragmentId}
                             {source.note ? ` · ${source.note}` : ""}
                           </li>
                         ))}
                       </ul>
                     </div>
                   ) : null}
-                </>
+                </div>
               ) : null}
             </article>
           );
@@ -587,12 +655,13 @@ function GeneratedOuvrageSubdetailEditorForm({
       </div>
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-        <button type="button" className="btn btn-secondary btn-sm" onClick={addComponent}>
+        <Button type="button" variant="outline" size="md" onClick={addComponent}>
           Ajouter un composant
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="btn btn-primary btn-sm"
+          variant="primary"
+          size="md"
           onClick={handleSave}
           disabled={
             isSaving ||
@@ -601,32 +670,37 @@ function GeneratedOuvrageSubdetailEditorForm({
           }
         >
           {isSaving
-            ? "Validation..."
+            ? "Validation…"
             : reviewStateIsCurrent
               ? "Sous-détail déjà validé"
               : subdetail.status === "reviewed"
-                ? "Revalider le sous-detail"
-                : "Valider le sous-detail"}
-        </button>
+                ? "Revalider le sous-détail"
+                : "Valider le sous-détail"}
+        </Button>
       </div>
     </section>
   );
 }
 
 function StatementField({
+  id,
   label,
   value,
   onChange,
 }: {
+  id: string;
   label: string;
   value: string;
   onChange: (value: string) => void;
 }) {
   return (
-    <div>
-      <label className="label text-xs font-medium">{label}</label>
-      <textarea
-        className="textarea textarea-bordered min-h-[7rem] w-full text-sm"
+    <div className="space-y-1.5">
+      <FieldLabel htmlFor={id} className="text-xs">
+        {label}
+      </FieldLabel>
+      <Textarea
+        id={id}
+        className="min-h-28 px-3 py-2 text-sm"
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />

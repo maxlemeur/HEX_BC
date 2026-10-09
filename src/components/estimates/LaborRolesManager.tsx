@@ -4,7 +4,11 @@ import { useMemo, useState } from "react";
 
 import { parseEuroToCents } from "@/lib/money";
 import type { Database } from "@/types/database";
-import { CircleXIcon } from "lucide-react";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 
 type LaborRole = Database["public"]["Tables"]["labor_roles"]["Row"];
 
@@ -89,11 +93,11 @@ export function LaborRolesManager({
   }
 
   return (
-    <div className="dashboard-card p-8">
+    <Card className="p-5 sm:p-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-800">
-            Rôles main d&apos;oeuvre
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold text-foreground">
+            Rôles main-d&apos;œuvre
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Gérer les rôles MO disponibles pour vos chiffrages.
@@ -102,32 +106,27 @@ export function LaborRolesManager({
       </div>
 
       {error && (
-        <div className="alert alert-error mt-4">
-          <CircleXIcon aria-hidden="true" size={18} />
+        <Alert variant="danger" className="mt-4">
           {error}
-        </div>
+        </Alert>
       )}
 
       <div className="estimate-role-form mt-6 grid gap-4 sm:grid-cols-[1fr_180px_auto]">
-        <div>
-          <label className="form-label" htmlFor="new-role-name">
-            Nom du rôle
-          </label>
-          <input
+        <div className="flex min-w-0 flex-col gap-2">
+          <FieldLabel htmlFor="new-role-name">Nom du rôle</FieldLabel>
+          <Input
             id="new-role-name"
-            className="form-input form-input--sm"
+            size="sm"
             value={newName}
             onChange={(event) => setNewName(event.target.value)}
-            placeholder="Ex: Chef d'équipe"
+            placeholder="Ex. : Chef d'équipe"
           />
         </div>
-        <div>
-          <label className="form-label" htmlFor="new-role-rate">
-            Taux horaire (EUR)
-          </label>
-          <input
+        <div className="flex min-w-0 flex-col gap-2">
+          <FieldLabel htmlFor="new-role-rate">Taux horaire (EUR)</FieldLabel>
+          <Input
             id="new-role-rate"
-            className="form-input form-input--sm"
+            size="sm"
             type="number"
             step="0.01"
             min={0}
@@ -137,28 +136,35 @@ export function LaborRolesManager({
           />
         </div>
         <div className="flex items-end">
-          <button
-            className="btn btn-primary btn-sm"
-            type="button"
+          <Button
+            variant="primary"
+            size="md"
             onClick={handleAddRole}
             disabled={isSaving}
           >
             Ajouter
-          </button>
+          </Button>
         </div>
       </div>
 
       {formError && (
-        <p className="mt-3 text-sm text-danger">{formError}</p>
+        <Alert variant="danger" className="mt-3">
+          {formError}
+        </Alert>
       )}
 
-      <div className="table-scroll mt-6">
+      <div
+        className="table-scroll mt-6"
+        role="region"
+        aria-label="Rôles main-d'œuvre"
+        tabIndex={0}
+      >
         <table className="data-table">
           <thead>
             <tr>
-              <th>Rôle</th>
-              <th>Taux horaire</th>
-              <th>Actif</th>
+              <th scope="col">Rôle</th>
+              <th scope="col">Taux horaire</th>
+              <th scope="col">Actif</th>
             </tr>
           </thead>
           <tbody>
@@ -166,7 +172,7 @@ export function LaborRolesManager({
               <tr>
                 <td colSpan={3}>
                   <div className="text-sm text-muted-foreground">
-                    Aucun rôle defini.
+                    Aucun rôle défini.
                   </div>
                 </td>
               </tr>
@@ -180,9 +186,10 @@ export function LaborRolesManager({
                 return (
                   <tr key={role.id}>
                     <td>
-                      <input
-                        className="form-input form-input--sm"
+                      <Input
+                        size="sm"
                         value={draft.name}
+                        aria-label={`Libellé du rôle ${role.name}`}
                         onChange={(event) =>
                           setDrafts((prev) => ({
                             ...prev,
@@ -196,12 +203,13 @@ export function LaborRolesManager({
                       />
                     </td>
                     <td>
-                      <input
-                        className="form-input form-input--sm"
+                      <Input
+                        size="sm"
                         type="number"
                         step="0.01"
                         min={0}
                         value={draft.rate}
+                        aria-label={`Taux horaire du rôle ${role.name} (EUR)`}
                         onChange={(event) =>
                           setDrafts((prev) => ({
                             ...prev,
@@ -218,7 +226,9 @@ export function LaborRolesManager({
                       <label className="estimate-toggle">
                         <input
                           type="checkbox"
+                          className="accent-primary"
                           checked={draft.is_active}
+                          aria-label={`Rôle ${role.name} actif`}
                           onChange={(event) =>
                             setDrafts((prev) => ({
                               ...prev,
@@ -230,7 +240,7 @@ export function LaborRolesManager({
                           }
                           onBlur={() => handleBlur(role)}
                         />
-                        <span>{draft.is_active ? "Actif" : "Inactif"}</span>
+                        <span aria-hidden="true">{draft.is_active ? "Actif" : "Inactif"}</span>
                       </label>
                     </td>
                   </tr>
@@ -240,6 +250,6 @@ export function LaborRolesManager({
           </tbody>
         </table>
       </div>
-    </div>
+    </Card>
   );
 }

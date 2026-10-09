@@ -1,9 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import useSWR from "swr";
 
+import { LoadingState } from "@/components/layout/loading-state";
+import { Alert } from "@/components/ui/alert";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import {
   fetchEstimateAssemblies,
   fetchEstimateAssembly,
@@ -49,6 +61,7 @@ export function AssemblyPicker({
   const [detailById, setDetailById] = useState<Record<string, EstimateAssemblyDetail>>({});
   const [isInserting, setIsInserting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const swrKey = useMemo(() => ["assembly-picker", isOpen], [isOpen]);
   const {
@@ -193,45 +206,47 @@ export function AssemblyPicker({
     }
   }
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50">
-      <button
-        type="button"
-        className="absolute inset-0 bg-[rgba(2,6,23,0.35)]"
-        onClick={onClose}
-        aria-label="Fermer le sélecteur d'ouvrages"
-      />
-      <aside className="absolute right-0 top-0 flex h-full w-full max-w-3xl flex-col bg-surface shadow-2xl">
-        <div className="flex items-start justify-between border-b border-border px-6 py-4">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-800">
-              Ajouter un ouvrage
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
+    <Sheet
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <SheetContent
+        side="right"
+        showCloseButton={false}
+        initialFocus={searchInputRef}
+        className="gap-0 bg-surface p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-3xl"
+      >
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border px-4 py-4 sm:px-6">
+          <div className="min-w-0">
+            <SheetTitle className="text-lg font-semibold">Ajouter un ouvrage</SheetTitle>
+            <SheetDescription className="mt-1">
               Recherchez un ouvrage, vérifiez son coût puis ajoutez-le au chiffrage.
-            </p>
-            <p className="mt-1 text-xs font-medium text-slate-600">
+            </SheetDescription>
+            <p className="mt-1 text-xs font-medium text-foreground-secondary">
               Emplacement :{" "}
               {anchorLabel ??
                 (anchorItemId ? "après la ligne active" : "à la fin du devis")}
             </p>
           </div>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>
+          <SheetClose
+            render={<Button variant="outline" size="md" className="shrink-0" />}
+            aria-label="Fermer le sélecteur d'ouvrages"
+          >
             Fermer
-          </button>
+          </SheetClose>
         </div>
 
-        <div className="grid flex-1 grid-cols-1 gap-0 overflow-hidden md:grid-cols-[300px_1fr]">
-          <div className="border-b border-border md:border-b-0 md:border-r">
-            <div className="p-4">
-              <label className="form-label" htmlFor="assembly-picker-search">
-                Rechercher
-              </label>
-              <input
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-0 overflow-hidden md:grid-cols-[300px_1fr]">
+          <div className="min-h-0 border-b border-border md:border-r md:border-b-0">
+            <div className="grid gap-2 p-4">
+              <FieldLabel htmlFor="assembly-picker-search">Rechercher</FieldLabel>
+              <Input
+                ref={searchInputRef}
                 id="assembly-picker-search"
-                className="form-input"
+                type="search"
                 value={searchInput}
                 onChange={(event) => setSearchInput(event.target.value)}
                 placeholder="Nom, référence ou composant"
@@ -239,35 +254,39 @@ export function AssemblyPicker({
             </div>
             <div className="max-h-[calc(100vh-220px)] overflow-auto px-2 pb-3">
               {isLoading ? (
-                <div className="px-3 py-4 text-sm text-muted-foreground">Chargement...</div>
+                <LoadingState className="py-4" />
               ) : loadError ? (
-                <div className="px-3 py-4 text-sm text-rose-600">{loadError.message}</div>
+                <Alert variant="danger" className="mx-2">{loadError.message}</Alert>
               ) : filteredAssemblies.length === 0 ? (
-                <div className="px-3 py-4 text-sm text-muted-foreground">
+                <p className="px-3 py-4 text-sm text-muted-foreground">
                   Aucun ouvrage trouvé.
-                </div>
+                </p>
               ) : (
-                filteredAssemblies.map((assembly) => (
-                  <button
-                    key={assembly.id}
-                    type="button"
-                    className={`mb-2 w-full rounded-lg border px-3 py-2 text-left ${
-                      selectedAssemblyId === assembly.id
-                        ? "border-primary bg-info-light"
-                        : "border-border bg-surface"
-                    }`}
-                    onClick={() => setSelectedAssemblyId(assembly.id)}
-                  >
-                    <div className="font-medium text-slate-800">{assembly.name}</div>
-                    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                      <span>
-                        {assembly.itemCount} composant{assembly.itemCount > 1 ? "s" : ""}
+                filteredAssemblies.map((assembly) => {
+                  const isSelected = selectedAssemblyId === assembly.id;
+                  return (
+                    <button
+                      key={assembly.id}
+                      type="button"
+                      aria-pressed={isSelected}
+                      className={`mb-2 w-full rounded-lg border px-3 py-2 text-left transition-colors outline-none focus-visible:ring-2 focus-visible:ring-primary motion-reduce:transition-none ${
+                        isSelected
+                          ? "border-primary bg-info-light"
+                          : "border-border bg-surface hover:border-border-strong hover:bg-surface-subtle"
+                      }`}
+                      onClick={() => setSelectedAssemblyId(assembly.id)}
+                    >
+                      <span className="block font-medium text-foreground">{assembly.name}</span>
+                      <span className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                        <span>
+                          {assembly.itemCount} composant{assembly.itemCount > 1 ? "s" : ""}
+                        </span>
+                        {assembly.unit ? <span>· {assembly.unit}</span> : null}
+                        <span className="tabular-nums">· {formatCurrency(assembly.targetPriceCents)}</span>
                       </span>
-                      {assembly.unit ? <span>· {assembly.unit}</span> : null}
-                      <span>· {formatCurrency(assembly.targetPriceCents)}</span>
-                    </div>
-                  </button>
-                ))
+                    </button>
+                  );
+                })
               )}
             </div>
           </div>
@@ -275,57 +294,54 @@ export function AssemblyPicker({
           <div className="flex min-h-0 flex-col">
             <div className="flex-1 overflow-auto p-4">
               {!selectedAssemblyId ? (
-                <div className="text-sm text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   Sélectionnez un ouvrage pour afficher son aperçu et son impact financier.
-                </div>
+                </p>
               ) : !selectedDetail ? (
-                <div className="text-sm text-muted-foreground">Chargement de l&apos;aperçu...</div>
+                <LoadingState label="Chargement de l’aperçu…" className="justify-start py-0" />
               ) : (
                 <div>
-                  <h3 className="text-base font-semibold text-slate-800">
+                  <h3 className="text-base font-semibold text-foreground">
                     {selectedDetail.name}
                   </h3>
                   <p className="mt-1 text-sm text-muted-foreground">
                     {selectedDetail.description?.trim() || "Sans description"}
                   </p>
 
-                  <div className="mt-4 grid grid-cols-2 gap-2 xl:grid-cols-4">
-                    <div className="rounded-lg border border-border bg-surface-subtle px-3 py-2">
-                      <p className="text-xs text-muted-foreground">Coût direct</p>
-                      <p className="mt-0.5 font-semibold text-foreground">
-                        {formatCurrency(selectedDetail.directCostCents)}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border border-border bg-surface-subtle px-3 py-2">
-                      <p className="text-xs text-muted-foreground">Temps MO</p>
-                      <p className="mt-0.5 font-semibold text-foreground">
-                        {formatHours(selectedDetail.averageTimeHours)} h
-                      </p>
-                    </div>
-                    <div className="rounded-lg border border-border bg-surface-subtle px-3 py-2">
-                      <p className="text-xs text-muted-foreground">Prix cible HT</p>
-                      <p className="mt-0.5 font-semibold text-foreground">
-                        {formatCurrency(selectedDetail.targetPriceCents)}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border border-border bg-surface-subtle px-3 py-2">
-                      <p className="text-xs text-muted-foreground">Composants</p>
-                      <p className="mt-0.5 font-semibold text-foreground">
-                        {selectedDetail.items.length}
-                      </p>
-                    </div>
-                  </div>
+                  <dl className="mt-4 grid grid-cols-2 gap-2 xl:grid-cols-4">
+                    {[
+                      { label: "Coût direct", value: formatCurrency(selectedDetail.directCostCents) },
+                      { label: "Temps MO", value: `${formatHours(selectedDetail.averageTimeHours)} h` },
+                      { label: "Prix cible HT", value: formatCurrency(selectedDetail.targetPriceCents) },
+                      { label: "Composants", value: String(selectedDetail.items.length) },
+                    ].map((metric) => (
+                      <div
+                        key={metric.label}
+                        className="rounded-lg border border-border bg-surface-subtle px-3 py-2"
+                      >
+                        <dt className="text-xs text-muted-foreground">{metric.label}</dt>
+                        <dd className="mt-0.5 font-semibold tabular-nums text-foreground">
+                          {metric.value}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
 
-                  <div className="mt-4 table-scroll rounded-lg border border-border">
+                  <div
+                    className="mt-4 table-scroll rounded-lg border border-border"
+                    role="region"
+                    aria-label="Composants de l’ouvrage"
+                    tabIndex={0}
+                  >
                     <table className="data-table">
                       <thead>
                         <tr>
                           <th>Pos.</th>
-                          <th>Designation</th>
-                          <th>U</th>
+                          <th>Désignation</th>
+                          <th>Unité</th>
                           <th>K FO</th>
                           <th>K MO</th>
-                          <th>Qte défaut</th>
+                          <th>Qté défaut</th>
                           <th>Coût unitaire</th>
                         </tr>
                       </thead>
@@ -335,10 +351,10 @@ export function AssemblyPicker({
                             <td className="font-mono">{item.position}</td>
                             <td>{item.title}</td>
                             <td>{item.unit ?? "-"}</td>
-                            <td>{item.k_fo ?? 1}</td>
-                            <td>{item.k_mo ?? 1}</td>
-                            <td>{item.default_quantity ?? 1}</td>
-                            <td>{formatCurrency(item.unit_cost_ht_cents)}</td>
+                            <td className="tabular-nums">{item.k_fo ?? 1}</td>
+                            <td className="tabular-nums">{item.k_mo ?? 1}</td>
+                            <td className="tabular-nums">{item.default_quantity ?? 1}</td>
+                            <td className="tabular-nums">{formatCurrency(item.unit_cost_ht_cents)}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -349,43 +365,46 @@ export function AssemblyPicker({
             </div>
 
             <div className="border-t border-border p-4">
-              {actionError ? <div className="alert alert-error mb-3">{actionError}</div> : null}
+              {actionError ? (
+                <Alert variant="danger" className="mb-3">{actionError}</Alert>
+              ) : null}
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <Link
                   href="/dashboard/estimates/assemblies"
-                  className="text-sm font-medium text-primary hover:underline"
+                  className={buttonVariants({ variant: "link", size: "sm" })}
                 >
                   Gérer la bibliothèque d&apos;ouvrages
                 </Link>
-                <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={onClose}
-                  disabled={isInserting}
-                >
-                  Annuler
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={() => void handleInsert()}
-                  disabled={!selectedAssemblyId || isInserting || isReadOnly}
-                >
-                  {isInserting
-                    ? "Ajout en cours..."
-                    : selectedAssembly
-                      ? `Ajouter « ${selectedAssembly.name} » — ${formatCurrency(
-                          selectedAssembly.targetPriceCents
-                        )}`
-                      : "Ajouter l'ouvrage"}
-                </button>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button
+                    variant="outline"
+                    size="lg"
+                    onClick={onClose}
+                    disabled={isInserting}
+                  >
+                    Annuler
+                  </Button>
+                  <Button
+                    size="lg"
+                    className="max-w-full"
+                    onClick={() => void handleInsert()}
+                    disabled={!selectedAssemblyId || isReadOnly}
+                    loading={isInserting}
+                  >
+                    <span className="min-w-0 truncate">
+                      {selectedAssembly
+                        ? `Ajouter « ${selectedAssembly.name} » — ${formatCurrency(
+                            selectedAssembly.targetPriceCents
+                          )}`
+                        : "Ajouter l'ouvrage"}
+                    </span>
+                  </Button>
                 </div>
               </div>
             </div>
           </div>
         </div>
-      </aside>
-    </div>
+      </SheetContent>
+    </Sheet>
   );
 }

@@ -1,12 +1,19 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
+import { RefreshCwIcon, SearchIcon } from "lucide-react";
 import useSWR from "swr";
 
+import { LibraryNameDialog } from "@/components/estimates/LibraryNameDialog";
 import { TemplateLibraryTable } from "@/components/estimates/TemplateLibraryTable";
-import { ConfirmModal } from "@/components/ui-legacy/ConfirmModal";
-import { PromptModal } from "@/components/ui-legacy/PromptModal";
+import { useConfirm } from "@/components/feedback/confirm-provider";
+import { LoadingState } from "@/components/layout/loading-state";
+import { PageHeader } from "@/components/layout/page-header";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import {
   deleteEstimateTemplate,
   duplicateEstimateTemplate,
@@ -16,13 +23,13 @@ import {
 } from "@/lib/estimates/client";
 
 export default function EstimateTemplatesPage() {
+  const confirm = useConfirm();
   const [search, setSearch] = useState("");
   const [busyTemplateId, setBusyTemplateId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [renamingTemplate, setRenamingTemplate] = useState<{ id: string; name: string } | null>(null);
   const [duplicatingTemplate, setDuplicatingTemplate] = useState<{ id: string; name: string } | null>(null);
-  const [deletingTemplate, setDeletingTemplate] = useState<{ id: string; name: string } | null>(null);
 
   const swrKey = useMemo(
     () => ["estimate-templates", search.trim().toLowerCase()],
@@ -63,11 +70,11 @@ export default function EstimateTemplatesPage() {
       setRenamingTemplate(null);
       try {
         await updateEstimateTemplate(renamingTemplate.id, { name: nextName });
-        setSuccessMessage("Template renomme.");
+        setSuccessMessage("Modèle renommé.");
         await mutate();
       } catch (error) {
         setActionError(
-          error instanceof Error ? error.message : "Impossible de renommer le template."
+          error instanceof Error ? error.message : "Impossible de renommer le modèle."
         );
       } finally {
         setBusyTemplateId(null);
@@ -89,11 +96,11 @@ export default function EstimateTemplatesPage() {
       setDuplicatingTemplate(null);
       try {
         await duplicateEstimateTemplate(duplicatingTemplate.id, { name: duplicateName });
-        setSuccessMessage("Template duplique.");
+        setSuccessMessage("Modèle dupliqué.");
         await mutate();
       } catch (error) {
         setActionError(
-          error instanceof Error ? error.message : "Impossible de dupliquer le template."
+          error instanceof Error ? error.message : "Impossible de dupliquer le modèle."
         );
       } finally {
         setBusyTemplateId(null);
@@ -102,110 +109,109 @@ export default function EstimateTemplatesPage() {
     [duplicatingTemplate, mutate]
   );
 
-  const handleDelete = useCallback((template: EstimateTemplateSummary) => {
-    setDeletingTemplate({ id: template.id, name: template.name });
-  }, []);
+  const handleDelete = useCallback(
+    async (template: EstimateTemplateSummary) => {
+      const confirmed = await confirm({
+        title: "Supprimer le modèle ?",
+        description: `Le modèle « ${template.name} » sera supprimé définitivement.`,
+        confirmLabel: "Supprimer",
+        tone: "danger",
+      });
+      if (!confirmed) return;
 
-  const confirmDelete = useCallback(async () => {
-    if (!deletingTemplate) return;
-    setActionError(null);
-    setSuccessMessage(null);
-    setBusyTemplateId(deletingTemplate.id);
-    setDeletingTemplate(null);
-    try {
-      await deleteEstimateTemplate(deletingTemplate.id);
-      setSuccessMessage("Template supprime.");
-      await mutate();
-    } catch (error) {
-      setActionError(
-        error instanceof Error ? error.message : "Impossible de supprimer le template."
-      );
-    } finally {
-      setBusyTemplateId(null);
-    }
-  }, [deletingTemplate, mutate]);
+      setActionError(null);
+      setSuccessMessage(null);
+      setBusyTemplateId(template.id);
+      try {
+        await deleteEstimateTemplate(template.id);
+        setSuccessMessage("Modèle supprimé.");
+        await mutate();
+      } catch (error) {
+        setActionError(
+          error instanceof Error ? error.message : "Impossible de supprimer le modèle."
+        );
+      } finally {
+        setBusyTemplateId(null);
+      }
+    },
+    [confirm, mutate]
+  );
 
   return (
     <div className="animate-fade-in">
-      <div className="page-header flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="page-title">Templates de chiffrage</h1>
-          <p className="page-description">
-            Bibliotheque des modèles reutilisables de votre tenant.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link className="btn btn-secondary btn-sm" href="/dashboard/estimates/new">
-            Nouveau chiffrage
-          </Link>
-          <Link className="btn btn-secondary btn-sm" href="/dashboard/estimates">
-            Retour
-          </Link>
-        </div>
+      <PageHeader
+        title="Modèles de chiffrage"
+        description="Bibliothèque des modèles réutilisables de votre organisation. Un modèle s’enregistre depuis une version de chiffrage (« Sauvegarder comme modèle »)."
+      />
+
+      <div className="mb-6 flex flex-col gap-3 empty:hidden">
+        {actionError ? <Alert variant="danger">{actionError}</Alert> : null}
+        {successMessage ? <Alert variant="success">{successMessage}</Alert> : null}
+        {loadError ? <Alert variant="danger">{loadError.message}</Alert> : null}
       </div>
 
-      {actionError ? <div className="alert alert-error mb-6">{actionError}</div> : null}
-      {successMessage ? <div className="alert alert-success mb-6">{successMessage}</div> : null}
-      {loadError ? <div className="alert alert-error mb-6">{loadError.message}</div> : null}
-
-      <div className="dashboard-card overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-6 py-4">
+      <Card className="overflow-hidden">
+        <div className="flex flex-wrap items-end justify-between gap-3 border-b border-border-subtle px-4 py-4 sm:px-6">
           <div className="w-full max-w-md">
-            <label className="form-label" htmlFor="template-search">
+            <FieldLabel htmlFor="template-search" className="mb-1.5">
               Rechercher
-            </label>
-            <input
-              id="template-search"
-              className="form-input"
-              placeholder="Nom ou description"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
+            </FieldLabel>
+            <div className="relative">
+              <SearchIcon
+                aria-hidden="true"
+                className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+              />
+              <Input
+                id="template-search"
+                type="search"
+                className="pl-9"
+                placeholder="Nom ou description"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+            </div>
           </div>
-          <button className="btn btn-secondary btn-sm" onClick={() => void mutate()} disabled={isValidating}>
-            {isValidating ? "Actualisation..." : "Actualiser"}
-          </button>
+          <Button
+            variant="outline"
+            size="md"
+            onClick={() => void mutate()}
+            loading={isValidating}
+            leftIcon={<RefreshCwIcon aria-hidden="true" />}
+          >
+            Actualiser
+          </Button>
         </div>
 
         {isLoading ? (
-          <div className="px-6 py-8 text-sm text-muted-foreground">Chargement des templates...</div>
+          <LoadingState label="Chargement des modèles…" />
         ) : (
           <TemplateLibraryTable
             templates={templates}
             busyTemplateId={busyTemplateId}
             onRename={handleRename}
             onDuplicate={handleDuplicate}
-            onDelete={handleDelete}
+            onDelete={(template) => void handleDelete(template)}
           />
         )}
-      </div>
+      </Card>
 
-      <PromptModal
+      <LibraryNameDialog
         open={renamingTemplate !== null}
-        title="Renommer le template"
+        title="Renommer le modèle"
         label="Nouveau nom"
         defaultValue={renamingTemplate?.name ?? ""}
         confirmLabel="Renommer"
-        onConfirm={confirmRename}
+        onConfirm={(value) => void confirmRename(value)}
         onCancel={() => setRenamingTemplate(null)}
       />
-      <PromptModal
+      <LibraryNameDialog
         open={duplicatingTemplate !== null}
-        title="Dupliquer le template"
+        title="Dupliquer le modèle"
         label="Nom de la copie"
         defaultValue={duplicatingTemplate ? `${duplicatingTemplate.name} (copie)` : ""}
         confirmLabel="Dupliquer"
-        onConfirm={confirmDuplicate}
+        onConfirm={(value) => void confirmDuplicate(value)}
         onCancel={() => setDuplicatingTemplate(null)}
-      />
-      <ConfirmModal
-        open={deletingTemplate !== null}
-        title="Supprimer le template"
-        message={`Supprimer le template "${deletingTemplate?.name ?? ""}" ? Cette action est irreversible.`}
-        confirmLabel="Supprimer"
-        variant="danger"
-        onConfirm={() => void confirmDelete()}
-        onCancel={() => setDeletingTemplate(null)}
       />
     </div>
   );

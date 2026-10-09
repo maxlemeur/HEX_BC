@@ -1,9 +1,14 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { Fragment, useState } from "react";
+import { useId, useState } from "react";
 
-import { Badge } from "@/components/ui-legacy/Badge";
+import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 import { cn } from "@/lib/utils";
 
 import {
@@ -26,8 +31,8 @@ const GeneratedOuvrageSubdetailEditor = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="mt-4 rounded-xl border border-border bg-surface-subtle p-4 text-sm text-muted-foreground">
-        Chargement du sous-detail...
+      <div className="mt-4 rounded-lg border border-border bg-surface-subtle p-4 text-sm text-muted-foreground">
+        Chargement du sous-détail…
       </div>
     ),
   }
@@ -53,15 +58,21 @@ type GeneratedOuvrageCandidateCardProps = {
 const AI_STATUS_CONFIG = {
   certain: { variant: "success" as const, label: "Certain" },
   plausible: { variant: "warning" as const, label: "Plausible" },
-  question: { variant: "error" as const, label: "À clarifier" },
+  question: { variant: "danger" as const, label: "À clarifier" },
 } as const;
 
 const SOURCE_TYPE_LABELS: Record<string, string> = {
   text: "Texte",
   cctp: "CCTP",
   history: "Historique",
-  library: "Bibliotheque",
+  library: "Bibliothèque",
 };
+
+/** Native checkbox kept for keyboard, `toBeChecked` and Playwright `check()`. */
+const NATIVE_CHECKBOX_CLASS =
+  "mt-0.5 size-4 shrink-0 cursor-pointer rounded-sm accent-primary disabled:cursor-not-allowed disabled:opacity-50";
+
+const GUIDANCE_CLASS = "mt-2 rounded-lg border px-3 py-2.5 text-xs";
 
 type NextStep = "parent" | "subdetail" | "select" | "ready";
 
@@ -87,47 +98,52 @@ function ReadinessStepper({
 }) {
   const steps = [
     { label: "Compléter la ligne", done: parentReady },
-    { label: "Valider le sous-detail", done: subdetailReviewed },
+    { label: "Valider le sous-détail", done: subdetailReviewed },
     { label: "Sélectionner", done: selected },
   ];
 
   const activeIndex = steps.findIndex((s) => !s.done);
 
   return (
-    <div
-      className="flex flex-wrap items-center gap-1 mt-2 text-xs"
+    <ol
+      className="mt-2 flex flex-wrap items-center gap-1 text-xs"
       aria-label="Étapes de préparation"
     >
       {steps.map((step, i) => (
-        <Fragment key={i}>
+        <li
+          key={step.label}
+          className="flex items-center gap-1"
+          aria-current={i === activeIndex ? "step" : undefined}
+        >
           {i > 0 && (
-            <ChevronRightIcon className="h-3 w-3 text-slate-300 shrink-0" aria-hidden="true" />
+            <ChevronRightIcon className="size-3 shrink-0 text-subtle-foreground" aria-hidden="true" />
           )}
           <span
             className={cn(
               "inline-flex items-center gap-1 rounded-full px-2 py-0.5 whitespace-nowrap transition-colors",
               step.done
-                ? "bg-emerald-50 text-emerald-700"
+                ? "bg-success-subtle text-success"
                 : i === activeIndex
-                  ? "bg-amber-50 text-amber-800 font-medium ring-1 ring-amber-200/60"
-                  : "bg-surface-subtle text-subtle-foreground"
+                  ? "bg-warning-subtle font-medium text-warning ring-1 ring-warning-border"
+                  : "bg-surface-subtle text-muted-foreground"
             )}
           >
             {step.done ? (
-              <CheckIcon className="h-3 w-3 shrink-0" aria-hidden="true" />
+              <CheckIcon className="size-3 shrink-0" aria-hidden="true" />
             ) : (
               <span
-                className="h-3 w-3 flex items-center justify-center text-[10px] font-bold shrink-0"
+                className="flex size-3 shrink-0 items-center justify-center text-micro font-bold"
                 aria-hidden="true"
               >
                 {i + 1}
               </span>
             )}
             {step.label}
+            {step.done ? <span className="sr-only"> (terminé)</span> : null}
           </span>
-        </Fragment>
+        </li>
       ))}
-    </div>
+    </ol>
   );
 }
 
@@ -165,22 +181,22 @@ export function GeneratedOuvrageCandidateCard({
     return (
       <div
         className={cn(
-          "rounded-lg border p-4 opacity-60",
-          isInserted ? "border-success/30 bg-success/5" : "border-border bg-surface-subtle"
+          "rounded-lg border p-4",
+          isInserted ? "border-success-border bg-success-subtle" : "border-border bg-surface-subtle"
         )}
         data-testid={`candidate-card-${candidate.candidateId}`}
       >
-        <div className="flex items-center gap-2">
-          <span className="font-medium text-sm text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium text-muted-foreground">
             {candidate.editedDesignation}
           </span>
-          <Badge variant={isInserted ? "success" : "error"} size="sm">
-            {isInserted ? "Insere" : "Rejete"}
+          <Badge variant={isInserted ? "success" : "danger"} size="sm">
+            {isInserted ? "Inséré" : "Rejeté"}
           </Badge>
         </div>
         {candidate.editedUnit && (
-          <p className="text-xs text-subtle-foreground mt-1">
-            Unité proposee : {candidate.editedUnit}
+          <p className="mt-1 text-xs text-muted-foreground">
+            Unité proposée : {candidate.editedUnit}
           </p>
         )}
       </div>
@@ -214,24 +230,24 @@ export function GeneratedOuvrageCandidateCard({
         candidate.selected
           ? "border-primary/40 bg-primary/5"
           : nextStep === "ready"
-            ? "border-emerald-200 bg-emerald-50/30"
-            : "border-border"
+            ? "border-success-border bg-success-subtle"
+            : "border-border bg-surface"
       )}
       data-testid={`candidate-card-${candidate.candidateId}`}
     >
       <div className="flex items-start gap-3">
         <input
           type="checkbox"
-          className="checkbox checkbox-sm mt-0.5"
+          className={NATIVE_CHECKBOX_CLASS}
           checked={candidate.selected}
           onChange={() => onToggleSelect(candidate.candidateId)}
           aria-label={`Sélectionner ${candidate.designation}`}
           disabled={selectionDisabled}
         />
-        <div className="flex-1 min-w-0">
+        <div className="min-w-0 flex-1">
           {/* Header: designation + AI confidence */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-medium text-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-foreground">
               {candidate.editedDesignation}
             </span>
             <Badge variant={aiStatusConfig.variant} size="sm">
@@ -239,7 +255,7 @@ export function GeneratedOuvrageCandidateCard({
             </Badge>
             {insertReady && candidate.selected && (
               <Badge variant="success" size="sm">
-                Prêt à inserer
+                Prêt à insérer
               </Badge>
             )}
           </div>
@@ -253,36 +269,36 @@ export function GeneratedOuvrageCandidateCard({
 
           {/* Actionable guidance block */}
           {nextStep === "parent" && (
-            <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2.5">
-              <p className="text-xs font-medium text-amber-900">
-                Cet ouvrage n&apos;est pas prêt à être insere.
+            <div className={cn(GUIDANCE_CLASS, "border-warning-border bg-warning-subtle")}>
+              <p className="font-medium text-warning">
+                Cet ouvrage n&apos;est pas prêt à être inséré.
               </p>
-              <p className="text-xs text-amber-800 mt-0.5">
+              <p className="mt-0.5 text-foreground-secondary">
                 Il manque : {missingFieldsLabel}.
               </p>
-              <p className="text-xs text-amber-700 mt-1">
+              <p className="mt-1 text-foreground-secondary">
                 Cliquez sur &laquo;&nbsp;Compléter la ligne&nbsp;&raquo; ci-dessous.
               </p>
             </div>
           )}
           {nextStep === "subdetail" && (
-            <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50/80 px-3 py-2.5">
-              <p className="text-xs font-medium text-blue-900">
-                Ligne complete. Validez le sous-detail pour debloquer l&apos;insertion.
+            <div className={cn(GUIDANCE_CLASS, "border-info-border bg-info-subtle")}>
+              <p className="font-medium text-info">
+                Ligne complète. Validez le sous-détail pour débloquer l&apos;insertion.
               </p>
             </div>
           )}
           {nextStep === "select" && (
-            <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50/80 px-3 py-2.5">
-              <p className="text-xs font-medium text-emerald-800">
-                Ouvrage prêt. Selectionnez-le pour l&apos;ajouter au devis.
+            <div className={cn(GUIDANCE_CLASS, "border-success-border bg-success-subtle")}>
+              <p className="font-medium text-success">
+                Ouvrage prêt. Sélectionnez-le pour l&apos;ajouter au devis.
               </p>
             </div>
           )}
 
           {/* Metadata - hidden when parent incomplete to reduce density */}
           {parentReadiness.isReady && (
-            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-muted-foreground">
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
               {candidate.editedUnit && (
                 <span>Unité : {candidate.editedUnit}</span>
               )}
@@ -297,14 +313,14 @@ export function GeneratedOuvrageCandidateCard({
                 })}
               </span>
               <span>
-                Confiance : {Math.round(candidate.confidence * 100)}%
+                Confiance : {`${Math.round(candidate.confidence * 100)} %`}
               </span>
             </div>
           )}
 
           {/* Reasoning - hidden when parent incomplete */}
           {candidate.reasoning && parentReadiness.isReady && (
-            <p className="text-xs text-subtle-foreground mt-1 italic">
+            <p className="mt-1 text-xs text-muted-foreground italic">
               {candidate.reasoning}
             </p>
           )}
@@ -312,15 +328,17 @@ export function GeneratedOuvrageCandidateCard({
           {/* Sources remain available in review mode, including incomplete candidates. */}
           {candidate.sources.length > 0 && (
             <div className="mt-2">
-              <button
+              <Button
                 type="button"
-                className="text-xs text-primary hover:underline"
+                variant="link"
+                size="xs"
+                aria-expanded={provenanceOpen}
                 onClick={() => setProvenanceOpen((p) => !p)}
               >
                 {provenanceOpen
                   ? "Masquer les sources"
                   : `Voir les sources (${candidate.sources.length})`}
-              </button>
+              </Button>
               {provenanceOpen && <SourceList sources={candidate.sources} />}
             </div>
           )}
@@ -329,54 +347,60 @@ export function GeneratedOuvrageCandidateCard({
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {/* Primary CTA - changes based on next required step */}
             {nextStep === "parent" && (
-              <button
+              <Button
                 type="button"
-                className="btn btn-primary btn-xs"
+                variant="primary"
+                size="xs"
                 onClick={() => onStartEdit(candidate.candidateId)}
               >
                 Compléter la ligne
-              </button>
+              </Button>
             )}
             {nextStep === "subdetail" && (
-              <button
+              <Button
                 type="button"
-                className="btn btn-primary btn-xs"
+                variant="primary"
+                size="xs"
                 onClick={handleOpenSubdetail}
               >
-                Valider le sous-detail
-              </button>
+                Valider le sous-détail
+              </Button>
             )}
             {nextStep === "select" && (
-              <button
+              <Button
                 type="button"
-                className="btn btn-primary btn-xs"
+                variant="primary"
+                size="xs"
                 onClick={() => onToggleSelect(candidate.candidateId)}
               >
                 Sélectionner pour insertion
-              </button>
+              </Button>
             )}
 
             {/* Divider between primary and secondary */}
             {nextStep !== "ready" && (
-              <span className="h-4 w-px bg-slate-200" aria-hidden="true" />
+              <span className="h-4 w-px bg-border" aria-hidden="true" />
             )}
 
             {/* Select/deselect - hidden when it's the primary CTA or parent incomplete */}
             {parentReadiness.isReady && nextStep !== "select" && (
-              <button
+              <Button
                 type="button"
-                className="btn btn-ghost btn-xs"
+                variant="ghost"
+                size="xs"
                 onClick={() => onToggleSelect(candidate.candidateId)}
               >
-                {candidate.selected ? "Deselectionner" : "Sélectionner"}
-              </button>
+                {candidate.selected ? "Désélectionner" : "Sélectionner"}
+              </Button>
             )}
 
             {/* Subdetail toggle - hidden when it's the primary CTA or parent incomplete */}
             {parentReadiness.isReady && nextStep !== "subdetail" && (
-              <button
+              <Button
                 type="button"
-                className="btn btn-ghost btn-xs"
+                variant="ghost"
+                size="xs"
+                aria-expanded={subdetailOpen}
                 onClick={() => {
                   setSubdetailOpen((open) => !open);
                   if (!subdetailState?.data && subdetailState?.status !== "loading") {
@@ -385,47 +409,50 @@ export function GeneratedOuvrageCandidateCard({
                 }}
               >
                 {subdetailOpen
-                  ? "Masquer le sous-detail"
+                  ? "Masquer le sous-détail"
                   : candidate.subdetailReviewed
-                    ? "Revoir le sous-detail"
-                    : "Sous-detail"}
-              </button>
+                    ? "Revoir le sous-détail"
+                    : "Sous-détail"}
+              </Button>
             )}
 
             {/* Edit - hidden when "Compléter la ligne" is already the primary CTA */}
             {nextStep !== "parent" && (
-              <button
+              <Button
                 type="button"
-                className="btn btn-ghost btn-xs"
+                variant="ghost"
+                size="xs"
                 onClick={() => onStartEdit(candidate.candidateId)}
               >
                 Modifier
-              </button>
+              </Button>
             )}
 
             {/* Reject - always available */}
-            <button
+            <Button
               type="button"
-              className="btn btn-ghost btn-xs text-error"
+              variant="ghost"
+              size="xs"
+              className="text-danger hover:bg-danger-subtle hover:text-danger"
               onClick={() => onReject(candidate.candidateId)}
               disabled={isRejecting}
             >
               Rejeter
-            </button>
+            </Button>
           </div>
 
           {/* Subdetail editor - only shown when parent is ready */}
           {subdetailOpen && parentReadiness.isReady ? (
             <div aria-live="polite">
               {subdetailState?.status === "loading" ? (
-                <div className="mt-4 rounded-xl border border-border bg-surface-subtle p-4 text-sm text-muted-foreground">
-                  Generation du sous-detail compose en cours...
+                <div className="mt-4 rounded-lg border border-border bg-surface-subtle p-4 text-sm text-muted-foreground">
+                  Génération du sous-détail composé en cours…
                 </div>
               ) : null}
               {subdetailState?.status === "error" ? (
-                <div className="mt-4 rounded-xl border border-error/30 bg-error/5 p-4 text-sm text-error">
+                <Alert variant="danger" className="mt-4">
                   {subdetailState.errorMessage}
-                </div>
+                </Alert>
               ) : null}
               {subdetailState?.data ? (
                 <GeneratedOuvrageSubdetailEditor
@@ -445,6 +472,15 @@ export function GeneratedOuvrageCandidateCard({
   );
 }
 
+function RequiredMark({ missing }: { missing: boolean }) {
+  if (!missing) return null;
+  return (
+    <span className="text-danger" aria-hidden="true">
+      *
+    </span>
+  );
+}
+
 function EditMode({
   candidate,
   existingSections,
@@ -460,6 +496,7 @@ function EditMode({
   provenanceOpen: boolean;
   onToggleProvenance: () => void;
 }) {
+  const fieldId = useId();
   const [designation, setDesignation] = useState(candidate.editedDesignation);
   const [unit, setUnit] = useState(candidate.editedUnit ?? "");
   const [quantity, setQuantity] = useState(
@@ -474,6 +511,11 @@ function EditMode({
       ? Number.parseFloat(quantity.replace(",", "."))
       : null,
   });
+
+  const designationMissing = !designation.trim();
+  const unitMissing = !unit.trim();
+  const quantityMissing =
+    !quantity.trim() || !(Number.parseFloat(quantity.replace(",", ".")) > 0);
 
   const handleSave = () => {
     const parsedQty = quantity.trim()
@@ -495,71 +537,68 @@ function EditMode({
     >
       <div className="space-y-3">
         <p className="text-xs font-medium text-foreground-secondary">
-          Complétez la ligne pour debloquer la sélection et l&apos;insertion.
+          Complétez la ligne pour débloquer la sélection et l&apos;insertion.
         </p>
-        <div>
-          <label className="label text-xs font-medium">
-            Designation
-            {!designation.trim() && (
-              <span className="text-error ml-1">*</span>
-            )}
-          </label>
-          <input
+        <div className="space-y-1.5">
+          <FieldLabel htmlFor={`${fieldId}-designation`} className="text-xs">
+            Désignation
+            <RequiredMark missing={designationMissing} />
+          </FieldLabel>
+          <Input
+            id={`${fieldId}-designation`}
             type="text"
-            className={cn(
-              "input input-bordered input-sm w-full",
-              !designation.trim() && "input-warning"
-            )}
+            size="sm"
+            className={cn(designationMissing && "border-warning-border")}
             value={designation}
             onChange={(e) => setDesignation(e.target.value)}
+            aria-required="true"
             data-testid="edit-designation"
           />
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="label text-xs font-medium">
+        <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
+          <div className="space-y-1.5">
+            <FieldLabel htmlFor={`${fieldId}-unit`} className="text-xs">
               Unité
-              {!unit.trim() && (
-                <span className="text-error ml-1">*</span>
-              )}
-            </label>
-            <input
+              <RequiredMark missing={unitMissing} />
+            </FieldLabel>
+            <Input
+              id={`${fieldId}-unit`}
               type="text"
-              className={cn(
-                "input input-bordered input-sm w-full",
-                !unit.trim() && "input-warning"
-              )}
+              size="sm"
+              className={cn(unitMissing && "border-warning-border")}
               value={unit}
               onChange={(e) => setUnit(e.target.value)}
-              placeholder="ex: m2, ml, u, kg"
+              placeholder="ex. : m2, ml, u, kg"
+              aria-required="true"
               data-testid="edit-unit"
             />
           </div>
-          <div>
-            <label className="label text-xs font-medium">
+          <div className="space-y-1.5">
+            <FieldLabel htmlFor={`${fieldId}-quantity`} className="text-xs">
               Quantité
-              {(!quantity.trim() || !(Number.parseFloat(quantity.replace(",", ".")) > 0)) && (
-                <span className="text-error ml-1">*</span>
-              )}
-            </label>
-            <input
+              <RequiredMark missing={quantityMissing} />
+            </FieldLabel>
+            <Input
+              id={`${fieldId}-quantity`}
               type="text"
-              className={cn(
-                "input input-bordered input-sm w-full",
-                (!quantity.trim() || !(Number.parseFloat(quantity.replace(",", ".")) > 0)) && "input-warning"
-              )}
+              size="sm"
+              className={cn(quantityMissing && "border-warning-border")}
               value={quantity}
               onChange={(e) => setQuantity(e.target.value)}
               inputMode="decimal"
-              placeholder="ex: 12.5"
+              placeholder="ex. : 12,5"
+              aria-required="true"
               data-testid="edit-quantity"
             />
           </div>
         </div>
-        <div>
-          <label className="label text-xs font-medium">Lot</label>
-          <select
-            className="select select-bordered select-sm w-full"
+        <div className="space-y-1.5">
+          <FieldLabel htmlFor={`${fieldId}-lot`} className="text-xs">
+            Lot
+          </FieldLabel>
+          <NativeSelect
+            id={`${fieldId}-lot`}
+            size="sm"
             value={lotId}
             onChange={(e) => setLotId(e.target.value)}
             data-testid="edit-lot"
@@ -570,51 +609,55 @@ function EditMode({
                 {s.path}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </div>
 
         {/* Live readiness feedback */}
         {parentReadiness.isReady ? (
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-            Ligne complete. Validez pour passer a l&apos;étape suivante.
-          </div>
+          <p className="rounded-lg border border-success-border bg-success-subtle px-3 py-2 text-xs text-success">
+            Ligne complète. Validez pour passer à l&apos;étape suivante.
+          </p>
         ) : (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            Renseignez les champs marques * pour compléter la ligne.
-          </div>
+          <p className="rounded-lg border border-warning-border bg-warning-subtle px-3 py-2 text-xs text-warning">
+            Renseignez les champs marqués * pour compléter la ligne.
+          </p>
         )}
 
         {candidate.sources.length > 0 && (
           <div>
-            <button
+            <Button
               type="button"
-              className="text-xs text-primary hover:underline"
+              variant="link"
+              size="xs"
+              aria-expanded={provenanceOpen}
               onClick={onToggleProvenance}
             >
               {provenanceOpen
                 ? "Masquer les sources"
                 : `Voir les sources (${candidate.sources.length})`}
-            </button>
+            </Button>
             {provenanceOpen && <SourceList sources={candidate.sources} />}
           </div>
         )}
 
-        <div className="flex gap-2">
-          <button
+        <div className="flex flex-wrap gap-2">
+          <Button
             type="button"
-            className="btn btn-primary btn-xs"
+            variant="primary"
+            size="xs"
             onClick={handleSave}
-            disabled={!designation.trim()}
+            disabled={designationMissing}
           >
             {parentReadiness.isReady ? "Valider la ligne" : "Enregistrer"}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="btn btn-ghost btn-xs"
+            variant="ghost"
+            size="xs"
             onClick={() => onCancel(candidate.candidateId)}
           >
             Annuler
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -631,19 +674,19 @@ function SourceList({
       {sources.map((src) => (
         <li
           key={src.sourceFragmentId}
-          className="rounded border border-border-subtle bg-surface p-2 text-xs"
+          className="rounded-md border border-border-subtle bg-surface p-2 text-xs"
         >
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             <Badge variant="info" size="sm">
               {SOURCE_TYPE_LABELS[src.type] ?? src.type}
             </Badge>
-            <span className="font-medium">{src.label}</span>
+            <span className="font-medium text-foreground">{src.label}</span>
           </div>
           {src.excerpt && (
-            <p className="mt-1 text-subtle-foreground line-clamp-2">{src.excerpt}</p>
+            <p className="mt-1 line-clamp-2 text-muted-foreground">{src.excerpt}</p>
           )}
           {src.sourceFileName && (
-            <p className="mt-0.5 text-subtle-foreground">
+            <p className="mt-0.5 text-muted-foreground">
               Fichier : {src.sourceFileName}
               {src.sourcePageFrom != null &&
                 ` (p. ${src.sourcePageFrom}${src.sourcePageTo != null && src.sourcePageTo !== src.sourcePageFrom ? `-${src.sourcePageTo}` : ""})`}

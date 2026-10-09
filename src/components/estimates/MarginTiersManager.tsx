@@ -6,7 +6,11 @@ import { MarginTiersExplanation } from "@/components/estimates/MarginTiersExplan
 import { parseLocalizedNumberInput } from "@/components/ui-legacy/NumberInput";
 import { parseEuroToCents } from "@/lib/money";
 import type { Database } from "@/types/database";
-import { CircleXIcon } from "lucide-react";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 
 type MarginTierRow = Database["public"]["Tables"]["margin_tiers"]["Row"];
 
@@ -124,10 +128,12 @@ export function MarginTiersManager({
   }
 
   return (
-    <div className="dashboard-card p-8">
+    // `dashboard-card` stays as an e2e hook (demo-eight-parameters selects this card by it);
+    // the trailing overrides cancel its legacy hover lift on this non-interactive card.
+    <Card className="dashboard-card p-5 sm:p-8 hover:transform-none! hover:border-border! hover:shadow-card!">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-800">
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold text-foreground">
             Tranches de marge
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -148,21 +154,20 @@ export function MarginTiersManager({
       </div>
 
       {error && (
-        <div className="alert alert-error mt-4">
-          <CircleXIcon aria-hidden="true" size={18} />
+        <Alert variant="danger" className="mt-4">
           {error}
-        </div>
+        </Alert>
       )}
 
       {canEdit && (
         <div className="estimate-role-form mt-6 grid gap-4 sm:grid-cols-[1fr_180px_auto]">
-          <div>
-            <label className="form-label" htmlFor="new-tier-threshold">
+          <div className="flex min-w-0 flex-col gap-2">
+            <FieldLabel htmlFor="new-tier-threshold">
               Seuil de coût HT (EUR)
-            </label>
-            <input
+            </FieldLabel>
+            <Input
               id="new-tier-threshold"
-              className="form-input form-input--sm"
+              size="sm"
               type="number"
               step="0.01"
               min={0}
@@ -172,13 +177,13 @@ export function MarginTiersManager({
               disabled={isSaving}
             />
           </div>
-          <div>
-            <label className="form-label" htmlFor="new-tier-multiplier">
+          <div className="flex min-w-0 flex-col gap-2">
+            <FieldLabel htmlFor="new-tier-multiplier">
               Coefficient
-            </label>
-            <input
+            </FieldLabel>
+            <Input
               id="new-tier-multiplier"
-              className="form-input form-input--sm"
+              size="sm"
               type="number"
               step="0.01"
               min={0}
@@ -190,29 +195,36 @@ export function MarginTiersManager({
             />
           </div>
           <div className="flex items-end">
-            <button
-              className="btn btn-primary btn-sm"
-              type="button"
+            <Button
+              variant="primary"
+              size="md"
               onClick={handleAdd}
               disabled={isSaving}
             >
               Ajouter
-            </button>
+            </Button>
           </div>
         </div>
       )}
 
       {formError && (
-        <p role="alert" className="mt-3 text-sm text-danger">{formError}</p>
+        <Alert variant="danger" className="mt-3">
+          {formError}
+        </Alert>
       )}
 
-      <div className="table-scroll mt-6">
+      <div
+        className="table-scroll mt-6"
+        role="region"
+        aria-label="Tranches de marge configurées"
+        tabIndex={0}
+      >
         <table className="data-table">
           <thead>
             <tr>
-              <th>Seuil de coût HT (EUR)</th>
-              <th>Coefficient</th>
-              {canEdit && <th>Actions</th>}
+              <th scope="col">Seuil de coût HT (EUR)</th>
+              <th scope="col">Coefficient</th>
+              {canEdit && <th scope="col">Actions</th>}
             </tr>
           </thead>
           <tbody>
@@ -230,16 +242,17 @@ export function MarginTiersManager({
                   threshold: formatThresholdInput(tier.threshold_cents),
                   multiplier: formatMultiplierInput(tier.multiplier),
                 };
+                const tierLabel = `${formatThresholdInput(tier.threshold_cents)} EUR`;
                 return (
                   <tr key={tier.id}>
                     <td>
-                      <input
-                        className="form-input form-input--sm"
+                      <Input
+                        size="sm"
                         type="number"
                         step="0.01"
                         min={0}
                         value={draft.threshold}
-                        aria-label={`Seuil de coût HT de la tranche ${formatThresholdInput(tier.threshold_cents)} EUR`}
+                        aria-label={`Seuil de coût HT de la tranche ${tierLabel}`}
                         onChange={(event) =>
                           setDrafts((prev) => ({
                             ...prev,
@@ -254,14 +267,14 @@ export function MarginTiersManager({
                       />
                     </td>
                     <td>
-                      <input
-                        className="form-input form-input--sm"
+                      <Input
+                        size="sm"
                         type="number"
                         step="0.01"
                         min={0}
                         max={100}
                         value={draft.multiplier}
-                        aria-label={`Coefficient de la tranche ${formatThresholdInput(tier.threshold_cents)} EUR`}
+                        aria-label={`Coefficient de la tranche ${tierLabel}`}
                         onChange={(event) =>
                           setDrafts((prev) => ({
                             ...prev,
@@ -277,14 +290,15 @@ export function MarginTiersManager({
                     </td>
                     {canEdit && (
                       <td>
-                        <button
-                          className="btn btn-danger btn-sm"
-                          type="button"
+                        <Button
+                          variant="danger"
+                          size="md"
+                          aria-label={`Supprimer la tranche ${tierLabel}`}
                           onClick={() => handleDelete(tier.id)}
                           disabled={isSaving}
                         >
                           Supprimer
-                        </button>
+                        </Button>
                       </td>
                     )}
                   </tr>
@@ -294,6 +308,6 @@ export function MarginTiersManager({
           </tbody>
         </table>
       </div>
-    </div>
+    </Card>
   );
 }

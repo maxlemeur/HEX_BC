@@ -1,3 +1,8 @@
+import { useId } from "react";
+
+import { FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 import type {
   NodeMergeState,
   NodeOverrideState,
@@ -19,6 +24,7 @@ export function OverrideCard({
   nodeMergeState,
   onUpdateOverride,
 }: OverrideCardProps) {
+  const fieldId = useId();
   const action = override?.action ?? node.defaultAction;
   const mergeCandidates = nodeMergeState?.mergeCandidates ?? [];
   const canMerge = !nodeMergeState?.blockingReason && mergeCandidates.length > 0;
@@ -40,25 +46,29 @@ export function OverrideCard({
       mergeGuidanceText =
         "Sélectionnez une cible de fusion compatible avant application.";
     } else if (nodeMergeState?.resolvedMergeTargetPath) {
-      mergeGuidanceText = `Cible retenue: ${nodeMergeState.resolvedMergeTargetPath}`;
+      mergeGuidanceText = `Cible retenue : ${nodeMergeState.resolvedMergeTargetPath}`;
     }
   }
+
+  const nodePath = node.path.join(" > ");
 
   return (
     <div
       data-testid={`estimate-structure-draft-node-${node.id}`}
-      className="rounded-xl border border-border bg-surface p-4"
+      className="rounded-lg border border-border bg-surface p-4"
     >
       <div
         className="flex flex-wrap items-center gap-3"
         style={{ paddingLeft: `${(node.hierarchyLevel - 1) * 18}px` }}
       >
         <div className="min-w-0 flex-1">
-          <p className="font-medium text-foreground">{node.path.join(" > ")}</p>
+          <p className="font-medium text-foreground">{nodePath}</p>
           <p className="mt-1 text-xs text-muted-foreground">{confidenceText(node)}</p>
         </div>
-        <select
-          className="input h-9 min-w-[170px]"
+        <NativeSelect
+          size="sm"
+          wrapperClassName="w-auto min-w-[170px]"
+          aria-label={`Action pour ${nodePath}`}
           value={action}
           onChange={(event) =>
             onUpdateOverride(node.id, {
@@ -71,14 +81,15 @@ export function OverrideCard({
             Fusionner
           </option>
           <option value="skip">Ignorer</option>
-        </select>
+        </NativeSelect>
       </div>
 
-      <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr),minmax(0,1fr),minmax(0,1fr)]">
-        <label className="form-label block">
-          Renommer avant application
-          <input
-            className="input mt-2 w-full"
+      <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="space-y-1.5">
+          <FieldLabel htmlFor={`${fieldId}-rename`}>Renommer avant application</FieldLabel>
+          <Input
+            id={`${fieldId}-rename`}
+            size="sm"
             value={override?.renameTo ?? ""}
             onChange={(event) =>
               onUpdateOverride(node.id, {
@@ -88,12 +99,13 @@ export function OverrideCard({
             placeholder={node.label}
             disabled={action === "skip"}
           />
-        </label>
+        </div>
 
-        <label className="form-label block">
-          Cible de fusion
-          <select
-            className="input mt-2 w-full"
+        <div className="space-y-1.5">
+          <FieldLabel htmlFor={`${fieldId}-merge-target`}>Cible de fusion</FieldLabel>
+          <NativeSelect
+            id={`${fieldId}-merge-target`}
+            size="sm"
             value={mergeTargetValue}
             onChange={(event) =>
               onUpdateOverride(node.id, {
@@ -101,30 +113,33 @@ export function OverrideCard({
               })
             }
             disabled={action !== "merge" || !canMerge}
+            aria-describedby={mergeGuidanceText ? `${fieldId}-merge-guidance` : undefined}
           >
             <option value="">
-              {nodeMergeState?.requiresExplicitMergeTarget ? "Choisir une cible" : "Auto"}
+              {nodeMergeState?.requiresExplicitMergeTarget ? "Choisir une cible" : "Automatique"}
             </option>
             {mergeCandidates.map((section) => (
               <option key={section.id} value={section.id}>
                 {section.path}
               </option>
             ))}
-          </select>
+          </NativeSelect>
           {mergeGuidanceText ? (
-            <p className="mt-2 text-xs text-warning">{mergeGuidanceText}</p>
+            <p id={`${fieldId}-merge-guidance`} className="text-xs text-warning">
+              {mergeGuidanceText}
+            </p>
           ) : null}
-        </label>
+        </div>
 
-        <div className="rounded-xl border border-border bg-surface-subtle p-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+        <div className="rounded-lg border border-border bg-surface-subtle p-3">
+          <p className="text-xs font-semibold tracking-[0.16em] text-muted-foreground uppercase">
             Preuve
           </p>
           <p className="mt-2 text-sm text-foreground-secondary">
             {node.provenance.length > 0
               ? node.provenance
                   .map((entry) =>
-                    entry.excerpt ? `${entry.label}: ${entry.excerpt}` : entry.label,
+                    entry.excerpt ? `${entry.label} : ${entry.excerpt}` : entry.label,
                   )
                   .join(" · ")
               : "Aucune provenance détaillée."}

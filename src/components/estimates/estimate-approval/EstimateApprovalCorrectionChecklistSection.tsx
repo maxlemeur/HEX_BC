@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import type {
   EstimateApprovalChangesSinceLastCycle,
   EstimateApprovalSummary,
@@ -38,10 +40,10 @@ export function EstimateApprovalCorrectionChecklistSection({
   }
 
   return (
-    <section className="rounded-xl border border-border bg-surface px-4 py-4">
+    <section className="rounded-lg border border-border bg-surface p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-semibold text-slate-800">
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-foreground">
             Checklist de correction
           </h3>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -49,46 +51,44 @@ export function EstimateApprovalCorrectionChecklistSection({
             {formatDateTime(correctionChecklist.decisionAt)}.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="rounded-full bg-muted px-2 py-0.5 text-slate-600">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="neutral" size="sm">
             {correctionChecklist.totalCount} item
             {correctionChecklist.totalCount > 1 ? "s" : ""}
-          </span>
-          <span className="rounded-full bg-warning-light px-2 py-0.5 text-warning">
+          </Badge>
+          <Badge variant="warning" size="sm">
             {correctionChecklist.pendingCount} à traiter
-          </span>
+          </Badge>
         </div>
       </div>
 
-      <div className="mt-4 space-y-3">
+      <ul className="mt-4 space-y-3">
         {correctionChecklist.items.map((item) => {
           const statusMeta = CORRECTION_STATUS_META[item.status];
           return (
-            <article
+            <li
               key={item.id}
-              className="rounded-xl border border-border bg-surface-subtle px-4 py-4"
+              className="rounded-lg border border-border-subtle bg-surface-subtle p-4"
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
+                <div className="min-w-0">
                   <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                     {SCOPE_LABELS[item.scopeType]}
                   </p>
-                  <p className="mt-1 text-sm font-semibold text-slate-800">
+                  <p className="mt-1 break-words text-sm font-semibold text-foreground">
                     {item.scopeLabel}
                   </p>
                 </div>
-                <span
-                  className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${statusMeta.className}`}
-                >
+                <Badge variant={statusMeta.variant} size="sm">
                   {statusMeta.label}
-                </span>
+                </Badge>
               </div>
-              <p className="mt-2 text-sm text-foreground-secondary">{item.comment}</p>
-              <div className="mt-3 flex flex-wrap items-center gap-2">
+              <p className="mt-2 break-words text-sm text-foreground-secondary">{item.comment}</p>
+              <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
                 {item.href ? (
                   <Link
                     href={item.href}
-                    className="text-xs font-medium text-primary underline underline-offset-2"
+                    className="rounded-sm text-xs font-medium text-primary underline underline-offset-2 hover:no-underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                   >
                     Ouvrir la cible
                   </Link>
@@ -100,35 +100,35 @@ export function EstimateApprovalCorrectionChecklistSection({
                   </span>
                 ) : null}
                 {item.lastTreatmentNote ? (
-                  <span className="text-xs text-muted-foreground">
-                    Note: {item.lastTreatmentNote}
+                  <span className="break-words text-xs text-muted-foreground">
+                    Note : {item.lastTreatmentNote}
                   </span>
                 ) : null}
               </div>
               {canInteractWithChecklist ? (
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    className="btn btn-sm border-success bg-success-subtle text-success hover:bg-success/20"
+                  <Button
+                    variant="success"
+                    size="sm"
                     disabled={isPending || item.status === "corrected"}
                     onClick={() => onUpdateItem(item.id, "corrected")}
                   >
-                    Marquer corrige
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-sm border-primary bg-primary/10 text-primary hover:bg-primary/20"
+                    Marquer corrigé
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     disabled={isPending || item.status === "to_discuss"}
                     onClick={() => onUpdateItem(item.id, "to_discuss")}
                   >
                     Marquer à discuter
-                  </button>
+                  </Button>
                 </div>
               ) : null}
-            </article>
+            </li>
           );
         })}
-      </div>
+      </ul>
 
       {!activeCycle ? <ChangesSummarySection changes={changesSinceLastCycle} /> : null}
     </section>

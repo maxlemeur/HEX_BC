@@ -14,7 +14,16 @@ import type {
   RoundingMode,
 } from "@/lib/estimate-calculations";
 import { getMarginTiers, type MarginTier } from "@/lib/estimates/margin-tiers";
-import { CircleXIcon } from "lucide-react";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { FieldDescription, FieldLabel } from "@/components/ui/field";
+import { IconButton } from "@/components/ui/icon-button";
+import { Input, controlSizes, controlSurface } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
+import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
+import { Loader2Icon, XIcon } from "lucide-react";
 
 export type DiscountMode = "simple" | "cascade";
 
@@ -55,6 +64,15 @@ type EstimateSettingsPanelProps = {
 const MARGIN_SUGGESTIONS = [1.05, 1.1, 1.2, 1.3, 1.5];
 const DEFAULT_TAX_BP = 2000;
 const GLOSSARY_DISMISSED_STORAGE_KEY = "est-glossary-dismissed";
+const NUMBER_INPUT_CLASS = cn(controlSurface, controlSizes.md, "w-full");
+const FIELD_CLASS = "flex min-w-0 flex-col gap-2";
+const GROUP_TITLE_CLASS = "text-sm font-medium text-foreground";
+const CHIP_FOCUS_CLASS =
+  "outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50";
+
+function chipClassName(active: boolean) {
+  return cn("estimate-chip", active && "estimate-chip--active", CHIP_FOCUS_CLASS);
+}
 
 function getRoundingOptions(currency: SupportedEstimateCurrency) {
   return [
@@ -154,72 +172,61 @@ export function EstimateSettingsPanel({
     : 1;
 
   return (
-    <div className="dashboard-card p-8">
+    <Card className="p-5 sm:p-8">
       {error && (
-        <div className="alert alert-error mb-6">
-          <CircleXIcon aria-hidden="true" size={20} />
+        <Alert variant="danger" className="mb-6">
           {error}
-        </div>
+        </Alert>
       )}
 
       {!glossaryDismissed && (
-        <div className="mb-6 flex items-start gap-3 rounded-lg border border-info/30 bg-info-light p-3 text-xs text-info">
+        <div className="mb-6 flex items-start gap-3 rounded-lg border border-info-border bg-info-subtle p-3 text-xs text-foreground-secondary">
           <div className="flex-1">
-            <p className="font-semibold">Glossaire</p>
+            <p className="font-semibold text-info">Glossaire</p>
             <ul className="mt-1 space-y-0.5">
               <li><strong>FO</strong> = Fourniture (matériaux, produits)</li>
-              <li><strong>MO</strong> = Main d&apos;oeuvre (travail, pose)</li>
+              <li><strong>MO</strong> = Main-d&apos;œuvre (travail, pose)</li>
               <li><strong>K</strong> = Coefficient multiplicateur</li>
               <li><strong>HT</strong> = Hors taxes / <strong>TTC</strong> = Toutes taxes comprises</li>
             </ul>
           </div>
-          <button
-            type="button"
-            className="shrink-0 text-info/50 hover:text-info"
+          <IconButton
+            label="Masquer le glossaire"
+            icon={<XIcon aria-hidden="true" />}
+            size="icon-xs"
+            className="shrink-0 text-info hover:bg-info-light hover:text-info"
             onClick={() => {
               setGlossaryDismissed(true);
               try { localStorage.setItem(GLOSSARY_DISMISSED_STORAGE_KEY, "1"); } catch {}
             }}
-            aria-label="Masquer le glossaire"
-          >
-            &#x2715;
-          </button>
+          />
         </div>
       )}
 
       <div className="grid gap-6 sm:grid-cols-2">
-        <div className="sm:col-span-2">
-          <label className="form-label" htmlFor="estimate-project-name">
-            Projet
-          </label>
-          <input
+        <div className={cn(FIELD_CLASS, "sm:col-span-2")}>
+          <FieldLabel htmlFor="estimate-project-name">Projet</FieldLabel>
+          <Input
             id="estimate-project-name"
-            className="form-input"
             value={projectName}
             readOnly
           />
         </div>
 
-        <div className="sm:col-span-2">
-          <label className="form-label" htmlFor="estimate-title">
-            Titre
-          </label>
-          <input
+        <div className={cn(FIELD_CLASS, "sm:col-span-2")}>
+          <FieldLabel htmlFor="estimate-title">Titre</FieldLabel>
+          <Input
             id="estimate-title"
-            className="form-input"
             value={settings.title}
             disabled={isReadOnly}
             onChange={(event) => onChange({ title: event.target.value })}
           />
         </div>
 
-        <div>
-          <label className="form-label" htmlFor="estimate-date">
-            Date devis
-          </label>
-          <input
+        <div className={FIELD_CLASS}>
+          <FieldLabel htmlFor="estimate-date">Date devis</FieldLabel>
+          <Input
             id="estimate-date"
-            className="form-input"
             type="date"
             value={settings.date_devis}
             disabled={isReadOnly}
@@ -227,13 +234,11 @@ export function EstimateSettingsPanel({
           />
         </div>
 
-        <div>
-          <label className="form-label" htmlFor="estimate-validite">
-            Validité (jours)
-          </label>
+        <div className={FIELD_CLASS}>
+          <FieldLabel htmlFor="estimate-validite">Validité (jours)</FieldLabel>
           <NumberInput
             id="estimate-validite"
-            className="form-input"
+            className={NUMBER_INPUT_CLASS}
             min={1}
             value={settings.validite_jours}
             disabled={isReadOnly}
@@ -243,25 +248,19 @@ export function EstimateSettingsPanel({
           />
         </div>
 
-        <div>
-          <label className="form-label" htmlFor="estimate-version">
-            Version
-          </label>
-          <input
+        <div className={FIELD_CLASS}>
+          <FieldLabel htmlFor="estimate-version">Version</FieldLabel>
+          <Input
             id="estimate-version"
-            className="form-input"
             value={`V${versionNumber}`}
             readOnly
           />
         </div>
 
-        <div>
-          <label className="form-label" htmlFor="estimate-currency">
-            Devise
-          </label>
-          <select
+        <div className={FIELD_CLASS}>
+          <FieldLabel htmlFor="estimate-currency">Devise</FieldLabel>
+          <NativeSelect
             id="estimate-currency"
-            className="form-input form-select"
             value={settings.currency}
             disabled={isReadOnly}
             onChange={(event) =>
@@ -275,40 +274,42 @@ export function EstimateSettingsPanel({
                 {currency}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </div>
       </div>
 
-      <div className="mt-8" data-testid="estimate-exclusions-section">
-        <label className="form-label" htmlFor="estimate-exclusions">
+      <div className={cn(FIELD_CLASS, "mt-8")} data-testid="estimate-exclusions-section">
+        <FieldLabel htmlFor="estimate-exclusions">
           Précisions et exclusions particulières
-        </label>
-        <p className="mb-2 text-xs text-muted-foreground">
+        </FieldLabel>
+        <FieldDescription id="estimate-exclusions-hint" className="text-xs">
           Indiquez uniquement les prestations, fournitures ou limites propres à cette
           offre. Évitez d&apos;y recopier les règles commerciales déjà prévues par les
           CGV.
-        </p>
-        <textarea
+        </FieldDescription>
+        <Textarea
           id="estimate-exclusions"
-          className="form-input min-h-32 resize-y py-3"
+          className="min-h-32 resize-y text-sm"
           value={settings.exclusions}
           disabled={isReadOnly}
           maxLength={5000}
-          placeholder="Ex. : cordiste, DOE, équilibrage, calorifuge des robinetteries..."
+          aria-describedby="estimate-exclusions-hint"
+          placeholder="Ex. : cordiste, DOE, équilibrage, calorifuge des robinetteries…"
           onChange={(event) => onChange({ exclusions: event.target.value })}
         />
       </div>
 
       <div className="estimate-settings-grid mt-8 flex flex-col-reverse gap-6 lg:grid lg:grid-cols-3">
-        <div className="space-y-6 lg:col-span-2">
-          <div>
-            <p className="form-label">Mode de marge</p>
+        <div className="min-w-0 space-y-6 lg:col-span-2">
+          <div role="group" aria-labelledby="estimate-margin-mode-label">
+            <p id="estimate-margin-mode-label" className={GROUP_TITLE_CLASS}>
+              Mode de marge
+            </p>
             <div className="estimate-chip-row mt-3 flex flex-wrap gap-2">
               <button
                 type="button"
-                className={`estimate-chip ${
-                  marginMode === "fixed" ? "estimate-chip--active" : ""
-                }`}
+                className={chipClassName(marginMode === "fixed")}
+                aria-pressed={marginMode === "fixed"}
                 disabled={isReadOnly}
                 onClick={() => onChange({ margin_mode: "fixed" })}
               >
@@ -316,9 +317,8 @@ export function EstimateSettingsPanel({
               </button>
               <button
                 type="button"
-                className={`estimate-chip ${
-                  marginMode === "tiered" ? "estimate-chip--active" : ""
-                }`}
+                className={chipClassName(marginMode === "tiered")}
+                aria-pressed={marginMode === "tiered"}
                 disabled={isReadOnly}
                 onClick={() => onChange({ margin_mode: "tiered" })}
               >
@@ -328,58 +328,58 @@ export function EstimateSettingsPanel({
           </div>
 
           {marginMode === "fixed" ? (
-            <div>
-              <label className="form-label" htmlFor="estimate-margin">
-                Marge
-              </label>
-              <p className="mb-1 text-xs text-muted-foreground">
-                Multiplicateur appliqué au coût. Ex : 1.20 = marge de 20%.
-              </p>
-              <p className="mb-2 text-xs text-muted-foreground">
-                Ex : Coût 1 000 € × 1.20 = Vente 1 200 € (200 € de marge)
-              </p>
+            <div className={FIELD_CLASS}>
+              <FieldLabel htmlFor="estimate-margin">Marge</FieldLabel>
+              <div id="estimate-margin-hint" className="space-y-1 text-xs text-muted-foreground">
+                <p>Multiplicateur appliqué au coût. Ex. : 1.20 = marge de 20 %.</p>
+                <p>Ex. : coût 1 000 € × 1.20 = vente 1 200 € (200 € de marge)</p>
+              </div>
               <div className="flex items-center gap-3">
                 <NumberInput
                   id="estimate-margin"
-                  className="form-input flex-1"
+                  className={cn(NUMBER_INPUT_CLASS, "flex-1")}
                   step="0.01"
                   min={0}
                   value={settings.margin_multiplier}
                   disabled={isReadOnly}
+                  aria-describedby="estimate-margin-hint"
                   parseValue={parseNonNegativeNumberInput}
                   emptyValue={0}
                   onValueChange={(margin_multiplier) =>
                     onChange({ margin_multiplier })
                   }
                 />
-                <span className="shrink-0 rounded-lg border border-border bg-surface-subtle px-3 py-2 text-sm font-medium text-slate-600">
+                <span className="shrink-0 rounded-control border border-border bg-surface-subtle px-3 py-2 text-sm font-medium text-foreground-secondary">
                   {settings.margin_multiplier > 0
                     ? `${((settings.margin_multiplier - 1) * 100).toFixed(0)}%`
                     : "0%"}
                 </span>
               </div>
-              <div className="estimate-chip-row mt-3 flex flex-wrap gap-2">
+              <div
+                role="group"
+                aria-label="Coefficients de marge suggérés"
+                className="estimate-chip-row mt-1 flex flex-wrap gap-2"
+              >
                 {MARGIN_SUGGESTIONS.map((value) => (
                   <button
                     key={value}
                     type="button"
-                    className={`estimate-chip ${
-                      settings.margin_multiplier === value
-                        ? "estimate-chip--active"
-                        : ""
-                    }`}
+                    className={chipClassName(settings.margin_multiplier === value)}
+                    aria-pressed={settings.margin_multiplier === value}
                     onClick={() => onChange({ margin_multiplier: value })}
                     disabled={isReadOnly}
-                    title={`Marge de ${((value - 1) * 100).toFixed(0)}%`}
                   >
                     {formatMarginMultiplier(value)}
+                    <span className="sr-only">
+                      {` (marge de ${((value - 1) * 100).toFixed(0)} %)`}
+                    </span>
                   </button>
                 ))}
               </div>
             </div>
           ) : (
             <div>
-              <p className="form-label">Tranches configurees</p>
+              <p className={GROUP_TITLE_CLASS}>Tranches configurées</p>
               <MarginTiersExplanation
                 tiers={marginTiers}
                 currency={settings.currency}
@@ -389,7 +389,7 @@ export function EstimateSettingsPanel({
               />
               <p className="mb-3 text-xs text-muted-foreground">
                 {isFrozen
-                  ? "Barème actuel, présenté à titre d'information : il ne recalculé pas ce devis figé."
+                  ? "Barème actuel, présenté à titre d'information : il ne recalcule pas ce devis figé."
                   : settings.margin_tiers?.length
                   ? "Barème de votre organisation."
                   : "Barème par défaut, faute de tranches définies pour votre organisation."}
@@ -407,13 +407,13 @@ export function EstimateSettingsPanel({
                         À partir de{" "}
                         {formatCurrency(tier.threshold_cents, settings.currency)}
                       </span>
-                      <strong>x{formatMarginMultiplier(tier.multiplier)}</strong>
+                      <strong>×{formatMarginMultiplier(tier.multiplier)}</strong>
                     </div>
                   ))}
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  Aucune tranche de marge configuree.
+                  Aucune tranche de marge configurée.
                 </p>
               )}
             </div>
@@ -421,13 +421,13 @@ export function EstimateSettingsPanel({
 
           <div>
             {discountMode === "simple" ? (
-              <div>
-                <label className="form-label" htmlFor="estimate-discount">
+              <div className={FIELD_CLASS}>
+                <FieldLabel htmlFor="estimate-discount">
                   Remise ({settings.currency} HT)
-                </label>
+                </FieldLabel>
                 <NumberInput
                   id="estimate-discount"
-                  className="form-input"
+                  className={NUMBER_INPUT_CLASS}
                   step="0.01"
                   min={0}
                   value={settings.discount_cents / 100}
@@ -445,12 +445,12 @@ export function EstimateSettingsPanel({
               </div>
             ) : (
               <div className="rounded-lg border border-border bg-surface-subtle p-3">
-                <p className="form-label">Remises historiques conservées</p>
+                <p className="mb-2 text-sm font-semibold text-foreground">Remises historiques conservées</p>
                 <p className="text-sm text-muted-foreground">
                   Ce devis conserve ses remises successives et son coefficient
                   global. Ils restent en lecture seule pour préserver les montants.
                 </p>
-                <p className="mt-2 text-sm">
+                <p className="mt-2 text-sm text-foreground">
                   Coefficient global : ×{globalCoefficient.toFixed(2)}
                   {(settings.discount_steps ?? []).length > 0
                     ? ` · Remises : ${(settings.discount_steps ?? []).map((step) => `${step / 100} %`).join(" puis ")}`
@@ -459,15 +459,13 @@ export function EstimateSettingsPanel({
               </div>
             )}
           </div>
-          <div>
-            <label className="form-label" htmlFor="estimate-contractor-role">
-              Régime de TVA
-            </label>
-            <select
+          <div className={FIELD_CLASS}>
+            <FieldLabel htmlFor="estimate-contractor-role">Régime de TVA</FieldLabel>
+            <NativeSelect
               id="estimate-contractor-role"
-              className="form-input"
               disabled={isReadOnly}
               value={settings.contractor_role ?? "principal"}
+              aria-describedby="estimate-contractor-role-hint"
               onChange={(event) =>
                 onChange({
                   contractor_role:
@@ -483,20 +481,22 @@ export function EstimateSettingsPanel({
               <option value="subcontractor">
                 Autoliquidation — travaux immobiliers sous-traités éligibles
               </option>
-            </select>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {settings.contractor_role === "subcontractor"
-                ? "À sélectionner uniquement pour une sous-traitance de travaux immobiliers relevant de l’article 283, 2 nonies du CGI. Le devis est alors émis hors taxe avec la mention « Autoliquidation » ; la TVA est due par le preneur."
-                : "Régime normal : la TVA est facturée au taux applicable."}
-            </p>
-            {settings.contractor_role === "subcontractor" ? (
-              <p className="mt-1 text-xs text-[var(--warning,#b45309)]">
-                Vérifiez le contrat : le nettoyage faisant l’objet d’un contrat
-                séparé, la fabrication ou fourniture de biens, la location
-                d’engins et les prestations intellectuelles ne relèvent pas
-                automatiquement de ce régime.
+            </NativeSelect>
+            <div id="estimate-contractor-role-hint" className="space-y-1">
+              <p className="text-xs text-muted-foreground">
+                {settings.contractor_role === "subcontractor"
+                  ? "À sélectionner uniquement pour une sous-traitance de travaux immobiliers relevant de l’article 283, 2 nonies du CGI. Le devis est alors émis hors taxe avec la mention « Autoliquidation » ; la TVA est due par le preneur."
+                  : "Régime normal : la TVA est facturée au taux applicable."}
               </p>
-            ) : null}
+              {settings.contractor_role === "subcontractor" ? (
+                <p className="text-xs font-medium text-warning">
+                  Vérifiez le contrat : le nettoyage faisant l’objet d’un contrat
+                  séparé, la fabrication ou fourniture de biens, la location
+                  d’engins et les prestations intellectuelles ne relèvent pas
+                  automatiquement de ce régime.
+                </p>
+              ) : null}
+            </div>
             {/*
               EST-E27 — D2 : le logiciel PROPOSE le régime, il ne le déduit
               jamais. Les exclusions du dispositif (nettoyage sous contrat
@@ -506,14 +506,13 @@ export function EstimateSettingsPanel({
             */}
           </div>
 
-          <div>
-            <label className="form-label" htmlFor="estimate-tax">
-              TVA unique
-            </label>
+          <div className={FIELD_CLASS}>
+            <FieldLabel htmlFor="estimate-tax">TVA unique</FieldLabel>
             <div className="flex flex-wrap items-center gap-3">
               <label className="estimate-toggle">
                 <input
                   type="checkbox"
+                  className="accent-primary"
                   checked={taxEnabled}
                   disabled={isReadOnly}
                   onChange={(event) => {
@@ -526,12 +525,12 @@ export function EstimateSettingsPanel({
                     onChange({ tax_rate_bp: 0 });
                   }}
                 />
-                <span>Appliquer TVA</span>
+                <span>Appliquer la TVA</span>
               </label>
               <div className="estimate-tax-input">
                 <NumberInput
                   id="estimate-tax"
-                  className="form-input"
+                  className={cn(NUMBER_INPUT_CLASS, "w-32")}
                   step="0.01"
                   min={0}
                   value={taxRatePercent}
@@ -544,18 +543,15 @@ export function EstimateSettingsPanel({
                   }
                   disabled={!taxEnabled || isReadOnly}
                 />
-                <span className="estimate-tax-suffix">%</span>
+                <span aria-hidden="true" className="estimate-tax-suffix">%</span>
               </div>
             </div>
           </div>
 
-          <div>
-            <label className="form-label" htmlFor="estimate-rounding">
-              Arrondi
-            </label>
-            <select
+          <div className={FIELD_CLASS}>
+            <FieldLabel htmlFor="estimate-rounding">Arrondi</FieldLabel>
+            <NativeSelect
               id="estimate-rounding"
-              className="form-input form-select"
               value={roundingValue}
               disabled={isReadOnly}
               onChange={(event) => {
@@ -579,7 +575,7 @@ export function EstimateSettingsPanel({
                   {option.label}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
         </div>
 
@@ -606,7 +602,7 @@ export function EstimateSettingsPanel({
               <div className="estimate-summary__row">
                 <span>Marge appliquée</span>
                 <strong>
-                  x{formatMarginMultiplier(totals.appliedMarginMultiplier)}
+                  ×{formatMarginMultiplier(totals.appliedMarginMultiplier)}
                 </strong>
               </div>
               <div className="estimate-summary__row">
@@ -666,28 +662,33 @@ export function EstimateSettingsPanel({
               </div>
             </div>
           ) : (
-            <p className="estimate-summary__placeholder">Chargement...</p>
+            <p role="status" className="estimate-summary__placeholder">Chargement…</p>
           )}
 
-          <button
-            className="btn btn-primary w-full mt-4"
-            type="button"
+          <Button
+            variant="primary"
+            size="lg"
+            className="mt-4 w-full"
             onClick={onSave}
             disabled={isSaving || isReadOnly}
+            aria-busy={isSaving || undefined}
           >
             {isReadOnly ? (
               "Lecture seule"
             ) : isSaving ? (
               <>
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></div>
-                Enregistrement...
+                <Loader2Icon
+                  aria-hidden="true"
+                  className="animate-spin motion-reduce:animate-none"
+                />
+                Enregistrement…
               </>
             ) : (
               "Enregistrer le paramétrage"
             )}
-          </button>
+          </Button>
         </div>
       </div>
-    </div>
+    </Card>
   );
 }

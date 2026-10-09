@@ -2,7 +2,10 @@
 
 import { useCallback, useState } from "react";
 
+import { FileDownIcon } from "lucide-react";
+
 import { EstimatePdfLayoutModal } from "@/components/estimates/EstimatePdfLayoutModal";
+import { Button } from "@/components/ui/button";
 import {
   fetchEstimatePdfStatus,
   requestEstimatePdfGeneration,
@@ -104,14 +107,19 @@ export function EstimatePdfDownloadButton({
 
   return (
     <div className="flex flex-col items-stretch gap-2">
-      <button
-        className={className ?? "btn btn-secondary btn-sm"}
+      <Button
+        // Without a className the trigger is styled as an item of an actions menu.
+        className={className ?? "w-full justify-start"}
+        variant={className ? "outline" : "ghost"}
+        size="md"
         type="button"
         onClick={() => setLayoutModalOpen(true)}
         disabled={isProcessing}
+        aria-busy={isProcessing || undefined}
+        leftIcon={<FileDownIcon aria-hidden="true" />}
       >
         {isProcessing ? processingLabel : label}
-      </button>
+      </Button>
       {showInlineError && errorMessage ? (
         <p className="text-xs font-medium text-danger" role="alert">
           {errorMessage}

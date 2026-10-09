@@ -4,6 +4,8 @@ import type {
   StepErrors,
   WizardData,
 } from "@/components/estimates/estimate-creation-wizard/shared";
+import { FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import type { RefObject } from "react";
 
 type ProjectStepProps = {
@@ -24,19 +26,14 @@ export function ProjectStep({
   if (projectId) {
     return (
       <div className="grid gap-6">
-        <div className="rounded-lg border border-border bg-surface-subtle p-3">
-          <p className="text-sm text-slate-600">
-            Version ajoutée au projet existant.
-          </p>
-        </div>
-        <div>
-          <label className="form-label" htmlFor="wiz-title">
-            Titre de la version
-          </label>
-          <input
+        <p className="rounded-lg border border-border-subtle bg-surface-subtle p-3 text-sm text-foreground-secondary">
+          Version ajoutée au projet existant.
+        </p>
+        <div className="flex min-w-0 flex-col gap-2">
+          <FieldLabel htmlFor="wiz-title">Titre de la version</FieldLabel>
+          <Input
             id="wiz-title"
             ref={projectNameInputRef}
-            className="form-input"
             placeholder="Titre de la version (optionnel)"
             value={data.title}
             onChange={(event) => updateField("title", event.target.value)}
@@ -49,59 +46,55 @@ export function ProjectStep({
 
   return (
     <div className="grid gap-6 sm:grid-cols-2">
-      <div className="sm:col-span-2">
-        <label className="form-label" htmlFor="wiz-project-name">
-          Nom du projet *
-        </label>
-        <input
+      <div className="flex min-w-0 flex-col gap-2 sm:col-span-2">
+        <FieldLabel htmlFor="wiz-project-name">
+          Nom du projet <span aria-hidden="true">*</span>
+        </FieldLabel>
+        <Input
           id="wiz-project-name"
           ref={projectNameInputRef}
-          className={`form-input ${errors.projectName ? "border-danger" : ""}`}
           placeholder="Nom du projet"
           value={data.projectName}
+          aria-required="true"
+          aria-invalid={errors.projectName ? true : undefined}
+          aria-describedby={errors.projectName ? "wiz-project-name-error" : undefined}
           onChange={(event) => updateField("projectName", event.target.value)}
         />
         {errors.projectName && (
-          <p className="mt-1 text-sm text-danger">{errors.projectName}</p>
+          <FieldError id="wiz-project-name-error" className="text-danger">
+            {errors.projectName}
+          </FieldError>
         )}
       </div>
 
-      <div>
-        <label className="form-label" htmlFor="wiz-client-name">
-          Client
-        </label>
-        <input
+      <div className="flex min-w-0 flex-col gap-2">
+        <FieldLabel htmlFor="wiz-client-name">Client</FieldLabel>
+        <Input
           id="wiz-client-name"
-          className="form-input"
           placeholder="Nom du client"
           value={data.clientName}
           onChange={(event) => updateField("clientName", event.target.value)}
         />
       </div>
 
-      <div>
-        <label className="form-label" htmlFor="wiz-reference">
-          Référence projet
-        </label>
-        <input
+      <div className="flex min-w-0 flex-col gap-2">
+        <FieldLabel htmlFor="wiz-reference">Référence projet</FieldLabel>
+        <Input
           id="wiz-reference"
-          className="form-input"
           placeholder="Référence projet (optionnelle)"
           value={data.reference}
+          aria-describedby="wiz-reference-hint"
           onChange={(event) => updateField("reference", event.target.value)}
         />
-        <p className="mt-1 text-xs text-muted-foreground">
+        <FieldDescription id="wiz-reference-hint" className="text-xs">
           La référence du devis sera générée automatiquement.
-        </p>
+        </FieldDescription>
       </div>
 
-      <div className="sm:col-span-2">
-        <label className="form-label" htmlFor="wiz-title">
-          Titre de la version
-        </label>
-        <input
+      <div className="flex min-w-0 flex-col gap-2 sm:col-span-2">
+        <FieldLabel htmlFor="wiz-title">Titre de la version</FieldLabel>
+        <Input
           id="wiz-title"
-          className="form-input"
           placeholder="Titre de la version (optionnel)"
           value={data.title}
           onChange={(event) => updateField("title", event.target.value)}

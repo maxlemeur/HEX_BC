@@ -2,6 +2,16 @@
 
 import { useMemo } from "react";
 
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import type {
   BulkSuggestPreviewItem,
 } from "@/lib/estimates/bulk-suggest";
@@ -44,8 +54,6 @@ export function BulkSuggestDialog({
   const selectedCount = selectedItemIds.length;
   const allSelected = rows.length > 0 && rows.every((row) => selectedIds.has(row.itemId));
 
-  if (!isOpen) return null;
-
   const resolvedProgress = progress ?? {
     processed: 0,
     total: rows.length,
@@ -53,47 +61,39 @@ export function BulkSuggestDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,6,23,0.45)] p-4">
-      <div
-        className="dashboard-card w-full max-w-6xl p-6"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="bulk-suggest-dialog-title"
-      >
-        <div className="mb-4 flex items-start justify-between gap-4">
-          <div>
-            <h2
-              id="bulk-suggest-dialog-title"
-              className="text-lg font-semibold text-slate-800"
-            >
-              Application en masse des suggestions
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Sélectionnez les lignes à mettre à jour ({selectedCount}/{rows.length}).
-            </p>
-          </div>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            onClick={onClose}
-            disabled={isApplying}
-          >
-            Fermer
-          </button>
-        </div>
+    <Dialog
+      open={isOpen}
+      disablePointerDismissal={isApplying}
+      onOpenChange={(open) => {
+        if (!open && !isApplying) onClose();
+      }}
+    >
+      <DialogContent size="full" className="sm:max-w-6xl">
+        <DialogHeader>
+          <DialogTitle>Application en masse des suggestions</DialogTitle>
+          <DialogDescription>
+            Sélectionnez les lignes à mettre à jour ({selectedCount}/{rows.length}).
+          </DialogDescription>
+        </DialogHeader>
 
-        {error ? <div className="alert alert-error">{error}</div> : null}
+        {error ? <Alert variant="danger">{error}</Alert> : null}
 
         {rows.length === 0 ? (
-          <div className="alert alert-info">Aucune suggestion eligible.</div>
+          <Alert variant="info">Aucune suggestion éligible.</Alert>
         ) : (
-          <div className="table-scroll mt-4 max-h-[420px]">
+          <div
+            className="table-scroll max-h-[420px] rounded-lg border border-border"
+            role="region"
+            aria-label="Suggestions à appliquer"
+            tabIndex={0}
+          >
             <table className="data-table">
               <thead>
                 <tr>
                   <th className="w-12">
                     <input
                       type="checkbox"
+                      className="size-4 accent-primary"
                       checked={allSelected}
                       onChange={(event) => onToggleAll(event.target.checked)}
                       disabled={isApplying}
@@ -102,7 +102,7 @@ export function BulkSuggestDialog({
                   </th>
                   <th>Ligne</th>
                   <th>Actuel</th>
-                  <th>Propose</th>
+                  <th>Proposé</th>
                 </tr>
               </thead>
               <tbody>
@@ -113,6 +113,7 @@ export function BulkSuggestDialog({
                       <td>
                         <input
                           type="checkbox"
+                          className="size-4 accent-primary"
                           checked={isSelected}
                           onChange={(event) =>
                             onToggleItem(row.itemId, event.target.checked)
@@ -123,7 +124,7 @@ export function BulkSuggestDialog({
                       </td>
                       <td>
                         <div className="space-y-1">
-                          <p className="font-medium text-slate-800">
+                          <p className="font-medium text-foreground">
                             {row.itemTitle}
                           </p>
                           <p className="text-xs text-muted-foreground">
@@ -132,11 +133,11 @@ export function BulkSuggestDialog({
                         </div>
                       </td>
                       <td>
-                        <div className="space-y-1 text-xs text-slate-600">
+                        <div className="space-y-1 text-xs text-foreground-secondary">
                           {row.changes.map((change) => (
                             <p key={`${row.itemId}:${change.field}:current`}>
-                              <span className="font-semibold text-foreground-secondary">
-                                {change.label}:
+                              <span className="font-semibold text-foreground">
+                                {change.label} :
                               </span>{" "}
                               {change.currentDisplay}
                             </p>
@@ -144,11 +145,11 @@ export function BulkSuggestDialog({
                         </div>
                       </td>
                       <td>
-                        <div className="space-y-1 text-xs text-slate-600">
+                        <div className="space-y-1 text-xs text-foreground-secondary">
                           {row.changes.map((change) => (
                             <p key={`${row.itemId}:${change.field}:proposed`}>
-                              <span className="font-semibold text-foreground-secondary">
-                                {change.label}:
+                              <span className="font-semibold text-foreground">
+                                {change.label} :
                               </span>{" "}
                               {change.proposedDisplay}
                             </p>
@@ -164,16 +165,23 @@ export function BulkSuggestDialog({
         )}
 
         {showProgress && isApplying ? (
-          <div className="mt-4 rounded-xl border border-border bg-surface p-4">
+          <div className="rounded-lg border border-border bg-surface-subtle p-4">
             <div className="flex items-center justify-between gap-3 text-sm">
-              <span className="font-medium text-slate-800">
-                Application des suggestions en cours...
+              <span id="bulk-suggest-progress-label" className="font-medium text-foreground">
+                Application des suggestions en cours…
               </span>
-              <span className="text-muted-foreground">
-                {resolvedProgress.percentage}% ({resolvedProgress.processed} / {resolvedProgress.total})
+              <span className="tabular-nums text-muted-foreground">
+                {resolvedProgress.percentage} % ({resolvedProgress.processed} / {resolvedProgress.total})
               </span>
             </div>
-            <div className="mt-3 h-2 w-full rounded-full bg-slate-200">
+            <div
+              className="mt-3 h-2 w-full overflow-hidden rounded-full bg-muted"
+              role="progressbar"
+              aria-labelledby="bulk-suggest-progress-label"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={resolvedProgress.percentage}
+            >
               <div
                 className="h-2 rounded-full bg-primary"
                 style={{ width: `${resolvedProgress.percentage}%` }}
@@ -182,25 +190,25 @@ export function BulkSuggestDialog({
           </div>
         ) : null}
 
-        <div className="mt-6 flex items-center justify-end gap-3">
-          <button
-            type="button"
-            className="btn btn-secondary"
+        <DialogFooter>
+          <Button
+            variant="outline"
+            size="lg"
             onClick={onClose}
             disabled={isApplying}
           >
             Annuler
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary"
+          </Button>
+          <Button
+            size="lg"
             onClick={onConfirm}
-            disabled={isApplying || selectedCount === 0}
+            disabled={selectedCount === 0}
+            loading={isApplying}
           >
-            {isApplying ? "Application..." : "Appliquer"}
-          </button>
-        </div>
-      </div>
-    </div>
+            Appliquer
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

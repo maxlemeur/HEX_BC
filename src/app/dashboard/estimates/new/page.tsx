@@ -1,12 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import {
   EstimateCreationWizard,
   type EstimateCreationResult,
 } from "@/components/estimates/EstimateCreationWizard";
+import { PageHeader } from "@/components/layout/page-header";
 import { useToast } from "@/components/ui-legacy/Toast";
 
 export default function NewEstimatePage() {
@@ -27,31 +27,23 @@ export default function NewEstimatePage() {
   }
 
   const isExistingProject = Boolean(projectId);
+  const title = isExistingProject ? "Nouvelle version" : "Nouveau chiffrage";
 
   return (
     <div className="animate-fade-in">
-      <div className="page-header flex items-start justify-between gap-6">
-        <div>
-          <h1 className="page-title">
-            {isExistingProject ? "Nouvelle version" : "Nouveau chiffrage"}
-          </h1>
-          <p className="page-description">
-            {isExistingProject
-              ? "Ajoutez une version à cette affaire."
-              : "Créez un nouveau projet avec l\u0027assistant de création."}
-          </p>
-        </div>
-        <Link
-          className="btn btn-secondary btn-lg"
-          href={
-            projectId
-              ? `/dashboard/affaires/${projectId}`
-              : "/dashboard/estimates"
-          }
-        >
-          Retour
-        </Link>
-      </div>
+      <PageHeader
+        breadcrumbs={[
+          { label: "Affaires", href: "/dashboard/affaires" },
+          ...(projectId ? [{ label: "Affaire", href: `/dashboard/affaires/${projectId}` }] : []),
+          { label: title },
+        ]}
+        title={title}
+        description={
+          isExistingProject
+            ? "Ajoutez une version à cette affaire."
+            : "Créez un nouveau projet avec l’assistant de création."
+        }
+      />
 
       <EstimateCreationWizard onCreated={handleCreated} projectId={projectId} />
     </div>

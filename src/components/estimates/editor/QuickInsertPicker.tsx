@@ -3,6 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { XIcon } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
+import { IconButton } from "@/components/ui/icon-button";
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
+
 export type QuickInsertPickerItem = {
   id: string;
   name: string;
@@ -107,7 +112,9 @@ export function QuickInsertPicker({
   return (
     <div
       ref={containerRef}
-      className="absolute left-0 top-full z-30 mt-2 flex flex-col rounded-xl border border-border bg-surface shadow-xl"
+      role="dialog"
+      aria-label={title}
+      className="absolute left-0 top-full z-30 mt-2 flex flex-col rounded-xl border border-border bg-surface shadow-dropdown"
       style={{
         width: "min(340px, calc(100vw - 32px))",
         maxHeight: "420px",
@@ -118,22 +125,23 @@ export function QuickInsertPicker({
         <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           {title}
         </span>
-        <button
+        <IconButton
           type="button"
-          className="btn btn-ghost btn-sm px-1"
+          size="icon-xs"
+          label="Fermer"
+          icon={<XIcon aria-hidden="true" />}
           onClick={onClose}
-          aria-label="Fermer"
-        >
-          <XIcon aria-hidden="true" size={14} />
-        </button>
+        />
       </div>
 
       {/* Search */}
       <div className="px-3 py-2">
-        <input
+        <Input
           type="search"
-          className="form-input h-8 w-full text-sm"
-          placeholder="Rechercher par nom..."
+          size="sm"
+          className="h-8"
+          placeholder="Rechercher par nom…"
+          aria-label="Rechercher par nom"
           value={searchInput}
           autoFocus
           onChange={(event) => {
@@ -146,11 +154,11 @@ export function QuickInsertPicker({
       {/* Results */}
       <div className="flex-1 overflow-auto px-1 pb-2" style={{ maxHeight: "300px" }}>
         {isLoading ? (
-          <div className="px-3 py-4 text-center text-sm text-muted-foreground">
-            Chargement...
+          <div className="px-3 py-4 text-center text-sm text-muted-foreground" role="status">
+            Chargement…
           </div>
         ) : error ? (
-          <div className="px-3 py-4 text-center text-sm text-destructive">
+          <div className="px-3 py-4 text-center text-sm text-danger" role="alert">
             {error}
           </div>
         ) : items.length === 0 ? (
@@ -162,11 +170,12 @@ export function QuickInsertPicker({
             <button
               key={item.id}
               type="button"
-              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors ${
+              className={cn(
+                "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-foreground transition-colors outline-none focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-60",
                 index === clampedHighlightedIndex
-                  ? "bg-accent text-accent-foreground"
-                  : "text-foreground hover:bg-surface-subtle"
-              }`}
+                  ? "bg-muted"
+                  : "hover:bg-surface-subtle",
+              )}
               onClick={() => onSelect(item.id)}
               onMouseEnter={() => setHighlightedIndex(index)}
               disabled={isInserting}
@@ -179,9 +188,9 @@ export function QuickInsertPicker({
                   </div>
                 )}
               </div>
-              <span className="shrink-0 rounded-md bg-surface-subtle px-1.5 py-0.5 text-xs text-muted-foreground">
+              <Badge variant="neutral" size="sm">
                 {item.itemCount} ligne{item.itemCount > 1 ? "s" : ""}
-              </span>
+              </Badge>
             </button>
           ))
         )}
@@ -189,8 +198,11 @@ export function QuickInsertPicker({
 
       {/* Inserting indicator */}
       {isInserting && (
-        <div className="border-t border-border px-3 py-2 text-center text-xs text-muted-foreground">
-          Insertion en cours...
+        <div
+          className="border-t border-border px-3 py-2 text-center text-xs text-muted-foreground"
+          role="status"
+        >
+          Insertion en cours…
         </div>
       )}
     </div>

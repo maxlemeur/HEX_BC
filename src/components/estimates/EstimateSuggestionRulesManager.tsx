@@ -3,7 +3,14 @@
 import { useMemo, useState } from "react";
 
 import type { Database } from "@/types/database";
-import { CircleXIcon } from "lucide-react";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
+
+const FIELD_CLASS = "flex min-w-0 flex-col gap-2";
 
 type SuggestionRule =
   Database["public"]["Tables"]["estimate_suggestion_rules"]["Row"];
@@ -116,7 +123,7 @@ export function EstimateSuggestionRulesManager({
     }
 
     if (!keywords) {
-      setFormError("Ajoutez au moins un mot-cle.");
+      setFormError("Ajoutez au moins un mot-clé.");
       return;
     }
 
@@ -205,88 +212,77 @@ export function EstimateSuggestionRulesManager({
   }
 
   return (
-    <div className="dashboard-card p-8">
+    <Card className="p-5 sm:p-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-800">
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold text-foreground">
             Base de chiffrage
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Definissez des règles pour suggerer Type FO, unité, coefficients et
-            rôle MO.
+            Définissez des règles pour suggérer le type FO, l&apos;unité, les
+            coefficients et le rôle MO.
           </p>
         </div>
       </div>
 
       {error && (
-        <div className="alert alert-error mt-4">
-          <CircleXIcon aria-hidden="true" size={18} />
+        <Alert variant="danger" className="mt-4">
           {error}
-        </div>
+        </Alert>
       )}
 
       <div className="estimate-role-form mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-[1.4fr_1.6fr_1fr_1fr_1fr_1fr_1fr_110px_auto]">
-        <div>
-          <label className="form-label" htmlFor="rule-name">
-            Nom de règle
-          </label>
-          <input
+        <div className={FIELD_CLASS}>
+          <FieldLabel htmlFor="rule-name">Nom de règle</FieldLabel>
+          <Input
             id="rule-name"
-            className="form-input form-input--sm"
+            size="sm"
             value={newName}
             onChange={(event) => setNewName(event.target.value)}
-            placeholder="Ex: Tube cuivre"
+            placeholder="Ex. : Tube cuivre"
           />
         </div>
-        <div>
-          <label className="form-label" htmlFor="rule-keywords">
-            Mots-cles (virgules)
-          </label>
-          <input
+        <div className={FIELD_CLASS}>
+          <FieldLabel htmlFor="rule-keywords">Mots-clés (virgules)</FieldLabel>
+          <Input
             id="rule-keywords"
-            className="form-input form-input--sm"
+            size="sm"
             value={newKeywords}
             onChange={(event) => setNewKeywords(event.target.value)}
             placeholder="cuivre, tube, 20mm"
           />
         </div>
-        <div>
-          <label className="form-label" htmlFor="rule-unit">
-            Unité
-          </label>
-          <input
+        <div className={FIELD_CLASS}>
+          <FieldLabel htmlFor="rule-unit">Unité</FieldLabel>
+          <Input
             id="rule-unit"
-            className="form-input form-input--sm"
+            size="sm"
             value={newUnit}
             onChange={(event) => setNewUnit(event.target.value)}
             placeholder="u"
           />
         </div>
-        <div>
-          <label className="form-label" htmlFor="rule-category">
-            Type FO
-          </label>
-          <select
+        <div className={FIELD_CLASS}>
+          <FieldLabel htmlFor="rule-category">Type FO</FieldLabel>
+          <NativeSelect
             id="rule-category"
-            className="form-input form-input--sm form-select"
+            size="sm"
             value={newCategoryId}
             onChange={(event) => setNewCategoryId(event.target.value)}
           >
-            <option value="">-</option>
+            <option value="">—</option>
             {categories.map((category) => (
               <option key={category.id} value={category.id}>
                 {category.name}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </div>
-        <div>
-          <label className="form-label" htmlFor="rule-kfo">
-            K FO
-          </label>
-          <input
+        <div className={FIELD_CLASS}>
+          <FieldLabel htmlFor="rule-kfo">K FO</FieldLabel>
+          <Input
             id="rule-kfo"
-            className="form-input form-input--sm"
+            size="sm"
             type="number"
             step="0.01"
             min={0}
@@ -295,13 +291,11 @@ export function EstimateSuggestionRulesManager({
             placeholder="1.00"
           />
         </div>
-        <div>
-          <label className="form-label" htmlFor="rule-kmo">
-            K MO
-          </label>
-          <input
+        <div className={FIELD_CLASS}>
+          <FieldLabel htmlFor="rule-kmo">K MO</FieldLabel>
+          <Input
             id="rule-kmo"
-            className="form-input form-input--sm"
+            size="sm"
             type="number"
             step="0.01"
             min={0}
@@ -310,32 +304,28 @@ export function EstimateSuggestionRulesManager({
             placeholder="1.00"
           />
         </div>
-        <div>
-          <label className="form-label" htmlFor="rule-role">
-            Rôle MO
-          </label>
-          <select
+        <div className={FIELD_CLASS}>
+          <FieldLabel htmlFor="rule-role">Rôle MO</FieldLabel>
+          <NativeSelect
             id="rule-role"
-            className="form-input form-input--sm form-select"
+            size="sm"
             value={newRoleId}
             onChange={(event) => setNewRoleId(event.target.value)}
           >
-            <option value="">-</option>
+            <option value="">—</option>
             {laborRoles.map((role) => (
               <option key={role.id} value={role.id} disabled={!role.is_active}>
                 {role.name}
                 {!role.is_active ? " (inactif)" : ""}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </div>
-        <div>
-          <label className="form-label" htmlFor="rule-position">
-            Priorité
-          </label>
-          <input
+        <div className={FIELD_CLASS}>
+          <FieldLabel htmlFor="rule-position">Priorité</FieldLabel>
+          <Input
             id="rule-position"
-            className="form-input form-input--sm"
+            size="sm"
             type="number"
             min={1}
             value={newPosition}
@@ -344,34 +334,41 @@ export function EstimateSuggestionRulesManager({
           />
         </div>
         <div className="flex items-end">
-          <button
-            className="btn btn-primary btn-sm"
-            type="button"
+          <Button
+            variant="primary"
+            size="md"
             onClick={handleAddRule}
             disabled={isSaving}
           >
             Ajouter
-          </button>
+          </Button>
         </div>
       </div>
 
       {formError && (
-        <p className="mt-3 text-sm text-danger">{formError}</p>
+        <Alert variant="danger" className="mt-3">
+          {formError}
+        </Alert>
       )}
 
-      <div className="table-scroll mt-6">
+      <div
+        className="table-scroll mt-6"
+        role="region"
+        aria-label="Règles de la base de chiffrage"
+        tabIndex={0}
+      >
         <table className="data-table">
           <thead>
             <tr>
-              <th>Règle</th>
-              <th>Mots-cles</th>
-              <th>Unité</th>
-              <th>Type FO</th>
-              <th>K FO</th>
-              <th>K MO</th>
-              <th>Rôle MO</th>
-              <th>Priorité</th>
-              <th>Actif</th>
+              <th scope="col">Règle</th>
+              <th scope="col">Mots-clés</th>
+              <th scope="col">Unité</th>
+              <th scope="col">Type FO</th>
+              <th scope="col">K FO</th>
+              <th scope="col">K MO</th>
+              <th scope="col">Rôle MO</th>
+              <th scope="col">Priorité</th>
+              <th scope="col">Actif</th>
             </tr>
           </thead>
           <tbody>
@@ -396,12 +393,14 @@ export function EstimateSuggestionRulesManager({
                   position: String(rule.position),
                   is_active: rule.is_active,
                 };
+                const ruleLabel = `de la règle ${rule.name}`;
                 return (
                   <tr key={rule.id}>
                     <td>
-                      <input
-                        className="form-input form-input--sm"
+                      <Input
+                        size="sm"
                         value={draft.name}
+                        aria-label={`Libellé ${ruleLabel}`}
                         onChange={(event) =>
                           setDrafts((prev) => ({
                             ...prev,
@@ -412,9 +411,10 @@ export function EstimateSuggestionRulesManager({
                       />
                     </td>
                     <td>
-                      <input
-                        className="form-input form-input--sm"
+                      <Input
+                        size="sm"
                         value={draft.match_value}
+                        aria-label={`Mots-clés ${ruleLabel}`}
                         onChange={(event) =>
                           setDrafts((prev) => ({
                             ...prev,
@@ -428,9 +428,10 @@ export function EstimateSuggestionRulesManager({
                       />
                     </td>
                     <td>
-                      <input
-                        className="form-input form-input--sm"
+                      <Input
+                        size="sm"
                         value={draft.unit}
+                        aria-label={`Unité ${ruleLabel}`}
                         onChange={(event) =>
                           setDrafts((prev) => ({
                             ...prev,
@@ -442,9 +443,10 @@ export function EstimateSuggestionRulesManager({
                       />
                     </td>
                     <td>
-                      <select
-                        className="form-input form-input--sm form-select"
+                      <NativeSelect
+                        size="sm"
                         value={draft.category_id}
+                        aria-label={`Type FO ${ruleLabel}`}
                         onChange={(event) =>
                           setDrafts((prev) => ({
                             ...prev,
@@ -456,21 +458,22 @@ export function EstimateSuggestionRulesManager({
                         }
                         onBlur={() => handleBlur(rule)}
                       >
-                        <option value="">-</option>
+                        <option value="">—</option>
                         {categories.map((category) => (
                           <option key={category.id} value={category.id}>
                             {category.name}
                           </option>
                         ))}
-                      </select>
+                      </NativeSelect>
                     </td>
                     <td>
-                      <input
-                        className="form-input form-input--sm"
+                      <Input
+                        size="sm"
                         type="number"
                         step="0.01"
                         min={0}
                         value={draft.k_fo}
+                        aria-label={`K FO ${ruleLabel}`}
                         onChange={(event) =>
                           setDrafts((prev) => ({
                             ...prev,
@@ -482,12 +485,13 @@ export function EstimateSuggestionRulesManager({
                       />
                     </td>
                     <td>
-                      <input
-                        className="form-input form-input--sm"
+                      <Input
+                        size="sm"
                         type="number"
                         step="0.01"
                         min={0}
                         value={draft.k_mo}
+                        aria-label={`K MO ${ruleLabel}`}
                         onChange={(event) =>
                           setDrafts((prev) => ({
                             ...prev,
@@ -499,9 +503,10 @@ export function EstimateSuggestionRulesManager({
                       />
                     </td>
                     <td>
-                      <select
-                        className="form-input form-input--sm form-select"
+                      <NativeSelect
+                        size="sm"
                         value={draft.labor_role_id}
+                        aria-label={`Rôle MO ${ruleLabel}`}
                         onChange={(event) =>
                           setDrafts((prev) => ({
                             ...prev,
@@ -513,7 +518,7 @@ export function EstimateSuggestionRulesManager({
                         }
                         onBlur={() => handleBlur(rule)}
                       >
-                        <option value="">-</option>
+                        <option value="">—</option>
                         {laborRoles.map((role) => (
                           <option
                             key={role.id}
@@ -524,14 +529,15 @@ export function EstimateSuggestionRulesManager({
                             {!role.is_active ? " (inactif)" : ""}
                           </option>
                         ))}
-                      </select>
+                      </NativeSelect>
                     </td>
                     <td>
-                      <input
-                        className="form-input form-input--sm"
+                      <Input
+                        size="sm"
                         type="number"
                         min={1}
                         value={draft.position}
+                        aria-label={`Priorité ${ruleLabel}`}
                         onChange={(event) =>
                           setDrafts((prev) => ({
                             ...prev,
@@ -548,7 +554,9 @@ export function EstimateSuggestionRulesManager({
                       <label className="estimate-toggle">
                         <input
                           type="checkbox"
+                          className="accent-primary"
                           checked={draft.is_active}
+                          aria-label={`Règle ${rule.name} active`}
                           onChange={(event) =>
                             setDrafts((prev) => ({
                               ...prev,
@@ -560,7 +568,7 @@ export function EstimateSuggestionRulesManager({
                           }
                           onBlur={() => handleBlur(rule)}
                         />
-                        <span>{draft.is_active ? "Actif" : "Inactif"}</span>
+                        <span aria-hidden="true">{draft.is_active ? "Actif" : "Inactif"}</span>
                       </label>
                     </td>
                   </tr>
@@ -570,6 +578,6 @@ export function EstimateSuggestionRulesManager({
           </tbody>
         </table>
       </div>
-    </div>
+    </Card>
   );
 }

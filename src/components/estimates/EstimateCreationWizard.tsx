@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { ImportStep } from "@/components/estimates/estimate-creation-wizard/ImportStep";
 import { PricingStep } from "@/components/estimates/estimate-creation-wizard/PricingStep";
@@ -19,7 +19,13 @@ import {
   useEstimateCreationDraft,
 } from "@/components/estimates/hooks/useEstimateCreationDraft";
 import { useEstimateCreationResources } from "@/components/estimates/hooks/useEstimateCreationResources";
-import { CircleXIcon } from "lucide-react";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Loader2Icon } from "lucide-react";
+
+const QUICK_CREATE_HINT = "Créer directement avec les paramètres par défaut";
 
 export type EstimateCreationResult = {
   linkedDpgfImportWarning?: string;
@@ -38,6 +44,7 @@ export function EstimateCreationWizard({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const projectNameInputRef = useRef<HTMLInputElement | null>(null);
+  const quickCreateHintId = useId();
 
   const {
     data,
@@ -139,21 +146,19 @@ export function EstimateCreationWizard({
       />
 
       {submitError && (
-        <div className="alert alert-error mb-6">
-          <CircleXIcon aria-hidden="true" size={20} />
+        <Alert variant="danger" className="mb-6">
           {submitError}
-        </div>
+        </Alert>
       )}
 
       {errors._root && (
-        <div className="alert alert-error mb-6">
-          <CircleXIcon aria-hidden="true" size={20} />
+        <Alert variant="danger" className="mb-6">
           {errors._root}
-        </div>
+        </Alert>
       )}
 
-      <div className="dashboard-card p-8">
-        <h2 className="mb-1 text-lg font-semibold text-slate-800">
+      <Card className="p-5 sm:p-8">
+        <h2 className="mb-1 text-lg font-semibold text-foreground">
           {STEPS[currentStep].label}
         </h2>
         <p className="mb-6 text-sm text-muted-foreground">
@@ -189,59 +194,75 @@ export function EstimateCreationWizard({
         <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-border-subtle pt-6">
           <div className="flex items-center gap-3">
             {currentStep > 0 && (
-              <button
-                type="button"
-                className="btn btn-secondary"
+              <Button
+                variant="outline"
+                size="lg"
                 onClick={goBack}
                 disabled={isSubmitting}
               >
                 Retour
-              </button>
+              </Button>
             )}
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center justify-end gap-3">
             {!isLastStep && (
-              <button
-                type="button"
-                className="btn btn-ghost text-sm"
-                onClick={handleQuickCreate}
-                disabled={isSubmitting}
-                title="Créer directement avec les paramètres par défaut"
-              >
-                Créer directement
-              </button>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="lg"
+                      onClick={handleQuickCreate}
+                      disabled={isSubmitting}
+                      aria-describedby={quickCreateHintId}
+                    />
+                  }
+                >
+                  Créer directement
+                </TooltipTrigger>
+                <TooltipContent>{QUICK_CREATE_HINT}</TooltipContent>
+              </Tooltip>
+            )}
+            {!isLastStep && (
+              <span id={quickCreateHintId} className="sr-only">
+                {QUICK_CREATE_HINT}
+              </span>
             )}
 
             {isLastStep ? (
-              <button
-                type="button"
-                className="btn btn-primary"
+              <Button
+                variant="primary"
+                size="lg"
                 onClick={handleSubmit}
                 disabled={isSubmitting}
+                aria-busy={isSubmitting || undefined}
               >
                 {isSubmitting ? (
                   <>
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                    Création...
+                    <Loader2Icon
+                      aria-hidden="true"
+                      className="animate-spin motion-reduce:animate-none"
+                    />
+                    Création…
                   </>
                 ) : (
                   "Créer le chiffrage"
                 )}
-              </button>
+              </Button>
             ) : (
-              <button
-                type="button"
-                className="btn btn-primary"
+              <Button
+                variant="primary"
+                size="lg"
                 onClick={goNext}
                 disabled={isSubmitting}
               >
                 Suivant
-              </button>
+              </Button>
             )}
           </div>
         </div>
-      </div>
+      </Card>
     </div>
   );
 }

@@ -167,26 +167,26 @@ describe("AssemblyEditorDialog", () => {
     expect(header).not.toHaveTextContent("PU HT");
     expect(header).not.toHaveTextContent("Coût HT");
     expect(header).not.toHaveTextContent("Pertes");
-    expect(within(header).getByText("PR FO")).toHaveClass("bg-blue-100/80");
-    expect(within(header).getByText("Type FO")).toHaveClass("bg-blue-100/80");
-    expect(within(header).getByText("K FO")).toHaveClass("bg-blue-100/80");
-    expect(within(header).getByText("H MO")).toHaveClass("bg-amber-100/80");
-    expect(within(header).getByText("Rôle MO")).toHaveClass("bg-amber-100/80");
-    expect(within(header).getByText("K MO")).toHaveClass("bg-amber-100/80");
+    expect(within(header).getByText("PR FO")).toHaveClass("bg-info-light");
+    expect(within(header).getByText("Type FO")).toHaveClass("bg-info-light");
+    expect(within(header).getByText("K FO")).toHaveClass("bg-info-light");
+    expect(within(header).getByText("H MO")).toHaveClass("bg-warning-light");
+    expect(within(header).getByText("Rôle MO")).toHaveClass("bg-warning-light");
+    expect(within(header).getByText("K MO")).toHaveClass("bg-warning-light");
     expect(screen.getByLabelText("Prix de revient FO (€)")).toHaveClass(
-      "!bg-blue-50/80"
+      "bg-info-subtle"
     );
     expect(screen.getByLabelText("Coefficient FO")).toHaveClass(
-      "!bg-blue-50/80"
+      "bg-info-subtle"
     );
     expect(screen.getByLabelText("Temps MO (h)")).toHaveClass(
-      "!bg-amber-50/80"
+      "bg-warning-subtle"
     );
     expect(screen.getByLabelText("Rôle de main-d’œuvre")).toHaveClass(
-      "!bg-amber-50/80"
+      "bg-warning-subtle"
     );
     expect(screen.getByLabelText("Coefficient MO")).toHaveClass(
-      "!bg-amber-50/80"
+      "bg-warning-subtle"
     );
     expect(screen.getByLabelText("Quantité par défaut")).toHaveValue(1);
     expect(screen.getByLabelText("Temps MO (h)")).toHaveValue(2);

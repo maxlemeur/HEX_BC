@@ -1,6 +1,11 @@
+import { Badge } from "@/components/ui/badge";
 import type { EstimateApprovalChangesSinceLastCycle } from "@/lib/estimates/rules-engine";
 
 import { formatCurrencyDelta, formatDateTime } from "./shared";
+
+function formatDiffCounts(added: number, updated: number, removed: number) {
+  return `${added} ajouté(s) · ${updated} modifié(s) · ${removed} retiré(s)`;
+}
 
 export function ChangesSummarySection({
   changes,
@@ -12,59 +17,73 @@ export function ChangesSummarySection({
   }
 
   return (
-    <section className="rounded-xl border border-border bg-surface px-4 py-4">
+    <section className="@container mt-4 rounded-lg border border-border bg-surface p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold text-slate-800">
-            Ce qui a change depuis le cycle {changes.sourceCycleNumber}
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-foreground">
+            Ce qui a changé depuis le cycle {changes.sourceCycleNumber}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Diff synthétique depuis le {formatDateTime(changes.decidedAt)}.
+            Écarts synthétiques depuis le {formatDateTime(changes.decidedAt)}.
           </p>
         </div>
-        <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-slate-600">
-          Delta HT {formatCurrencyDelta(changes.totalHtDeltaCents)}
-        </span>
+        <Badge variant="neutral" size="sm">
+          Écart HT {formatCurrencyDelta(changes.totalHtDeltaCents)}
+        </Badge>
       </div>
-      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <article className="rounded-xl border border-border bg-surface-subtle px-3 py-3">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">Lots</p>
+      <div className="mt-3 grid gap-3 @md:grid-cols-2 @3xl:grid-cols-4">
+        <article className="rounded-lg border border-border-subtle bg-surface-subtle px-3 py-3">
+          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Lots</p>
           <p className="mt-1 text-sm text-foreground-secondary">
-            +{changes.addedLotsCount} / ~{changes.updatedLotsCount} / -{changes.removedLotsCount}
+            {formatDiffCounts(
+              changes.addedLotsCount,
+              changes.updatedLotsCount,
+              changes.removedLotsCount
+            )}
           </p>
         </article>
-        <article className="rounded-xl border border-border bg-surface-subtle px-3 py-3">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">Lignes</p>
+        <article className="rounded-lg border border-border-subtle bg-surface-subtle px-3 py-3">
+          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Lignes</p>
           <p className="mt-1 text-sm text-foreground-secondary">
-            +{changes.addedLinesCount} / ~{changes.updatedLinesCount} / -{changes.removedLinesCount}
+            {formatDiffCounts(
+              changes.addedLinesCount,
+              changes.updatedLinesCount,
+              changes.removedLinesCount
+            )}
           </p>
         </article>
-        <article className="rounded-xl border border-border bg-surface-subtle px-3 py-3">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">Checklist</p>
+        <article className="rounded-lg border border-border-subtle bg-surface-subtle px-3 py-3">
+          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            Checklist
+          </p>
           <p className="mt-1 text-sm text-foreground-secondary">
-            {changes.treatedItemsCount} traite(s), {changes.toDiscussCount} à discuter
+            {changes.treatedItemsCount} traité(s), {changes.toDiscussCount} à discuter
           </p>
         </article>
-        <article className="rounded-xl border border-border bg-surface-subtle px-3 py-3">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">Scopes touches</p>
-          <p className="mt-1 text-sm text-foreground-secondary">
-            {changes.touchedLabels.length > 0 ? changes.touchedLabels.join(", ") : "Aucun libelle remonté"}
+        <article className="rounded-lg border border-border-subtle bg-surface-subtle px-3 py-3">
+          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            Périmètres touchés
+          </p>
+          <p className="mt-1 break-words text-sm text-foreground-secondary">
+            {changes.touchedLabels.length > 0
+              ? changes.touchedLabels.join(", ")
+              : "Aucun libellé remonté"}
           </p>
         </article>
       </div>
       {changes.settingsChanges.length > 0 ? (
-        <div className="mt-3 space-y-2">
+        <ul className="mt-3 space-y-2">
           {changes.settingsChanges.map((change) => (
-            <div
+            <li
               key={change.field}
-              className="rounded-xl border border-border bg-surface-subtle px-3 py-3 text-sm text-foreground-secondary"
+              className="rounded-lg border border-border-subtle bg-surface-subtle px-3 py-3 text-sm text-foreground-secondary"
             >
-              <span className="font-medium text-slate-800">{change.label}</span>
+              <span className="font-medium text-foreground">{change.label}</span>
               {" : "}
-              {change.before} {"->"} {change.after}
-            </div>
+              {change.before} → {change.after}
+            </li>
           ))}
-        </div>
+        </ul>
       ) : null}
     </section>
   );

@@ -3,6 +3,11 @@
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { EmptyTableRow } from "@/components/layout/empty-state";
+import { Alert } from "@/components/ui/alert";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { promoteEstimateVariant } from "@/lib/estimates/client";
 import { formatEUR } from "@/lib/money";
 
@@ -36,28 +41,26 @@ function statusLabel(status: EstimateVariantComparisonItem["status"]) {
     case "sent":
       return "Envoyé";
     case "accepted":
-      return "Accepte";
+      return "Accepté";
     case "archived":
-      return "Archive";
+      return "Archivé";
     default:
       return "Inconnu";
   }
 }
 
-function statusClass(status: EstimateVariantComparisonItem["status"]) {
+function statusVariant(status: EstimateVariantComparisonItem["status"]): BadgeProps["variant"] {
   switch (status) {
-    case "draft":
-      return "status-badge status-draft";
     case "sending":
-      return "status-badge status-sent";
+      return "warning";
     case "sent":
-      return "status-badge status-sent";
+      return "info";
     case "accepted":
-      return "status-badge status-accepted";
+      return "success";
     case "archived":
-      return "status-badge status-archived";
+      return "outline";
     default:
-      return "status-badge status-draft";
+      return "neutral";
   }
 }
 
@@ -97,104 +100,115 @@ export function VariantComparisonTable({
   );
 
   return (
-    <section className="dashboard-card p-4 sm:p-5">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <h2 className="text-sm font-semibold text-slate-800">
-            Comparatif variantes
-          </h2>
-          <p className="text-xs text-muted-foreground">
-            HT, TVA, TTC et volume des lignes par version.
-          </p>
+    <Card className="p-4 sm:p-5">
+      <section aria-labelledby="variant-comparison-title">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h2 id="variant-comparison-title" className="text-sm font-semibold text-foreground">
+              Comparatif des variantes
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              HT, TVA, TTC et volume des lignes par version.
+            </p>
+          </div>
         </div>
-      </div>
 
-      {actionError ? (
-        <div className="alert alert-error mt-4 px-3 py-2 text-xs">{actionError}</div>
-      ) : null}
+        {actionError ? (
+          <Alert variant="danger" className="mt-4">
+            {actionError}
+          </Alert>
+        ) : null}
 
-      <div className="table-scroll mt-4">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Version</th>
-              <th>Statut</th>
-              <th>Lignes</th>
-              <th>Total HT</th>
-              <th>TVA</th>
-              <th>Total TTC</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.length === 0 ? (
+        <div
+          className="table-scroll mt-4"
+          role="region"
+          aria-label="Comparatif des variantes"
+          tabIndex={0}
+        >
+          <table className="data-table">
+            <thead>
               <tr>
-                <td colSpan={7}>
-                  <div className="text-sm text-muted-foreground">
-                    Aucune variante disponible.
-                  </div>
-                </td>
+                <th>Version</th>
+                <th>Statut</th>
+                <th>Lignes</th>
+                <th>Total HT</th>
+                <th>TVA</th>
+                <th>Total TTC</th>
+                <th>Action</th>
               </tr>
-            ) : (
-              items.map((item) => {
-                const variant = isVariant(item);
-                const isCurrent = item.id === currentVersionId;
-                const isBase = item.id === baseVersionId;
-                const canPromote = variant && item.status === "draft";
-                const isPromoting = promotingId === item.id;
+            </thead>
+            <tbody>
+              {items.length === 0 ? (
+                <EmptyTableRow
+                  colSpan={7}
+                  variant="compact"
+                  title="Aucune variante disponible."
+                />
+              ) : (
+                items.map((item) => {
+                  const variant = isVariant(item);
+                  const isCurrent = item.id === currentVersionId;
+                  const isBase = item.id === baseVersionId;
+                  const canPromote = variant && item.status === "draft";
+                  const isPromoting = promotingId === item.id;
 
-                return (
-                  <tr key={item.id}>
-                    <td>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium text-slate-800">
-                          {variant
-                            ? `Variante ${item.variant_label} · V${item.version_number}`
-                            : `Version ${item.version_number}`}
-                        </span>
-                        {isCurrent ? (
-                          <span className="status-badge status-confirmed">Courante</span>
-                        ) : null}
-                        {isBase ? (
-                          <span className="status-badge status-accepted">Principale</span>
-                        ) : null}
-                      </div>
-                      {item.title ? (
-                        <div className="mt-1 text-xs text-muted-foreground" title={item.title}>
-                          {item.title}
+                  return (
+                    <tr key={item.id}>
+                      <td>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium text-foreground">
+                            {variant
+                              ? `Variante ${item.variant_label} · V${item.version_number}`
+                              : `Version ${item.version_number}`}
+                          </span>
+                          {isCurrent ? (
+                            <Badge variant="brand" size="sm">Courante</Badge>
+                          ) : null}
+                          {isBase ? (
+                            <Badge variant="outline" size="sm">Principale</Badge>
+                          ) : null}
                         </div>
-                      ) : null}
-                    </td>
-                    <td>
-                      <span className={statusClass(item.status)}>{statusLabel(item.status)}</span>
-                    </td>
-                    <td>{item.line_count}</td>
-                    <td>{formatEUR(item.total_ht_cents)}</td>
-                    <td>{formatEUR(item.total_tax_cents)}</td>
-                    <td>{formatEUR(item.total_ttc_cents)}</td>
-                    <td>
-                      {canPromote ? (
-                        <button
-                          className="btn btn-secondary btn-sm"
-                          type="button"
-                          disabled={isPromoting || Boolean(promotingId)}
-                          onClick={() => void handlePromote(item.id)}
-                        >
-                          {isPromoting ? "Promotion..." : "Promouvoir"}
-                        </button>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">
-                          {variant ? "Statut non promouvable" : "-"}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
-    </section>
+                        {item.title ? (
+                          <div className="mt-1 text-xs text-muted-foreground" title={item.title}>
+                            {item.title}
+                          </div>
+                        ) : null}
+                      </td>
+                      <td>
+                        <Badge variant={statusVariant(item.status)} size="sm" dot>
+                          {statusLabel(item.status)}
+                        </Badge>
+                      </td>
+                      <td className="tabular-nums">{item.line_count}</td>
+                      <td className="tabular-nums">{formatEUR(item.total_ht_cents)}</td>
+                      <td className="tabular-nums">{formatEUR(item.total_tax_cents)}</td>
+                      <td className="tabular-nums">{formatEUR(item.total_ttc_cents)}</td>
+                      <td>
+                        {canPromote ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            type="button"
+                            loading={isPromoting}
+                            disabled={Boolean(promotingId)}
+                            onClick={() => void handlePromote(item.id)}
+                          >
+                            Promouvoir
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            {variant ? "Statut non promouvable" : "-"}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </Card>
   );
 }

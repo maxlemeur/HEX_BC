@@ -8,8 +8,18 @@ import {
   useRef,
   useState,
 } from "react";
-import { createPortal } from "react-dom";
+import { XIcon } from "lucide-react";
 
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useToast } from "@/components/ui-legacy/Toast";
 import { runEstimateEditorExternalMutation } from "@/lib/estimates/client";
 
@@ -36,7 +46,6 @@ import {
 import { GeneratedOuvrageSourceForm } from "./GeneratedOuvrageSourceForm";
 import { GeneratedOuvrageDraftReview } from "./GeneratedOuvrageDraftReview";
 import { GeneratedOuvrageFooterBar } from "./GeneratedOuvrageFooterBar";
-import { XIcon } from "lucide-react";
 
 type DialogStep = "input" | "generating" | "review" | "inserting" | "error";
 
@@ -83,7 +92,6 @@ export function GeneratedOuvrageDialog({
   onClose,
 }: GeneratedOuvrageDialogProps) {
   const toast = useToast();
-  const dialogRef = useRef<HTMLDivElement>(null);
   const [step, setStep] = useState<DialogStep>("input");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [candidates, setCandidates] = useState<UiGeneratedOuvrageCandidate[]>(
@@ -137,25 +145,6 @@ export function GeneratedOuvrageDialog({
     }
   }, [isOpen]);
 
-  // Focus trap
-  useEffect(() => {
-    if (!isOpen) return;
-    const el = dialogRef.current;
-    if (el) el.focus();
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !insertionPendingRef.current) {
-        onClose(
-          totalInsertedRef.current > 0
-            ? { insertedCount: totalInsertedRef.current }
-            : undefined
-        );
-      }
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
-
   const applyDraftResult = useCallback(
     (result: GeneratedOuvrageDraftResult, existingCandidates?: UiGeneratedOuvrageCandidate[]) => {
       setDraftId(result.draftId);
@@ -208,7 +197,7 @@ export function GeneratedOuvrageDialog({
           return;
         }
         setErrorMessage(
-          err instanceof Error ? err.message : "Erreur lors de la generation."
+          err instanceof Error ? err.message : "Erreur lors de la génération."
         );
         setStep("error");
       }
@@ -229,7 +218,7 @@ export function GeneratedOuvrageDialog({
         });
         startTransition(() => {
           applyDraftResult(reloaded);
-          setStatusMessage("Proposition rejetee.");
+          setStatusMessage("Proposition rejetée.");
         });
       } catch (err) {
         setStatusMessage(
@@ -256,7 +245,7 @@ export function GeneratedOuvrageDialog({
     const blocked = selected.filter((candidate) => !candidate.subdetailReviewed);
     if (blocked.length > 0) {
       setStatusMessage(
-        "Chaque ouvrage selectionne doit avoir un sous-detail explicitement valide avant insertion."
+        "Chaque ouvrage sélectionné doit avoir un sous-détail explicitement validé avant insertion."
       );
       return;
     }
@@ -316,7 +305,7 @@ export function GeneratedOuvrageDialog({
         reloaded.status === "discarded"
       ) {
         toast.success({
-          title: `${totalInsertedRef.current} ouvrage(s) insere(s) dans le devis.`,
+          title: `${totalInsertedRef.current} ouvrage(s) inséré(s) dans le devis.`,
         });
         onClose({ insertedCount: totalInsertedRef.current });
         return;
@@ -324,9 +313,9 @@ export function GeneratedOuvrageDialog({
 
       setStep("review");
       setStatusMessage(
-        `${insertResult.insertedCount} ouvrage(s) insere(s). Il reste des propositions à traiter.`
+        `${insertResult.insertedCount} ouvrage(s) inséré(s). Il reste des propositions à traiter.`
       );
-      toast.success({ title: `${insertResult.insertedCount} ouvrage(s) insere(s).` });
+      toast.success({ title: `${insertResult.insertedCount} ouvrage(s) inséré(s).` });
     } catch (err) {
       setStep("review");
       setStatusMessage(
@@ -431,7 +420,7 @@ export function GeneratedOuvrageDialog({
           };
         });
         setStatusMessage(
-          "Les modifications du parent imposent une nouvelle validation du sous-detail."
+          "Les modifications du parent imposent une nouvelle validation du sous-détail."
         );
       } else if (parentIncomplete) {
         setStatusMessage(
@@ -512,7 +501,7 @@ export function GeneratedOuvrageDialog({
             errorMessage:
               err instanceof Error
                 ? err.message
-                : "Erreur lors du chargement du sous-detail.",
+                : "Erreur lors du chargement du sous-détail.",
           },
         }));
       }
@@ -572,7 +561,7 @@ export function GeneratedOuvrageDialog({
                 : candidate
             )
           );
-          setStatusMessage("Sous-detail valide. L'insertion reste une action explicite.");
+          setStatusMessage("Sous-détail validé. L'insertion reste une action explicite.");
         });
       } catch (err) {
         setSubdetailByCandidateId((prev) => ({
@@ -583,7 +572,7 @@ export function GeneratedOuvrageDialog({
             errorMessage:
               err instanceof Error
                 ? err.message
-                : "Erreur lors de la sauvegarde du sous-detail.",
+                : "Erreur lors de la sauvegarde du sous-détail.",
           },
         }));
       }
@@ -600,7 +589,7 @@ export function GeneratedOuvrageDialog({
     );
   }, [onClose]);
 
-  if (!isOpen || typeof document === "undefined") return null;
+  if (!isOpen) return null;
 
   const selectedCount = candidates.filter(
     (c) => c.selected && c.resolutionStatus === "pending"
@@ -626,32 +615,30 @@ export function GeneratedOuvrageDialog({
   const canInsertSelected =
     selectedCount > 0 && selectedInsertReadyCount === selectedCount;
 
-  return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-black/50 p-4 pt-[5vh]">
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Générer des ouvrages"
-        tabIndex={-1}
-        className="relative w-full max-w-5xl rounded-xl bg-surface shadow-2xl outline-none"
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-border px-6 py-4">
-          <h2 className="text-lg font-semibold">Générer des ouvrages</h2>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm btn-square"
-            onClick={handleClose}
-            aria-label="Fermer"
-            disabled={step === "inserting"}
-          >
-            <XIcon aria-hidden="true" size={18} />
-          </button>
-        </div>
+  const isInserting = step === "inserting";
 
-        {/* Body */}
-        <div className="px-6 py-4">
+  return (
+    <Dialog
+      open
+      disablePointerDismissal
+      onOpenChange={(open) => {
+        if (!open) handleClose();
+      }}
+    >
+      <DialogContent
+        size="xl"
+        showCloseButton={false}
+        className="gap-0 overflow-hidden p-0 sm:max-w-5xl sm:p-0"
+      >
+        <DialogHeader className="border-b border-border px-5 py-4 pr-14 sm:px-6 sm:pr-16">
+          <DialogTitle>Générer des ouvrages</DialogTitle>
+          <DialogDescription>
+            Collez un texte (CCTP, note interne…) : l&apos;IA propose des ouvrages que vous
+            complétez et validez avant de les insérer dans le devis.
+          </DialogDescription>
+        </DialogHeader>
+
+        <DialogBody className="relative min-h-0 flex-1 gap-0 overflow-y-auto px-5 py-4 sm:px-6">
           {step === "input" && (
             <GeneratedOuvrageSourceForm
               existingSections={existingSections}
@@ -670,20 +657,21 @@ export function GeneratedOuvrageDialog({
 
           {step === "error" && (
             <div className="space-y-4">
-              <div className="alert alert-error text-sm">
+              <Alert variant="danger">
                 {errorMessage ?? "Une erreur est survenue."}
-              </div>
-              <button
+              </Alert>
+              <Button
                 type="button"
-                className="btn btn-secondary btn-sm"
+                variant="outline"
+                size="md"
                 onClick={handleNewGeneration}
               >
                 Réessayer
-              </button>
+              </Button>
             </div>
           )}
 
-          {(step === "review" || step === "inserting") && (
+          {(step === "review" || isInserting) && (
             <>
               <GeneratedOuvrageDraftReview
                 candidates={candidates}
@@ -708,7 +696,7 @@ export function GeneratedOuvrageDialog({
                 selectedMissingReviewCount={selectedMissingReviewCount}
                 canInsertSelected={canInsertSelected}
                 draftStatus={draftStatus}
-                isInserting={step === "inserting"}
+                isInserting={isInserting}
                 isMutationBlocked={isMutationBlocked}
                 mutationBlockedMessage={mutationBlockedMessage}
                 onNewGeneration={handleNewGeneration}
@@ -717,9 +705,21 @@ export function GeneratedOuvrageDialog({
               />
             </>
           )}
-        </div>
-      </div>
-    </div>,
-    document.body
+        </DialogBody>
+
+        {/* Rendered last so the initial focus lands on the first form field, not on the close icon. */}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="absolute top-3 right-3 sm:top-4 sm:right-4"
+          onClick={handleClose}
+          aria-label="Fermer"
+          disabled={isInserting}
+        >
+          <XIcon aria-hidden="true" />
+        </Button>
+      </DialogContent>
+    </Dialog>
   );
 }

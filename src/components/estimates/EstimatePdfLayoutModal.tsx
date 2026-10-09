@@ -3,7 +3,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useOptionalUserContext } from "@/components/UserContext";
-import { Modal } from "@/components/ui-legacy/Modal";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { FieldLabel } from "@/components/ui/field";
+import { NativeSelect } from "@/components/ui/native-select";
 import { fetchEstimatePdfLayoutConfiguration } from "@/lib/estimates/client";
 import {
   applyEstimateTermsPolicy,
@@ -110,6 +121,7 @@ export function EstimatePdfLayoutModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const hasStoredPreferenceRef = useRef(false);
+  const initialFocusRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -209,46 +221,52 @@ export function EstimatePdfLayoutModal({
     }
   };
 
-  return (
-    <Modal.Root open={open} onOpenChange={onOpenChange}>
-      <Modal.Content
-        className="flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden p-0"
-        containerClassName="sm:max-w-4xl"
-      >
-        <Modal.Header className="shrink-0 border-b border-border px-6 py-5">
-          <div>
-            <Modal.Title>Préparer le devis PDF</Modal.Title>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Choisissez ce que votre client verra dans le document.
-            </p>
-          </div>
-          <Modal.Close aria-label="Fermer la préparation du PDF">Fermer</Modal.Close>
-        </Modal.Header>
+  const checkboxCardClass =
+    "flex min-h-16 cursor-pointer items-start gap-3 rounded-lg border border-border bg-surface p-3 has-[:disabled]:cursor-not-allowed has-[:disabled]:border-border-subtle has-[:disabled]:bg-surface-subtle has-[:disabled]:text-muted-foreground";
 
-        <Modal.Body className="min-h-0 overflow-y-auto px-6 py-5">
+  return (
+    <Dialog
+      open={open}
+      disablePointerDismissal={isSubmitting}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && isSubmitting) return;
+        onOpenChange(nextOpen);
+      }}
+    >
+      <DialogContent
+        size="xl"
+        className="gap-0 overflow-hidden p-0 sm:p-0"
+        initialFocus={initialFocusRef}
+      >
+        <DialogHeader className="shrink-0 border-b border-border px-6 py-5 pr-14">
+          <DialogTitle>Préparer le devis PDF</DialogTitle>
+          <DialogDescription>
+            Choisissez ce que votre client verra dans le document.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
           <div className="space-y-5">
             <fieldset>
-              <legend className="text-sm font-semibold text-slate-800">
+              <legend className="text-sm font-semibold text-foreground">
                 Quel niveau d’information transmettre ?
               </legend>
               <div className="mt-3 grid gap-3 sm:grid-cols-3">
                 {PRESET_OPTIONS.map((preset) => {
                   const selected = activePreset === preset.value;
+                  const isInitialFocus =
+                    selected || (!activePreset && preset.value === "client_detailed");
                   return (
                     <button
                       key={preset.value}
+                      ref={isInitialFocus ? initialFocusRef : undefined}
                       type="button"
-                      className={`relative min-h-28 rounded-xl border p-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue ${
+                      className={`relative min-h-28 rounded-lg border p-4 text-left transition-colors outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring motion-reduce:transition-none ${
                         selected
-                          ? "border-brand-blue bg-blue-50/80 shadow-sm"
+                          ? "border-primary bg-info-subtle shadow-sm"
                           : "border-border bg-surface hover:border-border-strong hover:bg-surface-subtle"
                       }`}
                       aria-pressed={selected}
-                      data-modal-autofocus={
-                        selected || (!activePreset && preset.value === "client_detailed")
-                          ? "true"
-                          : undefined
-                      }
                       onClick={() => applyPreset(preset.value)}
                     >
                       <span className="flex items-center justify-between gap-2">
@@ -256,12 +274,12 @@ export function EstimatePdfLayoutModal({
                           {preset.label}
                         </span>
                         {preset.badge ? (
-                          <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-orange-800">
+                          <Badge variant="accent" size="sm" className="uppercase tracking-wide">
                             {preset.badge}
-                          </span>
+                          </Badge>
                         ) : null}
                       </span>
-                      <span className="mt-2 block text-xs leading-5 text-slate-600">
+                      <span className="mt-2 block text-xs leading-5 text-foreground-secondary">
                         {preset.description}
                       </span>
                     </button>
@@ -271,7 +289,7 @@ export function EstimatePdfLayoutModal({
             </fieldset>
 
             <section
-              className="rounded-2xl border border-border bg-surface-subtle px-4 py-4"
+              className="rounded-lg border border-border bg-surface-subtle px-4 py-4"
               aria-labelledby="estimate-pdf-summary-title"
               aria-live="polite"
             >
@@ -279,7 +297,7 @@ export function EstimatePdfLayoutModal({
                 <div className="min-w-40">
                   <p
                     id="estimate-pdf-summary-title"
-                    className="text-xs font-semibold uppercase tracking-[0.12em] text-brand-orange"
+                    className="text-xs font-semibold uppercase tracking-[0.12em] text-brand-orange-dark"
                   >
                     Votre PDF
                   </p>
@@ -293,7 +311,7 @@ export function EstimatePdfLayoutModal({
                 <dl className="grid min-w-0 flex-1 gap-3 text-sm sm:grid-cols-3">
                   <div>
                     <dt className="text-xs text-muted-foreground">Contenu</dt>
-                    <dd className="mt-1 font-medium text-slate-800">
+                    <dd className="mt-1 font-medium text-foreground">
                       {describeVisibleContent(layout)}
                       {layout.detailLevel === "lines" && configuration?.lineCount
                         ? ` (${configuration.lineCount})`
@@ -302,13 +320,13 @@ export function EstimatePdfLayoutModal({
                   </div>
                   <div>
                     <dt className="text-xs text-muted-foreground">Prix affichés</dt>
-                    <dd className="mt-1 font-medium text-slate-800">
+                    <dd className="mt-1 font-medium text-foreground">
                       {describeVisiblePrices(layout)}
                     </dd>
                   </div>
                   <div>
                     <dt className="text-xs text-muted-foreground">Pages jointes</dt>
-                    <dd className="mt-1 font-medium text-slate-800">
+                    <dd className="mt-1 font-medium text-foreground">
                       {[
                         hasConditions && layout.conditionsPlacement === "new_page"
                           ? "Précisions"
@@ -328,21 +346,21 @@ export function EstimatePdfLayoutModal({
                 </p>
               ) : null}
               {configurationError ? (
-                <p className="mt-3 text-xs font-medium text-amber-700" role="status">
+                <p className="mt-3 text-xs font-medium text-warning" role="status">
                   {configurationError} Les CGV restent désactivées, mais le PDF peut être généré.
                 </p>
               ) : null}
             </section>
 
             <fieldset>
-              <legend className="text-sm font-semibold text-slate-800">
+              <legend className="text-sm font-semibold text-foreground">
                 Pages complémentaires
               </legend>
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <label className="flex min-h-16 items-start gap-3 rounded-xl border border-border bg-surface p-3 has-[:disabled]:border-border-subtle has-[:disabled]:bg-surface-subtle has-[:disabled]:text-subtle-foreground">
+                <label className={checkboxCardClass}>
                   <input
                     type="checkbox"
-                    className="mt-0.5 h-4 w-4"
+                    className="mt-0.5 size-4 shrink-0 accent-primary"
                     checked={layout.conditionsPlacement === "new_page"}
                     disabled={!hasConditions}
                     onChange={(event) =>
@@ -355,7 +373,7 @@ export function EstimatePdfLayoutModal({
                     }
                   />
                   <span>
-                    <span className="block text-sm font-medium text-slate-800">
+                    <span className="block text-sm font-medium text-foreground">
                       Précisions sur une page séparée
                     </span>
                     <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
@@ -364,10 +382,10 @@ export function EstimatePdfLayoutModal({
                   </span>
                 </label>
 
-                <label className="flex min-h-16 items-start gap-3 rounded-xl border border-border bg-surface p-3 has-[:disabled]:border-border-subtle has-[:disabled]:bg-surface-subtle has-[:disabled]:text-subtle-foreground">
+                <label className={checkboxCardClass}>
                   <input
                     type="checkbox"
-                    className="mt-0.5 h-4 w-4"
+                    className="mt-0.5 size-4 shrink-0 accent-primary"
                     checked={layout.includeTerms}
                     disabled={!termsAvailable || termsRequired}
                     onChange={(event) =>
@@ -378,7 +396,7 @@ export function EstimatePdfLayoutModal({
                     }
                   />
                   <span>
-                    <span className="block text-sm font-medium text-slate-800">
+                    <span className="block text-sm font-medium text-foreground">
                       Joindre les CGV
                     </span>
                     <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
@@ -393,26 +411,24 @@ export function EstimatePdfLayoutModal({
               </div>
             </fieldset>
 
-            <details className="rounded-xl border border-border bg-surface">
-              <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-blue">
+            <details className="rounded-lg border border-border bg-surface">
+              <summary className="cursor-pointer rounded-lg px-4 py-3 text-sm font-semibold text-foreground outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring">
                 <span className="ml-1">Personnaliser le contenu et la présentation</span>
-                <span
-                  className={`ml-3 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                    activePreset
-                      ? "bg-muted text-slate-600"
-                      : "bg-orange-100 text-orange-800"
-                  }`}
+                <Badge
+                  variant={activePreset ? "neutral" : "accent"}
+                  size="sm"
+                  className="ml-3 uppercase tracking-wide"
                 >
                   {activePreset ? "Réglages du modèle" : "Personnalisé"}
-                </span>
+                </Badge>
               </summary>
 
               <div className="space-y-4 border-t border-border p-4">
                 <div className="grid gap-4 sm:grid-cols-3">
-                  <label className="space-y-2 text-sm font-medium text-foreground-secondary">
-                    <span>Contenu visible</span>
-                    <select
-                      className="form-input form-select w-full bg-surface"
+                  <div className="grid gap-2">
+                    <FieldLabel htmlFor="estimate-pdf-detail-level">Contenu visible</FieldLabel>
+                    <NativeSelect
+                      id="estimate-pdf-detail-level"
                       value={String(layout.detailLevel)}
                       onChange={(event) => {
                         const value = event.target.value;
@@ -430,13 +446,13 @@ export function EstimatePdfLayoutModal({
                       <option value="3">Chapitres jusqu’au niveau 3</option>
                       <option value="4">Chapitres jusqu’au niveau 4</option>
                       <option value="lines">Toutes les lignes</option>
-                    </select>
-                  </label>
+                    </NativeSelect>
+                  </div>
 
-                  <label className="space-y-2 text-sm font-medium text-foreground-secondary">
-                    <span>Colonnes de prix</span>
-                    <select
-                      className="form-input form-select w-full bg-surface"
+                  <div className="grid gap-2">
+                    <FieldLabel htmlFor="estimate-pdf-price-mode">Colonnes de prix</FieldLabel>
+                    <NativeSelect
+                      id="estimate-pdf-price-mode"
                       value={layout.priceMode}
                       onChange={(event) =>
                         setLayout((current) => ({
@@ -451,13 +467,13 @@ export function EstimatePdfLayoutModal({
                       <option value="fo_mo_and_total">
                         Fournitures + main-d’œuvre + total
                       </option>
-                    </select>
-                  </label>
+                    </NativeSelect>
+                  </div>
 
-                  <label className="space-y-2 text-sm font-medium text-foreground-secondary">
-                    <span>Confort de lecture</span>
-                    <select
-                      className="form-input form-select w-full bg-surface"
+                  <div className="grid gap-2">
+                    <FieldLabel htmlFor="estimate-pdf-density">Confort de lecture</FieldLabel>
+                    <NativeSelect
+                      id="estimate-pdf-density"
                       value={layout.density}
                       onChange={(event) =>
                         setLayout((current) => ({
@@ -470,15 +486,15 @@ export function EstimatePdfLayoutModal({
                       <option value="compact">Compact</option>
                       <option value="standard">Standard</option>
                       <option value="comfortable">Aéré</option>
-                    </select>
-                  </label>
+                    </NativeSelect>
+                  </div>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="flex items-center gap-3 rounded-lg bg-surface-subtle px-3 py-2.5">
+                  <label className="flex cursor-pointer items-center gap-3 rounded-lg bg-surface-subtle px-3 py-2.5">
                     <input
                       type="checkbox"
-                      className="h-4 w-4"
+                      className="size-4 shrink-0 accent-primary"
                       checked={layout.showNumbering}
                       onChange={(event) =>
                         setLayout((current) => ({
@@ -492,10 +508,10 @@ export function EstimatePdfLayoutModal({
                     </span>
                   </label>
 
-                  <label className="flex items-center gap-3 rounded-lg bg-surface-subtle px-3 py-2.5">
+                  <label className="flex cursor-pointer items-center gap-3 rounded-lg bg-surface-subtle px-3 py-2.5">
                     <input
                       type="checkbox"
-                      className="h-4 w-4"
+                      className="size-4 shrink-0 accent-primary"
                       checked={layout.showSectionSubtotals}
                       onChange={(event) =>
                         setLayout((current) => ({
@@ -512,32 +528,32 @@ export function EstimatePdfLayoutModal({
               </div>
             </details>
           </div>
-        </Modal.Body>
+        </div>
 
-        <Modal.Footer className="shrink-0 border-t border-border px-6 py-4">
+        <DialogFooter className="mt-0 shrink-0 border-t border-border px-6 py-4">
           {submitError ? (
-            <p className="mr-auto text-sm font-medium text-red-700" role="alert">
+            <p className="text-sm font-medium text-danger sm:mr-auto" role="alert">
               {submitError}
             </p>
           ) : null}
-          <button
-            type="button"
-            className="btn btn-secondary"
+          <Button
+            variant="outline"
+            size="lg"
             onClick={() => onOpenChange(false)}
             disabled={isSubmitting}
           >
             Annuler
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary"
+          </Button>
+          <Button
+            size="lg"
             onClick={() => void handleConfirm()}
-            disabled={isSubmitting || isLoadingConfiguration}
+            disabled={isLoadingConfiguration}
+            loading={isSubmitting}
           >
-            {isSubmitting ? "Génération…" : confirmLabel}
-          </button>
-        </Modal.Footer>
-      </Modal.Content>
-    </Modal.Root>
+            {confirmLabel}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

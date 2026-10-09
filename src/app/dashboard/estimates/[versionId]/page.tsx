@@ -1,17 +1,19 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { GitCompareArrowsIcon, PencilIcon, PrinterIcon } from "lucide-react";
 
-import { AffaireBreadcrumb } from "@/components/AffaireBreadcrumb";
 import { EstimateDocument } from "@/components/EstimateDocument";
+import { PageHeader } from "@/components/layout/page-header";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { EstimateDetailActionsMenu } from "@/components/estimates/EstimateDetailActionsMenu";
 import { EstimateApprovalActions } from "@/components/estimates/EstimateApprovalActions";
 import { EstimateApprovalDecisionJournalCard } from "@/components/estimates/EstimateApprovalDecisionJournalCard";
 import { EstimateApprovalSummaryCard } from "@/components/estimates/EstimateApprovalSummaryCard";
 import { EstimateTimeline } from "@/components/estimates/EstimateTimeline";
-import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDownloadButton";
-import { DuplicateEstimateButton } from "@/components/estimates/DuplicateEstimateButton";
 import { EstimateStatusActions } from "@/components/estimates/EstimateStatusActions";
 import { VariantComparisonTable } from "@/components/estimates/VariantComparisonTable";
-import { SaveAsTemplateButton } from "@/components/estimates/SaveAsTemplateButton";
 import { fetchAffaireHubPlansSummary } from "@/lib/affaires/server";
 import { fetchAffaireRegisterSummary } from "@/lib/affaires/register-server";
 import {
@@ -74,27 +76,13 @@ type EstimateDetailPageSearchParams = Record<
 
 const VERSION_TIMELINE_PAGE_SIZE = 20;
 
-type StatusBadgeStyle = { bg: string; color: string; label: string };
-
-const STATUS_BADGE_STYLES: Record<string, StatusBadgeStyle> = {
-  draft: { bg: "var(--slate-100)", color: "var(--slate-700)", label: "Brouillon" },
-  sending: { bg: "var(--warning)", color: "#fff", label: "Envoi en cours" },
-  sent: { bg: "var(--info)", color: "#fff", label: "Envoyé" },
-  accepted: { bg: "#059669", color: "#fff", label: "Accepté" },
-  archived: { bg: "var(--slate-500)", color: "#fff", label: "Archivé" },
+const STATUS_BADGES: Record<string, { variant: BadgeProps["variant"]; label: string }> = {
+  draft: { variant: "neutral", label: "Brouillon" },
+  sending: { variant: "warning", label: "Envoi en cours" },
+  sent: { variant: "info", label: "Envoyé" },
+  accepted: { variant: "success", label: "Accepté" },
+  archived: { variant: "outline", label: "Archivé" },
 };
-
-function StatusBadge({ status }: { status: string }) {
-  const style = STATUS_BADGE_STYLES[status] ?? STATUS_BADGE_STYLES.draft;
-  return (
-    <span
-      className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold"
-      style={{ background: style.bg, color: style.color }}
-    >
-      {style.label}
-    </span>
-  );
-}
 
 function computeExpiryInfo(dateDevis: string | null, validiteJours: number | null) {
   if (!dateDevis || !validiteJours || validiteJours <= 0) return null;
@@ -356,151 +344,143 @@ export default async function EstimateDetailPage({
     }
   }
 
-  return (
-    <div className="min-h-screen bg-muted animate-fade-in">
-      {version.project_id && project?.name && (
-        <AffaireBreadcrumb
-          projectId={version.project_id}
-          projectName={project.name}
-          versionNumber={version.version_number}
-          pageSuffix="Détail"
-        />
-      )}
-      <div className="page-header flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="page-title">Chiffrage</h1>
-          <p className="page-description">
-            Version V{version.version_number}{" "}
-              {project?.name ? <span className="text-muted-foreground">— {project.name}</span> : null}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <SealIntegrityBadge state={sealState} hashPrefix={sealHashPrefix} />
-          <Link className="btn btn-secondary btn-sm" href="/dashboard/estimates">
-            Retour
-          </Link>
-          <Link className="btn btn-secondary btn-sm" href={`/dashboard/estimates/${versionId}/diff`}>
-            Comparer
-          </Link>
-          {canEditVersion ? (
-            <Link
-              className="btn btn-primary btn-sm"
-              href={`/dashboard/estimates/${versionId}/edit`}
-            >
-              Éditer
-            </Link>
-          ) : null}
-          <details className="relative">
-            <summary className="btn btn-secondary btn-sm cursor-pointer list-none select-none">
-              Plus d&apos;actions
-            </summary>
-            <div className="absolute right-0 top-full z-20 mt-2 flex flex-col gap-1 rounded-xl border border-border bg-surface p-2 shadow-xl" style={{ minWidth: "180px" }}>
-              <Link
-                className="btn btn-ghost btn-sm w-full justify-start"
-                href={`/dashboard/estimates/${versionId}/diff`}
-              >
-                Comparer
-              </Link>
-              {canEditVersion ? <SaveAsTemplateButton versionId={versionId} /> : null}
-              {canEditVersion ? <DuplicateEstimateButton versionId={versionId} /> : null}
-              <Link
-                className="btn btn-ghost btn-sm w-full justify-start"
-                href={`/dashboard/estimates/${versionId}/print`}
-              >
-                Imprimer
-              </Link>
-              <EstimatePdfDownloadButton versionId={versionId} />
-            </div>
-          </details>
-        </div>
-      </div>
+  const expiry = computeExpiryInfo(version.date_devis, version.validite_jours);
+  const statusBadge = STATUS_BADGES[version.status] ?? STATUS_BADGES.draft;
+  const breadcrumbs = [
+    { label: "Affaires", href: "/dashboard/affaires" },
+    ...(version.project_id && project?.name
+      ? [{ label: project.name, href: `/dashboard/affaires/${version.project_id}` }]
+      : []),
+    { label: `V${version.version_number}` },
+  ];
 
-      <div className="py-8">
-        {(() => {
-          const expiry = computeExpiryInfo(version.date_devis, version.validite_jours);
-          return (
-            <div className="dashboard-card mb-6 p-6">
-              <div className="grid grid-cols-2 gap-6 sm:grid-cols-4">
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Projet</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-800">{project?.name ?? "\u2014"}</p>
-                  {project?.client_name ? <p className="text-xs text-muted-foreground">{project.client_name}</p> : null}
-                </div>
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Statut</p>
-                  <div className="mt-1">
-                    <StatusBadge status={version.status} />
-                    {canEditVersion ? (
-                      <EstimateStatusActions
-                        versionId={versionId}
-                        currentStatus={version.status}
-                        updatedAt={version.updated_at}
-                        projectName={project?.name ?? undefined}
-                        emailDispatchProblem={emailDispatchProblem}
-                      />
-                    ) : null}
-                  </div>
-                </div>
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Total HT</p>
-                  <p className="mt-1 text-lg font-bold text-foreground">{formatEUR(totalHtCents ?? 0)}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Total TTC</p>
-                  <p className="mt-1 text-lg font-bold text-foreground">{formatEUR(totalTtcCents ?? 0)}</p>
-                  {expiry ? (
-                    <p className={`mt-1 text-xs ${expiry.expired ? "text-danger" : "text-muted-foreground"}`}>
-                      {expiry.expired ? "Expiré le" : "Valide jusqu\u0027au"} {expiry.expiryDate}
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-          );
-        })()}
-        <div className="flex flex-col gap-6 xl:grid xl:grid-cols-[360px_minmax(0,1fr)]">
-          <div className="space-y-6">
-            {approvalSummary ? (
-              <EstimateApprovalSummaryCard summary={approvalSummary}>
-                <EstimateApprovalActions
-                  versionId={versionId}
-                  projectId={version.project_id}
-                  summary={approvalSummary}
-                  isEmpty={items.filter((i) => i.item_type === "line").length === 0}
-                  submissionOverview={{
-                    coveragePercent: plansSummary?.coveragePercent ?? null,
-                    exceptionCount: plansSummary?.exceptionCount ?? null,
-                    openQuestionsCount: plansSummary?.openQuestionsCount ?? null,
-                    openAssumptionCount: registerSummary?.openAssumptionCount ?? null,
-                    openMissingPieceCount: registerSummary?.openMissingPieceCount ?? null,
-                    clarifyWithClientCount: registerSummary?.clarifyWithClientCount ?? null,
-                    marginPercent:
-                      Number.isFinite(appliedMarginMultiplier) && appliedMarginMultiplier > 0
-                        ? (appliedMarginMultiplier - 1) * 100
-                        : 0,
-                  }}
-                />
-              </EstimateApprovalSummaryCard>
+  return (
+    <div className="animate-fade-in">
+      <PageHeader
+        breadcrumbs={breadcrumbs}
+        title={`Chiffrage V${version.version_number}`}
+        description={
+          project?.name
+            ? [project.name, project.client_name].filter(Boolean).join(" — ")
+            : undefined
+        }
+        meta={<SealIntegrityBadge state={sealState} hashPrefix={sealHashPrefix} />}
+        actions={
+          <>
+            <Link
+              className={buttonVariants({ variant: "outline", size: "md" })}
+              href={`/dashboard/estimates/${versionId}/diff`}
+            >
+              <GitCompareArrowsIcon aria-hidden="true" />
+              Comparer
+            </Link>
+            <Link
+              className={buttonVariants({ variant: "outline", size: "md" })}
+              href={`/dashboard/estimates/${versionId}/print`}
+            >
+              <PrinterIcon aria-hidden="true" />
+              Imprimer
+            </Link>
+            <EstimateDetailActionsMenu versionId={versionId} canEditVersion={canEditVersion} />
+            {canEditVersion ? (
+              <Link
+                className={buttonVariants({ variant: "primary", size: "md" })}
+                href={`/dashboard/estimates/${versionId}/edit`}
+              >
+                <PencilIcon aria-hidden="true" />
+                Éditer
+              </Link>
             ) : null}
-            {approvalJournal ? (
-              <EstimateApprovalDecisionJournalCard
-                versionId={versionId}
-                initialJournal={approvalJournal}
-              />
+          </>
+        }
+      />
+
+      <Card className="mb-6 p-4 sm:p-6">
+        <dl className="grid grid-cols-1 gap-6 min-[420px]:grid-cols-2 lg:grid-cols-4">
+          <div className="min-w-0">
+            <dt className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Projet</dt>
+            <dd className="mt-1 break-words text-sm font-semibold text-foreground">{project?.name ?? "—"}</dd>
+            {project?.client_name ? (
+              <dd className="text-xs text-muted-foreground">{project.client_name}</dd>
             ) : null}
-            <EstimateTimeline
-              currentVersionId={versionId}
-              versions={versionTimeline.items}
-              pagination={versionTimeline.pagination}
-            />
           </div>
+          <div className="min-w-0">
+            <dt className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Statut</dt>
+            <dd className="mt-1">
+              <Badge variant={statusBadge.variant} dot>
+                {statusBadge.label}
+              </Badge>
+              {canEditVersion ? (
+                <EstimateStatusActions
+                  versionId={versionId}
+                  currentStatus={version.status}
+                  updatedAt={version.updated_at}
+                  projectName={project?.name ?? undefined}
+                  emailDispatchProblem={emailDispatchProblem}
+                />
+              ) : null}
+            </dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Total HT</dt>
+            <dd className="mt-1 text-lg font-bold tabular-nums text-foreground">{formatEUR(totalHtCents ?? 0)}</dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Total TTC</dt>
+            <dd className="mt-1 text-lg font-bold tabular-nums text-foreground">{formatEUR(totalTtcCents ?? 0)}</dd>
+            {expiry ? (
+              <dd className={`mt-1 text-xs ${expiry.expired ? "text-danger" : "text-muted-foreground"}`}>
+                {expiry.expired ? "Expiré le" : "Valide jusqu’au"} {expiry.expiryDate}
+              </dd>
+            ) : null}
+          </div>
+        </dl>
+      </Card>
+
+      <div className="flex flex-col gap-6 xl:grid xl:grid-cols-[360px_minmax(0,1fr)]">
+        <div className="min-w-0 space-y-6">
+          {approvalSummary ? (
+            <EstimateApprovalSummaryCard summary={approvalSummary}>
+              <EstimateApprovalActions
+                versionId={versionId}
+                projectId={version.project_id}
+                summary={approvalSummary}
+                isEmpty={items.filter((i) => i.item_type === "line").length === 0}
+                submissionOverview={{
+                  coveragePercent: plansSummary?.coveragePercent ?? null,
+                  exceptionCount: plansSummary?.exceptionCount ?? null,
+                  openQuestionsCount: plansSummary?.openQuestionsCount ?? null,
+                  openAssumptionCount: registerSummary?.openAssumptionCount ?? null,
+                  openMissingPieceCount: registerSummary?.openMissingPieceCount ?? null,
+                  clarifyWithClientCount: registerSummary?.clarifyWithClientCount ?? null,
+                  marginPercent:
+                    Number.isFinite(appliedMarginMultiplier) && appliedMarginMultiplier > 0
+                      ? (appliedMarginMultiplier - 1) * 100
+                      : 0,
+                }}
+              />
+            </EstimateApprovalSummaryCard>
+          ) : null}
+          {approvalJournal ? (
+            <EstimateApprovalDecisionJournalCard
+              versionId={versionId}
+              initialJournal={approvalJournal}
+            />
+          ) : null}
+          <EstimateTimeline
+            currentVersionId={versionId}
+            versions={versionTimeline.items}
+            pagination={versionTimeline.pagination}
+          />
+        </div>
+        <div className="min-w-0">
           <EstimateDocument
             calcEngineVersion={calcEngineVersion}
             preserveStoredSnapshot={preserveStoredSnapshot}
             vatReverseCharge={version.contractor_role === "subcontractor"}
             projectName={project?.name ?? "Projet"}
             projectSiteAddress={project?.site_address}
-          projectClient={project?.client_name}
+            projectClient={project?.client_name}
             projectReference={project?.reference}
             estimateReference={project?.estimate_reference}
             versionNumber={version.version_number}
@@ -519,13 +499,13 @@ export default async function EstimateDetailPage({
             items={items}
           />
         </div>
-        <div className="mt-6">
-          <VariantComparisonTable
-            currentVersionId={versionId}
-            baseVersionId={variantComparison.base_version_id}
-            items={variantComparison.items}
-          />
-        </div>
+      </div>
+      <div className="mt-6">
+        <VariantComparisonTable
+          currentVersionId={versionId}
+          baseVersionId={variantComparison.base_version_id}
+          items={variantComparison.items}
+        />
       </div>
     </div>
   );

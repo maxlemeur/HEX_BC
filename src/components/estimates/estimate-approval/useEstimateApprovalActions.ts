@@ -218,8 +218,8 @@ export function useEstimateApprovalActions({
           toast.success({
             title:
               status === "corrected"
-                ? "Item marque comme corrige"
-                : "Item marque à discuter",
+                ? "Item marqué comme corrigé"
+                : "Item marqué à discuter",
             description: "La checklist de correction a été mise à jour.",
           });
           router.refresh();
@@ -258,10 +258,10 @@ export function useEstimateApprovalActions({
           });
 
           toast.success({
-            title: "Version soumise a validation",
+            title: "Version soumise à validation",
             description:
               selectedReviewer
-                ? `Dossier transmis a ${selectedReviewer.fullName}.`
+                ? `Dossier transmis à ${selectedReviewer.fullName}.`
                 : "Dossier transmis à la validation.",
           });
           setShowSubmitPanel(false);
@@ -273,7 +273,7 @@ export function useEstimateApprovalActions({
             description:
               error instanceof Error
                 ? error.message
-                : "Impossible de soumettre la version a validation.",
+                : "Impossible de soumettre la version à validation.",
           });
         }
       })();

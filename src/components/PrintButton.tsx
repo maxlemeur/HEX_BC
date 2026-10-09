@@ -3,6 +3,8 @@
 import { useEffect, useRef } from "react";
 import { PrinterIcon } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
+
 type PrintButtonProps = {
   autoPrint?: boolean;
 };
@@ -35,13 +37,14 @@ export function PrintButton({ autoPrint = false }: PrintButtonProps) {
   }, [autoPrint]);
 
   return (
-    <button
-      className="btn btn-primary btn-lg"
+    <Button
+      variant="primary"
+      size="lg"
       onClick={() => window.print()}
       type="button"
+      leftIcon={<PrinterIcon aria-hidden="true" />}
     >
-      <PrinterIcon aria-hidden="true" size={18} />
       Imprimer / PDF
-    </button>
+    </Button>
   );
 }

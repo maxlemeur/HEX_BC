@@ -84,7 +84,7 @@ async function openEstimateEditor(page: Page, versionId: string) {
     });
 
     await page
-      .getByText("Chargement du chiffrage...")
+      .getByText("Chargement du chiffrage…")
       .waitFor({ state: "hidden", timeout: 30_000 })
       .catch(() => {});
     await revealGeneratedOuvrageButton(page);
@@ -97,6 +97,11 @@ async function revealGeneratedOuvrageButton(page: Page) {
   );
   if (await openButton.isVisible().catch(() => false)) return openButton;
 
+  // The "Insérer" command lives in the ribbon tab of the same name.
+  const insertTab = page.getByRole("tab", { name: "Insérer", exact: true });
+  if (await insertTab.isVisible().catch(() => false)) {
+    await insertTab.click();
+  }
   await page.getByRole("button", { name: "Insérer", exact: true }).click();
   await expect(openButton).toBeVisible({ timeout: 30_000 });
   return openButton;
@@ -200,26 +205,26 @@ test.describe("EST-383 - generated ouvrage subdetail review", () => {
 
     await activateButton(
       firstCard.getByRole("button", {
-        name: /^(Sous-detail|Valider le sous-detail)$/i,
+        name: /^(Sous-détail|Valider le sous-détail)$/i,
       })
     );
-    await expect(dialog.getByText(/Sous-detail compose/i)).toBeVisible({
+    await expect(dialog.getByText(/Sous-détail composé/i)).toBeVisible({
       timeout: 60_000,
     });
 
     const subdetailEditor = dialog
       .locator("section")
-      .filter({ hasText: /Sous-detail compose/i })
+      .filter({ hasText: /Sous-détail composé/i })
       .first();
     await subdetailEditor
-      .getByRole("button", { name: /^Valider le sous-detail$/i })
+      .getByRole("button", { name: /^Valider le sous-détail$/i })
       .click();
-    await expect(firstCard.getByText(/Ouvrage pret/i)).toBeVisible({
+    await expect(firstCard.getByText(/Ouvrage prêt/i)).toBeVisible({
       timeout: 60_000,
     });
 
     await activateButton(
-      firstCard.getByRole("button", { name: /^Selectionner(?: pour insertion)?$/i })
+      firstCard.getByRole("button", { name: /^Sélectionner(?: pour insertion)?$/i })
     );
     await expect(firstCard.getByRole("checkbox")).toBeChecked();
     await expect(dialog.getByTestId("generated-ouvrage-insert-button")).toBeEnabled();
@@ -230,7 +235,7 @@ test.describe("EST-383 - generated ouvrage subdetail review", () => {
         async () => {
           if (!(await dialog.isVisible().catch(() => false))) return "closed";
           const partialInsertVisible = await dialog
-            .getByText(/ouvrage\(s\) insere\(s\)/i)
+            .getByText(/ouvrage\(s\) inséré\(s\)/i)
             .isVisible()
             .catch(() => false);
           return partialInsertVisible ? "partial" : "pending";

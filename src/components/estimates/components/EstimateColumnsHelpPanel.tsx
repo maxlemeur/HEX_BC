@@ -3,7 +3,15 @@
 import { useState } from "react";
 
 import { COLUMN_HEADER_TOOLTIPS } from "@/components/estimates/components/ColumnHeaderHelp";
-import { Modal } from "@/components/ui-legacy/Modal";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from "@/components/ui/sheet";
 
 type HelpTone = "general" | "supply" | "labor" | "sale" | "analysis";
 
@@ -23,32 +31,36 @@ type HelpSection = {
 
 const HELP_TONE_STYLES: Record<
   HelpTone,
-  { card: string; heading: string; badge: string }
+  {
+    card: string;
+    heading: string;
+    badge: "neutral" | "info" | "warning" | "brand" | "success";
+  }
 > = {
   general: {
     card: "border-border bg-surface",
     heading: "text-foreground-secondary",
-    badge: "bg-muted text-slate-600",
+    badge: "neutral",
   },
   supply: {
-    card: "border-blue-200 bg-blue-50/60",
-    heading: "text-blue-700",
-    badge: "bg-blue-100 text-blue-700",
+    card: "border-info-border bg-info-subtle",
+    heading: "text-info",
+    badge: "info",
   },
   labor: {
-    card: "border-amber-200 bg-amber-50/60",
-    heading: "text-amber-700",
-    badge: "bg-amber-100 text-amber-700",
+    card: "border-warning-border bg-warning-subtle",
+    heading: "text-warning",
+    badge: "warning",
   },
   sale: {
-    card: "border-violet-200 bg-violet-50/60",
-    heading: "text-violet-700",
-    badge: "bg-violet-100 text-violet-700",
+    card: "border-primary/20 bg-primary/5",
+    heading: "text-primary",
+    badge: "brand",
   },
   analysis: {
-    card: "border-emerald-200 bg-emerald-50/60",
-    heading: "text-emerald-700",
-    badge: "bg-emerald-100 text-emerald-700",
+    card: "border-success-border bg-success-subtle",
+    heading: "text-success",
+    badge: "success",
   },
 };
 
@@ -172,48 +184,54 @@ export function EstimateColumnsHelpPanel() {
 
   return (
     <>
-      <button
-        className="inline-flex h-6 items-center justify-center rounded-md border border-border bg-surface px-2 text-[10px] font-semibold normal-case tracking-normal text-slate-600 shadow-sm transition-colors hover:border-border-strong hover:bg-surface-subtle hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
+      <Button
         type="button"
+        variant="outline"
+        size="xs"
+        className="h-6 px-2 text-micro normal-case tracking-normal"
         aria-expanded={open}
         aria-haspopup="dialog"
         data-testid="estimate-columns-help-button"
         onClick={() => setOpen(true)}
       >
         Aide colonnes
-      </button>
+      </Button>
 
-      <Modal.Root open={open} onOpenChange={setOpen}>
-        <Modal.Content
-          className="flex h-full max-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-[24px] p-0 sm:rounded-l-[24px] sm:rounded-r-none"
-          containerClassName="ml-auto h-full sm:max-w-xl"
+      <Sheet open={open} onOpenChange={setOpen}>
+        <SheetContent
+          side="right"
+          showCloseButton={false}
+          className="gap-0 bg-surface p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-xl"
           data-testid="estimate-columns-help-panel"
         >
-          <Modal.Header className="mb-0 shrink-0 border-b border-border bg-surface px-5 py-5 sm:px-6">
+          <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border px-5 py-5 sm:px-6">
             <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-violet-600">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">
                 Guide du chiffrage
               </p>
-              <Modal.Title className="mt-1 text-xl text-slate-950">
+              <SheetTitle className="mt-1 text-lg font-semibold text-foreground">
                 Aide des colonnes
-              </Modal.Title>
-              <p className="mt-2 max-w-md text-sm leading-5 text-slate-600">
+              </SheetTitle>
+              <SheetDescription className="mt-2 max-w-md leading-5 text-muted-foreground">
                 Les explications sont regroupées ici pour garder les en-têtes
                 lisibles et laisser les valeurs et alertes prioritaires.
-              </p>
+              </SheetDescription>
             </div>
-            <Modal.Close aria-label="Fermer l’aide des colonnes">
+            <SheetClose
+              render={<Button type="button" variant="outline" size="md" className="shrink-0" />}
+              aria-label="Fermer l’aide des colonnes"
+            >
               Fermer
-            </Modal.Close>
-          </Modal.Header>
+            </SheetClose>
+          </div>
 
-          <Modal.Body className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-surface-subtle px-5 py-5 sm:px-6">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-surface-subtle px-5 py-5 sm:px-6">
             {HELP_SECTIONS.map((section) => {
               const tone = HELP_TONE_STYLES[section.tone];
 
               return (
                 <section
-                  className={`rounded-2xl border p-4 ${tone.card}`}
+                  className={`rounded-lg border p-4 ${tone.card}`}
                   key={section.id}
                   aria-labelledby={`estimate-columns-help-${section.id}`}
                 >
@@ -223,7 +241,7 @@ export function EstimateColumnsHelpPanel() {
                   >
                     {section.title}
                   </h3>
-                  <dl className="mt-3 divide-y divide-border/80">
+                  <dl className="mt-3 divide-y divide-border">
                     {section.items.map((item) => (
                       <div
                         className="grid gap-1 py-3 first:pt-0 last:pb-0 sm:grid-cols-[136px_minmax(0,1fr)] sm:gap-3"
@@ -231,20 +249,22 @@ export function EstimateColumnsHelpPanel() {
                       >
                         <dt className="flex flex-wrap items-start gap-1.5 font-semibold text-foreground">
                           <span>{item.label}</span>
-                          <span
-                            className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${tone.badge}`}
+                          <Badge
+                            variant={tone.badge}
+                            size="sm"
+                            className="uppercase tracking-wide"
                           >
                             {item.kind}
-                          </span>
+                          </Badge>
                         </dt>
-                        <dd className="text-sm leading-5 text-slate-600">
+                        <dd className="text-sm leading-5 text-foreground-secondary">
                           {item.description}
                         </dd>
                       </div>
                     ))}
                   </dl>
                   {section.note ? (
-                    <p className="mt-3 border-t border-border/80 pt-3 text-xs leading-5 text-muted-foreground">
+                    <p className="mt-3 border-t border-border pt-3 text-xs leading-5 text-muted-foreground">
                       {section.note}
                     </p>
                   ) : null}
@@ -253,26 +273,26 @@ export function EstimateColumnsHelpPanel() {
             })}
 
             <section
-              className="rounded-2xl border border-violet-200 bg-violet-950 p-4 text-white"
+              className="rounded-lg border border-primary bg-primary p-4 text-primary-foreground"
               aria-labelledby="estimate-columns-help-example"
             >
               <h3
-                className="text-xs font-bold uppercase tracking-[0.12em] text-violet-200"
+                className="text-xs font-bold uppercase tracking-[0.12em] text-primary-foreground"
                 id="estimate-columns-help-example"
               >
                 Exemple de calcul du PU
               </h3>
-              <p className="mt-3 font-mono text-sm leading-6 text-white">
+              <p className="mt-3 font-mono text-sm leading-6 text-primary-foreground">
                 (100 € × 1,20 + 1 h × 1,10 × 50 €) × 1,10 = 192,50 €
               </p>
-              <p className="mt-2 text-xs leading-5 text-violet-100">
+              <p className="mt-2 text-xs leading-5 text-primary-foreground">
                 Ici : PR FO 100 €, K FO 1,20, une heure de MO à 50 €, K MO
                 1,10 et coefficient de marge 1,10.
               </p>
             </section>
-          </Modal.Body>
-        </Modal.Content>
-      </Modal.Root>
+          </div>
+        </SheetContent>
+      </Sheet>
     </>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { Badge } from "@/components/ui-legacy/Badge";
+import { Badge } from "@/components/ui/badge";
 
 import { GeneratedOuvrageCandidateCard } from "./GeneratedOuvrageCandidateCard";
 import type {
@@ -45,7 +45,7 @@ const STATUS_MESSAGES: Record<string, string> = {
   partially_applied:
     "Certains ouvrages ont déjà été insérés. Les ouvrages restants peuvent encore être revus.",
   discarded:
-    "Toutes les propositions ont été rejetees ou ecartees.",
+    "Toutes les propositions ont été rejetées ou écartées.",
 };
 
 export function GeneratedOuvrageDraftReview({
@@ -67,7 +67,7 @@ export function GeneratedOuvrageDraftReview({
   return (
     <div className="space-y-4">
       {/* Summary bar */}
-      <div className="flex flex-wrap gap-2 items-center">
+      <div className="flex flex-wrap items-center gap-2">
         {summary.certainCount > 0 && (
           <Badge variant="success" size="sm">
             {summary.certainCount} Certain
@@ -79,7 +79,7 @@ export function GeneratedOuvrageDraftReview({
           </Badge>
         )}
         {summary.questionCount > 0 && (
-          <Badge variant="error" size="sm">
+          <Badge variant="danger" size="sm">
             {summary.questionCount} À clarifier
           </Badge>
         )}
@@ -90,39 +90,38 @@ export function GeneratedOuvrageDraftReview({
         )}
         {summary.insertedCount > 0 && (
           <Badge variant="success" size="sm">
-            {summary.insertedCount} Insere(s)
+            {summary.insertedCount} Inséré(s)
           </Badge>
         )}
         {summary.rejectedCount > 0 && (
-          <Badge variant="error" size="sm">
-            {summary.rejectedCount} Rejete(s)
+          <Badge variant="danger" size="sm">
+            {summary.rejectedCount} Rejeté(s)
           </Badge>
         )}
       </div>
 
       {/* Draft status message */}
       {STATUS_MESSAGES[draftStatus] && (
-        <div className="text-sm text-muted-foreground italic">
+        <p className="text-sm text-muted-foreground italic">
           {STATUS_MESSAGES[draftStatus]}
-        </div>
+        </p>
       )}
 
-      {/* Status announcement */}
-      {statusMessage && (
-        <div
-          aria-live="polite"
-          className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800"
-        >
-          {statusMessage}
-        </div>
-      )}
-      {/* Keep sr-only fallback for screen readers when no visible message */}
-      {!statusMessage && (
-        <div aria-live="polite" className="sr-only" />
-      )}
+      {/* Status announcement: the live region stays mounted so updates are announced. */}
+      <div aria-live="polite" aria-atomic="true" className="empty:mb-0">
+        {statusMessage ? (
+          <p className="rounded-lg border border-info-border bg-info-subtle px-3 py-2 text-sm text-info">
+            {statusMessage}
+          </p>
+        ) : null}
+      </div>
 
       {/* Candidate list */}
-      <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+      <div
+        role="region"
+        aria-label="Propositions d'ouvrages"
+        className="relative max-h-[60vh] space-y-3 overflow-y-auto pr-1"
+      >
         {candidates.map((candidate) => (
           <GeneratedOuvrageCandidateCard
             key={candidate.candidateId}

@@ -7,6 +7,7 @@ import { ProductionRibbonHeader } from "@/components/dashboard/ProductionRibbon"
 import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDownloadButton";
 import { SaveAsTemplateButton } from "@/components/estimates/SaveAsTemplateButton";
 import { ExportDropdown } from "@/components/ExportDropdown";
+import { Button } from "@/components/ui/button";
 import type { AutoSaveStatus } from "@/hooks/useAutoSave";
 import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
 import type { EstimateExportMode } from "@/lib/estimates/client";
@@ -97,6 +98,17 @@ type MoreActionsDropdownProps = {
 const MORE_ACTIONS_FOCUSABLE =
   "a[href], button:not([disabled]), [tabindex]:not([tabindex='-1'])";
 
+/**
+ * The PDF and "save as template" entries open dialogs portalled outside the
+ * panel: interacting with them must not close the menu (which would unmount them).
+ */
+function isInsideNestedDialog(target: EventTarget | null) {
+  return (
+    target instanceof Element &&
+    target.closest('[role="dialog"], [role="alertdialog"]') !== null
+  );
+}
+
 function MoreActionsDropdown({
   showAutoSaveControls,
   isAutoSaveEnabled,
@@ -145,6 +157,7 @@ function MoreActionsDropdown({
         ?.focus();
     });
     const handlePointerDown = (event: MouseEvent) => {
+      if (isInsideNestedDialog(event.target)) return;
       if (
         containerRef.current &&
         !containerRef.current.contains(event.target as Node)
@@ -153,7 +166,7 @@ function MoreActionsDropdown({
       }
     };
     const handleEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || isInsideNestedDialog(event.target)) return;
       event.preventDefault();
       setIsOpen(false);
       triggerRef.current?.focus();
@@ -207,10 +220,11 @@ function MoreActionsDropdown({
       className="relative"
       data-testid="estimate-page-toolbar-more-actions"
     >
-      <button
+      <Button
         ref={triggerRef}
         type="button"
-        className="btn btn-secondary btn-sm"
+        variant="outline"
+        size="md"
         onClick={() => setIsOpen((open) => !open)}
         aria-expanded={isOpen}
         aria-haspopup="menu"
@@ -218,10 +232,14 @@ function MoreActionsDropdown({
         aria-label="Plus d'actions"
         data-testid="estimate-page-toolbar-more-actions-button"
       >
-        <span className="hidden sm:inline">Plus d&apos;actions</span>
+        <span className="hidden sm:inline">Plus d’actions</span>
         <span className="sm:hidden">Actions</span>
-        <ChevronDownIcon className={`ml-1 transition-transform ${isOpen ? "rotate-180" : ""}`} aria-hidden="true" size={14} />
-      </button>
+        <ChevronDownIcon
+          className={`transition-transform motion-reduce:transition-none ${isOpen ? "rotate-180" : ""}`}
+          aria-hidden="true"
+          size={14}
+        />
+      </Button>
 
       {isOpen ? (
         <div
@@ -229,7 +247,7 @@ function MoreActionsDropdown({
           id={panelId}
           role="menu"
           aria-label="Plus d'actions du chiffrage"
-          className="estimate-toolbar-actions-panel absolute right-0 top-full z-50 mt-2 max-h-[min(640px,calc(100vh-100px))] w-64 overflow-y-auto rounded-xl border border-border bg-surface p-2 shadow-xl"
+          className="estimate-toolbar-actions-panel absolute right-0 top-full z-50 mt-2 max-h-[min(640px,calc(100vh-100px))] w-64 overflow-y-auto rounded-xl border border-border bg-surface p-2 shadow-dropdown"
           data-testid="estimate-page-toolbar-more-actions-menu"
           onKeyDown={handlePanelKeyDown}
         >
@@ -257,7 +275,7 @@ function MoreActionsDropdown({
                   className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors ${
                     isAutoSaveEnabled
                       ? "bg-primary"
-                      : "bg-slate-300"
+                      : "bg-border-strong"
                   }`}
                   aria-hidden="true"
                 >
@@ -374,7 +392,7 @@ function MoreActionsDropdown({
               data-testid="estimate-page-toolbar-import-dpgf-source-button"
             >
               {isImportingDpgfSource
-                ? "Importer le DPGF source..."
+                ? "Import du DPGF source…"
                 : "Importer le DPGF source"}
             </button>
           ) : null}
@@ -418,7 +436,7 @@ function MoreActionsDropdown({
             data-testid="estimate-page-toolbar-export-dpgf-button"
           >
             {isExporting && activeExportMode === "dpgf"
-              ? "Export DPGF..."
+              ? "Export DPGF…"
               : "Exporter DPGF"}
           </button>
           <button
@@ -433,7 +451,7 @@ function MoreActionsDropdown({
             data-testid="estimate-page-toolbar-export-bdc-button"
           >
             {isExporting && activeExportMode === "bdc"
-              ? "Export BDC V1.1..."
+              ? "Export BDC V1.1…"
               : "Exporter BDC V1.1"}
           </button>
           <div role="none" className="my-1">
@@ -448,7 +466,7 @@ function MoreActionsDropdown({
               <button
                 type="button"
                 role="menuitem"
-                className={`${menuItemClass} text-danger hover:bg-error-light`}
+                className={`${menuItemClass} text-danger hover:bg-danger-subtle`}
                 onClick={() => {
                   close();
                   onArchive();
@@ -637,26 +655,28 @@ export function EstimateEditorToolbar({
             loadingLabel={exportLoadingLabel}
           />
           {canSend ? (
-            <button
-              className="btn btn-secondary btn-sm"
+            <Button
               type="button"
+              variant="outline"
+              size="md"
               onClick={onSend}
               disabled={isStatusActionsDisabled}
               data-testid="estimate-page-toolbar-send-button"
             >
               Envoyer
-            </button>
+            </Button>
           ) : null}
           {canAccept ? (
-            <button
-              className="btn btn-primary btn-sm"
+            <Button
               type="button"
+              variant="primary"
+              size="md"
               onClick={onAccept}
               disabled={isStatusActionsDisabled}
               data-testid="estimate-page-toolbar-accept-button"
             >
               Accepter
-            </button>
+            </Button>
           ) : null}
           <MoreActionsDropdown
             showAutoSaveControls={showAutoSaveStatus}

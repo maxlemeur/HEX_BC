@@ -61,7 +61,7 @@ describe("margin tier configuration", () => {
     const callbacks = setup(false);
     expect(screen.getByText(/Consultation seule/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Ajouter" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Supprimer" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Supprimer/ })).not.toBeInTheDocument();
     expect(screen.getByLabelText("Coefficient de la tranche 0.00 EUR")).toBeDisabled();
     expect(callbacks.onCreate).not.toHaveBeenCalled();
     expect(callbacks.onUpdate).not.toHaveBeenCalled();

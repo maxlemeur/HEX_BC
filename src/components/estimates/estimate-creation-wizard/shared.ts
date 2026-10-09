@@ -24,12 +24,12 @@ export const ROUNDING_OPTIONS = [
 ] as const;
 
 export const PROJECT_FAMILY_OPTIONS = [
-  { value: "", label: "Non renseignee" },
+  { value: "", label: "Non renseignée" },
   { value: "Maintenance", label: "Maintenance" },
-  { value: "Renovation", label: "Renovation" },
+  { value: "Renovation", label: "Rénovation" },
   { value: "Travaux neufs", label: "Travaux neufs" },
-  { value: "Mise en conformite", label: "Mise en conformite" },
-  { value: "Rehabilitation", label: "Rehabilitation" },
+  { value: "Mise en conformite", label: "Mise en conformité" },
+  { value: "Rehabilitation", label: "Réhabilitation" },
 ] as const;
 
 export const STEPS = [

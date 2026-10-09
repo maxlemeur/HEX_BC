@@ -1,6 +1,10 @@
 import type { ReactNode } from "react";
 
+import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
 import type { EstimateApprovalSummary } from "@/lib/estimates/rules-engine";
+
+type BadgeVariant = NonNullable<BadgeProps["variant"]>;
 
 const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
   day: "2-digit",
@@ -12,27 +16,27 @@ const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
 
 const APPROVAL_STATUS_STYLES: Record<
   EstimateApprovalSummary["approvalStatus"],
-  { label: string; className: string }
+  { label: string; variant: BadgeVariant }
 > = {
   not_required: {
     label: "Non requise",
-    className: "bg-muted text-foreground-secondary",
+    variant: "neutral",
   },
   required: {
     label: "À valider",
-    className: "bg-warning-light text-warning",
+    variant: "warning",
   },
   in_review: {
     label: "En revue",
-    className: "bg-primary/10 text-primary",
+    variant: "info",
   },
   approved: {
-    label: "Approuvee",
-    className: "bg-success-subtle text-success",
+    label: "Approuvée",
+    variant: "success",
   },
   changes_requested: {
-    label: "Modifications demandees",
-    className: "bg-danger-subtle text-danger",
+    label: "Modifications demandées",
+    variant: "danger",
   },
 };
 
@@ -40,9 +44,16 @@ const DECISION_LABELS: Record<"missing" | "pending" | "approved" | "rejected", s
   {
     missing: "Aucune demande",
     pending: "En attente",
-    approved: "Approuvee",
+    approved: "Approuvée",
     rejected: "À reprendre",
   };
+
+const DECISION_VARIANTS: Record<keyof typeof DECISION_LABELS, BadgeVariant> = {
+  missing: "outline",
+  pending: "info",
+  approved: "success",
+  rejected: "danger",
+};
 
 const UNAVAILABLE_SIGNAL_LABELS: Record<string, string> = {
   critical_exceptions_count: "Nombre d'exceptions critiques",
@@ -58,15 +69,15 @@ const REVIEW_DECISION_LABELS: Record<
   "approved" | "approved_with_reservations" | "changes_requested",
   string
 > = {
-  approved: "Approuvee",
-  approved_with_reservations: "Approuvee sous reserve",
+  approved: "Approuvée",
+  approved_with_reservations: "Approuvée sous réserve",
   changes_requested: "Retour correction",
 };
 
 function formatDateTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
-    return "-";
+    return "—";
   }
 
   return DATE_TIME_FORMATTER.format(date);
@@ -130,25 +141,21 @@ export function EstimateApprovalSummaryCard({
   const status = APPROVAL_STATUS_STYLES[summary.approvalStatus];
 
   return (
-    <section className="dashboard-card p-5">
+    <Card className="p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-semibold text-slate-800">{title}</h2>
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-foreground">{title}</h2>
           <p className="mt-1 text-xs text-muted-foreground">
             Analyse du {formatDateTime(summary.evaluatedAt)}
           </p>
         </div>
-        <span
-          className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${status.className}`}
-        >
-          {status.label}
-        </span>
+        <Badge variant={status.variant}>{status.label}</Badge>
       </div>
 
       {summary.latestDecision ? (
-        <div className="mt-4 rounded-xl border border-border bg-surface-subtle px-4 py-3 text-sm text-foreground-secondary">
-          <p className="font-medium text-slate-800">Dernier cycle</p>
-          <p className="mt-1 text-xs text-slate-600">
+        <div className="mt-4 rounded-lg border border-border-subtle bg-surface-subtle px-4 py-3 text-sm text-foreground-secondary">
+          <p className="font-medium text-foreground">Dernier cycle</p>
+          <p className="mt-1 text-xs text-foreground-secondary">
             {summary.latestDecision.cycleNumber
               ? `Cycle ${summary.latestDecision.cycleNumber}`
               : "Décision récente"}
@@ -158,7 +165,7 @@ export function EstimateApprovalSummaryCard({
               : DECISION_LABELS[summary.latestDecision.status]}
             {" • "}
             {summary.latestDecision.decidedAt
-              ? `decide le ${formatDateTime(summary.latestDecision.decidedAt)}`
+              ? `décidé le ${formatDateTime(summary.latestDecision.decidedAt)}`
               : `ouvert le ${formatDateTime(summary.latestDecision.createdAt)}`}
             {summary.latestDecision.commentCount > 0
               ? ` • ${summary.latestDecision.commentCount} commentaire${summary.latestDecision.commentCount > 1 ? "s" : ""}`
@@ -168,12 +175,12 @@ export function EstimateApprovalSummaryCard({
       ) : null}
 
       {summary.reasons.length === 0 ? (
-        <p className="mt-4 text-sm text-slate-600">
-          Aucun seuil d&apos;approbation n&apos;est actuellement declenche sur cette
+        <p className="mt-4 text-sm text-foreground-secondary">
+          Aucun seuil d&apos;approbation n&apos;est actuellement déclenché sur cette
           version.
         </p>
       ) : (
-        <div className="mt-4 space-y-3">
+        <ul className="mt-4 space-y-3">
           {summary.reasons.map((reason) => {
             const decisionKey =
               reason.approvalStatus === "pending" ||
@@ -183,53 +190,53 @@ export function EstimateApprovalSummaryCard({
                 : "missing";
 
             return (
-              <article
+              <li
                 key={`${reason.ruleId}-${reason.approvalId ?? "none"}`}
-                className="rounded-xl border border-border bg-surface/80 px-4 py-3"
+                className="rounded-lg border border-border bg-surface px-4 py-3"
               >
                 <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-800">
+                  <div className="min-w-0">
+                    <p className="break-words text-sm font-semibold text-foreground">
                       {reason.label}
                     </p>
-                    <p className="mt-1 text-sm text-slate-600">
+                    <p className="mt-1 break-words text-sm text-foreground-secondary">
                       {reason.message}
                     </p>
                   </div>
-                  <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                  <Badge variant={DECISION_VARIANTS[decisionKey]} size="sm">
                     {DECISION_LABELS[decisionKey]}
-                  </span>
+                  </Badge>
                 </div>
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Valeur constatee : {formatActualValue(reason)}
+                  Valeur constatée : {formatActualValue(reason)}
                   {reason.actualValue !== null && reason.thresholdValue !== undefined && (
-                    <span className="ml-1 text-subtle-foreground">
+                    <span className="ml-1">
                       (seuil : {formatThresholdValue(reason)})
                     </span>
                   )}
                 </p>
-              </article>
+              </li>
             );
           })}
-        </div>
+        </ul>
       )}
 
       {summary.unavailableSignals.length > 0 ? (
-        <div className="mt-4 rounded-xl border border-dashed border-border bg-surface-subtle px-4 py-3 text-xs text-slate-600">
-          <p className="font-medium text-foreground-secondary">
+        <div className="mt-4 rounded-lg border border-dashed border-border bg-surface-subtle px-4 py-3 text-xs text-foreground-secondary">
+          <p className="font-medium text-foreground">
             Signaux non encore disponibles
           </p>
           <p className="mt-1">
-            Les indicateurs suivants ne peuvent pas encore être evalues :{" "}
+            Les indicateurs suivants ne peuvent pas encore être évalués :{" "}
             {summary.unavailableSignals
               .map((signal) => UNAVAILABLE_SIGNAL_LABELS[signal] ?? signal)
               .join(", ")}
-            . Ils seront pris en compte des que les données seront renseignees.
+            . Ils seront pris en compte dès que les données seront renseignées.
           </p>
         </div>
       ) : null}
 
       {children ? <div className="mt-4 border-t border-border pt-4">{children}</div> : null}
-    </section>
+    </Card>
   );
 }

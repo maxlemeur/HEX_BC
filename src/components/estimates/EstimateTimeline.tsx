@@ -1,5 +1,9 @@
 import Link from "next/link";
 
+import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import { formatEUR } from "@/lib/money";
 import type {
   EstimateProjectVersionTimelineItem,
@@ -37,19 +41,17 @@ function statusLabel(status: EstimateTimelineStatus) {
   }
 }
 
-function statusClass(status: EstimateTimelineStatus) {
+function statusVariant(status: EstimateTimelineStatus): BadgeProps["variant"] {
   switch (status) {
-    case "draft":
-      return "status-badge status-draft";
     case "sent":
-      return "status-badge status-sent";
+      return "info";
     case "accepted":
-      return "status-badge status-accepted";
+      return "success";
     case "archived":
     case "canceled":
-      return "status-badge status-archived";
+      return "outline";
     default:
-      return "status-badge status-draft";
+      return "neutral";
   }
 }
 
@@ -70,6 +72,8 @@ function isCanceledStatus(status: EstimateTimelineStatus) {
   return status === "canceled";
 }
 
+const pagerButtonClass = buttonVariants({ variant: "outline", size: "sm" });
+
 export function EstimateTimeline({
   currentVersionId,
   versions,
@@ -86,177 +90,189 @@ export function EstimateTimeline({
   );
 
   return (
-    <aside className="dashboard-card h-fit p-4 sm:p-5">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <h2 className="text-sm font-semibold text-slate-800">
-            Historique versions
-          </h2>
-          <p className="text-xs text-muted-foreground">
-            {pagination.total_count} version{pagination.total_count > 1 ? "s" : ""}
-          </p>
+    <Card className="h-fit p-4 sm:p-5">
+      <section aria-labelledby="estimate-timeline-title">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h2 id="estimate-timeline-title" className="text-sm font-semibold text-foreground">
+              Historique des versions
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              {pagination.total_count} version{pagination.total_count > 1 ? "s" : ""}
+            </p>
+          </div>
+          {pagination.total_pages > 1 ? (
+            <Badge variant="neutral">
+              Page {pagination.page}/{pagination.total_pages}
+            </Badge>
+          ) : null}
         </div>
-        <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-semibold text-slate-600">
-          Page {pagination.page}/{pagination.total_pages}
-        </span>
-      </div>
 
-      {versions.length === 0 ? (
-        <p className="mt-4 text-sm text-muted-foreground">
-          Aucun historique disponible.
-        </p>
-      ) : (
-        <div className="relative mt-4">
-          <div
-            aria-hidden="true"
-            className="absolute bottom-1 left-[11px] top-1 w-px bg-slate-200"
-          />
-          <ul className="space-y-3">
-            {versions.map((version) => {
-              const status = version.status as EstimateTimelineStatus;
-              const isCurrent = version.id === currentVersionId;
-              const isCanceled = isCanceledStatus(status);
-              const variantLabel = version.variant_label?.trim() ?? null;
-              const parentVersionId = version.parent_version_id;
-              const isVariant = Boolean(parentVersionId && variantLabel);
-              const parentVersionNumber = parentVersionId
-                ? (versionNumberById.get(parentVersionId) ?? null)
-                : null;
+        {versions.length === 0 ? (
+          <p className="mt-4 text-sm text-muted-foreground">
+            Aucun historique disponible.
+          </p>
+        ) : (
+          <div className="relative mt-4">
+            <div
+              aria-hidden="true"
+              className="absolute bottom-1 left-[11px] top-1 w-px bg-border"
+            />
+            <ul className="space-y-3">
+              {versions.map((version, index) => {
+                const status = version.status as EstimateTimelineStatus;
+                const isCurrent = version.id === currentVersionId;
+                const isCanceled = isCanceledStatus(status);
+                const variantLabel = version.variant_label?.trim() ?? null;
+                const parentVersionId = version.parent_version_id;
+                const isVariant = Boolean(parentVersionId && variantLabel);
+                const parentVersionNumber = parentVersionId
+                  ? (versionNumberById.get(parentVersionId) ?? null)
+                  : null;
+                const previousVersion = versions[index + 1];
+                const delta = previousVersion
+                  ? version.total_ht_cents - previousVersion.total_ht_cents
+                  : 0;
 
-              return (
-                <li
-                  key={version.id}
-                  className={`relative ${isVariant ? "pl-14" : "pl-8"}`}
-                >
-                  {isVariant ? (
+                return (
+                  <li
+                    key={version.id}
+                    className={cn("relative", isVariant ? "pl-14" : "pl-8")}
+                  >
+                    {isVariant ? (
+                      <span
+                        aria-hidden="true"
+                        className="absolute left-[11px] top-6 h-px w-5 bg-border-strong"
+                      />
+                    ) : null}
                     <span
                       aria-hidden="true"
-                      className="absolute left-[11px] top-6 h-px w-5 bg-slate-300"
+                      className={cn(
+                        "absolute top-5 size-3 rounded-full border-2",
+                        isVariant ? "left-5" : "left-0",
+                        isCurrent ? "border-primary bg-primary" : "border-border-strong bg-surface"
+                      )}
                     />
-                  ) : null}
-                  <span
-                    aria-hidden="true"
-                    className={`absolute ${isVariant ? "left-5" : "left-0"} top-5 h-3 w-3 rounded-full border-2 ${
-                      isCurrent
-                        ? "border-primary bg-primary"
-                        : "border-border-strong bg-surface"
-                    }`}
-                  />
-                  <Link
-                    aria-current={isCurrent ? "page" : undefined}
-                    className={`block rounded-xl border px-3 py-3 transition-colors sm:px-4 ${
-                      isCurrent
-                        ? "border-primary bg-primary/5"
-                        : "border-border hover:bg-surface-subtle"
-                    } ${isCanceled ? "opacity-70 grayscale" : ""}`}
-                    href={buildVersionHref(version.id, pagination.page)}
-                  >
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-sm font-semibold text-slate-800">
-                            {isVariant
-                              ? `Variante ${variantLabel} · V${version.version_number}`
-                              : `Version ${version.version_number}`}
-                          </p>
-                          {isVariant ? (
-                            <span className="status-badge status-draft">Branche</span>
+                    <Link
+                      aria-current={isCurrent ? "page" : undefined}
+                      className={cn(
+                        "block rounded-lg border px-3 py-3 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:px-4",
+                        isCurrent ? "border-primary bg-primary/5" : "border-border hover:bg-surface-subtle",
+                        isCanceled && "opacity-70 grayscale"
+                      )}
+                      href={buildVersionHref(version.id, pagination.page)}
+                    >
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-sm font-semibold text-foreground">
+                              {isVariant
+                                ? `Variante ${variantLabel} · V${version.version_number}`
+                                : `Version ${version.version_number}`}
+                            </p>
+                            {isVariant ? (
+                              <Badge variant="outline" size="sm">Branche</Badge>
+                            ) : null}
+                            {isCurrent ? (
+                              <Badge variant="brand" size="sm">Courante</Badge>
+                            ) : null}
+                          </div>
+                          {version.title ? (
+                            <p
+                              className="mt-1 truncate text-sm text-foreground-secondary"
+                              title={version.title}
+                            >
+                              {version.title}
+                            </p>
                           ) : null}
-                          {isCurrent ? (
-                            <span className="status-badge status-confirmed">
-                              Courante
-                            </span>
-                          ) : null}
-                        </div>
-                        {version.title ? (
-                          <p
-                            className="mt-1 truncate text-sm text-slate-600"
-                            title={version.title}
-                          >
-                            {version.title}
-                          </p>
-                        ) : null}
-                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                          <span className={statusClass(status)}>
-                            {statusLabel(status)}
-                          </span>
-                          {isVariant ? (
-                            <span>
-                              {parentVersionNumber
-                                ? `Issue de V${parentVersionNumber}`
-                                : "Issue d'une version parente"}
-                            </span>
-                          ) : null}
-                          <span>Créé le {formatDate(version.created_at)}</span>
-                          <span>
-                            {version.author_name
-                              ? `Par ${version.author_name}`
-                              : "Auteur inconnu"}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="shrink-0 text-left sm:text-right">
-                        <p className="text-xs text-muted-foreground">Total HT</p>
-                        <div className="flex items-center gap-1.5 sm:justify-end">
-                          <p className="text-sm font-semibold text-slate-800">
-                            {formatEUR(version.total_ht_cents)}
-                          </p>
-                          {(() => {
-                            const currentIndex = versions.indexOf(version);
-                            const previousVersion = versions[currentIndex + 1];
-                            if (!previousVersion) return null;
-                            const delta = version.total_ht_cents - previousVersion.total_ht_cents;
-                            if (delta === 0) return null;
-                            return (
-                              <span className={`text-xs font-medium ${delta > 0 ? "text-success" : "text-danger"}`}>
-                                {delta > 0 ? "+" : ""}{formatEUR(delta)}
+                          <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                            <Badge variant={statusVariant(status)} size="sm" dot>
+                              {statusLabel(status)}
+                            </Badge>
+                            {isVariant ? (
+                              <span>
+                                {parentVersionNumber
+                                  ? `Issue de V${parentVersionNumber}`
+                                  : "Issue d'une version parente"}
                               </span>
-                            );
-                          })()}
+                            ) : null}
+                            <span>Créée le {formatDate(version.created_at)}</span>
+                            <span>
+                              {version.author_name
+                                ? `Par ${version.author_name}`
+                                : "Auteur inconnu"}
+                            </span>
+                          </div>
                         </div>
-                        <p className="mt-0.5 text-xs text-muted-foreground">Total TTC</p>
-                        <p className="text-sm font-semibold text-slate-800">
-                          {formatEUR(version.total_ttc_cents)}
-                        </p>
+                        <div className="shrink-0 text-left sm:text-right">
+                          <p className="text-xs text-muted-foreground">Total HT</p>
+                          <div className="flex items-center gap-1.5 sm:justify-end">
+                            <p className="text-sm font-semibold tabular-nums text-foreground">
+                              {formatEUR(version.total_ht_cents)}
+                            </p>
+                            {delta !== 0 ? (
+                              <span
+                                className={cn(
+                                  "text-xs font-medium tabular-nums",
+                                  delta > 0 ? "text-success" : "text-danger"
+                                )}
+                              >
+                                {delta > 0 ? "+" : ""}
+                                {formatEUR(delta)}
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="mt-0.5 text-xs text-muted-foreground">Total TTC</p>
+                          <p className="text-sm font-semibold tabular-nums text-foreground">
+                            {formatEUR(version.total_ttc_cents)}
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      )}
-
-      {pagination.total_count > pagination.page_size ? (
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
-          <p className="text-xs text-muted-foreground">
-            {visibleStart}-{visibleEnd} sur {pagination.total_count}
-          </p>
-          <div className="flex items-center gap-2">
-            {pagination.has_prev ? (
-              <Link
-                className="btn btn-secondary btn-sm"
-                href={buildVersionHref(currentVersionId, pagination.page - 1)}
-              >
-                Prev
-              </Link>
-            ) : (
-              <span className="btn btn-secondary btn-sm opacity-50">Prev</span>
-            )}
-            {pagination.has_next ? (
-              <Link
-                className="btn btn-secondary btn-sm"
-                href={buildVersionHref(currentVersionId, pagination.page + 1)}
-              >
-                Next
-              </Link>
-            ) : (
-              <span className="btn btn-secondary btn-sm opacity-50">Next</span>
-            )}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
           </div>
-        </div>
-      ) : null}
-    </aside>
+        )}
+
+        {pagination.total_count > pagination.page_size ? (
+          <nav
+            aria-label="Pages de l'historique"
+            className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4"
+          >
+            <p className="text-xs text-muted-foreground">
+              {visibleStart}–{visibleEnd} sur {pagination.total_count}
+            </p>
+            <div className="flex items-center gap-2">
+              {pagination.has_prev ? (
+                <Link
+                  className={pagerButtonClass}
+                  href={buildVersionHref(currentVersionId, pagination.page - 1)}
+                >
+                  Précédent
+                </Link>
+              ) : (
+                <span aria-disabled="true" className={pagerButtonClass}>
+                  Précédent
+                </span>
+              )}
+              {pagination.has_next ? (
+                <Link
+                  className={pagerButtonClass}
+                  href={buildVersionHref(currentVersionId, pagination.page + 1)}
+                >
+                  Suivant
+                </Link>
+              ) : (
+                <span aria-disabled="true" className={pagerButtonClass}>
+                  Suivant
+                </span>
+              )}
+            </div>
+          </nav>
+        ) : null}
+      </section>
+    </Card>
   );
 }

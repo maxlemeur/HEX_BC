@@ -269,19 +269,19 @@ async function reviewSubdetailForCandidate(user: ReturnType<typeof userEvent.set
 
   const card = screen.getByTestId(`candidate-card-${candidateId}`);
   await user.click(
-    within(card).getByRole("button", { name: /Valider le sous-detail/i })
+    within(card).getByRole("button", { name: /Valider le sous-détail/i })
   );
   await waitFor(() => {
     expect(mockFetchGeneratedOuvrageSubdetailDraft).toHaveBeenCalled();
   });
-  const subdetailEditor = await screen.findByText("Sous-detail compose");
+  const subdetailEditor = await screen.findByText("Sous-détail composé");
   await waitFor(() => {
     expect(subdetailEditor).toBeInTheDocument();
   });
   await user.click(
     within(subdetailEditor.closest("section") as HTMLElement).getByRole(
       "button",
-      { name: /^Valider le sous-detail$/i }
+      { name: /^Valider le sous-détail$/i }
     )
   );
   await waitFor(() => {
@@ -313,7 +313,7 @@ describe("GeneratedOuvrageDialog", () => {
     await user.click(checkbox);
 
     expect(
-      screen.getByText(/1 ouvrage\(s\) selectionne\(s\) prêt\(s\) à inserer\./i)
+      screen.getByText(/1 ouvrage\(s\) sélectionné\(s\) prêt\(s\) à insérer\./i)
     ).toBeInTheDocument();
 
     const card = screen.getByTestId("candidate-card-c1");
@@ -324,13 +324,13 @@ describe("GeneratedOuvrageDialog", () => {
 
     expect(
       screen.getByText(
-        /Les modifications du parent imposent une nouvelle validation du sous-detail\./i
+        /Les modifications du parent imposent une nouvelle validation du sous-détail\./i
       )
     ).toBeInTheDocument();
     const updatedCard = screen.getByTestId("candidate-card-c1");
     expect(
       within(updatedCard).getByText(
-        /Ligne complete\. Validez le sous-detail pour debloquer l'insertion\./i
+        /Ligne complète\. Validez le sous-détail pour débloquer l'insertion\./i
       )
     ).toBeInTheDocument();
     expect(screen.getByTestId("generated-ouvrage-insert-button")).toBeDisabled();
@@ -352,7 +352,7 @@ describe("GeneratedOuvrageDialog", () => {
 
     const incompleteCard = screen.getByTestId("candidate-card-c3");
     expect(
-      within(incompleteCard).getByText(/Cet ouvrage n'est pas prêt à être insere\./i)
+      within(incompleteCard).getByText(/Cet ouvrage n'est pas prêt à être inséré\./i)
     ).toBeInTheDocument();
     expect(within(incompleteCard).getByRole("checkbox")).toBeDisabled();
     expect(
@@ -360,7 +360,7 @@ describe("GeneratedOuvrageDialog", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        /Sélectionnez un ouvrage prêt à insérer\. Unité, quantité et sous-détail valide sont requis\./i
+        /Sélectionnez un ouvrage prêt à insérer\. Unité, quantité et sous-détail validé sont requis\./i
       )
     ).toBeInTheDocument();
   });
@@ -425,7 +425,7 @@ describe("GeneratedOuvrageDialog", () => {
 
     // Inserted candidate now shown as locked
     await waitFor(() => {
-      expect(screen.getByText("Insere")).toBeInTheDocument();
+      expect(screen.getByText("Inséré")).toBeInTheDocument();
     });
   });
 
@@ -465,7 +465,7 @@ describe("GeneratedOuvrageDialog", () => {
     expect(closeButtons).toHaveLength(2);
     closeButtons.forEach((button) => expect(button).toBeDisabled());
     expect(
-      screen.getByRole("button", { name: "Nouvelle generation" })
+      screen.getByRole("button", { name: "Nouvelle génération" })
     ).toBeDisabled();
 
     await user.keyboard("{Escape}");
@@ -598,7 +598,7 @@ describe("GeneratedOuvrageDialog", () => {
     await user.click(screen.getByTestId("generated-ouvrage-generate-button"));
 
     await waitFor(() => {
-      expect(screen.getByText("Insere")).toBeInTheDocument();
+      expect(screen.getByText("Inséré")).toBeInTheDocument();
     });
 
     // No checkbox should be visible

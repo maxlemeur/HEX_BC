@@ -1,7 +1,13 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useId, useState, useTransition } from "react";
 
+import { Alert } from "@/components/ui/alert";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { FieldLabel } from "@/components/ui/field";
+import { NativeSelect } from "@/components/ui/native-select";
 import { useToast } from "@/components/ui-legacy/Toast";
 import {
   downloadEstimateApprovalDecisionJournalCsv,
@@ -15,7 +21,6 @@ import {
   APPROVAL_DECISION_JOURNAL_AUTHOR_QUERY_PARAM,
   APPROVAL_DECISION_JOURNAL_STATUS_QUERY_PARAM,
 } from "@/lib/estimates/approval-decision-journal";
-import { CircleXIcon } from "lucide-react";
 
 const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
   day: "2-digit",
@@ -29,20 +34,20 @@ const DECISION_META: Record<
   EstimateApprovalDecisionFilter,
   {
     label: string;
-    className: string;
+    variant: NonNullable<BadgeProps["variant"]>;
   }
 > = {
   approved: {
-    label: "Approuvee",
-    className: "bg-success-subtle text-success",
+    label: "Approuvée",
+    variant: "success",
   },
   approved_with_reservations: {
-    label: "Approuvee sous reserve",
-    className: "bg-warning-light text-warning",
+    label: "Approuvée sous réserve",
+    variant: "warning",
   },
   changes_requested: {
     label: "Retour correction",
-    className: "bg-danger-subtle text-danger",
+    variant: "danger",
   },
 };
 
@@ -100,6 +105,9 @@ export function EstimateApprovalDecisionJournalCard({
   title?: string;
 }>) {
   const toast = useToast();
+  const fieldId = useId();
+  const authorSelectId = `${fieldId}-author`;
+  const statusSelectId = `${fieldId}-status`;
   const [journal, setJournal] = useState(initialJournal);
   const [selectedAuthor, setSelectedAuthor] = useState(
     initialJournal.filters.actorUserId ?? ""
@@ -191,22 +199,21 @@ export function EstimateApprovalDecisionJournalCard({
     loadJournal(nextFilters);
   }
 
+  const hasActiveFilters = Boolean(selectedAuthor || selectedDecision);
+
   return (
-    <section
-      className="dashboard-card min-w-0 overflow-hidden p-5"
-      aria-busy={isPending}
-    >
+    <Card className="min-w-0 overflow-hidden p-5" aria-busy={isPending}>
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1 basis-[14rem]">
-          <h2 className="text-sm font-semibold text-slate-800">{title}</h2>
+          <h2 className="text-sm font-semibold text-foreground">{title}</h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            Décisions historisees, filtrables par auteur et statut.
+            Décisions historisées, filtrables par auteur et statut.
           </p>
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto sm:justify-end">
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
+          <Button
+            variant="outline"
+            size="sm"
             disabled={isPending}
             onClick={() =>
               loadJournal({
@@ -217,10 +224,10 @@ export function EstimateApprovalDecisionJournalCard({
             }
           >
             {isPending ? "Chargement…" : "Actualiser"}
-          </button>
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             disabled={isExporting || journal.events.length === 0}
             onClick={() => {
               setIsExporting(true);
@@ -249,29 +256,28 @@ export function EstimateApprovalDecisionJournalCard({
               })();
             }}
           >
-            {isExporting ? "Export…" : "Exporter CSV"}
-          </button>
+            {isExporting ? "Export…" : "Exporter en CSV"}
+          </Button>
         </div>
       </div>
 
       <div className="mt-4 flex flex-wrap gap-3">
-        <div
-          className="basis-full rounded-xl border border-border bg-surface-subtle px-3 py-2 text-sm text-slate-600"
+        <p
+          className="basis-full rounded-lg border border-border-subtle bg-surface-subtle px-3 py-2 text-sm text-foreground-secondary"
           aria-live="polite"
         >
           {journal.events.length} décision
           {journal.events.length > 1 ? "s" : ""}
-          {selectedAuthor || selectedDecision
+          {hasActiveFilters
             ? " visible(s) avec les filtres actifs."
-            : " historique(s) sur cette version."}
-        </div>
+            : " historisée(s) sur cette version."}
+        </p>
 
-        <label className="flex min-w-0 flex-1 basis-[180px] flex-col gap-1 text-sm text-foreground-secondary">
-          <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Auteur
-          </span>
-          <select
-            className="input w-full min-w-0"
+        <div className="flex min-w-0 flex-1 basis-[180px] flex-col gap-2">
+          <FieldLabel htmlFor={authorSelectId}>Auteur</FieldLabel>
+          <NativeSelect
+            id={authorSelectId}
+            size="sm"
             name="approval-journal-author"
             value={selectedAuthor}
             disabled={isPending}
@@ -290,15 +296,14 @@ export function EstimateApprovalDecisionJournalCard({
                 {author.actorName}
               </option>
             ))}
-          </select>
-        </label>
+          </NativeSelect>
+        </div>
 
-        <label className="flex min-w-0 flex-1 basis-[180px] flex-col gap-1 text-sm text-foreground-secondary">
-          <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Statut
-          </span>
-          <select
-            className="input w-full min-w-0"
+        <div className="flex min-w-0 flex-1 basis-[180px] flex-col gap-2">
+          <FieldLabel htmlFor={statusSelectId}>Statut</FieldLabel>
+          <NativeSelect
+            id={statusSelectId}
+            size="sm"
             name="approval-journal-status"
             value={selectedDecision}
             disabled={isPending}
@@ -316,25 +321,24 @@ export function EstimateApprovalDecisionJournalCard({
                 {meta.label}
               </option>
             ))}
-          </select>
-        </label>
+          </NativeSelect>
+        </div>
       </div>
 
       {error ? (
-        <div className="alert alert-error mt-4">
-          <CircleXIcon aria-hidden="true" size={20} />
+        <Alert variant="danger" className="mt-4">
           {error}
-        </div>
+        </Alert>
       ) : null}
 
       {journal.events.length === 0 ? (
-        <div className="mt-4 rounded-xl border border-dashed border-border bg-surface-subtle px-4 py-5 text-sm text-slate-600">
-          {selectedAuthor || selectedDecision
+        <p className="mt-4 rounded-lg border border-dashed border-border bg-surface-subtle px-4 py-5 text-sm text-foreground-secondary">
+          {hasActiveFilters
             ? "Aucune décision ne correspond aux filtres actifs."
-            : "Aucune décision d'approbation n'a encore été historisee pour cette version."}
-        </div>
+            : "Aucune décision d'approbation n'a encore été historisée pour cette version."}
+        </p>
       ) : (
-        <div className="mt-4 space-y-3">
+        <ul className="mt-4 space-y-3">
           {journal.events.map((event) => {
             const meta = DECISION_META[event.decision];
             const actorLabel = resolveActorLabel({
@@ -343,26 +347,22 @@ export function EstimateApprovalDecisionJournalCard({
             });
 
             return (
-              <article
+              <li
                 key={event.id}
-                className="rounded-xl border border-border bg-surface/90 px-4 py-4"
+                className="rounded-lg border border-border bg-surface p-4"
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
+                  <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span
-                        className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${meta.className}`}
-                      >
-                        {meta.label}
-                      </span>
+                      <Badge variant={meta.variant}>{meta.label}</Badge>
                       {event.cycleNumber !== null ? (
-                        <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                        <Badge variant="neutral" size="sm">
                           Cycle {event.cycleNumber}
-                        </span>
+                        </Badge>
                       ) : null}
                     </div>
 
-                    <p className="mt-2 text-sm font-semibold text-slate-800">
+                    <p className="mt-2 break-words text-sm font-semibold text-foreground">
                       {event.perimeterLabel}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
@@ -370,51 +370,50 @@ export function EstimateApprovalDecisionJournalCard({
                     </p>
                   </div>
 
-                  <div className="text-right text-xs text-muted-foreground">
+                  <div className="text-xs text-muted-foreground sm:text-right">
                     <p>{event.commentCount} commentaire{event.commentCount > 1 ? "s" : ""}</p>
-                    <p>{event.scopeCount} portee{event.scopeCount > 1 ? "s" : ""}</p>
+                    <p>{event.scopeCount} portée{event.scopeCount > 1 ? "s" : ""}</p>
                   </div>
                 </div>
 
                 {event.rulesTriggered.length > 0 ? (
-                  <div className="mt-3 flex flex-wrap gap-2">
+                  <ul className="mt-3 flex flex-wrap gap-2" aria-label="Règles déclenchées">
                     {event.rulesTriggered.map((rule) => (
-                      <span
-                        key={`${event.id}-${rule.ruleId}`}
-                        className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-slate-600"
-                        title={rule.message}
-                      >
-                        {rule.label}
-                      </span>
+                      <li key={`${event.id}-${rule.ruleId}`} className="max-w-full">
+                        <Badge variant="outline" size="sm" className="max-w-full">
+                          <span className="truncate">{rule.label}</span>
+                        </Badge>
+                        {rule.message ? <span className="sr-only">{` : ${rule.message}`}</span> : null}
+                      </li>
                     ))}
-                  </div>
+                  </ul>
                 ) : null}
 
                 {event.comments.length > 0 ? (
-                  <div className="mt-3 space-y-2">
+                  <ul className="mt-3 space-y-2">
                     {event.comments.map((comment, index) => (
-                      <div
+                      <li
                         key={`${event.id}-${comment.scopeType}-${comment.scopeId ?? "project"}-${index}`}
-                        className="rounded-lg border border-border bg-surface-subtle px-3 py-3"
+                        className="rounded-lg border border-border-subtle bg-surface-subtle px-3 py-3"
                       >
                         <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                           {SCOPE_LABELS[comment.scopeType]}
                         </p>
-                        <p className="mt-1 text-sm font-semibold text-slate-800">
+                        <p className="mt-1 break-words text-sm font-semibold text-foreground">
                           {comment.scopeLabel}
                         </p>
-                        <p className="mt-2 text-sm text-foreground-secondary">
+                        <p className="mt-2 break-words text-sm text-foreground-secondary">
                           {comment.comment}
                         </p>
-                      </div>
+                      </li>
                     ))}
-                  </div>
+                  </ul>
                 ) : null}
-              </article>
+              </li>
             );
           })}
-        </div>
+        </ul>
       )}
-    </section>
+    </Card>
   );
 }

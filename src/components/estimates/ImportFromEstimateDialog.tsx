@@ -2,6 +2,20 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { LoadingState } from "@/components/layout/loading-state";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { FieldLabel } from "@/components/ui/field";
+import { NativeSelect } from "@/components/ui/native-select";
 import { formatEUR } from "@/lib/money";
 import {
   fetchEstimateImportableSections,
@@ -35,13 +49,32 @@ function statusLabel(status: EstimateImportSourceVersion["status"]) {
     case "sent":
       return "Envoyé";
     case "accepted":
-      return "Accepte";
+      return "Accepté";
     case "archived":
-      return "Archive";
+      return "Archivé";
     default:
       return status;
   }
 }
+
+const IMPORT_MODE_OPTIONS: Array<{
+  value: ImportEstimateSectionsMode;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "append",
+    label: "Ajouter à la suite",
+    description:
+      "Crée toujours une nouvelle section (suffixe « (import) » en cas de conflit de titre).",
+  },
+  {
+    value: "merge",
+    label: "Fusionner",
+    description:
+      "Ajoute les lignes dans la section existante de même titre, ou crée la section si elle est absente.",
+  },
+];
 
 export function ImportFromEstimateDialog({
   isOpen,
@@ -182,54 +215,36 @@ export function ImportFromEstimateDialog({
     selectedSectionIds.length > 0;
   const canSubmit = selectedSectionIds.length > 0 && !isSubmitting;
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,6,23,0.45)] p-4">
-      <div
-        className="dashboard-card w-full max-w-3xl p-6"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="import-estimate-dialog-title"
-      >
-        <div className="mb-5 flex items-start justify-between gap-4">
-          <div>
-            <h2
-              id="import-estimate-dialog-title"
-              className="text-lg font-semibold text-slate-800"
-            >
-              Importer depuis un autre devis
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Étape {step} / 3
-            </p>
-          </div>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            onClick={onClose}
-            disabled={isSubmitting}
-          >
-            Fermer
-          </button>
-        </div>
+    <Dialog
+      open={isOpen}
+      disablePointerDismissal={isSubmitting}
+      onOpenChange={(open) => {
+        if (!open && !isSubmitting) onClose();
+      }}
+    >
+      <DialogContent size="xl" className="sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>Importer depuis un autre devis</DialogTitle>
+          <DialogDescription>Étape {step} / 3</DialogDescription>
+        </DialogHeader>
 
         {step === 1 ? (
-          <div className="space-y-4">
+          <DialogBody>
             {isLoadingSources ? (
-              <div className="alert alert-info">Chargement des devis sources...</div>
+              <LoadingState label="Chargement des devis sources…" className="py-6" />
             ) : null}
-            {sourcesError ? <div className="alert alert-error">{sourcesError}</div> : null}
+            {sourcesError ? <Alert variant="danger">{sourcesError}</Alert> : null}
             {!isLoadingSources && !sourcesError && sources.length === 0 ? (
-              <div className="alert alert-info">
-                Aucun devis source disponible pour ce tenant.
-              </div>
+              <Alert variant="info">
+                Aucun devis source disponible pour cette organisation.
+              </Alert>
             ) : null}
             {!isLoadingSources && !sourcesError && sources.length > 0 ? (
-              <label className="form-label block">
-                Devis source
-                <select
-                  className="input mt-2 w-full"
+              <div className="grid gap-2">
+                <FieldLabel htmlFor="import-estimate-source">Devis source</FieldLabel>
+                <NativeSelect
+                  id="import-estimate-source"
                   value={selectedSourceVersionId}
                   onChange={(event) =>
                     setSelectedSourceVersionId(event.target.value)
@@ -240,43 +255,44 @@ export function ImportFromEstimateDialog({
                       {formatSourceLabel(source)}
                     </option>
                   ))}
-                </select>
-              </label>
+                </NativeSelect>
+              </div>
             ) : null}
             {selectedSource ? (
-              <div className="rounded-xl border border-border bg-surface-subtle p-4 text-sm text-foreground-secondary">
-                <p className="font-medium text-slate-800">
+              <div className="rounded-lg border border-border bg-surface-subtle p-4 text-sm text-foreground-secondary">
+                <p className="font-medium text-foreground">
                   {formatSourceLabel(selectedSource)}
                 </p>
                 <p className="mt-1">
-                  Statut: {statusLabel(selectedSource.status)} · Total HT:{" "}
+                  Statut : {statusLabel(selectedSource.status)} · Total HT :{" "}
                   {formatEUR(selectedSource.totalHtCents)}
                 </p>
               </div>
             ) : null}
-          </div>
+          </DialogBody>
         ) : null}
 
         {step === 2 ? (
-          <div className="space-y-4">
+          <DialogBody>
             {isLoadingSections ? (
-              <div className="alert alert-info">Chargement des sections...</div>
+              <LoadingState label="Chargement des sections…" className="py-6" />
             ) : null}
-            {sectionsError ? <div className="alert alert-error">{sectionsError}</div> : null}
+            {sectionsError ? <Alert variant="danger">{sectionsError}</Alert> : null}
             {!isLoadingSections && !sectionsError && sections.length === 0 ? (
-              <div className="alert alert-info">
+              <Alert variant="info">
                 Ce devis source ne contient aucune section importable.
-              </div>
+              </Alert>
             ) : null}
             {!isLoadingSections && !sectionsError && sections.length > 0 ? (
               <>
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm text-slate-600">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p id="import-estimate-sections-hint" className="text-sm text-foreground-secondary">
                     Sélectionnez une ou plusieurs sections à importer.
                   </p>
                   <label className="inline-flex items-center gap-2 text-sm text-foreground-secondary">
                     <input
                       type="checkbox"
+                      className="size-4 accent-primary"
                       checked={selectedSectionIds.length === sections.length}
                       onChange={(event) => {
                         if (event.target.checked) {
@@ -289,15 +305,20 @@ export function ImportFromEstimateDialog({
                     Tout sélectionner
                   </label>
                 </div>
-                <div className="max-h-72 overflow-y-auto rounded-xl border border-border">
+                <div
+                  className="max-h-72 overflow-y-auto rounded-lg border border-border"
+                  role="group"
+                  aria-labelledby="import-estimate-sections-hint"
+                >
                   {sections.map((section) => (
                     <label
                       key={section.id}
-                      className="flex items-center justify-between gap-3 border-b border-border-subtle px-4 py-3 text-sm last:border-b-0"
+                      className="flex cursor-pointer items-center justify-between gap-3 border-b border-border-subtle px-4 py-3 text-sm last:border-b-0 hover:bg-surface-subtle"
                     >
-                      <span className="inline-flex items-center gap-2">
+                      <span className="inline-flex min-w-0 items-center gap-2">
                         <input
                           type="checkbox"
+                          className="size-4 shrink-0 accent-primary"
                           checked={selectedSectionSet.has(section.id)}
                           onChange={(event) => {
                             setSelectedSectionIds((previous) => {
@@ -309,107 +330,95 @@ export function ImportFromEstimateDialog({
                             });
                           }}
                         />
-                        <span className="font-medium text-slate-800">
+                        <span className="font-medium text-foreground">
                           {section.title}
                         </span>
                       </span>
-                      <span className="text-slate-600">
+                      <span className="shrink-0 tabular-nums text-foreground-secondary">
                         {section.lineCount} ligne(s) · {formatEUR(section.totalHtCents)}
                       </span>
                     </label>
                   ))}
                 </div>
-                <div className="rounded-xl border border-border bg-surface-subtle p-4 text-sm text-foreground-secondary">
-                  Sélection: {selectedSummary.sectionCount} section(s),{" "}
+                <div className="rounded-lg border border-border bg-surface-subtle p-4 text-sm text-foreground-secondary">
+                  Sélection : {selectedSummary.sectionCount} section(s),{" "}
                   {selectedSummary.lineCount} ligne(s), total HT{" "}
                   {formatEUR(selectedSummary.totalHtCents)}.
                 </div>
               </>
             ) : null}
-          </div>
+          </DialogBody>
         ) : null}
 
         {step === 3 ? (
-          <div className="space-y-4">
-            <div className="rounded-xl border border-border bg-surface-subtle p-4 text-sm text-foreground-secondary">
-              <p className="font-medium text-slate-800">
+          <DialogBody>
+            <div className="rounded-lg border border-border bg-surface-subtle p-4 text-sm text-foreground-secondary">
+              <p className="font-medium text-foreground">
                 Récapitulatif
               </p>
               <p className="mt-1">
-                Source: {selectedSource ? formatSourceLabel(selectedSource) : "-"}
+                Source : {selectedSource ? formatSourceLabel(selectedSource) : "-"}
               </p>
               <p className="mt-1">
-                Sections: {selectedSummary.sectionCount} · Lignes:{" "}
-                {selectedSummary.lineCount} · Total HT:{" "}
+                Sections : {selectedSummary.sectionCount} · Lignes :{" "}
+                {selectedSummary.lineCount} · Total HT :{" "}
                 {formatEUR(selectedSummary.totalHtCents)}
               </p>
             </div>
 
             <fieldset className="space-y-2">
-              <legend className="text-sm font-medium text-slate-800">
+              <legend className="mb-2 text-sm font-medium text-foreground">
                 Gestion des conflits de titre
               </legend>
-              <label className="flex items-start gap-2 rounded-lg border border-border p-3 text-sm">
-                <input
-                  type="radio"
-                  name="import-mode"
-                  value="append"
-                  checked={mode === "append"}
-                  onChange={() => setMode("append")}
-                />
-                <span>
-                  <span className="font-medium text-slate-800">Append</span>
-                  <span className="block text-slate-600">
-                    Cree toujours une nouvelle section (suffixe &quot;(import)&quot; en cas
-                    de conflit de titre).
+              {IMPORT_MODE_OPTIONS.map((option) => (
+                <label
+                  key={option.value}
+                  className="flex cursor-pointer items-start gap-3 rounded-lg border border-border p-3 text-sm has-[:checked]:border-primary has-[:checked]:bg-surface-subtle"
+                >
+                  <input
+                    type="radio"
+                    className="mt-0.5 size-4 shrink-0 accent-primary"
+                    name="import-mode"
+                    value={option.value}
+                    checked={mode === option.value}
+                    onChange={() => setMode(option.value)}
+                  />
+                  <span>
+                    <span className="font-medium text-foreground">{option.label}</span>
+                    <span className="block text-foreground-secondary">
+                      {option.description}
+                    </span>
                   </span>
-                </span>
-              </label>
-              <label className="flex items-start gap-2 rounded-lg border border-border p-3 text-sm">
-                <input
-                  type="radio"
-                  name="import-mode"
-                  value="merge"
-                  checked={mode === "merge"}
-                  onChange={() => setMode("merge")}
-                />
-                <span>
-                  <span className="font-medium text-slate-800">Merge</span>
-                  <span className="block text-slate-600">
-                    Ajoute les lignes dans la section existante de même titre, ou
-                    cree la section si absente.
-                  </span>
-                </span>
-              </label>
+                </label>
+              ))}
             </fieldset>
 
-            {submitError ? <div className="alert alert-error">{submitError}</div> : null}
-          </div>
+            {submitError ? <Alert variant="danger">{submitError}</Alert> : null}
+          </DialogBody>
         ) : null}
 
-        <div className="mt-6 flex items-center justify-end gap-3">
-          <button
-            type="button"
-            className="btn btn-secondary"
+        <DialogFooter>
+          <Button
+            variant="outline"
+            size="lg"
             onClick={onClose}
             disabled={isSubmitting}
           >
             Annuler
-          </button>
+          </Button>
           {step > 1 ? (
-            <button
-              type="button"
-              className="btn btn-secondary"
+            <Button
+              variant="outline"
+              size="lg"
               onClick={() => setStep((current) => (current > 1 ? ((current - 1) as 1 | 2 | 3) : current))}
               disabled={isSubmitting}
             >
               Retour
-            </button>
+            </Button>
           ) : null}
           {step < 3 ? (
-            <button
-              type="button"
-              className="btn btn-primary"
+            <Button
+              size="lg"
               onClick={() => {
                 if (step === 1 && canGoNextFromStep1) {
                   setStep(2);
@@ -425,11 +434,11 @@ export function ImportFromEstimateDialog({
               }
             >
               Continuer
-            </button>
+            </Button>
           ) : (
-            <button
-              type="button"
-              className="btn btn-primary"
+            <Button
+              size="lg"
+              loading={isSubmitting}
               onClick={() => {
                 setSubmitError(null);
                 setIsSubmitting(true);
@@ -454,11 +463,11 @@ export function ImportFromEstimateDialog({
               }}
               disabled={!canSubmit}
             >
-              {isSubmitting ? "Import..." : "Importer"}
-            </button>
+              Importer
+            </Button>
           )}
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

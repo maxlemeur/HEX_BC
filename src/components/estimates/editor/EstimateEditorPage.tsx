@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { memo, useCallback, useMemo, useRef, useState } from "react";
 
 import { BulkSuggestDialog } from "@/components/estimates/BulkSuggestDialog";
@@ -18,11 +19,22 @@ import { SupplierPreselectionDialog } from "@/components/estimates/SupplierPrese
 import { EstimateEditorAlerts } from "@/components/estimates/editor/EstimateEditorAlerts";
 import { EstimateEditorDrawer } from "@/components/estimates/editor/EstimateEditorDrawer";
 import { EstimateEditorToolbar } from "@/components/estimates/editor/EstimateEditorToolbar";
+import { EmptyState } from "@/components/layout/empty-state";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { useUserContext } from "@/components/UserContext";
 import { useEstimateEditorActivityController } from "@/hooks/useEstimateEditorActivityController";
 import { useEstimateEditorHistoryController } from "@/hooks/useEstimateEditorHistoryController";
 import { useEstimateEditorState } from "@/hooks/useEstimateEditorState";
-import { CircleXIcon } from "lucide-react";
+import { CircleXIcon, FileSearchIcon } from "lucide-react";
+
+const backToAffairesLink = (
+  <Link
+    href="/dashboard/affaires"
+    className={buttonVariants({ variant: "outline", size: "lg" })}
+  >
+    Retour aux affaires
+  </Link>
+);
 
 type EstimateEditorPageProps = {
   versionId: string;
@@ -142,10 +154,13 @@ export function EstimateEditorPage({
   if (model.meta.kind === "missing-version") {
     return (
       <div className="animate-fade-in">
-        <div className="alert alert-error">
-          <CircleXIcon aria-hidden="true" size={20} />
-          Version introuvable.
-        </div>
+        <EmptyState
+          headingLevel={1}
+          icon={<FileSearchIcon />}
+          title="Version introuvable"
+          description="Ce lien ne correspond à aucune version de chiffrage. Ouvrez le chiffrage depuis son affaire."
+          action={backToAffairesLink}
+        />
       </div>
     );
   }
@@ -157,10 +172,25 @@ export function EstimateEditorPage({
   if (model.meta.kind === "error") {
     return (
       <div className="animate-fade-in">
-        <div className="alert alert-error mb-6">
-          <CircleXIcon aria-hidden="true" size={20} />
-          {model.meta.message}
-        </div>
+        <EmptyState
+          headingLevel={1}
+          icon={<CircleXIcon />}
+          title="Impossible d’ouvrir le chiffrage"
+          description={<span role="alert">{model.meta.message}</span>}
+          action={
+            <>
+              <Button
+                type="button"
+                variant="primary"
+                size="lg"
+                onClick={() => window.location.reload()}
+              >
+                Recharger la page
+              </Button>
+              {backToAffairesLink}
+            </>
+          }
+        />
       </div>
     );
   }

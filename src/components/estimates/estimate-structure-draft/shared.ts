@@ -8,6 +8,9 @@ export const WIZARD_STEPS = [
 
 export type WizardStep = 1 | 2 | 3 | 4;
 
+const INACTIVE_CHIP_CLASS =
+  "bg-surface text-foreground-secondary border-border hover:bg-surface-subtle";
+
 export const TREE_FILTER_CHIPS: Array<{
   key: TreeFilterKey;
   label: string;
@@ -17,31 +20,31 @@ export const TREE_FILTER_CHIPS: Array<{
   {
     key: "create",
     label: "Nouveau",
-    activeClass: "bg-emerald-100 text-emerald-800 border-emerald-300",
-    inactiveClass: "bg-surface text-slate-600 border-border hover:bg-surface-subtle",
+    activeClass: "bg-success-light text-success border-success-border",
+    inactiveClass: INACTIVE_CHIP_CLASS,
   },
   {
     key: "merge",
     label: "Fusion",
-    activeClass: "bg-amber-100 text-amber-800 border-amber-300",
-    inactiveClass: "bg-surface text-slate-600 border-border hover:bg-surface-subtle",
+    activeClass: "bg-warning-light text-warning border-warning-border",
+    inactiveClass: INACTIVE_CHIP_CLASS,
   },
   {
     key: "skip",
-    label: "Ignore",
-    activeClass: "bg-slate-200 text-slate-800 border-slate-400",
-    inactiveClass: "bg-surface text-slate-600 border-border hover:bg-surface-subtle",
+    label: "Ignoré",
+    activeClass: "bg-muted text-foreground border-border-strong",
+    inactiveClass: INACTIVE_CHIP_CLASS,
   },
   {
     key: "low_confidence",
     label: "Confiance faible",
-    activeClass: "bg-rose-100 text-rose-800 border-rose-300",
-    inactiveClass: "bg-surface text-slate-600 border-border hover:bg-surface-subtle",
+    activeClass: "bg-danger-light text-danger border-danger-border",
+    inactiveClass: INACTIVE_CHIP_CLASS,
   },
   {
     key: "duplicate",
     label: "Doublons",
-    activeClass: "bg-violet-100 text-violet-800 border-violet-300",
-    inactiveClass: "bg-surface text-slate-600 border-border hover:bg-surface-subtle",
+    activeClass: "bg-info-light text-info border-info-border",
+    inactiveClass: INACTIVE_CHIP_CLASS,
   },
 ];

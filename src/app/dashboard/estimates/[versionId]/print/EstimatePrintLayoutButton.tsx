@@ -3,7 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
+import { PrinterIcon } from "lucide-react";
+
 import { EstimatePdfLayoutModal } from "@/components/estimates/EstimatePdfLayoutModal";
+import { Button } from "@/components/ui/button";
 import {
   writeEstimatePdfLayoutSearchParams,
   type EstimatePdfLayoutOptions,
@@ -64,13 +67,16 @@ export function EstimatePrintLayoutButton({
 
   return (
     <>
-      <button
-        className="btn btn-primary btn-lg w-full sm:w-auto"
+      <Button
+        variant="primary"
+        size="lg"
+        className="w-full sm:w-auto"
         type="button"
         onClick={() => setOpen(true)}
+        leftIcon={<PrinterIcon aria-hidden="true" />}
       >
         Mise en page / imprimer
-      </button>
+      </Button>
       <EstimatePdfLayoutModal
         open={open}
         onOpenChange={setOpen}

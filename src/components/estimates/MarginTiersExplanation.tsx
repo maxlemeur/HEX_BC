@@ -24,7 +24,7 @@ export function MarginTiersExplanation({
     : 1.2;
 
   return (
-    <div className="my-3 space-y-2 text-sm text-slate-600">
+    <div className="my-3 space-y-2 text-sm text-foreground-secondary">
       <p>
         Le coût total HT des lignes, avant marge, détermine le seuil atteint.
         Le coefficient de ce seuil s’applique à l’ensemble des lignes du devis.
@@ -50,7 +50,7 @@ export function MarginTiersExplanation({
           {" "}avant coefficient global, remise et TVA.
         </p>
       )}
-      <p className="text-xs">
+      <p className="text-xs text-muted-foreground">
         Au passage d’un seuil, le nouveau coefficient porte sur tout le coût :
         le prix peut diminuer si le coefficient du seuil suivant est plus faible.
       </p>

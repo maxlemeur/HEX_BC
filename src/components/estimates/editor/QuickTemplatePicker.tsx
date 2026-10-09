@@ -82,7 +82,7 @@ export function QuickTemplatePicker({
         setActionError(
           error instanceof Error
             ? error.message
-            : "Impossible d'insérer le template."
+            : "Impossible d’insérer le modèle."
         );
       } finally {
         setIsInserting(false);
@@ -95,8 +95,8 @@ export function QuickTemplatePicker({
     <QuickInsertPicker
       key={isOpen ? "template-open" : "template-closed"}
       isOpen={isOpen}
-      title="Inserer un template"
-      emptyLabel="Aucun template disponible."
+      title="Insérer un modèle"
+      emptyLabel="Aucun modèle de chiffrage disponible."
       items={filteredItems}
       isLoading={isLoading}
       isInserting={isInserting}

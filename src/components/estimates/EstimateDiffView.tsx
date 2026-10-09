@@ -1,5 +1,11 @@
+import { ArrowRightIcon } from "lucide-react";
+
 import { EstimateExplanationTrigger } from "@/components/estimates/EstimateExplanationTrigger";
+import { EmptyState } from "@/components/layout/empty-state";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
 import { formatEUR } from "@/lib/money";
+import { cn } from "@/lib/utils";
 import type {
   EstimateDiffEntry,
   EstimateDiffFieldChange,
@@ -58,25 +64,41 @@ function changeLabel(changeType: EstimateDiffEntry["changeType"]) {
   return "Modification";
 }
 
-function changeBadgeClass(changeType: EstimateDiffEntry["changeType"]) {
-  if (changeType === "added") {
-    return "border border-emerald-200 bg-emerald-50 text-emerald-700";
-  }
-  if (changeType === "removed") {
-    return "border border-rose-200 bg-rose-50 text-rose-700";
-  }
-  return "border border-amber-200 bg-amber-50 text-amber-700";
+function changeBadgeVariant(changeType: EstimateDiffEntry["changeType"]): BadgeProps["variant"] {
+  if (changeType === "added") return "success";
+  if (changeType === "removed") return "danger";
+  return "warning";
 }
 
+/** Coloured left edge: the change type stays readable without relying on a tinted background. */
 function changeCardClass(changeType: EstimateDiffEntry["changeType"]) {
-  if (changeType === "added") {
-    return "border-emerald-200 bg-emerald-50/40";
-  }
-  if (changeType === "removed") {
-    return "border-rose-200 bg-rose-50/40";
-  }
-  return "border-amber-200 bg-amber-50/40";
+  if (changeType === "added") return "border-l-success";
+  if (changeType === "removed") return "border-l-danger";
+  return "border-l-warning";
 }
+
+function EntryHeader({ entry }: { entry: EstimateDiffEntry }) {
+  return (
+    <header className="flex flex-wrap items-start justify-between gap-3">
+      <div className="min-w-0 space-y-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant={changeBadgeVariant(entry.changeType)} size="sm">
+            {changeLabel(entry.changeType)}
+          </Badge>
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {formatItemType(entry.entityType)}
+          </span>
+        </div>
+        <h3 className="break-words text-sm font-semibold text-foreground">{entry.title}</h3>
+        <p className="text-xs text-muted-foreground">
+          Section : {formatSectionPath(entry.sectionPath)}
+        </p>
+      </div>
+    </header>
+  );
+}
+
+const entryCardClass = "rounded-lg border border-l-4 border-border bg-surface p-4 shadow-card";
 
 function formatItemType(itemType: EstimateDiffEntry["entityType"]) {
   return itemType === "section" ? "Section" : "Ligne";
@@ -97,52 +119,35 @@ function renderSnapshotLine(entry: EstimateDiffEntry) {
   if (!sourceItem || sourceItem.item_type !== "line") return null;
 
   return (
-    <div className="mt-3 grid gap-1 text-xs text-slate-600 md:grid-cols-4">
-      <span>Quantité: {sourceItem.quantity ?? "-"}</span>
-      <span>PU HT: {formatEUR(sourceItem.unit_price_ht_cents ?? 0)}</span>
-      <span>Total HT: {formatEUR(sourceItem.line_total_ht_cents ?? 0)}</span>
-      <span>Total TTC: {formatEUR(sourceItem.line_total_ttc_cents ?? 0)}</span>
+    <div className="mt-3 grid gap-1 text-xs text-foreground-secondary sm:grid-cols-2 md:grid-cols-4">
+      <span>Quantité : {sourceItem.quantity ?? "-"}</span>
+      <span>PU HT : {formatEUR(sourceItem.unit_price_ht_cents ?? 0)}</span>
+      <span>Total HT : {formatEUR(sourceItem.line_total_ht_cents ?? 0)}</span>
+      <span>Total TTC : {formatEUR(sourceItem.line_total_ttc_cents ?? 0)}</span>
     </div>
   );
 }
 
 function InlineEntry({ entry }: { entry: EstimateDiffEntry }) {
   return (
-    <article
-      className={`rounded-xl border p-4 ${changeCardClass(entry.changeType)}`}
-    >
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span
-              className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${changeBadgeClass(entry.changeType)}`}
-            >
-              {changeLabel(entry.changeType)}
-            </span>
-            <span className="text-xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">
-              {formatItemType(entry.entityType)}
-            </span>
-          </div>
-          <h3 className="text-sm font-semibold text-foreground">{entry.title}</h3>
-          <p className="text-xs text-muted-foreground">
-            Section: {formatSectionPath(entry.sectionPath)}
-          </p>
-        </div>
-      </header>
+    <article className={cn(entryCardClass, changeCardClass(entry.changeType))}>
+      <EntryHeader entry={entry} />
 
       {entry.changeType === "modified" ? (
         <div className="mt-4 space-y-2">
           {entry.fieldChanges.map((change) => (
             <div
               key={`${entry.key}:${change.field}`}
-              className="grid gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-sm md:grid-cols-[180px_1fr_auto_1fr]"
+              className="grid gap-x-2 gap-y-1 rounded-lg border border-border-subtle bg-surface-subtle px-3 py-2 text-sm md:grid-cols-[180px_1fr_auto_1fr] md:items-center"
             >
-              <span className="font-medium text-secondary-foreground">{change.label}</span>
+              <span className="font-medium text-foreground-secondary">{change.label}</span>
               <span className="text-muted-foreground line-through">
+                <span className="sr-only">Avant : </span>
                 {formatFieldValue(change, change.beforeValue)}
               </span>
-              <span className="text-center text-subtle-foreground">-&gt;</span>
+              <ArrowRightIcon aria-hidden="true" className="hidden size-3.5 text-subtle-foreground md:block" />
               <span className="font-medium text-foreground">
+                <span className="sr-only">Après : </span>
                 {formatFieldValue(change, change.afterValue)}
               </span>
             </div>
@@ -165,36 +170,17 @@ function SideBySideEntry({
   currentVersionLabel: string;
 }) {
   return (
-    <article
-      className={`rounded-xl border p-4 ${changeCardClass(entry.changeType)}`}
-    >
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span
-              className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${changeBadgeClass(entry.changeType)}`}
-            >
-              {changeLabel(entry.changeType)}
-            </span>
-            <span className="text-xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">
-              {formatItemType(entry.entityType)}
-            </span>
-          </div>
-          <h3 className="text-sm font-semibold text-foreground">{entry.title}</h3>
-          <p className="text-xs text-muted-foreground">
-            Section: {formatSectionPath(entry.sectionPath)}
-          </p>
-        </div>
-      </header>
+    <article className={cn(entryCardClass, changeCardClass(entry.changeType))}>
+      <EntryHeader entry={entry} />
 
       {entry.changeType === "modified" ? (
         <div className="mt-4 overflow-hidden rounded-lg border border-border bg-surface">
-          <table className="data-table w-full">
+          <table className="data-table w-full [&_td]:break-words">
             <thead>
               <tr>
-                <th>Champ</th>
-                <th>{previousVersionLabel}</th>
-                <th>{currentVersionLabel}</th>
+                <th scope="col">Champ</th>
+                <th scope="col">{previousVersionLabel}</th>
+                <th scope="col">{currentVersionLabel}</th>
               </tr>
             </thead>
             <tbody>
@@ -213,18 +199,18 @@ function SideBySideEntry({
           </table>
         </div>
       ) : (
-        <div className="mt-4 grid gap-3">
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
           {entry.changeType !== "added" ? (
             <div className="rounded-lg border border-border bg-surface p-3 text-sm">
-              <p className="mb-1 text-xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 {previousVersionLabel}
               </p>
               <p className="font-medium text-foreground">
                 {entry.beforeItem ? entry.beforeItem.title : "-"}
               </p>
               {entry.beforeItem?.item_type === "line" ? (
-                <p className="mt-1 text-xs text-slate-600">
-                  HT {formatEUR(entry.beforeItem.line_total_ht_cents ?? 0)} | TTC{" "}
+                <p className="mt-1 text-xs text-foreground-secondary">
+                  HT {formatEUR(entry.beforeItem.line_total_ht_cents ?? 0)} · TTC{" "}
                   {formatEUR(entry.beforeItem.line_total_ttc_cents ?? 0)}
                 </p>
               ) : null}
@@ -232,15 +218,15 @@ function SideBySideEntry({
           ) : null}
           {entry.changeType !== "removed" ? (
             <div className="rounded-lg border border-border bg-surface p-3 text-sm">
-              <p className="mb-1 text-xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 {currentVersionLabel}
               </p>
               <p className="font-medium text-foreground">
                 {entry.afterItem ? entry.afterItem.title : "-"}
               </p>
               {entry.afterItem?.item_type === "line" ? (
-                <p className="mt-1 text-xs text-slate-600">
-                  HT {formatEUR(entry.afterItem.line_total_ht_cents ?? 0)} | TTC{" "}
+                <p className="mt-1 text-xs text-foreground-secondary">
+                  HT {formatEUR(entry.afterItem.line_total_ht_cents ?? 0)} · TTC{" "}
                   {formatEUR(entry.afterItem.line_total_ttc_cents ?? 0)}
                 </p>
               ) : null}
@@ -268,86 +254,94 @@ export function EstimateDiffView({
 
   if (diff.entries.length === 0 && !hasTotalDelta) {
     return (
-      <div className="dashboard-card p-6 text-sm text-slate-600">
-        Aucun changement detecte entre les versions sélectionnées.
-      </div>
+      <EmptyState
+        title="Aucun changement détecté"
+        description="Les deux versions sélectionnées ont le même contenu et les mêmes totaux."
+        headingLevel={2}
+      />
     );
   }
 
   return (
     <div className="space-y-4">
-      <section className="dashboard-card p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <h2 className="text-sm font-semibold text-foreground">Resume des changements</h2>
-          <EstimateExplanationTrigger
-            kind="delta"
-            versionId={versionId}
-            compareVersionId={compareVersionId}
-            currentVersionLabel={currentVersionLabel}
-            compareVersionLabel={previousVersionLabel}
-            triggerLabel="Expliquer le delta"
-            surfaceLabel="Explication delta entre versions"
-          />
-        </div>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-          <div className="rounded-lg border border-border bg-surface px-3 py-2">
-            <p className="text-xs text-muted-foreground">Ajouts</p>
-            <p className="text-lg font-semibold text-emerald-700">
-              {diff.summary.addedCount}
-            </p>
+      <Card className="p-4">
+        <section aria-labelledby="estimate-diff-summary-title">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <h2 id="estimate-diff-summary-title" className="text-sm font-semibold text-foreground">
+              Résumé des changements
+            </h2>
+            <EstimateExplanationTrigger
+              kind="delta"
+              versionId={versionId}
+              compareVersionId={compareVersionId}
+              currentVersionLabel={currentVersionLabel}
+              compareVersionLabel={previousVersionLabel}
+              triggerLabel="Expliquer l’écart"
+              surfaceLabel="Explication de l’écart entre versions"
+            />
           </div>
-          <div className="rounded-lg border border-border bg-surface px-3 py-2">
-            <p className="text-xs text-muted-foreground">Suppressions</p>
-            <p className="text-lg font-semibold text-rose-700">
-              {diff.summary.removedCount}
-            </p>
-          </div>
-          <div className="rounded-lg border border-border bg-surface px-3 py-2">
-            <p className="text-xs text-muted-foreground">Modifications</p>
-            <p className="text-lg font-semibold text-amber-700">
-              {diff.summary.modifiedCount}
-            </p>
-          </div>
-          <div className="rounded-lg border border-border bg-surface px-3 py-2">
-            <p className="text-xs text-muted-foreground">Delta HT</p>
-            <p
-              className={`text-lg font-semibold ${
-                diff.summary.deltaHtCents >= 0 ? "text-emerald-700" : "text-rose-700"
-              }`}
-            >
-              {formatDelta(diff.summary.deltaHtCents)}
-            </p>
-          </div>
-          <div className="rounded-lg border border-border bg-surface px-3 py-2">
-            <p className="text-xs text-muted-foreground">Delta TTC</p>
-            <p
-              className={`text-lg font-semibold ${
-                diff.summary.deltaTtcCents >= 0 ? "text-emerald-700" : "text-rose-700"
-              }`}
-            >
-              {formatDelta(diff.summary.deltaTtcCents)}
-            </p>
-          </div>
-          <div className="rounded-lg border border-border bg-surface px-3 py-2">
-            <p className="text-xs text-muted-foreground">Totaux</p>
-            <p className="text-xs text-slate-600">
-              {previousVersionLabel}: HT {formatEUR(diff.summary.previousTotals.totalHtCents)} | TTC{" "}
-              {formatEUR(diff.summary.previousTotals.totalTtcCents)}
-            </p>
-            <p className="text-xs text-foreground">
-              {currentVersionLabel}: HT {formatEUR(diff.summary.currentTotals.totalHtCents)} | TTC{" "}
-              {formatEUR(diff.summary.currentTotals.totalTtcCents)}
-            </p>
-          </div>
-        </div>
-      </section>
+          <dl className="mt-3 grid gap-3 min-[420px]:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+            <div className="rounded-lg border border-border bg-surface px-3 py-2">
+              <dt className="text-xs text-muted-foreground">Ajouts</dt>
+              <dd className="text-lg font-semibold tabular-nums text-success">
+                {diff.summary.addedCount}
+              </dd>
+            </div>
+            <div className="rounded-lg border border-border bg-surface px-3 py-2">
+              <dt className="text-xs text-muted-foreground">Suppressions</dt>
+              <dd className="text-lg font-semibold tabular-nums text-danger">
+                {diff.summary.removedCount}
+              </dd>
+            </div>
+            <div className="rounded-lg border border-border bg-surface px-3 py-2">
+              <dt className="text-xs text-muted-foreground">Modifications</dt>
+              <dd className="text-lg font-semibold tabular-nums text-warning">
+                {diff.summary.modifiedCount}
+              </dd>
+            </div>
+            <div className="rounded-lg border border-border bg-surface px-3 py-2">
+              <dt className="text-xs text-muted-foreground">Écart HT</dt>
+              <dd
+                className={cn(
+                  "text-lg font-semibold tabular-nums",
+                  diff.summary.deltaHtCents >= 0 ? "text-success" : "text-danger"
+                )}
+              >
+                {formatDelta(diff.summary.deltaHtCents)}
+              </dd>
+            </div>
+            <div className="rounded-lg border border-border bg-surface px-3 py-2">
+              <dt className="text-xs text-muted-foreground">Écart TTC</dt>
+              <dd
+                className={cn(
+                  "text-lg font-semibold tabular-nums",
+                  diff.summary.deltaTtcCents >= 0 ? "text-success" : "text-danger"
+                )}
+              >
+                {formatDelta(diff.summary.deltaTtcCents)}
+              </dd>
+            </div>
+            <div className="rounded-lg border border-border bg-surface px-3 py-2 min-[420px]:col-span-2 lg:col-span-1">
+              <dt className="text-xs text-muted-foreground">Totaux</dt>
+              <dd className="text-xs text-foreground-secondary">
+                {previousVersionLabel} : HT {formatEUR(diff.summary.previousTotals.totalHtCents)} · TTC{" "}
+                {formatEUR(diff.summary.previousTotals.totalTtcCents)}
+              </dd>
+              <dd className="text-xs text-foreground">
+                {currentVersionLabel} : HT {formatEUR(diff.summary.currentTotals.totalHtCents)} · TTC{" "}
+                {formatEUR(diff.summary.currentTotals.totalTtcCents)}
+              </dd>
+            </div>
+          </dl>
+        </section>
+      </Card>
 
       <section className="space-y-3">
         {diff.entries.length === 0 ? (
-          <div className="dashboard-card p-4 text-sm text-slate-600">
+          <Card className="p-4 text-sm text-foreground-secondary">
             Aucune ligne modifiée. L&apos;écart de total provient des paramètres
             globaux du devis (remise, coefficient global ou arrondi).
-          </div>
+          </Card>
         ) : null}
         {diff.entries.map((entry) =>
           mode === "inline" ? (

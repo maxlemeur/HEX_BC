@@ -1,5 +1,13 @@
-import Link from "next/link";
+"use client";
 
+import Link from "next/link";
+import { useId } from "react";
+
+import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { FieldLabel } from "@/components/ui/field";
+import { NativeSelect } from "@/components/ui/native-select";
+import { Textarea } from "@/components/ui/textarea";
 import type { EstimateApprovalSummary } from "@/lib/estimates/rules-engine";
 import {
   ESTIMATE_READINESS_CATEGORY_LABELS,
@@ -16,6 +24,29 @@ import {
 } from "./shared";
 
 type CorrectionChecklist = NonNullable<EstimateApprovalSummary["correctionChecklist"]>;
+type SubmissionSignal = EstimateApprovalSummary["submissionReadiness"]["blockers"][number];
+type ReasonApprovalStatus = EstimateApprovalSummary["reasons"][number]["approvalStatus"];
+
+const INLINE_LINK_CLASS =
+  "rounded-sm font-medium text-primary underline underline-offset-2 hover:no-underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
+
+const EMPTY_ESTIMATE_MESSAGE = "Le devis doit contenir au moins une ligne pour être soumis.";
+
+function resolveReasonStatus(status: ReasonApprovalStatus): {
+  label: string;
+  variant: NonNullable<BadgeProps["variant"]>;
+} {
+  switch (status) {
+    case "approved":
+      return { label: "Approuvée", variant: "success" };
+    case "pending":
+      return { label: "En revue", variant: "info" };
+    case "rejected":
+      return { label: "À reprendre", variant: "danger" };
+    default:
+      return { label: "À soumettre", variant: "outline" };
+  }
+}
 
 function groupSubmissionSignals(
   signals: EstimateApprovalSummary["submissionReadiness"]["blockers"],
@@ -42,6 +73,61 @@ function groupSubmissionSignals(
       items: groups.get(category) ?? [],
     }))
     .filter((group) => group.items.length > 0);
+}
+
+function SubmissionSignalList({
+  projectId,
+  groups,
+  tone,
+}: Readonly<{
+  projectId: string;
+  groups: ReturnType<typeof groupSubmissionSignals>;
+  tone: "danger" | "warning";
+}>) {
+  return (
+    <div className="mt-3 space-y-3">
+      {groups.map((group) => (
+        <div key={group.category} className="space-y-2">
+          <p
+            className={`text-xs font-semibold uppercase tracking-wider ${
+              tone === "danger" ? "text-danger" : "text-warning"
+            }`}
+          >
+            {group.label}
+          </p>
+          <ul className="space-y-2">
+            {group.items.map((entry: SubmissionSignal) => {
+              const action = resolveSubmissionSignalAction({
+                projectId,
+                signal: entry,
+              });
+
+              return (
+                <li
+                  key={entry.id}
+                  className={`rounded-lg border bg-surface px-3 py-3 ${
+                    tone === "danger" ? "border-danger-border" : "border-warning-border"
+                  }`}
+                >
+                  <p className="break-words text-sm font-semibold text-foreground">
+                    {entry.label}
+                  </p>
+                  <p className="mt-1 break-words text-sm text-foreground-secondary">
+                    {entry.message}
+                  </p>
+                  {action ? (
+                    <Link href={action.href} className={`mt-3 inline-flex text-xs ${INLINE_LINK_CLASS}`}>
+                      {action.label}
+                    </Link>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function EstimateApprovalSubmissionPanel({
@@ -81,6 +167,10 @@ export function EstimateApprovalSubmissionPanel({
   onTogglePanel: () => void;
   onSubmit: () => void;
 }>) {
+  const fieldId = useId();
+  const emptyHintId = `${fieldId}-empty-hint`;
+  const reviewerId = `${fieldId}-reviewer`;
+  const messageId = `${fieldId}-message`;
   const confirmDisabled =
     isPending ||
     isEmpty ||
@@ -93,36 +183,36 @@ export function EstimateApprovalSubmissionPanel({
   const alertGroups = groupSubmissionSignals(summary.submissionReadiness.alerts);
 
   return (
-    <section className="rounded-xl border border-border bg-surface-subtle px-4 py-4">
+    <section className="@container rounded-lg border border-border bg-surface-subtle p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-semibold text-slate-800">
-            Soumission a validation
+        <div className="min-w-0 flex-1 basis-48">
+          <h3 className="text-sm font-semibold text-foreground">
+            Soumission à validation
           </h3>
           <p className="mt-1 text-xs text-muted-foreground">
-            Vérifiez les blocants, les alertes restantes et le contexte avant d&apos;envoyer le dossier.
+            Vérifiez les points bloquants, les alertes restantes et le contexte avant d&apos;envoyer le dossier.
           </p>
         </div>
-        <button
-          type="button"
-          className="btn btn-secondary btn-sm"
+        <Button
+          variant="outline"
+          size="sm"
           disabled={isPending || isEmpty || summary.activeCycle !== null}
           aria-expanded={showSubmitPanel}
           aria-controls={submitPanelId}
-          title={isEmpty ? "Le devis doit contenir au moins une ligne pour être soumis." : undefined}
+          aria-describedby={isEmpty ? emptyHintId : undefined}
           onClick={onTogglePanel}
         >
           {showSubmitPanel
             ? "Fermer"
             : isResubmission
               ? "Resoumettre"
-              : "Soumettre a validation"}
-        </button>
+              : "Soumettre à validation"}
+        </Button>
       </div>
 
       {isEmpty ? (
-        <p className="mt-2 text-xs text-warning">
-          Le devis doit contenir au moins une ligne pour être soumis.
+        <p id={emptyHintId} className="mt-2 text-xs font-medium text-warning">
+          {EMPTY_ESTIMATE_MESSAGE}
         </p>
       ) : null}
 
@@ -131,8 +221,8 @@ export function EstimateApprovalSubmissionPanel({
           id={submitPanelId}
           className="mt-4 space-y-4 border-t border-border pt-4"
         >
-          <div className="grid gap-3 sm:grid-cols-2">
-            <article className="rounded-xl border border-border bg-surface px-3 py-3">
+          <div className="grid gap-3 @sm:grid-cols-2">
+            <article className="rounded-lg border border-border bg-surface px-3 py-3">
               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Couverture
               </p>
@@ -144,7 +234,7 @@ export function EstimateApprovalSubmissionPanel({
                   Analyse métrés indisponible.{" "}
                   <Link
                     href={`/dashboard/affaires/${projectId}/takeoff`}
-                    className="font-medium text-primary underline underline-offset-2"
+                    className={INLINE_LINK_CLASS}
                   >
                     Ouvrir Plans & métrés
                   </Link>
@@ -152,7 +242,7 @@ export function EstimateApprovalSubmissionPanel({
                 </p>
               ) : null}
             </article>
-            <article className="rounded-xl border border-border bg-surface px-3 py-3">
+            <article className="rounded-lg border border-border bg-surface px-3 py-3">
               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Exceptions
               </p>
@@ -164,7 +254,7 @@ export function EstimateApprovalSubmissionPanel({
                   Revue des écarts indisponible.{" "}
                   <Link
                     href={`/dashboard/affaires/${projectId}/takeoff`}
-                    className="font-medium text-primary underline underline-offset-2"
+                    className={INLINE_LINK_CLASS}
                   >
                     Ouvrir Plans & métrés
                   </Link>
@@ -172,7 +262,7 @@ export function EstimateApprovalSubmissionPanel({
                 </p>
               ) : null}
             </article>
-            <article className="rounded-xl border border-border bg-surface px-3 py-3">
+            <article className="rounded-lg border border-border bg-surface px-3 py-3">
               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Hypothèses ouvertes
               </p>
@@ -186,7 +276,7 @@ export function EstimateApprovalSubmissionPanel({
                     Registre affaire indisponible.{" "}
                     <Link
                       href={`/dashboard/affaires/${projectId}?registerStatus=open`}
-                      className="font-medium text-primary underline underline-offset-2"
+                      className={INLINE_LINK_CLASS}
                     >
                       Ouvrir le registre
                     </Link>
@@ -194,14 +284,14 @@ export function EstimateApprovalSubmissionPanel({
                   </>
                 ) : (
                   <>
-                    Pièces manquantes:{" "}
+                    Pièces manquantes :{" "}
                     {formatCount(submissionOverview.openMissingPieceCount)}. Clarifications
-                    client: {formatCount(submissionOverview.clarifyWithClientCount)}.
+                    client : {formatCount(submissionOverview.clarifyWithClientCount)}.
                   </>
                 )}
               </p>
             </article>
-            <article className="rounded-xl border border-border bg-surface px-3 py-3">
+            <article className="rounded-lg border border-border bg-surface px-3 py-3">
               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Marge
               </p>
@@ -213,7 +303,7 @@ export function EstimateApprovalSubmissionPanel({
                   Marge indisponible.{" "}
                   <Link
                     href={`/dashboard/estimates/${versionId}/edit`}
-                    className="font-medium text-primary underline underline-offset-2"
+                    className={INLINE_LINK_CLASS}
                   >
                     Ouvrir le devis
                   </Link>
@@ -224,158 +314,83 @@ export function EstimateApprovalSubmissionPanel({
           </div>
 
           <div className="grid gap-4">
-            <section className="rounded-xl border border-danger/20 bg-danger/5 px-4 py-4">
+            <section className="rounded-lg border border-danger-border bg-danger-subtle p-4">
               <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-danger">
-                    Blocants
-                  </p>
-                  <p className="mt-1 text-xs text-slate-600">
-                    Ces points empechent la soumission tant qu&apos;ils restent ouverts.
+                <div className="min-w-0">
+                  <h4 className="text-sm font-semibold text-danger">
+                    Points bloquants
+                  </h4>
+                  <p className="mt-1 text-xs text-foreground-secondary">
+                    Ces points empêchent la soumission tant qu&apos;ils restent ouverts.
                   </p>
                 </div>
-                <span className="rounded-full bg-surface px-2 py-0.5 text-[11px] font-medium text-danger">
+                <Badge variant="danger" size="sm">
                   {summary.submissionReadiness.blockers.length}
-                </span>
+                </Badge>
               </div>
               {summary.submissionReadiness.blockers.length > 0 ? (
-                <div className="mt-3 space-y-2">
-                  {blockerGroups.map((group) => (
-                    <div key={group.category} className="space-y-2">
-                      <p className="text-xs font-semibold uppercase tracking-wider text-danger">
-                        {group.label}
-                      </p>
-                      {group.items.map((entry) => {
-                        const action = resolveSubmissionSignalAction({
-                          projectId,
-                          signal: entry,
-                        });
-
-                        return (
-                          <article
-                            key={entry.id}
-                            className="rounded-xl border border-danger/15 bg-surface/90 px-3 py-3"
-                          >
-                            <p className="text-sm font-semibold text-slate-800">
-                              {entry.label}
-                            </p>
-                            <p className="mt-1 text-sm text-foreground-secondary">
-                              {entry.message}
-                            </p>
-                            {action ? (
-                              <Link
-                                href={action.href}
-                                className="mt-3 inline-flex text-xs font-medium text-primary underline underline-offset-2"
-                              >
-                                {action.label}
-                              </Link>
-                            ) : null}
-                          </article>
-                        );
-                      })}
-                    </div>
-                  ))}
-                </div>
+                <SubmissionSignalList projectId={projectId} groups={blockerGroups} tone="danger" />
               ) : (
-                <p className="mt-3 text-sm text-slate-600">
-                  Aucun blocant dur detecte.
+                <p className="mt-3 text-sm text-foreground-secondary">
+                  Aucun point bloquant détecté.
                 </p>
               )}
             </section>
 
-            <section className="rounded-xl border border-warning/20 bg-warning/5 px-4 py-4">
+            <section className="rounded-lg border border-warning-border bg-warning-subtle p-4">
               <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-warning">
+                <div className="min-w-0">
+                  <h4 className="text-sm font-semibold text-warning">
                     Alertes
-                  </p>
-                  <p className="mt-1 text-xs text-slate-600">
-                    Visibles pour la validation interne. Certaines alertes devront être traitees avant l&apos;envoi client.
+                  </h4>
+                  <p className="mt-1 text-xs text-foreground-secondary">
+                    Visibles pour la validation interne. Certaines alertes devront être traitées avant l&apos;envoi client.
                   </p>
                 </div>
-                <span className="rounded-full bg-surface px-2 py-0.5 text-[11px] font-medium text-warning">
+                <Badge variant="warning" size="sm">
                   {summary.submissionReadiness.alerts.length}
-                </span>
+                </Badge>
               </div>
               {summary.submissionReadiness.alerts.length > 0 ? (
-                <div className="mt-3 space-y-2">
-                  {alertGroups.map((group) => (
-                    <div key={group.category} className="space-y-2">
-                      <p className="text-xs font-semibold uppercase tracking-wider text-warning">
-                        {group.label}
-                      </p>
-                      {group.items.map((entry) => {
-                        const action = resolveSubmissionSignalAction({
-                          projectId,
-                          signal: entry,
-                        });
-
-                        return (
-                          <article
-                            key={entry.id}
-                            className="rounded-xl border border-warning/15 bg-surface/90 px-3 py-3"
-                          >
-                            <p className="text-sm font-semibold text-slate-800">
-                              {entry.label}
-                            </p>
-                            <p className="mt-1 text-sm text-foreground-secondary">
-                              {entry.message}
-                            </p>
-                            {action ? (
-                              <Link
-                                href={action.href}
-                                className="mt-3 inline-flex text-xs font-medium text-primary underline underline-offset-2"
-                              >
-                                {action.label}
-                              </Link>
-                            ) : null}
-                          </article>
-                        );
-                      })}
-                    </div>
-                  ))}
-                </div>
+                <SubmissionSignalList projectId={projectId} groups={alertGroups} tone="warning" />
               ) : (
-                <p className="mt-3 text-sm text-slate-600">
+                <p className="mt-3 text-sm text-foreground-secondary">
                   Aucune alerte complémentaire.
                 </p>
               )}
             </section>
           </div>
 
-          <section className="rounded-xl border border-border bg-surface px-4 py-4">
-            <p className="text-sm font-semibold text-slate-800">
-              Règles declenchees
-            </p>
+          <section className="rounded-lg border border-border bg-surface p-4">
+            <h4 className="text-sm font-semibold text-foreground">
+              Règles déclenchées
+            </h4>
             {summary.reasons.length > 0 ? (
-              <div className="mt-3 space-y-2">
-                {summary.reasons.map((reason) => (
-                  <article
-                    key={`${reason.ruleId}-${reason.approvalId ?? "pending"}`}
-                    className="rounded-xl border border-border bg-surface-subtle px-3 py-3"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <p className="text-sm font-semibold text-slate-800">
-                        {reason.label}
+              <ul className="mt-3 space-y-2">
+                {summary.reasons.map((reason) => {
+                  const status = resolveReasonStatus(reason.approvalStatus);
+                  return (
+                    <li
+                      key={`${reason.ruleId}-${reason.approvalId ?? "pending"}`}
+                      className="rounded-lg border border-border-subtle bg-surface-subtle px-3 py-3"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <p className="min-w-0 break-words text-sm font-semibold text-foreground">
+                          {reason.label}
+                        </p>
+                        <Badge variant={status.variant} size="sm">
+                          {status.label}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 break-words text-sm text-foreground-secondary">
+                        {reason.message}
                       </p>
-                      <span className="rounded-full bg-surface px-2 py-0.5 text-[11px] font-medium text-slate-600">
-                        {reason.approvalStatus === "approved"
-                          ? "Approuvee"
-                          : reason.approvalStatus === "pending"
-                            ? "En revue"
-                            : reason.approvalStatus === "rejected"
-                              ? "À reprendre"
-                              : "À soumettre"}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-sm text-foreground-secondary">
-                      {reason.message}
-                    </p>
-                  </article>
-                ))}
-              </div>
+                    </li>
+                  );
+                })}
+              </ul>
             ) : (
-              <p className="mt-3 text-sm text-slate-600">
+              <p className="mt-3 text-sm text-muted-foreground">
                 Aucune règle d&apos;approbation active sur cette version.
               </p>
             )}
@@ -383,12 +398,11 @@ export function EstimateApprovalSubmissionPanel({
 
           <div className="grid gap-3">
             {summary.availableReviewers.length > 0 ? (
-              <label className="flex flex-col gap-1 text-sm text-foreground-secondary">
-                <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Validateur
-                </span>
-                <select
-                  className="input"
+              <div className="flex min-w-0 flex-col gap-2">
+                <FieldLabel htmlFor={reviewerId}>Validateur</FieldLabel>
+                <NativeSelect
+                  id={reviewerId}
+                  size="sm"
                   name="assignedReviewerUserId"
                   autoComplete="off"
                   value={assignedReviewerUserId ?? ""}
@@ -399,56 +413,55 @@ export function EstimateApprovalSubmissionPanel({
                   {summary.availableReviewers.map((reviewer) => (
                     <option key={reviewer.userId} value={reviewer.userId}>
                       {reviewer.fullName}
-                      {reviewer.workEmail ? ` - ${reviewer.workEmail}` : ""}
+                      {reviewer.workEmail ? ` — ${reviewer.workEmail}` : ""}
                     </option>
                   ))}
-                </select>
-              </label>
-            ) : (
-              <div className="rounded-xl border border-dashed border-border bg-surface px-3 py-3 text-sm text-slate-600">
-                Aucun validateur admin ou director n&apos;est disponible pour ce tenant.
+                </NativeSelect>
               </div>
+            ) : (
+              <p className="rounded-lg border border-dashed border-border bg-surface px-3 py-3 text-sm text-foreground-secondary">
+                Aucun validateur (administrateur ou direction) n&apos;est disponible pour cette organisation.
+              </p>
             )}
 
-            <label className="flex flex-col gap-1 text-sm text-foreground-secondary">
-              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                Message de contexte
-              </span>
-              <textarea
-                className="input min-h-[112px] resize-y py-3"
+            <div className="flex min-w-0 flex-col gap-2">
+              <FieldLabel htmlFor={messageId}>Message de contexte</FieldLabel>
+              <Textarea
+                id={messageId}
+                className="min-h-[112px] resize-y text-sm"
                 name="submissionMessage"
                 autoComplete="off"
                 value={submissionMessage}
                 onChange={(event) => onSubmissionMessageChange(event.target.value)}
                 placeholder="Ex. Prioriser les exceptions CFO, les arbitrages déjà faits et ce qui reste à confirmer…"
               />
-            </label>
+            </div>
           </div>
 
           <div
             className="flex flex-wrap items-center gap-2 border-t border-border pt-4"
             aria-live="polite"
           >
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
+            <Button
+              variant="primary"
+              size="sm"
               disabled={confirmDisabled}
               onClick={onSubmit}
             >
               {isPending
-                ? "En cours..."
+                ? "En cours…"
                 : isResubmission
                   ? "Confirmer la resoumission"
                   : "Confirmer la soumission"}
-            </button>
+            </Button>
             {isEmpty ? (
-              <p className="text-xs text-warning">
-                Le devis doit contenir au moins une ligne pour être soumis.
+              <p className="text-xs font-medium text-warning">
+                {EMPTY_ESTIMATE_MESSAGE}
               </p>
             ) : null}
             {!isResubmission && requestableReasonsCount === 0 ? (
               <p className="text-xs text-muted-foreground">
-                Aucune règle de validation n&apos;est actuellement declenchee sur cette version.
+                Aucune règle de validation n&apos;est actuellement déclenchée sur cette version.
               </p>
             ) : null}
             {isResubmission && correctionChecklist && !correctionChecklist.allTreated ? (
@@ -458,7 +471,7 @@ export function EstimateApprovalSubmissionPanel({
             ) : null}
             {summary.submissionReadiness.blockers.length > 0 ? (
               <p className="text-xs text-danger">
-                Corrigez les blocants avant d&apos;envoyer à la validation.
+                Corrigez les points bloquants avant d&apos;envoyer à la validation.
               </p>
             ) : null}
             {summary.activeCycle !== null ? (

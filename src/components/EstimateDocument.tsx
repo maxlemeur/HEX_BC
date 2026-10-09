@@ -394,7 +394,12 @@ export function EstimateDocument({
         </div>
 
 
-        <div className="mb-6 overflow-x-auto rounded-xl border border-border shadow-sm print:mb-4 print:overflow-visible">
+        <div
+          className="relative mb-6 overflow-x-auto rounded-xl border border-border shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring print:mb-4 print:overflow-visible"
+          role="region"
+          aria-label="Lignes du devis"
+          tabIndex={0}
+        >
           <table className={`w-full ${tableMinWidth} md:min-w-0`}>
             <thead>
               <tr className="table-head bg-brand-blue text-left text-xs font-bold uppercase tracking-wide text-white print-color-adjust">

@@ -1,3 +1,4 @@
+import { NativeSelect } from "@/components/ui/native-select";
 import { type SupportedEstimateCurrency } from "@/lib/money";
 
 type PrintCurrencySelectProps = {
@@ -6,16 +7,8 @@ type PrintCurrencySelectProps = {
 
 export function PrintCurrencySelect({ currency }: PrintCurrencySelectProps) {
   return (
-    <label>
-      <span className="sr-only">Devise</span>
-      <select
-        aria-label="Devise"
-        className="form-input form-select h-10 w-24 bg-surface text-sm font-medium"
-        defaultValue={currency}
-        disabled
-      >
-        <option value={currency}>{currency}</option>
-      </select>
-    </label>
+    <NativeSelect aria-label="Devise" size="sm" wrapperClassName="w-24" defaultValue={currency} disabled>
+      <option value={currency}>{currency}</option>
+    </NativeSelect>
   );
 }

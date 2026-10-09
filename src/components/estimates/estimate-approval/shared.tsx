@@ -1,3 +1,4 @@
+import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { buildAffaireRegisterSearchHref } from "@/lib/affaires/register";
 import type {
   EstimateApprovalDecisionCommentInput,
@@ -25,6 +26,8 @@ export type EstimateApprovalSubmissionOverview = {
 
 export const SUBMIT_PANEL_QUERY_PARAM = "approvalSubmit";
 
+type BadgeVariant = NonNullable<BadgeProps["variant"]>;
+
 const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
   day: "2-digit",
   month: "2-digit",
@@ -46,20 +49,20 @@ export const CORRECTION_STATUS_META: Record<
   EstimateReviewCorrectionStatus,
   {
     label: string;
-    className: string;
+    variant: BadgeVariant;
   }
 > = {
   pending: {
     label: "À traiter",
-    className: "bg-warning-light text-warning",
+    variant: "warning",
   },
   corrected: {
     label: "Corrigé",
-    className: "bg-success-subtle text-success",
+    variant: "success",
   },
   to_discuss: {
     label: "À discuter",
-    className: "bg-primary/10 text-primary",
+    variant: "info",
   },
 };
 
@@ -67,7 +70,7 @@ export const DECISION_META: Record<
   EstimateReviewDecision,
   {
     badgeLabel: string;
-    badgeClassName: string;
+    badgeVariant: BadgeVariant;
     buttonLabel: string;
     requiresComment: boolean;
     successTitle: string;
@@ -75,21 +78,21 @@ export const DECISION_META: Record<
 > = {
   approved: {
     badgeLabel: "Approuvée",
-    badgeClassName: "bg-success-subtle text-success",
+    badgeVariant: "success",
     buttonLabel: "Approuver",
     requiresComment: false,
     successTitle: "Version approuvée",
   },
   approved_with_reservations: {
     badgeLabel: "Approuvée sous réserve",
-    badgeClassName: "bg-warning-light text-warning",
+    badgeVariant: "warning",
     buttonLabel: "Approuver sous réserve",
     requiresComment: true,
     successTitle: "Version approuvée sous réserve",
   },
   changes_requested: {
     badgeLabel: "À corriger",
-    badgeClassName: "bg-danger-subtle text-danger",
+    badgeVariant: "danger",
     buttonLabel: "Renvoyer en correction",
     requiresComment: true,
     successTitle: "Retour correction envoyé",
@@ -148,13 +151,7 @@ export function DecisionBadge({
 }>) {
   const meta = DECISION_META[decision];
 
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${meta.badgeClassName}`}
-    >
-      {meta.badgeLabel}
-    </span>
-  );
+  return <Badge variant={meta.badgeVariant}>{meta.badgeLabel}</Badge>;
 }
 
 export function formatPercent(value: number | null) {

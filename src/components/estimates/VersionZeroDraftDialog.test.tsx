@@ -226,7 +226,7 @@ describe("VersionZeroDraftDialog mutation guards", () => {
 
     await waitFor(() => {
       expect(ensureMutationCanProceed).toHaveBeenCalledWith(
-        "matérialiser la version zero"
+        "matérialiser la version zéro"
       );
       expect(materializeButton).toBeEnabled();
     });

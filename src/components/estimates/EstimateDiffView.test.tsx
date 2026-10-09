@@ -38,9 +38,9 @@ describe("EstimateDiffView", () => {
     );
 
     expect(
-      screen.queryByText(/Aucun changement detecte/i)
+      screen.queryByText(/Aucun changement détecté/i)
     ).not.toBeInTheDocument();
-    expect(screen.getByText("Resume des changements")).toBeInTheDocument();
+    expect(screen.getByText("Résumé des changements")).toBeInTheDocument();
     expect(
       screen.getByText(/remise, coefficient global ou arrondi/i)
     ).toBeInTheDocument();

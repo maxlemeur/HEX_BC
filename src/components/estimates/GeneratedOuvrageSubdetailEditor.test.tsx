@@ -63,7 +63,7 @@ describe("GeneratedOuvrageSubdetailEditor", () => {
     const quantityInput = screen.getByDisplayValue("54");
     await user.clear(quantityInput);
     await user.type(quantityInput, "36");
-    await user.click(screen.getByRole("button", { name: "Valider le sous-detail" }));
+    await user.click(screen.getByRole("button", { name: "Valider le sous-détail" }));
 
     expect(onSave).toHaveBeenCalledWith([
       expect.objectContaining({

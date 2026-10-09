@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogBody, DialogContent } from "@/components/ui/dialog";
 import {
   fetchEstimateStructureDraft,
   generateEstimateStructureDraft,
@@ -113,7 +115,7 @@ export function EstimateStructureDraftDialog({
         setDraftError(
           error instanceof Error
             ? error.message
-            : "Impossible de générer la prévisualisation de structure.",
+            : "Impossible de générer l'aperçu de structure.",
         );
       } finally {
         if (!isActive) {
@@ -261,7 +263,7 @@ export function EstimateStructureDraftDialog({
       setSubmitError(
         error instanceof Error
           ? error.message
-          : "Impossible d'appliquer la preview de structure.",
+          : "Impossible d'appliquer l'aperçu de structure.",
       );
     } finally {
       setIsSubmitting(false);
@@ -273,12 +275,17 @@ export function EstimateStructureDraftDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,6,23,0.5)] p-4">
-      <div
-        className="dashboard-card max-h-[92vh] w-full max-w-6xl overflow-hidden p-0"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="estimate-structure-draft-dialog-title"
+    <Dialog
+      open
+      disablePointerDismissal
+      onOpenChange={(open) => {
+        if (!open && !isSubmitting) onClose();
+      }}
+    >
+      <DialogContent
+        size="xl"
+        showCloseButton={false}
+        className="max-h-[92dvh] gap-0 overflow-hidden p-0 sm:max-w-6xl sm:p-0"
       >
         <WizardHeader
           step={step}
@@ -286,7 +293,7 @@ export function EstimateStructureDraftDialog({
           isSubmitting={isSubmitting}
         />
 
-        <div className="max-h-[70vh] overflow-y-auto px-6 py-5">
+        <DialogBody className="relative min-h-0 flex-1 gap-0 overflow-y-auto px-6 py-5">
           {(step === 2 || step === 3) && draft ? (
             <StickySummaryBar counts={stickySummaryCounts} />
           ) : null}
@@ -336,15 +343,16 @@ export function EstimateStructureDraftDialog({
               overrides={overrides}
             />
           ) : null}
-        </div>
+        </DialogBody>
 
         <div className="flex items-center justify-between gap-3 border-t border-border px-6 py-4">
           {step === 4 ? (
             <div />
           ) : (
-            <button
+            <Button
               type="button"
-              className="btn btn-secondary btn-sm"
+              variant="outline"
+              size="md"
               onClick={() =>
                 setStep((current) =>
                   current > 1 ? ((current - 1) as WizardStep) : current,
@@ -353,21 +361,23 @@ export function EstimateStructureDraftDialog({
               disabled={step === 1 || isSubmitting}
             >
               Retour
-            </button>
+            </Button>
           )}
           <div className="flex items-center gap-2">
             {step === 4 ? (
-              <button
+              <Button
                 type="button"
-                className="btn btn-primary btn-sm"
+                variant="primary"
+                size="md"
                 onClick={() => onClose(applyResult ?? undefined)}
               >
                 Fermer
-              </button>
+              </Button>
             ) : step < 3 ? (
-              <button
+              <Button
                 type="button"
-                className="btn btn-primary btn-sm"
+                variant="primary"
+                size="md"
                 onClick={() =>
                   setStep((current) => ((current + 1) as 1 | 2 | 3))
                 }
@@ -377,11 +387,12 @@ export function EstimateStructureDraftDialog({
                 }
               >
                 Continuer
-              </button>
+              </Button>
             ) : (
-              <button
+              <Button
                 type="button"
-                className="btn btn-primary btn-sm"
+                variant="primary"
+                size="md"
                 onClick={() => void handleSubmit()}
                 disabled={
                   isSubmitting ||
@@ -389,12 +400,12 @@ export function EstimateStructureDraftDialog({
                   hasInvalidMergeConfiguration
                 }
               >
-                {isSubmitting ? "Application..." : "Appliquer la structure"}
-              </button>
+                {isSubmitting ? "Application…" : "Appliquer la structure"}
+              </Button>
             )}
           </div>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

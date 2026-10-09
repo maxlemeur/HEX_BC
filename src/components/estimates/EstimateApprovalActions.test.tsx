@@ -189,7 +189,7 @@ describe("EstimateApprovalActions", () => {
       "/dashboard/estimates/version-1/edit?focusItemId=line-1"
     );
 
-    await user.click(screen.getByRole("button", { name: "Marquer corrige" }));
+    await user.click(screen.getByRole("button", { name: "Marquer corrigé" }));
 
     await waitFor(() => {
       expect(mockUpdateEstimateReviewCorrectionItemStatusAction).toHaveBeenCalledWith({
@@ -227,7 +227,7 @@ describe("EstimateApprovalActions", () => {
       />
     );
 
-    await user.click(screen.getByRole("button", { name: "Soumettre a validation" }));
+    await user.click(screen.getByRole("button", { name: "Soumettre à validation" }));
 
     const takeoffLinks = screen.getAllByRole("link", { name: "Ouvrir Plans & métrés" });
     expect(takeoffLinks).toHaveLength(2);

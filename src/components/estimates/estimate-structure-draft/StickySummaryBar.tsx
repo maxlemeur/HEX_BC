@@ -11,16 +11,16 @@ export function StickySummaryBar({ counts }: StickySummaryBarProps) {
         <span className="font-medium text-foreground-secondary">
           {counts.selectedLots} lot(s)
         </span>
-        <span className="text-emerald-700">{counts.createCount} création(s)</span>
-        <span className="text-amber-700">{counts.mergeCount} fusion(s)</span>
-        <span className="text-muted-foreground">{counts.skipCount} ignore(s)</span>
+        <span className="text-success">{counts.createCount} création(s)</span>
+        <span className="text-warning">{counts.mergeCount} fusion(s)</span>
+        <span className="text-muted-foreground">{counts.skipCount} ignoré(s)</span>
         {counts.lowConfidenceCount > 0 && (
-          <span className="text-rose-600">
+          <span className="text-danger">
             {counts.lowConfidenceCount} confiance faible
           </span>
         )}
         {counts.duplicateCount > 0 && (
-          <span className="text-violet-600">{counts.duplicateCount} doublon(s)</span>
+          <span className="text-info">{counts.duplicateCount} doublon(s)</span>
         )}
       </div>
     </div>

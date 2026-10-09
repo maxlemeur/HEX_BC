@@ -222,7 +222,7 @@ describe("EstimateStructureDraftDialog", () => {
       />
     );
 
-    await screen.findByText("Provenance utilisee");
+    await screen.findByText("Provenance utilisée");
     expect(
       screen.getByText(
         /Fait: 1 source\(s\) alimente\(nt\) cette preview\. Fait: aucun brief confirme n'est disponible pour cette affaire\./i
@@ -238,13 +238,13 @@ describe("EstimateStructureDraftDialog", () => {
     expect(onConfirm).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Continuer" }));
-    await screen.findByText("Lots a retenir");
+    await screen.findByText("Lots à retenir");
     expect(onConfirm).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Continuer" }));
     await screen.findByText("Mode d'application");
     expect(
-      screen.getByRole("radio", { name: /Créer a vide/i })
+      screen.getByRole("radio", { name: /Créer à vide/i })
     ).toBeDisabled();
     expect(onConfirm).not.toHaveBeenCalled();
 
@@ -317,10 +317,10 @@ describe("EstimateStructureDraftDialog", () => {
       />
     );
 
-    await screen.findByText(/Aucune suggestion defendable/i);
+    await screen.findByText(/Aucune suggestion défendable/i);
     expect(
       screen.getByText(
-        /aucun lot n'est propose sans corroboration affaire plus solide/i
+        /aucun lot n'est proposé sans corroboration plus solide de l'affaire/i
       )
     ).toBeInTheDocument();
     expect(
@@ -349,22 +349,22 @@ describe("EstimateStructureDraftDialog", () => {
       />
     );
 
-    await screen.findByText(/Contexte pauvre detecte/i);
+    await screen.findByText(/Contexte pauvre détecté/i);
     expect(
       screen.getByText(/les suggestions faibles sont de-priorisees et non preselectionnees/i)
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Continuer" }));
-    await screen.findByText("Lots a retenir");
+    await screen.findByText("Lots à retenir");
 
     expect(
-      screen.getByText(/Aucune suggestion defendable n'est preselectionnee/i)
+      screen.getByText(/Aucune suggestion défendable n'est présélectionnée/i)
     ).toBeInTheDocument();
 
     const weakCheckbox = screen.getByRole("checkbox");
     expect(weakCheckbox).not.toBeChecked();
     expect(
-      screen.getByText(/Suggestion issue des ouvrages seuls, non preselectionnee par défaut/i)
+      screen.getByText(/Suggestion issue des ouvrages seuls, non présélectionnée par défaut/i)
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Continuer" })
@@ -420,11 +420,11 @@ describe("EstimateStructureDraftDialog", () => {
       />
     );
 
-    await screen.findByText("Provenance utilisee");
+    await screen.findByText("Provenance utilisée");
     await user.click(screen.getByRole("button", { name: "Continuer" }));
-    await screen.findByText("Lots a retenir");
+    await screen.findByText("Lots à retenir");
     await user.click(screen.getByRole("button", { name: "Continuer" }));
-    await screen.findByText("Overrides par noeud");
+    await screen.findByText("Ajustements par nœud");
 
     const childNodeCard = screen.getByTestId(
       "estimate-structure-draft-node-child-node"
@@ -506,11 +506,11 @@ describe("EstimateStructureDraftDialog", () => {
       />
     );
 
-    await screen.findByText("Provenance utilisee");
+    await screen.findByText("Provenance utilisée");
     await user.click(screen.getByRole("button", { name: "Continuer" }));
-    await screen.findByText("Lots a retenir");
+    await screen.findByText("Lots à retenir");
     await user.click(screen.getByRole("button", { name: "Continuer" }));
-    await screen.findByText("Overrides par noeud");
+    await screen.findByText("Ajustements par nœud");
 
     const rootNodeCard = screen.getByTestId(
       "estimate-structure-draft-node-root-node"
@@ -521,7 +521,7 @@ describe("EstimateStructureDraftDialog", () => {
 
     expect(
       screen.queryByText(
-        /Corrigez les noeuds signales avant d'appliquer la structure/i
+        /Corrigez les nœuds signalés avant d'appliquer la structure/i
       )
     ).not.toBeInTheDocument();
     expect(

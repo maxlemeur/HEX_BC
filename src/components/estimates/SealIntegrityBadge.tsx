@@ -1,3 +1,5 @@
+import { Badge, type BadgeProps } from "@/components/ui/badge";
+
 export type SealIntegrityState = "valid" | "invalid" | "unsealed" | "error";
 
 type SealIntegrityBadgeProps = {
@@ -37,11 +39,11 @@ function getBadgeTitle(state: SealIntegrityState) {
   return "Version modifiable : aucune empreinte d’intégrité n’a encore été enregistrée.";
 }
 
-function getBadgeClass(state: SealIntegrityState) {
-  if (state === "valid") return "status-badge status-confirmed";
-  if (state === "invalid") return "status-badge status-canceled";
-  if (state === "error") return "status-badge status-sent";
-  return "status-badge status-draft";
+function getBadgeVariant(state: SealIntegrityState): BadgeProps["variant"] {
+  if (state === "valid") return "success";
+  if (state === "invalid") return "danger";
+  if (state === "error") return "warning";
+  return "neutral";
 }
 
 export function SealIntegrityBadge({
@@ -52,12 +54,9 @@ export function SealIntegrityBadge({
   const title = getBadgeTitle(state);
 
   return (
-    <span
-      aria-label={`${label}. ${title}`}
-      className={getBadgeClass(state)}
-      title={title}
-    >
+    <Badge variant={getBadgeVariant(state)} dot title={title} data-seal-state={state}>
       {label}
-    </span>
+      <span className="sr-only">. {title}</span>
+    </Badge>
   );
 }

@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
-import { Popover } from "@/components/ui-legacy/Popover";
+import { IconButton } from "@/components/ui/icon-button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { EstimateTotals } from "@/lib/estimate-calculations";
 import { formatCurrency, type SupportedEstimateCurrency } from "@/lib/money";
-import { SettingsIcon } from "lucide-react";
+import { MoreHorizontalIcon, SettingsIcon } from "lucide-react";
 
 function formatSignedCurrency(
   cents: number,
@@ -95,14 +96,15 @@ function PopoverRow({
 
 function GearButton({ onClick }: { onClick: () => void }) {
   return (
-    <button
+    <IconButton
       type="button"
-      className="estimate-summary-bar__gear"
+      variant="outline"
+      size="icon-sm"
+      className="shrink-0"
+      label="Ouvrir les paramètres"
+      icon={<SettingsIcon aria-hidden="true" />}
       onClick={onClick}
-      aria-label="Ouvrir les paramètres"
-    >
-      <SettingsIcon aria-hidden="true" size={16} />
-    </button>
+    />
   );
 }
 
@@ -113,7 +115,7 @@ function SkeletonChips() {
       role="status"
       aria-label="Chargement des totaux"
     >
-      <span className="sr-only">Chargement des totaux en cours...</span>
+      <span className="sr-only">Chargement des totaux en cours…</span>
       <div className="estimate-summary-bar__skeleton" />
       <div className="estimate-summary-bar__skeleton" />
       <div className="estimate-summary-bar__skeleton" />
@@ -130,6 +132,7 @@ export function EstimateSettingsSummaryBar({
   isExpert,
   onOpenSettings,
 }: EstimateSettingsSummaryBarProps) {
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const derived = useMemo(() => {
     if (!totals) return null;
 
@@ -160,8 +163,10 @@ export function EstimateSettingsSummaryBar({
     };
   }, [totals, taxRateBp, currency]);
 
-  const openSection = (section: SettingsSection) => () =>
+  const openSection = (section: SettingsSection) => () => {
+    setIsDetailsOpen(false);
     onOpenSettings(section);
+  };
 
   return (
     <div
@@ -233,20 +238,19 @@ export function EstimateSettingsSummaryBar({
                 onClick={openSection("general")}
               />
               {/* Overflow popover for simplified mode */}
-              <Popover
-                hover
-                portal
-                trigger={
-                  <button
-                    type="button"
-                    className="estimate-summary-bar__chip"
-                    aria-label="Voir les détails de TVA, remise et TTC"
-                  >
-                    ...
-                  </button>
-                }
-              >
-                <div className="estimate-summary-bar__popover-content">
+              <Popover open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
+                <PopoverTrigger
+                  openOnHover
+                  delay={200}
+                  className="estimate-summary-bar__chip"
+                  aria-label="Voir les détails de TVA, remise et TTC"
+                >
+                  <MoreHorizontalIcon aria-hidden="true" size={14} />
+                </PopoverTrigger>
+                <PopoverContent
+                  side="bottom"
+                  className="estimate-summary-bar__popover-content w-auto gap-0.5 p-1.5"
+                >
                   <PopoverRow
                     label="TVA"
                     value={derived.tvaPercent}
@@ -274,7 +278,7 @@ export function EstimateSettingsSummaryBar({
                     value={derived.totalTtc}
                     onClick={openSection("rounding")}
                   />
-                </div>
+                </PopoverContent>
               </Popover>
             </>
           )}

@@ -1,10 +1,16 @@
 "use client";
 
+import { CopyIcon, PencilIcon, Trash2Icon } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+
 type TemplateActionMenuProps = {
   onRename: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
   disabled?: boolean;
+  /** Name of the row, appended to the accessible names of the actions. */
+  itemName?: string;
 };
 
 export function TemplateActionMenu({
@@ -12,33 +18,45 @@ export function TemplateActionMenu({
   onDuplicate,
   onDelete,
   disabled,
+  itemName,
 }: TemplateActionMenuProps) {
+  const suffix = itemName ? ` ${itemName}` : "";
+
   return (
-    <div className="flex items-center gap-2">
-      <button
-        className="btn btn-ghost btn-sm"
+    <div className="flex items-center gap-1">
+      <Button
+        variant="ghost"
+        size="sm"
         type="button"
         onClick={onRename}
         disabled={disabled}
+        aria-label={`Renommer${suffix}`}
+        leftIcon={<PencilIcon aria-hidden="true" />}
       >
         Renommer
-      </button>
-      <button
-        className="btn btn-ghost btn-sm"
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
         type="button"
         onClick={onDuplicate}
         disabled={disabled}
+        aria-label={`Dupliquer${suffix}`}
+        leftIcon={<CopyIcon aria-hidden="true" />}
       >
         Dupliquer
-      </button>
-      <button
-        className="btn btn-danger btn-sm"
+      </Button>
+      <Button
+        variant="danger"
+        size="sm"
         type="button"
         onClick={onDelete}
         disabled={disabled}
+        aria-label={`Supprimer${suffix}`}
+        leftIcon={<Trash2Icon aria-hidden="true" />}
       >
         Supprimer
-      </button>
+      </Button>
     </div>
   );
 }

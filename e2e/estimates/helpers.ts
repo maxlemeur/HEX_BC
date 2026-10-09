@@ -404,7 +404,7 @@ export async function createEstimateViaWizard(
   ]);
 
   const versionId = extractVersionIdFromUrl(page.url());
-  const loadingStatus = page.getByText("Chargement du chiffrage...");
+  const loadingStatus = page.getByText(/Chargement du chiffrage(…|\.\.\.)/);
   await loadingStatus.waitFor({ state: "hidden", timeout: 30_000 }).catch(() => {});
   await expect(
     page.getByRole("heading", { name: /Éditer le chiffrage|Éditer le chiffrage/i })
@@ -1000,7 +1000,9 @@ export async function setEstimateStatusViaApi(
 export async function openPrintPage(page: Page, versionId: string) {
   await page.goto(`/dashboard/estimates/${versionId}/print`);
   await expect(page).toHaveURL(new RegExp(`/dashboard/estimates/${versionId}/print`));
-  await expect(page.getByRole("button", { name: /Imprimer \/ PDF/i })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /Imprimer \/ PDF|Mise en page \/ imprimer/i })
+  ).toBeVisible();
   await expect(page.getByRole("heading", { name: /^Devis$/i })).toBeVisible();
 }
 

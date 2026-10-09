@@ -1,5 +1,12 @@
+import { ChevronDownIcon, FileDownIcon } from "lucide-react";
+
 import { EstimateExplanationTrigger } from "@/components/estimates/EstimateExplanationTrigger";
+import { EmptyState } from "@/components/layout/empty-state";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { formatEUR } from "@/lib/money";
+import { cn } from "@/lib/utils";
 import type {
   EstimateVersionChangelog,
   EstimateVersionChangelogChange,
@@ -58,14 +65,31 @@ function changeTypeLabel(changeType: EstimateVersionChangelogChange["changeType"
   return "Modification";
 }
 
-function changeTypeBadgeClass(changeType: EstimateVersionChangelogChange["changeType"]) {
-  if (changeType === "added") {
-    return "border border-emerald-200 bg-emerald-50 text-emerald-700";
-  }
-  if (changeType === "removed") {
-    return "border border-rose-200 bg-rose-50 text-rose-700";
-  }
-  return "border border-amber-200 bg-amber-50 text-amber-700";
+function changeTypeBadgeVariant(
+  changeType: EstimateVersionChangelogChange["changeType"]
+): BadgeProps["variant"] {
+  if (changeType === "added") return "success";
+  if (changeType === "removed") return "danger";
+  return "warning";
+}
+
+function deltaToneClass(cents: number) {
+  return cents >= 0 ? "text-success" : "text-danger";
+}
+
+function ExportPdfLink({ href }: { href: string }) {
+  return (
+    <a
+      className={buttonVariants({ variant: "outline", size: "sm" })}
+      href={href}
+      target="_blank"
+      rel="noreferrer noopener"
+    >
+      <FileDownIcon aria-hidden="true" />
+      Exporter le journal (PDF)
+      <span className="sr-only"> (nouvel onglet)</span>
+    </a>
+  );
 }
 
 function entityTypeLabel(entityType: EstimateVersionChangelogChange["entityType"]) {
@@ -83,143 +107,117 @@ export function EstimateChangelogView({
 }: Readonly<EstimateChangelogViewProps>) {
   if (changelog.summary.totalChangeCount === 0) {
     return (
-      <section className="dashboard-card p-6 text-sm text-slate-600">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p>Aucun changement detecte entre les deux versions.</p>
-          {exportPdfHref ? (
-            <a
-              className="btn btn-secondary btn-sm"
-              href={exportPdfHref}
-              target="_blank"
-              rel="noreferrer noopener"
-            >
-              Exporter changelog PDF
-            </a>
-          ) : null}
-        </div>
-      </section>
+      <EmptyState
+        title="Aucun changement détecté"
+        description="Les deux versions sélectionnées ont le même contenu et les mêmes totaux."
+        headingLevel={2}
+        action={exportPdfHref ? <ExportPdfLink href={exportPdfHref} /> : undefined}
+      />
     );
   }
 
   return (
     <div className="space-y-4">
-      <section className="dashboard-card p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-semibold text-foreground">
-              Changelog automatique
-            </h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Groupement par section, avec deltas HT/TTC et champs avant/apres.
-            </p>
+      <Card className="p-4">
+        <section aria-labelledby="estimate-changelog-title">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 id="estimate-changelog-title" className="text-sm font-semibold text-foreground">
+                Journal des modifications
+              </h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Regroupé par section, avec les écarts HT/TTC et les valeurs avant/après.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <EstimateExplanationTrigger
+                kind="delta"
+                versionId={versionId}
+                compareVersionId={compareVersionId}
+                currentVersionLabel={currentVersionLabel}
+                compareVersionLabel={previousVersionLabel}
+                triggerLabel="Expliquer l’écart"
+                surfaceLabel="Explication de l’écart entre versions"
+              />
+              {exportPdfHref ? <ExportPdfLink href={exportPdfHref} /> : null}
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <EstimateExplanationTrigger
-              kind="delta"
-              versionId={versionId}
-              compareVersionId={compareVersionId}
-              currentVersionLabel={currentVersionLabel}
-              compareVersionLabel={previousVersionLabel}
-              triggerLabel="Expliquer le delta"
-              surfaceLabel="Explication delta entre versions"
-            />
-            {exportPdfHref ? (
-              <a
-                className="btn btn-secondary btn-sm"
-                href={exportPdfHref}
-                target="_blank"
-                rel="noreferrer noopener"
-              >
-                Exporter changelog PDF
-              </a>
-            ) : null}
-          </div>
-        </div>
 
-        <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-          <div className="rounded-lg border border-border bg-surface px-3 py-2">
-            <p className="text-xs text-muted-foreground">Ajouts</p>
-            <p className="text-lg font-semibold text-emerald-700">
-              {changelog.summary.addedCount}
-            </p>
-          </div>
-          <div className="rounded-lg border border-border bg-surface px-3 py-2">
-            <p className="text-xs text-muted-foreground">Suppressions</p>
-            <p className="text-lg font-semibold text-rose-700">
-              {changelog.summary.removedCount}
-            </p>
-          </div>
-          <div className="rounded-lg border border-border bg-surface px-3 py-2">
-            <p className="text-xs text-muted-foreground">Modifications</p>
-            <p className="text-lg font-semibold text-amber-700">
-              {changelog.summary.modifiedCount}
-            </p>
-          </div>
-          <div className="rounded-lg border border-border bg-surface px-3 py-2">
-            <p className="text-xs text-muted-foreground">Delta HT total</p>
-            <p
-              className={`text-lg font-semibold ${
-                changelog.summary.deltaHtCents >= 0 ? "text-emerald-700" : "text-rose-700"
-              }`}
-            >
-              {formatDelta(changelog.summary.deltaHtCents)}
-            </p>
-          </div>
-          <div className="rounded-lg border border-border bg-surface px-3 py-2">
-            <p className="text-xs text-muted-foreground">Delta TTC total</p>
-            <p
-              className={`text-lg font-semibold ${
-                changelog.summary.deltaTtcCents >= 0 ? "text-emerald-700" : "text-rose-700"
-              }`}
-            >
-              {formatDelta(changelog.summary.deltaTtcCents)}
-            </p>
-          </div>
-          <div className="rounded-lg border border-border bg-surface px-3 py-2">
-            <p className="text-xs text-muted-foreground">Lignes du changelog</p>
-            <p className="text-lg font-semibold text-foreground">
-              {changelog.summary.totalChangeCount}
-            </p>
-          </div>
-        </div>
-      </section>
+          <dl className="mt-3 grid gap-3 min-[420px]:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+            <div className="rounded-lg border border-border bg-surface px-3 py-2">
+              <dt className="text-xs text-muted-foreground">Ajouts</dt>
+              <dd className="text-lg font-semibold tabular-nums text-success">
+                {changelog.summary.addedCount}
+              </dd>
+            </div>
+            <div className="rounded-lg border border-border bg-surface px-3 py-2">
+              <dt className="text-xs text-muted-foreground">Suppressions</dt>
+              <dd className="text-lg font-semibold tabular-nums text-danger">
+                {changelog.summary.removedCount}
+              </dd>
+            </div>
+            <div className="rounded-lg border border-border bg-surface px-3 py-2">
+              <dt className="text-xs text-muted-foreground">Modifications</dt>
+              <dd className="text-lg font-semibold tabular-nums text-warning">
+                {changelog.summary.modifiedCount}
+              </dd>
+            </div>
+            <div className="rounded-lg border border-border bg-surface px-3 py-2">
+              <dt className="text-xs text-muted-foreground">Écart HT total</dt>
+              <dd className={cn("text-lg font-semibold tabular-nums", deltaToneClass(changelog.summary.deltaHtCents))}>
+                {formatDelta(changelog.summary.deltaHtCents)}
+              </dd>
+            </div>
+            <div className="rounded-lg border border-border bg-surface px-3 py-2">
+              <dt className="text-xs text-muted-foreground">Écart TTC total</dt>
+              <dd className={cn("text-lg font-semibold tabular-nums", deltaToneClass(changelog.summary.deltaTtcCents))}>
+                {formatDelta(changelog.summary.deltaTtcCents)}
+              </dd>
+            </div>
+            <div className="rounded-lg border border-border bg-surface px-3 py-2">
+              <dt className="text-xs text-muted-foreground">Changements</dt>
+              <dd className="text-lg font-semibold tabular-nums text-foreground">
+                {changelog.summary.totalChangeCount}
+              </dd>
+            </div>
+          </dl>
+        </section>
+      </Card>
 
       {changelog.sections.map((section, sectionIndex) => (
         <details
           key={section.key}
-          className="dashboard-card overflow-hidden"
+          className="group min-w-0 overflow-hidden rounded-lg border border-border bg-surface shadow-card"
           open={sectionIndex === 0}
         >
-          <summary className="cursor-pointer list-none border-b border-border px-4 py-3">
+          <summary className="cursor-pointer list-none border-b border-border-subtle px-4 py-3 transition-colors hover:bg-surface-subtle focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">
-                  Section
-                </p>
-                <p className="text-sm font-semibold text-foreground">{section.label}</p>
+              <div className="flex min-w-0 items-center gap-2">
+                <ChevronDownIcon
+                  aria-hidden="true"
+                  className="size-4 shrink-0 -rotate-90 text-muted-foreground transition-transform group-open:rotate-0 motion-reduce:transition-none"
+                />
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Section
+                  </p>
+                  <p className="break-words text-sm font-semibold text-foreground">{section.label}</p>
+                </div>
               </div>
-              <div className="grid grid-cols-2 gap-2 text-right text-xs">
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-right text-xs">
                 <div>
-                  <p className="text-muted-foreground">Delta HT</p>
-                  <p
-                    className={`font-semibold ${
-                      section.deltaHtCents >= 0 ? "text-emerald-700" : "text-rose-700"
-                    }`}
-                  >
+                  <dt className="text-muted-foreground">Écart HT</dt>
+                  <dd className={cn("font-semibold tabular-nums", deltaToneClass(section.deltaHtCents))}>
                     {formatDelta(section.deltaHtCents)}
-                  </p>
+                  </dd>
                 </div>
                 <div>
-                  <p className="text-muted-foreground">Delta TTC</p>
-                  <p
-                    className={`font-semibold ${
-                      section.deltaTtcCents >= 0 ? "text-emerald-700" : "text-rose-700"
-                    }`}
-                  >
+                  <dt className="text-muted-foreground">Écart TTC</dt>
+                  <dd className={cn("font-semibold tabular-nums", deltaToneClass(section.deltaTtcCents))}>
                     {formatDelta(section.deltaTtcCents)}
-                  </p>
+                  </dd>
                 </div>
-              </div>
+              </dl>
             </div>
           </summary>
 
@@ -227,38 +225,28 @@ export function EstimateChangelogView({
             {section.changes.map((change) => (
               <article
                 key={change.key}
-                className="rounded-xl border border-border bg-surface p-3"
+                className="rounded-lg border border-border bg-surface p-3"
               >
                 <header className="flex flex-wrap items-start justify-between gap-2">
-                  <div className="space-y-1">
+                  <div className="min-w-0 space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span
-                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${changeTypeBadgeClass(change.changeType)}`}
-                      >
+                      <Badge variant={changeTypeBadgeVariant(change.changeType)} size="sm">
                         {changeTypeLabel(change.changeType)}
-                      </span>
-                      <span className="text-xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">
+                      </Badge>
+                      <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                         {entityTypeLabel(change.entityType)}
                       </span>
                     </div>
-                    <h3 className="text-sm font-semibold text-foreground">
+                    <h3 className="break-words text-sm font-semibold text-foreground">
                       {change.designation}
                     </h3>
                   </div>
 
                   <div className="flex items-center gap-3 text-xs">
-                    <span
-                      className={`font-semibold ${
-                        change.deltaHtCents >= 0 ? "text-emerald-700" : "text-rose-700"
-                      }`}
-                    >
+                    <span className={cn("font-semibold tabular-nums", deltaToneClass(change.deltaHtCents))}>
                       HT {formatDelta(change.deltaHtCents)}
                     </span>
-                    <span
-                      className={`font-semibold ${
-                        change.deltaTtcCents >= 0 ? "text-emerald-700" : "text-rose-700"
-                      }`}
-                    >
+                    <span className={cn("font-semibold tabular-nums", deltaToneClass(change.deltaTtcCents))}>
                       TTC {formatDelta(change.deltaTtcCents)}
                     </span>
                   </div>
@@ -266,12 +254,12 @@ export function EstimateChangelogView({
 
                 {change.fields.length > 0 ? (
                   <div className="mt-3 overflow-hidden rounded-lg border border-border">
-                    <table className="data-table w-full">
+                    <table className="data-table w-full [&_td]:break-words">
                       <thead>
                         <tr>
-                          <th>Champ</th>
-                          <th>{previousVersionLabel}</th>
-                          <th>{currentVersionLabel}</th>
+                          <th scope="col">Champ</th>
+                          <th scope="col">{previousVersionLabel}</th>
+                          <th scope="col">{currentVersionLabel}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -291,7 +279,7 @@ export function EstimateChangelogView({
                   </div>
                 ) : (
                   <p className="mt-3 text-xs text-muted-foreground">
-                    Aucun détail champ disponible.
+                    Aucun détail de champ disponible.
                   </p>
                 )}
               </article>

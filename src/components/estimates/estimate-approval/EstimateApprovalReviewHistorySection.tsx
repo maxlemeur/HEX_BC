@@ -16,10 +16,10 @@ export function EstimateApprovalReviewHistorySection({
   }
 
   return (
-    <section className="rounded-xl border border-border bg-surface px-4 py-4">
+    <section className="rounded-lg border border-border bg-surface p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-semibold text-slate-800">
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-foreground">
             Dernière décision
           </h3>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -31,9 +31,9 @@ export function EstimateApprovalReviewHistorySection({
       </div>
 
       {latestReview.assignedReviewer ? (
-        <p className="mt-4 text-sm text-foreground-secondary">
-          Validateur assigne:{" "}
-          <span className="font-medium text-slate-800">
+        <p className="mt-4 break-words text-sm text-foreground-secondary">
+          Validateur assigné :{" "}
+          <span className="font-medium text-foreground">
             {latestReview.assignedReviewer.fullName}
           </span>
           {latestReview.assignedReviewer.workEmail
@@ -42,18 +42,18 @@ export function EstimateApprovalReviewHistorySection({
         </p>
       ) : null}
       {latestReview.submissionMessage ? (
-        <div className="mt-4 rounded-xl border border-border bg-surface-subtle px-3 py-3">
+        <div className="mt-4 rounded-lg border border-border-subtle bg-surface-subtle px-3 py-3">
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Message de contexte
           </p>
-          <p className="mt-1 text-sm text-foreground-secondary">
+          <p className="mt-1 whitespace-pre-line break-words text-sm text-foreground-secondary">
             {latestReview.submissionMessage}
           </p>
         </div>
       ) : null}
 
       {latestReview.comments.length === 0 ? (
-        <p className="mt-4 text-sm text-slate-600">
+        <p className="mt-4 text-sm text-muted-foreground">
           Aucun commentaire ciblé n&apos;a été enregistré sur ce cycle.
         </p>
       ) : (
@@ -71,21 +71,21 @@ export function EstimateApprovalReviewHistorySection({
                   {SCOPE_LABELS[group.scopeType]}
                   {group.comments.length > 1 ? ` (${group.comments.length})` : ""}
                 </p>
-                <div className="space-y-2">
+                <ul className="space-y-2">
                   {group.comments.map((comment) => (
-                    <article
+                    <li
                       key={comment.id}
-                      className="rounded-xl border border-border bg-surface-subtle px-3 py-3"
+                      className="rounded-lg border border-border-subtle bg-surface-subtle px-3 py-3"
                     >
                       <div className="flex flex-wrap items-start justify-between gap-2">
-                        <p className="text-sm font-semibold text-slate-800">
+                        <p className="min-w-0 break-words text-sm font-semibold text-foreground">
                           {comment.scopeLabel}
                         </p>
                         <span className="text-xs text-muted-foreground">
                           {formatDateTime(comment.createdAt)}
                         </span>
                       </div>
-                      <p className="mt-2 text-sm text-foreground-secondary">
+                      <p className="mt-2 break-words text-sm text-foreground-secondary">
                         {comment.comment}
                       </p>
                       {comment.authorName ? (
@@ -93,17 +93,17 @@ export function EstimateApprovalReviewHistorySection({
                           Par {comment.authorName}
                         </p>
                       ) : null}
-                    </article>
+                    </li>
                   ))}
-                </div>
+                </ul>
               </div>
             ))}
         </div>
       )}
 
       {olderReviews.length > 0 ? (
-        <details className="mt-4 rounded-xl border border-border bg-surface-subtle px-3 py-3">
-          <summary className="cursor-pointer text-sm font-medium text-foreground-secondary">
+        <details className="mt-4 rounded-lg border border-border-subtle bg-surface-subtle px-3 py-3">
+          <summary className="cursor-pointer rounded-sm text-sm font-medium text-foreground-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
             Voir les cycles précédents ({olderReviews.length})
           </summary>
           <div className="mt-3 space-y-3">
@@ -113,8 +113,8 @@ export function EstimateApprovalReviewHistorySection({
                 className="rounded-lg border border-border bg-surface px-3 py-3"
               >
                 <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-800">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-foreground">
                       Cycle {cycle.cycleNumber}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
@@ -125,23 +125,24 @@ export function EstimateApprovalReviewHistorySection({
                   <DecisionBadge decision={cycle.decision} />
                 </div>
                 {cycle.assignedReviewer ? (
-                  <p className="mt-3 text-sm text-foreground-secondary">
-                    Validateur assigne: {cycle.assignedReviewer.fullName}
+                  <p className="mt-3 break-words text-sm text-foreground-secondary">
+                    Validateur assigné : {cycle.assignedReviewer.fullName}
                   </p>
                 ) : null}
                 {cycle.submissionMessage ? (
-                  <p className="mt-2 text-sm text-slate-600">
+                  <p className="mt-2 whitespace-pre-line break-words text-sm text-foreground-secondary">
                     {cycle.submissionMessage}
                   </p>
                 ) : null}
                 {cycle.comments.length > 0 ? (
                   <ul className="mt-3 space-y-2">
                     {cycle.comments.map((comment) => (
-                      <li key={comment.id} className="text-sm text-foreground-secondary">
-                        <span className="font-medium text-slate-800">
+                      <li key={comment.id} className="break-words text-sm text-foreground-secondary">
+                        <span className="font-medium text-foreground">
                           {comment.scopeLabel}
                         </span>
-                        : {comment.comment}
+                        {" : "}
+                        {comment.comment}
                       </li>
                     ))}
                   </ul>

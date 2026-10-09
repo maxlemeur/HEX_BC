@@ -1,8 +1,7 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { AffaireBreadcrumb } from "@/components/AffaireBreadcrumb";
 import { EstimateDocument } from "@/components/EstimateDocument";
+import { PageHeader } from "@/components/layout/page-header";
 import { PrintTitle } from "@/components/PrintTitle";
 import {
   SealIntegrityBadge,
@@ -37,7 +36,6 @@ import { normalizeEstimateCurrency } from "@/lib/money";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 import { EstimatePrintLayoutButton } from "./EstimatePrintLayoutButton";
-import { ChevronLeftIcon } from "lucide-react";
 
 type EstimateProject =
   Database["public"]["Tables"]["estimate_projects"]["Row"];
@@ -319,65 +317,39 @@ export default async function PrintEstimatePage({
   const estimatePortalUrl = resolveEstimatePortalUrl(versionId);
 
   return (
-    <div className="min-h-screen bg-muted print:bg-surface">
+    <div className="min-h-screen print:bg-surface">
       <PrintTitle title={printTitle} />
-      <div className="no-print sticky top-0 z-10 border-b border-border bg-surface/95 backdrop-blur-md">
-        <div className="mx-auto max-w-5xl px-6 pt-3">
-          {version.project_id && project?.name && (
-            <AffaireBreadcrumb
-              projectId={version.project_id}
-              projectName={project.name}
-              versionNumber={version.version_number}
-              pageSuffix="Impression"
-            />
-          )}
-        </div>
-        <div className="mx-auto flex max-w-5xl flex-col items-stretch gap-4 px-6 pb-5 pt-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
-          <div className="flex min-w-0 items-center gap-3 sm:gap-5">
-            <Link
-              className="btn btn-ghost btn-sm shrink-0"
-              href={`/dashboard/estimates/${versionId}`}
-            >
-              <ChevronLeftIcon aria-hidden="true" size={18} />
-              Retour
-            </Link>
-            <div className="hidden h-10 w-px shrink-0 bg-slate-200 sm:block" />
-            <div className="min-w-0">
-              <h1 className="truncate text-xl font-bold tracking-[-0.02em] text-foreground sm:text-2xl">
-                Aperçu avant impression
-              </h1>
-              <div className="mt-2 hidden flex-wrap items-center gap-2 text-sm text-muted-foreground md:flex">
-                <span className="font-medium text-slate-600">
-                  Devis V{version.version_number}
-                </span>
-                <span aria-hidden className="text-slate-300">
-                  •
-                </span>
-                <SealIntegrityBadge state={sealState} hashPrefix={sealHashPrefix} />
-                <span aria-hidden className="text-slate-300">
-                  •
-                </span>
-                <span>Configuration : {layoutDescription}</span>
-              </div>
-            </div>
-          </div>
-          <div className="shrink-0">
+      <div className="no-print z-10 -mx-3 md:sticky md:top-0 border-b border-border bg-surface/95 px-3 py-4 backdrop-blur-md sm:-mx-6 sm:px-6">
+        <PageHeader
+          className="mx-auto mb-0 max-w-5xl sm:mb-0"
+          breadcrumbs={[
+            { label: "Affaires", href: "/dashboard/affaires" },
+            ...(version.project_id && project?.name
+              ? [{ label: project.name, href: `/dashboard/affaires/${version.project_id}` }]
+              : []),
+            { label: `V${version.version_number}`, href: `/dashboard/estimates/${versionId}` },
+            { label: "Impression" },
+          ]}
+          title="Aperçu avant impression"
+          meta={
+            <>
+              <span className="font-medium text-foreground-secondary">
+                Devis V{version.version_number}
+              </span>
+              <SealIntegrityBadge state={sealState} hashPrefix={sealHashPrefix} />
+              <span className="text-muted-foreground">
+                Configuration : {layoutDescription}
+              </span>
+            </>
+          }
+          actions={
             <EstimatePrintLayoutButton
               versionId={versionId}
               initialLayout={previewLayout.layout}
               autoPrint={autoPrint}
             />
-          </div>
-        </div>
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-2 px-6 pb-4 text-sm text-muted-foreground md:hidden">
-          <span className="font-medium text-slate-600">
-            Devis V{version.version_number}
-          </span>
-          <SealIntegrityBadge state={sealState} hashPrefix={sealHashPrefix} />
-          <span className="basis-full sm:basis-auto sm:pl-2">
-            Configuration : {layoutDescription}
-          </span>
-        </div>
+          }
+        />
       </div>
 
       <div className="py-8 print:py-0">

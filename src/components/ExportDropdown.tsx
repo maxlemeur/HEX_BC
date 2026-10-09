@@ -1,7 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDownIcon, DownloadIcon, SquareChevronRightIcon, SquareMenuIcon } from "lucide-react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { ChevronDownIcon, DownloadIcon, FileSpreadsheetIcon, FileTextIcon } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 type ExportDropdownProps = {
   onExportExcel: () => void;
@@ -11,15 +14,20 @@ type ExportDropdownProps = {
   loadingLabel?: string;
 };
 
+const itemClass =
+  "flex w-full items-center gap-3 rounded-control px-3 py-2 text-left text-sm font-medium text-foreground-secondary transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground";
+
 export function ExportDropdown({
   onExportExcel,
   onExportCSV,
   disabled = false,
   loading = false,
-  loadingLabel = "Export en cours...",
+  loadingLabel = "Export en cours…",
 }: ExportDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelId = useId();
 
   useEffect(() => {
     if (!isOpen) return;
@@ -32,9 +40,19 @@ export function ExportDropdown({
         setIsOpen(false);
       }
     };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setIsOpen(false);
+      triggerRef.current?.focus();
+    };
 
     document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
   }, [isOpen]);
 
   const handleExcelClick = useCallback(() => {
@@ -49,37 +67,47 @@ export function ExportDropdown({
 
   return (
     <div ref={containerRef} className="relative">
-      <button
+      <Button
+        ref={triggerRef}
         type="button"
-        className="btn btn-secondary btn-sm"
+        variant="outline"
+        size="md"
         onClick={() => setIsOpen(!isOpen)}
         disabled={disabled || loading}
         aria-expanded={isOpen}
-        aria-haspopup="true"
+        aria-controls={isOpen ? panelId : undefined}
+        leftIcon={<DownloadIcon aria-hidden="true" />}
+        rightIcon={
+          <ChevronDownIcon
+            aria-hidden="true"
+            className={cn("size-3.5 transition-transform motion-reduce:transition-none", isOpen && "rotate-180")}
+          />
+        }
       >
-        <DownloadIcon aria-hidden="true" size={16} />
         {loading ? loadingLabel : "Exporter"}
-        <ChevronDownIcon aria-hidden="true" className={`transition-transform ${isOpen ? "rotate-180" : ""}`} size={14} />
-      </button>
+      </Button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-2 w-48 rounded-xl border border-border bg-surface p-2 shadow-lg z-50">
+        <div
+          id={panelId}
+          className="absolute right-0 top-full z-50 mt-2 w-52 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-dropdown"
+        >
           <button
             type="button"
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-foreground-secondary hover:bg-surface-subtle transition-colors"
+            className={itemClass}
             onClick={handleExcelClick}
             disabled={loading}
           >
-            <SquareChevronRightIcon aria-hidden="true" size={18} />
+            <FileSpreadsheetIcon aria-hidden="true" />
             Excel (.xlsx)
           </button>
           <button
             type="button"
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-foreground-secondary hover:bg-surface-subtle transition-colors"
+            className={itemClass}
             onClick={handleCSVClick}
             disabled={loading}
           >
-            <SquareMenuIcon aria-hidden="true" size={18} />
+            <FileTextIcon aria-hidden="true" />
             Fichier CSV (.csv)
           </button>
         </div>

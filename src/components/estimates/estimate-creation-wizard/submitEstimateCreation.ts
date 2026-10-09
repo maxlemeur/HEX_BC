@@ -51,7 +51,7 @@ export async function submitEstimateCreation({
       return {
         versionId: templateResult.versionId,
         linkedDpgfImportWarning: detail
-          ? `Le chiffrage a été créé, mais le DPGF source n'a pas pu être importé: ${detail}`
+          ? `Le chiffrage a été créé, mais le DPGF source n'a pas pu être importé : ${detail}`
           : "Le chiffrage a été créé, mais le DPGF source n'a pas pu être importé.",
       };
     }

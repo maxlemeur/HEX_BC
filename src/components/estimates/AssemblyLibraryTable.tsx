@@ -1,7 +1,28 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useRef, useState } from "react";
+import {
+  BoxesIcon,
+  ChevronRightIcon,
+  CopyIcon,
+  EllipsisIcon,
+  PencilIcon,
+  Trash2Icon,
+  TypeIcon,
+} from "lucide-react";
 
+import { EmptyTableRow } from "@/components/layout/empty-state";
+import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 import type {
   EstimateAssemblyDetail,
   EstimateAssemblyLaborRole,
@@ -142,36 +163,36 @@ function AssemblyContentPreview({
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Contenu de l&apos;ouvrage
         </p>
-        <span className="rounded-full bg-surface px-2.5 py-1 text-xs font-medium text-slate-600 shadow-sm">
+        <Badge variant="outline">
           {formatContentCount(
             detail?.items.length ?? assembly.itemCount,
             detail?.members?.length ?? assembly.memberCount ?? 0
           )}
-        </span>
+        </Badge>
       </div>
 
       <div className="mb-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-lg border border-border bg-surface px-3 py-2">
           <span className="text-xs text-muted-foreground">Référence</span>
-          <p className="mt-0.5 font-mono text-sm font-semibold text-slate-800">
+          <p className="mt-0.5 font-mono text-sm font-semibold text-foreground">
             {detail?.referenceCode ?? assembly.referenceCode ?? assembly.id.slice(0, 8)}
           </p>
         </div>
         <div className="rounded-lg border border-border bg-surface px-3 py-2">
           <span className="text-xs text-muted-foreground">Coût direct</span>
-          <p className="mt-0.5 text-sm font-semibold text-slate-800">
+          <p className="mt-0.5 text-sm font-semibold text-foreground">
             {formatCurrency(metrics?.directCostCents ?? assembly.directCostCents)}
           </p>
         </div>
         <div className="rounded-lg border border-border bg-surface px-3 py-2">
           <span className="text-xs text-muted-foreground">Temps MO total</span>
-          <p className="mt-0.5 text-sm font-semibold text-slate-800">
+          <p className="mt-0.5 text-sm font-semibold text-foreground">
             {formatNumber(metrics?.laborHours ?? assembly.averageTimeHours, "0")} h
           </p>
         </div>
         <div className="rounded-lg border border-border bg-surface px-3 py-2">
           <span className="text-xs text-muted-foreground">Prix cible</span>
-          <p className="mt-0.5 text-sm font-semibold text-slate-800">
+          <p className="mt-0.5 text-sm font-semibold text-foreground">
             {formatCurrency(
               detail?.targetPriceCents ?? assembly.targetPriceCents
             )}
@@ -180,7 +201,12 @@ function AssemblyContentPreview({
       </div>
 
       {!isLoading && !error && detail?.members?.length ? (
-        <div className="mb-3 overflow-x-auto rounded-lg border border-border bg-surface">
+        <div
+          className="relative mb-3 overflow-x-auto rounded-lg border border-border bg-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          role="region"
+          aria-label={`Sous-ouvrages de ${assembly.name}`}
+          tabIndex={0}
+        >
           <table className="w-full min-w-[620px] text-sm">
             <thead>
               <tr className="bg-surface-subtle text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -195,7 +221,7 @@ function AssemblyContentPreview({
                 .sort((first, second) => first.position - second.position)
                 .map((member) => (
                   <tr key={member.id}>
-                    <td className="px-4 py-3 font-semibold text-slate-800">
+                    <td className="px-4 py-3 font-semibold text-foreground">
                       {member.child_assembly?.name ?? "Ouvrage indisponible"}
                     </td>
                     <td className="px-4 py-3 font-mono">
@@ -228,18 +254,21 @@ function AssemblyContentPreview({
           Chargement du contenu…
         </div>
       ) : error ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-          <span>{error}</span>
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            onClick={onRetry}
-          >
-            Réessayer
-          </button>
-        </div>
+        <Alert variant="danger">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>{error}</span>
+            <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+              Réessayer
+            </Button>
+          </div>
+        </Alert>
       ) : detail?.items.length ? (
-        <div className="overflow-x-auto rounded-lg border border-border bg-surface">
+        <div
+          className="relative overflow-x-auto rounded-lg border border-border bg-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          role="region"
+          aria-label={`Lignes de ${assembly.name}`}
+          tabIndex={0}
+        >
           <table className="w-full min-w-[960px] text-sm">
             <thead>
               <tr className="bg-surface-subtle text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -259,7 +288,7 @@ function AssemblyContentPreview({
                 .sort((first, second) => first.position - second.position)
                 .map((item) => (
                   <tr key={item.id}>
-                    <td className="px-4 py-3 font-medium text-slate-800">
+                    <td className="px-4 py-3 font-medium text-foreground">
                       {formatLegacyGeneratedText(item.title)}
                     </td>
                     <td className="px-4 py-3">
@@ -316,7 +345,6 @@ export function AssemblyLibraryTable({
   onDelete,
   loadAssembly,
 }: AssemblyLibraryTableProps) {
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [detailById, setDetailById] = useState<
     Record<string, EstimateAssemblyDetail>
@@ -326,26 +354,6 @@ export function AssemblyLibraryTable({
     {},
   );
   const loadingIdsRef = useRef<Set<string>>(new Set());
-
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!openMenuId) return;
-    const handleClick = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setOpenMenuId(null);
-      }
-    };
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpenMenuId(null);
-    };
-    document.addEventListener("mousedown", handleClick);
-    document.addEventListener("keydown", handleKey);
-    return () => {
-      document.removeEventListener("mousedown", handleClick);
-      document.removeEventListener("keydown", handleKey);
-    };
-  }, [openMenuId]);
 
   async function loadAssemblyDetail(assemblyId: string) {
     if (loadingIdsRef.current.has(assemblyId)) return;
@@ -400,27 +408,32 @@ export function AssemblyLibraryTable({
   }
 
   return (
-    <div className="table-scroll">
+    <div
+      className="table-scroll"
+      role="region"
+      aria-label="Bibliothèque d'ouvrages"
+      tabIndex={0}
+    >
       <table className="data-table">
         <thead>
           <tr>
-            <th>Nom</th>
-            <th>Description</th>
-            <th>Contenu</th>
-            <th>Créé le</th>
-            <th>Actions</th>
+            <th scope="col">Nom</th>
+            <th scope="col">Description</th>
+            <th scope="col">Contenu</th>
+            <th scope="col">Créé le</th>
+            <th scope="col">
+              <span className="sr-only">Actions</span>
+            </th>
           </tr>
         </thead>
         <tbody>
           {assemblies.length === 0 ? (
-            <tr>
-              <td
-                colSpan={5}
-                className="py-10 text-center text-muted-foreground"
-              >
-                Aucun ouvrage disponible.
-              </td>
-            </tr>
+            <EmptyTableRow
+              colSpan={5}
+              icon={<BoxesIcon />}
+              title="Aucun ouvrage disponible"
+              description="Créez un ouvrage pour réutiliser un groupe de lignes dans vos chiffrages."
+            />
           ) : (
             assemblies.map((assembly) => {
               const isBusy = busyAssemblyId === assembly.id;
@@ -435,9 +448,10 @@ export function AssemblyLibraryTable({
                   <tr>
                     <td>
                       <div className="flex items-center gap-2">
-                        <button
+                        <Button
                           type="button"
-                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-subtle-foreground transition-colors hover:bg-muted hover:text-foreground-secondary"
+                          variant="ghost"
+                          size="icon-xs"
                           onClick={() => toggleAssembly(assembly)}
                           aria-controls={previewId}
                           aria-expanded={isExpanded}
@@ -447,88 +461,62 @@ export function AssemblyLibraryTable({
                               : "Afficher le contenu de " + assembly.name
                           }
                         >
-                          <span aria-hidden="true">
-                            {isExpanded ? "\u25BC" : "\u25B6"}
-                          </span>
-                        </button>
-                        <div className="font-semibold text-slate-800">
+                          <ChevronRightIcon
+                            aria-hidden="true"
+                            className={cn(
+                              "transition-transform motion-reduce:transition-none",
+                              isExpanded && "rotate-90"
+                            )}
+                          />
+                        </Button>
+                        <div className="font-semibold text-foreground">
                           {assembly.name}
                         </div>
                       </div>
                     </td>
-                    <td className="text-slate-600">
+                    <td className="text-foreground-secondary">
                       {assembly.description?.trim()
                         ? formatLegacyGeneratedText(assembly.description.trim())
                         : "-"}
                     </td>
-                    <td className="font-mono">
-                      {assembly.itemCount} L · {assembly.memberCount ?? 0} O
+                    <td className="whitespace-nowrap">
+                      {formatContentCount(assembly.itemCount, assembly.memberCount ?? 0)}
                     </td>
-                    <td>{formatDate(assembly.createdAt)}</td>
+                    <td className="whitespace-nowrap">{formatDate(assembly.createdAt)}</td>
                     <td>
-                      <div
-                        className="relative"
-                        ref={openMenuId === assembly.id ? menuRef : undefined}
-                      >
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-sm px-2"
+                      <DropdownMenu>
+                        <DropdownMenuTrigger
                           disabled={isBusy}
-                          onClick={() =>
-                            setOpenMenuId(
-                              openMenuId === assembly.id ? null : assembly.id,
-                            )
+                          render={
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label={`Actions pour ${assembly.name}`}
+                            />
                           }
-                          aria-label="Actions"
                         >
-                          &middot;&middot;&middot;
-                        </button>
-                        {openMenuId === assembly.id && (
-                          <div className="absolute right-0 top-full z-20 mt-1 min-w-[160px] rounded-xl border border-border bg-surface py-1 shadow-xl">
-                            <button
-                              type="button"
-                              className="w-full px-4 py-2 text-left text-sm text-foreground-secondary hover:bg-surface-subtle"
-                              onClick={() => {
-                                setOpenMenuId(null);
-                                onEdit(assembly);
-                              }}
-                            >
-                              Éditer
-                            </button>
-                            <button
-                              type="button"
-                              className="w-full px-4 py-2 text-left text-sm text-foreground-secondary hover:bg-surface-subtle"
-                              onClick={() => {
-                                setOpenMenuId(null);
-                                onRename(assembly);
-                              }}
-                            >
-                              Renommer
-                            </button>
-                            <button
-                              type="button"
-                              className="w-full px-4 py-2 text-left text-sm text-foreground-secondary hover:bg-surface-subtle"
-                              onClick={() => {
-                                setOpenMenuId(null);
-                                onDuplicate(assembly);
-                              }}
-                            >
-                              Dupliquer
-                            </button>
-                            <div className="my-1 border-t border-border" />
-                            <button
-                              type="button"
-                              className="w-full px-4 py-2 text-left text-sm text-danger hover:bg-error-light"
-                              onClick={() => {
-                                setOpenMenuId(null);
-                                onDelete(assembly);
-                              }}
-                            >
-                              Supprimer
-                            </button>
-                          </div>
-                        )}
-                      </div>
+                          <EllipsisIcon aria-hidden="true" />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-44">
+                          <DropdownMenuItem onClick={() => onEdit(assembly)}>
+                            <PencilIcon aria-hidden="true" />
+                            Éditer
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => onRename(assembly)}>
+                            <TypeIcon aria-hidden="true" />
+                            Renommer
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => onDuplicate(assembly)}>
+                            <CopyIcon aria-hidden="true" />
+                            Dupliquer
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem variant="destructive" onClick={() => onDelete(assembly)}>
+                            <Trash2Icon aria-hidden="true" />
+                            Supprimer
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </td>
                   </tr>
                   {isExpanded ? (

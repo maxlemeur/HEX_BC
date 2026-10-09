@@ -5,6 +5,11 @@ import { useEffect, useMemo, useState } from "react";
 import { fetchApi } from "@/components/catalogue/api";
 import type { CatalogueItem } from "@/components/catalogue/types";
 import { fetchCatalogueSuggestions } from "@/components/estimates/components/estimate-editor-row/shared";
+import { LoadingState } from "@/components/layout/loading-state";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import {
   Sheet,
   SheetContent,
@@ -55,13 +60,13 @@ function ProductDetails({ product }: { product: CatalogueItem }) {
 
   return (
     <div className="space-y-5 px-4 pb-6">
-      <div className="rounded-lg border bg-muted/30 p-4">
+      <div className="rounded-lg border border-border bg-surface-subtle p-4">
         <p className="font-medium text-foreground">{product.designation}</p>
         <p className="mt-1 text-sm text-muted-foreground">
           Prix de référence : {formatCurrency(product.unit_price_cents ?? 0, "EUR")}
         </p>
         {product.is_active === false ? (
-          <p className="mt-2 text-sm text-amber-700">Article archivé</p>
+          <p className="mt-2 text-sm font-medium text-warning">Article archivé</p>
         ) : null}
       </div>
       <dl className="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-3 text-sm">
@@ -178,69 +183,72 @@ export function EstimateArticleSheet({
 
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent side="right" className="w-full sm:max-w-md">
-        <SheetHeader className="border-b pr-12">
+      <SheetContent
+        side="right"
+        className="bg-surface data-[side=right]:w-full data-[side=right]:sm:max-w-md"
+      >
+        <SheetHeader className="border-b border-border pr-12">
           <SheetTitle>{title}</SheetTitle>
           <SheetDescription>{description}</SheetDescription>
         </SheetHeader>
 
         {mode === "view" ? (
           <>
-            {isLoading ? <p className="px-4 text-sm text-muted-foreground">Chargement…</p> : null}
-            {error ? <p className="px-4 text-sm text-destructive">{error}</p> : null}
+            {isLoading ? <LoadingState className="justify-start px-4 py-0" /> : null}
+            {error ? <Alert variant="danger" className="mx-4 w-auto">{error}</Alert> : null}
             {product ? <ProductDetails product={product} /> : null}
             {!isReadOnly && productId ? (
-              <div className="mt-auto border-t p-4">
-                <button
-                  type="button"
-                  className="text-sm font-medium text-destructive hover:underline"
-                  onClick={onDetach}
-                >
+              <div className="mt-auto border-t border-border p-4">
+                <Button variant="danger" onClick={onDetach}>
                   Dissocier l’article de la ligne
-                </button>
+                </Button>
               </div>
             ) : null}
           </>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-6">
-            <label className="space-y-1">
-              <span className="text-sm font-medium">Rechercher dans le catalogue</span>
-              <input
-                autoFocus
-                className="h-10 w-full rounded-md border bg-background px-3 outline-none focus:border-primary"
+            <div className="grid gap-2">
+              <FieldLabel htmlFor="estimate-article-sheet-search">
+                Rechercher dans le catalogue
+              </FieldLabel>
+              <Input
+                id="estimate-article-sheet-search"
+                type="search"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Désignation ou référence"
               />
-            </label>
-            {isLoading ? <p className="text-sm text-muted-foreground">Recherche…</p> : null}
-            {error ? <p className="text-sm text-destructive">{error}</p> : null}
+            </div>
+            {isLoading ? <LoadingState label="Recherche…" className="justify-start py-0" /> : null}
+            {error ? <Alert variant="danger">{error}</Alert> : null}
             {!isLoading && !error && query.trim().length >= 2 && suggestions.length === 0 ? (
               <p className="text-sm text-muted-foreground">Aucun article trouvé.</p>
             ) : null}
-            <div className="min-h-0 overflow-y-auto rounded-md border">
-              {suggestions.map((suggestion) => (
-                <button
-                  type="button"
-                  key={suggestion.product_id}
-                  className="flex w-full items-start justify-between gap-3 border-b p-3 text-left last:border-b-0 hover:bg-muted/50 focus:bg-muted/50"
-                  onClick={() => onAssociate(suggestion)}
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate font-medium">
-                      {suggestion.product_designation}
+            {suggestions.length > 0 ? (
+              <div className="min-h-0 overflow-y-auto rounded-lg border border-border">
+                {suggestions.map((suggestion) => (
+                  <button
+                    type="button"
+                    key={suggestion.product_id}
+                    className="flex w-full items-start justify-between gap-3 border-b border-border-subtle p-3 text-left outline-none last:border-b-0 hover:bg-surface-subtle focus-visible:bg-surface-subtle focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+                    onClick={() => onAssociate(suggestion)}
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium text-foreground">
+                        {suggestion.product_designation}
+                      </span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {suggestion.product_reference ?? "Sans référence"}
+                        {suggestion.supplier_name ? ` · ${suggestion.supplier_name}` : ""}
+                      </span>
                     </span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {suggestion.product_reference ?? "Sans référence"}
-                      {suggestion.supplier_name ? ` · ${suggestion.supplier_name}` : ""}
+                    <span className="shrink-0 font-medium tabular-nums text-foreground">
+                      {formatCurrency(suggestion.adjusted_unit_price_cents, currency)}
                     </span>
-                  </span>
-                  <span className="shrink-0 font-medium">
-                    {formatCurrency(suggestion.adjusted_unit_price_cents, currency)}
-                  </span>
-                </button>
-              ))}
-            </div>
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
         )}
       </SheetContent>

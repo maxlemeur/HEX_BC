@@ -1,11 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { PlusIcon } from "lucide-react";
 
 import { fetchApi } from "@/components/catalogue/api";
 import type { CatalogueItem } from "@/components/catalogue/types";
-import { Modal } from "@/components/ui-legacy/Modal";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 import { formatEUR } from "@/lib/money";
+import { cn } from "@/lib/utils";
 import type {
   CreateEstimateAssemblyPayload,
   EstimateAssemblyDetail,
@@ -65,6 +72,24 @@ const COST_TYPE_OPTIONS: Array<{ value: AssemblyCostType; label: string }> = [
   { value: "equipment", label: "Matériel" },
   { value: "subcontract", label: "Sous-traitance" },
 ];
+
+/** Compact grid cells: borderless table look from `lg`, stacked fields below. */
+const CELL_INPUT_CLASS =
+  "px-2 lg:h-10 lg:rounded-none lg:border-0 lg:focus-visible:ring-2 lg:focus-visible:ring-inset lg:focus-visible:ring-primary";
+const CELL_SELECT_CLASS = `${CELL_INPUT_CLASS} pr-7`;
+const CELL_NUMBER_CLASS = `${CELL_INPUT_CLASS} text-right tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`;
+const FO_TINT_CLASS = "border-info-border bg-info-subtle focus-visible:border-info";
+const MO_TINT_CLASS = "border-warning-border bg-warning-subtle focus-visible:border-warning";
+const FO_HEADER_CLASS = "bg-info-light text-info";
+const MO_HEADER_CLASS = "bg-warning-light text-warning";
+
+function CellLabel({ htmlFor, children }: { htmlFor: string; children: React.ReactNode }) {
+  return (
+    <FieldLabel className="mb-1 text-xs lg:sr-only" htmlFor={htmlFor}>
+      {children}
+    </FieldLabel>
+  );
+}
 
 function createEmptyItem(sequence: number): AssemblyDraftItem {
   return {
@@ -274,8 +299,9 @@ function AssemblyCatalogueInput({
 
   return (
     <>
-      <input
+      <Input
         id={id}
+        size="sm"
         className={className}
         value={value}
         list={searchEnabled ? listId : undefined}
@@ -643,76 +669,58 @@ export function AssemblyEditorDialog({
   }
 
   return (
-    <Modal.Root
+    <Dialog
       open
+      disablePointerDismissal={isSubmitting}
       onOpenChange={(open) => {
         if (!open && !isSubmitting) onClose();
       }}
     >
-      <Modal.Content
-        closeOnOverlayClick={!isSubmitting}
-        closeOnEscapeKey={!isSubmitting}
-        containerClassName="sm:max-w-6xl"
-        className="max-h-[calc(100dvh-1rem)] overflow-y-auto p-0"
-      >
-        <div className="sticky top-0 z-20 border-b border-border bg-surface px-4 py-3 sm:px-5">
-          <Modal.Header className="mb-0">
-            <div>
-              <Modal.Title>{modalTitle}</Modal.Title>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Définissez les composants, leurs coûts et le temps de main-d’œuvre.
-              </p>
-            </div>
-            <Modal.Close disabled={isSubmitting}>Fermer</Modal.Close>
-          </Modal.Header>
-        </div>
+      <DialogContent size="full" className="gap-0 overflow-hidden p-0 sm:max-w-6xl sm:p-0">
+        <DialogHeader className="shrink-0 border-b border-border px-4 py-3 pr-14 sm:px-5">
+          <DialogTitle>{modalTitle}</DialogTitle>
+          <DialogDescription>
+            Définissez les composants, leurs coûts et le temps de main-d’œuvre.
+          </DialogDescription>
+        </DialogHeader>
 
-        <form className="grid gap-3 p-4 sm:p-5" onSubmit={handleSubmit}>
+        <form
+          id="assembly-editor-form"
+          className="grid min-h-0 flex-1 content-start gap-3 overflow-y-auto p-4 sm:p-5"
+          onSubmit={handleSubmit}
+        >
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <div className="md:col-span-2">
-              <label className="form-label" htmlFor="assembly-name">
-                Nom de l&apos;ouvrage *
-              </label>
-              <input
+            <div className="grid gap-2 md:col-span-2">
+              <FieldLabel htmlFor="assembly-name">Nom de l&apos;ouvrage *</FieldLabel>
+              <Input
                 id="assembly-name"
-                className="form-input"
                 value={name}
                 onChange={(event) => setName(event.target.value)}
-                data-modal-autofocus="true"
                 required
               />
             </div>
-            <div>
-              <label className="form-label" htmlFor="assembly-reference-code">
-                Code / référence
-              </label>
-              <input
+            <div className="grid gap-2">
+              <FieldLabel htmlFor="assembly-reference-code">Code / référence</FieldLabel>
+              <Input
                 id="assembly-reference-code"
-                className="form-input"
                 value={referenceCode}
                 onChange={(event) => setReferenceCode(event.target.value)}
                 placeholder="Ex. MAC-CLOI-048"
               />
             </div>
-            <div>
-              <label className="form-label" htmlFor="assembly-unit">
-                Unité de l&apos;ouvrage
-              </label>
-              <input
+            <div className="grid gap-2">
+              <FieldLabel htmlFor="assembly-unit">Unité de l&apos;ouvrage</FieldLabel>
+              <Input
                 id="assembly-unit"
-                className="form-input"
                 value={assemblyUnit}
                 onChange={(event) => setAssemblyUnit(event.target.value)}
                 placeholder="u, ml, m²…"
               />
             </div>
-            <div className="md:col-span-2 xl:col-span-4">
-              <label className="form-label" htmlFor="assembly-description">
-                Description
-              </label>
-              <input
+            <div className="grid gap-2 md:col-span-2 xl:col-span-4">
+              <FieldLabel htmlFor="assembly-description">Description</FieldLabel>
+              <Input
                 id="assembly-description"
-                className="form-input"
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
                 placeholder="Optionnel"
@@ -720,65 +728,56 @@ export function AssemblyEditorDialog({
             </div>
           </div>
 
-          <div className="grid gap-2 rounded-xl border border-border bg-surface-subtle px-3 py-2 sm:grid-cols-3">
+          <dl className="grid gap-2 rounded-lg border border-border bg-surface-subtle px-3 py-2 sm:grid-cols-3">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Coût direct estimé
-              </p>
-              <p className="text-base font-semibold text-foreground">
+              </dt>
+              <dd className="text-base font-semibold tabular-nums text-foreground">
                 {formatEUR(directCostCents)}
-              </p>
+              </dd>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Temps MO total
-              </p>
-              <p className="text-base font-semibold text-foreground">
+              </dt>
+              <dd className="text-base font-semibold tabular-nums text-foreground">
                 {new Intl.NumberFormat("fr-FR", {
                   maximumFractionDigits: 2,
                 }).format(laborHours)} h
-              </p>
+              </dd>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Contenu
-              </p>
-              <p className="text-base font-semibold text-foreground">
+              </dt>
+              <dd className="text-base font-semibold text-foreground">
                 {items.length} ligne(s) · {members.length} sous-ouvrage(s)
-              </p>
+              </dd>
             </div>
-          </div>
+          </dl>
 
           <div
             data-testid="assembly-items-grid"
-            className="overflow-x-auto rounded-xl border border-border bg-surface"
+            className="relative overflow-x-auto rounded-lg border border-border bg-surface"
+            role="region"
+            aria-label="Lignes de l’ouvrage"
+            tabIndex={0}
           >
             <div
               data-testid="assembly-items-header"
-              className="hidden min-w-[1100px] grid-cols-[minmax(240px,1fr)_90px_52px_72px_82px_96px_64px_72px_112px_64px_90px_64px] items-stretch gap-0 bg-surface-subtle p-0 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground lg:grid lg:[&>span]:flex lg:[&>span]:h-10 lg:[&>span]:items-center lg:[&>span]:border-r lg:[&>span]:border-border lg:[&>span]:px-2 lg:[&>span:last-child]:border-r-0"
+              className="hidden min-w-[1100px] grid-cols-[minmax(240px,1fr)_90px_52px_72px_82px_96px_64px_72px_112px_64px_90px_64px] items-stretch gap-0 bg-surface-subtle p-0 text-micro font-semibold uppercase tracking-wide text-muted-foreground lg:grid lg:[&>span]:flex lg:[&>span]:h-10 lg:[&>span]:items-center lg:[&>span]:border-r lg:[&>span]:border-border lg:[&>span]:px-2 lg:[&>span:last-child]:border-r-0"
             >
               <span>Désignation</span>
               <span>Type</span>
               <span>Unité</span>
               <span>Qté</span>
-              <span className="bg-blue-100/80 text-blue-800">
-                PR FO
-              </span>
-              <span className="bg-blue-100/80 text-blue-800">
-                Type FO
-              </span>
-              <span className="bg-blue-100/80 text-blue-800">
-                K FO
-              </span>
-              <span className="bg-amber-100/80 text-amber-800">
-                H MO
-              </span>
-              <span className="bg-amber-100/80 text-amber-800">
-                Rôle MO
-              </span>
-              <span className="bg-amber-100/80 text-amber-800">
-                K MO
-              </span>
+              <span className={FO_HEADER_CLASS}>PR FO</span>
+              <span className={FO_HEADER_CLASS}>Type FO</span>
+              <span className={FO_HEADER_CLASS}>K FO</span>
+              <span className={MO_HEADER_CLASS}>H MO</span>
+              <span className={MO_HEADER_CLASS}>Rôle MO</span>
+              <span className={MO_HEADER_CLASS}>K MO</span>
               <span>Total ligne</span>
               <span aria-hidden="true" />
             </div>
@@ -787,14 +786,6 @@ export function AssemblyEditorDialog({
               {items.map((item, index) => {
                 const rowPrefix = `assembly-item-${index}`;
                 const isLabor = item.costType === "labor";
-                const compactInputClass =
-                  "form-input !h-9 !rounded-lg !px-2 !text-[13px] lg:!h-10 lg:!rounded-none lg:!border-0 lg:!shadow-none lg:focus:!outline-2 lg:focus:!-outline-offset-2";
-                const compactSelectClass = `${compactInputClass} form-select lg:!pr-7 lg:[background-position:right_6px_center]`;
-                const numericInputClass = `${compactInputClass} text-right tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`;
-                const foSelectClass = `${compactSelectClass} !border-blue-200 !bg-blue-50/80 focus:!border-blue-400`;
-                const foNumericInputClass = `${numericInputClass} !border-blue-200 !bg-blue-50/80 focus:!border-blue-400`;
-                const moSelectClass = `${compactSelectClass} !border-amber-200 !bg-amber-50/80 focus:!border-amber-400`;
-                const moNumericInputClass = `${numericInputClass} !border-amber-200 !bg-amber-50/80 focus:!border-amber-400`;
                 return (
                   <section
                     key={item.key}
@@ -804,21 +795,16 @@ export function AssemblyEditorDialog({
                   >
                     <h3
                       id={`${rowPrefix}-title`}
-                      className="col-span-full text-sm font-semibold text-slate-800 lg:sr-only"
+                      className="col-span-full text-sm font-semibold text-foreground lg:sr-only"
                     >
                       Ligne {index + 1}
                     </h3>
 
                     <div className="sm:col-span-2 lg:col-span-1">
-                      <label
-                        className="form-label mb-1 text-xs lg:sr-only"
-                        htmlFor={`${rowPrefix}-title-input`}
-                      >
-                        Désignation *
-                      </label>
+                      <CellLabel htmlFor={`${rowPrefix}-title-input`}>Désignation *</CellLabel>
                       <AssemblyCatalogueInput
                         id={`${rowPrefix}-title-input`}
-                        className={compactInputClass}
+                        className={CELL_INPUT_CLASS}
                         value={item.title}
                         searchEnabled={!isLabor}
                         onChange={(title) => updateItem(index, { title })}
@@ -836,15 +822,11 @@ export function AssemblyEditorDialog({
                     </div>
 
                     <div>
-                      <label
-                        className="form-label mb-1 text-xs lg:sr-only"
-                        htmlFor={`${rowPrefix}-cost-type`}
-                      >
-                        Type de coût
-                      </label>
-                      <select
+                      <CellLabel htmlFor={`${rowPrefix}-cost-type`}>Type de coût</CellLabel>
+                      <NativeSelect
                         id={`${rowPrefix}-cost-type`}
-                        className={compactSelectClass}
+                        size="sm"
+                        className={CELL_SELECT_CLASS}
                         value={item.costType}
                         onChange={(event) =>
                           updateCostType(index, event.target.value as AssemblyCostType)
@@ -855,19 +837,15 @@ export function AssemblyEditorDialog({
                             {option.label}
                           </option>
                         ))}
-                      </select>
+                      </NativeSelect>
                     </div>
 
                     <div>
-                      <label
-                        className="form-label mb-1 text-xs lg:sr-only"
-                        htmlFor={`${rowPrefix}-unit`}
-                      >
-                        Unité
-                      </label>
-                      <input
+                      <CellLabel htmlFor={`${rowPrefix}-unit`}>Unité</CellLabel>
+                      <Input
                         id={`${rowPrefix}-unit`}
-                        className={compactInputClass}
+                        size="sm"
+                        className={CELL_INPUT_CLASS}
                         value={item.unit}
                         onChange={(event) =>
                           updateItem(index, { unit: event.target.value })
@@ -877,15 +855,11 @@ export function AssemblyEditorDialog({
                     </div>
 
                     <div>
-                      <label
-                        className="form-label mb-1 text-xs lg:sr-only"
-                        htmlFor={`${rowPrefix}-quantity`}
-                      >
-                        Quantité par défaut
-                      </label>
-                      <input
+                      <CellLabel htmlFor={`${rowPrefix}-quantity`}>Quantité par défaut</CellLabel>
+                      <Input
                         id={`${rowPrefix}-quantity`}
-                        className={numericInputClass}
+                        size="sm"
+                        className={CELL_NUMBER_CLASS}
                         type="number"
                         min={0}
                         step="0.01"
@@ -899,15 +873,11 @@ export function AssemblyEditorDialog({
                     </div>
 
                     <div>
-                      <label
-                        className="form-label mb-1 text-xs lg:sr-only"
-                        htmlFor={`${rowPrefix}-unit-cost`}
-                      >
-                        Prix de revient FO (€)
-                      </label>
-                      <input
+                      <CellLabel htmlFor={`${rowPrefix}-unit-cost`}>Prix de revient FO (€)</CellLabel>
+                      <Input
                         id={`${rowPrefix}-unit-cost`}
-                        className={foNumericInputClass}
+                        size="sm"
+                        className={cn(CELL_NUMBER_CLASS, FO_TINT_CLASS)}
                         type="number"
                         min={0}
                         step="0.01"
@@ -919,15 +889,11 @@ export function AssemblyEditorDialog({
                     </div>
 
                     <div>
-                      <label
-                        className="form-label mb-1 text-xs lg:sr-only"
-                        htmlFor={`${rowPrefix}-supply-type`}
-                      >
-                        Type FO
-                      </label>
-                      <select
+                      <CellLabel htmlFor={`${rowPrefix}-supply-type`}>Type FO</CellLabel>
+                      <NativeSelect
                         id={`${rowPrefix}-supply-type`}
-                        className={foSelectClass}
+                        size="sm"
+                        className={cn(CELL_SELECT_CLASS, FO_TINT_CLASS)}
                         value={item.supplyTypeId}
                         onChange={(event) =>
                           updateItem(index, { supplyTypeId: event.target.value })
@@ -939,18 +905,14 @@ export function AssemblyEditorDialog({
                             {type.name}
                           </option>
                         ))}
-                      </select>
+                      </NativeSelect>
                     </div>
                     <div>
-                      <label
-                        className="form-label mb-1 text-xs lg:sr-only"
-                        htmlFor={`${rowPrefix}-k-fo`}
-                      >
-                        Coefficient FO
-                      </label>
-                      <input
+                      <CellLabel htmlFor={`${rowPrefix}-k-fo`}>Coefficient FO</CellLabel>
+                      <Input
                         id={`${rowPrefix}-k-fo`}
-                        className={foNumericInputClass}
+                        size="sm"
+                        className={cn(CELL_NUMBER_CLASS, FO_TINT_CLASS)}
                         type="number"
                         min={0}
                         step="0.01"
@@ -962,15 +924,11 @@ export function AssemblyEditorDialog({
                     </div>
 
                     <div>
-                      <label
-                        className="form-label mb-1 text-xs lg:sr-only"
-                        htmlFor={`${rowPrefix}-labor-hours`}
-                      >
-                        Temps MO (h)
-                      </label>
-                      <input
+                      <CellLabel htmlFor={`${rowPrefix}-labor-hours`}>Temps MO (h)</CellLabel>
+                      <Input
                         id={`${rowPrefix}-labor-hours`}
-                        className={moNumericInputClass}
+                        size="sm"
+                        className={cn(CELL_NUMBER_CLASS, MO_TINT_CLASS)}
                         type="number"
                         min={0}
                         step="0.01"
@@ -984,20 +942,15 @@ export function AssemblyEditorDialog({
                     </div>
 
                     <div>
-                      <label
-                        className="form-label mb-1 text-xs lg:sr-only"
-                        htmlFor={`${rowPrefix}-labor-role`}
-                      >
-                        Rôle de main-d’œuvre
-                      </label>
-                      <select
+                      <CellLabel htmlFor={`${rowPrefix}-labor-role`}>Rôle de main-d’œuvre</CellLabel>
+                      <NativeSelect
                         id={`${rowPrefix}-labor-role`}
-                        className={moSelectClass}
+                        size="sm"
+                        className={cn(CELL_SELECT_CLASS, MO_TINT_CLASS)}
                         value={item.laborRoleId}
                         onChange={(event) =>
                           updateItem(index, { laborRoleId: event.target.value })
                         }
-                        title="L’identifiant technique est géré automatiquement."
                       >
                         <option value="">Aucun rôle</option>
                         {laborRoles.map((role) => (
@@ -1005,19 +958,15 @@ export function AssemblyEditorDialog({
                             {role.name} — {formatHourlyRate(role.hourly_rate_cents)}
                           </option>
                         ))}
-                      </select>
+                      </NativeSelect>
                     </div>
 
                     <div>
-                      <label
-                        className="form-label mb-1 text-xs lg:sr-only"
-                        htmlFor={`${rowPrefix}-k-mo`}
-                      >
-                        Coefficient MO
-                      </label>
-                      <input
+                      <CellLabel htmlFor={`${rowPrefix}-k-mo`}>Coefficient MO</CellLabel>
+                      <Input
                         id={`${rowPrefix}-k-mo`}
-                        className={moNumericInputClass}
+                        size="sm"
+                        className={cn(CELL_NUMBER_CLASS, MO_TINT_CLASS)}
                         type="number"
                         min={0}
                         step="0.01"
@@ -1029,22 +978,22 @@ export function AssemblyEditorDialog({
                     </div>
 
                     <div>
-                      <span className="form-label mb-1 text-xs lg:sr-only">
+                      <span className="mb-1 block text-xs font-medium text-foreground-secondary lg:sr-only">
                         Coût direct de la ligne
                       </span>
-                      <output className="flex h-9 items-center justify-end whitespace-nowrap rounded-lg bg-surface-subtle px-2 text-right text-[13px] font-semibold tabular-nums text-slate-800 ring-1 ring-inset ring-slate-200 lg:h-10 lg:rounded-none lg:ring-0">
+                      <output className="flex h-9 items-center justify-end whitespace-nowrap rounded-control bg-surface-subtle px-2 text-right text-sm font-semibold tabular-nums text-foreground ring-1 ring-inset ring-border lg:h-10 lg:rounded-none lg:ring-0">
                         {formatEUR(computeDraftDirectCost(item, laborRoles))}
                       </output>
                     </div>
-                    <button
-                      type="button"
-                      className="btn btn-danger btn-sm !h-9 !min-h-9 !px-2 !text-xs lg:!h-10 lg:!min-h-10 lg:!rounded-none lg:!border-0 lg:!px-1"
+                    <Button
+                      variant="danger"
+                      className="h-9 px-2 text-xs lg:h-10 lg:rounded-none lg:border-0 lg:px-1"
                       onClick={() => removeItem(index)}
                       disabled={isSubmitting}
                       aria-label={`Retirer la ligne ${index + 1}`}
                     >
                       Retirer
-                    </button>
+                    </Button>
                   </section>
                 );
               })}
@@ -1052,34 +1001,34 @@ export function AssemblyEditorDialog({
           </div>
 
           <div>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
+            <Button
+              variant="outline"
+              leftIcon={<PlusIcon aria-hidden="true" />}
               onClick={addItem}
               disabled={isSubmitting || items.length >= 50}
             >
-              + Ajouter une ligne
-            </button>
+              Ajouter une ligne
+            </Button>
           </div>
 
-          <section className="rounded-xl border border-border bg-surface-subtle p-3">
+          <section className="rounded-lg border border-border bg-surface-subtle p-3">
             <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h3 className="text-sm font-semibold text-foreground">
                   Sous-ouvrages
                 </h3>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  Références vivantes dans la bibliothèque, limitées à deux niveaux.
+                  Références vivantes dans la bibliothèque d&apos;ouvrages, limitées à deux niveaux.
                 </p>
               </div>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
+              <Button
+                variant="outline"
+                leftIcon={<PlusIcon aria-hidden="true" />}
                 onClick={addMember}
                 disabled={isSubmitting || members.length >= 20}
               >
-                + Ajouter un sous-ouvrage
-              </button>
+                Ajouter un sous-ouvrage
+              </Button>
             </div>
 
             {members.length === 0 ? (
@@ -1112,16 +1061,12 @@ export function AssemblyEditorDialog({
                       key={member.key}
                       className="grid gap-2 rounded-lg border border-border bg-surface p-3 md:grid-cols-[minmax(240px,1fr)_120px_140px_auto] md:items-end"
                     >
-                      <div>
-                        <label
-                          className="form-label"
-                          htmlFor={`assembly-member-${index}`}
-                        >
+                      <div className="grid gap-2">
+                        <FieldLabel htmlFor={`assembly-member-${index}`}>
                           Ouvrage réutilisable
-                        </label>
-                        <select
+                        </FieldLabel>
+                        <NativeSelect
                           id={`assembly-member-${index}`}
-                          className="form-input"
                           value={member.childAssemblyId}
                           onChange={(event) =>
                             updateMember(index, {
@@ -1155,18 +1100,15 @@ export function AssemblyEditorDialog({
                                   : candidate.name}
                               </option>
                             ))}
-                        </select>
+                        </NativeSelect>
                       </div>
-                      <div>
-                        <label
-                          className="form-label"
-                          htmlFor={`assembly-member-quantity-${index}`}
-                        >
+                      <div className="grid gap-2">
+                        <FieldLabel htmlFor={`assembly-member-quantity-${index}`}>
                           Quantité
-                        </label>
-                        <input
+                        </FieldLabel>
+                        <Input
                           id={`assembly-member-quantity-${index}`}
-                          className="form-input text-right tabular-nums"
+                          className="text-right tabular-nums"
                           type="number"
                           min={0}
                           step="0.001"
@@ -1179,21 +1121,21 @@ export function AssemblyEditorDialog({
                           required
                         />
                       </div>
-                      <div>
-                        <span className="form-label">Coût intégré</span>
-                        <output className="flex h-10 items-center justify-end rounded-lg bg-surface-subtle px-3 font-semibold tabular-nums text-slate-800 ring-1 ring-inset ring-slate-200">
+                      <div className="grid gap-2">
+                        <span className="text-sm font-medium">Coût intégré</span>
+                        <output className="flex h-(--density-input-h) items-center justify-end rounded-control bg-surface-subtle px-3 font-semibold tabular-nums text-foreground ring-1 ring-inset ring-border">
                           {formatEUR(memberCost)}
                         </output>
                       </div>
-                      <button
-                        type="button"
-                        className="btn btn-danger btn-sm"
+                      <Button
+                        variant="danger"
+                        size="lg"
                         onClick={() => removeMember(index)}
                         disabled={isSubmitting}
                         aria-label={`Retirer le sous-ouvrage ${index + 1}`}
                       >
                         Retirer
-                      </button>
+                      </Button>
                     </div>
                   );
                 })}
@@ -1201,28 +1143,18 @@ export function AssemblyEditorDialog({
             )}
           </section>
 
-
-          {validationError ? (
-            <div className="alert alert-error" role="alert">
-              {validationError}
-            </div>
-          ) : null}
-
-          <Modal.Footer className="sticky bottom-0 -mx-4 -mb-4 border-t border-border bg-surface px-4 py-3 sm:-mx-5 sm:-mb-5 sm:px-5">
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={onClose}
-              disabled={isSubmitting}
-            >
-              Annuler
-            </button>
-            <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
-              {isSubmitting ? "Enregistrement..." : "Enregistrer"}
-            </button>
-          </Modal.Footer>
+          {validationError ? <Alert variant="danger">{validationError}</Alert> : null}
         </form>
-      </Modal.Content>
-    </Modal.Root>
+
+        <DialogFooter className="mt-0 shrink-0 border-t border-border px-4 py-3 sm:px-5">
+          <Button variant="outline" size="lg" onClick={onClose} disabled={isSubmitting}>
+            Annuler
+          </Button>
+          <Button type="submit" form="assembly-editor-form" size="lg" loading={isSubmitting}>
+            Enregistrer
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

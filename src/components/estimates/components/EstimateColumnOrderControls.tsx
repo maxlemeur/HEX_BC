@@ -1,5 +1,8 @@
 "use client";
 
+import { ArrowLeftIcon, ArrowRightIcon } from "lucide-react";
+
+import { IconButton } from "@/components/ui/icon-button";
 import { ESTIMATE_COLUMN_GROUPS, ESTIMATE_COLUMN_LABELS } from "@/hooks/useEstimateColumnOrder";
 import type { EstimateColumnId } from "@/hooks/useEstimateColumnWidths";
 
@@ -17,7 +20,9 @@ export function EstimateColumnOrderControls({ order, isLaborSplitEnabled, onMove
   });
   return (
     <details className="mt-3 rounded-lg border border-border p-2">
-      <summary className="cursor-pointer text-sm">Ordre des colonnes, par groupe</summary>
+      <summary className="cursor-pointer rounded-control px-1 py-1 text-sm font-medium text-foreground-secondary outline-none hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+        Ordre des colonnes, par groupe
+      </summary>
       <p className="my-2 text-xs text-muted-foreground">
         La désignation reste fixe. Les groupes de calcul restent réunis.
       </p>
@@ -26,11 +31,23 @@ export function EstimateColumnOrderControls({ order, isLaborSplitEnabled, onMove
         return (
           <div key={group[0]} className="border-t border-border py-1">
             {columns.map((id, index) => (
-              <div key={id} className="flex min-h-9 items-center justify-between gap-2 text-sm">
+              <div key={id} className="flex min-h-9 items-center justify-between gap-2 text-sm text-foreground-secondary">
                 <span>{ESTIMATE_COLUMN_LABELS[id]}</span>
                 <span className="flex gap-1">
-                  <button type="button" className="btn btn-ghost btn-sm" aria-label={`Déplacer ${ESTIMATE_COLUMN_LABELS[id]} vers la gauche`} disabled={index === 0} onClick={() => onMoveColumn(id, -1)}>←</button>
-                  <button type="button" className="btn btn-ghost btn-sm" aria-label={`Déplacer ${ESTIMATE_COLUMN_LABELS[id]} vers la droite`} disabled={index === columns.length - 1} onClick={() => onMoveColumn(id, 1)}>→</button>
+                  <IconButton
+                    type="button"
+                    label={`Déplacer ${ESTIMATE_COLUMN_LABELS[id]} vers la gauche`}
+                    icon={<ArrowLeftIcon aria-hidden="true" />}
+                    disabled={index === 0}
+                    onClick={() => onMoveColumn(id, -1)}
+                  />
+                  <IconButton
+                    type="button"
+                    label={`Déplacer ${ESTIMATE_COLUMN_LABELS[id]} vers la droite`}
+                    icon={<ArrowRightIcon aria-hidden="true" />}
+                    disabled={index === columns.length - 1}
+                    onClick={() => onMoveColumn(id, 1)}
+                  />
                 </span>
               </div>
             ))}

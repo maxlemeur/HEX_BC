@@ -1,6 +1,21 @@
 "use client";
 
 import { useMemo } from "react";
+import { XIcon } from "lucide-react";
+
+import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { IconButton } from "@/components/ui/icon-button";
+import { NativeSelect } from "@/components/ui/native-select";
 
 export type PastePreviewDetectedFormat = "bdc" | "optima" | "generic" | null;
 
@@ -40,7 +55,7 @@ export type PastePreviewDialogProps = {
 
 function getDetectedFormatBadge(
   detectedFormat: PastePreviewDetectedFormat
-): { label: "BDC" | "OPTIMA" | "generic"; className: string } {
+): { label: "BDC" | "OPTIMA" | "Générique"; className: string } {
   if (detectedFormat === "bdc") {
     return {
       label: "BDC",
@@ -56,7 +71,7 @@ function getDetectedFormatBadge(
   }
 
   return {
-    label: "generic",
+    label: "Générique",
     className: "status-badge status-draft",
   };
 }
@@ -150,72 +165,65 @@ export function PastePreviewDialog({
 
   const allRowsErrors = useMemo(() => uniqueRowsErrors(rows), [rows]);
 
-  if (!isOpen) return null;
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,6,23,0.45)] p-4"
-      data-testid="paste-preview-dialog-backdrop"
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
     >
-      <div
-        className="dashboard-card w-full max-w-7xl p-6"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="paste-preview-dialog-title"
+      <DialogContent
+        size="full"
+        className="sm:max-w-7xl"
+        showCloseButton={false}
         data-testid="paste-preview-dialog"
       >
-        <div className="mb-4 flex items-start justify-between gap-4">
-          <div>
-            <h2
-              id="paste-preview-dialog-title"
-              className="text-lg font-semibold text-slate-800"
-            >
-              Aperçu du collage
-            </h2>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <span className={formatBadge.className}>{formatBadge.label}</span>
-              <span className="text-xs text-muted-foreground">
-                {includedRowsCount}/{rows.length} ligne(s) incluse(s)
-              </span>
-            </div>
+        <DialogHeader>
+          <DialogTitle>Aperçu du collage</DialogTitle>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={formatBadge.className}>{formatBadge.label}</span>
+            <DialogDescription className="text-xs">
+              {includedRowsCount}/{rows.length} ligne(s) incluse(s)
+            </DialogDescription>
           </div>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            onClick={onClose}
-            data-testid="paste-preview-dialog-close-button"
-          >
-            Fermer
-          </button>
-        </div>
+        </DialogHeader>
+        <IconButton
+          label="Fermer"
+          icon={<XIcon aria-hidden="true" />}
+          className="absolute top-3 right-3 sm:top-4 sm:right-4"
+          tooltipSide="left"
+          onClick={onClose}
+          data-testid="paste-preview-dialog-close-button"
+        />
 
         {hasErrors ? (
-          <div className="mb-4 space-y-2" data-testid="paste-preview-dialog-errors">
+          <div className="space-y-2" data-testid="paste-preview-dialog-errors">
             {errors.map((error, index) => (
-              <div key={`${error}-${index}`} className="alert alert-error">
+              <Alert key={`${error}-${index}`} variant="danger">
                 {error}
-              </div>
+              </Alert>
             ))}
           </div>
         ) : null}
 
         {hasDuplicateMapping ? (
-          <div className="alert alert-error mb-4" data-testid="paste-preview-dialog-duplicate-mapping-error">
+          <Alert variant="danger" data-testid="paste-preview-dialog-duplicate-mapping-error">
             Plusieurs colonnes pointent vers le même champ cible. Corrigez le mapping avant de confirmer.
-          </div>
+          </Alert>
         ) : null}
 
         <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
           <section
-            className="overflow-hidden rounded-xl border border-border"
+            className="min-w-0 overflow-hidden rounded-lg border border-border"
             data-testid="paste-preview-mapping-section"
+            aria-labelledby="paste-preview-mapping-title"
           >
             <div className="border-b border-border px-4 py-3">
-              <h3 className="text-sm font-semibold text-slate-800">
+              <h3 id="paste-preview-mapping-title" className="text-sm font-semibold text-foreground">
                 Mapping des colonnes
               </h3>
               <p className="mt-1 text-xs text-muted-foreground">
-                Associez chaque colonne source a un champ cible.
+                Associez chaque colonne source à un champ cible.
               </p>
             </div>
 
@@ -224,7 +232,13 @@ export function PastePreviewDialog({
                 Aucun mapping à afficher.
               </div>
             ) : (
-              <div className="table-scroll max-h-[430px]" data-testid="paste-preview-mapping-table">
+              <div
+                className="table-scroll max-h-[430px]"
+                data-testid="paste-preview-mapping-table"
+                role="region"
+                aria-labelledby="paste-preview-mapping-title"
+                tabIndex={0}
+              >
                 <table className="data-table">
                   <thead>
                     <tr>
@@ -243,13 +257,13 @@ export function PastePreviewDialog({
                       return (
                         <tr key={entry.sourceColumn}>
                           <td>
-                            <span className="font-medium text-slate-800">
+                            <span className="font-medium text-foreground">
                               {entry.sourceColumn}
                             </span>
                           </td>
                           <td>
-                            <select
-                              className="form-input form-select form-input--sm"
+                            <NativeSelect
+                              size="sm"
                               value={currentTarget}
                               onChange={(event) =>
                                 onMappingChange(
@@ -257,6 +271,7 @@ export function PastePreviewDialog({
                                   event.target.value || null
                                 )
                               }
+                              aria-label={`Champ cible de la colonne ${entry.sourceColumn}`}
                               data-testid="paste-preview-mapping-select"
                             >
                               <option value="">Ignorer</option>
@@ -266,15 +281,15 @@ export function PastePreviewDialog({
                                   {option.required ? " (requis)" : ""}
                                 </option>
                               ))}
-                            </select>
+                            </NativeSelect>
                           </td>
                           <td>
                             {currentTarget.trim().length === 0 ? (
-                              <span className="status-badge status-draft">Ignore</span>
+                              <Badge variant="neutral" size="sm" dot>Ignorée</Badge>
                             ) : hasDuplicate ? (
-                              <span className="status-badge status-canceled">Doublon</span>
+                              <Badge variant="danger" size="sm" dot>Doublon</Badge>
                             ) : (
-                              <span className="status-badge status-confirmed">Mappe</span>
+                              <Badge variant="success" size="sm" dot>Associée</Badge>
                             )}
                           </td>
                         </tr>
@@ -287,11 +302,12 @@ export function PastePreviewDialog({
           </section>
 
           <section
-            className="overflow-hidden rounded-xl border border-border"
+            className="min-w-0 overflow-hidden rounded-lg border border-border"
             data-testid="paste-preview-rows-section"
+            aria-labelledby="paste-preview-rows-title"
           >
             <div className="border-b border-border px-4 py-3">
-              <h3 className="text-sm font-semibold text-slate-800">
+              <h3 id="paste-preview-rows-title" className="text-sm font-semibold text-foreground">
                 Aperçu des lignes
               </h3>
               <p className="mt-1 text-xs text-muted-foreground">
@@ -304,7 +320,13 @@ export function PastePreviewDialog({
                 Aucune ligne détectée.
               </div>
             ) : (
-              <div className="table-scroll max-h-[430px]" data-testid="paste-preview-rows-table">
+              <div
+                className="table-scroll max-h-[430px]"
+                data-testid="paste-preview-rows-table"
+                role="region"
+                aria-labelledby="paste-preview-rows-title"
+                tabIndex={0}
+              >
                 <table className="data-table">
                   <thead>
                     <tr>
@@ -325,10 +347,11 @@ export function PastePreviewDialog({
                       const isInvalid = invalidReasons.length > 0;
 
                       return (
-                        <tr key={row.id} className={row.include ? "" : "opacity-60"}>
+                        <tr key={row.id} className={row.include ? undefined : "opacity-75"}>
                           <td>
                             <input
                               type="checkbox"
+                              className="size-4 accent-primary"
                               checked={row.include}
                               onChange={(event) =>
                                 onToggleRow(row.id, event.target.checked)
@@ -337,7 +360,7 @@ export function PastePreviewDialog({
                               data-testid="paste-preview-row-include-checkbox"
                             />
                           </td>
-                          <td>{row.rowNumber}</td>
+                          <td className="tabular-nums">{row.rowNumber}</td>
                           {sourceColumns.map((column) => (
                             <td key={`${row.id}:${column}`}>
                               {normalizeCellValue(row.values[column])}
@@ -345,11 +368,11 @@ export function PastePreviewDialog({
                           ))}
                           <td>
                             {!row.include ? (
-                              <span className="status-badge status-draft">Exclue</span>
+                              <Badge variant="neutral" size="sm" dot>Exclue</Badge>
                             ) : isInvalid ? (
-                              <span className="status-badge status-canceled">Invalide</span>
+                              <Badge variant="danger" size="sm" dot>Invalide</Badge>
                             ) : (
-                              <span className="status-badge status-confirmed">Valide</span>
+                              <Badge variant="success" size="sm" dot>Valide</Badge>
                             )}
                           </td>
                           <td>
@@ -360,7 +383,8 @@ export function PastePreviewDialog({
                                 {invalidReasons.map((reason, reasonIndex) => (
                                   <p
                                     key={`${row.id}:invalid:${reasonIndex}`}
-                                    className="text-xs text-rose-600"
+                                    className="text-xs text-danger"
+                                    data-testid="paste-preview-row-invalid-reason"
                                   >
                                     {reason}
                                   </p>
@@ -379,38 +403,37 @@ export function PastePreviewDialog({
             <div className="border-t border-border px-4 py-3 text-xs text-muted-foreground">
               {allRowsErrors.size === 0
                 ? "Aucune erreur de validation détectée sur les lignes affichées."
-                : `${allRowsErrors.size} type(s) erreur detecte(s) dans cet aperçu.`}
+                : `${allRowsErrors.size} type(s) d'erreur détecté(s) dans cet aperçu.`}
             </div>
           </section>
         </div>
 
-        <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+        <DialogFooter className="sm:justify-between">
           <p className="text-sm text-muted-foreground">
             {includedInvalidRowsCount > 0
               ? `${includedInvalidRowsCount} ligne(s) invalide(s) sont encore incluses.`
-              : "Toutes les lignes incluses sont validés."}
+              : "Toutes les lignes incluses sont valides."}
           </p>
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              className="btn btn-secondary"
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center">
+            <Button
+              variant="outline"
+              size="lg"
               onClick={onClose}
               data-testid="paste-preview-dialog-cancel-button"
             >
               Annuler
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary"
+            </Button>
+            <Button
+              size="lg"
               onClick={onConfirm}
               disabled={!canConfirm}
               data-testid="paste-preview-dialog-confirm-button"
             >
-              Confirmer import
-            </button>
+              Confirmer l&apos;import
+            </Button>
           </div>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

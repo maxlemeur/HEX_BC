@@ -1,6 +1,7 @@
 "use client";
 
 import { STEPS } from "@/components/estimates/estimate-creation-wizard/shared";
+import { cn } from "@/lib/utils";
 import { CheckIcon } from "lucide-react";
 
 type StepIndicatorProps = {
@@ -26,49 +27,57 @@ export function StepIndicator({
           return (
             <li
               key={step.label}
-              className={`flex items-center ${index > 0 ? "flex-1" : ""}`}
+              className={cn("flex items-center", index > 0 && "flex-1")}
             >
               {index > 0 && (
                 <div
-                  className={`h-px flex-1 ${
-                    isPast || isValidated
-                      ? "bg-primary"
-                      : "bg-slate-200"
-                  }`}
+                  aria-hidden="true"
+                  className={cn(
+                    "mx-2 h-px flex-1",
+                    isPast || isValidated ? "bg-primary" : "bg-border"
+                  )}
                 />
               )}
               <button
                 type="button"
                 disabled={!isClickable}
+                aria-current={isActive ? "step" : undefined}
                 onClick={() => isClickable && onStepClick(index)}
-                className={`flex flex-col items-center gap-1 ${
+                className={cn(
+                  "flex flex-col items-center gap-1 rounded-control px-1 py-0.5 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
                   isClickable ? "cursor-pointer" : "cursor-default"
-                }`}
+                )}
               >
-                <div
-                  className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold transition-colors ${
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "flex size-8 items-center justify-center rounded-full text-sm font-semibold transition-colors motion-reduce:transition-none",
                     isActive
-                      ? "bg-primary text-white"
+                      ? "bg-primary text-primary-foreground"
                       : isValidated
-                        ? "bg-success text-white"
+                        ? "bg-success text-success-foreground"
                         : "bg-muted text-muted-foreground"
-                  }`}
+                  )}
                 >
                   {isValidated && !isActive ? (
-                    <CheckIcon aria-hidden="true" strokeWidth="3" size={14} />
+                    <CheckIcon strokeWidth="3" size={14} />
                   ) : (
                     index + 1
                   )}
-                </div>
+                </span>
                 <span
-                  className={`text-xs whitespace-nowrap text-center ${
+                  className={cn(
+                    "whitespace-nowrap text-center text-xs",
                     isActive
                       ? "font-semibold text-primary"
                       : "text-muted-foreground"
-                  }`}
+                  )}
                 >
                   {step.label}
                 </span>
+                {isValidated && !isActive ? (
+                  <span className="sr-only">(étape validée)</span>
+                ) : null}
               </button>
             </li>
           );

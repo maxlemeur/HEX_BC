@@ -1,7 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ArrowRightIcon, GitCompareArrowsIcon, PencilIcon } from "lucide-react";
 
-import { AffaireBreadcrumb } from "@/components/AffaireBreadcrumb";
+import { EmptyState } from "@/components/layout/empty-state";
+import { PageHeader } from "@/components/layout/page-header";
+import { Alert } from "@/components/ui/alert";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 import { EstimateChangelogView } from "@/components/estimates/EstimateChangelogView";
 import { EstimateDiffView } from "@/components/estimates/EstimateDiffView";
 import { getOrBuildEstimateChangelog } from "@/lib/estimates/changelog";
@@ -83,8 +91,8 @@ function isUuidLike(value: string) {
 function statusLabel(status: EstimateStatus) {
   if (status === "draft") return "Brouillon";
   if (status === "sent") return "Envoyé";
-  if (status === "accepted") return "Accepte";
-  if (status === "archived") return "Archive";
+  if (status === "accepted") return "Accepté";
+  if (status === "archived") return "Archivé";
   return status;
 }
 
@@ -306,222 +314,252 @@ export default async function EstimateDiffPage({
   const diffProjectName =
     diffProject && !Array.isArray(diffProject) ? diffProject.name : null;
 
+  const segmentClass = (active: boolean) =>
+    buttonVariants({ variant: active ? "primary" : "outline", size: "sm" });
+  const pagerClass = buttonVariants({ variant: "outline", size: "sm" });
+
   return (
     <div className="animate-fade-in">
-      {currentDetails.version.project_id && diffProjectName && (
-        <AffaireBreadcrumb
-          projectId={currentDetails.version.project_id}
-          projectName={diffProjectName}
-          versionNumber={currentDetails.version.version_number}
-          pageSuffix="Comparaison"
-        />
-      )}
-      <div className="page-header flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="page-title">Comparaison de versions</h1>
-          <p className="page-description">
-            {previousVersionLabel} -&gt; {currentVersionLabel}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Link className="btn btn-secondary btn-sm" href={`/dashboard/estimates/${versionId}`}>
-            Retour version
-          </Link>
+      <PageHeader
+        breadcrumbs={[
+          { label: "Affaires", href: "/dashboard/affaires" },
+          ...(currentDetails.version.project_id && diffProjectName
+            ? [
+                {
+                  label: diffProjectName,
+                  href: `/dashboard/affaires/${currentDetails.version.project_id}`,
+                },
+              ]
+            : []),
+          {
+            label: `V${currentDetails.version.version_number}`,
+            href: `/dashboard/estimates/${versionId}`,
+          },
+          { label: "Comparaison" },
+        ]}
+        title="Comparaison de versions"
+        description={
+          <>
+            {previousVersionLabel}
+            <ArrowRightIcon aria-hidden="true" className="mx-1.5 inline size-3.5 align-[-2px]" />
+            <span className="sr-only">vers</span>
+            {currentVersionLabel}
+          </>
+        }
+        actions={
           <Link
-            className="btn btn-secondary btn-sm"
+            className={buttonVariants({ variant: "outline", size: "md" })}
             href={`/dashboard/estimates/${versionId}/edit`}
           >
+            <PencilIcon aria-hidden="true" />
             Éditer
           </Link>
-          <Link className="btn btn-secondary btn-sm" href="/dashboard/estimates">
-            Liste
-          </Link>
-        </div>
-      </div>
+        }
+      />
 
-      <section className="dashboard-card mb-4 p-4">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <form className="flex flex-wrap items-end gap-3" method="get">
-            <div>
-              <label className="form-label mb-1" htmlFor="compareSearch">
-                Recherche
-              </label>
-              <input
-                className="form-input form-input--sm min-w-[220px]"
-                defaultValue={compareSearch ?? ""}
-                id="compareSearch"
-                name="compareSearch"
-                placeholder="Titre ou V12"
-                type="text"
-              />
-            </div>
-            <div>
-              <label className="form-label mb-1" htmlFor="compare">
-                Version à comparer
-              </label>
-              <select
-                id="compare"
-                name="compare"
-                className="form-input form-select form-input--sm min-w-[260px]"
-                defaultValue={compareId ?? ""}
+      {hasCompareOptions || compareSearch ? (
+        <Card className="mb-4 p-4">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <form className="flex w-full flex-wrap items-end gap-3 lg:w-auto" method="get">
+              <div className="w-full min-w-0 sm:w-56">
+                <FieldLabel className="mb-1.5" htmlFor="compareSearch">
+                  Recherche
+                </FieldLabel>
+                <Input
+                  size="sm"
+                  defaultValue={compareSearch ?? ""}
+                  id="compareSearch"
+                  name="compareSearch"
+                  placeholder="Titre ou V12"
+                  type="search"
+                />
+              </div>
+              <div className="w-full min-w-0 sm:w-72">
+                <FieldLabel className="mb-1.5" htmlFor="compare">
+                  Version à comparer
+                </FieldLabel>
+                <NativeSelect
+                  id="compare"
+                  name="compare"
+                  size="sm"
+                  defaultValue={compareId ?? ""}
+                  disabled={!hasCompareOptions}
+                >
+                  {hasCompareOptions ? null : (
+                    <option value="">Aucune autre version disponible</option>
+                  )}
+                  {compareOptions.map((version) => (
+                    <option key={version.id} value={version.id}>
+                      {formatVersionLabel(version)} · {statusLabel(version.status)} ·{" "}
+                      {formatDate(version.updated_at)}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </div>
+
+              <input type="hidden" name="mode" value={mode} />
+              <input type="hidden" name="tab" value={activeTab} />
+              <input type="hidden" name="comparePage" value="1" />
+              <Button
+                variant="outline"
+                size="md"
                 disabled={!hasCompareOptions}
+                type="submit"
               >
-                {hasCompareOptions ? null : (
-                  <option value="">Aucune autre version disponible</option>
-                )}
-                {compareOptions.map((version) => (
-                  <option key={version.id} value={version.id}>
-                    {formatVersionLabel(version)} | {statusLabel(version.status)} |{" "}
-                    {formatDate(version.updated_at)}
-                  </option>
-                ))}
-              </select>
-            </div>
+                Comparer
+              </Button>
+            </form>
 
-            <input type="hidden" name="mode" value={mode} />
-            <input type="hidden" name="tab" value={activeTab} />
-            <input type="hidden" name="comparePage" value="1" />
-            <button
-              className="btn btn-secondary btn-sm"
-              disabled={!hasCompareOptions}
-              type="submit"
+            <div className="flex flex-col items-start gap-2 lg:items-end">
+              <div className="flex flex-wrap items-center gap-2" role="group" aria-labelledby="diff-mode-label">
+                <span id="diff-mode-label" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Mode
+                </span>
+                <Link
+                  className={segmentClass(mode === "inline")}
+                  aria-current={mode === "inline" ? "true" : undefined}
+                  href={buildDiffPageHref({
+                    versionId,
+                    compareId,
+                    mode: "inline",
+                    tab: activeTab,
+                    comparePage,
+                    compareSearch,
+                  })}
+                >
+                  En ligne
+                </Link>
+                <Link
+                  className={segmentClass(mode === "side-by-side")}
+                  aria-current={mode === "side-by-side" ? "true" : undefined}
+                  href={buildDiffPageHref({
+                    versionId,
+                    compareId,
+                    mode: "side-by-side",
+                    tab: activeTab,
+                    comparePage,
+                    compareSearch,
+                  })}
+                >
+                  Côte à côte
+                </Link>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2" role="group" aria-labelledby="diff-view-label">
+                <span id="diff-view-label" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Vue
+                </span>
+                <Link
+                  className={segmentClass(activeTab === "diff")}
+                  aria-current={activeTab === "diff" ? "true" : undefined}
+                  href={buildDiffPageHref({
+                    versionId,
+                    compareId,
+                    mode,
+                    tab: "diff",
+                    comparePage,
+                    compareSearch,
+                  })}
+                >
+                  Différences
+                </Link>
+                <Link
+                  className={segmentClass(activeTab === "changelog")}
+                  aria-current={activeTab === "changelog" ? "true" : undefined}
+                  href={buildDiffPageHref({
+                    versionId,
+                    compareId,
+                    mode,
+                    tab: "changelog",
+                    comparePage,
+                    compareSearch,
+                  })}
+                >
+                  Journal des modifications
+                </Link>
+              </div>
+            </div>
+          </div>
+
+          {compareTotalCount > COMPARE_OPTIONS_PAGE_SIZE ? (
+            <nav
+              aria-label="Pages des versions à comparer"
+              className="mt-3 flex flex-wrap items-center justify-between gap-2"
             >
-              Comparer
-            </button>
-          </form>
+              <p className="text-xs text-muted-foreground">
+                Versions {compareVisibleStart}–{compareVisibleEnd} sur{" "}
+                {compareTotalCount}
+              </p>
+              <div className="flex items-center gap-2">
+                {comparePage > 1 ? (
+                  <Link
+                    className={pagerClass}
+                    href={buildDiffPageHref({
+                      versionId,
+                      compareId,
+                      mode,
+                      tab: activeTab,
+                      comparePage: comparePage - 1,
+                      compareSearch,
+                    })}
+                  >
+                    Précédent
+                  </Link>
+                ) : (
+                  <span aria-disabled="true" className={pagerClass}>
+                    Précédent
+                  </span>
+                )}
+                {comparePage < compareTotalPages ? (
+                  <Link
+                    className={pagerClass}
+                    href={buildDiffPageHref({
+                      versionId,
+                      compareId,
+                      mode,
+                      tab: activeTab,
+                      comparePage: comparePage + 1,
+                      compareSearch,
+                    })}
+                  >
+                    Suivant
+                  </Link>
+                ) : (
+                  <span aria-disabled="true" className={pagerClass}>
+                    Suivant
+                  </span>
+                )}
+              </div>
+            </nav>
+          ) : null}
 
-          <div className="flex flex-col items-end gap-2">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">
-                Mode
-              </span>
-              <Link
-                className={mode === "inline" ? "btn btn-primary btn-sm" : "btn btn-secondary btn-sm"}
-                href={buildDiffPageHref({
-                  versionId,
-                  compareId,
-                  mode: "inline",
-                  tab: activeTab,
-                  comparePage,
-                  compareSearch,
-                })}
-              >
-                En ligne
-              </Link>
-              <Link
-                className={
-                  mode === "side-by-side"
-                    ? "btn btn-primary btn-sm"
-                    : "btn btn-secondary btn-sm"
-                }
-                href={buildDiffPageHref({
-                  versionId,
-                  compareId,
-                  mode: "side-by-side",
-                  tab: activeTab,
-                  comparePage,
-                  compareSearch,
-                })}
-              >
-                Cote à côté
-              </Link>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">
-                Vue
-              </span>
-              <Link
-                className={activeTab === "diff" ? "btn btn-primary btn-sm" : "btn btn-secondary btn-sm"}
-                href={buildDiffPageHref({
-                  versionId,
-                  compareId,
-                  mode,
-                  tab: "diff",
-                  comparePage,
-                  compareSearch,
-                })}
-              >
-                Diff
-              </Link>
-              <Link
-                className={
-                  activeTab === "changelog"
-                    ? "btn btn-primary btn-sm"
-                    : "btn btn-secondary btn-sm"
-                }
-                href={buildDiffPageHref({
-                  versionId,
-                  compareId,
-                  mode,
-                  tab: "changelog",
-                  comparePage,
-                  compareSearch,
-                })}
-              >
-                Changelog
-              </Link>
-            </div>
-          </div>
-        </div>
-
-        {compareTotalCount > COMPARE_OPTIONS_PAGE_SIZE ? (
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-            <p className="text-xs text-muted-foreground">
-              Options {compareVisibleStart}-{compareVisibleEnd} sur{" "}
-              {compareTotalCount}
-            </p>
-            <div className="flex items-center gap-2">
-              {comparePage > 1 ? (
-                <Link
-                  className="btn btn-secondary btn-sm"
-                  href={buildDiffPageHref({
-                    versionId,
-                    compareId,
-                    mode,
-                    tab: activeTab,
-                    comparePage: comparePage - 1,
-                    compareSearch,
-                  })}
-                >
-                  Prec.
-                </Link>
-              ) : (
-                <span className="btn btn-secondary btn-sm opacity-50">Prec.</span>
-              )}
-              {comparePage < compareTotalPages ? (
-                <Link
-                  className="btn btn-secondary btn-sm"
-                  href={buildDiffPageHref({
-                    versionId,
-                    compareId,
-                    mode,
-                    tab: activeTab,
-                    comparePage: comparePage + 1,
-                    compareSearch,
-                  })}
-                >
-                  Suiv.
-                </Link>
-              ) : (
-                <span className="btn btn-secondary btn-sm opacity-50">Suiv.</span>
-              )}
-            </div>
-          </div>
-        ) : null}
-
-        {compareParamIsInvalid ? (
-          <p className="mt-3 text-xs text-warning">
-            Le paramètre compare est invalide ou inaccessible. La comparaison a
-            bascule sur la version disponible la plus récente.
-          </p>
-        ) : null}
-      </section>
+          {compareParamIsInvalid ? (
+            <Alert variant="warning" className="mt-3">
+              La version demandée est invalide ou inaccessible : la comparaison porte sur la
+              version disponible la plus récente.
+            </Alert>
+          ) : null}
+        </Card>
+      ) : null}
 
       {!hasCompareOptions ? (
-        <div className="dashboard-card p-6 text-sm text-slate-600">
-          Cette version n&apos;a pas d&apos;autre version du même projet à comparer.
-        </div>
+        <EmptyState
+          icon={<GitCompareArrowsIcon />}
+          title={compareSearch ? "Aucune version trouvée" : "Aucune autre version à comparer"}
+          description={
+            compareSearch
+              ? `Aucune autre version de l’affaire ne correspond à « ${compareSearch} ».`
+              : "Cette affaire ne compte qu’une seule version. Créez une nouvelle version ou une variante pour la comparer à celle-ci."
+          }
+          action={
+            <Link
+              className={buttonVariants({ variant: "outline", size: "md" })}
+              href={`/dashboard/estimates/${versionId}`}
+            >
+              Revenir à la version
+            </Link>
+          }
+        />
       ) : null}
 
       {hasCompareOptions && activeTab === "diff" && diff ? (

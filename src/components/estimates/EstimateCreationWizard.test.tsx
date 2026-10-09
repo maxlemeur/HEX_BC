@@ -533,14 +533,14 @@ describe("EstimateCreationWizard", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText(/Source détectée: HEX-DPGF.xlsx/),
+        screen.getByText(/Source détectée : HEX-DPGF.xlsx/),
       ).toBeInTheDocument();
     });
     expect(
       screen.getByRole("button", { name: /DPGF source à importer/ }),
     ).toBeEnabled();
     expect(
-      screen.getByText("La version sera créée avec les lignes du DPGF source lie."),
+      screen.getByText("La version sera créée avec les lignes du DPGF source lié."),
     ).toBeInTheDocument();
   });
 
@@ -661,12 +661,12 @@ describe("EstimateCreationWizard", () => {
     await user.click(screen.getByRole("button", { name: /Suivant/ }));
     await waitFor(() => {
       expect(
-        screen.getByText(/Source détectée: HEX-DPGF.xlsx/),
+        screen.getByText(/Source détectée : HEX-DPGF.xlsx/),
       ).toBeInTheDocument();
     });
     await user.click(screen.getByRole("button", { name: /Depuis un modèle/ }));
     await user.selectOptions(
-      screen.getByLabelText(/Template \(10 plus récents\)/),
+      screen.getByLabelText(/Modèle \(10 plus récents\)/),
       "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     );
     await user.click(screen.getByRole("button", { name: /Créer le chiffrage/ }));
@@ -720,12 +720,12 @@ describe("EstimateCreationWizard", () => {
     await user.click(screen.getByRole("button", { name: /Suivant/ }));
     await waitFor(() => {
       expect(
-        screen.getByText(/Source détectée: HEX-DPGF.xlsx/),
+        screen.getByText(/Source détectée : HEX-DPGF.xlsx/),
       ).toBeInTheDocument();
     });
     await user.click(screen.getByRole("button", { name: /Depuis un modèle/ }));
     await user.selectOptions(
-      screen.getByLabelText(/Template \(10 plus récents\)/),
+      screen.getByLabelText(/Modèle \(10 plus récents\)/),
       "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     );
     await user.click(screen.getByRole("button", { name: /Créer le chiffrage/ }));
@@ -740,7 +740,7 @@ describe("EstimateCreationWizard", () => {
       expect(vi.mocked(importLinkedDpgfSource)).toHaveBeenCalledWith("version-tpl-123");
       expect(onCreated).toHaveBeenCalledWith("version-tpl-123", {
         linkedDpgfImportWarning:
-          "Le chiffrage a été créé, mais le DPGF source n'a pas pu être importé: Import temporairement indisponible.",
+          "Le chiffrage a été créé, mais le DPGF source n'a pas pu être importé : Import temporairement indisponible.",
       });
     });
   });

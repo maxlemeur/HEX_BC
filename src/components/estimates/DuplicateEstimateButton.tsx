@@ -2,11 +2,15 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
+import { CopyIcon, GitBranchIcon } from "lucide-react";
 
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import {
   createEstimateVariant,
   duplicateEstimateVersion,
 } from "@/lib/estimates/client";
+import { cn } from "@/lib/utils";
 
 type DuplicateEstimateButtonProps = {
   versionId: string;
@@ -61,54 +65,40 @@ export function DuplicateEstimateButton({
     }
   }, [pendingAction, router, versionId]);
 
-  const buttonClassName = className
-    ? `btn btn-ghost btn-sm ${className}`
-    : "btn btn-ghost btn-sm";
-  const isDuplicating = pendingAction === "duplicate";
-  const isCreatingVariant = pendingAction === "variant";
+  const buttonClassName = cn("w-full justify-start", className);
   const isBusy = pendingAction !== null;
 
   return (
-    <div className="flex flex-col items-start gap-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          className={buttonClassName}
-          type="button"
-          onClick={() => void handleDuplicate()}
-          disabled={isBusy}
-          aria-busy={isDuplicating}
-        >
-          {isDuplicating ? (
-            <>
-              <span className="h-3 w-3 animate-spin rounded-full border-2 border-border-strong border-t-slate-600"></span>
-              Duplication...
-            </>
-          ) : (
-            "Dupliquer"
-          )}
-        </button>
-        <button
-          className={buttonClassName}
-          type="button"
-          onClick={() => void handleCreateVariant()}
-          disabled={isBusy}
-          aria-busy={isCreatingVariant}
-        >
-          {isCreatingVariant ? (
-            <>
-              <span className="h-3 w-3 animate-spin rounded-full border-2 border-border-strong border-t-slate-600"></span>
-              Création variante...
-            </>
-          ) : (
-            "Créer une variante"
-          )}
-        </button>
-      </div>
+    <div className="flex flex-col items-stretch gap-1">
+      <Button
+        className={buttonClassName}
+        variant="ghost"
+        size="md"
+        type="button"
+        onClick={() => void handleDuplicate()}
+        loading={pendingAction === "duplicate"}
+        disabled={isBusy}
+        leftIcon={<CopyIcon aria-hidden="true" />}
+      >
+        Dupliquer
+      </Button>
+      <Button
+        className={buttonClassName}
+        variant="ghost"
+        size="md"
+        type="button"
+        onClick={() => void handleCreateVariant()}
+        loading={pendingAction === "variant"}
+        disabled={isBusy}
+        leftIcon={<GitBranchIcon aria-hidden="true" />}
+      >
+        Créer une variante
+      </Button>
 
       {actionError ? (
-        <div className="alert alert-error px-3 py-2 text-xs">
+        <Alert variant="danger" className="px-3 py-2 text-xs">
           {actionError}
-        </div>
+        </Alert>
       ) : null}
     </div>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { Popover } from "@/components/ui-legacy/Popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 export const COLUMN_HEADER_TOOLTIPS: Record<string, string> = {
   "Désignation": "Désignation de l'article ou de la prestation",
@@ -42,24 +42,23 @@ export function ColumnHeaderHelp({
 }: ColumnHeaderHelpProps) {
   return (
     <span
-      className={`inline-flex items-center gap-1 text-[10px] ${
+      className={`inline-flex items-center gap-1 text-micro ${
         allowWrap ? "whitespace-normal" : "whitespace-nowrap"
       }`}
     >
       {label}
-      <Popover
-        hover
-        trigger={
-          <button
-            className="inline-flex !h-4 !w-3 items-center justify-center border-0 bg-transparent p-0 !text-[9px] font-bold leading-none text-blue-400 hover:text-blue-600 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-400"
-            type="button"
-            aria-label={`Aide : ${label}`}
-          >
-            ?
-          </button>
-        }
-      >
-        {tooltip}
+      <Popover>
+        <PopoverTrigger
+          openOnHover
+          delay={200}
+          className="inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-info-border bg-info-subtle p-0 text-micro font-bold leading-none text-info outline-none hover:bg-info-light focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
+          aria-label={`Aide : ${label}`}
+        >
+          ?
+        </PopoverTrigger>
+        <PopoverContent className="w-auto max-w-xs text-xs leading-relaxed text-foreground-secondary">
+          {tooltip}
+        </PopoverContent>
       </Popover>
     </span>
   );

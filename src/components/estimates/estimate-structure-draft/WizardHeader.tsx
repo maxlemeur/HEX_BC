@@ -1,3 +1,9 @@
+import { CheckIcon } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
+
 import { WIZARD_STEPS, type WizardStep } from "./shared";
 
 type WizardHeaderProps = {
@@ -10,70 +16,81 @@ export function WizardHeader({ step, onClose, isSubmitting }: WizardHeaderProps)
   return (
     <div className="border-b border-border px-6 py-5">
       <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2
-            id="estimate-structure-draft-dialog-title"
-            className="text-lg font-semibold text-foreground"
-          >
+        <div className="min-w-0">
+          <DialogTitle id="estimate-structure-draft-dialog-title">
             Structure IA
-          </h2>
-          <nav aria-label="Étapes du wizard" className="mt-3">
-            <ol className="flex items-center gap-0">
+          </DialogTitle>
+          <DialogDescription className="mt-1">
+            Prévisualisez les lots proposés, choisissez ceux à retenir puis appliquez-les au devis.
+          </DialogDescription>
+          <nav aria-label="Étapes de l'assistant" className="mt-3">
+            <ol className="flex flex-wrap items-center gap-y-2">
               {WIZARD_STEPS.map((wizardStep, index) => {
                 const isDone = step > wizardStep.step || step === 4;
                 const isActive = step === wizardStep.step;
 
                 return (
-                  <li key={wizardStep.step} className="flex items-center">
+                  <li
+                    key={wizardStep.step}
+                    className="flex items-center"
+                    aria-current={isActive ? "step" : undefined}
+                  >
                     {index > 0 && (
-                      <div
-                        className={`mx-2 h-0.5 w-8 rounded ${
+                      <span
+                        aria-hidden="true"
+                        className={cn(
+                          "mx-2 h-0.5 w-6 rounded sm:w-8",
                           isDone
-                            ? "bg-emerald-400"
+                            ? "bg-success"
                             : isActive
-                              ? "bg-blue-300"
-                              : "bg-slate-200"
-                        }`}
+                              ? "bg-primary/40"
+                              : "bg-border"
+                        )}
                       />
                     )}
-                    <div className="flex items-center gap-2">
+                    <span className="flex items-center gap-2">
                       <span
-                        className={`inline-flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${
+                        aria-hidden="true"
+                        className={cn(
+                          "inline-flex size-7 items-center justify-center rounded-full text-xs font-semibold",
                           isDone
-                            ? "bg-emerald-100 text-emerald-700"
+                            ? "bg-success-light text-success"
                             : isActive
-                              ? "bg-blue-600 text-white"
+                              ? "bg-primary text-primary-foreground"
                               : "bg-muted text-muted-foreground"
-                        }`}
+                        )}
                       >
-                        {isDone ? "\u2713" : wizardStep.step}
+                        {isDone ? <CheckIcon className="size-3.5" /> : wizardStep.step}
                       </span>
                       <span
-                        className={`text-sm font-medium ${
+                        className={cn(
+                          "text-sm font-medium",
                           isDone
-                            ? "text-emerald-700"
+                            ? "text-success"
                             : isActive
-                              ? "text-blue-700"
-                              : "text-subtle-foreground"
-                        }`}
+                              ? "text-primary"
+                              : "text-muted-foreground"
+                        )}
                       >
                         {wizardStep.label}
+                        {isDone ? <span className="sr-only"> (terminée)</span> : null}
                       </span>
-                    </div>
+                    </span>
                   </li>
                 );
               })}
             </ol>
           </nav>
         </div>
-        <button
+        <Button
           type="button"
-          className="btn btn-ghost btn-sm"
+          variant="ghost"
+          size="md"
           onClick={onClose}
           disabled={isSubmitting}
         >
           Fermer
-        </button>
+        </Button>
       </div>
     </div>
   );

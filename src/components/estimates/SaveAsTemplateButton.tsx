@@ -1,12 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
+import { BookmarkPlusIcon } from "lucide-react";
 
-import { Button } from "@/components/ui-legacy/Button";
-import { Input } from "@/components/ui-legacy/Input";
-import { Modal } from "@/components/ui-legacy/Modal";
 import { useToast } from "@/components/ui-legacy/Toast";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Field, FieldError, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { createEstimateTemplate } from "@/lib/estimates/client";
+import { cn } from "@/lib/utils";
 
 type SaveAsTemplateButtonProps = {
   versionId: string;
@@ -18,11 +29,15 @@ function buildDefaultTemplateName() {
   const day = String(now.getDate()).padStart(2, "0");
   const month = String(now.getMonth() + 1).padStart(2, "0");
   const year = String(now.getFullYear()).slice(-2);
-  return `Template ${day}/${month}/${year}`;
+  return `Modèle ${day}/${month}/${year}`;
 }
 
 export function SaveAsTemplateButton({ versionId, className }: SaveAsTemplateButtonProps) {
   const toast = useToast();
+  const fieldId = useId();
+  const nameId = `${fieldId}-name`;
+  const nameErrorId = `${fieldId}-name-error`;
+  const descriptionId = `${fieldId}-description`;
   const [isOpen, setIsOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -47,7 +62,7 @@ export function SaveAsTemplateButton({ versionId, className }: SaveAsTemplateBut
 
     const trimmedName = name.trim();
     if (!trimmedName) {
-      setNameError("Le nom du template est obligatoire.");
+      setNameError("Le nom du modèle est obligatoire.");
       return;
     }
 
@@ -64,76 +79,88 @@ export function SaveAsTemplateButton({ versionId, className }: SaveAsTemplateBut
       setIsSubmitting(false);
       setIsOpen(false);
       toast.success({
-        title: "Template enregistre",
-        description: "Le modèle a été ajouté à votre bibliothèque.",
+        title: "Modèle enregistré",
+        description: "Le modèle a été ajouté à vos modèles de chiffrage.",
       });
     } catch (error) {
       setIsSubmitting(false);
       toast.error({
         title: "Enregistrement impossible",
         description:
-          error instanceof Error ? error.message : "Impossible d'enregistrer le template.",
+          error instanceof Error ? error.message : "Impossible d'enregistrer le modèle.",
       });
     }
   }
 
   return (
     <>
-      <Button className={className} variant="secondary" size="sm" type="button" onClick={openModal}>
+      <Button
+        className={cn("w-full justify-start", className)}
+        variant="ghost"
+        size="md"
+        type="button"
+        leftIcon={<BookmarkPlusIcon aria-hidden="true" />}
+        onClick={openModal}
+      >
         Sauvegarder comme modèle
       </Button>
 
-      <Modal.Root open={isOpen} onOpenChange={setIsOpen}>
-        <Modal.Content className="max-w-xl">
-          <Modal.Header>
-            <div>
-              <Modal.Title>Sauvegarder comme modèle</Modal.Title>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Le modèle reprend sections, lignes et paramètres de cette version.
-              </p>
-            </div>
-            <Modal.Close disabled={isSubmitting} />
-          </Modal.Header>
+      <Dialog
+        open={isOpen}
+        disablePointerDismissal={isSubmitting}
+        onOpenChange={(open) => {
+          if (!open) closeModal();
+        }}
+      >
+        <DialogContent size="md">
+          <DialogHeader>
+            <DialogTitle>Sauvegarder comme modèle</DialogTitle>
+            <DialogDescription>
+              Le modèle reprend les sections, les lignes et les paramètres de cette version.
+            </DialogDescription>
+          </DialogHeader>
 
-          <form className="grid gap-4" onSubmit={onSubmit}>
-            <Input
-              id="template-name"
-              label="Nom du modèle *"
-              value={name}
-              onChange={(event) => {
-                setName(event.target.value);
-                if (nameError) {
-                  setNameError(null);
-                }
-              }}
-              error={nameError ?? undefined}
-              required
-            />
+          <form className="grid gap-4" onSubmit={onSubmit} noValidate>
+            <Field data-invalid={nameError ? true : undefined}>
+              <FieldLabel htmlFor={nameId}>Nom du modèle *</FieldLabel>
+              <Input
+                id={nameId}
+                value={name}
+                onChange={(event) => {
+                  setName(event.target.value);
+                  if (nameError) {
+                    setNameError(null);
+                  }
+                }}
+                aria-invalid={nameError ? true : undefined}
+                aria-describedby={nameError ? nameErrorId : undefined}
+                required
+                autoComplete="off"
+              />
+              {nameError ? <FieldError id={nameErrorId}>{nameError}</FieldError> : null}
+            </Field>
 
-            <div>
-              <label className="block text-xs font-semibold text-foreground-secondary" htmlFor="template-description">
-                Description
-              </label>
-              <textarea
-                id="template-description"
-                className="form-input form-textarea mt-1"
-                placeholder="Optionnel"
+            <Field>
+              <FieldLabel htmlFor={descriptionId}>Description</FieldLabel>
+              <Textarea
+                id={descriptionId}
+                placeholder="Optionnelle"
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
               />
-            </div>
+            </Field>
 
-            <Modal.Footer>
-              <Button type="button" variant="secondary" onClick={closeModal} disabled={isSubmitting}>
+            <DialogFooter>
+              <Button type="button" variant="outline" size="lg" onClick={closeModal} disabled={isSubmitting}>
                 Annuler
               </Button>
-              <Button type="submit" loading={isSubmitting}>
-                {isSubmitting ? "Enregistrement..." : "Enregistrer"}
+              <Button type="submit" size="lg" loading={isSubmitting}>
+                Enregistrer
               </Button>
-            </Modal.Footer>
+            </DialogFooter>
           </form>
-        </Modal.Content>
-      </Modal.Root>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

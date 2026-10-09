@@ -1,3 +1,4 @@
+import { Alert } from "@/components/ui/alert";
 import type { EstimateStructureDraft } from "@/lib/estimates/client";
 import {
   confidenceText,
@@ -7,6 +8,7 @@ import {
   type NodeOverrideState,
   type TreeFilterKey,
 } from "@/lib/estimates/estimate-structure-draft";
+import { cn } from "@/lib/utils";
 
 import { PreviewNodeCard } from "./PreviewNodeCard";
 import { TREE_FILTER_CHIPS } from "./shared";
@@ -41,30 +43,37 @@ export function SelectionStep({
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-4 xl:grid-cols-[280px,minmax(0,1fr)]">
-        <div className="rounded-2xl border border-border p-4">
-          <h3 className="text-sm font-semibold text-foreground">
-            Lots a retenir
+      <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
+        <div
+          role="group"
+          aria-labelledby="estimate-structure-draft-lots-title"
+          className="min-w-0 rounded-lg border border-border p-4"
+        >
+          <h3
+            id="estimate-structure-draft-lots-title"
+            className="text-sm font-semibold text-foreground"
+          >
+            Lots à retenir
           </h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            Chaque lot coche sera inclus avec son sous-arbre.
+            Chaque lot coché sera inclus avec son sous-arbre.
           </p>
           {isAssemblyOnlyWeakMode && selectedRootIds.length === 0 ? (
-            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-              Aucune suggestion defendable n&apos;est preselectionnee dans ce contexte.
-              Sélectionnez manuellement un lot faible confiance si vous souhaitez poursuivre,
-              ou enrichissez d&apos;abord les sources affaire.
-            </div>
+            <Alert variant="warning" className="mt-4">
+              Aucune suggestion défendable n&apos;est présélectionnée dans ce contexte.
+              Sélectionnez manuellement un lot à faible confiance si vous souhaitez poursuivre,
+              ou enrichissez d&apos;abord les sources de l&apos;affaire.
+            </Alert>
           ) : null}
           <div className="mt-4 space-y-2">
             {draft.nodes.map((node) => (
               <label
                 key={node.id}
-                className="flex cursor-pointer items-start gap-3 rounded-xl border border-border p-3"
+                className="flex cursor-pointer items-start gap-3 rounded-lg border border-border p-3 hover:bg-surface-subtle"
               >
                 <input
                   type="checkbox"
-                  className="mt-1"
+                  className="mt-0.5 size-4 shrink-0 cursor-pointer rounded-sm accent-primary"
                   checked={selectedRootIds.includes(node.id)}
                   onChange={() => onToggleRootSelection(node.id)}
                 />
@@ -77,17 +86,17 @@ export function SelectionStep({
                   </p>
                   {node.provenance.length > 0 ? (
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Provenance: {summarizeNodeProvenance(node)}
+                      Provenance : {summarizeNodeProvenance(node)}
                     </p>
                   ) : null}
                   {node.duplicateMatchPath ? (
                     <p className="mt-1 text-xs text-warning">
-                      Doublon potentiel: {node.duplicateMatchPath}
+                      Doublon potentiel : {node.duplicateMatchPath}
                     </p>
                   ) : null}
                   {isWeakSignalNode(node) ? (
                     <p className="mt-1 text-xs text-danger">
-                      Suggestion issue des ouvrages seuls, non preselectionnee par défaut.
+                      Suggestion issue des ouvrages seuls, non présélectionnée par défaut.
                     </p>
                   ) : null}
                 </div>
@@ -96,14 +105,20 @@ export function SelectionStep({
           </div>
         </div>
 
-        <div className="rounded-2xl border border-border p-4">
-          <h3 className="text-sm font-semibold text-foreground">
-            Preview arborescente
+        <section
+          aria-labelledby="estimate-structure-draft-preview-title"
+          className="min-w-0 rounded-lg border border-border p-4"
+        >
+          <h3
+            id="estimate-structure-draft-preview-title"
+            className="text-sm font-semibold text-foreground"
+          >
+            Aperçu de l&apos;arborescence
           </h3>
           <div
             className="mt-3 flex flex-wrap gap-2"
             role="group"
-            aria-label="Filtrer les noeuds"
+            aria-label="Filtrer les nœuds"
           >
             {TREE_FILTER_CHIPS.map((chip) => {
               const isActive = activeFilters.has(chip.key);
@@ -112,23 +127,24 @@ export function SelectionStep({
                   key={chip.key}
                   type="button"
                   aria-pressed={isActive}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
                     isActive ? chip.activeClass : chip.inactiveClass
-                  }`}
+                  )}
                   onClick={() => onToggleFilter(chip.key)}
                 >
                   {chip.label}
-                  <span className="text-[10px] opacity-70">{filterCounts[chip.key]}</span>
+                  <span className="text-micro tabular-nums">{filterCounts[chip.key]}</span>
                 </button>
               );
             })}
           </div>
           <div className="mt-4 space-y-3">
             {!hasFilteredPreviewResults ? (
-              <div className="rounded-xl border border-dashed border-border-strong bg-surface-subtle p-4 text-sm text-slate-600">
+              <p className="rounded-lg border border-dashed border-border-strong bg-surface-subtle p-4 text-sm text-muted-foreground">
                 Aucun nœud ne correspond aux filtres actifs.
-                Desactivez un filtre pour réafficher la preview.
-              </div>
+                Désactivez un filtre pour réafficher l&apos;aperçu.
+              </p>
             ) : null}
             {flatNodes.map((node) => {
               if (filteredFlatNodeIds && !filteredFlatNodeIds.has(node.id)) {
@@ -149,7 +165,7 @@ export function SelectionStep({
               );
             })}
           </div>
-        </div>
+        </section>
       </div>
     </div>
   );

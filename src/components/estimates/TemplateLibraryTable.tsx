@@ -1,6 +1,9 @@
 "use client";
 
+import { LayoutTemplateIcon } from "lucide-react";
+
 import { TemplateActionMenu } from "@/components/estimates/TemplateActionMenu";
+import { EmptyTableRow } from "@/components/layout/empty-state";
 import type { EstimateTemplateSummary } from "@/lib/estimates/client";
 
 type TemplateLibraryTableProps = {
@@ -28,37 +31,44 @@ export function TemplateLibraryTable({
   onDelete,
 }: TemplateLibraryTableProps) {
   return (
-    <div className="table-scroll">
+    <div
+      className="table-scroll"
+      role="region"
+      aria-label="Modèles de chiffrage"
+      tabIndex={0}
+    >
       <table className="data-table">
         <thead>
           <tr>
-            <th>Nom</th>
-            <th>Description</th>
-            <th>Lignes</th>
-            <th>Cree le</th>
-            <th>Actions</th>
+            <th scope="col">Nom</th>
+            <th scope="col">Description</th>
+            <th scope="col">Lignes</th>
+            <th scope="col">Créé le</th>
+            <th scope="col">Actions</th>
           </tr>
         </thead>
         <tbody>
           {templates.length === 0 ? (
-            <tr>
-              <td colSpan={5} className="py-10 text-center text-muted-foreground">
-                Aucun template disponible.
-              </td>
-            </tr>
+            <EmptyTableRow
+              colSpan={5}
+              icon={<LayoutTemplateIcon />}
+              title="Aucun modèle disponible"
+              description="Enregistrez une version de chiffrage comme modèle pour la retrouver ici."
+            />
           ) : (
             templates.map((template) => (
               <tr key={template.id}>
                 <td>
-                  <div className="font-semibold text-slate-800">{template.name}</div>
+                  <div className="font-semibold text-foreground">{template.name}</div>
                 </td>
-                <td className="text-slate-600">
+                <td className="text-foreground-secondary">
                   {template.description?.trim() || "-"}
                 </td>
-                <td className="font-mono">{template.itemCount}</td>
-                <td>{formatDate(template.createdAt)}</td>
+                <td className="font-mono tabular-nums">{template.itemCount}</td>
+                <td className="whitespace-nowrap">{formatDate(template.createdAt)}</td>
                 <td>
                   <TemplateActionMenu
+                    itemName={template.name}
                     disabled={busyTemplateId === template.id}
                     onRename={() => onRename(template)}
                     onDuplicate={() => onDuplicate(template)}
