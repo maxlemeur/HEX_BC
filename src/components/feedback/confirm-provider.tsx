@@ -46,10 +46,10 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+// Outside the provider (isolated renders), keep the behaviour of the native dialog.
+const nativeConfirm: ConfirmFn = async (options) =>
+  typeof window === "undefined" ? false : window.confirm(options.title);
+
 export function useConfirm(): ConfirmFn {
-  const confirm = use(ConfirmContext);
-  if (!confirm) {
-    throw new Error("useConfirm doit être utilisé sous <ConfirmProvider>.");
-  }
-  return confirm;
+  return use(ConfirmContext) ?? nativeConfirm;
 }

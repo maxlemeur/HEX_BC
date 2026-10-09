@@ -35,6 +35,8 @@ import {
 } from "@/components/estimates/components/estimate-editor-table/MobileEstimateList";
 import { EstimateEditorToolbar } from "@/components/estimates/components/EstimateEditorToolbar";
 import { ConfirmModal } from "@/components/ui-legacy/ConfirmModal";
+import { useToast } from "@/components/ui-legacy/Toast";
+import { useConfirm } from "@/components/feedback/confirm-provider";
 import type { SupplierComparisonAlternative } from "@/components/estimates/SupplierComparisonPanel";
 import type { CataloguePriceSuggestion } from "@/lib/estimates/catalogue-suggestions";
 import { EstimateEditorProvider } from "@/components/estimates/context/EstimateEditorContext";
@@ -926,6 +928,8 @@ export function EstimateEditorTable({
   const [searchTerm, setSearchTerm] = useState("");
   const [mobileEditorItemId, setMobileEditorItemId] = useState<string | null>(null);
   const [isItemConversionPending, setIsItemConversionPending] = useState(false);
+  const confirm = useConfirm();
+  const toast = useToast();
   const [deleteConfirmation, setDeleteConfirmation] =
     useState<DeleteConfirmationState | null>(null);
   const [isDeletePending, setIsDeletePending] = useState(false);
@@ -1639,11 +1643,13 @@ export function EstimateEditorTable({
           : [lineId];
       if (targetLineIds.length === 0) return;
 
-      const confirmed = window.confirm(
-        targetLineIds.length > 1
-          ? `Convertir ${targetLineIds.length} lignes selectionnees en sections ?`
-          : "Convertir cette ligne en section ?"
-      );
+      const confirmed = await confirm({
+        title:
+          targetLineIds.length > 1
+            ? `Convertir ${targetLineIds.length} lignes sélectionnées en sections ?`
+            : "Convertir cette ligne en section ?",
+        confirmLabel: "Convertir",
+      });
       if (!confirmed) return;
 
       closeSupplierComparisonContextMenu();
@@ -1661,11 +1667,10 @@ export function EstimateEditorTable({
           clearLineSelection();
         }
       } catch (error) {
-        window.alert(
-          error instanceof Error
-            ? error.message
-            : "Impossible de convertir la ligne."
-        );
+        toast.error({
+          title: "Conversion impossible",
+          description: error instanceof Error ? error.message : "Impossible de convertir la ligne.",
+        });
       } finally {
         setIsItemConversionPending(false);
       }
@@ -1674,10 +1679,12 @@ export function EstimateEditorTable({
       applyItemConversionResultLocally,
       clearLineSelection,
       closeSupplierComparisonContextMenu,
+      confirm,
       isItemConversionPending,
       isReadOnly,
       itemById,
       selectedLineIdList,
+      toast,
       versionId,
     ]
   );
@@ -1691,14 +1698,16 @@ export function EstimateEditorTable({
 
       const directChildrenCount = (itemsByParent.get(sectionId) ?? []).length;
       if (directChildrenCount > 0) {
-        window.alert(
-          "Conversion impossible: la section contient des enfants."
-        );
+        toast.error({
+          title: "Conversion impossible",
+          description: "La section contient des lignes ou des sous-sections.",
+        });
         return;
       }
-      const confirmed = window.confirm(
-        "Convertir cette section en ligne ?"
-      );
+      const confirmed = await confirm({
+        title: "Convertir cette section en ligne ?",
+        confirmLabel: "Convertir",
+      });
       if (!confirmed) return;
 
       closeSectionContextMenu();
@@ -1707,11 +1716,10 @@ export function EstimateEditorTable({
         const result = await convertEstimateItemType(versionId, sectionId, "line");
         applyItemConversionResultLocally(result);
       } catch (error) {
-        window.alert(
-          error instanceof Error
-            ? error.message
-            : "Impossible de convertir la section."
-        );
+        toast.error({
+          title: "Conversion impossible",
+          description: error instanceof Error ? error.message : "Impossible de convertir la section.",
+        });
       } finally {
         setIsItemConversionPending(false);
       }
@@ -1719,10 +1727,12 @@ export function EstimateEditorTable({
     [
       applyItemConversionResultLocally,
       closeSectionContextMenu,
+      confirm,
       isItemConversionPending,
       isReadOnly,
       itemById,
       itemsByParent,
+      toast,
       versionId,
     ]
   );
@@ -2717,8 +2727,6 @@ export function EstimateEditorTable({
         />
       ) : null}
 
-      {/* Spacer so table content isn't hidden behind the fixed bulk-selection bar */}
-      {hasSelectedLines && <div className="h-16" />}
         </EstimateSpreadsheetProvider>
       </EstimateEditorRowActionsProvider>
     </EstimateEditorProvider>

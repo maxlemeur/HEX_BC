@@ -278,7 +278,7 @@ describe("EstimateEditorRow behavior", () => {
     );
   });
 
-  it("exposes article actions from the visible three-dot menu", () => {
+  it("exposes article actions from the visible three-dot menu", async () => {
     renderRow(
       createItem({
         id: "line-article",
@@ -287,14 +287,11 @@ describe("EstimateEditorRow behavior", () => {
       }),
     );
 
-    const actions = screen
-      .getByLabelText("Plus d'actions pour Plateau")
-      .closest("details");
-    expect(actions).not.toBeNull();
-    if (!actions) return;
+    const trigger = screen.getByRole("button", { name: "Plus d'actions pour Plateau" });
+    fireEvent.click(trigger);
 
-    const actionButtons = within(actions).getAllByRole("button");
-    expect(actionButtons.map((button) => button.textContent?.trim())).toEqual([
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getAllByRole("menuitem").map((entry) => entry.textContent?.trim())).toEqual([
       "Fiche article",
       "Associer ou remplacer l’article",
       "Comparer les fournisseurs",
@@ -302,18 +299,19 @@ describe("EstimateEditorRow behavior", () => {
       "Supprimer",
     ]);
 
-    fireEvent.click(within(actions).getByRole("button", { name: "Fiche article" }));
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Fiche article" }));
+    expect(rowActionSpies.onOpenArticle).toHaveBeenCalledWith("line-article");
+
+    fireEvent.click(trigger);
     fireEvent.click(
-      within(actions).getByRole("button", {
+      within(await screen.findByRole("menu")).getByRole("menuitem", {
         name: "Associer ou remplacer l’article",
       }),
     );
-
-    expect(rowActionSpies.onOpenArticle).toHaveBeenCalledWith("line-article");
     expect(rowActionSpies.onAssociateArticle).toHaveBeenCalledWith("line-article");
   });
 
-  it("closes the visible three-dot menu when clicking outside", () => {
+  it("closes the three-dot menu with Escape and restores the trigger state", async () => {
     renderRow(
       createItem({
         id: "line-actions-outside-click",
@@ -321,17 +319,16 @@ describe("EstimateEditorRow behavior", () => {
       }),
     );
 
-    const trigger = screen.getByLabelText("Plus d'actions pour Plateau");
-    const actions = trigger.closest("details");
-    expect(actions).not.toBeNull();
-    if (!actions) return;
+    const trigger = screen.getByRole("button", { name: "Plus d'actions pour Plateau" });
 
     fireEvent.click(trigger);
-    expect(actions).toHaveAttribute("open");
+    expect(await screen.findByRole("menu")).toBeInTheDocument();
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
 
-    fireEvent.pointerDown(document.body);
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
 
-    expect(actions).not.toHaveAttribute("open");
+    await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
   });
 
   it("affiche immédiatement la sélection sans annuler le clic natif", () => {

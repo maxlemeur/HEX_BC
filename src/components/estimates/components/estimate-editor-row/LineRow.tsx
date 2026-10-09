@@ -7,9 +7,7 @@ import { EstimateTypeCombobox } from "@/components/estimates/EstimateTypeCombobo
 import type { EstimateTypeOption } from "@/lib/estimates/type-search";
 
 import {
-  useEffect,
   useMemo,
-  useRef,
   useState,
   type ChangeEvent,
   type CSSProperties,
@@ -71,6 +69,14 @@ import {
   toCellClassName,
   toCellKeyDownHandler,
 } from "@/components/estimates/components/estimate-editor-row/shared";
+import { EllipsisVerticalIcon } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 type LineRowProps = {
   versionId: string;
@@ -312,27 +318,6 @@ export function LineRow({
 }: LineRowProps) {
   const [catalogueSuggestionsAnchor, setCatalogueSuggestionsAnchor] =
     useState<HTMLDivElement | null>(null);
-  const actionsMenuRef = useRef<HTMLDetailsElement>(null);
-  const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
-
-  useEffect(() => {
-    if (!isActionsMenuOpen) return;
-
-    const closeOnOutsidePointerDown = (event: PointerEvent) => {
-      const menu = actionsMenuRef.current;
-      if (!menu || (event.target instanceof Node && menu.contains(event.target))) {
-        return;
-      }
-
-      menu.open = false;
-      setIsActionsMenuOpen(false);
-    };
-
-    document.addEventListener("pointerdown", closeOnOutsidePointerDown);
-    return () => {
-      document.removeEventListener("pointerdown", closeOnOutsidePointerDown);
-    };
-  }, [isActionsMenuOpen]);
 
   const treeConnectorSegments = buildTreeConnectorSegments(treeConnectorMeta);
   const hasTreeConnectors =
@@ -1177,104 +1162,51 @@ export function LineRow({
         <span>{formatCurrency(lineTotal, estimateCurrency)}</span>
       </div>
       <div className="estimate-cell estimate-cell--actions">
-          <details
-            ref={actionsMenuRef}
-            className="relative"
-            onToggle={(event) => {
-              setIsActionsMenuOpen(event.currentTarget.open);
-            }}
-          >
-            <summary
-              className="btn btn-ghost btn-sm cursor-pointer list-none select-none"
-              title="Plus d'actions"
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              className="btn btn-ghost btn-sm"
               aria-label={`Plus d'actions pour ${item.title || "la ligne"}`}
-              onClick={() => {
-                setIsActionsMenuOpen(!actionsMenuRef.current?.open);
-              }}
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="12" cy="5" r="1" />
-                <circle cx="12" cy="12" r="1" />
-                <circle cx="12" cy="19" r="1" />
-              </svg>
-            </summary>
-            <div
-              className="absolute right-0 top-full z-20 mt-1 flex flex-col gap-1 rounded-xl border border-[var(--slate-200)] bg-surface p-2 shadow-xl"
-              style={{ minWidth: "230px" }}
-            >
-              <button
-                className="btn btn-ghost btn-sm w-full justify-start"
-                type="button"
-                onClick={(event) => {
-                  event.currentTarget.closest("details")?.removeAttribute("open");
-                  onOpenArticle(item.id);
-                }}
-                disabled={!item.product_id}
-              >
+              <EllipsisVerticalIcon aria-hidden="true" className="size-4" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-[230px] p-1.5">
+              <DropdownMenuItem className="px-2.5 py-2" disabled={!item.product_id} onClick={() => onOpenArticle(item.id)}>
                 Fiche article
-              </button>
+              </DropdownMenuItem>
               {!hideEditingActions ? (
-                <button
-                  className="btn btn-ghost btn-sm w-full justify-start"
-                  type="button"
-                  onClick={(event) => {
-                    event.currentTarget.closest("details")?.removeAttribute("open");
-                    onAssociateArticle(item.id);
-                  }}
+                <DropdownMenuItem
+                  className="px-2.5 py-2"
                   disabled={isReadOnly || isPendingCreate}
+                  onClick={() => onAssociateArticle(item.id)}
                 >
                   Associer ou remplacer l’article
-                </button>
+                </DropdownMenuItem>
               ) : null}
-              <button
-                className="btn btn-ghost btn-sm w-full justify-start"
-                type="button"
-                onClick={(event) => {
-                  event.currentTarget.closest("details")?.removeAttribute("open");
-                  onOpenSupplierComparisonPanel(item.id);
-                }}
-              >
+              <DropdownMenuItem className="px-2.5 py-2" onClick={() => onOpenSupplierComparisonPanel(item.id)}>
                 Comparer les fournisseurs
-              </button>
+              </DropdownMenuItem>
               {!hideEditingActions ? (
                 <>
-                  <div className="my-1 border-t border-[var(--slate-200)]" />
-                  <button
-                    className="btn btn-ghost btn-sm w-full justify-start"
-                    type="button"
-                    onClick={(event) => {
-                      event.currentTarget.closest("details")?.removeAttribute("open");
-                      onConvertLineToSection(item.id);
-                    }}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="px-2.5 py-2"
                     disabled={isReadOnly || isPendingCreate}
+                    onClick={() => onConvertLineToSection(item.id)}
                   >
                     Convertir en section
-                  </button>
-                  <button
-                    className="btn btn-danger btn-sm w-full justify-start"
-                    type="button"
-                    onClick={(event) => {
-                      event.currentTarget.closest("details")?.removeAttribute("open");
-                      onDeleteItem(item.id);
-                    }}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="px-2.5 py-2"
+                    variant="destructive"
                     disabled={isReadOnly}
+                    onClick={() => onDeleteItem(item.id)}
                   >
                     Supprimer
-                  </button>
+                  </DropdownMenuItem>
                 </>
               ) : null}
-            </div>
-          </details>
+            </DropdownMenuContent>
+          </DropdownMenu>
       </div>
       </EstimateOrderedCells>
     </div>
