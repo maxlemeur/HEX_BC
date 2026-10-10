@@ -299,50 +299,53 @@ export function extractVersionIdFromUrl(url: string) {
 }
 
 export async function loginWithUi(page: Page) {
-  const maxAttempts = 3;
+  await page.goto("/login", { waitUntil: "domcontentloaded" });
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    await page.goto("/login", { waitUntil: "domcontentloaded" });
-
-    // An existing session (stored state) is redirected to the dashboard: credentials are
-    // only needed when the login form is actually shown.
-    if (/\/dashboard(?:$|[/?#])/.test(page.url())) {
-      await bootstrapTenantMembershipIfMissing(page);
-      return;
-    }
-
-    const { email, password } = requireE2ELoginCredentials();
-    await expect(page.getByRole("heading", { name: /Connexion/i })).toBeVisible();
-
-    await page.getByLabel("Email").fill(email);
-    await page.locator("#password").fill(password);
-    await page.getByRole("button", { name: /Se connecter/i }).click();
-
-    try {
-      await page.waitForURL(/\/dashboard(?:$|[/?#])/, { timeout: 30_000 });
-      await bootstrapTenantMembershipIfMissing(page);
-      return;
-    } catch {
-      await page.goto("/dashboard", { waitUntil: "domcontentloaded" });
-      if (/\/dashboard(?:$|[/?#])/.test(page.url())) {
-        return;
-      }
-
-      if (attempt === maxAttempts) {
-        const alertText = (await page.getByRole("alert").allTextContents())
-          .map((text) => text.trim())
-          .filter((text) => text.length > 0)
-          .join(" | ");
-        throw new Error(
-          alertText
-            ? `Unable to login after ${maxAttempts} attempts: ${alertText}`
-            : `Unable to login after ${maxAttempts} attempts.`
-        );
-      }
-
-      await page.waitForTimeout(2_000);
-    }
+  if (/\/dashboard(?:$|[/?#])/.test(page.url())) {
+    await bootstrapTenantMembershipIfMissing(page);
+    return;
   }
+
+  await expect(page.getByRole("heading", { name: /Connexion/i })).toBeVisible();
+
+  // HTML can be actionable before React attaches the form handlers. Probe a
+  // non-secret control, then restore the masked state before filling credentials.
+  const showPassword = page.getByRole("button", {
+    name: "Afficher le mot de passe", exact: true,
+  });
+  const hidePassword = page.getByRole("button", {
+    name: "Masquer le mot de passe", exact: true,
+  });
+  await expect.poll(async () => {
+    if (await hidePassword.isVisible()) return true;
+    if (await showPassword.isVisible()) await showPassword.click();
+    return hidePassword.isVisible();
+  }, { timeout: 30_000, message: "Login form did not hydrate" }).toBe(true);
+  await hidePassword.click();
+  await expect(page.locator("#password")).toHaveAttribute("type", "password");
+
+  const { email, password } = requireE2ELoginCredentials();
+  await page.getByLabel("Email").fill(email);
+  await page.locator("#password").fill(password);
+  await page.getByRole("button", { name: "Se connecter", exact: true }).click();
+
+  let authenticationError = "";
+  await expect.poll(async () => {
+    if (/\/dashboard(?:$|[/?#])/.test(page.url())) return "dashboard";
+    authenticationError = (await page.getByRole("alert").allTextContents())
+      .map((text) => text.trim()).filter(Boolean).join(" | ");
+    return authenticationError ? "rejected" : "pending";
+  }, { timeout: 45_000, message: "Login did not redirect or display an authentication result" })
+    .not.toBe("pending");
+
+  if (authenticationError) {
+    const safeMessage = authenticationError
+      .replaceAll(password, "[redacted]")
+      .replaceAll(email, "[email]");
+    throw new Error("Unable to login: " + safeMessage);
+  }
+
+  await bootstrapTenantMembershipIfMissing(page);
 }
 
 export async function createEstimateViaWizard(

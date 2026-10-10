@@ -334,6 +334,22 @@ Transferts séquentiels obligatoires : `src/lib/takeoff/processor.ts`, `src/lib/
 - Détails, limites et preuves reproductibles :
   [régression des anciennes RPC](testing/legacy-estimate-creators-regression.md).
 
+### Audit des dépendances CI — 2026-10-10
+
+- Les versions corrigées compatibles remplacent les dépendances signalées par
+  l'audit. `braces`, sans version corrigée disponible, disparaît du graphe :
+  son seul appel direct venait de la recherche de racines du plugin ESLint Next.
+  Un paquet local limité à ce contrat conserve les motifs ordinaires et refuse
+  explicitement les motifs excessifs. Il ne désactive aucune règle de lint.
+- La régression initiale reproduit l'épuisement de pile ; une revue indépendante
+  a ensuite confirmé trois écarts de compatibilité, reproduits puis corrigés
+  avant publication. Les 9 régressions passent via le vrai consommateur Next.
+- Installation neuve, audit sans exception, 816 signatures / 220 attestations,
+  2 703 assertions actives, lint, typecheck et build/smoke HTTP verts. Ces résultats
+  sont locaux ; la CI et le login réel doivent être vérifiés sur le SHA poussé.
+  Ce complément ne modifie ni les dispositions historiques ni les artefacts
+  canoniques du scan. Détails : [réparation CI](testing/ci-recovery-2026-10-10.md).
+
 ## Bilan terminal
 
 - `fixed` : 95.

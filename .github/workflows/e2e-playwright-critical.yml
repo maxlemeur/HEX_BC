@@ -51,6 +51,9 @@ jobs:
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
 
+      - name: Verify login helper regressions
+        run: npx playwright test --config e2e/auth/playwright.config.ts
+
       - name: Run critical Playwright suite
         run: npm run e2e:pw:critical
         env:

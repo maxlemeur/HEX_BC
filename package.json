@@ -100,6 +100,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@mergeone/next-eslint-root-glob": "file:tools/next-eslint-root-glob",
     "@ai-sdk/openai": "4.0.83",
     "@axe-core/playwright": "^4.10.2",
     "@e2e-dev/web": "0.11.1",
@@ -112,7 +113,7 @@
     "@types/node": "^24.13.3",
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.4",
-    "@vitest/coverage-v8": "^4.0.18",
+    "@vitest/coverage-v8": "4.1.11",
     "ai": "7.0.127",
     "e2e": "0.15.2",
     "eslint": "^9.39.5",
@@ -123,9 +124,15 @@
     "tailwindcss": "^4",
     "tsx": "^4.20.6",
     "typescript": "^6.0.3",
-    "vitest": "^4.0.18"
+    "vitest": "4.1.11"
   },
   "overrides": {
+    "@next/eslint-plugin-next": {
+      "fast-glob": "file:../../../tools/next-eslint-root-glob"
+    },
+    "e2e": {
+      "@modelcontextprotocol/sdk": "1.32.1"
+    },
     "exceljs": {
       "uuid": "11.1.1"
     }
