@@ -73,20 +73,40 @@ describe("Supabase migration history regressions", () => {
       { local: "20260304", remote: undefined },
       { local: "20260808204122", remote: "20260808204122" },
     ]);
+    // Since CLI 2.119 the date-only legacy versions are recorded like any other:
+    // an unrecorded one now means the migration did not run.
     expect(
       validateAppliedMigrationRows(
         ["001", "20260304", "20260808204122"],
         rows
       )
+    ).toContain("migration is not applied locally: 20260304");
+    const applied = rows.map((row) => ({ ...row, remote: row.local }));
+    expect(
+      validateAppliedMigrationRows(
+        ["001", "20260304", "20260808204122"],
+        applied
+      )
     ).toEqual([]);
     expect(
       validateAppliedMigrationRows(
         ["001", "20260304", "20260808204122"],
-        rows.slice(0, 2)
+        applied.slice(0, 2)
       )
     ).toContain(
-      "applied migration inventory mismatch: expected 2, received 1"
+      "applied migration inventory mismatch: expected 3, received 2"
     );
+    // The CLI lists versions in version order ("20260222" before
+    // "20260222001500"); the repository inventory follows file names.
+    expect(
+      validateAppliedMigrationRows(
+        ["20260222001500", "20260222"],
+        [
+          { local: "20260222", remote: "20260222" },
+          { local: "20260222001500", remote: "20260222001500" },
+        ]
+      )
+    ).toEqual([]);
     expect(parseSupabaseMigrationList("unexpected output\r\nwithout rows")).toEqual(
       []
     );

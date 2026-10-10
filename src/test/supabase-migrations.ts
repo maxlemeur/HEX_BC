@@ -65,13 +65,6 @@ export function parseUtcMigrationTimestamp(timestamp: string) {
     : null;
 }
 
-export const UNTRACKED_LEGACY_MIGRATION_VERSIONS = new Set([
-  "20260222",
-  "20260304",
-  "20260305",
-  "20260306",
-]);
-
 export interface SupabaseMigrationInventory {
   files: string[];
   versions: string[];
@@ -298,32 +291,30 @@ export function validateAppliedMigrationRows(
   appliedRows: AppliedMigrationRow[]
 ) {
   const errors: string[] = [];
+  // The CLI lists versions in version order ("20260222" before
+  // "20260222001500") while the repository inventory follows file names, so
+  // the inventories are compared as sets.
+  const sorted = (versions: string[]) => [...versions].sort();
+  const expected = JSON.stringify(sorted(expectedVersions));
   const localVersions = appliedRows.map((row) => row.local);
-  const appliedVersions = appliedRows.map((row) => row.remote).filter(Boolean);
-  const expectedAppliedVersions = expectedVersions.filter(
-    (version) => !UNTRACKED_LEGACY_MIGRATION_VERSIONS.has(version)
-  );
+  const appliedVersions = appliedRows
+    .map((row) => row.remote)
+    .filter((version): version is string => Boolean(version));
 
-  if (JSON.stringify(localVersions) !== JSON.stringify(expectedVersions)) {
+  if (JSON.stringify(sorted(localVersions)) !== expected) {
     errors.push(
       `local migration inventory mismatch: expected ${expectedVersions.length}, received ${localVersions.length}`
     );
   }
-  if (
-    JSON.stringify(appliedVersions) !== JSON.stringify(expectedAppliedVersions)
-  ) {
+  if (JSON.stringify(sorted(appliedVersions)) !== expected) {
     errors.push(
-      `applied migration inventory mismatch: expected ${expectedAppliedVersions.length}, received ${appliedVersions.length}`
+      `applied migration inventory mismatch: expected ${expectedVersions.length}, received ${appliedVersions.length}`
     );
   }
+  // Since CLI 2.119 the four date-only legacy versions are recorded like any
+  // other migration: every repository version must be applied locally.
   for (const row of appliedRows) {
-    if (UNTRACKED_LEGACY_MIGRATION_VERSIONS.has(row.local)) {
-      if (row.remote !== undefined) {
-        errors.push(
-          `legacy migration must remain local-only in CLI history: ${row.local}`
-        );
-      }
-    } else if (row.remote !== row.local) {
+    if (row.remote !== row.local) {
       errors.push(`migration is not applied locally: ${row.local}`);
     }
   }

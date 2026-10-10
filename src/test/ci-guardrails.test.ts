@@ -149,7 +149,7 @@ describe("CI and local quality guardrails", () => {
     expect(workflow).toContain("run: npm ci --ignore-scripts");
     expect(workflow).toContain("run: npm audit signatures");
     expect(workflow).toContain("npx --no-install supabase --version");
-    expect(workflow).toContain('= "2.109.1"');
+    expect(workflow).toContain('= "2.120.0"');
     expect(workflow).not.toContain("npm install -g supabase");
     expect(workflow).not.toMatch(/^\s+supabase db dump/mu);
     expect(workflow).not.toMatch(

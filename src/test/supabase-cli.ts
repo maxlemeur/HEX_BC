@@ -3,7 +3,8 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 
-export const PINNED_SUPABASE_CLI_VERSION = "2.109.1";
+// 2.119 is the first CLI with the Docker-free native runtime (`[experimental] stack`).
+export const PINNED_SUPABASE_CLI_VERSION = "2.120.0";
 export type SupabaseEnvironment = Readonly<
   Record<string, string | undefined>
 >;
@@ -76,14 +77,6 @@ function isForbiddenSupabaseEnvironmentName(name: string) {
   );
 }
 
-const LOCAL_START_EXCLUSIONS =
-  "edge-runtime,imgproxy,logflare,mailpit,postgres-meta,realtime,storage-api,studio,supavisor,vector";
-const LOCAL_STATUS_OVERRIDES = [
-  "api.url=NEXT_PUBLIC_SUPABASE_URL",
-  "auth.anon_key=NEXT_PUBLIC_SUPABASE_ANON_KEY",
-  "auth.service_role_key=SUPABASE_SERVICE_ROLE_KEY",
-];
-
 function hasNonEmptyValue(args: string[], index: number) {
   return Boolean(args[index]?.trim() && !args[index].startsWith("--"));
 }
@@ -115,8 +108,8 @@ export function assertLocalOnlySupabaseArgs(args: string[]) {
   if (
     args.length === 5 &&
     args[0] === "start" &&
-    args[1] === "--exclude" &&
-    args[2] === LOCAL_START_EXCLUSIONS &&
+    args[1] === "--runtime" &&
+    args[2] === "native" &&
     args[3] === "--workdir" &&
     hasIsolatedWorkdir(args, 4)
   ) {
@@ -162,27 +155,33 @@ export function assertLocalOnlySupabaseArgs(args: string[]) {
   }
 
   if (
-    args.length === 11 &&
+    args.length === 4 &&
     args[0] === "status" &&
-    args[1] === "-o" &&
-    args[2] === "env" &&
-    args[3] === "--override-name" &&
-    args[5] === "--override-name" &&
-    args[7] === "--override-name" &&
-    args[9] === "--workdir" &&
-    hasIsolatedWorkdir(args, 10) &&
-    JSON.stringify([args[4], args[6], args[8]]) ===
-      JSON.stringify(LOCAL_STATUS_OVERRIDES)
+    args[1] === "--env" &&
+    args[2] === "--workdir" &&
+    hasIsolatedWorkdir(args, 3)
   ) {
     return;
   }
 
   if (
-    args.length === 4 &&
+    args.length === 3 &&
     args[0] === "stop" &&
-    args[1] === "--project-id" &&
-    /^miaouffrage-ci-\d+-[0-9a-f]{8}$/.test(args[2] ?? "") &&
-    args[3] === "--no-backup"
+    args[1] === "--workdir" &&
+    hasIsolatedWorkdir(args, 2)
+  ) {
+    return;
+  }
+
+  // `stop` keeps a native stack's data; `stack destroy` deletes it. Only the
+  // disposable CI workdir may be destroyed, never a developer's own stack.
+  if (
+    args.length === 5 &&
+    args[0] === "stack" &&
+    args[1] === "destroy" &&
+    args[2] === "--yes" &&
+    args[3] === "--workdir" &&
+    hasIsolatedWorkdir(args, 4)
   ) {
     return;
   }

@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -22,74 +22,84 @@ import {
 
 type RoleKey = "admin" | "engineer" | "viewer";
 
-const DOCKER_ROUTING_ENVIRONMENT_NAMES = [
-  "DOCKER_CERT_PATH",
-  "DOCKER_CONFIG",
-  "DOCKER_CONTEXT",
-  "DOCKER_HOST",
-  "DOCKER_TLS_VERIFY",
-] as const;
-
-export function assertNoDockerRoutingEnvironment(
-  environment: SupabaseEnvironment = process.env
-) {
-  const configured = Object.entries(environment)
-    .filter(([, value]) => value?.trim())
-    .map(([name]) => name)
-    .filter((name) =>
-      DOCKER_ROUTING_ENVIRONMENT_NAMES.includes(
-        name.toUpperCase() as (typeof DOCKER_ROUTING_ENVIRONMENT_NAMES)[number]
-      )
-    )
-    .sort();
-  if (configured.length > 0) {
-    throw new Error(
-      `Local Supabase CI refuses Docker routing overrides: ${configured.join(", ")}`
-    );
-  }
+export interface NativeRuntimeHost {
+  arch: string;
+  glibcVersion?: string;
+  platform: NodeJS.Platform;
+  release: string;
+  uid?: number;
 }
 
-export function assertLocalDockerEndpoint(rawEndpoint: string) {
-  const trimmed = rawEndpoint.trim();
-  let endpoint = trimmed;
-  try {
-    const parsed = JSON.parse(trimmed) as unknown;
-    if (typeof parsed === "string") {
-      endpoint = parsed;
+function isAtLeast(version: string, minimum: [number, number]) {
+  const [major = 0, minor = 0] = version.split(".").map(Number);
+  return major > minimum[0] || (major === minimum[0] && minor >= minimum[1]);
+}
+
+/**
+ * The Supabase native runtime runs each service as a local process, without a
+ * container engine. Supabase supports it on Linux with glibc 2.35+ and on
+ * macOS 14+ on Apple silicon, never as root. Fail before starting anything.
+ */
+export function assertNativeRuntimeHost(host: NativeRuntimeHost) {
+  if (host.platform === "win32") {
+    throw new Error(
+      "The Supabase native runtime does not run on Windows: run `npm run db:ci:local` inside WSL (Ubuntu 22.04 or later) from a Linux checkout."
+    );
+  }
+  if (host.platform === "linux") {
+    if (!host.glibcVersion || !isAtLeast(host.glibcVersion, [2, 35])) {
+      throw new Error(
+        `The Supabase native runtime requires glibc 2.35 or later; this host has ${host.glibcVersion ?? "no glibc"}.`
+      );
     }
-  } catch {
-    // Docker may return an unquoted endpoint depending on client version.
+  } else if (host.platform === "darwin") {
+    if (host.arch !== "arm64") {
+      throw new Error("The Supabase native runtime requires Apple silicon on macOS.");
+    }
+    // Darwin 23 is macOS 14.
+    if (!isAtLeast(host.release, [23, 0])) {
+      throw new Error("The Supabase native runtime requires macOS 14 or later.");
+    }
+  } else {
+    throw new Error(`The Supabase native runtime does not support ${host.platform}.`);
   }
-
-  const isLocalUnixSocket = endpoint.startsWith("unix:///");
-  const isLocalWindowsPipe = endpoint.startsWith("npipe:////./pipe/");
-  if (!isLocalUnixSocket && !isLocalWindowsPipe) {
-    throw new Error(
-      `Local Supabase CI refuses non-local Docker endpoint: ${endpoint || "unknown"}`
-    );
+  if (host.uid === 0) {
+    throw new Error("The Supabase native runtime refuses to run as root; use an ordinary account.");
   }
 }
 
-function ensureLocalDockerDaemon(environment: SupabaseEnvironment) {
-  assertNoDockerRoutingEnvironment(environment);
-  const childEnvironment = {
-    ...createLocalCiEnvironment(environment),
-    DO_NOT_TRACK: "1",
+function currentNativeRuntimeHost(): NativeRuntimeHost {
+  const report = process.report?.getReport() as
+    | { header?: { glibcVersionRuntime?: string } }
+    | undefined;
+  return {
+    arch: process.arch,
+    glibcVersion: report?.header?.glibcVersionRuntime,
+    platform: process.platform,
+    release: os.release(),
+    uid: process.getuid?.(),
   };
-  const endpoint = execFileSync(
-    "docker",
-    ["context", "inspect", "--format", "{{json .Endpoints.docker.Host}}"],
-    {
-      encoding: "utf8",
-      env: childEnvironment,
-      stdio: ["ignore", "pipe", "pipe"],
-    }
+}
+
+/**
+ * The runtime choice exists only once `[experimental] stack` is on. Insert it
+ * into the existing table: a second `[experimental]` table makes config.toml
+ * invalid. Line endings of the checkout are preserved.
+ */
+export function enableNativeStack(config: string) {
+  const headers = config.match(/^\[experimental\]\r?$/gm) ?? [];
+  if (headers.length > 1) {
+    throw new Error("config.toml declares [experimental] more than once");
+  }
+  if (headers.length === 0) {
+    const separator = config.endsWith("\n") ? "" : "\n";
+    return `${config}${separator}\n[experimental]\nstack = true\n`;
+  }
+  return config.replace(
+    /^\[experimental\](\r?)$/m,
+    (_header, carriageReturn: string) =>
+      `[experimental]${carriageReturn}\nstack = true${carriageReturn}`
   );
-  assertLocalDockerEndpoint(endpoint);
-  execFileSync("docker", ["version", "--format", "{{.Server.Version}}"], {
-    env: childEnvironment,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
 }
 
 export interface LocalSupabaseStatus {
@@ -109,7 +119,7 @@ interface IsolatedSupabaseProject {
 }
 
 interface LocalSupabaseCiDependencies {
-  ensureDocker: () => void;
+  ensureRuntime: () => void;
   environment: SupabaseEnvironment;
   log: (message: string) => void;
   prepareProject: () => Promise<IsolatedSupabaseProject>;
@@ -198,7 +208,8 @@ async function prepareIsolatedProject(): Promise<IsolatedSupabaseProject> {
         String(isolatedPort)
       );
     }
-    if (!new RegExp(`^project_id\\s*=\\s*"${projectId}"$`, "m").test(config)) {
+    config = enableNativeStack(config);
+    if (!new RegExp(`^project_id\\s*=\\s*"${projectId}"\\r?$`, "m").test(config)) {
       throw new Error("Could not isolate the Supabase project ID");
     }
     for (const [configuredPort, isolatedPort] of portReplacements) {
@@ -251,9 +262,10 @@ export function parseLocalSupabaseStatus(output: string): LocalSupabaseStatus {
     }
   }
 
-  const url = values.get("NEXT_PUBLIC_SUPABASE_URL")?.trim();
-  const anonKey = values.get("NEXT_PUBLIC_SUPABASE_ANON_KEY")?.trim();
-  const serviceRoleKey = values.get("SUPABASE_SERVICE_ROLE_KEY")?.trim();
+  // `supabase status --env` names of the native runtime stack.
+  const url = values.get("API_URL")?.trim();
+  const anonKey = values.get("ANON_KEY")?.trim();
+  const serviceRoleKey = values.get("SERVICE_ROLE_KEY")?.trim();
   if (!url || !anonKey || !serviceRoleKey) {
     throw new Error("Local Supabase status did not return all required values");
   }
@@ -521,7 +533,7 @@ function formatSafeRlsFailure(
 
 function defaultDependencies(): LocalSupabaseCiDependencies {
   return {
-    ensureDocker: () => ensureLocalDockerDaemon(process.env),
+    ensureRuntime: () => assertNativeRuntimeHost(currentNativeRuntimeHost()),
     environment: process.env,
     log: console.log,
     prepareProject: prepareIsolatedProject,
@@ -580,7 +592,7 @@ export async function runLocalSupabaseCi(
   if (projectErrors.length > 0) {
     throw new Error(projectErrors.join("\n"));
   }
-  dependencies.ensureDocker();
+  dependencies.ensureRuntime();
 
   const cliVersion = dependencies.supabase(["--version"], true).trim();
   if (cliVersion !== PINNED_SUPABASE_CLI_VERSION) {
@@ -596,22 +608,19 @@ export async function runLocalSupabaseCi(
   let provisioned: ProvisionedUsers | undefined;
   const cleanupErrors: Error[] = [];
   let activePhase = "preflight";
+  const withWorkdir = (args: string[]) => [
+    ...args,
+    "--workdir",
+    project?.rootDirectory ?? "",
+  ];
 
   try {
     activePhase = "prepare isolated project";
     project = await dependencies.prepareProject();
-    const withWorkdir = (args: string[]) => [
-      ...args,
-      "--workdir",
-      project?.rootDirectory ?? "",
-    ];
     startAttempted = true;
     activePhase = "start local stack";
-    dependencies.supabase(withWorkdir([
-      "start",
-      "--exclude",
-      "edge-runtime,imgproxy,logflare,mailpit,postgres-meta,realtime,storage-api,studio,supavisor,vector",
-    ]), true);
+    // Postgres starts eagerly; Auth and the Data API start on their first request.
+    dependencies.supabase(withWorkdir(["start", "--runtime", "native"]), true);
     dependencies.log("Local Supabase stack started.");
 
     activePhase = "reset local database";
@@ -651,20 +660,7 @@ export async function runLocalSupabaseCi(
 
     activePhase = "read local status";
     status = parseLocalSupabaseStatus(
-      dependencies.supabase(
-        withWorkdir([
-          "status",
-          "-o",
-          "env",
-          "--override-name",
-          "api.url=NEXT_PUBLIC_SUPABASE_URL",
-          "--override-name",
-          "auth.anon_key=NEXT_PUBLIC_SUPABASE_ANON_KEY",
-          "--override-name",
-          "auth.service_role_key=SUPABASE_SERVICE_ROLE_KEY",
-        ]),
-        true
-      )
+      dependencies.supabase(withWorkdir(["status", "--env"]), true)
     );
     activePhase = "provision local Auth users";
     provisioned = await dependencies.provisionUsers(status);
@@ -685,17 +681,16 @@ export async function runLocalSupabaseCi(
   } finally {
     // Auth users and domain rows live only in this disposable stack. Deleting
     // users through Auth first can invoke application cascades and immutable
-    // audit guards; `stop --no-backup` is the authoritative cleanup boundary.
+    // audit guards; destroying the stack is the authoritative cleanup boundary.
+    // A native `stop` keeps the stack's data, so the destroy always follows,
+    // even when the stop failed.
     if (startAttempted && project) {
-      try {
-        dependencies.supabase([
-          "stop",
-          "--project-id",
-          project.projectId,
-          "--no-backup",
-        ], true);
-      } catch (error) {
-        cleanupErrors.push(asError(error));
+      for (const cleanupArgs of [["stop"], ["stack", "destroy", "--yes"]]) {
+        try {
+          dependencies.supabase(withWorkdir(cleanupArgs), true);
+        } catch (error) {
+          cleanupErrors.push(asError(error));
+        }
       }
     }
     if (project) {

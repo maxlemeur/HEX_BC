@@ -4,8 +4,8 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  assertLocalDockerEndpoint,
-  assertNoDockerRoutingEnvironment,
+  assertNativeRuntimeHost,
+  enableNativeStack,
   parseLocalSupabaseStatus,
   runLocalSupabaseCi,
   validatePgTapReport,
@@ -26,7 +26,12 @@ function localJwt(role: "anon" | "service_role") {
   ].join(".");
 }
 
-function createDependencies(options: { failReset?: boolean; failStop?: boolean; pgTapOutput?: string } = {}) {
+function createDependencies(options: {
+  failDestroy?: boolean;
+  failReset?: boolean;
+  failStop?: boolean;
+  pgTapOutput?: string;
+} = {}) {
   const calls: string[] = [];
   const log = vi.fn();
   const supabase = vi.fn((args: string[], capture = false) => {
@@ -41,6 +46,9 @@ function createDependencies(options: { failReset?: boolean; failStop?: boolean; 
     if (options.failStop && command.startsWith("stop ")) {
       throw new Error("stop failed");
     }
+    if (options.failDestroy && command.startsWith("stack destroy ")) {
+      throw new Error("destroy failed");
+    }
     if (command.startsWith("migration list --local")) {
       return "migration-output";
     }
@@ -51,9 +59,10 @@ function createDependencies(options: { failReset?: boolean; failStop?: boolean; 
     }
     if (command.startsWith("status ") && capture) {
       return [
-        'NEXT_PUBLIC_SUPABASE_URL="http://127.0.0.1:54321"',
-        `NEXT_PUBLIC_SUPABASE_ANON_KEY="${localJwt("anon")}"`,
-        `SUPABASE_SERVICE_ROLE_KEY="${localJwt("service_role")}"`,
+        'API_URL="http://127.0.0.1:54321"',
+        'DB_URL="postgresql://postgres:postgres@127.0.0.1:54322/postgres"',
+        `ANON_KEY="${localJwt("anon")}"`,
+        `SERVICE_ROLE_KEY="${localJwt("service_role")}"`,
       ].join("\r\n");
     }
     return "";
@@ -62,7 +71,7 @@ function createDependencies(options: { failReset?: boolean; failStop?: boolean; 
   return {
     calls,
     dependencies: {
-      ensureDocker: vi.fn(),
+      ensureRuntime: vi.fn(),
       environment: {},
       log,
       prepareProject: vi.fn(async () => ({
@@ -99,7 +108,7 @@ describe("local Supabase CI", () => {
     expect(dependencies.runRls).not.toHaveBeenCalled();
     expect(dependencies.removeProject).toHaveBeenCalledOnce();
     expect(dependencies.supabase).toHaveBeenLastCalledWith(
-      ["stop", "--project-id", "miaouffrage-ci-test", "--no-backup"], true
+      ["stack", "destroy", "--yes", "--workdir", "C:/temp/miaouffrage-supabase-ci-test"], true
     );
   });
 
@@ -131,13 +140,15 @@ describe("local Supabase CI", () => {
 
     expect(calls).toEqual([
       "--version",
-      `start --exclude edge-runtime,imgproxy,logflare,mailpit,postgres-meta,realtime,storage-api,studio,supavisor,vector --workdir ${projectRoot}`,
+      `start --runtime native --workdir ${projectRoot}`,
       `db reset --local --workdir ${projectRoot}`,
       `migration list --local --output-format json --workdir ${projectRoot}`,
       `test db --local ${databaseTests} --workdir ${projectRoot}`,
-      `status -o env --override-name api.url=NEXT_PUBLIC_SUPABASE_URL --override-name auth.anon_key=NEXT_PUBLIC_SUPABASE_ANON_KEY --override-name auth.service_role_key=SUPABASE_SERVICE_ROLE_KEY --workdir ${projectRoot}`,
-      "stop --project-id miaouffrage-ci-test --no-backup",
+      `status --env --workdir ${projectRoot}`,
+      `stop --workdir ${projectRoot}`,
+      `stack destroy --yes --workdir ${projectRoot}`,
     ]);
+    expect(dependencies.ensureRuntime).toHaveBeenCalledOnce();
     const logs = dependencies.log.mock.calls.flat().join("\n");
     expect(logs).not.toContain(localJwt("anon"));
     expect(logs).not.toContain(localJwt("service_role"));
@@ -157,13 +168,58 @@ describe("local Supabase CI", () => {
     await expect(runLocalSupabaseCi(resetFailure.dependencies)).rejects.toThrow(
       "Phase failed: reset local database"
     );
-    expect(resetFailure.calls.at(-1)).toBe(
-      "stop --project-id miaouffrage-ci-test --no-backup"
-    );
+    expect(resetFailure.calls.slice(-2)).toEqual([
+      "stop --workdir C:/temp/miaouffrage-supabase-ci-test",
+      "stack destroy --yes --workdir C:/temp/miaouffrage-supabase-ci-test",
+    ]);
 
+    // `stop` alone keeps the stack data: a failed stop must still attempt the
+    // destroy, and either failure fails the run.
     const stopFailure = createDependencies({ failStop: true });
     await expect(runLocalSupabaseCi(stopFailure.dependencies)).rejects.toThrow(
       "Local Supabase CI cleanup failed"
+    );
+    expect(stopFailure.calls.at(-1)).toBe(
+      "stack destroy --yes --workdir C:/temp/miaouffrage-supabase-ci-test"
+    );
+    expect(stopFailure.dependencies.removeProject).toHaveBeenCalledOnce();
+
+    const destroyFailure = createDependencies({ failDestroy: true });
+    await expect(runLocalSupabaseCi(destroyFailure.dependencies)).rejects.toThrow(
+      "Local Supabase CI cleanup failed"
+    );
+  });
+
+  it("refuses hosts the Supabase native runtime does not support", () => {
+    const linux = { platform: "linux" as const, arch: "x64", release: "6.6.87", glibcVersion: "2.39", uid: 1000 };
+    expect(() => assertNativeRuntimeHost(linux)).not.toThrow();
+    expect(() =>
+      assertNativeRuntimeHost({ platform: "darwin", arch: "arm64", release: "23.4.0", uid: 501 })
+    ).not.toThrow();
+    expect(() =>
+      assertNativeRuntimeHost({ platform: "win32", arch: "x64", release: "10.0.26200" })
+    ).toThrow("WSL");
+    expect(() => assertNativeRuntimeHost({ ...linux, glibcVersion: "2.31" })).toThrow("glibc 2.35");
+    expect(() => assertNativeRuntimeHost({ ...linux, glibcVersion: undefined })).toThrow("glibc 2.35");
+    expect(() =>
+      assertNativeRuntimeHost({ platform: "darwin", arch: "x64", release: "23.4.0", uid: 501 })
+    ).toThrow("Apple silicon");
+    expect(() =>
+      assertNativeRuntimeHost({ platform: "darwin", arch: "arm64", release: "22.6.0", uid: 501 })
+    ).toThrow("macOS 14");
+    expect(() => assertNativeRuntimeHost({ ...linux, uid: 0 })).toThrow("root");
+  });
+
+  it("enables the stack runtime inside the single experimental table", () => {
+    const crlf = "[db]\r\nport = 1\r\n\r\n[experimental]\r\norioledb_version = \"\"\r\n";
+    expect(enableNativeStack(crlf)).toBe(
+      "[db]\r\nport = 1\r\n\r\n[experimental]\r\nstack = true\r\norioledb_version = \"\"\r\n"
+    );
+    expect(enableNativeStack("[db]\nport = 1\n")).toBe(
+      "[db]\nport = 1\n\n[experimental]\nstack = true\n"
+    );
+    expect(() => enableNativeStack("[experimental]\na = 1\n[experimental]\nb = 2\n")).toThrow(
+      "[experimental]"
     );
   });
 
@@ -182,24 +238,18 @@ describe("local Supabase CI", () => {
         SUPABASE_INTERNAL_IMAGE_REGISTRY: "remote.registry.test",
       })
     ).toThrow("SUPABASE_INTERNAL_IMAGE_REGISTRY");
+    // Destroying a stack deletes its data: only the disposable CI workdir may be targeted.
     expect(() =>
-      assertNoDockerRoutingEnvironment({ DOCKER_HOST: "tcp://remote.test:2376" })
-    ).toThrow("DOCKER_HOST");
-    expect(() =>
-      assertNoDockerRoutingEnvironment({ docker_context: "remote-builder" })
-    ).toThrow("docker_context");
-    expect(() => assertLocalDockerEndpoint("tcp://remote.test:2376")).toThrow(
-      "non-local Docker endpoint"
-    );
-    expect(() => assertLocalDockerEndpoint('"ssh://builder.example.test"')).toThrow(
-      "non-local Docker endpoint"
+      assertLocalOnlySupabaseArgs(["stack", "destroy", "--yes", "--workdir", "C:/projects/miaouffrage"])
+    ).toThrow("not allowlisted");
+    expect(() => assertLocalOnlySupabaseArgs(["stack", "destroy", "--all", "--yes"])).toThrow(
+      "not allowlisted"
     );
     expect(() =>
-      assertLocalDockerEndpoint("npipe:////remote-host/pipe/docker_engine")
-    ).toThrow("non-local Docker endpoint");
-    expect(() => assertLocalDockerEndpoint("unix:///var/run/docker.sock")).not.toThrow();
+      assertLocalOnlySupabaseArgs(["start", "--runtime", "docker", "--workdir", "C:/temp/miaouffrage-supabase-ci-test"])
+    ).toThrow("not allowlisted");
     expect(() =>
-      assertLocalDockerEndpoint('"npipe:////./pipe/dockerDesktopLinuxEngine"')
+      assertLocalOnlySupabaseArgs(["stack", "destroy", "--yes", "--workdir", "C:/temp/miaouffrage-supabase-ci-test"])
     ).not.toThrow();
     expect(
       createLocalCiEnvironment({
@@ -240,21 +290,24 @@ describe("local Supabase CI", () => {
     expect(() =>
       parseLocalSupabaseStatus(
         [
-          'NEXT_PUBLIC_SUPABASE_URL="https://remote.supabase.co"',
-          'NEXT_PUBLIC_SUPABASE_ANON_KEY="anon"',
-          'SUPABASE_SERVICE_ROLE_KEY="service"',
+          'API_URL="https://remote.supabase.co"',
+          'ANON_KEY="anon"',
+          'SERVICE_ROLE_KEY="service"',
         ].join("\n")
       )
     ).toThrow("non-loopback");
     expect(() =>
       parseLocalSupabaseStatus(
         [
-          'NEXT_PUBLIC_SUPABASE_URL="http://127.0.0.1:54321"',
-          `NEXT_PUBLIC_SUPABASE_ANON_KEY="${localJwt("service_role")}"`,
-          `SUPABASE_SERVICE_ROLE_KEY="${localJwt("anon")}"`,
+          'API_URL="http://127.0.0.1:54321"',
+          `ANON_KEY="${localJwt("service_role")}"`,
+          `SERVICE_ROLE_KEY="${localJwt("anon")}"`,
         ].join("\n")
       )
     ).toThrow("role anon");
+    expect(() => parseLocalSupabaseStatus('API_URL="http://127.0.0.1:54321"')).toThrow(
+      "all required values"
+    );
   });
 
   it("keeps the RLS workflow local-only and fail-closed", () => {

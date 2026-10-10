@@ -1,6 +1,7 @@
 name: E2E RLS Matrix
 
-# Cette matrice monte une pile Supabase Docker complete : ~3 min de machine.
+# Cette matrice monte une pile Supabase locale en runtime natif, sans Docker :
+# chaque service tourne comme un processus du runner ubuntu-24.04 (glibc 2.39).
 # Elle ne se declenche donc que quand la base peut reellement avoir bouge
 # (migrations, tests pgTAP, outillage de garde), plus une passe nocturne qui
 # couvre les derives indirectes.

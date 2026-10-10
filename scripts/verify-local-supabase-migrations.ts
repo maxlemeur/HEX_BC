@@ -25,6 +25,6 @@ if (errors.length > 0) {
   process.exitCode = 1;
 } else {
   console.log(
-    `Local database matches ${inventory.versions.length} repository migrations, including the four allowlisted legacy versions that CLI 2.109.1 leaves untracked.`
+    `Local database matches ${inventory.versions.length} repository migrations, all recorded in the local CLI history.`
   );
 }
