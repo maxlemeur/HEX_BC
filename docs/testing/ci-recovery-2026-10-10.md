@@ -115,3 +115,66 @@ Ce complément corrige la synchronisation de la fixture, sans changer le
 comportement applicatif, désactiver une assertion ou augmenter les retries.
 Validation : 8/8 tests ciblés, puis la suite jsdom entière sous les variables
 factices de la CI (162 fichiers, 823 tests), lint ciblé et typecheck verts.
+
+## Connexion réelle rétablie et parcours métier révélés
+
+Sur `61e63d4a`, le Quality Gate et le smoke TesterArmy sont verts. Après
+l'autorisation explicite de réinitialiser le seul compte ARMY, sa connexion
+Supabase est vérifiée et ses identifiants sont synchronisés localement et dans
+l'environnement GitHub `e2e-staging`. Le rôle admin et l'unique appartenance au
+tenant ARMY restent identiques. Les secrets restent hors Git et des rapports.
+
+La seconde tentative du workflow critique `38042306101` établit la connexion
+et passe 35 tests. Elle révèle deux échecs auparavant masqués par le setup :
+
+- Le scénario métré attend la carte d'un hub opérationnel sur une affaire sans
+  lignes ni pièces. Il crée un jeu de plans vide et ne téléverse aucun fichier,
+  malgré son titre mentionnant un CSV. Le contrat actuel lance les jeux de plans
+  PDF en Standard/Détaillé et expose le centre d'activité par un lien.
+  La fixture doit créer une ligne enregistrée et téléverser le PDF existant,
+  vérifier le jeu retenu et la version cible, puis établir la demande persistée
+  et la navigation depuis l'action du menu « Plus ». Seule cette demande de test
+  est annulée si encore active ;
+  ce contrôle ne qualifie pas l'extraction par le worker.
+- La simulation DPGF atteint bien import et mapping, puis l'API catalogue échoue
+  avec `42703`: `products.reference_normalized` n'existe pas en production.
+  Les deux colonnes générées et la migration `20260819205115` sont absentes.
+  Le pré-vol lit 1 286 produits, aucune collision de références normalisées et
+  une table de 10 895 360 octets. La correction prévue est la migration existante,
+  avec ses garde-fous transactionnels, sans supprimer l'assertion de simulation
+  ni introduire un fallback qui abandonnerait l'unicité insensible à la casse.
+  Son application distante demande une autorisation distincte du reset ARMY.
+
+Avant application, vérifier en PostgreSQL isolé la conservation des valeurs,
+les formes générées, le refus des doublons dans un tenant, leur acceptation
+entre tenants, les références vides, les index, l'idempotence et le rollback
+intégral en présence d'une collision. Puis rejouer l'E2E réelle sur le SHA poussé.
+
+Après autorisation explicite, la migration exacte est appliquée le 2026-10-10.
+Les 1 286 produits et l'empreinte de toutes leurs valeurs antérieures sont
+identiques avant/après ; les deux colonnes sont générées, aucun rapprochement
+normalisé ne diffère de `trim + lower`, et les deux nouveaux index sont valides.
+L'historique de cette seule application est aligné sur la version du dépôt
+`20260819205115` (le connecteur avait généré `20261010104912`). Les constats
+des conseillers sécurité sont identiques avant/après, hors heure d'observation.
+
+La migration passe 12 vérifications en PostgreSQL isolé, dont l'échec avant
+correction (`42703`), le rollback sur collision et une seconde application
+idempotente. Ce contrôle ciblé ne constitue pas un nouveau replay pgTAP/RLS.
+
+Deux probes locaux passent avec Supabase réel et des traces authentifiées
+désactivées :
+
+- Métré : un replay ciblé sur le brouillon et le jeu créés par cette invocation
+  CI, avec la ligne et le PDF déjà vérifiés. Le job est nouvellement créé,
+  vérifié par l'API et annulé ; le lien ouvre le centre d'activité. L'absence
+  locale de clé service-role empêche de qualifier le dispatch worker ou la
+  création canonique du brouillon dans cette probe. Le replay CI garde une
+  affaire entièrement neuve et sa configuration serveur existante.
+- DPGF : nouvel import préfixé `ARMY`, mapping enregistré et simulation catalogue
+  réelle. L'API renvoie 200, deux lignes analysées, aucune création de produit
+  et une répartition liée/non liée exhaustive. Les identités des fixtures sont
+  jointes aux rapports Playwright, sans identifiants de connexion.
+
+Lint ciblé, typecheck et contrôle du diff passent. Le replay complet des contrôles
+obligatoires reste à vérifier sur le prochain SHA poussé.

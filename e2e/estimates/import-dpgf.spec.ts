@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { expect, test } from "@playwright/test";
@@ -5,13 +6,18 @@ import { expect, test } from "@playwright/test";
 import { ensureMapping } from "./helpers";
 
 test.describe("EST-262 - import DPGF", () => {
-  test("Scenario 5: importer un DPGF et verifier le mapping", async ({ page }) => {
+  test("Scenario 5: importer un DPGF et verifier le mapping", async ({ page }, testInfo) => {
     const fixturePath = path.join(process.cwd(), "e2e/fixtures/dpgf-minimal.csv");
+    const fixtureName = `ARMY-DPGF-${Date.now()}.csv`;
 
     await page.goto("/dashboard/imports");
     await expect(page.getByRole("heading", { name: /Import DPGF/i })).toBeVisible();
 
-    await page.setInputFiles("#import-file-input", fixturePath);
+    await page.setInputFiles("#import-file-input", {
+      name: fixtureName,
+      mimeType: "text/csv",
+      buffer: await readFile(fixturePath),
+    });
 
     await page
       .getByRole("button", { name: /^(Importer|Lancer l['’]import)$/i })
@@ -28,6 +34,10 @@ test.describe("EST-262 - import DPGF", () => {
     expect(importId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
     );
+    await testInfo.attach("dpgf-fixture", {
+      body: JSON.stringify({ importId, fixtureName }),
+      contentType: "application/json",
+    });
 
     await mapLink.click();
 
@@ -74,7 +84,22 @@ test.describe("EST-262 - import DPGF", () => {
       await simulationCheckbox.check();
     }
 
-    await page.getByRole("button", { name: /Lancer la liaison/i }).click();
+    const [linkResponse] = await Promise.all([
+      page.waitForResponse((response) =>
+        new URL(response.url()).pathname === "/api/catalogue"
+        && response.request().method() === "POST",
+      ),
+      page.getByRole("button", { name: /Lancer la liaison/i }).click(),
+    ]);
+    expect(linkResponse.status(), "The catalogue simulation must succeed").toBe(200);
+    const summary = (await linkResponse.json()).data;
+    expect(summary).toMatchObject({
+      import_id: importId,
+      dry_run: true,
+      scanned_rows: 2,
+      created_catalogue_count: 0,
+    });
+    expect(summary.linked_count + summary.unmatched_count).toBe(2);
 
     await expect(
       page.getByText(/Simulation termin[ée]e|Liaison termin[ée]e/i)

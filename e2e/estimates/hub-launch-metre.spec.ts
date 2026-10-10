@@ -1,8 +1,11 @@
+import path from "node:path";
+
 import { expect, test } from "@playwright/test";
 
 import {
   buildEstimateName,
   createEstimateViaWizard,
+  createLineViaApi,
   loginWithUi,
 } from "./helpers";
 
@@ -32,9 +35,8 @@ test.describe("V3-009 — Action rapide Analyser les plans", () => {
     await loginWithUi(page);
   });
 
-  test("launch metre from action bar opens dialog, uploads CSV, navigates to takeoff via success CTA", async ({ page }) => {
-    // 1. Create a fresh affaire (creates project with draft version)
-    const projectName = buildEstimateName("V3009-METRE");
+  test("launch retained PDF from the hub, persist the request and open its activity center", async ({ page }, testInfo) => {
+    const projectName = buildEstimateName("ARMY-V3009-METRE");
     const { versionId } = await createEstimateViaWizard(page, {
       projectName,
       title: "V3-009 Launch Metre",
@@ -42,19 +44,14 @@ test.describe("V3-009 — Action rapide Analyser les plans", () => {
 
     const projectId = await extractProjectId(page, versionId);
 
+    // A saved line makes this an operational hub, rather than the fresh-start
+    // document intake. The existing manual-first journey covers the empty hub.
+    await createLineViaApi(page, versionId, `${projectName}-BASE`);
+
     // 2. Navigate to Plan Center and create a plan set
     await page.goto(`/dashboard/affaires/${projectId}/plans`);
 
-    const pageHeading = page.getByRole("heading", { name: /Plans/i });
-    const plansPageLoaded = await pageHeading.isVisible({ timeout: 5_000 }).catch(() => false);
-    test.skip(
-      !process.env.CI && !plansPageLoaded,
-      "Takeoff disabled for this tenant in the local environment."
-    );
-    expect(
-      plansPageLoaded,
-      "The critical E2E tenant must expose the takeoff module."
-    ).toBe(true);
+    await expect(page.getByRole("heading", { name: /^Plans$/i })).toBeVisible();
 
     await page.getByRole("button", { name: /Cr[ée]er.*jeu de plans/i }).first().click();
     const createDialog = page.getByRole("dialog");
@@ -63,36 +60,107 @@ test.describe("V3-009 — Action rapide Analyser les plans", () => {
     await createDialog.getByRole("button", { name: /Creer|Créer/i }).click();
     await expect(createDialog).toBeHidden({ timeout: 10_000 });
 
+    await page.getByRole("heading", { name: "Lot E2E Metre" }).click();
+    await page.locator("input[type='file'][accept*='pdf']").first().setInputFiles(
+      path.join(process.cwd(), "e2e/fixtures/sample-plan.pdf"),
+    );
+    await expect(
+      page.getByRole("button", { name: /^Supprimer sample-plan\.pdf$/i }),
+    ).toBeVisible();
+
+    const planSetsResponse = await page.request.get(
+      `/api/takeoff/plan-sets?project_id=${projectId}`,
+    );
+    expect(planSetsResponse.status()).toBe(200);
+    const planSets = (await planSetsResponse.json()).data.plan_sets as Array<{
+      id: string;
+      name: string;
+      file_count: number;
+    }>;
+    expect(planSets).toHaveLength(1);
+    expect(planSets[0]).toMatchObject({ name: "Lot E2E Metre", file_count: 1 });
+    const planSetId = planSets[0].id;
+
     // 3. Navigate back to the hub affaire
     await page.goto(`/dashboard/affaires/${projectId}`);
 
     // 4. Check the launch CTA is visible from the hub.
-    const plansSection = page
-      .locator("section")
-      .filter({ hasText: "Plans, preuves & exceptions" });
-    await expect(plansSection).toBeVisible({ timeout: 15_000 });
+    await expect(
+      page.getByRole("heading", { name: "Plans, preuves & exceptions" }),
+    ).toBeVisible();
 
-    const launchButton = page.getByRole("button", { name: "Analyser les plans" }).first();
-    await expect(launchButton).toBeVisible({ timeout: 15_000 });
-
-    // 5. Click "Analyser les plans" → dialog should open
-    await launchButton.click();
+    // The action bar keeps this action in its overflow menu.
+    await page.getByRole("button", { name: "Plus", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Analyser les plans" }).click();
     const metreDialog = page.getByRole("dialog");
     await expect(metreDialog).toBeVisible();
-    await expect(metreDialog.getByText(/Analyser les plans/i)).toBeVisible();
+    await expect(metreDialog.getByRole("heading", { name: "Analyser les plans" })).toBeVisible();
+    await expect(metreDialog.getByText("Lot E2E Metre", { exact: true })).toBeVisible();
+    await expect(metreDialog.getByLabel("Version cible", { exact: true })).toHaveValue(versionId);
+    await metreDialog.getByRole("radio", { name: "Standard", exact: true }).check();
 
-    // 6. Launch analysis from the retained plan set
-    await metreDialog.getByRole("button", { name: /Analyser maintenant/i }).click();
+    type TestJob = {
+      id: string;
+      estimate_version_id: string;
+      level: string;
+      source_file_name: string;
+      status: string;
+    };
+    const listTestJobs = async (): Promise<TestJob[]> => {
+      const response = await page.request.get(
+        `/api/takeoff/jobs?estimate_version_id=${versionId}`,
+      );
+      expect(response.status()).toBe(200);
+      return (await response.json()).data.jobs;
+    };
+    const cancelTestJobs = async () => {
+      for (const job of await listTestJobs()) {
+        if (job.status !== "pending" && job.status !== "processing") continue;
+        const response = await page.request.post(`/api/takeoff/jobs/${job.id}/cancel`);
+        if (response.status() === 409) {
+          const current = (await listTestJobs()).find((item) => item.id === job.id);
+          expect(current?.status).toMatch(/^(completed|failed|canceled)$/);
+        } else {
+          expect(response.status()).toBe(200);
+          expect((await response.json()).data.job.status).toBe("canceled");
+        }
+      }
+    };
+    expect(await listTestJobs()).toHaveLength(0);
 
-    // 7. After success, click "Centre d'activite" to navigate to takeoff page
-    const activityButton = metreDialog.getByRole("button", { name: /Centre d'activit/i });
-    await expect(activityButton).toBeVisible({ timeout: 30_000 });
-    await activityButton.click();
+    let launchAttempted = false;
+    let jobId: string | null = null;
+    try {
+      // Retained plan sets require a PDF and Standard/Detailed, not a CSV.
+      launchAttempted = true;
+      await metreDialog.getByRole("button", { name: "Analyser maintenant" }).click();
+      await expect.poll(async () => (await listTestJobs()).length).toBe(1);
+      const [job] = await listTestJobs();
+      jobId = job.id;
+      expect(job).toMatchObject({
+        estimate_version_id: versionId,
+        level: "B",
+        source_file_name: "sample-plan.pdf",
+      });
 
-    // 8. Verify redirection to the takeoff page
-    await expect(page).toHaveURL(
-      new RegExp(`/dashboard/affaires/${projectId}/takeoff`),
-      { timeout: 30_000 }
-    );
+      // Keep only this test's demand from continuing in the background. Creation
+      // and persistence are real; this scenario does not qualify worker extraction.
+      await cancelTestJobs();
+
+      const activityLink = metreDialog.getByRole("link", { name: /Centre d'activit/i });
+      await expect(activityLink).toHaveAttribute(
+        "href", `/dashboard/affaires/${projectId}/takeoff`,
+      );
+      await activityLink.click();
+      await expect(page).toHaveURL(
+        new RegExp(`/dashboard/affaires/${projectId}/takeoff(?:[?#].*)?$`),
+      );
+    } finally {
+      if (launchAttempted) await cancelTestJobs();
+      await testInfo.attach("metre-fixture", {
+        body: JSON.stringify({ projectId, versionId, planSetId, jobId }),
+        contentType: "application/json",
+      });
+    }
   });
 });
