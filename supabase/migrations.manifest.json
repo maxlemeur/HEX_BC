@@ -221,6 +221,8 @@
     "20261002160807_supplier_offer_atomic_edit.sql": "351b72cbc6b6fa7164832a225d53fbbed5d888669b1cbd9e86afcf8758eb5bb4",
     "20261002175735_fix_estimate_duplication_parameter_qualification.sql": "71bddc67af9c06aa6fe04b5620dd40bb6d4f32422df3db5d82ef8de86ba3898c",
     "20261006210154_restore_bulk_estimate_labor_split.sql": "db4d586abf4ffb37ade5abcb7ea2a5721ac638a20734fd57741fee62efdc7220",
-    "20261007062228_restore_bulk_estimate_aid.sql": "c76ca56503a60c0fa2393b84eceba7c262c0de1e568d0eee4b4de3e31ae2b6e4"
+    "20261007062228_restore_bulk_estimate_aid.sql": "c76ca56503a60c0fa2393b84eceba7c262c0de1e568d0eee4b4de3e31ae2b6e4",
+    "20261010010645_revoke_service_role_on_legacy_estimate_creators.sql": "6bfe927d7de7b32aecd02cb72b7c1c16c0bf6ebbb98002f58d63f3c39c56498e",
+    "20261010010748_restore_service_role_catalogue_history_privileges.sql": "8eabe44c768445834908dc9ce01dbdc6632ca9faf1ee780b698ed1270677581c"
   }
 }

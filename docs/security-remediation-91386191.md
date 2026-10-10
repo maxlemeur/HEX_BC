@@ -307,6 +307,33 @@ Transferts séquentiels obligatoires : `src/lib/takeoff/processor.ts`, `src/lib/
   dispatchs `unknown`, le vrai test procurement Vn/Vn+1 à deux sessions et le cleanup
   des objets PDF orphelins restent hors de ce lot.
 
+### Retrait complémentaire des anciennes RPC de création — 2026-10-10
+
+- La lecture du projet `bon_de_commande` a confirmé qu'un grant `service_role`
+  permettait encore d'exécuter quatre RPC de création retirées de la Data API par
+  la gouvernance v2. Aucun appel applicatif ou SQL actuel n'utilise ces fonctions.
+  Une nouvelle migration retire précisément ces quatre grants, sans modifier les
+  fonctions canoniques, les lignes métier ou les politiques RLS.
+- La preuve locale canonique a réellement exécuté 13 fichiers pgTAP et 1 214
+  assertions, dont la gouvernance 205/205, puis la matrice RLS 2/2. Une transaction
+  séparée reproduit les anciens grants et passe 22/22 assertions de mise à niveau,
+  refus effectif, conservation du comportement légitime et idempotence. Le runner
+  refuse désormais les rapports `NOTESTS` ou partiels avant toute fixture Auth.
+- Le contenu exact de la migration de révocation a été appliqué par MCP sous la
+  version distante `20261010011819`. Après application, les quatre RPC refusent
+  PUBLIC, anon, authenticated et service_role ; les ACL et définitions des deux
+  RPC canoniques de contrôle sont inchangées. Les 61 signalements des advisors
+  restent présents. La migration locale séparée des droits catalogue n'a pas été
+  appliquée en production, qui possédait déjà ces droits.
+- Le plan Free ne propose ni sauvegarde plateforme ni PITR : la restauration n'a
+  pas été testée. La capacité SQL directe du rôle serveur de confiance et les
+  signalements de l'audit des dépendances restent hors de cette fermeture.
+  Une revue indépendante du patch n'a trouvé aucun contournement résiduel dans
+  les quatre RPC visées. Ce complément ne change pas les dispositions historiques
+  des 95 findings ni les artefacts canoniques du scan.
+- Détails, limites et preuves reproductibles :
+  [régression des anciennes RPC](testing/legacy-estimate-creators-regression.md).
+
 ## Bilan terminal
 
 - `fixed` : 95.
