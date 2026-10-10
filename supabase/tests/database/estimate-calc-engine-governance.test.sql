@@ -659,6 +659,8 @@ select throws_ok(
 alter table public.estimate_versions
   enable trigger enforce_estimate_calc_engine_on_insert;
 
+-- The product-link facade delegates to the governed implementation. Inspect
+-- that implementation for insert/locking contracts; the facade ACL is below.
 with expected_contract(signature, contract_name) as (
   values
     (
@@ -666,7 +668,7 @@ with expected_contract(signature, contract_name) as (
       'canonical_v2'
     ),
     (
-      'public.duplicate_estimate_version(uuid,boolean)',
+      'public.duplicate_estimate_version_without_product_id(uuid,boolean)',
       'duplicate_source'
     )
 )
@@ -692,7 +694,7 @@ from expected_contract as expected;
 
 with duplicate_definition as (
   select lower(pg_get_functiondef(
-    'public.duplicate_estimate_version(uuid,boolean)'::regprocedure
+    'public.duplicate_estimate_version_without_product_id(uuid,boolean)'::regprocedure
   )) as source
 )
 select ok(
@@ -714,13 +716,13 @@ from duplicate_definition;
 
 with duplicate_definition as (
   select lower(pg_get_functiondef(
-    'public.duplicate_estimate_version(uuid,boolean)'::regprocedure
+    'public.duplicate_estimate_version_without_product_id(uuid,boolean)'::regprocedure
   )) as source
 )
 select ok(
   position('src.aid' in source) > 0
   and position(
-    'job.estimate_version_id = duplicate_estimate_version.source_version_id'
+    'job.estimate_version_id = duplicate_estimate_version_without_product_id.source_version_id'
     in source
   ) > 0
   and position('from public.takeoff_version_links inherited_link' in source) > 0
@@ -1251,26 +1253,32 @@ select ok(
   exists (
     select 1
     from pg_proc as procedure
+    join pg_proc as implementation on implementation.oid =
+      'public.duplicate_estimate_version_without_product_id(uuid,boolean)'::regprocedure
     where procedure.oid =
       'public.duplicate_estimate_version(uuid,boolean)'::regprocedure
       and procedure.prosecdef
+      and implementation.prosecdef
       and exists (
         select 1
         from unnest(coalesce(procedure.proconfig, array[]::text[])) as setting
         where setting in ('search_path=', 'search_path=""')
       )
-      and position('join public.tenants tenant' in procedure.prosrc) > 0
-      and position('and tenant.is_active' in procedure.prosrc) > 0
-      and position('join public.tenant_memberships membership' in procedure.prosrc) > 0
       and position(
-        'membership.role in (' in procedure.prosrc
+        'public.duplicate_estimate_version_without_product_id(' in procedure.prosrc
+      ) > 0
+      and position('join public.tenants tenant' in implementation.prosrc) > 0
+      and position('and tenant.is_active' in implementation.prosrc) > 0
+      and position('join public.tenant_memberships membership' in implementation.prosrc) > 0
+      and position(
+        'membership.role in (' in implementation.prosrc
       ) > 0
       and position(
-        '''engineer''::public.tenant_role' in procedure.prosrc
+        '''engineer''::public.tenant_role' in implementation.prosrc
       ) > 0
-      and position('p.user_id = actor_user_id' in procedure.prosrc) > 0
+      and position('p.user_id = actor_user_id' in implementation.prosrc) > 0
       and position(
-        'membership.role = ''admin''::public.tenant_role' in procedure.prosrc
+        'membership.role = ''admin''::public.tenant_role' in implementation.prosrc
       ) > 0
   )
   and has_function_privilege(
@@ -1287,8 +1295,23 @@ select ok(
     'service_role',
     'public.duplicate_estimate_version(uuid,boolean)',
     'EXECUTE'
+  )
+  and not has_function_privilege(
+    'anon',
+    'public.duplicate_estimate_version_without_product_id(uuid,boolean)',
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'authenticated',
+    'public.duplicate_estimate_version_without_product_id(uuid,boolean)',
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'service_role',
+    'public.duplicate_estimate_version_without_product_id(uuid,boolean)',
+    'EXECUTE'
   ),
-  'duplication is a strict authenticated-only definer facade restricted to writer roles and owner-or-admin access'
+  'duplication is an authenticated-only definer facade with a closed governed implementation enforcing writer roles and owner-or-admin access'
 );
 
 select ok(

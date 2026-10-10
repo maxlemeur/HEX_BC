@@ -87,16 +87,14 @@ insert into public.products (
   tenant_id,
   reference,
   designation,
-  unit_price_cents,
-  tax_rate_bp
+  unit_price_cents
 )
 select
   '33333333-3333-4333-8333-333333333333',
   membership.tenant_id,
   'PROD-TX',
   'Produit transactionnel',
-  1250,
-  2000
+  1250
 from public.tenant_memberships as membership
 where membership.user_id = '11111111-1111-4111-8111-111111111111';
 
