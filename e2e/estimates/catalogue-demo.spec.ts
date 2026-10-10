@@ -1,7 +1,7 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 
 // UI contract tests: all catalogue writes are intercepted. SQL/RLS invariants
-// are covered separately by isolated PostgreSQL fixtures while Docker is absent.
+// are covered separately by pgTAP and the RLS matrix of `npm run db:ci:local`.
 const productId = "33333333-3333-4333-8333-333333333333";
 const supplierId = "22222222-2222-4222-8222-222222222222";
 const product = {

@@ -27,18 +27,38 @@ La preuve locale canonique est une commande unique :
 npm run db:ci:local
 ```
 
-Elle utilise la CLI Supabase `2.109.1` épinglée dans le projet, crée une pile à
-ports uniques, rejoue les migrations sans seed, compare l'inventaire appliqué,
-exécute pgTAP puis la matrice RLS avec trois utilisateurs Auth locaux. Dans son
-bloc de cleanup, elle arrête la pile sans backup et supprime son workdir isolé ;
-un échec de ce cleanup fait échouer la commande. Elle refuse les variables et
-commandes qui pourraient cibler un projet distant.
+Elle utilise la CLI Supabase `2.120.0` épinglée dans le projet et son **runtime
+natif** : chaque service tourne comme un processus local, **sans Docker**. Ce runtime
+est supporté sous Linux (glibc 2.35 ou plus) et sous macOS 14+ sur Apple silicon,
+jamais en root ; sous Windows, lancez la commande dans WSL (Ubuntu 22.04 ou plus)
+depuis un clone Linux du dépôt, dont le `node_modules` contient le binaire Linux de
+la CLI. Le premier lancement télécharge les archives des services
+(`supabase/slim-services`) dans `~/.supabase/cache`.
+
+La commande crée une pile à ports uniques dans une copie isolée de `supabase/`, où
+elle active `[experimental] stack = true` (jamais dans le `config.toml` du dépôt),
+rejoue les migrations sans seed, compare l'inventaire appliqué, exécute pgTAP puis
+la matrice RLS avec trois utilisateurs Auth locaux. Dans son bloc de cleanup, elle
+arrête la pile, la détruit avec ses données (`stack destroy`) et supprime son workdir
+isolé ; un échec de ce cleanup fait échouer la commande. Elle refuse les variables
+et commandes qui pourraient cibler un projet distant.
+
+La sauvegarde planifiée (`supabase-backup.yml`) utilise encore `supabase db dump`,
+qui exige Docker même en CLI `2.120.0` : elle tourne sur un runner GitHub, où Docker
+est fourni. Aucun poste de développement n'a besoin de Docker.
 
 Les quatre versions date-only historiques (`20260222`, `20260304`, `20260305`,
-`20260306`) sont exécutées par la CLI mais restent volontairement sans version
-appliquée dans sa sortie. Leurs effets SQL sont couverts directement par pgTAP ;
-ne les renommez et ne les rejouez jamais sous un nouvel identifiant sans preuve
-catalogue préalable.
+`20260306`) sont, depuis la CLI 2.119, enregistrées dans l'historique local comme
+toutes les autres ; la CLI les liste dans l'ordre des versions (`20260222` avant
+`20260222001500`), le garde compare donc les inventaires comme des ensembles. Leurs
+effets SQL sont couverts directement par pgTAP ; ne les renommez et ne les rejouez
+jamais sous un nouvel identifiant sans preuve catalogue préalable.
+
+L'historique **distant** de la production, lui, ne contient pas ces quatre versions :
+un `supabase db push` les verrait en attente. La CLI refuse d'insérer des migrations
+antérieures à la dernière version distante sans `--include-all` ; n'utilisez jamais
+ce drapeau sur la production, et appliquez les nouvelles migrations par le runbook
+MCP ci-dessous.
 
 ## 3) Ajouter une migration
 

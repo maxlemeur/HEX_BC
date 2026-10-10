@@ -195,8 +195,10 @@ build and HTTP smoke in `Quality Gate` still guard every PR.
 - Le second test couvre l'isolation cross-tenant (un non-membre doit être refusé).
 - `portal_tokens` is probed and reported when absent from the current schema snapshot.
 - La commande canonique est `npm run db:ci:local` : elle crée une pile loopback
-  éphémère et trois comptes Auth jetables. La suite refuse désormais une URL distante
-  ou une exécution hors de ce runner local.
+  éphémère en runtime natif Supabase, sans Docker, et trois comptes Auth jetables.
+  Prérequis : Linux (glibc 2.35+) ou macOS 14+ sur Apple silicon, compte non root ;
+  sous Windows, depuis WSL et un clone Linux du dépôt (voir `supabase/README.md`).
+  La suite refuse une URL distante ou une exécution hors de ce runner local.
 - Fail-closed CI workflow: `.github/workflows/e2e-rls-matrix.yml`. It blocks merges
   only when repository branch protection requires this check.
 
@@ -232,8 +234,8 @@ npm run e2e:run -- e2e/hex/run-all.ps1 -Suite editor -ContinueOnFailure false
   runner `db:ci:local` ; elles ne doivent pas être configurées avec des secrets distants.
 
 Pour la matrice RLS canonique, utilisez `npm run db:ci:local` : la commande
-provisionne trois comptes sur une pile Supabase locale, sans secret ni fallback E2E,
-puis détruit la pile sans backup. `npm run e2e:rls` est une sous-commande interne et
+provisionne trois comptes sur une pile Supabase locale en runtime natif, sans secret
+ni fallback E2E, puis détruit la pile et ses données (`stack destroy`). `npm run e2e:rls` est une sous-commande interne et
 refuse de s'exécuter hors de ce contexte local éphémère.
 
 The expected test-account roles are documented in [`docs/test-logins.md`](../docs/test-logins.md).
