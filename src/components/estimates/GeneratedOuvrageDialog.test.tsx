@@ -254,7 +254,11 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-async function reviewSubdetailForCandidate(user: ReturnType<typeof userEvent.setup>, candidateId = "c1") {
+async function reviewSubdetailForCandidate(
+  user: ReturnType<typeof userEvent.setup>,
+  candidateId = "c1",
+  reviewDelayMs = 0
+) {
   const candidate = makeDraftResult().candidates.find((entry) => entry.candidateId === candidateId);
   if (!candidate) {
     throw new Error("Candidate introuvable.");
@@ -263,9 +267,12 @@ async function reviewSubdetailForCandidate(user: ReturnType<typeof userEvent.set
   mockFetchGeneratedOuvrageSubdetailDraft.mockResolvedValueOnce(
     makeSubdetailResult(candidate)
   );
-  mockUpdateGeneratedOuvrageSubdetailDraft.mockResolvedValueOnce(
-    makeSubdetailResult(candidate, { status: "reviewed" })
-  );
+  mockUpdateGeneratedOuvrageSubdetailDraft.mockImplementationOnce(async () => {
+    if (reviewDelayMs > 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, reviewDelayMs));
+    }
+    return makeSubdetailResult(candidate, { status: "reviewed" });
+  });
 
   const card = screen.getByTestId(`candidate-card-${candidateId}`);
   await user.click(
@@ -287,6 +294,8 @@ async function reviewSubdetailForCandidate(user: ReturnType<typeof userEvent.set
   await waitFor(() => {
     expect(mockUpdateGeneratedOuvrageSubdetailDraft).toHaveBeenCalled();
   });
+  // The API can have started while React still renders an unreviewed draft.
+  await within(card).findByText("Revu");
 }
 
 describe("GeneratedOuvrageDialog", () => {
@@ -513,7 +522,10 @@ describe("GeneratedOuvrageDialog", () => {
     await user.click(
       within(screen.getByTestId("candidate-card-c1")).getByRole("checkbox")
     );
-    await reviewSubdetailForCandidate(user, "c1");
+    // Deliberately late review response: starting the API call is insufficient
+    // to enable insertion. The helper must wait for the committed UI state.
+    await reviewSubdetailForCandidate(user, "c1", 150);
+    expect(screen.getByTestId("generated-ouvrage-insert-button")).toBeEnabled();
     await user.click(screen.getByTestId("generated-ouvrage-insert-button"));
 
     await waitFor(() => {

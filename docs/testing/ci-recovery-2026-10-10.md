@@ -92,3 +92,26 @@ d'attaque HTTP. Références amont :
 [contrat Fast-glob](https://github.com/mrmlnc/fast-glob/blob/3.3.1/src/utils/pattern.ts),
 [expansion bornée](https://github.com/juliangruber/brace-expansion/blob/v5.0.12/src/index.ts),
 [correctif Vitest](https://github.com/vitest-dev/vitest/security/advisories/GHSA-82fw-gwwq-j7x9).
+
+## Complément après la première CI publiée
+
+Sur `c74696f4`, installation, audit, signatures, architecture, lint, typecheck,
+OpenAPI, tests Node, couverture critique, build/smoke HTTP et TesterArmy sont
+verts dans GitHub Actions. Deux limites ont été établies par cette exécution :
+
+- Supabase Auth renvoie réellement `invalid_credentials` à la connexion CI.
+  Les régressions synthétiques du helper passent 2/2 ; les 36 parcours métier
+  restent non exécutés. Corriger le compte/secret nécessite une décision
+  distincte de la correction du code ; aucun accès n'a été changé à ce stade.
+- La suite jsdom expose une course de sa fixture `GeneratedOuvrageDialog` :
+  attendre le début de l'API de validation ne garantit pas l'état visible
+  « Revu ». Le clic sur le bouton encore désactivé ne déclenche donc pas la
+  barrière de mutation. Une réponse volontairement retardée reproduit le même
+  échec localement avant correction. Le helper attend désormais le badge
+  « Revu » ; le test vérifie le bouton activé avant de cliquer et conserve
+  le refus de la barrière et l'absence d'appel à l'API d'insertion.
+
+Ce complément corrige la synchronisation de la fixture, sans changer le
+comportement applicatif, désactiver une assertion ou augmenter les retries.
+Validation : 8/8 tests ciblés, puis la suite jsdom entière sous les variables
+factices de la CI (162 fichiers, 823 tests), lint ciblé et typecheck verts.
