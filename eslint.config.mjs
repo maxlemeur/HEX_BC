@@ -2,6 +2,27 @@ import { defineConfig, globalIgnores } from "eslint/config";
 import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTs from "eslint-config-next/typescript";
 
+// Guards that replace the static-source tests removed under the E2E-first policy.
+// Table, column and RPC names are ASCII: an accent pass once rewrote "reference" into
+// "référence" inside a query and broke every catalogue price suggestion.
+const noAccentedQueryIdentifier = {
+  selector:
+    "CallExpression[callee.property.name=/^(from|select|eq|neq|gt|gte|lt|lte|like|ilike|is|in|contains|containedBy|order|rpc|not|filter)$/] > Literal:first-child[value=/[^\\x00-\\x7F]/]",
+  message:
+    "Supabase table, column and RPC names are ASCII. Keep accents in labels and data, never in query identifiers.",
+};
+const noServiceRoleInClientModule = {
+  selector:
+    "Program:has(ExpressionStatement[directive='use client']) ImportDeclaration[source.value=/supabase\\/service-role$/]",
+  message: "The service-role client bypasses RLS and must never be imported by a client module.",
+};
+const noArtisanRouteAuth = {
+  selector:
+    "CallExpression[callee.property.name='getUser'][callee.object.property.name='auth']",
+  message:
+    "Route handlers resolve the caller through getAuthenticatedTenantContext() or getAuthenticatedContext() from @/lib/auth/tenant-context, never auth.getUser().",
+};
+
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
@@ -80,6 +101,26 @@ const eslintConfig = defineConfig([
             },
           ],
         },
+      ],
+    },
+  },
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-syntax": ["error", noAccentedQueryIdentifier, noServiceRoleInClientModule],
+    },
+  },
+  {
+    // A later block replaces the rule options for the files it matches, so it repeats the
+    // src-wide guards next to the route-handler boundary.
+    files: ["src/app/api/**/*.ts"],
+    ignores: ["src/app/api/**/*.test.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        noAccentedQueryIdentifier,
+        noServiceRoleInClientModule,
+        noArtisanRouteAuth,
       ],
     },
   },

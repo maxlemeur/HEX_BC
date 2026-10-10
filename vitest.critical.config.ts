@@ -8,6 +8,8 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(rootDir, "src"),
+      // The npm entry throws outside the react-server condition; Next resolves it itself.
+      "server-only": path.resolve(rootDir, "node_modules/server-only/empty.js"),
     },
   },
   test: {

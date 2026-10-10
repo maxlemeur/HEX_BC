@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { badRequest, ok, toErrorResponse, unauthorized } from "@/lib/estimates/errors";
+import { sharedSecretMatches } from "@/lib/http/shared-secret";
 import { processTakeoffJobAttempt } from "@/lib/takeoff/async-worker";
 import { persistTakeoffDispatchOutcome } from "@/lib/takeoff/dispatch-state";
 import { TakeoffError, toTakeoffErrorResponse } from "@/lib/takeoff/errors";
@@ -32,7 +33,7 @@ function assertWorkerSecret(request: Request) {
   const providedSecret = request.headers.get("x-takeoff-worker-secret");
   const expectedSecret = getWorkerSecret();
 
-  if (!providedSecret || providedSecret !== expectedSecret) {
+  if (!sharedSecretMatches(providedSecret, expectedSecret)) {
     throw unauthorized("Unauthorized takeoff worker request.");
   }
 }
