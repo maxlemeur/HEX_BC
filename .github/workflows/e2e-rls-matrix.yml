@@ -5,6 +5,7 @@ name: E2E RLS Matrix
 # (migrations, tests pgTAP, outillage de garde), plus une passe nocturne qui
 # couvre les derives indirectes.
 on:
+  workflow_dispatch:
   pull_request:
     branches: ["main"]
     paths:

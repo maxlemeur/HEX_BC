@@ -8,6 +8,7 @@ import {
   assertNoDockerRoutingEnvironment,
   parseLocalSupabaseStatus,
   runLocalSupabaseCi,
+  validatePgTapReport,
   validateRlsMatrixReport,
 } from "@/test/local-supabase-ci";
 import {
@@ -25,7 +26,7 @@ function localJwt(role: "anon" | "service_role") {
   ].join(".");
 }
 
-function createDependencies(options: { failReset?: boolean; failStop?: boolean } = {}) {
+function createDependencies(options: { failReset?: boolean; failStop?: boolean; pgTapOutput?: string } = {}) {
   const calls: string[] = [];
   const log = vi.fn();
   const supabase = vi.fn((args: string[], capture = false) => {
@@ -42,6 +43,11 @@ function createDependencies(options: { failReset?: boolean; failStop?: boolean }
     }
     if (command.startsWith("migration list --local")) {
       return "migration-output";
+    }
+    if (command.startsWith("test db --local")) {
+      const fileCount = fs.readdirSync(path.join(process.cwd(), "supabase", "tests", "database"))
+        .filter((file) => file.endsWith(".sql")).length;
+      return options.pgTapOutput ?? `Files=${fileCount}, Tests=205,  1 wallclock secs\nResult: PASS\n`;
     }
     if (command.startsWith("status ") && capture) {
       return [
@@ -84,6 +90,34 @@ function createDependencies(options: { failReset?: boolean; failStop?: boolean }
 }
 
 describe("local Supabase CI", () => {
+  it("rejects a zero-exit NOTESTS report before provisioning users and still cleans up", async () => {
+    const { dependencies } = createDependencies({
+      pgTapOutput: "Files=0, Tests=0,  0 wallclock secs\nResult: NOTESTS\n",
+    });
+    await expect(runLocalSupabaseCi(dependencies)).rejects.toThrow("Phase failed: run pgTAP");
+    expect(dependencies.provisionUsers).not.toHaveBeenCalled();
+    expect(dependencies.runRls).not.toHaveBeenCalled();
+    expect(dependencies.removeProject).toHaveBeenCalledOnce();
+    expect(dependencies.supabase).toHaveBeenLastCalledWith(
+      ["stop", "--project-id", "miaouffrage-ci-test", "--no-backup"], true
+    );
+  });
+
+  it("requires a complete passing pgTAP report with executed assertions", () => {
+    expect(() => validatePgTapReport("Files=13, Tests=205,  1 wallclock secs\nResult: PASS\n", 13)).not.toThrow();
+    for (const output of [
+      "Files=0, Tests=0,  0 wallclock secs\nResult: NOTESTS\n",
+      "Files=12, Tests=205,  1 wallclock secs\nResult: PASS\n",
+      "Files=13, Tests=0,  1 wallclock secs\nResult: PASS\n",
+      "Files=13, Tests=205,  1 wallclock secs\nResult: FAIL\n",
+      "Files=13, Tests=205,  1 wallclock secs\n",
+      "Result: PASS\n",
+      "",
+    ]) {
+      expect(() => validatePgTapReport(output, 13)).toThrow("pgTAP");
+    }
+    expect(() => validatePgTapReport("Files=0, Tests=1,  1 wallclock secs\nResult: PASS\n", 0)).toThrow("pgTAP");
+  });
   it("runs every local phase in order and never logs captured keys", async () => {
     const { calls, dependencies } = createDependencies();
     await runLocalSupabaseCi(dependencies);

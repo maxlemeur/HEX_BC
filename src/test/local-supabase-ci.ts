@@ -416,6 +416,22 @@ export function validateRlsMatrixReport(output: string) {
   }
 }
 
+export function validatePgTapReport(output: string, expectedFiles: number) {
+  const counts = output.match(/^Files=(\d+), Tests=(\d+),/m);
+  if (
+    !Number.isSafeInteger(expectedFiles) ||
+    expectedFiles <= 0 ||
+    !counts ||
+    Number(counts[1]) !== expectedFiles ||
+    Number(counts[2]) <= 0 ||
+    !/^Result: PASS\s*$/m.test(output)
+  ) {
+    throw new Error(
+      `Local pgTAP did not execute all ${expectedFiles} SQL files with passing assertions`
+    );
+  }
+}
+
 function runRlsMatrix(environment: SupabaseEnvironment) {
   const result = spawnSync(
     process.execPath,
@@ -620,12 +636,17 @@ export async function runLocalSupabaseCi(
     dependencies.log("Local migration inventory matches the repository.");
 
     activePhase = "run pgTAP";
-    dependencies.supabase(withWorkdir([
+    const pgTapOutput = dependencies.supabase(withWorkdir([
       "test",
       "db",
       "--local",
       path.join(project.rootDirectory, "supabase", "tests", "database"),
     ]), true);
+    const expectedTestFiles = fs.readdirSync(
+      path.join(process.cwd(), "supabase", "tests", "database")
+    ).filter((file) => file.endsWith(".sql")).length;
+    validatePgTapReport(pgTapOutput, expectedTestFiles);
+    dependencies.log(pgTapOutput.trim());
     dependencies.log("Database pgTAP tests passed.");
 
     activePhase = "read local status";
