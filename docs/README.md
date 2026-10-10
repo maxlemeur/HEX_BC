@@ -70,6 +70,10 @@ UX/UI avec un statut de rapprochement par item.
 [`AUDIT-DOCUMENTATION-2026-07-29.md`](AUDIT-DOCUMENTATION-2026-07-29.md) — l'audit qui a motivé cette
 refonte. Instantané daté : son plan d'action est exécuté.
 
+[`AUDIT-DETTE-TECHNIQUE-2026-10-10.md`](AUDIT-DETTE-TECHNIQUE-2026-10-10.md) — dette technique priorisée
+(28 postes, plan par phases), delta de
+[`AUDIT-DETTE-TECHNIQUE-2026-08-19.md`](AUDIT-DETTE-TECHNIQUE-2026-08-19.md). Instantanés datés.
+
 ---
 
 ## Règles de tenue
