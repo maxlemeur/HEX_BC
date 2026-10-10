@@ -2,7 +2,8 @@ import { createServer } from "node:http";
 
 import { expect, test as base, type Page } from "@playwright/test";
 
-import { loginWithUi } from "../estimates/helpers";
+import { createLineViaApi, duplicateEstimateViaApi, loginWithUi } from "../estimates/helpers";
+import { createTeamAHubEstimateViaApi } from "../estimates/team-a-hub.helpers";
 
 const syntheticEmail = "login-helper@example.invalid";
 const syntheticPassword = "unused-synthetic-fixture";
@@ -13,6 +14,21 @@ const test = base.extend({
   baseURL: async ({}, provideOrigin) => {
     // page.request is an API client and does not use browser route handlers.
     const server = createServer((request, response) => {
+      if (request.url?.startsWith("/api/estimates/") && request.url !== "/api/estimates/stats") {
+        const denied = request.url.includes("/denied/");
+        const malformed = request.url.includes("/malformed/");
+        response.writeHead(denied ? 409 : 201, { "content-type": "application/json" });
+        response.end(JSON.stringify({
+          data: { owner: { work_email: syntheticEmail }, ...(malformed ? {} : { version_id: "duplicated-version", item: { id: "created-line" } }) },
+          ...(denied ? { error: { message: "Draft lock unavailable", diagnostic: syntheticPassword } } : {}),
+        }));
+        return;
+      }
+      if (request.url === "/api/estimates") {
+        response.writeHead(201, { "content-type": "application/json" });
+        response.end(JSON.stringify({ data: { version: { id: "created-version", project_id: "created-project", created_by_email: syntheticEmail } } }));
+        return;
+      }
       response.writeHead(request.url === "/api/estimates/stats" ? 200 : 404, {
         "content-type": "application/json",
       });
@@ -117,4 +133,27 @@ test("reports an authentication rejection without restarting the login", async (
   expect(error).toContain("Email ou mot de passe incorrect.");
   expect(observed.nativeSubmissions).toBe(0);
   expect(observed.authRequests).toBe(1);
+});
+
+test("keeps successful API response identities out of reporter metadata", async ({ page }) => {
+  await createLineViaApi(page, "existing-version", "Synthetic line");
+  expect(await duplicateEstimateViaApi(page, "existing-version")).toBe("duplicated-version");
+  expect(await createTeamAHubEstimateViaApi(page, { projectName: "Synthetic project", title: "Synthetic estimate" }))
+    .toEqual({ versionId: "created-version", projectId: "created-project" });
+});
+
+test("preserves API rejection diagnostics without reporting credentials", async ({ page }) => {
+  const message = await createLineViaApi(page, "denied", "Synthetic line")
+    .then(() => null, (error: Error) => error.message);
+  expect(message).toContain("status=409");
+  expect(message).toContain("Draft lock unavailable");
+  expect(message?.includes(syntheticEmail)).toBe(false);
+  expect(message?.includes(syntheticPassword)).toBe(false);
+});
+
+test("rejects incomplete duplicate payloads without reporting account identities", async ({ page }) => {
+  const message = await duplicateEstimateViaApi(page, "malformed")
+    .then(() => null, (error: Error) => error.message);
+  expect(message).toContain("Missing duplicated version id");
+  expect(message?.includes(syntheticEmail)).toBe(false);
 });

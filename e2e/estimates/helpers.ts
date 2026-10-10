@@ -18,6 +18,19 @@ function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+export function redactLoginCredentials(text: string) {
+  const values = [process.env.E2E_LOGIN_EMAIL, process.env.E2E_LOGIN_PASSWORD]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value));
+  const variants = new Set(values.flatMap((value) => [
+    value, JSON.stringify(value).slice(1, -1), encodeURIComponent(value),
+  ]));
+  for (const value of [...variants].sort((a, b) => b.length - a.length)) {
+    text = text.replaceAll(value, "[redacted]");
+  }
+  return text;
+}
+
 function readPublicEnvFromDotEnv(name: string) {
   const dotEnvPath = path.join(process.cwd(), ".env.local");
   if (!fs.existsSync(dotEnvPath)) return null;
@@ -206,7 +219,7 @@ async function bootstrapTenantMembershipIfMissing(page: Page) {
   const tenantBody = await tenantResponse.text();
   expect(
     [200, 201].includes(tenantResponse.status()),
-    `Failed to bootstrap tenant. status=${tenantResponse.status()} body=${tenantBody}`
+    `Failed to bootstrap tenant. status=${tenantResponse.status()} body=${redactLoginCredentials(tenantBody)}`
   ).toBe(true);
 
   let tenantId: string | null = null;
@@ -221,7 +234,7 @@ async function bootstrapTenantMembershipIfMissing(page: Page) {
   }
 
   if (!tenantId) {
-    throw new Error(`Unable to parse tenant id from bootstrap response: ${tenantBody}`);
+    throw new Error(`Unable to parse tenant id from bootstrap response: ${redactLoginCredentials(tenantBody)}`);
   }
 
   const membershipResponse = await page.request.post(
@@ -242,7 +255,7 @@ async function bootstrapTenantMembershipIfMissing(page: Page) {
   const membershipBody = await membershipResponse.text();
   expect(
     [200, 201].includes(membershipResponse.status()),
-    `Failed to bootstrap tenant membership. status=${membershipResponse.status()} body=${membershipBody}`
+    `Failed to bootstrap tenant membership. status=${membershipResponse.status()} body=${redactLoginCredentials(membershipBody)}`
   ).toBe(true);
 
   const statsAfterBootstrap = await page.request.get("/api/estimates/stats", {
@@ -251,7 +264,7 @@ async function bootstrapTenantMembershipIfMissing(page: Page) {
   const statsAfterBody = await statsAfterBootstrap.text();
   expect(
     statsAfterBootstrap.status(),
-    `Tenant bootstrap completed but estimates stats remains unavailable. status=${statsAfterBootstrap.status()} body=${statsAfterBody}`
+    `Tenant bootstrap completed but estimates stats remains unavailable. status=${statsAfterBootstrap.status()} body=${redactLoginCredentials(statsAfterBody)}`
   ).toBe(200);
 }
 
@@ -473,7 +486,7 @@ export async function duplicateEstimateViaApi(page: Page, versionId: string) {
 
   expect(
     response.status(),
-    `Failed to duplicate estimate version. status=${response.status()} body=${body}`
+    `Failed to duplicate estimate version. status=${response.status()} body=${redactLoginCredentials(body)}`
   ).toBe(201);
 
   let payload: unknown = null;
@@ -484,7 +497,7 @@ export async function duplicateEstimateViaApi(page: Page, versionId: string) {
   }
 
   if (!payload || typeof payload !== "object") {
-    throw new Error(`Invalid duplicate estimate payload: ${body}`);
+    throw new Error(`Invalid duplicate estimate payload: ${redactLoginCredentials(body)}`);
   }
 
   const root = payload as Record<string, unknown>;
@@ -496,7 +509,7 @@ export async function duplicateEstimateViaApi(page: Page, versionId: string) {
     data && typeof data.version_id === "string" ? data.version_id : null;
 
   if (!duplicatedVersionId) {
-    throw new Error(`Missing duplicated version id in response: ${body}`);
+    throw new Error(`Missing duplicated version id in response: ${redactLoginCredentials(body)}`);
   }
 
   return duplicatedVersionId;
@@ -542,7 +555,7 @@ export async function createLineViaApi(
     return {
       status: response.status(),
       json,
-      text,
+      text: redactLoginCredentials(text),
     };
   }
 

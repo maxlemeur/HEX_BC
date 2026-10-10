@@ -228,3 +228,30 @@ refusé, les sessions de ce seul compte sont révoquées et la configuration loc
 est synchronisée. L'enregistrement dans GitHub nécessite encore la confirmation
 d'accès demandée dans le Chrome personnel. Le replay complet du prochain SHA
 reste à vérifier après cette synchronisation.
+
+## Diagnostics API et dernière tentative critique
+
+Après confirmation d'accès dans Chrome personnel, le secret ARMY est enregistré
+dans GitHub le 2026-10-10 à 14:37 UTC. La tentative 2 de `38048922470`, sur
+`dd4cb991`, passe les 37 tests critiques, sans assertion instable. Le filtre de
+confidentialité bloque néanmoins le rapport ; aucun artefact n'est publié.
+
+La réponse d'acquisition du verrou contient l'adresse professionnelle de son
+propriétaire. Les messages personnalisés `expect(status, body)` deviennent des
+titres SDK même quand l'assertion réussit. Une fixture API locale reproduit ce
+cas dans le vrai reporter avant correction : création, duplication et verrou
+réussissent, mais les métadonnées exposent l'identité synthétique. Deux autres
+contre-exemples échouent : refus de verrou et duplication sans identifiant
+révèlent également les credentials dans leurs diagnostics.
+
+Cette isolation couvre la sérialisation du reporter, que les 37 assertions
+métier réussies ne détectent pas. La correction doit retirer les credentials
+bruts, échappés JSON et encodés URI des seuls diagnostics, conserver le corps
+original pour son parsing, et laisser échouer les statuts/payloads invalides.
+Le filtre d'upload conserve ses contrôles et la suite critique complète doit
+être rejouée sur le nouveau SHA.
+
+Après correction, les cinq fixtures navigateur passent, reporter compris, sous
+Node 24.21.0. Les six contrôles du filtre, le lint ciblé, le typecheck et le diff
+passent aussi. Le code métier et les assertions de statut/identifiant restent
+identiques ; seules les chaînes destinées aux diagnostics sont expurgées.

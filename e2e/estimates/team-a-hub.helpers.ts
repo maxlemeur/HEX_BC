@@ -1,4 +1,5 @@
 import { expect, type Page } from "@playwright/test";
+import { redactLoginCredentials } from "./helpers";
 
 export async function createTeamAHubEstimateViaApi(page: Page, input: {
   projectName: string;
@@ -20,7 +21,7 @@ export async function createTeamAHubEstimateViaApi(page: Page, input: {
   const body = await response.text();
   expect(
     response.status(),
-    `Failed to create estimate. status=${response.status()} body=${body}`,
+    `Failed to create estimate. status=${response.status()} body=${redactLoginCredentials(body)}`,
   ).toBe(201);
 
   const payload = JSON.parse(body) as {
