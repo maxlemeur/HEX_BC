@@ -6,7 +6,7 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   timeout: 8_000,
-  reporter: "list",
+  reporter: [["list"], ["./credential-safety-reporter.ts"]],
   outputDir: "../../test-results/login-helper",
   use: {
     headless: true,

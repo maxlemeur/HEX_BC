@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { expect, type Page, type TestInfo } from "@playwright/test";
+import { fillLoginCredential } from "./helpers";
 
 export const connectedBaseURL = "http://localhost:3000";
 const expectedHost = "ijropnynpwjbllievrip.supabase.co";
@@ -189,8 +190,8 @@ export async function loginAndVerifyIdentity(page: Page, run: ConnectedRun) {
     }, { message: "Client login controls must be hydrated before credentials are filled" }).toBe("text");
     await page.getByRole("button", { name: "Masquer le mot de passe", exact: true }).click();
     await expect(page.locator("#password")).toHaveAttribute("type", "password");
-    await page.getByLabel("Email", { exact: true }).fill(email);
-    await page.locator("#password").fill(password);
+    await fillLoginCredential(page.getByLabel("Email", { exact: true }), email);
+    await fillLoginCredential(page.locator("#password"), password);
     await page.getByRole("button", { name: /Se connecter/i }).click();
     await page.waitForURL(/\/dashboard(?:$|[/?#])/);
   } catch {

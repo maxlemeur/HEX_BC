@@ -122,7 +122,8 @@ Sur `61e63d4a`, le Quality Gate et le smoke TesterArmy sont verts. Après
 l'autorisation explicite de réinitialiser le seul compte ARMY, sa connexion
 Supabase est vérifiée et ses identifiants sont synchronisés localement et dans
 l'environnement GitHub `e2e-staging`. Le rôle admin et l'unique appartenance au
-tenant ARMY restent identiques. Les secrets restent hors Git et des rapports.
+tenant ARMY restent identiques. Les secrets restent hors Git ; le contrôle des
+rapports a ensuite révélé la fuite décrite ci-dessous.
 
 La seconde tentative du workflow critique `38042306101` établit la connexion
 et passe 35 tests. Elle révèle deux échecs auparavant masqués par le setup :
@@ -174,7 +175,56 @@ désactivées :
 - DPGF : nouvel import préfixé `ARMY`, mapping enregistré et simulation catalogue
   réelle. L'API renvoie 200, deux lignes analysées, aucune création de produit
   et une répartition liée/non liée exhaustive. Les identités des fixtures sont
-  jointes aux rapports Playwright, sans identifiants de connexion.
+  jointes aux rapports Playwright. Le contrôle ultérieur de leur ZIP a révélé
+  les identifiants dans les titres SDK de connexion, corrigés ci-dessous.
 
 Lint ciblé, typecheck et contrôle du diff passent. Le replay complet des contrôles
 obligatoires reste à vérifier sur le prochain SHA poussé.
+
+## Protection des rapports de connexion
+
+La lecture du ZIP embarqué des rapports HTML locaux révèle les valeurs réelles
+du compte dans les titres SDK de `locator.fill()`, malgré les traces désactivées.
+L'artefact GitHub `11667038644` de la tentative 2 de `38042306101` est supprimé
+après confirmation de cette fuite. Le replay critique `38046578101` sur
+`60e2acda` est arrêté avant publication : sa liste d'artefacts est vide.
+Les copies locales et les preuves persistantes concernées sont expurgées.
+
+Avant correction du helper, un reporter de la fixture navigateur existante
+détecte les credentials synthétiques dans les vrais titres et erreurs des steps
+Playwright. Les deux assertions métier passent avant correction, mais le reporter
+force correctement un code de sortie 1. Après correction, les deux régressions
+passent, reporter compris, sous Node 24.21.0. Les valeurs sont renseignées par
+le setter natif du champ et ses événements `input`/`change`, avec un step SDK
+générique qui n'incorpore pas son argument. Les deux helpers authentifiés utilisent
+ce chemin et les traces restent désactivées, localement aussi.
+
+Le filtre d'upload examine les fichiers de résultat et le ZIP réellement embarqué
+dans le HTML. Les credentials absents, un ZIP illisible et les secrets présents
+font échouer le contrôle ; l'upload critique et nightly exige sa réussite.
+Ses fixtures CLI contiennent de vrais ZIP compressés et des valeurs synthétiques.
+Elles sont écrites avant le filtre : l'absence d'implémentation fait échouer la
+fixture positive. Un nom HTML en majuscules reproduit aussi un contournement avant
+correction. Les six contrôles passent sous Node 24.21.0. `fflate` 0.8.3, déjà présent
+transitivement, devient une dépendance de développement directe du filtre.
+
+Une nouvelle probe locale conserve la connexion Supabase réelle, l'import DPGF,
+son mapping et la simulation catalogue : 1/1 passe, avec un rapport HTML complet
+sans identifiants vérifié par ce filtre. Une première probe utilise Node 26.10.0 ;
+elle est ensuite rejouée sous Node 24.21.0 avec le dernier mot de passe ARMY,
+avec le même résultat et un nouveau rapport complet contrôlé.
+
+Le Quality Gate de `60e2acda` révèle une assertion de texte obsolète : elle impose
+encore le nom d'une condition d'indisponibilité de l'ancien scénario métré.
+Cette assertion est retirée : le parcours réel exige désormais le PDF et le job
+persisté, et échoue si l'étape requise est indisponible. Les garde-fous de CI,
+de secrets, de sélection des parcours et de refus des retries instables restent
+actifs ; leur suite ciblée passe 6/6. Le contrôle de traces attend désormais
+leur désactivation pour tous les replays authentifiés.
+
+Une dernière rotation du seul compte ARMY est appliquée après la sortie d'outil
+du formulaire GitHub. La connexion réelle réussit, un mot de passe incorrect est
+refusé, les sessions de ce seul compte sont révoquées et la configuration locale
+est synchronisée. L'enregistrement dans GitHub nécessite encore la confirmation
+d'accès demandée dans le Chrome personnel. Le replay complet du prochain SHA
+reste à vérifier après cette synchronisation.

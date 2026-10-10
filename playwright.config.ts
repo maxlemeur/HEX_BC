@@ -52,7 +52,8 @@ export default defineConfig({
   outputDir: "test-results/playwright",
   use: {
     baseURL,
-    trace: process.env.CI ? "off" : "on-first-retry",
+    // This suite logs in to shared Supabase: traces retain evaluated arguments.
+    trace: "off",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
     headless: process.env.E2E_HEADED === "1" ? false : true,

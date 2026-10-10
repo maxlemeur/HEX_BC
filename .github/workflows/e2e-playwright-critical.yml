@@ -52,7 +52,9 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Verify login helper regressions
-        run: npx playwright test --config e2e/auth/playwright.config.ts
+        run: |
+          npx playwright test --config e2e/auth/playwright.config.ts
+          node --test scripts/test-playwright-report-secrets.mjs
 
       - name: Run critical Playwright suite
         run: npm run e2e:pw:critical
@@ -68,8 +70,16 @@ jobs:
           E2E_LOGIN_PASSWORD: ${{ secrets.E2E_LOGIN_PASSWORD }}
           E2E_ALLOWED_SUPABASE_HOST: ${{ vars.E2E_ALLOWED_SUPABASE_HOST }}
 
-      - name: Upload Playwright HTML report
+      - name: Check report privacy
+        id: report_safety
         if: always()
+        run: node scripts/check-playwright-report-secrets.mjs playwright-report/index.html test-results
+        env:
+          E2E_LOGIN_EMAIL: ${{ secrets.E2E_LOGIN_EMAIL }}
+          E2E_LOGIN_PASSWORD: ${{ secrets.E2E_LOGIN_PASSWORD }}
+
+      - name: Upload Playwright HTML report
+        if: always() && steps.report_safety.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: playwright-report

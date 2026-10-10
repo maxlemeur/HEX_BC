@@ -298,6 +298,21 @@ export function extractVersionIdFromUrl(url: string) {
   return match[0].toLowerCase();
 }
 
+export async function fillLoginCredential(input: Locator, value: string) {
+  // Locator.fill records its value in Playwright's report title. Evaluation
+  // keeps a generic SDK title; CI traces stay off and no value is asserted/logged.
+  await input.evaluate((element, credential) => {
+    if (!(element instanceof HTMLInputElement)) {
+      throw new Error("Login field is not an input");
+    }
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    if (!setter) throw new Error("Login input has no native value setter");
+    setter.call(element, credential);
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+    element.dispatchEvent(new Event("change", { bubbles: true }));
+  }, value);
+}
+
 export async function loginWithUi(page: Page) {
   await page.goto("/login", { waitUntil: "domcontentloaded" });
 
@@ -325,8 +340,8 @@ export async function loginWithUi(page: Page) {
   await expect(page.locator("#password")).toHaveAttribute("type", "password");
 
   const { email, password } = requireE2ELoginCredentials();
-  await page.getByLabel("Email").fill(email);
-  await page.locator("#password").fill(password);
+  await fillLoginCredential(page.getByLabel("Email"), email);
+  await fillLoginCredential(page.locator("#password"), password);
   await page.getByRole("button", { name: "Se connecter", exact: true }).click();
 
   let authenticationError = "";

@@ -119,7 +119,6 @@ describe("CI and local quality guardrails", () => {
 
   it("makes the critical Playwright project deterministic in CI", () => {
     const config = read("playwright.config.ts");
-    const hub = read("e2e/estimates/hub-launch-metre.spec.ts");
     const planCenter = read("e2e/estimates/plan-center.spec.ts");
     const criticalProject = config.slice(
       config.indexOf('name: "chromium-critical"'),
@@ -127,7 +126,7 @@ describe("CI and local quality guardrails", () => {
     );
 
     expect(config).toContain("failOnFlakyTests: !!process.env.CI");
-    expect(config).toContain('trace: process.env.CI ? "off" : "on-first-retry"');
+    expect(config).toContain('trace: "off"');
     expect(config).toContain('name: "chromium-critical"');
     expect(criticalProject).not.toMatch(/testIgnore/u);
     expect(criticalProject).not.toContain("team-a-hub-dev-scenarios");
@@ -138,7 +137,6 @@ describe("CI and local quality guardrails", () => {
     expect(criticalProject).toContain("import-dpgf\\.spec\\.ts");
     expect(criticalProject).toContain("plan-center\\.spec\\.ts");
     expect(criticalProject).toContain("team-a-hub-prod\\.spec\\.ts");
-    expect(hub).toContain("!process.env.CI && !plansPageLoaded");
     expect(planCenter).toContain(
       '!process.env.CI && pageState === "unavailable"'
     );
