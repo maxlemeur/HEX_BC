@@ -11,6 +11,10 @@ const { getRootDirs } = require("@next/eslint-plugin-next/dist/utils/get-root-di
   getRootDirs: (context: { cwd: string; settings: { next?: { rootDir?: unknown } } }) => string[];
 };
 
+// Next normalizes rootDir separators to "/" before globbing, as fast-glob requires, so
+// matched directories come back with forward slashes on Windows too.
+const slashed = (directory: string) => directory.split(path.sep).join("/");
+
 describe("Next ESLint directory glob compatibility", () => {
   let root: string;
 
@@ -26,7 +30,7 @@ describe("Next ESLint directory glob compatibility", () => {
 
   it("keeps a literal root directory without adding its descendants", () => {
     const shop = path.join(root, "apps", "shop");
-    expect(getRootDirs({ cwd: root, settings: { next: { rootDir: shop } } })).toEqual([shop]);
+    expect(getRootDirs({ cwd: root, settings: { next: { rootDir: shop } } })).toEqual([slashed(shop)]);
   });
 
   it("preserves brace selections, array settings and directory-only results", () => {
@@ -35,10 +39,10 @@ describe("Next ESLint directory glob compatibility", () => {
     } } });
     expect(actual.sort()).toEqual([
       path.join(root, "apps", "admin"), path.join(root, "apps", "shop"), path.join(root, "docs"),
-    ].sort());
+    ].map(slashed).sort());
     expect(getRootDirs({ cwd: root, settings: { next: {
       rootDir: path.join(root, "apps", "*"),
-    } } }).sort()).toEqual([path.join(root, "apps", "admin"), path.join(root, "apps", "shop")].sort());
+    } } }).sort()).toEqual([path.join(root, "apps", "admin"), path.join(root, "apps", "shop")].map(slashed).sort());
     expect(getRootDirs({ cwd: root, settings: {} })).toEqual([root]);
   });
 
@@ -47,7 +51,7 @@ describe("Next ESLint directory glob compatibility", () => {
     const link = path.join(root, "linked-shop");
     fs.symlinkSync(shop, link, "dir");
     for (const directory of [path.parse(root).root, shop + path.sep, link]) {
-      expect(getRootDirs({ cwd: root, settings: { next: { rootDir: directory } } })).toEqual([directory]);
+      expect(getRootDirs({ cwd: root, settings: { next: { rootDir: directory } } })).toEqual([slashed(directory)]);
     }
     const relative = "./" + path.relative(process.cwd(), root).split(path.sep).join("/");
     expect(getRootDirs({ cwd: root, settings: { next: { rootDir: relative } } })).toEqual([relative]);
@@ -56,7 +60,7 @@ describe("Next ESLint directory glob compatibility", () => {
   it("excludes the base directories of terminal globstars", () => {
     expect(getRootDirs({ cwd: root, settings: { next: {
       rootDir: path.join(root, "apps", "{shop,admin}", "**"),
-    } } })).toEqual([path.join(root, "apps", "shop", "nested")]);
+    } } })).toEqual([slashed(path.join(root, "apps", "shop", "nested"))]);
   });
 
   it("expands numeric, padded, stepped and nested brace ranges", () => {
@@ -72,7 +76,7 @@ describe("Next ESLint directory glob compatibility", () => {
     ] as const) {
       expect(getRootDirs({ cwd: root, settings: { next: {
         rootDir: path.join(root, "apps", pattern),
-      } } }).sort()).toEqual(expected.map((directory) => path.join(root, "apps", directory)).sort());
+      } } }).sort()).toEqual(expected.map((directory) => slashed(path.join(root, "apps", directory))).sort());
     }
   });
 
@@ -80,7 +84,7 @@ describe("Next ESLint directory glob compatibility", () => {
     const literal = path.join(root, "apps", "(shop)");
     expect(getRootDirs({ cwd: root, settings: { next: { rootDir: literal } } })).toEqual([]);
     fs.mkdirSync(literal);
-    expect(getRootDirs({ cwd: root, settings: { next: { rootDir: literal } } })).toEqual([literal]);
+    expect(getRootDirs({ cwd: root, settings: { next: { rootDir: literal } } })).toEqual([slashed(literal)]);
   });
 
   it("keeps descendants for repeated leading globstars", () => {
