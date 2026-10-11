@@ -47,6 +47,11 @@ const app = {
       NEXT_TELEMETRY_DISABLED: "1",
       ...(process.env.NEXT_PUBLIC_SUPABASE_URL ? { NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL } : {}),
       ...(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? { NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY } : {}),
+      // The runner does not inherit this variable. Keep server credentials paired
+      // with the selected backend instead of falling back to another .env.local.
+      ...((critical || performance) && process.env.SUPABASE_SERVICE_ROLE_KEY
+        ? { SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY }
+        : {}),
     },
     startupTimeout: 180_000,
     shutdownTimeout: 15_000,

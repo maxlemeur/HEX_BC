@@ -2,20 +2,13 @@ name: E2E RLS Matrix
 
 # Cette matrice monte une pile Supabase locale en runtime natif, sans Docker :
 # chaque service tourne comme un processus du runner ubuntu-24.04 (glibc 2.39).
-# Elle ne se declenche donc que quand la base peut reellement avoir bouge
-# (migrations, tests pgTAP, outillage de garde), plus une passe nocturne qui
-# couvre les derives indirectes.
+# Le job existe sur chaque PR pour pouvoir etre exige par le ruleset de main.
+# Seules les etapes lourdes sont conditionnelles ; les passes manuelles et
+# nocturnes restent completes pour couvrir les derives indirectes.
 on:
   workflow_dispatch:
   pull_request:
     branches: ["main"]
-    paths:
-      - "supabase/**"
-      - "src/lib/estimates/rls.e2e.test.ts"
-      - "src/test/supabase-migration*"
-      - "src/test/local-supabase-ci*"
-      - "scripts/*supabase*"
-      - ".github/workflows/e2e-rls-matrix.yml"
   schedule:
     - cron: "45 3 * * *"
 
@@ -46,17 +39,50 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Determine whether database validation is required
+        id: scope
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          required=true
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            # A separate command preserves git failures. NUL delimiters handle
+            # spaces, and --no-renames catches migrations moved out of scope.
+            git diff --name-only --no-renames -z "$PR_BASE_SHA...$PR_HEAD_SHA" > "$RUNNER_TEMP/rls-changed-paths"
+            required=false
+            while IFS= read -r -d '' changed_path; do
+              case "$changed_path" in
+                supabase/*|src/lib/estimates/rls.e2e.test.ts|src/test/supabase*|src/test/local-supabase-ci*|scripts/*supabase*|.github/workflows/e2e-rls-matrix.yml|package.json|package-lock.json|.npmrc|.nvmrc|vitest*.ts|tsconfig*.json)
+                  required=true
+                  break
+                  ;;
+              esac
+            done < "$RUNNER_TEMP/rls-changed-paths"
+          fi
+          echo "required=$required" >> "$GITHUB_OUTPUT"
+          if [ "$required" = "true" ]; then
+            echo "Database validation required: running the native Supabase matrix."
+          else
+            echo "No database/runtime changes in this PR: native Supabase tests not required."
+          fi
+
       - name: Setup Node.js
+        if: ${{ steps.scope.outputs.required == 'true' }}
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
           cache: "npm"
 
       - name: Install dependencies
+        if: ${{ steps.scope.outputs.required == 'true' }}
         run: npm ci
 
       - name: Enforce append-only migration history
+        if: ${{ steps.scope.outputs.required == 'true' }}
         run: npm run supabase:migrations:git-guard
 
       - name: Validate and test the local database
+        if: ${{ steps.scope.outputs.required == 'true' }}
         run: npm run db:ci:local

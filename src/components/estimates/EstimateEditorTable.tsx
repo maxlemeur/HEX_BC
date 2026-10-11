@@ -154,10 +154,12 @@ const SupplierComparisonPanel = dynamic(() =>
     (module) => module.SupplierComparisonPanel
   )
 );
-const EstimateArticleSheet = dynamic(() =>
-  import("@/components/estimates/EstimateArticleSheet").then(
+const EstimateArticleSheet = dynamic(
+  () => import("@/components/estimates/EstimateArticleSheet").then(
     (module) => module.EstimateArticleSheet
-  )
+  ),
+  // Keep the editor mounted while the panel's chunk loads on the first click.
+  { loading: () => null }
 );
 
 export type {
@@ -1556,12 +1558,20 @@ export function EstimateEditorTable({
     (suggestion: CataloguePriceSuggestion) => {
       if (!articleSheet || isReadOnly) return;
       const designation = suggestion.product_designation.trim();
+      const unit = suggestion.unit?.trim() || (mergedUnitDrafts[articleSheet.itemId] ?? "").trim();
+      // The associated item becomes the source of truth, including after undo.
+      setUnitDrafts((previous) => {
+        if (!(articleSheet.itemId in previous)) return previous;
+        const next = { ...previous };
+        delete next[articleSheet.itemId];
+        return next;
+      });
       patchItemWithSuggestionTracking(
         articleSheet.itemId,
         {
           product_id: suggestion.product_id,
           title: designation || "Nouvelle ligne",
-          description: designation || null,
+          description: unit || null,
           unit_price_ht_cents: suggestion.adjusted_unit_price_cents,
           selected_supplier_price_id: suggestion.supplier_price_id,
         },
@@ -1569,7 +1579,7 @@ export function EstimateEditorTable({
       );
       setArticleSheet(null);
     },
-    [articleSheet, isReadOnly, patchItemWithSuggestionTracking]
+    [articleSheet, isReadOnly, mergedUnitDrafts, patchItemWithSuggestionTracking]
   );
 
   const handleDetachArticle = useCallback(() => {

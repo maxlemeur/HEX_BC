@@ -197,6 +197,32 @@ async function downloadedWorkbook(download: { path: string; suggestedFilename: s
   };
 }
 
+type CatalogueSuggestion = {
+  product_id: string;
+  product_reference: string | null;
+  product_designation: string;
+  unit: string | null;
+};
+
+// Read-only discovery of an existing catalogue article of the test tenant whose unit
+// differs from its designation, so that a unit overwritten by the designation is visible.
+// The suite never creates or modifies catalogue records.
+async function findCatalogueArticleWithUnit(browser: Ui["browser"], versionId: string) {
+  for (const query of ["re", "en", "an", "er", "on", "ou", "ca", "pl"]) {
+    const response = await apiRequest<{ ok: boolean; data: { suggestions: CatalogueSuggestion[] } }>(
+      browser, "GET", `/api/estimates/${versionId}/suggest-prices?q=${query}`
+    );
+    expect(response.status).toBe(200);
+    const candidate = response.body.data.suggestions.find((suggestion) => {
+      const unit = suggestion.unit?.trim() ?? "";
+      const designation = suggestion.product_designation.trim();
+      return unit.length > 0 && designation.length >= 2 && unit !== designation;
+    });
+    if (candidate) return candidate;
+  }
+  throw new Error("Missing fixture: the test tenant has no catalogue article with a unit distinct from its designation.");
+}
+
 armyTest(
   "creation persists final French price inputs and exact per-line VAT after reload",
   { session: "army", tags: ["critical"], timeout: 180_000 },
@@ -348,5 +374,64 @@ armyTest(
       const printed = print.rows.filter((row) => row[0] === line.title);
       expect(printed).toEqual([[line.title, String(line.quantity), "-", line.price === 2 ? "0,02 €" : "100,00 €", line.ht === 2 ? "0,02 €" : "200,00 €"]]);
     }
+  }
+);
+
+// Failure modes: associating a catalogue article must not write the article designation
+// into the line unit (stored in estimate_items.description), and the DPGF "Unité" column
+// must carry the article unit, never its designation.
+armyTest(
+  "associating a catalogue article keeps a unit, not the designation, in the line and the DPGF",
+  { session: "army", tags: ["critical"], timeout: 240_000 },
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser };
+    const ids = await createEstimateViaWizard(ui, {
+      projectName: army.projectName,
+      title: `${army.runPrefix} article-unit`,
+    }, army);
+    ownEstimate(army, ids);
+    const lineTitle = `${army.runPrefix} Ligne article`;
+    const line = await createLineViaApi(browser, ids.versionId, lineTitle, { description: "ens" });
+    const article = await findCatalogueArticleWithUnit(browser, ids.versionId);
+    const designation = article.product_designation.trim();
+    const expectedUnit = article.unit!.trim();
+    await recordEvidence(army, "article-unit-fixture", {
+      versionId: ids.versionId, lineId: line.id, initialUnit: "ens",
+      article: { productId: article.product_id, reference: article.product_reference, designation, unit: expectedUnit },
+    });
+
+    await browser.reload();
+    await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible();
+    // The menu entry stays disabled while the editor is still acquiring its draft lock.
+    await screen.getByRole("button", `Plus d'actions pour ${lineTitle}`, { exact: true }).tap();
+    const associate = screen.getByRole("menuitem", "Associer ou remplacer l’article", { exact: true });
+    await expect(associate).toBeEnabled({ timeout: 30_000 });
+    await associate.tap();
+    const search = screen.getByLabel("Rechercher dans le catalogue", { exact: true });
+    await expect(search).toBeVisible();
+    await search.fill(designation);
+    await screen.getByText(designation, { exact: true }).first().tap();
+
+    const saved = await waitForAutoSave(ui, ids.versionId, (snapshot) =>
+      snapshot.items.some((item) => item.id === line.id && item.product_id === article.product_id), army);
+    const associated = saved.items.find((item) => item.id === line.id)!;
+    await recordEvidence(army, "article-unit-persisted", {
+      lineId: line.id, productId: associated.product_id, title: associated.title, unit: associated.description,
+    });
+    expect(associated.title).toBe(designation);
+    expect(associated.description, "The line unit must be the article unit").toBe(expectedUnit);
+
+    await browser.reload();
+    await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible();
+    expect(await screen.getByLabel(`Unité pour ${designation}`, { exact: true }).inputValue()).toBe(expectedUnit);
+
+    await screen.getByTestId("estimate-page-toolbar-more-actions-button").tap();
+    const dpgf = await downloadedWorkbook(await browser.waitForDownload(
+      () => screen.getByTestId("estimate-page-toolbar-export-dpgf-button").tap(), { timeout: 60_000 }
+    ));
+    const row = matchingRows(worksheet(dpgf.workbook, "Données"), 3, designation);
+    const dpgfUnit = row.getCell(5).text.trim();
+    await recordEvidence(army, "article-unit-dpgf", { artifact: dpgf.artifact, designation, unit: dpgfUnit });
+    expect(dpgfUnit, "The DPGF Unité column must carry the article unit").toBe(expectedUnit);
   }
 );
