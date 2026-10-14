@@ -362,6 +362,71 @@ describe("affaire intake server brief regressions", () => {
     vi.clearAllMocks();
   });
 
+  it.each([
+    { label: "absent", sourceDocumentIds: [] },
+    { label: "invented", sourceDocumentIds: [DOC_BETA] },
+  ])("does not substitute fallback sources for $label model attribution", ({ sourceDocumentIds }) => {
+    const fallback = {
+      summary: { text: "Synthese de repli", sourceDocumentIds: [DOC_ALPHA] },
+      projectObject: { text: "Objet de repli", sourceDocumentIds: [DOC_ALPHA] },
+      scope: [{ text: "Perimetre de repli", sourceDocumentIds: [DOC_ALPHA] }],
+      lots: [], receivedPieces: [], assumptions: [], vigilancePoints: [], missingElements: [],
+    };
+    const result = mergeGeneratedAffaireBriefWithFallback({
+      generated: {
+        ...fallback,
+        summary: { text: "Affirmation sans preuve", sourceDocumentIds },
+        scope: [{ text: "Calorifuge a verifier", sourceDocumentIds }],
+      },
+      fallback,
+      documents: [{
+        id: DOC_ALPHA, file_name: "alpha.pdf", document_kind: "cctp", confidence: 0.9, issues: [],
+        extracted_metadata: { projectName: null, clientName: null, deadlineAt: null, detectedLots: [], detectedVariants: [] },
+      }],
+    });
+
+    expect(result.summary).toEqual({ text: "Affirmation sans preuve", sourceDocumentIds: [] });
+    expect(result.scope).toEqual([{ text: "Calorifuge a verifier", sourceDocumentIds: [] }]);
+    expect(result.projectObject.sourceDocumentIds).toEqual([DOC_ALPHA]);
+  });
+
+  it("retains only known unique document associations without certifying their content", () => {
+    const fallback = {
+      summary: { text: "Synthese", sourceDocumentIds: [DOC_ALPHA] },
+      projectObject: { text: "Objet", sourceDocumentIds: [DOC_ALPHA] },
+      scope: [], lots: [], receivedPieces: [], assumptions: [], vigilancePoints: [], missingElements: [],
+    };
+    const result = mergeGeneratedAffaireBriefWithFallback({
+      generated: { ...fallback, summary: { text: "Association a verifier", sourceDocumentIds: [DOC_BETA, DOC_ALPHA, DOC_ALPHA] } },
+      fallback,
+      documents: [{
+        id: DOC_ALPHA, file_name: "alpha.pdf", document_kind: "cctp", confidence: 0.9, issues: [],
+        extracted_metadata: { projectName: null, clientName: null, deadlineAt: null, detectedLots: [], detectedVariants: [] },
+      }],
+    });
+    expect(result.summary).toEqual({ text: "Association a verifier", sourceDocumentIds: [DOC_ALPHA] });
+  });
+
+  it("filters fallback associations against the same inventory when model text is absent", () => {
+    const fallback = {
+      summary: { text: "Synthese conservee", sourceDocumentIds: [DOC_BETA] },
+      projectObject: { text: "Objet conserve", sourceDocumentIds: [DOC_ALPHA] },
+      scope: [{ text: "Perimetre conserve", sourceDocumentIds: [DOC_BETA] }],
+      lots: [], receivedPieces: [], assumptions: [], vigilancePoints: [], missingElements: [],
+    };
+    const result = mergeGeneratedAffaireBriefWithFallback({
+      generated: null,
+      fallback,
+      documents: [{
+        id: DOC_ALPHA, file_name: "alpha.pdf", document_kind: "cctp", confidence: 0.9, issues: [],
+        extracted_metadata: { projectName: null, clientName: null, deadlineAt: null, detectedLots: [], detectedVariants: [] },
+      }],
+    });
+    expect(result.summary).toEqual({ text: "Synthese conservee", sourceDocumentIds: [] });
+    expect(result.scope).toEqual([{ text: "Perimetre conserve", sourceDocumentIds: [] }]);
+    expect(result.projectObject.sourceDocumentIds).toEqual([DOC_ALPHA]);
+  });
+
   it("preserves trailing fallback rows when the model returns fewer brief entries", () => {
     const result = mergeGeneratedAffaireBriefWithFallback({
       generated: {

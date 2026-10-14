@@ -1,7 +1,4 @@
 import type { Metadata } from "next";
-import Image from "next/image";
-
-import { COMPANY_INFO } from "@/lib/company-info";
 
 // Titre neutre : le portail est multi-organisation, l'émetteur n'est pas connu ici.
 export const metadata: Metadata = {
@@ -16,14 +13,6 @@ export default function PortalLayout({
     <div className="flex min-h-screen flex-col bg-muted">
       <header className="border-b border-border bg-surface">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3 sm:px-6 sm:py-4">
-          <Image
-            src="/logo-hydro-express.jpg"
-            alt="Hydro eXpress"
-            width={160}
-            height={64}
-            className="h-10 w-auto object-contain sm:h-12"
-            priority
-          />
           <span className="text-sm font-medium text-muted-foreground">
             Portail client
           </span>
@@ -36,7 +25,7 @@ export default function PortalLayout({
 
       <footer className="border-t border-border bg-surface px-4 py-6 text-center text-xs text-muted-foreground">
         <p>
-          {COMPANY_INFO.name} &mdash; SIRET {COMPANY_INFO.legal.siret}
+          Votre devis en ligne
         </p>
       </footer>
     </div>

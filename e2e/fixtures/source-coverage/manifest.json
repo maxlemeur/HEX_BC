@@ -1,0 +1,145 @@
+{
+  "schemaVersion": "source-reference-corpus-1",
+  "status": "fixtures-created-not-e2e-executed",
+  "generator": {
+    "path": "make-cctp-fixtures.py",
+    "sha256": "46cf521fff22ab0436ad5a2aefe525c27d198af96950f00a8701c6c7d3d13861",
+    "python": "3.12.14",
+    "reportlab": "4.4.9",
+    "pypdf": "6.10.0",
+    "deterministicPdf": true
+  },
+  "documents": [
+    {
+      "revision": "A",
+      "path": "A/ARMY-CCTP-calorifuge.pdf",
+      "fileName": "ARMY-CCTP-calorifuge.pdf",
+      "sha256": "d3627f9db115cfc75594a66ae2065fddeee9e3e6e5b76fbc1faf8e56bac50e7f",
+      "byteSize": 4352,
+      "pageCount": 3,
+      "encrypted": false,
+      "pages": [
+        {
+          "physicalPage": 1,
+          "folio": "COUVERTURE",
+          "text": "ARMY / CCTP CALORIFUGE\nCorpus synthétique de qualification - aucune portée contractuelle\nCOUVERTURE / page physique 1 sur 3\nCCTP / Calorifuge\nRévision A\nCorpus synthétique de qualification\nDeux périmètres d'exercice : zone A / réseau CH-A et zone B / réseau ECS-B.\nLes épaisseurs et traitements servent uniquement aux assertions de recette. Ce\ndocument n'énonce aucun rendement normatif et n'a pas été validé par un chiffreur.\nLecture : clauses C1 à C3, page physique 2 (CVC-10) ; clauses C4 à C7, page physique\n3 (CVC-11).\n"
+        },
+        {
+          "physicalPage": 2,
+          "folio": "CVC-10",
+          "text": "ARMY / CCTP CALORIFUGE\nCorpus synthétique de qualification - aucune portée contractuelle\nCVC-10 / page physique 2 sur 3\nPrescriptions de l'exercice\nC1\nPour cet exercice, les réseaux CH-A en zone A et ECS-B en zone B reçoivent un\ncalorifuge de 30 mm.\nC2\nEn zone A, les parties droites et leurs deux raccords reçoivent une protection extérieure.\nC3\nEn zone A, les deux raccords sont traités avec une finition démontable.\n"
+        },
+        {
+          "physicalPage": 3,
+          "folio": "CVC-11",
+          "text": "ARMY / CCTP CALORIFUGE\nCorpus synthétique de qualification - aucune portée contractuelle\nCVC-11 / page physique 3 sur 3\nPrescriptions de l'exercice\nC4\nLe diagnostic amiante de la zone A est exclu du présent lot dans cet exercice.\nC5\nLe traçage électrique du réseau ECS-B relève du lot Électricité.\nC6\nLes traversées de la zone B seront précisées par le détail D-B encore attendu.\nC7\nLes accès de pose en zone B restent à confirmer avant fixation du traitement des\ntraversées.\n"
+        }
+      ],
+      "clauses": [
+        {
+          "id": "C1",
+          "physicalPage": 2,
+          "text": "Pour cet exercice, les réseaux CH-A en zone A et ECS-B en zone B reçoivent un calorifuge de 30 mm."
+        },
+        {
+          "id": "C2",
+          "physicalPage": 2,
+          "text": "En zone A, les parties droites et leurs deux raccords reçoivent une protection extérieure."
+        },
+        {
+          "id": "C3",
+          "physicalPage": 2,
+          "text": "En zone A, les deux raccords sont traités avec une finition démontable."
+        },
+        {
+          "id": "C4",
+          "physicalPage": 3,
+          "text": "Le diagnostic amiante de la zone A est exclu du présent lot dans cet exercice."
+        },
+        {
+          "id": "C5",
+          "physicalPage": 3,
+          "text": "Le traçage électrique du réseau ECS-B relève du lot Électricité."
+        },
+        {
+          "id": "C6",
+          "physicalPage": 3,
+          "text": "Les traversées de la zone B seront précisées par le détail D-B encore attendu."
+        },
+        {
+          "id": "C7",
+          "physicalPage": 3,
+          "text": "Les accès de pose en zone B restent à confirmer avant fixation du traitement des traversées."
+        }
+      ]
+    },
+    {
+      "revision": "B",
+      "path": "B/ARMY-CCTP-calorifuge.pdf",
+      "fileName": "ARMY-CCTP-calorifuge.pdf",
+      "sha256": "29ae60b5ae4d621fc6c9a6af2ae8635b832c8a055293d9da6434ddd7fb3a54e8",
+      "byteSize": 4370,
+      "pageCount": 3,
+      "encrypted": false,
+      "pages": [
+        {
+          "physicalPage": 1,
+          "folio": "COUVERTURE",
+          "text": "ARMY / CCTP CALORIFUGE\nCorpus synthétique de qualification - aucune portée contractuelle\nCOUVERTURE / page physique 1 sur 3\nCCTP / Calorifuge\nRévision B\nCorpus synthétique de qualification\nDeux périmètres d'exercice : zone A / réseau CH-A et zone B / réseau ECS-B.\nLes épaisseurs et traitements servent uniquement aux assertions de recette. Ce\ndocument n'énonce aucun rendement normatif et n'a pas été validé par un chiffreur.\nLecture : clauses C1 à C3, page physique 2 (CVC-10) ; clauses C4 à C7, page physique\n3 (CVC-11).\n"
+        },
+        {
+          "physicalPage": 2,
+          "folio": "CVC-10",
+          "text": "ARMY / CCTP CALORIFUGE\nCorpus synthétique de qualification - aucune portée contractuelle\nCVC-10 / page physique 2 sur 3\nPrescriptions de l'exercice\nC1\nPour cet exercice, le réseau CH-A en zone A reçoit un calorifuge de 40 mm ; le réseau\nECS-B en zone B reste à 30 mm.\nC2\nEn zone A, les parties droites et leurs deux raccords reçoivent une protection extérieure.\nC3\nEn zone A, les deux raccords sont traités avec une finition démontable.\n"
+        },
+        {
+          "physicalPage": 3,
+          "folio": "CVC-11",
+          "text": "ARMY / CCTP CALORIFUGE\nCorpus synthétique de qualification - aucune portée contractuelle\nCVC-11 / page physique 3 sur 3\nPrescriptions de l'exercice\nC4\nLe diagnostic amiante de la zone A est exclu du présent lot dans cet exercice.\nC5\nLe traçage électrique du réseau ECS-B relève du lot Électricité.\nC6\nLes traversées de la zone B seront précisées par le détail D-B encore attendu.\nC7\nLes accès de pose en zone B restent à confirmer avant fixation du traitement des\ntraversées.\n"
+        }
+      ],
+      "clauses": [
+        {
+          "id": "C1",
+          "physicalPage": 2,
+          "text": "Pour cet exercice, le réseau CH-A en zone A reçoit un calorifuge de 40 mm ; le réseau ECS-B en zone B reste à 30 mm."
+        },
+        {
+          "id": "C2",
+          "physicalPage": 2,
+          "text": "En zone A, les parties droites et leurs deux raccords reçoivent une protection extérieure."
+        },
+        {
+          "id": "C3",
+          "physicalPage": 2,
+          "text": "En zone A, les deux raccords sont traités avec une finition démontable."
+        },
+        {
+          "id": "C4",
+          "physicalPage": 3,
+          "text": "Le diagnostic amiante de la zone A est exclu du présent lot dans cet exercice."
+        },
+        {
+          "id": "C5",
+          "physicalPage": 3,
+          "text": "Le traçage électrique du réseau ECS-B relève du lot Électricité."
+        },
+        {
+          "id": "C6",
+          "physicalPage": 3,
+          "text": "Les traversées de la zone B seront précisées par le détail D-B encore attendu."
+        },
+        {
+          "id": "C7",
+          "physicalPage": 3,
+          "text": "Les accès de pose en zone B restent à confirmer avant fixation du traitement des traversées."
+        }
+      ]
+    }
+  ],
+  "limits": [
+    "Synthetic corpus; no normative yield or professional validation.",
+    "Three real PDF pages; physical page numbering is one-based.",
+    "PDF creation and inspection do not qualify server parsing, Storage bytes, HTTP, UI, or authorization."
+  ]
+}

@@ -25,6 +25,7 @@ import {
 import {
   fetchAffaireHubFinishLineSummary,
   fetchAffaireHubCurrentVersion,
+  fetchAffaireHubCurrentVersionAfterApproval,
   fetchAffaireHubInitialData,
   fetchAffaireHubPlansSummary,
   fetchProjectVersionList,
@@ -126,7 +127,6 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       versionId && currentVersion?.status === "draft" && isEstimateAiDraftEnabled()
         ? fetchVersionZeroDraftSummary({ versionId })
         : Promise.resolve(null),
-      versionId ? fetchAffaireHubFinishLineSummary(versionId) : Promise.resolve(null),
     ]);
   });
   // Approval reads can persist a projection: keep them after the same successful
@@ -143,8 +143,17 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     ]);
   });
 
+  const currentVersionAfterApprovalPromise = approvalDataPromise.then(async () => {
+    const { summary } = await initialDataPromise;
+    return fetchAffaireHubCurrentVersionAfterApproval(projectId, summary.currentVersion?.id ?? null);
+  });
+  const finishLineDataPromise = currentVersionAfterApprovalPromise.then((currentVersion) =>
+    currentVersion ? fetchAffaireHubFinishLineSummary(currentVersion.id) : null
+  );
+
   const [initialDataResult, takeoffEnabledResult, intakeWorkspaceResult,
-    cockpitPreferencesResult, supportingDataResult, approvalDataResult] =
+    cockpitPreferencesResult, supportingDataResult, approvalDataResult,
+    currentVersionAfterApprovalResult, finishLineSummaryResult] =
     await Promise.allSettled([
       initialDataPromise,
       takeoffEnabledPromise,
@@ -152,6 +161,8 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       cockpitPreferencesPromise,
       supportingDataPromise,
       approvalDataPromise,
+      currentVersionAfterApprovalPromise,
+      finishLineDataPromise,
     ]);
 
   if (initialDataResult.status === "rejected") {
@@ -168,11 +179,15 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
   }
 
   const {
-    summary,
+    summary: initialSummary,
     timelineResult,
     dpgfSourceResult,
     marginAnalysisResult: marginResult,
   } = initialDataResult.value;
+  if (currentVersionAfterApprovalResult.status === "rejected") {
+    throw currentVersionAfterApprovalResult.reason;
+  }
+  const summary = { ...initialSummary, currentVersion: currentVersionAfterApprovalResult.value };
   const currentVersionId = summary.currentVersion?.id ?? null;
   if (supportingDataResult.status === "rejected") {
     throw supportingDataResult.reason;
@@ -186,7 +201,6 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     registerPageResult,
     registerScopeOptionsResult,
     versionZeroSummaryResult,
-    finishLineSummaryResult,
   ] = supportingDataResult.value;
   const approvalSummary =
     approvalSummaryResult.status === "fulfilled" ? approvalSummaryResult.value : null;

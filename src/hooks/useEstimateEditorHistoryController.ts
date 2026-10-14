@@ -14,6 +14,7 @@ export type EstimateEditorHistoryCommand = {
 
 export type EstimateEditorHistoryCommandContext = {
   isCurrentScope: () => boolean;
+  reportError?: (message: string) => void;
 };
 
 type EstimateEditorHistoryControllerInput = {
@@ -40,6 +41,7 @@ export function useEstimateEditorHistoryController({
   const isExecutingRef = useRef(isExecuting);
   const activeScopeTokenRef = useRef(scopeToken);
   const hasPendingScopeClearRef = useRef(false);
+  const hasReportedCommandErrorRef = useRef(false);
 
   useLayoutEffect(() => {
     isExecutingRef.current = isExecuting;
@@ -63,6 +65,11 @@ export function useEstimateEditorHistoryController({
       const context: EstimateEditorHistoryCommandContext = {
         isCurrentScope: () =>
           activeScopeTokenRef.current === commandScopeToken,
+        reportError: (message) => {
+          if (activeScopeTokenRef.current !== commandScopeToken) return;
+          hasReportedCommandErrorRef.current = true;
+          reportError(message);
+        },
       };
       push({
         ...command,
@@ -70,16 +77,17 @@ export function useEstimateEditorHistoryController({
         redo: () => command.redo(context),
       });
     },
-    [push, scopeToken]
+    [push, reportError, scopeToken]
   );
 
   const undo = useCallback(async () => {
     if (activeScopeTokenRef.current !== scopeToken) return;
     if (isExecutingRef.current || !canUndo) return;
     isExecutingRef.current = true;
+    hasReportedCommandErrorRef.current = false;
     try {
       const didUndo = await executeUndo();
-      if (!didUndo && activeScopeTokenRef.current === scopeToken) {
+      if (!didUndo && activeScopeTokenRef.current === scopeToken && !hasReportedCommandErrorRef.current) {
         reportError("Impossible d'annuler la dernière action.");
       }
     } finally {
@@ -91,9 +99,10 @@ export function useEstimateEditorHistoryController({
     if (activeScopeTokenRef.current !== scopeToken) return;
     if (isExecutingRef.current || !canRedo) return;
     isExecutingRef.current = true;
+    hasReportedCommandErrorRef.current = false;
     try {
       const didRedo = await executeRedo();
-      if (!didRedo && activeScopeTokenRef.current === scopeToken) {
+      if (!didRedo && activeScopeTokenRef.current === scopeToken && !hasReportedCommandErrorRef.current) {
         reportError("Impossible de retablir la dernière action.");
       }
     } finally {

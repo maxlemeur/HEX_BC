@@ -3,13 +3,28 @@ import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
+import { normalizeGeneratedOuvrageParent } from "@/lib/estimates/generated-ouvrage-parent";
 import {
   assertDraftStatus,
-  createEstimateItem,
 } from "@/lib/estimates/server";
+import { prepareEstimateBatch, sameEstimateBatchTimestamp, EstimateBatchPreparationError } from "@/lib/estimates/batch-preparation";
+import type { BatchOperationInput } from "@/lib/estimates/schemas";
+import { assertCanWriteEstimateWorkflows } from "@/lib/estimates/write-access";
+import { generatedOuvrageAcceptedCandidateSchema, generatedOuvrageReviewTokenSchema,
+  generatedOuvrageRpcError, generatedOuvrageOutcomeUnknown, generatedOuvrageReadUnavailable,
+  parseGeneratedOuvrageOutcome, type GeneratedOuvrageCommitResult,
+  type GeneratedOuvrageApplicationOutcome } from "@/lib/estimates/generated-ouvrage-atomic";
+export type { GeneratedOuvrageApplicationOutcome } from "@/lib/estimates/generated-ouvrage-atomic";
+import { parseGeneratedOuvrageReview } from "@/lib/estimates/generated-ouvrage-review";
+import { assertDraftLockOwnedByCurrentUser as assertDraftLockSessionOwnedByCurrentUser } from "@/lib/estimates/server-context";
+import { projectGeneratedOuvrageCosts } from "@/lib/estimates/generated-ouvrage-cost-projection";
+import { deriveGeneratedOuvrageLaborHours } from "@/lib/estimates/generated-ouvrage-labor-hours";
+import { normalizeGeneratedOuvrageComponentContent, generatedOuvrageComponentContentJson } from "@/lib/estimates/generated-ouvrage-component-content";
+import { multiplyToStoredEstimateNumeric, toStoredEstimateNumeric } from "@/lib/estimates/stored-item-numeric";
 import {
   badRequest,
   conflict,
+  forbidden,
   internalError,
   mapSupabaseError,
   notFound,
@@ -21,15 +36,6 @@ import type { Database, Json } from "@/types/database";
 type Supabase = SupabaseClient<Database>;
 type JsonRecord = Record<string, unknown>;
 type EstimateStatus = Database["public"]["Enums"]["estimate_status"];
-type EstimateItemRow = Database["public"]["Tables"]["estimate_items"]["Row"] & {
-  source_provider?: string | null;
-  source_job_id?: string | null;
-  source_file_name?: string | null;
-  source_page?: number | null;
-  source_metadata?: Json | null;
-  source_extracted_at?: string | null;
-};
-
 type AuthenticatedContext = Awaited<ReturnType<typeof getAuthenticatedContext>>;
 
 type EmbeddedProjectAccess = {
@@ -50,14 +56,6 @@ type VersionAccessRow = {
   updated_at: string;
   margin_multiplier: number | null;
   estimate_projects: EmbeddedProjectAccess | EmbeddedProjectAccess[] | null;
-};
-
-type DraftLockRow = {
-  id: string;
-  version_id: string;
-  user_id: string;
-  locked_at: string;
-  expires_at: string;
 };
 
 type GeneratedOuvrageDraftRow = {
@@ -346,6 +344,7 @@ export const generatedOuvrageRiskSignalSeveritySchema = z.enum([
 const generatedOuvrageGenerateInputSchema = z.object({
   projectId: z.string().uuid("projectId invalide."),
   versionId: z.string().uuid("versionId invalide."),
+  draftLockSessionId: z.string().uuid("draftLockSessionId invalide."),
   sourceKind: generatedOuvrageInputSourceKindSchema,
   sourceText: z
     .string()
@@ -375,23 +374,57 @@ const generatedOuvrageFetchInputSchema = z.object({
   draftId: z.string().uuid("draftId invalide."),
 });
 
+const RESUMABLE_DRAFT_PAGE_SIZE = 20;
+const generatedOuvrageCursorSchema = z.object({
+  createdAt: z.string().datetime({ offset: true }),
+  id: z.string().uuid(),
+}).strict();
+const generatedOuvrageListInputSchema = z.object({
+  versionId: z.string().uuid("versionId invalide."),
+  cursor: z.string().min(1).max(512).regex(/^[A-Za-z0-9_-]+$/).nullable().optional(),
+}).strict();
+const generatedOuvrageListRowsSchema = z.array(z.object({
+  id: z.string().uuid(),
+  created_at: z.string().datetime({ offset: true }),
+  source_kind: generatedOuvrageInputSourceKindSchema,
+  status: z.enum(["pending", "partially_applied"]),
+  candidates: z.array(z.object({
+    ai_status: generatedOuvrageCandidateAiStatusSchema,
+    resolution_status: generatedOuvrageCandidateResolutionStatusSchema,
+  })).max(MAX_CANDIDATES),
+})).max(RESUMABLE_DRAFT_PAGE_SIZE + 1);
+
+type ListResumableGeneratedOuvrageDraftsInput = z.infer<
+  typeof generatedOuvrageListInputSchema
+>;
+
+export type GeneratedOuvrageDraftPage = {
+  versionId: string;
+  items: {
+    draftId: string;
+    createdAt: string;
+    sourceKind: GeneratedOuvrageInputSourceKind;
+    status: "pending" | "partially_applied";
+    summary: GeneratedOuvrageDraftSummary;
+  }[];
+  nextCursor: string | null;
+};
+
 const generatedOuvrageSubdetailFetchInputSchema = z.object({
   versionId: z.string().uuid("versionId invalide."),
   draftId: z.string().uuid("draftId invalide."),
   candidateId: z.string().uuid("candidateId invalide."),
+  draftLockSessionId: z.string().uuid().optional(),
 });
 
-const generatedOuvrageInsertCandidateSchema = z.object({
-  candidateId: z.string().uuid("candidateId invalide."),
-  designation: z.string().trim().min(1, "La designation est requise.").max(500),
-  unit: z.string().trim().max(64).nullable().optional(),
-  quantity: z.number().finite("Quantité invalide.").min(0).nullable().optional(),
-  lotId: z.string().uuid("lotId invalide.").nullable().optional(),
-});
+const generatedOuvrageInsertCandidateSchema = generatedOuvrageAcceptedCandidateSchema;
 
 const generatedOuvrageInsertInputSchema = z.object({
   versionId: z.string().uuid("versionId invalide."),
   draftId: z.string().uuid("draftId invalide."),
+  draftLockSessionId: z.string().trim().uuid("Session de verrou invalide."),
+  operationKey: z.string().uuid().transform((value) => value.toLowerCase()),
+  expectedUpdatedAt: z.string().refine((value) => Number.isFinite(Date.parse(value))),
   acceptedCandidates: z
     .array(generatedOuvrageInsertCandidateSchema)
     .min(1, "Au moins un ouvrage doit être sélectionné.")
@@ -399,6 +432,8 @@ const generatedOuvrageInsertInputSchema = z.object({
 });
 
 const generatedOuvrageRejectInputSchema = z.object({
+  versionId: z.string().uuid(),
+  draftLockSessionId: z.string().uuid(),
   draftId: z.string().uuid("draftId invalide."),
   candidateId: z.string().uuid("candidateId invalide."),
   reason: z.string().trim().max(MAX_REASON_LENGTH).nullable().optional(),
@@ -419,6 +454,8 @@ const generatedOuvrageSubdetailSourceInputSchema = z.object({
 const generatedOuvrageSubdetailComponentInputSchema = z.object({
   componentId: z.string().uuid("componentId invalide.").nullable().optional(),
   status: generatedOuvrageSubdetailItemStatusSchema.default("suggested"),
+  restore: z.boolean().optional(),
+  restoreAsManual: z.boolean().optional(),
   costType: generatedOuvrageSubdetailCostTypeSchema,
   designation: z.string().trim().min(1).max(500),
   unit: z.string().trim().max(64).nullable().optional(),
@@ -446,6 +483,8 @@ const generatedOuvrageSubdetailUpdateInputSchema = z.object({
   versionId: z.string().uuid("versionId invalide."),
   draftId: z.string().uuid("draftId invalide."),
   candidateId: z.string().uuid("candidateId invalide."),
+  draftLockSessionId: z.string().uuid(),
+  expectedReviewToken: generatedOuvrageReviewTokenSchema.nullable(),
   markReviewed: z.boolean().default(true),
   reviewedCandidate: generatedOuvrageReviewedCandidateSchema.optional(),
   components: z
@@ -551,6 +590,12 @@ export type GeneratedOuvrageCandidate = {
   confidence: number;
   status: GeneratedOuvrageCandidateAiStatus;
   resolutionStatus: GeneratedOuvrageCandidateResolutionStatus;
+  appliedValues?: {
+    designation: string;
+    unit: string | null;
+    quantity: number | null;
+    lotId: string | null;
+  } | null;
   reasoning: string | null;
   sources: GeneratedOuvrageCandidateSource[];
 };
@@ -575,6 +620,7 @@ export type GeneratedOuvrageSubdetailSource = GeneratedOuvrageCandidateSource & 
 export type GeneratedOuvrageSubdetailComponent = {
   componentId: string;
   status: GeneratedOuvrageSubdetailItemStatus;
+  rejectedFromStatus: "suggested" | "manual" | null;
   costType: GeneratedOuvrageSubdetailCostType;
   designation: string;
   unit: string | null;
@@ -646,6 +692,7 @@ type GeneratedOuvrageEstimateItemMapping = {
 };
 
 export type GeneratedOuvrageSubdetailResult = {
+  reviewToken: string;
   draftId: string;
   candidateId: string;
   versionId: string;
@@ -656,15 +703,10 @@ export type GeneratedOuvrageSubdetailResult = {
   updatedAt: string;
   summary: GeneratedOuvrageSubdetailSummary;
   components: GeneratedOuvrageSubdetailComponent[];
+  reviewedCandidate?: GeneratedOuvrageReviewedCandidateSnapshot | null;
 };
 
-export type InsertGeneratedOuvragesResult = {
-  ok: true;
-  insertedCount: number;
-  draftStatus: GeneratedOuvrageDraftStatus;
-  projectId: string;
-  versionId: string;
-};
+export type InsertGeneratedOuvragesResult = GeneratedOuvrageCommitResult;
 
 export type RejectGeneratedOuvrageDraftResult = {
   ok: true;
@@ -692,14 +734,7 @@ function normalizeReviewedCandidateSnapshot(input: {
   unit: unknown;
   quantity: unknown;
 }): GeneratedOuvrageReviewedCandidateSnapshot {
-  return {
-    designation: normalizeText(input.designation, 500),
-    unit: toNullableText(input.unit),
-    quantity:
-      typeof input.quantity === "number" && Number.isFinite(input.quantity)
-        ? roundQuantity(input.quantity)
-        : null,
-  };
+  return normalizeGeneratedOuvrageParent(input);
 }
 
 function readReviewedCandidateSnapshot(value: unknown) {
@@ -840,45 +875,6 @@ async function getVersionAccessOrThrow(
     version: row,
     project,
   };
-}
-
-async function assertDraftLockOwnedByCurrentUser(input: {
-  supabase: Supabase;
-  tenantId: string;
-  versionId: string;
-  userId: string;
-}) {
-  const { data, error } = await input.supabase
-    .from("draft_locks")
-    .select("id, version_id, user_id, locked_at, expires_at")
-    .eq("tenant_id", input.tenantId)
-    .eq("version_id", input.versionId)
-    .gt("expires_at", new Date().toISOString())
-    .maybeSingle();
-
-  if (error) {
-    throw mapSupabaseError(error, "Impossible de vérifier le verrou de brouillon.");
-  }
-
-  const lock = (data ?? null) as DraftLockRow | null;
-
-  if (!lock) {
-    throw conflict(
-      "Un verrou actif est requis pour modifier cette version brouillon.",
-      { lock: null },
-      "LOCK_REQUIRED"
-    );
-  }
-
-  if (lock.user_id === input.userId) {
-    return;
-  }
-
-  throw conflict(
-    "Cette version brouillon est déjà verrouillée par un autre utilisateur.",
-    { lockedByUserId: lock.user_id, expiresAt: lock.expires_at },
-    "LOCK_OWNED_BY_OTHER"
-  );
 }
 
 async function loadLotLabel(input: {
@@ -1174,87 +1170,30 @@ async function buildSourceFragmentSeeds(input: {
   return Array.from(deduped.values()).slice(0, 20);
 }
 
-async function discardPendingGeneratedOuvrageDrafts(input: {
+async function closeGeneratedOuvrageGeneration(input: {
   supabase: Supabase;
-  tenantId: string;
   versionId: string;
-  userId: string;
-  excludeDraftId?: string;
-}) {
-  let query = input.supabase
-    .from("estimate_generated_ouvrage_drafts" as never)
-    .update({
-      status: "discarded",
-    } as never)
-    .eq("tenant_id", input.tenantId)
-    .eq("target_version_id", input.versionId)
-    .eq("created_by", input.userId)
-    .eq("status", "pending");
-
-  if (input.excludeDraftId) {
-    query = query.neq("id", input.excludeDraftId);
-  }
-
-  const { data, error } = await query.select("id" as never);
-
-  if (error) {
-    throw mapSupabaseError(error, "Impossible d'archiver les brouillons précédents.");
-  }
-
-  const discardedDraftIds = Array.isArray(data)
-    ? data
-        .map((row) => toNullableText((row as { id?: string }).id))
-        .filter((id): id is string => Boolean(id))
-    : [];
-
-  if (discardedDraftIds.length === 0) {
-    return;
-  }
-
-  const { error: fragmentError } = await input.supabase
-    .from("estimate_generated_ouvrage_source_fragments" as never)
-    .update({
-      status: "discarded",
-    } as never)
-    .in("draft_id", discardedDraftIds);
-
-  if (fragmentError) {
-    throw mapSupabaseError(fragmentError, "Impossible d'archiver les fragments précédents.");
-  }
-}
-
-async function discardGeneratedOuvrageDraftOnFailure(input: {
-  supabase: Supabase;
   draftId: string;
+  draftLockSessionId: string;
+  mode: "complete" | "failed";
 }) {
-  const { data, error } = await input.supabase
-    .from("estimate_generated_ouvrage_drafts" as never)
-    .update({
-      status: "discarded",
-    } as never)
-    .eq("id", input.draftId)
-    .select("id" as never)
-    .single();
-
-  if (error || !data) {
-    throw mapSupabaseError(
-      error,
-      "Impossible d'archiver le brouillon d'ouvrages incomplet."
-    );
-  }
-
-  const { error: fragmentError } = await input.supabase
-    .from("estimate_generated_ouvrage_source_fragments" as never)
-    .update({
-      status: "discarded",
-    } as never)
-    .eq("draft_id", input.draftId);
-
-  if (fragmentError) {
-    throw mapSupabaseError(
-      fragmentError,
-      "Impossible d'archiver les fragments du brouillon d'ouvrages incomplet."
-    );
+  let response;
+  try {
+    response = await input.supabase.rpc("close_generated_ouvrage_generation", {
+      p_version_id: input.versionId, p_draft_id: input.draftId,
+      p_draft_lock_session_id: input.draftLockSessionId, p_mode: input.mode,
+    });
+  } catch { throw generatedOuvrageOutcomeUnknown(); }
+  if (response.error) throw generatedOuvrageRpcError(response.error, true);
+  const parsed = z.object({ ok: z.literal(true), versionId: z.string().uuid(),
+    draftId: z.string().uuid(), status: z.enum(["pending", "discarded"]),
+    discardedDraftIds: z.array(z.string().uuid()),
+  }).strict().safeParse(response.data);
+  if (!parsed.success || parsed.data.versionId !== input.versionId || parsed.data.draftId !== input.draftId ||
+    new Set(parsed.data.discardedDraftIds).size !== parsed.data.discardedDraftIds.length ||
+    (input.mode === "complete" ? parsed.data.status !== "pending" || parsed.data.discardedDraftIds.includes(input.draftId)
+      : parsed.data.status !== "discarded" || parsed.data.discardedDraftIds.length !== 1 || parsed.data.discardedDraftIds[0] !== input.draftId)) {
+    throw generatedOuvrageOutcomeUnknown();
   }
 }
 
@@ -1509,7 +1448,7 @@ function sanitizePromptCandidates(input: {
         unit: toNullableText(candidate.unit)?.slice(0, 64) ?? null,
         quantity:
           typeof candidate.quantity === "number" && Number.isFinite(candidate.quantity)
-            ? Number(candidate.quantity.toFixed(3))
+            ? toStoredEstimateNumeric(candidate.quantity, 3)
             : null,
         confidence: clampConfidence(candidate.confidence),
         aiStatus: candidate.status,
@@ -1521,7 +1460,9 @@ function sanitizePromptCandidates(input: {
     .slice(0, MAX_CANDIDATES);
 }
 
-function buildDraftSummary(candidates: GeneratedOuvrageCandidateRow[]) {
+function buildDraftSummary(
+  candidates: Pick<GeneratedOuvrageCandidateRow, "ai_status" | "resolution_status">[]
+) {
   return candidates.reduce<GeneratedOuvrageDraftSummary>(
     (summary, candidate) => {
       summary.totalCandidates += 1;
@@ -1640,7 +1581,7 @@ function roundQuantity(value: number | null | undefined) {
     return 0;
   }
 
-  return Number(Number(value).toFixed(3));
+  return toStoredEstimateNumeric(Number(value), 3);
 }
 
 async function loadPreferredGeneratedOuvrageLaborRole(input: {
@@ -1651,17 +1592,21 @@ async function loadPreferredGeneratedOuvrageLaborRole(input: {
   id: string;
   name: string;
   hourlyRateCents: number;
+  position: number;
+  isActive: true;
 } | null> {
   const { data, error } = await input.supabase
     .from("labor_roles")
-    .select("id, name, hourly_rate_cents, position")
+    .select("id, name, hourly_rate_cents, position, is_active")
     .eq("tenant_id", input.tenantId)
     .eq("user_id", input.ownerUserId)
     .eq("is_active", true)
     .order("position", { ascending: true })
+    .order("id", { ascending: true })
     .limit(1);
 
-  if (error || !Array.isArray(data) || data.length === 0) {
+  if (error || !Array.isArray(data)) throw generatedOuvrageReadUnavailable();
+  if (data.length === 0) {
     return null;
   }
 
@@ -1670,50 +1615,8 @@ async function loadPreferredGeneratedOuvrageLaborRole(input: {
     id: role.id,
     name: role.name,
     hourlyRateCents: role.hourly_rate_cents,
-  };
-}
-
-function deriveGeneratedOuvrageLaborHours(input: {
-  component: GeneratedOuvrageSubdetailComponent;
-  parentQuantity: number;
-}): {
-  derivedHours: number;
-  hoursSource: "quantity" | "yield";
-} {
-  const normalizedUnit = toNullableText(input.component.unit)?.toLowerCase();
-  const normalizedYieldUnit = toNullableText(input.component.yieldUnit)?.toLowerCase();
-  const prefersExplicitQuantity =
-    input.component.status === "manual" &&
-    (!normalizedUnit || normalizedUnit === "h" || normalizedUnit.startsWith("h/"));
-
-  if (prefersExplicitQuantity) {
-    return {
-      derivedHours: roundQuantity(input.component.quantity),
-      hoursSource: "quantity",
-    };
-  }
-
-  if (
-    typeof input.component.yieldValue === "number" &&
-    input.component.yieldValue > 0 &&
-    normalizedYieldUnit?.startsWith("h/")
-  ) {
-    return {
-      derivedHours: roundQuantity(input.parentQuantity * input.component.yieldValue),
-      hoursSource: "yield",
-    };
-  }
-
-  if (!normalizedUnit || normalizedUnit === "h" || normalizedUnit.startsWith("h/")) {
-    return {
-      derivedHours: roundQuantity(input.component.quantity),
-      hoursSource: "quantity",
-    };
-  }
-
-  return {
-    derivedHours: roundQuantity(input.component.quantity),
-    hoursSource: "quantity",
+    position: role.position,
+    isActive: true,
   };
 }
 
@@ -1733,6 +1636,7 @@ function buildGeneratedOuvrageEstimateItemMapping(input: {
   const laborTrace: GeneratedOuvrageEstimateItemLaborTrace[] = [];
 
   for (const component of input.components) {
+    if (component.status === "rejected") continue;
     const current = breakdownByType.get(component.costType);
     const nextEntry: GeneratedOuvrageEstimateItemCostBreakdown = {
       costType: component.costType,
@@ -1775,7 +1679,7 @@ function buildGeneratedOuvrageEstimateItemMapping(input: {
       ? Math.round(totalDsCents / input.parentQuantity)
       : totalDsCents;
 
-  if (laborDsCents <= 0 || hMo <= 0) {
+  if (laborTrace.length === 0) {
     return {
       source: "generated_ouvrage_subdetail_review",
       mode: "no_labor",
@@ -1794,14 +1698,14 @@ function buildGeneratedOuvrageEstimateItemMapping(input: {
     };
   }
 
-  if (input.laborRole && input.laborRole.hourlyRateCents > 0) {
+  if (input.laborRole) {
     const foBaseCents =
       input.parentQuantity > 0 ? input.parentQuantity * unitPriceHtCents : unitPriceHtCents;
     const moBaseCents = hMo * input.laborRole.hourlyRateCents;
 
     return {
       source: "generated_ouvrage_subdetail_review",
-      mode: "legacy_labor_allocated",
+      mode: input.laborRole.hourlyRateCents > 0 ? "legacy_labor_allocated" : "labor_hours_role_without_rate",
       unitPriceHtCents,
       hMo,
       kFo: foBaseCents > 0 ? nonLaborDsCents / foBaseCents : 0,
@@ -1819,14 +1723,14 @@ function buildGeneratedOuvrageEstimateItemMapping(input: {
 
   return {
     source: "generated_ouvrage_subdetail_review",
-    mode: input.laborRole ? "labor_hours_role_without_rate" : "labor_hours_only",
+    mode: "labor_hours_only",
     unitPriceHtCents,
     hMo,
     kFo: 1,
     kMo: 0,
-    laborRoleId: input.laborRole?.id ?? null,
-    laborRoleName: input.laborRole?.name ?? null,
-    laborRoleHourlyRateCents: input.laborRole?.hourlyRateCents ?? null,
+    laborRoleId: null,
+    laborRoleName: null,
+    laborRoleHourlyRateCents: null,
     totalDsCents,
     nonLaborDsCents,
     laborDsCents,
@@ -2054,34 +1958,35 @@ function buildGeneratedOuvrageSubdetailSummary(input: {
   components: GeneratedOuvrageSubdetailComponent[];
   marginMultiplier: number | null;
 }): GeneratedOuvrageSubdetailSummary {
-  const dsCents = input.components.reduce(
+  const retainedComponents = input.components.filter((component) => component.status !== "rejected");
+  const dsCents = retainedComponents.reduce(
     (total, component) => total + component.dsCents,
     0
   );
   const confidence =
-    input.components.length === 0
+    retainedComponents.length === 0
       ? 0.5
-      : input.components.reduce((total, component) => total + component.confidence, 0) /
-        input.components.length;
+      : retainedComponents.reduce((total, component) => total + component.confidence, 0) /
+        retainedComponents.length;
   const marginMultiplier =
     typeof input.marginMultiplier === "number" && Number.isFinite(input.marginMultiplier)
       ? Math.max(input.marginMultiplier, 1)
       : 1;
   const facts = Array.from(
-    new Set(input.components.flatMap((component) => component.facts))
+    new Set(retainedComponents.flatMap((component) => component.facts))
   ).slice(0, 8);
   const hypotheses = Array.from(
-    new Set(input.components.flatMap((component) => component.hypotheses))
+    new Set(retainedComponents.flatMap((component) => component.hypotheses))
   ).slice(0, 8);
   const inferences = Array.from(
-    new Set(input.components.flatMap((component) => component.inferences))
+    new Set(retainedComponents.flatMap((component) => component.inferences))
   ).slice(0, 8);
   const riskSignals = dedupeRiskSignals(
-    input.components.flatMap((component) => component.riskSignals)
+    retainedComponents.flatMap((component) => component.riskSignals)
   ).slice(0, 8);
 
   return {
-    componentCount: input.components.length,
+    componentCount: retainedComponents.length,
     dsCents,
     indicativeTargetPriceCents: Math.round(dsCents * marginMultiplier),
     confidence: clampConfidence(confidence),
@@ -2100,14 +2005,16 @@ function inferLaborQuantity(input: {
 }) {
   const unit = toNullableText(input.unit)?.toLowerCase();
   if (input.yieldValue && input.parentQuantity !== null) {
-    return roundQuantity(input.parentQuantity * input.yieldValue);
+    return multiplyToStoredEstimateNumeric(toStoredEstimateNumeric(input.parentQuantity, 3), toStoredEstimateNumeric(input.yieldValue, 3), 3);
   }
 
   if (unit === "m2" || unit === "m3" || unit === "ml" || unit === "m") {
     return 1;
   }
 
-  return input.parentQuantity !== null ? roundQuantity(Math.max(input.parentQuantity * 0.25, 1)) : 1;
+  return input.parentQuantity !== null
+    ? Math.max(multiplyToStoredEstimateNumeric(toStoredEstimateNumeric(input.parentQuantity, 3), 0.25, 3), 1)
+    : 1;
 }
 
 function generateInitialSubdetailComponents(input: {
@@ -2176,6 +2083,7 @@ function generateInitialSubdetailComponents(input: {
     {
       componentId: randomUUID(),
       status: "suggested",
+      rejectedFromStatus: null,
       costType: "material",
       designation: input.candidate.designation,
       unit: effectiveUnit,
@@ -2211,6 +2119,7 @@ function generateInitialSubdetailComponents(input: {
     {
       componentId: randomUUID(),
       status: "suggested",
+      rejectedFromStatus: null,
       costType: "labor",
       designation: `Main d'oeuvre - ${input.candidate.designation}`,
       unit: "h",
@@ -2259,6 +2168,7 @@ function generateInitialSubdetailComponents(input: {
     components.push({
       componentId: randomUUID(),
       status: "suggested",
+      rejectedFromStatus: null,
       costType: "equipment",
       designation: `Matériel de pose - ${input.candidate.designation}`,
       unit: effectiveUnit === "u" ? "u" : effectiveUnit,
@@ -2305,6 +2215,7 @@ function generateInitialSubdetailComponents(input: {
 }
 
 function mapSubdetailRowsToResult(input: {
+  reviewToken: string;
   draft: GeneratedOuvrageSubdetailDraftRow;
   items: GeneratedOuvrageSubdetailItemRow[];
   itemSources: GeneratedOuvrageSubdetailItemSourceRow[];
@@ -2329,9 +2240,17 @@ function mapSubdetailRowsToResult(input: {
     .map((item) => {
       const quantity = roundQuantity(item.quantity);
       const unitCostHtCents = Math.max(item.unit_cost_ht_cents, 0);
+      const metadata = typeof item.metadata === "object" && item.metadata !== null
+        ? item.metadata as JsonRecord : {};
+      const rejectionOrigin = metadata.rejected_from_status;
+      if (rejectionOrigin !== undefined && rejectionOrigin !== null &&
+        rejectionOrigin !== "suggested" && rejectionOrigin !== "manual") {
+        throw generatedOuvrageReadUnavailable();
+      }
       return {
         componentId: item.id,
         status: item.status,
+        rejectedFromStatus: item.status === "rejected" ? rejectionOrigin ?? null : null,
         costType: item.cost_type,
         designation: item.designation,
         unit: item.unit,
@@ -2388,6 +2307,7 @@ function mapSubdetailRowsToResult(input: {
   });
 
   return {
+    reviewToken: input.reviewToken,
     draftId: input.draft.draft_id,
     candidateId: input.draft.parent_work_id,
     versionId: input.draft.target_version_id,
@@ -2398,40 +2318,12 @@ function mapSubdetailRowsToResult(input: {
     updatedAt: input.draft.updated_at,
     summary: {
       ...computedSummary,
-      dsCents:
-        typeof summaryRecord.ds_cents === "number"
-          ? summaryRecord.ds_cents
-          : computedSummary.dsCents,
-      indicativeTargetPriceCents:
-        typeof summaryRecord.indicative_target_price_cents === "number"
-          ? summaryRecord.indicative_target_price_cents
-          : computedSummary.indicativeTargetPriceCents,
-      confidence:
-        typeof summaryRecord.confidence === "number"
-          ? clampConfidence(summaryRecord.confidence)
-          : computedSummary.confidence,
       pricingSource:
         toNullableText(
           typeof summaryRecord.pricing_source === "string"
             ? summaryRecord.pricing_source
             : null
         ) ?? computedSummary.pricingSource,
-      riskSignals:
-        normalizeRiskSignals(summaryRecord.risk_signals).length > 0
-          ? normalizeRiskSignals(summaryRecord.risk_signals)
-          : computedSummary.riskSignals,
-      facts:
-        readJsonStringArray(summaryRecord.facts).length > 0
-          ? readJsonStringArray(summaryRecord.facts)
-          : computedSummary.facts,
-      hypotheses:
-        readJsonStringArray(summaryRecord.hypotheses).length > 0
-          ? readJsonStringArray(summaryRecord.hypotheses)
-          : computedSummary.hypotheses,
-      inferences:
-        readJsonStringArray(summaryRecord.inferences).length > 0
-          ? readJsonStringArray(summaryRecord.inferences)
-          : computedSummary.inferences,
     },
     components,
   };
@@ -2531,67 +2423,6 @@ async function loadGeneratedOuvrageDraftOrThrow(input: {
   };
 }
 
-async function loadGeneratedOuvrageSubdetail(input: {
-  supabase: Supabase;
-  tenantId: string;
-  draftId: string;
-  candidateId: string;
-}) {
-  const [draftResult, itemResult, itemSourceResult] = await Promise.all([
-    input.supabase
-      .from("estimate_generated_ouvrage_subdetail_drafts" as never)
-      .select("*" as never)
-      .eq("tenant_id", input.tenantId)
-      .eq("draft_id", input.draftId)
-      .eq("parent_work_id", input.candidateId)
-      .maybeSingle(),
-    input.supabase
-      .from("estimate_generated_ouvrage_subdetail_items" as never)
-      .select("*" as never)
-      .eq("tenant_id", input.tenantId)
-      .eq("draft_id", input.draftId)
-      .eq("parent_work_id", input.candidateId)
-      .order("component_order", { ascending: true }),
-    input.supabase
-      .from("estimate_generated_ouvrage_subdetail_item_sources" as never)
-      .select("*" as never)
-      .eq("tenant_id", input.tenantId)
-      .eq("draft_id", input.draftId)
-      .eq("parent_work_id", input.candidateId)
-      .order("source_rank", { ascending: true }),
-  ]);
-
-  if (draftResult.error) {
-    throw mapSupabaseError(
-      draftResult.error as never,
-      "Impossible de charger le sous-détail enregistré."
-    );
-  }
-
-  if (itemResult.error) {
-    throw mapSupabaseError(
-      itemResult.error as never,
-      "Impossible de charger les composants du sous-détail."
-    );
-  }
-
-  if (itemSourceResult.error) {
-    throw mapSupabaseError(
-      itemSourceResult.error as never,
-      "Impossible de charger la provenance du sous-détail."
-    );
-  }
-
-  return {
-    draft:
-      (draftResult.data as GeneratedOuvrageSubdetailDraftRow | null | undefined) ??
-      null,
-    items: (itemResult.data ?? []) as GeneratedOuvrageSubdetailItemRow[],
-    itemSources:
-      (itemSourceResult.data ?? []) as GeneratedOuvrageSubdetailItemSourceRow[],
-  };
-}
-
 function normalizeDraftResult(loaded: DraftLoaded): GeneratedOuvrageDraftResult {
   const fragmentById = new Map(
     loaded.fragments.map((fragment) => [fragment.id, fragment] as const)
@@ -2608,6 +2439,21 @@ function normalizeDraftResult(loaded: DraftLoaded): GeneratedOuvrageDraftResult 
   }
 
   const summary = buildDraftSummary(loaded.candidates);
+  const appliedValuesByCandidateId = new Map(
+    loaded.applications.map((application) => {
+      const reviewed = readReviewedCandidateSnapshot(application.applied_payload);
+      const payload = application.applied_payload as JsonRecord | null;
+      return [
+        application.candidate_id,
+        reviewed
+          ? {
+              ...reviewed,
+              lotId: toNullableText(payload?.resolved_lot_id ?? payload?.lot_id),
+            }
+          : null,
+      ] as const;
+    })
+  );
 
   return {
     draftId: loaded.draft.id,
@@ -2628,6 +2474,10 @@ function normalizeDraftResult(loaded: DraftLoaded): GeneratedOuvrageDraftResult 
       confidence: clampConfidence(candidate.confidence),
       status: candidate.ai_status,
       resolutionStatus: candidate.resolution_status,
+      appliedValues:
+        candidate.resolution_status === "inserted"
+          ? appliedValuesByCandidateId.get(candidate.id) ?? null
+          : null,
       reasoning: candidate.reasoning,
       sources: (sourceRowsByCandidateId.get(candidate.id) ?? [])
         .sort((left, right) => left.source_rank - right.source_rank)
@@ -2650,286 +2500,68 @@ function normalizeDraftResult(loaded: DraftLoaded): GeneratedOuvrageDraftResult 
   };
 }
 
-function pickPrimaryFragment(
-  fragmentSources: GeneratedOuvrageCandidateSource[]
-): GeneratedOuvrageCandidateSource | null {
-  return fragmentSources[0] ?? null;
+type GeneratedOuvrageReviewSnapshot = {
+  draft: GeneratedOuvrageDraftRow;
+  candidate: GeneratedOuvrageCandidateRow;
+  subdetailDraft: GeneratedOuvrageSubdetailDraftRow | null;
+  items: GeneratedOuvrageSubdetailItemRow[];
+  itemSources: GeneratedOuvrageSubdetailItemSourceRow[];
+  candidateSources: GeneratedOuvrageCandidateSourceRow[];
+  fragments: GeneratedOuvrageSourceFragmentRow[];
+  reviewToken: string | null;
+};
+
+async function readGeneratedOuvrageReview(context: AuthenticatedContext, input: {
+  versionId: string; draftId: string; candidateId: string;
+}): Promise<GeneratedOuvrageReviewSnapshot> {
+  let response;
+  try {
+    response = await context.supabase.rpc("read_generated_ouvrage_review", {
+      p_version_id: input.versionId, p_draft_id: input.draftId, p_candidate_id: input.candidateId,
+    });
+  } catch { throw generatedOuvrageReadUnavailable(); }
+  if (response.error) throw generatedOuvrageRpcError(response.error, false);
+  return parseGeneratedOuvrageReview(response.data, { ...input, tenantId: context.tenantId,
+    actorId: context.userId }) as unknown as GeneratedOuvrageReviewSnapshot;
+}
+
+function reviewedResult(snapshot: GeneratedOuvrageReviewSnapshot) {
+  if (!snapshot.subdetailDraft || !snapshot.reviewToken) throw generatedOuvrageReadUnavailable();
+  return {
+    ...mapSubdetailRowsToResult({ draft: snapshot.subdetailDraft, reviewToken: snapshot.reviewToken,
+      items: snapshot.items, itemSources: snapshot.itemSources, fragments: snapshot.fragments }),
+    reviewedCandidate: readReviewedCandidateSnapshot(
+      (snapshot.subdetailDraft.generation_metadata as JsonRecord | null)?.reviewed_candidate
+    ) ?? normalizeReviewedCandidateSnapshot(snapshot.candidate),
+  };
 }
 
 async function persistGeneratedOuvrageSubdetail(input: {
-  supabase: Supabase;
-  tenantId: string;
-  projectId: string;
-  versionId: string;
-  draftId: string;
-  candidateId: string;
-  userId: string;
-  existing: GeneratedOuvrageSubdetailDraftRow | null;
-  status: GeneratedOuvrageSubdetailDraftStatus;
-  summary: GeneratedOuvrageSubdetailSummary;
-  generationMetadata: JsonRecord;
-  components: UpdateGeneratedOuvrageSubdetailInput["components"];
+  context: AuthenticatedContext; versionId: string; draftId: string; candidateId: string;
+  draftLockSessionId: string; expectedReviewToken: string | null;
+  status: "pending_review" | "reviewed"; summary: GeneratedOuvrageSubdetailSummary;
+  generationMetadata: JsonRecord; components: UpdateGeneratedOuvrageSubdetailInput["components"];
 }) {
-  const summaryPayload = {
-    component_count: input.summary.componentCount,
-    ds_cents: input.summary.dsCents,
-    indicative_target_price_cents: input.summary.indicativeTargetPriceCents,
-    confidence: input.summary.confidence,
-    pricing_source: input.summary.pricingSource,
-    risk_signals: input.summary.riskSignals,
-    facts: input.summary.facts,
-    hypotheses: input.summary.hypotheses,
-    inferences: input.summary.inferences,
-    margin_multiplier: input.generationMetadata.margin_multiplier ?? null,
-  } satisfies JsonRecord;
-
-  const persistedDraftResponse = (input.existing === null
-    ? await input.supabase
-        .from("estimate_generated_ouvrage_subdetail_drafts" as never)
-        .insert({
-          tenant_id: input.tenantId,
-          project_id: input.projectId,
-          target_version_id: input.versionId,
-          draft_id: input.draftId,
-          parent_work_id: input.candidateId,
-          created_by: input.userId,
-          status: input.status,
-          summary: summaryPayload,
-          generation_metadata: input.generationMetadata,
-        } as never)
-        .select("*" as never)
-        .single()
-    : await input.supabase
-        .from("estimate_generated_ouvrage_subdetail_drafts" as never)
-        .update({
-          status: input.status,
-          summary: summaryPayload,
-          generation_metadata: input.generationMetadata,
-          applied_at: input.status === "applied" ? new Date().toISOString() : null,
-        } as never)
-        .eq("id", input.existing.id)
-        .select("*" as never)
-        .single()) as {
-    data: unknown;
-    error: { message?: string; code?: string } | null;
-  };
-
-  if (persistedDraftResponse.error || !persistedDraftResponse.data) {
-    throw mapSupabaseError(
-      persistedDraftResponse.error as never,
-      "Impossible d'enregistrer le brouillon de sous-détail."
-    );
-  }
-
-  const subdetailDraft = persistedDraftResponse.data as GeneratedOuvrageSubdetailDraftRow;
-
-  const { error: deleteItemsError } = await input.supabase
-    .from("estimate_generated_ouvrage_subdetail_items" as never)
-    .delete()
-    .eq("subdetail_id", subdetailDraft.id);
-
-  if (deleteItemsError) {
-    throw mapSupabaseError(
-      deleteItemsError,
-      "Impossible de remplacer les composants du sous-détail."
-    );
-  }
-
-  const componentRows = input.components.map((component, index) => ({
-    tenant_id: input.tenantId,
-    project_id: input.projectId,
-    draft_id: input.draftId,
-    subdetail_id: subdetailDraft.id,
-    parent_work_id: input.candidateId,
-    source_fragment_id: component.sources[0]?.sourceFragmentId ?? null,
-    component_order: index,
-    status: component.status,
-    cost_type: component.costType,
-    designation: normalizeText(component.designation, 500),
-    unit: toNullableText(component.unit),
-    quantity: roundQuantity(component.quantity),
-    unit_cost_ht_cents: component.unitCostHtCents,
-    loss_coeff_bp: component.lossCoeffBp,
-    yield_value: component.yieldValue ?? null,
-    yield_unit: toNullableText(component.yieldUnit),
-    confidence: clampConfidence(component.confidence),
-    source_label: toNullableText(component.sourceLabel),
-    facts: component.facts,
-    hypotheses: component.hypotheses,
-    inferences: component.inferences,
-    metadata: {
-      risk_signals: component.riskSignals,
-    },
-  }));
-
-  const { data: insertedItems, error: insertItemsError } = await input.supabase
-    .from("estimate_generated_ouvrage_subdetail_items" as never)
-    .insert(componentRows as never)
-    .select("*" as never)
-    .order("component_order", { ascending: true });
-
-  if (insertItemsError || !insertedItems) {
-    throw mapSupabaseError(
-      insertItemsError,
-      "Impossible d'enregistrer les composants du sous-détail."
-    );
-  }
-
-  const subdetailItems = insertedItems as GeneratedOuvrageSubdetailItemRow[];
-  const sourceRows = subdetailItems.flatMap((item, index) => {
-    const component = input.components[index];
-    return component.sources.map((source, sourceRank) => ({
-      tenant_id: input.tenantId,
-      draft_id: input.draftId,
-      subdetail_id: subdetailDraft.id,
-      parent_work_id: input.candidateId,
-      component_id: item.id,
-      source_fragment_id: source.sourceFragmentId,
-      source_rank: sourceRank,
-      evidence_kind: source.evidenceKind,
-      note: toNullableText(source.note),
-      metadata: {},
-    }));
-  });
-
-  if (sourceRows.length > 0) {
-    const { error: insertSourcesError } = await input.supabase
-      .from("estimate_generated_ouvrage_subdetail_item_sources" as never)
-      .insert(sourceRows as never);
-
-    if (insertSourcesError) {
-      throw mapSupabaseError(
-        insertSourcesError,
-        "Impossible d'enregistrer les preuves du sous-détail."
-      );
-    }
-  }
-
-  return {
-    draft: subdetailDraft,
-    items: subdetailItems,
-  };
-}
-
-async function resolveGeneratedOuvrageTargetSection(input: {
-  supabase: Supabase;
-  tenantId: string;
-  versionId: string;
-  draftId: string;
-  requestedLotId: string | null;
-}) {
-  if (input.requestedLotId) {
-    return {
-      parentId: input.requestedLotId,
-      placementMode: "explicit" as const,
-      lotLabel: null,
-      createdFallbackSection: false,
-    };
-  }
-
-  const { data, error } = await input.supabase
-    .from("estimate_items")
-    .select("id, title")
-    .eq("tenant_id", input.tenantId)
-    .eq("version_id", input.versionId)
-    .eq("item_type", "section")
-    .is("parent_id", null)
-    .order("position", { ascending: true });
-
-  if (error) {
-    throw mapSupabaseError(
-      error,
-      "Impossible de rechercher la section de classement des ouvrages générés."
-    );
-  }
-
-  const fallbackSection =
-    ((data ?? []) as Array<Pick<EstimateItemRow, "id" | "title">>).find(
-      (item) =>
-        normalizeSectionTitle(item.title) ===
-        normalizeSectionTitle(GENERATED_OUVRAGE_FALLBACK_SECTION_TITLE)
-    ) ?? null;
-
-  if (fallbackSection) {
-    return {
-      parentId: fallbackSection.id,
-      placementMode: "fallback_unclassified" as const,
-      lotLabel: fallbackSection.title ?? GENERATED_OUVRAGE_FALLBACK_SECTION_TITLE,
-      createdFallbackSection: false,
-    };
-  }
-
-  const createdSection = await createEstimateItem(input.versionId, {
-    item_type: "section",
-    parent_id: null,
-    title: GENERATED_OUVRAGE_FALLBACK_SECTION_TITLE,
-    source_provider: "generated_ouvrage",
-  });
-
-  return {
-    parentId: createdSection.item.id,
-    placementMode: "fallback_unclassified" as const,
-    lotLabel: GENERATED_OUVRAGE_FALLBACK_SECTION_TITLE,
-    createdFallbackSection: true,
-  };
-}
-
-async function rollbackInsertedGeneratedOuvrages(input: {
-  supabase: Supabase;
-  versionId: string;
-  createdEstimateItemIds: string[];
-  createdAssemblyIds: string[];
-  candidateReverts: Array<{
-    candidateId: string;
-    resolutionStatus: GeneratedOuvrageCandidateResolutionStatus;
-    metadata: Json;
-  }>;
-}) {
-  if (input.createdEstimateItemIds.length > 0) {
-    const { error: deleteItemsError } = await input.supabase
-      .from("estimate_items" as never)
-      .delete()
-      .eq("version_id", input.versionId)
-      .in("id", input.createdEstimateItemIds);
-
-    if (deleteItemsError) {
-      throw mapSupabaseError(
-        deleteItemsError,
-        "Impossible de restaurer les lignes d'estimation après un échec d'insertion."
-      );
-    }
-  }
-
-  if (input.createdAssemblyIds.length > 0) {
-    const { error: deleteAssembliesError } = await input.supabase
-      .from("estimate_assemblies" as never)
-      .delete()
-      .in("id", input.createdAssemblyIds);
-
-    if (deleteAssembliesError) {
-      throw mapSupabaseError(
-        deleteAssembliesError,
-        "Impossible de restaurer les ouvrages composes après un échec d'insertion."
-      );
-    }
-  }
-
-  for (const revert of input.candidateReverts) {
-    const { error: revertCandidateError } = await input.supabase
-      .from("estimate_generated_ouvrage_candidates" as never)
-      .update({
-        resolution_status: revert.resolutionStatus,
-        metadata: revert.metadata,
-      } as never)
-      .eq("id", revert.candidateId);
-
-    if (revertCandidateError) {
-      throw mapSupabaseError(
-        revertCandidateError,
-        "Impossible de restaurer le statut d'un candidat d'ouvrage après un échec d'insertion."
-      );
-    }
-  }
+  const summary = { component_count: input.summary.componentCount, ds_cents: input.summary.dsCents,
+    indicative_target_price_cents: input.summary.indicativeTargetPriceCents, confidence: input.summary.confidence,
+    pricing_source: input.summary.pricingSource, risk_signals: input.summary.riskSignals,
+    facts: input.summary.facts, hypotheses: input.summary.hypotheses, inferences: input.summary.inferences,
+    margin_multiplier: input.generationMetadata.margin_multiplier ?? null };
+  let response;
+  try {
+    response = await input.context.supabase.rpc("persist_generated_ouvrage_review", {
+      p_version_id: input.versionId, p_draft_id: input.draftId, p_candidate_id: input.candidateId,
+      p_draft_lock_session_id: input.draftLockSessionId, p_expected_review_token: input.expectedReviewToken,
+      p_review: { status: input.status, summary, generation_metadata: input.generationMetadata,
+        components: input.components } as Json,
+    });
+  } catch { throw generatedOuvrageOutcomeUnknown(); }
+  if (response.error) throw generatedOuvrageRpcError(response.error, true);
+  try {
+    return parseGeneratedOuvrageReview(response.data, { versionId: input.versionId, draftId: input.draftId,
+      candidateId: input.candidateId, tenantId: input.context.tenantId,
+      actorId: input.context.userId }) as unknown as GeneratedOuvrageReviewSnapshot;
+  } catch { throw generatedOuvrageOutcomeUnknown(); }
 }
 
 export async function generateOuvragesFromText(
@@ -2948,6 +2580,7 @@ export async function generateOuvragesFromText(
 
   const context = await getAuthenticatedContext();
   const { supabase, tenantId, userId } = context;
+  assertCanWriteEstimateWorkflows(context.tenantRole);
   const { version, project } = await getVersionAccessOrThrow(
     supabase,
     parsed.versionId,
@@ -2959,11 +2592,12 @@ export async function generateOuvragesFromText(
   }
 
   assertDraftStatus(version.status);
-  await assertDraftLockOwnedByCurrentUser({
+  await assertDraftLockSessionOwnedByCurrentUser({
     supabase,
     tenantId,
     versionId: parsed.versionId,
     userId,
+    draftLockSessionId: parsed.draftLockSessionId,
   });
 
   const preferredLotLabel = parsed.preferredLotId
@@ -3152,9 +2786,12 @@ export async function generateOuvragesFromText(
     });
   } catch (error) {
     try {
-      await discardGeneratedOuvrageDraftOnFailure({
+      await closeGeneratedOuvrageGeneration({
         supabase,
+        versionId: parsed.versionId,
         draftId: draft.id,
+        draftLockSessionId: parsed.draftLockSessionId,
+        mode: "failed",
       });
     } catch (cleanupError) {
       throw internalError(
@@ -3171,12 +2808,12 @@ export async function generateOuvragesFromText(
     throw error;
   }
 
-  await discardPendingGeneratedOuvrageDrafts({
+  await closeGeneratedOuvrageGeneration({
     supabase,
-    tenantId,
     versionId: parsed.versionId,
-    userId,
-    excludeDraftId: draft.id,
+    draftId: draft.id,
+    draftLockSessionId: parsed.draftLockSessionId,
+    mode: "complete",
   });
 
   if (!updatedDraft || !generation) {
@@ -3220,6 +2857,149 @@ export async function generateOuvragesFromText(
   });
 }
 
+async function getGeneratedOuvrageResumeAccess(
+  context: AuthenticatedContext,
+  versionId: string
+) {
+  const access = await getVersionAccessOrThrow(context.supabase, versionId, context);
+  if (context.tenantRole !== "admin" && context.tenantRole !== "engineer") {
+    throw forbidden("Votre rôle ne permet pas de reprendre un brouillon d'ouvrages.");
+  }
+  assertDraftStatus(access.version.status);
+  if (access.project.is_archived) {
+    throw conflict("Cette affaire est archivée. La reprise est indisponible.");
+  }
+  return access;
+}
+
+function decodeGeneratedOuvrageCursor(cursor: string) {
+  try {
+    return generatedOuvrageCursorSchema.parse(
+      JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"))
+    );
+  } catch {
+    throw badRequest("Le curseur de reprise est invalide. Actualisez la liste.");
+  }
+}
+
+export async function listResumableGeneratedOuvrageDrafts(
+  input: ListResumableGeneratedOuvrageDraftsInput
+): Promise<GeneratedOuvrageDraftPage> {
+  const parsed = generatedOuvrageListInputSchema.parse(input);
+  const cursor = parsed.cursor ? decodeGeneratedOuvrageCursor(parsed.cursor) : null;
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId, userId } = context;
+  const { project } = await getGeneratedOuvrageResumeAccess(context, parsed.versionId);
+  let query = supabase
+    .from("estimate_generated_ouvrage_drafts" as never)
+    .select(
+      "id, created_at, source_kind, status, candidates:estimate_generated_ouvrage_candidates(ai_status, resolution_status)" as never
+    )
+    .eq("tenant_id", tenantId)
+    .eq("project_id", project.id)
+    .eq("target_version_id", parsed.versionId)
+    .eq("created_by", userId)
+    .in("status", ["pending", "partially_applied"])
+    .eq("candidates.tenant_id", tenantId)
+    .eq("candidates.target_version_id", parsed.versionId)
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(RESUMABLE_DRAFT_PAGE_SIZE + 1)
+    .limit(MAX_CANDIDATES + 1, { referencedTable: "candidates" });
+
+  if (cursor) {
+    // Both interpolated values are strictly parsed; keep PostgreSQL timestamp precision.
+    query = query.or(
+      `created_at.lt.${cursor.createdAt},and(created_at.eq.${cursor.createdAt},id.lt.${cursor.id})`
+    );
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de charger les brouillons à reprendre.");
+  }
+  const rows = generatedOuvrageListRowsSchema.safeParse(data);
+  if (!rows.success) {
+    throw internalError("La liste des brouillons est incomplète ou invalide.");
+  }
+  const page = rows.data.slice(0, RESUMABLE_DRAFT_PAGE_SIZE);
+  const last = page.at(-1);
+  return {
+    versionId: parsed.versionId,
+    items: page.map((row) => ({
+      draftId: row.id,
+      createdAt: row.created_at,
+      sourceKind: row.source_kind,
+      status: row.status,
+      summary: buildDraftSummary(row.candidates),
+    })),
+    nextCursor:
+      rows.data.length > RESUMABLE_DRAFT_PAGE_SIZE && last
+        ? Buffer.from(JSON.stringify({ createdAt: last.created_at, id: last.id })).toString(
+            "base64url"
+          )
+        : null,
+  };
+}
+
+export async function fetchResumableGeneratedOuvrageDraft(
+  input: FetchGeneratedOuvrageDraftInput
+): Promise<GeneratedOuvrageDraftResult> {
+  const parsed = generatedOuvrageFetchInputSchema.parse(input);
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId, userId } = context;
+  const { project } = await getGeneratedOuvrageResumeAccess(context, parsed.versionId);
+  const { data, error } = await supabase
+    .from("estimate_generated_ouvrage_drafts" as never)
+    .select("id, status" as never)
+    .eq("tenant_id", tenantId)
+    .eq("project_id", project.id)
+    .eq("target_version_id", parsed.versionId)
+    .eq("created_by", userId)
+    .eq("id", parsed.draftId)
+    .maybeSingle();
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de reprendre ce brouillon d'ouvrages.");
+  }
+  if (!data) {
+    throw notFound("Brouillon introuvable ou non reprenable.");
+  }
+  const draft = data as { id: string; status: GeneratedOuvrageDraftStatus };
+  if (draft.status !== "pending" && draft.status !== "partially_applied") {
+    throw conflict(
+      "Ce brouillon n'est plus à reprendre. Actualisez la liste.",
+      undefined,
+      "GENERATED_OUVRAGE_NOT_RESUMABLE"
+    );
+  }
+  const loaded = await loadGeneratedOuvrageDraftOrThrow({
+    supabase,
+    tenantId,
+    versionId: parsed.versionId,
+    draftId: parsed.draftId,
+  });
+  if (loaded.draft.created_by !== userId || loaded.draft.project_id !== project.id) {
+    throw notFound("Brouillon introuvable ou non reprenable.");
+  }
+  if (loaded.draft.status !== "pending" && loaded.draft.status !== "partially_applied") {
+    throw conflict(
+      "Ce brouillon n'est plus à reprendre. Actualisez la liste.",
+      undefined,
+      "GENERATED_OUVRAGE_NOT_RESUMABLE"
+    );
+  }
+  const result = normalizeDraftResult(loaded);
+  if (result.summary.pendingCount === 0) {
+    throw conflict(
+      "Ce brouillon n'a aucune proposition disponible. Actualisez la liste.",
+      undefined,
+      "GENERATED_OUVRAGE_NOT_RESUMABLE"
+    );
+  }
+  return result;
+}
+
 export async function fetchGeneratedOuvrageDraft(
   input: FetchGeneratedOuvrageDraftInput
 ): Promise<GeneratedOuvrageDraftResult> {
@@ -3244,121 +3024,96 @@ export async function fetchGeneratedOuvrageSubdetailDraft(
 ): Promise<GeneratedOuvrageSubdetailResult> {
   const parsed = generatedOuvrageSubdetailFetchInputSchema.parse(input);
   const context = await getAuthenticatedContext();
-  const { supabase, tenantId, userId } = context;
-  const { version, project } = await getVersionAccessOrThrow(
-    supabase,
-    parsed.versionId,
-    context
-  );
-
+  const snapshot = await readGeneratedOuvrageReview(context, parsed);
+  if (snapshot.subdetailDraft) return reviewedResult(snapshot);
+  assertCanWriteEstimateWorkflows(context.tenantRole);
+  if (!parsed.draftLockSessionId) throw conflict("Un verrou actif de cette page est requis.", undefined, "LOCK_REQUIRED");
+  const { version } = await getVersionAccessOrThrow(context.supabase, parsed.versionId, context);
   assertDraftStatus(version.status);
-  await assertDraftLockOwnedByCurrentUser({
-    supabase,
-    tenantId,
-    versionId: parsed.versionId,
-    userId,
-  });
-
-  const loaded = await loadGeneratedOuvrageDraftOrThrow({
-    supabase,
-    tenantId,
-    versionId: parsed.versionId,
-    draftId: parsed.draftId,
-  });
-  const candidate = loaded.candidates.find((entry) => entry.id === parsed.candidateId);
-
-  if (!candidate) {
-    throw notFound("Ouvrage parent introuvable.");
-  }
-
-  const existing = await loadGeneratedOuvrageSubdetail({
-    supabase,
-    tenantId,
-    draftId: parsed.draftId,
-    candidateId: parsed.candidateId,
-  });
-
-  const fragments = loaded.fragments;
-  if (existing.draft && existing.items.length > 0) {
-    return mapSubdetailRowsToResult({
-      draft: existing.draft,
-      items: existing.items,
-      itemSources: existing.itemSources,
-      fragments,
-    });
-  }
-
-  const normalizedDraft = normalizeDraftResult(loaded);
-  const candidateSources =
-    normalizedDraft.candidates.find((entry) => entry.candidateId === parsed.candidateId)
-      ?.sources ?? [];
-  const generated = generateInitialSubdetailComponents({
-    candidate,
-    candidateSources,
-    draftFragments: fragments,
-    marginMultiplier: version.margin_multiplier,
-  });
-  const summary = buildGeneratedOuvrageSubdetailSummary({
-    components: generated.components,
-    marginMultiplier: version.margin_multiplier,
-  });
-  const persisted = await persistGeneratedOuvrageSubdetail({
-    supabase,
-    tenantId,
-    projectId: project.id,
-    versionId: parsed.versionId,
-    draftId: parsed.draftId,
-    candidateId: parsed.candidateId,
-    userId,
-    existing: existing.draft,
-    status: "pending_review",
-    summary,
-    generationMetadata: {
-      ...generated.generationMetadata,
-      margin_multiplier: version.margin_multiplier ?? null,
-      reviewed_candidate: normalizeReviewedCandidateSnapshot({
-        designation: candidate.designation,
-        unit: candidate.unit,
-        quantity: candidate.quantity,
-      }),
-    },
-    components: generated.components.map((component) => ({
-      componentId: component.componentId,
-      status: component.status,
-      costType: component.costType,
-      designation: component.designation,
-      unit: component.unit,
-      quantity: component.quantity,
-      unitCostHtCents: component.unitCostHtCents,
-      lossCoeffBp: component.lossCoeffBp,
-      yieldValue: component.yieldValue,
-      yieldUnit: component.yieldUnit,
-      confidence: component.confidence,
-      sourceLabel: component.sourceLabel,
-      facts: component.facts,
-      hypotheses: component.hypotheses,
-      inferences: component.inferences,
-      riskSignals: component.riskSignals,
-      sources: component.sources.map((source) => ({
-        sourceFragmentId: source.sourceFragmentId,
-        evidenceKind: source.evidenceKind,
-        note: source.note,
-      })),
+  const candidate = snapshot.candidate;
+  const candidateSources = normalizeDraftResult({ draft: snapshot.draft, candidates: [candidate],
+    candidateSources: snapshot.candidateSources, fragments: snapshot.fragments, applications: [] }).candidates[0].sources;
+  const generated = generateInitialSubdetailComponents({ candidate, candidateSources,
+    draftFragments: snapshot.fragments, marginMultiplier: version.margin_multiplier });
+  const summary = buildGeneratedOuvrageSubdetailSummary({ components: generated.components,
+    marginMultiplier: version.margin_multiplier });
+  const persisted = await persistGeneratedOuvrageSubdetail({ context, versionId: parsed.versionId,
+    draftId: parsed.draftId, candidateId: parsed.candidateId, draftLockSessionId: parsed.draftLockSessionId,
+    expectedReviewToken: null, status: "pending_review", summary,
+    generationMetadata: { ...generated.generationMetadata, margin_multiplier: version.margin_multiplier ?? null,
+      reviewed_candidate: normalizeReviewedCandidateSnapshot(candidate) },
+    components: generated.components.map((component) => generatedOuvrageSubdetailComponentInputSchema.parse({ ...component,
+      // Initial heuristic identifiers are not persisted component identities.
+      componentId: null,
+      sources: component.sources.map((source) => ({ sourceFragmentId: source.sourceFragmentId,
+        evidenceKind: source.evidenceKind, note: source.note })),
     })),
   });
+  return reviewedResult(persisted);
+}
 
-  const reloaded = await loadGeneratedOuvrageSubdetail({
-    supabase,
-    tenantId,
-    draftId: parsed.draftId,
-    candidateId: parsed.candidateId,
-  });
+type GeneratedOuvrageReviewComponentInput = UpdateGeneratedOuvrageSubdetailInput["components"][number];
 
-  return mapSubdetailRowsToResult({
-    draft: reloaded.draft ?? persisted.draft,
-    items: reloaded.items.length > 0 ? reloaded.items : persisted.items,
-    itemSources: reloaded.itemSources,
-    fragments,
+function normalizeGeneratedOuvrageReviewComponents(
+  components: GeneratedOuvrageReviewComponentInput[],
+  snapshot: GeneratedOuvrageReviewSnapshot
+): GeneratedOuvrageReviewComponentInput[] {
+  const previousById = new Map(snapshot.items.map((item) => [item.id, item]));
+  return components.map((component) => {
+    const content = normalizeGeneratedOuvrageComponentContent(component);
+    if (content.yieldValue !== null && content.yieldValue <= 0) {
+      throw badRequest("Le rendement doit rester positif après enregistrement à trois décimales.", undefined, "GENERATED_OUVRAGE_INVALID_INPUT");
+    }
+    const restore = component.restore ?? false;
+    const restoreAsManual = component.restoreAsManual ?? false;
+    const previous = component.componentId ? previousById.get(component.componentId) : null;
+    if (component.componentId && !previous) {
+      throw badRequest("Ce composant n'appartient pas à la revue enregistrée.", undefined, "GENERATED_OUVRAGE_INVALID_INPUT");
+    }
+    if (!previous) {
+      if (restore || restoreAsManual) {
+        throw badRequest("Un nouveau composant ne nécessite pas de restitution d'une décision enregistrée.", undefined, "GENERATED_OUVRAGE_INVALID_INPUT");
+      }
+      return { ...component, ...content, status: component.status === "rejected" ? "rejected" : "manual", restore, restoreAsManual };
+    }
+    const metadata = typeof previous.metadata === "object" && previous.metadata !== null
+      ? previous.metadata as JsonRecord : {};
+    const oldContent = normalizeGeneratedOuvrageComponentContent({
+      costType: previous.cost_type,
+      designation: previous.designation, unit: previous.unit, quantity: previous.quantity,
+      unitCostHtCents: previous.unit_cost_ht_cents, lossCoeffBp: previous.loss_coeff_bp,
+      yieldValue: previous.yield_value, yieldUnit: previous.yield_unit, confidence: previous.confidence,
+      sourceLabel: previous.source_label, facts: previous.facts as string[],
+      hypotheses: previous.hypotheses as string[], inferences: previous.inferences as string[],
+      riskSignals: Array.isArray(metadata.risk_signals) ? metadata.risk_signals as GeneratedOuvrageRiskSignal[] : [],
+      sources: snapshot.itemSources.filter((source) => source.component_id === previous.id)
+        .sort((left, right) => left.source_rank - right.source_rank || left.id.localeCompare(right.id))
+        .map((source) => ({ sourceFragmentId: source.source_fragment_id, evidenceKind: source.evidence_kind, note: source.note })),
+    });
+    const changed = generatedOuvrageComponentContentJson(content) !== generatedOuvrageComponentContentJson(oldContent);
+    let status: GeneratedOuvrageSubdetailItemStatus = component.status;
+    if (previous.status === "rejected") {
+      const origin = metadata.rejected_from_status;
+      const knownOrigin = origin === "suggested" || origin === "manual" ? origin : null;
+      if ((restore && restoreAsManual) || (restore && knownOrigin === null) || (restoreAsManual && knownOrigin !== null)) {
+        throw badRequest("La restitution demandée ne correspond pas à l'origine de ce composant écarté.", undefined, "GENERATED_OUVRAGE_INVALID_INPUT");
+      }
+      if (!restore && !restoreAsManual) {
+        if (changed || component.status !== "rejected") {
+          throw badRequest("Rétablissez explicitement ce composant écarté avant de le modifier.", undefined, "GENERATED_OUVRAGE_INVALID_INPUT");
+        }
+      } else if (component.status !== "rejected") {
+        if (changed || restoreAsManual) status = "manual";
+        else if (knownOrigin) status = knownOrigin;
+        else throw badRequest("L'origine de ce composant écarté doit être explicitement revue.", undefined, "GENERATED_OUVRAGE_INVALID_INPUT");
+      }
+    } else {
+      if (restore || restoreAsManual) {
+        throw badRequest("Ce composant retenu n'a pas de décision d'exclusion à rétablir.", undefined, "GENERATED_OUVRAGE_INVALID_INPUT");
+      }
+      if (component.status !== "rejected") status = changed ? "manual" : previous.status;
+    }
+    return { ...component, ...content, status, restore, restoreAsManual };
   });
 }
 
@@ -3367,62 +3122,28 @@ export async function updateGeneratedOuvrageSubdetailDraft(
 ): Promise<GeneratedOuvrageSubdetailResult> {
   const parsed = generatedOuvrageSubdetailUpdateInputSchema.parse(input);
   const context = await getAuthenticatedContext();
-  const { supabase, tenantId, userId } = context;
-  const { version, project } = await getVersionAccessOrThrow(
-    supabase,
-    parsed.versionId,
-    context
-  );
-
+  assertCanWriteEstimateWorkflows(context.tenantRole);
+  const { version } = await getVersionAccessOrThrow(context.supabase, parsed.versionId, context);
   assertDraftStatus(version.status);
-  await assertDraftLockOwnedByCurrentUser({
-    supabase,
-    tenantId,
-    versionId: parsed.versionId,
-    userId,
-  });
-
-  const loaded = await loadGeneratedOuvrageDraftOrThrow({
-    supabase,
-    tenantId,
-    versionId: parsed.versionId,
-    draftId: parsed.draftId,
-  });
-  const candidate = loaded.candidates.find((entry) => entry.id === parsed.candidateId);
-
-  if (!candidate) {
-    throw notFound("Ouvrage parent introuvable.");
+  const snapshot = await readGeneratedOuvrageReview(context, parsed);
+  const candidate = snapshot.candidate;
+  if (snapshot.reviewToken !== parsed.expectedReviewToken) {
+    throw conflict("La revue a changé. Rechargez le sous-détail avant de le valider.", undefined, "GENERATED_OUVRAGE_REVIEW_CHANGED");
   }
-
   if (candidate.resolution_status !== "pending") {
-    throw conflict(
-      "Le sous-détail n'est éditable que tant que l'ouvrage parent est en attente.",
-      { candidateId: candidate.id, status: candidate.resolution_status },
-      "EST383_CANDIDATE_NOT_PENDING"
-    );
+    throw conflict("Le sous-détail n'est éditable que tant que l'ouvrage parent est en attente.", undefined, "EST383_CANDIDATE_NOT_PENDING");
   }
-
-  const existing = await loadGeneratedOuvrageSubdetail({
-    supabase,
-    tenantId,
-    draftId: parsed.draftId,
-    candidateId: parsed.candidateId,
-  });
-  const normalizedComponents = parsed.components.map((component) => ({
-    ...component,
-    designation: normalizeText(component.designation, 500),
-    unit: toNullableText(component.unit),
-    yieldUnit: toNullableText(component.yieldUnit),
-    sourceLabel: toNullableText(component.sourceLabel),
-    facts: component.facts.map((entry) => normalizeText(entry, 320)),
-    hypotheses: component.hypotheses.map((entry) => normalizeText(entry, 320)),
-    inferences: component.inferences.map((entry) => normalizeText(entry, 320)),
-  }));
+  const existing = { draft: snapshot.subdetailDraft };
+  const normalizedComponents = normalizeGeneratedOuvrageReviewComponents(parsed.components, snapshot);
+  if (parsed.markReviewed && normalizedComponents.every((component) => component.status === "rejected")) {
+    throw conflict("Aucun composant n'est retenu. Enregistrez les décisions ou rétablissez un composant avant de valider cet ouvrage.", undefined, "GENERATED_OUVRAGE_INVALID_INPUT");
+  }
 
   const summary = buildGeneratedOuvrageSubdetailSummary({
     components: normalizedComponents.map((component, index) => ({
       componentId: component.componentId ?? `component-${index}`,
       status: component.status,
+      rejectedFromStatus: null,
       costType: component.costType,
       designation: component.designation,
       unit: component.unit ?? null,
@@ -3486,721 +3207,217 @@ export async function updateGeneratedOuvrageSubdetailDraft(
           }),
         };
 
-  await persistGeneratedOuvrageSubdetail({
-    supabase,
-    tenantId,
-    projectId: project.id,
-    versionId: parsed.versionId,
-    draftId: parsed.draftId,
-    candidateId: parsed.candidateId,
-    userId,
-    existing: existing.draft,
-    status: parsed.markReviewed ? "reviewed" : "pending_review",
-    summary,
-    generationMetadata,
-    components: normalizedComponents,
+  const persisted = await persistGeneratedOuvrageSubdetail({
+    context, versionId: parsed.versionId, draftId: parsed.draftId, candidateId: parsed.candidateId,
+    draftLockSessionId: parsed.draftLockSessionId, expectedReviewToken: parsed.expectedReviewToken,
+    status: parsed.markReviewed ? "reviewed" : "pending_review", summary,
+    generationMetadata, components: normalizedComponents,
   });
-
-  const reloaded = await loadGeneratedOuvrageSubdetail({
-    supabase,
-    tenantId,
-    draftId: parsed.draftId,
-    candidateId: parsed.candidateId,
-  });
-
-  if (!reloaded.draft) {
-    throw internalError(
-      "Le sous-détail n'a pas pu être rechargé après sauvegarde.",
-      { draftId: parsed.draftId, candidateId: parsed.candidateId },
-      "EST383_SUBDETAIL_RELOAD_MISSING"
-    );
-  }
-
-  return mapSubdetailRowsToResult({
-    draft: reloaded.draft,
-    items: reloaded.items,
-    itemSources: reloaded.itemSources,
-    fragments: loaded.fragments,
-  });
+  return reviewedResult(persisted);
 }
 
-export async function insertGeneratedOuvrages(
-  input: InsertGeneratedOuvragesInput
-): Promise<InsertGeneratedOuvragesResult> {
+async function lookupGeneratedOuvrageReceipt(context: AuthenticatedContext, versionId: string, operationKey: string) {
+  let response;
+  try {
+    response = await context.supabase.rpc("get_generated_ouvrage_application_receipt", {
+      p_version_id: versionId, p_operation_key: operationKey,
+    });
+  } catch { throw generatedOuvrageReadUnavailable(); }
+  if (response.error) throw generatedOuvrageRpcError(response.error, false);
+  if (response.data === null) return null;
+  try {
+    return parseGeneratedOuvrageOutcome(response.data, { versionId, operationKey, actorId: context.userId });
+  } catch { throw generatedOuvrageReadUnavailable(); }
+}
+
+export async function getGeneratedOuvrageApplicationReceipt(input: { versionId: string; operationKey: string }) {
+  const parsed = z.object({ versionId: z.string().uuid(), operationKey: z.string().uuid() }).strict().parse(input);
+  const context = await getAuthenticatedContext();
+  return lookupGeneratedOuvrageReceipt(context, parsed.versionId.toLowerCase(), parsed.operationKey.toLowerCase());
+}
+
+export async function abandonGeneratedOuvrageApplication(
+  input: Omit<InsertGeneratedOuvragesInput, "draftLockSessionId">
+): Promise<GeneratedOuvrageApplicationOutcome> {
+  const parsed = generatedOuvrageInsertInputSchema.omit({ draftLockSessionId: true }).strict().parse(input);
+  const context = await getAuthenticatedContext();
+  assertCanWriteEstimateWorkflows(context.tenantRole);
+  let response;
+  try {
+    response = await context.supabase.rpc("abandon_generated_ouvrage_application", {
+      p_version_id: parsed.versionId, p_draft_id: parsed.draftId, p_operation_key: parsed.operationKey,
+      p_expected_updated_at: parsed.expectedUpdatedAt, p_accepted_candidates: parsed.acceptedCandidates as Json,
+    });
+  } catch { throw generatedOuvrageOutcomeUnknown(); }
+  if (response.error) throw generatedOuvrageRpcError(response.error, true);
+  return parseGeneratedOuvrageOutcome(response.data, { ...parsed, actorId: context.userId });
+}
+
+export async function insertGeneratedOuvrages(input: InsertGeneratedOuvragesInput): Promise<GeneratedOuvrageApplicationOutcome> {
   const parsed = generatedOuvrageInsertInputSchema.parse(input);
   const context = await getAuthenticatedContext();
+  assertCanWriteEstimateWorkflows(context.tenantRole);
   const { supabase, tenantId, userId } = context;
-  const { version, project } = await getVersionAccessOrThrow(
-    supabase,
-    parsed.versionId,
-    context
-  );
-
-  assertDraftStatus(version.status);
-  await assertDraftLockOwnedByCurrentUser({
-    supabase,
-    tenantId,
-    versionId: parsed.versionId,
-    userId,
-  });
-
-  const loaded = await loadGeneratedOuvrageDraftOrThrow({
-    supabase,
-    tenantId,
-    versionId: parsed.versionId,
-    draftId: parsed.draftId,
-  });
-
-  if (loaded.draft.status === "discarded") {
-    throw conflict("Ce brouillon a déjà été rejete.", undefined, "EST381_DRAFT_DISCARDED");
-  }
-
-  const candidateById = new Map(
-    loaded.candidates.map((candidate) => [candidate.id, candidate] as const)
-  );
-  const existingApplicationsByCandidateId = new Map(
-    loaded.applications.map((application) => [application.candidate_id, application] as const)
-  );
-  const candidateSourcesByCandidateId = new Map<string, GeneratedOuvrageCandidateSource[]>();
-
-  const normalizedDraft = normalizeDraftResult(loaded);
-  for (const candidate of normalizedDraft.candidates) {
-    candidateSourcesByCandidateId.set(candidate.candidateId, candidate.sources);
-  }
-
-  const seenAcceptedCandidateIds = new Set<string>();
-  const preparedAcceptedCandidates = parsed.acceptedCandidates.map((acceptedCandidate) => {
-    const candidate = candidateById.get(acceptedCandidate.candidateId);
-    if (!candidate) {
-      throw notFound("Candidat d'ouvrage introuvable.");
+  const scope = { versionId: parsed.versionId, operationKey: parsed.operationKey, actorId: userId,
+    draftId: parsed.draftId, expectedUpdatedAt: parsed.expectedUpdatedAt, acceptedCandidates: parsed.acceptedCandidates };
+  const saved = await lookupGeneratedOuvrageReceipt(context, parsed.versionId, parsed.operationKey);
+  const baseArgs = { p_version_id: parsed.versionId, p_draft_id: parsed.draftId, p_operation_key: parsed.operationKey,
+    p_expected_updated_at: parsed.expectedUpdatedAt, p_accepted_candidates: parsed.acceptedCandidates as Json };
+  if (saved) {
+    if (saved.receipt.draftId !== parsed.draftId ||
+      !sameEstimateBatchTimestamp(saved.receipt.expectedUpdatedAt, parsed.expectedUpdatedAt) ||
+      JSON.stringify(saved.receipt.acceptedCandidates) !== JSON.stringify(parsed.acceptedCandidates)) {
+      throw conflict("Cette clé correspond à une autre demande.", undefined, "GENERATED_OUVRAGE_IDEMPOTENCY_CONFLICT");
     }
-
-    if (seenAcceptedCandidateIds.has(candidate.id)) {
-      throw conflict(
-        "Ce candidat d'ouvrage est present plusieurs fois dans le lot d'insertion.",
-        { candidateId: candidate.id },
-        "EST381_DUPLICATE_ACCEPTED_CANDIDATE"
-      );
-    }
-    seenAcceptedCandidateIds.add(candidate.id);
-
-    if (candidate.resolution_status !== "pending") {
-      throw conflict(
-        "Ce candidat n'est plus disponible pour insertion.",
-        { candidateId: candidate.id, status: candidate.resolution_status },
-        "EST381_CANDIDATE_NOT_PENDING"
-      );
-    }
-
-    if (existingApplicationsByCandidateId.has(candidate.id)) {
-      throw conflict(
-        "Ce candidat a déjà été appliqué.",
-        { candidateId: candidate.id },
-        "EST381_CANDIDATE_ALREADY_APPLIED"
-      );
-    }
-
-    if (typeof acceptedCandidate.quantity !== "number") {
-      throw badRequest(
-        "La quantité doit être renseignée avant l'insertion du candidat.",
-        { candidateId: candidate.id },
-        "EST381_CANDIDATE_QUANTITY_REQUIRED"
-      );
-    }
-
-    const fragmentSources = candidateSourcesByCandidateId.get(candidate.id) ?? [];
-    const primaryFragment = pickPrimaryFragment(fragmentSources);
-    const designation = normalizeText(acceptedCandidate.designation, 500);
-    const appliedPayload = {
-      designation,
-      unit: toNullableText(acceptedCandidate.unit),
-      quantity: acceptedCandidate.quantity,
-      lot_id: acceptedCandidate.lotId ?? null,
-      suggested_lot_id: candidate.suggested_lot_id,
-      ai_status: candidate.ai_status,
-      confidence: clampConfidence(candidate.confidence),
-      source_fragment_ids: fragmentSources.map((source) => source.sourceFragmentId),
-    } satisfies JsonRecord;
-
-    return {
-      acceptedCandidate,
-      appliedPayload,
-      candidate,
-      designation,
-      primaryFragment,
-      quantity: acceptedCandidate.quantity,
-    };
-  });
-
-  const preparedAcceptedSubdetails = await Promise.all(
-    preparedAcceptedCandidates.map(async (preparedCandidate) => {
-      const subdetail = await loadGeneratedOuvrageSubdetail({
-        supabase,
-        tenantId,
-        draftId: parsed.draftId,
-        candidateId: preparedCandidate.candidate.id,
-      });
-
-      if (!subdetail.draft || subdetail.items.length === 0) {
-        throw conflict(
-          "Le sous-détail doit être généré puis revu avant insertion.",
-          { candidateId: preparedCandidate.candidate.id },
-          "EST383_SUBDETAIL_REQUIRED"
-        );
-      }
-
-      if (subdetail.draft.status !== "reviewed") {
-        throw conflict(
-          "Le sous-détail doit être explicitement validé avant insertion.",
-          {
-            candidateId: preparedCandidate.candidate.id,
-            subdetailStatus: subdetail.draft.status,
-          },
-          "EST383_SUBDETAIL_NOT_REVIEWED"
-        );
-      }
-
-      const reviewedMetadata =
-        subdetail.draft.generation_metadata && typeof subdetail.draft.generation_metadata === "object"
-          ? (subdetail.draft.generation_metadata as JsonRecord)
-          : {};
-      const reviewedCandidate =
-        readReviewedCandidateSnapshot(reviewedMetadata.reviewed_candidate) ??
-        normalizeReviewedCandidateSnapshot({
-          designation: preparedCandidate.candidate.designation,
-          unit: preparedCandidate.candidate.unit,
-          quantity: preparedCandidate.candidate.quantity,
-        });
-      const acceptedReviewSnapshot = normalizeReviewedCandidateSnapshot({
-        designation: preparedCandidate.designation,
-        unit: preparedCandidate.acceptedCandidate.unit,
-        quantity: preparedCandidate.quantity,
-      });
-
-      if (
-        !reviewedCandidateMatches({
-          acceptedCandidate: acceptedReviewSnapshot,
-          reviewedCandidate,
-        })
-      ) {
-        throw conflict(
-          "Le sous-détail validé ne correspond plus aux valeurs actuelles du candidat. Merci de revalider le sous-détail.",
-          {
-            candidateId: preparedCandidate.candidate.id,
-            reviewedCandidate,
-            acceptedCandidate: acceptedReviewSnapshot,
-          },
-          "EST383_SUBDETAIL_STALE"
-        );
-      }
-
-      return {
-        ...preparedCandidate,
-        subdetailDraft: subdetail.draft,
-        subdetailItems: subdetail.items,
-        subdetailItemSources: subdetail.itemSources,
-      };
-    })
-  );
-
-  let insertedCount = 0;
-  const refreshedApplications = [...loaded.applications];
-  const refreshedCandidates = [...loaded.candidates];
-  const createdEstimateItemIds: string[] = [];
-  const createdAssemblyIds: string[] = [];
-  const candidateReverts: Array<{
-    candidateId: string;
-    resolutionStatus: GeneratedOuvrageCandidateResolutionStatus;
-    metadata: Json;
-  }> = [];
-  const appliedSubdetailIds: string[] = [];
-  let updatedDraft: GeneratedOuvrageDraftRow | null = null;
-  let fallbackTargetSection:
-    | {
-        parentId: string;
-        placementMode: "fallback_unclassified";
-        lotLabel: string | null;
-        createdFallbackSection: boolean;
-      }
-    | null = null;
-  const preferredLaborRole = await loadPreferredGeneratedOuvrageLaborRole({
-    supabase,
-    tenantId,
-    ownerUserId: project.user_id,
-  });
-
-  try {
-    for (const preparedCandidate of preparedAcceptedSubdetails) {
-      const {
-        acceptedCandidate,
-        appliedPayload,
-        candidate,
-        designation,
-        primaryFragment,
-        quantity,
-        subdetailDraft,
-        subdetailItems,
-        subdetailItemSources,
-      } = preparedCandidate;
-
-      const resolvedTargetSection: {
-        parentId: string;
-        placementMode: "explicit" | "fallback_unclassified";
-        lotLabel: string | null;
-        createdFallbackSection: boolean;
-      } =
-        acceptedCandidate.lotId
-          ? {
-              parentId: acceptedCandidate.lotId,
-              placementMode: "explicit" as const,
-              lotLabel: candidate.lot_label ?? null,
-              createdFallbackSection: false,
-            }
-          : fallbackTargetSection ??
-            (await resolveGeneratedOuvrageTargetSection({
-              supabase,
-              tenantId,
-              versionId: parsed.versionId,
-              draftId: loaded.draft.id,
-              requestedLotId: null,
-            }));
-
-      if (!acceptedCandidate.lotId) {
-        fallbackTargetSection = {
-          parentId: resolvedTargetSection.parentId,
-          placementMode: "fallback_unclassified",
-          lotLabel: resolvedTargetSection.lotLabel,
-          createdFallbackSection: resolvedTargetSection.createdFallbackSection,
-        };
-      }
-
-      const subdetailResult = mapSubdetailRowsToResult({
-        draft: subdetailDraft,
-        items: subdetailItems,
-        itemSources: subdetailItemSources,
-        fragments: loaded.fragments,
-      });
-      const estimateItemMapping = buildGeneratedOuvrageEstimateItemMapping({
-        components: subdetailResult.components,
-        parentQuantity: quantity,
-        laborRole: preferredLaborRole,
-      });
-
-      const nextAppliedPayload = {
-        ...appliedPayload,
-        lot_id: resolvedTargetSection.parentId,
-        requested_lot_id: acceptedCandidate.lotId ?? null,
-        resolved_lot_id: resolvedTargetSection.parentId,
-        resolved_lot_label: resolvedTargetSection.lotLabel,
-        placement_mode: resolvedTargetSection.placementMode,
-        fallback_section_created: resolvedTargetSection.createdFallbackSection,
-        estimate_item_mapping: estimateItemMapping,
-      } satisfies JsonRecord;
-
-      const assemblyName = `${designation} · ${candidate.id.slice(0, 8)}`;
-      const assemblySourceMetadata = {
-        kind: "generated_ouvrage",
-        draft_id: loaded.draft.id,
-        candidate_id: candidate.id,
-        source_fragment_ids: appliedPayload.source_fragment_ids,
-        summary: subdetailResult.summary,
-        estimate_item_mapping: estimateItemMapping,
-      } satisfies JsonRecord;
-
-      const { data: assemblyData, error: assemblyError } = await supabase
-        .from("estimate_assemblies" as never)
-        .insert({
-          tenant_id: tenantId,
-          created_by: userId,
-          name: assemblyName,
-          description: `Ouvrage compose genere depuis ${designation}`,
-          reference_code: `EST383-${candidate.id.slice(0, 8).toUpperCase()}`,
-          unit: toNullableText(acceptedCandidate.unit) ?? candidate.unit ?? null,
-          pricing_source: "generated_ouvrage_review",
-          ds_cents: subdetailResult.summary.dsCents,
-          indicative_target_price_cents:
-            subdetailResult.summary.indicativeTargetPriceCents,
-          avg_output_rate: null,
-          avg_time_hours: null,
-          source_metadata: assemblySourceMetadata,
-        } as never)
-        .select("*" as never)
-        .single();
-
-      if (assemblyError || !assemblyData) {
-        throw mapSupabaseError(
-          assemblyError,
-          "Impossible de créer l'ouvrage compose canonique."
-        );
-      }
-
-      const assembly = assemblyData as {
-        id: string;
-        name: string;
-        reference_code: string | null;
-      };
-      createdAssemblyIds.push(assembly.id);
-
-      const assemblyItemRows = subdetailResult.components.map((component, index) => ({
-        tenant_id: tenantId,
-        assembly_id: assembly.id,
-        title: component.designation,
-        unit: component.unit,
-        k_fo: component.costType === "labor" ? 0 : 1,
-        k_mo: component.costType === "labor" ? 1 : 0,
-        labor_role_id: null,
-        default_quantity: component.quantity,
-        position: index + 1,
-        cost_type: component.costType,
-        unit_cost_ht_cents: component.unitCostHtCents,
-        loss_coeff_bp: component.lossCoeffBp,
-        yield_value: component.yieldValue,
-        yield_unit: component.yieldUnit,
-        source_metadata: {
-          source_label: component.sourceLabel,
-          confidence: component.confidence,
-          facts: component.facts,
-          hypotheses: component.hypotheses,
-          inferences: component.inferences,
-          risk_signals: component.riskSignals,
-          sources: component.sources,
-        },
-      }));
-
-      const { error: assemblyItemsError } = await supabase
-        .from("estimate_assembly_items" as never)
-        .insert(assemblyItemRows as never);
-
-      if (assemblyItemsError) {
-        throw mapSupabaseError(
-          assemblyItemsError,
-          "Impossible de persister les composants de l'ouvrage compose."
-        );
-      }
-
-      const createResult = await createEstimateItem(parsed.versionId, {
-        item_type: "line",
-        parent_id: resolvedTargetSection.parentId,
-        title: designation,
-        quantity,
-        unit_price_ht_cents: estimateItemMapping.unitPriceHtCents,
-        h_mo: estimateItemMapping.hMo,
-        k_fo: estimateItemMapping.kFo,
-        k_mo: estimateItemMapping.kMo,
-        labor_role_id: estimateItemMapping.laborRoleId,
-        source_provider: "generated_ouvrage",
-        source_file_name: primaryFragment?.sourceFileName ?? null,
-        source_page: primaryFragment?.sourcePageFrom ?? null,
-      });
-
-      createdEstimateItemIds.push(createResult.item.id);
-
-      const { data: applicationData, error: applicationError } = await supabase
-        .from("estimate_generated_ouvrage_applications" as never)
-        .insert({
-          tenant_id: tenantId,
-          draft_id: loaded.draft.id,
-          candidate_id: candidate.id,
-          target_version_id: parsed.versionId,
-          estimate_item_id: createResult.item.id,
-          applied_by: userId,
-          applied_payload: nextAppliedPayload,
-        } as never)
-        .select("*" as never)
-        .single();
-
-      if (applicationError || !applicationData) {
-        throw mapSupabaseError(
-          applicationError,
-          "Impossible de tracer l'application du candidat d'ouvrage."
-        );
-      }
-
-      const { error: snapshotError } = await supabase
-        .from("estimate_generated_ouvrage_work_snapshots" as never)
-        .insert({
-          tenant_id: tenantId,
-          project_id: loaded.draft.project_id,
-          target_version_id: parsed.versionId,
-          draft_id: loaded.draft.id,
-          parent_work_id: candidate.id,
-          assembly_id: assembly.id,
-          estimate_item_id: createResult.item.id,
-          applied_by: userId,
-          summary: {
-            ...subdetailResult.summary,
-            assembly_name: assembly.name,
-            assembly_reference_code: assembly.reference_code,
-          },
-          components: subdetailResult.components,
-          metadata: {
-            applied_values: nextAppliedPayload,
-            estimate_item_mapping: estimateItemMapping,
-            ai_status: candidate.ai_status,
-            confidence: clampConfidence(candidate.confidence),
-          },
-        } as never);
-
-      if (snapshotError) {
-        throw mapSupabaseError(
-          snapshotError,
-          "Impossible de figer l'instantané du sous-détail appliqué."
-        );
-      }
-
-      const nextCandidateMetadata = {
-        ...(candidate.metadata && typeof candidate.metadata === "object"
-          ? (candidate.metadata as JsonRecord)
-          : {}),
-        applied_at: new Date().toISOString(),
-        applied_by: userId,
-        assembly_id: assembly.id,
-        subdetail_id: subdetailDraft.id,
-        ds_cents: subdetailResult.summary.dsCents,
-        indicative_target_price_cents:
-          subdetailResult.summary.indicativeTargetPriceCents,
-      };
-
-      const { data: updatedCandidateData, error: updatedCandidateError } = await supabase
-        .from("estimate_generated_ouvrage_candidates" as never)
-        .update({
-          resolution_status: "inserted",
-          metadata: nextCandidateMetadata,
-        } as never)
-        .eq("id", candidate.id)
-        .select("*" as never)
-        .single();
-
-      if (updatedCandidateError || !updatedCandidateData) {
-        throw mapSupabaseError(
-          updatedCandidateError,
-          "Impossible de mettre à jour le statut du candidat d'ouvrage."
-        );
-      }
-
-      candidateReverts.push({
-        candidateId: candidate.id,
-        resolutionStatus: candidate.resolution_status,
-        metadata: candidate.metadata,
-      });
-      existingApplicationsByCandidateId.set(
-        candidate.id,
-        applicationData as GeneratedOuvrageApplicationRow
-      );
-      refreshedApplications.push(applicationData as GeneratedOuvrageApplicationRow);
-      appliedSubdetailIds.push(subdetailDraft.id);
-
-      const candidateIndex = refreshedCandidates.findIndex((entry) => entry.id === candidate.id);
-      if (candidateIndex >= 0) {
-        refreshedCandidates[candidateIndex] = updatedCandidateData as GeneratedOuvrageCandidateRow;
-      }
-
-      insertedCount += 1;
-    }
-
-    updatedDraft = await updateDraftProjection({
-      supabase,
-      draft: loaded.draft,
-      candidates: refreshedCandidates,
-      applications: refreshedApplications,
-    });
-
-    if (appliedSubdetailIds.length > 0) {
-      const { error: appliedSubdetailsError } = await supabase
-        .from("estimate_generated_ouvrage_subdetail_drafts" as never)
-        .update({
-          status: "applied",
-          applied_at: new Date().toISOString(),
-        } as never)
-        .in("id", Array.from(new Set(appliedSubdetailIds)));
-
-      if (appliedSubdetailsError) {
-        throw mapSupabaseError(
-          appliedSubdetailsError,
-          "Impossible de finaliser le statut appliqué du sous-détail."
-        );
-      }
-    }
-  } catch (error) {
+    let response;
     try {
-      await rollbackInsertedGeneratedOuvrages({
-        supabase,
-        versionId: parsed.versionId,
-        createdEstimateItemIds,
-        createdAssemblyIds,
-        candidateReverts,
+      response = await supabase.rpc("commit_generated_ouvrages", { ...baseArgs,
+        p_draft_lock_session_id: null, p_prepared_candidates: [], p_fallback_section: null,
+        p_item_updates: [], p_version_patch: {}, p_calculation_context: {}, p_expected_preferred_role: null,
       });
-    } catch (rollbackError) {
-      throw internalError(
-        "L'insertion des ouvrages a échoué et la restauration automatique est incomplète.",
-        {
-          draftId: loaded.draft.id,
-          cause: error,
-          rollbackError,
-        },
-        "EST381_INSERT_ROLLBACK_FAILED"
-      );
+    } catch { throw generatedOuvrageOutcomeUnknown(); }
+    if (response.error) throw generatedOuvrageRpcError(response.error, true);
+    const replay = parseGeneratedOuvrageOutcome(response.data, scope);
+    if ("outcome" in saved) {
+      if (!("outcome" in replay) || JSON.stringify(replay.receipt) !== JSON.stringify(saved.receipt)) throw generatedOuvrageOutcomeUnknown();
+      return replay;
     }
-
+    if ("outcome" in replay) throw generatedOuvrageOutcomeUnknown();
+    if (!replay.replayed || JSON.stringify(replay.receipt) !== JSON.stringify(saved.receipt) ||
+      JSON.stringify(replay.applications) !== JSON.stringify(saved.applications) ||
+      JSON.stringify(replay.totals) !== JSON.stringify(saved.totals) || replay.projectId !== saved.projectId ||
+      replay.draftStatus !== saved.draftStatus || !sameEstimateBatchTimestamp(replay.version.updatedAt, saved.version.updatedAt)) {
+      throw generatedOuvrageOutcomeUnknown();
+    }
+    return replay;
+  }
+  const { version, project } = await getVersionAccessOrThrow(supabase, parsed.versionId, context);
+  assertDraftStatus(version.status);
+  if (project.is_archived) throw conflict("Cette affaire est archivée.");
+  if (!sameEstimateBatchTimestamp(version.updated_at, parsed.expectedUpdatedAt)) {
+    throw conflict("Le devis a changé. Rechargez avant de préparer une nouvelle demande.", undefined, "VERSION_CONFLICT");
+  }
+  await assertDraftLockSessionOwnedByCurrentUser({ supabase, tenantId, versionId: parsed.versionId,
+    userId, draftLockSessionId: parsed.draftLockSessionId });
+  if (new Set(parsed.acceptedCandidates.map((entry) => entry.candidateId)).size !== parsed.acceptedCandidates.length) {
+    throw conflict("Ce candidat figure plusieurs fois dans la demande.", undefined, "EST381_DUPLICATE_ACCEPTED_CANDIDATE");
+  }
+  const reviews = await Promise.all(parsed.acceptedCandidates.map(async (accepted) => {
+    if (accepted.quantity === null) throw badRequest("La quantité doit être renseignée avant l'insertion du candidat.", undefined, "EST381_CANDIDATE_QUANTITY_REQUIRED");
+    const review = await readGeneratedOuvrageReview(context, { ...parsed, candidateId: accepted.candidateId });
+    if (review.draft.project_id !== project.id) throw generatedOuvrageReadUnavailable();
+    if (review.draft.status === "discarded") throw conflict("Ce brouillon a déjà été rejeté.", undefined, "EST381_DRAFT_DISCARDED");
+    if (review.candidate.resolution_status !== "pending") throw conflict("Ce candidat n'est plus disponible pour insertion.", undefined, "EST381_CANDIDATE_NOT_PENDING");
+    if (!review.subdetailDraft || !review.reviewToken || review.items.length === 0) throw conflict("Le sous-détail doit être généré puis revu avant insertion.", undefined, "EST383_SUBDETAIL_REQUIRED");
+    if (review.subdetailDraft.status !== "reviewed") throw conflict("Le sous-détail doit être explicitement validé avant insertion.", undefined, "EST383_SUBDETAIL_NOT_REVIEWED");
+    if (review.reviewToken !== accepted.reviewToken) throw conflict("La revue a changé. Rechargez le sous-détail.", undefined, "GENERATED_OUVRAGE_REVIEW_CHANGED");
+    const metadata = review.subdetailDraft.generation_metadata as JsonRecord;
+    const reviewed = readReviewedCandidateSnapshot(metadata.reviewed_candidate) ?? normalizeReviewedCandidateSnapshot(review.candidate);
+    if (!reviewedCandidateMatches({ acceptedCandidate: normalizeReviewedCandidateSnapshot(accepted), reviewedCandidate: reviewed })) {
+      throw conflict("Le sous-détail validé ne correspond plus aux valeurs actuelles du candidat. Merci de revalider le sous-détail.", undefined, "EST383_SUBDETAIL_STALE");
+    }
+    return { accepted, review, subdetail: reviewedResult(review) };
+  }));
+  const preferredRole = await loadPreferredGeneratedOuvrageLaborRole({ supabase, tenantId, ownerUserId: project.user_id });
+  const projected = reviews.map(({ accepted, review, subdetail }) => {
+    const retainedComponents = subdetail.components.filter((component) => component.status !== "rejected");
+    if (retainedComponents.length === 0) {
+      throw conflict("Aucun composant n'est retenu dans cet ouvrage. Rétablissez un composant puis validez à nouveau le sous-détail.", undefined, "GENERATED_OUVRAGE_INVALID_INPUT");
+    }
+    const mapping = buildGeneratedOuvrageEstimateItemMapping({ components: retainedComponents,
+      parentQuantity: accepted.quantity!, laborRole: preferredRole });
+    const hours = new Map(mapping.laborTrace.map((entry) => [entry.componentId, entry.derivedHours]));
+    const projection = projectGeneratedOuvrageCosts({ components: retainedComponents.map((component) => ({
+      componentId: component.componentId, costType: component.costType, quantity: component.quantity,
+      unitCostHtCents: component.unitCostHtCents, lossCoeffBp: component.lossCoeffBp,
+      reviewedDsCents: component.dsCents, derivedHours: hours.get(component.componentId) ?? 0,
+    })), parent: { quantity: accepted.quantity!, unitPriceHtCents: mapping.unitPriceHtCents,
+      hMo: mapping.hMo, kFo: mapping.kFo, kMo: mapping.kMo, laborRateCents: mapping.laborRoleHourlyRateCents } });
+    if (!projection.ok || projection.totals.dsCents !== subdetail.summary.dsCents) {
+      throw conflict(`Le format actuel ne permet pas de conserver exactement le coût et les heures revus de « ${accepted.designation} ». Aucun ouvrage n'a été ajouté. Le brouillon reste disponible.`, undefined, "EST383_COST_PROJECTION_INEXACT");
+    }
+    return { accepted, review, projection,
+      mapping: { ...mapping, kFo: projection.parent.kFo, kMo: projection.parent.kMo } };
+  });
+  let fallback: { id: string; created: boolean } | null = null;
+  if (parsed.acceptedCandidates.some((entry) => entry.lotId === null)) {
+    const { data, error } = await supabase.from("estimate_items").select("id, title, position")
+      .eq("tenant_id", tenantId).eq("version_id", parsed.versionId).eq("item_type", "section")
+      .is("parent_id", null).order("position", { ascending: true }).order("id", { ascending: true });
+    if (error || !data) throw generatedOuvrageReadUnavailable();
+    const existing = data.find((entry) => normalizeSectionTitle(entry.title) === normalizeSectionTitle(GENERATED_OUVRAGE_FALLBACK_SECTION_TITLE));
+    fallback = { id: existing?.id ?? randomUUID(), created: !existing };
+  }
+  const operations: BatchOperationInput[] = [];
+  const createdIds: Array<{ index: number; id: string }> = [];
+  if (fallback?.created) {
+    createdIds.push({ index: 0, id: fallback.id });
+    operations.push({ op: "create", data: { item_type: "section", parent_id: null,
+      title: GENERATED_OUVRAGE_FALLBACK_SECTION_TITLE, source_provider: "generated_ouvrage" } });
+  }
+  const candidates = projected.map(({ accepted, review, projection, mapping }) => {
+    const lotId = accepted.lotId ?? fallback!.id;
+    const primary = normalizeDraftResult({ draft: review.draft, candidates: [review.candidate],
+      candidateSources: review.candidateSources, fragments: review.fragments, applications: [] }).candidates[0].sources[0];
+    const estimateItemId = randomUUID();
+    const item = { item_type: "line" as const, parent_id: lotId, title: accepted.designation,
+      description: accepted.unit, quantity: accepted.quantity!, unit_price_ht_cents: mapping.unitPriceHtCents,
+      h_mo: mapping.hMo, k_fo: mapping.kFo, k_mo: mapping.kMo, labor_role_id: mapping.laborRoleId,
+      source_provider: "generated_ouvrage", source_file_name: primary?.sourceFileName ?? null,
+      source_page: primary?.sourcePageFrom ?? null };
+    createdIds.push({ index: operations.length, id: estimateItemId });
+    operations.push({ op: "create", data: item });
+    return { candidateId: accepted.candidateId, subdetailId: review.subdetailDraft!.id,
+      estimateItemId, assemblyId: randomUUID(), applicationId: randomUUID(), snapshotId: randomUUID(),
+      resolvedLotId: lotId, placementMode: accepted.lotId ? "explicit" : "fallback_unclassified",
+      estimateItemMapping: mapping, componentProjections: projection.components.map((component) => ({
+        componentId: component.componentId, kFo: component.kFo, kMo: component.kMo,
+        hMo: component.hMo, dsCents: component.dsCents,
+      })), item };
+  });
+  let financial;
+  try {
+    financial = await prepareEstimateBatch({ context, versionId: parsed.versionId, projectUserId: project.user_id,
+      expectedUpdatedAt: parsed.expectedUpdatedAt, operations, createdIds });
+  } catch (error) {
+    if (error instanceof EstimateBatchPreparationError) throw error.failure;
     throw error;
   }
-
-  if (!updatedDraft) {
-    throw internalError(
-      "Le brouillon d'ouvrages n'a pas pu être actualise après insertion.",
-      { draftId: loaded.draft.id },
-      "EST381_INSERT_DRAFT_UPDATE_MISSING"
-    );
-  }
-
-  if (insertedCount > 0) {
-    await logEstimateVersionEventIfPossible({
-      versionId: parsed.versionId,
-      eventType: "generated_ouvrage_inserted",
-      actorUserId: userId,
-      metadata: {
-        draft_id: loaded.draft.id,
-        inserted_count: insertedCount,
-        candidate_ids: parsed.acceptedCandidates.map((candidate) => candidate.candidateId),
-      },
+  let response;
+  try {
+    response = await supabase.rpc("commit_generated_ouvrages", { ...baseArgs,
+      p_draft_lock_session_id: parsed.draftLockSessionId, p_prepared_candidates: candidates as Json,
+      p_fallback_section: fallback, p_item_updates: financial.itemUpdates, p_version_patch: financial.versionPatch,
+      p_calculation_context: financial.calculationContext as Json,
+      p_expected_preferred_role: preferredRole ? { id: preferredRole.id, name: preferredRole.name,
+        hourly_rate_cents: preferredRole.hourlyRateCents, position: preferredRole.position, is_active: true } : null,
     });
-  }
-
-  return {
-    ok: true,
-    insertedCount,
-    draftStatus: updatedDraft?.status ?? loaded.draft.status,
-    projectId: loaded.draft.project_id,
-    versionId: parsed.versionId,
-  };
+  } catch { throw generatedOuvrageOutcomeUnknown(); }
+  if (response.error) throw generatedOuvrageRpcError(response.error, true);
+  const result = parseGeneratedOuvrageOutcome(response.data, scope);
+  if ("outcome" in result) return result;
+  if (!result.replayed && (result.projectId !== project.id || result.applications.some((entry, index) => {
+    const candidate = candidates[index];
+    return entry.estimateItemId !== candidate.estimateItemId || entry.assemblyId !== candidate.assemblyId ||
+      entry.subdetailId !== candidate.subdetailId || entry.applicationId !== candidate.applicationId || entry.snapshotId !== candidate.snapshotId;
+  }))) throw generatedOuvrageOutcomeUnknown();
+  return result;
 }
 
-export async function rejectGeneratedOuvrageDraft(
-  input: RejectGeneratedOuvrageDraftInput
-): Promise<RejectGeneratedOuvrageDraftResult> {
-  const parsed = generatedOuvrageRejectInputSchema.parse({
-    ...input,
-    reason: input.reason ? normalizeText(input.reason, MAX_REASON_LENGTH) : null,
-  });
-
+export async function rejectGeneratedOuvrageDraft(input: RejectGeneratedOuvrageDraftInput): Promise<RejectGeneratedOuvrageDraftResult> {
+  const parsed = generatedOuvrageRejectInputSchema.parse({ ...input,
+    reason: input.reason ? normalizeText(input.reason, MAX_REASON_LENGTH) : null });
   const context = await getAuthenticatedContext();
-  const { supabase, tenantId, userId } = context;
-
-  const { data: draftData, error: draftLookupError } = await supabase
-    .from("estimate_generated_ouvrage_drafts" as never)
-    .select("*" as never)
-    .eq("tenant_id", tenantId)
-    .eq("id", parsed.draftId)
-    .single();
-
-  if (draftLookupError || !draftData) {
-    throw mapSupabaseError(draftLookupError, "Impossible de charger le brouillon d'ouvrages.");
-  }
-
-  const draft = draftData as GeneratedOuvrageDraftRow;
-  const { version } = await getVersionAccessOrThrow(supabase, draft.target_version_id, context);
-
-  assertDraftStatus(version.status);
-  await assertDraftLockOwnedByCurrentUser({
-    supabase,
-    tenantId,
-    versionId: draft.target_version_id,
-    userId,
-  });
-
-  const loaded = await loadGeneratedOuvrageDraftOrThrow({
-    supabase,
-    tenantId,
-    versionId: draft.target_version_id,
-    draftId: draft.id,
-  });
-
-  if (loaded.draft.status === "discarded") {
-    throw conflict("Ce brouillon a déjà été rejete.", undefined, "EST381_DRAFT_DISCARDED");
-  }
-
-  const candidate = loaded.candidates.find((entry) => entry.id === parsed.candidateId);
-  if (!candidate) {
-    throw notFound("Candidat d'ouvrage introuvable.");
-  }
-
-  if (candidate.resolution_status !== "pending") {
-    throw conflict(
-      "Ce candidat n'est plus disponible pour rejet.",
-      { candidateId: candidate.id, status: candidate.resolution_status },
-      "EST381_CANDIDATE_NOT_PENDING"
-    );
-  }
-
-  const nextMetadata = {
-    ...(candidate.metadata && typeof candidate.metadata === "object"
-      ? (candidate.metadata as JsonRecord)
-      : {}),
-    rejection_reason: parsed.reason ?? null,
-    rejected_at: new Date().toISOString(),
-    rejected_by: userId,
-  } satisfies JsonRecord;
-
-  const { data: updatedCandidateData, error: updatedCandidateError } = await supabase
-    .from("estimate_generated_ouvrage_candidates" as never)
-    .update({
-      resolution_status: "rejected",
-      metadata: nextMetadata,
-    } as never)
-    .eq("id", candidate.id)
-    .select("*" as never)
-    .single();
-
-  if (updatedCandidateError || !updatedCandidateData) {
-    throw mapSupabaseError(
-      updatedCandidateError,
-      "Impossible de mettre à jour le statut du candidat d'ouvrage."
-    );
-  }
-
-  const refreshedCandidates = loaded.candidates.map((entry) =>
-    entry.id === candidate.id
-      ? (updatedCandidateData as GeneratedOuvrageCandidateRow)
-      : entry
-  );
-
-  const updatedDraft = await updateDraftProjection({
-    supabase,
-    draft: loaded.draft,
-    candidates: refreshedCandidates,
-    applications: loaded.applications,
-  });
-
-  if (updatedDraft.status === "discarded") {
-    const { error: fragmentError } = await supabase
-      .from("estimate_generated_ouvrage_source_fragments" as never)
-      .update({
-        status: "discarded",
-      } as never)
-      .eq("draft_id", updatedDraft.id);
-
-    if (fragmentError) {
-      throw mapSupabaseError(
-        fragmentError,
-        "Impossible d'archiver les fragments du brouillon rejete."
-      );
-    }
-
-    await logEstimateVersionEventIfPossible({
-      versionId: updatedDraft.target_version_id,
-      eventType: "generated_ouvrage_discarded",
-      actorUserId: userId,
-      metadata: {
-        draft_id: updatedDraft.id,
-        reason: parsed.reason ?? null,
-      },
-    });
-  }
-
-  return {
-    ok: true,
-    draftStatus: updatedDraft.status,
-    projectId: updatedDraft.project_id,
-    versionId: updatedDraft.target_version_id,
-  };
+  assertCanWriteEstimateWorkflows(context.tenantRole);
+  let response;
+  try {
+    response = await context.supabase.rpc("reject_generated_ouvrage_candidate", { p_version_id: parsed.versionId,
+      p_draft_id: parsed.draftId, p_candidate_id: parsed.candidateId,
+      p_draft_lock_session_id: parsed.draftLockSessionId, p_reason: parsed.reason ?? null });
+  } catch { throw generatedOuvrageOutcomeUnknown(); }
+  if (response.error) throw generatedOuvrageRpcError(response.error, true);
+  const result = z.object({ ok: z.literal(true), draftStatus: generatedOuvrageDraftStatusSchema,
+    projectId: z.string().uuid(), versionId: z.string().uuid() }).strict().safeParse(response.data);
+  if (!result.success || result.data.versionId !== parsed.versionId) throw generatedOuvrageOutcomeUnknown();
+  return result.data;
 }

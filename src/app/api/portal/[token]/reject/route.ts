@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { lookupPortalCapability, loadPortalOffer } from "@/lib/estimates/portal-offer";
+import type { Json } from "@/types/database";
 
 export const runtime = "nodejs";
 
@@ -38,51 +40,29 @@ export async function POST(
 
     const supabase = createServiceRoleClient();
 
-    // 1. Lookup portal token
-    const { data: portalToken, error: lookupError } = await supabase
-      .from("portal_tokens")
-      .select(
-        "id, tenant_id, version_id, status, expires_at, tenants!inner(is_active)"
-      )
-      .eq("token", token)
-      .eq("tenants.is_active", true)
-      .single();
-
-    if (lookupError || !portalToken) {
-      return NextResponse.json(
-        { error: "Token invalide." },
-        { status: 404 }
-      );
-    }
-
-    if (portalToken.status !== "pending") {
-      return NextResponse.json(
-        { error: "Ce devis a déjà été traité." },
-        { status: 409 }
-      );
-    }
-
-    if (new Date(portalToken.expires_at) < new Date()) {
-      return NextResponse.json(
-        { error: "Ce lien a expire." },
-        { status: 404 }
-      );
-    }
+    const portalToken = await lookupPortalCapability({ supabase, token });
+    if (!portalToken) return NextResponse.json({ error: "Token invalide." }, { status: 404 });
+    if (portalToken.status !== "pending") return NextResponse.json({ error: "Ce devis a déjà été traité." }, { status: 409 });
+    if (Date.parse(portalToken.expires_at) <= Date.now()) return NextResponse.json({ error: "Ce lien a expiré." }, { status: 404 });
+    const offer = await loadPortalOffer({ supabase, token, capability: portalToken }).catch(() => null);
+    if (!offer) return NextResponse.json({ error: "La copie du devis ne peut pas être vérifiée." }, { status: 409 });
 
     // 2. Atomically claim both the capability and its parent estimate version.
     const { error: claimError } = await supabase.rpc(
-      "claim_portal_estimate_decision" as never,
+      "claim_portal_estimate_decision",
       {
         p_portal_token_id: portalToken.id,
         p_decision: "rejected",
         p_client_ip: null,
         p_reject_reason: reason ?? null,
-      } as never
+        p_expected_seal_hash: offer.sealHash,
+        p_expected_document_contract: offer.proof as unknown as Json,
+      }
     );
 
     if (claimError) {
-      if (claimError.code !== "P0001") {
-        console.error("Portal rejection claim error:", claimError);
+      if (!["P0001", "23514", "40001", "42501"].includes(claimError.code ?? "")) {
+        console.error("Portal rejection claim error:", claimError.code);
         return NextResponse.json(
           { error: "Erreur lors de la mise à jour du statut du devis." },
           { status: 500 }
@@ -96,8 +76,8 @@ export async function POST(
     }
 
     return NextResponse.json({ status: "rejected" });
-  } catch (error) {
-    console.error("Portal reject error:", error);
+  } catch {
+    console.error("Portal rejection failed.");
     return NextResponse.json(
       { error: "Erreur interne." },
       { status: 500 }

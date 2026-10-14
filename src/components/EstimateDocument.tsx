@@ -8,6 +8,7 @@ import {
   buildLegacyDocumentBreakdown,
   DOCUMENT_CALC_ENGINE_VERSION,
   prepareEstimateDocumentData,
+  type EstimateDocumentCalculationVersion,
   type EstimateItem,
 } from "@/components/estimate-document/prepare-estimate-document-data";
 import type { CalcEngineVersion } from "@/lib/estimates/calc-engine-version";
@@ -62,8 +63,9 @@ export type EstimateDocumentProps = {
   calcEngineVersion?: CalcEngineVersion;
   /** EST-E27 : sous-traitance — le document porte la mention d autoliquidation. */
   vatReverseCharge?: boolean;
-  /** Version finalisee v2 : rend uniquement le snapshot contractuel persiste. */
+  /** Version finalisee : rend uniquement ses montants contractuels persistes. */
   preserveStoredSnapshot?: boolean;
+  calculationVersion?: EstimateDocumentCalculationVersion;
   maxVisibleSectionLevel?: number | null;
 };
 
@@ -215,6 +217,7 @@ export function EstimateDocument({
   calcEngineVersion = DOCUMENT_CALC_ENGINE_VERSION,
   vatReverseCharge = false,
   preserveStoredSnapshot = false,
+  calculationVersion,
   maxVisibleSectionLevel = null,
 }: EstimateDocumentProps) {
   const resolvedCurrency: SupportedEstimateCurrency =
@@ -253,6 +256,7 @@ export function EstimateDocument({
       globalCoefficient,
       preserveStoredSnapshot,
       versionTotals: {
+        ...calculationVersion,
         total_ht_cents: totalHtCents,
         total_tax_cents: totalTaxCents,
         total_ttc_cents: totalTtcCents,
@@ -260,6 +264,7 @@ export function EstimateDocument({
       },
     }),
     calcEngineVersion,
+    preserveStoredSnapshot,
     vatReverseCharge,
     taxRateBp,
     currency: resolvedCurrency,

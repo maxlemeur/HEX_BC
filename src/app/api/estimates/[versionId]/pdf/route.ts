@@ -17,6 +17,10 @@ import {
   markEstimatePdfProcessing,
 } from "@/lib/estimates/pdf-generator";
 import type { EstimatePdfLayoutOptions } from "@/lib/estimates/pdf-layout";
+import {
+  ESTIMATE_DRAFT_LOCK_SESSION_HEADER,
+  normalizeEstimateDraftLockSessionId,
+} from "@/lib/estimates/lock-session";
 
 export const runtime = "nodejs";
 
@@ -144,7 +148,10 @@ export async function POST(
       }
     }
 
-    const publicationClaim = await markEstimatePdfProcessing(versionId);
+    const publicationClaim = await markEstimatePdfProcessing(
+      versionId,
+      normalizeEstimateDraftLockSessionId(request.headers.get(ESTIMATE_DRAFT_LOCK_SESSION_HEADER)),
+    );
 
     after(async () => {
       try {

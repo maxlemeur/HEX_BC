@@ -15,8 +15,11 @@ import {
   type OrderItemData,
 } from "@/components/PurchaseOrderDocument";
 import { buttonVariants } from "@/components/ui/button";
+import { Alert } from "@/components/ui/alert";
+import { assertCompletePurchaseOrderSnapshot } from "@/lib/purchase-orders";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
+import { OrderLineHistory } from "../_components/OrderLineHistory";
 import { OrderDocumentViewport } from "../_components/OrderDocumentViewport";
 import { formatOrderDate, statusClass, statusLabel } from "../_components/orders-model";
 
@@ -60,6 +63,7 @@ type UserProfile = {
 
 type PurchaseOrder = {
   id: string;
+  edit_revision: number;
   reference: string;
   order_number: number;
   status: PurchaseOrderStatus;
@@ -73,6 +77,7 @@ type PurchaseOrder = {
   suppliers: Supplier | null;
   delivery_sites: DeliverySite | null;
   profiles: UserProfile | null;
+  purchase_order_items: PurchaseOrderItem[];
 };
 
 type PurchaseOrderItem = {
@@ -80,9 +85,12 @@ type PurchaseOrderItem = {
   designation: string;
   reference: string | null;
   quantity: number;
+  unit: string | null;
+  price_unit: string | null;
   unit_price_ht_cents: number;
   tax_rate_bp: number;
   line_total_ht_cents: number;
+  position: number;
 };
 
 export default async function OrderPage({
@@ -90,14 +98,6 @@ export default async function OrderPage({
 }: Readonly<{ params: Promise<{ id: string }> }>) {
   const { id } = await params;
   const supabase = await createSupabaseServerClient();
-
-  const itemsPromise = supabase
-    .from("purchase_order_items")
-    .select(
-      "id, designation, reference, quantity, unit_price_ht_cents, tax_rate_bp, line_total_ht_cents"
-    )
-    .eq("purchase_order_id", id)
-    .order("position", { ascending: true });
 
   const devisPromise = supabase
     .from("purchase_order_devis")
@@ -110,7 +110,7 @@ export default async function OrderPage({
   const { data: orderData, error: orderError } = await supabase
     .from("purchase_orders")
     .select(
-      "id, reference, order_number, status, order_date, expected_delivery_date, notes, total_ht_cents, total_tax_cents, total_ttc_cents, currency, suppliers ( name, address, city, postal_code, country, email, phone, contact_name, siret, vat_number, payment_terms ), delivery_sites ( name, project_code, address, city, postal_code, contact_name, contact_phone ), profiles ( full_name, job_title, phone, work_email )"
+      "id, edit_revision, reference, order_number, status, order_date, expected_delivery_date, notes, total_ht_cents, total_tax_cents, total_ttc_cents, currency, suppliers ( name, address, city, postal_code, country, email, phone, contact_name, siret, vat_number, payment_terms ), delivery_sites ( name, project_code, address, city, postal_code, contact_name, contact_phone ), profiles ( full_name, job_title, phone, work_email ), purchase_order_items(id, designation, reference, quantity, unit, price_unit, unit_price_ht_cents, tax_rate_bp, line_total_ht_cents, position)"
     )
     .eq("id", id)
     .single();
@@ -120,13 +120,25 @@ export default async function OrderPage({
   }
 
   const order = orderData as unknown as PurchaseOrder;
+  try {
+    await assertCompletePurchaseOrderSnapshot(supabase, id, order.edit_revision, order.purchase_order_items.length);
+  } catch (error) {
+    return (
+      <div className="mx-auto max-w-5xl">
+        <PageHeader title="Lecture du bon de commande interrompue" />
+        <Alert variant="danger">
+          {error instanceof Error ? error.message : "Lecture incomplète ou modifiée. Rechargez la commande."}
+        </Alert>
+        <Link href="/dashboard/orders" className="mt-4 inline-block text-sm font-medium text-primary underline">
+          Retour à la liste des commandes
+        </Link>
+      </div>
+    );
+  }
 
-  const [itemsResult, devisResult] = await Promise.all([
-    itemsPromise,
-    devisPromise,
-  ]);
+  const devisResult = await devisPromise;
 
-  const items = (itemsResult.data ?? []) as unknown as PurchaseOrderItem[];
+  const items = [...order.purchase_order_items].sort((left, right) => left.position - right.position);
   const supplierDb = order.suppliers;
   const deliverySiteDb = order.delivery_sites;
   const userProfile = order.profiles;
@@ -161,6 +173,8 @@ export default async function OrderPage({
     designation: item.designation,
     reference: item.reference,
     quantity: item.quantity,
+    unit: item.unit,
+    priceUnit: item.price_unit,
     unitPriceHtCents: item.unit_price_ht_cents,
     lineTotalHtCents: item.line_total_ht_cents,
   }));
@@ -253,6 +267,8 @@ export default async function OrderPage({
           totalTtcCents={order.total_ttc_cents}
         />
       </OrderDocumentViewport>
+
+      <OrderLineHistory orderId={order.id} />
 
       <div className="no-print mx-auto mt-4 w-full max-w-[210mm]">
         <DevisManager

@@ -41,7 +41,7 @@ function createItem(
 ): EditorEstimateItem {
   return {
     id,
-    version_id: "version-1",
+    version_id: "627ef080-0001-4000-8000-000000000001",
     parent_id: null,
     item_type: "line",
     position: 1,
@@ -50,10 +50,10 @@ function createItem(
   } as EditorEstimateItem;
 }
 
-function createVersion(id = "version-1"): EstimateVersionRow {
+function createVersion(id = "627ef080-0001-4000-8000-000000000001"): EstimateVersionRow {
   return {
     id,
-    updated_at: id === "version-1" ? "token-initial" : `${id}-token`,
+    updated_at: id === "627ef080-0001-4000-8000-000000000001" ? "token-initial" : `${id}-token`,
   } as EstimateVersionRow;
 }
 
@@ -85,7 +85,7 @@ function makeBatchResult(input: {
   return {
     committed: true,
     versionToken: {
-      id: input.versionId ?? "version-1",
+      id: input.versionId ?? "627ef080-0001-4000-8000-000000000001",
       updated_at: input.updatedAt,
     },
     results: input.operations.map((operation, index) => ({
@@ -332,13 +332,13 @@ describe("useEstimateEditorPasteController anchors and payloads", () => {
       }
     );
     expect(mocks.batchEstimateOperations).toHaveBeenCalledWith(
-      "version-1",
+      "627ef080-0001-4000-8000-000000000001",
       "token-initial",
       [
         {
           op: "create",
           data: expect.objectContaining({
-            version_id: "version-1",
+            version_id: "627ef080-0001-4000-8000-000000000001",
             parent_id: "section",
             item_type: "line",
             position: 5,
@@ -416,7 +416,7 @@ describe("useEstimateEditorPasteController anchors and payloads", () => {
       expect.objectContaining({ data: expect.objectContaining({ position: 5 }) }),
     ]);
     expect(mocks.reorderEstimateItems).toHaveBeenCalledWith(
-      "version-1",
+      "627ef080-0001-4000-8000-000000000001",
       "section",
       ["before", "anchor", "created-1", "created-2", "after"]
     );
@@ -471,12 +471,12 @@ describe("useEstimateEditorPasteController batching", () => {
     });
 
     expect(mocks.batchEstimateOperations).toHaveBeenCalledTimes(2);
-    expect(mocks.batchEstimateOperations.mock.calls[0]?.[0]).toBe("version-1");
+    expect(mocks.batchEstimateOperations.mock.calls[0]?.[0]).toBe("627ef080-0001-4000-8000-000000000001");
     expect(mocks.batchEstimateOperations.mock.calls[0]?.[1]).toBe(
       "token-initial"
     );
     expect(mocks.batchEstimateOperations.mock.calls[0]?.[2]).toHaveLength(100);
-    expect(mocks.batchEstimateOperations.mock.calls[1]?.[0]).toBe("version-1");
+    expect(mocks.batchEstimateOperations.mock.calls[1]?.[0]).toBe("627ef080-0001-4000-8000-000000000001");
     expect(mocks.batchEstimateOperations.mock.calls[1]?.[1]).toBe("token-1");
     expect(mocks.batchEstimateOperations.mock.calls[1]?.[2]).toHaveLength(1);
     expect(
@@ -486,67 +486,6 @@ describe("useEstimateEditorPasteController batching", () => {
     expect(harness.applyVersionToken).toHaveBeenCalledWith("token-2");
     expect(harness.getItems()).toHaveLength(101);
     expect(mocks.reorderEstimateItems).not.toHaveBeenCalled();
-  });
-
-  it("deletes creations from completed chunks when a later chunk fails", async () => {
-    mocks.batchEstimateOperations.mockReset();
-    mocks.batchEstimateOperations.mockImplementationOnce(
-      async (
-        versionId: string,
-        _token: string,
-        operations: CreateOperation[]
-      ) =>
-        makeBatchResult({
-          versionId,
-          updatedAt: "token-first-chunk",
-          operations,
-        })
-    );
-    mocks.batchEstimateOperations.mockResolvedValueOnce({
-      committed: false,
-      versionToken: { id: "version-1", updated_at: "token-first-chunk" },
-      results: [
-        {
-          index: 0,
-          op: "create",
-          status: "error",
-          message: "second chunk failed",
-        },
-      ],
-    });
-    const harness = createHarness();
-    const rows = Array.from({ length: 101 }, (_, index) =>
-      createRow(`Pasted ${index + 1}`)
-    );
-
-    await act(async () => {
-      await expect(
-        harness.result.current.actions.pasteRows({
-          anchorRowId: null,
-          rows,
-        })
-      ).rejects.toThrow("public:second chunk failed");
-    });
-
-    expect(mocks.batchEstimateOperations).toHaveBeenCalledTimes(2);
-    expect(mocks.batchEstimateOperations.mock.calls[1]?.[1]).toBe(
-      "token-first-chunk"
-    );
-    expect(mocks.deleteEstimateItem).toHaveBeenCalledTimes(100);
-    expect(mocks.deleteEstimateItem).toHaveBeenNthCalledWith(
-      1,
-      "version-1",
-      "created-1"
-    );
-    expect(mocks.deleteEstimateItem).toHaveBeenNthCalledWith(
-      100,
-      "version-1",
-      "created-100"
-    );
-    expect(harness.setItems).not.toHaveBeenCalled();
-    expect(harness.applyVersionToken).not.toHaveBeenCalled();
-    expect(harness.triggerVersionReload).toHaveBeenCalledTimes(1);
-    expect(harness.pushHistoryCommand).not.toHaveBeenCalled();
   });
 
   it("delegates a 409 without wrapping the conflict error", async () => {
@@ -634,7 +573,7 @@ describe("useEstimateEditorPasteController history", () => {
     const command = readHistoryCommand(harness.pushHistoryCommand);
     expect(mocks.reorderEstimateItems).toHaveBeenNthCalledWith(
       1,
-      "version-1",
+      "627ef080-0001-4000-8000-000000000001",
       null,
       ["anchor", "created-1", "tail"]
     );
@@ -645,12 +584,12 @@ describe("useEstimateEditorPasteController history", () => {
 
     expect(mocks.deleteEstimateItem).toHaveBeenNthCalledWith(
       1,
-      "version-1",
+      "627ef080-0001-4000-8000-000000000001",
       "created-1"
     );
     expect(mocks.reorderEstimateItems).toHaveBeenNthCalledWith(
       2,
-      "version-1",
+      "627ef080-0001-4000-8000-000000000001",
       null,
       ["anchor", "tail"]
     );
@@ -670,12 +609,12 @@ describe("useEstimateEditorPasteController history", () => {
     });
 
     expect(harness.recreateItemsFromSnapshots).toHaveBeenCalledWith(
-      "version-1",
+      "627ef080-0001-4000-8000-000000000001",
       [expect.objectContaining({ id: "created-1", title: "Pasted" })]
     );
     expect(mocks.reorderEstimateItems).toHaveBeenNthCalledWith(
       3,
-      "version-1",
+      "627ef080-0001-4000-8000-000000000001",
       null,
       ["anchor", "recreated-1", "tail"]
     );
@@ -686,7 +625,7 @@ describe("useEstimateEditorPasteController history", () => {
 
     expect(mocks.deleteEstimateItem).toHaveBeenNthCalledWith(
       2,
-      "version-1",
+      "627ef080-0001-4000-8000-000000000001",
       "recreated-1"
     );
     expect(harness.getItems().map((item) => item.id)).toEqual([
@@ -713,7 +652,7 @@ describe("useEstimateEditorPasteController route races", () => {
     await waitFor(() => {
       expect(mocks.batchEstimateOperations).toHaveBeenCalledTimes(1);
     });
-    harness.setVersion(createVersion("version-2"));
+    harness.setVersion(createVersion("627ef080-0001-4000-8000-000000000002"));
     await act(async () => {
       deferred.resolve(
         makeBatchResult({
@@ -722,7 +661,7 @@ describe("useEstimateEditorPasteController route races", () => {
             {
               op: "create",
               data: {
-                version_id: "version-1",
+                version_id: "627ef080-0001-4000-8000-000000000001",
                 parent_id: null,
                 item_type: "line",
                 position: 1,

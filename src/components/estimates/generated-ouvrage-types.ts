@@ -24,6 +24,7 @@ export type UiGeneratedOuvrageCandidate = GeneratedOuvrageCandidate & {
   editedLotId: string | null;
   subdetailStatus: GeneratedOuvrageSubdetailResult["status"] | null;
   subdetailReviewed: boolean;
+  hasLocalParentEdits?: boolean;
 };
 
 export type GeneratedOuvrageParentReadiness = {
@@ -34,6 +35,8 @@ export type GeneratedOuvrageParentReadiness = {
 export type GeneratedOuvrageSubdetailEditorComponent = {
   componentId: string | null;
   status: GeneratedOuvrageSubdetailComponent["status"];
+  restore?: boolean;
+  restoreAsManual?: boolean;
   costType: GeneratedOuvrageSubdetailComponent["costType"];
   designation: string;
   unit: string | null;
@@ -95,6 +98,7 @@ export function initUiCandidates(
 
   return candidates.map((c) => {
     const existing = existingById.get(c.candidateId);
+    const appliedValues = c.resolutionStatus === "inserted" ? c.appliedValues : null;
     if (existing && c.resolutionStatus === "pending") {
       return {
         ...c,
@@ -106,18 +110,20 @@ export function initUiCandidates(
         editedLotId: existing.editedLotId,
         subdetailStatus: existing.subdetailStatus,
         subdetailReviewed: existing.subdetailReviewed,
+        hasLocalParentEdits: existing.hasLocalParentEdits,
       };
     }
     return {
       ...c,
       selected: false,
       isEditing: false,
-      editedDesignation: c.designation,
-      editedUnit: c.unit,
-      editedQuantity: c.quantity,
-      editedLotId: c.suggestedLotId,
+      editedDesignation: appliedValues?.designation ?? c.designation,
+      editedUnit: appliedValues ? appliedValues.unit : c.unit,
+      editedQuantity: appliedValues ? appliedValues.quantity : c.quantity,
+      editedLotId: appliedValues ? appliedValues.lotId : c.suggestedLotId,
       subdetailStatus: null,
       subdetailReviewed: false,
+      hasLocalParentEdits: false,
     };
   });
 }

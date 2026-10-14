@@ -1,0 +1,35 @@
+npm notice run projet_bc@0.4.2 npx
+npm notice run vitest run --project=node --reporter=verbose src/__audit__/rules.audit.test.ts
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+
+ RUN  v4.1.11 C:/Users/thann/AppData/Local/Temp/claude/C--Users-maxim-Projects-miaouffrage/cdab460e-e4c5-4312-b7fd-cd1f131b02e3/scratchpad/audit/snapshot/handoff-audit-independant/annexes/repository
+
+stdout | src/__audit__/rules.audit.test.ts > B-01 Heures de MO : totales dans le moteur, « par unité » dans l'aide > 10 m à 0,5 h/m et 45 €/h : 22,50 € de MO au lieu de 225 €
+[AUDIT] h MO: {"coutLigne":12250,"attenduSiHeuresParUnite":32500}
+
+stdout | src/__audit__/rules.audit.test.ts > B-01 Heures de MO : totales dans le moteur, « par unité » dans l'aide > l'import DPGF recopie la colonne h MO sans la multiplier par la quantité
+[AUDIT] Import h MO / majoration: {"hMo":0.5,"hMoMajoration":100}
+
+stdout | src/__audit__/rules.audit.test.ts > B-02 TVA en moteur v2 : le taux de version ne s'applique pas aux lignes existantes > lignes à 20 %, version passée à 10 % : TVA calculée à 20 % en v2, 10 % en v1
+[AUDIT] TVA unique 10 %: {"v2":2000,"v1":1000}
+
+stdout | src/__audit__/rules.audit.test.ts > B-04 Offres fournisseurs et unités > « ML » (mètre linéaire d'un DPGF) est refusé face à une offre en « ml »
+[AUDIT] ML vs ml: "Unité différente du devis"
+
+ ✓ |node| src/__audit__/rules.audit.test.ts > B-01 Heures de MO : totales dans le moteur, « par unité » dans l'aide > 10 m à 0,5 h/m et 45 €/h : 22,50 € de MO au lieu de 225 € 1ms
+ ✓ |node| src/__audit__/rules.audit.test.ts > B-01 Heures de MO : totales dans le moteur, « par unité » dans l'aide > l'import DPGF recopie la colonne h MO sans la multiplier par la quantité 1ms
+ ✓ |node| src/__audit__/rules.audit.test.ts > B-01 Heures de MO : totales dans le moteur, « par unité » dans l'aide > la majoration saisie au clavier est divisée par 100 (« 8 » → 0,08) 0ms
+ ✓ |node| src/__audit__/rules.audit.test.ts > B-02 TVA en moteur v2 : le taux de version ne s'applique pas aux lignes existantes > lignes à 20 %, version passée à 10 % : TVA calculée à 20 % en v2, 10 % en v1 1ms
+ ✓ |node| src/__audit__/rules.audit.test.ts > B-02 TVA en moteur v2 : le taux de version ne s'applique pas aux lignes existantes > multi-taux 20 % + 5,5 % : v2 = 2 550 c, v1 = 4 000 c (taux de ligne écrasé) 0ms
+ ✓ |node| src/__audit__/rules.audit.test.ts > B-03 Seuil d'approbation inclusif > 5 000,00 € pile exige une approbation (la documentation dit « > seuil ») 0ms
+ ✓ |node| src/__audit__/rules.audit.test.ts > B-04 Offres fournisseurs et unités > une offre à 0 € est éligible côté devis 0ms
+ ✓ |node| src/__audit__/rules.audit.test.ts > B-04 Offres fournisseurs et unités > « ML » (mètre linéaire d'un DPGF) est refusé face à une offre en « ml » 0ms
+ ✓ |node| src/__audit__/rules.audit.test.ts > B-05 Parseurs numériques divergents > « 1.250 » vaut 1 250 € en saisie de prix et 1,25 à l'import 0ms
+
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+   Start at  15:26:02
+   Duration  887ms (transform 326ms, setup 0ms, import 759ms, tests 6ms, environment 0ms)
+

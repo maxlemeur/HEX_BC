@@ -1,5 +1,16 @@
 type UpdatePayload = Record<string, unknown>;
 
+/** Blurring an unchanged cell must not enqueue an autosave. */
+export function matchesSyncedItemPayload(
+  syncedPayload: UpdatePayload | undefined,
+  payload: UpdatePayload
+) {
+  if (!syncedPayload) return false;
+  return Object.entries(payload).every(
+    ([key, value]) => key in syncedPayload && Object.is(syncedPayload[key] ?? null, value ?? null)
+  );
+}
+
 export type BufferedUpdate<T extends UpdatePayload> = {
   id: string;
   updates: T;

@@ -1,4 +1,15 @@
 import { z } from "zod";
+import { sourceCoverageOperations } from "@/lib/openapi/registry-source-coverage";
+import { purchaseReceiptSchema, purchaseTransferSchema } from "@/lib/estimates/purchase-preparation-contracts";
+import {
+  sourceReferenceReadErrorResponseSchema,
+  sourceReferenceReviewSchema,
+  sourceReferencePreparationInputSchema,
+  sourceReferencePreparationResultSchema,
+  sourceReferenceConfirmationInputSchema,
+  sourceReferenceConfirmationResultSchema,
+  sourceReferenceErrorResponseSchema,
+} from "@/lib/estimates/source-reference-contracts";
 
 import {
   headerParameter,
@@ -32,6 +43,7 @@ export type {
 } from "@/lib/openapi/registry-helpers";
 
 import {
+  batchOperationSchema,
   batchOperationsSchema,
   bulkUpdateEstimateItemsRequestSchema,
   createEstimateAssemblySchema,
@@ -267,6 +279,7 @@ const estimateVersionSchema = z
     currency: z.string().optional(),
     margin_bp: z.number().int().optional(),
     discount_bp: z.number().int().optional(),
+    discount_amount_cents: z.number().int().min(0).max(2147483647).nullable().optional(),
     discount_mode: z.string().optional(),
     discount_steps: z.array(z.number()).optional(),
     global_coefficient: z.number().optional(),
@@ -280,6 +293,7 @@ const estimateVersionSchema = z
     parent_version_id: uuidSchema.nullable().optional(),
     variant_label: z.string().nullable().optional(),
     seal_hash: z.string().nullable().optional(),
+    seal_payload_version: z.number().int().min(1).max(5).nullable().optional(),
     updated_at: z.string().optional(),
     created_at: z.string().optional(),
     estimate_projects: z
@@ -321,6 +335,12 @@ const estimateItemSchema = z
     category_id: uuidSchema.nullable().optional(),
     supply_type_id: uuidSchema.nullable().optional(),
     selected_supplier_price_id: uuidSchema.nullable().optional(),
+    source_provider: z.string().nullable().optional().describe(
+      "Origine immédiate de la ligne, sous forme de texte libre. assembly_library désigne une ligne réutilisée depuis la bibliothèque d'ouvrages."
+    ),
+    source_metadata: z.unknown().optional().describe(
+      "Provenance JSON. Pour assembly_library : kind=assembly_library et library_origin contenant assembly_id (ouvrage feuille), assembly_item_id et source_metadata (copie JSON exacte de l'item d'origine). Cette copie historique ne valide pas les quantités ni les exigences du devis actuel."
+    ),
     line_total_ht_cents: z.number().nullable().optional(),
     line_tax_cents: z.number().nullable().optional(),
     line_total_ttc_cents: z.number().nullable().optional(),
@@ -616,13 +636,17 @@ const estimatePurchaseOrderDraftBlockedReasonSchema = z.enum([
   "ambiguous",
   "no_price",
   "missing_quantity",
-  "non_integer_quantity",
+  "invalid_quantity",
+  "amount_out_of_range",
   "missing_unit_price",
+  "supplier_offer_ineligible",
 ]);
 
 const estimatePurchaseOrderDraftLineSchema = z.object({
   item_id: uuidSchema,
   item_title: z.string(),
+  unit: z.string(),
+  review_fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
   quantity: z.number(),
   unit_price_ht_cents: z.number().int(),
   tax_rate_bp: z.number().int(),
@@ -653,6 +677,7 @@ const estimatePurchaseOrderDraftBlockedLineSchema = z.object({
   tax_rate_bp: z.number().int().nullable(),
   selected_supplier_price_id: uuidSchema.nullable(),
   reason: estimatePurchaseOrderDraftBlockedReasonSchema,
+  reason_detail: z.string().nullable().optional(),
   coverage_status: z.enum(["covered", "ambiguous", "no_price", "stale"]).nullable(),
   risk_flags: z.array(
     z.enum([
@@ -670,31 +695,18 @@ const estimatePurchaseOrderDraftPreparationSummarySchema = z.object({
   total_supplier_lines: z.number().int(),
   draftable_lines: z.number().int(),
   blocked_lines: z.number().int(),
+  transferred_lines: z.number().int(),
   supplier_groups: z.number().int(),
   selection_missing_lines: z.number().int(),
   stale_lines: z.number().int(),
   ambiguous_lines: z.number().int(),
   no_price_lines: z.number().int(),
   missing_quantity_lines: z.number().int(),
-  non_integer_quantity_lines: z.number().int(),
+  invalid_quantity_lines: z.number().int(),
   missing_unit_price_lines: z.number().int(),
 });
 
-const estimatePurchaseOrderDraftCreationOrderSchema = z.object({
-  purchase_order_id: uuidSchema,
-  reference: z.string(),
-  supplier_id: uuidSchema,
-  supplier_name: z.string(),
-  delivery_site_id: z.string(),
-  item_count: z.number().int(),
-  total_ht_cents: z.number().int(),
-  total_tax_cents: z.number().int(),
-  total_ttc_cents: z.number().int(),
-  ordered_source_item_ids: z.array(uuidSchema),
-});
-
-const estimateBatchResultSchema = z.object({
-  committed: z.boolean(),
+const estimateBatchBaseSchema = z.object({
   version: estimateVersionTokenSchema,
   results: z.array(
     z.union([
@@ -715,6 +727,26 @@ const estimateBatchResultSchema = z.object({
     ])
   ),
 });
+
+const estimateBatchCommittedSchema = estimateBatchBaseSchema.extend({
+  committed: z.literal(true),
+  totals: z.object({
+    total_ht_cents: z.number().int().nonnegative(),
+    total_tax_cents: z.number().int().nonnegative(),
+    total_ttc_cents: z.number().int().nonnegative(),
+  }),
+  receipt: z.object({
+    operation_key: uuidSchema, actor_id: uuidSchema, version_id: uuidSchema,
+    expected_updated_at: z.string(), committed_at: z.string(),
+    operations: z.array(batchOperationSchema).min(1).max(1000),
+  }),
+  replayed: z.boolean(),
+  current_version: estimateVersionTokenSchema.extend({ status: estimateStatusSchema }),
+});
+const estimateBatchResultSchema = z.discriminatedUnion("committed", [
+  estimateBatchCommittedSchema,
+  estimateBatchBaseSchema.extend({ committed: z.literal(false) }),
+]);
 
 const estimateGatingFlagSchema = z.object({
   key: z.string(),
@@ -956,6 +988,29 @@ const estimateItemsDataSchema = z.object({
   items: z.array(estimateItemSchema),
 });
 
+const estimateAssemblyInsertDataSchema = estimateItemsDataSchema.extend({
+  version: estimateVersionTokenSchema,
+  totals: z.object({
+    total_ht_cents: z.number().int().nonnegative(),
+    total_tax_cents: z.number().int().nonnegative(),
+    total_ttc_cents: z.number().int().nonnegative(),
+  }),
+});
+
+const estimateAssemblyPersistedInsertionFailureSchema = z.object({
+  ok: z.literal(false),
+  error: apiErrorSchema.extend({
+    code: z.literal("ESTIMATE_ASSEMBLY_INSERT_PERSISTED"),
+    details: z.object({
+      versionId: uuidSchema,
+      insertedItemIds: z.array(uuidSchema).min(1),
+      insertionState: z.literal("persisted"),
+      financialState: z.enum(["not_committed", "unknown"]),
+      retryInsertionAllowed: z.literal(false),
+    }),
+  }),
+});
+
 const estimateItemDataSchema = z.object({
   version: estimateVersionTokenSchema,
   item: estimateItemSchema,
@@ -985,6 +1040,13 @@ const estimateItemsMoveDataSchema = z.object({
 const estimateItemsBulkDataSchema = z.object({
   updated_count: z.number().int(),
   version: estimateVersionTokenSchema,
+  totals: z.object({
+    total_ht_cents: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+    total_tax_cents: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+    total_ttc_cents: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+  }).describe(
+    "Totaux canoniques confirmes par le serveur apres une sauvegarde V2. Les trois montants sont des entiers surs non negatifs en centimes et total_ht_cents + total_tax_cents = total_ttc_cents. Ce bloc peut etre absent sur les anciens chemins V1 ou sans modification."
+  ).optional(),
 });
 
 const estimateSupplierComparisonsDataSchema = z.object({
@@ -1002,16 +1064,10 @@ const estimatePurchaseOrderDraftPreparationDataSchema = z.object({
   summary: estimatePurchaseOrderDraftPreparationSummarySchema,
   groups: z.array(estimatePurchaseOrderDraftGroupSchema),
   blocked_lines: z.array(estimatePurchaseOrderDraftBlockedLineSchema),
+  transferred_lines: z.array(purchaseTransferSchema),
 });
 
-const estimatePurchaseOrderDraftCreationDataSchema = z.object({
-  source_version_id: uuidSchema,
-  summary: z.object({
-    draft_orders_created: z.number().int(),
-    draft_lines_created: z.number().int(),
-  }),
-  orders: z.array(estimatePurchaseOrderDraftCreationOrderSchema),
-});
+const estimatePurchaseOrderDraftCreationDataSchema = purchaseReceiptSchema;
 
 const estimateSuggestPricesDataSchema = z.object({
   query: z.string(),
@@ -2290,6 +2346,13 @@ const apiEstimateItemsSchemaDefinition = successResponseSchemaDefinition(
   "ApiEstimateItemsResponse",
   estimateItemsDataSchema
 );
+const apiEstimateAssemblyInsertSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateAssemblyInsertResponse", estimateAssemblyInsertDataSchema
+);
+const apiEstimateAssemblyPersistedInsertionFailureSchemaDefinition = schemaDefinition(
+  "ApiEstimateAssemblyInsertConflict",
+  z.union([estimateAssemblyPersistedInsertionFailureSchema, apiFailureResponseSchema]), "output"
+);
 const apiEstimateItemSchemaDefinition = successResponseSchemaDefinition(
   "ApiEstimateItemResponse",
   estimateItemDataSchema
@@ -2320,12 +2383,60 @@ const apiEstimateSupplierComparisonsSchemaDefinition = successResponseSchemaDefi
 );
 const apiEstimatePurchaseOrderDraftPreparationSchemaDefinition = successResponseSchemaDefinition(
   "ApiEstimatePurchaseOrderDraftPreparationResponse",
-  estimatePurchaseOrderDraftPreparationDataSchema
+  z.union([estimatePurchaseOrderDraftPreparationDataSchema, purchaseReceiptSchema, z.null()])
 );
 const apiEstimatePurchaseOrderDraftCreationSchemaDefinition = successResponseSchemaDefinition(
   "ApiEstimatePurchaseOrderDraftCreationResponse",
   estimatePurchaseOrderDraftCreationDataSchema
 );
+const apiSourceReferenceReviewSchemaDefinition = schemaDefinition(
+  "ApiSourceReferenceReviewResponse",
+  z.strictObject({ ok: z.literal(true), data: sourceReferenceReviewSchema }),
+  "output"
+);
+const apiSourceReferenceReadErrorSchemaDefinition = schemaDefinition(
+  "ApiSourceReferenceReviewError",
+  sourceReferenceReadErrorResponseSchema,
+  "output"
+);
+const sourceReferenceCacheControlHeader = responseHeader({
+  name: "Cache-Control",
+  description: "Lecture authentifiée sans cache, y compris sur erreur.",
+  schemaName: "SourceReferenceCacheControlHeader",
+  schema: z.literal("private, no-store"),
+  required: true,
+});
+function sourceReferenceReadResponse(description: string, success = false) {
+  return {
+    ...jsonResponse(description, success ? apiSourceReferenceReviewSchemaDefinition : apiSourceReferenceReadErrorSchemaDefinition),
+    headers: [sourceReferenceCacheControlHeader],
+  };
+}
+const apiSourceReferenceErrorSchemaDefinition = schemaDefinition("ApiSourceReferenceError", sourceReferenceErrorResponseSchema, "output");
+const apiSourceReferencePreparationSchemaDefinition = schemaDefinition("ApiSourceReferencePreparationResponse", z.strictObject({ ok: z.literal(true), data: sourceReferencePreparationResultSchema }), "output");
+const apiSourceReferenceConfirmationSchemaDefinition = schemaDefinition("ApiSourceReferenceConfirmationResponse", z.strictObject({ ok: z.literal(true), data: sourceReferenceConfirmationResultSchema }), "output");
+const sourceReferenceOriginParameter = headerParameter({
+  name: "Origin", description: "Origine HTTP(S) identique à celle de la requête ; absente, null ou étrangère refusée avant authentification.",
+  schemaName: "SourceReferenceOriginHeader", schema: z.string().url(), required: true,
+});
+function sourceReferenceWriteResponses(result: typeof apiSourceReferencePreparationSchemaDefinition): Record<string, OpenApiResponseDefinition> {
+  const response = (description: string, success = false): OpenApiResponseDefinition => ({
+    ...jsonResponse(description, success ? result : apiSourceReferenceErrorSchemaDefinition), headers: [sourceReferenceCacheControlHeader],
+  });
+  return {
+    "200": response("Demande identique déjà reçue : résultat canonique rejoué, sans nouvelle activation.", true),
+    "201": response("Nouvelle demande traitée et résultat canonique vérifié.", true),
+    "400": response("SOURCE_REVIEW_INVALID_INPUT : JSON/UTF8 invalide, type autre que application/json, identité, champ ou paramètre inconnu."),
+    "401": response("UNAUTHORIZED : session absente ou invalide."),
+    "403": response("SOURCE_REVIEW_WRITE_FORBIDDEN : origine refusée ou rôle sans droit d'écriture."),
+    "404": response("SOURCE_REVIEW_ACCESS_DENIED : ressource inaccessible sans divulgation d'existence."),
+    "409": response("SOURCE_REVIEW_STALE, BUSY, COPY_NOT_VERIFIED, REFERENCE_UNCHANGED, IDEMPOTENCY_CONFLICT, SOURCE_UNAVAILABLE ou REVISION_OVERFLOW : relire ou reprendre la même intention selon le cas."),
+    "413": response("SOURCE_REVIEW_PAYLOAD_TOO_LARGE : corps dépassant 8192 octets effectifs, indépendamment de Content-Length."),
+    "422": response("SOURCE_REVIEW_INVALID_SOURCE ou PDF_LIMIT_EXCEEDED : original non admissible, PDF invalide/chiffré, plus de 50 Mio ou 200 pages."),
+    "500": response("INTERNAL_ERROR : résultat incohérent ou erreur inattendue sans détail interne."),
+    "503": response("SOURCE_REVIEW_TEMPORARILY_UNAVAILABLE : interruption, délai ou dépendance indisponible ; résultat potentiellement déjà enregistré, reprendre la même clé."),
+  };
+}
 const apiEstimateSuggestPricesSchemaDefinition = successResponseSchemaDefinition(
   "ApiEstimateSuggestPricesResponse",
   estimateSuggestPricesDataSchema
@@ -3126,7 +3237,7 @@ const bulkUpdateEstimateItemsBody = jsonBody({
 const batchOperationsBody = jsonBody({
   name: "BatchEstimateOperationsRequest",
   description:
-    "Execution groupee d'operations create/update/delete/reorder avec token de concurrence.",
+    "Opérations ordonnées et token de concurrence. operation_key UUID obligatoire pour toute écriture ; les anciens clients sans clé sont refusés avant effet avec ESTIMATE_BATCH_OPERATION_KEY_REQUIRED (recharger le client). Clé facultative pour dry_run. Limite HTTP configurable : 100 par défaut, plafond de 1000 opérations ; demande JSON de 1 Mio au plus. Aucun découpage automatique ni troncature.",
   schema: batchOperationsSchema,
 });
 
@@ -3430,6 +3541,7 @@ const apiEstimatePdfLayoutConfigurationSchemaDefinition = schemaDefinition(
 );
 
 export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
+  ...sourceCoverageOperations,
   {
     method: "get",
     path: "/api/products/reference-suggestion",
@@ -4150,13 +4262,17 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     method: "get",
     path: "/api/estimates/{versionId}",
     summary: "Recuperer une version",
-    description: "Retourne le detail complet d'une version de chiffrage.",
+    description: "Retourne toutes les lignes de la version autorisée. Refuse VERSION_CONFLICT si la version change pendant la lecture, sans adopter son nouveau token.",
     tags: ["Estimate Versions"],
     parameters: [versionIdPathParameter],
     responses: {
       "200": jsonResponse(
         "Version de chiffrage retournee.",
         apiEstimateVersionDetailsSchemaDefinition
+      ),
+      "409": jsonResponse(
+        "VERSION_CONFLICT : la version a changé pendant la lecture ; rechargez le chiffrage.",
+        openApiSharedSchemaDefinitions.apiFailureResponse
       ),
     },
   },
@@ -4165,24 +4281,32 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     path: "/api/estimates/{versionId}",
     summary: "Modifier une version",
     description:
-      "Met a jour les metadonnees et/ou les totaux de la version de chiffrage.",
+      "Enregistre les réglages, toutes les projections de lignes et le pied dans une transaction. Les montants sont recalculés côté serveur. Exige le timestamp et expected_content_revision de l'intention initiale, avec le bail actif de cette page ; ne rebase pas un conflit.",
     tags: ["Estimate Versions"],
-    parameters: [versionIdPathParameter, ifMatchHeaderOptionalParameter],
+    parameters: [versionIdPathParameter, ifMatchHeaderRequiredParameter, estimateDraftLockSessionHeaderParameter],
     requestBody: patchEstimateVersionBody,
     responses: {
       "200": jsonResponse(
-        "Version de chiffrage mise a jour.",
-        apiEstimateVersionSchemaDefinition
+        "Version et toutes les lignes confirmées après sauvegarde atomique.",
+        successResponseSchemaDefinition("ApiEstimateSettingsResponse", z.object({
+          version: estimateVersionSchema.extend({
+            updated_at: z.string(), content_revision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+            total_ht_cents: z.number().int(), total_tax_cents: z.number().int(), total_ttc_cents: z.number().int(),
+            rounding_adjustment_cents: z.number().int(),
+          }),
+          items: z.array(estimateItemSchema),
+        }))
       ),
+      "409": jsonResponse("VERSION_CONFLICT, LOCK_REQUIRED ou CONTEXT_CHANGED : aucun réglage ni montant enregistré.", openApiSharedSchemaDefinitions.apiFailureResponse),
     },
   },
   {
     method: "patch",
     path: "/api/estimates/{versionId}/status",
     summary: "Changer le statut d'une version",
-    description: "Met a jour le statut metier de la version (draft/sent/...).",
+    description: "Met a jour le statut metier avec le jeton If-Match original et exact. La transition brouillon vers envoyé exige un bail actif de cette page, renouvelé pendant la préparation du document. Les transitions ultérieures préservent le PDF et le sceau émis et ne demandent aucun nouveau bail.",
     tags: ["Estimate Versions"],
-    parameters: [versionIdPathParameter, ifMatchHeaderRequiredParameter],
+    parameters: [versionIdPathParameter, ifMatchHeaderRequiredParameter, { ...estimateDraftLockSessionHeaderParameter, required: false }],
     requestBody: patchEstimateStatusBody,
     responses: {
       "200": jsonResponse(
@@ -4196,9 +4320,14 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     path: "/api/estimates/{versionId}/send",
     summary: "Envoyer une version par email",
     description:
-      "Envoie le devis par email (avec piece jointe PDF et message personnalise).",
+      "Envoie le devis avec son PDF et son message figés. Un nouvel envoi de brouillon, ou la reprise d'une préparation échouée sans document figé, exige l'horodatage If-Match original et exact ainsi qu'un bail actif de cette page. Un brouillon périmé ou sans ce bail est refusé avant réservation. Les reprises d'une enveloppe figée et les renvois d'une offre émise conservent leur contrat initial sans demander un nouveau bail de brouillon.",
     tags: ["Estimate Versions"],
-    parameters: [versionIdPathParameter, estimateEmailIdempotencyKeyHeaderParameter],
+    parameters: [
+      versionIdPathParameter,
+      estimateEmailIdempotencyKeyHeaderParameter,
+      { ...ifMatchHeaderRequiredParameter, required: false },
+      { ...estimateDraftLockSessionHeaderParameter, required: false },
+    ],
     requestBody: sendEstimateBody,
     responses: {
       "200": jsonResponse(
@@ -4269,18 +4398,22 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     method: "get",
     path: "/api/estimates/{versionId}/items",
     summary: "Lister les items",
-    description: "Retourne la structure des sections/lignes de la version.",
+    description: "Retourne toutes les sections et lignes de la version autorisée. Refuse VERSION_CONFLICT si la version change pendant la lecture.",
     tags: ["Estimate Items"],
     parameters: [versionIdPathParameter],
     responses: {
       "200": jsonResponse("Items retournes.", apiEstimateItemsSchemaDefinition),
+      "409": jsonResponse(
+        "VERSION_CONFLICT : la version a changé pendant la lecture ; rechargez le chiffrage.",
+        openApiSharedSchemaDefinitions.apiFailureResponse
+      ),
     },
   },
   {
     method: "post",
     path: "/api/estimates/{versionId}/items",
     summary: "Ajouter un item",
-    description: "Ajoute une section ou une ligne dans la version.",
+    description: "Ajoute une section ou une ligne et enregistre atomiquement les totaux recalcules du brouillon. Un changement concurrent du devis ou de son contexte de calcul provoque un conflit sans creation partielle.",
     tags: ["Estimate Items"],
     parameters: [versionIdPathParameter, ifMatchHeaderOptionalParameter],
     requestBody: createEstimateItemBody,
@@ -4366,19 +4499,37 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     path: "/api/estimates/{versionId}/batch",
     summary: "Executer un batch d'operations",
     description:
-      "Execute en un appel un lot d'operations create/update/delete/reorder.",
+      "Applique create/update/delete/reorder, allocations, totaux, audit et reçu dans une transaction unique. Un refus métier confirmé retourne committed:false sans effet, avec rolled_back:true pour les opérations précédentes. dry_run valide sans écriture ni réservation. If-Match prime sur concurrency_token ; query dry_run prime sur le corps. Une nouvelle écriture exige un brouillon, un bail de page actif et le token exact. Même acteur/clé/contenu/token original : reçu historique, avant CAS et sans ancien bail requis, sous droits writer actuels. version/totals/results sont ceux du commit ; current_version décrit l'état actuel. Un reçu est limité à 2 Mio. Une issue transport inconnue ne retourne jamais committed:false : conserver la demande et sa clé pour vérifier ou reprendre explicitement. Un collage composé de plusieurs batchs peut rester partiellement enregistré. Une création ou modification supprimée ensuite par cascade dans le même lot retourne item:null, deleted_in_batch:true et deleted_item_id ; elle ne représente pas une ligne encore persistée.",
     tags: ["Estimate Items"],
     parameters: [
       versionIdPathParameter,
       ifMatchHeaderOptionalParameter,
       batchDryRunQueryParameter,
+      { ...estimateDraftLockSessionHeaderParameter, required: false },
     ],
     requestBody: batchOperationsBody,
     responses: {
       "200": jsonResponse(
-        "Batch execute avec succes.",
+        "Résultat commis, refus transactionnel confirmé ou validation dry-run.",
         apiEstimateBatchSchemaDefinition
       ),
+      "413": jsonResponse("Demande trop volumineuse ; aucune écriture.", openApiSharedSchemaDefinitions.apiFailureResponse),
+      "503": jsonResponse("BATCH_OUTCOME_UNKNOWN : résultat à rapprocher, conserver clé/corps/token original.", openApiSharedSchemaDefinitions.apiFailureResponse),
+    },
+  },
+  {
+    method: "get",
+    path: "/api/estimates/{versionId}/batch/receipts/{operationKey}",
+    summary: "Retrouver le reçu d'une opération groupée",
+    description: "Lecture sans mutation réservée à l'acteur du reçu sous son accès actuel à la version. Aucun bail ni statut draft requis. Un acteur devenu lecteur peut retrouver son reçu ; un autre acteur reçoit null, une version hors périmètre est refusée. Retourne le résultat historique et current_version distinct. null signifie seulement qu'aucun reçu visible n'est présent à cette lecture ; une demande encore en vol peut arriver ensuite. Ne pas créer une nouvelle clé pour la remplacer.",
+    tags: ["Estimate Items"],
+    parameters: [versionIdPathParameter, pathParameter({
+      name: "operationKey", description: "Clé UUID de la demande originale.",
+      schemaName: "EstimateBatchOperationKeyPathParameter", schema: uuidSchema,
+    })],
+    responses: {
+      "200": jsonResponse("Reçu historique et version actuelle, ou null.",
+        successResponseSchemaDefinition("ApiEstimateBatchReceiptResponse", estimateBatchCommittedSchema.nullable())),
     },
   },
   {
@@ -4423,12 +4574,88 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
   },
   {
     method: "get",
+    path: "/api/estimates/{versionId}/source-review",
+    omitDefaultErrorResponses: true,
+    summary: "Lire la revue de référence documentaire",
+    description:
+      "Retourne la référence active, une copie sélectionnée, l'historique et un reçu indépendant de la pagination. Lecture seule avec le tenant actif et les droits propriétaire/admin/director ; aucune revue n'est créée. UUID normalisés en minuscules. Paramètres inconnus ou dupliqués refusés. Révision initiale 0 et état vide uniquement après une lecture RPC valide ; aucune erreur n'est convertie en absence. Aucune URL Storage ni détail SQL exposé.",
+    tags: ["Estimate Versions"],
+    parameters: [
+      versionIdPathParameter,
+      queryParameter({ name: "copyId", description: "Copie de cette revue à consulter dans selectedCopy.", schemaName: "SourceReferenceCopyIdQuery", schema: uuidSchema }),
+      queryParameter({ name: "cursor", description: "Révision exclusive entière, de 1 à 9007199254740991 ; chiffres décimaux uniquement.", schemaName: "SourceReferenceCursorQuery", schema: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER) }),
+      queryParameter({ name: "limit", description: "Taille de page entière de 1 à 100, 20 par défaut ; chiffres décimaux uniquement.", schemaName: "SourceReferenceLimitQuery", schema: z.number().int().min(1).max(100).default(20) }),
+      queryParameter({ name: "confirmationKey", description: "Clé du reçu recherché séparément de selectedCopy et de la page d'historique.", schemaName: "SourceReferenceConfirmationKeyQuery", schema: uuidSchema }),
+    ],
+    responses: {
+      "200": sourceReferenceReadResponse("Revue autorisée, éventuellement initiale, retournée sans mutation.", true),
+      "400": sourceReferenceReadResponse("SOURCE_REVIEW_INVALID_INPUT : identité, paramètre inconnu/dupliqué ou pagination invalide."),
+      "401": sourceReferenceReadResponse("UNAUTHORIZED : session absente ou invalide."),
+      "404": sourceReferenceReadResponse("SOURCE_REVIEW_ACCESS_DENIED : ressource inaccessible, sans révéler son existence."),
+      "500": sourceReferenceReadResponse("INTERNAL_ERROR : contrat RPC incohérent ou erreur inattendue."),
+      "503": sourceReferenceReadResponse("SOURCE_REVIEW_TEMPORARILY_UNAVAILABLE : lecture temporairement impossible."),
+    },
+  },
+  {
+    method: "post",
+    path: "/api/estimates/{versionId}/source-review/copies",
+    omitDefaultErrorResponses: true,
+    summary: "Conserver et vérifier une copie CCTP",
+    description: "Réserve une intention idempotente dans la revue, lit l'original avec les droits utilisateur, inspecte le PDF en worker puis crée une copie privée sans remplacement. Les octets conservés sont relus et vérifiés avant l'attestation. Aucun changement de référence active. Corps JSON strict de 8192 octets au plus, UUID normalisés, aucun paramètre de requête. Budget serveur absolu de 60 secondes. Une réponse perdue se reprend avec la même preparationKey, documentId et expectedRevision ; une copie vérifiée absente n'est jamais recréée. Accès admin/engineer autorisé par les règles métier et tenant actif.",
+    tags: ["Estimate Versions"],
+    parameters: [versionIdPathParameter, sourceReferenceOriginParameter],
+    requestBody: jsonBody({ name: "SourceReferencePreparationInput", description: "Intention stable de conservation de la pièce CCTP.", schema: sourceReferencePreparationInputSchema, required: true }),
+    responses: sourceReferenceWriteResponses(apiSourceReferencePreparationSchemaDefinition),
+  },
+  {
+    method: "get",
+    path: "/api/estimates/{versionId}/source-review/copies/{copyId}/content",
+    omitDefaultErrorResponses: true,
+    summary: "Lire les octets vérifiés de la copie privée",
+    description: "Lit une copie vérifiée autorisée, réinspecte son PDF et compare SHA-256, taille et pages avant émission. Aucun repli sur l'original ni URL signée. Budget serveur absolu de 30 secondes. Aucun paramètre de requête ; Range et les en-têtes conditionnels n'entraînent jamais de réponse partielle ou 304 : le PDF complet vérifié est renvoyé avec 200 et Accept-Ranges: none. Les droits de lecture sont recontrôlés après le transfert.",
+    tags: ["Estimate Versions"],
+    parameters: [versionIdPathParameter, pathParameter({ name: "copyId", description: "Copie vérifiée de cette revue.", schemaName: "SourceReferenceCopyIdPath", schema: uuidSchema })],
+    responses: {
+      "200": {
+        description: "Octets PDF complets conformes à la copie conservée.",
+        contents: [{ contentType: "application/pdf" }],
+        headers: [
+          sourceReferenceCacheControlHeader,
+          responseHeader({ name: "Content-Length", description: "Nombre exact d'octets émis.", schemaName: "SourceReferenceContentLengthHeader", schema: z.string().regex(/^[0-9]+$/), required: true }),
+          responseHeader({ name: "X-Source-Reference-Sha256", description: "SHA-256 des octets vérifiés, en hexadécimal minuscule.", schemaName: "SourceReferenceHashHeader", schema: z.string().regex(/^[0-9a-f]{64}$/), required: true }),
+          responseHeader({ name: "Content-Disposition", description: "Disposition inline avec filename ASCII borné et filename* RFC5987 encodé, sans caractères de contrôle.", schemaName: "SourceReferenceDispositionHeader", schema: z.string(), required: true }),
+          responseHeader({ name: "X-Content-Type-Options", description: "Empêche l'interprétation sous un autre type.", schemaName: "SourceReferenceNosniffHeader", schema: z.literal("nosniff"), required: true }),
+          responseHeader({ name: "Accept-Ranges", description: "Lecture intégrale uniquement.", schemaName: "SourceReferenceRangesHeader", schema: z.literal("none"), required: true }),
+        ],
+      },
+      ...Object.fromEntries(Object.entries(sourceReferenceWriteResponses(apiSourceReferencePreparationSchemaDefinition)).filter(([status]) => ["400", "401", "404", "409", "500", "503"].includes(status))),
+    },
+  },
+  {
+    method: "post",
+    path: "/api/estimates/{versionId}/source-review/reference",
+    omitDefaultErrorResponses: true,
+    summary: "Confirmer humainement la référence CCTP",
+    description: "Recherche d'abord le reçu exact par idempotencyKey indépendamment de la pagination. Une demande identique rejoue son activation historique et l'état courant sans réactiver une ancienne copie, même si ses octets sont devenus indisponibles. Une nouvelle activation exige une copie vérifiée, un hash relu et une révision attendue, puis une vérification physique des octets avant la transaction SQL revalidant acteur, tenant, droits et identité Storage. Motif normalisé trim de 1 à 1000 caractères Unicode, hash et UUID minuscules. Corps JSON strict de 8192 octets au plus ; aucun paramètre de requête. Budget serveur absolu de 30 secondes. Même clé avec un autre contenu : conflit.",
+    tags: ["Estimate Versions"],
+    parameters: [versionIdPathParameter, sourceReferenceOriginParameter],
+    requestBody: jsonBody({ name: "SourceReferenceConfirmationInput", description: "Décision humaine sur la copie et la révision effectivement relues.", schema: sourceReferenceConfirmationInputSchema, required: true }),
+    responses: sourceReferenceWriteResponses(apiSourceReferenceConfirmationSchemaDefinition),
+  },
+  {
+    method: "get",
     path: "/api/estimates/{versionId}/purchase-order-drafts",
     summary: "Preparer des brouillons de commandes",
     description:
-      "Retourne les groupes fournisseur draftables et les lignes non commandables depuis une version de devis.",
+      "Retourne la préparation, les empreintes à relire et les transferts existants. Avec idempotency_key, recherche uniquement le reçu de cette validation (ou null), sans créer de commande.",
     tags: ["Estimate Output"],
-    parameters: [versionIdPathParameter],
+    parameters: [versionIdPathParameter, queryParameter({
+      name: "idempotency_key",
+      description: "Clé UUID de la validation dont le reçu doit être retrouvé.",
+      schemaName: "PurchaseReceiptIdempotencyKey",
+      schema: uuidSchema,
+      required: false,
+    })],
     responses: {
       "200": jsonResponse(
         "Preparation des brouillons de commandes retournee.",
@@ -4441,11 +4668,15 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     path: "/api/estimates/{versionId}/purchase-order-drafts",
     summary: "Creer des brouillons de commandes",
     description:
-      "Cree explicitement des brouillons de commandes par fournisseur a partir des lignes draftables de la version.",
+      "Crée atomiquement les brouillons relus. Même clé et même contenu : reçu initial (200). Données modifiées, transfert existant ou clé réutilisée avec un autre contenu : conflit (409). Aucun fournisseur n'est contacté.",
     tags: ["Estimate Output"],
     parameters: [versionIdPathParameter],
     requestBody: createEstimatePurchaseOrderDraftsBody,
     responses: {
+      "200": jsonResponse(
+        "Reçu initial retrouvé ; aucune nouvelle commande créée.",
+        apiEstimatePurchaseOrderDraftCreationSchemaDefinition
+      ),
       "201": jsonResponse(
         "Brouillons de commandes crees.",
         apiEstimatePurchaseOrderDraftCreationSchemaDefinition
@@ -4763,9 +4994,9 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     path: "/api/estimates/{versionId}/pdf",
     summary: "Declencher la generation PDF",
     description:
-      "Declenche une generation PDF immediate. Retourne `ready` ou `processing`.",
+      "Prépare le calcul du brouillon sous le verrou de cette page, puis déclenche la génération PDF. Retourne `ready` ou `processing`; une simple lecture du PDF déjà prêt ne requiert pas de verrou.",
     tags: ["Estimate PDF"],
-    parameters: [versionIdPathParameter, pdfForceQueryParameter],
+    parameters: [versionIdPathParameter, pdfForceQueryParameter, { ...estimateDraftLockSessionHeaderParameter, required: false }],
     requestBody: generateEstimatePdfBody,
     responses: {
       "200": jsonResponse(
@@ -4998,14 +5229,18 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     path: "/api/estimates/assemblies/{assemblyId}/insert",
     summary: "Inserer un ouvrage dans une version",
     description:
-      "Insere un ouvrage dans une version cible, optionnellement apres un item.",
+      "Insere un ouvrage dans une version cible, optionnellement apres un item, puis confirme toutes les lignes financières et le pied avec le moteur du devis, sous contrôle de version, session et contexte de calcul. Un succès 200 comprend les items insérés, le jeton et les totaux relus après cette finalisation. La matérialisation et la finalisation restent deux transactions : ESTIMATE_ASSEMBLY_INSERT_PERSISTED signale une insertion présente dont la finalisation est refusée ou inconnue ; relire sans rejouer l'insertion. Chaque ligne copiée porte source_provider=assembly_library et une enveloppe source_metadata avec kind=assembly_library et library_origin : assembly_id de la feuille, assembly_item_id et copie JSON exacte de source_metadata de l'item. La copie conserve l'origine historique sans créer de nouvelle application IA ni couverture CCTP.",
     tags: ["Estimate Assemblies"],
     parameters: [assemblyIdPathParameter, insertAssemblyVersionIdQueryParameter],
     requestBody: insertAssemblyBody,
     responses: {
       "200": jsonResponse(
-        "Ouvrage insere dans la version.",
-        apiEstimateItemsSchemaDefinition
+        "Ouvrage insere et totaux confirmés dans la version.",
+        apiEstimateAssemblyInsertSchemaDefinition
+      ),
+      "409": jsonResponse(
+        "Conflit de verrou/version, ou ESTIMATE_ASSEMBLY_INSERT_PERSISTED : insertion déjà persistée, finalisation refusée ou inconnue. Relire les items autorisés sans réinsérer l'ouvrage.",
+        apiEstimateAssemblyPersistedInsertionFailureSchemaDefinition
       ),
     },
   },

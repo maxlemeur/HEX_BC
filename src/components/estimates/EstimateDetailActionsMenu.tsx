@@ -7,9 +7,11 @@ import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDow
 import { SaveAsTemplateButton } from "@/components/estimates/SaveAsTemplateButton";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import type { EstimateStatus } from "@/lib/estimates/status";
 
 type EstimateDetailActionsMenuProps = {
   versionId: string;
+  versionStatus: EstimateStatus;
   canEditVersion: boolean;
 };
 
@@ -19,6 +21,7 @@ type EstimateDetailActionsMenuProps = {
  */
 export function EstimateDetailActionsMenu({
   versionId,
+  versionStatus,
   canEditVersion,
 }: Readonly<EstimateDetailActionsMenuProps>) {
   return (
@@ -41,7 +44,7 @@ export function EstimateDetailActionsMenu({
         className="w-64 gap-1 p-1.5 [body:has([data-slot=dialog-content])_&]:pointer-events-none [body:has([data-slot=dialog-content])_&]:opacity-0"
         aria-label="Autres actions sur la version"
       >
-        <EstimatePdfDownloadButton versionId={versionId} />
+        <EstimatePdfDownloadButton versionId={versionId} versionStatus={versionStatus} />
         {canEditVersion ? <SaveAsTemplateButton versionId={versionId} /> : null}
         {canEditVersion ? <DuplicateEstimateButton versionId={versionId} /> : null}
       </PopoverContent>

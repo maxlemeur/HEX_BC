@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import useSWR from "swr";
 import { fetchApi } from "@/components/catalogue/api";
 import { LoadingState } from "@/components/layout/loading-state";
@@ -14,10 +15,10 @@ import type { ReferencePriceResponse } from "@/lib/catalogue/reference-price-sch
 
 const exclusions: Record<string, string> = {
   inactive: "Offre ou fournisseur inactif", missing_supplier_reference: "Référence fournisseur manquante",
-  future: "Pas encore valable", expired: "Expirée ou âgée de six mois",
+  future: "Pas encore valable", expired: "Date de validité dépassée",
   missing_quantity: "Quantité de référence à préciser", quantity: "Quantité minimale trop élevée",
   unit: "Unité différente", currency: "Devise différente", missing_transport: "Transport à préciser",
-  transport: "Traitement du transport différent", zero_price: "Prix nul à vérifier",
+  transport: "Traitement du transport différent", zero_price: "Prix nul exclu · à clarifier",
   older_supplier_offer: "Offre plus récente retenue pour ce fournisseur",
 };
 
@@ -106,7 +107,7 @@ export function ProductReferencePricePanel({ productId, onValidated }: {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-lg font-semibold text-foreground">Prix de référence</h2>
-          <p className="text-sm text-muted-foreground">Moyenne des dernières offres comparables de moins de six mois, une par fournisseur.</p>
+          <p className="text-sm text-muted-foreground">Moyenne des dernières offres comparables encore valables, une par fournisseur. Validité maximale : six mois, date de fin incluse.</p>
         </div>
         <Button variant="outline" size="md" disabled={busy || isValidating} onClick={() => void mutate()}>
           Actualiser la proposition
@@ -139,7 +140,7 @@ export function ProductReferencePricePanel({ productId, onValidated }: {
           </div>
           <div className="rounded-lg border border-info-border bg-info-subtle p-3">
             <p className="text-sm text-foreground-secondary">Moyenne proposée · à valider</p>
-            <p className="text-xl font-semibold text-foreground">{proposal.zero_price_requires_review ? "Prix nul à vérifier" : proposal.proposed_price_cents === null ? "Aucune offre comparable" : `${formatEUR(proposal.proposed_price_cents)} / ${proposal.unit}`}</p>
+            <p className="text-xl font-semibold text-foreground">{proposal.proposed_price_cents === null ? "Aucune offre comparable" : `${formatEUR(proposal.proposed_price_cents)} / ${proposal.unit}`}</p>
             <p className="mt-1 text-xs text-foreground-secondary">{proposal.offer_count === 1 ? "Une seule source" : `${proposal.offer_count} fournisseurs retenus`}</p>
           </div>
         </div>
@@ -147,7 +148,7 @@ export function ProductReferencePricePanel({ productId, onValidated }: {
         {proposal.dispersion_alert ? <Alert variant="warning" role="alert">
           Écart supérieur à 15 % : {proposal.dispersion_percent?.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} % entre le minimum et le maximum. Toutes les offres retenues restent dans la moyenne.
         </Alert> : null}
-        {proposal.zero_price_requires_review ? <Alert variant="warning" role="alert">Une offre à prix nul nécessite une vérification. Aucune moyenne ne peut être validée avant traitement de cette anomalie.</Alert> : null}
+        {proposal.zero_price_requires_review ? <Alert variant="warning" role="alert">Une offre à prix nul est exclue de la moyenne et reste à clarifier. Valider la moyenne ne règle pas cette anomalie. Corrigez ou retirez l’offre concernée.</Alert> : null}
         <details className="rounded-lg border border-border p-3" open>
           <summary className="cursor-pointer rounded text-sm font-semibold text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">Offres retenues et exclues ({proposal.offers.length})</summary>
           <div className="relative mt-3 overflow-x-auto" role="region" aria-label="Offres retenues et exclues" tabIndex={0}>
@@ -163,7 +164,13 @@ export function ProductReferencePricePanel({ productId, onValidated }: {
                     <option value="">Transport à préciser</option><option value="excluded">Hors transport</option><option value="included">Transport inclus</option>
                   </NativeSelect> : <span className="block">{transportLabel(offer.transport_mode)}</span>}
                 </td>
-                <td className={`p-2 ${offer.exclusion ? "text-muted-foreground" : "font-medium text-success"}`}>{offer.exclusion ? exclusions[offer.exclusion] : "Retenue"}</td>
+                <td className={`p-2 ${offer.exclusion ? "text-muted-foreground" : "font-medium text-success"}`}>
+                  {offer.exclusion ? exclusions[offer.exclusion] : "Retenue"}
+                  {offer.exclusion === "zero_price" ? <Link
+                    className="mt-1 block rounded text-primary underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                    href={`/dashboard/prices?product_id=${encodeURIComponent(productId)}&supplier_id=${encodeURIComponent(offer.supplier_id)}`}
+                  >Examiner l’offre à corriger</Link> : null}
+                </td>
               </tr>)}</tbody>
             </table>
           </div>

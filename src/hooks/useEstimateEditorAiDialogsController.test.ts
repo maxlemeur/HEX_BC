@@ -20,6 +20,8 @@ import type {
 
 type HarnessProps = Pick<
   EstimateEditorAiDialogsControllerInput,
+  | "actorId"
+  | "tenantId"
   | "routeVersionId"
   | "activeVersion"
   | "items"
@@ -81,6 +83,8 @@ function createDeferred<T>() {
 function defaultProps(overrides: Partial<HarnessProps> = {}): HarnessProps {
   return {
     routeVersionId: "version-1",
+    actorId: "actor-1",
+    tenantId: "tenant-1",
     activeVersion: createVersion(),
     items: [],
     isMutationBlocked: false,

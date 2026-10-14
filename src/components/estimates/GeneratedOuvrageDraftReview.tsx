@@ -34,6 +34,7 @@ type GeneratedOuvrageDraftReviewProps = {
   onCancelEdit: (candidateId: string) => void;
   onReject: (candidateId: string) => void;
   onOpenSubdetail: (candidateId: string) => void;
+  onSubdetailChanged: (candidateId: string) => void;
   onSaveSubdetail: (
     candidateId: string,
     components: GeneratedOuvrageSubdetailEditorComponent[]
@@ -61,6 +62,7 @@ export function GeneratedOuvrageDraftReview({
   onCancelEdit,
   onReject,
   onOpenSubdetail,
+  onSubdetailChanged,
   onSaveSubdetail,
   subdetailByCandidateId,
 }: GeneratedOuvrageDraftReviewProps) {
@@ -134,6 +136,7 @@ export function GeneratedOuvrageDraftReview({
             onReject={onReject}
             onOpenSubdetail={onOpenSubdetail}
             onSaveSubdetail={onSaveSubdetail}
+            onSubdetailChanged={onSubdetailChanged}
             subdetailState={subdetailByCandidateId[candidate.candidateId] ?? null}
             isRejecting={rejectingCandidateId === candidate.candidateId}
           />

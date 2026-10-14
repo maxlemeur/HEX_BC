@@ -10,7 +10,7 @@ import { ExportDropdown } from "@/components/ExportDropdown";
 import { Button } from "@/components/ui/button";
 import type { AutoSaveStatus } from "@/hooks/useAutoSave";
 import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
-import type { EstimateExportMode } from "@/lib/estimates/client";
+import type { EstimateEditorData, EstimateExportMode } from "@/lib/estimates/client";
 import type { Database } from "@/types/database";
 import { CheckIcon, ChevronDownIcon } from "lucide-react";
 
@@ -99,6 +99,9 @@ type MoreActionsDropdownProps = {
   isExportDisabled: boolean;
   activeExportMode: EstimateExportMode | "csv" | null;
   versionId: string;
+  versionStatus: EstimateStatus;
+  onBeforeGeneratePdf?: () => Promise<boolean>;
+  onPdfPrepared?: (data: EstimateEditorData) => void;
   canArchive: boolean;
   onArchive: () => void;
   isArchiveDisabled: boolean;
@@ -155,6 +158,9 @@ function MoreActionsDropdown({
   isExportDisabled,
   activeExportMode,
   versionId,
+  versionStatus,
+  onBeforeGeneratePdf,
+  onPdfPrepared,
   canArchive,
   onArchive,
   isArchiveDisabled,
@@ -472,7 +478,8 @@ function MoreActionsDropdown({
               : "Exporter BDC V1.1"}
           </button>
           <div role="none" className="my-1">
-            <EstimatePdfDownloadButton versionId={versionId} />
+            <EstimatePdfDownloadButton versionId={versionId} versionStatus={versionStatus}
+              onBeforeGenerate={onBeforeGeneratePdf} onPrepared={onPdfPrepared} />
           </div>
           <div role="none" className="my-1">
             <SaveAsTemplateButton versionId={versionId} />
@@ -512,6 +519,8 @@ function MoreActionsDropdown({
 }
 
 type EstimateEditorToolbarProps = {
+  onBeforeGeneratePdf?: () => Promise<boolean>;
+  onPdfPrepared?: (data: EstimateEditorData) => void;
   projectId?: string | null;
   projectName: string;
   versionNumber: number;
@@ -558,6 +567,8 @@ type EstimateEditorToolbarProps = {
 };
 
 export function EstimateEditorToolbar({
+  onBeforeGeneratePdf,
+  onPdfPrepared,
   projectId = null,
   projectName,
   versionNumber,
@@ -724,6 +735,9 @@ export function EstimateEditorToolbar({
             isExportDisabled={isExportDisabled}
             activeExportMode={activeExportMode}
             versionId={versionId}
+            versionStatus={status}
+            onBeforeGeneratePdf={onBeforeGeneratePdf}
+            onPdfPrepared={onPdfPrepared}
             canArchive={canArchive}
             onArchive={onArchive}
             isArchiveDisabled={isStatusActionsDisabled}

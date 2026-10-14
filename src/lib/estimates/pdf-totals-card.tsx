@@ -37,6 +37,11 @@ const styles = StyleSheet.create({
   },
 });
 
+// Helvetica cannot encode Intl's narrow no-break thousands separator.
+function formatPdfCurrency(cents: number, currency: SupportedEstimateCurrency) {
+  return formatCurrency(cents, currency).replace(/[\u00a0\u202f]/g, " ");
+}
+
 export function PdfEstimateTotalsCard({
   totalHtCents,
   totalTaxCents,
@@ -60,12 +65,12 @@ export function PdfEstimateTotalsCard({
     <View style={styles.card} wrap={false}>
       <View style={styles.main}>
         <Text>Total HT</Text>
-        <Text>{formatCurrency(totalHtCents, currency)}</Text>
+        <Text>{formatPdfCurrency(totalHtCents, currency)}</Text>
       </View>
       {!vatReverseCharge && taxRateBp > 0 ? (
         <View style={styles.secondary}>
           <Text>TVA</Text>
-          <Text>{formatCurrency(totalTaxCents, currency)}</Text>
+          <Text>{formatPdfCurrency(totalTaxCents, currency)}</Text>
         </View>
       ) : null}
       {!vatReverseCharge && hasCommercialRounding ? (
@@ -73,7 +78,7 @@ export function PdfEstimateTotalsCard({
           <View style={styles.secondary}>
             <Text>TTC calculé</Text>
             <Text>
-              {formatCurrency(
+              {formatPdfCurrency(
                 amountDueCents - roundingAdjustmentCents,
                 currency,
               )}
@@ -81,14 +86,14 @@ export function PdfEstimateTotalsCard({
           </View>
           <View style={styles.secondary}>
             <Text>Arrondi commercial</Text>
-            <Text>{formatCurrency(roundingAdjustmentCents, currency)}</Text>
+            <Text>{formatPdfCurrency(roundingAdjustmentCents, currency)}</Text>
           </View>
         </>
       ) : null}
       {!vatReverseCharge ? (
         <View style={styles.secondary}>
           <Text>{hasCommercialRounding ? "Montant à payer" : "Total TTC"}</Text>
-          <Text>{formatCurrency(amountDueCents, currency)}</Text>
+          <Text>{formatPdfCurrency(amountDueCents, currency)}</Text>
         </View>
       ) : null}
     </View>

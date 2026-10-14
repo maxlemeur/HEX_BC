@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { SendIcon } from "lucide-react";
 
 import { useToast } from "@/components/ui-legacy/Toast";
@@ -19,14 +19,27 @@ import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useOptionalUserContext } from "@/components/UserContext";
+import { useDraftLock } from "@/hooks/useDraftLock";
+import {
+  fetchEstimateEditorData,
+  fetchEstimateSendGating,
+  getEstimateDraftLockSessionId,
+  type EstimateSendGatingResponse,
+} from "@/lib/estimates/client";
+import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDownloadButton";
+import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
+import type { EstimateStatus } from "@/lib/estimates/status";
 
 type SendEstimateModalProps = {
   open: boolean;
   onClose: () => void;
   versionId: string;
+  versionStatus: EstimateStatus;
+  versionUpdatedAt?: string;
   defaultSubject: string;
   defaultRecipient?: string;
   onSent?: () => void;
+  onPdfPrepared?: () => void;
 };
 
 function buildDefaultMessage(tenantName: string | null) {
@@ -116,11 +129,28 @@ export function SendEstimateModal({
   open,
   onClose,
   versionId,
+  versionStatus,
+  versionUpdatedAt,
   defaultSubject,
   defaultRecipient = "",
   onSent,
+  onPdfPrepared,
 }: SendEstimateModalProps) {
   const toast = useToast();
+  const [sendSource, setSendSource] = useState(() => ({
+    open,
+    versionId,
+    updatedAt: versionUpdatedAt,
+  }));
+  const isCurrentSendSource = sendSource.versionId === versionId;
+  const concurrencyToken = sendSource.updatedAt ?? "";
+  const requiresDraftLock = versionStatus === "draft";
+  const draftLock = useDraftLock({
+    versionId,
+    enabled: open && requiresDraftLock && isCurrentSendSource,
+  });
+  const canSubmit =
+    isCurrentSendSource && (!requiresDraftLock || draftLock.isOwnedByCurrentUser);
   const fieldId = useId();
   const toId = `${fieldId}-to`;
   const ccId = `${fieldId}-cc`;
@@ -135,8 +165,65 @@ export function SendEstimateModal({
   const [message, setMessage] = useState(() => buildDefaultMessage(tenantName));
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isPreparingPdf, setIsPreparingPdf] = useState(false);
+  const [gating, setGating] = useState<EstimateSendGatingResponse | null>(null);
+  const [gatingError, setGatingError] = useState<string | null>(null);
+  const currentViewRef = useRef({ open, versionId });
+  currentViewRef.current = { open, versionId };
   const idempotencyKeyRef = useRef<string | null>(null);
   const submittedFingerprintRef = useRef<string | null>(null);
+
+  if (sendSource.open !== open) {
+    // Capture the exact displayed source only when opening the dialog. A live
+    // refresh must not adopt a newer timestamp or retarget the prepared email.
+    if (open && sendSource.versionId !== versionId) {
+      idempotencyKeyRef.current = null;
+      submittedFingerprintRef.current = null;
+    }
+    setSendSource(open
+      ? { open, versionId, updatedAt: versionUpdatedAt }
+      : { ...sendSource, open });
+  }
+
+  useEffect(() => {
+    if (!open || !requiresDraftLock || !isCurrentSendSource) return;
+    let active = true;
+    setGating(null);
+    setGatingError(null);
+    void fetchEstimateSendGating(versionId)
+      .then((result) => { if (active) setGating(result); })
+      .catch(() => {
+        if (active) setGatingError("Les contrôles préalables sont indisponibles. Ils seront vérifiés à nouveau lors de la confirmation.");
+      });
+    return () => { active = false; };
+  }, [open, requiresDraftLock, isCurrentSendSource, versionId, concurrencyToken]);
+
+  const handleBeforePreparePdf = useCallback(async () => {
+    if (isSubmitting) {
+      throw new Error("L’envoi est en cours. Attendez sa confirmation avant de préparer un autre document.");
+    }
+    setIsPreparingPdf(true);
+    if (!canSubmit || !concurrencyToken) {
+      throw new Error("Attendez la disponibilité du devis avant de préparer le PDF.");
+    }
+    const current = await fetchEstimateEditorData(versionId);
+    if (current.version.id !== sendSource.versionId ||
+        current.version.updated_at !== concurrencyToken || current.version.status !== "draft") {
+      throw new Error("Le devis a changé. Fermez cette fenêtre, vérifiez la version puis rouvrez la préparation du PDF.");
+    }
+    return true;
+  }, [canSubmit, concurrencyToken, sendSource.versionId, versionId, isSubmitting]);
+
+  const handlePdfPrepared = useCallback(() => {
+    setIsPreparingPdf(false);
+    if (!currentViewRef.current.open || currentViewRef.current.versionId !== versionId) return;
+    toast.info({
+      title: "PDF préparé",
+      description: "Vérifiez le document téléchargé, puis rouvrez l’envoi pour confirmer l’email.",
+    });
+    onClose();
+    onPdfPrepared?.();
+  }, [onClose, onPdfPrepared, toast, versionId]);
 
   const closeModal = useCallback(() => {
     onClose();
@@ -144,17 +231,34 @@ export function SendEstimateModal({
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
-      if (!nextOpen && !isSubmitting) {
+      if (!nextOpen && !isSubmitting && !isPreparingPdf) {
         closeModal();
       }
     },
-    [closeModal, isSubmitting]
+    [closeModal, isSubmitting, isPreparingPdf]
   );
 
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
+      if (isPreparingPdf) return;
       setFormError(null);
+      if (!isCurrentSendSource) {
+        setFormError(
+          "Le devis affiché a changé. Fermez cette fenêtre, vérifiez la version puis rouvrez l’envoi."
+        );
+        return;
+      }
+      if (!canSubmit) {
+        setFormError("Attendez la disponibilité du devis avant de confirmer l’envoi.");
+        return;
+      }
+      if (requiresDraftLock && !concurrencyToken.trim()) {
+        setFormError(
+          "Rechargez la page puis vérifiez le devis avant de confirmer l’envoi."
+        );
+        return;
+      }
 
       const toTrimmed = to.trim();
       if (!toTrimmed) {
@@ -212,6 +316,10 @@ export function SendEstimateModal({
           headers: {
             "Content-Type": "application/json",
             "Idempotency-Key": idempotencyKey,
+            ...(requiresDraftLock ? {
+              "If-Match": concurrencyToken,
+              [ESTIMATE_DRAFT_LOCK_SESSION_HEADER]: getEstimateDraftLockSessionId(versionId),
+            } : {}),
           },
           body: JSON.stringify({
             to: toTrimmed,
@@ -281,6 +389,11 @@ export function SendEstimateModal({
       toast,
       onSent,
       closeModal,
+      canSubmit,
+      requiresDraftLock,
+      isCurrentSendSource,
+      concurrencyToken,
+      isPreparingPdf,
     ]
   );
 
@@ -299,6 +412,33 @@ export function SendEstimateModal({
         </DialogHeader>
         <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
           <DialogBody>
+            {requiresDraftLock && isCurrentSendSource ? (
+              <div className="mb-4 flex flex-col gap-3">
+                {gatingError ? <Alert variant="warning">{gatingError}</Alert> : !gating ? (
+                  <p role="status" className="text-sm text-muted-foreground">Vérification des conditions d’envoi…</p>
+                ) : (
+                  [...gating.blockingFlags, ...gating.warningFlags].map((flag) => (
+                    <Alert key={flag.key} variant={flag.severity === "blocking" ? "danger" : "warning"}>
+                      <strong>{flag.label}</strong> — {flag.description}
+                    </Alert>
+                  ))
+                )}
+                <p className="text-sm text-muted-foreground">
+                  Choisissez la présentation du devis et vérifiez le PDF avant de confirmer l’email.
+                  La préparation du document ne déclenche aucun envoi.
+                </p>
+                <fieldset disabled={isSubmitting} aria-label="Préparation du document PDF" className="min-w-0 border-0 p-0">
+                  <EstimatePdfDownloadButton
+                    versionId={versionId}
+                    versionStatus={versionStatus}
+                    className="self-start"
+                    onBeforeGenerate={handleBeforePreparePdf}
+                    onSuccess={handlePdfPrepared}
+                    onError={() => setIsPreparingPdf(false)}
+                  />
+                </fieldset>
+              </div>
+            ) : null}
             <Field>
               <FieldLabel htmlFor={toId}>Destinataire *</FieldLabel>
               <Input
@@ -349,6 +489,17 @@ export function SendEstimateModal({
               />
             </Field>
 
+            {!isCurrentSendSource ? (
+              <Alert variant="warning" className="text-sm">
+                Le devis affiché a changé. Fermez cette fenêtre, vérifiez la version puis rouvrez l’envoi.
+              </Alert>
+            ) : requiresDraftLock && !canSubmit ? (
+              <Alert variant={draftLock.isLockedByOther || draftLock.error ? "warning" : "info"}>
+                {draftLock.error ?? (draftLock.isLockedByOther
+                  ? "Ce devis est ouvert dans une autre page ou par un autre utilisateur. Fermez cette édition avant de confirmer l’envoi."
+                  : "Vérification de la disponibilité du devis…")}
+              </Alert>
+            ) : null}
             {formError ? <Alert variant="danger">{formError}</Alert> : null}
           </DialogBody>
           <DialogFooter>
@@ -357,7 +508,7 @@ export function SendEstimateModal({
               variant="outline"
               size="lg"
               onClick={closeModal}
-              disabled={isSubmitting}
+              disabled={isSubmitting || isPreparingPdf}
             >
               Annuler
             </Button>
@@ -366,6 +517,7 @@ export function SendEstimateModal({
               variant="primary"
               size="lg"
               loading={isSubmitting}
+              disabled={!canSubmit || isPreparingPdf}
               leftIcon={<SendIcon aria-hidden="true" />}
             >
               Envoyer

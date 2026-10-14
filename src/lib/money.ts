@@ -101,6 +101,11 @@ export function formatEUR(cents: number) {
   return formatCurrency(cents, "EUR");
 }
 
+export function formatCentsInput(cents: number | null) {
+  if (!Number.isFinite(cents ?? NaN)) return "";
+  return ((cents ?? 0) / 100).toFixed(2);
+}
+
 export function parseEuroToCents(input: string) {
   return parseCurrencyToCents(input, "EUR");
 }

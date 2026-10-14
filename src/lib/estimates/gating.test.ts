@@ -31,19 +31,21 @@ type QueryResult = {
   error: { code: string; message: string } | null;
 };
 
-function createOrderBuilder(result: QueryResult, requiredOrders = 1) {
-  let orderCallCount = 0;
+function createOrderBuilder(result: QueryResult) {
   const builder = {
     eq: vi.fn(),
     order: vi.fn(),
+    range: vi.fn(),
+    then: vi.fn(),
   };
   builder.eq.mockReturnValue(builder);
-  builder.order.mockImplementation(() => {
-    orderCallCount += 1;
-    if (orderCallCount >= requiredOrders) {
-      return Promise.resolve(result);
-    }
-    return builder;
+  builder.order.mockReturnValue(builder);
+  builder.then.mockImplementation((resolve: (value: QueryResult) => unknown) =>
+    Promise.resolve(result).then(resolve)
+  );
+  builder.range.mockImplementation((from: number, to: number) => {
+    const rows = Array.isArray(result.data) ? result.data : [];
+    return Promise.resolve({ ...result, data: rows.slice(from, to + 1), count: rows.length });
   });
 
   return builder;
@@ -59,15 +61,13 @@ function createSupabaseGatingMock(input: {
     {
       data: input.items,
       error: null,
-    },
-    1
+    }
   );
   const marginTiersBuilder = createOrderBuilder(
     {
       data: input.marginTiers,
       error: null,
-    },
-    2
+    }
   );
   const estimateDocumentsBuilder = {
     eq: vi.fn(),

@@ -1,0 +1,691 @@
+{
+  "meta": {
+    "axe": "D4",
+    "date": "2026-10-14",
+    "methode": "lecture seule SheetJS/pdfjs-dist ; rejeu de fonctions pures de l'appli transpilées par esbuild (aucune macro exécutée)"
+  },
+  "conventions": {
+    "optima_xlsx": {
+      "coeff_fo": 1.3,
+      "coeff_mo": 1.3,
+      "majoration_mo": 0,
+      "taux_horaire_eur": 40,
+      "formule_pu": "(G*$L$2)+(J*$M$2*$O$2)",
+      "formule_pt": "ROUND(D*E,2)",
+      "tva": "ROUND(total*20/100,2)",
+      "cellules": "Feuil1!L2:O2, E7, F7, F2947:F2949"
+    },
+    "optima_offre_pdf": {
+      "k_vente_fo": 1.3,
+      "k_vente_mo": 1.2,
+      "taux_mo_vendu_eur_h": 48,
+      "ajustement": "moindres carrés sur 785 (hydraulique) et 656 (plomberie) lignes appariées, erreur max 0,6 centime"
+    },
+    "devis_vierge_cibles": [
+      [
+        0,
+        1.6
+      ],
+      [
+        100000,
+        1.55
+      ],
+      [
+        250000,
+        1.5
+      ],
+      [
+        500000,
+        1.45
+      ],
+      [
+        1000000,
+        1.4
+      ]
+    ],
+    "appli_bareme_defaut": [
+      [
+        0,
+        1.6
+      ],
+      [
+        100000,
+        1.45
+      ],
+      [
+        1000000,
+        1.4
+      ]
+    ],
+    "bible_bloc_fo_ml": {
+      "tube": 1.2,
+      "coude90_par_ml": 0.3,
+      "te_par_ml": 0.15,
+      "reduction_par_ml": 0.2,
+      "manchon_par_ml_serti": 0.2,
+      "lt": 1.6,
+      "supportage": 1.3,
+      "mo_bloc": 1.1,
+      "cellules": "DB_I4Lsoude!J255:P266, DB_ILserti!J160:M168, DB_MCserti!J132:K140"
+    },
+    "appro_cuivre": {
+      "majo_cu": 1.05,
+      "majo_isolant": 1.1,
+      "coude90_par_m": "ROUNDUP(0,3 x métré) puis 0,2 au-delà de 1\"1/8",
+      "coude45_et_manchon_par_m": 0.25,
+      "brasure_kg": "somme métré x coefficient par diamètre (0,04 à 2,5)",
+      "sac": "kg/35",
+      "cellules": "cuivre_isolant!C2:C3, C10:AC14, AH8:AI8"
+    }
+  },
+  "bible_couverture": {
+    "articles": 1239,
+    "avec_prix": 366,
+    "avec_h_mo": 54,
+    "avec_h_par_pouce": 14,
+    "avec_pouces": 174,
+    "k_fo_renseignes": 4,
+    "k_mo_renseignes": 0,
+    "lignes_prix_sans_id_exclues": {
+      "DB_Rob": 5,
+      "DB_T10": 33
+    },
+    "collisions_id_insensibles_casse": 117
+  },
+  "oracle": {
+    "lignes": [
+      {
+        "id": "O1",
+        "lot": "hydraulique",
+        "designation": "Tube acier noir T10 DN125 en local technique",
+        "unite": "ml",
+        "q": 20,
+        "prfo": 54.66,
+        "tps_u": 1.991,
+        "src": {
+          "xlsx": "DPGF HYDRAULIQUE.xlsx Feuil1!A30:K30",
+          "debourse": "Déboursé HYDRAULIQUE.pdf p.1",
+          "offre": "DPGF HYDRAULIQUE.pdf p.1"
+        },
+        "detail": "PR FO = Px public 34,70 x (1 - remise code B21) x K Acc 1,75 ; tps 1,991 h/ml = k MO 1,81 x 1,1 h",
+        "attendu": {
+          "debourse_u": 134.3,
+          "pv_u_xlsx": 174.59,
+          "pt_xlsx": 3491.8,
+          "pv_u_debourse_pdf": 174.59,
+          "pt_debourse_pdf": 3491.8,
+          "pv_u_offre": 166.63,
+          "pt_offre": 3332.52
+        },
+        "app": {
+          "A_marge_unique_1_30": {
+            "cout": 2686,
+            "pv_total": 3491.8,
+            "pu": 174.59,
+            "ecart_vs_xlsx": 0,
+            "ecart_vs_debourse_pdf": 0
+          },
+          "A_bis_h_mo_saisi_par_unite": {
+            "pv_total": 1524.69,
+            "ecart_vs_xlsx": -1967.11
+          },
+          "B_kfo_1_30_kmo_1_20_marge_1": {
+            "cout_affiche": 3332.52,
+            "pv_total": 3332.52,
+            "pu": 166.63,
+            "ecart_vs_offre": 0,
+            "marque_affichee_pct": 0
+          },
+          "C_marge_1_30_kmo_0_923": {
+            "pv_total": 3332.36,
+            "ecart_vs_offre": -0.16
+          }
+        }
+      },
+      {
+        "id": "O2",
+        "lot": "hydraulique",
+        "designation": "Vanne papillon à brides PN16 DN125",
+        "unite": "U",
+        "q": 3,
+        "prfo": 95.63,
+        "prfo_exact": 95.625,
+        "px_net": 42.5,
+        "k_acc": 2.25,
+        "tps_u": 1.75,
+        "src": {
+          "xlsx": "DPGF HYDRAULIQUE.xlsx Feuil1!A13:K13",
+          "debourse": "Déboursé HYDRAULIQUE.pdf p.1",
+          "offre": "DPGF HYDRAULIQUE.pdf p.1"
+        },
+        "detail": "PR FO = 125,00 x (1 - remise) x K Acc 2,25 = 95,625 (affiché 95,63)",
+        "attendu": {
+          "debourse_u": 165.63,
+          "pv_u_xlsx": 215.319,
+          "pt_xlsx": 645.96,
+          "pv_u_debourse_pdf": 215.31,
+          "pt_debourse_pdf": 645.93,
+          "pv_u_offre": 208.32,
+          "pt_offre": 624.96
+        },
+        "app": {
+          "A_marge_unique_1_30": {
+            "cout": 496.89,
+            "pv_total": 645.96,
+            "pu": 215.32,
+            "ecart_vs_xlsx": 0,
+            "ecart_vs_debourse_pdf": 0.03
+          },
+          "A_bis_h_mo_saisi_par_unite": {
+            "pv_total": 463.96,
+            "ecart_vs_xlsx": -182
+          },
+          "B_kfo_1_30_kmo_1_20_marge_1": {
+            "cout_affiche": 624.96,
+            "pv_total": 624.96,
+            "pu": 208.32,
+            "ecart_vs_offre": 0,
+            "marque_affichee_pct": 0
+          },
+          "C_marge_1_30_kmo_0_923": {
+            "pv_total": 624.94,
+            "ecart_vs_offre": -0.02
+          },
+          "A_prime_kfo_porte_K_Acc": {
+            "pv_total": 645.94,
+            "ecart_vs_debourse_pdf": 0.01
+          }
+        }
+      },
+      {
+        "id": "O3",
+        "lot": "hydraulique",
+        "designation": "Calorifuge coquille laine 50 mm finition tôle isoxal",
+        "unite": "m2",
+        "q": 21,
+        "prfo": 58.5,
+        "tps_u": 0,
+        "src": {
+          "xlsx": "DPGF HYDRAULIQUE.xlsx Feuil1!A35:K35",
+          "debourse": "Déboursé HYDRAULIQUE.pdf p.2",
+          "offre": "DPGF HYDRAULIQUE.pdf p.1"
+        },
+        "detail": "FO seule (sous-traitance calorifuge) : 45,00 x K Acc 1,30 ; aucune heure",
+        "attendu": {
+          "debourse_u": 58.5,
+          "pv_u_xlsx": 76.05,
+          "pt_xlsx": 1597.05,
+          "pv_u_debourse_pdf": 76.05,
+          "pt_debourse_pdf": 1597.05,
+          "pv_u_offre": 76.05,
+          "pt_offre": 1597.05
+        },
+        "app": {
+          "A_marge_unique_1_30": {
+            "cout": 1228.5,
+            "pv_total": 1597.05,
+            "pu": 76.05,
+            "ecart_vs_xlsx": 0,
+            "ecart_vs_debourse_pdf": 0
+          },
+          "A_bis_h_mo_saisi_par_unite": {
+            "pv_total": 1597.05,
+            "ecart_vs_xlsx": 0
+          },
+          "B_kfo_1_30_kmo_1_20_marge_1": {
+            "cout_affiche": 1597.05,
+            "pv_total": 1597.05,
+            "pu": 76.05,
+            "ecart_vs_offre": 0,
+            "marque_affichee_pct": 0
+          },
+          "C_marge_1_30_kmo_0_923": {
+            "pv_total": 1597.05,
+            "ecart_vs_offre": 0
+          }
+        }
+      },
+      {
+        "id": "O4",
+        "lot": "hydraulique",
+        "designation": "Calorifuge eau glacée manchon élastomère 19x27 avec entoilage (ouvrage composé)",
+        "unite": "ml",
+        "q": 1139,
+        "prfo": 3.02,
+        "tps_u": 0.2,
+        "src": {
+          "xlsx": "DPGF HYDRAULIQUE.xlsx Feuil1!A718:K718",
+          "debourse": "Déboursé HYDRAULIQUE.pdf (ligne 2031-2034 du texte extrait)",
+          "offre": "DPGF HYDRAULIQUE.pdf p.15-16"
+        },
+        "detail": "3 articles par ml : isolant 1 m (1,31 €, 0,15 h) + toile de verre 0,04 rouleau (1,39 €, 0,04 h) + enduit 0,1 kg (0,32 €, 0,01 h)",
+        "attendu": {
+          "debourse_u": 11.02,
+          "pv_u_xlsx": 14.326,
+          "pt_xlsx": 16317.31,
+          "pv_u_debourse_pdf": 14.34,
+          "pt_debourse_pdf": 16333.26,
+          "pv_u_offre": 13.53,
+          "pt_offre": 15406.11
+        },
+        "app": {
+          "A_marge_unique_1_30": {
+            "cout": 12551.78,
+            "pv_total": 16317.31,
+            "pu": 14.33,
+            "ecart_vs_xlsx": 0,
+            "ecart_vs_debourse_pdf": -15.95
+          },
+          "A_bis_h_mo_saisi_par_unite": {
+            "pv_total": 4482.11,
+            "ecart_vs_xlsx": -11835.2
+          },
+          "B_kfo_1_30_kmo_1_20_marge_1": {
+            "cout_affiche": 15406.11,
+            "pv_total": 15406.11,
+            "pu": 13.53,
+            "ecart_vs_offre": 0,
+            "marque_affichee_pct": 0
+          },
+          "C_marge_1_30_kmo_0_923": {
+            "pv_total": 15405.21,
+            "ecart_vs_offre": -0.9
+          }
+        }
+      },
+      {
+        "id": "O5",
+        "lot": "hydraulique",
+        "designation": "Pose seule pompe double à débit variable (matériel fourni par tiers)",
+        "unite": "U",
+        "q": 1,
+        "prfo": 20,
+        "tps_u": 6,
+        "src": {
+          "xlsx": "DPGF HYDRAULIQUE.xlsx Feuil1!A20:K20",
+          "debourse": "Déboursé HYDRAULIQUE.pdf p.1",
+          "offre": "DPGF HYDRAULIQUE.pdf p.1"
+        },
+        "detail": "petite fourniture forfaitaire 20 € + 6 h",
+        "attendu": {
+          "debourse_u": 260,
+          "pv_u_xlsx": 338,
+          "pt_xlsx": 338,
+          "pv_u_debourse_pdf": 338,
+          "pt_debourse_pdf": 338,
+          "pv_u_offre": 314,
+          "pt_offre": 314
+        },
+        "app": {
+          "A_marge_unique_1_30": {
+            "cout": 260,
+            "pv_total": 338,
+            "pu": 338,
+            "ecart_vs_xlsx": 0,
+            "ecart_vs_debourse_pdf": 0
+          },
+          "A_bis_h_mo_saisi_par_unite": {
+            "pv_total": 338,
+            "ecart_vs_xlsx": 0
+          },
+          "B_kfo_1_30_kmo_1_20_marge_1": {
+            "cout_affiche": 314,
+            "pv_total": 314,
+            "pu": 314,
+            "ecart_vs_offre": 0,
+            "marque_affichee_pct": 0
+          },
+          "C_marge_1_30_kmo_0_923": {
+            "pv_total": 313.98,
+            "ecart_vs_offre": -0.02
+          }
+        }
+      },
+      {
+        "id": "O6",
+        "lot": "plomberie",
+        "designation": "Tube fonte SMU DN100 pour collecteur",
+        "unite": "ml",
+        "q": 282,
+        "prfo": 91.86,
+        "tps_u": 0.998,
+        "src": {
+          "xlsx": "DPGF PLOMBERIE.xlsx Feuil1!A986:K986",
+          "debourse": "Déboursé PLOMBERIE.pdf (ligne 2531-2532 du texte extrait)",
+          "offre": "DPGF PLOMBERIE MC.pdf"
+        },
+        "detail": "article acheté en barre de 3 m : 0,35 barre par ml (1/3 + ~5 %), PR barre 262,45 €, K Acc 2,00, tps barre 2,85 h",
+        "attendu": {
+          "debourse_u": 131.76,
+          "pv_u_xlsx": 171.314,
+          "pt_xlsx": 48310.55,
+          "pv_u_debourse_pdf": 171.28,
+          "pt_debourse_pdf": 48300.96,
+          "pv_u_offre": 167.32,
+          "pt_offre": 47184.8
+        },
+        "app": {
+          "A_marge_unique_1_30": {
+            "cout": 37161.96,
+            "pv_total": 48310.55,
+            "pu": 171.31,
+            "ecart_vs_xlsx": 0,
+            "ecart_vs_debourse_pdf": 9.59
+          },
+          "A_bis_h_mo_saisi_par_unite": {
+            "pv_total": 33727.77,
+            "ecart_vs_xlsx": -14582.78
+          },
+          "B_kfo_1_30_kmo_1_20_marge_1": {
+            "cout_affiche": 47184.8,
+            "pv_total": 47184.8,
+            "pu": 167.32,
+            "ecart_vs_offre": 0,
+            "marque_affichee_pct": 0
+          },
+          "C_marge_1_30_kmo_0_923": {
+            "pv_total": 47183.68,
+            "ecart_vs_offre": -1.12
+          }
+        }
+      },
+      {
+        "id": "O7",
+        "lot": "hydraulique",
+        "designation": "Tube acier noir T1 DN40 (expansion), avec 10 % de chute",
+        "unite": "ml",
+        "q": 8,
+        "prfo": 8.83,
+        "tps_u": 1.3,
+        "src": {
+          "xlsx": "DPGF HYDRAULIQUE.xlsx Feuil1!A29:K29",
+          "debourse": "Déboursé HYDRAULIQUE.pdf p.1",
+          "offre": "DPGF HYDRAULIQUE.pdf p.1"
+        },
+        "detail": "article 1,1 m par ml : PR 8,03 x 1,1 = 8,83 ; tps 1,182 x 1,1 = 1,30",
+        "attendu": {
+          "debourse_u": 60.84,
+          "pv_u_xlsx": 79.079,
+          "pt_xlsx": 632.63,
+          "pv_u_debourse_pdf": 79.09,
+          "pt_debourse_pdf": 632.72,
+          "pv_u_offre": 73.88,
+          "pt_offre": 591.03
+        },
+        "app": {
+          "A_marge_unique_1_30": {
+            "cout": 486.64,
+            "pv_total": 632.63,
+            "pu": 79.08,
+            "ecart_vs_xlsx": 0,
+            "ecart_vs_debourse_pdf": -0.09
+          },
+          "A_bis_h_mo_saisi_par_unite": {
+            "pv_total": 159.43,
+            "ecart_vs_xlsx": -473.2
+          },
+          "B_kfo_1_30_kmo_1_20_marge_1": {
+            "cout_affiche": 591.03,
+            "pv_total": 591.03,
+            "pu": 73.88,
+            "ecart_vs_offre": 0,
+            "marque_affichee_pct": 0
+          },
+          "C_marge_1_30_kmo_0_923": {
+            "pv_total": 590.99,
+            "ecart_vs_offre": -0.04
+          }
+        }
+      }
+    ],
+    "bareme": [
+      {
+        "cout_total_eur": 50000,
+        "coef_appli_defaut": 1.6,
+        "coef_cible_porteur": 1.6,
+        "pv_appli": 80000,
+        "pv_porteur": 80000
+      },
+      {
+        "cout_total_eur": 99999.99,
+        "coef_appli_defaut": 1.6,
+        "coef_cible_porteur": 1.6,
+        "pv_appli": 159999.98,
+        "pv_porteur": 159999.98
+      },
+      {
+        "cout_total_eur": 100000,
+        "coef_appli_defaut": 1.45,
+        "coef_cible_porteur": 1.55,
+        "pv_appli": 145000,
+        "pv_porteur": 155000
+      },
+      {
+        "cout_total_eur": 150000,
+        "coef_appli_defaut": 1.45,
+        "coef_cible_porteur": 1.55,
+        "pv_appli": 217500,
+        "pv_porteur": 232500
+      },
+      {
+        "cout_total_eur": 249999.99,
+        "coef_appli_defaut": 1.45,
+        "coef_cible_porteur": 1.55,
+        "pv_appli": 362499.99,
+        "pv_porteur": 387499.98
+      },
+      {
+        "cout_total_eur": 250000,
+        "coef_appli_defaut": 1.45,
+        "coef_cible_porteur": 1.5,
+        "pv_appli": 362500,
+        "pv_porteur": 375000
+      },
+      {
+        "cout_total_eur": 300000,
+        "coef_appli_defaut": 1.45,
+        "coef_cible_porteur": 1.5,
+        "pv_appli": 435000,
+        "pv_porteur": 450000
+      },
+      {
+        "cout_total_eur": 499999.99,
+        "coef_appli_defaut": 1.45,
+        "coef_cible_porteur": 1.5,
+        "pv_appli": 724999.99,
+        "pv_porteur": 749999.99
+      },
+      {
+        "cout_total_eur": 500000,
+        "coef_appli_defaut": 1.45,
+        "coef_cible_porteur": 1.45,
+        "pv_appli": 725000,
+        "pv_porteur": 725000
+      },
+      {
+        "cout_total_eur": 790490.05,
+        "coef_appli_defaut": 1.45,
+        "coef_cible_porteur": 1.45,
+        "pv_appli": 1146210.57,
+        "pv_porteur": 1146210.57
+      },
+      {
+        "cout_total_eur": 999999.99,
+        "coef_appli_defaut": 1.45,
+        "coef_cible_porteur": 1.45,
+        "pv_appli": 1449999.99,
+        "pv_porteur": 1449999.99
+      },
+      {
+        "cout_total_eur": 1000000,
+        "coef_appli_defaut": 1.4,
+        "coef_cible_porteur": 1.4,
+        "pv_appli": 1400000,
+        "pv_porteur": 1400000
+      },
+      {
+        "cout_total_eur": 1264749.15,
+        "coef_appli_defaut": 1.4,
+        "coef_cible_porteur": 1.4,
+        "pv_appli": 1770648.81,
+        "pv_porteur": 1770648.81
+      }
+    ],
+    "lots": {
+      "hydraulique": {
+        "fo": 545767.95,
+        "heures": 17974.528,
+        "taux": 40,
+        "pv_xlsx_1_3_1_3": 1644173.89,
+        "pv_debourse_pdf": 1644263.38,
+        "pv_offre_pdf": 1572275.75,
+        "debourse": 1264749.07,
+        "coef_global_offre": 1.2432,
+        "coef_appli_defaut": 1.4,
+        "coef_cible_porteur": 1.4,
+        "pv_si_bareme_appli": 1770648.7
+      },
+      "plomberie": {
+        "fo": 332875.37,
+        "heures": 11440.367,
+        "taux": 40,
+        "pv_xlsx_1_3_1_3": 1027637.33,
+        "pv_offre_pdf": 981875.83,
+        "debourse": 790490.05,
+        "coef_global_offre": 1.2421,
+        "coef_appli_defaut": 1.45,
+        "coef_cible_porteur": 1.45,
+        "pv_si_bareme_appli": 1146210.57
+      }
+    }
+  },
+  "rejeu_import_collage": {
+    "optima_xlsx": {
+      "import_dpgf_heuristique": {
+        "N°": null,
+        "Désignation": "designation",
+        "Uté": null,
+        "Qté": "quantity",
+        "Prix Unitaire": "unit",
+        "Prix Total": "total_ht",
+        "PR Fourniture unitaire": "unit",
+        "PR Total fourniture": "total_ht",
+        "Tps pose unitaire": "unit",
+        "Tps pose unitaire majoré": "unit",
+        "Tps pose total": "total_ht",
+        "Coeff FO": null,
+        "Coeff MO": null,
+        "Majoration MO": "h_mo_majoration",
+        "Taux horaire": null
+      },
+      "collage_format_detecte": "bdc_v1_1",
+      "collage_mapping": {
+        "Majoration MO": "h_mo_majoration",
+        "Désignation": "designation",
+        "Qté": "quantity",
+        "PR Fourniture unitaire": "unit_price_ht",
+        "Prix Unitaire": "unit"
+      }
+    },
+    "dpgf_client_hex": {
+      "import_dpgf_heuristique": {
+        "Description": "designation",
+        "Famille Achat": "category",
+        "FO / MO": null,
+        "LOT": null,
+        "n° LOT": null,
+        "U": "unit",
+        "COMMENTAIRES STT ": "notes",
+        "Qté Atelier ": null,
+        "Qté Chantier ": null,
+        "PU FO ": "unit_price_ht",
+        "PU MO Atelier ": "unit_price_ht",
+        "PU MO Chantier ": "unit_price_ht",
+        "TOTAL FO ": "total_ht",
+        "Total MO Atelier ": "total_ht",
+        "Total MO Chantier ": "total_ht",
+        "TOTAL HT ": "total_ht"
+      },
+      "collage_format_detecte": "generic",
+      "collage_mapping": {
+        "U": "unit",
+        "Description": "designation",
+        "Qté Atelier ": "quantity",
+        "PU FO ": "unit_price_ht"
+      }
+    },
+    "bible_db": {
+      "import_dpgf_heuristique": {
+        "ID": null,
+        "Matériau": null,
+        "Dimension": null,
+        "Caractéristique": null,
+        "Précision": null,
+        "Qté": "quantity",
+        "Unité": "unit",
+        "PR. FO": "unit_price_ht",
+        "Type FO": "supply_type",
+        "K FO": null,
+        "h MO": "labor_hours",
+        "Type MO": null,
+        "K MO": null,
+        "h / \"": null,
+        "soudure (\")": null
+      },
+      "collage_format_detecte": "bdc_v1_1",
+      "collage_mapping": {
+        "Type FO": "supply_type",
+        "Unité": "unit",
+        "PR. FO": "unit_price_ht",
+        "K FO": "k_fo",
+        "h MO": "h_mo",
+        "K MO": "k_mo",
+        "Qté": "quantity"
+      }
+    },
+    "devis_vierge": {
+      "import_dpgf_heuristique": {
+        "position": null,
+        "ID": null,
+        "Désignation": "designation",
+        "Qte": "quantity",
+        "U": "unit",
+        "PR. FO": "unit_price_ht",
+        "Type FO": "supply_type",
+        "K FO": null,
+        "h MO": "labor_hours",
+        "Type MO": null,
+        "K MO": null,
+        "P.U.": null,
+        "Prix total": "total_ht"
+      },
+      "collage_format_detecte": "bdc_v1_1",
+      "collage_mapping": {
+        "Désignation": "designation",
+        "Type FO": "supply_type",
+        "PR. FO": "unit_price_ht",
+        "K FO": "k_fo",
+        "h MO": "h_mo",
+        "K MO": "k_mo",
+        "U": "unit",
+        "Qte": "quantity"
+      }
+    }
+  },
+  "arrondis_offres": {
+    "hydraulique": {
+      "lignes": 785,
+      "pt_different_de_q_x_pu_affiche": 420,
+      "max_ecart_eur": 7.94,
+      "tva_par_ligne_moins_tva_sur_total_cts": -11,
+      "ecart_xlsx_vs_logiciel_source_eur": -89.49
+    },
+    "plomberie": {
+      "lignes": 656,
+      "pt_different_de_q_x_pu_affiche": 341,
+      "max_ecart_eur": 2.03,
+      "tva_par_ligne_moins_tva_sur_total_cts": -10,
+      "ecart_xlsx_vs_logiciel_source_eur": 18.88
+    }
+  }
+}

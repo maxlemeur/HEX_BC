@@ -40,11 +40,13 @@ export type VersionAccessRow = Pick<
   EstimateVersionRow,
   | "id"
   | "project_id"
+  | "tenant_id"
   | "status"
   | "margin_mode"
   | "margin_multiplier"
   | "margin_bp"
   | "discount_bp"
+  | "discount_amount_cents"
   | "max_section_depth"
   | "tax_rate_bp"
   | "updated_at"
@@ -124,7 +126,7 @@ export async function getVersionAccessOrThrow(
   const { data, error } = await supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, status, margin_mode, margin_multiplier, margin_bp, discount_bp, max_section_depth, tax_rate_bp, updated_at, content_revision, total_ht_cents, total_tax_cents, total_ttc_cents, calc_engine_version, calc_snapshot_content_revision, calc_snapshot_context, parent_version_id, variant_label, currency, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, site_address, client_name, notes, is_archived)"
+      "id, project_id, tenant_id, status, margin_mode, margin_multiplier, margin_bp, discount_bp, discount_amount_cents, max_section_depth, tax_rate_bp, updated_at, content_revision, total_ht_cents, total_tax_cents, total_ttc_cents, calc_engine_version, calc_snapshot_content_revision, calc_snapshot_context, parent_version_id, variant_label, currency, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, site_address, client_name, notes, is_archived)"
     )
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)
@@ -224,6 +226,7 @@ export async function assertDraftLockOwnedByCurrentUser(input: {
   tenantId: string;
   versionId: string;
   userId: string;
+  draftLockSessionId?: string | null;
 }) {
   const lock = await getActiveDraftLockForVersion({
     supabase: input.supabase,
@@ -241,16 +244,20 @@ export async function assertDraftLockOwnedByCurrentUser(input: {
     );
   }
 
-  const requestSessionId = await resolveRequestDraftLockSessionId();
+  const hasExplicitSessionId = input.draftLockSessionId !== undefined;
+  const requestSessionId = hasExplicitSessionId
+    ? normalizeEstimateDraftLockSessionId(input.draftLockSessionId)
+    : await resolveRequestDraftLockSessionId();
   const isCurrentUser = lock.user_id === input.userId;
   const isLegacyTestLock =
-    process.env.NODE_ENV === "test" && !lock.session_id;
+    process.env.NODE_ENV === "test" && !lock.session_id && !hasExplicitSessionId;
   const isCurrentSession =
     isCurrentUser &&
-    (isLegacyTestLock || lock.session_id === requestSessionId);
+    (isLegacyTestLock ||
+      (requestSessionId !== null && lock.session_id === requestSessionId));
 
   if (isCurrentSession) {
-    return;
+    return lock;
   }
 
   const holderName = isCurrentUser

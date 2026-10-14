@@ -64,6 +64,7 @@ export type EstimateLineValues = {
   puHtCents: number;
   taxLineCents: number;
   ttcLineCents: number;
+  isCapped?: boolean;
 };
 
 export type EstimateTotals = {
@@ -123,6 +124,11 @@ function clampGlobalCoefficient(value: number | null | undefined): number {
   return Math.max(toSafeNumber(value, 1), 0);
 }
 
+function roundActiveCoefficientProduct(subtotalCents: number, coefficient: number): number {
+  const product = subtotalCents * coefficient;
+  return Number.isFinite(product) ? bankersRound(product) : MAX_CENTS + 1;
+}
+
 function normalizeDiscountStepsBp(
   steps: Array<number | null | undefined> | null | undefined
 ): number[] {
@@ -161,6 +167,35 @@ export function hasActiveLaborSplitPayload(
 /** Cap a cents value to the PostgreSQL integer range. */
 function capCents(value: number): number {
   return Math.min(value, MAX_CENTS);
+}
+
+/** Round the sum of normalized, nonnegative decimal products once, then cap it. */
+function roundDecimalCentsProducts(terms: readonly (readonly number[])[]): {
+  cents: number;
+  isCapped: boolean;
+} {
+  const products = terms.map((factors) => {
+    let coefficient = BigInt(1);
+    let exponent = 0;
+    for (const factor of factors) {
+      const [mantissa, scientificExponent = "0"] = factor.toString().split("e");
+      const [whole, fraction = ""] = mantissa.split(".");
+      coefficient *= BigInt(whole + fraction);
+      exponent += Number(scientificExponent) - fraction.length;
+    }
+    return { coefficient, exponent };
+  });
+  const exponent = Math.min(0, ...products.map((product) => product.exponent));
+  const denominator = BigInt(10) ** BigInt(-exponent);
+  const sum = products.reduce(
+    (total, product) => total + product.coefficient *
+      BigInt(10) ** BigInt(product.exponent - exponent),
+    BigInt(0)
+  );
+  // Decimal values sent in JSON match PostgreSQL numeric, including half cents.
+  const rounded = (sum * BigInt(2) + denominator) / (denominator * BigInt(2));
+  const limit = BigInt(MAX_CENTS);
+  return { cents: Number(rounded > limit ? limit : rounded), isCapped: rounded > limit };
 }
 
 /**
@@ -229,23 +264,25 @@ export function computeEstimateLineValues(
   // `isLaborSplitEnabled ?? hasSplitPayload`, alignée sur computeEstimateLineSaleSplit.
   const shouldUseLaborSplit =
     isLaborSplitEnabled && hasActiveLaborSplitPayload(item);
-  const moCostCents = shouldUseLaborSplit
-    ? hMoMajoration *
-      (hMoAtelier * hourlyRateAtelier * kMoAtelier +
-        hMoChantier * hourlyRateChantier * kMoChantier)
-    : hMoMajoration * hMo * hourlyRateLegacy * kMo;
+  const laborProducts = shouldUseLaborSplit
+    ? [
+        [hMoMajoration, hMoAtelier, hourlyRateAtelier, kMoAtelier],
+        [hMoMajoration, hMoChantier, hourlyRateChantier, kMoChantier],
+      ]
+    : [[hMoMajoration, hMo, hourlyRateLegacy, kMo]];
   // A6: cap margin to prevent integer overflow
   const safeMargin = clampMarginMultiplier(marginMultiplier);
   const safeTaxRate = Math.max(toSafeNumber(taxRateBp, 0), 0);
 
   // A1: single round after summation (was rounding FO and MO independently)
-  const costLineCents = clampNonNegative(
-    capCents(Math.round(quantity * unitPrice * kFo + moCostCents))
-  );
+  const cost = roundDecimalCentsProducts([
+    [quantity, unitPrice, kFo],
+    ...laborProducts,
+  ]);
+  const costLineCents = cost.cents;
   // A6: cap sale line to avoid DB overflow
-  const saleLineCents = clampNonNegative(
-    capCents(Math.round(costLineCents * safeMargin))
-  );
+  const sale = roundDecimalCentsProducts([[costLineCents, safeMargin]]);
+  const saleLineCents = sale.cents;
   // A2: banker's rounding for PU to avoid systematic upward bias
   const puHtCents =
     quantity > 0 ? bankersRound(saleLineCents / quantity) : 0;
@@ -258,6 +295,7 @@ export function computeEstimateLineValues(
     puHtCents,
     taxLineCents,
     ttcLineCents,
+    ...(cost.isCapped || sale.isCapped ? { isCapped: true } : {}),
   };
 }
 
@@ -387,9 +425,10 @@ export function computeEstimateTotals({
         isLaborSplitEnabled,
       });
       acc.costSubtotalCents += line.costLineCents;
+      acc.isCapped ||= line.isCapped === true;
       return acc;
     },
-    { costSubtotalCents: 0 }
+    { costSubtotalCents: 0, isCapped: false }
   );
 
   const appliedMarginMultiplier =
@@ -409,19 +448,22 @@ export function computeEstimateTotals({
       });
       acc.saleSubtotalBeforeCoefficientCents += line.saleLineCents;
       acc.lineTaxTotalCents += line.taxLineCents;
+      acc.isCapped ||= line.isCapped === true;
       return acc;
     },
     {
       saleSubtotalBeforeCoefficientCents: 0,
       lineTaxTotalCents: 0,
+      isCapped: false,
     }
   );
-  const saleSubtotalBeforeCapCents = bankersRound(
-    secondPassTotals.saleSubtotalBeforeCoefficientCents * safeGlobalCoefficient
+  const saleSubtotalBeforeCapCents = roundActiveCoefficientProduct(
+    secondPassTotals.saleSubtotalBeforeCoefficientCents, safeGlobalCoefficient
   );
   // Le plafond int32 écrête silencieusement : on mémorise le dépassement pour
   // pouvoir l'afficher, plutôt que d'annoncer un total minoré sans le dire.
-  const isCapped = exceedsMaxCents(saleSubtotalBeforeCapCents);
+  const isCapped = firstPassTotals.isCapped || secondPassTotals.isCapped ||
+    exceedsMaxCents(saleSubtotalBeforeCapCents);
   const saleSubtotalCents = clampNonNegative(
     capCents(saleSubtotalBeforeCapCents)
   );
@@ -535,6 +577,7 @@ export type EstimateVersionForCalc = {
   margin_mode?: MarginMode;
   tax_rate_bp: number;
   discount_bp: number;
+  discount_amount_cents?: number | null;
   discount_mode?: DiscountMode;
   discount_steps?: Array<number | null> | null;
   global_coefficient?: number | null;
@@ -543,6 +586,10 @@ export type EstimateVersionForCalc = {
   total_tax_cents?: number | null;
   total_ttc_cents?: number | null;
   rounding_adjustment_cents?: number | null;
+  calc_engine_version?: number;
+  content_revision?: number;
+  calc_snapshot_content_revision?: number | null;
+  calc_snapshot_context?: unknown;
 };
 
 export type SectionTotals = {
@@ -1368,7 +1415,7 @@ export function computeEstimateBreakdown(
     // TVA par ligne sur le net : supprime la double branche coefficient===1.
     const taxCents = taxNet.reduce((sum, value) => sum + value, 0);
     const ttcCents = footer.saleTotalCents + taxCents;
-    const roundedTtcCents = Math.max(
+    const roundedTtcCents = input.vatReverseCharge ? ttcCents : Math.max(
       applyRounding(ttcCents, input.roundingMode, input.roundingStepCents),
       footer.saleTotalCents
     );
@@ -1422,8 +1469,8 @@ export function computeEstimateBreakdown(
 }
 
 /**
- * Compute the initial discount in cents from `discount_bp` for a draft version.
- * Used on load to convert the stored basis-point discount to an absolute cents amount.
+ * Resolve the requested fixed amount, or the historical percentage/cascade.
+ * A fixed request survives a temporary cap; the totals apply that cap separately.
  */
 export function computeInitialDiscountCents(
   version: EstimateVersionForCalc,
@@ -1448,6 +1495,9 @@ export function computeInitialDiscountCents(
     marginTiers: MarginTier[];
   }
 ): number {
+  if (version.discount_amount_cents != null) {
+    return version.discount_amount_cents;
+  }
   const lineItems = items
     .filter((item) => item.item_type === "line")
     .map((item) => {
@@ -1502,8 +1552,8 @@ export function computeInitialDiscountCents(
         }).saleSubtotalCents
       : clampNonNegative(
           capCents(
-            bankersRound(
-              saleSubtotal * clampGlobalCoefficient(version.global_coefficient)
+            roundActiveCoefficientProduct(
+              saleSubtotal, clampGlobalCoefficient(version.global_coefficient)
             )
           )
         );
@@ -1547,6 +1597,9 @@ export function computeStoredDiscountCents(
       )
     )
   );
+  if (version.discount_amount_cents != null) {
+    return Math.min(version.discount_amount_cents, saleSubtotalAfterCoefficientCents);
+  }
   const safeMode: DiscountMode =
     version.discount_mode === "cascade" ? "cascade" : "simple";
   const safeSteps = normalizeDiscountStepsBp(version.discount_steps);
@@ -1765,6 +1818,9 @@ export function computeReadOnlyTotals({
   const saleSubtotalAfterCoefficientCents = clampNonNegative(
     capCents(bankersRound(saleSubtotalCents * safeGlobalCoefficient))
   );
+  if (version.discount_amount_cents != null) {
+    discountCents = Math.min(version.discount_amount_cents, saleSubtotalAfterCoefficientCents);
+  }
   const safeDiscountMode: DiscountMode =
     version.discount_mode === "cascade" ? "cascade" : "simple";
   const safeDiscountSteps = normalizeDiscountStepsBp(version.discount_steps);

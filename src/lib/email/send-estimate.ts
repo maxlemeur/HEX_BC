@@ -10,7 +10,6 @@ import {
   findEstimateEmailDispatchByRequest,
   prepareEstimateEmailDispatch,
   reserveEstimateEmailDispatch,
-  sha256,
   type EstimateEmailDispatch,
 } from "@/lib/email/estimate-email-outbox";
 import { EstimateEmailTemplate } from "@/lib/email/templates/estimate";
@@ -25,18 +24,16 @@ import {
 } from "@/lib/estimates/errors";
 import {
   generateEstimatePdfNow,
-  getEstimatePdfStatus,
 } from "@/lib/estimates/pdf-generator";
-import { buildEstimatePdfFilename } from "@/lib/estimates/reference";
+import { loadVerifiedOfferDocument, type VerifiedOfferDocument } from "@/lib/estimates/offer-document";
+import { sanitizeEstimateFilename } from "@/lib/estimates/reference";
 import type { SendEstimateInput } from "@/lib/estimates/schemas";
 import {
-  buildCanonicalEstimateSealPayload,
-  computeEstimateSealHash,
   freezeEstimateV2SnapshotForSend,
   getEstimateSendGating,
-  loadEstimateSealSource,
-  verifyEstimateSeal,
+  normalizeConcurrencyToken,
 } from "@/lib/estimates/server";
+import { normalizeEstimateDraftLockSessionId } from "@/lib/estimates/lock-session";
 import { assertCanWriteEstimateWorkflows } from "@/lib/estimates/write-access";
 import { formatCurrency, normalizeEstimateCurrency } from "@/lib/money";
 import { ESTIMATE_DOCUMENTS_BUCKET } from "@/lib/storage/buckets";
@@ -67,17 +64,11 @@ type SendEstimateEmailInput = {
   payload: SendEstimateInput;
   requestUrl: string;
   idempotencyKey: string;
+  concurrencyToken?: string | null;
+  draftLockSessionId?: string | null;
 };
 
-const DEFAULT_FALLBACK_PROJECT_NAME = "Votre projet";
-
-function resolveProject(value: EstimateVersionForEmail["estimate_projects"]) {
-  if (!value) return null;
-  if (Array.isArray(value)) return value[0] ?? null;
-  return value;
-}
-
-function resolvePortalUrl(versionId: string, requestUrl: string) {
+function resolveLegacyPortalUrl(versionId: string, requestUrl: string) {
   const configuredBaseUrl = process.env.NEXT_PUBLIC_ESTIMATE_PORTAL_BASE_URL?.trim();
   if (configuredBaseUrl) {
     try {
@@ -91,6 +82,22 @@ function resolvePortalUrl(versionId: string, requestUrl: string) {
   }
 
   return new URL(`/dashboard/estimates/${versionId}/print`, requestUrl).toString();
+}
+
+function resolvePortalOrigin(requestUrl: string) {
+  try {
+    const base = new URL(process.env.NEXT_PUBLIC_ESTIMATE_PORTAL_BASE_URL?.trim() || requestUrl);
+    if (!["http:", "https:"].includes(base.protocol) || base.username || base.password) throw new Error();
+    return base.origin;
+  } catch {
+    throw internalError("Configuration du portail client invalide.", undefined, "OFFER_PORTAL_ORIGIN_INVALID");
+  }
+}
+
+function hashSubmission(input: {
+  versionId: string; from: string; to: string; cc: string[]; subject: string; message: string; portalOrigin: string;
+}) {
+  return canonicalJsonHash({ contract: "estimate-email-initial-v2", ...input });
 }
 
 function getRequiredEnvVar(name: "RESEND_API_KEY" | "EMAIL_FROM") {
@@ -155,10 +162,11 @@ async function renderFrozenEmail(input: {
   totalTtcFormatted: string;
   portalUrl: string;
   message: string;
+  companyName: string;
+  historicalCopy?: boolean;
 }) {
   const template = EstimateEmailTemplate({
     ...input,
-    companyName: COMPANY_INFO.name,
   });
   const [htmlBody, textBody] = await Promise.all([
     render(template),
@@ -172,63 +180,18 @@ async function preparePdfForDispatch(input: {
   versionStatus: string;
   dispatchId: string;
   supabase: Awaited<ReturnType<typeof getAuthenticatedTenantContext>>["supabase"];
+  tenantId: string;
 }) {
-  if (!["draft", "sending"].includes(input.versionStatus)) {
-    const pdfStatus = await getEstimatePdfStatus(input.versionId);
-    const expectedHash =
-      pdfStatus.status === "ready" ? pdfStatus.sha256_hash?.toLowerCase() : null;
-    if (
-      pdfStatus.status !== "ready" ||
-      !expectedHash ||
-      !/^[a-f0-9]{64}$/.test(expectedHash)
-    ) {
-      throw internalError(
-        "Le PDF contractuel fige du devis envoyé est indisponible.",
-        { status: pdfStatus.status },
-        "ESTIMATE_EMAIL_FROZEN_PDF_UNAVAILABLE"
-      );
-    }
-
-    const pdfBuffer = await loadPdfBuffer(
-      { document_path: pdfStatus.file_path },
-      input.supabase
-    );
-    if (sha256(pdfBuffer) !== expectedHash) {
-      throw internalError(
-        "Le PDF contractuel fige ne correspond plus a son empreinte.",
-        undefined,
-        "ESTIMATE_EMAIL_PDF_HASH_MISMATCH"
-      );
-    }
-    return {
-      buffer: pdfBuffer,
-      filePath: pdfStatus.file_path,
-      sha256Hash: expectedHash,
-    };
+  const preparingNew = ["draft", "sending"].includes(input.versionStatus);
+  if (preparingNew) {
+    await generateEstimatePdfNow(input.versionId, {
+      force: true,
+      triggeredBy: "send",
+      dispatchId: input.dispatchId,
+    });
   }
-
-  const generatedPdf = await generateEstimatePdfNow(input.versionId, {
-    force: true,
-    triggeredBy: "send",
-    dispatchId: input.dispatchId,
-  });
-  const pdfBuffer = await loadPdfBuffer(
-    { document_path: generatedPdf.file_path },
-    input.supabase
-  );
-  const generatedHash = sha256(pdfBuffer);
-  if (!generatedPdf.sha256_hash || generatedHash !== generatedPdf.sha256_hash) {
-    throw internalError(
-      "Le PDF genere ne correspond pas a son empreinte.",
-      undefined,
-      "ESTIMATE_EMAIL_PDF_HASH_MISMATCH"
-    );
-  }
-  return {
-    buffer: pdfBuffer,
-    filePath: generatedPdf.file_path,
-    sha256Hash: generatedHash,
-  };
+  return loadVerifiedOfferDocument({ supabase: input.supabase, tenantId: input.tenantId,
+    versionId: input.versionId, requireSealed: !preparingNew });
 }
 
 function isTerminalDelivery(status: EstimateEmailDispatch["status"]) {
@@ -240,9 +203,13 @@ function assertDispatchMatchesSubmission(input: {
   versionId: string;
   actorUserId: string;
   payload: SendEstimateInput;
-  portalUrl: string;
+  requestUrl: string;
 }) {
-  const submittedPayloadHash = canonicalJsonHash({
+  const submittedPayloadHash = input.dispatch.request_contract_version === 2
+    ? hashSubmission({ versionId: input.versionId, from: input.dispatch.from_address, to: input.payload.to,
+      cc: input.payload.cc ?? [], subject: input.payload.subject, message: input.payload.message,
+      portalOrigin: input.dispatch.portal_url ? new URL(input.dispatch.portal_url).origin : "" })
+    : canonicalJsonHash({
     contract: "estimate-email-initial-v1",
     versionId: input.versionId,
     from: input.dispatch.from_address,
@@ -250,11 +217,14 @@ function assertDispatchMatchesSubmission(input: {
     cc: input.payload.cc ?? [],
     subject: input.payload.subject,
     message: input.payload.message,
-    portalUrl: input.portalUrl,
+    portalUrl: resolveLegacyPortalUrl(input.versionId, input.requestUrl),
   });
   if (
     input.dispatch.payload_hash !== submittedPayloadHash ||
-    input.dispatch.created_by !== input.actorUserId
+    input.dispatch.created_by !== input.actorUserId ||
+    input.dispatch.recipient !== input.payload.to ||
+    JSON.stringify(input.dispatch.cc ?? []) !== JSON.stringify(input.payload.cc ?? []) ||
+    input.dispatch.subject !== input.payload.subject || input.dispatch.body !== input.payload.message
   ) {
     throw conflict(
       "Un envoi est déjà réservé avec une enveloppe différente. Reprenez les mêmes destinataires et le même message.",
@@ -270,19 +240,24 @@ export async function sendEstimateEmail(input: SendEstimateEmailInput) {
   const { context } = loaded;
   let version = loaded.version;
   const versionStatus = String(version.status);
-  const portalUrl = resolvePortalUrl(input.versionId, input.requestUrl);
   const completedReplay = await findEstimateEmailDispatchByRequest({
-    versionId: input.versionId,
     tenantId: context.tenantId,
     requestId: input.idempotencyKey,
   });
+  if (completedReplay && completedReplay.version_id !== input.versionId) {
+    throw conflict(
+      "Cette clé d'envoi appartient à une autre version. Préparez un nouvel envoi depuis le devis affiché.",
+      undefined,
+      "ESTIMATE_EMAIL_DISPATCH_CONFLICT"
+    );
+  }
   if (completedReplay && isTerminalDelivery(completedReplay.status)) {
     assertDispatchMatchesSubmission({
       dispatch: completedReplay,
       versionId: input.versionId,
       actorUserId: context.userId,
       payload: input.payload,
-      portalUrl,
+      requestUrl: input.requestUrl,
     });
     return { message_id: completedReplay.provider_id };
   }
@@ -297,19 +272,50 @@ export async function sendEstimateEmail(input: SendEstimateEmailInput) {
       versionId: input.versionId,
       actorUserId: context.userId,
       payload: input.payload,
-      portalUrl,
+      requestUrl: input.requestUrl,
     });
   }
 
-  let verifiedSealHash: string | null = null;
+  let verifiedOffer: VerifiedOfferDocument | null = null;
   if (!dispatch) {
-    if (versionStatus === "draft") {
+    const portalOrigin = resolvePortalOrigin(input.requestUrl);
+    const fromAddress = getRequiredEnvVar("EMAIL_FROM");
+    const requestPayloadHash = hashSubmission({
+      versionId: input.versionId, from: fromAddress, to: input.payload.to,
+      cc: input.payload.cc ?? [], subject: input.payload.subject,
+      message: input.payload.message, portalOrigin,
+    });
+    const hasFrozenPayload = completedReplay !== null && completedReplay !== undefined &&
+      /^[0-9a-f]{64}$/.test(completedReplay.provider_payload_hash ?? "") &&
+      (completedReplay.html_body?.length ?? 0) > 0 && (completedReplay.text_body?.length ?? 0) > 0 &&
+      completedReplay.document_path !== null && /^[0-9a-f]{64}$/.test(completedReplay.document_sha256 ?? "") &&
+      completedReplay.attachment_filename !== null;
+    const rearmingUnfrozenRequest = completedReplay?.status === "failed" &&
+      completedReplay.request_contract_version === 2 && !hasFrozenPayload &&
+      completedReplay.version_id === input.versionId && completedReplay.created_by === context.userId &&
+      completedReplay.payload_hash === requestPayloadHash && completedReplay.recipient === input.payload.to.trim() &&
+      JSON.stringify(completedReplay.cc ?? null) === JSON.stringify(input.payload.cc ?? null) &&
+      completedReplay.subject === input.payload.subject.trim() && completedReplay.body === input.payload.message;
+    const needsDraftAuthority = versionStatus === "draft" && (!completedReplay || rearmingUnfrozenRequest);
+    const draftLockSessionId = normalizeEstimateDraftLockSessionId(input.draftLockSessionId);
+    let reservationUpdatedAt = version.updated_at;
+    if (needsDraftAuthority) {
+      const originalUpdatedAt = normalizeConcurrencyToken(input.concurrencyToken);
+      if (!originalUpdatedAt || !Number.isFinite(Date.parse(originalUpdatedAt))) {
+        throw badRequest("Relisez le devis avant de préparer un nouvel envoi.", undefined, "IF_MATCH_REQUIRED");
+      }
+      if (!draftLockSessionId) {
+        throw conflict("Cette page doit détenir le verrou du devis avant l'envoi.", undefined, "LOCK_REQUIRED");
+      }
+      reservationUpdatedAt = originalUpdatedAt;
       if (version.calc_engine_version === 2) {
         const frozen = await freezeEstimateV2SnapshotForSend(
           input.versionId,
-          version.updated_at
+          originalUpdatedAt,
+          { draftLockSessionId }
         );
         version = { ...version, ...frozen };
+        reservationUpdatedAt = frozen.updated_at;
       }
       const { gating } = await getEstimateSendGating(input.versionId);
       if (gating.blockingFlags.length > 0) {
@@ -320,16 +326,9 @@ export async function sendEstimateEmail(input: SendEstimateEmailInput) {
         );
       }
     } else if (versionStatus === "sent") {
-      const seal = await verifyEstimateSeal(input.versionId);
-      if (!seal.valid) {
-        throw badRequest(
-          "Envoi bloque: le scellement du devis n'est plus valide.",
-          { seal },
-          "ESTIMATE_SEAL_INVALID"
-        );
-      }
-      verifiedSealHash = seal.computed_hash;
-    } else if (versionStatus !== "sending") {
+      verifiedOffer = await loadVerifiedOfferDocument({ supabase: context.supabase,
+        tenantId: context.tenantId, versionId: input.versionId });
+    } else if (versionStatus !== "sending" && versionStatus !== "draft") {
       throw forbidden(
         "Ce devis finalise ne peut plus être envoyé par email.",
         { status: versionStatus },
@@ -337,21 +336,10 @@ export async function sendEstimateEmail(input: SendEstimateEmailInput) {
       );
     }
 
-    const fromAddress = getRequiredEnvVar("EMAIL_FROM");
-    const requestPayloadHash = canonicalJsonHash({
-      contract: "estimate-email-initial-v1",
-      versionId: input.versionId,
-      from: fromAddress,
-      to: input.payload.to,
-      cc: input.payload.cc ?? [],
-      subject: input.payload.subject,
-      message: input.payload.message,
-      portalUrl,
-    });
     dispatch = await reserveEstimateEmailDispatch({
       versionId: input.versionId,
       tenantId: context.tenantId,
-      expectedUpdatedAt: version.updated_at,
+      expectedUpdatedAt: reservationUpdatedAt,
       actorUserId: context.userId,
       requestId: input.idempotencyKey,
       payloadHash: requestPayloadHash,
@@ -360,6 +348,9 @@ export async function sendEstimateEmail(input: SendEstimateEmailInput) {
       subject: input.payload.subject,
       body: input.payload.message,
       fromAddress,
+      portalOrigin,
+      companySnapshot: COMPANY_INFO,
+      draftLockSessionId,
     });
   }
 
@@ -377,42 +368,37 @@ export async function sendEstimateEmail(input: SendEstimateEmailInput) {
   let preparedPdfBuffer: Buffer | null = null;
   if (dispatch.status === "preparing") {
     try {
-      const preparedPdf = await preparePdfForDispatch({
+      const preparedPdf = verifiedOffer ?? await preparePdfForDispatch({
         versionId: input.versionId,
         versionStatus,
         dispatchId: dispatch.id,
         supabase: context.supabase,
+        tenantId: context.tenantId,
       });
       preparedPdfBuffer = preparedPdf.buffer;
 
-      const sealSource = await loadEstimateSealSource({
-        supabase: context.supabase,
-        tenantId: context.tenantId,
-        versionId: input.versionId,
-      });
-      const sealHash =
-        verifiedSealHash ??
-        computeEstimateSealHash(buildCanonicalEstimateSealPayload(sealSource));
-      const project = resolveProject(version.estimate_projects);
-      const projectName = project?.name?.trim() || DEFAULT_FALLBACK_PROJECT_NAME;
-      const currency = normalizeEstimateCurrency(version.currency) ?? "EUR";
+      const captured = preparedPdf.proof.clientContractSnapshot;
+      const projectName = captured?.project.name ?? "Devis émis";
+      const currency = normalizeEstimateCurrency(captured?.version.currency ?? preparedPdf.version.currency) ?? "EUR";
       const totalTtcFormatted = formatCurrency(
-        version.total_ttc_cents ?? 0,
+        captured?.totals.payableTtcCents ?? preparedPdf.version.total_ttc_cents,
         currency
       );
-      const portalUrl = resolvePortalUrl(input.versionId, input.requestUrl);
+      const portalUrl = dispatch.portal_url;
+      if (dispatch.request_contract_version !== 2 || !portalUrl) {
+        throw conflict("Cette ancienne préparation nécessite une reprise contrôlée.", undefined, "ESTIMATE_EMAIL_LEGACY_PREPARATION_REQUIRES_RECOVERY");
+      }
       const { htmlBody, textBody } = await renderFrozenEmail({
         projectName,
-        versionNumber: version.version_number,
+        versionNumber: captured?.version.number ?? preparedPdf.version.version_number,
         totalTtcFormatted,
         portalUrl,
         message: dispatch.body ?? "",
+        companyName: captured?.company.name ?? "Votre interlocuteur",
+        historicalCopy: captured === null,
       });
-      const attachmentFilename = buildEstimatePdfFilename({
-        baseReference: project?.estimate_reference,
-        versionNumber: version.version_number,
-        fallback: projectName,
-      });
+      // Client1 stores the complete reference, including Vn exactly once.
+      const attachmentFilename = `${sanitizeEstimateFilename(captured?.project.estimateReference ?? projectName) || "devis"}.pdf`;
       const providerPayloadHash = canonicalJsonHash({
         contract: "resend-estimate-email-v1",
         from: dispatch.from_address,
@@ -422,20 +408,22 @@ export async function sendEstimateEmail(input: SendEstimateEmailInput) {
         htmlBody,
         textBody,
         attachmentFilename,
-        documentSha256: preparedPdf.sha256Hash,
+        documentSha256: preparedPdf.proof.sha256Hash,
       });
 
       dispatch = await prepareEstimateEmailDispatch({
         dispatchId: dispatch.id,
         tenantId: dispatch.tenant_id,
         actorUserId: context.userId,
-        sealHash,
+        sealHash: preparedPdf.sealHash,
         providerPayloadHash,
         htmlBody,
         textBody,
-        documentPath: preparedPdf.filePath,
-        documentSha256: preparedPdf.sha256Hash,
+        documentPath: preparedPdf.proof.filePath,
+        documentSha256: preparedPdf.proof.sha256Hash,
         attachmentFilename,
+        expectedDocumentContract: preparedPdf.proof,
+        sealPayloadVersion: preparedPdf.sealPayloadVersion,
       });
     } catch (error) {
       if (

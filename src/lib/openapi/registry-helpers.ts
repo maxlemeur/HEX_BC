@@ -62,6 +62,8 @@ export type OpenApiOperationDefinition = {
   parameters?: OpenApiParameterDefinition[];
   requestBody?: OpenApiRequestBodyDefinition;
   responses: Record<string, OpenApiResponseDefinition>;
+  /** An operation with its own strict error contract can opt out of defaults. */
+  omitDefaultErrorResponses?: boolean;
 };
 
 export function schemaDefinition(

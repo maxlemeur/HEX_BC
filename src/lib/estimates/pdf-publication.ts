@@ -8,6 +8,7 @@ import {
 } from "@/lib/estimates/errors";
 import type { ServerSupabaseClient } from "@/lib/auth/tenant-context";
 import type { Database, Json } from "@/types/database";
+import type { ClientContract1 } from "@/lib/estimates/offer-contract";
 
 type EstimateDocumentRow =
   Database["public"]["Tables"]["estimate_documents"]["Row"];
@@ -146,6 +147,7 @@ export async function publishEstimatePdfGeneration(input: {
   generatedAt: string;
   layoutOptions: Json;
   termsSnapshot: Json | null;
+  clientContractSnapshot: ClientContract1;
 }) {
   const { data, error } = await input.client.rpc(
     "publish_estimate_pdf_generation",
@@ -160,6 +162,7 @@ export async function publishEstimatePdfGeneration(input: {
       p_generated_at: input.generatedAt,
       p_layout_options: input.layoutOptions,
       p_terms_snapshot: input.termsSnapshot,
+      p_client_contract_snapshot: input.clientContractSnapshot as unknown as Json,
     },
   );
 

@@ -14,6 +14,17 @@ const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
   minute: "2-digit",
 });
 
+const DISCOUNT_PERCENT_FORMATTER = new Intl.NumberFormat("fr-FR", {
+  maximumFractionDigits: 8,
+});
+
+const APPROVAL_MONEY_FORMATTER = new Intl.NumberFormat("fr-FR", {
+  style: "currency",
+  currency: "EUR",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
 const APPROVAL_STATUS_STYLES: Record<
   EstimateApprovalSummary["approvalStatus"],
   { label: string; variant: BadgeVariant }
@@ -85,16 +96,15 @@ function formatDateTime(value: string) {
 
 function formatThresholdValue(reason: EstimateApprovalSummary["reasons"][number]) {
   if (reason.signalKey === "total_ht_cents") {
-    return new Intl.NumberFormat("fr-FR", {
-      style: "currency",
-      currency: "EUR",
-      maximumFractionDigits: 0,
-    }).format(reason.thresholdValue / 100);
+    return APPROVAL_MONEY_FORMATTER.format(reason.thresholdValue / 100);
+  }
+
+  if (reason.signalKey === "discount_bp") {
+    return `${DISCOUNT_PERCENT_FORMATTER.format(reason.thresholdValue / 100)}%`;
   }
 
   if (
     reason.signalKey === "margin_bp" ||
-    reason.signalKey === "discount_bp" ||
     reason.signalKey === "dpgf_coverage_bp" ||
     reason.signalKey === "takeoff_evidence_coverage_bp"
   ) {
@@ -110,16 +120,15 @@ function formatActualValue(reason: EstimateApprovalSummary["reasons"][number]) {
   }
 
   if (reason.signalKey === "total_ht_cents") {
-    return new Intl.NumberFormat("fr-FR", {
-      style: "currency",
-      currency: "EUR",
-      maximumFractionDigits: 0,
-    }).format(reason.actualValue / 100);
+    return APPROVAL_MONEY_FORMATTER.format(reason.actualValue / 100);
+  }
+
+  if (reason.signalKey === "discount_bp") {
+    return `${DISCOUNT_PERCENT_FORMATTER.format(reason.actualValue / 100)}%`;
   }
 
   if (
     reason.signalKey === "margin_bp" ||
-    reason.signalKey === "discount_bp" ||
     reason.signalKey === "dpgf_coverage_bp" ||
     reason.signalKey === "takeoff_evidence_coverage_bp"
   ) {

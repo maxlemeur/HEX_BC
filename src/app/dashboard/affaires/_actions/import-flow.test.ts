@@ -118,20 +118,20 @@ function createMappedRowsBuilder(rows: unknown[]) {
     select: vi.fn(),
     eq: vi.fn(),
     order: vi.fn(),
+    range: vi.fn(),
+    then: vi.fn(),
   };
 
   builder.select.mockReturnValue(builder);
   builder.eq.mockReturnValue(builder);
-  builder.order.mockImplementation(() => {
-    if (builder.order.mock.calls.length === 1) {
-      return builder;
-    }
-
-    return Promise.resolve({
-      data: rows,
-      error: null,
-    });
-  });
+  builder.order.mockReturnValue(builder);
+  const result = { data: rows, error: null, count: rows.length };
+  builder.then.mockImplementation((resolve: (value: typeof result) => unknown) =>
+    Promise.resolve(result).then(resolve)
+  );
+  builder.range.mockImplementation((from: number, to: number) =>
+    Promise.resolve({ ...result, data: rows.slice(from, to + 1) })
+  );
 
   return builder;
 }

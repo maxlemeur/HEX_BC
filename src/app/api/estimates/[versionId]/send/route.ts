@@ -3,6 +3,7 @@ import { z } from "zod";
 import { sendEstimateEmail } from "@/lib/email/send-estimate";
 import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
 import { sendEstimateSchema } from "@/lib/estimates/schemas";
+import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER, normalizeEstimateDraftLockSessionId } from "@/lib/estimates/lock-session";
 
 export const runtime = "nodejs";
 
@@ -45,6 +46,8 @@ export async function POST(
       payload,
       requestUrl: request.url,
       idempotencyKey,
+      concurrencyToken: request.headers.get("if-match"),
+      draftLockSessionId: normalizeEstimateDraftLockSessionId(request.headers.get(ESTIMATE_DRAFT_LOCK_SESSION_HEADER)),
     });
     return ok(data);
   } catch (error) {

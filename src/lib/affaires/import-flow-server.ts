@@ -217,22 +217,44 @@ export async function fetchMappedRowsForImport(input: {
   importId: string;
   tenantId: string;
 }) {
-  const { data, error } = await input.supabase
-    .from("dpgf_rows_mapped")
-    .select("id, payload")
-    .eq("tenant_id", input.tenantId)
-    .eq("import_id", input.importId)
-    .order("created_at", { ascending: true })
-    .order("id", { ascending: true });
+  const pageSize = 500;
+  const rows: Array<{ id: string; payload: Json }> = [];
+  const ids = new Set<string>();
+  let expectedCount: number | null = null;
 
-  if (error) {
-    throw new Error("Impossible de charger les lignes mappées.");
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error, count } = await input.supabase
+      .from("dpgf_rows_mapped")
+      .select("id, payload", { count: "exact" })
+      .eq("tenant_id", input.tenantId)
+      .eq("import_id", input.importId)
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(offset, offset + pageSize - 1);
+
+    if (error) {
+      throw new Error("Impossible de charger les lignes mappées.");
+    }
+    if (count === null || !Number.isSafeInteger(count) || count < 0 ||
+      (expectedCount !== null && count !== expectedCount)) {
+      throw new Error("Les lignes mappées ont changé. Rechargez l'import avant de continuer.");
+    }
+    expectedCount = count;
+    const batch = data ?? [];
+    for (const row of batch) {
+      if (ids.has(row.id)) {
+        throw new Error("Les lignes mappées ont changé. Rechargez l'import avant de continuer.");
+      }
+      ids.add(row.id);
+      rows.push({ id: row.id, payload: row.payload });
+    }
+    if (batch.length < pageSize) {
+      if (rows.length !== expectedCount) {
+        throw new Error("La lecture des lignes mappées est incomplète. Rechargez l'import avant de continuer.");
+      }
+      return rows;
+    }
   }
-
-  return (data ?? []).map((row) => ({
-    id: row.id,
-    payload: row.payload,
-  }));
 }
 
 export async function fetchLatestMappingId(input: {

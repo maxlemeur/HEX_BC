@@ -5,6 +5,7 @@ import { estimatePurchaseOrderDraftsCreateSchema } from "@/lib/estimates/schemas
 import {
   createEstimatePurchaseOrderDrafts,
   getEstimatePurchaseOrderDraftPreparation,
+  getEstimatePurchaseOrderReceipt,
 } from "@/lib/estimates/purchase-order-drafts";
 
 const versionIdParamSchema = z.object({
@@ -25,12 +26,15 @@ async function parseJsonBody(request: Request): Promise<unknown> {
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ versionId: string }> }
 ) {
   try {
     const versionId = await getVersionId(params);
-    const data = await getEstimatePurchaseOrderDraftPreparation(versionId);
+    const key = new URL(request.url).searchParams.get("idempotency_key");
+    const data = key === null
+      ? await getEstimatePurchaseOrderDraftPreparation(versionId)
+      : await getEstimatePurchaseOrderReceipt(versionId, z.string().uuid().parse(key));
     return ok(data);
   } catch (error) {
     return toErrorResponse(error);
@@ -47,7 +51,7 @@ export async function POST(
       await parseJsonBody(request)
     );
     const data = await createEstimatePurchaseOrderDrafts(versionId, body);
-    return ok(data, 201);
+    return ok(data, data.replayed ? 200 : 201);
   } catch (error) {
     return toErrorResponse(error);
   }

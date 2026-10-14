@@ -1,0 +1,26 @@
+npm notice run projet_bc@0.4.2 npx
+npm notice run vitest run --project=node --reporter=verbose src/__audit__/import.audit.test.ts
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+
+ RUN  v4.1.11 C:/Users/thann/AppData/Local/Temp/claude/C--Users-maxim-Projects-miaouffrage/cdab460e-e4c5-4312-b7fd-cd1f131b02e3/scratchpad/audit/snapshot/handoff-audit-independant/annexes/repository
+
+stdout | src/__audit__/import.audit.test.ts > I-01 Import des DPGF réelles fournies > analyse HEX-DPGF-COLT-PAR2-LOT4.xlsx
+[AUDIT] HEX-DPGF-COLT-PAR2-LOT4.xlsx {"format":"xlsx","entetes":["Description","Famille_Achat","FO___MO","LOT","n__LOT","U","COMMENTAIRES_STT","Qte_Atelier","Qte_Chantier","PU_FO","PU_MO_Atelier","PU_MO_Chantier"],"lignes":171,"structure":{"section":0,"line":0,"autre":171},"exemple":[{"Description":"Tube DN15","Famille_Achat":"Tube","FO___MO":"FOURNITURE","LOT":"Data hall","n__LOT":4,"U":"ml","COMMENTAIRES_STT":null},{"Description":"Tube DN20","Famille_Achat":"Tube","FO___MO":"FOURNITURE","LOT":"Data hall","n__LOT":4,"U":"ml","COMMENTAIRES_STT":null},{"Description":"Tube DN25","Famille_Achat":"Tube","FO___MO":"FOURNITURE","LOT":"Data hall","n__LOT":4,"U":"ml","COMMENTAIRES_STT":null},{"Description":"Tube DN32","Famille_Achat":"Tube","FO___MO":"FOURNITURE","LOT":"Data hall","n__LOT":4,"U":"ml","COMMENTAIRES_STT":null}]}
+
+ ✓ |node| src/__audit__/import.audit.test.ts > I-01 Import des DPGF réelles fournies > analyse HEX-DPGF-COLT-PAR2-LOT4.xlsx 423ms
+stdout | src/__audit__/import.audit.test.ts > I-01 Import des DPGF réelles fournies > analyse BEING - DPGF HYDRAULIQUE.xlsx
+[AUDIT] BEING - DPGF HYDRAULIQUE.xlsx {"format":"xlsx","entetes":["N","Designation","Ute","Qte","Prix_Unitaire","Prix_Total","PR_Fourniture_unitaire","PR_Total_fourniture","Tps_pose_unitaire","Tps_pose_unitaire_majore","Tps_pose_total","Coeff_FO"],"lignes":2947,"structure":{"section":0,"line":0,"autre":2947},"exemple":[{"N":null,"Designation":null,"Ute":null,"Qte":0,"Prix_Unitaire":null,"Prix_Total":null,"PR_Fourniture_unitaire":null},{"N":"1","Designation":"Production de chaleur","Ute":null,"Qte":null,"Prix_Unitaire":null,"Prix_Total":null,"PR_Fourniture_unitaire":null},{"N":"1.1","Designation":"Alimentation EC surchauffée","Ute":null,"Qte":null,"Prix_Unitaire":null,"Prix_Total":null,"PR_Fourniture_unitaire":null},{"N":null,"Designation":null,"Ute":null,"Qte":0,"Prix_Unitaire":null,"Prix_Total":null,"PR_Fourniture_unitaire":null}]}
+
+ ✓ |node| src/__audit__/import.audit.test.ts > I-01 Import des DPGF réelles fournies > analyse BEING - DPGF HYDRAULIQUE.xlsx 800ms
+stdout | src/__audit__/import.audit.test.ts > I-01 Import des DPGF réelles fournies > analyse BEING - DPGF PLOMBERIE.xlsx
+[AUDIT] BEING - DPGF PLOMBERIE.xlsx {"format":"xlsx","entetes":["N","Designation","Ute","Qte","Prix_Unitaire","Prix_Total","PR_Fourniture_unitaire","PR_Total_fourniture","Tps_pose_unitaire","Tps_pose_unitaire_majore","Tps_pose_total","Coeff_FO"],"lignes":1396,"structure":{"section":0,"line":0,"autre":1396},"exemple":[{"N":null,"Designation":null,"Ute":null,"Qte":0,"Prix_Unitaire":null,"Prix_Total":null,"PR_Fourniture_unitaire":null},{"N":"1","Designation":"ALIMENTATION EAU FROIDE","Ute":null,"Qte":null,"Prix_Unitaire":null,"Prix_Total":null,"PR_Fourniture_unitaire":null},{"N":"1.1","Designation":"Raccordement eau froide bâtiment","Ute":null,"Qte":null,"Prix_Unitaire":null,"Prix_Total":null,"PR_Fourniture_unitaire":null},{"N":null,"Designation":"Vanne papillon à brides PN 16 DN 80","Ute":"U","Qte":1,"Prix_Unitaire":233.32399999999998,"Prix_Total":233.32,"PR_Fourniture_unitaire":129.48}]}
+
+ ✓ |node| src/__audit__/import.audit.test.ts > I-01 Import des DPGF réelles fournies > analyse BEING - DPGF PLOMBERIE.xlsx 498ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  15:24:09
+   Duration  1.91s (transform 41ms, setup 0ms, import 60ms, tests 1.72s, environment 0ms)
+

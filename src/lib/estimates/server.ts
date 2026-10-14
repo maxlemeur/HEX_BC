@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { persistAtomicEstimateItem } from "@/lib/estimates/atomic-item-creation";
+import { normalizeStoredItemNumerics } from "@/lib/estimates/stored-item-numeric";
 import { type SupabaseClient } from "@supabase/supabase-js";
 
 import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
@@ -50,6 +52,8 @@ import { getTakeoffLinkedSourceVersionByJobId } from "@/lib/takeoff/version-link
 import { isSupplierAlternativeCurrencyCompatible } from "@/lib/estimates/supplier-preselection";
 import { readSupplierOfferConditions, readSelectedSupplierDetails, type SupplierOfferConditions, type SelectedSupplierDetails } from "@/lib/estimates/supplier-offer-conditions";
 import { supplierOfferIneligibility } from "@/lib/estimates/supplier-offer-eligibility";
+import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
+import { persistAtomicEstimateSettings } from "@/lib/estimates/settings-atomic";
 import type {
   EstimateSupplierPreselectionException,
   EstimateSupplierPreselectionExceptionReason,
@@ -67,6 +71,7 @@ import {
 import type { Database, Json } from "@/types/database";
 
 import {
+  ApiError,
   badRequest,
   conflict,
   forbidden,
@@ -76,11 +81,12 @@ import {
 } from "./errors";
 import { evaluateEstimateSendGating } from "./gating";
 import { generateEstimatePdfNow } from "./pdf-generator";
+import { loadVerifiedOfferDocument } from "@/lib/estimates/offer-document";
+import type { DocumentProof1 } from "@/lib/estimates/offer-contract";
 import { freezeEstimateV2Snapshot } from "./v2-snapshot-server";
 import {
   buildCanonicalEstimateSealPayload,
   computeEstimateSealHash,
-  CURRENT_ESTIMATE_SEAL_PAYLOAD_VERSION,
   LEGACY_ESTIMATE_SEAL_PAYLOAD_VERSION,
   PREVIOUS_ESTIMATE_SEAL_PAYLOAD_VERSION,
   UNIFIED_ESTIMATE_SEAL_PAYLOAD_VERSION,
@@ -108,6 +114,7 @@ import {
   type EstimateLineTruth,
 } from "./line-truth";
 import { assertCanWriteEstimateWorkflows } from "./write-access";
+import { normalizeEstimateDraftLockSessionId } from "./lock-session";
 import {
   assertDraftLockOwnedByCurrentUser,
   assertDraftStatus,
@@ -299,6 +306,8 @@ type CreateEstimateLatestVersionDefaultsRow = Pick<
   | "currency"
   | "margin_bp"
   | "discount_bp"
+
+  | "discount_amount_cents"
   | "discount_mode"
   | "discount_steps"
   | "global_coefficient"
@@ -573,6 +582,7 @@ export type EstimateTemplateRow = {
   currency: string;
   margin_bp: number;
   discount_bp: number;
+  discount_amount_cents: number | null;
   discount_mode: Database["public"]["Enums"]["estimate_discount_mode"];
   discount_steps: number[];
   global_coefficient: number;
@@ -1728,7 +1738,7 @@ function normalizeEstimateCurrencyOrThrow(
   throw badRequest("Devise invalide. Valeurs autorisees: EUR, USD, GBP.");
 }
 
-function normalizeConcurrencyToken(token: string | null | undefined) {
+export function normalizeConcurrencyToken(token: string | null | undefined): string | null {
   const trimmed = token?.trim();
   if (!trimmed) return null;
 
@@ -1791,11 +1801,11 @@ export async function loadEstimateSealSource(input: {
   supabase: Supabase;
   tenantId: string;
   versionId: string;
-}): Promise<{ version: EstimateSealVersionFields; items: EstimateItemRow[] }> {
+}): Promise<{ version: EstimateSealVersionFields & Pick<EstimateVersionRow, "seal_payload_version" | "content_revision">; items: EstimateItemRow[] }> {
   const { data: versionData, error: versionError } = await input.supabase
     .from("estimate_versions")
     .select(
-      "id, tenant_id, project_id, version_number, title, exclusions, date_devis, validite_jours, currency, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, max_section_depth, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, seal_hash"
+      "id, tenant_id, project_id, status, updated_at, version_number, title, exclusions, date_devis, validite_jours, currency, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, max_section_depth, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, seal_hash, seal_payload_version, content_revision"
     )
     .eq("tenant_id", input.tenantId)
     .eq("id", input.versionId)
@@ -1809,23 +1819,12 @@ export async function loadEstimateSealSource(input: {
     throw notFound("Version de chiffrage introuvable.");
   }
 
-  const { data: itemsData, error: itemsError } = await input.supabase
-    .from("estimate_items")
-    .select(
-      "id, position, item_type, line_nature, parent_id, title, description, quantity, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, h_mo_majoration, k_mo, labor_role_id, h_mo_atelier, k_mo_atelier, labor_role_atelier_id, h_mo_chantier, k_mo_chantier, labor_role_chantier_id, category_id, supply_type_id, pu_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents, snapshot_pu_ht_cents, snapshot_fo_ht_cents, snapshot_mo_ht_cents, snapshot_mo_atelier_ht_cents, snapshot_mo_chantier_ht_cents"
-    )
-    .eq("tenant_id", input.tenantId)
-    .eq("version_id", input.versionId)
-    .order("position", { ascending: true })
-    .order("id", { ascending: true });
-
-  if (itemsError) {
-    throw mapSupabaseError(itemsError, "Impossible de charger les lignes.");
-  }
+  const items = await readAllEstimateItems(input);
+  await assertEstimateVersionUnchanged({ supabase: input.supabase, version: versionData });
 
   return {
-    version: versionData as EstimateSealVersionFields,
-    items: (itemsData ?? []) as EstimateItemRow[],
+    version: versionData as EstimateSealVersionFields & Pick<EstimateVersionRow, "seal_payload_version" | "content_revision">,
+    items,
   };
 }
 
@@ -1899,23 +1898,38 @@ async function transitionEstimateVersionStatusAtomically(input: {
   actorUserId: string;
   eventMetadata?: Json;
   occurredAt: string;
+  sealPayloadVersion: number;
+  expectedDocumentContract: DocumentProof1;
+  draftLockSessionId?: string | null;
 }) {
   const rpcClient = getServiceRoleSupabaseClient();
-  const { data, error } = await rpcClient.rpc(
-    "transition_estimate_version_status" as never,
-    {
-      p_version_id: input.versionId,
-      p_tenant_id: input.tenantId,
-      p_expected_updated_at: input.expectedUpdatedAt,
-      p_next_status: input.nextStatus,
-      p_seal_hash: input.sealHash,
-      p_actor_user_id: input.actorUserId,
-      p_event_metadata: input.eventMetadata ?? {},
-      p_occurred_at: input.occurredAt,
-    } as never
-  );
+  const parameters = {
+    p_version_id: input.versionId,
+    p_tenant_id: input.tenantId,
+    p_expected_updated_at: input.expectedUpdatedAt,
+    p_next_status: input.nextStatus,
+    p_seal_hash: input.sealHash,
+    p_actor_user_id: input.actorUserId,
+    p_event_metadata: input.eventMetadata ?? {},
+    p_occurred_at: input.occurredAt,
+    p_seal_payload_version: input.sealPayloadVersion,
+    p_expected_document_contract: input.expectedDocumentContract as unknown as Json,
+  };
+  const { data, error } = input.draftLockSessionId
+    ? await rpcClient.rpc("transition_estimate_draft_to_sent", {
+        ...parameters,
+        p_draft_lock_session_id: input.draftLockSessionId,
+      })
+    : await rpcClient.rpc("transition_estimate_version_status", parameters);
 
   if (error) {
+    if (error.message.includes("ESTIMATE_DRAFT_LOCK_REQUIRED")) {
+      throw conflict(
+        "Le verrou de cette page n’est plus actif. Réessayez depuis cette page.",
+        undefined,
+        "LOCK_REQUIRED"
+      );
+    }
     if (
       error.code === "40001" ||
       error.code === "40P01" ||
@@ -1939,109 +1953,7 @@ async function transitionEstimateVersionStatusAtomically(input: {
   return row as unknown as EstimateVersionRow;
 }
 
-async function patchEstimateContractorRoleAtomically(input: {
-  versionId: string;
-  tenantId: string;
-  expectedUpdatedAt: string;
-  actorUserId: string;
-  patch: EstimateVersionUpdate;
-}) {
-  const rpcClient = getServiceRoleSupabaseClient();
-  const { data, error } = await rpcClient.rpc(
-    "patch_estimate_contractor_role" as never,
-    {
-      p_version_id: input.versionId,
-      p_tenant_id: input.tenantId,
-      p_expected_updated_at: input.expectedUpdatedAt,
-      p_actor_user_id: input.actorUserId,
-      p_patch: input.patch as unknown as Json,
-    } as never
-  );
-
-  if (error) {
-    const rpcMessage = error.message ?? "";
-    const publicRpcDetails = error.code ? { code: error.code } : undefined;
-
-    // Les erreurs métier doivent être résolues avant le SQLSTATE : le verrou
-    // et le conflit optimiste utilisent tous deux 40001, mais n'ont ni le même
-    // code API ni la même action de reprise côté client.
-    if (rpcMessage.includes("ESTIMATE_DRAFT_LOCK_REQUIRED")) {
-      throw conflict(
-        "Un verrou actif est requis pour modifier cette version brouillon.",
-        { lock: null },
-        "LOCK_REQUIRED"
-      );
-    }
-
-    if (
-      rpcMessage.includes("ESTIMATE_READ_ONLY") ||
-      rpcMessage.includes("ESTIMATE_VERSION_READ_ONLY")
-    ) {
-      throw forbidden(
-        "Cette version est en lecture seule.",
-        publicRpcDetails,
-        "READ_ONLY"
-      );
-    }
-
-    if (
-      rpcMessage.includes("ESTIMATE_NOT_FOUND") ||
-      rpcMessage.includes("ESTIMATE_VERSION_NOT_FOUND")
-    ) {
-      throw notFound(
-        "Version de chiffrage introuvable.",
-        publicRpcDetails,
-        "NOT_FOUND"
-      );
-    }
-
-    if (
-      rpcMessage.includes("ESTIMATE_WRITE_FORBIDDEN") ||
-      rpcMessage.includes("ESTIMATE_TENANT_INACTIVE")
-    ) {
-      throw forbidden("Accès refusé.", publicRpcDetails, "FORBIDDEN");
-    }
-
-    if (
-      rpcMessage.includes("ESTIMATE_CONTRACTOR_ROLE_PATCH_INVALID_ARGUMENTS") ||
-      rpcMessage.includes("ESTIMATE_CONTRACTOR_ROLE_PATCH_INVALID_PAYLOAD") ||
-      rpcMessage.includes("ESTIMATE_CONTRACTOR_ROLE_PATCH_UNEXPECTED_FIELDS") ||
-      rpcMessage.includes("ESTIMATE_CONTRACTOR_ROLE_PATCH_INCOMPLETE") ||
-      rpcMessage.includes("ESTIMATE_REVERSE_CHARGE_TOTALS_INVALID")
-    ) {
-      throw badRequest(
-        "Le changement de régime de TVA est invalide.",
-        publicRpcDetails,
-        "BAD_REQUEST"
-      );
-    }
-
-    if (
-      error.code === "40001" ||
-      rpcMessage.includes("ESTIMATE_VERSION_CONFLICT")
-    ) {
-      throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
-        updated_at: input.expectedUpdatedAt,
-      }, "VERSION_CONFLICT");
-    }
-
-    throw mapSupabaseError(
-      error,
-      "Impossible de mettre à jour le régime de TVA."
-    );
-  }
-
-  const row = Array.isArray(data) ? data[0] : data;
-  if (!row) {
-    throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
-      updated_at: input.expectedUpdatedAt,
-    }, "VERSION_CONFLICT");
-  }
-
-  return row as unknown as EstimateVersionRow;
-}
-
-function extractPatchedEstimateTotals(input: PatchEstimateVersionInput) {
+function extractPatchedEstimateTotals(input: Pick<PatchEstimateVersionInput, "total_ht_cents" | "total_tax_cents" | "total_ttc_cents">) {
   const patchedTotals: Partial<EstimateTotals> = {};
 
   if ("total_ht_cents" in input) {
@@ -2057,48 +1969,9 @@ function extractPatchedEstimateTotals(input: PatchEstimateVersionInput) {
   return patchedTotals;
 }
 
-function extractEstimateRecalculationOverrides(
-  input: PatchEstimateVersionInput
-): EstimateRecalculationVersionOverrides {
-  const overrides: EstimateRecalculationVersionOverrides = {};
-
-  if ("margin_multiplier" in input) {
-    overrides.margin_multiplier = input.margin_multiplier;
-  }
-  if ("margin_mode" in input) {
-    overrides.margin_mode = input.margin_mode;
-  }
-  if ("tax_rate_bp" in input) {
-    overrides.tax_rate_bp = input.tax_rate_bp;
-  }
-  if ("discount_bp" in input) {
-    overrides.discount_bp = input.discount_bp;
-  }
-  if ("discount_mode" in input) {
-    overrides.discount_mode = input.discount_mode;
-  }
-  if ("discount_steps" in input) {
-    overrides.discount_steps = input.discount_steps;
-  }
-  if ("global_coefficient" in input) {
-    overrides.global_coefficient = input.global_coefficient;
-  }
-  if ("rounding_mode" in input) {
-    overrides.rounding_mode = input.rounding_mode;
-  }
-  if ("rounding_step_cents" in input) {
-    overrides.rounding_step_cents = input.rounding_step_cents;
-  }
-  if ("contractor_role" in input) {
-    overrides.contractor_role = input.contractor_role;
-  }
-
-  return overrides;
-}
-
 function mergeEstimateTotalsForPatch(input: {
   persistedTotals: EstimateTotals;
-  patch: PatchEstimateVersionInput;
+  patch: Pick<PatchEstimateVersionInput, "total_ht_cents" | "total_tax_cents" | "total_ttc_cents">;
 }): EstimateTotals {
   const mergedTotals: EstimateTotals = {
     ...input.persistedTotals,
@@ -2162,7 +2035,7 @@ async function logEstimateInvariantViolation(input: {
   versionId: string;
   userId: string;
   persistedTotals: EstimateTotals;
-  patch: PatchEstimateVersionInput;
+  patch: Pick<PatchEstimateVersionInput, "total_ht_cents" | "total_tax_cents" | "total_ttc_cents">;
   attemptedTotals: EstimateTotals;
   violation: EstimateTotalsInvariantViolation;
 }) {
@@ -2202,7 +2075,7 @@ async function assertEstimateTotalsInvariantForPatch(input: {
   versionId: string;
   userId: string;
   persistedTotals: EstimateTotals;
-  patch: PatchEstimateVersionInput;
+  patch: Pick<PatchEstimateVersionInput, "total_ht_cents" | "total_tax_cents" | "total_ttc_cents">;
 }) {
   const attemptedTotals = mergeEstimateTotalsForPatch({
     persistedTotals: input.persistedTotals,
@@ -2790,6 +2663,8 @@ type EstimateRecalculationVersionOverrides = Partial<
     | "margin_mode"
     | "tax_rate_bp"
     | "discount_bp"
+
+    | "discount_amount_cents"
     | "discount_mode"
     | "discount_steps"
     | "global_coefficient"
@@ -2822,7 +2697,7 @@ async function recalculateEstimateVersionTotals(
   const { data: versionData, error: versionError } = await input.supabase
     .from("estimate_versions")
     .select(
-      "id, margin_multiplier, margin_mode, tax_rate_bp, discount_bp, discount_mode, discount_steps, global_coefficient, rounding_mode, rounding_step_cents, calc_engine_version, contractor_role, estimate_projects!inner(user_id)"
+      "id, tenant_id, project_id, status, updated_at, content_revision, margin_multiplier, margin_mode, tax_rate_bp, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, rounding_mode, rounding_step_cents, calc_engine_version, contractor_role, estimate_projects!inner(user_id)"
     )
     .eq("tenant_id", input.tenantId)
     .eq("id", input.versionId)
@@ -2841,10 +2716,18 @@ async function recalculateEstimateVersionTotals(
 
   const versionRecord = versionData as Pick<
     EstimateVersionRow,
+    | "id"
+    | "tenant_id"
+    | "project_id"
+    | "status"
+    | "updated_at"
+    | "content_revision"
     | "margin_multiplier"
     | "margin_mode"
     | "tax_rate_bp"
     | "discount_bp"
+
+    | "discount_amount_cents"
     | "discount_mode"
     | "discount_steps"
     | "global_coefficient"
@@ -2865,26 +2748,23 @@ async function recalculateEstimateVersionTotals(
     throw badRequest("Impossible de recalculer les totaux de la version cible.");
   }
 
-  const { data: lineItemsData, error: lineItemsError } = await input.supabase
-    .from("estimate_items")
-    .select("*")
-    .eq("tenant_id", input.tenantId)
-    .eq("version_id", input.versionId)
-    .eq("item_type", "line");
-
-  if (lineItemsError) {
-    throw mapSupabaseError(
-      lineItemsError,
-      "Impossible de recalculer les totaux de la version cible."
-    );
-  }
+  const items = await readAllEstimateItems({
+    supabase: input.supabase,
+    tenantId: input.tenantId,
+    versionId: input.versionId,
+  });
 
   const totals = await calculateEstimateTotalsForItems({
     supabase: input.supabase,
     tenantId: input.tenantId,
     projectUserId: project.user_id,
     version: effectiveVersionRecord,
-    lineItems: (lineItemsData ?? []) as EstimateItemRow[],
+    lineItems: items.filter((item) => item.item_type === "line"),
+  });
+
+  await assertEstimateVersionUnchanged({
+    supabase: input.supabase,
+    version: versionRecord,
   });
 
   if (input.persist === false) {
@@ -4609,7 +4489,7 @@ export async function createEstimate(
     const { data: latestVersionData, error: latestVersionError } = await supabase
       .from("estimate_versions")
       .select(
-        "id, version_number, date_devis, validite_jours, margin_multiplier, margin_mode, currency, margin_bp, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, max_section_depth"
+        "id, version_number, date_devis, validite_jours, margin_multiplier, margin_mode, currency, margin_bp, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, max_section_depth"
       )
       .eq("tenant_id", tenantId)
       .eq("project_id", existingProject.id)
@@ -4856,7 +4736,7 @@ export async function getEstimateVersionDetails(
         .order("position", { ascending: true });
 
   const [
-    itemsResult,
+    rawItems,
     categoriesResult,
     supplyTypesResult,
     laborRolesResult,
@@ -4865,12 +4745,7 @@ export async function getEstimateVersionDetails(
     versionZeroSummary,
   ] =
     await Promise.all([
-      supabase
-        .from("estimate_items")
-        .select("*")
-        .eq("tenant_id", tenantId)
-        .eq("version_id", versionId)
-        .order("position", { ascending: true }),
+      readAllEstimateItems({ supabase, tenantId, versionId }),
       categoriesQuery,
       supplyTypesQuery,
       laborRolesQuery,
@@ -4880,10 +4755,6 @@ export async function getEstimateVersionDetails(
         ? fetchVersionZeroDraftSummary({ versionId }).catch(() => null)
         : Promise.resolve(null),
     ]);
-
-  if (itemsResult.error) {
-    throw mapSupabaseError(itemsResult.error, "Impossible de charger les lignes.");
-  }
 
   if (categoriesResult.error) {
     throw mapSupabaseError(
@@ -4924,7 +4795,7 @@ export async function getEstimateVersionDetails(
     supabase,
     tenantId,
     targetVersionId: versionId,
-    items: (itemsResult.data ?? []) as EstimateItemRow[],
+    items: rawItems,
   });
 
   const selectedSuppliers = options?.includeExportCalculationContext
@@ -4937,6 +4808,8 @@ export async function getEstimateVersionDetails(
       ? selectedSuppliers.get(item.selected_supplier_price_id) ?? null
       : null,
   }));
+
+  await assertEstimateVersionUnchanged({ supabase, version });
 
   return {
     version: {
@@ -4957,24 +4830,19 @@ export async function getEstimateVersionDetails(
 export async function listEstimateItems(versionId: string) {
   const context = await getAuthenticatedContext();
   const { supabase, tenantId } = context;
-  await getVersionAccessOrThrow(supabase, versionId, context);
-
-  const { data, error } = await supabase
-    .from("estimate_items")
-    .select("*")
-    .eq("tenant_id", tenantId)
-    .eq("version_id", versionId)
-    .order("position", { ascending: true });
-
-  if (error) {
-    throw mapSupabaseError(error, "Impossible de charger les lignes.");
-  }
+  const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
+  const rawItems = await readAllEstimateItems({ supabase, tenantId, versionId });
 
   const items = await enrichEstimateItemsWithSourceMetadata({
     supabase,
     tenantId,
     targetVersionId: versionId,
-    items: (data ?? []) as EstimateItemRow[],
+    items: rawItems,
+  });
+
+  await assertEstimateVersionUnchanged({
+    supabase,
+    version: { ...version, tenant_id: tenantId },
   });
 
   return {
@@ -5429,16 +5297,6 @@ export async function getEstimateSupplierComparisons(
   };
 }
 
-function isMissingEstimateExclusionsColumnError(
-  error: { code?: string | null; message?: string | null } | null
-) {
-  return (
-    error?.code === "PGRST204" &&
-    (error.message ?? "").includes("'exclusions'") &&
-    (error.message ?? "").includes("'estimate_versions'")
-  );
-}
-
 export async function patchEstimateVersion(
   versionId: string,
   input: PatchEstimateVersionInput,
@@ -5451,16 +5309,25 @@ export async function patchEstimateVersion(
   // OU admin, ce qui laisserait un proprietaire retrograde (director/viewer)
   // modifier marge, remise, coefficient et conditions d'un devis.
   assertCanWriteEstimateWorkflows(context.tenantRole);
-  const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
+  const { version, project } = await getVersionAccessOrThrow(supabase, versionId, context);
 
   assertDraftStatus(version.status);
-  await assertDraftLockOwnedByCurrentUser({
+  const lock = await assertDraftLockOwnedByCurrentUser({
     supabase,
     tenantId,
     versionId,
     userId,
   });
   assertVersionConcurrencyToken(version.updated_at, concurrencyToken);
+
+  const expectedUpdatedAt = normalizeConcurrencyToken(concurrencyToken);
+  const sessionId = normalizeEstimateDraftLockSessionId(lock.session_id);
+  if (!expectedUpdatedAt || !sessionId) {
+    throw conflict("Un verrou actif de cette page est requis pour enregistrer le devis.", { lock: null }, "LOCK_REQUIRED");
+  }
+  if (!Number.isSafeInteger(input.expected_content_revision) || input.expected_content_revision < 0) {
+    throw badRequest("La révision initiale du devis est requise.");
+  }
 
   const payload: EstimateVersionUpdate = {};
 
@@ -5491,6 +5358,9 @@ export async function patchEstimateVersion(
   if ("discount_bp" in input) {
     payload.discount_bp = input.discount_bp;
   }
+  if ("discount_amount_cents" in input) {
+    payload.discount_amount_cents = input.discount_amount_cents;
+  }
   if ("discount_mode" in input) {
     payload.discount_mode = input.discount_mode;
   }
@@ -5518,111 +5388,18 @@ export async function patchEstimateVersion(
       DEFAULT_MAX_SECTION_DEPTH
     );
   }
-  if ("total_ht_cents" in input) {
-    payload.total_ht_cents = input.total_ht_cents;
-  }
-  if ("total_tax_cents" in input) {
-    payload.total_tax_cents = input.total_tax_cents;
-  }
-  if ("total_ttc_cents" in input) {
-    payload.total_ttc_cents = input.total_ttc_cents;
-  }
-
-  let invariantPatch = input;
-  if ("contractor_role" in input) {
-    // Le régime de TVA est contractuel : ses totaux ne sont jamais acceptés
-    // depuis le client. On les recalcule avec les autres réglages du même PATCH.
-    // Une RPC revalide ensuite le snapshot et persiste rôle, taxes de lignes et
-    // totaux de version dans une seule transaction PostgreSQL.
-    const authoritativeResult = await recalculateEstimateVersionTotals({
-      supabase,
-      tenantId,
-      versionId,
-      persist: false,
-      versionOverrides: extractEstimateRecalculationOverrides(input),
-    });
-    payload.total_ht_cents = authoritativeResult.totals.total_ht_cents;
-    payload.total_tax_cents = authoritativeResult.totals.total_tax_cents;
-    payload.total_ttc_cents = authoritativeResult.totals.total_ttc_cents;
-    invariantPatch = {
-      ...input,
-      ...authoritativeResult.totals,
-    };
-  }
-
-  const persistedTotals: EstimateTotals = {
-    total_ht_cents: version.total_ht_cents ?? null,
-    total_tax_cents: version.total_tax_cents ?? null,
-    total_ttc_cents: version.total_ttc_cents ?? null,
-  };
-
-  await assertEstimateTotalsInvariantForPatch({
+  return persistAtomicEstimateSettings({
     supabase,
+    rpcClient: getServiceRoleSupabaseClient(),
     tenantId,
-    versionId,
-    userId,
-    persistedTotals,
-    patch: invariantPatch,
+    actorUserId: userId,
+    projectUserId: project.user_id,
+    authorizedVersion: version,
+    expectedUpdatedAt,
+    expectedContentRevision: input.expected_content_revision,
+    draftLockSessionId: sessionId,
+    patch: payload,
   });
-
-  if ("contractor_role" in input) {
-    const data = await patchEstimateContractorRoleAtomically({
-      versionId,
-      tenantId,
-      expectedUpdatedAt: version.updated_at,
-      actorUserId: userId,
-      patch: payload,
-    });
-
-    return {
-      version: data,
-    };
-  }
-
-  const updateVersion = (updatePayload: EstimateVersionUpdate) =>
-    supabase
-      .from("estimate_versions")
-      .update(updatePayload)
-      .eq("id", versionId)
-      .eq("tenant_id", tenantId)
-      .eq("updated_at", version.updated_at)
-      .select("*")
-      .single();
-
-  let { data, error } = await updateVersion(payload);
-
-  if (isMissingEstimateExclusionsColumnError(error)) {
-    if (payload.exclusions !== null) {
-      throw badRequest(
-        "Les exclusions ne peuvent pas être enregistrées tant que la migration de la base de données n'est pas appliquée.",
-        error,
-        "SCHEMA_MIGRATION_REQUIRED"
-      );
-    }
-
-    const compatiblePayload = { ...payload };
-    delete compatiblePayload.exclusions;
-    ({ data, error } = await updateVersion(compatiblePayload));
-  }
-
-  if (error || !data) {
-    if (error?.code === "PGRST116") {
-      throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
-        updated_at: version.updated_at,
-      }, "VERSION_CONFLICT");
-    }
-
-    if (error) {
-      throw mapSupabaseError(error, "Impossible de mettre à jour la version.");
-    }
-    throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
-      updated_at: version.updated_at,
-    }, "VERSION_CONFLICT");
-  }
-
-  return {
-    version: data,
-  };
 }
 
 export async function getEstimateSendGating(versionId: string) {
@@ -5648,7 +5425,8 @@ export async function getEstimateSendGating(versionId: string) {
 
 export async function freezeEstimateV2SnapshotForSend(
   versionId: string,
-  concurrencyToken: string
+  concurrencyToken: string,
+  options: { draftLockSessionId?: string | null } = {}
 ) {
   const context = await getAuthenticatedContext();
   const { supabase, tenantId, userId } = context;
@@ -5659,13 +5437,33 @@ export async function freezeEstimateV2SnapshotForSend(
     context
   );
   assertVersionConcurrencyToken(version.updated_at, concurrencyToken);
+  const requestedUpdatedAt = normalizeConcurrencyToken(concurrencyToken);
+  if (!requestedUpdatedAt) throw badRequest("Le devis doit être relu avant l'envoi.");
+  const draftLockSessionId = normalizeEstimateDraftLockSessionId(options.draftLockSessionId);
+  if (!draftLockSessionId) {
+    throw conflict("Cette page doit détenir le verrou du devis avant l'envoi.", undefined, "LOCK_REQUIRED");
+  }
   assertDraftStatus(version.status);
-  await assertDraftLockOwnedByCurrentUser({
-    supabase,
-    tenantId,
-    versionId,
-    userId,
-  });
+  try {
+    await assertDraftLockOwnedByCurrentUser({
+      supabase,
+      tenantId,
+      versionId,
+      userId,
+      draftLockSessionId,
+    });
+  } catch (error) {
+    if (
+      error instanceof ApiError && error.code === "CONFLICT" &&
+      typeof error.details === "object" && error.details !== null && "lock" in error.details
+    ) {
+      const lock = error.details.lock;
+      if (typeof lock === "object" && lock !== null && "is_current_session" in lock && lock.is_current_session === false) {
+        throw conflict(error.message, undefined, "LOCK_REQUIRED");
+      }
+    }
+    throw error;
+  }
   if (resolveCalcEngineVersion(version) !== 2) {
     return version;
   }
@@ -5674,17 +5472,19 @@ export async function freezeEstimateV2SnapshotForSend(
     rpcClient: getServiceRoleSupabaseClient(),
     tenantId,
     versionId,
-    expectedUpdatedAt: version.updated_at,
+    expectedUpdatedAt: requestedUpdatedAt,
     expectedContentRevision: version.content_revision,
     actorUserId: userId,
-    purpose: "send",
+    purpose: "document",
+    draftLockSessionId,
   });
 }
 
 export async function patchEstimateStatus(
   versionId: string,
   input: PatchEstimateStatusInput,
-  concurrencyToken: string | undefined
+  concurrencyToken: string | undefined,
+  options: { draftLockSessionId?: string | null } = {}
 ) {
   const context = await getAuthenticatedContext();
   const { supabase, tenantId, userId } = context;
@@ -5699,12 +5499,18 @@ export async function patchEstimateStatus(
     context
   );
   assertVersionConcurrencyToken(version.updated_at, concurrencyToken);
+  const requestedUpdatedAt = normalizeConcurrencyToken(concurrencyToken);
+  if (!requestedUpdatedAt) {
+    throw badRequest("Jeton de concurrence manquant.");
+  }
+  const draftLockSessionId = normalizeEstimateDraftLockSessionId(options.draftLockSessionId);
   if (version.status === "draft") {
     await assertDraftLockOwnedByCurrentUser({
       supabase,
       tenantId,
       versionId,
       userId,
+      draftLockSessionId,
     });
   }
 
@@ -5731,11 +5537,16 @@ export async function patchEstimateStatus(
   assertEstimateStatusTransition(version.status, input.status);
 
   let sealHash: string | null = null;
+  let emittedDocument: DocumentProof1 | null = null;
+  let emissionPayloadVersion: number | null = null;
   let forcedByAdmin = false;
   let forcedBlockingFlags: string[] = [];
-  let transitionExpectedUpdatedAt = version.updated_at;
+  let transitionExpectedUpdatedAt = requestedUpdatedAt;
 
   if (version.status === "draft" && input.status === "sent") {
+    if (!draftLockSessionId) {
+      throw conflict("Le verrou de cette page est requis pour émettre le devis.", undefined, "LOCK_REQUIRED");
+    }
     if (input.force === true && !isTenantAdmin(context.tenantRole)) {
       throw forbidden(
         "Le forcage d'envoi est réservé aux administrateurs.",
@@ -5750,10 +5561,11 @@ export async function patchEstimateStatus(
         rpcClient: getServiceRoleSupabaseClient(),
         tenantId,
         versionId,
-        expectedUpdatedAt: version.updated_at,
+        expectedUpdatedAt: requestedUpdatedAt,
         expectedContentRevision: version.content_revision,
         actorUserId: userId,
-        purpose: "send",
+        purpose: "document",
+        draftLockSessionId,
       });
       transitionExpectedUpdatedAt = frozen.updated_at;
       ({ version, project } = await getVersionAccessOrThrow(
@@ -5790,18 +5602,22 @@ export async function patchEstimateStatus(
       triggeredBy: "send",
     });
 
-    const sealSource = await loadEstimateSealSource({
+    const offer = await loadVerifiedOfferDocument({
       supabase,
       tenantId,
       versionId,
+      requireSealed: false,
     });
-    const sealPayload = buildCanonicalEstimateSealPayload(sealSource, {
-      payloadVersion:
-        resolveCalcEngineVersion(sealSource.version) === 2
-          ? CURRENT_ESTIMATE_SEAL_PAYLOAD_VERSION
-          : PREVIOUS_ESTIMATE_SEAL_PAYLOAD_VERSION,
-    });
-    sealHash = computeEstimateSealHash(sealPayload);
+    if (offer.proof.clientContractVersion !== 1) {
+      throw badRequest("La nouvelle émission exige une copie commerciale complète.", undefined, "OFFER_DOCUMENT_CONTRACT_INVALID");
+    }
+    sealHash = offer.sealHash;
+    emittedDocument = offer.proof;
+    emissionPayloadVersion = 5;
+  } else {
+    const offer = await loadVerifiedOfferDocument({ supabase, tenantId, versionId });
+    emittedDocument = offer.proof;
+    emissionPayloadVersion = offer.sealPayloadVersion;
   }
 
   const statusEventType = resolveStatusEventType(input.status);
@@ -5826,6 +5642,9 @@ export async function patchEstimateStatus(
     actorUserId: userId,
     eventMetadata: statusEventMetadata as Json,
     occurredAt: new Date().toISOString(),
+    sealPayloadVersion: emissionPayloadVersion,
+    expectedDocumentContract: emittedDocument,
+    draftLockSessionId: version.status === "draft" ? draftLockSessionId : null,
   });
 
   return {
@@ -5844,6 +5663,17 @@ export async function verifyEstimateSeal(versionId: string) {
     tenantId,
     versionId,
   });
+  if (sealSource.version.seal_payload_version === 5) {
+    // Marker5 never enters the historical candidate/fallback path. The helper
+    // also verifies the actual immutable PDF, not just the calculation hash.
+    const offer = await loadVerifiedOfferDocument({ supabase, tenantId, versionId });
+    await logEstimateVersionEvent({
+      versionId, eventType: "seal_verified", actorUserId: userId,
+      metadata: { valid: true, computed_hash: offer.sealHash, stored_hash: offer.sealHash, matched_seal_scheme: "v5" },
+      occurredAt: new Date().toISOString(),
+    });
+    return { valid: true, computed_hash: offer.sealHash, stored_hash: offer.sealHash };
+  }
   const currentSealCandidate = {
     scheme: "v4" as const,
     hash: computeEstimateSealHash(buildCanonicalEstimateSealPayload(sealSource)),
@@ -5926,7 +5756,8 @@ export async function verifyEstimateSeal(versionId: string) {
 export async function createEstimateItem(
   versionId: string,
   input: CreateEstimateItemInput,
-  concurrencyToken?: string
+  concurrencyToken?: string,
+  options?: { draftLockSessionId: string }
 ) {
   const context = await getAuthenticatedContext();
   const { supabase, tenantId, userId } = context;
@@ -5936,16 +5767,30 @@ export async function createEstimateItem(
     context
   );
 
+  assertCanWriteEstimateWorkflows(context.tenantRole);
   assertDraftStatus(version.status);
   if (concurrencyToken !== undefined) {
     assertVersionConcurrencyToken(version.updated_at, concurrencyToken);
   }
-  await assertDraftLockOwnedByCurrentUser({
+  const draftLock = await assertDraftLockOwnedByCurrentUser({
     supabase,
     tenantId,
     versionId,
     userId,
+    draftLockSessionId: options?.draftLockSessionId,
   });
+  if (!draftLock.session_id) {
+    throw conflict("Un verrou actif de cette page est requis.", undefined, "LOCK_REQUIRED");
+  }
+  const draftLockSessionId = draftLock.session_id;
+  input = normalizeStoredItemNumerics(input);
+  const persist = (item: Parameters<typeof persistAtomicEstimateItem>[0]["item"]) =>
+    persistAtomicEstimateItem({
+      supabase, tenantId, projectUserId: project.user_id, versionId,
+      expectedUpdatedAt: version.updated_at,
+      draftLockSessionId,
+      item,
+    });
 
   const parentId = input.parent_id ?? null;
   const parent = await ensureParentIsValid({
@@ -5988,41 +5833,18 @@ export async function createEstimateItem(
     const title =
       input.title ?? getDefaultSectionTitleForLevel(nextSectionLevel);
 
-    const { data, error } = await supabase
-      .from("estimate_items")
-      .insert({
-        tenant_id: tenantId,
-        version_id: versionId,
-        parent_id: parentId,
-        item_type: "section",
-        position,
-        title,
-        aid,
-        source_provider: sourceProvider,
-        source_job_id: sourceJobId,
-        source_file_name: sourceFileName,
-        source_page: sourcePage,
-      } as EstimateItemInsert)
-      .select("*")
-      .single();
-
-    if (error || !data) {
-      if (error) {
-        throw mapSupabaseError(error, "Impossible de créer le chapitre.");
-      }
-      throw badRequest("Impossible de créer le chapitre.");
-    }
-
-    const versionToken = await fetchEstimateVersionToken({
-      supabase,
-      tenantId,
-      versionId,
-    });
-
-    return {
-      item: data,
-      version: versionToken,
-    };
+    return persist({
+    id: randomUUID(),
+    parent_id: parentId,
+    item_type: "section",
+    position,
+    title,
+    aid,
+    source_provider: sourceProvider,
+    source_job_id: sourceJobId,
+    source_file_name: sourceFileName,
+    source_page: sourcePage,
+  });
   }
 
   const title = input.title ?? "Nouvelle ligne";
@@ -6048,144 +5870,62 @@ export async function createEstimateItem(
   const lineNature =
     input.line_nature ??
     resolveEstimateLineNature({
-      unit_price_ht_cents: unitPriceHtCents,
-      supply_type_id: supplyTypeId,
-      selected_supplier_price_id: selectedSupplierPriceId,
-      h_mo: hMo,
-      h_mo_atelier: hMoAtelier,
-      h_mo_chantier: hMoChantier,
-      labor_role_id: laborRoleId,
-      labor_role_atelier_id: laborRoleAtelierId,
-      labor_role_chantier_id: laborRoleChantierId,
-    });
+    unit_price_ht_cents: unitPriceHtCents,
+    supply_type_id: supplyTypeId,
+    selected_supplier_price_id: selectedSupplierPriceId,
+    h_mo: hMo,
+    h_mo_atelier: hMoAtelier,
+    h_mo_chantier: hMoChantier,
+    labor_role_id: laborRoleId,
+    labor_role_atelier_id: laborRoleAtelierId,
+    labor_role_chantier_id: laborRoleChantierId,
+  });
   assertLinePlacementAllowed({
     maxSectionDepth,
     parentSectionLevel,
   });
-  const isLaborSplitEnabled = isLaborSplitEnabledForItem({
+  await Promise.all([
+    ensureCategoryIsValid(supabase, categoryId, context, project.user_id),
+    ensureSupplyTypeIsValid(supabase, supplyTypeId, context),
+    ensureProductIsValid(supabase, productId, context),
+    ensureSupplierPriceIsValid(supabase, selectedSupplierPriceId, context),
+    resolveLaborRateCents(supabase, laborRoleId, context, project.user_id),
+    resolveLaborRateCents(supabase, laborRoleAtelierId, context, project.user_id),
+    resolveLaborRateCents(supabase, laborRoleChantierId, context, project.user_id),
+  ]);
+
+  return persist({
+    id: randomUUID(),
+    parent_id: parentId,
+    item_type: "line",
+    line_nature: lineNature,
+    position,
+    title,
+    aid,
+    description,
+    quantity,
+    unit_price_ht_cents: unitPriceHtCents,
+    tax_rate_bp: taxRateBp,
+    k_fo: kFo,
+    h_mo: hMo,
+    h_mo_majoration: hMoMajoration,
+    k_mo: kMo,
     h_mo_atelier: hMoAtelier,
     k_mo_atelier: kMoAtelier,
     labor_role_atelier_id: laborRoleAtelierId,
     h_mo_chantier: hMoChantier,
     k_mo_chantier: kMoChantier,
     labor_role_chantier_id: laborRoleChantierId,
+    labor_role_id: laborRoleId,
+    category_id: categoryId,
+    supply_type_id: supplyTypeId,
+    ...(productId ? { product_id: productId } : {}),
+    selected_supplier_price_id: selectedSupplierPriceId,
+    source_provider: sourceProvider,
+    source_job_id: sourceJobId,
+    source_file_name: sourceFileName,
+    source_page: sourcePage,
   });
-
-  const [
-    laborRateLegacyCents,
-    laborRateAtelierCents,
-    laborRateChantierCents,
-  ] = await Promise.all([
-    (async () => {
-      await Promise.all([
-        ensureCategoryIsValid(supabase, categoryId, context, project.user_id),
-        ensureSupplyTypeIsValid(supabase, supplyTypeId, context),
-        ensureProductIsValid(supabase, productId, context),
-        ensureSupplierPriceIsValid(supabase, selectedSupplierPriceId, context),
-      ]);
-
-      return resolveLaborRateCents(supabase, laborRoleId, context, project.user_id);
-    })(),
-    resolveLaborRateCents(
-      supabase,
-      laborRoleAtelierId,
-      context,
-      project.user_id
-    ),
-    resolveLaborRateCents(
-      supabase,
-      laborRoleChantierId,
-      context,
-      project.user_id
-    ),
-  ]);
-
-  const lineValues = computeEstimateLineValues(
-    {
-      quantity,
-      unit_price_ht_cents: unitPriceHtCents,
-      tax_rate_bp: taxRateBp,
-      k_fo: kFo,
-      h_mo: hMo,
-      h_mo_majoration: hMoMajoration,
-      k_mo: kMo,
-      h_mo_atelier: hMoAtelier,
-      k_mo_atelier: kMoAtelier,
-      labor_role_atelier_id: laborRoleAtelierId,
-      h_mo_chantier: hMoChantier,
-      k_mo_chantier: kMoChantier,
-      labor_role_chantier_id: laborRoleChantierId,
-      pu_ht_cents: 0,
-      labor_role_hourly_rate_cents: laborRateLegacyCents,
-    },
-    {
-      marginMultiplier: version.margin_multiplier,
-      taxRateBp,
-      isLaborSplitEnabled,
-      laborRateAtelierCents,
-      laborRateChantierCents,
-    }
-  );
-
-  const { data, error } = await supabase
-    .from("estimate_items")
-    .insert({
-      tenant_id: tenantId,
-      version_id: versionId,
-      parent_id: parentId,
-      item_type: "line",
-      line_nature: lineNature,
-      position,
-      title,
-      aid,
-      description,
-      quantity,
-      unit_price_ht_cents: unitPriceHtCents,
-      tax_rate_bp: taxRateBp,
-      k_fo: kFo,
-      h_mo: hMo,
-      h_mo_majoration: hMoMajoration,
-      k_mo: kMo,
-      h_mo_atelier: hMoAtelier,
-      k_mo_atelier: kMoAtelier,
-      labor_role_atelier_id: laborRoleAtelierId,
-      h_mo_chantier: hMoChantier,
-      k_mo_chantier: kMoChantier,
-      labor_role_chantier_id: laborRoleChantierId,
-      pu_ht_cents: lineValues.puHtCents,
-      labor_role_id: laborRoleId,
-      category_id: categoryId,
-      supply_type_id: supplyTypeId,
-      ...(productId ? { product_id: productId } : {}),
-      selected_supplier_price_id: selectedSupplierPriceId,
-      source_provider: sourceProvider,
-      source_job_id: sourceJobId,
-      source_file_name: sourceFileName,
-      source_page: sourcePage,
-      line_total_ht_cents: lineValues.saleLineCents,
-      line_tax_cents: lineValues.taxLineCents,
-      line_total_ttc_cents: lineValues.ttcLineCents,
-    } as EstimateItemInsert)
-    .select("*")
-    .single();
-
-  if (error || !data) {
-    if (error) {
-      throw mapSupabaseError(error, "Impossible de créer la ligne.");
-    }
-    throw badRequest("Impossible de créer la ligne.");
-  }
-
-  const versionToken = await fetchEstimateVersionToken({
-    supabase,
-    tenantId,
-    versionId,
-  });
-
-  return {
-    item: data,
-    version: versionToken,
-  };
 }
 
 const SECTION_ONLY_FORBIDDEN_FIELDS: (keyof UpdateEstimateItemInput)[] = [
@@ -6216,7 +5956,7 @@ const SECTION_ONLY_FORBIDDEN_FIELDS: (keyof UpdateEstimateItemInput)[] = [
 ];
 
 /** Calculate the complete post-mutation draft before its atomic bulk write. */
-async function projectTieredDraftMutation(input: {
+async function projectDraftMutation(input: {
   context: AuthenticatedContext;
   versionId: string;
   expectedUpdatedAt: string;
@@ -6228,7 +5968,7 @@ async function projectTieredDraftMutation(input: {
   assertCanWriteEstimateWorkflows(input.context.tenantRole);
   const { data: versionData, error: versionError } = await supabase
     .from("estimate_versions")
-    .select("id, status, updated_at, margin_multiplier, margin_mode, tax_rate_bp, discount_bp, discount_mode, discount_steps, global_coefficient, rounding_mode, rounding_step_cents, calc_engine_version, contractor_role")
+    .select("id, status, updated_at, margin_multiplier, margin_mode, tax_rate_bp, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, rounding_mode, rounding_step_cents, calc_engine_version, contractor_role")
     .eq("tenant_id", tenantId)
     .eq("id", input.versionId)
     .single();
@@ -6255,6 +5995,7 @@ async function projectTieredDraftMutation(input: {
       .eq("tenant_id", tenantId)
       .eq("version_id", input.versionId)
       .eq("item_type", "line")
+      .order("position", { ascending: true })
       .order("id")
       .range(offset, offset + pageSize - 1);
     if (error) {
@@ -6267,10 +6008,11 @@ async function projectTieredDraftMutation(input: {
   if (input.requiredLineId && !lineIds.has(input.requiredLineId)) {
     throw notFound("Ligne de chiffrage introuvable.");
   }
-  const proposedItems = items.map((item) => ({
-    ...item,
-    ...updatesById.get(item.id),
-  })) as EstimateItemRecord[];
+  const proposedItems = items
+    .map((item) => ({ ...item, ...updatesById.get(item.id) }))
+    .sort((left, right) =>
+      left.position - right.position || left.id.localeCompare(right.id)
+    ) as EstimateItemRecord[];
   const breakdown = await calculateEstimateBreakdownForItems({
     supabase,
     tenantId,
@@ -6314,7 +6056,7 @@ async function persistTieredDraftLineUpdate(input: {
   const { supabase, tenantId } = input.context;
   const changedFields = { ...input.payload };
   delete changedFields.item_type;
-  const projection = await projectTieredDraftMutation({
+  const projection = await projectDraftMutation({
     context: input.context,
     versionId: input.versionId,
     expectedUpdatedAt: input.expectedUpdatedAt,
@@ -6849,8 +6591,11 @@ export async function bulkUpdateEstimateItems(
   });
   assertVersionConcurrencyToken(version.updated_at, concurrencyToken);
 
-  const isTieredV2 = resolveCalcEngineVersion(version) === 2 && version.margin_mode === "tiered";
-  if (versionPatch && !isTieredV2) {
+  // A structural mutation can commit before the editor refreshes its rows.
+  // Reconcile v2 totals from those persisted rows, never its stale footer.
+  const shouldProjectDraft = resolveCalcEngineVersion(version) === 2 &&
+    (version.margin_mode === "tiered" || versionPatch !== undefined);
+  if (versionPatch && !shouldProjectDraft) {
     const persistedTotals: EstimateTotals = {
       total_ht_cents: version.total_ht_cents ?? null,
       total_tax_cents: version.total_tax_cents ?? null,
@@ -6920,8 +6665,8 @@ export async function bulkUpdateEstimateItems(
     ]
   );
 
-  const projection = isTieredV2
-    ? await projectTieredDraftMutation({
+  const projection = shouldProjectDraft
+    ? await projectDraftMutation({
         context,
         versionId,
         expectedUpdatedAt: version.updated_at,
@@ -6960,15 +6705,32 @@ export async function bulkUpdateEstimateItems(
     );
   }
 
-  const updatedVersion = await fetchEstimateVersionToken({
-    supabase,
-    tenantId,
-    versionId,
-  });
+  if (projection) {
+    // Read the token and totals together: another committed mutation must not
+    // pair its newer token with the totals calculated before this RPC.
+    const { data: savedVersion, error: savedVersionError } = await supabase
+      .from("estimate_versions")
+      .select("id, updated_at, total_ht_cents, total_tax_cents, total_ttc_cents")
+      .eq("tenant_id", tenantId)
+      .eq("id", versionId)
+      .single();
+    if (savedVersionError || !savedVersion) {
+      throw mapSupabaseError(savedVersionError, "Impossible de relire les totaux sauvegardés.");
+    }
+    return {
+      updated_count: rpcUpdatedCount ?? 0,
+      version: { id: savedVersion.id, updated_at: savedVersion.updated_at },
+      totals: {
+        total_ht_cents: savedVersion.total_ht_cents,
+        total_tax_cents: savedVersion.total_tax_cents,
+        total_ttc_cents: savedVersion.total_ttc_cents,
+      },
+    };
+  }
 
   return {
     updated_count: rpcUpdatedCount ?? 0,
-    version: updatedVersion,
+    version: await fetchEstimateVersionToken({ supabase, tenantId, versionId }),
   };
 }
 

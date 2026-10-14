@@ -1,0 +1,56 @@
+npm notice run projet_bc@0.4.2 npx
+npm notice run vitest run --project=node --reporter=verbose src/__audit__/calc.audit.test.ts
+[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.[39m
+
+ RUN  v4.1.11 C:/Users/thann/AppData/Local/Temp/claude/C--Users-maxim-Projects-miaouffrage/cdab460e-e4c5-4312-b7fd-cd1f131b02e3/scratchpad/audit/snapshot/handoff-audit-independant/annexes/repository
+
+stdout | src/__audit__/calc.audit.test.ts > A-01 EU01 : remise saisie en euros, sauvegardée en points de base > 1,01 € sur une assiette de 19 954,50 € devient 2,00 € après sauvegarde et relecture
+[AUDIT] EU01: {"saisi":101,"bpStocke":1,"remiseApresRelecture":200,"htAttendu":1995349,"htObtenu":1995250}
+
+stdout | src/__audit__/calc.audit.test.ts > A-01 EU01 : remise saisie en euros, sauvegardée en points de base > une remise en euros n'est représentable qu'au pas de 1/10 000 de l'assiette
+[AUDIT] EU01 pas de représentation (assiette 19 954,50 €): [{"saisi":50,"relu":0},{"saisi":101,"relu":200},{"saisi":150,"relu":200},{"saisi":250,"relu":200},{"saisi":299,"relu":200},{"saisi":301,"relu":399}]
+
+stdout | src/__audit__/calc.audit.test.ts > A-02 EUHIST : remise historique en % transformée en montant fixe par un changement de marge > 10 % historique, marge ×1 → ×2 : HT 3,80 € au lieu de 3,60 €, puis 5 % stocké
+[AUDIT] EUHIST: {"piedObtenu":[380,76,456],"piedAttenduSiPourcentageConserve":[360,72,432],"bpHistorique":1000,"bpStockeApresSauvegarde":500}
+
+stdout | src/__audit__/calc.audit.test.ts > A-03 Paliers de marge appliqués au devis entier (marche d'escalier) > barème par défaut : 0,01 € de coût en plus fait perdre 14 999,98 € de prix de vente
+[AUDIT] Paliers par défaut: {"cout99999_99":15999998,"cout100000_00":14500000}
+
+stdout | src/__audit__/calc.audit.test.ts > A-03 Paliers de marge appliqués au devis entier (marche d'escalier) > le prix de vente reste inférieur jusqu'à un coût de 110 345 €
+[AUDIT] Coût à partir duquel le prix redevient ≥ 159 999,98 €: 11035000
+
+stdout | src/__audit__/calc.audit.test.ts > A-03 Paliers de marge appliqués au devis entier (marche d'escalier) > même avec la grille cible à 5 tranches du devis vierge, l'effet de seuil subsiste
+[AUDIT] Grille 5 tranches: {"below":15999998,"above":15500000,"ecart":499998}
+
+stdout | src/__audit__/calc.audit.test.ts > A-04 Deux sens du mot « marge » > k = 1,6 s'affiche 60 % dans le panneau (k−1) et vaut 37,5 % en taux de marque (1−1/k)
+[AUDIT] Marge: {"panneauPourcent":60,"tauxDeMarqueBp":3750}
+
+stdout | src/__audit__/calc.audit.test.ts > A-05 Arithmétique visible sur le document > PU arrondi × quantité ≠ total de ligne
+[AUDIT] PU × Q: {"pu":1598,"quantite":7,"puFoisQ":11186,"totalLigne":11189}
+
+stdout | src/__audit__/calc.audit.test.ts > A-06 TVA v2 par ligne sur le net : la remise peut ne pas réduire la TVA > montants quelconques : la remise de 2,00 € réduit la TVA de 0,40 € (pas d'écart)
+[AUDIT] TVA v2 montants quelconques: {"delta":40,"htFoisTaux":401625,"tva":401625}
+
+stdout | src/__audit__/calc.audit.test.ts > A-06 TVA v2 par ligne sur le net : la remise peut ne pas réduire la TVA > montants ronds (multiples de 5 c) : la remise de 2,00 € HT ne réduit pas la TVA en v2
+[AUDIT] TVA v2 montants ronds: {"ht":2005110,"tvaSansRemise":401062,"tvaAvecRemiseV2":401062,"tvaAvecRemiseV1":401022,"htFoisTaux":401022}
+
+ ✓ |node| src/__audit__/calc.audit.test.ts > A-01 EU01 : remise saisie en euros, sauvegardée en points de base > 1,01 € sur une assiette de 19 954,50 € devient 2,00 € après sauvegarde et relecture 2ms
+ ✓ |node| src/__audit__/calc.audit.test.ts > A-01 EU01 : remise saisie en euros, sauvegardée en points de base > une remise en euros n'est représentable qu'au pas de 1/10 000 de l'assiette 0ms
+ ✓ |node| src/__audit__/calc.audit.test.ts > A-02 EUHIST : remise historique en % transformée en montant fixe par un changement de marge > 10 % historique, marge ×1 → ×2 : HT 3,80 € au lieu de 3,60 €, puis 5 % stocké 0ms
+ ✓ |node| src/__audit__/calc.audit.test.ts > A-03 Paliers de marge appliqués au devis entier (marche d'escalier) > barème par défaut : 0,01 € de coût en plus fait perdre 14 999,98 € de prix de vente 0ms
+ ✓ |node| src/__audit__/calc.audit.test.ts > A-03 Paliers de marge appliqués au devis entier (marche d'escalier) > le prix de vente reste inférieur jusqu'à un coût de 110 345 € 3ms
+ ✓ |node| src/__audit__/calc.audit.test.ts > A-03 Paliers de marge appliqués au devis entier (marche d'escalier) > même avec la grille cible à 5 tranches du devis vierge, l'effet de seuil subsiste 0ms
+ ✓ |node| src/__audit__/calc.audit.test.ts > A-03 Paliers de marge appliqués au devis entier (marche d'escalier) > un barème vide retombe silencieusement sur le barème codé en dur 0ms
+ ✓ |node| src/__audit__/calc.audit.test.ts > A-04 Deux sens du mot « marge » > k = 1,6 s'affiche 60 % dans le panneau (k−1) et vaut 37,5 % en taux de marque (1−1/k) 0ms
+ ✓ |node| src/__audit__/calc.audit.test.ts > A-05 Arithmétique visible sur le document > PU arrondi × quantité ≠ total de ligne 0ms
+ ✓ |node| src/__audit__/calc.audit.test.ts > A-06 TVA v2 par ligne sur le net : la remise peut ne pas réduire la TVA > montants quelconques : la remise de 2,00 € réduit la TVA de 0,40 € (pas d'écart) 8ms
+ ✓ |node| src/__audit__/calc.audit.test.ts > A-06 TVA v2 par ligne sur le net : la remise peut ne pas réduire la TVA > montants ronds (multiples de 5 c) : la remise de 2,00 € HT ne réduit pas la TVA en v2 5ms
+ ✓ |node| src/__audit__/calc.audit.test.ts > A-07 Saisie numérique française dans les champs remise et marge > « 1 000 » est lu 1 ; « 1.234,56 » est lu 1,234 0ms
+
+ Test Files  1 passed (1)
+      Tests  12 passed (12)
+   Start at  15:06:07
+   Duration  240ms (transform 60ms, setup 0ms, import 88ms, tests 20ms, environment 0ms)
+

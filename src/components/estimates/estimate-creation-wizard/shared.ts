@@ -15,14 +15,6 @@ export { DEFAULT_TAX_RATE_BP };
 export const STORAGE_KEY = "est-wizard-draft";
 export const DEFAULT_VALIDITE_JOURS = 30;
 
-export const ROUNDING_OPTIONS = [
-  { label: "Aucun", mode: "none" as const, step: 1 },
-  { label: "1 EUR", mode: "nearest" as const, step: 100 },
-  { label: "10 EUR", mode: "nearest" as const, step: 1000 },
-  { label: "50 EUR", mode: "nearest" as const, step: 5000 },
-  { label: "100 EUR", mode: "nearest" as const, step: 10000 },
-] as const;
-
 export const PROJECT_FAMILY_OPTIONS = [
   { value: "", label: "Non renseignée" },
   { value: "Maintenance", label: "Maintenance" },

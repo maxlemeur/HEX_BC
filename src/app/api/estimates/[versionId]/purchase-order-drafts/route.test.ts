@@ -12,6 +12,9 @@ const VERSION_ID = "11111111-1111-4111-8111-111111111111";
 const ITEM_ID = "22222222-2222-4222-8222-222222222222";
 const SUPPLIER_ID = "33333333-3333-4333-8333-333333333333";
 const DELIVERY_SITE_ID = "44444444-4444-4444-8444-444444444444";
+const INTENT_KEY = "55555555-5555-4555-8555-555555555555";
+const SITE_UPDATED_AT = "2026-10-11T08:00:00.000Z";
+const REVIEW_FINGERPRINT = "a".repeat(64);
 
 function makeParams(versionId = VERSION_ID) {
   return { params: Promise.resolve({ versionId }) };
@@ -47,6 +50,8 @@ describe("estimate purchase order drafts route", () => {
   it("accepts the TBD sentinel in POST payloads", async () => {
     vi.mocked(createEstimatePurchaseOrderDrafts).mockResolvedValue({
       source_version_id: VERSION_ID,
+      idempotency_key: INTENT_KEY,
+      replayed: false,
       summary: {
         draft_orders_created: 1,
         draft_lines_created: 1,
@@ -61,10 +66,13 @@ describe("estimate purchase order drafts route", () => {
           "content-type": "application/json",
         },
         body: JSON.stringify({
+          idempotency_key: INTENT_KEY,
+          reviewed_lines: [{ item_id: ITEM_ID, review_fingerprint: REVIEW_FINGERPRINT }],
           groups: [
             {
               supplier_id: SUPPLIER_ID,
               delivery_site_id: DELIVERY_SITE_ID,
+              delivery_site_updated_at: SITE_UPDATED_AT,
               item_ids: [ITEM_ID],
               expectedDeliveryDate: " TBD ",
             },
@@ -78,10 +86,13 @@ describe("estimate purchase order drafts route", () => {
     expect(vi.mocked(createEstimatePurchaseOrderDrafts)).toHaveBeenCalledWith(
       VERSION_ID,
       {
+        idempotency_key: INTENT_KEY,
+        reviewed_lines: [{ item_id: ITEM_ID, review_fingerprint: REVIEW_FINGERPRINT }],
         groups: [
           {
             supplier_id: SUPPLIER_ID,
             delivery_site_id: DELIVERY_SITE_ID,
+            delivery_site_updated_at: SITE_UPDATED_AT,
             item_ids: [ITEM_ID],
             expected_delivery_date: "TBD",
             notes: null,

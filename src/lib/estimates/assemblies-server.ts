@@ -1,7 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { normalizeDraftItems } from "@/lib/estimate-calculations";
-import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
+import { finalizeAssemblyCalculation } from "@/lib/estimates/assembly-calculation";
 import {
   loadAssemblyItemCountByAssemblyId,
   loadAssemblyMemberCountByAssemblyId,
@@ -45,7 +44,6 @@ import {
   mapSupabaseError,
   notFound,
 } from "@/lib/estimates/errors";
-import { isFeatureEnabled } from "@/lib/feature-flags";
 import type {
   CreateEstimateAssemblyInput,
   ListEstimateAssembliesQueryInput,
@@ -592,16 +590,15 @@ async function assertAssemblyLaborRolesResolved(input: {
   supabase: Supabase;
   tenantId: string;
   rootAssemblyId: string;
+  projectUserId: string;
 }) {
   const assemblyIds = await collectEstimateAssemblyTreeIds(input);
 
   const { data, error } = await input.supabase
     .from("estimate_assembly_items")
-    .select("id, title")
+    .select("id, title, cost_type, h_mo, labor_role_id")
     .eq("tenant_id", input.tenantId)
-    .in("assembly_id", assemblyIds)
-    .eq("cost_type", "labor")
-    .is("labor_role_id", null);
+    .in("assembly_id", assemblyIds);
 
   if (error) {
     throw mapSupabaseError(
@@ -610,11 +607,18 @@ async function assertAssemblyLaborRolesResolved(input: {
     );
   }
 
-  const offending = (data ?? []) as Array<{ id: string; title: string | null }>;
+  const laborItems = (data ?? []) as Array<{ id: string; title: string | null; cost_type: string; h_mo: number | null; labor_role_id: string | null }>;
+  const validRoles = await loadValidLaborRoleIdsForOwner({
+    supabase: input.supabase, tenantId: input.tenantId, ownerUserId: input.projectUserId,
+    laborRoleIds: laborItems.flatMap((item) => item.labor_role_id ? [item.labor_role_id] : []),
+  });
+  const offending = laborItems.filter((item) => item.labor_role_id
+    ? !validRoles.has(item.labor_role_id)
+    : item.cost_type === "labor" || (item.h_mo ?? 0) > 0);
   if (offending.length === 0) return;
 
   throw badRequest(
-    "Cet ouvrage contient de la main-d'oeuvre sans rôle de main-d'oeuvre. Associez un rôle (qui porte le taux horaire) à ces composants avant insertion : sinon leur coût serait perdu et la ligne inseree vaudrait 0 EUR.",
+    "Associez les composants de main-d'œuvre à un rôle du propriétaire du devis avant insertion. Leur taux et leurs heures doivent être conservés.",
     {
       items: offending.map((item) => ({
         id: item.id,
@@ -632,6 +636,7 @@ export async function insertAssemblyIntoVersion(input: {
 }) {
   const context = await getAuthenticatedContext();
   const { supabase, tenantId, userId } = context;
+  assertCanWriteEstimateWorkflows(context.tenantRole);
   const { version, project } = await getVersionAccessOrThrow(
     supabase,
     input.versionId,
@@ -639,12 +644,13 @@ export async function insertAssemblyIntoVersion(input: {
   );
 
   assertDraftStatus(version.status);
-  await assertDraftLockOwnedByCurrentUser({
+  const draftLock = await assertDraftLockOwnedByCurrentUser({
     supabase,
     tenantId,
     versionId: input.versionId,
     userId,
   });
+  if (!draftLock.session_id) throw conflict("Un verrou actif de cette page est requis pour insérer un ouvrage.", undefined, "LOCK_REQUIRED");
 
   const assembly = await loadEstimateAssemblyOrThrow({
     supabase,
@@ -670,6 +676,7 @@ export async function insertAssemblyIntoVersion(input: {
     supabase,
     tenantId,
     rootAssemblyId: assembly.id,
+    projectUserId: project.user_id,
   });
 
 
@@ -710,166 +717,14 @@ export async function insertAssemblyIntoVersion(input: {
     );
   }
 
-  const laborRoleIds = insertedItems
-    .map((item) => item.labor_role_id)
-    .filter((value): value is string => Boolean(value));
-  const validLaborRoleIds = await loadValidLaborRoleIdsForOwner({
+  return finalizeAssemblyCalculation({
     supabase,
     tenantId,
-    ownerUserId: project.user_id,
-    laborRoleIds,
+    projectUserId: project.user_id,
+    versionId: input.versionId,
+    draftLockSessionId: draftLock.session_id,
+    insertedItemIds,
   });
-  const invalidLaborRoleIds = new Set(
-    laborRoleIds.filter(
-      (laborRoleId) => !validLaborRoleIds.has(laborRoleId)
-    )
-  );
-
-
-  const lineIdsWithInvalidLaborRole = insertedItems
-    .filter(
-      (item) =>
-        item.item_type === "line" &&
-        item.labor_role_id &&
-        invalidLaborRoleIds.has(item.labor_role_id)
-    )
-    .map((item) => item.id);
-
-  if (lineIdsWithInvalidLaborRole.length > 0) {
-    const { error: clearRoleError } = await supabase
-      .from("estimate_items")
-      .update({ labor_role_id: null })
-      .eq("tenant_id", tenantId)
-      .eq("version_id", input.versionId)
-      .in("id", lineIdsWithInvalidLaborRole);
-
-    if (clearRoleError) {
-      throw mapSupabaseError(
-        clearRoleError,
-        "Impossible d'insérer l'ouvrage."
-      );
-    }
-  }
-
-  const { data: reloadedItems, error: reloadError } = await supabase
-    .from("estimate_items")
-    .select("*")
-    .eq("tenant_id", tenantId)
-    .eq("version_id", input.versionId)
-    .in("id", insertedItemIds);
-
-  if (reloadError) {
-    throw mapSupabaseError(reloadError, "Impossible d'insérer l'ouvrage.");
-  }
-
-  const reloadedItemsById = new Map(
-    ((reloadedItems ?? []) as EstimateItemRow[]).map((item) => [item.id, item])
-  );
-  const orderedItems = insertedItemIds
-    .map((id) => reloadedItemsById.get(id))
-    .filter((item): item is EstimateItemRow => Boolean(item));
-
-  // materialize_estimate_assembly_tree insere les lignes avec
-  // pu_ht_cents / line_total_ht_cents / line_tax_cents / line_total_ttc_cents
-  // a 0. Sans renormalisation, la ligne s'affiche a 0 EUR alors que le
-  // sous-total de section (recalcule a la volee) est correct, et un devis passe
-  // en 'sent' sans autre edition figerait un total sous-evalue.
-  //
-  // On renormalise avec le moteur de calcul existant (source unique de verite)
-  // plutot que de recalculer marge/TVA en SQL.
-  // EST-031 : les roles de MO ventilee (atelier/chantier) comptent aussi, sans
-  // quoi leur taux reste absent de `rateById` et la ligne est renormalisee — et
-  // donc PERSISTEE — a 0 EUR. Les trois portees resolvent aujourd'hui la meme
-  // colonne `hourly_rate_cents` (labor_roles n'a pas de taux dedie), une seule
-  // carte suffit donc.
-  const insertedLaborRoleIds = Array.from(
-    new Set(
-      orderedItems
-        .flatMap((item) => [
-          item.labor_role_id,
-          item.labor_role_atelier_id,
-          item.labor_role_chantier_id,
-        ])
-        .filter((value): value is string => Boolean(value))
-    )
-  );
-
-  const rateById = new Map<string, number>();
-  if (insertedLaborRoleIds.length > 0) {
-    const { data: roleRows, error: roleRatesError } = await supabase
-      .from("labor_roles")
-      .select("id, hourly_rate_cents")
-      .eq("tenant_id", tenantId)
-      .in("id", insertedLaborRoleIds);
-
-    if (roleRatesError) {
-      throw mapSupabaseError(roleRatesError, "Impossible d'insérer l'ouvrage.");
-    }
-
-    for (const role of (roleRows ?? []) as Array<{
-      id: string;
-      hourly_rate_cents: number | null;
-    }>) {
-      rateById.set(role.id, role.hourly_rate_cents ?? 0);
-    }
-  }
-
-  // EST-E26 (T6, étape 5) : renormalisation des lignes d'ouvrage insérées avec
-  // le flag tenant réel (le contexte tenant/supabase est déjà en portée ici).
-  const isLaborSplitEnabled = await isFeatureEnabled(
-    tenantId,
-    "EST_031_LABOR_SPLIT",
-    { supabase }
-  );
-
-  const normalizedItems = normalizeDraftItems({
-    items: orderedItems,
-    version: {
-      margin_multiplier: version.margin_multiplier ?? 1,
-      margin_mode: version.margin_mode ?? undefined,
-      tax_rate_bp: version.tax_rate_bp ?? 0,
-      // Remise et coefficient global sont des grandeurs de VERSION : elles
-      // n'entrent pas dans les valeurs par ligne calculees ici.
-      discount_bp: 0,
-    },
-    rateById,
-    isLaborSplitEnabled,
-    calcEngineVersion: resolveCalcEngineVersion(version),
-  });
-
-  for (const item of normalizedItems) {
-    if (item.item_type !== "line") continue;
-    const stored = reloadedItemsById.get(item.id);
-    if (
-      stored &&
-      stored.pu_ht_cents === item.pu_ht_cents &&
-      stored.line_total_ht_cents === item.line_total_ht_cents &&
-      stored.line_tax_cents === item.line_tax_cents &&
-      stored.line_total_ttc_cents === item.line_total_ttc_cents
-    ) {
-      continue;
-    }
-
-    const { error: normalizeError } = await supabase
-      .from("estimate_items")
-      .update({
-        pu_ht_cents: item.pu_ht_cents,
-        line_total_ht_cents: item.line_total_ht_cents,
-        line_tax_cents: item.line_tax_cents,
-        line_total_ttc_cents: item.line_total_ttc_cents,
-      })
-      .eq("tenant_id", tenantId)
-      .eq("version_id", input.versionId)
-      .eq("id", item.id);
-
-    if (normalizeError) {
-      throw mapSupabaseError(normalizeError, "Impossible d'insérer l'ouvrage.");
-    }
-  }
-
-  return {
-    items: normalizedItems,
-  };
 }
 
 export async function insertTemplateIntoVersion(input: {

@@ -36,13 +36,35 @@ export type EstimateTotalsVersionConfig = Pick<
   | "rounding_step_cents"
   | "contractor_role"
 > &
-  Partial<Pick<EstimateVersionRow, "calc_engine_version">>;
+  Partial<Pick<EstimateVersionRow, "calc_engine_version" | "discount_amount_cents">>;
 
 export type EstimateCalculationSnapshotContext = {
   effective_margin_multiplier: number;
   labor_split_enabled: boolean;
   labor_roles: Array<{ id: string; hourly_rate_cents: number }>;
   margin_tiers: Array<{ threshold_cents: number; multiplier: number }>;
+  fixed_discount?: {
+    requested_cents: number;
+    base_cents: number;
+    applied_cents: number;
+  };
+};
+
+// Raw mutable inputs for a guarded write, separate from the publication context.
+export type EstimateCalculationDependencies = {
+  labor_roles: Array<{
+    id: string;
+    tenant_id: string;
+    user_id: string;
+    hourly_rate_cents: number;
+  }>;
+  margin_tiers: Array<{
+    id: string;
+    threshold_cents: number;
+    multiplier: number;
+    position: number;
+  }>;
+  labor_split_flag: { id: string; enabled: boolean } | null;
 };
 
 type ResolvedEstimateCalculationContext = {
@@ -53,6 +75,7 @@ type ResolvedEstimateCalculationContext = {
     EstimateCalculationSnapshotContext,
     "effective_margin_multiplier"
   >;
+  dependencies?: EstimateCalculationDependencies;
 };
 
 type MissingLaborRoleAssignment = {
@@ -141,7 +164,18 @@ async function resolveEstimateCalculationContext(input: {
   projectUserId: string;
   version: EstimateTotalsVersionConfig;
   lineItems: EstimateItemRecord[];
+  captureDependencies?: boolean;
 }): Promise<ResolvedEstimateCalculationContext> {
+  if (input.version.discount_amount_cents != null &&
+    (!Number.isInteger(input.version.discount_amount_cents) || input.version.discount_amount_cents < 0 ||
+      input.version.discount_amount_cents > 2147483647 || input.version.discount_mode !== "simple" ||
+      (input.version.discount_steps?.length ?? 0) > 0)) {
+    throw badRequest("Une remise fixe valide requiert le mode simple et aucun palier.");
+  }
+  const dependencies: EstimateCalculationDependencies | undefined =
+    input.captureDependencies
+      ? { labor_roles: [], margin_tiers: [], labor_split_flag: null }
+      : undefined;
   const laborRoleIds = new Set<string>();
   input.lineItems.forEach((item) => {
     if (item.labor_role_id) laborRoleIds.add(item.labor_role_id);
@@ -154,7 +188,7 @@ async function resolveEstimateCalculationContext(input: {
   if (uniqueRoleIds.length > 0) {
     const { data, error } = await input.supabase
       .from("labor_roles")
-      .select("id, hourly_rate_cents")
+      .select("id, tenant_id, user_id, hourly_rate_cents")
       .eq("tenant_id", input.tenantId)
       .eq("user_id", input.projectUserId)
       .in("id", uniqueRoleIds);
@@ -169,6 +203,11 @@ async function resolveEstimateCalculationContext(input: {
     (data ?? []).forEach((role) => {
       laborRatesById.set(role.id, role.hourly_rate_cents);
     });
+    if (dependencies) {
+      dependencies.labor_roles = [...(data ?? [])].sort((left, right) =>
+        left.id.localeCompare(right.id)
+      );
+    }
 
     if (resolveCalcEngineVersion(input.version) === 2) {
       const missingRoleIds = uniqueRoleIds.filter(
@@ -184,26 +223,57 @@ async function resolveEstimateCalculationContext(input: {
     }
   }
 
-  const loadedMarginTiers =
-    input.version.margin_mode === "tiered"
-      ? await loadMarginTiersForTotals({
-          supabase: input.supabase,
-          tenantId: input.tenantId,
-        })
-      : [];
+  let loadedMarginTiers: ResolvedEstimateCalculationContext["marginTiers"] = [];
+  if (input.version.margin_mode === "tiered") {
+    if (dependencies) {
+      const { data, error } = await input.supabase
+        .from("margin_tiers")
+        .select("id, threshold_cents, multiplier, position")
+        .eq("tenant_id", input.tenantId)
+        .order("threshold_cents", { ascending: true })
+        .order("position", { ascending: true })
+        .order("id", { ascending: true });
+      if (error) {
+        throw mapSupabaseError(error, "Impossible de charger les tranches de marge.");
+      }
+      dependencies.margin_tiers = data ?? [];
+      loadedMarginTiers = dependencies.margin_tiers;
+    } else {
+      loadedMarginTiers = await loadMarginTiersForTotals({
+        supabase: input.supabase,
+        tenantId: input.tenantId,
+      });
+    }
+  }
   const marginTiers =
     input.version.margin_mode === "tiered" && loadedMarginTiers.length === 0
       ? getMarginTiers()
       : loadedMarginTiers;
-  const isLaborSplitEnabled = await isFeatureEnabled(
-    input.tenantId,
-    "EST_031_LABOR_SPLIT",
-    { supabase: input.supabase }
-  );
+  let isLaborSplitEnabled: boolean;
+  if (dependencies) {
+    const { data, error } = await input.supabase
+      .from("feature_flags")
+      .select("id, enabled")
+      .eq("tenant_id", input.tenantId)
+      .eq("flag_key", "EST_031_LABOR_SPLIT")
+      .maybeSingle();
+    if (error) {
+      throw mapSupabaseError(error, "Impossible de charger le réglage de ventilation de main-d'œuvre.");
+    }
+    dependencies.labor_split_flag = data;
+    isLaborSplitEnabled = data?.enabled === true;
+  } else {
+    isLaborSplitEnabled = await isFeatureEnabled(
+      input.tenantId,
+      "EST_031_LABOR_SPLIT",
+      { supabase: input.supabase }
+    );
+  }
   return {
     laborRatesById,
     marginTiers,
     isLaborSplitEnabled,
+    ...(dependencies ? { dependencies } : {}),
     snapshot: {
       labor_split_enabled: isLaborSplitEnabled,
       labor_roles: uniqueRoleIds
@@ -240,6 +310,7 @@ export async function calculateEstimateBreakdownForItems(input: {
       margin_mode: input.version.margin_mode ?? "fixed",
       tax_rate_bp: input.version.tax_rate_bp,
       discount_bp: input.version.discount_bp ?? 0,
+      discount_amount_cents: input.version.discount_amount_cents ?? null,
       discount_mode: input.version.discount_mode ?? "simple",
       discount_steps: discountSteps,
       global_coefficient: input.version.global_coefficient ?? 1,
@@ -280,9 +351,11 @@ export async function calculateEstimateSnapshotForItems(input: {
   version: EstimateTotalsVersionConfig;
   lineItems: EstimateItemRecord[];
   requireCompleteLaborRoleAssignments?: boolean;
+  captureDependencies?: boolean;
 }): Promise<{
   breakdown: EstimateBreakdown;
   context: EstimateCalculationSnapshotContext;
+  dependencies?: EstimateCalculationDependencies;
 }> {
   const resolved = await resolveEstimateCalculationContext(input);
   const discountSteps = toArrayNumberOrNull(input.version.discount_steps);
@@ -305,6 +378,7 @@ export async function calculateEstimateSnapshotForItems(input: {
       margin_mode: input.version.margin_mode ?? "fixed",
       tax_rate_bp: input.version.tax_rate_bp,
       discount_bp: input.version.discount_bp ?? 0,
+      discount_amount_cents: input.version.discount_amount_cents ?? null,
       discount_mode: input.version.discount_mode ?? "simple",
       discount_steps: discountSteps,
       global_coefficient: input.version.global_coefficient ?? 1,
@@ -337,9 +411,17 @@ export async function calculateEstimateSnapshotForItems(input: {
   });
   return {
     breakdown,
+    ...(resolved.dependencies ? { dependencies: resolved.dependencies } : {}),
     context: {
       ...resolved.snapshot,
       effective_margin_multiplier: breakdown.totals.appliedMarginMultiplier,
+      ...(input.version.discount_amount_cents != null ? {
+        fixed_discount: {
+          requested_cents: input.version.discount_amount_cents,
+          base_cents: breakdown.totals.saleSubtotalCents,
+          applied_cents: breakdown.totals.discountCents,
+        },
+      } : {}),
     },
   };
 }

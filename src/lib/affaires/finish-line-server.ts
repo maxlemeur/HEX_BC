@@ -1,11 +1,12 @@
 import { cache } from "react";
 
 import { ESTIMATE_READINESS_CATEGORY_ORDER } from "@/lib/estimates/readiness";
+import { getEstimateSendGating } from "@/lib/estimates/server";
+import { getEstimatePurchaseOrderDraftPreparation } from "@/lib/estimates/purchase-order-drafts";
 import {
-  getEstimateSendGating,
-  getEstimateSupplierComparisons,
-  listEstimateItems,
-} from "@/lib/estimates/server";
+  buildPurchaseOrderReadiness,
+  type PurchaseOrderReadiness,
+} from "@/lib/estimates/purchase-order-readiness";
 
 type AffaireHubSendGating = Awaited<ReturnType<typeof getEstimateSendGating>>["gating"];
 type AffaireHubSendGatingFlag = AffaireHubSendGating["blockingFlags"][number];
@@ -45,15 +46,7 @@ export type AffaireHubFinishLineSummaryResult = {
     stalePriceDays: number | null;
     errorMessage: string | null;
   };
-  readyToOrder: {
-    status: "ready" | "blocked" | "waiting" | "unavailable";
-    orderableLinesCount: number;
-    coveredLinesCount: number;
-    ambiguousLinesCount: number;
-    missingPriceLinesCount: number;
-    staleLinesCount: number;
-    errorMessage: string | null;
-  };
+  readyToOrder: PurchaseOrderReadiness;
 };
 
 export function buildAffaireSubmissionReadinessSnapshot(input: {
@@ -95,63 +88,14 @@ export function buildAffaireSubmissionReadinessSnapshot(input: {
   };
 }
 
-const SUPPLIER_COMPARISON_BATCH_SIZE = 200;
-
 async function computeAffaireOrderReadiness(versionId: string) {
-  const estimateItemsResult = await listEstimateItems(versionId);
-  const orderableLineIds = estimateItemsResult.items
-    .filter(
-      (item) =>
-        item.item_type === "line" &&
-        (item.supply_type_id !== null || item.selected_supplier_price_id !== null)
-    )
-    .map((item) => item.id);
-
-  if (orderableLineIds.length === 0) {
-    return {
-      status: "waiting" as const,
-      orderableLinesCount: 0,
-      coveredLinesCount: 0,
-      ambiguousLinesCount: 0,
-      missingPriceLinesCount: 0,
-      staleLinesCount: 0,
-      errorMessage: null,
-    };
-  }
-
-  let coveredLinesCount = 0;
-  let ambiguousLinesCount = 0;
-  let missingPriceLinesCount = 0;
-  let staleLinesCount = 0;
-
-  for (
-    let startIndex = 0;
-    startIndex < orderableLineIds.length;
-    startIndex += SUPPLIER_COMPARISON_BATCH_SIZE
-  ) {
-    const batchItemIds = orderableLineIds.slice(
-      startIndex,
-      startIndex + SUPPLIER_COMPARISON_BATCH_SIZE
-    );
-    const batch = await getEstimateSupplierComparisons(versionId, batchItemIds);
-    coveredLinesCount += batch.coverage_summary.covered_items;
-    ambiguousLinesCount += batch.coverage_summary.ambiguous_items;
-    missingPriceLinesCount += batch.coverage_summary.no_price_items;
-    staleLinesCount += batch.coverage_summary.stale_items;
-  }
-
-  const hasOrderBlockers =
-    ambiguousLinesCount > 0 || missingPriceLinesCount > 0 || staleLinesCount > 0;
-
-  return {
-    status: hasOrderBlockers ? ("blocked" as const) : ("ready" as const),
-    orderableLinesCount: orderableLineIds.length,
-    coveredLinesCount,
-    ambiguousLinesCount,
-    missingPriceLinesCount,
-    staleLinesCount,
-    errorMessage: null,
-  };
+  const { summary } = await getEstimatePurchaseOrderDraftPreparation(versionId);
+  return buildPurchaseOrderReadiness({
+    totalSupplierLines: summary.total_supplier_lines,
+    draftableLines: summary.draftable_lines,
+    transferredLines: summary.transferred_lines,
+    blockedLines: summary.blocked_lines,
+  });
 }
 
 export const fetchAffaireHubFinishLineSummary = cache(
@@ -185,17 +129,13 @@ export const fetchAffaireHubFinishLineSummary = cache(
             errorMessage: "Impossible de vérifier la sortie devis pour le moment.",
           };
 
-    const readyToOrder =
+    const readyToOrder: PurchaseOrderReadiness =
       orderResult.status === "fulfilled"
         ? orderResult.value
         : {
             status: "unavailable" as const,
-            orderableLinesCount: 0,
-            coveredLinesCount: 0,
-            ambiguousLinesCount: 0,
-            missingPriceLinesCount: 0,
-            staleLinesCount: 0,
-            errorMessage: "Impossible d'evaluer la préparation commandes pour le moment.",
+            counts: null,
+            errorMessage: "Préparation indisponible. Rechargez pour vérifier les lignes.",
           };
 
     const submissionReadiness = buildAffaireSubmissionReadinessSnapshot({

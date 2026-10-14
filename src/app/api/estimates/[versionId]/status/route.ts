@@ -3,6 +3,10 @@ import { z } from "zod";
 import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
 import { patchEstimateStatusSchema } from "@/lib/estimates/schemas";
 import { patchEstimateStatus } from "@/lib/estimates/server";
+import {
+  ESTIMATE_DRAFT_LOCK_SESSION_HEADER,
+  normalizeEstimateDraftLockSessionId,
+} from "@/lib/estimates/lock-session";
 
 const versionIdParamSchema = z.object({
   versionId: z.string().uuid("versionId invalide."),
@@ -41,7 +45,12 @@ export async function PATCH(
     if (!token) {
       throw badRequest("Jeton de concurrence manquant.");
     }
-    const data = await patchEstimateStatus(versionId, body, token);
+    const sessionHeader = request.headers.get(ESTIMATE_DRAFT_LOCK_SESSION_HEADER);
+    const data = sessionHeader === null
+      ? await patchEstimateStatus(versionId, body, token)
+      : await patchEstimateStatus(versionId, body, token, {
+          draftLockSessionId: normalizeEstimateDraftLockSessionId(sessionHeader),
+        });
     return ok(data);
   } catch (error) {
     return toErrorResponse(error);

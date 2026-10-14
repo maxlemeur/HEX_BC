@@ -108,13 +108,13 @@ describe("BriefDraftCard", () => {
     expect(secondScopeItem).toBeTruthy();
 
     expect(
-      within(firstScopeItem!).getByRole("link", { name: "Pièce source · DPGF.pdf" })
+      within(firstScopeItem!).getByRole("link", { name: "Document associé · DPGF.pdf" })
     ).toHaveAttribute(
       "href",
       `/dashboard/affaires/${PROJECT_ID}?intakeDocument=doc-1&briefBlock=scope&briefEntry=0#intake`
     );
     expect(
-      within(secondScopeItem!).getByRole("link", { name: "Pièce source · DPGF.pdf" })
+      within(secondScopeItem!).getByRole("link", { name: "Document associé · DPGF.pdf" })
     ).toHaveAttribute(
       "href",
       `/dashboard/affaires/${PROJECT_ID}?intakeDocument=doc-1&briefBlock=scope&briefEntry=1#intake`

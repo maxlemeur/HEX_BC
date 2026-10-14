@@ -107,11 +107,12 @@ function makeFinishLineSummary(
     },
     readyToOrder: {
       status: "ready",
-      orderableLinesCount: 3,
-      coveredLinesCount: 3,
-      ambiguousLinesCount: 0,
-      missingPriceLinesCount: 0,
-      staleLinesCount: 0,
+      counts: {
+        totalSupplierLines: 3,
+        draftableLines: 3,
+        transferredLines: 0,
+        blockedLines: 0,
+      },
       errorMessage: null,
     },
     ...overrides,

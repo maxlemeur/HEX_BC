@@ -19,6 +19,10 @@ const serverMocks = vi.hoisted(() => ({
 const renderMocks = vi.hoisted(() => ({
   render: vi.fn(),
 }));
+const offerMocks = vi.hoisted(() => ({ load: vi.fn() }));
+vi.mock("@/lib/estimates/offer-document", () => ({
+  loadVerifiedOfferDocument: offerMocks.load,
+}));
 
 vi.mock("@react-email/components", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@react-email/components")>()),
@@ -41,7 +45,8 @@ vi.mock("@/lib/estimates/pdf-generator", () => ({
   generateEstimatePdfNow: vi.fn(),
   getEstimatePdfStatus: vi.fn(),
 }));
-vi.mock("@/lib/estimates/server", () => ({
+vi.mock("@/lib/estimates/server", async (importOriginal) => ({
+  normalizeConcurrencyToken: (await importOriginal<typeof import("@/lib/estimates/server")>()).normalizeConcurrencyToken,
   freezeEstimateV2SnapshotForSend: serverMocks.freeze,
   getEstimateSendGating: serverMocks.getGating,
   verifyEstimateSeal: serverMocks.verifySeal,
@@ -141,6 +146,9 @@ function createDispatch(status: string) {
     created_by: USER_ID,
     version_content_revision: 1,
     from_address: "noreply@example.com",
+    request_contract_version: 2,
+    portal_url: "https://app.example.test/portal/99999999-9999-4999-8999-999999999999",
+    offer_identity_snapshot: {},
     html_body: status === "preparing" ? null : "<p>Bonjour</p>",
     text_body: status === "preparing" ? null : "Bonjour",
     document_path: status === "preparing" ? null : `${TENANT_ID}/${VERSION_ID}.pdf`,
@@ -164,6 +172,8 @@ const request = {
   },
   requestUrl: "https://app.example.test/api/send",
   idempotencyKey: REQUEST_ID,
+  concurrencyToken: UPDATED_AT,
+  draftLockSessionId: "55555555-5555-4555-8555-555555555555",
 };
 
 describe("sendEstimateEmail transactional workflow", () => {
@@ -171,6 +181,7 @@ describe("sendEstimateEmail transactional workflow", () => {
     vi.clearAllMocks();
     process.env.RESEND_API_KEY = "test-key";
     process.env.EMAIL_FROM = "noreply@example.com";
+    delete process.env.NEXT_PUBLIC_ESTIMATE_PORTAL_BASE_URL;
     serverMocks.getGating.mockResolvedValue({
       gating: { blockingFlags: [] },
     });
@@ -183,6 +194,22 @@ describe("sendEstimateEmail transactional workflow", () => {
     serverMocks.loadSealSource.mockResolvedValue({ version: {}, items: [] });
     serverMocks.buildSealPayload.mockReturnValue({});
     serverMocks.computeSealHash.mockReturnValue(SEAL_HASH);
+    offerMocks.load.mockResolvedValue({
+      buffer: Buffer.from("pdf"),
+      sealHash: SEAL_HASH,
+      sealPayloadVersion: 5,
+      proof: {
+        filePath: `${TENANT_ID}/${VERSION_ID}/contract.pdf`,
+        sha256Hash: PDF_HASH,
+        clientContractVersion: 1,
+        clientContractSnapshot: {
+          project: { name: "Chantier", estimateReference: "HEX_D26001MM_V2" },
+          company: { name: "Entreprise émettrice" },
+          version: { number: 2, currency: "EUR" },
+          totals: { payableTtcCents: 1200 },
+        },
+      },
+    });
     renderMocks.render
       .mockResolvedValueOnce("<p>Bonjour</p>")
       .mockResolvedValueOnce("Bonjour");
@@ -236,7 +263,7 @@ describe("sendEstimateEmail transactional workflow", () => {
     vi.mocked(getAuthenticatedTenantContext).mockResolvedValue(
       createContext("sent") as never
     );
-    serverMocks.verifySeal.mockResolvedValue({ valid: false });
+    offerMocks.load.mockRejectedValue(badRequest("Scellement invalide.", undefined, "ESTIMATE_SEAL_INVALID"));
 
     await expect(sendEstimateEmail(request)).rejects.toMatchObject({
       code: "ESTIMATE_SEAL_INVALID",
@@ -258,7 +285,6 @@ describe("sendEstimateEmail transactional workflow", () => {
         expectedUpdatedAt: FROZEN_UPDATED_AT,
       })
     );
-    expect(serverMocks.freeze).toHaveBeenCalledWith(VERSION_ID, UPDATED_AT);
     expect(serverMocks.freeze.mock.invocationCallOrder[0]).toBeLessThan(
       serverMocks.getGating.mock.invocationCallOrder[0]
     );
@@ -302,6 +328,7 @@ describe("sendEstimateEmail transactional workflow", () => {
   it.each(["accepted", "archived"])(
     "returns the stored provider id when the same request is replayed after the version became %s",
     async (status) => {
+    process.env.NEXT_PUBLIC_ESTIMATE_PORTAL_BASE_URL = "not-an-absolute-url";
     vi.mocked(getAuthenticatedTenantContext).mockResolvedValue(
       createContext(status) as never
     );
@@ -327,7 +354,7 @@ describe("sendEstimateEmail transactional workflow", () => {
       message_id: "email-1",
     });
 
-    expect(getEstimatePdfStatus).toHaveBeenCalledWith(VERSION_ID);
+    expect(offerMocks.load).toHaveBeenCalled();
     expect(generateEstimatePdfNow).not.toHaveBeenCalled();
     expect(outboxMocks.prepare).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -340,6 +367,7 @@ describe("sendEstimateEmail transactional workflow", () => {
   it.each(["sending", "sent"])(
     "resumes the same frozen database payload with a fresh key on %s status",
     async (status) => {
+      process.env.NEXT_PUBLIC_ESTIMATE_PORTAL_BASE_URL = "not-an-absolute-url";
       vi.mocked(getAuthenticatedTenantContext).mockResolvedValue(
         createContext(status) as never
       );
@@ -391,7 +419,7 @@ describe("sendEstimateEmail transactional workflow", () => {
     const activeDispatch = {
       ...createDispatch("preparing"),
       request_id: "88888888-8888-4888-8888-888888888888",
-      body: "Message fige avant acceptation",
+      body: request.payload.message,
     };
     outboxMocks.findActive.mockResolvedValue(activeDispatch);
 
@@ -399,7 +427,7 @@ describe("sendEstimateEmail transactional workflow", () => {
       sendEstimateEmail(request)
     ).resolves.toEqual({ message_id: "email-1" });
 
-    expect(getEstimatePdfStatus).toHaveBeenCalledWith(VERSION_ID);
+    expect(offerMocks.load).toHaveBeenCalled();
     expect(generateEstimatePdfNow).not.toHaveBeenCalled();
     expect(outboxMocks.reserve).not.toHaveBeenCalled();
     expect(outboxMocks.prepare).toHaveBeenCalledWith(

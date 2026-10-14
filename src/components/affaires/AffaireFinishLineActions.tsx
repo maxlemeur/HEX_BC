@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, useTransition } from "react";
 
 import type { AffaireHubFinishLineSummaryResult } from "@/lib/affaires/server";
 import { exportEstimate } from "@/lib/estimates/client";
 import type { EstimateStatus } from "@/lib/estimates/status";
+import type { PurchaseOrderReadiness } from "@/lib/estimates/purchase-order-readiness";
 import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDownloadButton";
 import { SendEstimateModal } from "@/components/estimates/SendEstimateModal";
 import { Badge } from "@/components/ui/badge";
@@ -29,9 +30,14 @@ type AffaireFinishLineActionsProps = {
         id: string;
         status: EstimateStatus;
         versionNumber: number;
+        updatedAt?: string;
       }
     | null;
   finishLineSummary?: AffaireHubFinishLineSummaryResult | null;
+  onPreparationReadiness?: (
+    versionId: string,
+    readiness: PurchaseOrderReadiness,
+  ) => void;
 };
 
 type FeedbackState =
@@ -148,10 +154,12 @@ export function AffaireFinishLineActions({
   projectName,
   currentVersion,
   finishLineSummary,
+  onPreparationReadiness,
 }: Readonly<AffaireFinishLineActionsProps>) {
   const router = useRouter();
   const toast = useToast();
   const [sendModalOpen, setSendModalOpen] = useState(false);
+  const [isRefreshingPdf, startPdfRefresh] = useTransition();
   const [pdfFeedback, setPdfFeedback] = useState<FeedbackState>(null);
   const [isExportingBdc, setIsExportingBdc] = useState(false);
   const [bdcError, setBdcError] = useState<string | null>(null);
@@ -253,13 +261,14 @@ export function AffaireFinishLineActions({
             <article className="rounded-xl border border-border bg-surface p-4">
               <p className="text-sm font-semibold text-foreground">PDF du devis</p>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                Préparez le PDF de la {formatVersionLabel(currentVersion).toLowerCase()},
-                puis téléchargez-le une fois prêt. Le document existant est réutilisé
-                s’il est encore validé.
+                {currentVersion.status === "draft"
+                  ? `Préparez le PDF de la ${formatVersionLabel(currentVersion).toLowerCase()}, puis téléchargez-le une fois prêt.`
+                  : `Téléchargez le PDF original de la ${formatVersionLabel(currentVersion).toLowerCase()} lorsqu’il est disponible.`}
               </p>
               <div className="mt-4" data-testid="affaire-finish-line-pdf">
                 <EstimatePdfDownloadButton
                   versionId={currentVersion.id}
+                  versionStatus={currentVersion.status}
                   // Layout-only: a className already selects the outline/md button; self-start keeps
                   // the auto width of its neighbours instead of stretching across the column.
                   className="self-start"
@@ -349,7 +358,7 @@ export function AffaireFinishLineActions({
                   type="button"
                   className={buttonVariants({ variant: "primary", size: "md" })}
                   onClick={() => setSendModalOpen(true)}
-                  disabled={sendActionState.disabled}
+                  disabled={sendActionState.disabled || isRefreshingPdf}
                 >
                   {currentVersion.status === "sending"
                     ? "Reprendre l'envoi"
@@ -388,7 +397,10 @@ export function AffaireFinishLineActions({
             open={sendModalOpen}
             onClose={() => setSendModalOpen(false)}
             versionId={currentVersion.id}
+            versionStatus={currentVersion.status}
+            versionUpdatedAt={currentVersion.updatedAt}
             defaultSubject={defaultSubject}
+            onPdfPrepared={() => startPdfRefresh(() => router.refresh())}
             onSent={() => {
               setSendModalOpen(false);
               router.refresh();
@@ -398,7 +410,8 @@ export function AffaireFinishLineActions({
           <AffaireOrderDraftsPanel
             projectId={projectId}
             currentVersion={currentVersion}
-            readyToOrder={finishLineSummary?.readyToOrder ?? null}
+            refreshSignal={finishLineSummary?.readyToOrder}
+            onPreparationReadiness={onPreparationReadiness}
           />
         </>
       )}

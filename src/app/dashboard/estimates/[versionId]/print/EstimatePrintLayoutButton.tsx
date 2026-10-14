@@ -81,6 +81,7 @@ export function EstimatePrintLayoutButton({
         open={open}
         onOpenChange={setOpen}
         versionId={versionId}
+        requiresDraftLock={false}
         initialLayout={initialLayout}
         confirmLabel="Appliquer et imprimer"
         onConfirm={handleConfirm}

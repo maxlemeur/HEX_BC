@@ -257,21 +257,23 @@ function buildOperation(
     ...operation.responses,
   };
 
-  DEFAULT_ERROR_RESPONSES.forEach((entry) => {
-    if (mergedResponses[entry.status]) {
-      return;
-    }
+  if (!operation.omitDefaultErrorResponses) {
+    DEFAULT_ERROR_RESPONSES.forEach((entry) => {
+      if (mergedResponses[entry.status]) {
+        return;
+      }
 
-    mergedResponses[entry.status] = {
-      description: entry.description,
-      contents: [
-        {
-          contentType: "application/json",
-          schema: openApiSharedSchemaDefinitions.apiFailureResponse,
-        },
-      ],
-    };
-  });
+      mergedResponses[entry.status] = {
+        description: entry.description,
+        contents: [
+          {
+            contentType: "application/json",
+            schema: openApiSharedSchemaDefinitions.apiFailureResponse,
+          },
+        ],
+      };
+    });
+  }
 
   const responseEntries = Object.entries(mergedResponses).sort((left, right) => {
     return Number.parseInt(left[0], 10) - Number.parseInt(right[0], 10);

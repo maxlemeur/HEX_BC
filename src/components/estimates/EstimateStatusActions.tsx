@@ -1,14 +1,29 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState, useTransition } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 
-import { SendEstimateModal } from "@/components/estimates/SendEstimateModal";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DRAFT_LOCK_HEARTBEAT_INTERVAL_MS } from "@/hooks/useDraftLock";
+import {
+  acquireEstimateDraftLock,
+  getEstimateDraftLockSessionId,
+  isEstimateApiError,
+  releaseEstimateDraftLock,
+  renewEstimateDraftLock,
+} from "@/lib/estimates/client";
+import { hasEstimateEditorMutationSession } from "@/lib/estimates/editor-mutations";
+import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
 import type { EstimateStatus } from "@/lib/estimates/status";
 import { SendIcon } from "lucide-react";
+
+const SendEstimateModal = dynamic(
+  () => import("@/components/estimates/SendEstimateModal").then((module) => module.SendEstimateModal),
+  { loading: () => <p role="status">Chargement de l’envoi…</p> }
+);
 
 type EstimateEmailDispatchProblem = {
   id: string;
@@ -53,13 +68,66 @@ export function EstimateStatusActions({
   const router = useRouter();
   const [isPending, setIsPending] = useState(false);
   const [sendModalOpen, setSendModalOpen] = useState(false);
+  const [sendModalMounted, setSendModalMounted] = useState(false);
+  const [isRefreshingPdf, startPdfRefresh] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const statusChangePendingRef = useRef(false);
 
   const handleStatusChange = useCallback(
     async (nextStatus: EstimateStatus) => {
+      if (statusChangePendingRef.current) return;
+      statusChangePendingRef.current = true;
       setIsPending(true);
       setError(null);
+      let ownsNewLease = false;
+      let intervalId: number | undefined;
+      let renewal: Promise<void> | null = null;
+      const releaseNewLease = async () => {
+        if (!ownsNewLease) return;
+        ownsNewLease = false;
+        await releaseEstimateDraftLock(versionId, { keepalive: true });
+      };
+      const releaseOnUnload = () => {
+        void releaseNewLease().catch(() => undefined);
+      };
       try {
+        if (typeof updatedAt !== "string" || updatedAt.trim().length === 0) {
+          throw new Error("Le devis n’a pas de jeton de concurrence. Rechargez la page avant de réessayer.");
+        }
+        const requiresDraftLock = currentStatus === "draft";
+        if (requiresDraftLock) {
+          const unavailable = "Ce devis est ouvert dans une autre page. Réessayez quand il sera disponible.";
+          try {
+            const existing = await renewEstimateDraftLock(versionId);
+            if (!existing.renewed || existing.lock?.isOwnedByCurrentSession !== true) {
+              throw new Error(unavailable);
+            }
+          } catch (leaseError) {
+            if (!isEstimateApiError(leaseError) || leaseError.status !== 404) throw leaseError;
+            const acquired = await acquireEstimateDraftLock(versionId);
+            if (!acquired.acquired || acquired.lock?.isOwnedByCurrentSession !== true) {
+              throw new Error(unavailable);
+            }
+            // An editor in this page owns its lease lifecycle, including release.
+            ownsNewLease = !hasEstimateEditorMutationSession(versionId);
+          }
+          window.addEventListener("beforeunload", releaseOnUnload);
+          intervalId = window.setInterval(() => {
+            if (renewal) return;
+            renewal = renewEstimateDraftLock(versionId)
+              .then((result) => {
+                if (!result.renewed || result.lock?.isOwnedByCurrentSession !== true) {
+                  throw new Error(unavailable);
+                }
+              })
+              .catch(() => {
+                // An acknowledged status request decides the workflow result.
+                // A lost heartbeat never forces takeover or resubmits status.
+                if (intervalId !== undefined) window.clearInterval(intervalId);
+              })
+              .finally(() => { renewal = null; });
+          }, DRAFT_LOCK_HEARTBEAT_INTERVAL_MS);
+        }
         const response = await fetch(`/api/estimates/${versionId}/status`, {
           method: "PATCH",
           headers: {
@@ -67,6 +135,9 @@ export function EstimateStatusActions({
             // Jeton de concurrence réel : ne jamais fabriquer un horodatage,
             // sous peine de conflit systématique ou de contournement.
             "If-Match": updatedAt,
+            ...(requiresDraftLock
+              ? { [ESTIMATE_DRAFT_LOCK_SESSION_HEADER]: getEstimateDraftLockSessionId(versionId) }
+              : {}),
           },
           // Pas de force: la transition draft -> sent passe par le gating
           // (anomalies bloquantes, PDF, scellement). Le forçage reste réservé
@@ -95,13 +166,20 @@ export function EstimateStatusActions({
         }
 
         router.refresh();
-      } catch {
-        setError("Impossible de mettre à jour le statut. Réessayez.");
+      } catch (statusError) {
+        setError(statusError instanceof Error
+          ? statusError.message
+          : "Impossible de mettre à jour le statut. Réessayez.");
       } finally {
+        if (intervalId !== undefined) window.clearInterval(intervalId);
+        window.removeEventListener("beforeunload", releaseOnUnload);
+        if (renewal) await renewal;
+        await releaseNewLease().catch(() => undefined);
+        statusChangePendingRef.current = false;
         setIsPending(false);
       }
     },
-    [versionId, updatedAt, router]
+    [versionId, currentStatus, updatedAt, router]
   );
 
   const [providerMessageId, setProviderMessageId] = useState("");
@@ -182,8 +260,11 @@ export function EstimateStatusActions({
                 type="button"
                 variant="primary"
                 size="xs"
-                disabled={isPending}
-                onClick={() => setSendModalOpen(true)}
+                disabled={isPending || isRefreshingPdf}
+                onClick={() => {
+                  setSendModalMounted(true);
+                  setSendModalOpen(true);
+                }}
               >
                 Renvoyer
               </Button>
@@ -220,8 +301,11 @@ export function EstimateStatusActions({
             type="button"
             variant="primary"
             size="sm"
-            disabled={isPending}
-            onClick={() => setSendModalOpen(true)}
+            disabled={isPending || isRefreshingPdf}
+            onClick={() => {
+              setSendModalMounted(true);
+              setSendModalOpen(true);
+            }}
             leftIcon={SEND_ICON}
           >
             {currentStatus === "draft"
@@ -249,14 +333,17 @@ export function EstimateStatusActions({
           {error}
         </p>
       )}
-      <SendEstimateModal
+      {sendModalMounted && <SendEstimateModal
         open={sendModalOpen}
         onClose={() => setSendModalOpen(false)}
         versionId={versionId}
+        versionStatus={currentStatus}
+        versionUpdatedAt={updatedAt}
         defaultSubject={defaultSubject}
         defaultRecipient={clientEmail}
         onSent={() => router.refresh()}
-      />
+        onPdfPrepared={() => startPdfRefresh(() => router.refresh())}
+      />}
     </>
   );
 }

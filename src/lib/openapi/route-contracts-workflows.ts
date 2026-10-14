@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { purchaseOrderItemHistorySchema } from "@/lib/purchase-orders/schemas";
 import { estimateApprovalActionSchema } from "@/lib/approvals/schemas";
 import {
   createMissingPriceImportEntitiesSchema,
@@ -142,7 +143,7 @@ const portalAndProcurementContracts: RouteContract[] = [
     method: "post",
     path: "/api/purchase-orders",
     summary: "Creer un bon de commande",
-    description: "Cree un bon de commande brouillon et ses lignes calculees.",
+    description: "Crée atomiquement un brouillon et ses lignes. Quantités positives à trois décimales, unité explicite, arrondi HT puis TVA par ligne.",
     tags: ["Achats"],
     rawErrors: true,
     body: { schema: purchaseOrderCreateSchema, description: "Fournisseur, chantier et lignes de commande." },
@@ -153,7 +154,7 @@ const portalAndProcurementContracts: RouteContract[] = [
         rawJson: true,
         schema: {
           schemaName: "PurchaseOrderCreatedResponse",
-          schema: z.object({ id: uuidSchema, reference: z.string() }),
+          schema: z.object({ id: uuidSchema, reference: z.string(), editRevision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER) }),
           io: "output",
         },
       },
@@ -164,12 +165,28 @@ const portalAndProcurementContracts: RouteContract[] = [
     method: "put",
     path: "/api/purchase-orders/{id}",
     summary: "Modifier un bon de commande brouillon",
-    description: "Remplace atomiquement les champs et lignes fournis du brouillon.",
+    description: "Modifie atomiquement le brouillon à sa révision attendue. Les identifiants de lignes existantes et leur provenance sont conservés ; les corrections sont historisées.",
     tags: ["Achats"],
     rawErrors: true,
     pathParameters: [{ name: "id", schema: uuidSchema, description: "Identifiant du bon de commande." }],
     body: { schema: purchaseOrderUpdateSchema, description: "Champs et lignes a remplacer." },
-    success: [{ status: "200", description: "Bon de commande modifie.", rawJson: true }],
+    success: [{ status: "200", description: "Bon de commande modifié.", rawJson: true,
+      schema: { schemaName: "PurchaseOrderUpdatedResponse", io: "output", schema: z.object({ success: z.literal(true), id: uuidSchema, editRevision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER) }) },
+    }],
+    extraErrors: [{ status: "409", description: "Révision périmée. Recharger la commande avant toute nouvelle saisie." }],
+  },
+  {
+    id: "read-purchase-order-item-history",
+    method: "get",
+    path: "/api/purchase-orders/{id}/history",
+    summary: "Consulter l'historique des lignes d'achat",
+    description: "Retourne les valeurs avant/après, l'acteur et la date des corrections pour une commande accessible. Aucun cache partagé.",
+    tags: ["Achats"],
+    rawErrors: true,
+    pathParameters: [{ name: "id", schema: uuidSchema, description: "Identifiant du bon de commande." }],
+    success: [{ status: "200", description: "Historique des lignes.", rawJson: true,
+      schema: { schemaName: "PurchaseOrderItemHistoryResponse", io: "output", schema: z.object({ ok: z.literal(true), data: purchaseOrderItemHistorySchema }) },
+    }],
   },
   {
     id: "delete-purchase-order",
@@ -256,6 +273,7 @@ const portalAndProcurementContracts: RouteContract[] = [
     rawErrors: true,
     pathParameters: [{ name: "id", schema: uuidSchema, description: "Identifiant du bon de commande." }],
     success: [{ status: "200", description: "Archive ZIP diffusee.", contentType: "application/zip" }],
+    extraErrors: [{ status: "409", description: "Lecture de commande incomplète ou modifiée ; aucun document partiel n'est produit." }],
   },
 ];
 

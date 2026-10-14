@@ -10,6 +10,13 @@ import {
   type PurchaseOrderStatus,
 } from "./orders-model";
 
+type ExportOrder = Omit<PurchaseOrderListRow, "devis_count" | "has_devis">;
+
+type OrderExportSnapshot = {
+  orders: ExportOrder[];
+  itemsByOrderId: Record<string, OrderItemRow[]>;
+};
+
 type ItemExportRow = {
   order_reference: string;
   order_created_at: string;
@@ -21,11 +28,15 @@ type ItemExportRow = {
   item_designation: string;
   item_reference: string | null;
   item_quantity: number | "";
+  item_unit: string;
+  item_price_unit: string;
   item_unit_price_ht_cents: number | "";
   item_line_total_ht_cents: number | "";
+  item_line_tax_cents: number | "";
+  item_line_total_ttc_cents: number | "";
 };
 
-const ORDER_EXPORT_COLUMNS: ExportColumn<PurchaseOrderListRow>[] = [
+const ORDER_EXPORT_COLUMNS: ExportColumn<ExportOrder>[] = [
   { key: "reference", header: "Référence" },
   {
     key: "created_at",
@@ -86,6 +97,8 @@ const ITEM_EXPORT_COLUMNS: ExportColumn<ItemExportRow>[] = [
   { key: "item_designation", header: "Désignation article" },
   { key: "item_reference", header: "Référence article" },
   { key: "item_quantity", header: "Quantité" },
+  { key: "item_unit", header: "Unité" },
+  { key: "item_price_unit", header: "Unité du prix" },
   {
     key: "item_unit_price_ht_cents",
     header: "P.U. HT (EUR)",
@@ -96,10 +109,20 @@ const ITEM_EXPORT_COLUMNS: ExportColumn<ItemExportRow>[] = [
     header: "Total ligne HT (EUR)",
     formatter: (value) => (typeof value === "number" ? value / 100 : ""),
   },
+  {
+    key: "item_line_tax_cents",
+    header: "TVA ligne (EUR)",
+    formatter: (value) => (typeof value === "number" ? value / 100 : ""),
+  },
+  {
+    key: "item_line_total_ttc_cents",
+    header: "Total ligne TTC (EUR)",
+    formatter: (value) => (typeof value === "number" ? value / 100 : ""),
+  },
 ];
 
 function buildItemsExportRows(
-  orders: PurchaseOrderListRow[],
+  orders: ExportOrder[],
   itemsByOrderId: Record<string, OrderItemRow[]>
 ): ItemExportRow[] {
   return orders.flatMap((order): ItemExportRow[] => {
@@ -113,7 +136,7 @@ function buildItemsExportRows(
       order_total_ht_cents: order.total_ht_cents,
     };
 
-    const items = itemsByOrderId[order.id] ?? [];
+    const items = itemsByOrderId[order.id];
     if (items.length === 0) {
       return [
         {
@@ -121,8 +144,12 @@ function buildItemsExportRows(
           item_designation: "",
           item_reference: "",
           item_quantity: "" as const,
+          item_unit: "",
+          item_price_unit: "",
           item_unit_price_ht_cents: "" as const,
           item_line_total_ht_cents: "" as const,
+          item_line_tax_cents: "" as const,
+          item_line_total_ttc_cents: "" as const,
         },
       ];
     }
@@ -132,20 +159,42 @@ function buildItemsExportRows(
       item_designation: item.designation,
       item_reference: item.reference ?? "",
       item_quantity: item.quantity,
+      item_unit: item.unit || "Unité à confirmer",
+      item_price_unit: item.price_unit || "Unité à confirmer",
       item_unit_price_ht_cents: item.unit_price_ht_cents,
       item_line_total_ht_cents: item.line_total_ht_cents,
+      item_line_tax_cents: item.line_tax_cents,
+      item_line_total_ttc_cents: item.line_total_ttc_cents,
     }));
   });
 }
 
-async function fetchItemsByOrderId(orderIds: string[]): Promise<Record<string, OrderItemRow[]>> {
-  if (orderIds.length === 0) return {};
+async function fetchOrderExportSnapshot(orderIds: string[]): Promise<OrderExportSnapshot> {
+  const selectedIds = [...new Set(orderIds)];
+  if (selectedIds.length === 0) {
+    throw new Error("Sélectionnez au moins une commande à exporter.");
+  }
   const query = new URLSearchParams({ view: "items" });
-  orderIds.forEach((orderId) => query.append("order_id", orderId));
-  const data = await fetchApi<{ itemsByOrderId: Record<string, OrderItemRow[]> }>(
+  selectedIds.forEach((orderId) => query.append("order_id", orderId));
+  const data = await fetchApi<OrderExportSnapshot>(
     `/api/orders?${query.toString()}`
   );
-  return data.itemsByOrderId ?? {};
+  if (!data || !Array.isArray(data.orders) || !data.itemsByOrderId ||
+      typeof data.itemsByOrderId !== "object" || Array.isArray(data.itemsByOrderId)) {
+    throw new Error("La préparation de l’export est incomplète. Rechargez la liste puis réessayez.");
+  }
+  const ordersById = new Map(data.orders.map((order) => [order.id, order]));
+  if (ordersById.size !== data.orders.length || ordersById.size !== selectedIds.length) {
+    throw new Error("La sélection de commandes a changé. Rechargez la liste avant d’exporter.");
+  }
+  const orders = selectedIds.map((id) => {
+    const order = ordersById.get(id);
+    if (!order || !Array.isArray(data.itemsByOrderId[id])) {
+      throw new Error("Une commande sélectionnée est absente ou incomplète. Rechargez la liste avant d’exporter.");
+    }
+    return order;
+  });
+  return { orders, itemsByOrderId: data.itemsByOrderId };
 }
 
 function exportFilename() {
@@ -154,11 +203,13 @@ function exportFilename() {
 
 /** Workbook with one sheet of orders and one sheet of their lines. */
 export async function exportOrdersToExcel(orders: PurchaseOrderListRow[]) {
-  const itemsRows = buildItemsExportRows(orders, await fetchItemsByOrderId(orders.map((order) => order.id)));
+  // The list determines selection only; headers and lines come from one server snapshot.
+  const snapshot = await fetchOrderExportSnapshot(orders.map((order) => order.id));
+  const itemsRows = buildItemsExportRows(snapshot.orders, snapshot.itemsByOrderId);
   const { exportToExcelWithSheets } = await import("@/lib/export");
   await exportToExcelWithSheets(
     [
-      { name: "Commandes", data: orders, columns: ORDER_EXPORT_COLUMNS },
+      { name: "Commandes", data: snapshot.orders, columns: ORDER_EXPORT_COLUMNS },
       { name: "Articles", data: itemsRows, columns: ITEM_EXPORT_COLUMNS },
     ],
     { filename: exportFilename() }
@@ -167,7 +218,8 @@ export async function exportOrdersToExcel(orders: PurchaseOrderListRow[]) {
 
 /** One CSV line per ordered item (orders without items keep one empty line). */
 export async function exportOrdersToCsv(orders: PurchaseOrderListRow[]) {
-  const itemsRows = buildItemsExportRows(orders, await fetchItemsByOrderId(orders.map((order) => order.id)));
+  const snapshot = await fetchOrderExportSnapshot(orders.map((order) => order.id));
+  const itemsRows = buildItemsExportRows(snapshot.orders, snapshot.itemsByOrderId);
   const { exportToCSV } = await import("@/lib/export");
   await exportToCSV(itemsRows, ITEM_EXPORT_COLUMNS, { filename: exportFilename() });
 }

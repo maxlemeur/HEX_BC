@@ -3,6 +3,7 @@ const SUPPORTED_TAKEOFF_SOURCE_BADGE_PROVIDERS = new Set([
   "takeoff_gemini",
   "ai_structure",
   "generated_ouvrage",
+  "assembly_library",
   "version_zero_draft",
 ]);
 

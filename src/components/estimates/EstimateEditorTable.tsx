@@ -2342,9 +2342,9 @@ export function EstimateEditorTable({
               : null,
           isCollapsed: collapsedSectionIds.has(item.id),
           canAddLine:
-            sectionLevel !== null && sectionLevel <= resolvedMaxSectionDepth,
+            !isPendingCreateItem(item) && sectionLevel !== null && sectionLevel <= resolvedMaxSectionDepth,
           canAddSection:
-            sectionLevel !== null && sectionLevel < resolvedMaxSectionDepth,
+            !isPendingCreateItem(item) && sectionLevel !== null && sectionLevel < resolvedMaxSectionDepth,
           addLineLabel:
             sectionLevel !== null
               ? formatAddLineLabelForSectionLevel(sectionLevel)
@@ -2376,8 +2376,8 @@ export function EstimateEditorTable({
     }
     const sectionLevel = sectionLevelById.get(section.id) ?? 1;
     const hasChildren = (itemsByParent.get(section.id) ?? []).length > 0;
-    const canAddSection = sectionLevel < resolvedMaxSectionDepth;
-    const canAddLine = sectionLevel <= resolvedMaxSectionDepth;
+    const canAddSection = !isPendingCreateItem(section) && sectionLevel < resolvedMaxSectionDepth;
+    const canAddLine = !isPendingCreateItem(section) && sectionLevel <= resolvedMaxSectionDepth;
     return {
       sectionLevel,
       hasChildren,

@@ -25,6 +25,7 @@ import {
   notFound,
 } from "@/lib/estimates/errors";
 import { linkTakeoffJobsFromSourceVersionToTargetVersion } from "@/lib/takeoff/version-links";
+import { assertCanWriteEstimateWorkflows } from "@/lib/estimates/write-access";
 import type {
   CreateEstimateTemplateFromVersionInput,
   DuplicateEstimateTemplateInput,
@@ -96,7 +97,8 @@ export async function getEstimateTemplate(templateId: string) {
 export async function createEstimateTemplateFromVersion(
   input: CreateEstimateTemplateFromVersionInput
 ) {
-  const { supabase, tenantId } = await getAuthenticatedContext();
+  const { supabase, tenantId, tenantRole } = await getAuthenticatedContext();
+  assertCanWriteEstimateWorkflows(tenantRole);
 
   const { data, error } = await supabase.rpc(
     "create_estimate_template_from_version",
@@ -141,7 +143,8 @@ export async function updateEstimateTemplate(
   templateId: string,
   input: UpdateEstimateTemplateInput
 ) {
-  const { supabase, tenantId } = await getAuthenticatedContext();
+  const { supabase, tenantId, tenantRole } = await getAuthenticatedContext();
+  assertCanWriteEstimateWorkflows(tenantRole);
 
   await loadEstimateTemplateOrThrow({
     supabase,
@@ -190,7 +193,8 @@ export async function updateEstimateTemplate(
 }
 
 export async function deleteEstimateTemplate(templateId: string) {
-  const { supabase, tenantId } = await getAuthenticatedContext();
+  const { supabase, tenantId, tenantRole } = await getAuthenticatedContext();
+  assertCanWriteEstimateWorkflows(tenantRole);
 
   await loadEstimateTemplateOrThrow({
     supabase,
@@ -227,7 +231,8 @@ export async function duplicateEstimateTemplate(
   templateId: string,
   input: DuplicateEstimateTemplateInput
 ) {
-  const { supabase, tenantId } = await getAuthenticatedContext();
+  const { supabase, tenantId, tenantRole } = await getAuthenticatedContext();
+  assertCanWriteEstimateWorkflows(tenantRole);
 
   const { data, error } = await supabase.rpc("duplicate_estimate_template", {
     p_template_id: templateId,
@@ -325,7 +330,8 @@ export async function instantiateEstimateFromTemplate(
   templateId: string,
   input: InstantiateEstimateFromTemplateInput
 ) {
-  const { supabase, tenantId, userId } = await getAuthenticatedContext();
+  const { supabase, tenantId, userId, tenantRole } = await getAuthenticatedContext();
+  assertCanWriteEstimateWorkflows(tenantRole);
   const targetProjectId = input.project_id ?? null;
   const projectName = toNullableText(input.project_name);
 

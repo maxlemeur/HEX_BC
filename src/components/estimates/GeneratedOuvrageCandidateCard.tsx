@@ -47,6 +47,7 @@ type GeneratedOuvrageCandidateCardProps = {
   onCancelEdit: (candidateId: string) => void;
   onReject: (candidateId: string) => void;
   onOpenSubdetail: (candidateId: string) => void;
+  onSubdetailChanged: (candidateId: string) => void;
   onSaveSubdetail: (
     candidateId: string,
     components: GeneratedOuvrageSubdetailEditorComponent[]
@@ -157,6 +158,7 @@ export function GeneratedOuvrageCandidateCard({
   onReject,
   onOpenSubdetail,
   onSaveSubdetail,
+  onSubdetailChanged,
   subdetailState,
   isRejecting,
 }: GeneratedOuvrageCandidateCardProps) {
@@ -196,7 +198,7 @@ export function GeneratedOuvrageCandidateCard({
         </div>
         {candidate.editedUnit && (
           <p className="mt-1 text-xs text-muted-foreground">
-            Unité proposée : {candidate.editedUnit}
+            {isInserted && candidate.appliedValues ? "Unité appliquée" : "Unité proposée"} : {candidate.editedUnit}
           </p>
         )}
       </div>
@@ -450,15 +452,22 @@ export function GeneratedOuvrageCandidateCard({
                 </div>
               ) : null}
               {subdetailState?.status === "error" ? (
-                <Alert variant="danger" className="mt-4">
-                  {subdetailState.errorMessage}
+                <Alert variant="danger" className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                  <span>{subdetailState.errorMessage}</span>
+                  <Button type="button" variant="outline" size="md"
+                    onClick={() => onOpenSubdetail(candidate.candidateId)}>
+                    Recharger la revue enregistrée
+                  </Button>
                 </Alert>
               ) : null}
               {subdetailState?.data ? (
                 <GeneratedOuvrageSubdetailEditor
                   candidateLabel={candidate.editedDesignation}
+                  parentQuantity={candidate.editedQuantity ?? 0}
+                  isReviewed={candidate.subdetailReviewed}
                   subdetail={subdetailState.data}
                   isSaving={subdetailState.status === "saving"}
+                  onChange={() => onSubdetailChanged(candidate.candidateId)}
                   onSave={(components) =>
                     onSaveSubdetail(candidate.candidateId, components)
                   }

@@ -8,14 +8,18 @@ import { AffaireOrderDraftsPanel } from "./AffaireOrderDraftsPanel";
 
 const {
   fetchPreparationMock,
+  fetchReceiptMock,
   createDraftsMock,
   createSupabaseBrowserClientMock,
   routerRefreshMock,
+  onPreparationReadinessMock,
 } = vi.hoisted(() => ({
   fetchPreparationMock: vi.fn(),
+  fetchReceiptMock: vi.fn(),
   createDraftsMock: vi.fn(),
   createSupabaseBrowserClientMock: vi.fn(),
   routerRefreshMock: vi.fn(),
+  onPreparationReadinessMock: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -32,6 +36,7 @@ vi.mock("@/lib/estimates/client", async () => {
   return {
     ...actual,
     fetchEstimatePurchaseOrderDraftPreparation: fetchPreparationMock,
+    fetchEstimatePurchaseOrderDraftReceipt: fetchReceiptMock,
     createEstimatePurchaseOrderDrafts: createDraftsMock,
   };
 });
@@ -56,7 +61,9 @@ function makePreparation() {
       missingQuantityLines: 0,
       nonIntegerQuantityLines: 0,
       missingUnitPriceLines: 0,
+      transferredLines: 0,
     },
+    transferredLines: [],
     groups: [
       {
         groupKey: "supplier:supplier-1",
@@ -71,6 +78,8 @@ function makePreparation() {
             itemId: "item-1",
             itemTitle: "Tube cuivre 18",
             quantity: 12,
+            unit: "m",
+            reviewFingerprint: "a".repeat(64),
             unitPriceHtCents: 2100,
             taxRateBp: 2000,
             lineTotalHtCents: 25200,
@@ -84,6 +93,8 @@ function makePreparation() {
             itemId: "item-2",
             itemTitle: "Collier de fixation",
             quantity: 4,
+            unit: "u",
+            reviewFingerprint: "b".repeat(64),
             unitPriceHtCents: 180,
             taxRateBp: 2000,
             lineTotalHtCents: 720,
@@ -118,6 +129,7 @@ function makeSites() {
   return [
     {
       id: "site-1",
+      updated_at: "2026-10-11T09:00:00.000Z",
       name: "Chantier Lyon",
       project_code: "LY-42",
       address: "1 rue du chantier",
@@ -163,13 +175,10 @@ function renderPanel() {
           status: "draft",
           versionNumber: 1,
         }}
-        readyToOrder={{
-          status: "blocked",
-          orderableLinesCount: 3,
-          coveredLinesCount: 2,
-          ambiguousLinesCount: 0,
-          missingPriceLinesCount: 1,
-          staleLinesCount: 0,
+        onPreparationReadiness={onPreparationReadinessMock}
+        refreshSignal={{
+          status: "ready",
+          counts: { totalSupplierLines: 4, draftableLines: 4, transferredLines: 0, blockedLines: 0 },
           errorMessage: null,
         }}
       />
@@ -183,7 +192,9 @@ describe("AffaireOrderDraftsPanel", () => {
   });
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    window.localStorage.clear();
+    fetchReceiptMock.mockResolvedValue(null);
     installSiteClient();
     fetchPreparationMock.mockResolvedValue(makePreparation());
   });
@@ -195,6 +206,8 @@ describe("AffaireOrderDraftsPanel", () => {
       .mockRejectedValueOnce(new Error("Recharge preparation indisponible"));
     createDraftsMock.mockResolvedValueOnce({
       sourceVersionId: "version-1",
+      idempotencyKey: "65797ffd-f3aa-4dc4-bbb3-6b9e3a24f4fe",
+      replayed: false,
       summary: {
         draftOrdersCreated: 1,
         draftLinesCreated: 2,
@@ -202,6 +215,8 @@ describe("AffaireOrderDraftsPanel", () => {
       orders: [
         {
           purchaseOrderId: "po-1",
+          currentStatus: "draft",
+          canOpen: true,
           reference: "C-2603-011",
           supplierId: "supplier-1",
           supplierName: "Best Supplier",
@@ -218,9 +233,13 @@ describe("AffaireOrderDraftsPanel", () => {
     renderPanel();
 
     await screen.findAllByText("Best Supplier");
+    expect(screen.getByText("2 lignes préparables · 0 ligne déjà transférée · 1 ligne à corriger.")).toBeInTheDocument();
     await user.selectOptions(
       screen.getAllByRole("combobox", { name: /Chantier de livraison/i })[0]!,
       "site-1"
+    );
+    await user.click(
+      screen.getByRole("checkbox", { name: /J’ai vérifié les lignes/i })
     );
     await user.click(
       screen.getAllByRole("button", { name: /Créer le brouillon/i })[0]!
@@ -232,13 +251,22 @@ describe("AffaireOrderDraftsPanel", () => {
     expect(
       screen.getByText("Recharge preparation indisponible")
     ).toBeInTheDocument();
-    expect(screen.getByText("Brouillons proposés")).toBeInTheDocument();
+    expect(screen.getByText("Préparation indisponible. Rechargez pour vérifier les lignes.")).toBeInTheDocument();
+    expect(screen.queryByText("Brouillons proposés")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Créer le brouillon/i })).not.toBeInTheDocument();
+    expect(onPreparationReadinessMock).toHaveBeenLastCalledWith("version-1", {
+      status: "unavailable",
+      counts: null,
+      errorMessage: "Préparation indisponible. Rechargez pour vérifier les lignes.",
+    });
   });
 
   it("submits the explicit TBD delivery-date state", async () => {
     const user = userEvent.setup();
     createDraftsMock.mockResolvedValueOnce({
       sourceVersionId: "version-1",
+      idempotencyKey: "65797ffd-f3aa-4dc4-bbb3-6b9e3a24f4fe",
+      replayed: false,
       summary: {
         draftOrdersCreated: 1,
         draftLinesCreated: 2,
@@ -246,6 +274,8 @@ describe("AffaireOrderDraftsPanel", () => {
       orders: [
         {
           purchaseOrderId: "po-1",
+          currentStatus: "draft",
+          canOpen: true,
           reference: "C-2603-011",
           supplierId: "supplier-1",
           supplierName: "Best Supplier",
@@ -267,16 +297,23 @@ describe("AffaireOrderDraftsPanel", () => {
       "site-1"
     );
     await user.click(screen.getByRole("checkbox", { name: /À déterminer/i }));
+    await user.click(screen.getByRole("checkbox", { name: /J’ai vérifié les lignes/i }));
     await user.click(
       screen.getAllByRole("button", { name: /Créer le brouillon/i })[0]!
     );
 
     await waitFor(() => {
       expect(createDraftsMock).toHaveBeenCalledWith("version-1", {
+        idempotencyKey: expect.any(String),
+        reviewedLines: [
+          { itemId: "item-1", reviewFingerprint: "a".repeat(64) },
+          { itemId: "item-2", reviewFingerprint: "b".repeat(64) },
+        ],
         groups: [
           {
             supplierId: "supplier-1",
             deliverySiteId: "site-1",
+            deliverySiteUpdatedAt: "2026-10-11T09:00:00.000Z",
             itemIds: ["item-1", "item-2"],
             expectedDeliveryDate: "TBD",
             notes: null,
@@ -305,6 +342,7 @@ describe("AffaireOrderDraftsPanel", () => {
       name: /Chantier de livraison/i,
     }))[0]!;
     await user.selectOptions(siteSelect, "site-1");
+    await user.click(screen.getByRole("checkbox", { name: /J’ai vérifié les lignes/i }));
     expect(siteSelect).toHaveValue("site-1");
 
     await user.click(
@@ -312,7 +350,7 @@ describe("AffaireOrderDraftsPanel", () => {
     );
 
     await waitFor(() => {
-      expect(siteSelect).toHaveValue("");
+      expect(screen.getByRole("combobox", { name: /Chantier de livraison/i })).toHaveValue("");
     });
     expect(
       screen.getAllByRole("button", { name: /Créer le brouillon/i })[0]
@@ -337,6 +375,7 @@ describe("AffaireOrderDraftsPanel", () => {
       screen.getAllByRole("combobox", { name: /Chantier de livraison/i })[0]!,
       "site-1"
     );
+    await user.click(screen.getByRole("checkbox", { name: /J’ai vérifié les lignes/i }));
     await user.click(
       screen.getAllByRole("button", { name: /Créer le brouillon/i })[0]!
     );
@@ -346,6 +385,8 @@ describe("AffaireOrderDraftsPanel", () => {
         /Les regroupements ont changé/i
       );
     });
-    expect(screen.getByText("Brouillons proposés")).toBeInTheDocument();
+    expect(screen.queryByText("Brouillons proposés")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Créer le brouillon/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Recharger la préparation/i })).toBeInTheDocument();
   });
 });

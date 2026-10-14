@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { NumberInput, parseLocalizedNumberInput } from "@/components/ui-legacy/NumberInput";
 import { MarginTiersExplanation } from "@/components/estimates/MarginTiersExplanation";
+import { getCommercialRoundingOptions } from "@/components/estimates/rounding-options";
 import {
   SUPPORTED_ESTIMATE_CURRENCIES,
   formatCurrency,
@@ -37,6 +38,8 @@ export type EstimateSettingsState = {
   margin_mode?: MarginMode;
   margin_tiers?: MarginTier[];
   discount_cents: number;
+  discount_amount_cents?: number | null;
+  discount_bp?: number;
   discount_mode?: DiscountMode;
   discount_steps?: number[];
   global_coefficient?: number;
@@ -72,28 +75,6 @@ const CHIP_FOCUS_CLASS =
 
 function chipClassName(active: boolean) {
   return cn("estimate-chip", active && "estimate-chip--active", CHIP_FOCUS_CLASS);
-}
-
-function getRoundingOptions(currency: SupportedEstimateCurrency) {
-  return [
-    { label: "Aucun", mode: "none" as const, step: 1 },
-    { label: `1 ${currency}`, mode: "nearest" as const, step: 100 },
-    { label: `10 ${currency}`, mode: "nearest" as const, step: 1000 },
-    { label: `50 ${currency}`, mode: "nearest" as const, step: 5000 },
-    { label: `100 ${currency}`, mode: "nearest" as const, step: 10000 },
-  ];
-}
-
-function getRoundingValue(
-  mode: RoundingMode,
-  step: number,
-  options: ReturnType<typeof getRoundingOptions>
-) {
-  if (mode === "none") return "none";
-  const match = options.find(
-    (option) => option.mode === mode && option.step === step
-  );
-  return match ? `${match.step}` : "none";
 }
 
 function formatMarginMultiplier(multiplier: number) {
@@ -155,11 +136,10 @@ export function EstimateSettingsPanel({
 
   const taxEnabled = settings.tax_rate_bp > 0;
   const taxRatePercent = settings.tax_rate_bp / 100;
-  const roundingOptions = getRoundingOptions(settings.currency);
-  const roundingValue = getRoundingValue(
+  const { options: roundingOptions, value: roundingValue } = getCommercialRoundingOptions(
+    settings.currency,
     settings.rounding_mode,
-    settings.rounding_step_cents,
-    roundingOptions
+    settings.rounding_step_cents
   );
   const marginMode: MarginMode = settings.margin_mode ?? "fixed";
   const marginTiers = sortMarginTiers(
@@ -430,7 +410,9 @@ export function EstimateSettingsPanel({
                   className={NUMBER_INPUT_CLASS}
                   step="0.01"
                   min={0}
-                  value={settings.discount_cents / 100}
+                  value={(settings.discount_amount_cents ??
+                    (settings.discount_bp != null ? totals?.discountCents : undefined) ??
+                    settings.discount_cents) / 100}
                   disabled={isReadOnly}
                   parseValue={parseNonNegativeNumberInput}
                   emptyValue={0}
@@ -439,9 +421,16 @@ export function EstimateSettingsPanel({
                       discount_mode: "simple",
                       discount_steps: [],
                       discount_cents: Math.round(discountEuros * 100),
+                      discount_amount_cents: Math.round(discountEuros * 100),
                     })
                   }
                 />
+                {settings.discount_amount_cents == null && (settings.discount_bp ?? 0) > 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    Remise historique de {(settings.discount_bp ?? 0) / 100} % : elle suit le montant du devis.
+                    Une nouvelle saisie fixe la remise en montant.
+                  </p>
+                )}
               </div>
             ) : (
               <div className="rounded-lg border border-border bg-surface-subtle p-3">
@@ -554,28 +543,31 @@ export function EstimateSettingsPanel({
               id="estimate-rounding"
               value={roundingValue}
               disabled={isReadOnly}
+              aria-describedby="estimate-rounding-hint"
               onChange={(event) => {
-                const nextValue = event.target.value;
-                if (nextValue === "none") {
-                  onChange({ rounding_mode: "none", rounding_step_cents: 1 });
-                  return;
-                }
-                const nextStep = Number(nextValue);
+                const option = roundingOptions.find((entry) => entry.value === event.target.value);
+                if (!option || option.preserved) return;
                 onChange({
-                  rounding_mode: "nearest",
-                  rounding_step_cents: nextStep,
+                  rounding_mode: option.mode,
+                  rounding_step_cents: option.step,
                 });
               }}
             >
               {roundingOptions.map((option) => (
                 <option
-                  key={`${option.mode}-${option.step}`}
-                  value={option.mode === "none" ? "none" : `${option.step}`}
+                  key={option.value}
+                  value={option.value}
+                  disabled={option.preserved}
                 >
                   {option.label}
                 </option>
               ))}
             </NativeSelect>
+            <FieldDescription id="estimate-rounding-hint" className="text-xs">
+              Les nouveaux choix arrondissent le TTC au palier inférieur, sans
+              descendre sous le HT. Un montant déjà exact reste inchangé.
+              L’arrondi ne s’applique pas en autoliquidation.
+            </FieldDescription>
           </div>
         </div>
 

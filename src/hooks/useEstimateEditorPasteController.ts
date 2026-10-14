@@ -255,19 +255,16 @@ export function useEstimateEditorPasteController({
           }
         }
       } catch (error) {
-        if (createdItems.length > 0) {
-          await Promise.allSettled(
-            createdItems.map((item) =>
-              deleteEstimateItem(targetVersionId, item.id)
-            )
-          );
-        }
         if (getVersionSnapshot()?.id !== targetVersionId) return;
         const hasConflict = handleVersionConflict(error, {
           persistDraft: true,
         });
         if (createdItems.length > 0 && !hasConflict) {
           triggerVersionReload();
+        }
+        if (createdItems.length > 0) {
+          reportError(`${createdItems.length} ligne(s) ont été enregistrées. Le collage s'est arrêté ; les lignes enregistrées sont conservées.`);
+          return;
         }
         if (hasConflict) return;
         throw new Error(

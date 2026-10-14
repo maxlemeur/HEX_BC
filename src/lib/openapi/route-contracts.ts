@@ -1,4 +1,5 @@
 import { z, type ZodTypeAny } from "zod";
+import { purchaseOrderItemsResponseSchema } from "@/lib/purchase-orders/schemas";
 
 import {
   productActionSchema,
@@ -32,6 +33,24 @@ export const routeContractUuidSchema = z.string().uuid();
 const uuidSchema = routeContractUuidSchema;
 const dateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const jsonRecordSchema = z.record(z.string(), z.unknown());
+
+const orderLookupOutputSchema = z.object({ id: uuidSchema, name: z.string() });
+const orderRelationOutputSchema = z.union([orderLookupOutputSchema, z.array(orderLookupOutputSchema)]).nullable();
+const ordersDirectoryOutputSchema = z.object({ ok: z.literal(true), data: z.union([
+  z.object({
+    items: z.array(z.object({
+      id: uuidSchema, reference: z.string(), created_at: z.string(),
+      status: z.enum(["draft", "sent", "confirmed", "received", "canceled"]),
+      expected_delivery_date: z.string().nullable(), edit_revision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+      total_ht_cents: z.number().int(), total_tax_cents: z.number().int(), total_ttc_cents: z.number().int(),
+      suppliers: orderRelationOutputSchema, delivery_sites: orderRelationOutputSchema,
+      devis_count: z.number().int(), has_devis: z.enum(["with", "without"]),
+    })),
+    suppliers: z.array(orderLookupOutputSchema), delivery_sites: z.array(orderLookupOutputSchema),
+  }),
+  purchaseOrderItemsResponseSchema,
+]) });
+
 
 export const genericOkResponseDefinition: OpenApiSchemaDefinition = {
   schemaName: "ApiGenericSuccessResponse",
@@ -368,28 +387,10 @@ export const portalAcceptSchema = z.object({
 });
 export const portalRejectSchema = z.object({ reason: z.string().max(1000).optional() });
 
-const purchaseOrderLineSchema = z.object({
-  productId: uuidSchema.nullable().optional(),
-  reference: z.string().nullable().optional(),
-  designation: z.string().trim().min(1),
-  quantity: z.number().int().positive(),
-  unitPriceCents: z.number().finite().min(0),
-  taxRateBp: z.number().finite().min(0).max(10000),
-});
-export const purchaseOrderCreateSchema = z.object({
-  supplierId: uuidSchema,
-  deliverySiteId: uuidSchema,
-  expectedDeliveryDate: z.union([dateOnlySchema, z.literal("TBD"), z.null()]).optional(),
-  notes: z.string().nullable().optional(),
-  items: z.array(purchaseOrderLineSchema).min(1),
-});
-export const purchaseOrderUpdateSchema = z.object({
-  supplierId: uuidSchema.optional(),
-  deliverySiteId: uuidSchema.optional(),
-  expectedDeliveryDate: z.union([dateOnlySchema, z.literal("TBD"), z.null()]).optional(),
-  notes: z.string().nullable().optional(),
-  items: z.array(purchaseOrderLineSchema).min(1).optional(),
-});
+export {
+  createPurchaseOrderSchema as purchaseOrderCreateSchema,
+  updatePurchaseOrderSchema as purchaseOrderUpdateSchema,
+} from "@/lib/purchase-orders/schemas";
 export const purchaseOrderDevisFormSchema = z.object({
   file: z.any(),
   name: z.string().optional(),
@@ -864,6 +865,9 @@ const directoryAndOrdersContracts: RouteContract[] = [
     description:
       "Assemble cote serveur les commandes, leurs relations et, en option, les lignes.",
     tags: ["Achats"],
+    success: [{ status: "200", description: "Commandes ou lignes avec quantités, unités, provenance et montants persistés.", rawJson: true,
+      schema: { schemaName: "OrdersDirectoryResponse", schema: ordersDirectoryOutputSchema, io: "output" },
+    }],
     queryParameters: [
       { name: "view", schema: z.enum(["list", "items"]), description: "Vue liste ou lignes." },
       {

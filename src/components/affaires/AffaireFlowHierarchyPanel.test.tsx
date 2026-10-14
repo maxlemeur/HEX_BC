@@ -1220,11 +1220,12 @@ describe("AffaireFlowHierarchyPanel", () => {
           },
           readyToOrder: {
             status: "waiting",
-            orderableLinesCount: 0,
-            coveredLinesCount: 0,
-            ambiguousLinesCount: 0,
-            missingPriceLinesCount: 0,
-            staleLinesCount: 0,
+            counts: {
+              totalSupplierLines: 0,
+              draftableLines: 0,
+              transferredLines: 0,
+              blockedLines: 0,
+            },
             errorMessage: null,
           },
         }}

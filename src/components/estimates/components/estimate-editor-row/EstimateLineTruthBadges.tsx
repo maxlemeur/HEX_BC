@@ -89,7 +89,9 @@ export function EstimateLineTruthBadges({
     TONE_SEVERITY[qtyTone] >= TONE_SEVERITY[confidenceTone]
       ? qtyTone
       : confidenceTone;
-  const confidenceLabel = `Confiance ${lineTruth.confidence.label}`;
+  const confidenceLabel = lineTruth.confidence.score === null
+    ? "Confiance non mesurée"
+    : `Confiance ${lineTruth.confidence.label}`;
   const fullLabel = `${lineTruth.source.label} — ${lineTruth.qtyStatus.label} — ${confidenceLabel}`;
   const tooltip = [
     lineTruth.source.detail ?? lineTruth.source.label,

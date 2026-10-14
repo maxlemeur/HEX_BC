@@ -10,7 +10,7 @@ import {
   type MarginMode,
 } from "@/lib/estimate-calculations";
 import { isFeatureEnabled } from "@/lib/feature-flags";
-import { badRequest, mapSupabaseError, notFound } from "@/lib/estimates/errors";
+import { badRequest, conflict, mapSupabaseError, notFound } from "@/lib/estimates/errors";
 import { loadMarginTiersForTotals } from "@/lib/estimates/margin-tiers-loader";
 import type { MarginTier } from "@/lib/estimates/margin-tiers";
 import {
@@ -820,16 +820,19 @@ const fetchAffaireHubProjectOrThrow = cache(async (
   return project;
 });
 
-const readAffaireHubCurrentVersion = cache(async (context: AffaireContext, projectId: string) =>
-  context.supabase
+function queryAffaireHubCurrentVersion(context: AffaireContext, projectId: string) {
+  return context.supabase
     .from("estimate_versions")
     .select("id, project_id, version_number, status, total_ht_cents, margin_multiplier, updated_at")
     .eq("tenant_id", context.tenantId)
     .eq("project_id", projectId)
     .order("version_number", { ascending: false })
     .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle()
+    .limit(1);
+}
+
+const readAffaireHubCurrentVersion = cache(async (context: AffaireContext, projectId: string) =>
+  queryAffaireHubCurrentVersion(context, projectId).maybeSingle()
 );
 
 async function fetchAffaireHubSummaryWithContext(
@@ -1991,6 +1994,26 @@ export async function fetchAffaireHubCurrentVersion(
   return result.data;
 }
 
+export async function fetchAffaireHubCurrentVersionAfterApproval(
+  projectId: string,
+  expectedVersionId: string | null,
+): Promise<AffaireHubVersionSummary | null> {
+  const context = await getAuthenticatedContext();
+  const project = await fetchAffaireHubProjectOrThrow(context, projectId);
+  // Approval projection can write the version inside this request. Read outside
+  // React cache; the explicit signal also opts out of Next fetch deduplication.
+  const result = await queryAffaireHubCurrentVersion(context, project.id)
+    .abortSignal(new AbortController().signal)
+    .maybeSingle();
+  if (result.error) {
+    throw mapSupabaseError(result.error, "Impossible de relire la version après les contrôles d’approbation.");
+  }
+  if ((result.data?.id ?? null) !== expectedVersionId) {
+    throw conflict("La version courante de l’affaire a changé. Rechargez la page avant de préparer l’envoi.", undefined, "VERSION_CONFLICT");
+  }
+  return result.data ? toAffaireHubVersionSummary(result.data) : null;
+}
+
 export async function fetchAffaireHubSummary(
   projectId: string
 ): Promise<AffaireHubSummaryResult> {
@@ -2099,6 +2122,7 @@ type MarginAnalysisVersionRow = Pick<
   | "margin_mode"
   | "tax_rate_bp"
   | "discount_bp"
+  | "discount_amount_cents"
   | "discount_mode"
   | "discount_steps"
   | "global_coefficient"
@@ -2113,7 +2137,7 @@ async function fetchAffaireHubMarginAnalysisWithContext(
   const { data: versionsData, error: versionsError } = await context.supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, version_number, status, total_ht_cents, margin_multiplier, margin_mode, tax_rate_bp, discount_bp, discount_mode, discount_steps, global_coefficient, updated_at"
+      "id, project_id, version_number, status, total_ht_cents, margin_multiplier, margin_mode, tax_rate_bp, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, updated_at"
     )
     .eq("tenant_id", context.tenantId)
     .eq("project_id", project.id)
@@ -2195,6 +2219,7 @@ async function fetchAffaireHubMarginAnalysisWithContext(
       margin_multiplier: marginMultiplier,
       tax_rate_bp: taxRateBp,
       discount_bp: currentVersion.discount_bp ?? 0,
+      discount_amount_cents: currentVersion.discount_amount_cents,
       discount_mode: discountMode,
       discount_steps: currentVersion.discount_steps ?? [],
       global_coefficient: globalCoefficient,

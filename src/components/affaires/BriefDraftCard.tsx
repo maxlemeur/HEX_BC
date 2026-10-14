@@ -166,7 +166,13 @@ function BriefSourceAnnotation({
   projectId: string;
   sources: AffaireIntakeBriefSource[];
 }) {
-  if (sources.length === 0) return null;
+  if (sources.length === 0) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        Inférence / sans preuve directe
+      </p>
+    );
+  }
   const uniqueSources = Array.from(
     new Map(
       sources.map((source) => [
@@ -183,11 +189,12 @@ function BriefSourceAnnotation({
           key={`${source.sourceDocumentId}:${source.sourceFileName}`}
           href={buildBriefSourceHref(projectId, source)}
           className="inline-flex items-center rounded-full border border-border bg-surface-subtle px-2 py-0.5 text-micro font-medium text-primary transition-colors hover:border-primary/30 hover:bg-primary/6 hover:text-brand-blue-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2"
-          title={source.rationale ?? `Ouvrir ${source.sourceFileName} dans le dossier`}
+          title={`Ouvrir ${source.sourceFileName} dans le dossier ; passage non vérifié`}
         >
-          Pièce source · {source.sourceFileName}
+          Document associé · {source.sourceFileName}
         </a>
       ))}
+      <span>Passage non vérifié</span>
     </div>
   );
 }
@@ -326,12 +333,10 @@ function BriefBlockSection({
         /* Read-only paragraph */
         <>
           <p className="text-sm text-foreground-secondary">{paragraph}</p>
-          {paragraphSources.length > 0 && (
-            <BriefSourceAnnotation
-              projectId={projectId}
-              sources={paragraphSources}
-            />
-          )}
+          <BriefSourceAnnotation
+            projectId={projectId}
+            sources={paragraphSources}
+          />
         </>
       ) : items && items.length > 0 ? (
         /* Read-only list */
@@ -346,7 +351,7 @@ function BriefBlockSection({
                   )}
                   {item}
                 </span>
-                {entrySources.length > 0 && blockKey !== "received_pieces" && (
+                {blockKey !== "received_pieces" && (
                   <BriefSourceAnnotation
                     projectId={projectId}
                     sources={entrySources}
@@ -586,6 +591,13 @@ export function BriefDraftCard({
           </div>
         )}
       </div>
+
+      {briefDraft && !isEditing && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Les liens ouvrent les documents associés, sans attester un passage précis.
+          Confirmer le brief ne transforme pas une inférence en preuve.
+        </p>
+      )}
 
       {briefDraft && isConfirmedBrief && !isEditing && !showConfirmDialog && (
         <div className="mt-3 rounded-lg border border-success-border bg-success-subtle px-4 py-3">

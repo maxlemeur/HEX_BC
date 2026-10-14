@@ -1,7 +1,8 @@
 import { readAuthenticatedUser } from "@/lib/auth/tenant-context";
-import { badRequest, unauthorized } from "@/lib/estimates/errors";
+import { ApiError, badRequest, internalError, unauthorized } from "@/lib/estimates/errors";
 
-import type { OrdersListQueryInput } from "./schemas";
+import { purchaseOrderDocumentsSchema, type OrdersListQueryInput } from "@/lib/purchase-orders/schemas";
+import { purchaseOrderWriteError } from "@/lib/purchase-orders/write";
 
 export type PurchaseOrderListRelated =
   | { id: string; name: string }
@@ -15,6 +16,9 @@ export type PurchaseOrderListItem = {
   status: "draft" | "sent" | "confirmed" | "received" | "canceled";
   expected_delivery_date: string | null;
   total_ht_cents: number;
+  total_tax_cents: number;
+  total_ttc_cents: number;
+  edit_revision: number;
   suppliers: PurchaseOrderListRelated;
   delivery_sites: PurchaseOrderListRelated;
   devis_count: number;
@@ -27,6 +31,15 @@ export type OrderItemRow = {
   designation: string;
   reference: string | null;
   quantity: number;
+  unit: string | null;
+  price_unit: string | null;
+  product_id: string | null;
+  is_source_linked: boolean;
+  source_estimate_item_id: string | null;
+  source_selected_supplier_price_id: string | null;
+  tax_rate_bp: number;
+  line_tax_cents: number;
+  line_total_ttc_cents: number;
   unit_price_ht_cents: number;
   line_total_ht_cents: number;
 };
@@ -43,6 +56,7 @@ export type OrdersListResponse = {
 };
 
 export type OrderItemsResponse = {
+  orders: Omit<PurchaseOrderListItem, "devis_count" | "has_devis">[];
   items: OrderItemRow[];
   itemsByOrderId: Record<string, OrderItemRow[]>;
 };
@@ -67,26 +81,6 @@ function asLookupRows(data: unknown): OrdersLookupRow[] {
   });
 }
 
-function groupItemsByOrderId(rows: OrderItemRow[]) {
-  const itemsByOrderId: Record<string, OrderItemRow[]> = {};
-  for (const row of rows) {
-    const orderId = row.purchase_order_id;
-    if (!orderId) continue;
-    if (!itemsByOrderId[orderId]) {
-      itemsByOrderId[orderId] = [];
-    }
-    itemsByOrderId[orderId].push({
-      id: row.id,
-      designation: row.designation,
-      reference: row.reference,
-      quantity: row.quantity,
-      unit_price_ht_cents: row.unit_price_ht_cents,
-      line_total_ht_cents: row.line_total_ht_cents,
-    });
-  }
-  return itemsByOrderId;
-}
-
 export async function listOrdersPage(): Promise<OrdersListResponse> {
   const { supabase } = await getAuthenticatedClient();
 
@@ -94,7 +88,7 @@ export async function listOrdersPage(): Promise<OrdersListResponse> {
     supabase
       .from("purchase_orders")
       .select(
-        "id, reference, created_at, status, expected_delivery_date, total_ht_cents, suppliers ( id, name ), delivery_sites ( id, name )"
+        "id, reference, created_at, status, expected_delivery_date, total_ht_cents, total_tax_cents, total_ttc_cents, edit_revision, suppliers ( id, name ), delivery_sites ( id, name )"
       )
       .order("created_at", { ascending: false }),
     supabase.from("suppliers").select("id, name").order("name"),
@@ -147,36 +141,31 @@ export async function listOrderItems(
 ): Promise<OrderItemsResponse> {
   const { supabase } = await getAuthenticatedClient();
 
-  if (orderIds.length === 0) {
-    return { items: [], itemsByOrderId: {} };
-  }
-
-  const query = supabase
-    .from("purchase_order_items")
-    .select(
-      "id, purchase_order_id, designation, reference, quantity, unit_price_ht_cents, line_total_ht_cents"
-    )
-    .in("purchase_order_id", orderIds);
-
-  const { data, error } = await query
-    .order("purchase_order_id", { ascending: true })
-    .order("position", { ascending: true });
+  if (orderIds.length === 0) return { orders: [], items: [], itemsByOrderId: {} };
+  const ids = [...new Set(orderIds.map((id) => id.toLowerCase()))];
+  const { data, error } = await supabase.rpc("get_purchase_order_documents", { p_order_ids: ids });
   if (error) {
-    throw badRequest(error.message);
+    const failure = purchaseOrderWriteError(error);
+    throw new ApiError({ status: failure.status, code: failure.code, message: failure.message });
   }
-
-  const items = (data ?? []) as OrderItemRow[];
-  return {
-    items: items.map((item) => ({
-      id: item.id,
-      designation: item.designation,
-      reference: item.reference,
-      quantity: item.quantity,
-      unit_price_ht_cents: item.unit_price_ht_cents,
-      line_total_ht_cents: item.line_total_ht_cents,
-    })),
-    itemsByOrderId: groupItemsByOrderId(items),
-  };
+  const parsed = purchaseOrderDocumentsSchema.safeParse(data);
+  if (!parsed.success || parsed.data.orders.length !== ids.length ||
+      new Set(parsed.data.orders.map((order) => order.id)).size !== ids.length ||
+      parsed.data.orders.some((order) => !ids.includes(order.id))) {
+    throw internalError("La projection des commandes est incomplète. Aucun export ne peut être produit.");
+  }
+  const orders: OrderItemsResponse["orders"] = [];
+  const items: OrderItemRow[] = [];
+  const itemsByOrderId: Record<string, OrderItemRow[]> = {};
+  for (const { items: rows, ...order } of parsed.data.orders) {
+    if (rows.some((item) => item.purchase_order_id !== order.id)) {
+      throw internalError("La projection des lignes est incohérente.");
+    }
+    orders.push(order);
+    items.push(...rows);
+    itemsByOrderId[order.id] = rows;
+  }
+  return { orders, items, itemsByOrderId };
 }
 
 export async function getOrdersDirectoryData(query: OrdersListQueryInput) {

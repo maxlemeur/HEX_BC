@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const { swrMock, fetchMock, mutate } = vi.hoisted(() => ({ swrMock: vi.fn(), fetchMock: vi.fn(), mutate: vi.fn() }));
@@ -10,6 +10,12 @@ const proposal = { product_id: id, designation: "Tube", quantity: 100, unit: "m"
   current_price_cents: null, validation_id: null, product_updated_at: "2026-09-06T12:00:00Z", offer_count: 2,
   proposed_price_cents: 1050, minimum_cents: 1000, maximum_cents: 1100, dispersion_percent: 10, dispersion_alert: false,
   fingerprint: "a".repeat(32), offers: [], zero_price_requires_review: false,
+};
+const zeroOffer = {
+  id: "00000000-0000-4000-8000-000000000010", supplier_id: "00000000-0000-4000-8000-000000000011",
+  supplier_name: "Fournisseur zéro", supplier_sku: "ZERO-TUBE", unit_price_cents: 0, currency: "EUR", unit: "m",
+  min_quantity: 1, valid_from: "2026-09-06", valid_to: "2027-03-06", transport_mode: "excluded",
+  updated_at: "2026-09-06T12:00:00Z", exclusion: "zero_price",
 };
 describe("ProductReferencePricePanel", () => {
   beforeEach(() => {
@@ -62,18 +68,36 @@ describe("ProductReferencePricePanel", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Base indisponible");
     expect(screen.queryByRole("button", { name: "Valider la moyenne comme référence" })).not.toBeInTheDocument();
   });
-  it("keeps the previous reference visible when no offer remains comparable", () => {
-    swrMock.mockReturnValue({ data: { proposal: { ...proposal, offer_count: 0, proposed_price_cents: null, current_price_cents: 1400 }, can_validate: true }, mutate });
+  it("keeps the previous reference visible when only an excluded zero offer remains", () => {
+    swrMock.mockReturnValue({ data: { proposal: { ...proposal, offer_count: 0, proposed_price_cents: null, current_price_cents: 1400, zero_price_requires_review: true, offers: [zeroOffer] }, can_validate: true }, mutate });
     render(<ProductReferencePricePanel productId={id} />);
     expect(screen.getByText("Référence actuelle · à actualiser")).toBeInTheDocument();
     expect(screen.getByText(/14,00/)).toBeInTheDocument();
+    expect(screen.getByText("Aucune offre comparable")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("reste à clarifier");
     expect(screen.getByRole("button", { name: "Valider la moyenne comme référence" })).toBeDisabled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
-  it("signals the undecided zero-price case and prevents an automatic average", () => {
-    swrMock.mockReturnValue({ data: { proposal: { ...proposal, zero_price_requires_review: true, proposed_price_cents: null }, can_validate: true }, mutate });
+  it("keeps the positive average available and the excluded zero visible after validation", async () => {
+    const user = userEvent.setup();
+    swrMock.mockReturnValue({ data: { proposal: { ...proposal, zero_price_requires_review: true, offers: [zeroOffer] }, can_validate: true }, mutate });
     render(<ProductReferencePricePanel productId={id} />);
-    expect(screen.getByRole("alert")).toHaveTextContent("prix nul");
-    expect(screen.getByRole("button", { name: "Valider la moyenne comme référence" })).toBeDisabled();
+    expect(screen.getByText(/10,50/)).toBeInTheDocument();
+    expect(screen.getByText("2 fournisseurs retenus")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Une offre à prix nul est exclue de la moyenne et reste à clarifier");
+    const row = screen.getByRole("row", { name: /Fournisseur zéro/ });
+    expect(within(row).getByText("Prix nul exclu · à clarifier")).toBeInTheDocument();
+    expect(within(row).getByRole("link", { name: "Examiner l’offre à corriger" })).toHaveAttribute(
+      "href", `/dashboard/prices?product_id=${id}&supplier_id=${zeroOffer.supplier_id}`
+    );
+    const validateButton = screen.getByRole("button", { name: "Valider la moyenne comme référence" });
+    expect(validateButton).toBeEnabled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    await user.click(validateButton);
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("Prix de référence validé. Les devis existants conservent leurs coûts.")).toBeInTheDocument();
+    expect(screen.getByText(/10,50/)).toBeInTheDocument();
+    expect(screen.getByText(/Une offre à prix nul est exclue de la moyenne et reste à clarifier/)).toBeInTheDocument();
   });
   it("does not notify the old page when navigation occurs during refresh", async () => {
     const user = userEvent.setup(); const onValidated = vi.fn();

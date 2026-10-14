@@ -21,6 +21,8 @@ import {
   computeOrderTotals,
 } from "@/lib/order-calculations";
 import { parseEuroToCents } from "@/lib/money";
+import { parseOrderQuantityInput } from "@/lib/purchase-orders/quantities";
+import { assertCompletePurchaseOrderSnapshot } from "@/lib/purchase-orders";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 import { OrderDocumentViewport } from "../../_components/OrderDocumentViewport";
@@ -51,8 +53,17 @@ type SiteOption = {
 
 type DraftItem = {
   key: string;
+  id: string | null;
+  productId: string | null;
+  reference: string | null;
+  sourceLinked: boolean;
+  originalQuantity: number | null;
+  originalUnitPriceCents: number | null;
+  originalUnit: string | null;
+  originalPriceUnit: string | null;
   designation: string;
-  quantity: number;
+  quantityInput: string;
+  unitInput: string;
   unitPriceEuros: string;
   taxRateBp: number;
 };
@@ -66,10 +77,21 @@ type ExistingOrder = {
   supplier_id: string;
   delivery_site_id: string;
   status: string;
+  source_estimate_version_id: string | null;
+  edit_revision: number;
+  purchase_order_items: ExistingItem[];
 };
 
 type ExistingItem = {
   id: string;
+  product_id: string | null;
+  reference: string | null;
+  source_estimate_item_id: string | null;
+  source_selected_supplier_price_id: string | null;
+  is_source_linked: boolean;
+  unit: string | null;
+  price_unit: string | null;
+  position: number;
   designation: string;
   quantity: number;
   unit_price_ht_cents: number;
@@ -83,8 +105,17 @@ function euroInputFromCents(cents: number) {
 function newDraftItem(): DraftItem {
   return {
     key: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    id: null,
+    productId: null,
+    reference: null,
+    sourceLinked: false,
+    originalQuantity: null,
+    originalUnitPriceCents: null,
+    originalUnit: null,
+    originalPriceUnit: null,
     designation: "",
-    quantity: 1,
+    quantityInput: "1",
+    unitInput: "",
     unitPriceEuros: "",
     taxRateBp: 2000,
   };
@@ -94,7 +125,16 @@ function existingItemToDraft(item: ExistingItem): DraftItem {
   return {
     key: item.id,
     designation: item.designation,
-    quantity: item.quantity,
+    id: item.id,
+    productId: item.product_id,
+    reference: item.reference,
+    sourceLinked: item.is_source_linked,
+    originalQuantity: item.quantity,
+    originalUnitPriceCents: item.unit_price_ht_cents,
+    originalUnit: item.unit,
+    originalPriceUnit: item.price_unit,
+    quantityInput: String(item.quantity),
+    unitInput: item.unit ?? "",
     unitPriceEuros: euroInputFromCents(item.unit_price_ht_cents),
     taxRateBp: item.tax_rate_bp,
   };
@@ -118,48 +158,39 @@ export default function EditOrderPage() {
   const [reference, setReference] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [initialized, setInitialized] = useState(false);
+  const [initializedId, setInitializedId] = useState<string | null>(null);
+  const initialized = initializedId === id;
+  const [expectedRevision, setExpectedRevision] = useState<number | null>(null);
+  const [revisionConflict, setRevisionConflict] = useState(false);
 
   // Fetch existing order
   const fetchOrder = useCallback(async () => {
     if (!id) throw new Error("Identifiant du bon de commande manquant.");
     const { data, error } = await supabase
       .from("purchase_orders")
-      .select("id, reference, order_date, expected_delivery_date, notes, supplier_id, delivery_site_id, status")
+      .select("id, reference, order_date, expected_delivery_date, notes, supplier_id, delivery_site_id, status, source_estimate_version_id, edit_revision, purchase_order_items(id, product_id, reference, source_estimate_item_id, source_selected_supplier_price_id, is_source_linked, designation, quantity, unit, price_unit, unit_price_ht_cents, tax_rate_bp, position)")
       .eq("id", id)
       .single();
 
     if (error) throw error;
+    await assertCompletePurchaseOrderSnapshot(supabase, id, data.edit_revision, data.purchase_order_items.length);
     return data as ExistingOrder;
   }, [supabase, id]);
 
-  const fetchOrderItems = useCallback(async () => {
-    if (!id) throw new Error("Identifiant du bon de commande manquant.");
-    const { data, error } = await supabase
-      .from("purchase_order_items")
-      .select("id, designation, quantity, unit_price_ht_cents, tax_rate_bp")
-      .eq("purchase_order_id", id)
-      .order("position", { ascending: true });
-
-    if (error) throw error;
-    return (data ?? []) as ExistingItem[];
-  }, [supabase, id]);
-
-  const { data: order, error: orderError, isLoading: isOrderLoading } = useSWR(
+  const { data: order, error: orderError, isLoading: isOrderLoading, isValidating: isOrderValidating } = useSWR(
     id ? `edit-order-${id}` : null,
-    fetchOrder
-  );
-
-  const { data: orderItems, error: itemsError, isLoading: isItemsLoading } = useSWR(
-    id ? `edit-order-items-${id}` : null,
-    fetchOrderItems
+    fetchOrder,
+    { revalidateOnFocus: false, revalidateOnReconnect: false }
   );
 
   // Initialize form with existing data
   useEffect(() => {
-    if (!order || !orderItems || initialized) return;
+    if (!id || !order || order.id !== id || initialized || isOrderValidating || orderError) return;
+    let canceled = false;
+    const orderItems = [...order.purchase_order_items].sort((left, right) => left.position - right.position);
 
     queueMicrotask(() => {
+      if (canceled) return;
       setSupplierId(order.supplier_id);
       setDeliverySiteId(order.delivery_site_id);
       resetDeliveryDate(order.expected_delivery_date);
@@ -171,12 +202,19 @@ export default function EditOrderPage() {
           ? orderItems.map(existingItemToDraft)
           : [newDraftItem()]
       );
-      setInitialized(true);
+      setExpectedRevision(order.edit_revision);
+      setRevisionConflict(false);
+      setFormError(null);
+      setInitializedId(id);
     });
-  }, [order, orderItems, initialized, resetDeliveryDate]);
+    return () => { canceled = true; };
+  }, [id, order, initialized, isOrderValidating, orderError, resetDeliveryDate]);
 
   // Check if order is draft
   const isDraft = order?.status === "draft";
+  const supplierReadOnly = Boolean(
+    order?.source_estimate_version_id || order?.purchase_order_items.some((item) => item.is_source_linked)
+  );
 
   const fetchSuppliers = useCallback(async () => {
     const { data, error } = await supabase
@@ -220,8 +258,8 @@ export default function EditOrderPage() {
     revalidateOnReconnect: true,
   });
 
-  const loadError = suppliersError ?? sitesError ?? orderError ?? itemsError;
-  const isLoading = isSuppliersLoading || isSitesLoading || isOrderLoading || isItemsLoading;
+  const loadError = orderError ?? suppliersError ?? sitesError;
+  const isLoading = isSuppliersLoading || isSitesLoading || isOrderLoading || isOrderValidating;
 
   // Get selected supplier and site data
   const selectedSupplier: SupplierData | null = useMemo(() => {
@@ -261,7 +299,8 @@ export default function EditOrderPage() {
       prev.map((item) => {
         if (item.key !== key) return item;
         if (field === "designation") return { ...item, designation: String(value) };
-        if (field === "quantity") return { ...item, quantity: Math.max(1, Number(value) || 1) };
+        if (field === "quantity") return { ...item, quantityInput: String(value) };
+        if (field === "unit" && !(item.sourceLinked && item.originalUnit !== null)) return { ...item, unitInput: String(value) };
         if (field === "unitPriceEuros") return { ...item, unitPriceEuros: String(value) };
         return item;
       })
@@ -279,59 +318,71 @@ export default function EditOrderPage() {
     setItems((prev) => [...prev, newDraftItem()]);
   }
 
-  // Compute line totals
+  // Keep every row, including invalid input, until the user corrects or removes it.
   const computed = items.map((item) => {
+    const quantity = parseOrderQuantityInput(item.quantityInput);
     const unitPriceCents = parseEuroToCents(item.unitPriceEuros);
-    if (unitPriceCents === null || unitPriceCents < 0) {
-      return {
-        key: item.key,
-        valid: false as const,
-        unitPriceCents: 0,
-        lineTotalHtCents: 0,
-        lineTaxCents: 0,
-        lineTotalTtcCents: 0,
-      };
+    const needsUnitConfirmation = item.originalQuantity !== null &&
+      (quantity !== item.originalQuantity || unitPriceCents !== item.originalUnitPriceCents);
+    const unitRequired = item.id === null || item.originalUnit !== null || needsUnitConfirmation;
+    let error: string | null = !item.designation.trim()
+      ? "renseignez la désignation."
+      : quantity === null
+        ? "saisissez une quantité de 0,001 à 2 147 483 647, avec au maximum trois décimales."
+        : unitRequired && !item.unitInput.trim()
+          ? "confirmez l’unité avant de créer la ligne ou de modifier sa quantité ou son prix."
+          : unitPriceCents === null || unitPriceCents < 0
+            ? "renseignez un prix unitaire HT valide."
+            : null;
+    let totals = { lineTotalHtCents: 0, lineTaxCents: 0, lineTotalTtcCents: 0 };
+    if (!error && quantity !== null && unitPriceCents !== null) {
+      try {
+        totals = computeLineTotals({ quantity, unitPriceHtCents: unitPriceCents, taxRateBp: item.taxRateBp });
+      } catch {
+        error = "le montant dépasse la limite autorisée. Réduisez la quantité ou le prix.";
+      }
     }
-
-    const totals = computeLineTotals({
-      quantity: item.quantity,
-      unitPriceHtCents: unitPriceCents,
-      taxRateBp: item.taxRateBp,
-    });
-
-    return {
-      key: item.key,
-      valid: true as const,
-      unitPriceCents,
-      ...totals,
-    };
+    return { quantity, unitPriceCents, error, ...totals };
   });
 
-  const validLineTotals = computed.filter((item) => item.valid);
-  const orderTotals = computeOrderTotals(
-    validLineTotals.map((item) => ({
-      lineTotalHtCents: item.lineTotalHtCents,
-      lineTaxCents: item.lineTaxCents,
-      lineTotalTtcCents: item.lineTotalTtcCents,
-    }))
-  );
+  const invalidLineIndex = computed.findIndex((line) => line.error);
+  let totalsError = invalidLineIndex >= 0
+    ? `Ligne ${invalidLineIndex + 1} : ${computed[invalidLineIndex].error}`
+    : null;
+  let orderTotals = { totalHtCents: 0, totalTaxCents: 0, totalTtcCents: 0 };
+  if (!totalsError) {
+    try {
+      orderTotals = computeOrderTotals(computed);
+    } catch {
+      totalsError = "Le total de la commande dépasse la limite autorisée.";
+    }
+  }
 
-  // Map items for the document component
-  const documentItems: OrderItemData[] = items.map((item) => {
-    const comp = computed.find((c) => c.key === item.key);
-    return {
-      key: item.key,
-      designation: item.designation,
-      quantity: item.quantity,
-      unitPriceInput: item.unitPriceEuros,
-      unitPriceHtCents: comp?.unitPriceCents ?? 0,
-      lineTotalHtCents: comp?.lineTotalHtCents ?? 0,
-    };
-  });
+  const documentItems: OrderItemData[] = items.map((item, index) => ({
+    key: item.key,
+    designation: item.designation,
+    reference: item.reference,
+    unitReadOnly: item.sourceLinked && item.originalUnit !== null,
+    quantity: computed[index].quantity ?? 0,
+    quantityInput: item.quantityInput,
+    unit: item.unitInput || null,
+    priceUnit: item.unitInput === item.originalUnit ? item.originalPriceUnit : item.unitInput.trim() || null,
+    unitPriceInput: item.unitPriceEuros,
+    unitPriceHtCents: computed[index].unitPriceCents ?? 0,
+    lineTotalHtCents: computed[index].lineTotalHtCents,
+    validationError: computed[index].error,
+  }));
 
   async function onSaveOrder(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError(null);
+
+    if (saving || revisionConflict) return;
+
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision === null || expectedRevision < 0) {
+      setFormError("Rechargez la commande pour vérifier sa version avant d’enregistrer.");
+      return;
+    }
 
     if (!id) {
       setFormError("Identifiant du bon de commande manquant.");
@@ -348,24 +399,22 @@ export default function EditOrderPage() {
       return;
     }
 
-    const invalid = computed.find((x) => !x.valid);
-    if (invalid) {
-      setFormError("Un des prix est invalide.");
+    const invalidIndex = computed.findIndex((line) => line.error);
+    if (invalidIndex >= 0 || totalsError) {
+      setFormError(invalidIndex >= 0 ? `Ligne ${invalidIndex + 1} : ${computed[invalidIndex].error}` : totalsError);
       return;
     }
 
-    const cleanedItems = items
-      .map((item) => {
-        const computedLine = computed.find((x) => x.key === item.key);
-        return {
-          key: item.key,
-          designation: item.designation.trim(),
-          quantity: item.quantity,
-          taxRateBp: item.taxRateBp,
-          unitPriceCents: computedLine?.unitPriceCents ?? 0,
-        };
-      })
-      .filter((item) => item.designation.length > 0 && item.quantity > 0);
+    const cleanedItems = items.map((item, index) => ({
+      ...(item.id ? { id: item.id } : {}),
+      productId: item.productId,
+      reference: item.reference,
+      designation: item.designation.trim(),
+      quantity: computed[index].quantity!,
+      unit: item.unitInput === item.originalUnit ? item.originalUnit : item.unitInput.trim() || null,
+      taxRateBp: item.taxRateBp,
+      unitPriceCents: computed[index].unitPriceCents!,
+    }));
 
     if (cleanedItems.length === 0) {
       setFormError("Ajoutez au moins une ligne de commande.");
@@ -380,6 +429,7 @@ export default function EditOrderPage() {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          expectedRevision,
           supplierId,
           deliverySiteId,
           expectedDeliveryDate: deliveryDate.payloadValue,
@@ -400,6 +450,12 @@ export default function EditOrderPage() {
       result = (await response.json()) as { success?: boolean; error?: string };
     } catch {
       result = null;
+    }
+
+    if (response.status === 409) {
+      setRevisionConflict(true);
+      setFormError("Cette commande a changé depuis votre ouverture. Rechargez-la et relisez les lignes avant de réappliquer vos modifications.");
+      return;
     }
 
     if (!response.ok || !result?.success) {
@@ -460,8 +516,13 @@ export default function EditOrderPage() {
 
       {isLoading ? <LoadingState label="Chargement du bon de commande…" className="py-4" /> : null}
 
-      {initialized ? (
-        <form id="order-form" onSubmit={onSaveOrder} aria-label={`Modifier le bon de commande ${reference}`}>
+      {initialized && !orderError && !isOrderValidating ? (
+        <form noValidate id="order-form" onSubmit={onSaveOrder} aria-label={`Modifier le bon de commande ${reference}`}>
+          {items.some((item) => item.sourceLinked) ? (
+            <p className="mb-4 text-sm text-muted-foreground">
+              Les lignes issues du devis gardent leur origine et leur unité connue. Les corrections de quantité ou de prix sont historisées ; retirer une ligne ne rend pas le besoin disponible pour un nouvel achat.
+            </p>
+          ) : null}
           <OrderDocumentViewport label={`Bon de commande ${reference} en cours de modification`}>
             <PurchaseOrderDocument
               editable={true}
@@ -473,6 +534,7 @@ export default function EditOrderPage() {
               reference={reference}
               supplier={selectedSupplier}
               supplierId={supplierId}
+              supplierReadOnly={supplierReadOnly}
               onSupplierChange={setSupplierId}
               supplierOptions={suppliers.map((s) => ({ id: s.id, name: s.name }))}
               deliverySite={selectedSite}
@@ -494,16 +556,29 @@ export default function EditOrderPage() {
               totalHtCents={orderTotals.totalHtCents}
               totalTaxCents={orderTotals.totalTaxCents}
               totalTtcCents={orderTotals.totalTtcCents}
+              totalsPending={totalsError !== null}
             />
           </OrderDocumentViewport>
+
+          {revisionConflict ? (
+            <Alert variant="warning" className="mb-4">
+              <AlertTitle>Relecture nécessaire</AlertTitle>
+              <AlertDescription>
+                Votre saisie reste affichée. Le rechargement remplacera cette saisie par la dernière version enregistrée.{" "}
+                <button type="button" className="font-medium underline" onClick={() => window.location.reload()}>
+                  Recharger la commande
+                </button>
+              </AlertDescription>
+            </Alert>
+          ) : null}
 
           <OrderFormActions
             cancelHref={detailHref}
             submitLabel="Enregistrer"
             submitIcon={<SaveIcon aria-hidden="true" />}
             loading={saving}
-            disabled={isLoading}
-            error={formError}
+            disabled={isLoading || revisionConflict || totalsError !== null}
+            error={totalsError ?? formError}
           />
         </form>
       ) : null}

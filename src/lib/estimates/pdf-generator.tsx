@@ -23,7 +23,7 @@ import {
   summarizeEstimateDocumentStructure,
   type EstimateDocumentPreparedData,
 } from "@/components/estimate-document/prepare-estimate-document-data";
-import { computeEstimateTotals } from "@/lib/estimate-calculations";
+import { computeEstimateTotals, computeStoredDiscountCents } from "@/lib/estimate-calculations";
 import { loadMarginTiersForTotals } from "@/lib/estimates/margin-tiers-loader";
 import { isFeatureEnabled } from "@/lib/feature-flags";
 import { COMPANY_INFO } from "@/lib/company-info";
@@ -63,6 +63,8 @@ import {
   type EstimateTermsTemplate,
 } from "@/lib/estimates/pdf-terms";
 import { formatEstimateReference } from "@/lib/estimates/reference";
+import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
+import { canUseDevelopmentEstimateTerms } from "@/lib/estimates/pdf-terms-server";
 import {
   formatCurrency,
   formatEUR,
@@ -76,9 +78,15 @@ import {
   type ServerSupabaseClient,
 } from "@/lib/auth/tenant-context";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { captureOfferClientContract } from "@/lib/estimates/offer-contract-capture";
+import { parseOfferPresentation, type ClientContract1 } from "@/lib/estimates/offer-contract";
+import { buildCommercialEstimatePdfDocument } from "@/components/estimate-document/CommercialEstimateDocument";
+import { assertDraftLockOwnedByCurrentUser } from "@/lib/estimates/server-context";
+import { freezeEstimateV2Snapshot } from "@/lib/estimates/v2-snapshot-server";
+import { assertCanWriteEstimateWorkflows } from "@/lib/estimates/write-access";
 import type { Database, Json } from "@/types/database";
 
-import { internalError, mapSupabaseError, notFound } from "./errors";
+import { conflict, forbidden, internalError, mapSupabaseError, notFound } from "./errors";
 import type {
   EstimateVersionChangelog,
   EstimateVersionChangelogChange,
@@ -91,7 +99,6 @@ type EstimateProjectRow =
   Database["public"]["Tables"]["estimate_projects"]["Row"];
 type EstimateVersionRow =
   Database["public"]["Tables"]["estimate_versions"]["Row"];
-type EstimateItemRow = Database["public"]["Tables"]["estimate_items"]["Row"];
 type EstimateDocumentRow =
   Database["public"]["Tables"]["estimate_documents"]["Row"];
 type EstimateTermsTemplateRow =
@@ -104,9 +111,9 @@ type SupabaseErrorLike = {
 };
 
 const VERSION_ACCESS_SELECT =
-  "id, tenant_id, project_id, version_number, status, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, calc_snapshot_content_revision, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, currency, content_revision, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, site_address, client_name)";
+  "id, tenant_id, project_id, version_number, status, updated_at, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, currency, content_revision, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, site_address, client_name)";
 const LEGACY_VERSION_ACCESS_SELECT =
-  "id, tenant_id, project_id, version_number, status, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, calc_snapshot_content_revision, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, currency, content_revision, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, site_address, client_name)";
+  "id, tenant_id, project_id, version_number, status, updated_at, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, currency, content_revision, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, site_address, client_name)";
 type LaborRoleRate = Pick<
   Database["public"]["Tables"]["labor_roles"]["Row"],
   "id" | "hourly_rate_cents"
@@ -136,6 +143,7 @@ type VersionWithProject = Pick<
   | "margin_multiplier"
   | "margin_mode"
   | "discount_bp"
+  | "discount_amount_cents"
   | "discount_mode"
   | "discount_steps"
   | "global_coefficient"
@@ -151,7 +159,9 @@ type VersionWithProject = Pick<
   | "currency"
   | "content_revision"
   | "calc_snapshot_content_revision"
+  | "calc_snapshot_context"
   | "status"
+  | "updated_at"
 > & {
   estimate_projects: EmbeddedProject | EmbeddedProject[] | null;
 };
@@ -755,21 +765,7 @@ async function loadItems(input: {
   tenantId: string;
   versionId: string;
 }) {
-  const { data, error } = await input.supabase
-    .from("estimate_items")
-    .select("*")
-    .eq("tenant_id", input.tenantId)
-    .eq("version_id", input.versionId)
-    .order("position", { ascending: true });
-
-  if (error) {
-    throw mapSupabaseError(
-      error,
-      "Impossible de charger les lignes du chiffrage.",
-    );
-  }
-
-  return (data ?? []) as EstimateItemRow[];
+  return readAllEstimateItems(input);
 }
 
 async function loadLaborRatesByRoleId(input: {
@@ -813,7 +809,9 @@ async function loadEstimateTermsTemplate(input: {
 
   if (error) {
     if (isMissingEstimateTermsSchema(error)) {
-      return createDevelopmentEstimateTermsTemplate(input.tenantId);
+      return canUseDevelopmentEstimateTerms()
+        ? createDevelopmentEstimateTermsTemplate(input.tenantId, "development")
+        : null;
     }
 
     throw mapSupabaseError(
@@ -822,7 +820,9 @@ async function loadEstimateTermsTemplate(input: {
     );
   }
   if (!data) {
-    return createDevelopmentEstimateTermsTemplate(input.tenantId);
+    return canUseDevelopmentEstimateTerms()
+      ? createDevelopmentEstimateTermsTemplate(input.tenantId, "development")
+      : null;
   }
 
   const row = data as EstimateTermsTemplateRow;
@@ -1441,11 +1441,45 @@ export function buildEstimatePdfDocument(input: {
 
 export async function markEstimatePdfProcessing(
   versionId: string,
+  draftLockSessionId: string | null = null,
 ): Promise<EstimatePdfGenerationClaim> {
   const context = await getAuthenticatedContext();
-  const access = await getVersionAccessOrThrow(context, versionId);
+  let access = await getVersionAccessOrThrow(context, versionId);
   assertEstimatePdfMutationAllowed(access.version.status, "manual");
+  assertCanWriteEstimateWorkflows(context.tenantRole);
+  if (access.project.user_id !== context.userId && !context.isTenantAdmin) {
+    throw forbidden("La préparation du document est réservée au propriétaire du devis.");
+  }
+  await assertDraftLockOwnedByCurrentUser({
+    supabase: context.supabase,
+    tenantId: context.tenantId,
+    versionId,
+    userId: context.userId,
+    draftLockSessionId,
+  });
+  if (!draftLockSessionId) {
+    throw conflict("Le verrou de cette page est requis pour préparer le PDF.", undefined, "LOCK_REQUIRED");
+  }
   const publicationClient = createServiceRoleClient();
+
+  if (resolveCalcEngineVersion(access.version) === 2) {
+    const frozen = await freezeEstimateV2Snapshot({
+      supabase: context.supabase,
+      rpcClient: publicationClient,
+      tenantId: context.tenantId,
+      versionId,
+      expectedUpdatedAt: access.version.updated_at,
+      expectedContentRevision: access.version.content_revision,
+      actorUserId: context.userId,
+      purpose: "document",
+      draftLockSessionId,
+    });
+    access = await getVersionAccessOrThrow(context, versionId);
+    if (access.version.updated_at !== frozen.updated_at ||
+        access.version.calc_snapshot_content_revision !== access.version.content_revision) {
+      throw conflict("Le devis a changé pendant la préparation du PDF.", undefined, "VERSION_CONFLICT");
+    }
+  }
 
   return beginEstimatePdfGeneration({
     client: publicationClient,
@@ -1555,6 +1589,7 @@ export async function generateEstimatePdfNow(
       }),
       loadLogoDataUri(),
     ]);
+    const allowDevelopmentTerms = canUseDevelopmentEstimateTerms();
     const termsConfiguration = toEstimatePdfTermsConfiguration(termsTemplate);
     const storedLayout = normalizeEstimatePdfLayoutOptions(
       existing?.layout_options ?? DEFAULT_ESTIMATE_PDF_LAYOUT,
@@ -1562,7 +1597,7 @@ export async function generateEstimatePdfNow(
     const requestedLayout = normalizeEstimatePdfLayoutOptions(
       options.layout ?? storedLayout,
     );
-    const effectiveLayout = applyEstimateTermsPolicy(
+    let effectiveLayout = applyEstimateTermsPolicy(
       requestedLayout,
       termsConfiguration,
     );
@@ -1571,7 +1606,7 @@ export async function generateEstimatePdfNow(
     );
     const storedTermsSnapshot =
       parsedStoredTermsSnapshot &&
-      canUseEstimateTermsSnapshot(parsedStoredTermsSnapshot)
+      canUseEstimateTermsSnapshot(parsedStoredTermsSnapshot, allowDevelopmentTerms ? "development" : "production")
         ? parsedStoredTermsSnapshot
         : null;
     const termsSnapshot = effectiveLayout.includeTerms
@@ -1581,7 +1616,9 @@ export async function generateEstimatePdfNow(
     const lineItems = items.filter((item) => item.item_type === "line");
     const calcEngineVersion = resolveCalcEngineVersion(access.version);
     const preserveStoredSnapshot =
-      shouldPreserveStoredEstimateV2Snapshot(access.version);
+      calcEngineVersion === 1
+        ? access.version.status !== "draft"
+        : shouldPreserveStoredEstimateV2Snapshot(access.version);
 
     const laborRoleIds = preserveStoredSnapshot ? [] : Array.from(
       new Set(
@@ -1642,7 +1679,8 @@ export async function generateEstimatePdfNow(
       ? buildLegacyDocumentBreakdown({
           items,
           marginMultiplier: access.version.margin_multiplier,
-          discountCents: 0,
+          discountCents: calcEngineVersion === 1
+            ? computeStoredDiscountCents(access.version, items) : 0,
           taxRateBp: access.version.tax_rate_bp,
           isLaborSplitEnabled: true,
           laborRateById: {},
@@ -1650,10 +1688,19 @@ export async function generateEstimatePdfNow(
           globalCoefficient: access.version.global_coefficient,
           preserveStoredSnapshot: true,
           versionTotals: {
+            status: access.version.status,
+            discount_bp: access.version.discount_bp,
+            discount_mode: access.version.discount_mode,
+            discount_steps: access.version.discount_steps,
+            discount_amount_cents: access.version.discount_amount_cents,
+            calc_engine_version: access.version.calc_engine_version,
+            content_revision: access.version.content_revision,
+            calc_snapshot_content_revision: access.version.calc_snapshot_content_revision,
+            calc_snapshot_context: access.version.calc_snapshot_context,
             total_ht_cents: access.version.total_ht_cents,
             total_tax_cents:
-              access.version.total_tax_cents -
-              access.version.rounding_adjustment_cents,
+              calcEngineVersion === 1 ? access.version.total_tax_cents
+                : access.version.total_tax_cents - access.version.rounding_adjustment_cents,
             total_ttc_cents: access.version.total_ttc_cents,
             rounding_adjustment_cents:
               access.version.rounding_adjustment_cents,
@@ -1679,12 +1726,13 @@ export async function generateEstimatePdfNow(
           vatReverseCharge,
         });
         const fallbackDiscountCents =
-          baseTotals.saleSubtotalCents > 0
+          access.version.discount_amount_cents ??
+          (baseTotals.saleSubtotalCents > 0
             ? Math.round(
                 (baseTotals.saleSubtotalCents * access.version.discount_bp) /
                   10000,
               )
-            : 0;
+            : 0);
         return computeEstimateTotals({
           lineItems: lineItemsForTotals,
           marginMultiplier: access.version.margin_multiplier,
@@ -1707,40 +1755,82 @@ export async function generateEstimatePdfNow(
     const totalTtcCents = computedTotals.roundedTtcCents;
     const roundingAdjustmentCents = computedTotals.roundingAdjustmentCents;
 
+    const documentBreakdown = storedBreakdown ?? buildLegacyDocumentBreakdown({
+      items,
+      marginMultiplier: computedTotals.appliedMarginMultiplier,
+      discountCents: computedTotals.discountCents,
+      taxRateBp: access.version.tax_rate_bp,
+      isLaborSplitEnabled,
+      laborRateById: Object.fromEntries(laborRatesByRoleId.entries()),
+      calcEngineVersion,
+      globalCoefficient: access.version.global_coefficient,
+    });
     const prepared = prepareEstimateDocumentData({
       items,
       // EST-E26 (T6, étape 12) : le PDF dérive du même breakdown que le document
       // écran — plus de recalcul parallèle des sections et des lignes.
-      breakdown:
-        storedBreakdown ??
-        buildLegacyDocumentBreakdown({
-          items,
-          marginMultiplier: computedTotals.appliedMarginMultiplier,
-          discountCents: computedTotals.discountCents,
-          taxRateBp: access.version.tax_rate_bp,
-          isLaborSplitEnabled,
-          laborRateById: Object.fromEntries(laborRatesByRoleId.entries()),
-          calcEngineVersion,
-          globalCoefficient: access.version.global_coefficient,
-        }),
+      breakdown: documentBreakdown,
       calcEngineVersion,
+      preserveStoredSnapshot,
       vatReverseCharge,
       taxRateBp: access.version.tax_rate_bp,
       currency: access.version.currency,
       validiteJours: access.version.validite_jours,
       layout: effectiveLayout,
     });
-    const pdfDocument = buildEstimatePdfDocument({
-      logoDataUri,
-      project: access.project,
-      version: access.version,
-      issuer,
-      prepared,
-      terms: termsSnapshot,
-      totalHtCents,
-      totalTaxCents,
-      totalTtcCents,
-      roundingAdjustmentCents,
+    effectiveLayout = prepared.layout;
+    let capturedProject: ClientContract1["project"] = {
+      name: access.project.name,
+      reference: access.project.reference ?? null,
+      estimateReference: formatEstimateReference(access.project.estimate_reference, access.version.version_number),
+      clientName: access.project.client_name?.trim() || null,
+      siteAddress: access.project.site_address?.trim() || null,
+    };
+    let capturedIssuer: ClientContract1["issuer"] = {
+      userId: context.userId, displayName: issuer.name, displayRole: issuer.role,
+      phone: issuer.phone, email: issuer.email,
+    };
+    let capturedCompany: ClientContract1["company"] = COMPANY_INFO;
+    if (claim.purpose === "email") {
+      const { data: dispatch, error } = await publicationClient.from("estimate_emails")
+        .select("request_contract_version, offer_identity_snapshot, status")
+        .eq("tenant_id", context.tenantId).eq("version_id", versionId)
+        .eq("id", claim.dispatchId!).single();
+      const identity = dispatch?.offer_identity_snapshot as unknown as {
+        schemaVersion: number;
+        version: { id: string; tenantId: string; projectId: string; contentRevision: number };
+        project: ClientContract1["project"]; issuer: ClientContract1["issuer"]; company: ClientContract1["company"];
+      } | null;
+      if (error || dispatch?.request_contract_version !== 2 || dispatch.status !== "preparing" || !identity
+        || identity.schemaVersion !== 1 || Object.keys(identity).length !== 5 || !identity.version
+        || Object.keys(identity.version).length !== 4 || identity.version.id !== versionId
+        || identity.version.tenantId !== context.tenantId || identity.version.projectId !== access.project.id
+        || identity.version.contentRevision !== claim.contentRevision || identity.issuer?.userId !== context.userId) {
+        throw conflict("La préparation de cette offre a changé.", undefined, "ESTIMATE_EMAIL_DISPATCH_CONFLICT");
+      }
+      capturedProject = identity.project;
+      capturedIssuer = identity.issuer;
+      capturedCompany = identity.company;
+    }
+    await assertEstimateVersionUnchanged({ supabase: context.supabase, version: access.version });
+    const clientContract = captureOfferClientContract({
+      version: {
+        id: versionId, tenantId: context.tenantId, projectId: access.project.id,
+        number: access.version.version_number, contentRevision: claim.contentRevision,
+        calcEngineVersion, dateDevis: access.version.date_devis, validiteJours: access.version.validite_jours,
+        currency: normalizeEstimateCurrency(access.version.currency) ?? "EUR",
+        contractorRole: vatReverseCharge ? "subcontractor" : "principal", taxRateBp: access.version.tax_rate_bp,
+      },
+      project: capturedProject, issuer: capturedIssuer, company: capturedCompany,
+      sourceRows: items, prepared, sourceLineIds: new Set(documentBreakdown.lineById.keys()),
+      footer: { totalHtCents, actualVatCents: totalTaxCents, amountDueCents: totalTtcCents, roundingAdjustmentCents },
+      exclusions: access.version.exclusions,
+    });
+    const presentation = parseOfferPresentation({ contract: clientContract, layout: effectiveLayout, terms: termsSnapshot },
+      { allowDevelopmentTerms });
+    const pdfDocument = buildCommercialEstimatePdfDocument({
+      ...presentation,
+      logoDataUri, allowDevelopmentTerms,
     });
 
     let pdfBuffer: Buffer;
@@ -1794,6 +1884,7 @@ export async function generateEstimatePdfNow(
       generatedAt,
       layoutOptions: effectiveLayout as unknown as Json,
       termsSnapshot: termsSnapshot as unknown as Json | null,
+      clientContractSnapshot: clientContract,
     });
 
     const downloadUrl = await createSignedUrlOrThrow({
@@ -1849,6 +1940,7 @@ export async function getEstimatePdfLayoutConfiguration(
     }),
   ]);
   const structure = summarizeEstimateDocumentStructure(items);
+  await assertEstimateVersionUnchanged({ supabase: context.supabase, version: access.version });
 
   return {
     ...structure,
@@ -1883,7 +1975,7 @@ export async function resolveEstimatePdfPreviewLayout(
   );
   const storedTermsSnapshot =
     parsedStoredTermsSnapshot &&
-    canUseEstimateTermsSnapshot(parsedStoredTermsSnapshot)
+    canUseEstimateTermsSnapshot(parsedStoredTermsSnapshot, canUseDevelopmentEstimateTerms() ? "development" : "production")
       ? parsedStoredTermsSnapshot
       : null;
   const terms = layout.includeTerms

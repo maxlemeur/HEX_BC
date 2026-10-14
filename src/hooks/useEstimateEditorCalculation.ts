@@ -4,6 +4,7 @@ import type { EstimateSettingsState } from "@/components/estimates/EstimateSetti
 import {
   computeEstimateBreakdown,
   computeReadOnlyTotals,
+  computeInitialDiscountCents,
   type EstimateTotals,
 } from "@/lib/estimate-calculations";
 import type { CalcEngineVersion } from "@/lib/estimates/calc-engine-version";
@@ -43,12 +44,28 @@ export function computeDraftBreakdown(input: {
   laborRateAtelierById: Map<string, number>;
   laborRateChantierById: Map<string, number>;
 }) {
+  const discountCents = input.settings.discount_amount_cents ??
+    (input.settings.discount_bp != null
+      ? computeInitialDiscountCents({
+          margin_multiplier: input.settings.margin_multiplier,
+          margin_mode: input.settings.margin_mode ?? "fixed",
+          tax_rate_bp: input.settings.tax_rate_bp,
+          discount_bp: input.settings.discount_bp,
+          discount_mode: input.settings.discount_mode ?? "simple",
+          discount_steps: input.settings.discount_steps ?? [],
+          global_coefficient: input.settings.global_coefficient ?? 1,
+        }, input.items, input.laborRateById, input.isLaborSplitEnabled,
+        input.laborRateAtelierById, input.laborRateChantierById, {
+          calcEngineVersion: input.calcEngineVersion,
+          marginTiers: input.settings.margin_tiers ?? [],
+        })
+      : input.settings.discount_cents);
   return computeEstimateBreakdown({
     items: input.items,
     marginMultiplier: input.settings.margin_multiplier,
     marginMode: input.settings.margin_mode ?? "fixed",
     marginTiers: input.settings.margin_tiers ?? [],
-    discountCents: input.settings.discount_cents,
+    discountCents,
     discountMode: input.settings.discount_mode ?? "simple",
     discountStepsBp: input.settings.discount_steps ?? [],
     globalCoefficient: input.settings.global_coefficient ?? 1,

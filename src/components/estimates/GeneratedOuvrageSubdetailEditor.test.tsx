@@ -14,6 +14,7 @@ describe("GeneratedOuvrageSubdetailEditor", () => {
         candidateLabel="Pose de faux plafond"
         isSaving={false}
         onSave={onSave}
+        onChange={vi.fn()}
         subdetail={{
           draftId: "draft-1",
           candidateId: "candidate-1",
@@ -21,6 +22,7 @@ describe("GeneratedOuvrageSubdetailEditor", () => {
           projectId: "project-1",
           status: "pending_review",
           humanValidationRequired: true,
+          reviewToken: "a".repeat(64),
           generatedAt: "2026-03-10T09:00:00.000Z",
           updatedAt: "2026-03-10T09:05:00.000Z",
           summary: {
@@ -38,6 +40,7 @@ describe("GeneratedOuvrageSubdetailEditor", () => {
             {
               componentId: "ffffffff-ffff-4fff-8fff-ffffffffffff",
               status: "suggested",
+              rejectedFromStatus: null,
               costType: "labor",
               designation: "Main d'oeuvre - Pose de faux plafond",
               unit: "h",

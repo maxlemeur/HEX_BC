@@ -1091,6 +1091,7 @@ export function AffaireHub({
                         id: summary.currentVersion.id,
                         status: summary.currentVersion.status,
                         versionNumber: summary.currentVersion.versionNumber,
+                        updatedAt: summary.currentVersion.updatedAt,
                       }
                     : null
                 }

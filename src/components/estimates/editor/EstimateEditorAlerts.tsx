@@ -1,7 +1,13 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import type { EstimateMutationRecovery } from "./EstimateMutationRecoveryAlert";
+
+const EstimateMutationRecoveryAlert = dynamic(() =>
+  import("./EstimateMutationRecoveryAlert").then((module) => module.EstimateMutationRecoveryAlert)
+);
 
 type EstimateEditorAlertsProps = {
   statusError: string | null;
@@ -32,6 +38,7 @@ type EstimateEditorAlertsProps = {
   importSummaryMessage: string | null;
   actionNotice: string | null;
   actionError: string | null;
+  batchRecovery?: EstimateMutationRecovery;
 };
 
 /** Message + action laid out on one line, wrapping on narrow screens. */
@@ -65,9 +72,11 @@ export function EstimateEditorAlerts({
   importSummaryMessage,
   actionNotice,
   actionError,
+  batchRecovery,
 }: EstimateEditorAlertsProps) {
   return (
     <div data-testid="estimate-editor-alerts">
+      {batchRecovery?.message ? <EstimateMutationRecoveryAlert recovery={batchRecovery} /> : null}
       {statusError && (
         <Alert variant="danger" className="mb-6" data-testid="estimate-editor-alert-status-error">
           {statusError}

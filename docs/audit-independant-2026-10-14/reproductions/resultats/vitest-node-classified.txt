@@ -1,0 +1,19 @@
+total tests 2159, passed 2071, failed 86, pending 2, failed suites 30
+
+ENV (3 fichiers) :
+/src/lib/audit-artifact-generator.test.ts | 1 | Error: Command failed: C:\Program Files\nodejs\node.exe scripts/extract-audit-artifact.mjs C:\Users\thann\AppData\Local\Temp\claude\C--Users
+/src/lib/supabase-migration-history-regressions.test.ts | 2 | Error: ENOENT: no such file or directory, open 'C:\Users\thann\AppData\Local\Temp\claude\C--Users-maxim-Projects-miaouffrage\cdab460e-e4c5-4
+/src/lib/takeoff/benchmark.test.ts | 2 | Error: ENOENT: no such file or directory, open 'C:\Users\thann\AppData\Local\Temp\claude\C--Users-maxim-Projects-miaouffrage\cdab460e-e4c5-4
+
+AUTRES (11 fichiers) :
+/src/lib/estimates/editor-mutations.test.ts | 3 | EstimateApiError: L'ouvrage a été inséré, mais la confirmation de ses totaux est invalide. Relisez le devis sans le réinsérer.
+/src/lib/estimates/pdf-generator.test.ts | 15 | TypeError: input.supabase.from(...).select(...).eq(...).eq(...).abortSignal is not a function
+/src/lib/estimates/server.seal.test.ts | 15 | Error: expected ApiError: Cette version est déjà verrouil… { …(3) } to match object { status: 400, …(2) }
+/src/lib/estimates/server.test.ts | 12 | Error: promise rejected "TypeError: Cannot destructure property 'd…" instead of resolving
+/src/app/api/orders/route.test.ts | 2 | AssertionError: expected 500 to be 200 // Object.is equality
+/src/app/portal/[token]/page.test.tsx | 4 | Error: expected [Function] to throw error including 'redirect:/portal/44444444-4444-4444-8…' but got 'not-found'
+/src/app/dashboard/_actions/estimate-approval.test.ts | 4 | TypeError: input.supabase.from(...).select(...).eq(...).eq(...).order(...).order(...).range is not a function
+/src/app/api/estimates/[versionId]/pdf/route.test.ts | 1 | AssertionError: expected "vi.fn()" to be called with arguments: [ Array(1) ]
+/src/app/api/portal/[token]/accept/route.test.ts | 12 | AssertionError: expected 404 to be 409 // Object.is equality
+/src/app/api/portal/[token]/reject/route.test.ts | 9 | AssertionError: expected 404 to be 409 // Object.is equality
+/src/app/api/purchase-orders/[id]/zip/route.test.ts | 4 | AssertionError: expected 409 to be 200 // Object.is equality

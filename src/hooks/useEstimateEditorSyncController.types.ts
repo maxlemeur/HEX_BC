@@ -1,3 +1,5 @@
+import type { Dispatch, SetStateAction } from "react";
+
 import type { EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
 import type { EditorConflictDraft } from "@/lib/estimates/editor-drafts";
 import type { AutoSaveResult, AutoSaveStatus } from "@/hooks/useAutoSave";
@@ -38,11 +40,13 @@ export type RestoredDraftApplication = {
 
 export type EstimateEditorSyncControllerInput = {
   routeVersionId: string;
-  activeVersion: Pick<EstimateVersionRow, "id" | "status"> | null;
+  activeVersion: (Pick<EstimateVersionRow, "id" | "status"> & Partial<Pick<EstimateVersionRow, "tenant_id">>) | null;
   currentUserId: string | null;
+  currentTenantId: string | null;
   isViewerReadOnly: boolean;
   hasPendingSettingsChanges: boolean;
   isSavingSettings: boolean;
+  allowManualTotalsReconciliation?: boolean;
   savePendingSettings: () => Promise<boolean | void>;
   navigate?: (href: string) => void;
   items: EditorEstimateItem[];
@@ -57,10 +61,11 @@ export type EstimateEditorSyncControllerInput = {
     versionId: string;
     totalsPatch: EstimateVersionTotalsPatch | undefined;
     updatedAt: string;
+    contentRevision?: number;
   }) => void;
   setTotalsOutOfSync: (value: boolean) => void;
   clearHistory: () => void;
-  reportError: (message: string | null) => void;
+  reportError: Dispatch<SetStateAction<string | null>>;
   reportNotice: (message: string | null) => void;
   resolveErrorMessage: (message: string) => string;
 };
@@ -83,6 +88,10 @@ export type EstimateEditorSyncController = {
     isDraftLockAcquiring: boolean;
     isForcingDraftUnlock: boolean;
     draftLockError: string | null;
+    batchRecovery: {
+      blocked: boolean; message: string | null; canResume: boolean; isBusy: boolean;
+      verify: () => Promise<void>; resume?: () => Promise<void>;
+    };
   };
   actions: {
     overlayPendingUpdates: (
@@ -94,6 +103,7 @@ export type EstimateEditorSyncController = {
     ) => void;
     setAutoSaveEnabled: (enabled: boolean) => void;
     saveNow: () => Promise<void>;
+    flushBeforeExternalAction: () => Promise<boolean>;
     flushBufferedItemUpdates: () => Promise<AutoSaveResult>;
     ensureGroupedActionCanProceed: (
       actionLabel: string,
@@ -114,7 +124,7 @@ export type EstimateEditorSyncController = {
     clearConflictState: () => void;
     clearConflictDraft: (options?: { onlyIfRestored?: boolean }) => void;
     triggerVersionReload: () => void;
-    markVersionReloadFinished: () => void;
+    markVersionReloadFinished: (succeeded?: boolean) => void;
     reloadAfterConflict: () => void;
     restoreConflictDraft: () => void;
     forceUnlockDraftLock: () => Promise<void>;
@@ -129,6 +139,7 @@ export type EstimateEditorSyncController = {
     isReadOnly: boolean;
     isConflictLocked: boolean;
     isSaveBlocked: boolean;
+    isReadRecoveryRequired: boolean;
     readOnlyActionErrorMessage: string;
     lockHolderLabel: string;
   };

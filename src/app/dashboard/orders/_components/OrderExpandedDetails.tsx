@@ -12,6 +12,7 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { formatEUR } from "@/lib/money";
+import { formatOrderQuantity } from "@/lib/purchase-orders/quantities";
 
 import {
   formatFileSize,
@@ -86,7 +87,7 @@ function OrderedItems({ items }: { items: LazyRows<OrderItemRow> | undefined }) 
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border-subtle bg-surface">
+    <div className="overflow-x-auto rounded-lg border border-border-subtle bg-surface">
       <table className="w-full text-sm">
         <thead className="bg-surface-subtle">
           <tr>
@@ -95,6 +96,9 @@ function OrderedItems({ items }: { items: LazyRows<OrderItemRow> | undefined }) 
             </th>
             <th scope="col" className="w-20 px-4 py-2.5 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Qté
+            </th>
+            <th scope="col" className="w-24 px-4 py-2.5 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Unité
             </th>
             <th scope="col" className="w-32 px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               P.U. HT
@@ -111,10 +115,16 @@ function OrderedItems({ items }: { items: LazyRows<OrderItemRow> | undefined }) 
                 {item.designation?.trim() || item.reference?.trim() || "-"}
               </td>
               <td className="px-4 py-3 text-center font-semibold tabular-nums text-foreground-secondary">
-                {item.quantity}
+                {formatOrderQuantity(item.quantity)}
+              </td>
+              <td className="px-4 py-3 text-center text-foreground-secondary">
+                {item.unit || "Unité à confirmer"}
               </td>
               <td className="px-4 py-3 text-right font-mono tabular-nums text-foreground-secondary">
                 {formatEUR(item.unit_price_ht_cents)}
+                <p className="mt-1 font-sans text-xs text-muted-foreground">
+                  {item.price_unit ? `par ${item.price_unit}` : "Unité du prix à confirmer"}
+                </p>
               </td>
               <td className="px-4 py-3 text-right font-mono font-semibold tabular-nums text-foreground">
                 {formatEUR(item.line_total_ht_cents)}

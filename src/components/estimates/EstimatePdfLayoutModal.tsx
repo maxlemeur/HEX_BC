@@ -15,7 +15,15 @@ import {
 } from "@/components/ui/dialog";
 import { FieldLabel } from "@/components/ui/field";
 import { NativeSelect } from "@/components/ui/native-select";
-import { fetchEstimatePdfLayoutConfiguration } from "@/lib/estimates/client";
+import {
+  acquireEstimateDraftLock,
+  fetchEstimatePdfLayoutConfiguration,
+  isEstimateApiError,
+  releaseEstimateDraftLock,
+  renewEstimateDraftLock,
+} from "@/lib/estimates/client";
+import { DRAFT_LOCK_HEARTBEAT_INTERVAL_MS } from "@/hooks/useDraftLock";
+import { hasEstimateEditorMutationSession } from "@/lib/estimates/editor-mutations";
 import {
   applyEstimateTermsPolicy,
   DEFAULT_ESTIMATE_PDF_LAYOUT,
@@ -35,7 +43,7 @@ type EstimatePdfLayoutModalProps = {
   initialLayout?: EstimatePdfLayoutOptions;
   confirmLabel?: string;
   onConfirm: (layout: EstimatePdfLayoutOptions) => Promise<void> | void;
-};
+} & ({ requiresDraftLock: true } | { requiresDraftLock?: false });
 
 const PRESET_OPTIONS: Array<{
   value: EstimatePdfPreset;
@@ -105,6 +113,7 @@ export function EstimatePdfLayoutModal({
   initialLayout = DEFAULT_ESTIMATE_PDF_LAYOUT,
   confirmLabel = "Générer le PDF",
   onConfirm,
+  requiresDraftLock = false,
 }: Readonly<EstimatePdfLayoutModalProps>) {
   const userContext = useOptionalUserContext();
   const storageKey = useMemo(
@@ -120,8 +129,100 @@ export function EstimatePdfLayoutModal({
   const [isLoadingConfiguration, setIsLoadingConfiguration] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [ownsDraftLock, setOwnsDraftLock] = useState(false);
+  const [draftLockError, setDraftLockError] = useState<string | null>(null);
+  const leaseQueueRef = useRef<Promise<void>>(Promise.resolve());
   const hasStoredPreferenceRef = useRef(false);
   const initialFocusRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    setOwnsDraftLock(false);
+    setDraftLockError(null);
+    if (!open || !requiresDraftLock) return;
+
+    let active = true;
+    let ownsNewLease = false;
+    let leaseReady = false;
+    let intervalId: number | undefined;
+    const enqueue = (operation: () => Promise<void>) => {
+      const next = leaseQueueRef.current.catch(() => undefined).then(operation);
+      leaseQueueRef.current = next;
+      return next;
+    };
+    const releaseNewLease = () => {
+      if (!ownsNewLease) return;
+      ownsNewLease = false;
+      void enqueue(async () => {
+        await releaseEstimateDraftLock(versionId, { keepalive: true });
+      }).catch(() => undefined);
+    };
+    const block = (error: unknown) => {
+      leaseReady = false;
+      if (intervalId !== undefined) window.clearInterval(intervalId);
+      if (!active) return;
+      setOwnsDraftLock(false);
+      setDraftLockError(error instanceof Error ? error.message : "Ce devis n’est pas disponible pour préparer un PDF.");
+    };
+    const renew = () => {
+      if (!active || !leaseReady) return;
+      void enqueue(async () => {
+        if (!active || !leaseReady) return;
+        try {
+          const result = await renewEstimateDraftLock(versionId);
+          if (!result.renewed || result.lock?.isOwnedByCurrentSession !== true) {
+            throw new Error("Ce devis est ouvert dans une autre page. Fermez cette préparation et réessayez quand il sera disponible.");
+          }
+        } catch (error) { block(error); }
+      });
+    };
+
+    void enqueue(async () => {
+      if (!active) return;
+      try {
+        // Borrow the editor's existing page lease without releasing it later.
+        try {
+          const existing = await renewEstimateDraftLock(versionId);
+          if (!existing.renewed || existing.lock?.isOwnedByCurrentSession !== true) {
+            throw new Error("Ce devis est déjà ouvert dans une autre page. Réessayez quand il sera disponible.");
+          }
+        } catch (error) {
+          if (!isEstimateApiError(error) || error.status !== 404) throw error;
+          if (!active) return;
+          const acquired = await acquireEstimateDraftLock(versionId);
+          if (!acquired.acquired || acquired.lock?.isOwnedByCurrentSession !== true) {
+            throw new Error("Ce devis est déjà ouvert dans une autre page. Réessayez quand il sera disponible.");
+          }
+          // The editor may finish acquiring the same page lease while this
+          // request is pending. Its lifecycle still owns release in that case.
+          ownsNewLease = !hasEstimateEditorMutationSession(versionId);
+        }
+        if (!active) {
+          if (ownsNewLease) {
+            ownsNewLease = false;
+            await releaseEstimateDraftLock(versionId, { keepalive: true });
+          }
+          return;
+        }
+        leaseReady = true;
+        setOwnsDraftLock(true);
+        intervalId = window.setInterval(renew, DRAFT_LOCK_HEARTBEAT_INTERVAL_MS);
+      } catch (error) { block(error); }
+    });
+
+    const refreshLease = () => { if (document.visibilityState !== "hidden") renew(); };
+    window.addEventListener("focus", refreshLease);
+    document.addEventListener("visibilitychange", refreshLease);
+    window.addEventListener("beforeunload", releaseNewLease);
+    return () => {
+      active = false;
+      leaseReady = false;
+      if (intervalId !== undefined) window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshLease);
+      document.removeEventListener("visibilitychange", refreshLease);
+      window.removeEventListener("beforeunload", releaseNewLease);
+      releaseNewLease();
+    };
+  }, [open, requiresDraftLock, versionId]);
 
   useEffect(() => {
     if (!open) return;
@@ -200,6 +301,10 @@ export function EstimatePdfLayoutModal({
 
   const handleConfirm = async () => {
     if (isSubmitting) return;
+    if (requiresDraftLock && !ownsDraftLock) {
+      setSubmitError("Attendez la disponibilité du devis avant de préparer le PDF.");
+      return;
+    }
     const effectiveLayout = configuration
       ? applyEstimateTermsPolicy(layout, configuration.terms)
       : { ...layout, includeTerms: false };
@@ -531,6 +636,11 @@ export function EstimatePdfLayoutModal({
         </div>
 
         <DialogFooter className="mt-0 shrink-0 border-t border-border px-6 py-4">
+          {draftLockError ? (
+            <p className="text-sm font-medium text-danger sm:mr-auto" role="alert">{draftLockError}</p>
+          ) : requiresDraftLock && !ownsDraftLock ? (
+            <p className="text-sm text-muted-foreground sm:mr-auto" role="status">Vérification de la disponibilité du devis…</p>
+          ) : null}
           {submitError ? (
             <p className="text-sm font-medium text-danger sm:mr-auto" role="alert">
               {submitError}
@@ -547,7 +657,7 @@ export function EstimatePdfLayoutModal({
           <Button
             size="lg"
             onClick={() => void handleConfirm()}
-            disabled={isLoadingConfiguration}
+            disabled={isLoadingConfiguration || (requiresDraftLock && !ownsDraftLock)}
             loading={isSubmitting}
           >
             {confirmLabel}

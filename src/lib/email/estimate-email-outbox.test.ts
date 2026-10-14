@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { COMPANY_INFO } from "@/lib/company-info";
 
 const mocks = vi.hoisted(() => ({
   rpc: vi.fn(),
@@ -57,6 +58,9 @@ function createDispatch(
     created_by: "55555555-5555-4555-8555-555555555555",
     version_content_revision: 1,
     from_address: "noreply@example.com",
+    request_contract_version: 2,
+    portal_url: "http://localhost:3176/portal/66666666-6666-4666-8666-666666666666",
+    offer_identity_snapshot: null,
     html_body: "<p>Bonjour</p>",
     text_body: "Bonjour",
     document_path: "tenant/version.pdf",
@@ -109,7 +113,7 @@ describe("estimate email outbox provider boundary", () => {
         attachments: [
           {
             filename: "HEX_D26001MM_V2.pdf",
-            content: PDF_BUFFER,
+            content: PDF_BUFFER.toString("base64"),
           },
         ],
       },
@@ -206,6 +210,8 @@ describe("estimate email outbox provider boundary", () => {
         payloadHash: "a".repeat(64),
         expectedUpdatedAt: "2026-08-12T00:00:00.000Z",
         fromAddress: "noreply@example.com",
+        portalOrigin: "http://localhost:3176",
+        companySnapshot: COMPANY_INFO,
       })
     ).rejects.toMatchObject({
       code: "ESTIMATE_EMAIL_RETRY_REQUIRES_NEW_REQUEST",
@@ -331,7 +337,7 @@ describe("drainEstimateEmailOutbox", () => {
     );
     expect(mocks.send).toHaveBeenCalledTimes(1);
     expect(mocks.send.mock.calls[0]?.[0]?.attachments?.[0]?.content).toEqual(
-      PDF_BUFFER
+      PDF_BUFFER.toString("base64")
     );
     expect(result).toMatchObject({
       claimed: 1,

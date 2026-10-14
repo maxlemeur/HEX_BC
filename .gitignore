@@ -16,6 +16,20 @@
 /test-results/
 /.e2e/
 /tmp/
+__pycache__/
+*.py[cod]
+
+# Generated TesterArmy entrypoints for recipes stored only in /.e2e/.
+# Keep these local with their private recipe packet.
+/e2e.euro*.config.ts
+/e2e.eubound*.config.ts
+/e2e.eudoc.config.ts
+/e2e.eureuse.config.ts
+/e2e.large-import.config.ts
+/e2e.owner-print.config.ts
+/e2e.recalc.config.ts
+/e2e.settings-atomic.config.ts
+/e2e.settings-followup.config.ts
 
 # next.js
 /.next/

@@ -49,6 +49,7 @@ type CanonicalV2VersionOverrides = Partial<
     | "currency"
     | "margin_bp"
     | "discount_bp"
+    | "discount_amount_cents"
     | "discount_mode"
     | "discount_steps"
     | "global_coefficient"
@@ -146,6 +147,7 @@ type LatestVersionDefaults = Pick<
   | "currency"
   | "margin_bp"
   | "discount_bp"
+  | "discount_amount_cents"
   | "discount_mode"
   | "discount_steps"
   | "global_coefficient"
@@ -164,6 +166,7 @@ const DEFAULT_VERSION_SETTINGS: LatestVersionDefaults = {
   currency: "EUR",
   margin_bp: 0,
   discount_bp: 0,
+  discount_amount_cents: null,
   discount_mode: "simple",
   discount_steps: [],
   global_coefficient: 1,
@@ -464,7 +467,7 @@ async function loadExistingProjectContext(input: {
   const { data: latestVersion, error: versionError } = await input.supabase
     .from("estimate_versions")
     .select(
-      "date_devis, validite_jours, margin_multiplier, margin_mode, currency, margin_bp, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, max_section_depth, contractor_role"
+      "date_devis, validite_jours, margin_multiplier, margin_mode, currency, margin_bp, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, max_section_depth, contractor_role"
     )
     .eq("tenant_id", input.tenantId)
     .eq("project_id", input.projectId)
@@ -505,6 +508,7 @@ function resolveVersionPayload(input: {
     currency: base.currency,
     margin_bp: base.margin_bp,
     discount_bp: base.discount_bp,
+    discount_amount_cents: base.discount_amount_cents,
     discount_mode: base.discount_mode,
     discount_steps: base.discount_steps,
     global_coefficient: base.global_coefficient,
@@ -598,6 +602,7 @@ export async function persistCanonicalEstimateV2(
     margin_mode: versionPayload.margin_mode,
     tax_rate_bp: versionPayload.tax_rate_bp,
     discount_bp: versionPayload.discount_bp,
+    discount_amount_cents: versionPayload.discount_amount_cents,
     discount_mode: versionPayload.discount_mode,
     discount_steps: versionPayload.discount_steps,
     global_coefficient: versionPayload.global_coefficient,
@@ -735,6 +740,7 @@ export async function instantiateCanonicalEstimateV2FromTemplate(
       currency: template.currency,
       margin_bp: template.margin_bp,
       discount_bp: template.discount_bp,
+      discount_amount_cents: template.discount_amount_cents,
       discount_mode: template.discount_mode,
       discount_steps: template.discount_steps,
       global_coefficient: template.global_coefficient,

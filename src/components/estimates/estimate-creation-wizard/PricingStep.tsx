@@ -1,10 +1,10 @@
 "use client";
 
 import { MarginTiersExplanation } from "@/components/estimates/MarginTiersExplanation";
+import { getCommercialRoundingOptions } from "@/components/estimates/rounding-options";
 import { NumberInput, parseLocalizedNumberInput } from "@/components/ui-legacy/NumberInput";
 import {
   PROJECT_FAMILY_OPTIONS,
-  ROUNDING_OPTIONS,
   type StepErrors,
   type WizardData,
 } from "@/components/estimates/estimate-creation-wizard/shared";
@@ -37,22 +37,12 @@ export function PricingStep({
   errors,
   updateField,
 }: PricingStepProps) {
+  const rounding = getCommercialRoundingOptions("EUR", data.roundingMode, Number(data.roundingStepCents));
   function handleRoundingChange(value: string) {
-    if (value === "none") {
-      updateField("roundingMode", "none");
-      updateField("roundingStepCents", "1");
-      return;
-    }
-
-    const option = ROUNDING_OPTIONS.find((entry) => String(entry.step) === value);
-    if (!option) return;
+    const option = rounding.options.find((entry) => entry.value === value);
+    if (!option || option.preserved) return;
     updateField("roundingMode", option.mode);
     updateField("roundingStepCents", String(option.step));
-  }
-
-  function getRoundingValue(): string {
-    if (data.roundingMode === "none") return "none";
-    return data.roundingStepCents;
   }
 
   return (
@@ -201,18 +191,24 @@ export function PricingStep({
         <FieldLabel htmlFor="wiz-rounding">Arrondi</FieldLabel>
         <NativeSelect
           id="wiz-rounding"
-          value={getRoundingValue()}
+          value={rounding.value}
+          aria-describedby="wiz-rounding-hint"
           onChange={(event) => handleRoundingChange(event.target.value)}
         >
-          {ROUNDING_OPTIONS.map((option) => (
+          {rounding.options.map((option) => (
             <option
-              key={`${option.mode}-${option.step}`}
-              value={option.mode === "none" ? "none" : String(option.step)}
+              key={option.value}
+              value={option.value}
+              disabled={option.preserved}
             >
               {option.label}
             </option>
           ))}
         </NativeSelect>
+        <FieldDescription id="wiz-rounding-hint" className="text-xs">
+          Le TTC est arrondi au palier inférieur, sans descendre sous le HT.
+          Un montant déjà exact reste inchangé.
+        </FieldDescription>
       </div>
 
       <div className="flex min-w-0 flex-col gap-2 sm:col-span-2">

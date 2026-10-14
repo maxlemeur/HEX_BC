@@ -139,12 +139,13 @@ function makeFinishLineSummary(): AffaireHubFinishLineSummaryResult {
       errorMessage: null,
     },
     readyToOrder: {
-      status: "blocked" as const,
-      orderableLinesCount: 3,
-      coveredLinesCount: 1,
-      ambiguousLinesCount: 1,
-      missingPriceLinesCount: 1,
-      staleLinesCount: 0,
+      status: "warning" as const,
+      counts: {
+        totalSupplierLines: 3,
+        draftableLines: 1,
+        transferredLines: 0,
+        blockedLines: 2,
+      },
       errorMessage: null,
     },
   };
@@ -386,6 +387,12 @@ describe("AffairePilotagePanel", () => {
       },
     });
 
+    expect(cards[1]).toMatchObject({
+      label: "Préparation des achats",
+      status: "warning",
+      summary: "1 ligne préparable · 0 ligne déjà transférée · 2 lignes à corriger.",
+      action: { kind: "href", label: "Préparer les commandes", href: "#finish-line-orders" },
+    });
     expect(cards[0]?.details).toEqual([
       "Documents · 1 blocage",
       "PDF · 1 blocage",
@@ -638,11 +645,12 @@ describe("AffairePilotagePanel", () => {
         },
         readyToOrder: {
           status: "waiting",
-          orderableLinesCount: 0,
-          coveredLinesCount: 0,
-          ambiguousLinesCount: 0,
-          missingPriceLinesCount: 0,
-          staleLinesCount: 0,
+          counts: {
+            totalSupplierLines: 0,
+            draftableLines: 0,
+            transferredLines: 0,
+            blockedLines: 0,
+          },
           errorMessage: null,
         },
       },

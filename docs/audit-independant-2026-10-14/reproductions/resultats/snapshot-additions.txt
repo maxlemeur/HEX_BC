@@ -1,0 +1,3 @@
+copied: next-env.d.ts components.json vitest.critical.config.ts public/ (unchanged tracked files absent from archive)
+next-env.d.ts replaced by standard 2-line version (live one imports untracked .e2e types)
+config/ (architecture budgets) copied from live, unchanged tracked

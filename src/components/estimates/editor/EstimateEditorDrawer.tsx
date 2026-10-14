@@ -3,6 +3,7 @@
 import { useRef, useState, type ComponentProps } from "react";
 
 import { EstimateEventsTimeline } from "@/components/estimates/EstimateEventsTimeline";
+import { EstimateMutationRecoveryAlert, type EstimateMutationRecovery } from "@/components/estimates/editor/EstimateMutationRecoveryAlert";
 import { EstimateSettingsPanel, type EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
 import { EstimateSuggestionRulesManager } from "@/components/estimates/EstimateSuggestionRulesManager";
 import { LaborRolesManager } from "@/components/estimates/LaborRolesManager";
@@ -52,6 +53,7 @@ type EstimateEditorDrawerProps = {
   totals: EstimateTotals | null;
   isSavingSettings: boolean;
   isSaveBlocked: boolean;
+  recovery?: EstimateMutationRecovery;
   isFrozen?: boolean;
   storedMarginMultiplier?: number;
   onChangeSettings: EstimateSettingsPanelProps["onChange"];
@@ -95,6 +97,7 @@ export function EstimateEditorDrawer({
   totals,
   isSavingSettings,
   isSaveBlocked,
+  recovery,
   isFrozen = false,
   storedMarginMultiplier,
   onChangeSettings,
@@ -233,6 +236,7 @@ export function EstimateEditorDrawer({
           />
         </div>
         <div className="flex-1 overflow-y-auto px-4 py-4 lg:px-6 lg:py-6 space-y-6">
+          {recovery ? <EstimateMutationRecoveryAlert recovery={recovery} /> : null}
           <EstimateSettingsPanel
             projectName={projectName}
             versionNumber={versionNumber}
@@ -249,6 +253,7 @@ export function EstimateEditorDrawer({
 
           <LaborRolesManager
             roles={laborRoles}
+            canManage={!isSaveBlocked && !isFrozen}
             isSaving={isSavingSettings || isSaveBlocked}
             error={null}
             onCreate={onCreateRole}

@@ -1,0 +1,18 @@
+C:\Users\thann\AppData\Local\Temp\claude\C--Users-maxim-Projects-miaouffrage\cdab460e-e4c5-4312-b7fd-cd1f131b02e3\scratchpad\audit\snapshot\handoff-audit-independant\annexes\repository\src\test\architecture-budgets.ts:520
+    throw new Error(
+          ^
+
+Error: Architecture budget violations:
+- module exceeds the new-module non-empty LOC ceiling: src/hooks/useEstimateEditorSyncController.ts (1333 > 1200)
+    at runArchitectureBudgetCheck (C:\Users\thann\AppData\Local\Temp\claude\C--Users-maxim-Projects-miaouffrage\cdab460e-e4c5-4312-b7fd-cd1f131b02e3\scratchpad\audit\snapshot\handoff-audit-independant\annexes\repository\src\test\architecture-budgets.ts:520:11)
+    at <anonymous> (C:\Users\thann\AppData\Local\Temp\claude\C--Users-maxim-Projects-miaouffrage\cdab460e-e4c5-4312-b7fd-cd1f131b02e3\scratchpad\audit\snapshot\handoff-audit-independant\annexes\repository\scripts\check-architecture-budgets.ts:3:16)
+    at Object.<anonymous> (C:\Users\thann\AppData\Local\Temp\claude\C--Users-maxim-Projects-miaouffrage\cdab460e-e4c5-4312-b7fd-cd1f131b02e3\scratchpad\audit\snapshot\handoff-audit-independant\annexes\repository\scripts\check-architecture-budgets.ts:8:1)
+    at Module._compile (node:internal/modules/cjs/loader:1872:14)
+    at Object.transformer (C:\Users\thann\AppData\Local\Temp\claude\C--Users-maxim-Projects-miaouffrage\cdab460e-e4c5-4312-b7fd-cd1f131b02e3\scratchpad\audit\snapshot\handoff-audit-independant\annexes\repository\node_modules\tsx\dist\register-BoI6-WNn.cjs:9:3252)
+    at Module.load (node:internal/modules/cjs/loader:1594:32)
+    at Module._load (node:internal/modules/cjs/loader:1396:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+    at loadCJSModuleWithModuleLoad (node:internal/modules/esm/translators:372:15)
+    at ModuleWrap.<anonymous> (node:internal/modules/esm/translators:244:9)
+
+Node.js v24.19.0

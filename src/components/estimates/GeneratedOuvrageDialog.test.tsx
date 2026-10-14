@@ -6,8 +6,14 @@ import type {
 GeneratedOuvrageCandidate,
 GeneratedOuvrageDraftResult,
 GeneratedOuvrageSubdetailResult,
-InsertGeneratedOuvragesResult
+InsertGeneratedOuvragesResult as FullInsertResult
 } from "@/lib/estimates/generated-ouvrages";
+
+type InsertGeneratedOuvragesResult = Pick<FullInsertResult, "ok" | "insertedCount" | "draftStatus" | "projectId" | "versionId" | "replayed">;
+
+vi.mock("@/lib/estimates/generated-ouvrage-client", () => ({
+  applyGeneratedOuvrages: (...args: unknown[]) => mockInsertGeneratedOuvrages(...args),
+}));
 
 const mockGenerateOuvragesFromText = vi.fn();
 const mockFetchGeneratedOuvrageDraft = vi.fn();
@@ -15,8 +21,14 @@ const mockFetchGeneratedOuvrageSubdetailDraft = vi.fn();
 const mockInsertGeneratedOuvrages = vi.fn();
 const mockRejectGeneratedOuvrageDraft = vi.fn();
 const mockUpdateGeneratedOuvrageSubdetailDraft = vi.fn();
+const mockListResumableGeneratedOuvrageDrafts = vi.fn();
+const mockFetchResumableGeneratedOuvrageDraft = vi.fn();
 
 vi.mock("@/app/dashboard/affaires/_actions/generated-ouvrages", () => ({
+  listResumableGeneratedOuvrageDrafts: (...args: unknown[]) =>
+    mockListResumableGeneratedOuvrageDrafts(...args),
+  fetchResumableGeneratedOuvrageDraft: (...args: unknown[]) =>
+    mockFetchResumableGeneratedOuvrageDraft(...args),
   generateOuvragesFromText: (...args: unknown[]) =>
     mockGenerateOuvragesFromText(...args),
   fetchGeneratedOuvrageDraft: (...args: unknown[]) =>
@@ -144,6 +156,7 @@ function makeSubdetailResult(
     projectId: "p1",
     status: "pending_review",
     humanValidationRequired: true,
+    reviewToken: "a".repeat(64),
     generatedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     summary: {
@@ -161,6 +174,7 @@ function makeSubdetailResult(
       {
         componentId: "comp-1",
         status: "suggested",
+        rejectedFromStatus: null,
         costType: "material",
         designation: candidate.designation,
         unit: candidate.unit,
@@ -195,6 +209,7 @@ function makeSubdetailResult(
       {
         componentId: "comp-2",
         status: "suggested",
+        rejectedFromStatus: null,
         costType: "labor",
         designation: `Main d'oeuvre - ${candidate.designation}`,
         unit: "h",
@@ -229,6 +244,7 @@ function createDeferred<T>() {
 
 const defaultProps: GeneratedOuvrageDialogProps = {
   isOpen: true,
+  scopeKey: "actor-1:tenant-1:v1",
   targetVersionId: "v1",
   projectId: "p1",
   existingSections: [
@@ -252,6 +268,16 @@ afterEach(() => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockListResumableGeneratedOuvrageDrafts.mockImplementation(
+    async ({ versionId }: { versionId: string }) => ({
+      ok: true,
+      data: { versionId, items: [], nextCursor: null },
+    })
+  );
+  mockFetchResumableGeneratedOuvrageDraft.mockResolvedValue({
+    ok: false,
+    error: { code: "NOT_FOUND", message: "Brouillon introuvable." },
+  });
 });
 
 async function reviewSubdetailForCandidate(
@@ -381,6 +407,7 @@ describe("GeneratedOuvrageDialog", () => {
     const insertResult: InsertGeneratedOuvragesResult = {
       ok: true,
       insertedCount: 1,
+      replayed: false,
       draftStatus: "partially_applied",
       projectId: "p1",
       versionId: "v1",
@@ -487,6 +514,7 @@ describe("GeneratedOuvrageDialog", () => {
       insertDeferred.resolve({
         ok: true,
         insertedCount: 1,
+        replayed: false,
         draftStatus: "partially_applied",
         projectId: "p1",
         versionId: "v1",

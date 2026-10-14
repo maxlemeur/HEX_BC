@@ -56,3 +56,30 @@ export async function getAccessiblePurchaseOrderOrNull<
 
   return data as unknown as T;
 }
+
+/**
+ * Embedded PostgREST rows can be capped even when the header is complete.
+ * Count after the snapshot, then check its monotone revision. These reads must
+ * stay sequential: reading the revision before the count would allow a delete
+ * between them to disguise a previously truncated snapshot.
+ */
+export async function assertCompletePurchaseOrderSnapshot(
+  supabase: Supabase,
+  orderId: string,
+  editRevision: number,
+  itemCount: number,
+): Promise<void> {
+  const changedMessage = "Lecture modifiée. Rechargez la commande.";
+  if (!Number.isSafeInteger(editRevision) || editRevision < 0) throw new Error(changedMessage);
+  const countResult = await supabase.from("purchase_order_items")
+    .select("id", { count: "exact", head: true }).eq("purchase_order_id", orderId);
+  if (countResult.error || countResult.count === null) throw new Error(changedMessage);
+  const revisionResult = await supabase.from("purchase_orders")
+    .select("edit_revision").eq("id", orderId).single();
+  if (revisionResult.error || revisionResult.data?.edit_revision !== editRevision) {
+    throw new Error(changedMessage);
+  }
+  if (countResult.count !== itemCount) {
+    throw new Error("Lecture incomplète. Consultez l’export complet depuis la liste des commandes.");
+  }
+}

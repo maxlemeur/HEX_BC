@@ -28,6 +28,9 @@ function renderModal(props: Partial<Parameters<typeof SendEstimateModal>[0]> = {
     open: true,
     onClose: vi.fn(),
     versionId: "version-123",
+    // These retained tests cover the form and request replay for an already sent
+    // offer. Draft lease ownership is asserted through real HTTP by OF00/OF0L.
+    versionStatus: "sent" as const,
     defaultSubject: "Devis - Mon Projet",
     defaultRecipient: "",
     onSent: vi.fn(),

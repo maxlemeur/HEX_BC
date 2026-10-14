@@ -2,8 +2,11 @@ import type { SupplierOfferConditions } from "@/lib/estimates/supplier-offer-con
 import { isSupplierAlternativeCurrencyCompatible } from "@/lib/estimates/supplier-preselection";
 
 function normalizedUnit(value: string) {
-  const unit = value.trim().toLowerCase();
-  return unit === "ml" ? "m" : unit;
+  const unit = value.trim();
+  // The catalogue's lower-case "ml" denotes metres lineaires. "mL" must
+  // retain its volume meaning; case-folding first would buy metres as volume.
+  if (unit === "ml") return "m";
+  return unit.toLowerCase() === "ml" ? "millilitre" : unit.toLowerCase();
 }
 
 export function supplierOfferIneligibility(

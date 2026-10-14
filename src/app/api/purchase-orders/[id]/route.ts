@@ -1,14 +1,16 @@
 import { NextResponse } from "next/server";
 
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { isValidDateOnly } from "@/lib/date-only";
 import { ApiError } from "@/lib/estimates/errors";
 import { drainProcurementStorageCleanupOutbox } from "@/lib/procurement/storage-cleanup-outbox";
 import {
   canWritePurchaseOrders,
   getAccessiblePurchaseOrderOrNull,
 } from "@/lib/purchase-orders";
-import type { Database } from "@/types/database";
+import { computeTotalsFromInputs } from "@/lib/order-calculations";
+import { updatePurchaseOrderSchema, purchaseOrderWriteReceiptSchema } from "@/lib/purchase-orders/schemas";
+import { purchaseOrderInputError, purchaseOrderWriteError, toPurchaseOrderLinePayload } from "@/lib/purchase-orders/write";
+import type { Database, Json } from "@/types/database";
 
 function jsonApiError(error: unknown) {
   if (error instanceof ApiError) {
@@ -18,55 +20,6 @@ function jsonApiError(error: unknown) {
 }
 
 type PurchaseOrderStatus = Database["public"]["Tables"]["purchase_orders"]["Row"]["status"];
-
-type LinePayload = {
-  productId: string | null;
-  reference?: string | null;
-  designation: string;
-  quantity: number;
-  unitPriceCents: number;
-  taxRateBp: number;
-};
-
-type UpdatePurchaseOrderPayload = {
-  supplierId?: string;
-  deliverySiteId?: string;
-  expectedDeliveryDate?: string | null;
-  notes?: string | null;
-  items?: LinePayload[];
-};
-
-type CleanedLineItem = {
-  productId: string | null;
-  reference: string | null;
-  designation: string;
-  quantity: number;
-  unitPriceCents: number;
-  taxRateBp: number;
-};
-
-function toNullableString(value: unknown) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function parseExpectedDeliveryDate(value: unknown) {
-  if (value === null || value === undefined) return null;
-  if (typeof value !== "string") {
-    throw new Error("Date de livraison invalide.");
-  }
-
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  if (trimmed.toUpperCase() === "TBD") return "TBD";
-
-  if (!isValidDateOnly(trimmed)) {
-    throw new Error("Date de livraison invalide (YYYY-MM-DD attendu).");
-  }
-
-  return trimmed;
-}
 
 export async function PUT(
   request: Request,
@@ -122,116 +75,41 @@ export async function PUT(
     );
   }
 
-  if (!payload) {
-    return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 });
+  const parsed = updatePurchaseOrderSchema.safeParse(payload);
+  if (!parsed.success) {
+    return NextResponse.json({ error: purchaseOrderInputError(parsed.error.issues) }, { status: 400 });
   }
-  const parsedPayload = payload as UpdatePurchaseOrderPayload;
-
-  // Build update object for header fields
-  const headerUpdate: Database["public"]["Tables"]["purchase_orders"]["Update"] = {};
-
-  if (parsedPayload.supplierId !== undefined) {
-    headerUpdate.supplier_id = parsedPayload.supplierId;
+  const input = parsed.data;
+  const header: Record<string, Json> = {};
+  if (input.supplierId !== undefined) header.supplier_id = input.supplierId;
+  if (input.deliverySiteId !== undefined) header.delivery_site_id = input.deliverySiteId;
+  if (input.expectedDeliveryDate !== undefined) header.expected_delivery_date = input.expectedDeliveryDate;
+  if (input.notes !== undefined) header.notes = input.notes || null;
+  try {
+    if (input.items) computeTotalsFromInputs(input.items.map((item) => ({
+      quantity: item.quantity, unitPriceHtCents: item.unitPriceCents, taxRateBp: item.taxRateBp,
+    })));
+  } catch {
+    return NextResponse.json({ error: "Le montant dépasse la capacité d'une commande." }, { status: 400 });
   }
-  if (parsedPayload.deliverySiteId !== undefined) {
-    headerUpdate.delivery_site_id = parsedPayload.deliverySiteId;
+  const { data, error } = await supabase.rpc("replace_purchase_order_draft", {
+    p_order_id: id,
+    p_header_patch: header,
+    p_items: input.items?.map(toPurchaseOrderLinePayload) ?? null,
+    p_expected_revision: input.expectedRevision,
+  });
+  if (error) {
+    const failure = purchaseOrderWriteError(error);
+    return NextResponse.json(
+      { error: failure.message, ...(failure.code === "PURCHASE_ORDER_DRAFT_NOT_EDITABLE" ? {} : { code: failure.code }) },
+      { status: failure.status }
+    );
   }
-  if (parsedPayload.expectedDeliveryDate !== undefined) {
-    try {
-      headerUpdate.expected_delivery_date = parseExpectedDeliveryDate(
-        parsedPayload.expectedDeliveryDate
-      );
-    } catch (error) {
-      return NextResponse.json(
-        { error: error instanceof Error ? error.message : "Date de livraison invalide." },
-        { status: 400 }
-      );
-    }
+  const receipt = purchaseOrderWriteReceiptSchema.safeParse(data);
+  if (!receipt.success || receipt.data.id !== id.toLowerCase()) {
+    return NextResponse.json({ error: "Réponse de sauvegarde invalide. Rechargez la commande avant de réessayer." }, { status: 500 });
   }
-  if (parsedPayload.notes !== undefined) {
-    headerUpdate.notes = toNullableString(parsedPayload.notes);
-  }
-
-  let itemsToReplace: Array<{
-    product_id: string | null;
-    reference: string | null;
-    designation: string;
-    quantity: number;
-    unit_price_ht_cents: number;
-    tax_rate_bp: number;
-  }> | null = null;
-
-  if (parsedPayload.items !== undefined) {
-    const items = Array.isArray(parsedPayload.items) ? parsedPayload.items : [];
-    const cleanedItems: CleanedLineItem[] = items
-      .map((item) => ({
-        productId: item.productId ?? null,
-        reference: toNullableString(item.reference ?? null),
-        designation: typeof item.designation === "string" ? item.designation.trim() : "",
-        quantity: Number(item.quantity),
-        unitPriceCents: Number(item.unitPriceCents),
-        taxRateBp: Number(item.taxRateBp),
-      }))
-      .filter(
-        (item) =>
-          item.designation.length > 0 &&
-          Number.isFinite(item.quantity) &&
-          Number.isFinite(item.unitPriceCents) &&
-          Number.isFinite(item.taxRateBp) &&
-          item.quantity > 0 &&
-          item.unitPriceCents >= 0 &&
-          item.taxRateBp >= 0 &&
-          item.taxRateBp <= 10000
-      );
-
-    if (cleanedItems.length === 0) {
-      return NextResponse.json(
-        { error: "Au moins une ligne valide est requise." },
-        { status: 400 }
-      );
-    }
-
-    if (cleanedItems.some((item) => !Number.isInteger(item.quantity))) {
-      return NextResponse.json(
-        {
-          error:
-            "Les quantités doivent être des nombres entiers. Ajustez la quantité ou l'unité de commande.",
-        },
-        { status: 400 }
-      );
-    }
-
-    itemsToReplace = cleanedItems.map((item) => ({
-        product_id: item.productId,
-        reference: item.reference,
-        designation: item.designation,
-        unit_price_ht_cents: Math.round(item.unitPriceCents),
-        tax_rate_bp: Math.round(item.taxRateBp),
-        quantity: item.quantity,
-    }));
-  }
-
-  const { error: replaceError } = await supabase.rpc(
-    "replace_purchase_order_draft",
-    {
-      p_order_id: id,
-      p_header_patch: headerUpdate,
-      p_items: itemsToReplace,
-    }
-  );
-
-  if (replaceError) {
-    if (replaceError.message.includes("PURCHASE_ORDER_DRAFT_NOT_EDITABLE")) {
-      return NextResponse.json(
-        { error: "Seuls les bons de commande en brouillon peuvent être modifiés." },
-        { status: 403 }
-      );
-    }
-
-    return NextResponse.json({ error: replaceError.message }, { status: 400 });
-  }
-
-  return NextResponse.json({ success: true, id });
+  return NextResponse.json({ success: true, id: receipt.data.id, editRevision: receipt.data.edit_revision });
 }
 
 export async function DELETE(

@@ -223,6 +223,7 @@ function createListBuilder<T>(dataOrFactory: T[] | (() => T[])) {
     gte: vi.fn(),
     lte: vi.fn(),
     order: vi.fn(),
+    range: vi.fn(),
     limit: vi.fn(),
     then: vi.fn(),
   };
@@ -233,6 +234,10 @@ function createListBuilder<T>(dataOrFactory: T[] | (() => T[])) {
   builder.gte.mockReturnValue(builder);
   builder.lte.mockReturnValue(builder);
   builder.order.mockReturnValue(builder);
+  builder.range.mockImplementation((from: number, to: number) => {
+    const rows = typeof dataOrFactory === "function" ? dataOrFactory() : dataOrFactory;
+    return Promise.resolve({ data: rows.slice(from, to + 1), error: null, count: rows.length });
+  });
   builder.limit.mockReturnValue(builder);
   builder.then.mockImplementation((onFulfilled) =>
     Promise.resolve({

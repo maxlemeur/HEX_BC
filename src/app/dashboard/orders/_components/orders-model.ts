@@ -25,8 +25,12 @@ export type OrderItemRow = {
   designation: string;
   reference: string | null;
   quantity: number;
+  unit: string | null;
+  price_unit: string | null;
   unit_price_ht_cents: number;
   line_total_ht_cents: number;
+  line_tax_cents: number;
+  line_total_ttc_cents: number;
 };
 
 export type DevisItemRow = {

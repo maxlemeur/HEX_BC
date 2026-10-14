@@ -1,10 +1,15 @@
 import {
   buildStoredEstimateBreakdown,
   computeEstimateBreakdown,
+  computeReadOnlyTotals,
+  computeStoredDiscountCents,
   type EstimateBreakdown,
+  type EstimateLineBreakdown,
   type EstimateItemRecord,
+  type EstimateVersionForCalc,
   type SectionTotals,
 } from "@/lib/estimate-calculations";
+import { aggregateEstimateV2Sections } from "@/lib/estimate-v2-snapshot";
 import type { CalcEngineVersion } from "@/lib/estimates/calc-engine-version";
 import { COMPANY_INFO } from "@/lib/company-info";
 import { computeEstimateItemNumbering } from "@/lib/estimates/numbering";
@@ -22,6 +27,19 @@ import {
 import type { Database } from "@/types/database";
 
 export type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
+/** Actual stored capture metadata; callers never synthesize a fresh revision. */
+export type EstimateDocumentCalculationVersion = Partial<Pick<
+  EstimateVersionForCalc,
+  | "discount_amount_cents"
+  | "calc_engine_version"
+  | "content_revision"
+  | "calc_snapshot_content_revision"
+  | "calc_snapshot_context"
+  | "status"
+  | "discount_bp"
+  | "discount_mode"
+  | "discount_steps"
+>>;
 export type EstimateDocumentRow = { item: EstimateItem; depth: number };
 export type EstimateDocumentLineSplit = {
   foTotalCents: number;
@@ -47,6 +65,7 @@ type PrepareEstimateDocumentDataInput = {
   portalUrl?: string | null;
   maxVisibleSectionLevel?: number | null;
   layout?: EstimatePdfLayoutOptions;
+  preserveStoredSnapshot?: boolean;
 };
 
 export type EstimateDocumentPreparedData = {
@@ -124,12 +143,77 @@ export function buildLegacyDocumentBreakdown({
     total_tax_cents: number | null;
     total_ttc_cents: number | null;
     rounding_adjustment_cents?: number | null;
-  };
+  } & EstimateDocumentCalculationVersion;
 }): EstimateBreakdown {
+  if (calcEngineVersion === 1 && preserveStoredSnapshot) {
+    const version: EstimateVersionForCalc = {
+      ...versionTotals,
+      margin_multiplier: marginMultiplier,
+      tax_rate_bp: taxRateBp,
+      discount_bp: versionTotals?.discount_bp ?? 0,
+      global_coefficient: globalCoefficient,
+    };
+    const totals = computeReadOnlyTotals({
+      items,
+      version,
+      discountCents: computeStoredDiscountCents(version, items),
+      laborRateById: new Map(),
+      isLaborSplitEnabled: false,
+      marginTiers: [],
+      roundingMode: "none",
+      roundingStepCents: 0,
+      calcEngineVersion,
+    });
+    // V1 stores gross lines and a net footer. Preserve both; no allocation or
+    // present-day labor rate may change its historical document amounts.
+    const lineById = new Map<string, EstimateLineBreakdown>();
+    let sumGrossCents = 0;
+    for (const item of items) {
+      if (item.item_type !== "line") continue;
+      const grossCents = item.line_total_ht_cents ?? 0;
+      const hasStoredSplit = hasCoherentStoredV1Split(item);
+      const moCents = hasStoredSplit ? item.snapshot_mo_ht_cents! : 0;
+      const atelierCents = Number.isInteger(item.snapshot_mo_atelier_ht_cents)
+        && (item.snapshot_mo_atelier_ht_cents ?? -1) >= 0
+        && (item.snapshot_mo_atelier_ht_cents ?? 0) <= moCents
+        ? item.snapshot_mo_atelier_ht_cents! : 0;
+      sumGrossCents += grossCents;
+      lineById.set(item.id, {
+        costLineCents: 0,
+        saleGrossCents: grossCents,
+        coefficientShareCents: grossCents,
+        discountShareCents: 0,
+        saleNetHtCents: grossCents,
+        foNetCents: hasStoredSplit ? item.snapshot_fo_ht_cents! : 0,
+        moNetCents: moCents,
+        moAtelierNetCents: atelierCents,
+        moChantierNetCents: moCents - atelierCents,
+        puNetHtCents: item.pu_ht_cents ?? 0,
+        taxCents: item.line_tax_cents ?? 0,
+      });
+    }
+    // This is only tree aggregation; V2's net-line/footer invariant does not
+    // apply to the historical V1 gross-line document.
+    const sections = aggregateEstimateV2Sections(items, lineById);
+    return {
+      totals,
+      lineById,
+      ...sections,
+      invariants: {
+        sumAllocatedHtCents: sumGrossCents,
+        matchesFooter: sumGrossCents === totals.saleTotalCents,
+      },
+    };
+  }
   if (calcEngineVersion === 2 && preserveStoredSnapshot) {
     return buildStoredEstimateBreakdown({
       items: items as EstimateItemRecord[],
       version: {
+        discount_amount_cents: versionTotals?.discount_amount_cents,
+        calc_engine_version: versionTotals?.calc_engine_version,
+        content_revision: versionTotals?.content_revision,
+        calc_snapshot_content_revision: versionTotals?.calc_snapshot_content_revision,
+        calc_snapshot_context: versionTotals?.calc_snapshot_context,
         margin_multiplier: marginMultiplier,
         discount_mode: "simple",
         global_coefficient: globalCoefficient,
@@ -174,6 +258,15 @@ export const EMPTY_SECTION_TOTALS: SectionTotals = {
   totalTtcCents: 0,
   supplyTypeFoTotalsCents: {},
 };
+
+function hasCoherentStoredV1Split(item: EstimateItem): boolean {
+  return Number.isInteger(item.snapshot_fo_ht_cents)
+    && Number.isInteger(item.snapshot_mo_ht_cents)
+    && (item.snapshot_fo_ht_cents ?? -1) >= 0
+    && (item.snapshot_mo_ht_cents ?? -1) >= 0
+    && item.snapshot_fo_ht_cents! + item.snapshot_mo_ht_cents!
+      === item.line_total_ht_cents;
+}
 
 function getParentKey(value: string | null) {
   return value ?? ROOT_KEY;
@@ -346,6 +439,7 @@ export function prepareEstimateDocumentData({
   portalUrl,
   maxVisibleSectionLevel = null,
   layout,
+  preserveStoredSnapshot = false,
 }: PrepareEstimateDocumentDataInput): EstimateDocumentPreparedData {
   const resolvedCurrency: SupportedEstimateCurrency =
     normalizeEstimateCurrency(currency) ?? "EUR";
@@ -355,6 +449,12 @@ export function prepareEstimateDocumentData({
       detailLevel: maxVisibleSectionLevel ?? "lines",
     }
   );
+  if (calcEngineVersion === 1 && preserveStoredSnapshot
+    && resolvedLayout.priceMode === "fo_mo_and_total"
+    && !items.filter((item) => item.item_type === "line")
+      .every(hasCoherentStoredV1Split)) {
+    resolvedLayout.priceMode = "unit_and_total";
+  }
   const rows = buildRows(items, resolvedLayout.detailLevel);
   const numberingById = computeEstimateItemNumbering(items);
   const discountCents = breakdown.totals.discountCents;

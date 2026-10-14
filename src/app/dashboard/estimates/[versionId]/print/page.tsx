@@ -12,6 +12,8 @@ import { getUserContext } from "@/lib/auth/server";
 import {
   buildStoredEstimateBreakdown,
   computeEstimateTotals,
+  computeReadOnlyTotals,
+  computeStoredDiscountCents,
 } from "@/lib/estimate-calculations";
 import {
   resolveCalcEngineVersion,
@@ -22,6 +24,7 @@ import {
   resolveRenderMarginMode,
 } from "@/lib/estimates/margin-tiers-loader";
 import { toSafeEstimateErrorLogDetails } from "@/lib/estimates/logging";
+import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
 import {
   isMissingEstimateRoundingAdjustmentSchema,
   resolveEstimatePdfPreviewLayout,
@@ -46,8 +49,6 @@ type EstimateVersion =
       | Pick<EstimateProject, "name" | "reference" | "estimate_reference" | "site_address" | "client_name">[]
       | null;
   };
-type EstimateItem =
-  Database["public"]["Tables"]["estimate_items"]["Row"];
 type LaborRoleRate = Pick<
   Database["public"]["Tables"]["labor_roles"]["Row"],
   "id" | "hourly_rate_cents"
@@ -58,9 +59,9 @@ type PrintPageProps = {
 };
 
 const PRINT_VERSION_SELECT =
-  "project_id, tenant_id, version_number, status, seal_hash, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, content_revision, calc_snapshot_content_revision, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, currency, estimate_projects ( name, reference, estimate_reference, site_address, client_name )";
+  "id, updated_at, project_id, tenant_id, version_number, status, seal_hash, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, content_revision, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, currency, estimate_projects ( name, reference, estimate_reference, site_address, client_name )";
 const LEGACY_PRINT_VERSION_SELECT =
-  "project_id, tenant_id, version_number, status, seal_hash, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, content_revision, calc_snapshot_content_revision, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects ( name, reference, estimate_reference, site_address, client_name )";
+  "id, updated_at, project_id, tenant_id, version_number, status, seal_hash, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, content_revision, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects ( name, reference, estimate_reference, site_address, client_name )";
 
 function formatPrintDate(dateStr: string): string {
   const date = new Date(dateStr);
@@ -148,33 +149,33 @@ export default async function PrintEstimatePage({
     };
   })();
 
-  const itemsPromise = supabase
-    .from("estimate_items")
-    .select("*")
-    .eq("version_id", versionId)
-    .order("position", { ascending: true });
-
-  const [versionResult, itemsResult, userContext, previewLayout] = await Promise.all([
+  const [versionResult, userContext, previewLayout] = await Promise.all([
     versionPromise,
-    itemsPromise,
     userContextPromise,
     previewLayoutPromise,
   ]);
 
   if (
     versionResult.error ||
-    !versionResult.data ||
-    itemsResult.error ||
-    !itemsResult.data
+    !versionResult.data
   ) {
     notFound();
   }
 
   const version = versionResult.data as EstimateVersion;
-  const items = itemsResult.data as EstimateItem[];
+  if (!userContext.tenantId || userContext.tenantId !== version.tenant_id) {
+    notFound();
+  }
+  const items = await readAllEstimateItems({
+    supabase,
+    tenantId: version.tenant_id,
+    versionId,
+  });
   const calcEngineVersion = resolveCalcEngineVersion(version);
   const preserveStoredSnapshot =
-    shouldPreserveStoredEstimateV2Snapshot(version);
+    calcEngineVersion === 1
+      ? version.status !== "draft"
+      : shouldPreserveStoredEstimateV2Snapshot(version);
   const selectedCurrency = normalizeEstimateCurrency(version.currency) ?? "EUR";
   const layoutDescription = describeEstimatePdfLayout(previewLayout.layout);
   const project = resolveProject(version.estimate_projects);
@@ -237,7 +238,19 @@ export default async function PrintEstimatePage({
       ? await loadMarginTiersForTotals({ supabase, tenantId: version.tenant_id })
       : [];
   const computedTotals = preserveStoredSnapshot
-    ? buildStoredEstimateBreakdown({ items, version }).totals
+    ? calcEngineVersion === 1
+      ? computeReadOnlyTotals({
+          items,
+          version,
+          discountCents: computeStoredDiscountCents(version, items),
+          laborRateById: new Map(),
+          isLaborSplitEnabled: false,
+          marginTiers: [],
+          roundingMode: version.rounding_mode,
+          roundingStepCents: version.rounding_step_cents,
+          calcEngineVersion,
+        })
+      : buildStoredEstimateBreakdown({ items, version }).totals
     : (() => {
         const baseTotals = computeEstimateTotals({
           lineItems: lineItemsForTotals,
@@ -254,11 +267,12 @@ export default async function PrintEstimatePage({
           roundingStepCents: version.rounding_step_cents,
         });
         const fallbackDiscountCents =
-          baseTotals.saleSubtotalCents > 0
+          version.discount_amount_cents ??
+          (baseTotals.saleSubtotalCents > 0
             ? Math.round(
                 (baseTotals.saleSubtotalCents * version.discount_bp) / 10000
               )
-            : 0;
+            : 0);
         return computeEstimateTotals({
           lineItems: lineItemsForTotals,
           marginMultiplier: version.margin_multiplier,
@@ -299,6 +313,8 @@ export default async function PrintEstimatePage({
       sealState = "error";
     }
   }
+
+  await assertEstimateVersionUnchanged({ supabase, version });
 
   const officialReference = formatEstimateReference(
     project?.estimate_reference,
@@ -354,6 +370,7 @@ export default async function PrintEstimatePage({
 
       <div className="py-8 print:py-0">
         <EstimateDocument
+          calculationVersion={version}
           calcEngineVersion={calcEngineVersion}
           preserveStoredSnapshot={preserveStoredSnapshot}
           vatReverseCharge={version.contractor_role === "subcontractor"}

@@ -42,7 +42,7 @@ export type EstimateSealVersionFields = Pick<
   | "calc_snapshot_context"
   | "contractor_role"
   | "seal_hash"
->;
+> & { discount_amount_cents?: EstimateVersionRow["discount_amount_cents"] };
 
 type EstimateSealCanonicalItem = Pick<
   EstimateItemRow,
@@ -102,6 +102,7 @@ export type EstimateSealPayload = {
     margin_multiplier: number;
     margin_mode?: EstimateVersionRow["margin_mode"];
     discount_bp: number;
+    discount_amount_cents?: number;
     discount_mode?: EstimateVersionRow["discount_mode"];
     discount_steps?: number[];
     global_coefficient?: number;
@@ -264,6 +265,9 @@ export function buildCanonicalEstimateSealPayload(
               input.version.calc_snapshot_content_revision,
             calc_snapshot_context: input.version.calc_snapshot_context,
           }
+        : {}),
+      ...(includeExplicitRoundingContract && input.version.discount_amount_cents != null
+        ? { discount_amount_cents: input.version.discount_amount_cents }
         : {}),
       discount_bp: input.version.discount_bp,
       tax_rate_bp: input.version.tax_rate_bp,

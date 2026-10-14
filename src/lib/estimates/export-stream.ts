@@ -5,6 +5,8 @@ import {
   allocateProRata,
   buildStoredEstimateBreakdown,
   computeEstimateBreakdown,
+  computeInitialDiscountCents,
+  computeReadOnlyTotals,
   computeStoredDiscountCents,
   type EstimateBreakdown,
   type EstimateItemRecord,
@@ -151,29 +153,36 @@ function toEuroAmount(valueCents: number | null | undefined): number | null {
 
 function buildLineRows(input: {
   items: EstimateItemRecord[];
-  breakdown: EstimateBreakdown;
+  totals: EstimateBreakdown["totals"];
+  lineById?: EstimateBreakdown["lineById"];
   preserveStoredSnapshot?: boolean;
 }) {
   const lines = input.items.filter((item) => item.item_type === "line");
-  const lineValues = lines.map((item) => input.breakdown.lineById.get(item.id));
+  const lineValues = lines.map((item) => input.lineById?.get(item.id));
+  const htWeights = lines.map((item, index) => input.lineById
+    ? lineValues[index]?.saleNetHtCents ?? 0
+    : item.line_total_ht_cents ?? 0);
+  const taxWeights = lines.map((item, index) => input.lineById
+    ? lineValues[index]?.taxCents ?? 0
+    : item.line_tax_cents ?? 0);
   // Un export est un document comptable lisible : même avec un devis historique
   // épinglé au moteur v1, ses lignes doivent se sommer au pied qui applique
   // coefficient, remise et arrondi global. Cette allocation de présentation ne
   // bascule pas le moteur du devis ; elle répartit seulement ses totaux établis.
   const htShares = input.preserveStoredSnapshot
-    ? lineValues.map((line) => line?.saleNetHtCents ?? 0)
+    ? htWeights
     : allocateProRata(
-        input.breakdown.totals.saleTotalCents,
-        lineValues.map((line) => line?.saleNetHtCents ?? 0)
+        input.totals.saleTotalCents,
+        htWeights
       );
   // La TVA reste la taxe comptable réelle. L'arrondi commercial est présenté
   // séparément dans le pied et ne doit jamais être ventilé comme de la taxe.
-  const actualTaxTotalCents = Math.max(input.breakdown.totals.taxCents, 0);
+  const actualTaxTotalCents = Math.max(input.totals.taxCents, 0);
   const taxShares = input.preserveStoredSnapshot
-    ? lineValues.map((line) => line?.taxCents ?? 0)
+    ? taxWeights
     : allocateProRata(
         actualTaxTotalCents,
-        lineValues.map((line) => line?.taxCents ?? 0)
+        taxWeights
       );
   const lineIndexById = new Map(
     lines.map((line, index) => [line.id, index])
@@ -407,7 +416,6 @@ async function buildEstimateExportPayload(
     listEstimateItems(versionId),
   ]);
 
-  const items = listItemsResult.items as EstimateItemRecord[];
   const version = versionDetails.version as unknown as EstimateVersionForCalc;
   const calcEngineVersion = resolveCalcEngineVersion(
     versionDetails.version as { calc_engine_version?: number | null }
@@ -415,14 +423,68 @@ async function buildEstimateExportPayload(
   const preserveStoredSnapshot = shouldPreserveStoredEstimateV2Snapshot(
     versionDetails.version
   );
+  const liveV2 = calcEngineVersion === 2 && !preserveStoredSnapshot;
+  const items = liveV2
+    ? [...listItemsResult.items].sort((left, right) =>
+        left.position - right.position || left.id.localeCompare(right.id)
+      ) as EstimateItemRecord[]
+    : listItemsResult.items as EstimateItemRecord[];
+  const exportContext = {
+    versionId: versionDetails.version.id,
+    projectName: versionDetails.version.estimate_projects.name,
+    projectReference: versionDetails.version.estimate_projects.reference,
+    versionNumber: versionDetails.version.version_number,
+    versionTitle: versionDetails.version.title,
+    versionStatus: versionDetails.version.status,
+    vatReverseCharge:
+      (versionDetails.version as { contractor_role?: string | null })
+        .contractor_role === "subcontractor",
+  };
+  if (calcEngineVersion === 1 && versionDetails.version.status !== "draft") {
+    // V1 issued lines hold gross amounts. Preserve the contractual footer and
+    // allocate it using those persisted weights, without today's MO or tiers.
+    const totals = computeReadOnlyTotals({
+      items,
+      version,
+      discountCents: computeStoredDiscountCents(version, items),
+      laborRateById: new Map<string, number>(),
+      isLaborSplitEnabled: false,
+      marginTiers: [],
+      roundingMode: versionDetails.version.rounding_mode ?? "none",
+      roundingStepCents: versionDetails.version.rounding_step_cents ?? 0,
+      calcEngineVersion: 1,
+    });
+    return {
+      ...exportContext,
+      totals,
+      rows: buildLineRows({ items, totals }),
+    };
+  }
   const laborRateById = new Map(
     versionDetails.labor_roles.map((role) => [role.id, role.hourly_rate_cents ?? 0])
   );
-  // EST-E26 (T6, étape 10) : plus de fork ; on utilise le calcul canonique
-  // (applique global_coefficient et le repli discount_bp, cf. golden Surface-5).
+  const marginTiers = (versionDetails.margin_tiers ?? []).map((tier) => ({
+    threshold_cents: tier.threshold_cents,
+    multiplier: tier.multiplier,
+    position: tier.position,
+  }));
+  const effectiveLaborSplitEnabled =
+    versionDetails.is_labor_split_enabled ?? isLaborSplitEnabled;
+  // Saved v2 draft lines already contain net amounts. Their difference from
+  // the version's net total cannot reconstruct its original discount.
   const discountCents = preserveStoredSnapshot
     ? 0
-    : computeStoredDiscountCents(version, items);
+    : liveV2
+      ? computeInitialDiscountCents(
+          version,
+          items,
+          laborRateById,
+          effectiveLaborSplitEnabled,
+          laborRateById,
+          laborRateById,
+          { calcEngineVersion, marginTiers }
+        )
+      : computeStoredDiscountCents(version, items);
 
   const breakdown = preserveStoredSnapshot
     ? buildStoredEstimateBreakdown({ items, version })
@@ -430,11 +492,7 @@ async function buildEstimateExportPayload(
     items,
     marginMultiplier: version.margin_multiplier,
     marginMode: version.margin_mode === "tiered" ? "tiered" : "fixed",
-    marginTiers: (versionDetails.margin_tiers ?? []).map((tier) => ({
-      threshold_cents: tier.threshold_cents,
-      multiplier: tier.multiplier,
-      position: tier.position,
-    })),
+    marginTiers,
     globalCoefficient: version.global_coefficient ?? 1,
     discountMode: version.discount_mode === "cascade" ? "cascade" : "simple",
     discountCents,
@@ -446,27 +504,19 @@ async function buildEstimateExportPayload(
     roundingMode: versionDetails.version.rounding_mode ?? "none",
     roundingStepCents: versionDetails.version.rounding_step_cents ?? 0,
     laborRateById,
-    isLaborSplitEnabled:
-      versionDetails.is_labor_split_enabled ?? isLaborSplitEnabled,
+    isLaborSplitEnabled: effectiveLaborSplitEnabled,
     laborRateAtelierById: laborRateById,
     laborRateChantierById: laborRateById,
     calcEngineVersion,
       });
 
   return {
-    versionId: versionDetails.version.id,
-    projectName: versionDetails.version.estimate_projects.name,
-    projectReference: versionDetails.version.estimate_projects.reference,
-    versionNumber: versionDetails.version.version_number,
-    versionTitle: versionDetails.version.title,
-    versionStatus: versionDetails.version.status,
-    vatReverseCharge:
-      (versionDetails.version as { contractor_role?: string | null })
-        .contractor_role === "subcontractor",
+    ...exportContext,
     totals: breakdown.totals,
     rows: buildLineRows({
       items,
-      breakdown,
+      totals: breakdown.totals,
+      lineById: breakdown.lineById,
       preserveStoredSnapshot,
     }),
   };

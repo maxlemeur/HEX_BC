@@ -308,7 +308,7 @@ const BRIEF_SOURCE_SELECT = [
 const AFFAIRE_INTAKE_CLASSIFICATION_PROMPT_VERSION = "est371_affaire_intake_v1";
 const AFFAIRE_INTAKE_CLASSIFICATION_MODEL = "gemini-3-flash-preview";
 const AFFAIRE_INTAKE_CLASSIFICATION_THINKING_LEVEL = "low" as const;
-const AFFAIRE_BRIEF_PROMPT_VERSION = "est372_affaire_brief_v1";
+const AFFAIRE_BRIEF_PROMPT_VERSION = "dos01_affaire_brief_v2";
 const AFFAIRE_BRIEF_MODEL = "gemini-3-flash-preview";
 const AFFAIRE_BRIEF_THINKING_LEVEL = "low" as const;
 const TEXT_SNIPPET_MAX_LENGTH = 12_000;
@@ -1296,7 +1296,7 @@ function buildFallbackAffaireBrief(input: {
     scopeEntries.push(
       createBriefEntry(
         "Le perimetre détaillé reste à confirmer à partir des pièces reçues.",
-        pickDocumentIdsForBrief(input.documents, () => true)
+        []
       )
     );
   }
@@ -1338,7 +1338,7 @@ function buildFallbackAffaireBrief(input: {
     assumptionEntries.push(
       createBriefEntry(
         "Le client ou maitre d'ouvrage reste a confirmer humainement.",
-        pickDocumentIdsForBrief(input.documents, () => true)
+        []
       )
     );
   }
@@ -1347,7 +1347,7 @@ function buildFallbackAffaireBrief(input: {
     assumptionEntries.push(
       createBriefEntry(
         "Les lots concernes doivent etre verifies avant lancement du chiffrage detaille.",
-        pickDocumentIdsForBrief(input.documents, () => true)
+        []
       )
     );
   }
@@ -1356,7 +1356,7 @@ function buildFallbackAffaireBrief(input: {
     missingEntries.push(
       createBriefEntry(
         piece.label,
-        pickDocumentIdsForBrief(input.documents, () => true)
+        []
       )
     );
   }
@@ -1422,6 +1422,7 @@ function buildBriefGenerationPrompt(input: {
     "CONTRAINTE",
     "Retourne uniquement un JSON strict conforme au schema fourni.",
     "Chaque entrée doit reutiliser uniquement les sourceDocumentIds presents dans l'inventaire.",
+    "Un lien documentaire n'est pas une citation verifiee. N'attribue un document que si ses metadonnees etayent directement l'entree.",
     "N'invente ni document, ni lot, ni client, ni échéance.",
     "Le ton doit être professionnel, concis et exploitable par un chiffreur ou une validatrice.",
     "",
@@ -1463,24 +1464,21 @@ function buildBriefGenerationPrompt(input: {
     "2. receivedPieces doit lister les pièces reçues sans omettre une catégorie importante.",
     "3. assumptions et vigilancePoints doivent mettre en evidence les zones grises, sans dramatiser.",
     "4. missingElements doit reprendre les vrais manques ou doutes encore ouverts.",
-    "5. Quand aucune source documentaire directe n'est disponible pour une entrée, reutilise les pièces les plus proches plutôt que d'inventer.",
+    "5. Quand aucune source documentaire directe n'est disponible pour une entrée, retourne sourceDocumentIds: []. Ne remplace jamais une preuve absente par une piece proche.",
   ].join("\n");
 }
 
 function sanitizeEntrySourceDocumentIds(
   sourceDocumentIds: ReadonlyArray<string>,
-  validDocumentIds: Set<string>,
-  fallbackSourceDocumentIds: string[]
+  validDocumentIds: Set<string>
 ) {
-  const sanitized = normalizeAffaireIntakeTextList(
+  return normalizeAffaireIntakeTextList(
     sourceDocumentIds.map((value) => (validDocumentIds.has(value) ? value : null)),
     {
       maxItems: 6,
       maxLength: 64,
     }
   );
-
-  return sanitized.length > 0 ? sanitized : fallbackSourceDocumentIds.slice(0, 6);
 }
 
 function sanitizeBriefEntry(
@@ -1488,16 +1486,15 @@ function sanitizeBriefEntry(
   fallbackEntry: AffaireBriefEntry,
   validDocumentIds: Set<string>
 ) {
-  if (!entry || typeof entry.text !== "string" || entry.text.trim().length === 0) {
-    return fallbackEntry;
-  }
+  const selectedEntry = entry && typeof entry.text === "string" && entry.text.trim().length > 0
+    ? entry
+    : fallbackEntry;
 
   return createBriefEntry(
-    entry.text,
+    selectedEntry.text,
     sanitizeEntrySourceDocumentIds(
-      entry.sourceDocumentIds,
-      validDocumentIds,
-      fallbackEntry.sourceDocumentIds
+      selectedEntry.sourceDocumentIds,
+      validDocumentIds
     )
   );
 }
@@ -1508,7 +1505,7 @@ function sanitizeBriefEntryArray(
   validDocumentIds: Set<string>
 ) {
   if (!entries || entries.length === 0) {
-    return [...fallbackEntries];
+    return fallbackEntries.map((entry) => sanitizeBriefEntry(entry, entry, validDocumentIds));
   }
 
   return Array.from({
@@ -1553,7 +1550,7 @@ export function mergeGeneratedAffaireBriefWithFallback(input: {
       validDocumentIds
     )
       .slice(0, 20),
-    receivedPieces: input.fallback.receivedPieces,
+    receivedPieces: sanitizeBriefEntryArray(null, input.fallback.receivedPieces, validDocumentIds),
     assumptions: sanitizeBriefEntryArray(
       generated?.assumptions,
       input.fallback.assumptions,

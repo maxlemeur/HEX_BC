@@ -1,8 +1,13 @@
 import { downloadBlob } from "@/lib/browser-download";
+import { MAX_CENTS } from "@/lib/estimate-calculations";
+import { assertNoPendingEstimateBatch, type EstimateBatchAttempt, type EstimateBatchIdentity } from "@/lib/estimates/batch-intentions";
+import type { BatchOperationInput } from "@/lib/estimates/schemas";
 import { normalizeEstimateCurrency } from "@/lib/money";
 import {
+  getEstimateEditorMutationIdentity,
   hasEstimateEditorMutationSession,
   runEstimateEditorMutation,
+  isOlderEstimateVersionToken,
 } from "@/lib/estimates/editor-mutations";
 import {
   ESTIMATE_DRAFT_LOCK_SESSION_HEADER,
@@ -655,7 +660,7 @@ export type CreateEstimatePayload = {
   creationMode?: CreateEstimateCreationMode;
 };
 
-export type EstimateVersionToken = Pick<EstimateVersionRow, "id" | "updated_at">;
+export type EstimateVersionToken = Pick<EstimateVersionRow, "id" | "updated_at"> & { content_revision?: number };
 
 type EstimateMutationVersionTokenOptions = {
   onVersionToken?: (versionToken: EstimateVersionToken) => void;
@@ -664,6 +669,7 @@ type EstimateMutationVersionTokenOptions = {
 export type BulkUpdateEstimateItemsResult = {
   updatedCount: number;
   versionToken: EstimateVersionToken;
+  totals?: BulkUpdateEstimateVersionPatch;
 };
 
 export type BulkUpdateEstimateVersionPatch = Pick<
@@ -713,6 +719,10 @@ export type EstimateBatchResult = {
   committed: boolean;
   results: EstimateBatchOperationResult[];
   versionToken: EstimateVersionToken;
+  totals?: BulkUpdateEstimateVersionPatch;
+  currentVersionToken?: EstimateVersionToken;
+  replayed?: boolean;
+  receipt?: { operationKey: string; actorId: string; versionId: string; expectedUpdatedAt: string; committedAt: string };
 };
 
 export type EstimateExportResult = {
@@ -854,8 +864,10 @@ export type EstimatePurchaseOrderDraftBlockedReason =
   | "ambiguous"
   | "no_price"
   | "missing_quantity"
-  | "non_integer_quantity"
-  | "missing_unit_price";
+  | "invalid_quantity"
+  | "amount_out_of_range"
+  | "missing_unit_price"
+  | "supplier_offer_ineligible";
 
 export type EstimatePurchaseOrderDraftAlternative = {
   supplierPriceId: string;
@@ -871,6 +883,8 @@ export type EstimatePurchaseOrderDraftAlternative = {
 export type EstimatePurchaseOrderDraftLine = {
   itemId: string;
   itemTitle: string;
+  unit: string;
+  reviewFingerprint: string;
   quantity: number;
   unitPriceHtCents: number;
   taxRateBp: number;
@@ -901,6 +915,7 @@ export type EstimatePurchaseOrderDraftBlockedLine = {
   taxRateBp: number | null;
   selectedSupplierPriceId: string | null;
   reason: EstimatePurchaseOrderDraftBlockedReason;
+  reasonDetail?: string | null;
   coverageStatus: string | null;
   riskFlags: string[];
   selectedAlternative: EstimatePurchaseOrderDraftAlternative | null;
@@ -922,31 +937,58 @@ export type EstimatePurchaseOrderDraftPreparation = {
     missingQuantityLines: number;
     nonIntegerQuantityLines: number;
     missingUnitPriceLines: number;
+    transferredLines: number;
   };
   groups: EstimatePurchaseOrderDraftGroup[];
   blockedLines: EstimatePurchaseOrderDraftBlockedLine[];
+  transferredLines: EstimatePurchaseOrderTransferredLine[];
+};
+
+export type EstimatePurchaseOrderStatus =
+  | "draft"
+  | "sent"
+  | "confirmed"
+  | "received"
+  | "canceled"
+  | "deleted";
+
+export type EstimatePurchaseOrderTransferredLine = {
+  itemId: string;
+  itemTitle: string;
+  purchaseOrderId: string;
+  reference: string;
+  status: EstimatePurchaseOrderStatus;
+  quantity: number;
+  canOpen: boolean;
 };
 
 export type CreateEstimatePurchaseOrderDraftGroupInput = {
   supplierId: string;
   deliverySiteId: string;
+  deliverySiteUpdatedAt: string;
   itemIds: string[];
   expectedDeliveryDate?: string | null;
   notes?: string | null;
 };
 
 export type CreateEstimatePurchaseOrderDraftsInput = {
+  idempotencyKey: string;
+  reviewedLines: Array<{ itemId: string; reviewFingerprint: string }>;
   groups: CreateEstimatePurchaseOrderDraftGroupInput[];
 };
 
 export type EstimatePurchaseOrderDraftCreationResult = {
   sourceVersionId: string;
+  idempotencyKey: string;
+  replayed: boolean;
   summary: {
     draftOrdersCreated: number;
     draftLinesCreated: number;
   };
   orders: Array<{
     purchaseOrderId: string;
+    currentStatus: EstimatePurchaseOrderStatus;
+    canOpen: boolean;
     reference: string;
     supplierId: string;
     supplierName: string;
@@ -1660,8 +1702,10 @@ function isEstimatePurchaseOrderDraftBlockedReason(
     value === "ambiguous" ||
     value === "no_price" ||
     value === "missing_quantity" ||
-    value === "non_integer_quantity" ||
-    value === "missing_unit_price"
+    value === "invalid_quantity" ||
+    value === "amount_out_of_range" ||
+    value === "missing_unit_price" ||
+    value === "supplier_offer_ineligible"
   );
 }
 
@@ -1712,6 +1756,9 @@ function parseEstimatePurchaseOrderDraftLine(
 
   const itemId = toStringValue(value.item_id) ?? toStringValue(value.itemId);
   const itemTitle = toStringValue(value.item_title) ?? toStringValue(value.itemTitle);
+  const unit = toStringValue(value.unit);
+  const reviewFingerprint =
+    toStringValue(value.review_fingerprint) ?? toStringValue(value.reviewFingerprint);
   const quantity = toNumber(value.quantity);
   const unitPriceHtCents =
     toNumber(value.unit_price_ht_cents) ?? toNumber(value.unitPriceHtCents);
@@ -1732,6 +1779,9 @@ function parseEstimatePurchaseOrderDraftLine(
   if (
     !itemId ||
     !itemTitle ||
+    !unit ||
+    !reviewFingerprint ||
+    !/^[a-f0-9]{64}$/.test(reviewFingerprint) ||
     quantity === null ||
     unitPriceHtCents === null ||
     taxRateBp === null ||
@@ -1747,6 +1797,8 @@ function parseEstimatePurchaseOrderDraftLine(
   return {
     itemId,
     itemTitle,
+    unit,
+    reviewFingerprint,
     quantity,
     unitPriceHtCents,
     taxRateBp,
@@ -1779,6 +1831,7 @@ function parseEstimatePurchaseOrderDraftGroup(
     toNumber(value.total_tax_cents) ?? toNumber(value.totalTaxCents);
   const totalTtcCents =
     toNumber(value.total_ttc_cents) ?? toNumber(value.totalTtcCents);
+  const lines = pickArray(value, ["lines"]).map(parseEstimatePurchaseOrderDraftLine);
 
   if (
     !groupKey ||
@@ -1787,7 +1840,9 @@ function parseEstimatePurchaseOrderDraftGroup(
     lineCount === null ||
     totalHtCents === null ||
     totalTaxCents === null ||
-    totalTtcCents === null
+    totalTtcCents === null ||
+    lines.length !== lineCount ||
+    lines.some((line) => line === null)
   ) {
     return null;
   }
@@ -1800,9 +1855,7 @@ function parseEstimatePurchaseOrderDraftGroup(
     totalHtCents,
     totalTaxCents,
     totalTtcCents,
-    lines: pickArray(value, ["lines"])
-      .map((entry) => parseEstimatePurchaseOrderDraftLine(entry))
-      .filter((entry): entry is EstimatePurchaseOrderDraftLine => entry !== null),
+    lines: lines as EstimatePurchaseOrderDraftLine[],
   };
 }
 
@@ -1831,6 +1884,7 @@ function parseEstimatePurchaseOrderDraftBlockedLine(
       toStringValue(value.selectedSupplierPriceId) ??
       null,
     reason: reasonRaw,
+    reasonDetail: toStringValue(value.reason_detail) ?? toStringValue(value.reasonDetail),
     coverageStatus:
       toStringValue(value.coverage_status) ??
       toStringValue(value.coverageStatus) ??
@@ -1845,6 +1899,29 @@ function parseEstimatePurchaseOrderDraftBlockedLine(
       .map((entry) => parseEstimatePurchaseOrderDraftAlternative(entry))
       .filter((entry): entry is EstimatePurchaseOrderDraftAlternative => entry !== null),
   };
+}
+
+function parseEstimatePurchaseOrderStatus(value: unknown): EstimatePurchaseOrderStatus | null {
+  return value === "draft" || value === "sent" || value === "confirmed" ||
+    value === "received" || value === "canceled" || value === "deleted" ? value : null;
+}
+
+function parseEstimatePurchaseOrderTransferredLine(
+  value: unknown
+): EstimatePurchaseOrderTransferredLine | null {
+  if (!isRecord(value)) return null;
+  const itemId = toStringValue(value.item_id) ?? toStringValue(value.itemId);
+  const itemTitle = toStringValue(value.item_title) ?? toStringValue(value.itemTitle);
+  const purchaseOrderId = toStringValue(value.purchase_order_id) ?? toStringValue(value.purchaseOrderId);
+  const reference = toStringValue(value.reference);
+  const status = parseEstimatePurchaseOrderStatus(value.status);
+  const quantity = toNumber(value.quantity);
+  const canOpen = toBooleanValue(value.can_open) ?? toBooleanValue(value.canOpen);
+  if (!itemId || !itemTitle || !purchaseOrderId || !reference || !status || quantity === null) {
+    return null;
+  }
+  if (canOpen === null) return null;
+  return { itemId, itemTitle, purchaseOrderId, reference, status, quantity, canOpen };
 }
 
 function parseEstimatePurchaseOrderDraftPreparation(
@@ -1882,11 +1959,16 @@ function parseEstimatePurchaseOrderDraftPreparation(
     toNumber(summary.missing_quantity_lines) ??
     toNumber(summary.missingQuantityLines);
   const nonIntegerQuantityLines =
-    toNumber(summary.non_integer_quantity_lines) ??
+    toNumber(summary.invalid_quantity_lines) ??
     toNumber(summary.nonIntegerQuantityLines);
   const missingUnitPriceLines =
     toNumber(summary.missing_unit_price_lines) ??
     toNumber(summary.missingUnitPriceLines);
+  const transferredLinesCount =
+    toNumber(summary.transferred_lines) ?? toNumber(summary.transferredLines);
+  const groups = pickArray(root, ["groups"]).map(parseEstimatePurchaseOrderDraftGroup);
+  const transferredLines = pickArray(root, ["transferred_lines", "transferredLines"])
+    .map(parseEstimatePurchaseOrderTransferredLine);
 
   if (
     totalSupplierLines === null ||
@@ -1899,7 +1981,10 @@ function parseEstimatePurchaseOrderDraftPreparation(
     noPriceLines === null ||
     missingQuantityLines === null ||
     nonIntegerQuantityLines === null ||
-    missingUnitPriceLines === null
+    missingUnitPriceLines === null ||
+    transferredLinesCount === null ||
+    groups.length !== supplierGroups || groups.some((group) => group === null) ||
+    transferredLines.length !== transferredLinesCount || transferredLines.some((line) => line === null)
   ) {
     return null;
   }
@@ -1919,10 +2004,10 @@ function parseEstimatePurchaseOrderDraftPreparation(
       missingQuantityLines,
       nonIntegerQuantityLines,
       missingUnitPriceLines,
+      transferredLines: transferredLinesCount,
     },
-    groups: pickArray(root, ["groups"])
-      .map((entry) => parseEstimatePurchaseOrderDraftGroup(entry))
-      .filter((entry): entry is EstimatePurchaseOrderDraftGroup => entry !== null),
+    groups: groups as EstimatePurchaseOrderDraftGroup[],
+    transferredLines: transferredLines as EstimatePurchaseOrderTransferredLine[],
     blockedLines: pickArray(root, ["blocked_lines", "blockedLines"])
       .map((entry) => parseEstimatePurchaseOrderDraftBlockedLine(entry))
       .filter((entry): entry is EstimatePurchaseOrderDraftBlockedLine => entry !== null),
@@ -1937,9 +2022,11 @@ function parseEstimatePurchaseOrderDraftCreationResult(
 
   const sourceVersionId =
     toStringValue(root.source_version_id) ?? toStringValue(root.sourceVersionId);
+  const idempotencyKey = toStringValue(root.idempotency_key) ?? toStringValue(root.idempotencyKey);
+  const replayed = toBooleanValue(root.replayed);
   const summary = pickRecord(root, ["summary"]);
 
-  if (!sourceVersionId || !summary) {
+  if (!sourceVersionId || !summary || !idempotencyKey || replayed === null) {
     return null;
   }
 
@@ -1962,6 +2049,8 @@ function parseEstimatePurchaseOrderDraftCreationResult(
         toStringValue(entry.purchase_order_id) ??
         toStringValue(entry.purchaseOrderId);
       const reference = toStringValue(entry.reference);
+      const currentStatus = parseEstimatePurchaseOrderStatus(entry.current_status ?? entry.currentStatus);
+      const canOpen = toBooleanValue(entry.can_open) ?? toBooleanValue(entry.canOpen);
       const supplierId =
         toStringValue(entry.supplier_id) ?? toStringValue(entry.supplierId);
       const supplierName =
@@ -1979,6 +2068,8 @@ function parseEstimatePurchaseOrderDraftCreationResult(
 
       if (
         !purchaseOrderId ||
+        !currentStatus ||
+        canOpen === null ||
         !reference ||
         !supplierId ||
         !supplierName ||
@@ -1993,6 +2084,8 @@ function parseEstimatePurchaseOrderDraftCreationResult(
 
       return {
         purchaseOrderId,
+        currentStatus,
+        canOpen,
         reference,
         supplierId,
         supplierName,
@@ -2008,21 +2101,19 @@ function parseEstimatePurchaseOrderDraftCreationResult(
           .map((itemId) => toStringValue(itemId))
           .filter((itemId): itemId is string => itemId !== null),
       };
-    })
-    .filter(
-      (
-        entry
-      ): entry is EstimatePurchaseOrderDraftCreationResult["orders"][number] =>
-        entry !== null
-    );
+    });
+
+  if (orders.length !== draftOrdersCreated || orders.some((order) => order === null)) return null;
 
   return {
     sourceVersionId,
+    idempotencyKey,
+    replayed,
     summary: {
       draftOrdersCreated,
       draftLinesCreated,
     },
-    orders,
+    orders: orders as EstimatePurchaseOrderDraftCreationResult["orders"],
   };
 }
 
@@ -2061,7 +2152,8 @@ function unwrapSuccessfulEnvelopePayload(
 async function requestJsonUncoordinated<T>(
   path: string,
   init: RequestInit,
-  fallbackMessage: string
+  fallbackMessage: string,
+  strictEnvelope = false
 ): Promise<T> {
   const requestInit = withEstimateDraftLockSessionHeader(path, init);
   const response = await fetch(path, {
@@ -2077,6 +2169,11 @@ async function requestJsonUncoordinated<T>(
       extractErrorDetails(payload),
       extractErrorCode(payload)
     );
+  }
+
+  if (strictEnvelope && (!isRecord(payload) || payload.ok !== true || !hasOwnProperty(payload, "data"))) {
+    throw new EstimateApiError(fallbackMessage, 503, undefined,
+      (init.method ?? "GET") === "GET" ? "ESTIMATE_BATCH_READ_UNAVAILABLE" : "BATCH_OUTCOME_UNKNOWN");
   }
 
   const root = unwrapSuccessfulEnvelopePayload(payload, fallbackMessage);
@@ -2128,7 +2225,9 @@ async function requestJson<T>(
   return runEstimateEditorMutation(
     target.versionId,
     initialHeaders.get("If-Match") ?? undefined,
-    async (token) => {
+    async (token, scope) => {
+      const identity = getEstimateEditorMutationIdentity(target.versionId);
+      if (identity) assertNoPendingEstimateBatch(identity);
       const headers = new Headers(initialHeaders);
       headers.set(ESTIMATE_DRAFT_LOCK_SESSION_HEADER, getEstimateDraftLockSessionId(target.versionId));
       let body = init.body;
@@ -2139,6 +2238,11 @@ async function requestJson<T>(
           if (isRecord(parsed)) {
             if ("updated_at" in parsed) parsed.updated_at = token;
             if ("concurrency_token" in parsed) parsed.concurrency_token = token;
+            if ("expected_content_revision" in parsed && token !== initialHeaders.get("If-Match")) {
+              const revision = scope.getRevision(token);
+              if (revision === undefined) throw new Error("La révision acquittée est manquante. Rechargez le devis avant d'enregistrer.");
+              parsed.expected_content_revision = revision;
+            }
             body = JSON.stringify(parsed);
           }
         }
@@ -2146,13 +2250,49 @@ async function requestJson<T>(
       const value = await requestJsonUncoordinated<T>(path, { ...init, headers, body }, fallbackMessage);
       // Older import/assembly endpoints return items only. Refresh inside the
       // same queue, before an autosave or another action can reuse its token.
-      const version = parseVersionToken(value) ?? parseVersionToken(
-        await requestJsonUncoordinated<unknown>(
+      const acknowledged = parseVersionToken(value);
+      const readVersion = async () => {
+        const read = parseVersionToken(await requestJsonUncoordinated<unknown>(
           `/api/estimates/${target.versionId}`, { method: "GET" },
           "Impossible de récupérer la version après l'action."
-        )
-      );
-      if (!version) throw new Error("Impossible de récupérer le jeton de version.");
+        ));
+        if (!read || read.id !== target.versionId || read.content_revision === undefined) throw new Error("Impossible de récupérer la révision du devis.");
+        return read;
+      };
+      let version = acknowledged;
+      if (!version || version.content_revision === undefined) {
+        try {
+          const read = await readVersion();
+          if (acknowledged && (isOlderEstimateVersionToken(read.updated_at, acknowledged.updated_at) ||
+            isOlderEstimateVersionToken(acknowledged.updated_at, read.updated_at))) throw new Error("Le devis a changé après la sauvegarde acquittée.");
+          version = acknowledged ? { ...acknowledged, content_revision: read.content_revision } : read;
+        } catch {
+          const readRequired = scope.requireRead(async () => ({ version: await readVersion(), structural: false, needsReload: true }),
+            "La sauvegarde a répondu, mais sa révision n'a pas pu être confirmée. Relisez le devis avant de reprendre ; vos saisies sont conservées.");
+          if (!acknowledged) throw readRequired;
+          // The write is acknowledged. Keep its result so callers do not
+          // restore and resend the committed intention while reading is blocked.
+          version = acknowledged;
+        }
+      }
+      if (version.id !== target.versionId) throw new Error("La confirmation appartient à un autre devis.");
+      let totals: BulkUpdateEstimateVersionPatch | undefined;
+      if (/^\/api\/estimates\/assemblies\/[^/]+\/insert(?:\?|$)/.test(path)) {
+        if (version.id !== target.versionId) throw new Error("La confirmation appartient à un autre devis.");
+        const confirmed = isRecord(value) && isRecord(value.totals) ? value.totals : null;
+        const totalHt = confirmed?.total_ht_cents, totalTax = confirmed?.total_tax_cents, totalTtc = confirmed?.total_ttc_cents;
+        if (typeof totalHt !== "number" || !Number.isSafeInteger(totalHt) || totalHt < 0 || totalHt > MAX_CENTS ||
+          typeof totalTax !== "number" || !Number.isSafeInteger(totalTax) || totalTax < 0 || totalTax > MAX_CENTS ||
+          typeof totalTtc !== "number" || !Number.isSafeInteger(totalTtc) || totalTtc < 0 || totalTtc > MAX_CENTS || totalHt + totalTax !== totalTtc) {
+          const insertedItemIds = isRecord(value) && Array.isArray(value.items)
+            ? value.items.filter((item) => isRecord(item) && typeof item.id === "string" && item.version_id === target.versionId)
+              .map((item) => (item as Record<string, unknown>).id) : [];
+          throw new EstimateApiError("L'ouvrage a été inséré, mais la confirmation de ses totaux est invalide. Relisez le devis sans le réinsérer.", 409,
+            { versionId: target.versionId, insertedItemIds, insertionState: "persisted", financialState: "unknown", retryInsertionAllowed: false },
+            "ESTIMATE_ASSEMBLY_INSERT_PERSISTED");
+        }
+        totals = { total_ht_cents: totalHt, total_tax_cents: totalTax, total_ttc_cents: totalTtc };
+      }
       const deletedIds = isRecord(value) && Array.isArray(value.deleted_ids)
         ? value.deleted_ids
         : isRecord(value) && value.committed === true && Array.isArray(value.results)
@@ -2163,6 +2303,7 @@ async function requestJson<T>(
         value,
         version,
         structural: target.structural,
+        totals,
         deletedIds: deletedIds.filter((id): id is string => typeof id === "string"),
       };
     }
@@ -2176,6 +2317,8 @@ export async function runEstimateEditorExternalMutation<T>(
 ): Promise<T> {
   if (!hasEstimateEditorMutationSession(versionId)) return action();
   return runEstimateEditorMutation(versionId, undefined, async () => {
+    const identity = getEstimateEditorMutationIdentity(versionId);
+    if (identity) assertNoPendingEstimateBatch(identity);
     const value = await action();
     const version = parseVersionToken(await requestJsonUncoordinated<unknown>(
       `/api/estimates/${versionId}`, { method: "GET" },
@@ -3375,6 +3518,8 @@ function parseVersionToken(payload: unknown): EstimateVersionToken | null {
   return {
     id,
     updated_at: updatedAt,
+    ...(typeof entity.content_revision === "number" && Number.isSafeInteger(entity.content_revision) && entity.content_revision >= 0
+      ? { content_revision: entity.content_revision } : {}),
   };
 }
 
@@ -4345,8 +4490,9 @@ export async function toggleEstimateOutlierDismissedFlag(
 export async function saveEstimateVersion(
   versionId: string,
   updates: Database["public"]["Tables"]["estimate_versions"]["Update"],
-  updatedAtToken: string
-): Promise<EstimateVersionRow> {
+  updatedAtToken: string,
+  expectedContentRevision: number
+): Promise<{ version: EstimateVersionRow; items: EstimateItem[] }> {
   const payload = await requestJson<unknown>(
     `/api/estimates/${versionId}`,
     {
@@ -4358,17 +4504,21 @@ export async function saveEstimateVersion(
       body: JSON.stringify({
         ...updates,
         updated_at: updatedAtToken,
+        expected_content_revision: expectedContentRevision,
       }),
     },
     "Impossible de sauvegarder le chiffrage."
   );
 
   const entity = extractEntity(payload, ["version", "estimateVersion"]);
-  if (!entity || !toStringValue(entity.updated_at)) {
-    throw new Error("Impossible de récupérer la version mise à jour.");
+  const items = isRecord(payload) && Array.isArray(payload.items) ? payload.items : null;
+  if (!entity || entity.id !== versionId || !toStringValue(entity.updated_at) ||
+    typeof entity.content_revision !== "number" || !Number.isSafeInteger(entity.content_revision) || entity.content_revision < 0 ||
+    !items || items.some((item) => !isRecord(item) || typeof item.id !== "string" || item.version_id !== versionId) ||
+    new Set(items.map((item) => (item as Record<string, unknown>).id)).size !== items.length) {
+    throw new Error("La confirmation des paramètres est incomplète. Relisez le devis avant de reprendre.");
   }
-
-  return entity as EstimateVersionRow;
+  return { version: entity as EstimateVersionRow, items: items as EstimateItem[] };
 }
 
 export async function bulkUpdateEstimateItems(
@@ -4419,9 +4569,31 @@ export async function bulkUpdateEstimateItems(
   const updatedCount =
     (isRecord(root) ? toNumber(root.updated_count) : null) ?? updates.length;
 
+  let totals: BulkUpdateEstimateVersionPatch | undefined;
+  if (isRecord(root) && Object.prototype.hasOwnProperty.call(root, "totals")) {
+    const value = root.totals;
+    const totalHt = isRecord(value) ? value.total_ht_cents : undefined;
+    const totalTax = isRecord(value) ? value.total_tax_cents : undefined;
+    const totalTtc = isRecord(value) ? value.total_ttc_cents : undefined;
+    if (
+      typeof totalHt !== "number" || !Number.isSafeInteger(totalHt) || totalHt < 0 ||
+      typeof totalTax !== "number" || !Number.isSafeInteger(totalTax) || totalTax < 0 ||
+      typeof totalTtc !== "number" || !Number.isSafeInteger(totalTtc) || totalTtc < 0 ||
+      !Number.isSafeInteger(totalHt + totalTax) || totalHt + totalTax !== totalTtc
+    ) {
+      throw new Error("Les totaux confirmés par le serveur sont invalides. Rechargez le devis avant de réessayer.");
+    }
+    totals = {
+      total_ht_cents: totalHt,
+      total_tax_cents: totalTax,
+      total_ttc_cents: totalTtc,
+    };
+  }
+
   return {
     updatedCount,
     versionToken,
+    ...(totals ? { totals } : {}),
   };
 }
 
@@ -4464,7 +4636,13 @@ function toCreateEstimateItemBody(
         tax_rate_bp: item.tax_rate_bp,
         k_fo: item.k_fo,
         h_mo: item.h_mo,
-        h_mo_majoration: itemWithSource.h_mo_majoration ?? null,
+        h_mo_majoration: itemWithSource.h_mo_majoration ?? undefined,
+        h_mo_atelier: item.h_mo_atelier,
+        k_mo_atelier: item.k_mo_atelier,
+        labor_role_atelier_id: item.labor_role_atelier_id,
+        h_mo_chantier: item.h_mo_chantier,
+        k_mo_chantier: item.k_mo_chantier,
+        labor_role_chantier_id: item.labor_role_chantier_id,
         k_mo: item.k_mo,
         labor_role_id: item.labor_role_id ?? null,
         category_id: item.category_id ?? null,
@@ -4593,152 +4771,55 @@ export async function moveEstimateItem(
   );
 }
 
-function isEstimateBatchOp(value: string): value is EstimateBatchOperation["op"] {
-  return (
-    value === "create" ||
-    value === "update" ||
-    value === "delete" ||
-    value === "reorder"
-  );
-}
-
-function parseEstimateBatchOperationResult(
-  value: unknown
-): EstimateBatchOperationResult | null {
-  if (!isRecord(value)) return null;
-
-  const index = toNumber(value.index);
-  const opValue = toStringValue(value.op);
-  const statusValue = toStringValue(value.status);
-
-  if (
-    index === null ||
-    !opValue ||
-    !statusValue ||
-    !isEstimateBatchOp(opValue) ||
-    (statusValue !== "ok" && statusValue !== "error")
-  ) {
-    return null;
-  }
-
-  if (statusValue === "ok") {
-    return {
-      index,
-      op: opValue,
-      status: "ok",
-      data: value.data,
-    };
-  }
-
-  return {
-    index,
-    op: opValue,
-    status: "error",
-    code: toStringValue(value.code) ?? "INTERNAL_ERROR",
-    message: toStringValue(value.message) ?? "Une opération groupée a échoué.",
-    details: value.details,
-  };
-}
-
-function parseEstimateBatchResult(payload: unknown): {
-  committed: boolean;
-  results: EstimateBatchOperationResult[];
-  versionToken: EstimateVersionToken | null;
-} | null {
-  const root = getRootPayload(payload);
-  if (!isRecord(root)) return null;
-
-  const committed = toBooleanValue(root.committed);
-  if (committed === null) return null;
-
-  const results = pickArray(root, ["results"])
-    .map((entry) => parseEstimateBatchOperationResult(entry))
-    .filter(
-      (entry): entry is EstimateBatchOperationResult => entry !== null
-    );
-
-  return {
-    committed,
-    results,
-    versionToken: parseVersionToken(root),
-  };
-}
-
 export async function batchEstimateOperations(
   versionId: string,
   updatedAtToken: string,
   operations: EstimateBatchOperation[],
-  options: {
-    dryRun?: boolean;
-  } = {}
+  options: { dryRun?: boolean; attempt?: EstimateBatchAttempt } = {}
 ): Promise<EstimateBatchResult> {
-  const queryParams = new URLSearchParams();
-  if (typeof options.dryRun === "boolean") {
-    queryParams.set("dry_run", options.dryRun ? "true" : "false");
-  }
-  const query = queryParams.toString();
-  const path = `/api/estimates/${versionId}/batch${query.length > 0 ? `?${query}` : ""}`;
+  // Load the receipt/parser only for batch work; the editor's initial bundle
+  // does not need the recovery implementation to display a quote.
+  const publicOperations = operations.map((operation) => operation.op === "create"
+    ? { op: "create" as const, data: toCreateEstimateItemBody(operation.data) }
+    : operation);
+  const operationsSnapshot = JSON.parse(JSON.stringify(publicOperations)) as BatchOperationInput[];
+  return runEstimateEditorMutation(versionId, updatedAtToken, async (token, scope) => {
+    const { executeClientEstimateBatch } = await import("@/lib/estimates/batch-client");
+    const result = await executeClientEstimateBatch({
+      transport: (path, init, message) => requestJsonUncoordinated(path, init, message, true),
+      versionId, updatedAtToken: token ?? updatedAtToken,
+      operations: operationsSnapshot, ...options,
+    });
+    if (result.value.committed && result.version.content_revision === undefined) {
+      const readVersion = async () => {
+        const read = parseVersionToken(await requestJsonUncoordinated<unknown>(
+          `/api/estimates/${versionId}`, { method: "GET" }, "Impossible de confirmer la révision des lignes."
+        ));
+        if (!read || read.id !== versionId || read.content_revision === undefined) throw new Error("La révision du devis est manquante.");
+        return read;
+      };
+      try {
+        const read = await readVersion();
+        if (isOlderEstimateVersionToken(read.updated_at, result.version.updated_at) ||
+          isOlderEstimateVersionToken(result.version.updated_at, read.updated_at)) throw new Error("Le devis a changé après la sauvegarde des lignes.");
+        result.version = { ...result.version, content_revision: read.content_revision };
+      } catch {
+        scope.requireRead(async () => ({ version: await readVersion(), structural: false, needsReload: true }),
+          "Les lignes ont été sauvegardées, mais leur révision n'a pas pu être confirmée. Relisez le devis avant de reprendre ; vos saisies sont conservées.");
+      }
+    }
+    return result;
+  });
+}
 
-  const payload = await requestJson<unknown>(
-    path,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "If-Match": updatedAtToken,
-      },
-      body: JSON.stringify({
-        concurrency_token: updatedAtToken,
-        dry_run: options.dryRun,
-        operations: operations.map((operation) => {
-          if (operation.op === "create") {
-            return {
-              op: "create",
-              data: toCreateEstimateItemBody(operation.data),
-            };
-          }
+export async function inspectEstimateBatchReceipt(identity: EstimateBatchIdentity) {
+  const { inspectClientEstimateBatch } = await import("@/lib/estimates/batch-client");
+  return inspectClientEstimateBatch((path, init, message) => requestJsonUncoordinated(path, init, message, true), identity);
+}
 
-          if (operation.op === "update") {
-            return {
-              op: "update",
-              id: operation.id,
-              data: operation.data,
-            };
-          }
-
-          if (operation.op === "delete") {
-            return {
-              op: "delete",
-              id: operation.id,
-            };
-          }
-
-          return {
-            op: "reorder",
-            data: {
-              parent_id: operation.data.parent_id ?? null,
-              ordered_ids: operation.data.ordered_ids,
-            },
-          };
-        }),
-      }),
-    },
-    "Impossible d'executer les opérations groupees."
-  );
-
-  const parsed = parseEstimateBatchResult(payload);
-  if (!parsed) {
-    throw new Error("Impossible de récupérer le résultat des opérations groupees.");
-  }
-
-  return {
-    committed: parsed.committed,
-    results: parsed.results,
-    versionToken: parsed.versionToken ?? {
-      id: versionId,
-      updated_at: updatedAtToken,
-    },
-  };
+export async function resumeEstimateBatchOperation(identity: EstimateBatchIdentity) {
+  const { resumeClientEstimateBatch } = await import("@/lib/estimates/batch-client");
+  return resumeClientEstimateBatch((path, init, message) => requestJsonUncoordinated(path, init, message, true), identity);
 }
 
 export async function exportEstimate(
@@ -4840,7 +4921,11 @@ export async function fetchEstimateSendGating(
 
 export async function requestEstimatePdfGeneration(
   versionId: string,
-  options: { force?: boolean; layout?: EstimatePdfLayoutOptions } = {}
+  options: {
+    force?: boolean;
+    layout?: EstimatePdfLayoutOptions;
+    onPrepared?: (data: EstimateEditorData) => void;
+  } = {}
 ): Promise<EstimatePdfStatusResponse> {
   const query = new URLSearchParams();
   if (options.force) {
@@ -4851,26 +4936,49 @@ export async function requestEstimatePdfGeneration(
     ? `/api/estimates/${versionId}/pdf?${query.toString()}`
     : `/api/estimates/${versionId}/pdf`;
 
-  const payload = await requestJson<unknown>(
-    path,
-    {
-      method: "POST",
-      headers: options.layout
-        ? { "Content-Type": "application/json" }
-        : undefined,
-      body: options.layout
-        ? JSON.stringify({ layout: options.layout })
-        : undefined,
-    },
-    "Impossible de lancer la generation du PDF."
-  );
+  const request = async () => {
+    const payload = await requestJsonUncoordinated<unknown>(
+      path,
+      {
+        method: "POST",
+        headers: {
+          [ESTIMATE_DRAFT_LOCK_SESSION_HEADER]: getEstimateDraftLockSessionId(versionId),
+          ...(options.layout ? { "Content-Type": "application/json" } : {}),
+        },
+        body: options.layout
+          ? JSON.stringify({ layout: options.layout })
+          : undefined,
+      },
+      "Impossible de lancer la generation du PDF."
+    );
 
-  const parsed = parseEstimatePdfStatus(payload);
-  if (!parsed) {
-    throw new Error("Impossible de lire le statut de generation du PDF.");
-  }
-
-  return parsed;
+    const parsed = parseEstimatePdfStatus(payload);
+    if (!parsed) {
+      throw new Error("Impossible de lire le statut de generation du PDF.");
+    }
+    return parsed;
+  };
+  if (!hasEstimateEditorMutationSession(versionId)) return request();
+  return runEstimateEditorMutation(versionId, undefined, async (_token, scope) => {
+    const identity = getEstimateEditorMutationIdentity(versionId);
+    if (identity) assertNoPendingEstimateBatch(identity);
+    const value = await request();
+    // The first document freeze changes the CAS token and line snapshots.
+    // Reconcile both under the same queue before another editor save starts.
+    const read = async () => {
+      const currentIdentity = getEstimateEditorMutationIdentity(versionId);
+      if (JSON.stringify(currentIdentity) !== JSON.stringify(identity)) throw new Error("Le compte ou le devis a changé. La lecture est annulée.");
+      const refreshed = await fetchEstimateEditorData(versionId);
+      if (!scope.isActive() || JSON.stringify(getEstimateEditorMutationIdentity(versionId)) !== JSON.stringify(identity)) {
+        throw new Error("L'éditeur a changé. La lecture est annulée.");
+      }
+      if (refreshed.version.id !== versionId) throw new Error("La préparation reçue appartient à un autre devis.");
+      options.onPrepared?.(refreshed);
+      return { version: { id: refreshed.version.id, updated_at: refreshed.version.updated_at }, structural: false };
+    };
+    try { return { value, ...await read() }; }
+    catch { throw scope.requireRead(read); }
+  });
 }
 
 export async function fetchEstimatePdfLayoutConfiguration(
@@ -4963,9 +5071,15 @@ export async function createEstimatePurchaseOrderDrafts(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
+        idempotency_key: input.idempotencyKey,
+        reviewed_lines: input.reviewedLines.map((line) => ({
+          item_id: line.itemId,
+          review_fingerprint: line.reviewFingerprint,
+        })),
         groups: input.groups.map((group) => ({
           supplier_id: group.supplierId,
           delivery_site_id: group.deliverySiteId,
+          delivery_site_updated_at: group.deliverySiteUpdatedAt,
           item_ids: group.itemIds,
           expected_delivery_date: group.expectedDeliveryDate ?? null,
           notes: group.notes ?? null,
@@ -4976,10 +5090,45 @@ export async function createEstimatePurchaseOrderDrafts(
   );
 
   const parsed = parseEstimatePurchaseOrderDraftCreationResult(payload);
-  if (!parsed) {
+  if (!parsed || parsed.sourceVersionId !== versionId || parsed.idempotencyKey !== input.idempotencyKey) {
     throw new Error("Impossible de lire le résultat de création des brouillons.");
   }
 
+  return parsed;
+}
+
+export async function fetchEstimatePurchaseOrderDraftReceipt(
+  versionId: string,
+  idempotencyKey: string
+): Promise<EstimatePurchaseOrderDraftCreationResult | null> {
+  const query = new URLSearchParams({ idempotency_key: idempotencyKey });
+  const response = await fetch(
+    `/api/estimates/${versionId}/purchase-order-drafts?${query.toString()}`,
+    { method: "GET", cache: "no-store", credentials: "same-origin" }
+  );
+  let envelope: unknown;
+  try {
+    envelope = await response.json();
+  } catch {
+    throw new Error("La réponse de vérification est illisible. Vérifiez à nouveau la préparation.");
+  }
+  if (!response.ok) {
+    throw new EstimateApiError(
+      toErrorMessage(envelope, "Impossible de vérifier le résultat de la préparation."),
+      response.status,
+      extractErrorDetails(envelope),
+      extractErrorCode(envelope)
+    );
+  }
+  if (!isRecord(envelope) || envelope.ok !== true || !hasOwnProperty(envelope, "data")) {
+    throw new Error("La réponse de vérification est illisible. Vérifiez à nouveau la préparation.");
+  }
+  const payload = envelope.data;
+  if (payload === null) return null;
+  const parsed = parseEstimatePurchaseOrderDraftCreationResult(payload);
+  if (!parsed || parsed.sourceVersionId !== versionId || parsed.idempotencyKey !== idempotencyKey) {
+    throw new Error("Impossible de lire le reçu de la préparation.");
+  }
   return parsed;
 }
 

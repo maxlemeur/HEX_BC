@@ -36,39 +36,12 @@ function mockTenantContext(
 }
 
 function createPostSupabaseMock(role: "engineer" | "viewer" = "engineer") {
-  const insertedOrderHeaders: Record<string, unknown>[] = [];
-
-  const purchaseOrdersInsertSingle = vi.fn().mockResolvedValue({
-    data: {
-      id: "order-1",
-      order_number: 42,
-    },
+  const rpc = vi.fn().mockResolvedValue({
+    data: { id: "66666666-6666-4666-8666-666666666666", reference: "C-2610-42", edit_revision: 1 },
     error: null,
   });
-
-  const purchaseOrdersInsert = vi.fn((payload: Record<string, unknown>) => {
-    insertedOrderHeaders.push(payload);
-    return {
-      select: vi.fn(() => ({
-        single: purchaseOrdersInsertSingle,
-      })),
-    };
-  });
-
-  const purchaseOrdersUpdateEq = vi.fn().mockResolvedValue({ error: null });
-  const purchaseOrdersUpdate = vi.fn(() => ({
-    eq: purchaseOrdersUpdateEq,
-  }));
-
-  const purchaseOrdersDeleteEq = vi.fn().mockResolvedValue({ error: null });
-  const purchaseOrdersDelete = vi.fn(() => ({
-    eq: purchaseOrdersDeleteEq,
-  }));
-
-  const purchaseOrderItemsInsert = vi.fn().mockResolvedValue({ error: null });
-
   const supabase = {
-    rpc: vi.fn().mockResolvedValue({ data: TENANT_ID, error: null }),
+    rpc,
     from: vi.fn((table: string) => {
       if (table === "tenant_memberships") {
         return {
@@ -76,37 +49,17 @@ function createPostSupabaseMock(role: "engineer" | "viewer" = "engineer") {
             eq: vi.fn(() => ({
               eq: vi.fn(() => ({
                 limit: vi.fn().mockResolvedValue({
-                  data: [{ tenant_id: TENANT_ID, role }],
-                  error: null,
+                  data: [{ tenant_id: TENANT_ID, role }], error: null,
                 }),
               })),
             })),
           })),
         };
       }
-
-      if (table === "purchase_orders") {
-        return {
-          insert: purchaseOrdersInsert,
-          update: purchaseOrdersUpdate,
-          delete: purchaseOrdersDelete,
-        };
-      }
-
-      if (table === "purchase_order_items") {
-        return {
-          insert: purchaseOrderItemsInsert,
-        };
-      }
-
       throw new Error(`Unexpected table: ${table}`);
     }),
   };
-
-  return {
-    supabase,
-    insertedOrderHeaders,
-  };
+  return { supabase, rpc };
 }
 
 describe("purchase orders POST regressions", () => {
@@ -115,7 +68,7 @@ describe("purchase orders POST regressions", () => {
   });
 
   it("preserves the TBD sentinel when creating draft orders", async () => {
-    const { supabase, insertedOrderHeaders } = createPostSupabaseMock();
+    const { supabase, rpc } = createPostSupabaseMock();
     mockTenantContext(supabase);
 
     const request = new Request("http://localhost/api/purchase-orders", {
@@ -131,6 +84,7 @@ describe("purchase orders POST regressions", () => {
         items: [
           {
             designation: "Ligne 1",
+            unit: "u",
             quantity: 1,
             unitPriceCents: 1500,
             taxRateBp: 2000,
@@ -141,12 +95,13 @@ describe("purchase orders POST regressions", () => {
 
     const response = await POST(request);
     expect(response.status).toBe(200);
-    expect(insertedOrderHeaders).toHaveLength(1);
-    expect(insertedOrderHeaders[0]?.["expected_delivery_date"]).toBe("TBD");
+    expect(rpc).toHaveBeenCalledWith("create_purchase_order_draft", expect.objectContaining({
+      p_header: expect.objectContaining({ expected_delivery_date: "TBD" }),
+    }));
   });
 
-  it("rejette une quantité non entière au lieu de l'arrondir silencieusement", async () => {
-    const { supabase, insertedOrderHeaders } = createPostSupabaseMock();
+  it("rejette une quantité dépassant trois décimales au lieu de l'arrondir silencieusement", async () => {
+    const { supabase, rpc } = createPostSupabaseMock();
     mockTenantContext(supabase);
 
     const response = await POST(
@@ -159,7 +114,8 @@ describe("purchase orders POST regressions", () => {
           items: [
             {
               designation: "Acier",
-              quantity: 2.5,
+              unit: "t",
+              quantity: 0.0001,
               unitPriceCents: 80000,
               taxRateBp: 2000,
             },
@@ -169,11 +125,11 @@ describe("purchase orders POST regressions", () => {
     );
 
     expect(response.status).toBe(400);
-    expect(insertedOrderHeaders).toEqual([]);
+    expect(rpc).not.toHaveBeenCalled();
   });
 
   it("rejects a viewer before creating a manual purchase order", async () => {
-    const { supabase, insertedOrderHeaders } = createPostSupabaseMock("viewer");
+    const { supabase, rpc } = createPostSupabaseMock("viewer");
     mockTenantContext(supabase, "viewer");
 
     const response = await POST(
@@ -186,6 +142,7 @@ describe("purchase orders POST regressions", () => {
           items: [
             {
               designation: "Ligne 1",
+            unit: "u",
               quantity: 1,
               unitPriceCents: 1500,
               taxRateBp: 2000,
@@ -196,6 +153,6 @@ describe("purchase orders POST regressions", () => {
     );
 
     expect(response.status).toBe(403);
-    expect(insertedOrderHeaders).toEqual([]);
+    expect(rpc).not.toHaveBeenCalled();
   });
 });

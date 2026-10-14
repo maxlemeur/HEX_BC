@@ -4,16 +4,16 @@ import { computeEstimateQualityFlagsForItem } from "@/lib/estimate-quality";
 import { buildEstimateV2SnapshotProjection } from "@/lib/estimate-v2-snapshot";
 import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
 import { ESTIMATE_VERSION_CONFLICT_MESSAGE } from "@/lib/estimates/constants";
+import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
 import {
   calculateEstimateSnapshotForItems,
   type EstimateTotalsVersionConfig,
 } from "@/lib/estimates/version-totals";
-import type { Database } from "@/types/database";
+import type { Database, Json } from "@/types/database";
 
 import { badRequest, conflict, mapSupabaseError, notFound } from "./errors";
 
 type Supabase = SupabaseClient<Database>;
-type EstimateItemRow = Database["public"]["Tables"]["estimate_items"]["Row"];
 
 export type EstimateV2FreezeResult = {
   id: string;
@@ -24,7 +24,7 @@ export type EstimateV2FreezeResult = {
   total_ttc_cents?: number;
 };
 
-export type EstimateV2SnapshotPurpose = "send" | "approval";
+export type EstimateV2SnapshotPurpose = "send" | "approval" | "document";
 
 type FreezeEstimateV2SnapshotInput = {
   supabase: Supabase;
@@ -34,8 +34,10 @@ type FreezeEstimateV2SnapshotInput = {
   expectedUpdatedAt: string;
   expectedContentRevision: number;
   actorUserId: string;
-  purpose: EstimateV2SnapshotPurpose;
-};
+} & (
+  | { purpose: "send" | "approval" }
+  | { purpose: "document"; draftLockSessionId: string }
+);
 
 const VERSION_CONFLICT_ERROR_MESSAGE = ESTIMATE_VERSION_CONFLICT_MESSAGE;
 
@@ -54,7 +56,7 @@ export async function freezeEstimateV2Snapshot(
   const { data: versionData, error: versionError } = await input.supabase
     .from("estimate_versions")
     .select(
-      "id, margin_multiplier, margin_mode, tax_rate_bp, discount_bp, discount_mode, discount_steps, global_coefficient, rounding_mode, rounding_step_cents, calc_engine_version, contractor_role, estimate_projects!inner(user_id)"
+      "id, tenant_id, project_id, status, updated_at, content_revision, margin_multiplier, margin_mode, tax_rate_bp, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, rounding_mode, rounding_step_cents, calc_engine_version, contractor_role, estimate_projects!inner(user_id)"
     )
     .eq("tenant_id", input.tenantId)
     .eq("id", input.versionId)
@@ -80,21 +82,7 @@ export async function freezeEstimateV2Snapshot(
     throw badRequest("Impossible de figer le calcul de la version cible.");
   }
 
-  const { data: itemsData, error: itemsError } = await input.supabase
-    .from("estimate_items")
-    .select("*")
-    .eq("tenant_id", input.tenantId)
-    .eq("version_id", input.versionId)
-    .order("position", { ascending: true })
-    .order("id", { ascending: true });
-  if (itemsError) {
-    throw mapSupabaseError(
-      itemsError,
-      "Impossible de figer les lignes de la version cible."
-    );
-  }
-
-  const items = (itemsData ?? []) as EstimateItemRow[];
+  const items = await readAllEstimateItems(input);
   const mismatchedItemIds = items
     .filter((item) =>
       computeEstimateQualityFlagsForItem(item).includes(
@@ -126,21 +114,34 @@ export async function freezeEstimateV2Snapshot(
     );
   }
   const projection = buildEstimateV2SnapshotProjection({ items, breakdown });
-  const { data, error } = await input.rpcClient.rpc(
-    "freeze_estimate_v2_snapshot",
-    {
-      p_version_id: input.versionId,
-      p_tenant_id: input.tenantId,
-      p_expected_updated_at: input.expectedUpdatedAt,
-      p_expected_content_revision: input.expectedContentRevision,
-      p_actor_user_id: input.actorUserId,
-      p_purpose: input.purpose,
-      p_calculation_context: calculatedSnapshot.context,
-      p_item_snapshots: projection.items,
-      p_version_totals: projection.totals,
-    }
-  );
+  await assertEstimateVersionUnchanged({ supabase: input.supabase, version: versionData });
+  const parameters = {
+    p_version_id: input.versionId,
+    p_tenant_id: input.tenantId,
+    p_expected_updated_at: input.expectedUpdatedAt,
+    p_expected_content_revision: input.expectedContentRevision,
+    p_actor_user_id: input.actorUserId,
+    p_calculation_context: calculatedSnapshot.context as Json,
+    p_item_snapshots: projection.items as Json,
+    p_version_totals: projection.totals as Json,
+  };
+  const { data, error } = input.purpose === "document"
+    ? await input.rpcClient.rpc("freeze_estimate_v2_document_snapshot", {
+        ...parameters,
+        p_draft_lock_session_id: input.draftLockSessionId,
+      })
+    : await input.rpcClient.rpc("freeze_estimate_v2_snapshot", {
+        ...parameters,
+        p_purpose: input.purpose,
+      });
   if (error) {
+    if (error.message.includes("ESTIMATE_DRAFT_LOCK_REQUIRED")) {
+      throw conflict(
+        "Le verrou de cette page n’est plus actif. Réessayez depuis cette page.",
+        undefined,
+        "LOCK_REQUIRED"
+      );
+    }
     if (
       error.code === "40001" ||
       error.code === "40P01" ||

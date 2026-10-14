@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   applyEstimateStructureDraft, batchEstimateOperations, bulkUpdateEstimateItems,
@@ -12,10 +12,24 @@ import {
   isOlderEstimateVersionToken, registerEstimateEditorMutations,
   runEstimateEditorMutation, waitForEstimateEditorMutations,
 } from "@/lib/estimates/editor-mutations";
+import type { Database } from "@/types/database";
+
+// A local type bridge preserves the future CAS intent without changing runtime.
+const saveEstimateSettingsPrecode = saveEstimateVersion as unknown as (
+  versionId: string,
+  updates: Database["public"]["Tables"]["estimate_versions"]["Update"],
+  updatedAtToken: string,
+  expectedContentRevision: number
+) => Promise<{
+  version: Database["public"]["Tables"]["estimate_versions"]["Row"];
+  items: Database["public"]["Tables"]["estimate_items"]["Row"][];
+}>;
 
 const ID = "77777777-7777-4777-8777-777777777777";
 const ITEM = "88888888-8888-4888-8888-888888888888";
 const OTHER = "99999999-9999-4999-8999-999999999999";
+const ACTOR = "11111111-1111-4111-8111-111111111111";
+const TENANT = "22222222-2222-4222-8222-222222222222";
 const INITIAL = "2026-09-05T10:00:00.000001Z";
 const NEXT = "2026-09-05T10:00:01.000001Z";
 const LAST = "2026-09-05T10:00:02.000001Z";
@@ -27,6 +41,7 @@ function editor(id = ID) {
   const onPendingChange = vi.fn();
   const stop = registerEstimateEditorMutations(id, {
     getToken: () => token, onCommit, onPendingChange,
+    getIdentity: () => ({ actorId: ACTOR, tenantId: TENANT, versionId: id }),
   });
   cleanups.push(stop);
   return { onCommit, onPendingChange, stop, reload: (value: string) => { token = value; } };
@@ -41,6 +56,14 @@ function deferred<T>() {
   const promise = new Promise<T>((done) => { resolve = done; });
   return { promise, resolve };
 }
+beforeEach(() => {
+  const values = new Map<string, string>();
+  vi.stubGlobal("window", { sessionStorage: {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+    removeItem: (key: string) => values.delete(key),
+  } });
+});
 afterEach(() => {
   cleanups.splice(0).forEach((stop) => stop());
   vi.unstubAllGlobals();
@@ -65,12 +88,12 @@ describe("editor writes and optimistic concurrency", () => {
   it.each(structuralCases)("uses the committed token after $name", async ({ run, data }) => {
     const session = editor();
     const fetch = vi.fn()
-      .mockResolvedValueOnce(response({ ...data, version: { id: ID, updated_at: NEXT } }))
-      .mockResolvedValueOnce(response({ version: { id: ID, updated_at: LAST } }));
+      .mockResolvedValueOnce(response({ ...data, version: { id: ID, updated_at: NEXT, content_revision: 2 } }))
+      .mockResolvedValueOnce(response({ version: { id: ID, updated_at: LAST, content_revision: 3 }, items: [] }));
     vi.stubGlobal("fetch", fetch);
     await run();
     // A caller may have captured its snapshot before the structural write.
-    await saveEstimateVersion(ID, { title: "Réglages" }, INITIAL);
+    await saveEstimateSettingsPrecode(ID, { title: "Réglages" }, INITIAL, 1);
     const request = fetch.mock.calls[1][1] as RequestInit;
     expect(new Headers(request.headers).get("If-Match")).toBe(NEXT);
     expect(JSON.parse(String(request.body)).updated_at).toBe(NEXT);
@@ -83,7 +106,25 @@ describe("editor writes and optimistic concurrency", () => {
     editor();
     const deletion = deferred<Response>();
     const fetch = vi.fn().mockReturnValueOnce(deletion.promise)
-      .mockResolvedValueOnce(response({ committed: true, results: [], version: { id: ID, updated_at: LAST } }))
+      .mockImplementationOnce((_path: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body));
+        return response({
+          committed: true,
+          results: [{ index: 0, op: "update", status: "ok", data: { item: {
+            id: OTHER, version_id: ID, item_type: "line", quantity: 2,
+            pu_ht_cents: 100, line_total_ht_cents: 200, line_tax_cents: 40,
+            line_total_ttc_cents: 240,
+          } } }],
+          version: { id: ID, updated_at: LAST },
+          current_version: { id: ID, updated_at: LAST, status: "draft" },
+          totals: { total_ht_cents: 200, total_tax_cents: 40, total_ttc_cents: 240 },
+          replayed: false,
+          receipt: {
+            operation_key: body.operation_key, actor_id: ACTOR, version_id: ID,
+            expected_updated_at: NEXT, operations: body.operations, committed_at: LAST,
+          },
+        });
+      })
       .mockResolvedValueOnce(response({ updated_count: 0, version: { id: ID, updated_at: LAST } }));
     vi.stubGlobal("fetch", fetch);
     const removed = deleteEstimateItem(ID, ITEM);
@@ -119,11 +160,11 @@ describe("editor writes and optimistic concurrency", () => {
   it("coordinates generated ouvrage server actions with HTTP autosave", async () => {
     editor();
     const action = deferred<number>();
-    const fetch = vi.fn().mockResolvedValueOnce(response({ version: { id: ID, updated_at: NEXT } }))
-      .mockResolvedValueOnce(response({ version: { id: ID, updated_at: LAST } }));
+    const fetch = vi.fn().mockResolvedValueOnce(response({ version: { id: ID, updated_at: NEXT, content_revision: 2 } }))
+      .mockResolvedValueOnce(response({ version: { id: ID, updated_at: LAST, content_revision: 3 }, items: [] }));
     vi.stubGlobal("fetch", fetch);
     const inserted = runEstimateEditorExternalMutation(ID, () => action.promise);
-    const saved = saveEstimateVersion(ID, { title: "Devis" }, INITIAL);
+    const saved = saveEstimateSettingsPrecode(ID, { title: "Devis" }, INITIAL, 1);
     await Promise.resolve();
     expect(fetch).not.toHaveBeenCalled();
     action.resolve(3);
@@ -137,7 +178,7 @@ describe("editor writes and optimistic concurrency", () => {
     const fetch = vi.fn().mockResolvedValue(response({ code: "VERSION_CONFLICT", message: "Version modifiée ailleurs" }, 409));
     vi.stubGlobal("fetch", fetch);
     const results = await Promise.allSettled([
-      deleteEstimateItem(ID, ITEM), saveEstimateVersion(ID, { title: "Devis" }, INITIAL),
+      deleteEstimateItem(ID, ITEM), saveEstimateSettingsPrecode(ID, { title: "Devis" }, INITIAL, 1),
     ]);
     expect(results.map((result) => result.status)).toEqual(["rejected", "rejected"]);
     expect(fetch).toHaveBeenCalledTimes(1);

@@ -33,6 +33,9 @@ export type EstimateRecapExportRow = {
   validite_jours: number;
   margin_multiplier: number;
   discount_cents: number;
+  /** Requested fixed amount; discount_cents is the amount actually applied. */
+  discount_amount_cents?: number;
+  /** Rounded display rate, never the source of an amount or a decision. */
   discount_bp: number;
   tax_rate_bp: number;
   rounding_mode: EstimateVersionRow["rounding_mode"];
@@ -153,6 +156,9 @@ export function buildEstimateRecapRow(input: {
     validite_jours: settings.validite_jours,
     margin_multiplier: totals.appliedMarginMultiplier,
     discount_cents: totals.discountCents,
+    ...(settings.discount_amount_cents != null
+      ? { discount_amount_cents: settings.discount_amount_cents }
+      : {}),
     discount_bp: discountBp,
     tax_rate_bp: settings.tax_rate_bp,
     rounding_mode: settings.rounding_mode,

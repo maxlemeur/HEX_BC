@@ -18,6 +18,7 @@ export type EstimateEmailProps = {
   portalUrl: string;
   message: string;
   companyName: string;
+  historicalCopy?: boolean;
 };
 
 const BRAND_BLUE = "#1e3a5f";
@@ -30,6 +31,7 @@ export function EstimateEmailTemplate({
   portalUrl,
   message,
   companyName,
+  historicalCopy = false,
 }: EstimateEmailProps) {
   return (
     <Html lang="fr">
@@ -55,6 +57,12 @@ export function EstimateEmailTemplate({
           {/* Custom message */}
           <Section style={contentStyle}>
             <Text style={messageStyle}>{message}</Text>
+            {historicalCopy ? (
+              <Text style={messageStyle}>
+                Ce renvoi conserve le PDF original du devis. Les informations
+                détaillées de cette ancienne offre sont disponibles dans sa pièce jointe.
+              </Text>
+            ) : null}
           </Section>
 
           <Hr style={hrStyle} />

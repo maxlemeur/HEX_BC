@@ -1,558 +1,257 @@
-import { ApiError, badRequest, mapSupabaseError } from "@/lib/estimates/errors";
-import type {
-  BatchOperationInput,
-  ReorderEstimateItemsInput,
-} from "@/lib/estimates/schemas";
+import { z } from "zod";
+
 import {
-  bulkUpdateEstimateItems,
-  claimEstimateBatchRevision,
-  createEstimateItem,
-  deleteEstimateItem,
-  listEstimateItems,
-  reorderEstimateItems,
-  updateEstimateItem,
-} from "@/lib/estimates/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-import type { Database } from "@/types/database";
+  EstimateBatchPreparationError, prepareEstimateBatch, sameEstimateBatchTimestamp,
+} from "@/lib/estimates/batch-preparation";
+import { canonicalizeEstimateBatchOperations } from "@/lib/estimates/batch-request";
+import { ApiError, badRequest, conflict, type SupabaseErrorLike } from "@/lib/estimates/errors";
+import { batchOperationSchema, type BatchOperationInput } from "@/lib/estimates/schemas";
+import {
+  assertDraftLockOwnedByCurrentUser, assertDraftStatus, getAuthenticatedContext,
+  getVersionAccessOrThrow, type AuthenticatedContext,
+} from "@/lib/estimates/server-context";
+import { assertCanWriteEstimateWorkflows } from "@/lib/estimates/write-access";
+import type { Json } from "@/types/database";
 
+export const ESTIMATE_BATCH_MAX_OPERATIONS = 1000;
+export const ESTIMATE_BATCH_MAX_BODY_BYTES = 1024 * 1024;
+export const ESTIMATE_BATCH_MAX_RECEIPT_BYTES = 2 * 1024 * 1024;
 const DEFAULT_MAX_BATCH_OPERATIONS = 100;
-const MAX_BATCH_OPERATIONS_ENV_KEY = "ESTIMATE_BATCH_MAX_OPERATIONS";
-
-export type EstimateBatchOperationResult =
-  | {
-      index: number;
-      op: BatchOperationInput["op"];
-      status: "ok";
-      data: unknown;
-    }
-  | {
-      index: number;
-      op: BatchOperationInput["op"];
-      status: "error";
-      code: string;
-      message: string;
-      details?: unknown;
-    };
-
-export type ExecuteEstimateBatchResult = {
-  results: EstimateBatchOperationResult[];
-  committed: boolean;
-  version: {
-    id: string;
-    updated_at: string;
-  };
-};
-
+const uuid = z.string().uuid();
+const timestamp = z.string().refine((value) => Number.isFinite(Date.parse(value)));
+const tokenSchema = z.object({ id: uuid, updated_at: timestamp }).strict();
+const operationNameSchema = z.enum(["create", "update", "delete", "reorder"]);
+const operationResultSchema = z.discriminatedUnion("status", [
+  z.object({ index: z.number().int().nonnegative(), op: operationNameSchema,
+    status: z.literal("ok"), data: z.unknown() }).strict(),
+  z.object({ index: z.number().int().nonnegative(), op: operationNameSchema,
+    status: z.literal("error"), code: z.string().regex(/^[A-Z][A-Z0-9_]+$/), message: z.string().max(1000) }).strict(),
+]);
+const cents = z.number().int().nonnegative().refine(Number.isSafeInteger);
+const totalsSchema = z.object({ total_ht_cents: cents, total_tax_cents: cents, total_ttc_cents: cents })
+  .strict().refine((value) => value.total_ht_cents + value.total_tax_cents === value.total_ttc_cents);
+export const estimateBatchCommittedResultSchema = z.object({
+  committed: z.literal(true), results: z.array(operationResultSchema).min(1).max(ESTIMATE_BATCH_MAX_OPERATIONS),
+  version: tokenSchema, totals: totalsSchema,
+  receipt: z.object({ operation_key: uuid, actor_id: uuid, version_id: uuid,
+    expected_updated_at: timestamp, operations: z.array(batchOperationSchema).min(1).max(ESTIMATE_BATCH_MAX_OPERATIONS),
+    committed_at: timestamp }).strict(),
+  replayed: z.boolean(),
+  current_version: tokenSchema.extend({ status: z.enum(["draft", "sending", "sent", "accepted", "archived"]) }).strict(),
+}).strict();
+const refusedResultSchema = z.object({ committed: z.literal(false),
+  results: z.array(operationResultSchema).min(1).max(ESTIMATE_BATCH_MAX_OPERATIONS), version: tokenSchema }).strict();
+export type EstimateBatchOperationResult = z.infer<typeof operationResultSchema>;
+export type EstimateBatchCommittedResult = z.infer<typeof estimateBatchCommittedResultSchema>;
+export type ExecuteEstimateBatchResult = EstimateBatchCommittedResult | z.infer<typeof refusedResultSchema>;
 export type ExecuteEstimateBatchOptions = {
   concurrencyToken?: string;
+  operationKey?: string;
   dryRun?: boolean;
   maxOperations?: number;
 };
 
-type EstimateBatchVersionToken = ExecuteEstimateBatchResult["version"];
-
-type RollbackAction = () => Promise<void>;
-type BatchCreateOperation = Extract<BatchOperationInput, { op: "create" }>;
-type BatchUpdateOperation = Extract<BatchOperationInput, { op: "update" }>;
-type BatchReorderOperation = Extract<BatchOperationInput, { op: "reorder" }>;
-type EstimateItemSnapshot = Database["public"]["Tables"]["estimate_items"]["Row"];
-type EstimateItemInsertPayload = Database["public"]["Tables"]["estimate_items"]["Insert"];
-
-type BatchAuditOperationPayload =
-  | {
-      op: "create";
-      data: BatchCreateOperation["data"];
-    }
-  | {
-      op: "update";
-      id: string;
-      data: BatchUpdateOperation["data"];
-    }
-  | {
-      op: "delete";
-      id: string;
-    }
-  | {
-      op: "reorder";
-      data: BatchReorderOperation["data"];
-    };
-
-function normalizeConcurrencyToken(token: string | undefined) {
-  const normalized = token?.trim();
-  if (!normalized || normalized.length === 0) {
-    return undefined;
-  }
-  return normalized;
-}
-
 export function resolveEstimateBatchMaxOperations(override?: number) {
-  if (typeof override === "number" && Number.isFinite(override) && override >= 1) {
-    return Math.floor(override);
+  const configured = override ?? Number.parseInt(process.env.ESTIMATE_BATCH_MAX_OPERATIONS ?? "", 10);
+  if (Number.isFinite(configured) && configured > ESTIMATE_BATCH_MAX_OPERATIONS) {
+    throw badRequest("La limite de batch ne peut pas dépasser 1000 opérations.", undefined, "BATCH_LIMIT_EXCEEDED");
   }
+  return Number.isFinite(configured) && configured >= 1 ? Math.floor(configured) : DEFAULT_MAX_BATCH_OPERATIONS;
+}
 
-  const parsed = Number.parseInt(
-    process.env[MAX_BATCH_OPERATIONS_ENV_KEY] ?? "",
-    10
-  );
-  if (Number.isFinite(parsed) && parsed >= 1) {
-    return parsed;
+function outcomeUnknown() {
+  return new ApiError({ status: 503, code: "BATCH_OUTCOME_UNKNOWN",
+    message: "Le résultat de cette opération doit être vérifié. Conservez la même demande avant de réessayer." });
+}
+
+function readUnavailable() {
+  return new ApiError({ status: 503, code: "ESTIMATE_BATCH_READ_UNAVAILABLE",
+    message: "Impossible de vérifier le résultat du batch. Réessayez la même demande." });
+}
+
+const RPC_ERRORS: Record<string, [ApiError["status"], string]> = {
+  ESTIMATE_BATCH_INVALID_INPUT: [400, "Demande de batch invalide."],
+  ESTIMATE_BATCH_OPERATION_KEY_REQUIRED: [400, "Rechargez l’application avant d’enregistrer ce batch : sa clé d’opération est absente."],
+  ESTIMATE_BATCH_FORBIDDEN: [403, "Cette modification du devis n’est pas autorisée."],
+  ESTIMATE_BATCH_NOT_FOUND: [404, "Version de chiffrage introuvable."],
+  ESTIMATE_BATCH_STALE: [409, "Le devis a changé. Rechargez avant de préparer une nouvelle demande."],
+  ESTIMATE_BATCH_CONTEXT_CHANGED: [409, "Les paramètres de calcul ont changé. Rechargez le devis."],
+  ESTIMATE_BATCH_LOCK_REQUIRED: [409, "Un verrou actif de cette page est requis."],
+  ESTIMATE_BATCH_IDEMPOTENCY_CONFLICT: [409, "Cette clé correspond à une autre demande."],
+  ESTIMATE_BATCH_PROJECTION_MISMATCH: [400, "La projection du batch ne correspond pas à ses lignes."],
+};
+
+function rpcError(error: SupabaseErrorLike, mutation: boolean) {
+  const known = RPC_ERRORS[error.message];
+  if (known && ["22023", "42501", "40001", "55000", "P0001", "P0002"].includes(error.code)) {
+    return new ApiError({ status: known[0], code: error.message, message: known[1] });
   }
-
-  return DEFAULT_MAX_BATCH_OPERATIONS;
-}
-
-function normalizeOperationError(
-  index: number,
-  op: BatchOperationInput["op"],
-  error: unknown
-): EstimateBatchOperationResult {
-  if (error instanceof ApiError) {
-    return {
-      index,
-      op,
-      status: "error",
-      code: error.code,
-      message: error.message,
-      details: error.details,
-    };
+  if (["40001", "40P01", "55P03"].includes(error.code)) {
+    return conflict("Le devis est en cours de modification. Réessayez la même demande.", undefined, "ESTIMATE_BATCH_STALE");
   }
+  return mutation ? outcomeUnknown() : readUnavailable();
+}
 
-  if (error instanceof Error) {
-    return {
-      index,
-      op,
-      status: "error",
-      code: "INTERNAL_ERROR",
-      message: error.message,
-    };
+function record(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseCommitted(value: unknown, input: {
+  versionId: string; operationKey: string; actorId: string;
+}): EstimateBatchCommittedResult {
+  const parsed = estimateBatchCommittedResultSchema.safeParse(value);
+  if (!parsed.success) throw outcomeUnknown();
+  const result = parsed.data;
+  const operations = result.receipt.operations;
+  if (result.version.id !== input.versionId || result.current_version.id !== input.versionId ||
+    result.receipt.version_id !== input.versionId || result.receipt.actor_id !== input.actorId ||
+    result.receipt.operation_key !== input.operationKey || result.results.length !== operations.length) throw outcomeUnknown();
+  for (let index = 0; index < operations.length; index += 1) {
+    const operation = operations[index];
+    const entry = result.results[index];
+    if (entry.index !== index || entry.op !== operation.op || entry.status !== "ok" || !record(entry.data)) throw outcomeUnknown();
+    if (operation.op === "create" || operation.op === "update") {
+      const item = entry.data.item;
+      if (item === null && entry.data.deleted_in_batch === true) {
+        const deletedId = entry.data.deleted_item_id;
+        const deletedLater = result.results.some((later, laterIndex) =>
+          laterIndex > index && operations[laterIndex].op === "delete" &&
+          later.op === "delete" && later.status === "ok" && record(later.data) &&
+          Array.isArray(later.data.deleted_ids) && later.data.deleted_ids.includes(deletedId));
+        if (!uuid.safeParse(deletedId).success || !deletedLater ||
+          (operation.op === "update" && deletedId !== operation.id)) throw outcomeUnknown();
+        continue;
+      }
+      if (!record(item) || !uuid.safeParse(item.id).success || item.version_id !== input.versionId ||
+        (operation.op === "update" && item.id !== operation.id) ||
+        (operation.op === "create" && item.item_type !== operation.data.item_type)) throw outcomeUnknown();
+    } else if (operation.op === "delete") {
+      const ids = z.array(uuid).min(1).safeParse(entry.data.deleted_ids);
+      if (entry.data.deleted_id !== operation.id || !ids.success || !ids.data.includes(operation.id) ||
+        new Set(ids.data).size !== ids.data.length) throw outcomeUnknown();
+    } else if (entry.data.parent_id !== (operation.data.parent_id ?? null) ||
+      entry.data.updated_count !== operation.data.ordered_ids.length ||
+      JSON.stringify(entry.data.ordered_ids) !== JSON.stringify(operation.data.ordered_ids)) throw outcomeUnknown();
   }
-
-  return {
-    index,
-    op,
-    status: "error",
-    code: "INTERNAL_ERROR",
-    message: "Erreur inconnue.",
-  };
+  return result;
 }
 
-function resolveCreatedItemId(result: unknown) {
-  if (!result || typeof result !== "object") return undefined;
-  const item = (result as { item?: unknown }).item;
-  if (!item || typeof item !== "object") return undefined;
-  const id = (item as { id?: unknown }).id;
-  if (typeof id !== "string" || id.trim().length === 0) return undefined;
-  return id;
-}
-
-function toEstimateItemInsertPayload(
-  item: EstimateItemSnapshot
-): EstimateItemInsertPayload {
-  return {
-    id: item.id,
-    created_at: item.created_at,
-    updated_at: item.updated_at,
-    tenant_id: item.tenant_id,
-    version_id: item.version_id,
-    parent_id: item.parent_id,
-    item_type: item.item_type,
-    position: item.position,
-    title: item.title,
-    description: item.description,
-    quantity: item.quantity,
-    unit_price_ht_cents: item.unit_price_ht_cents,
-    tax_rate_bp: item.tax_rate_bp,
-    k_fo: item.k_fo,
-    h_mo: item.h_mo,
-    h_mo_majoration: item.h_mo_majoration,
-    k_mo: item.k_mo,
-    h_mo_atelier: item.h_mo_atelier,
-    k_mo_atelier: item.k_mo_atelier,
-    labor_role_atelier_id: item.labor_role_atelier_id,
-    h_mo_chantier: item.h_mo_chantier,
-    k_mo_chantier: item.k_mo_chantier,
-    labor_role_chantier_id: item.labor_role_chantier_id,
-    pu_ht_cents: item.pu_ht_cents,
-    labor_role_id: item.labor_role_id,
-    category_id: item.category_id,
-    supply_type_id: item.supply_type_id,
-    selected_supplier_price_id: item.selected_supplier_price_id,
-    line_total_ht_cents: item.line_total_ht_cents,
-    line_tax_cents: item.line_tax_cents,
-    line_total_ttc_cents: item.line_total_ttc_cents,
-  };
-}
-
-function listSiblingIds(items: EstimateItemSnapshot[], parentId: string | null) {
-  return items
-    .filter((item) => (item.parent_id ?? null) === parentId)
-    .sort((left, right) => left.position - right.position)
-    .map((item) => item.id);
-}
-
-function collectDeletedItemsForRollback(
-  items: EstimateItemSnapshot[],
-  deletedId: string
-) {
-  const itemById = new Map(items.map((item) => [item.id, item]));
-  const childrenByParent = new Map<string, EstimateItemSnapshot[]>();
-
-  items.forEach((item) => {
-    const parentId = item.parent_id;
-    if (!parentId) return;
-
-    const children = childrenByParent.get(parentId);
-    if (children) {
-      children.push(item);
-      return;
-    }
-    childrenByParent.set(parentId, [item]);
-  });
-
-  const deletedRoot = itemById.get(deletedId);
-  if (!deletedRoot) {
-    return [];
-  }
-
-  const deletedItems: EstimateItemSnapshot[] = [];
-  const stack: EstimateItemSnapshot[] = [deletedRoot];
-
-  while (stack.length > 0) {
-    const current = stack.pop();
-    if (!current) continue;
-
-    deletedItems.push(current);
-
-    const children = childrenByParent
-      .get(current.id)
-      ?.slice()
-      .sort((left, right) => left.position - right.position) ?? [];
-
-    for (let index = children.length - 1; index >= 0; index -= 1) {
-      const child = children[index];
-      if (!child) continue;
-      stack.push(child);
-    }
-  }
-
-  return deletedItems;
-}
-
-async function restoreDeletedItems(items: EstimateItemSnapshot[]) {
-  if (items.length === 0) return;
-
-  const supabase = await createSupabaseServerClient();
-
-  for (let index = 0; index < items.length; index += 1) {
-    const item = items[index];
-    if (!item) continue;
-
-    const { error } = await supabase
-      .from("estimate_items")
-      .upsert(toEstimateItemInsertPayload(item), {
-        onConflict: "id",
-      });
-
-    if (!error) continue;
-    throw mapSupabaseError(
-      error,
-      "Impossible de restaurer les lignes supprimées pendant le rollback."
-    );
-  }
-}
-
-async function loadPreOperationSnapshot(
-  versionId: string,
-  operation: BatchOperationInput
-) {
-  if (operation.op === "create") {
-    return null;
-  }
-
-  const { items } = await listEstimateItems(versionId);
-  return items as EstimateItemSnapshot[];
-}
-
-function buildRollbackAction(
-  versionId: string,
-  operation: BatchOperationInput,
-  operationResult: unknown,
-  itemsBeforeOperation: EstimateItemSnapshot[] | null
-): RollbackAction | null {
-  switch (operation.op) {
-    case "create": {
-      const createdId = resolveCreatedItemId(operationResult);
-      if (!createdId) return null;
-
-      return async () => {
-        await deleteEstimateItem(versionId, {
-          id: createdId,
-        });
-      };
-    }
-    case "update": {
-      const previousItem = itemsBeforeOperation?.find(
-        (item) => item.id === operation.id
-      );
-      if (!previousItem) return null;
-
-      return async () => {
-        await restoreDeletedItems([previousItem]);
-      };
-    }
-    case "delete": {
-      if (!itemsBeforeOperation) return null;
-
-      const deletedItems = collectDeletedItemsForRollback(
-        itemsBeforeOperation,
-        operation.id
-      );
-      if (deletedItems.length === 0) return null;
-
-      return async () => {
-        await restoreDeletedItems(deletedItems);
-      };
-    }
-    case "reorder": {
-      if (!itemsBeforeOperation) return null;
-
-      const parentId = operation.data.parent_id ?? null;
-      const previousOrderedIds = listSiblingIds(itemsBeforeOperation, parentId);
-
-      if (previousOrderedIds.length === 0) return null;
-
-      const rollbackInput: ReorderEstimateItemsInput = {
-        parent_id: parentId,
-        ordered_ids: previousOrderedIds,
-      };
-
-      return async () => {
-        await reorderEstimateItems(versionId, rollbackInput);
-      };
-    }
-    default: {
-      const exhaustiveCheck: never = operation;
-      return exhaustiveCheck;
-    }
-  }
-}
-
-async function rollbackBatchActions(actions: RollbackAction[]) {
-  for (let index = actions.length - 1; index >= 0; index -= 1) {
-    try {
-      const action = actions[index];
-      if (!action) continue;
-      await action();
-    } catch (error) {
-      console.error("Estimate batch rollback failed", error);
-    }
-  }
-}
-
-async function executeOperation(versionId: string, operation: BatchOperationInput) {
-  switch (operation.op) {
-    case "create":
-      return createEstimateItem(versionId, operation.data);
-    case "update":
-      return updateEstimateItem(versionId, {
-        id: operation.id,
-        ...operation.data,
-      });
-    case "delete":
-      return deleteEstimateItem(versionId, {
-        id: operation.id,
-      });
-    case "reorder":
-      return reorderEstimateItems(versionId, operation.data);
-    default: {
-      const exhaustiveCheck: never = operation;
-      return exhaustiveCheck;
-    }
-  }
-}
-
-function toBatchAuditOperationPayload(
-  operation: BatchOperationInput
-): BatchAuditOperationPayload {
-  switch (operation.op) {
-    case "create":
-      return {
-        op: "create",
-        data: operation.data,
-      };
-    case "update":
-      return {
-        op: "update",
-        id: operation.id,
-        data: operation.data,
-      };
-    case "delete":
-      return {
-        op: "delete",
-        id: operation.id,
-      };
-    case "reorder":
-      return {
-        op: "reorder",
-        data: operation.data,
-      };
-    default: {
-      const exhaustiveCheck: never = operation;
-      return exhaustiveCheck;
-    }
-  }
-}
-
-async function logEstimateBatchAudit(
-  versionId: string,
-  operations: BatchOperationInput[]
-) {
-  const supabase = await createSupabaseServerClient();
-  const operationsPayload = operations.map((operation) =>
-    toBatchAuditOperationPayload(operation)
-  );
-
-  const { error } = await supabase.rpc("log_estimate_batch_audit", {
-    target_version_id: versionId,
-    operations_payload: operationsPayload,
-  });
-
-  if (!error) return;
-  throw mapSupabaseError(error, "Impossible d'écrire l'audit du batch.");
-}
-
-async function resolveLatestBatchVersionToken(
-  versionId: string,
-  fallback: EstimateBatchVersionToken
-): Promise<EstimateBatchVersionToken> {
+async function lookupReceipt(context: AuthenticatedContext, versionId: string, operationKey: string) {
+  let response;
   try {
-    const supabase = await createSupabaseServerClient();
-    const { data, error } = await supabase
-      .from("estimate_versions")
-      .select("id, updated_at")
-      .eq("id", versionId)
-      .single();
+    response = await context.supabase.rpc("get_estimate_batch_receipt", {
+      p_version_id: versionId, p_operation_key: operationKey,
+    });
+  } catch { throw readUnavailable(); }
+  if (response.error) throw rpcError(response.error, false);
+  if (response.data === null) return null;
+  if (Buffer.byteLength(JSON.stringify(response.data), "utf8") > ESTIMATE_BATCH_MAX_RECEIPT_BYTES) throw readUnavailable();
+  return parseCommitted(response.data, { versionId, operationKey, actorId: context.userId });
+}
 
-    if (error || !data) {
-      return fallback;
-    }
-
-    return {
-      id: data.id,
-      updated_at: data.updated_at,
-    };
-  } catch {
-    return fallback;
-  }
+export async function getEstimateBatchReceipt(versionId: string, operationKey: string) {
+  const context = await getAuthenticatedContext();
+  return lookupReceipt(context, uuid.parse(versionId).toLowerCase(), uuid.parse(operationKey).toLowerCase());
 }
 
 export async function executeEstimateBatch(
-  versionId: string,
-  operations: BatchOperationInput[],
-  options: ExecuteEstimateBatchOptions
+  versionId: string, incomingOperations: BatchOperationInput[], options: ExecuteEstimateBatchOptions
 ): Promise<ExecuteEstimateBatchResult> {
-  if (operations.length === 0) {
-    throw badRequest("operations ne peut pas être vide.");
+  if (incomingOperations.length === 0) throw badRequest("operations ne peut pas être vide.");
+  const limit = resolveEstimateBatchMaxOperations(options.maxOperations);
+  if (incomingOperations.length > limit) throw badRequest(`operations ne peut pas contenir plus de ${limit} opérations.`,
+    { max_operations: limit, received_operations: incomingOperations.length }, "BATCH_LIMIT_EXCEEDED");
+  const concurrencyToken = options.concurrencyToken?.trim();
+  if (!concurrencyToken) throw badRequest("Jeton de concurrence manquant.");
+  if (!Number.isFinite(Date.parse(concurrencyToken))) throw badRequest("Jeton de concurrence invalide.");
+  const operationKey = options.operationKey ? uuid.parse(options.operationKey).toLowerCase() : undefined;
+  if (!options.dryRun && !operationKey) {
+    const [status, message] = RPC_ERRORS.ESTIMATE_BATCH_OPERATION_KEY_REQUIRED;
+    throw new ApiError({ status, code: "ESTIMATE_BATCH_OPERATION_KEY_REQUIRED", message });
   }
-
-  const maxOperations = resolveEstimateBatchMaxOperations(options.maxOperations);
-  if (operations.length > maxOperations) {
-    throw badRequest(
-      `operations ne peut pas contenir plus de ${maxOperations} opérations.`,
-      {
-        max_operations: maxOperations,
-        received_operations: operations.length,
-      },
-      "BATCH_LIMIT_EXCEEDED"
-    );
+  const operations = canonicalizeEstimateBatchOperations(z.array(batchOperationSchema).parse(incomingOperations));
+  if (Buffer.byteLength(JSON.stringify({ operations, operation_key: operationKey, concurrency_token: concurrencyToken }), "utf8") > ESTIMATE_BATCH_MAX_BODY_BYTES) {
+    throw new ApiError({ status: 413, code: "ESTIMATE_BATCH_PAYLOAD_TOO_LARGE", message: "Le batch dépasse la limite de 1 Mio." });
   }
-
-  const concurrencyToken = normalizeConcurrencyToken(options.concurrencyToken);
-  if (!concurrencyToken) {
-    throw badRequest("Jeton de concurrence manquant.");
-  }
-
-  const tokenPrecheckResult = await bulkUpdateEstimateItems(
-    versionId,
-    [],
-    concurrencyToken
-  );
-  const versionToken: EstimateBatchVersionToken = {
-    id: tokenPrecheckResult.version.id,
-    updated_at: tokenPrecheckResult.version.updated_at,
-  };
-
-  if (options.dryRun === true) {
-    return {
-      committed: false,
-      results: operations.map((operation, index) => ({
-        index,
-        op: operation.op,
-        status: "ok",
-        data: {
-          dry_run: true,
-        },
-      })),
-      version: versionToken,
-    };
-  }
-
-  const claimedVersion = await claimEstimateBatchRevision(
-    versionId,
-    concurrencyToken
-  );
-  versionToken.id = claimedVersion.id;
-  versionToken.updated_at = claimedVersion.updated_at;
-
-  const results: EstimateBatchOperationResult[] = [];
-  const rollbackActions: RollbackAction[] = [];
-
-  for (let index = 0; index < operations.length; index += 1) {
-    const operation = operations[index];
-    if (!operation) continue;
-
-    try {
-      const itemsBeforeOperation = await loadPreOperationSnapshot(
-        versionId,
-        operation
-      );
-      const data = await executeOperation(versionId, operation);
-      results.push({
-        index,
-        op: operation.op,
-        status: "ok",
-        data,
-      });
-
-      const rollbackAction = buildRollbackAction(
-        versionId,
-        operation,
-        data,
-        itemsBeforeOperation
-      );
-      if (rollbackAction) {
-        rollbackActions.push(rollbackAction);
+  versionId = uuid.parse(versionId).toLowerCase();
+  const context = await getAuthenticatedContext();
+  assertCanWriteEstimateWorkflows(context.tenantRole);
+  if (!options.dryRun && operationKey) {
+    const saved = await lookupReceipt(context, versionId, operationKey);
+    if (saved) {
+      if (!sameEstimateBatchTimestamp(saved.receipt.expected_updated_at, concurrencyToken) ||
+        JSON.stringify(canonicalizeEstimateBatchOperations(saved.receipt.operations)) !== JSON.stringify(operations)) {
+        throw conflict("Cette clé correspond à une autre demande.", undefined, "ESTIMATE_BATCH_IDEMPOTENCY_CONFLICT");
       }
-    } catch (error) {
-      results.push(normalizeOperationError(index, operation.op, error));
-      await rollbackBatchActions(rollbackActions);
-      return {
-        committed: false,
-        results,
-        version: await resolveLatestBatchVersionToken(versionId, versionToken),
-      };
+      // GET has read permissions; POST must recheck writer permissions under the
+      // SQL actor gate even when membership changed after our initial TS check.
+      let replay;
+      try {
+        replay = await context.supabase.rpc("commit_estimate_batch", {
+          p_version_id: versionId, p_operation_key: operationKey, p_expected_updated_at: concurrencyToken,
+          p_draft_lock_session_id: null, p_operations: operations as Json,
+          p_created_ids: [], p_item_updates: [], p_version_patch: {},
+          p_calculation_context: {}, p_expected_aid_policy: null,
+        });
+      } catch { throw outcomeUnknown(); }
+      if (replay.error) throw rpcError(replay.error, true);
+      if (Buffer.byteLength(JSON.stringify(replay.data), "utf8") > ESTIMATE_BATCH_MAX_RECEIPT_BYTES) throw outcomeUnknown();
+      const confirmed = parseCommitted(replay.data, { versionId, operationKey, actorId: context.userId });
+      if (!confirmed.replayed || JSON.stringify(confirmed.receipt) !== JSON.stringify(saved.receipt) ||
+        JSON.stringify(confirmed.results) !== JSON.stringify(saved.results) ||
+        JSON.stringify(confirmed.totals) !== JSON.stringify(saved.totals) ||
+        !sameEstimateBatchTimestamp(confirmed.version.updated_at, saved.version.updated_at)) throw outcomeUnknown();
+      return confirmed;
     }
   }
-
-  try {
-    await logEstimateBatchAudit(versionId, operations);
-  } catch (error) {
-    console.error("Estimate batch audit failed", error);
+  const { version, project } = await getVersionAccessOrThrow(context.supabase, versionId, context);
+  assertDraftStatus(version.status);
+  if (project.is_archived) throw conflict("Cette affaire est archivée.");
+  if (!sameEstimateBatchTimestamp(version.updated_at, concurrencyToken)) {
+    throw conflict("Le devis a changé. Rechargez avant de réessayer.", undefined, "VERSION_CONFLICT");
   }
-
-  return {
-    committed: true,
-    results,
-    version: await resolveLatestBatchVersionToken(versionId, versionToken),
-  };
+  const lock = await assertDraftLockOwnedByCurrentUser({ supabase: context.supabase,
+    tenantId: context.tenantId, versionId, userId: context.userId });
+  if (!lock.session_id) throw conflict("Un verrou actif de cette page est requis.", undefined, "LOCK_REQUIRED");
+  const initialVersion = { id: versionId, updated_at: version.updated_at };
+  let prepared;
+  try {
+    prepared = await prepareEstimateBatch({ context, versionId, projectUserId: project.user_id,
+      expectedUpdatedAt: version.updated_at, operations });
+  } catch (error) {
+    if (!(error instanceof EstimateBatchPreparationError)) throw error;
+    return { committed: false, version: initialVersion, results: [
+      ...operations.slice(0, error.index).map((operation, index) => ({
+        index, op: operation.op, status: "ok" as const, data: { rolled_back: true },
+      })),
+      { index: error.index, op: error.operation, status: "error", code: error.failure.code, message: error.failure.message },
+    ] };
+  }
+  if (options.dryRun) return { committed: false, version: initialVersion,
+    results: operations.map((operation, index) => ({ index, op: operation.op, status: "ok", data: { dry_run: true } })) };
+  let response;
+  try {
+    response = await context.supabase.rpc("commit_estimate_batch", {
+      p_version_id: versionId, p_operation_key: operationKey!, p_expected_updated_at: concurrencyToken,
+      p_draft_lock_session_id: lock.session_id, p_operations: operations as Json,
+      p_created_ids: prepared.createdIds, p_item_updates: prepared.itemUpdates,
+      p_version_patch: prepared.versionPatch, p_calculation_context: prepared.calculationContext as Json,
+      p_expected_aid_policy: prepared.expectedAidPolicy,
+    });
+  } catch { throw outcomeUnknown(); }
+  if (response.error) throw rpcError(response.error, true);
+  if (Buffer.byteLength(JSON.stringify(response.data), "utf8") > ESTIMATE_BATCH_MAX_RECEIPT_BYTES) throw outcomeUnknown();
+  if (record(response.data) && response.data.committed === false) {
+    const parsed = refusedResultSchema.safeParse(response.data);
+    if (!parsed.success || parsed.data.version.id !== versionId || parsed.data.results.length > operations.length) throw outcomeUnknown();
+    const results = parsed.data.results;
+    if (results.some((entry, index) => entry.index !== index || entry.op !== operations[index].op ||
+      (index === results.length - 1 ? entry.status !== "error" : entry.status !== "ok" ||
+        !record(entry.data) || entry.data.rolled_back !== true))) throw outcomeUnknown();
+    return parsed.data;
+  }
+  const saved = parseCommitted(response.data, { versionId, operationKey: operationKey!, actorId: context.userId });
+  if (!sameEstimateBatchTimestamp(saved.receipt.expected_updated_at, concurrencyToken) ||
+    JSON.stringify(canonicalizeEstimateBatchOperations(saved.receipt.operations)) !== JSON.stringify(operations)) throw outcomeUnknown();
+  return saved;
 }

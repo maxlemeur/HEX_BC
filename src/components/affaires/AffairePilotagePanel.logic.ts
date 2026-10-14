@@ -19,6 +19,10 @@ import {
   type EstimateReadinessCategory,
 } from "@/lib/estimates/readiness";
 import type { EstimateStructureModeSummary } from "@/lib/estimates/structure-mode";
+import {
+  formatPurchaseOrderReadinessSummary,
+  type PurchaseOrderReadiness,
+} from "@/lib/estimates/purchase-order-readiness";
 import type { CockpitSurfaceId } from "@/lib/cockpit/suggestions";
 import type { AffaireHubPlansSummaryData } from "./PlansMetresCard";
 
@@ -62,6 +66,7 @@ export type AffairePilotageCurrentVersion =
       id: string;
       status: import("@/lib/estimates/status").EstimateStatus;
       versionNumber: number;
+      updatedAt?: string;
     }
   | null;
 
@@ -82,7 +87,7 @@ export type AffairePilotageStructureMode =
 export type FinishLineCard = {
   key: "send" | "order";
   label: string;
-  status: "ready" | "blocked" | "warning" | "waiting" | "unavailable";
+  status: PurchaseOrderReadiness["status"];
   summary: string;
   details: string[];
   action: PilotageAction | null;
@@ -524,55 +529,34 @@ export function buildReadyToOrderAction(input: {
   currentVersion: AffairePilotageCurrentVersion;
   finishLineSummary: AffaireHubFinishLineSummaryResult | null | undefined;
 }) {
-  const pricesHref = `/dashboard/affaires/${input.projectId}/prices`;
-
-  if (!input.currentVersion) {
-    return {
-      kind: "href" as const,
-      label: "Importer des prix fournisseurs",
-      href: pricesHref,
-    };
-  }
-
+  if (!input.currentVersion) return null;
   const order = input.finishLineSummary?.readyToOrder ?? null;
-  if (order?.status === "ready") {
+  if (order?.status === "ready" || order?.status === "warning") {
     return {
       kind: "href" as const,
-      label: "Ouvrir la finish line commandes",
+      label: "Préparer les commandes",
       href: "#finish-line-orders",
     };
   }
-
-  if (
-    !order ||
-    order.status === "waiting" ||
-    order.missingPriceLinesCount > 0 ||
-    order.staleLinesCount > 0
-  ) {
+  if (order?.status === "prepared" || order?.status === "blocked") {
     return {
       kind: "href" as const,
       label:
-        order && (order.coveredLinesCount > 0 || order.staleLinesCount > 0)
-          ? "Mettre à jour les prix fournisseurs"
-          : "Importer des prix fournisseurs",
-      href: pricesHref,
+        order.status === "prepared"
+          ? "Consulter les commandes existantes"
+          : "Voir les blocages",
+      href: "#finish-line-orders",
     };
   }
-
   const versionHref = buildEstimateVersionHref(input.currentVersion);
-  if (!versionHref) {
+  if (order?.status === "waiting" && versionHref) {
     return {
       kind: "href" as const,
-      label: "Importer des prix fournisseurs",
-      href: pricesHref,
+      label: "Revoir les lignes du devis",
+      href: versionHref,
     };
   }
-
-  return {
-    kind: "href" as const,
-    label: "Revoir les fournisseurs",
-    href: versionHref,
-  };
+  return null;
 }
 
 export function buildFinishLineCards(input: {
@@ -592,7 +576,7 @@ export function buildFinishLineCards(input: {
       },
       {
         key: "order",
-        label: "Prêt à commander",
+        label: "Préparation des achats",
         status: "waiting",
         summary: "La préparation commandes devient lisible quand les lignes fournisseur existent.",
         details: ["Les achats restent prepares manuellement depuis l'affaire."],
@@ -613,7 +597,7 @@ export function buildFinishLineCards(input: {
       },
       {
         key: "order",
-        label: "Prêt à commander",
+        label: "Préparation des achats",
         status: "unavailable",
         summary: "La vérification achats est indisponible pour le moment.",
         details: ["Rechargez la page avant de préparer les commandes."],
@@ -648,36 +632,21 @@ export function buildFinishLineCards(input: {
   };
 
   const order = input.finishLineSummary.readyToOrder;
-  const readyToOrderDetails = [
-    order.missingPriceLinesCount > 0
-      ? `${order.missingPriceLinesCount} ligne${order.missingPriceLinesCount > 1 ? "s" : ""} sans fournisseur retenu`
-      : null,
-    order.ambiguousLinesCount > 0
-      ? `${order.ambiguousLinesCount} ligne${order.ambiguousLinesCount > 1 ? "s" : ""} à arbitrer`
-      : null,
-    order.staleLinesCount > 0
-      ? `${order.staleLinesCount} prix fournisseur${order.staleLinesCount > 1 ? "s" : ""} à revalider`
-      : null,
-  ].filter((detail): detail is string => detail !== null);
-
   const readyToOrderCard: FinishLineCard = {
     key: "order",
-    label: "Prêt à commander",
+    label: "Préparation des achats",
     status: order.status,
-    summary:
-      order.status === "ready"
-        ? `${order.coveredLinesCount} ligne${order.coveredLinesCount > 1 ? "s" : ""} fournisseur preparable${order.coveredLinesCount > 1 ? "s" : ""} sans ressaisie.`
-        : order.status === "waiting"
-          ? "Aucune ligne fournisseur n'est encore identifiable pour préparer des commandes."
-          : order.status === "blocked"
-            ? `${order.orderableLinesCount - order.coveredLinesCount} ligne${order.orderableLinesCount - order.coveredLinesCount > 1 ? "s" : ""} reste${order.orderableLinesCount - order.coveredLinesCount > 1 ? "nt" : ""} à fiabiliser avant la préparation achats.`
-            : order.errorMessage ?? "La préparation achats reste indisponible.",
+    summary: formatPurchaseOrderReadinessSummary(order),
     details:
-      readyToOrderDetails.length > 0
-        ? readyToOrderDetails
-        : order.status === "ready"
-          ? ["Les lignes fournisseur sont couvertes à cette étape."]
-          : [order.errorMessage ?? "Les commandes restent preparees manuellement."],
+      order.status === "prepared"
+        ? ["Toutes les lignes fournisseur ont déjà été transférées. Consultez les commandes existantes."]
+        : order.status === "blocked" || order.status === "warning"
+          ? ["Les lignes à corriger sont détaillées dans la préparation."]
+          : order.status === "ready"
+            ? ["Relisez les lignes et confirmez les brouillons avant création."]
+            : order.status === "waiting"
+              ? ["Aucune ligne fournisseur à préparer."]
+              : [],
     action: buildReadyToOrderAction(input),
   };
 

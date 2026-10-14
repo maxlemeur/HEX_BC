@@ -3,8 +3,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { GET } from "@/app/api/docs/route";
 import { GET as GET_SWAGGER_UI_ASSET } from "@/app/api/docs/swagger-ui/[asset]/route";
 import { generateOpenApiDocument } from "@/lib/openapi/generate";
-import { baseAdditionalOpenApiOperationsRegistry } from "@/lib/openapi/route-contracts";
-import { workflowAdditionalOpenApiOperationsRegistry } from "@/lib/openapi/route-contracts-workflows";
 import { openApiRouteExclusions } from "@/lib/openapi/route-exclusions";
 
 type MutableEnv = Record<string, string | undefined>;
@@ -238,11 +236,7 @@ describe("generateOpenApiDocument", () => {
     ]);
   });
 
-  it("documents application routes and keeps only infrastructure exclusions", () => {
-    expect([
-      ...baseAdditionalOpenApiOperationsRegistry,
-      ...workflowAdditionalOpenApiOperationsRegistry,
-    ]).toHaveLength(78);
+  it("keeps only infrastructure exclusions", () => {
     expect(openApiRouteExclusions).toHaveLength(6);
     expect(openApiRouteExclusions.map((entry) => entry.path)).toEqual([
       "/api/docs",

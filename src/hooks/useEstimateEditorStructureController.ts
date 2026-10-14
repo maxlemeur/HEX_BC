@@ -33,6 +33,14 @@ import {
   resolveTopLevelItemIds,
 } from "@/app/dashboard/estimates/[versionId]/edit/utils/item-tree";
 
+function isPersistedAssemblyInsertion(error: unknown, versionId: string) {
+  if (typeof error !== "object" || error === null || !("code" in error) ||
+    error.code !== "ESTIMATE_ASSEMBLY_INSERT_PERSISTED" || !("details" in error) ||
+    typeof error.details !== "object" || error.details === null) return false;
+  const details = error.details as Record<string, unknown>;
+  return details.versionId === versionId && details.insertionState === "persisted" && details.retryInsertionAllowed === false;
+}
+
 type EstimateEditorStructureControllerInput = {
   routeVersionId: string;
   isMutationBlocked: boolean;
@@ -76,6 +84,7 @@ export function useEstimateEditorStructureController({
   const nextMutationIdRef = useRef(0);
   const activeMutationIdRef = useRef<number | null>(null);
   const refreshGenerationRef = useRef(0);
+  const assemblyInsertionsToReviewRef = useRef(new Set<string>());
   const mutationGuardRef = useRef({
     isBlocked: isMutationBlocked,
     message: mutationBlockedMessage,
@@ -244,6 +253,11 @@ export function useEstimateEditorStructureController({
 
   const insertAssembly = useCallback(
     async (assemblyId: string, afterItemId: string | null) => {
+      const insertionKey = routeVersionIdRef.current + ":" + assemblyId;
+      if (assemblyInsertionsToReviewRef.current.has(insertionKey)) {
+        reportError("Cet ouvrage a déjà été inséré. Rechargez le devis pour le vérifier avant toute nouvelle insertion.");
+        return;
+      }
       const mutationScope = await beginMutation("insérer l'assemblage");
       if (!mutationScope) return;
       const targetVersionId = mutationScope.version.id;
@@ -251,6 +265,7 @@ export function useEstimateEditorStructureController({
       try {
         const snapshot = getItemsSnapshot();
         let insertedItems: EstimateItem[];
+        let insertionConfirmed = false;
         try {
           insertedItems = await insertAssemblyIntoVersion(assemblyId, {
             versionId: targetVersionId,
@@ -259,6 +274,7 @@ export function useEstimateEditorStructureController({
           if (insertedItems.length === 0 || !isCurrentMutation(mutationScope)) {
             return;
           }
+          insertionConfirmed = true;
 
           const insertedIds = new Set(insertedItems.map((item) => item.id));
           const insertedSection =
@@ -274,9 +290,25 @@ export function useEstimateEditorStructureController({
               : { ...item, position: item.position + 1 };
           });
           setItems([...shiftedExistingItems, ...insertedItems]);
+          // Global discounts/tiers may have changed allocations of old rows.
+          await reloadItems();
+          if (!isCurrentMutation(mutationScope)) return;
           setTotalsOutOfSync(false);
           highlightItems([...insertedIds]);
         } catch (error) {
+          const persistedInsertion = isPersistedAssemblyInsertion(error, targetVersionId);
+          if (persistedInsertion || insertionConfirmed) {
+            assemblyInsertionsToReviewRef.current.add(targetVersionId + ":" + assemblyId);
+            if (!isCurrentMutation(mutationScope)) return;
+            setTotalsOutOfSync(true);
+            if (persistedInsertion) {
+              try { await reloadItems(); } catch { /* Keep the review message when the reread also fails. */ }
+              if (!isCurrentMutation(mutationScope)) return;
+            }
+            reportError(persistedInsertion && error instanceof Error ? error.message :
+              "L'ouvrage est enregistré, mais son affichage n'a pas pu être confirmé. Rechargez le devis sans le réinsérer.");
+            return;
+          }
           if (!isCurrentMutation(mutationScope)) return;
           if (!handleVersionConflict(error, { persistDraft: true })) {
             reportError(
@@ -338,7 +370,13 @@ export function useEstimateEditorStructureController({
               context
             );
             if (!historyScope) return;
+            let insertionConfirmed = false;
             try {
+              if (assemblyInsertionsToReviewRef.current.has(historyScope.version.id + ":" + assemblyId)) {
+                const message = "Cet ouvrage est déjà présent. Rechargez le devis pour le vérifier avant de rétablir une insertion.";
+                (context?.reportError ?? reportError)(message);
+                throw new Error(message);
+              }
               const redoSnapshot = getItemsSnapshot();
               const recreated = await insertAssemblyIntoVersion(assemblyId, {
                 versionId: historyScope.version.id,
@@ -350,6 +388,7 @@ export function useEstimateEditorStructureController({
               ) {
                 return;
               }
+              insertionConfirmed = true;
               latestInsertedRoots = resolveTopLevelItemIds(recreated);
               const recreatedIds = new Set(recreated.map((item) => item.id));
               const insertedSection =
@@ -367,12 +406,26 @@ export function useEstimateEditorStructureController({
                 }),
                 ...recreated,
               ]);
+              await reloadItems();
+              if (!isCurrentHistoryMutation(historyScope, context)) return;
               setTotalsOutOfSync(false);
               await refreshVersionToken(
                 historyScope.version.id,
                 () => isCurrentHistoryMutation(historyScope, context),
                 "Impossible de rafraichir le jeton de version après reinsertion d'ouvrage."
               );
+            } catch (error) {
+              const persistedInsertion = isPersistedAssemblyInsertion(error, historyScope.version.id);
+              if (persistedInsertion || insertionConfirmed) {
+                assemblyInsertionsToReviewRef.current.add(historyScope.version.id + ":" + assemblyId);
+                if (isCurrentHistoryMutation(historyScope, context)) {
+                  setTotalsOutOfSync(true);
+                  try { await reloadItems(); } catch { /* The insertion remains subject to review. */ }
+                  if (isCurrentHistoryMutation(historyScope, context)) (context?.reportError ?? reportError)(persistedInsertion && error instanceof Error ? error.message :
+                    "L'ouvrage est enregistré. Rechargez le devis pour vérifier son affichage sans le réinsérer.");
+                }
+              }
+              throw error;
             } finally {
               finishMutation(historyScope);
             }
@@ -393,6 +446,7 @@ export function useEstimateEditorStructureController({
       pushHistoryCommand,
       highlightItems,
       refreshVersionToken,
+      reloadItems,
       reportError,
       resolveErrorMessage,
       setItems,

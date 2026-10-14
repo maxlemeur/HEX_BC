@@ -120,7 +120,8 @@ insert into public.supplier_pricebook (
   supplier_catalog_item_id,
   supplier_id,
   product_id,
-  unit_price_cents
+  unit_price_cents,
+  unit
 )
 select
   '33555555-5555-4555-8555-555555555555',
@@ -128,7 +129,8 @@ select
   '33444444-4444-4444-8444-444444444444',
   '31111111-1111-4111-8111-111111111111',
   '33333333-3333-4333-8333-333333333333',
-  1100
+  1100,
+  'u'
 from public.tenant_memberships as membership
 where membership.user_id = '11111111-1111-4111-8111-111111111111';
 
@@ -190,6 +192,8 @@ insert into public.estimate_items (
   item_type,
   position,
   title,
+  description,
+  selected_supplier_price_id,
   quantity,
   unit_price_ht_cents,
   tax_rate_bp,
@@ -209,6 +213,8 @@ select
   'line'::public.estimate_item_type,
   1,
   'Ligne source',
+  'u',
+  '33555555-5555-4555-8555-555555555555',
   1,
   1000,
   2000,
@@ -234,7 +240,8 @@ insert into public.purchase_orders (
   notes,
   total_ht_cents,
   total_tax_cents,
-  total_ttc_cents
+  total_ttc_cents,
+  source_estimate_version_id
 )
 select
   '37777777-7777-4777-8777-777777777777',
@@ -248,7 +255,8 @@ select
   'original',
   2500,
   500,
-  3000
+  3000,
+  '35555555-5555-4555-8555-555555555555'
 from public.tenant_memberships as membership
 where membership.user_id = '11111111-1111-4111-8111-111111111111';
 
@@ -266,7 +274,9 @@ insert into public.purchase_order_items (
   line_total_ht_cents,
   line_tax_cents,
   line_total_ttc_cents,
-  source_estimate_item_id
+  source_estimate_item_id,
+  source_selected_supplier_price_id,
+  unit
 )
 select
   '38888888-8888-4888-8888-888888888888',
@@ -282,7 +292,9 @@ select
   2500,
   500,
   3000,
-  '36666666-6666-4666-8666-666666666666'
+  '36666666-6666-4666-8666-666666666666',
+  '33555555-5555-4555-8555-555555555555',
+  'u'
 from public.purchase_orders as purchase_order
 where purchase_order.id = '37777777-7777-4777-8777-777777777777';
 
@@ -566,12 +578,15 @@ select set_config(
   true
 );
 
+-- The three-argument replacement RPC is intentionally revoked since SITE-01B.
+-- Use stable item identity and the current optimistic edit revision.
 select lives_ok(
   $$
     select public.replace_purchase_order_draft(
       '37777777-7777-4777-8777-777777777777',
       '{"expected_delivery_date":"TBD","notes":"persisted"}'::jsonb,
-      '[{"product_id":"33333333-3333-4333-8333-333333333333","reference":"REF-001","designation":"Coffret A","quantity":2,"unit_price_ht_cents":1250,"tax_rate_bp":2000}]'::jsonb
+      '[{"id":"38888888-8888-4888-8888-888888888888","product_id":"33333333-3333-4333-8333-333333333333","reference":"REF-001","designation":"Coffret A","quantity":2,"unit":"u","unit_price_ht_cents":1250,"tax_rate_bp":2000}]'::jsonb,
+      (select edit_revision from public.purchase_orders where id='37777777-7777-4777-8777-777777777777')
     )
   $$,
   'purchase order replacement succeeds atomically for its writer'
@@ -587,16 +602,20 @@ select is(
   'unchanged purchase order lines preserve estimate traceability'
 );
 
+-- Invalid products are now rejected before writing the header. A sourced-unit
+-- change fails in the line trigger after the header UPDATE, retaining the same
+-- late-failure/atomic-rollback coverage without weakening unit provenance.
 select throws_ok(
   $$
     select public.replace_purchase_order_draft(
       '37777777-7777-4777-8777-777777777777',
       '{"notes":"must roll back"}'::jsonb,
-      '[{"product_id":"39999999-9999-4999-8999-999999999999","reference":"REF-001","designation":"Coffret A","quantity":2,"unit_price_ht_cents":1250,"tax_rate_bp":2000}]'::jsonb
+      '[{"id":"38888888-8888-4888-8888-888888888888","product_id":"33333333-3333-4333-8333-333333333333","reference":"REF-001","designation":"Coffret A","quantity":2,"unit":"m","unit_price_ht_cents":1250,"tax_rate_bp":2000}]'::jsonb,
+      (select edit_revision from public.purchase_orders where id='37777777-7777-4777-8777-777777777777')
     )
   $$,
-  '23503',
-  'PURCHASE_ORDER_PRODUCT_SCOPE_INVALID',
+  '22023',
+  'PURCHASE_ORDER_SOURCE_UNIT_IMMUTABLE',
   'a late purchase order item failure aborts the RPC'
 );
 
@@ -819,11 +838,12 @@ select throws_ok(
     select public.replace_purchase_order_draft(
       '53333333-3333-4333-8333-333333333333',
       '{"notes":"viewer forbidden"}'::jsonb,
-      null
+      null,
+      (select edit_revision from public.purchase_orders where id='53333333-3333-4333-8333-333333333333')
     )
   $$,
   '42501',
-  'PURCHASE_ORDER_DRAFT_NOT_EDITABLE',
+  'PURCHASE_ORDER_ACCESS_DENIED',
   'a viewer cannot rewrite their own draft purchase order'
 );
 

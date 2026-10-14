@@ -270,8 +270,8 @@ export function SectionRow({
                   className="estimate-section-quick-actions__trigger"
                   type="button"
                   aria-label={`Ajouter dans ${item.title}`}
-                  title="Ajouter"
-                  disabled={isReadOnly}
+                  title={isPendingCreate ? "Enregistrement de la section…" : "Ajouter"}
+                  disabled={isReadOnly || isPendingCreate}
                   data-testid="estimate-section-quick-actions-trigger"
                 >
                   +
@@ -284,7 +284,7 @@ export function SectionRow({
                     className="estimate-section-hover-btn"
                     type="button"
                     onClick={() => onAddLine(item.id)}
-                    disabled={isReadOnly}
+                    disabled={isReadOnly || isPendingCreate}
                     data-testid="estimate-section-add-line-button"
                   >
                     {addLineLabel}
@@ -295,7 +295,7 @@ export function SectionRow({
                     className="estimate-section-hover-btn"
                     type="button"
                     onClick={() => onAddSection(item.id)}
-                    disabled={isReadOnly}
+                    disabled={isReadOnly || isPendingCreate}
                     data-testid="estimate-section-add-section-button"
                   >
                     {addSectionLabel}

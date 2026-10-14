@@ -531,6 +531,7 @@ export function TakeoffSourceBadge({
 
   const isAiStructure = normalizedSourceProvider === "ai_structure";
   const isGeneratedOuvrage = normalizedSourceProvider === "generated_ouvrage";
+  const isAssemblyLibrary = normalizedSourceProvider === "assembly_library";
   const isVersionZeroDraft = normalizedSourceProvider === "version_zero_draft";
   const aiApplications = parseAiStructureApplications(sourceMetadata);
   const generatedOuvrageSnapshot = parseGeneratedOuvrageSnapshot(sourceMetadata);
@@ -581,7 +582,9 @@ export function TakeoffSourceBadge({
     setIsExplanationPanelOpen(true);
   };
 
-  const triggerText = isAiStructure
+  const triggerText = isAssemblyLibrary
+    ? "Bibliothèque"
+    : isAiStructure
     ? "IA structure"
     : isGeneratedOuvrage
       ? "IA ouvrage"
@@ -606,10 +609,10 @@ export function TakeoffSourceBadge({
         onClick={toggle}
         aria-expanded={isOpen}
         aria-describedby={isOpen ? tooltipId : undefined}
-        aria-label="Afficher la provenance IA"
+        aria-label={isAssemblyLibrary ? "Afficher la provenance de la bibliothèque" : "Afficher la provenance IA"}
       >
         <span aria-hidden="true">{triggerText}</span>
-        <span className="sr-only">Provenance IA disponible pour cette ligne</span>
+        <span className="sr-only">{isAssemblyLibrary ? "Provenance de bibliothèque disponible pour cette ligne" : "Provenance IA disponible pour cette ligne"}</span>
       </button>
 
       {!isAiStructure && !isVersionZeroDraft && estimateItemId ? (
@@ -632,7 +635,17 @@ export function TakeoffSourceBadge({
           className="takeoff-source-badge__popover"
           role="tooltip"
         >
-          {isAiStructure ? (
+          {isAssemblyLibrary ? (
+            <>
+              <p className="takeoff-source-badge__title">Origine : bibliothèque d&apos;ouvrages</p>
+              <p className="text-sm text-[var(--slate-700)]">
+                La provenance d&apos;origine est conservée. Vérifiez la quantité et les exigences du devis actuel.
+              </p>
+              <Link className="takeoff-source-badge__job-link mt-3 inline-block" href="/dashboard/estimates/assemblies">
+                Ouvrir la bibliothèque d&apos;ouvrages
+              </Link>
+            </>
+          ) : isAiStructure ? (
             <>
               <p className="takeoff-source-badge__title">Structure IA</p>
               <div className="space-y-3 text-sm text-[var(--slate-700)]">

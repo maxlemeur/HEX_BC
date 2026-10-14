@@ -270,6 +270,12 @@ export function useEstimateEditorItemsController({
         return;
       }
 
+      if (parentId && (isTempEstimateItemId(parentId) || getItemsSnapshot().some((item) =>
+        item.id === parentId && isPendingCreateEstimateItem(item)))) {
+        reportError("La section est en cours d’enregistrement. Attendez sa confirmation avant d’ajouter une ligne ou un chapitre.");
+        return;
+      }
+
       const targetVersion = version;
       reportError(null);
       const position = getNextPosition(parentId);
@@ -419,6 +425,12 @@ export function useEstimateEditorItemsController({
       if (!version || !settings) return;
       if (isMutationBlocked) {
         reportError(mutationBlockedMessage);
+        return;
+      }
+
+      if (parentId && (isTempEstimateItemId(parentId) || getItemsSnapshot().some((item) =>
+        item.id === parentId && isPendingCreateEstimateItem(item)))) {
+        reportError("La section est en cours d’enregistrement. Attendez sa confirmation avant d’ajouter une ligne ou un chapitre.");
         return;
       }
 

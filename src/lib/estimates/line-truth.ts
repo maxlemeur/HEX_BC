@@ -209,6 +209,12 @@ function resolveSource(input: {
         label: "Ouvrage",
         detail: "Quantité issue d'un ouvrage compose ou d'un ouvrage IA.",
       };
+    case "assembly_library":
+      return {
+        kind: "assembly" as const,
+        label: "Bibliothèque d'ouvrages",
+        detail: "Ligne réutilisée depuis la bibliothèque d'ouvrages. Sa provenance d'origine est conservée.",
+      };
     case "version_zero_draft":
       return {
         kind: "brief" as const,
@@ -283,6 +289,12 @@ function resolveQtyStatus(input: {
         label: "Qte provisionnelle",
         detail: "Quantité composee ou estimee pour un ouvrage provisoire.",
       };
+    case "assembly_library":
+      return {
+        code: "to_confirm",
+        label: "Qté à confirmer",
+        detail: "Quantité reprise d'un ouvrage de bibliothèque, à vérifier dans ce devis.",
+      };
     case "manual":
     case "ai_structure":
     case "version_zero_draft":
@@ -311,6 +323,14 @@ function resolveConfidence(input: {
       label: "faible",
       score: null,
       detail: "Confiance faible tant que la quantité n'est pas renseignée.",
+    };
+  }
+
+  if (input.provider === "assembly_library") {
+    return {
+      label: "faible",
+      score: null,
+      detail: "La provenance d'origine ne mesure pas la confiance dans la quantité du devis actuel.",
     };
   }
 

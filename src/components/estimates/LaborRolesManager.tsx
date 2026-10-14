@@ -15,6 +15,7 @@ type LaborRole = Database["public"]["Tables"]["labor_roles"]["Row"];
 type LaborRolesManagerProps = {
   roles: LaborRole[];
   isSaving: boolean;
+  canManage?: boolean;
   error: string | null;
   onCreate: (payload: { name: string; hourly_rate_cents: number }) => Promise<void>;
   onUpdate: (id: string, updates: Partial<LaborRole>) => Promise<void>;
@@ -34,6 +35,7 @@ function formatRateInput(cents: number) {
 export function LaborRolesManager({
   roles,
   isSaving,
+  canManage = true,
   error,
   onCreate,
   onUpdate,
@@ -58,6 +60,7 @@ export function LaborRolesManager({
   }, [drafts, roles]);
 
   async function handleAddRole() {
+    if (!canManage || isSaving) return;
     setFormError(null);
     const trimmedName = newName.trim();
     const rateCents = parseEuroToCents(newRate || "0") ?? 0;
@@ -73,6 +76,7 @@ export function LaborRolesManager({
   }
 
   async function handleBlur(role: LaborRole) {
+    if (!canManage || isSaving) return;
     const draft = mergedDrafts[role.id];
     if (!draft) return;
 
@@ -116,6 +120,7 @@ export function LaborRolesManager({
           <FieldLabel htmlFor="new-role-name">Nom du rôle</FieldLabel>
           <Input
             id="new-role-name"
+            disabled={!canManage || isSaving}
             size="sm"
             value={newName}
             onChange={(event) => setNewName(event.target.value)}
@@ -126,6 +131,7 @@ export function LaborRolesManager({
           <FieldLabel htmlFor="new-role-rate">Taux horaire (EUR)</FieldLabel>
           <Input
             id="new-role-rate"
+            disabled={!canManage || isSaving}
             size="sm"
             type="number"
             step="0.01"
@@ -140,7 +146,7 @@ export function LaborRolesManager({
             variant="primary"
             size="md"
             onClick={handleAddRole}
-            disabled={isSaving}
+            disabled={!canManage || isSaving}
           >
             Ajouter
           </Button>
@@ -190,6 +196,7 @@ export function LaborRolesManager({
                         size="sm"
                         value={draft.name}
                         aria-label={`Libellé du rôle ${role.name}`}
+                        disabled={!canManage || isSaving}
                         onChange={(event) =>
                           setDrafts((prev) => ({
                             ...prev,
@@ -210,6 +217,7 @@ export function LaborRolesManager({
                         min={0}
                         value={draft.rate}
                         aria-label={`Taux horaire du rôle ${role.name} (EUR)`}
+                        disabled={!canManage || isSaving}
                         onChange={(event) =>
                           setDrafts((prev) => ({
                             ...prev,
@@ -229,6 +237,7 @@ export function LaborRolesManager({
                           className="accent-primary"
                           checked={draft.is_active}
                           aria-label={`Rôle ${role.name} actif`}
+                          disabled={!canManage || isSaving}
                           onChange={(event) =>
                             setDrafts((prev) => ({
                               ...prev,

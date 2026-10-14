@@ -181,6 +181,7 @@ const createEstimateVersionSchema = z
     currency: estimateCurrencySchema.optional(),
     margin_bp: basisPointsSchema.optional(),
     discount_bp: basisPointsSchema.optional(),
+    discount_amount_cents: z.number().int().min(0).max(2147483647).nullable().optional(),
     discount_mode: estimateDiscountModeSchema.optional(),
     discount_steps: discountStepsSchema.optional(),
     global_coefficient: globalCoefficientSchema.optional(),
@@ -200,6 +201,10 @@ const createEstimateVersionSchema = z
         message: "discount_steps doit être vide en mode simple.",
         path: ["discount_steps"],
       });
+    }
+    if (payload.discount_amount_cents != null && mode !== "simple") {
+      ctx.addIssue({ code: z.ZodIssueCode.custom,
+        message: "Une remise fixe requiert le mode simple.", path: ["discount_amount_cents"] });
     }
   });
 
@@ -275,6 +280,7 @@ export const createEstimateSchema = z.preprocess(
 
 export const patchEstimateVersionSchema = z
   .object({
+    expected_content_revision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
     title: optionalNullableTextSchema.optional(),
     date_devis: dateOnlySchema.optional(),
     exclusions: optionalNullableExclusionsSchema.optional(),
@@ -284,6 +290,7 @@ export const patchEstimateVersionSchema = z
     currency: estimateCurrencySchema.optional(),
     margin_bp: basisPointsSchema.optional(),
     discount_bp: basisPointsSchema.optional(),
+    discount_amount_cents: z.number().int().min(0).max(2147483647).nullable().optional(),
     discount_mode: estimateDiscountModeSchema.optional(),
     discount_steps: discountStepsSchema.optional(),
     global_coefficient: globalCoefficientSchema.optional(),
@@ -306,7 +313,7 @@ export const patchEstimateVersionSchema = z
   })
   .superRefine((payload, ctx) => {
     const hasUpdatableField = Object.keys(payload).some(
-      (key) => key !== "updated_at"
+      (key) => key !== "updated_at" && key !== "expected_content_revision"
     );
     if (!hasUpdatableField) {
       ctx.addIssue({
@@ -327,6 +334,10 @@ export const patchEstimateVersionSchema = z
         message: "discount_steps doit être vide en mode simple.",
         path: ["discount_steps"],
       });
+    }
+    if (payload.discount_amount_cents != null && payload.discount_mode === "cascade") {
+      ctx.addIssue({ code: z.ZodIssueCode.custom,
+        message: "Une remise fixe requiert le mode simple.", path: ["discount_amount_cents"] });
     }
   });
 
@@ -664,10 +675,12 @@ export const batchOperationSchema = z.discriminatedUnion("op", [
 
 export const batchOperationsSchema = z.object({
   concurrency_token: updatedAtTokenSchema.optional(),
+  operation_key: uuidSchema.optional(),
   dry_run: z.boolean().optional(),
   operations: z
     .array(batchOperationSchema)
-    .min(1, "operations ne peut pas être vide."),
+    .min(1, "operations ne peut pas être vide.")
+    .max(1000, "operations ne peut pas contenir plus de 1000 opérations."),
 });
 
 export const estimateSupplierComparisonsRequestSchema = z
@@ -736,6 +749,7 @@ export const estimatePurchaseOrderDraftGroupSchema = z.preprocess(
     return {
       supplier_id: record.supplier_id ?? record.supplierId,
       delivery_site_id: record.delivery_site_id ?? record.deliverySiteId,
+      delivery_site_updated_at: record.delivery_site_updated_at ?? record.deliverySiteUpdatedAt,
       item_ids: record.item_ids ?? record.itemIds,
       expected_delivery_date:
         record.expected_delivery_date ?? record.expectedDeliveryDate,
@@ -744,7 +758,8 @@ export const estimatePurchaseOrderDraftGroupSchema = z.preprocess(
   },
   z.object({
     supplier_id: uuidSchema,
-    delivery_site_id: requiredTextSchema,
+    delivery_site_id: uuidSchema,
+    delivery_site_updated_at: z.string().datetime({ offset: true }),
     item_ids: z.array(uuidSchema).min(1, "Au moins une ligne est requise."),
     expected_delivery_date: z
       .preprocess((value) => {
@@ -769,7 +784,8 @@ export const estimatePurchaseOrderDraftGroupSchema = z.preprocess(
 ).transform((group) => ({
   supplier_id: group.supplier_id,
   delivery_site_id: group.delivery_site_id,
-  item_ids: Array.from(new Set(group.item_ids)),
+  delivery_site_updated_at: group.delivery_site_updated_at,
+  item_ids: group.item_ids,
   expected_delivery_date: group.expected_delivery_date ?? null,
   notes: group.notes ?? null,
 }));
@@ -782,9 +798,16 @@ export const estimatePurchaseOrderDraftsCreateSchema = z
 
     const record = value as Record<string, unknown>;
     return {
+      idempotency_key: record.idempotency_key ?? record.idempotencyKey,
+      reviewed_lines: record.reviewed_lines ?? record.reviewedLines,
       groups: record.groups,
     };
   }, z.object({
+    idempotency_key: uuidSchema,
+    reviewed_lines: z.array(z.object({
+      item_id: uuidSchema,
+      review_fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+    })).min(1).max(10000),
     groups: z
       .array(estimatePurchaseOrderDraftGroupSchema)
       .min(1, "Au moins un groupe fournisseur est requis.")
@@ -815,6 +838,16 @@ export const estimatePurchaseOrderDraftsCreateSchema = z
         });
       });
     });
+    const reviewedIds = new Set(payload.reviewed_lines.map((line) => line.item_id));
+    if (reviewedIds.size !== payload.reviewed_lines.length ||
+        reviewedIds.size !== requestedItemIds.size ||
+        [...requestedItemIds].some((id) => !reviewedIds.has(id))) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "La revue doit contenir exactement les lignes sélectionnées, sans doublon.",
+        path: ["reviewed_lines"],
+      });
+    }
   });
 
 

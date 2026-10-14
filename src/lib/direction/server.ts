@@ -4,6 +4,8 @@ import { cache } from "react";
 import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import { forbidden } from "@/lib/estimates/errors";
 import { resolveEffectiveMarginBp } from "@/lib/estimates/effective-margin";
+import { resolveFixedDiscountSignal, type FixedDiscountSignal } from "@/lib/estimates/effective-discount";
+import { loadCanonicalFixedDiscountEvidence } from "@/lib/estimates/fixed-discount-evidence-server";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { mapSupabaseError } from "@/lib/estimates/errors";
 import { normalizeRiskAlertRow } from "@/lib/takeoff/risk-radar";
@@ -26,6 +28,7 @@ type TenantRole = Database["public"]["Enums"]["tenant_role"];
 
 type VersionRow = {
   id: string;
+  tenant_id: string;
   project_id: string;
   version_number: number;
   status: string;
@@ -39,6 +42,7 @@ type VersionRow = {
   calc_snapshot_content_revision: number | null;
   calc_snapshot_context: Database["public"]["Tables"]["estimate_versions"]["Row"]["calc_snapshot_context"];
   discount_bp: number | null;
+  discount_amount_cents: number | null;
   updated_at: string;
   date_devis: string;
   validite_jours: number;
@@ -491,7 +495,7 @@ const listLatestDirectionVersions = cache(async function listLatestDirectionVers
   const { data, error } = await context.supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, version_number, status, approval_status, total_ht_cents, margin_bp, margin_multiplier, margin_mode, calc_engine_version, content_revision, calc_snapshot_content_revision, calc_snapshot_context, discount_bp, updated_at, date_devis, validite_jours, estimate_projects!inner(id, user_id, name, client_name, is_archived)"
+      "id, tenant_id, project_id, version_number, status, approval_status, total_ht_cents, margin_bp, margin_multiplier, margin_mode, calc_engine_version, content_revision, calc_snapshot_content_revision, calc_snapshot_context, discount_bp, discount_amount_cents, updated_at, date_devis, validite_jours, estimate_projects!inner(id, user_id, name, client_name, is_archived)"
     )
     .eq("tenant_id", context.tenantId)
     .neq("status", "archived")
@@ -526,7 +530,7 @@ const getDirectionVersionById = cache(async function getDirectionVersionById(
   const { data, error } = await context.supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, version_number, status, approval_status, total_ht_cents, margin_bp, margin_multiplier, margin_mode, calc_engine_version, content_revision, calc_snapshot_content_revision, calc_snapshot_context, discount_bp, updated_at, date_devis, validite_jours, estimate_projects!inner(id, user_id, name, client_name, is_archived)"
+      "id, tenant_id, project_id, version_number, status, approval_status, total_ht_cents, margin_bp, margin_multiplier, margin_mode, calc_engine_version, content_revision, calc_snapshot_content_revision, calc_snapshot_context, discount_bp, discount_amount_cents, updated_at, date_devis, validite_jours, estimate_projects!inner(id, user_id, name, client_name, is_archived)"
     )
     .eq("tenant_id", context.tenantId)
     .eq("id", versionId)
@@ -933,6 +937,23 @@ async function listDirectionPlansMetricsByProjectId(
   return metricsByProjectId;
 }
 
+async function resolveDirectionFixedDiscount(context: Awaited<ReturnType<typeof getAuthenticatedContext>>, version: VersionRow): Promise<FixedDiscountSignal> {
+  const captured = resolveFixedDiscountSignal(version);
+  if (captured.state !== "unavailable" || (version.calc_engine_version === 2 && version.status !== "draft")) return captured;
+  const project = resolveEmbeddedProject(version.estimate_projects);
+  if (!project) return { state: "unavailable" };
+  try {
+    const evidence = await loadCanonicalFixedDiscountEvidence({
+      supabase: context.supabase, tenantId: context.tenantId,
+      projectUserId: project.user_id, authorizedVersion: version,
+    });
+    return resolveFixedDiscountSignal(version, evidence);
+  } catch {
+    // Read-only portfolio retains explicit uncertainty when a calculation races.
+    return { state: "unavailable" };
+  }
+}
+
 export const fetchDirectionProjectSignals = cache(
   async (
     projectId: string,
@@ -975,6 +996,7 @@ export const fetchDirectionProjectSignals = cache(
     const plansMetrics = plansMetricsByProjectId.get(projectId);
 
     const marginBp = resolveEffectiveMarginBp(version);
+    const fixedDiscountSignal = await resolveDirectionFixedDiscount(context, version);
     return {
       latestJobId,
       marginBp,
@@ -985,6 +1007,7 @@ export const fetchDirectionProjectSignals = cache(
         amountHtCents: version.total_ht_cents ?? 0,
         marginBp,
         discountBp: version.discount_bp,
+        fixedDiscountSignal: fixedDiscountSignal,
         approvalStatus: version.approval_status,
         exceptionCount:
           plansMetrics?.exceptionCount ?? actionableAlerts.length,
@@ -1046,6 +1069,13 @@ export async function fetchDirectionDashboardPageData(
     ownerOptions.map((option) => [option.userId, option.label])
   );
 
+  const fixedDiscountByVersionId = new Map<string, FixedDiscountSignal>();
+  for (let offset = 0; offset < versions.length; offset += 4) {
+    await Promise.all(versions.slice(offset, offset + 4).map(async (version) => {
+      fixedDiscountByVersionId.set(version.id, await resolveDirectionFixedDiscount(context, version));
+    }));
+  }
+
   const filteredCards = versions
     .map((version): DirectionPortfolioCard | null => {
       const project = resolveEmbeddedProject(version.estimate_projects);
@@ -1073,6 +1103,7 @@ export async function fetchDirectionDashboardPageData(
         amountHtCents: version.total_ht_cents ?? 0,
         marginBp,
         discountBp: version.discount_bp,
+        fixedDiscountSignal: fixedDiscountByVersionId.get(version.id),
         approvalStatus: version.approval_status,
         exceptionCount:
           plansMetrics?.exceptionCount ?? actionableAlerts.length,

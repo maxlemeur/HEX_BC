@@ -25,6 +25,7 @@ import {
   computeOrderTotals,
 } from "@/lib/order-calculations";
 import { parseEuroToCents } from "@/lib/money";
+import { parseOrderQuantityInput } from "@/lib/purchase-orders/quantities";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 import { OrderDocumentViewport } from "../_components/OrderDocumentViewport";
@@ -38,7 +39,8 @@ type SiteOption = DeliverySiteCreateResult;
 type DraftItem = {
   key: string;
   designation: string;
-  quantity: number;
+  quantityInput: string;
+  unitInput: string;
   unitPriceEuros: string;
   taxRateBp: number;
 };
@@ -47,7 +49,8 @@ function newDraftItem(): DraftItem {
   return {
     key: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
     designation: "",
-    quantity: 1,
+    quantityInput: "1",
+    unitInput: "",
     unitPriceEuros: "",
     taxRateBp: 2000,
   };
@@ -183,7 +186,8 @@ export default function NewOrderPage() {
       prev.map((item) => {
         if (item.key !== key) return item;
         if (field === "designation") return { ...item, designation: String(value) };
-        if (field === "quantity") return { ...item, quantity: Math.max(1, Number(value) || 1) };
+        if (field === "quantity") return { ...item, quantityInput: String(value) };
+        if (field === "unit") return { ...item, unitInput: String(value) };
         if (field === "unitPriceEuros") return { ...item, unitPriceEuros: String(value) };
         return item;
       })
@@ -201,55 +205,55 @@ export default function NewOrderPage() {
     setItems((prev) => [...prev, newDraftItem()]);
   }
 
-  // Compute line totals
+  // Keep every row, including invalid input, until the user corrects or removes it.
   const computed = items.map((item) => {
+    const quantity = parseOrderQuantityInput(item.quantityInput);
     const unitPriceCents = parseEuroToCents(item.unitPriceEuros);
-    if (unitPriceCents === null || unitPriceCents < 0) {
-      return {
-        key: item.key,
-        valid: false as const,
-        unitPriceCents: 0,
-        lineTotalHtCents: 0,
-        lineTaxCents: 0,
-        lineTotalTtcCents: 0,
-      };
+    let error: string | null = !item.designation.trim()
+      ? "renseignez la désignation."
+      : quantity === null
+        ? "saisissez une quantité de 0,001 à 2 147 483 647, avec au maximum trois décimales."
+        : !item.unitInput.trim()
+          ? "confirmez l’unité avant de créer la ligne ou de modifier sa quantité ou son prix."
+          : unitPriceCents === null || unitPriceCents < 0
+            ? "renseignez un prix unitaire HT valide."
+            : null;
+    let totals = { lineTotalHtCents: 0, lineTaxCents: 0, lineTotalTtcCents: 0 };
+    if (!error && quantity !== null && unitPriceCents !== null) {
+      try {
+        totals = computeLineTotals({ quantity, unitPriceHtCents: unitPriceCents, taxRateBp: item.taxRateBp });
+      } catch {
+        error = "le montant dépasse la limite autorisée. Réduisez la quantité ou le prix.";
+      }
     }
-
-    const totals = computeLineTotals({
-      quantity: item.quantity,
-      unitPriceHtCents: unitPriceCents,
-      taxRateBp: item.taxRateBp,
-    });
-
-    return {
-      key: item.key,
-      valid: true as const,
-      unitPriceCents,
-      ...totals,
-    };
+    return { quantity, unitPriceCents, error, ...totals };
   });
 
-  const validLineTotals = computed.filter((item) => item.valid);
-  const orderTotals = computeOrderTotals(
-    validLineTotals.map((item) => ({
-      lineTotalHtCents: item.lineTotalHtCents,
-      lineTaxCents: item.lineTaxCents,
-      lineTotalTtcCents: item.lineTotalTtcCents,
-    }))
-  );
+  const invalidLineIndex = computed.findIndex((line) => line.error);
+  let totalsError = invalidLineIndex >= 0
+    ? `Ligne ${invalidLineIndex + 1} : ${computed[invalidLineIndex].error}`
+    : null;
+  let orderTotals = { totalHtCents: 0, totalTaxCents: 0, totalTtcCents: 0 };
+  if (!totalsError) {
+    try {
+      orderTotals = computeOrderTotals(computed);
+    } catch {
+      totalsError = "Le total de la commande dépasse la limite autorisée.";
+    }
+  }
 
-  // Map items for the document component
-  const documentItems: OrderItemData[] = items.map((item) => {
-    const comp = computed.find((c) => c.key === item.key);
-    return {
-      key: item.key,
-      designation: item.designation,
-      quantity: item.quantity,
-      unitPriceInput: item.unitPriceEuros,
-      unitPriceHtCents: comp?.unitPriceCents ?? 0,
-      lineTotalHtCents: comp?.lineTotalHtCents ?? 0,
-    };
-  });
+  const documentItems: OrderItemData[] = items.map((item, index) => ({
+    key: item.key,
+    designation: item.designation,
+    quantity: computed[index].quantity ?? 0,
+    quantityInput: item.quantityInput,
+    unit: item.unitInput || null,
+    priceUnit: item.unitInput.trim() || null,
+    unitPriceInput: item.unitPriceEuros,
+    unitPriceHtCents: computed[index].unitPriceCents ?? 0,
+    lineTotalHtCents: computed[index].lineTotalHtCents,
+    validationError: computed[index].error,
+  }));
 
   async function onCreateOrder(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -260,24 +264,21 @@ export default function NewOrderPage() {
       return;
     }
 
-    const invalid = computed.find((x) => !x.valid);
-    if (invalid) {
-      setFormError("Un des prix est invalide.");
+    const invalidIndex = computed.findIndex((line) => line.error);
+    if (invalidIndex >= 0 || totalsError) {
+      setFormError(invalidIndex >= 0 ? `Ligne ${invalidIndex + 1} : ${computed[invalidIndex].error}` : totalsError);
       return;
     }
 
-    const cleanedItems = items
-      .map((item) => {
-        const computedLine = computed.find((x) => x.key === item.key);
-        return {
-          key: item.key,
-          designation: item.designation.trim(),
-          quantity: item.quantity,
-          taxRateBp: item.taxRateBp,
-          unitPriceCents: computedLine?.unitPriceCents ?? 0,
-        };
-      })
-      .filter((item) => item.designation.length > 0 && item.quantity > 0);
+    const cleanedItems = items.map((item, index) => ({
+      productId: null,
+      reference: null,
+      designation: item.designation.trim(),
+      quantity: computed[index].quantity!,
+      unit: item.unitInput.trim() || null,
+      taxRateBp: item.taxRateBp,
+      unitPriceCents: computed[index].unitPriceCents!,
+    }));
 
     if (cleanedItems.length === 0) {
       setFormError("Ajoutez au moins une ligne de commande.");
@@ -344,7 +345,7 @@ export default function NewOrderPage() {
         <LoadingState label="Chargement des fournisseurs et des chantiers…" className="py-4" />
       ) : null}
 
-      <form id="order-form" onSubmit={onCreateOrder} aria-label="Nouveau bon de commande">
+      <form noValidate id="order-form" onSubmit={onCreateOrder} aria-label="Nouveau bon de commande">
         <OrderDocumentViewport label="Bon de commande à compléter">
           <PurchaseOrderDocument
             editable={true}
@@ -380,6 +381,7 @@ export default function NewOrderPage() {
             totalHtCents={orderTotals.totalHtCents}
             totalTaxCents={orderTotals.totalTaxCents}
             totalTtcCents={orderTotals.totalTtcCents}
+            totalsPending={totalsError !== null}
           />
         </OrderDocumentViewport>
 
@@ -388,8 +390,8 @@ export default function NewOrderPage() {
           submitLabel="Créer le bon de commande"
           submitIcon={<PlusIcon aria-hidden="true" />}
           loading={creating}
-          disabled={isLoading}
-          error={formError}
+          disabled={isLoading || totalsError !== null}
+          error={totalsError ?? formError}
         />
       </form>
 

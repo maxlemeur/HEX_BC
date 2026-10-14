@@ -4,6 +4,7 @@ import { parseWithSchema } from "@/lib/takeoff/server-helpers";
 import { toValidationIssues } from "@/lib/takeoff/validation-issues";
 
 import { z } from "zod";
+import type { Database } from "@/types/database";
 
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import {
@@ -22,6 +23,7 @@ import {
 } from "@/lib/estimates/errors";
 import { detectEstimateOutliers } from "@/lib/estimates/outlier-detection";
 import { evaluateRules } from "@/lib/estimates/rules-engine";
+import { loadCanonicalFixedDiscountEvidence } from "@/lib/estimates/fixed-discount-evidence-server";
 import { getStalePriceDaysForTenant } from "@/lib/feature-flags";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import {
@@ -432,13 +434,21 @@ const ESTIMATE_RISK_ITEMS_SELECT = [
 ].join(", ");
 const ESTIMATE_RISK_VERSION_SELECT = [
   "id",
+  "tenant_id",
   "project_id",
+  "status",
+  "updated_at",
+  "content_revision",
+  "calc_engine_version",
+  "calc_snapshot_content_revision",
+  "calc_snapshot_context",
+  "discount_amount_cents",
   "margin_bp",
   "margin_multiplier",
   "discount_bp",
   "total_ht_cents",
   "tax_rate_bp",
-  "estimate_projects!inner(id, name, client_name)",
+  "estimate_projects!inner(id, user_id, name, client_name)",
 ].join(", ");
 const ESTIMATE_RISK_ALERTS_SELECT = [
   "id",
@@ -3257,7 +3267,16 @@ type EstimateRiskItemRow = {
 
 type EstimateRiskVersionContext = {
   id: string;
+  tenant_id: string;
   project_id: string;
+  status: string;
+  updated_at: string;
+  content_revision: number;
+  calc_engine_version: number | null;
+  calc_snapshot_content_revision: number | null;
+  calc_snapshot_context: Database["public"]["Tables"]["estimate_versions"]["Row"]["calc_snapshot_context"];
+  discount_amount_cents: number | null;
+  project_user_id: string;
   margin_bp: number | null;
   margin_multiplier: number | null;
   discount_bp: number | null;
@@ -3393,6 +3412,15 @@ async function loadEstimateRiskVersionContext(input: {
 
   return {
     id: typeof versionRow.id === "string" ? versionRow.id : input.versionId,
+    tenant_id: typeof versionRow.tenant_id === "string" ? versionRow.tenant_id : "",
+    status: typeof versionRow.status === "string" ? versionRow.status : "",
+    updated_at: typeof versionRow.updated_at === "string" ? versionRow.updated_at : "",
+    content_revision: typeof versionRow.content_revision === "number" ? versionRow.content_revision : 0,
+    calc_engine_version: typeof versionRow.calc_engine_version === "number" ? versionRow.calc_engine_version : null,
+    calc_snapshot_content_revision: typeof versionRow.calc_snapshot_content_revision === "number" ? versionRow.calc_snapshot_content_revision : null,
+    calc_snapshot_context: (versionRow.calc_snapshot_context ?? null) as EstimateRiskVersionContext["calc_snapshot_context"],
+    discount_amount_cents: typeof versionRow.discount_amount_cents === "number" ? versionRow.discount_amount_cents : null,
+    project_user_id: typeof embeddedProject.user_id === "string" ? embeddedProject.user_id : "",
     project_id:
       typeof versionRow.project_id === "string"
         ? versionRow.project_id
@@ -3789,9 +3817,14 @@ async function syncTakeoffRiskRadarProjection(input: {
     projectId: input.projectId,
     categoryIds,
   });
+  const fixedDiscountEvidence = await loadCanonicalFixedDiscountEvidence({
+    supabase: input.supabase, tenantId: input.tenantId,
+    projectUserId: versionContext.project_user_id, authorizedVersion: versionContext,
+  });
   const rulesEvaluation = await evaluateRules({
     supabase: input.supabase as never,
     tenantId: input.tenantId,
+    fixedDiscountEvidence,
     version: {
       id: versionContext.id,
       project_id: versionContext.project_id,
@@ -3799,6 +3832,14 @@ async function syncTakeoffRiskRadarProjection(input: {
       margin_bp: versionContext.margin_bp,
       margin_multiplier: versionContext.margin_multiplier,
       discount_bp: versionContext.discount_bp,
+      discount_amount_cents: versionContext.discount_amount_cents,
+      tenant_id: versionContext.tenant_id,
+      status: versionContext.status,
+      updated_at: versionContext.updated_at,
+      calc_engine_version: versionContext.calc_engine_version,
+      content_revision: versionContext.content_revision,
+      calc_snapshot_content_revision: versionContext.calc_snapshot_content_revision,
+      calc_snapshot_context: versionContext.calc_snapshot_context,
     },
     project: {
       id: input.projectId,

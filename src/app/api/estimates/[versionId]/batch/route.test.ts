@@ -10,6 +10,7 @@ import { executeEstimateBatch } from "@/lib/estimates/batch";
 
 const VERSION_ID = "11111111-1111-4111-8111-111111111111";
 const ITEM_ID = "22222222-2222-4222-8222-222222222222";
+const OPERATION_KEY = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const UPDATED_AT = "2026-02-21T10:00:00.000Z";
 
 function makeParams(versionId = VERSION_ID) {
@@ -45,6 +46,7 @@ describe("POST /api/estimates/[versionId]/batch", () => {
           "if-match": ` ${UPDATED_AT} `,
         },
         body: JSON.stringify({
+          operation_key: OPERATION_KEY,
           concurrency_token: "2025-01-01T00:00:00.000Z",
           dry_run: false,
           operations: [
@@ -84,6 +86,7 @@ describe("POST /api/estimates/[versionId]/batch", () => {
       ],
       {
         concurrencyToken: UPDATED_AT,
+        operationKey: OPERATION_KEY,
         dryRun: true,
       }
     );
@@ -103,6 +106,7 @@ describe("POST /api/estimates/[versionId]/batch", () => {
           "content-type": "application/json",
         },
         body: JSON.stringify({
+          operation_key: OPERATION_KEY,
           concurrency_token: ` ${UPDATED_AT} `,
           operations: [
             {
@@ -127,6 +131,7 @@ describe("POST /api/estimates/[versionId]/batch", () => {
       ],
       {
         concurrencyToken: UPDATED_AT,
+        operationKey: OPERATION_KEY,
         dryRun: false,
       }
     );
@@ -139,6 +144,7 @@ describe("POST /api/estimates/[versionId]/batch", () => {
         "content-type": "application/json",
       },
       body: JSON.stringify({
+          operation_key: OPERATION_KEY,
         operations: [],
       }),
     });
@@ -172,6 +178,7 @@ describe("POST /api/estimates/[versionId]/batch", () => {
         "if-match": UPDATED_AT,
       },
       body: JSON.stringify({
+          operation_key: OPERATION_KEY,
         operations: [
           {
             op: "delete",
@@ -203,6 +210,7 @@ describe("POST /api/estimates/[versionId]/batch", () => {
           "if-match": UPDATED_AT,
         },
         body: JSON.stringify({
+          operation_key: OPERATION_KEY,
           operations: [
             {
               op: "delete",

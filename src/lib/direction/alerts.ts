@@ -3,6 +3,7 @@ import type {
   TakeoffRiskSeverity,
   TakeoffRiskStatus,
 } from "@/lib/takeoff/types";
+import { fixedDiscountBasisPoints, meetsDiscountThreshold, type FixedDiscountSignal } from "@/lib/estimates/effective-discount";
 
 export type DirectionAlertLevel = TakeoffRiskSeverity;
 
@@ -28,6 +29,7 @@ export type BuildDirectionSyntheticAlertsInput = {
   amountHtCents: number;
   marginBp: number | null;
   discountBp: number | null;
+  fixedDiscountSignal?: FixedDiscountSignal;
   approvalStatus:
     | "not_required"
     | "required"
@@ -216,9 +218,22 @@ export function buildDirectionSyntheticAlerts(
   const hasLowMargin =
     input.marginBp !== null && input.marginBp <= LOW_MARGIN_THRESHOLD_BP;
   const hasHighValue = input.amountHtCents >= HIGH_VALUE_THRESHOLD_CENTS;
-  const hasStrongDiscount =
-    (input.discountBp ?? 0) >= STRONG_DISCOUNT_THRESHOLD_BP;
+  const fixed = input.fixedDiscountSignal;
+  const discountBp = fixed?.state === "ready" ? fixedDiscountBasisPoints(fixed) : input.discountBp;
+  const hasStrongDiscount = fixed?.state === "ready"
+    ? meetsDiscountThreshold(fixed, STRONG_DISCOUNT_THRESHOLD_BP)
+    : fixed?.state === "unavailable" ? false : (discountBp ?? 0) >= STRONG_DISCOUNT_THRESHOLD_BP;
   const dueThisWeek = isDueWithin(input.sendTargetAt, 7);
+
+  if (fixed?.state === "unavailable") {
+    groups.push({
+      alertKey: `${input.projectId}:${input.versionId}:discount-unavailable`,
+      projectId: input.projectId, projectName: input.projectName, versionId: input.versionId,
+      jobId: input.latestJobId, latestJobId: input.latestJobId, level: "warning",
+      label: "Remise fixe à vérifier", status: "to_process", alertIds: [], lotLabels: [],
+      reasons: ["L'assiette et le montant appliqué de la remise fixe ne peuvent pas être vérifiés pour cette version."],
+    });
+  }
 
   if (
     hasLowMargin &&
@@ -270,7 +285,7 @@ export function buildDirectionSyntheticAlerts(
         "discount-awaiting-approval",
         "Remise forte sans validation finalisee",
         [
-          `Remise courante a ${formatPercent(input.discountBp)}.`,
+          `Remise courante a ${formatPercent(discountBp)}.`,
           "Le dossier n'est pas encore validé pour l'envoi.",
         ],
         alerts,

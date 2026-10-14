@@ -219,6 +219,7 @@ describe("createEstimateItemSchema", () => {
 describe("patchEstimateVersionSchema", () => {
   it("rejects payloads that only carry updated_at", () => {
     const parsed = patchEstimateVersionSchema.safeParse({
+      expected_content_revision: 1,
       updated_at: UPDATED_AT,
     });
 
@@ -233,6 +234,7 @@ describe("patchEstimateVersionSchema", () => {
 
   it("keeps nullable text fields as null when blanks are sent", () => {
     const parsed = patchEstimateVersionSchema.parse({
+      expected_content_revision: 1,
       title: "   ",
       exclusions: "   ",
       updated_at: UPDATED_AT,
@@ -244,6 +246,7 @@ describe("patchEstimateVersionSchema", () => {
 
   it("rejects exclusions longer than 5000 characters", () => {
     const parsed = patchEstimateVersionSchema.safeParse({
+      expected_content_revision: 1,
       exclusions: "x".repeat(5001),
     });
 
@@ -252,6 +255,7 @@ describe("patchEstimateVersionSchema", () => {
 
   it("rejects negative integer totals", () => {
     const parsed = patchEstimateVersionSchema.safeParse({
+      expected_content_revision: 1,
       total_ht_cents: -1,
     });
 
@@ -266,6 +270,7 @@ describe("patchEstimateVersionSchema", () => {
 
   it("rejects simple mode with non-empty discount steps", () => {
     const parsed = patchEstimateVersionSchema.safeParse({
+      expected_content_revision: 1,
       discount_mode: "simple",
       discount_steps: [150],
       updated_at: UPDATED_AT,
@@ -282,6 +287,7 @@ describe("patchEstimateVersionSchema", () => {
 
   it("rejects unsupported currency values", () => {
     const parsed = patchEstimateVersionSchema.safeParse({
+      expected_content_revision: 1,
       currency: "JPY",
       updated_at: UPDATED_AT,
     });
@@ -292,12 +298,14 @@ describe("patchEstimateVersionSchema", () => {
   it("accepts max_section_depth between 1 and 4", () => {
     expect(
       patchEstimateVersionSchema.safeParse({
+        expected_content_revision: 1,
         max_section_depth: 1,
         updated_at: UPDATED_AT,
       }).success
     ).toBe(true);
     expect(
       patchEstimateVersionSchema.safeParse({
+        expected_content_revision: 1,
         max_section_depth: 4,
         updated_at: UPDATED_AT,
       }).success
@@ -307,12 +315,14 @@ describe("patchEstimateVersionSchema", () => {
   it("rejects max_section_depth outside bounds", () => {
     expect(
       patchEstimateVersionSchema.safeParse({
+        expected_content_revision: 1,
         max_section_depth: 0,
         updated_at: UPDATED_AT,
       }).success
     ).toBe(false);
     expect(
       patchEstimateVersionSchema.safeParse({
+        expected_content_revision: 1,
         max_section_depth: 5,
         updated_at: UPDATED_AT,
       }).success
@@ -840,6 +850,7 @@ describe("patchEstimateVersionSchema — regime de TVA (EST-E27)", () => {
   // qui a fait perdre la MO eclatee pendant 41 commits.
   it("laisse passer le role contractuel", () => {
     const parsed = patchEstimateVersionSchema.safeParse({
+      expected_content_revision: 1,
       contractor_role: "subcontractor",
     });
 
@@ -850,6 +861,7 @@ describe("patchEstimateVersionSchema — regime de TVA (EST-E27)", () => {
 
   it("accepte aussi le regime normal", () => {
     const parsed = patchEstimateVersionSchema.safeParse({
+      expected_content_revision: 1,
       contractor_role: "principal",
     });
     expect(parsed.success).toBe(true);
@@ -857,7 +869,10 @@ describe("patchEstimateVersionSchema — regime de TVA (EST-E27)", () => {
 
   it("refuse une valeur hors de la contrainte CHECK de la colonne", () => {
     expect(
-      patchEstimateVersionSchema.safeParse({ contractor_role: "autre" }).success
+      patchEstimateVersionSchema.safeParse({
+        expected_content_revision: 1,
+        contractor_role: "autre",
+      }).success
     ).toBe(false);
   });
 });

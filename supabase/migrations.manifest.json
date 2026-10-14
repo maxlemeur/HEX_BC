@@ -223,6 +223,26 @@
     "20261006210154_restore_bulk_estimate_labor_split.sql": "db4d586abf4ffb37ade5abcb7ea2a5721ac638a20734fd57741fee62efdc7220",
     "20261007062228_restore_bulk_estimate_aid.sql": "c76ca56503a60c0fa2393b84eceba7c262c0de1e568d0eee4b4de3e31ae2b6e4",
     "20261010010645_revoke_service_role_on_legacy_estimate_creators.sql": "6bfe927d7de7b32aecd02cb72b7c1c16c0bf6ebbb98002f58d63f3c39c56498e",
-    "20261010010748_restore_service_role_catalogue_history_privileges.sql": "8eabe44c768445834908dc9ce01dbdc6632ca9faf1ee780b698ed1270677581c"
+    "20261010010748_restore_service_role_catalogue_history_privileges.sql": "8eabe44c768445834908dc9ce01dbdc6632ca9faf1ee780b698ed1270677581c",
+    "20261011030647_reference_price_zero_and_inclusive_validity.sql": "d7de6f35036a7eb67439a90497b8341c20b969676db63cbdb7ca526f717963ea",
+    "20261011080708_supplier_price_provenance_integrity.sql": "ee7bc1422e520177cf969147ee3e089496eff23b4aa428dab46e3e6a1b1bf6d8",
+    "20261011083209_transactional_estimate_purchase_preparation.sql": "3179ccf574886b895a3a7293113d3350f079ca1cd2e982ffbb20cd5b3576a95f",
+    "20261011091744_purchase_decimal_quantities_and_stable_edits.sql": "61e6d18015f3d3765b51aa15cf97f291697a5dfb2bb12f6e5ffc7e4f1ab1fb53",
+    "20261011221312_estimate_source_reference_review.sql": "e6d520265b8debff8617702b4644b0a5b0fa20c0c2fe4ae525e7434e5c76949f",
+    "20261011233527_estimate_source_coverage.sql": "06adcf1fb5237a691b1ed0a3f8d28fc8369b5817119fa481c9b9fbadec0a2d39",
+    "20261012020700_atomic_create_estimate_item.sql": "12af939473dab9be200e37e191e91b19a0a220610ba8c743da2f9e0271071b31",
+    "20261012023009_guard_normalized_estimate_calculation_tenant.sql": "20c7fd7c31788eab0ab607774f3449618f1ff72afe3ad534d9d47039f7bc73a9",
+    "20261012030743_atomic_estimate_batch.sql": "c9f02f6a2f769209a6908fc6b2481ccc622f44ac2a77a3a774b331b88ca250ec",
+    "20261012043643_atomic_generated_ouvrages.sql": "a75634075eaf645de95f1ae8ff3bb2574f3ea18ed97ea30f580c498b49e2c3e5",
+    "20261012215942_generated_ouvrage_component_decisions.sql": "7638482293bfe35b39a4defde39c9bd427c900dd715829ff61c8ed11d26573ef",
+    "20261013002038_assembly_library_component_provenance.sql": "4e2829a06ce3ebddf7fb4628fdc8f24902bf9dbb359de0ad3a96776eb5e53a86",
+    "20261013074536_finalize_estimate_assembly_calculation.sql": "d43d5a93a2bcc7cbaf79c02f3a58e55a0090b9bcee10e37f6f9ace99e0b80afe",
+    "20261013130248_estimate_offer_client_contract.sql": "19dd3d4f879ede855c9a1db2b929482895e93f65438364a2c9ecf6b614830d37",
+    "20261013162417_estimate_v2_document_snapshot_session.sql": "f3e7d6b35d41aeaa0b58f0aac5e55fd24aae46f322a516e362bb7e50953f3d31",
+    "20261013210744_estimate_manual_emission_session.sql": "29920bd60fd79c8a6ff7f170793a6ff3fa26bde8324581c38fca7945575fa3f1",
+    "20261013222533_estimate_email_reservation_session.sql": "80e2502d2233579a816938925846ced9080e242c63f17d649694095c726488f4",
+    "20261014033048_estimate_approval_projection_clock.sql": "430124c8bb15ab70c8f5f6bd04dba6e04c5c06ba52c511dd7383b6d0d1e882d5",
+    "20261014070453_estimate_settings_atomic.sql": "5b4115cd40a2b3106e02aa51f40d89cff5d39b404ae19f9c741add137b36bd35",
+    "20261014114943_estimate_fixed_discount_and_template_parent_integrity.sql": "3741032da87f06688ecabe5e6f76ba90049839e6f783719693b35acce537bafe"
   }
 }

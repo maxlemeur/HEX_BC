@@ -6,6 +6,27 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[];
 
+export type EstimatePurchaseReceipt = {
+  source_version_id: string;
+  idempotency_key: string;
+  replayed: boolean;
+  summary: { draft_orders_created: number; draft_lines_created: number };
+  orders: Array<{
+    purchase_order_id: string;
+    reference: string;
+    supplier_id: string;
+    supplier_name: string;
+    delivery_site_id: string;
+    item_count: number;
+    total_ht_cents: number;
+    total_tax_cents: number;
+    total_ttc_cents: number;
+    ordered_source_item_ids: string[];
+    current_status: "draft" | "sent" | "confirmed" | "received" | "canceled" | "deleted";
+    can_open: boolean;
+  }>;
+};
+
 export type Database = {
   public: {
     Tables: {
@@ -273,6 +294,7 @@ export type Database = {
           updated_at: string;
           tenant_id: string;
           order_number: number;
+          edit_revision: number;
           reference: string;
           user_id: string;
           supplier_id: string;
@@ -293,6 +315,7 @@ export type Database = {
           updated_at?: string;
           tenant_id?: string;
           order_number?: number;
+          edit_revision?: number;
           reference: string;
           user_id: string;
           supplier_id: string;
@@ -313,6 +336,7 @@ export type Database = {
           updated_at?: string;
           tenant_id?: string;
           order_number?: number;
+          edit_revision?: number;
           reference?: string;
           user_id?: string;
           supplier_id?: string;
@@ -343,6 +367,9 @@ export type Database = {
           unit_price_ht_cents: number;
           tax_rate_bp: number;
           quantity: number;
+          unit: string | null;
+          price_unit: string | null;
+          is_source_linked: boolean;
           line_total_ht_cents: number;
           line_tax_cents: number;
           line_total_ttc_cents: number;
@@ -362,6 +389,9 @@ export type Database = {
           unit_price_ht_cents: number;
           tax_rate_bp: number;
           quantity: number;
+          unit?: string | null;
+          price_unit?: string | null;
+          is_source_linked?: boolean;
           line_total_ht_cents?: number;
           line_tax_cents?: number;
           line_total_ttc_cents?: number;
@@ -381,13 +411,22 @@ export type Database = {
           unit_price_ht_cents?: number;
           tax_rate_bp?: number;
           quantity?: number;
+          unit?: string | null;
+          price_unit?: string | null;
+          is_source_linked?: boolean;
           line_total_ht_cents?: number;
           line_tax_cents?: number;
           line_total_ttc_cents?: number;
           source_estimate_item_id?: string | null;
           source_selected_supplier_price_id?: string | null;
         };
-        Relationships: [];
+        Relationships: [{
+          foreignKeyName: "purchase_order_items_purchase_order_id_fkey";
+          columns: ["purchase_order_id"];
+          isOneToOne: false;
+          referencedRelation: "purchase_orders";
+          referencedColumns: ["id"];
+        }];
       };
       purchase_order_devis: {
         Row: {
@@ -1078,6 +1117,7 @@ export type Database = {
       };
       estimate_versions: {
         Row: {
+          seal_payload_version: number | null;
           id: string;
           created_at: string;
           updated_at: string;
@@ -1102,6 +1142,7 @@ export type Database = {
           currency: string;
           margin_bp: number;
           discount_bp: number;
+          discount_amount_cents: number | null;
           discount_mode: "simple" | "cascade";
           discount_steps: number[];
           global_coefficient: number;
@@ -1123,6 +1164,7 @@ export type Database = {
           contractor_role: string;
         };
         Insert: {
+          seal_payload_version?: number | null;
           id?: string;
           created_at?: string;
           updated_at?: string;
@@ -1147,6 +1189,7 @@ export type Database = {
           currency?: string;
           margin_bp?: number;
           discount_bp?: number;
+          discount_amount_cents?: number | null;
           discount_mode?: "simple" | "cascade";
           discount_steps?: number[];
           global_coefficient?: number;
@@ -1168,6 +1211,7 @@ export type Database = {
           contractor_role?: string;
         };
         Update: {
+          seal_payload_version?: number | null;
           id?: string;
           created_at?: string;
           updated_at?: string;
@@ -1192,6 +1236,7 @@ export type Database = {
           currency?: string;
           margin_bp?: number;
           discount_bp?: number;
+          discount_amount_cents?: number | null;
           discount_mode?: "simple" | "cascade";
           discount_steps?: number[];
           global_coefficient?: number;
@@ -1549,6 +1594,8 @@ export type Database = {
       };
       estimate_documents: {
         Row: {
+          client_contract_version: number | null;
+          client_contract_snapshot: Json | null;
           id: string;
           created_at: string;
           updated_at: string;
@@ -1574,6 +1621,8 @@ export type Database = {
           published_content_revision: number | null;
         };
         Insert: {
+          client_contract_version?: number | null;
+          client_contract_snapshot?: Json | null;
           id?: string;
           created_at?: string;
           updated_at?: string;
@@ -1599,6 +1648,8 @@ export type Database = {
           published_content_revision?: number | null;
         };
         Update: {
+          client_contract_version?: number | null;
+          client_contract_snapshot?: Json | null;
           id?: string;
           created_at?: string;
           updated_at?: string;
@@ -1649,6 +1700,8 @@ export type Database = {
       };
       portal_tokens: {
         Row: {
+          estimate_email_dispatch_id: string | null;
+          capability_contract_version: number;
           id: string;
           created_at: string;
           tenant_id: string;
@@ -1663,6 +1716,8 @@ export type Database = {
           reject_reason: string | null;
         };
         Insert: {
+          estimate_email_dispatch_id?: string | null;
+          capability_contract_version?: number;
           id?: string;
           created_at?: string;
           tenant_id?: string;
@@ -1677,6 +1732,8 @@ export type Database = {
           reject_reason?: string | null;
         };
         Update: {
+          estimate_email_dispatch_id?: string | null;
+          capability_contract_version?: number;
           id?: string;
           created_at?: string;
           tenant_id?: string;
@@ -1771,6 +1828,9 @@ export type Database = {
       };
       estimate_emails: {
         Row: {
+          request_contract_version: number;
+          portal_url: string | null;
+          offer_identity_snapshot: Json | null;
           id: string;
           created_at: string;
           updated_at: string;
@@ -1806,6 +1866,9 @@ export type Database = {
           last_error_message: string | null;
         };
         Insert: {
+          request_contract_version?: number;
+          portal_url?: string | null;
+          offer_identity_snapshot?: Json | null;
           id?: string;
           created_at?: string;
           updated_at?: string;
@@ -1841,6 +1904,9 @@ export type Database = {
           last_error_message?: string | null;
         };
         Update: {
+          request_contract_version?: number;
+          portal_url?: string | null;
+          offer_identity_snapshot?: Json | null;
           id?: string;
           created_at?: string;
           updated_at?: string;
@@ -2937,6 +3003,7 @@ export type Database = {
           currency: string;
           margin_bp: number;
           discount_bp: number;
+          discount_amount_cents: number | null;
           discount_mode: "simple" | "cascade";
           discount_steps: number[];
           global_coefficient: number;
@@ -2959,6 +3026,7 @@ export type Database = {
           currency?: string;
           margin_bp?: number;
           discount_bp?: number;
+          discount_amount_cents?: number | null;
           discount_mode?: "simple" | "cascade";
           discount_steps?: number[];
           global_coefficient?: number;
@@ -2981,6 +3049,7 @@ export type Database = {
           currency?: string;
           margin_bp?: number;
           discount_bp?: number;
+          discount_amount_cents?: number | null;
           discount_mode?: "simple" | "cascade";
           discount_steps?: number[];
           global_coefficient?: number;
@@ -3917,6 +3986,104 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      get_estimate_source_coverage: {
+        Args: { p_version_id: string; p_requirement_id?: string | null; p_after_id?: string | null; p_limit?: number; p_before_event?: number | null; p_operation_key?: string | null };
+        Returns: Json;
+      };
+      preview_estimate_source_coverage_decision: {
+        Args: { p_version_id: string; p_requirement_id: string };
+        Returns: Json;
+      };
+      get_estimate_source_coverage_targets: {
+        Args: { p_version_id: string; p_kind: string; p_search?: string; p_after_id?: string | null; p_limit?: number };
+        Returns: Json;
+      };
+      mutate_estimate_source_coverage_dimension: {
+        Args: { p_version_id: string; p_dimension_id: string; p_expected_revision: number; p_operation_key: string; p_operation: string; p_payload: Json };
+        Returns: Json;
+      };
+      mutate_estimate_source_requirement: {
+        Args: { p_version_id: string; p_requirement_id: string; p_expected_revision: number; p_expected_reference_revision: number; p_operation_key: string; p_operation: string; p_payload: Json };
+        Returns: Json;
+      };
+      verify_estimate_source_requirement_citation: {
+        Args: { p_actor_user_id: string; p_version_id: string; p_requirement_id: string; p_citation_id: string; p_expected_requirement_revision: number; p_expected_reference_revision: number; p_reviewed_sha256: string; p_operation_key: string };
+        Returns: Json;
+      };
+      decide_estimate_source_requirement: {
+        Args: { p_actor_user_id: string; p_version_id: string; p_requirement_id: string; p_expected_requirement_revision: number; p_expected_reference_revision: number; p_expected_content_revision: number; p_reviewed_fingerprint: string; p_operation_key: string; p_decision: Json };
+        Returns: Json;
+      };
+      reserve_estimate_source_reference_copy: {
+        Args: { p_version_id: string; p_document_id: string; p_expected_review_revision: number; p_preparation_key: string };
+        Returns: Json;
+      };
+      complete_estimate_source_reference_copy: {
+        Args: { p_copy_id: string; p_sha256: string; p_byte_size: number; p_page_count: number };
+        Returns: Json;
+      };
+      confirm_estimate_source_reference: {
+        Args: { p_actor_user_id: string; p_version_id: string; p_copy_id: string; p_expected_review_revision: number; p_idempotency_key: string; p_reviewed_sha256: string; p_reason: string };
+        Returns: Json;
+      };
+      get_estimate_source_review: {
+        Args: {
+          p_version_id: string;
+          p_copy_id?: string | null;
+          p_before_revision?: number | null;
+          p_limit?: number;
+          p_confirmation_key?: string | null;
+        };
+        Returns: Json;
+      };
+      get_estimate_purchase_order_review: {
+        Args: { p_version_id: string; p_item_ids: string[] };
+        Returns: { lines: Array<{
+          item_id: string;
+          item_title: string;
+          quantity: number;
+          unit_price_ht_cents: number;
+          tax_rate_bp: number;
+          unit: string | null;
+          selected_supplier_price_id: string;
+          supplier_id: string;
+          supplier_name: string;
+          supplier_reference: string | null;
+          review_fingerprint: string;
+        }> };
+      };
+      create_estimate_purchase_order_drafts: {
+        Args: {
+          p_version_id: string;
+          p_idempotency_key: string;
+          p_reviewed_lines: Array<{ item_id: string; review_fingerprint: string }>;
+          p_groups: Array<{
+            supplier_id: string;
+            delivery_site_id: string;
+            delivery_site_updated_at: string;
+            item_ids: string[];
+            expected_delivery_date: string | null;
+            notes: string | null;
+          }>;
+        };
+        Returns: EstimatePurchaseReceipt;
+      };
+      get_estimate_purchase_order_receipt: {
+        Args: { p_version_id: string; p_idempotency_key: string };
+        Returns: EstimatePurchaseReceipt | null;
+      };
+      get_estimate_purchase_order_transfers: {
+        Args: { p_version_id: string };
+        Returns: { lines: Array<{
+          item_id: string;
+          item_title: string;
+          purchase_order_id: string;
+          reference: string;
+          status: "draft" | "sent" | "confirmed" | "received" | "canceled" | "deleted";
+          quantity: number;
+          can_open: boolean;
+        }> };
+      };
       suggest_product_reference: {
         Args: Record<string, never>;
         Returns: string;
@@ -4074,6 +4241,35 @@ export type Database = {
         };
         Returns: Json;
       };
+      save_estimate_settings_atomic: {
+        Args: {
+          p_version_id: string;
+          p_tenant_id: string;
+          p_actor_user_id: string;
+          p_expected_updated_at: string;
+          p_expected_content_revision: number;
+          p_draft_lock_session_id: string;
+          p_settings_patch: Json;
+          p_line_projections: Json;
+          p_totals: Json;
+          p_expected_dependencies: Json;
+        };
+        Returns: Json;
+      };
+      freeze_estimate_v2_document_snapshot: {
+        Args: {
+          p_version_id: string;
+          p_tenant_id: string;
+          p_expected_updated_at: string;
+          p_expected_content_revision: number;
+          p_actor_user_id: string;
+          p_draft_lock_session_id: string;
+          p_calculation_context: Json;
+          p_item_snapshots: Json;
+          p_version_totals: Json;
+        };
+        Returns: Database["public"]["Tables"]["estimate_versions"]["Row"];
+      };
       freeze_estimate_v2_snapshot: {
         Args: {
           p_version_id: string;
@@ -4109,13 +4305,26 @@ export type Database = {
         };
         Returns: boolean;
       };
+      create_purchase_order_draft: {
+        Args: { p_header: Json; p_items: Json };
+        Returns: Json;
+      };
+      get_purchase_order_documents: {
+        Args: { p_order_ids: string[] };
+        Returns: Json;
+      };
+      get_purchase_order_item_history: {
+        Args: { p_order_id: string };
+        Returns: Json;
+      };
       replace_purchase_order_draft: {
         Args: {
           p_order_id: string;
           p_header_patch: Json;
           p_items: Json | null;
+          p_expected_revision: number;
         };
-        Returns: string;
+        Returns: Json;
       };
       reset_tenant_procurement_data: {
         Args: {
@@ -4229,6 +4438,86 @@ export type Database = {
         };
         Returns: number;
       };
+      atomic_create_estimate_item: {
+        Args: {
+          p_version_id: string;
+          p_item: Json;
+          p_item_updates: Json;
+          p_version_patch: Json;
+          p_expected_updated_at: string;
+          p_draft_lock_session_id: string;
+          p_calculation_context: Json;
+        };
+        Returns: Json;
+      };
+      finalize_estimate_assembly_calculation: {
+        Args: {
+          p_version_id: string;
+          p_expected_updated_at: string;
+          p_expected_content_revision: number;
+          p_draft_lock_session_id: string;
+          p_inserted_item_ids: string[];
+          p_item_updates: Json;
+          p_version_patch: Json;
+          p_calculation_context: Json;
+        };
+        Returns: Json;
+      };
+      commit_estimate_batch: {
+        Args: {
+          p_version_id: string;
+          p_operation_key: string;
+          p_expected_updated_at: string;
+          p_draft_lock_session_id: string | null;
+          p_operations: Json;
+          p_created_ids: Json;
+          p_item_updates: Json;
+          p_version_patch: Json;
+          p_calculation_context: Json;
+          p_expected_aid_policy: Json;
+        };
+        Returns: Json;
+      };
+      get_estimate_batch_receipt: {
+        Args: { p_version_id: string; p_operation_key: string };
+        Returns: Json;
+      };
+      read_generated_ouvrage_review: {
+        Args: { p_version_id: string; p_draft_id: string; p_candidate_id: string };
+        Returns: Json;
+      };
+      persist_generated_ouvrage_review: {
+        Args: { p_version_id: string; p_draft_id: string; p_candidate_id: string;
+          p_draft_lock_session_id: string; p_expected_review_token: string | null; p_review: Json };
+        Returns: Json;
+      };
+      commit_generated_ouvrages: {
+        Args: { p_version_id: string; p_draft_id: string; p_operation_key: string;
+          p_expected_updated_at: string; p_draft_lock_session_id: string | null;
+          p_accepted_candidates: Json; p_prepared_candidates: Json; p_fallback_section: Json;
+          p_item_updates: Json; p_version_patch: Json; p_calculation_context: Json;
+          p_expected_preferred_role: Json };
+        Returns: Json;
+      };
+      get_generated_ouvrage_application_receipt: {
+        Args: { p_version_id: string; p_operation_key: string };
+        Returns: Json;
+      };
+      abandon_generated_ouvrage_application: {
+        Args: { p_version_id: string; p_draft_id: string; p_operation_key: string;
+          p_expected_updated_at: string; p_accepted_candidates: Json };
+        Returns: Json;
+      };
+      reject_generated_ouvrage_candidate: {
+        Args: { p_version_id: string; p_draft_id: string; p_candidate_id: string;
+          p_draft_lock_session_id: string; p_reason: string | null };
+        Returns: Json;
+      };
+      close_generated_ouvrage_generation: {
+        Args: { p_version_id: string; p_draft_id: string;
+          p_draft_lock_session_id: string; p_mode: "complete" | "failed" };
+        Returns: Json;
+      };
       bulk_update_estimate_items: {
         Args: {
           target_version_id: string;
@@ -4338,6 +4627,7 @@ export type Database = {
           p_generated_at: string;
           p_layout_options: Json;
           p_terms_snapshot: Json | null;
+          p_client_contract_snapshot: Json;
         };
         Returns: Database["public"]["Tables"]["estimate_documents"]["Row"];
       };
@@ -4373,6 +4663,27 @@ export type Database = {
           p_subject: string;
           p_body: string;
           p_from_address: string;
+          p_portal_origin: string;
+          p_company_snapshot: Json;
+        };
+        Returns: Database["public"]["Tables"]["estimate_emails"]["Row"];
+      };
+      reserve_estimate_email_dispatch_with_session: {
+        Args: {
+          p_version_id: string;
+          p_tenant_id: string;
+          p_expected_updated_at: string;
+          p_actor_user_id: string;
+          p_request_id: string;
+          p_payload_hash: string;
+          p_recipient: string;
+          p_cc: string[] | null;
+          p_subject: string;
+          p_body: string;
+          p_from_address: string;
+          p_portal_origin: string;
+          p_company_snapshot: Json;
+          p_draft_lock_session_id: string | null;
         };
         Returns: Database["public"]["Tables"]["estimate_emails"]["Row"];
       };
@@ -4388,6 +4699,8 @@ export type Database = {
           p_document_path: string;
           p_document_sha256: string;
           p_attachment_filename: string;
+          p_expected_document_contract: Json;
+          p_seal_payload_version: number;
         };
         Returns: Database["public"]["Tables"]["estimate_emails"]["Row"];
       };
@@ -4824,8 +5137,10 @@ export type Database = {
         Args: {
           p_portal_token_id: string;
           p_decision: string;
-          p_client_ip?: string | null;
-          p_reject_reason?: string | null;
+          p_client_ip: string | null;
+          p_reject_reason: string | null;
+          p_expected_seal_hash: string;
+          p_expected_document_contract: Json;
         };
         Returns: undefined;
       };
@@ -5034,6 +5349,22 @@ export type Database = {
         };
         Returns: string;
       };
+      transition_estimate_draft_to_sent: {
+        Args: {
+          p_version_id: string;
+          p_tenant_id: string;
+          p_expected_updated_at: string;
+          p_next_status: Database["public"]["Enums"]["estimate_status"];
+          p_seal_hash: string | null;
+          p_actor_user_id: string;
+          p_event_metadata: Json;
+          p_occurred_at: string;
+          p_seal_payload_version: number;
+          p_expected_document_contract: Json;
+          p_draft_lock_session_id: string;
+        };
+        Returns: Database["public"]["Tables"]["estimate_versions"]["Row"];
+      };
       transition_estimate_version_status: {
         Args: {
           p_version_id: string;
@@ -5042,8 +5373,10 @@ export type Database = {
           p_next_status: Database["public"]["Enums"]["estimate_status"];
           p_seal_hash: string | null;
           p_actor_user_id: string;
-          p_event_metadata?: Json;
-          p_occurred_at?: string;
+          p_event_metadata: Json;
+          p_occurred_at: string;
+          p_seal_payload_version: number;
+          p_expected_document_contract: Json;
         };
         Returns: Database["public"]["Tables"]["estimate_versions"]["Row"];
       };

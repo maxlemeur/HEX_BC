@@ -355,14 +355,26 @@ function createSupabaseSealMock(input: {
   });
 
   const estimateItemsSelect = vi.fn(() => {
+    const items = Array.isArray(input.estimateItemsResult.data)
+      ? input.estimateItemsResult.data
+      : [];
+    const itemsPromise = Promise.resolve(input.estimateItemsResult);
     const estimateItemsBuilder = {
       eq: vi.fn(),
       order: vi.fn(),
+      range: vi.fn((first: number, last: number) =>
+        Promise.resolve({
+          ...input.estimateItemsResult,
+          data: input.estimateItemsResult.data === null
+            ? null
+            : items.slice(first, last + 1),
+          count: items.length,
+        }),
+      ),
+      then: itemsPromise.then.bind(itemsPromise),
     };
     estimateItemsBuilder.eq.mockReturnValue(estimateItemsBuilder);
-    estimateItemsBuilder.order
-      .mockImplementationOnce(() => estimateItemsBuilder)
-      .mockResolvedValue(input.estimateItemsResult);
+    estimateItemsBuilder.order.mockReturnValue(estimateItemsBuilder);
     return estimateItemsBuilder;
   });
 

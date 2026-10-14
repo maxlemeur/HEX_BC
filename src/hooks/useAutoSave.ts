@@ -29,6 +29,8 @@ export type UseAutoSaveOptions = {
   enabled: boolean;
   automaticEnabled?: boolean;
   hasPendingChanges: boolean;
+  /** An explicit save may reconcile server state without local buffered edits. */
+  allowManualSaveWithoutChanges?: boolean;
   debounceMs?: number;
   /**
    * Delai maximal entre la premiere modification non sauvegardee et son envoi.
@@ -130,6 +132,7 @@ export function useAutoSave({
   enabled,
   automaticEnabled = true,
   hasPendingChanges,
+  allowManualSaveWithoutChanges = false,
   debounceMs = DEFAULT_AUTOSAVE_DEBOUNCE_MS,
   maxWaitMs,
   retryDelayMs = DEFAULT_AUTOSAVE_RETRY_DELAY_MS,
@@ -164,6 +167,7 @@ export function useAutoSave({
   const enabledRef = useRef(enabled);
   const automaticEnabledRef = useRef(automaticEnabled);
   const hasPendingRef = useRef(hasPendingChanges);
+  const allowManualSaveWithoutChangesRef = useRef(allowManualSaveWithoutChanges);
   const isOnlineRef = useRef(isOnline);
   const debounceMsRef = useRef(debounceMs);
   const maxWaitMsRef = useRef(maxWaitMs);
@@ -196,6 +200,10 @@ export function useAutoSave({
   useEffect(() => {
     hasPendingRef.current = hasPendingChanges;
   }, [hasPendingChanges]);
+
+  useEffect(() => {
+    allowManualSaveWithoutChangesRef.current = allowManualSaveWithoutChanges;
+  }, [allowManualSaveWithoutChanges]);
 
   useEffect(() => {
     isOnlineRef.current = isOnline;
@@ -321,7 +329,8 @@ export function useAutoSave({
         return;
       }
 
-      if (!hasPendingRef.current) {
+      if (!hasPendingRef.current &&
+          !(reason === "manual" && allowManualSaveWithoutChangesRef.current)) {
         setStatus(currentRestingStatus());
         return;
       }
@@ -497,7 +506,7 @@ export function useAutoSave({
       event.preventDefault();
       if (
         enabledRef.current &&
-        (hasPendingRef.current || isSavingRef.current)
+        (hasPendingRef.current || isSavingRef.current || allowManualSaveWithoutChangesRef.current)
       ) {
         void executeSave("manual");
       }

@@ -2,12 +2,6 @@
   "version": 1,
   "budgets": [
     {
-      "name": "estimate-editor",
-      "manifest": "server/app/dashboard/estimates/[versionId]/edit/page_client-reference-manifest.js",
-      "maxRawBytes": 1800000,
-      "maxGzipBytes": 500000
-    },
-    {
       "name": "orders",
       "manifest": "server/app/dashboard/orders/page_client-reference-manifest.js",
       "maxRawBytes": 900000,

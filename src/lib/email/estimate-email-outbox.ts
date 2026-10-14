@@ -12,7 +12,9 @@ import {
   type SupabaseErrorLike,
 } from "@/lib/estimates/errors";
 import { ESTIMATE_DOCUMENTS_BUCKET } from "@/lib/storage/buckets";
+import type { ClientContract1, DocumentProof1 } from "@/lib/estimates/offer-contract";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import type { Json } from "@/types/database";
 
 export type EstimateEmailDispatchStatus =
   | "preparing"
@@ -42,6 +44,9 @@ export type EstimateEmailDispatch = {
   created_by: string | null;
   version_content_revision: number;
   from_address: string;
+  request_contract_version: 1 | 2;
+  portal_url: string | null;
+  offer_identity_snapshot: Json | null;
   html_body: string | null;
   text_body: string | null;
   document_path: string | null;
@@ -126,6 +131,22 @@ function throwDispatchRpcError(
 ): never {
   const message = error.message ?? "";
 
+  if (message.includes("ESTIMATE_DRAFT_LOCK_REQUIRED")) {
+    throw conflict(
+      "Cette page doit détenir le verrou du devis avant l'envoi.",
+      { code: error.code },
+      "LOCK_REQUIRED"
+    );
+  }
+
+  if (message.includes("ESTIMATE_VERSION_CONFLICT")) {
+    throw conflict(
+      "Le devis a changé. Fermez l'envoi et relisez la version avant de réessayer.",
+      { code: error.code },
+      "VERSION_CONFLICT"
+    );
+  }
+
   if (message.includes("ESTIMATE_EMAIL_RETRY_REQUIRES_NEW_REQUEST")) {
     throw conflict(
       "Cette tentative d'envoi est terminée. Relancez-la avec une nouvelle requête.",
@@ -135,8 +156,6 @@ function throwDispatchRpcError(
   }
 
   if (
-    message.includes("ESTIMATE_VERSION_CONFLICT") ||
-    message.includes("ESTIMATE_DRAFT_LOCK_REQUIRED") ||
     message.includes("ESTIMATE_EMAIL_DISPATCH_IN_PROGRESS") ||
     message.includes("ESTIMATE_EMAIL_DISPATCH_LEASED") ||
     message.includes("ESTIMATE_EMAIL_IDEMPOTENCY_CONFLICT") ||
@@ -237,7 +256,6 @@ export async function findActiveEstimateEmailDispatch(input: {
 }
 
 export async function findEstimateEmailDispatchByRequest(input: {
-  versionId: string;
   tenantId: string;
   requestId: string;
 }) {
@@ -245,7 +263,6 @@ export async function findEstimateEmailDispatchByRequest(input: {
   const { data, error } = await client
     .from("estimate_emails")
     .select("*")
-    .eq("version_id", input.versionId)
     .eq("tenant_id", input.tenantId)
     .eq("request_id", input.requestId)
     .eq("type", "initial")
@@ -272,9 +289,12 @@ export async function reserveEstimateEmailDispatch(input: {
   subject: string;
   body: string;
   fromAddress: string;
+  portalOrigin: string;
+  companySnapshot: ClientContract1["company"];
+  draftLockSessionId?: string | null;
 }) {
   return callDispatchRpc(
-    "reserve_estimate_email_dispatch",
+    "reserve_estimate_email_dispatch_with_session",
     {
       p_version_id: input.versionId,
       p_tenant_id: input.tenantId,
@@ -287,6 +307,9 @@ export async function reserveEstimateEmailDispatch(input: {
       p_subject: input.subject,
       p_body: input.body,
       p_from_address: input.fromAddress,
+      p_portal_origin: input.portalOrigin,
+      p_company_snapshot: input.companySnapshot,
+      p_draft_lock_session_id: input.draftLockSessionId ?? null,
     },
     "Impossible de réserver l'envoi du devis."
   );
@@ -303,6 +326,8 @@ export async function prepareEstimateEmailDispatch(input: {
   documentPath: string;
   documentSha256: string;
   attachmentFilename: string;
+  expectedDocumentContract: DocumentProof1;
+  sealPayloadVersion: 1 | 2 | 3 | 4 | 5;
 }) {
   return callDispatchRpc(
     "prepare_estimate_email_dispatch",
@@ -317,6 +342,8 @@ export async function prepareEstimateEmailDispatch(input: {
       p_document_path: input.documentPath,
       p_document_sha256: input.documentSha256,
       p_attachment_filename: input.attachmentFilename,
+      p_expected_document_contract: input.expectedDocumentContract,
+      p_seal_payload_version: input.sealPayloadVersion,
     },
     "Impossible de figer le contenu de l'email."
   );
@@ -552,7 +579,7 @@ export async function deliverEstimateEmailDispatch(input: {
           attachments: [
             {
               filename: claimed.attachment_filename!,
-              content: pdfBuffer,
+              content: pdfBuffer.toString("base64"),
             },
           ],
         },

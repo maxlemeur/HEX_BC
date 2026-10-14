@@ -25,6 +25,8 @@ import { isFeatureEnabled } from "@/lib/feature-flags";
 import {
   buildStoredEstimateBreakdown,
   computeEstimateTotals,
+  computeReadOnlyTotals,
+  computeStoredDiscountCents,
 } from "@/lib/estimate-calculations";
 import {
   resolveCalcEngineVersion,
@@ -45,6 +47,7 @@ import {
   listEstimateApprovalDecisionJournal,
 } from "@/lib/estimates/rules-engine";
 import { toSafeEstimateErrorLogDetails } from "@/lib/estimates/logging";
+import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
 import {
   listEstimateProjectVersions,
   listEstimateVersionVariants,
@@ -63,8 +66,6 @@ type EstimateVersion =
       | Pick<EstimateProject, "name" | "reference" | "estimate_reference" | "site_address" | "client_name">[]
       | null;
   };
-type EstimateItem =
-  Database["public"]["Tables"]["estimate_items"]["Row"];
 type LaborRoleRate = Pick<
   Database["public"]["Tables"]["labor_roles"]["Row"],
   "id" | "hourly_rate_cents"
@@ -143,23 +144,18 @@ export default async function EstimateDetailPage({
     decision: approvalJournalDecision,
   }).catch(() => null);
 
-  const versionPromise = supabase
+  // The approval projection may persist metadata and advance updated_at.
+  // Read the displayed version afterwards so its actions share that exact token.
+  const versionPromise = approvalSummaryPromise.then(() => supabase
     .from("estimate_versions")
     .select(
-      "project_id, tenant_id, version_number, status, seal_hash, title, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, content_revision, calc_snapshot_content_revision, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, estimate_projects ( name, reference, estimate_reference, site_address, client_name )"
+      "id, project_id, tenant_id, version_number, status, updated_at, seal_hash, seal_payload_version, title, exclusions, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, content_revision, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, estimate_projects ( name, reference, estimate_reference, site_address, client_name )"
     )
     .eq("id", versionId)
-    .single();
+    .single());
 
-  const itemsPromise = supabase
-    .from("estimate_items")
-    .select("*")
-    .eq("version_id", versionId)
-    .order("position", { ascending: true });
-
-  const [versionResult, itemsResult, userContext, approvalSummary, approvalJournal] = await Promise.all([
+  const [versionResult, userContext, approvalSummary, approvalJournal] = await Promise.all([
     versionPromise,
-    itemsPromise,
     userContextPromise,
     approvalSummaryPromise,
     approvalJournalPromise,
@@ -169,15 +165,20 @@ export default async function EstimateDetailPage({
     notFound();
   }
 
-  if (itemsResult.error) {
+  const version = versionResult.data as EstimateVersion;
+  if (!userContext.tenantId || userContext.tenantId !== version.tenant_id) {
     notFound();
   }
-
-  const version = versionResult.data as EstimateVersion;
-  const items = (itemsResult.data ?? []) as EstimateItem[];
+  const items = await readAllEstimateItems({
+    supabase,
+    tenantId: version.tenant_id,
+    versionId,
+  });
   const calcEngineVersion = resolveCalcEngineVersion(version);
   const preserveStoredSnapshot =
-    shouldPreserveStoredEstimateV2Snapshot(version);
+    calcEngineVersion === 1
+      ? version.status !== "draft"
+      : shouldPreserveStoredEstimateV2Snapshot(version);
   const project = resolveProject(version.estimate_projects);
   const tenantRole = userContext.profile?.tenant_role ?? null;
   const canEditVersion = tenantRole === "admin" || tenantRole === "engineer";
@@ -281,7 +282,19 @@ export default async function EstimateDetailPage({
       ? await loadMarginTiersForTotals({ supabase, tenantId: version.tenant_id })
       : [];
   const computedTotals = preserveStoredSnapshot
-    ? buildStoredEstimateBreakdown({ items, version }).totals
+    ? calcEngineVersion === 1
+      ? computeReadOnlyTotals({
+          items,
+          version,
+          discountCents: computeStoredDiscountCents(version, items),
+          laborRateById: new Map(),
+          isLaborSplitEnabled: false,
+          marginTiers: [],
+          roundingMode: version.rounding_mode,
+          roundingStepCents: version.rounding_step_cents,
+          calcEngineVersion,
+        })
+      : buildStoredEstimateBreakdown({ items, version }).totals
     : (() => {
         const baseTotals = computeEstimateTotals({
           lineItems: lineItemsForTotals,
@@ -298,11 +311,12 @@ export default async function EstimateDetailPage({
           roundingStepCents: version.rounding_step_cents,
         });
         const fallbackDiscountCents =
-          baseTotals.saleSubtotalCents > 0
+          version.discount_amount_cents ??
+          (baseTotals.saleSubtotalCents > 0
             ? Math.round(
                 (baseTotals.saleSubtotalCents * version.discount_bp) / 10000
               )
-            : 0;
+            : 0);
         return computeEstimateTotals({
           lineItems: lineItemsForTotals,
           marginMultiplier: version.margin_multiplier,
@@ -344,6 +358,8 @@ export default async function EstimateDetailPage({
     }
   }
 
+  await assertEstimateVersionUnchanged({ supabase, version });
+
   const expiry = computeExpiryInfo(version.date_devis, version.validite_jours);
   const statusBadge = STATUS_BADGES[version.status] ?? STATUS_BADGES.draft;
   const breadcrumbs = [
@@ -369,6 +385,13 @@ export default async function EstimateDetailPage({
           <>
             <Link
               className={buttonVariants({ variant: "outline", size: "md" })}
+              href={`/dashboard/estimates/${versionId}/source-review`}
+              prefetch={false}
+            >
+              Référence CCTP
+            </Link>
+            <Link
+              className={buttonVariants({ variant: "outline", size: "md" })}
               href={`/dashboard/estimates/${versionId}/diff`}
             >
               <GitCompareArrowsIcon aria-hidden="true" />
@@ -381,7 +404,7 @@ export default async function EstimateDetailPage({
               <PrinterIcon aria-hidden="true" />
               Imprimer
             </Link>
-            <EstimateDetailActionsMenu versionId={versionId} canEditVersion={canEditVersion} />
+            <EstimateDetailActionsMenu versionId={versionId} versionStatus={version.status} canEditVersion={canEditVersion} />
             {canEditVersion ? (
               <Link
                 className={buttonVariants({ variant: "primary", size: "md" })}
@@ -475,6 +498,7 @@ export default async function EstimateDetailPage({
         </div>
         <div className="min-w-0">
           <EstimateDocument
+            calculationVersion={version}
             calcEngineVersion={calcEngineVersion}
             preserveStoredSnapshot={preserveStoredSnapshot}
             vatReverseCharge={version.contractor_role === "subcontractor"}

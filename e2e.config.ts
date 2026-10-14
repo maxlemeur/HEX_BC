@@ -1,14 +1,17 @@
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { web } from "@e2e-dev/web";
 import type { E2EConfig } from "e2e";
 import { chatgpt } from "e2e/oauth/chatgpt";
 
 const critical = process.env.E2E_ARMY_SUITE === "critical";
+const coverage = process.env.E2E_ARMY_SUITE === "coverage";
+const numericComponents = ["numeric-price", "numeric-decimals", "numeric-loss", "numeric-all"].includes(process.env.E2E_GENERATED_COMPONENTS_SELECTION ?? "");
 const performance = process.env.E2E_ARMY_SUITE === "performance";
 const live = performance && process.env.E2E_ARMY_SERVER_MODE === "live";
 const production = performance || process.env.E2E_ARMY_SERVER_MODE === "production";
-const output = critical ? ".e2e/army/critical" : performance ? ".e2e/army/performance" : ".e2e/army";
+const output = coverage ? ".e2e/army/coverage" : critical ? ".e2e/army/critical" : performance ? ".e2e/army/performance" : ".e2e/army";
 const baseUrl = new URL(
   process.env.E2E_ARMY_BASE_URL ?? "http://localhost:3107"
 );
@@ -36,6 +39,7 @@ const app = {
     args: [
       path.resolve("node_modules/next/dist/bin/next"),
       ...(production ? ["start"] : ["dev", "--webpack"]),
+      ...(coverage && process.env.E2E_COVERAGE_STRIP_TYPES === "1" ? ["--experimental-next-config-strip-types"] : []),
       "--hostname",
       "localhost",
       "--port",
@@ -49,9 +53,17 @@ const app = {
       ...(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? { NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY } : {}),
       // The runner does not inherit this variable. Keep server credentials paired
       // with the selected backend instead of falling back to another .env.local.
-      ...((critical || performance) && process.env.SUPABASE_SERVICE_ROLE_KEY
+      ...((critical || performance || coverage) && process.env.SUPABASE_SERVICE_ROLE_KEY
         ? { SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY }
         : {}),
+      ...(coverage ? {
+        NODE_OPTIONS: `--import=${pathToFileURL(path.resolve("scripts/tester-army/coverage-network-guard.mjs")).href}`,
+        E2E_COVERAGE_BACKEND_ORIGIN: process.env.E2E_COVERAGE_BACKEND_ORIGIN!,
+        E2E_ARMY_BASE_URL: baseUrl.origin,
+        E2E_COVERAGE_NETWORK_LOG: process.env.E2E_COVERAGE_NETWORK_LOG!,
+        GEMINI_API_KEY: "",
+        GOOGLE_GENERATIVE_AI_API_KEY: "",
+      } : {}),
     },
     startupTimeout: 180_000,
     shutdownTimeout: 15_000,
@@ -61,8 +73,8 @@ const app = {
 };
 
 export default {
-  projectId: critical ? "miaouffrage-critical-journeys" : performance ? "miaouffrage-performance" : "miaouffrage-anonymous-pilot",
-  tests: critical ? "e2e/army/critical/**/*.e2e.ts" : performance
+  projectId: coverage ? "miaouffrage-source-coverage" : critical ? "miaouffrage-critical-journeys" : performance ? "miaouffrage-performance" : "miaouffrage-anonymous-pilot",
+  tests: coverage ? ["e2e/army/critical/auth.setup.e2e.ts", process.env.E2E_COVERAGE_SCENARIO_SET === "generated-components" ? process.env.E2E_GENERATED_COMPONENTS_SELECTION === "assembly-totals" ? "e2e/army/local/assembly-totals.e2e.ts" : numericComponents ? "e2e/army/local/generated-ouvrage-numeric-entry.e2e.ts" : "e2e/army/local/generated-ouvrage-components.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "navigation-lease" ? "e2e/army/local/editor-navigation-lease.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "generated-recovery" ? "e2e/army/local/estimate-generated-recovery.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "generated-atomic" ? "e2e/army/local/estimate-generated-atomic.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "batch-atomic" ? "e2e/army/local/estimate-batch*.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "create-atomic" ? "e2e/army/local/estimate-create-atomic.e2e.ts" : "e2e/army/local/source-coverage.e2e.ts"] : critical ? "e2e/army/critical/**/*.e2e.ts" : performance
     ? ["e2e/army/critical/auth.setup.e2e.ts", "e2e/army/performance/**/*.e2e.ts"]
     : "e2e/army/*.e2e.ts",
   targets: [
@@ -86,9 +98,9 @@ export default {
   output,
   // Generated Supabase tokens are not known to the SDK's password ledger.
   // Authenticated proof uses assertion steps and explicit business artifacts.
-  trace: critical || performance ? "off" : "on",
+  trace: critical || performance || coverage ? "off" : "on",
   cache: process.env.E2E_ARMY_SUITE === "agent" ? "read-write" : "off",
-  ...(critical || performance ? {
+  ...(critical || performance || coverage ? {
     credentials: {
       prehydration: {
         username: "army-prehydration@example.invalid",

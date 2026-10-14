@@ -9,12 +9,16 @@ import {
   useAutoSave,
   type AutoSaveResult,
   type AutoSaveStatus,
+  type AutoSaveReason,
 } from "@/hooks/useAutoSave";
 import { useAutoSaveNavigationGuard } from "@/hooks/useAutoSaveNavigationGuard";
 import { useDraftLock } from "@/hooks/useDraftLock";
+import { useEstimateBatchRecovery } from "@/hooks/useEstimateBatchRecovery";
+import { createEstimateBatchAttempt } from "@/lib/estimates/batch-intentions";
 import {
   applyBufferedUpdatesToItems,
   rehydrateBufferedUpdates,
+  matchesSyncedItemPayload,
   serializeBufferedUpdates,
   shouldFlushBufferedUpdates,
   upsertBufferedUpdate,
@@ -37,7 +41,9 @@ import {
 import {
   hasEstimateEditorMutations,
   registerEstimateEditorMutations,
+  recoverEstimateEditorRead,
   waitForEstimateEditorMutations,
+  type EditorMutationToken,
 } from "@/lib/estimates/editor-mutations";
 import {
   buildEstimateItemUpdatePayload,
@@ -85,39 +91,23 @@ function isVersionConflictError(error: unknown) {
   return (
     isEstimateApiError(error) &&
     error.status === 409 &&
-    error.code === "VERSION_CONFLICT"
+    ["VERSION_CONFLICT", "ESTIMATE_BATCH_STALE", "ESTIMATE_BATCH_CONTEXT_CHANGED"].includes(error.code ?? "")
   );
 }
 
 function isDraftLockRequiredError(error: unknown) {
-  return isEstimateApiError(error) && error.code === "LOCK_REQUIRED";
+  return isEstimateApiError(error) && ["LOCK_REQUIRED", "ESTIMATE_BATCH_LOCK_REQUIRED"].includes(error.code ?? "");
 }
 
-/**
- * Vrai quand la charge utile ne change rien par rapport a l'etat deja
- * synchronise de la ligne. Les cellules de l'editeur valident au blur, meme
- * lorsque l'utilisateur n'a fait que traverser le champ : sans ce filtre, un
- * simple passage dans une ligne declencherait une sauvegarde automatique.
- */
-function matchesSyncedItemPayload(
-  syncedPayload: EstimateItemUpdatePayload | undefined,
-  payload: EstimateItemUpdatePayload
-) {
-  if (!syncedPayload) return false;
-
-  const syncedRecord = syncedPayload as Record<string, unknown>;
-  return Object.entries(payload as Record<string, unknown>).every(
-    ([key, value]) =>
-      key in syncedRecord && Object.is(syncedRecord[key] ?? null, value ?? null)
-  );
-}
 export function useEstimateEditorSyncController({
   routeVersionId,
   activeVersion,
   currentUserId,
+  currentTenantId,
   isViewerReadOnly,
   hasPendingSettingsChanges,
   isSavingSettings,
+  allowManualTotalsReconciliation = false,
   savePendingSettings,
   navigate,
   items,
@@ -137,11 +127,15 @@ export function useEstimateEditorSyncController({
     useState(false);
   const [hasPendingTotalsSave, setHasPendingTotalsSave] = useState(false);
   const [hasPendingMutations, setHasPendingMutations] = useState(false);
+  const [readRequiredMessage, setReadRequiredMessage] = useState<string | null>(null);
+  const [recoveryReloadMessage, setRecoveryReloadMessage] = useState<string | null>(null);
+  const [isRecoveringRead, setIsRecoveringRead] = useState(false);
   const [isAutoSaveEnabled, setIsAutoSaveEnabledState] = useState(() =>
     readAutoSaveEnabledPreferenceFromLocal(currentUserId)
   );
   const [conflict, setConflict] =
     useState<EstimateEditorConflictState | null>(null);
+  const conflictMessageRef = useRef<string | null>(null);
   const [restorableDraft, setRestorableDraft] =
     useState<EstimateEditorConflictDraft | null>(null);
   const [isReloadingVersion, setIsReloadingVersion] = useState(false);
@@ -165,6 +159,11 @@ export function useEstimateEditorSyncController({
   const savingSettingsRef = useRef(isSavingSettings);
   const itemsRef = useRef(items);
   const isSaveBlockedRef = useRef(false);
+  const readRequiredMessageRef = useRef<string | null>(null);
+  const recoveryReloadMessageRef = useRef<string | null>(null);
+  const isRecoveringReadRef = useRef(false);
+  const recoveryReloadInFlightRef = useRef(false);
+  const mutationLifetimeRef = useRef(0);
   /** Vrai tant que cette page a detenu le verrou pour la version courante. */
   const hadDraftLockOwnershipRef = useRef(false);
   /** Dernier etat connu du serveur pour chaque ligne, par identifiant. */
@@ -193,7 +192,6 @@ export function useEstimateEditorSyncController({
     routeGenerationRef.current += 1;
     activeFlushIdRef.current += 1;
     isFlushingBufferedUpdatesRef.current = false;
-    syncedItemPayloadsRef.current.clear();
     hadDraftLockOwnershipRef.current = false;
 
     return () => {
@@ -201,7 +199,7 @@ export function useEstimateEditorSyncController({
       activeFlushIdRef.current += 1;
       isFlushingBufferedUpdatesRef.current = false;
     };
-  }, [currentUserId, routeVersionId]);
+  }, [currentTenantId, currentUserId, routeVersionId]);
 
   useLayoutEffect(() => {
     isAutoSaveEnabledRef.current = isAutoSaveEnabled;
@@ -254,28 +252,70 @@ export function useEstimateEditorSyncController({
 
   const mutationObserverRef = useRef({
     getVersionSnapshot, applyVersionFlushResult,
-    persistBufferedItemUpdatesToLocal, setTotalsOutOfSync,
+    persistBufferedItemUpdatesToLocal, setTotalsOutOfSync, currentUserId, currentTenantId,
   });
   useLayoutEffect(() => {
     pendingSettingsRef.current = hasPendingSettingsChanges;
     savingSettingsRef.current = isSavingSettings;
     mutationObserverRef.current = {
       getVersionSnapshot, applyVersionFlushResult,
-      persistBufferedItemUpdatesToLocal, setTotalsOutOfSync,
+      persistBufferedItemUpdatesToLocal, setTotalsOutOfSync, currentUserId, currentTenantId,
     };
   });
-  useLayoutEffect(() => {
+  // Lazy recovery content can hide the editor with Suspense. Its layout-effect
+  // cleanup is visibility work, not the end of this actor/tenant/version lifetime.
+  useEffect(() => {
+    mutationLifetimeRef.current += 1;
+    syncedItemPayloadsRef.current.clear();
     restoredConflictDraftRef.current = false;
+    readRequiredMessageRef.current = null;
+    recoveryReloadMessageRef.current = null;
+    isRecoveringReadRef.current = false;
+    recoveryReloadInFlightRef.current = false;
     setHasPendingMutations(false);
-    return registerEstimateEditorMutations(routeVersionId, {
+    setReadRequiredMessage(null);
+    setRecoveryReloadMessage(null);
+    setIsRecoveringRead(false);
+    setIsReloadingVersion(false);
+    const getCurrentVersionSnapshot = () => {
+      const observer = mutationObserverRef.current;
+      if (!currentUserId || !currentTenantId ||
+          observer.currentUserId !== currentUserId ||
+          observer.currentTenantId !== currentTenantId ||
+          routeVersionIdRef.current !== routeVersionId) return null;
+      const snapshot = observer.getVersionSnapshot();
+      return snapshot?.id === routeVersionId && snapshot.tenant_id === currentTenantId
+        ? snapshot : null;
+    };
+    const unregister = registerEstimateEditorMutations(routeVersionId, {
+      getIdentity: () => {
+        const version = getCurrentVersionSnapshot();
+        return currentUserId && version?.id === routeVersionId && version.tenant_id
+          ? { actorId: currentUserId, tenantId: version.tenant_id, versionId: routeVersionId } : null;
+      },
       getToken: () => {
-        const version = mutationObserverRef.current.getVersionSnapshot();
+        const version = getCurrentVersionSnapshot();
         return version?.id === routeVersionId ? version.updated_at : null;
       },
+      getRevision: () => getCurrentVersionSnapshot()?.content_revision,
       onPendingChange: setHasPendingMutations,
-      onCommit: ({ version, deletedIds, structural }) => {
+      onReadRequiredChange: (message) => {
+        if (!getCurrentVersionSnapshot()) return;
+        readRequiredMessageRef.current = message;
+        if (message !== null) isSaveBlockedRef.current = true;
+        setReadRequiredMessage(message);
+      },
+      onCommit: ({ version, deletedIds, structural, needsReload, totals }) => {
+        if (!getCurrentVersionSnapshot() || version.id !== routeVersionId) return;
+        if (needsReload) {
+          const message = "Le résultat est confirmé. Relisez le devis avant de poursuivre ; vos saisies locales sont conservées.";
+          recoveryReloadMessageRef.current = message;
+          isSaveBlockedRef.current = true;
+          setRecoveryReloadMessage(message);
+        }
         mutationObserverRef.current.applyVersionFlushResult({
-          versionId: version.id, updatedAt: version.updated_at, totalsPatch: undefined,
+          versionId: version.id, updatedAt: version.updated_at, totalsPatch: totals,
+          ...(version.content_revision === undefined ? {} : { contentRevision: version.content_revision }),
         });
         if (deletedIds?.length) {
           deletedIds.forEach((id) => {
@@ -288,12 +328,17 @@ export function useEstimateEditorSyncController({
         }
         if (structural) {
           structuralGenerationRef.current += 1;
-          updateHasPendingTotalsSave(true);
-          mutationObserverRef.current.setTotalsOutOfSync(true);
+          const needsTotalsSave = !totals || pendingItemUpdatesRef.current.size > 0 || pendingSettingsRef.current;
+          updateHasPendingTotalsSave(needsTotalsSave);
+          mutationObserverRef.current.setTotalsOutOfSync(needsTotalsSave);
         }
       },
     });
-  }, [currentUserId, routeVersionId, updateHasPendingTotalsSave]);
+    return () => {
+      mutationLifetimeRef.current += 1;
+      unregister();
+    };
+  }, [currentTenantId, currentUserId, routeVersionId, updateHasPendingTotalsSave]);
 
   const clearBufferedItemUpdates = useCallback(
     (options?: { clearPersisted?: boolean }) => {
@@ -320,6 +365,19 @@ export function useEstimateEditorSyncController({
     []
   );
 
+  const pruneSyncedBufferedUpdates = useCallback(() => {
+    let changed = false;
+    for (const [itemId, payload] of pendingItemUpdatesRef.current) {
+      if (!matchesSyncedItemPayload(syncedItemPayloadsRef.current.get(itemId), payload)) continue;
+      pendingItemUpdatesRef.current.delete(itemId);
+      changed = true;
+    }
+    if (!changed) return;
+    pendingBufferedUpdateCountRef.current = pendingItemUpdatesRef.current.size;
+    setHasPendingBufferedUpdates(pendingItemUpdatesRef.current.size > 0);
+    persistBufferedItemUpdatesToLocal();
+  }, [persistBufferedItemUpdatesToLocal]);
+
   /**
    * Les lignes recues ici sortent du serveur : elles constituent la reference
    * a partir de laquelle une modification locale est reconnue comme telle.
@@ -344,12 +402,13 @@ export function useEstimateEditorSyncController({
         buildEstimateItemUpdatePayload(item),
       ])
     );
+    pruneSyncedBufferedUpdates();
 
     return applyBufferedUpdatesToItems(
       sourceItemsWithStableClientKeys,
       serializeBufferedUpdates(pendingItemUpdatesRef.current)
     );
-  }, []);
+  }, [pruneSyncedBufferedUpdates]);
 
   useEffect(() => {
     if (!routeVersionId) return;
@@ -387,6 +446,7 @@ export function useEstimateEditorSyncController({
       }
 
       const message = resolveErrorMessage(error.message);
+      conflictMessageRef.current = message;
       setConflict({
         message,
         details: error.details,
@@ -432,9 +492,73 @@ export function useEstimateEditorSyncController({
     setReloadToken((previous) => previous + 1);
   }, [routeVersionId]);
 
-  const markVersionReloadFinished = useCallback(() => {
+  const batchRecovery = useEstimateBatchRecovery({
+    versionId: routeVersionId, actorId: currentUserId, tenantId: activeVersion?.tenant_id ?? null,
+    pendingUpdates: pendingItemUpdatesRef, triggerReload: triggerVersionReload, reportError, reportNotice,
+    onBufferedChanges: () => {
+      pendingBufferedUpdateCountRef.current = pendingItemUpdatesRef.current.size;
+      setHasPendingBufferedUpdates(pendingItemUpdatesRef.current.size > 0);
+      updateHasPendingTotalsSave(pendingItemUpdatesRef.current.size > 0);
+      persistBufferedItemUpdatesToLocal();
+      clearHistory();
+    },
+  });
+  const { finishReload: finishBatchReload } = batchRecovery;
+  const verifyRequiredRead = useCallback(async () => {
+    const lifetime = mutationLifetimeRef.current;
+    const isCurrentLifetime = () => lifetime === mutationLifetimeRef.current &&
+      routeVersionIdRef.current === routeVersionId &&
+      mutationObserverRef.current.currentUserId === currentUserId &&
+      mutationObserverRef.current.currentTenantId === currentTenantId;
+    if (!isCurrentLifetime() || isRecoveringReadRef.current || recoveryReloadInFlightRef.current) return;
+    if (recoveryReloadMessageRef.current && !readRequiredMessageRef.current) {
+      recoveryReloadInFlightRef.current = true;
+      triggerVersionReload();
+      return;
+    }
+    isRecoveringReadRef.current = true;
+    setIsRecoveringRead(true);
+    try {
+      if (await recoverEstimateEditorRead(routeVersionId) && isCurrentLifetime()) {
+        if (recoveryReloadMessageRef.current) {
+          recoveryReloadInFlightRef.current = true;
+          triggerVersionReload();
+        } else {
+          reportNotice("Le devis est relu. Vos saisies locales sont conservées.");
+        }
+      }
+    } catch {
+      if (isCurrentLifetime()) reportError("La lecture du devis reste interrompue. Réessayez la vérification ; vos saisies sont conservées.");
+    } finally {
+      if (isCurrentLifetime()) {
+        isRecoveringReadRef.current = false;
+        setIsRecoveringRead(false);
+      }
+    }
+  }, [currentTenantId, currentUserId, reportError, reportNotice, routeVersionId, triggerVersionReload]);
+  const visibleRecovery = useMemo(() => readRequiredMessage || recoveryReloadMessage ? {
+    blocked: true, message: readRequiredMessage ?? recoveryReloadMessage, canResume: false,
+    isBusy: isRecoveringRead || Boolean(recoveryReloadMessage && isReloadingVersion), verify: verifyRequiredRead,
+  } : batchRecovery, [batchRecovery, isRecoveringRead, isReloadingVersion, readRequiredMessage, recoveryReloadMessage, verifyRequiredRead]);
+  const markVersionReloadFinished = useCallback((succeeded = true) => {
+    if (routeVersionIdRef.current !== routeVersionId ||
+      mutationObserverRef.current.currentUserId !== currentUserId ||
+      mutationObserverRef.current.currentTenantId !== currentTenantId) return;
     setIsReloadingVersion(false);
-  }, []);
+    finishBatchReload(succeeded);
+    recoveryReloadInFlightRef.current = false;
+    if (!recoveryReloadMessageRef.current) return;
+    if (succeeded) {
+      recoveryReloadMessageRef.current = null;
+      setRecoveryReloadMessage(null);
+      reportNotice("Le devis est relu. Vos saisies locales sont conservées.");
+    } else {
+      const message = "La lecture complète du devis reste interrompue. Réessayez la vérification ; vos saisies locales sont conservées.";
+      recoveryReloadMessageRef.current = message;
+      isSaveBlockedRef.current = true;
+      setRecoveryReloadMessage(message);
+    }
+  }, [currentTenantId, currentUserId, finishBatchReload, reportNotice, routeVersionId]);
 
   const handleVersionConflict = useCallback(
     (error: unknown, options?: { persistDraft?: boolean }) => {
@@ -459,8 +583,10 @@ export function useEstimateEditorSyncController({
   );
 
   const clearConflictState = useCallback(() => {
+    const message = conflictMessageRef.current;
+    conflictMessageRef.current = null;
     setConflict(null);
-    reportError(null);
+    if (message !== null) reportError((current) => current === message ? null : current);
   }, [reportError]);
 
   const clearConflictDraft = useCallback((options?: { onlyIfRestored?: boolean }) => {
@@ -541,13 +667,17 @@ export function useEstimateEditorSyncController({
     !isDraftLockedByOther &&
     !isDraftLockOwnedByCurrentUser;
   const isReadOnly =
+    batchRecovery.blocked || batchRecovery.isBusy ||
     isStatusReadOnly ||
     isDraftLockedByOther ||
     isDraftLockPending ||
     isViewerReadOnly;
   const isConflictLocked = conflict !== null;
-  const isSaveBlocked = isReadOnly || isConflictLocked;
-  const readOnlyActionErrorMessage = isViewerReadOnly
+  const isSaveBlocked = isReadOnly || isConflictLocked || readRequiredMessage !== null ||
+    recoveryReloadMessage !== null || isRecoveringRead;
+  const readOnlyActionErrorMessage = batchRecovery.blocked
+    ? "Vérifiez le résultat de l'opération précédente avant de modifier ce devis."
+    : isViewerReadOnly
     ? "Mode consultation activé."
     : isDraftLockPending && !isDraftLockedByOther
       ? "Acquisition du verrou de brouillon en cours."
@@ -556,7 +686,8 @@ export function useEstimateEditorSyncController({
         : "Cette version est en lecture seule.";
 
   useEffect(() => {
-    isSaveBlockedRef.current = isSaveBlocked;
+    isSaveBlockedRef.current = isSaveBlocked || readRequiredMessageRef.current !== null ||
+      recoveryReloadMessageRef.current !== null;
   }, [isSaveBlocked]);
 
   const forceUnlockDraftLock = useCallback(async () => {
@@ -632,19 +763,22 @@ export function useEstimateEditorSyncController({
     };
   }, [hasPendingSettingsChanges, isSavingSettings]);
 
-  const flushBufferedItemUpdates = useCallback(async (): Promise<AutoSaveResult> => {
+  const flushBufferedItemUpdates = useCallback(async (forceTotals = false): Promise<AutoSaveResult> => {
+    if (forceTotals && restorableDraft && !restoredConflictDraftRef.current) {
+      return "blocked";
+    }
     if (isFlushingBufferedUpdatesRef.current) {
       const generation = routeGenerationRef.current;
       await flushCompletionRef.current;
       if (generation !== routeGenerationRef.current) return "blocked";
-      return flushBufferedItemUpdates();
+      return flushBufferedItemUpdates(forceTotals);
     }
     if (hasEstimateEditorMutations(routeVersionId)) {
       const generation = routeGenerationRef.current;
       await waitForEstimateEditorMutations(routeVersionId);
       if (generation !== routeGenerationRef.current) return "blocked";
       // Read the buffer only after successful deletions have removed their IDs.
-      return flushBufferedItemUpdates();
+      return flushBufferedItemUpdates(forceTotals);
     }
 
     const hasPendingAutoSaveWork =
@@ -662,7 +796,15 @@ export function useEstimateEditorSyncController({
     const bufferedEntries = serializeBufferedUpdates(
       pendingItemUpdatesRef.current
     );
-    if (bufferedEntries.length === 0 && !hasPendingTotalsSaveRef.current) {
+    const versionTotalsPatch = buildVersionTotalsPatch(getPersistedTotals());
+    const forceV2Totals = forceTotals && versionSnapshot.calc_engine_version === 2;
+    if (forceV2Totals && !versionTotalsPatch) return "blocked";
+    const reconcileTotals = forceV2Totals && versionTotalsPatch && (
+      versionTotalsPatch.total_ht_cents !== versionSnapshot.total_ht_cents ||
+      versionTotalsPatch.total_tax_cents !== versionSnapshot.total_tax_cents ||
+      versionTotalsPatch.total_ttc_cents !== versionSnapshot.total_ttc_cents
+    );
+    if (bufferedEntries.length === 0 && !hasPendingTotalsSaveRef.current && !reconcileTotals) {
       setHasPendingBufferedUpdates(false);
       return "noop";
     }
@@ -679,7 +821,7 @@ export function useEstimateEditorSyncController({
     const completion = new Promise<void>((resolve) => { finishFlush = resolve; });
     flushCompletionRef.current = completion;
 
-    const versionTotalsPatch = buildVersionTotalsPatch(getPersistedTotals());
+    let savedVersionTotalsPatch = versionTotalsPatch;
     const structuralGeneration = structuralGenerationRef.current;
     const batchOperations = bufferedEntries.map((entry) => ({
       op: "update" as const,
@@ -688,6 +830,7 @@ export function useEstimateEditorSyncController({
     }));
     let lineBatchCommitted = false;
     let committedLineVersionToken: string | null = null;
+    let committedLineContentRevision: number | undefined;
 
     const isCurrentFlush = () =>
       activeFlushIdRef.current === flushId &&
@@ -696,13 +839,16 @@ export function useEstimateEditorSyncController({
 
     try {
       let nextVersionToken = versionSnapshot.updated_at;
+      let nextContentRevision: number | undefined = versionSnapshot.content_revision;
 
       if (batchOperations.length > 0) {
+        const attempt = createEstimateBatchAttempt();
         const batchResult = await runWithDraftLockRecovery(() =>
           batchEstimateOperations(
             flushVersionId,
             nextVersionToken,
-            batchOperations
+            batchOperations,
+            { attempt }
           )
         );
 
@@ -718,10 +864,16 @@ export function useEstimateEditorSyncController({
 
         lineBatchCommitted = true;
         nextVersionToken = batchResult.versionToken.updated_at;
+        const acknowledgedVersion: EditorMutationToken =
+          batchResult.currentVersionToken?.updated_at === nextVersionToken
+            ? batchResult.currentVersionToken : batchResult.versionToken;
+        nextContentRevision = acknowledgedVersion.content_revision;
         committedLineVersionToken = nextVersionToken;
+        committedLineContentRevision = nextContentRevision;
+        savedVersionTotalsPatch = batchResult.totals;
       }
 
-      if (versionTotalsPatch) {
+      if (versionTotalsPatch && !lineBatchCommitted) {
         const bulkResult = await runWithDraftLockRecovery(() =>
           bulkUpdateEstimateItems(
             flushVersionId,
@@ -731,6 +883,9 @@ export function useEstimateEditorSyncController({
           )
         );
         nextVersionToken = bulkResult.versionToken.updated_at;
+        const acknowledgedVersion: EditorMutationToken = bulkResult.versionToken;
+        nextContentRevision = acknowledgedVersion.content_revision;
+        savedVersionTotalsPatch = bulkResult.totals ?? versionTotalsPatch;
       }
 
       if (!isCurrentFlush()) {
@@ -743,10 +898,12 @@ export function useEstimateEditorSyncController({
       bufferedEntries.forEach((entry) => {
         mergeSyncedItemPayload(entry.id, entry.updates);
       });
+      pruneSyncedBufferedUpdates();
       applyVersionFlushResult({
         versionId: flushVersionId,
-        totalsPatch: versionTotalsPatch,
+        totalsPatch: savedVersionTotalsPatch,
         updatedAt: nextVersionToken,
+        ...(nextContentRevision === undefined ? {} : { contentRevision: nextContentRevision }),
       });
       // Une sauvegarde réussie invalide les anciens messages de navigation ou
       // de synchronisation. Sans ce reset, le ruban peut afficher « Sauvegardé »
@@ -790,10 +947,12 @@ export function useEstimateEditorSyncController({
         bufferedEntries.forEach((entry) => {
           mergeSyncedItemPayload(entry.id, entry.updates);
         });
+        pruneSyncedBufferedUpdates();
         applyVersionFlushResult({
           versionId: flushVersionId,
           totalsPatch: undefined,
           updatedAt: committedLineVersionToken,
+          ...(committedLineContentRevision === undefined ? {} : { contentRevision: committedLineContentRevision }),
         });
         updateHasPendingTotalsSave(Boolean(versionTotalsPatch));
         clearHistory();
@@ -844,10 +1003,12 @@ export function useEstimateEditorSyncController({
     getVersionSnapshot,
     handleVersionConflict,
     mergeSyncedItemPayload,
+    pruneSyncedBufferedUpdates,
     persistBufferedItemUpdatesToLocal,
     reportError,
     reportNotice,
     resolveErrorMessage,
+    restorableDraft,
     runWithDraftLockRecovery,
     routeVersionId,
     setTotalsOutOfSync,
@@ -856,6 +1017,12 @@ export function useEstimateEditorSyncController({
 
   const hasPendingAutoSaveChanges =
     hasPendingBufferedUpdates || hasPendingTotalsSave;
+  const saveAutoSaveChanges = useCallback(
+    (reason: AutoSaveReason) => flushBufferedItemUpdates(
+      reason === "manual" && allowManualTotalsReconciliation && !restorableDraft
+    ),
+    [allowManualTotalsReconciliation, flushBufferedItemUpdates, restorableDraft]
+  );
   const {
     status: rawAutoSaveStatus,
     statusLabel: rawAutoSaveStatusLabel,
@@ -870,10 +1037,11 @@ export function useEstimateEditorSyncController({
     ),
     automaticEnabled: isAutoSaveEnabled,
     hasPendingChanges: hasPendingAutoSaveChanges,
+    allowManualSaveWithoutChanges: allowManualTotalsReconciliation && isDraftVersion && !restorableDraft,
     debounceMs: AUTOSAVE_DEBOUNCE_MS,
     maxWaitMs: AUTOSAVE_MAX_WAIT_MS,
     enableShortcut: !hasPendingSettingsChanges,
-    onSave: flushBufferedItemUpdates,
+    onSave: saveAutoSaveChanges,
   });
 
   // La cadence automatique est d'une minute : une modification en attente ne
@@ -943,6 +1111,8 @@ export function useEstimateEditorSyncController({
   ]);
   const autoSaveStatusLabel = useMemo(() => {
     if (autoSaveStatus === "blocked") {
+      if (readRequiredMessage || recoveryReloadMessage) return "Résultat à vérifier";
+      if (batchRecovery.blocked) return "Résultat à vérifier";
       if (isConflictLocked) return "Conflit";
       if (isDraftLockedByOther) return "Verrouillé";
       if (isDraftLockPending) return "Connexion…";
@@ -957,6 +1127,9 @@ export function useEstimateEditorSyncController({
       : resolveAutoSaveStatusLabel(autoSaveStatus);
   }, [
     autoSaveStatus,
+    readRequiredMessage,
+    recoveryReloadMessage,
+    batchRecovery.blocked,
     hasPendingSettingsChanges,
     restorableDraft,
     isConflictLocked,
@@ -1155,6 +1328,7 @@ export function useEstimateEditorSyncController({
 
   const state = useMemo(
     () => ({
+      batchRecovery: visibleRecovery,
       autoSaveStatus,
       autoSaveStatusLabel,
       isAutoSaveSaving,
@@ -1173,6 +1347,7 @@ export function useEstimateEditorSyncController({
       draftLockError,
     }),
     [
+      visibleRecovery,
       autoSaveStatus,
       autoSaveStatusLabel,
       conflict,
@@ -1198,6 +1373,7 @@ export function useEstimateEditorSyncController({
       enqueueItemUpdate,
       setAutoSaveEnabled,
       saveNow,
+      flushBeforeExternalAction: saveBeforeNavigation,
       flushBufferedItemUpdates,
       ensureGroupedActionCanProceed,
       retryTotalsSave,
@@ -1236,6 +1412,7 @@ export function useEstimateEditorSyncController({
       reacquireDraftLock,
       retryTotalsSave,
       saveNow,
+      saveBeforeNavigation,
       setAutoSaveEnabled,
       triggerVersionReload,
     ]
@@ -1249,6 +1426,7 @@ export function useEstimateEditorSyncController({
       isReadOnly,
       isConflictLocked,
       isSaveBlocked,
+      isReadRecoveryRequired: readRequiredMessage !== null,
       readOnlyActionErrorMessage,
       lockHolderLabel,
     }),
@@ -1257,6 +1435,7 @@ export function useEstimateEditorSyncController({
       isDraftLockPending,
       isReadOnly,
       isSaveBlocked,
+      readRequiredMessage,
       isStatusReadOnly,
       lockHolderLabel,
       readOnlyActionErrorMessage,

@@ -1,6 +1,7 @@
 "use client";
 
 import { formatEUR } from "@/lib/money";
+import { formatOrderQuantity } from "@/lib/purchase-orders/quantities";
 import {
   BusinessDocumentBrandHeader,
   BusinessDocumentFooter,
@@ -36,6 +37,11 @@ export type OrderItemData = {
   designation: string;
   reference?: string | null;
   quantity: number;
+  quantityInput?: string;
+  unit: string | null;
+  priceUnit: string | null;
+  unitReadOnly?: boolean;
+  validationError?: string | null;
   unitPriceInput?: string;
   unitPriceHtCents: number;
   lineTotalHtCents: number;
@@ -61,6 +67,7 @@ type PurchaseOrderDocumentProps = {
   // Fournisseur
   supplier: SupplierData | null;
   supplierId?: string;
+  supplierReadOnly?: boolean;
   onSupplierChange?: (id: string) => void;
   supplierOptions?: SupplierOption[];
   onSupplierCreate?: () => void;
@@ -92,6 +99,7 @@ type PurchaseOrderDocumentProps = {
   totalHtCents: number;
   totalTaxCents: number;
   totalTtcCents: number;
+  totalsPending?: boolean;
 };
 
 function formatDate(dateStr: string): string {
@@ -149,6 +157,7 @@ export function PurchaseOrderDocument({
   reference,
   supplier,
   supplierId,
+  supplierReadOnly = false,
   onSupplierChange,
   supplierOptions = [],
   onSupplierCreate,
@@ -170,6 +179,7 @@ export function PurchaseOrderDocument({
   totalHtCents,
   totalTaxCents,
   totalTtcCents,
+  totalsPending = false,
 }: PurchaseOrderDocumentProps) {
   const showDeliveryDetails =
     deliverySite &&
@@ -242,9 +252,11 @@ export function PurchaseOrderDocument({
               <div className="flex flex-col gap-2">
                 <select
                   aria-label="Fournisseur"
+                  aria-describedby={supplierReadOnly ? "purchase-order-supplier-readonly" : undefined}
                   className="doc-select w-full text-2xl font-extrabold text-brand-blue"
                   value={supplierId ?? ""}
                   onChange={(e) => onSupplierChange?.(e.target.value)}
+                  disabled={supplierReadOnly}
                   required
                 >
                   <option value="">- Sélectionner -</option>
@@ -254,6 +266,11 @@ export function PurchaseOrderDocument({
                     </option>
                   ))}
                 </select>
+                {supplierReadOnly ? (
+                  <p id="purchase-order-supplier-readonly" className="text-xs text-muted-foreground">
+                    Fournisseur conservé depuis la préparation du devis
+                  </p>
+                ) : null}
                 {onSupplierCreate ? (
                   <button
                     type="button"
@@ -439,12 +456,13 @@ export function PurchaseOrderDocument({
       </div>
 
       {/* Items Table */}
-      <div className="mb-6 overflow-hidden rounded-xl border border-border shadow-sm print:mb-4">
+      <div className="mb-6 overflow-x-auto rounded-xl border border-border shadow-sm print:mb-4">
         <table className="w-full">
           <thead>
             <tr className="table-head bg-brand-blue text-left text-xs font-bold uppercase tracking-wide text-white print-color-adjust">
               <th className="px-6 py-4 align-middle whitespace-nowrap print:px-4 print:py-2">Désignation</th>
-              <th className="w-20 px-3 py-4 text-center align-middle whitespace-nowrap print:px-2 print:py-2">Qté</th>
+              <th className="w-24 px-3 py-4 text-center align-middle whitespace-nowrap print:px-2 print:py-2">Qté</th>
+              <th className="w-24 px-3 py-4 text-center align-middle whitespace-nowrap print:px-2 print:py-2">Unité</th>
               <th className="w-28 px-3 py-4 text-right align-middle whitespace-nowrap print:px-2 print:py-2">P.U. HT</th>
               <th className="w-32 px-4 py-4 text-right align-middle whitespace-nowrap print:px-2 print:py-2">Total HT</th>
               {editable && <th className="w-12 px-4 py-4 align-middle"></th>}
@@ -472,25 +490,46 @@ export function PurchaseOrderDocument({
                   ) : (
                     resolveItemDesignation(item)
                   )}
+                  {item.reference?.trim() && item.designation?.trim() ? (
+                    <p className="mt-1 text-xs font-normal text-muted-foreground">Réf. {item.reference}</p>
+                  ) : null}
+                  {editable && item.validationError ? (
+                    <p id={`order-line-error-${item.key}`} className="mt-1 text-xs font-normal text-danger">
+                      Ligne {index + 1} : {item.validationError}
+                    </p>
+                  ) : null}
                 </td>
-                <td className="w-20 px-3 py-4 text-center font-bold print:px-2 print:py-2">
+                <td className="w-24 px-3 py-4 text-center font-bold print:px-2 print:py-2">
                   {editable ? (
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="decimal"
                       aria-label={`Quantité, ligne ${index + 1}`}
-                      className="doc-input w-14 text-center"
-                      min={1}
-                      value={item.quantity}
-                      onChange={(e) =>
-                        onItemChange?.(
-                          item.key,
-                          "quantity",
-                          parseInt(e.target.value, 10) || 1
-                        )
-                      }
+                      aria-describedby={item.validationError ? `order-line-error-${item.key}` : undefined}
+                      className="doc-input w-full min-w-16 text-center tabular-nums"
+                      value={item.quantityInput ?? formatOrderQuantity(item.quantity)}
+                      onChange={(e) => onItemChange?.(item.key, "quantity", e.target.value)}
+                      required
                     />
                   ) : (
-                    item.quantity
+                    formatOrderQuantity(item.quantity)
+                  )}
+                </td>
+                <td className="w-24 px-3 py-4 text-center text-sm print:px-2 print:py-2">
+                  {editable && !item.unitReadOnly ? (
+                    <input
+                      type="text"
+                      aria-label={`Unité, ligne ${index + 1}`}
+                      aria-describedby={item.validationError ? `order-line-error-${item.key}` : undefined}
+                      className="doc-input w-full min-w-16 text-center"
+                      placeholder="Unité à confirmer"
+                      value={item.unit ?? ""}
+                      onChange={(e) => onItemChange?.(item.key, "unit", e.target.value)}
+                    />
+                  ) : (
+                    <span title={editable && item.unitReadOnly ? "Unité conservée depuis le devis validé" : undefined}>
+                      {item.unit || "Unité à confirmer"}
+                    </span>
                   )}
                 </td>
                 <td className="w-28 px-3 py-4 text-right print:px-2 print:py-2">
@@ -499,6 +538,7 @@ export function PurchaseOrderDocument({
                       type="text"
                       className="doc-input w-20 text-right"
                       aria-label={`Prix unitaire HT, ligne ${index + 1}`}
+                      inputMode="decimal"
                       placeholder="0,00"
                       value={
                         item.unitPriceInput ??
@@ -515,9 +555,12 @@ export function PurchaseOrderDocument({
                   ) : (
                     formatEUR(item.unitPriceHtCents)
                   )}
+                  <p className="mt-1 text-xs font-normal text-muted-foreground">
+                    {item.priceUnit ? `par ${item.priceUnit}` : "Unité du prix à confirmer"}
+                  </p>
                 </td>
                 <td className="w-32 px-4 py-4 text-right font-bold print:px-2 print:py-2">
-                  {formatEUR(item.lineTotalHtCents)}
+                  {item.validationError ? "À vérifier" : formatEUR(item.lineTotalHtCents)}
                 </td>
                 {editable && (
                   <td className="px-4 py-4">
@@ -570,7 +613,7 @@ export function PurchaseOrderDocument({
                 Total HT
               </span>
               <span className="text-xl font-bold text-white">
-                {formatEUR(totalHtCents)}
+                {totalsPending ? "À vérifier" : formatEUR(totalHtCents)}
               </span>
             </div>
             {/* TVA */}
@@ -579,7 +622,7 @@ export function PurchaseOrderDocument({
                 TVA
               </span>
               <span className="text-sm font-medium text-slate-600">
-                {formatEUR(totalTaxCents)}
+                {totalsPending ? "À vérifier" : formatEUR(totalTaxCents)}
               </span>
             </div>
             {/* Total TTC */}
@@ -588,7 +631,7 @@ export function PurchaseOrderDocument({
                 Total TTC
               </span>
               <span className="text-sm font-semibold text-slate-600">
-                {formatEUR(totalTtcCents)}
+                {totalsPending ? "À vérifier" : formatEUR(totalTtcCents)}
               </span>
             </div>
           </div>

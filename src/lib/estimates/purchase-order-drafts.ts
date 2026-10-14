@@ -4,13 +4,13 @@ import {
   readActiveTenantMembership,
   readAuthenticatedUser,
 } from "@/lib/auth/tenant-context";
-import { buildPurchaseOrderReference } from "@/lib/reference";
 import {
   badRequest,
   conflict,
   internalError,
   mapSupabaseError,
   unauthorized,
+  type SupabaseErrorLike,
 } from "@/lib/estimates/errors";
 import {
   getEstimateSupplierComparisons,
@@ -19,13 +19,17 @@ import {
   type EstimateSupplierComparisonCoverageStatus,
   type EstimateSupplierComparisonRiskFlag,
 } from "@/lib/estimates/server";
-import { computeTotalsFromInputs, type LineInput } from "@/lib/order-calculations";
+import { computeTotalsFromInputs, MAX_ORDER_AMOUNT_CENTS, type LineTotals } from "@/lib/order-calculations";
 import type {
   estimatePurchaseOrderDraftsCreateSchema,
   estimatePurchaseOrderDraftGroupSchema,
 } from "@/lib/estimates/schemas";
-import { isValidDateOnly } from "@/lib/date-only";
 import { assertCanWriteEstimateWorkflows } from "@/lib/estimates/write-access";
+import { supplierOfferIneligibility } from "@/lib/estimates/supplier-offer-eligibility";
+import { isPriceStale } from "@/lib/catalogue/stale-prices";
+import { purchaseReceiptSchema, purchaseReviewSchema, purchaseTransferSchema } from "@/lib/estimates/purchase-preparation-contracts";
+import { isValidOrderQuantity } from "@/lib/purchase-orders/quantities";
+import type { Database } from "@/types/database";
 
 type SupplierComparisonRecord = Awaited<
   ReturnType<typeof getEstimateSupplierComparisons>
@@ -41,13 +45,17 @@ export type EstimatePurchaseOrderDraftBlockedReason =
   | "ambiguous"
   | "no_price"
   | "missing_quantity"
-  | "non_integer_quantity"
-  | "missing_unit_price";
+  | "invalid_quantity"
+  | "amount_out_of_range"
+  | "missing_unit_price"
+  | "supplier_offer_ineligible";
 
 export type EstimatePurchaseOrderDraftLine = {
   item_id: string;
   item_title: string;
   quantity: number;
+  unit: string;
+  review_fingerprint: string;
   unit_price_ht_cents: number;
   tax_rate_bp: number;
   line_total_ht_cents: number;
@@ -77,6 +85,7 @@ export type EstimatePurchaseOrderDraftBlockedLine = {
   tax_rate_bp: number | null;
   selected_supplier_price_id: string | null;
   reason: EstimatePurchaseOrderDraftBlockedReason;
+  reason_detail?: string | null;
   coverage_status: EstimateSupplierComparisonCoverageStatus | null;
   risk_flags: EstimateSupplierComparisonRiskFlag[];
   selected_alternative: EstimateSupplierComparisonAlternative | null;
@@ -90,17 +99,19 @@ export type EstimatePurchaseOrderDraftPreparation = {
     total_supplier_lines: number;
     draftable_lines: number;
     blocked_lines: number;
+    transferred_lines: number;
     supplier_groups: number;
     selection_missing_lines: number;
     stale_lines: number;
     ambiguous_lines: number;
     no_price_lines: number;
     missing_quantity_lines: number;
-    non_integer_quantity_lines: number;
+    invalid_quantity_lines: number;
     missing_unit_price_lines: number;
   };
   groups: EstimatePurchaseOrderDraftGroup[];
   blocked_lines: EstimatePurchaseOrderDraftBlockedLine[];
+  transferred_lines: z.infer<typeof purchaseTransferSchema>[];
 };
 
 export type EstimatePurchaseOrderDraftCreateGroupInput = z.infer<
@@ -111,25 +122,7 @@ export type EstimatePurchaseOrderDraftsCreateInput = z.infer<
   typeof estimatePurchaseOrderDraftsCreateSchema
 >;
 
-export type EstimatePurchaseOrderDraftCreationResult = {
-  source_version_id: string;
-  summary: {
-    draft_orders_created: number;
-    draft_lines_created: number;
-  };
-  orders: Array<{
-    purchase_order_id: string;
-    reference: string;
-    supplier_id: string;
-    supplier_name: string;
-    delivery_site_id: string;
-    item_count: number;
-    total_ht_cents: number;
-    total_tax_cents: number;
-    total_ttc_cents: number;
-    ordered_source_item_ids: string[];
-  }>;
-};
+export type EstimatePurchaseOrderDraftCreationResult = z.infer<typeof purchaseReceiptSchema>;
 
 function isSupplierScopedLine(item: EstimateLineRecord) {
   return (
@@ -147,8 +140,8 @@ function resolveBlockedReason(input: {
     return "missing_quantity";
   }
 
-  if (!Number.isInteger(quantity)) {
-    return "non_integer_quantity";
+  if (!isValidOrderQuantity(quantity)) {
+    return "invalid_quantity";
   }
 
   const unitPriceHtCents = input.line.unit_price_ht_cents;
@@ -179,29 +172,6 @@ function resolveBlockedReason(input: {
   return "selection_missing";
 }
 
-function parseExpectedDeliveryDate(value: string | null) {
-  if (value === null) {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  if (trimmed.toUpperCase() === "TBD") {
-    return "TBD";
-  }
-
-  if (!isValidDateOnly(trimmed)) {
-    throw badRequest("Date de livraison invalide (YYYY-MM-DD attendu).", {
-      expected_delivery_date: value,
-    });
-  }
-
-  return trimmed;
-}
-
 async function loadSupplierComparisonMap(versionId: string, itemIds: string[]) {
   const comparisons = new Map<string, SupplierComparisonRecord>();
   let stalePriceDays = 0;
@@ -219,21 +189,6 @@ async function loadSupplierComparisonMap(versionId: string, itemIds: string[]) {
     stale_price_days: stalePriceDays,
     comparisons,
   };
-}
-
-function normalizeStringIds(rows: unknown[] | null | undefined, key: string) {
-  if (!Array.isArray(rows)) {
-    return [];
-  }
-
-  return rows.flatMap((row) => {
-    if (!row || typeof row !== "object") {
-      return [];
-    }
-
-    const value = (row as Record<string, unknown>)[key];
-    return typeof value === "string" ? [value] : [];
-  });
 }
 
 async function getDraftOrderContext() {
@@ -261,68 +216,120 @@ async function getDraftOrderContext() {
   };
 }
 
-async function listDraftedEstimateItemIds(
+type CurrentSupplierOffer = Pick<Database["public"]["Tables"]["supplier_pricebook"]["Row"],
+  "id" | "supplier_id" | "unit" | "min_quantity" | "currency" | "is_active" |
+  "valid_from" | "valid_to" | "updated_at" | "created_at"
+>;
+
+async function readCurrentOfferEligibility(
   versionId: string,
-  itemIds: string[],
-  context?: Awaited<ReturnType<typeof getDraftOrderContext>>
+  lines: EstimateLineRecord[],
+  context: Awaited<ReturnType<typeof getDraftOrderContext>>,
 ) {
-  if (itemIds.length === 0) {
-    return new Set<string>();
+  const offers = new Map<string, CurrentSupplierOffer>();
+  const activeSupplierIds = new Set<string>();
+  const priceIds = Array.from(new Set(lines.flatMap((line) =>
+    line.selected_supplier_price_id ? [line.selected_supplier_price_id] : []
+  )));
+  if (priceIds.length === 0) return { currency: "EUR", offers, activeSupplierIds };
+
+  // listEstimateItems already checked access to this version. Keep the tenant
+  // fence here too; absent data must never turn into permissive conditions.
+  const { data: version, error: versionError } = await context.supabase
+    .from("estimate_versions").select("currency")
+    .eq("id", versionId).eq("tenant_id", context.tenantId).single();
+  if (versionError) throw mapSupabaseError(versionError, "Impossible de vérifier la devise du devis.");
+  if (!version) throw conflict("La version n'est plus accessible.", undefined, "ORDER_DRAFT_PREPARATION_STALE");
+
+  for (let start = 0; start < priceIds.length; start += SUPPLIER_COMPARISON_BATCH_SIZE) {
+    const { data, error } = await context.supabase.from("supplier_pricebook")
+      .select("id, supplier_id, unit, min_quantity, currency, is_active, valid_from, valid_to, updated_at, created_at")
+      .eq("tenant_id", context.tenantId)
+      .in("id", priceIds.slice(start, start + SUPPLIER_COMPARISON_BATCH_SIZE));
+    if (error) throw mapSupabaseError(error, "Impossible de vérifier les conditions fournisseurs.");
+    for (const row of data ?? []) offers.set(row.id, row);
   }
 
-  const resolvedContext = context ?? (await getDraftOrderContext());
-  const { data: orders, error: ordersError } = await resolvedContext.supabase
-    .from("purchase_orders")
-    .select("id")
-    .eq("tenant_id", resolvedContext.tenantId)
-    .eq("source_estimate_version_id", versionId)
-    .eq("status", "draft");
-
-  if (ordersError) {
-    throw mapSupabaseError(
-      ordersError,
-      "Impossible de vérifier les brouillons de commande existants."
-    );
+  const supplierIds = Array.from(new Set(Array.from(offers.values(), (offer) => offer.supplier_id)));
+  for (let start = 0; start < supplierIds.length; start += SUPPLIER_COMPARISON_BATCH_SIZE) {
+    const { data, error } = await context.supabase.from("suppliers")
+      .select("id, is_active").eq("tenant_id", context.tenantId)
+      .in("id", supplierIds.slice(start, start + SUPPLIER_COMPARISON_BATCH_SIZE));
+    if (error) throw mapSupabaseError(error, "Impossible de vérifier les fournisseurs.");
+    for (const supplier of data ?? []) {
+      if (supplier.is_active) activeSupplierIds.add(supplier.id);
+    }
   }
+  return { currency: version.currency, offers, activeSupplierIds };
+}
 
-  const orderIds = normalizeStringIds(orders, "id");
-  if (orderIds.length === 0) {
-    return new Set<string>();
+function currentOfferIneligibility(
+  line: EstimateLineRecord,
+  eligibility: Awaited<ReturnType<typeof readCurrentOfferEligibility>>,
+  stalePriceDays: number,
+): string | null {
+  if (!line.selected_supplier_price_id) return null;
+  const offer = eligibility.offers.get(line.selected_supplier_price_id);
+  if (!offer) return "Offre retenue introuvable ou inaccessible";
+  if (!eligibility.activeSupplierIds.has(offer.supplier_id)) return "Fournisseur archivé ou inaccessible";
+  // Purchase orders and their UI are EUR-only today. Never reinterpret the
+  // negotiated estimate cost as EUR when the estimate uses another currency.
+  if (eligibility.currency?.trim().toUpperCase() !== "EUR") return "Conversion vers EUR requise avant commande";
+  if (!line.description?.trim()) return "Unité du devis à préciser";
+  if (!offer.unit?.trim()) return "Unité de l'offre à préciser";
+  if (!offer.currency?.trim()) return "Devise de l'offre à préciser";
+  const ineligibility = supplierOfferIneligibility(offer, {
+    currency: eligibility.currency, quantity: line.quantity, unit: line.description,
+  });
+  if (ineligibility) return ineligibility;
+  if (!offer.valid_from || !offer.valid_to) return "Validité de l'offre à préciser";
+  if (isPriceStale({ updatedAt: offer.updated_at, createdAt: offer.created_at }, stalePriceDays)) return "Prix à revalider";
+  return null;
+}
+
+function mapPurchasePreparationError(error: SupabaseErrorLike) {
+  const messages: Record<string, string> = {
+    ORDER_DRAFT_PREPARATION_STALE: "La préparation a changé. Rechargez et relisez les lignes et conditions fournisseurs.",
+    ORDER_DRAFT_ALREADY_EXISTS: "Certaines lignes sont déjà rattachées à une commande. Consultez les transferts existants.",
+    ORDER_DRAFT_IDEMPOTENCY_CONFLICT: "Cette validation a déjà été utilisée avec un contenu différent.",
+  };
+  if (["23505", "40001"].includes(error.code) && messages[error.message]) {
+    return conflict(messages[error.message], undefined, error.message);
   }
-
-  const { data: draftedItems, error: draftedItemsError } = await resolvedContext.supabase
-    .from("purchase_order_items")
-    .select("source_estimate_item_id")
-    .eq("tenant_id", resolvedContext.tenantId)
-    .in("purchase_order_id", orderIds)
-    .in("source_estimate_item_id", itemIds);
-
-  if (draftedItemsError) {
-    throw mapSupabaseError(
-      draftedItemsError,
-      "Impossible de vérifier les lignes déjà rattachées à un brouillon."
-    );
+  if (error.code === "22023" && error.message === "ORDER_DRAFT_INPUT_INVALID") {
+    return badRequest("La sélection et sa revue sont invalides.");
   }
+  return mapSupabaseError(error, "Impossible de traiter la préparation des commandes.");
+}
 
-  return new Set(normalizeStringIds(draftedItems, "source_estimate_item_id"));
+function parseProjection<T>(schema: z.ZodType<T>, data: unknown): T {
+  const parsed = schema.safeParse(data);
+  if (!parsed.success) {
+    // An invalid server projection is never interpreted as an empty result.
+    throw internalError("La réponse de préparation est incomplète. Réessayez avec la même validation.");
+  }
+  return parsed.data;
 }
 
 export async function getEstimatePurchaseOrderDraftPreparation(
   versionId: string
 ): Promise<EstimatePurchaseOrderDraftPreparation> {
   const { items } = await listEstimateItems(versionId);
+  const context = await getDraftOrderContext();
   const scopedLines = items.filter(isSupplierScopedLine);
-  const scopedLineIds = scopedLines.map((item) => item.id);
-  const draftedItemIds =
-    scopedLineIds.length > 0
-      ? await listDraftedEstimateItemIds(versionId, scopedLineIds)
-      : new Set<string>();
-  const supplierLines = scopedLines.filter((item) => !draftedItemIds.has(item.id));
+  const { data: transferData, error: transferError } = await context.supabase.rpc(
+    "get_estimate_purchase_order_transfers", { p_version_id: versionId }
+  );
+  if (transferError) throw mapPurchasePreparationError(transferError);
+  const transferred_lines = parseProjection(z.object({ lines: z.array(purchaseTransferSchema) }), transferData).lines;
+  const transferredIds = new Set(transferred_lines.map((line) => line.item_id));
+  const supplierLines = scopedLines.filter((item) => !transferredIds.has(item.id));
   const supplierLineIds = supplierLines.map((item) => item.id);
   const { stale_price_days, comparisons } =
     supplierLineIds.length > 0
       ? await loadSupplierComparisonMap(versionId, supplierLineIds)
       : { stale_price_days: 0, comparisons: new Map<string, SupplierComparisonRecord>() };
+  const eligibility = await readCurrentOfferEligibility(versionId, supplierLines, context);
 
   const groupsBySupplierId = new Map<string, EstimatePurchaseOrderDraftGroup>();
   const blocked_lines: EstimatePurchaseOrderDraftBlockedLine[] = [];
@@ -332,8 +339,10 @@ export async function getEstimatePurchaseOrderDraftPreparation(
     ambiguous: 0,
     no_price: 0,
     missing_quantity: 0,
-    non_integer_quantity: 0,
+    invalid_quantity: 0,
+    amount_out_of_range: 0,
     missing_unit_price: 0,
+    supplier_offer_ineligible: 0,
   };
 
   supplierLines.forEach((line) => {
@@ -346,12 +355,21 @@ export async function getEstimatePurchaseOrderDraftPreparation(
     const riskFlags = comparison?.risk_flags ?? [];
     const coverageStatus = comparison?.coverage_status ?? null;
     const selectedSupplierPriceId = line.selected_supplier_price_id ?? null;
+    const offerIneligibility = currentOfferIneligibility(line, eligibility, stale_price_days);
 
+    let totals: LineTotals | null = null;
+    let invalidAmount = false;
+    if (typeof quantity === "number" && isValidOrderQuantity(quantity) &&
+        typeof unitPriceHtCents === "number" && typeof taxRateBp === "number") {
+      try {
+        [totals] = computeTotalsFromInputs([{ quantity, unitPriceHtCents, taxRateBp }]).lineTotals;
+      } catch { invalidAmount = true; }
+    }
     const isDraftable =
       typeof quantity === "number" &&
       Number.isFinite(quantity) &&
       quantity > 0 &&
-      Number.isInteger(quantity) &&
+      isValidOrderQuantity(quantity) &&
       typeof unitPriceHtCents === "number" &&
       Number.isFinite(unitPriceHtCents) &&
       unitPriceHtCents >= 0 &&
@@ -360,10 +378,11 @@ export async function getEstimatePurchaseOrderDraftPreparation(
       selectedSupplierPriceId !== null &&
       comparison !== null &&
       comparison.coverage_status === "covered" &&
-      selectedAlternative !== null;
+      selectedAlternative !== null &&
+      offerIneligibility === null && totals !== null;
 
-    if (!isDraftable) {
-      const reason = resolveBlockedReason({
+    if (!isDraftable || !totals) {
+      const reason = invalidAmount ? "amount_out_of_range" : offerIneligibility ? "supplier_offer_ineligible" : resolveBlockedReason({
         line,
         comparison,
       });
@@ -377,6 +396,7 @@ export async function getEstimatePurchaseOrderDraftPreparation(
         tax_rate_bp: typeof taxRateBp === "number" ? taxRateBp : null,
         selected_supplier_price_id: selectedSupplierPriceId,
         reason,
+        reason_detail: invalidAmount ? "Le montant dépasse la capacité de la commande ou le prix/TVA est invalide." : offerIneligibility,
         coverage_status: coverageStatus,
         risk_flags: riskFlags,
         selected_alternative: selectedAlternative,
@@ -385,19 +405,14 @@ export async function getEstimatePurchaseOrderDraftPreparation(
       return;
     }
 
-    const lineInput: LineInput = {
-      quantity,
-      unitPriceHtCents,
-      taxRateBp,
-    };
-    const { lineTotals } = computeTotalsFromInputs([lineInput]);
-    const [totals] = lineTotals;
     const supplierId = selectedAlternative.supplier_id;
     const existingGroup = groupsBySupplierId.get(supplierId);
     const draftLine: EstimatePurchaseOrderDraftLine = {
       item_id: line.id,
       item_title: line.title,
       quantity,
+      unit: line.description?.trim() ?? "",
+      review_fingerprint: "",
       unit_price_ht_cents: unitPriceHtCents,
       tax_rate_bp: taxRateBp,
       line_total_ht_cents: totals.lineTotalHtCents,
@@ -429,6 +444,47 @@ export async function getEstimatePurchaseOrderDraftPreparation(
     });
   });
 
+  for (const [supplierId, group] of groupsBySupplierId) {
+    if ([group.total_ht_cents, group.total_tax_cents, group.total_ttc_cents].some((amount) => amount > MAX_ORDER_AMOUNT_CENTS)) {
+      groupsBySupplierId.delete(supplierId);
+      for (const line of group.lines) {
+        reasonCounts.amount_out_of_range += 1;
+        blocked_lines.push({
+          item_id: line.item_id, item_title: line.item_title, quantity: line.quantity,
+          unit_price_ht_cents: line.unit_price_ht_cents, tax_rate_bp: line.tax_rate_bp,
+          selected_supplier_price_id: line.selected_supplier_price_id,
+          reason: "amount_out_of_range", reason_detail: "Le total fournisseur dépasse la capacité d'une commande.",
+          coverage_status: "covered", risk_flags: [], selected_alternative: null, alternatives: [],
+        });
+      }
+    }
+  }
+
+  const preparedLines = Array.from(groupsBySupplierId.values()).flatMap((group) => group.lines);
+  // Never attach a fresh SQL fingerprint to values obtained by older reads.
+  // A mutation after this review is caught again inside the create transaction.
+  for (let start = 0; start < preparedLines.length; start += SUPPLIER_COMPARISON_BATCH_SIZE) {
+    const batch = preparedLines.slice(start, start + SUPPLIER_COMPARISON_BATCH_SIZE);
+    const { data, error } = await context.supabase.rpc("get_estimate_purchase_order_review", {
+      p_version_id: versionId, p_item_ids: batch.map((line) => line.item_id),
+    });
+    if (error) throw mapPurchasePreparationError(error);
+    const canonical = parseProjection(purchaseReviewSchema, data).lines;
+    const reviews = new Map(canonical.map((line) => [line.item_id, line]));
+    for (const line of batch) {
+      const review = reviews.get(line.item_id);
+      const group = review ? groupsBySupplierId.get(review.supplier_id) : undefined;
+      if (!review || !group?.lines.includes(line) ||
+          review.item_title !== line.item_title || review.quantity !== line.quantity ||
+          review.unit_price_ht_cents !== line.unit_price_ht_cents || review.tax_rate_bp !== line.tax_rate_bp ||
+          review.unit !== line.unit || review.selected_supplier_price_id !== line.selected_supplier_price_id ||
+          review.supplier_name !== group.supplier_name || review.supplier_reference !== line.supplier_reference) {
+        throw conflict("La préparation a changé pendant sa lecture. Rechargez-la.", undefined, "ORDER_DRAFT_PREPARATION_STALE");
+      }
+      line.review_fingerprint = review.review_fingerprint;
+    }
+  }
+
   const groups = Array.from(groupsBySupplierId.values()).sort((left, right) =>
     left.supplier_name.localeCompare(right.supplier_name, "fr-FR")
   );
@@ -443,252 +499,60 @@ export async function getEstimatePurchaseOrderDraftPreparation(
     version_id: versionId,
     stale_price_days,
     summary: {
-      total_supplier_lines: supplierLines.length,
+      total_supplier_lines: supplierLines.length + transferred_lines.length,
       draftable_lines: groups.reduce((sum, group) => sum + group.line_count, 0),
       blocked_lines: blocked_lines.length,
+      transferred_lines: transferred_lines.length,
       supplier_groups: groups.length,
       selection_missing_lines: reasonCounts.selection_missing,
       stale_lines: reasonCounts.stale,
       ambiguous_lines: reasonCounts.ambiguous,
       no_price_lines: reasonCounts.no_price,
       missing_quantity_lines: reasonCounts.missing_quantity,
-      non_integer_quantity_lines: reasonCounts.non_integer_quantity,
+      invalid_quantity_lines: reasonCounts.invalid_quantity,
       missing_unit_price_lines: reasonCounts.missing_unit_price,
     },
     groups,
     blocked_lines,
+    transferred_lines,
   };
 }
 
-async function assertDeliverySitesAccessible(
-  deliverySiteIds: string[],
-  input: Awaited<ReturnType<typeof getDraftOrderContext>>
-) {
-  const { data, error } = await input.supabase
-    .from("delivery_sites")
-    .select("id")
-    .eq("tenant_id", input.tenantId)
-    .in("id", deliverySiteIds);
-
-  if (error) {
-    throw mapSupabaseError(error, "Impossible de vérifier les sites de livraison.");
+export async function getEstimatePurchaseOrderReceipt(
+  versionId: string,
+  idempotencyKey: string,
+): Promise<EstimatePurchaseOrderDraftCreationResult | null> {
+  const { supabase } = await getDraftOrderContext();
+  const { data, error } = await supabase.rpc("get_estimate_purchase_order_receipt", {
+    p_version_id: versionId, p_idempotency_key: idempotencyKey,
+  });
+  if (error) throw mapPurchasePreparationError(error);
+  if (data === null) return null;
+  const receipt = parseProjection(purchaseReceiptSchema, data);
+  if (receipt.source_version_id !== versionId.toLowerCase() || receipt.idempotency_key !== idempotencyKey.toLowerCase()) {
+    throw internalError("Le reçu ne correspond pas à cette validation.");
   }
-
-  const knownIds = new Set((data ?? []).map((row) => row.id));
-  const missingIds = deliverySiteIds.filter((siteId) => !knownIds.has(siteId));
-
-  if (missingIds.length > 0) {
-    throw badRequest("delivery_site_id doit correspondre a un site accessible.", {
-      delivery_site_ids: missingIds,
-    });
-  }
-}
-
-async function rollbackCreatedDraftOrders(
-  orderIds: string[],
-  context: Awaited<ReturnType<typeof getDraftOrderContext>>
-) {
-  for (const orderId of Array.from(new Set(orderIds))) {
-    const { error } = await context.supabase
-      .from("purchase_orders")
-      .delete()
-      .eq("id", orderId);
-
-    if (error) {
-      return error;
-    }
-  }
-
-  return null;
+  return receipt;
 }
 
 export async function createEstimatePurchaseOrderDrafts(
   versionId: string,
   input: EstimatePurchaseOrderDraftsCreateInput
 ): Promise<EstimatePurchaseOrderDraftCreationResult> {
-  const preparation = await getEstimatePurchaseOrderDraftPreparation(versionId);
-  const groupsBySupplierId = new Map(preparation.groups.map((group) => [group.supplier_id, group]));
-  const requestedItemIds = new Set<string>();
-
-  input.groups.forEach((group) => {
-    const preparedGroup = groupsBySupplierId.get(group.supplier_id);
-    if (!preparedGroup) {
-      throw conflict("Le groupe fournisseur n'est plus preparable dans cet état.", {
-        supplier_id: group.supplier_id,
-      }, "ORDER_DRAFT_PREPARATION_STALE");
-    }
-
-    const preparedIds = new Set(preparedGroup.lines.map((line) => line.item_id));
-    const missingIds = group.item_ids.filter((itemId) => !preparedIds.has(itemId));
-    if (missingIds.length > 0) {
-      throw conflict("Certaines lignes ne sont plus preparables pour ce fournisseur.", {
-        supplier_id: group.supplier_id,
-        item_ids: missingIds,
-      }, "ORDER_DRAFT_PREPARATION_STALE");
-    }
-
-    group.item_ids.forEach((itemId) => {
-      if (requestedItemIds.has(itemId)) {
-        throw badRequest("Une ligne ne peut être commandee qu'une seule fois par requête.", {
-          item_id: itemId,
-        });
-      }
-      requestedItemIds.add(itemId);
-    });
-  });
-
   const context = await getDraftOrderContext();
   assertCanWriteEstimateWorkflows(context.tenantRole);
-  const alreadyDraftedItemIds = await listDraftedEstimateItemIds(
-    versionId,
-    Array.from(requestedItemIds),
-    context
-  );
-  if (alreadyDraftedItemIds.size > 0) {
-    throw conflict(
-      "Certaines lignes sont déjà rattachées à un brouillon de commande.",
-      {
-        item_ids: Array.from(alreadyDraftedItemIds).sort(),
-      },
-      "ORDER_DRAFT_ALREADY_EXISTS"
-    );
+  // Authorization, replay, review, reservations and all supplier groups share
+  // one database transaction. No compensating deletion can leave a partial set.
+  const { data, error } = await context.supabase.rpc("create_estimate_purchase_order_drafts", {
+    p_version_id: versionId,
+    p_idempotency_key: input.idempotency_key,
+    p_reviewed_lines: input.reviewed_lines,
+    p_groups: input.groups,
+  });
+  if (error) throw mapPurchasePreparationError(error);
+  const receipt = parseProjection(purchaseReceiptSchema, data);
+  if (receipt.source_version_id !== versionId.toLowerCase() || receipt.idempotency_key !== input.idempotency_key.toLowerCase()) {
+    throw internalError("Le reçu ne correspond pas à cette validation.");
   }
-
-  await assertDeliverySitesAccessible(
-    Array.from(new Set(input.groups.map((group) => group.delivery_site_id))),
-    context
-  );
-
-  const createdOrders: EstimatePurchaseOrderDraftCreationResult["orders"] = [];
-  const createdOrderIds: string[] = [];
-
-  try {
-    for (const group of input.groups) {
-      const preparedGroup = groupsBySupplierId.get(group.supplier_id);
-      if (!preparedGroup) {
-        throw conflict("Le groupe fournisseur n'est plus preparable dans cet état.", {
-          supplier_id: group.supplier_id,
-        }, "ORDER_DRAFT_PREPARATION_STALE");
-      }
-
-      const lines = preparedGroup.lines.filter((line) => group.item_ids.includes(line.item_id));
-      if (lines.length === 0) {
-        throw badRequest("Chaque groupe doit contenir au moins une ligne draftable.", {
-          supplier_id: group.supplier_id,
-        });
-      }
-
-      const orderDate = new Date();
-      const { orderTotals } = computeTotalsFromInputs(
-        lines.map((line) => ({
-          quantity: line.quantity,
-          unitPriceHtCents: line.unit_price_ht_cents,
-          taxRateBp: line.tax_rate_bp,
-        }))
-      );
-
-      const { data: insertedOrder, error: insertError } = await context.supabase
-        .from("purchase_orders")
-        .insert({
-          reference: `TEMP-${Date.now()}-${group.supplier_id}`,
-          user_id: context.userId,
-          supplier_id: group.supplier_id,
-          delivery_site_id: group.delivery_site_id,
-          status: "draft",
-          expected_delivery_date: parseExpectedDeliveryDate(group.expected_delivery_date),
-          notes: group.notes,
-          total_ht_cents: orderTotals.totalHtCents,
-          total_tax_cents: orderTotals.totalTaxCents,
-          total_ttc_cents: orderTotals.totalTtcCents,
-          currency: "EUR",
-          source_estimate_version_id: versionId,
-        })
-        .select("id, order_number")
-        .single();
-
-      if (insertError || !insertedOrder) {
-        throw mapSupabaseError(insertError, "Impossible de créer le brouillon de commande.");
-      }
-
-      createdOrderIds.push(insertedOrder.id);
-
-      const reference = buildPurchaseOrderReference(
-        insertedOrder.order_number as number,
-        orderDate
-      );
-
-      const { error: updateError } = await context.supabase
-        .from("purchase_orders")
-        .update({
-          reference,
-        })
-        .eq("id", insertedOrder.id);
-
-      if (updateError) {
-        throw mapSupabaseError(updateError, "Impossible de finaliser la référence commande.");
-      }
-
-      const { error: itemsError } = await context.supabase
-        .from("purchase_order_items")
-        .insert(lines.map((line, index) => ({
-          purchase_order_id: insertedOrder.id,
-          position: index + 1,
-          product_id: null,
-          reference: line.supplier_reference,
-          designation: line.item_title,
-          unit_price_ht_cents: line.unit_price_ht_cents,
-          tax_rate_bp: line.tax_rate_bp,
-          quantity: line.quantity,
-          line_total_ht_cents: line.line_total_ht_cents,
-          line_tax_cents: line.line_tax_cents,
-          line_total_ttc_cents: line.line_total_ttc_cents,
-          source_estimate_item_id: line.item_id,
-          source_selected_supplier_price_id: line.selected_supplier_price_id,
-        })));
-
-      if (itemsError) {
-        throw mapSupabaseError(itemsError, "Impossible d'enregistrer les lignes de commande.");
-      }
-
-      createdOrders.push({
-        purchase_order_id: insertedOrder.id,
-        reference,
-        supplier_id: group.supplier_id,
-        supplier_name: preparedGroup.supplier_name,
-        delivery_site_id: group.delivery_site_id,
-        item_count: lines.length,
-        total_ht_cents: orderTotals.totalHtCents,
-        total_tax_cents: orderTotals.totalTaxCents,
-        total_ttc_cents: orderTotals.totalTtcCents,
-        ordered_source_item_ids: lines.map((line) => line.item_id),
-      });
-    }
-  } catch (error) {
-    if (createdOrderIds.length > 0) {
-      const rollbackError = await rollbackCreatedDraftOrders(createdOrderIds, context);
-
-      if (rollbackError) {
-        throw internalError(
-          "Échec de la création des brouillons et du rollback automatique.",
-          {
-            create_error: error instanceof Error ? error.message : "Erreur inconnue.",
-            rollback_error: rollbackError,
-            purchase_order_ids: createdOrderIds,
-          },
-          "ORDER_DRAFT_ROLLBACK_FAILED"
-        );
-      }
-    }
-
-    throw error;
-  }
-
-  return {
-    source_version_id: versionId,
-    summary: {
-      draft_orders_created: createdOrders.length,
-      draft_lines_created: createdOrders.reduce((sum, order) => sum + order.item_count, 0),
-    },
-    orders: createdOrders,
-  };
+  return receipt;
 }

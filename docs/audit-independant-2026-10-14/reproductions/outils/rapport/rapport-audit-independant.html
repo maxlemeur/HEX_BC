@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Audit indépendant — MergeOne / Miaouffrage</title>
+<style>
+@page { size: 21cm 29.7cm; margin: 2cm 2cm 2cm 2cm; }
+body { font-family: Calibri, Arial, sans-serif; font-size: 10.5pt; line-height: 1.3; color: #1a1a1a; }
+h1 { font-family: Calibri, Carlito, Arial, sans-serif; font-size: 20pt; color: #1F3864; margin: 0 0 6pt 0; }
+h2 { font-family: Calibri, Carlito, Arial, sans-serif; font-size: 14pt; color: #1F3864; margin: 16pt 0 6pt 0; }
+h3 { font-family: Calibri, Carlito, Arial, sans-serif; font-size: 11.5pt; color: #2E5597; margin: 10pt 0 4pt 0; }
+p { margin: 0 0 6pt 0; }
+table { border-collapse: collapse; width: 100%; margin: 4pt 0 8pt 0; }
+th { background: #DCE6F2; font-weight: bold; text-align: left; vertical-align: top; }
+td, th { border: 1px solid #8EA9DB; padding: 3pt 4pt; font-size: 9.5pt; vertical-align: top; }
+.small { font-size: 9pt; color: #444; }
+.box { border: 1px solid #1F3864; background: #F2F6FC; padding: 6pt; }
+.crit { color: #9C0006; font-weight: bold; }
+.high { color: #C55A11; font-weight: bold; }
+ul, ol { margin: 0 0 6pt 0; }
+li { margin: 0 0 2pt 0; }
+</style>
+</head>
+<body>
+
+<h1>Audit indépendant du logiciel de chiffrage MergeOne / Miaouffrage (TIMAX)</h1>
+<p><b>Chiffrage BTP — profondeur initiale CVC et plomberie</b></p>
+<table border="1" cellspacing="0" cellpadding="4" width="100%">
+<tr><th bgcolor="#DCE6F2" style="width:28%">Date</th><td>14 octobre 2026</td></tr>
+<tr><th bgcolor="#DCE6F2">Commanditaire</th><td>Porteur du projet MergeOne / Miaouffrage</td></tr>
+<tr><th bgcolor="#DCE6F2">Auditeur</th><td>Claude (modèle Opus 5.5, Anthropic), agent IA mandaté par le porteur. Les points fiscaux, comptables et juridiques sont signalés « à valider » par un professionnel.</td></tr>
+<tr><th bgcolor="#DCE6F2">Référence auditée</th><td>Archive de passation du 14/10/2026 (SHA-256 21b2a341…), soit le commit ce5874f5 du 11/10 plus le travail non commité capturé à 13 h 19. Le développement s'est poursuivi pendant l'audit ; ces évolutions sont signalées « non auditées ».</td></tr>
+<tr><th bgcolor="#DCE6F2">Nature du document</th><td>Diagnostic et proposition argumentée de suite. Ce n'est ni une certification ni une recette.</td></tr>
+<tr><th bgcolor="#DCE6F2">Pièces jointes</th><td>Annexe technique (annexe-technique.md), registre de questions complété (registre-audit.csv), rapports détaillés par axe (rapports-axes/), tests et outils de reproduction (reproductions/).</td></tr>
+</table>
+
+<h2>1. Synthèse</h2>
+
+<table border="1" cellspacing="0" cellpadding="8" width="100%"><tr><td bgcolor="#F2F6FC">
+<p><b>Appréciation globale.</b> Le logiciel possède des fondations techniques sérieuses : transactions atomiques, isolation entre entreprises, immuabilité des offres envoyées, moteur de totaux réconcilié au centime. Mais il <b>n'est pas en état d'être utilisé pour émettre de vraies offres</b>, pour trois raisons indépendantes :</p>
+<ol>
+<li><b>Une exposition de sécurité et une exploitation non maîtrisée, à traiter cette semaine.</b> Le dépôt de code est public et contient des identifiants. La production sert de base de test. Aucune sauvegarde n'a jamais existé. Chaque modification part en production sans revue formalisée.</li>
+<li><b>Des règles de calcul qui divergent de la pratique du porteur sur des points qui changent les prix de plusieurs dizaines de pourcents.</b> Heures de main-d'œuvre, coefficients de vente, paliers de marge, remises, TVA et unités sont en cause. Aucune règle n'a été validée par un responsable métier.</li>
+<li><b>Un périmètre trop large pour la maturité atteinte.</b> Environ 310 000 lignes de code, 245 migrations et 8 domaines fonctionnels ont été construits avant que le chiffrage de base soit stabilisé et recetté sur des dossiers réels.</li>
+</ol>
+<p>Notre recommandation : <b>sécuriser d'abord, signer ensuite un référentiel de règles court, corriger le moteur sur cette base, et recentrer la version 1</b> sur un parcours unique : DPGF client → chiffrage → offre validée et émise, en CVC et plomberie. Ce parcours doit être recetté par un chiffreur sur des dossiers réels avant toute mise en service.</p>
+</td></tr></table>
+
+<h3>Actions immédiates recommandées (avant toute autre chose)</h3>
+<ol>
+<li>Passer le dépôt GitHub en <b>privé</b>.</li>
+<li><b>Changer</b> les mots de passe exposés : comptes de test dans l'historique Git ; identifiants « Supabase » et « Logiciel » du classeur versionné « Feuille de calcul sans titre.xlsx ». Révoquer ensuite les sessions.</li>
+<li><b>Arrêter les écritures de la CI dans la production</b> et retirer la clé service-role de production de GitHub.</li>
+<li>Mettre en place une <b>sauvegarde chiffrée</b> hors GitHub (ou Supabase Pro avec restauration à un instant donné), puis réussir une restauration d'essai.</li>
+<li><b>Pousser sur une branche privée</b> les trois jours de travail non commités, et protéger <i>main</i> : revue obligatoire, contrôles requis.</li>
+</ol>
+
+<h3>Maturité par domaine (appréciation de l'auditeur)</h3>
+<table border="1" cellspacing="0" cellpadding="4" width="100%">
+<tr><th bgcolor="#DCE6F2" style="width:26%">Domaine</th><th bgcolor="#DCE6F2" style="width:16%">Maturité</th><th bgcolor="#DCE6F2">Commentaire</th></tr>
+<tr><td>Intégrité des données et transactions</td><td>Avancée</td><td>Écritures atomiques, verrou d'édition, contrôle de concurrence, offres envoyées immuables : vérifié à l'exécution.</td></tr>
+<tr><td>Isolation entre entreprises</td><td>Bonne, avec une fuite</td><td>Devis et documents bien cloisonnés ; mais un compte auto-inscrit obtient l'annuaire de toutes les entreprises.</td></tr>
+<tr><td>Règles de calcul</td><td class="high">Insuffisante</td><td>Moteur robuste techniquement, mais règles non validées et divergentes de la pratique du porteur.</td></tr>
+<tr><td>Grille et saisie</td><td>Partielle</td><td>Éditeur de type tableur soigné ; mais annulation de cellule probablement sans effet, collage qui peut marger deux fois un prix, sous-détail impossible sur une ligne, brouillon local pouvant écraser des corrections plus récentes.</td></tr>
+<tr><td>Saisie et import</td><td>Partielle</td><td>Les DPGF réelles sont lues ; le format historique du porteur est mal interprété ; parseurs et unités incohérents.</td></tr>
+<tr><td>Documents émis</td><td class="high">Insuffisante</td><td>Pas de fuite de coût ni de marge ; mais identité légale codée en dur, remise invisible, PU × quantité incohérent, TVA à taux unique.</td></tr>
+<tr><td>Travail en équipe</td><td class="high">Insuffisante</td><td>Visibilité par propriétaire : un chiffreur ne voit pas les affaires de ses collègues.</td></tr>
+<tr><td>Prix fournisseurs</td><td>Partielle</td><td>Validité et provenance solides ; conditionnements, unités d'achat et périmètre comparé absents.</td></tr>
+<tr><td>Chantier et retour d'expérience</td><td>Embryonnaire</td><td>Préparation d'achats seulement.</td></tr>
+<tr><td>Exploitation et sécurité opérationnelle</td><td class="crit">Non prête</td><td>Voir les actions immédiates ci-dessus.</td></tr>
+</table>
+
+<h2>2. Mandat, méthode et limites</h2>
+<p>Le dossier laissait à l'auditeur le choix de la méthode. Nous avons traité les documents, le backlog et les diagnostics de l'équipe comme des affirmations à vérifier. Le travail comprend :</p>
+<ul>
+<li>la lecture de la vision, des documents métier et de produit, et des rapports d'essai joints ;</li>
+<li>cinq analyses approfondies du code de l'archive : règles et calculs, sécurité, ergonomie et continuité, matériaux métier du porteur, qualité et exploitation ;</li>
+<li>des contrôles outillés sur une copie isolée : typage, lint, 2 980 tests unitaires existants, contrat d'API, budgets d'architecture ;</li>
+<li><b>24 tests de caractérisation</b> écrits par l'auditeur. Ils exécutent le moteur de l'archive sur les cas litigieux et passent tant que l'écart existe ;</li>
+<li>une <b>base Supabase locale jetable</b> : les 242 migrations de l'archive appliquées depuis une base vide, et les 13 suites de tests SQL ;</li>
+<li><b>16 scénarios rejoués</b> dans l'application de l'archive, servie en local avec deux entreprises fictives et quatre rôles (création, remise, PDF, envoi, forçage, droits, cloisonnement, import) ;</li>
+<li>la confrontation du moteur aux classeurs et aux offres réelles du porteur : bible hydraulique, chiffrage OPTIMA, DPGF client ;</li>
+<li>des contrôles en lecture seule sur GitHub : historique de la CI, protection de branche, visibilité du dépôt.</li>
+</ul>
+<p><b>Lecture des statuts.</b> <i>Confirmé</i> : exécuté, ou lu sans ambiguïté. <i>Probable</i> : déduit du code, dépend des données. <i>À vérifier</i>. <i>Non audité</i>. L'annexe technique donne pour chaque constat sa preuve (fichier et ligne, test ou scénario).</p>
+<p><b>Limites principales.</b></p>
+<ul>
+<li>Aucun accès à la production : schéma réellement installé, données, configuration et hébergement.</li>
+<li>Aucun envoi réel d'e-mail, et donc aucun portail client rejoué.</li>
+<li>Fonctions d'IA (Gemini) non évaluées.</li>
+<li>Aucun entretien utilisateur. À la demande du porteur, l'auditeur a <b>arbitré lui-même</b> les questions métier ouvertes ; ces propositions sont signalées et restent à valider (section 6).</li>
+</ul>
+
+<h2>3. Le besoin tel que nous l'avons compris</h2>
+<p>La vision du porteur est claire : faire passer le chiffreur d'un outil de saisie à un environnement qui comprend le dossier, calcule par des règles explicites, rend visibles les incertitudes et les conséquences des changements, et garde la décision humaine. Elle fixe elle-même une première promesse resserrée : <i>« Importer un dossier et un chiffrage existant, vérifier leur cohérence et préparer les corrections avec leurs sources »</i>. Elle demande aussi que le moteur de calcul soit irréprochable : <i>« L'IA doit interpréter et proposer ; le moteur métier doit calculer »</i>.</p>
+<p>Le produit a été développé en largeur sur les sept étapes à la fois. Il compte une revue CCTP assistée, un métré par IA, des achats, un pilotage de direction et une approbation. Pendant ce temps, le socle demandé en priorité, des calculs justes selon des règles explicites et validées, n'est pas acquis. C'est l'écart le plus structurant que nous relevons.</p>
+<table border="1" cellspacing="0" cellpadding="4" width="100%">
+<tr><th bgcolor="#DCE6F2" style="width:24%">Étape de la vision</th><th bgcolor="#DCE6F2" style="width:44%">Ce qui existe (vérifié)</th><th bgcolor="#DCE6F2">Appréciation</th></tr>
+<tr><td>Recevoir et comprendre le dossier</td><td>Dépôt de pièces, classification et brief par IA, revue CCTP pilote (calorifuge), registre d'hypothèses.</td><td>Non audité à l'exécution (IA). Pilote sur exigences synthétiques uniquement.</td></tr>
+<tr><td>Construire le chiffrage</td><td>Grille, sections, ouvrages, sous-détails FO/MO, import DPGF, collage.</td><td>Socle présent ; sémantique des heures, unités et format d'import à corriger.</td></tr>
+<tr><td>Choisir les ressources et les prix</td><td>Catalogue, offres fournisseurs, validité de 6 mois, prix de référence.</td><td>Comparaison à périmètre égal absente (conditionnement, transport, unités d'achat).</td></tr>
+<tr><td>Réviser et décider</td><td>Versions, duplication, approbations, règles de contrôle.</td><td>Règles de contrôle partiellement trompeuses ; pas d'analyse d'impact d'une nouvelle pièce.</td></tr>
+<tr><td>Produire et émettre l'offre</td><td>PDF scellé, export, envoi, portail, acceptation.</td><td>Mécanique solide ; contenu du document à reprendre.</td></tr>
+<tr><td>Préparer et suivre le chantier</td><td>Brouillons de bons de commande.</td><td>Embryonnaire.</td></tr>
+<tr><td>Retour d'expérience</td><td>Absent.</td><td>Hors V1.</td></tr>
+</table>
+
+<h2>4. Points solides</h2>
+<ul>
+<li><b>Intégrité transactionnelle.</b> Une modification exige un verrou d'édition propre à la page, et les écritures concurrentes sont refusées. Une offre envoyée ne peut plus être modifiée, et le retour à l'état brouillon est refusé. Vérifié à l'exécution.</li>
+<li><b>Cloisonnement des devis entre entreprises.</b> Lecture, modification, lignes et PDF d'une autre entreprise répondent « introuvable ». La sécurité au niveau des lignes est active sur toutes les tables, et la matrice de tests SQL est verte en CI sur le dernier commit (1 214 assertions).</li>
+<li><b>Moteur de totaux v2 réconcilié.</b> La somme des lignes est égale à celle des sections et au total, au centime, ce que des tests par propriétés vérifient sur des centaines de devis aléatoires. Avec un coefficient unique et des heures saisies en total, le moteur reproduit <b>au centime près</b> les sept lignes-témoins du chiffrage OPTIMA du porteur.</li>
+<li><b>Confidentialité du document client.</b> Le PDF ne contient ni coût, ni coefficient, ni marge. Le portail n'expose qu'une liste fermée de champs de vente (code).</li>
+<li><b>Un vrai éditeur de type tableur.</b> Frappe directe, navigation clavier, sélection de plage, copie et collage TSV avec aperçu, statut de sauvegarde accessible, Ctrl+S, garde avant de quitter, confirmation avant suppression, aides de colonnes pédagogiques. Les assistants IA sont facultatifs, avec un équivalent manuel.</li>
+<li><b>Lecture des fichiers réels.</b> Les trois DPGF du dossier (171, 2 947 et 1 396 lignes) sont lues avec les bons en-têtes.</li>
+<li><b>Schéma reconstructible.</b> Les 242 migrations s'appliquent sans erreur sur une base vide. Le code est propre au lint et typé strictement. Le contrat d'API est valide.</li>
+<li><b>Comportements prudents.</b> Sans configuration e-mail, l'envoi échoue proprement et le devis reste en brouillon. Les contrôles avant envoi bloquent un devis non approuvé.</li>
+<li><b>Une documentation métier franche.</b> Elle reconnaît elle-même plusieurs défauts. L'audit de dette du 10/10 est lucide sur l'exploitation.</li>
+</ul>
+
+<h2>5. Écarts majeurs, conséquences et recommandations</h2>
+<p class="small">Gravité : <span class="crit">Critique</span>, <span class="high">Élevée</span>, Moyenne. Les identifiants renvoient à l'annexe technique.</p>
+
+<h3>5.1 Sécurité et exploitation</h3>
+<table border="1" cellspacing="0" cellpadding="4" width="100%">
+<tr><th bgcolor="#DCE6F2" style="width:7%">ID</th><th bgcolor="#DCE6F2" style="width:36%">Constat (statut)</th><th bgcolor="#DCE6F2" style="width:30%">Conséquence</th><th bgcolor="#DCE6F2">Recommandation</th></tr>
+<tr><td>S&#8209;01<br>S&#8209;02</td><td><span class="crit">Critique</span>. Le <b>dépôt GitHub est public</b>. Son historique contient deux mots de passe de comptes, dont l'administrateur principal. Un classeur versionné contient des identifiants libellés « Supabase » et « Logiciel », téléchargeables anonymement. <i>Confirmé.</i></td><td>Prise de contrôle possible d'un compte ou du projet de base de données. Les failles connues et leur état sont publics.</td><td>Dépôt privé, changement des mots de passe, révocation des sessions, examen des journaux de connexion, retrait du fichier, détection de secrets.</td></tr>
+<tr><td>S&#8209;03</td><td><span class="crit">Critique</span>. <b>Aucune sauvegarde n'a jamais été produite.</b> Le travail planifié échoue chaque jour. Selon l'équipe, l'hébergement est une offre gratuite sans restauration à un instant donné. <i>Confirmé (échecs) ; offre d'hébergement non vérifiée.</i></td><td>Toute perte serait définitive : offres scellées, preuves, approbations.</td><td>Sauvegarde chiffrée, fichiers compris ; restauration d'essai datée ; alerte vers une personne nommée.</td></tr>
+<tr><td>S&#8209;04</td><td><span class="crit">Critique</span>. <b>La production sert de base de test.</b> Les tests automatiques y créent des affaires et y passent des devis à « envoyé » ou « accepté », avec la clé qui contourne les protections. <i>Confirmé (configuration).</i></td><td>Données polluées ; une erreur de test agit directement en production.</td><td>Environnement de recette séparé ou base éphémère ; purge des données de test après sauvegarde.</td></tr>
+<tr><td>S&#8209;05<br>S&#8209;06</td><td><span class="high">Élevée</span>. <b>Chaque modification part en production sans revue ni attente des contrôles.</b> Les migrations sont appliquées à la main par un agent IA, dont les droits sur la production sont préautorisés. L'état réel du schéma de production est inconnu. <i>Confirmé.</i></td><td>Un défaut atteint immédiatement les clients ; personne ne sait quelle version tourne.</td><td>Revue humaine obligatoire, contrôles requis, mise en production déclenchée, migrations par une chaîne tracée, retrait des droits des agents.</td></tr>
+<tr><td>S&#8209;07</td><td><span class="high">Élevée</span>. <b>Le mécanisme de reprise n'a jamais fonctionné</b> : relance des e-mails, des métrés et des dépôts de pièces. Aucune collecte d'erreurs ni alerte. <i>Confirmé.</i></td><td>Des offres réputées envoyées peuvent rester bloquées sans que personne le sache.</td><td>Planificateur fiable, secrets configurés, alertes, tableau des éléments bloqués.</td></tr>
+<tr><td>S&#8209;08</td><td><span class="high">Élevée</span>. <b>Annuaire inter-entreprises.</b> Un compte auto-inscrit obtient le nom et l'e-mail des utilisateurs de toutes les entreprises. <i>Confirmé à l'exécution.</i></td><td>Fuite de données personnelles, au sens du RGPD.</td><td>Invitation par e-mail exact, avec acceptation par l'invité ; fermer l'inscription libre.</td></tr>
+<tr><td>S&#8209;10</td><td><span class="high">Élevée</span>. <b>L'identité légale de HYDRO EXPRESS</b> (raison sociale, SIRET, n° TVA, adresses, téléphones, préfixe de numérotation) est <b>imprimée sur les offres de toute entreprise</b>. <i>Confirmé à l'exécution.</i></td><td>Offre émise sous une identité qui n'est pas la sienne.</td><td>Identité, mentions et numérotation propres à chaque entreprise, ou outil mono-entreprise assumé.</td></tr>
+<tr><td>S&#8209;11</td><td>Moyenne. <b>Un administrateur peut forcer l'envoi</b> d'un devis soumis à approbation, même à marge nulle, sans justification. <i>Confirmé à l'exécution.</i></td><td>L'approbation ne protège pas réellement l'engagement de l'entreprise.</td><td>Forçage par une seconde personne, motif obligatoire, trace visible.</td></tr>
+</table>
+
+<h3>5.2 Calculs et règles de gestion</h3>
+<table border="1" cellspacing="0" cellpadding="4" width="100%">
+<tr><th bgcolor="#DCE6F2" style="width:7%">ID</th><th bgcolor="#DCE6F2" style="width:36%">Constat (statut)</th><th bgcolor="#DCE6F2" style="width:30%">Conséquence</th><th bgcolor="#DCE6F2">Recommandation</th></tr>
+<tr><td>C&#8209;01</td><td><span class="crit">Critique</span>. <b>Heures de main-d'œuvre.</b> L'aide de l'écran et tous les classeurs du porteur parlent d'heures <i>par unité</i>. Le moteur les traite comme le <i>total de la ligne</i> et ne les multiplie pas par la quantité. Exemple : 10 m à 0,5 h/m et 45 €/h donnent 22,50 € de MO au lieu de 225 €. <i>Confirmé par test.</i></td><td>Avec les temps unitaires du porteur, le prix de vente est sous-évalué de <b>30 à 75 %</b> sur les lignes-témoins du projet OPTIMA.</td><td>Trancher (proposition : heures par unité), puis aligner moteur, écran, import et ouvrages.</td></tr>
+<tr><td>C&#8209;04<br>C&#8209;05</td><td><span class="high">Élevée</span>. <b>Coefficients de vente.</b> Les offres réellement remises par le porteur appliquent 1,30 sur la fourniture et 1,20 sur la MO, à 0,6 centime près sur 1 441 lignes. L'application n'a qu'un coefficient unique. Ses paliers de marge s'appliquent au devis entier, « en marche d'escalier » : un coût de 99 999,99 € se vend 159 999,98 €, un coût de 100 000 € se vend 145 000 €. Le barème par défaut n'a pas de source, et la grille de « cibles » du porteur n'est pas appliquée dans ses propres offres. <i>Confirmé.</i></td><td>Impossible de reproduire une offre réelle sans fausser la marge affichée. Ajouter un poste peut faire baisser le prix.</td><td>Deux coefficients de vente (FO, MO) ; barème réduit à une aide à la décision.</td></tr>
+<tr><td>C&#8209;02<br>C&#8209;03</td><td><span class="high">Élevée</span>. <b>Remises.</b> Une remise saisie en euros est stockée en pourcentage arrondi. Toute saisie de 1,00 € à 2,99 € devient 2,00 € sur un devis de 19 954,50 € (EU01), et 0,50 € disparaît. Une remise historique de 10 % devient 5 % si l'on augmente la marge (EUHIST). <i>Confirmé par tests et dans l'interface.</i></td><td>Le montant engagé diffère de la saisie, et l'utilisateur ne le voit qu'après rechargement.</td><td>Stocker l'intention exacte (montant ou pourcentage). Le correctif en cours va dans ce sens mais réécrit encore un taux arrondi ; il n'a pas été audité.</td></tr>
+<tr><td>C&#8209;06</td><td><span class="high">Élevée</span>. <b>TVA.</b> En moteur v2, changer le taux du devis ne change le taux d'aucune ligne existante, alors que le PDF affiche le nouveau taux. Aucun taux par ligne n'est modifiable, et aucune ventilation par taux n'apparaît. L'arrondi commercial est comptabilisé comme de la TVA. Sur des montants ronds, une remise peut ne pas réduire la TVA. <i>Confirmé par tests.</i></td><td>Un devis de rénovation passé à 10 % reste calculé à 20 %. La TVA facturée diffère de « taux × HT ». <b>Risque fiscal, à valider par l'expert-comptable.</b></td><td>Taux par ligne, récapitulatif par taux, ajustement d'arrondi séparé de la TVA.</td></tr>
+<tr><td>C&#8209;09</td><td><span class="high">Élevée</span>. <b>Unités.</b> Il n'existe pas de champ d'unité : l'unité est rangée dans la description, et une suggestion catalogue l'écrase encore par la désignation. « ML » (mètre linéaire) est lu comme millilitre aux achats. Aucune conversion ni aucun conditionnement (barres, couronnes, colis). <i>Confirmé.</i></td><td>Unités fausses sur la DPGF, le PDF et les bons de commande. Comparaisons de prix faussées.</td><td>Unité structurée, référentiel d'unités, conversion entre unité de pose et unité d'achat.</td></tr>
+<tr><td>C&#8209;08<br>C&#8209;11</td><td><span class="high">Élevée</span>. <b>Saisie et présentation.</b> Sur le PDF, PU × quantité ≠ total (120 × 18,40 € = 2 207,78 €), et la remise accordée n'apparaît pas. « 1.250 » vaut 1 250 € à la saisie et 1,25 € à l'import. Une majoration « 100 % » importée multiplie la MO par 100. <i>Confirmé par tests.</i></td><td>Le client recalcule et trouve d'autres montants. Des erreurs d'un facteur 100 à 1 000 passent sans alerte.</td><td>Contrat d'arrondi « PU au centime, puis total = Q × PU » ; remise en ligne distincte ; un parseur par grandeur.</td></tr>
+<tr><td>C&#8209;10<br>C&#8209;12</td><td>Moyenne. <b>Contrôles.</b> Une offre fournisseur à 0 € peut devenir le « meilleur prix ». La règle de marge minimale ignore la remise. Deux définitions de « marge » coexistent : 60 % à l'écran, 37,5 % dans les règles, pour le même coefficient de 1,6. <i>Confirmé.</i></td><td>Des contrôles qui rassurent à tort.</td><td>Appliquer la politique du 0 € partout ; vocabulaire unique ; marge calculée sur le net réel.</td></tr>
+</table>
+<p><b>Constat transversal.</b> Aucune règle n'a de validateur nommé. La documentation est « décrite à partir du code », et une vingtaine de tests figent volontairement des valeurs reconnues fausses. <b>Un test vert ne prouve donc pas qu'un montant est juste.</b> Les classeurs du porteur ne peuvent pas non plus servir de référence telle quelle : la bible a été enregistrée sans recalcul, 117 identifiants ne diffèrent que par la casse, et les temps varient d'un facteur 2 à 7 d'une version à l'autre.</p>
+
+<h3>5.3 Usage, ergonomie et continuité</h3>
+<table border="1" cellspacing="0" cellpadding="4" width="100%">
+<tr><th bgcolor="#DCE6F2" style="width:7%">ID</th><th bgcolor="#DCE6F2" style="width:36%">Constat (statut)</th><th bgcolor="#DCE6F2" style="width:30%">Conséquence</th><th bgcolor="#DCE6F2">Recommandation</th></tr>
+<tr><td>U&#8209;01</td><td><span class="high">Élevée</span>. <b>Chacun ne voit que ses affaires.</b> Le chiffreur de l'entreprise A voit « 0 affaire ». La direction voit l'affaire au tableau de bord mais ne peut pas ouvrir le devis. Les taux horaires sont propres à chaque utilisateur. <i>Confirmé à l'exécution.</i></td><td>Pas de travail d'équipe, de relève ni de revue croisée. Taux à ressaisir par personne.</td><td>Lecture ouverte à l'entreprise, écriture par les personnes affectées ; taux horaires d'entreprise.</td></tr>
+<tr><td>U&#8209;03</td><td><span class="high">Élevée</span>. <b>Le format historique du porteur est mal importé.</b> Au collage d'un chiffrage OPTIMA, « Prix Unitaire » est pris pour l'unité et les temps sont perdus. Les quantités atelier et chantier de la DPGF client ne sont pas reconnues. <i>Confirmé (rejeu de l'heuristique).</i></td><td>Lignes importées sans main-d'œuvre ou avec des prix erronés, sans alerte.</td><td>Corriger la reconnaissance des en-têtes ; prendre le projet OPTIMA comme recette d'import.</td></tr>
+<tr><td>U&#8209;05</td><td><span class="high">Élevée</span>. <b>Saisie, collage, annulation.</b> Annuler une modification de cellule ne rétablit très probablement pas la valeur, et l'historique est vidé à chaque sauvegarde (environ 60 s). Au collage, une colonne « PU HT » est prise pour le prix d'achat puis margée une seconde fois, et l'aperçu montre le texte brut : « 1,875 » est inséré à 1 875 €. Une quantité absente devient 1. L'action groupée « Majoration MO (%) » avec « 10 » divise la MO par dix. <i>Confirmé (code) ; annulation : probable.</i></td><td>Erreurs de masse invisibles avant insertion ; perte de confiance dans l'outil.</td><td>Aperçu des valeurs réellement interprétées ; prix d'achat et prix de vente distingués ; annulation fiable ; refus toujours expliqués.</td></tr>
+<tr><td>U&#8209;06</td><td><span class="high">Élevée</span>. <b>Pas de sous-détail sur une ligne.</b> Une ligne porte un seul couple fourniture/MO. Un ouvrage inséré devient une section éclatée sans quantité. Or le porteur chiffre une ligne DPGF par un sous-détail d'articles « par unité », multiplié par la quantité. <i>Confirmé (modèle).</i></td><td>Lien entre la ligne DPGF et son sous-détail perdu ; quantités recalculées à la main.</td><td>Ligne d'ouvrage portant son sous-détail et sa quantité (arbitrage 14).</td></tr>
+<tr><td>U&#8209;07</td><td><span class="high">Élevée</span>. <b>Reprise après incident.</b> Le brouillon local n'est lié ni à l'utilisateur ni à une révision. Il peut réappliquer d'anciennes valeurs sur des corrections plus récentes. La restauration après conflit écrase sans comparaison. <i>Probable (code lu de bout en bout).</i></td><td>Corrections d'un collègue écrasées sans le voir, contraire à « ne jamais réécrire l'historique ».</td><td>Brouillon lié à l'utilisateur et à la révision ; écran de fusion ligne par ligne.</td></tr>
+<tr><td>U&#8209;08</td><td>Moyenne. <b>Comprendre le prix.</b> La vue par défaut masque les coefficients, le déboursé sec et la marge. Jusqu'à 14 bandeaux peuvent s'empiler. La navigation clavier ne suit pas les réflexes d'Excel. <i>Confirmé (code).</i></td><td>Le chiffreur ne voit pas ce qui fait son prix ; bruit d'alerte.</td><td>Vue par défaut orientée chiffreur ; centre d'alertes unique et hiérarchisé.</td></tr>
+<tr><td>U&#8209;02<br>U&#8209;04</td><td>Moyenne. <b>Verrou et alertes.</b> Après une reconnexion, le devis reste « verrouillé par vous » pendant 2 minutes sans moyen de reprendre la main, et la saisie faite entre-temps est perdue. Un devis vide affiche des « anomalies bloquantes ». Certains messages sont techniques. <i>Confirmé à l'exécution.</i></td><td>Friction quotidienne ; perte de confiance dans les alertes.</td><td>« Reprendre ici » pour le même utilisateur ; libellés orientés action.</td></tr>
+</table>
+
+<h3>5.4 Qualité du produit et méthode de développement</h3>
+<ul>
+<li><b>L'état transmis ne passe pas ses propres contrôles</b> (<span class="high">Élevée</span>, <i>confirmé</i>) : 86 tests unitaires en échec, dont 11 fichiers par décalage entre code et tests ; 4 suites SQL cassées par les migrations non commitées ; budget d'architecture dépassé. La CI verte du 14/10 porte sur le commit du 11/10, pas sur ce qui est décrit comme « qualifié localement ».</li>
+<li><b>Trois jours de travail non commités</b> sur la branche principale, après un incident de corruption de l'index Git (<i>confirmé</i>).</li>
+<li><b>Méthode.</b> Le développement est mené en grande partie par des agents IA, sans revue formalisée : aucune demande de fusion depuis le 19/08, poussées directes sur la branche principale. Les tests unitaires écrits après le code sont interdits. Les parcours métier ne s'exécutent pas en CI. La documentation de suivi (139 fichiers, dont 82 jamais commités) est rédigée dans un jargon d'agents inaccessible au porteur. Nous contestons ce mode de fonctionnement pour un logiciel qui engage financièrement l'entreprise : <b>les agents peuvent proposer, des humains doivent relire et décider</b>.</li>
+<li><b>Complexité.</b> Environ 310 000 lignes de code applicatif, 245 migrations, des fichiers de 7 000 à 8 000 lignes et 144 routes d'API pour un produit sans utilisateur en production. La reprise par un tiers serait coûteuse.</li>
+</ul>
+
+<h2>6. Arbitrages métier proposés par l'auditeur</h2>
+<p>Ces propositions répondent à la demande du porteur d'arbitrer les questions ouvertes. Ce sont des <b>propositions motivées</b>. Elles deviennent des règles une fois signées par le responsable métier, et, pour la TVA, les arrondis et les mentions, une fois validées par l'expert-comptable ou un juriste.</p>
+<table border="1" cellspacing="0" cellpadding="4" width="100%">
+<tr><th bgcolor="#DCE6F2" style="width:5%">N°</th><th bgcolor="#DCE6F2" style="width:22%">Question</th><th bgcolor="#DCE6F2" style="width:40%">Proposition</th><th bgcolor="#DCE6F2">Raison</th></tr>
+<tr><td>1</td><td>Heures de MO</td><td><b>Par unité.</b> MO = quantité × h/unité × taux × coefficient de difficulté.</td><td>Convention de tous les matériaux du porteur et de l'aide à l'écran ; pratique du sous-détail BTP.</td></tr>
+<tr><td>2</td><td>Coefficients de vente et paliers</td><td><b>Deux coefficients de vente (FO et MO)</b> par version, 1,30 et 1,20 par défaut. Le barème par tranches devient une <b>indication</b> affichée, jamais un calcul automatique.</td><td>Pratique observée dans les offres réelles ; supprime l'effet de seuil et le barème non sourcé.</td></tr>
+<tr><td>3</td><td>Remise</td><td>Stocker l'intention exacte, montant HT ou pourcentage. Pas de conversion aller-retour. Plafonner à l'assiette en affichant « demandé / appliqué ».</td><td>Supprime EU01 et EUHIST ; rejoint le contrat de l'équipe.</td></tr>
+<tr><td>4</td><td>Arrondis et présentation</td><td>PU arrondi au centime, puis total de ligne = quantité × PU affiché. Remise sur une ligne distincte « Remise commerciale ». Arrondi commercial traité comme une remise, jamais comme de la TVA.</td><td>Le client peut recalculer son offre ; conforme aux usages des DPGF.</td></tr>
+<tr><td>5</td><td>TVA</td><td>Taux par ligne modifiable ; changer le taux du devis propose de l'appliquer à toutes les lignes ; récapitulatif par taux sur le document ; TVA calculée par taux sur la base HT après remise.</td><td>Cas réels de la rénovation (10 %, 5,5 %) ; lisibilité fiscale. <b>À valider par l'expert-comptable.</b></td></tr>
+<tr><td>6</td><td>Unités</td><td>Champ d'unité obligatoire, adossé à un référentiel (u, ml, m², m³, kg, h, ens, pouce…). Statuts (hors lot, pour mémoire, non chiffré, inclus) séparés de l'unité. « ML » = mètre linéaire. Conversion vers l'unité d'achat portée par l'offre fournisseur.</td><td>Condition d'une DPGF, d'un PDF et d'achats justes.</td></tr>
+<tr><td>7</td><td>Offre à 0 €</td><td>Exclue partout (référence, meilleur prix, application), sauf si elle est marquée explicitement « inclus » ou « gratuit ».</td><td>Applique la décision existante du porteur sur tous les chemins.</td></tr>
+<tr><td>8</td><td>Validité des offres fournisseurs</td><td>Plafond de 6 mois conservé ; la date de fin propre à l'offre prévaut si elle est plus courte ; alerte 30 jours avant l'échéance.</td><td>Décision du porteur, complétée par la pratique des devis fournisseurs.</td></tr>
+<tr><td>9</td><td>Approbation</td><td>Seuil inclusif (≥ 5 000 € HT) et paramétrable. Forçage réservé à la direction, avec motif obligatoire.</td><td>Cohérence avec CONTEXT.md ; engagement réellement contrôlé.</td></tr>
+<tr><td>10</td><td>Visibilité</td><td>Tous les membres d'une entreprise lisent ses affaires ; écriture par le propriétaire et les chiffreurs affectés ; la direction lit tout. Taux horaires définis au niveau de l'entreprise.</td><td>Travail en équipe, relève, revue.</td></tr>
+<tr><td>11</td><td>Positionnement</td><td><b>V1 = outil interne mono-entreprise.</b> Inscription libre fermée. Si le produit devient commercial, identité légale, numérotation et mentions par entreprise seront des préalables.</td><td>Supprime S-08 et S-10 à court terme ; correspond à « Application interne » dans le README.</td></tr>
+<tr><td>12</td><td>Périmètre V1</td><td>« Chiffrer et émettre une offre CVC/plomberie fiable à partir d'une DPGF client » : import, grille, ouvrages simples par diamètre et matériau, prix fournisseurs, validation, PDF et export DPGF au format du client, envoi.</td><td>Recentre sur la valeur vérifiable ; reporte l'IA lourde et le chantier.</td></tr>
+<tr><td>13</td><td>Hors V1</td><td>Métré IA, revue CCTP automatisée (le pilote continue en parallèle), situations, retenue de garantie, compte prorata, budget chantier et apprentissage.</td><td>Dépendent d'un chiffrage stable ; relèvent en partie de l'ERP.</td></tr>
+<tr><td>14</td><td>Structure du chiffrage</td><td>Une ligne de DPGF porte son <b>sous-détail</b> (fournitures, accessoires, MO par unité). Son PU est la somme des composants, multipliée par la quantité de la DPGF. La bibliothèque fournit des ouvrages types par diamètre et matériau.</td><td>Reproduit la structure du déboursé détaillé OPTIMA du porteur et conserve le lien avec la DPGF client.</td></tr>
+</table>
+
+<h2>7. Hiérarchisation des risques</h2>
+<table border="1" cellspacing="0" cellpadding="4" width="100%">
+<tr><th bgcolor="#DCE6F2" style="width:6%">Rang</th><th bgcolor="#DCE6F2" style="width:40%">Risque</th><th bgcolor="#DCE6F2" style="width:28%">Pourquoi à ce rang</th><th bgcolor="#DCE6F2">Dépend de</th></tr>
+<tr><td>1</td><td>Exposition publique du code et des identifiants (S-01, S-02)</td><td>Exploitable aujourd'hui par n'importe qui</td><td>Rien</td></tr>
+<tr><td>2</td><td>Absence de sauvegarde et production utilisée comme base de test (S-03, S-04)</td><td>Perte définitive possible à tout moment</td><td>Rien</td></tr>
+<tr><td>3</td><td>Déploiement et migrations sans contrôle ; travail non commité (S-05, S-06, Q-02)</td><td>Rend toute correction risquée et invérifiable</td><td>1, 2</td></tr>
+<tr><td>4</td><td>Sémantique des heures de MO (C-01)</td><td>Erreur de prix de 30 à 75 % sur des lignes courantes</td><td>Arbitrage 1</td></tr>
+<tr><td>5</td><td>Coefficients de vente et paliers (C-04, C-05)</td><td>Prix différents de la pratique réelle ; effets de seuil</td><td>Arbitrage 2</td></tr>
+<tr><td>6</td><td>Documents émis : identité légale, TVA, remise invisible, PU × Q (S-10, C-06, C-08)</td><td>Engagement contractuel et risque fiscal</td><td>Arbitrages 4, 5, 11 ; avis comptable</td></tr>
+<tr><td>7</td><td>Unités et import du format du porteur (C-09, U-03)</td><td>Erreurs silencieuses dès l'entrée des données</td><td>Arbitrage 6</td></tr>
+<tr><td>8</td><td>Sous-détail absent, collage et annulation, reprise après incident (U-05 à U-07)</td><td>Erreurs silencieuses et perte de confiance au quotidien</td><td>Arbitrage 14</td></tr>
+<tr><td>9</td><td>Remises EU01 / EUHIST (C-02, C-03)</td><td>Montants faux, mais d'ordre de grandeur limité ; correctif en cours</td><td>Arbitrage 3</td></tr>
+<tr><td>10</td><td>Visibilité par propriétaire (U-01)</td><td>Bloque l'usage en équipe</td><td>Arbitrage 10</td></tr>
+<tr><td>11</td><td>Annuaire inter-entreprises (S-08)</td><td>Supprimé si l'inscription libre est fermée</td><td>Arbitrage 11</td></tr>
+<tr><td>12</td><td>Reprise et observabilité (S-07)</td><td>Bloquant pour une mise en service, pas pour la correction du moteur</td><td>3</td></tr>
+<tr><td>13</td><td>Contrôles trompeurs, parseurs, 0 € (C-10 à C-12)</td><td>Erreurs de saisie non détectées</td><td>4 à 7</td></tr>
+</table>
+<p><b>Désaccord avec l'ordre actuel de l'équipe.</b> Le dernier objectif candidat fixe l'ordre suivant : remise fixe, revue CCTP, prestations et prix, offre, chantier, apprentissage, livraison. Nous plaçons d'abord la sécurité et l'exploitation, puis un référentiel de règles signé. Les heures de MO et les coefficients de vente passent ensuite avant la remise. Ils pèsent bien davantage sur les montants et ne sont pas traités dans le travail en cours.</p>
+
+<h2>8. Chemin de réalisation et de recette</h2>
+<p class="small">Durées : ordres de grandeur à faible niveau de confiance. Hypothèses : une à deux personnes connaissant le code, assistance par agents IA avec revue humaine, porteur disponible une demi-journée par semaine pour les décisions, et accès aux consoles d'hébergement.</p>
+<table border="1" cellspacing="0" cellpadding="4" width="100%">
+<tr><th bgcolor="#DCE6F2" style="width:18%">Phase</th><th bgcolor="#DCE6F2" style="width:52%">Contenu</th><th bgcolor="#DCE6F2" style="width:15%">Ordre de grandeur</th><th bgcolor="#DCE6F2">Sortie vérifiable</th></tr>
+<tr><td>0. Mise en sécurité</td><td>Actions immédiates de la synthèse ; inventaire du schéma de production ; arrêt des écritures de test ; branche de sauvegarde ; protection de <i>main</i>.</td><td>3 à 5 jours</td><td>Dépôt privé, secrets changés, restauration réussie, CI hors production.</td></tr>
+<tr><td>1. Fondations de décision</td><td>Signature des arbitrages de la section 6. Corpus de recette : le projet OPTIMA comme oracle (7 lignes-témoins et deux lots) et 2 à 3 dossiers réels supplémentaires avec leurs résultats attendus. Environnement de recette séparé. Migrations par une chaîne tracée. Collecte d'erreurs.</td><td>2 à 3 semaines</td><td>Référentiel de règles signé ; tests d'exigence rouges sur les écarts.</td></tr>
+<tr><td>2. Corrections du moteur et des documents</td><td>Heures par unité, coefficients FO et MO, intention de remise, TVA par taux, unités, contrat d'arrondi, politique du 0 €, parseurs ; ligne d'ouvrage avec sous-détail ; collage, annulation et reprise fiables ; import des formats OPTIMA et DPGF client ; document client (identité, remise, ventilation de la TVA, mentions validées) ; visibilité d'entreprise. Une revue est prévue pour chaque migration de données existantes.</td><td>6 à 10 semaines</td><td>Oracle reproduit ; tests d'exigence verts en CI ; plus aucune « DIVERGENCE » sans décision.</td></tr>
+<tr><td>3. Recette métier et pilote</td><td>Un chiffreur traite 3 dossiers réels de bout en bout, en parallèle de l'outil actuel ; mesure du temps et des corrections ; correction des écarts.</td><td>3 à 4 semaines</td><td>Procès-verbal de recette signé.</td></tr>
+<tr><td>4. Extensions</td><td>Comparaison fournisseurs à périmètre égal, revue CCTP sur plusieurs familles, analyse d'impact d'une nouvelle pièce, puis lien avec les achats et le chantier.</td><td>Selon les priorités</td><td>Chaque extension apporte son propre corpus de recette.</td></tr>
+</table>
+<p><b>Alternatives.</b></p>
+<ul>
+<li><b>Poursuivre sur la base existante en la recentrant</b> : recommandé. Le socle transactionnel et de sécurité au niveau des lignes a de la valeur ; les défauts relevés sont localisés et testables.</li>
+<li><b>Réécrire une V1 minimale</b> : plus lisible, mais plus long. Les mêmes décisions métier restent nécessaires, et l'on perd des protections déjà vérifiées.</li>
+<li><b>Maintenir le périmètre large</b> : déconseillé. La dette de règles et d'exploitation croît plus vite que la valeur.</li>
+</ul>
+
+<h2>9. Conditions pour accepter une V1 et la mettre en service</h2>
+<table border="1" cellspacing="0" cellpadding="4" width="100%">
+<tr><th bgcolor="#DCE6F2" style="width:24%">Domaine</th><th bgcolor="#DCE6F2">Conditions minimales</th></tr>
+<tr><td>Sécurité et exploitation</td><td>Dépôt privé et secrets changés. Recette séparée de la production. Sauvegarde chiffrée et une restauration réussie et datée. Mise en production conditionnée à une revue et aux contrôles. Migrations tracées. Reprise armée, collecte d'erreurs et alertes. En-têtes de sécurité sur le portail. Hébergement payant sous des comptes d'organisation, avec deux administrateurs. Procédure d'exploitation de deux pages en français courant.</td></tr>
+<tr><td>Règles et calculs</td><td>Référentiel signé, avec une source et un validateur nommé par règle. 100 % des lignes-témoins reproduites selon la tolérance définie. Un test d'exigence par décision. Plus aucune valeur fausse figée sans décision.</td></tr>
+<tr><td>Documents</td><td>PDF identique à la version validée et scellée. Identité de l'entreprise émettrice. Remise lisible. TVA ventilée par taux. PU × Q cohérent. Mentions obligatoires validées par un juriste, notamment l'assurance décennale, absente du PDF testé.</td></tr>
+<tr><td>Usage</td><td>Un chiffreur réalise 3 dossiers réels sans assistance technique. Aucun défaut bloquant. Temps et nombre de corrections mesurés et comparés à la pratique actuelle. Travail à plusieurs sur une même affaire.</td></tr>
+<tr><td>Preuves</td><td>Recette sur un commit publié et relu, jamais sur un arbre local. Preuves archivées dans un espace privé partagé.</td></tr>
+</table>
+
+<h2>10. Ce qui n'a pas pu être audité</h2>
+<ul>
+<li>La production : schéma installé, données, réglages d'authentification (inscription ouverte ou non), variables d'hébergement, offres souscrites.</li>
+<li>L'envoi réel des e-mails, le portail et la signature à l'exécution.</li>
+<li>Les fonctions d'IA : classification de pièces, brief, métré, revue CCTP.</li>
+<li>La performance sous charge et le travail simultané de plusieurs utilisateurs.</li>
+<li>Plusieurs parcours d'interface : import complet, collage, ouvrages, approbation par la direction, bons de commande.</li>
+<li>Les macros des classeurs du porteur.</li>
+<li>Les entretiens avec un chiffreur et le responsable métier, remplacés à la demande du porteur par les arbitrages de la section 6.</li>
+<li>La validité actuelle des identifiants exposés, volontairement non testée.</li>
+</ul>
+<p>Le dossier de passation n'incluait pas les deux audits de dette technique de l'équipe (19/08 et 10/10), qui décrivent la CI, les sauvegardes et la production. Nous les avons consultés dans le dépôt. Nous le signalons comme un fait sur le périmètre transmis, sans présumer d'intention.</p>
+
+<p class="small">Le détail des preuves, le référentiel des règles, la confrontation aux matériaux du porteur, l'état de chaque affirmation antérieure et les moyens de reproduire les résultats figurent dans l'annexe technique et ses pièces.</p>
+
+</body>
+</html>

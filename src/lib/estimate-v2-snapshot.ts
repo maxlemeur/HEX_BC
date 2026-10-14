@@ -1,5 +1,6 @@
 import { allocateProRata } from "@/lib/estimate-allocation";
 import { bankersRound } from "@/lib/money";
+import { resolveFixedDiscountSignal } from "@/lib/estimates/effective-discount";
 import type {
   DiscountMode,
   EstimateBreakdown,
@@ -200,6 +201,11 @@ export function buildStoredEstimateBreakdown({
     | "total_tax_cents"
     | "total_ttc_cents"
     | "rounding_adjustment_cents"
+    | "discount_amount_cents"
+    | "calc_engine_version"
+    | "content_revision"
+    | "calc_snapshot_content_revision"
+    | "calc_snapshot_context"
   >;
 }): EstimateBreakdown {
   const lines = items.filter((item) => item.item_type === "line");
@@ -307,13 +313,14 @@ export function buildStoredEstimateBreakdown({
   );
   const discountMode: DiscountMode =
     version?.discount_mode === "cascade" ? "cascade" : "simple";
+  const fixedDiscount = version ? resolveFixedDiscountSignal(version) : null;
 
   return {
     totals: {
       costSubtotalCents: 0,
       saleSubtotalBeforeCoefficientCents: storedHtCents,
-      saleSubtotalCents: storedHtCents,
-      discountCents: 0,
+      saleSubtotalCents: fixedDiscount?.state === "ready" ? fixedDiscount.baseCents : storedHtCents,
+      discountCents: fixedDiscount?.state === "ready" ? fixedDiscount.appliedCents : 0,
       appliedMarginMultiplier: clampMarginMultiplier(
         version?.margin_multiplier ?? 1
       ),

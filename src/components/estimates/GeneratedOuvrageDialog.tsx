@@ -21,17 +21,21 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui-legacy/Toast";
-import { runEstimateEditorExternalMutation } from "@/lib/estimates/client";
+import {
+  getEstimateDraftLockSessionId,
+} from "@/lib/estimates/client";
+import { applyGeneratedOuvrages } from "@/lib/estimates/generated-ouvrage-client";
+import { normalizeGeneratedOuvrageParent } from "@/lib/estimates/generated-ouvrage-parent";
 
 import {
   fetchGeneratedOuvrageSubdetailDraft,
   generateOuvragesFromText,
   fetchGeneratedOuvrageDraft,
-  insertGeneratedOuvrages,
+  fetchResumableGeneratedOuvrageDraft,
   rejectGeneratedOuvrageDraft,
   updateGeneratedOuvrageSubdetailDraft,
 } from "@/app/dashboard/affaires/_actions/generated-ouvrages";
-import type { GeneratedOuvrageDraftResult } from "@/lib/estimates/generated-ouvrages";
+import type { GeneratedOuvrageDraftResult, GeneratedOuvrageSubdetailResult } from "@/lib/estimates/generated-ouvrages";
 
 import {
   type CandidateEdits,
@@ -46,10 +50,12 @@ import {
 import { GeneratedOuvrageSourceForm } from "./GeneratedOuvrageSourceForm";
 import { GeneratedOuvrageDraftReview } from "./GeneratedOuvrageDraftReview";
 import { GeneratedOuvrageFooterBar } from "./GeneratedOuvrageFooterBar";
+import { GeneratedOuvrageDraftPicker } from "./GeneratedOuvrageDraftPicker";
 
 type DialogStep = "input" | "generating" | "review" | "inserting" | "error";
 
 export type GeneratedOuvrageDialogProps = {
+  scopeKey: string;
   isOpen: boolean;
   targetVersionId: string;
   projectId: string;
@@ -81,7 +87,104 @@ function didReviewInputsChange(
   );
 }
 
-export function GeneratedOuvrageDialog({
+function restoreReviewedParent(
+  candidate: UiGeneratedOuvrageCandidate,
+  subdetail: GeneratedOuvrageSubdetailResult
+): UiGeneratedOuvrageCandidate {
+  const savedParent = subdetail.reviewedCandidate;
+  const canRestore = savedParent && candidate.resolutionStatus === "pending" &&
+    !candidate.hasLocalParentEdits && !candidate.isEditing;
+  const next = canRestore ? {
+    ...candidate,
+    editedDesignation: savedParent.designation,
+    editedUnit: savedParent.unit,
+    editedQuantity: savedParent.quantity,
+  } : candidate;
+  let parentMatches = !savedParent;
+  if (savedParent) {
+    try {
+      const current = normalizeGeneratedOuvrageParent({
+        designation: next.editedDesignation, unit: next.editedUnit, quantity: next.editedQuantity,
+      });
+      parentMatches = current.designation === savedParent.designation &&
+        current.unit === savedParent.unit && current.quantity === savedParent.quantity;
+    } catch {
+      parentMatches = false;
+    }
+  }
+  const reviewed = subdetail.status === "reviewed" || subdetail.status === "applied";
+  return {
+    ...next,
+    subdetailStatus: reviewed && !parentMatches ? "pending_review" : subdetail.status,
+    subdetailReviewed: reviewed && parentMatches,
+  };
+}
+
+function isResumedDraft(
+  value: unknown,
+  expected: { draftId: string; versionId: string; projectId: string }
+): value is GeneratedOuvrageDraftResult {
+  if (!value || typeof value !== "object") return false;
+  const draft = value as GeneratedOuvrageDraftResult;
+  if (
+    draft.draftId !== expected.draftId || draft.versionId !== expected.versionId ||
+    draft.projectId !== expected.projectId ||
+    (draft.status !== "pending" && draft.status !== "partially_applied") ||
+    !Array.isArray(draft.candidates) || draft.candidates.length > 12 ||
+    !draft.summary || typeof draft.summary !== "object"
+  ) return false;
+  const ids = new Set<string>();
+  const nullableText = (input: unknown) => input === null || typeof input === "string";
+  const candidatesValid = draft.candidates.every((candidate) => {
+    if (
+      !candidate || typeof candidate !== "object" ||
+      typeof candidate.candidateId !== "string" || !candidate.candidateId ||
+      ids.has(candidate.candidateId) || typeof candidate.designation !== "string" ||
+      !nullableText(candidate.unit) || !nullableText(candidate.suggestedLotId) ||
+      !nullableText(candidate.lotLabel) || !nullableText(candidate.reasoning) ||
+      !(candidate.quantity === null || (Number.isFinite(candidate.quantity) && candidate.quantity >= 0)) ||
+      !Number.isFinite(candidate.confidence) || candidate.confidence < 0 || candidate.confidence > 1 ||
+      !["certain", "plausible", "question"].includes(candidate.status) ||
+      !["pending", "inserted", "rejected"].includes(candidate.resolutionStatus) ||
+      !Array.isArray(candidate.sources)
+    ) return false;
+    const applied = candidate.appliedValues;
+    if (applied != null && (
+      typeof applied !== "object" ||
+      typeof applied.designation !== "string" || !applied.designation.trim() ||
+      !nullableText(applied.unit) || !nullableText(applied.lotId) ||
+      !(applied.quantity === null || (Number.isFinite(applied.quantity) && applied.quantity >= 0))
+    )) return false;
+    ids.add(candidate.candidateId);
+    return candidate.sources.every((source) =>
+      source && typeof source === "object" && typeof source.sourceFragmentId === "string" &&
+      typeof source.label === "string" && ["text", "cctp", "history", "library"].includes(source.type) &&
+      nullableText(source.sourceDocumentId) && nullableText(source.excerpt) &&
+      nullableText(source.sourceFileName) && nullableText(source.selectionLabel) &&
+      (source.sourcePageFrom === null || (Number.isSafeInteger(source.sourcePageFrom) && source.sourcePageFrom > 0)) &&
+      (source.sourcePageTo === null || (Number.isSafeInteger(source.sourcePageTo) && source.sourcePageTo > 0))
+    );
+  });
+  if (!candidatesValid) return false;
+  const expectedSummary = { ...DEFAULT_SUMMARY, totalCandidates: draft.candidates.length };
+  for (const candidate of draft.candidates) {
+    if (candidate.status === "certain") expectedSummary.certainCount += 1;
+    if (candidate.status === "plausible") expectedSummary.plausibleCount += 1;
+    if (candidate.status === "question") expectedSummary.questionCount += 1;
+    if (candidate.resolutionStatus === "pending") expectedSummary.pendingCount += 1;
+    if (candidate.resolutionStatus === "inserted") expectedSummary.insertedCount += 1;
+    if (candidate.resolutionStatus === "rejected") expectedSummary.rejectedCount += 1;
+  }
+  return expectedSummary.pendingCount > 0 &&
+    (Object.keys(expectedSummary) as Array<keyof typeof DEFAULT_SUMMARY>)
+    .every((key) => draft.summary[key] === expectedSummary[key]);
+}
+
+export function GeneratedOuvrageDialog(props: GeneratedOuvrageDialogProps) {
+  return <GeneratedOuvrageDialogSession key={`${props.scopeKey}:${props.projectId}:${props.targetVersionId}`} {...props} />;
+}
+
+function GeneratedOuvrageDialogSession({
   isOpen,
   targetVersionId,
   projectId,
@@ -104,6 +207,9 @@ export function GeneratedOuvrageDialog({
     string | null
   >(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [resumingDraftId, setResumingDraftId] = useState<string | null>(null);
+  const [resumeError, setResumeError] = useState<{ draftId: string; message: string } | null>(null);
+  const [pickerRevision, setPickerRevision] = useState(0);
   const [subdetailByCandidateId, setSubdetailByCandidateId] = useState<
     Record<string, GeneratedOuvrageSubdetailUiState>
   >({});
@@ -111,6 +217,7 @@ export function GeneratedOuvrageDialog({
   const insertionPendingRef = useRef(false);
   const isOpenRef = useRef(isOpen);
   const generateRequestRef = useRef(0);
+  const resumePendingRef = useRef(false);
   const mutationBlockRef = useRef({
     isBlocked: isMutationBlocked,
     message: mutationBlockedMessage,
@@ -123,8 +230,12 @@ export function GeneratedOuvrageDialog({
     };
   }, [isMutationBlocked, mutationBlockedMessage]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     isOpenRef.current = isOpen;
+    return () => {
+      isOpenRef.current = false;
+      generateRequestRef.current += 1;
+    };
   }, [isOpen]);
 
   // Reset state on close
@@ -140,6 +251,9 @@ export function GeneratedOuvrageDialog({
       setSummary(DEFAULT_SUMMARY);
       setRejectingCandidateId(null);
       setStatusMessage(null);
+      setResumingDraftId(null);
+      setResumeError(null);
+      resumePendingRef.current = false;
       setSubdetailByCandidateId({});
       totalInsertedRef.current = 0;
     }
@@ -151,21 +265,72 @@ export function GeneratedOuvrageDialog({
       setDraftStatus(result.status);
       setSummary(result.summary);
       setCandidates((prev) => {
-        const nextCandidates = initUiCandidates(result.candidates, existingCandidates ?? prev);
-        return nextCandidates.map((candidate) => {
-          const subdetailState = subdetailByCandidateId[candidate.candidateId];
-          return {
-            ...candidate,
-            subdetailStatus: subdetailState?.data?.status ?? candidate.subdetailStatus,
-            subdetailReviewed:
-              subdetailState?.data?.status === "reviewed" ||
-              subdetailState?.data?.status === "applied",
-          };
-        });
+        return initUiCandidates(result.candidates, existingCandidates ?? prev);
       });
     },
-    [subdetailByCandidateId]
+    []
   );
+
+  const handleResume = useCallback(async (requestedDraftId: string) => {
+    if (!isOpenRef.current || resumePendingRef.current || insertionPendingRef.current) return;
+    if (mutationBlockRef.current.isBlocked) {
+      setResumeError({ draftId: requestedDraftId, message: mutationBlockRef.current.message });
+      return;
+    }
+    const requestId = ++generateRequestRef.current;
+    resumePendingRef.current = true;
+    setResumingDraftId(requestedDraftId);
+    setResumeError(null);
+    let failureCode: string | null = null;
+    try {
+      const result = await fetchResumableGeneratedOuvrageDraft({
+        versionId: targetVersionId,
+        draftId: requestedDraftId,
+      });
+      if (!isOpenRef.current || generateRequestRef.current !== requestId) return;
+      if (!result || typeof result !== "object" || typeof result.ok !== "boolean") {
+        throw new Error("Le brouillon reçu est invalide. Réessayez.");
+      }
+      if (!result.ok) {
+        failureCode = result.error?.code ?? null;
+        throw new Error(result.error?.message || "Le brouillon ne peut pas être repris.");
+      }
+      if (!isResumedDraft(result.data, { draftId: requestedDraftId, versionId: targetVersionId, projectId })) {
+        throw new Error("Le brouillon reçu est invalide. Réessayez.");
+      }
+      if (mutationBlockRef.current.isBlocked) {
+        throw new Error(mutationBlockRef.current.message);
+      }
+      const draft = result.data;
+      setDraftId(draft.draftId);
+      setDraftStatus(draft.status);
+      setSummary(draft.summary);
+      setCandidates(initUiCandidates(draft.candidates));
+      setSubdetailByCandidateId({});
+      setErrorMessage(null);
+      setStatusMessage(null);
+      setRejectingCandidateId(null);
+      totalInsertedRef.current = 0;
+      setStep("review");
+    } catch (error) {
+      if (!isOpenRef.current || generateRequestRef.current !== requestId) return;
+      setResumeError({
+        draftId: requestedDraftId,
+        message: error instanceof Error ? error.message : "Réessayez ou actualisez la liste.",
+      });
+      if (failureCode && [
+        "GENERATED_OUVRAGE_NOT_RESUMABLE", "CONFLICT", "READ_ONLY",
+        "NOT_FOUND", "FORBIDDEN", "ESTIMATE_WRITE_ROLE_REQUIRED",
+      ].includes(failureCode)) {
+        setPickerRevision((revision) => revision + 1);
+      }
+    } finally {
+      if (isOpenRef.current && generateRequestRef.current === requestId) {
+        resumePendingRef.current = false;
+        setResumingDraftId(null);
+      }
+    }
+  }, [projectId, targetVersionId]);
 
   const handleGenerate = useCallback(
     async (input: {
@@ -173,14 +338,21 @@ export function GeneratedOuvrageDialog({
       sourceText: string;
       preferredLotId: string | null;
     }) => {
+      if (resumePendingRef.current) return;
+      if (mutationBlockRef.current.isBlocked) {
+        setErrorMessage(mutationBlockRef.current.message);
+        return;
+      }
       const requestId = generateRequestRef.current + 1;
       generateRequestRef.current = requestId;
+      setResumeError(null);
       setStep("generating");
       setErrorMessage(null);
       try {
         const result = await generateOuvragesFromText({
           projectId,
           versionId: targetVersionId,
+          draftLockSessionId: getEstimateDraftLockSessionId(targetVersionId),
           sourceKind: input.sourceKind,
           sourceText: input.sourceText,
           preferredLotId: input.preferredLotId,
@@ -188,6 +360,7 @@ export function GeneratedOuvrageDialog({
         if (!isOpenRef.current || generateRequestRef.current !== requestId) {
           return;
         }
+        if ("ok" in result) throw new Error(result.error.message);
         startTransition(() => {
           applyDraftResult(result);
           setStep("review");
@@ -208,24 +381,30 @@ export function GeneratedOuvrageDialog({
   const handleReject = useCallback(
     async (candidateId: string) => {
       if (!draftId) return;
+      const requestId = generateRequestRef.current;
       setRejectingCandidateId(candidateId);
       setStatusMessage(null);
       try {
-        await rejectGeneratedOuvrageDraft({ draftId, candidateId });
+        const rejection = await rejectGeneratedOuvrageDraft({ versionId: targetVersionId, draftId, candidateId,
+          draftLockSessionId: getEstimateDraftLockSessionId(targetVersionId) });
+        if (!isOpenRef.current || generateRequestRef.current !== requestId) return;
+        if (!rejection.ok) throw new Error(rejection.error.message);
         const reloaded = await fetchGeneratedOuvrageDraft({
           versionId: targetVersionId,
           draftId,
         });
+        if (!isOpenRef.current || generateRequestRef.current !== requestId) return;
         startTransition(() => {
           applyDraftResult(reloaded);
           setStatusMessage("Proposition rejetée.");
         });
       } catch (err) {
+        if (!isOpenRef.current || generateRequestRef.current !== requestId) return;
         setStatusMessage(
           err instanceof Error ? err.message : "Erreur lors du rejet."
         );
       } finally {
-        setRejectingCandidateId(null);
+        if (isOpenRef.current && generateRequestRef.current === requestId) setRejectingCandidateId(null);
       }
     },
     [draftId, targetVersionId, applyDraftResult]
@@ -242,7 +421,8 @@ export function GeneratedOuvrageDialog({
     );
     if (selected.length === 0) return;
 
-    const blocked = selected.filter((candidate) => !candidate.subdetailReviewed);
+    const blocked = selected.filter((candidate) => !candidate.subdetailReviewed ||
+      !subdetailByCandidateId[candidate.candidateId]?.data?.reviewToken);
     if (blocked.length > 0) {
       setStatusMessage(
         "Chaque ouvrage sélectionné doit avoir un sous-détail explicitement validé avant insertion."
@@ -261,6 +441,7 @@ export function GeneratedOuvrageDialog({
     }
 
     insertionPendingRef.current = true;
+    let confirmedInsertedCount = 0;
     setStep("inserting");
     setStatusMessage(null);
     try {
@@ -272,13 +453,14 @@ export function GeneratedOuvrageDialog({
         return;
       }
 
+      if (!isOpenRef.current) return;
       if (mutationBlockRef.current.isBlocked) {
         setStep("review");
         setStatusMessage(mutationBlockRef.current.message);
         return;
       }
 
-      const insertResult = await runEstimateEditorExternalMutation(targetVersionId, () => insertGeneratedOuvrages({
+      const insertResult = await applyGeneratedOuvrages({
         versionId: targetVersionId,
         draftId,
         acceptedCandidates: selected.map((c) => ({
@@ -287,15 +469,24 @@ export function GeneratedOuvrageDialog({
           unit: c.editedUnit,
           quantity: c.editedQuantity,
           lotId: c.editedLotId,
+          reviewToken: subdetailByCandidateId[c.candidateId]?.data?.reviewToken,
         })),
-      }));
+      });
 
+      if (!isOpenRef.current) return;
+      if ("outcome" in insertResult || insertResult.replayed) {
+        toast.info({ title: "La demande a déjà un résultat. Vérifiez-le pour recharger le devis actuel." });
+        onClose();
+        return;
+      }
       totalInsertedRef.current += insertResult.insertedCount;
+      confirmedInsertedCount = insertResult.insertedCount;
 
       const reloaded = await fetchGeneratedOuvrageDraft({
         versionId: targetVersionId,
         draftId,
       });
+      if (!isOpenRef.current) return;
       startTransition(() => {
         applyDraftResult(reloaded);
       });
@@ -317,6 +508,18 @@ export function GeneratedOuvrageDialog({
       );
       toast.success({ title: `${insertResult.insertedCount} ouvrage(s) inséré(s).` });
     } catch (err) {
+      if (!isOpenRef.current) return;
+      if (confirmedInsertedCount > 0) {
+        toast.warning({ title: `${confirmedInsertedCount} ouvrage(s) enregistré(s). Le devis doit être rechargé pour afficher le résultat.` });
+        onClose({ insertedCount: totalInsertedRef.current });
+        return;
+      }
+      if (err && typeof err === "object" && "code" in err &&
+        ["GENERATED_OUVRAGE_OUTCOME_UNKNOWN", "ESTIMATE_BATCH_PENDING"].includes(String(err.code))) {
+        toast.warning({ title: "L'application des ouvrages reste à vérifier dans le devis." });
+        onClose();
+        return;
+      }
       setStep("review");
       setStatusMessage(
         err instanceof Error ? err.message : "Erreur lors de l'insertion."
@@ -327,6 +530,7 @@ export function GeneratedOuvrageDialog({
   }, [
     draftId,
     candidates,
+    subdetailByCandidateId,
     targetVersionId,
     applyDraftResult,
     ensureMutationCanProceed,
@@ -382,6 +586,7 @@ export function GeneratedOuvrageDialog({
             editedUnit: edits.unit,
             editedQuantity: edits.quantity,
             editedLotId: edits.lotId,
+            hasLocalParentEdits: true,
             subdetailStatus: shouldInvalidateReview ? "pending_review" : c.subdetailStatus,
             subdetailReviewed: shouldInvalidateReview ? false : c.subdetailReviewed,
           };
@@ -433,13 +638,20 @@ export function GeneratedOuvrageDialog({
 
   const handleCancelEdit = useCallback((candidateId: string) => {
     setCandidates((prev) =>
-      prev.map((c) =>
-        c.candidateId === candidateId ? { ...c, isEditing: false } : c
-      )
+      prev.map((candidate) => {
+        if (candidate.candidateId !== candidateId) return candidate;
+        const next = { ...candidate, isEditing: false };
+        const subdetail = subdetailByCandidateId[candidateId]?.data;
+        return subdetail ? restoreReviewedParent(next, subdetail) : next;
+      })
     );
-  }, []);
+  }, [subdetailByCandidateId]);
 
   const handleNewGeneration = useCallback(() => {
+    generateRequestRef.current += 1;
+    setResumeError(null);
+    setResumingDraftId(null);
+    resumePendingRef.current = false;
     setStep("input");
     setCandidates([]);
     setDraftId(null);
@@ -454,6 +666,7 @@ export function GeneratedOuvrageDialog({
   const handleOpenSubdetail = useCallback(
     async (candidateId: string) => {
       if (!draftId) return;
+      const requestId = generateRequestRef.current;
 
       setSubdetailByCandidateId((prev) => ({
         ...prev,
@@ -469,7 +682,13 @@ export function GeneratedOuvrageDialog({
           versionId: targetVersionId,
           draftId,
           candidateId,
+          draftLockSessionId: getEstimateDraftLockSessionId(targetVersionId),
         });
+        if (!isOpenRef.current || generateRequestRef.current !== requestId) return;
+        if ("ok" in result) throw new Error(result.error.message);
+        if (result.candidateId !== candidateId || result.draftId !== draftId ||
+          result.versionId !== targetVersionId || result.projectId !== projectId ||
+          !/^[a-f0-9]{64}$/i.test(result.reviewToken)) throw new Error("Le sous-détail reçu est invalide. Rechargez-le avant de le valider.");
         startTransition(() => {
           setSubdetailByCandidateId((prev) => ({
             ...prev,
@@ -480,19 +699,14 @@ export function GeneratedOuvrageDialog({
             },
           }));
           setCandidates((prev) =>
-            prev.map((candidate) =>
-              candidate.candidateId === candidateId
-                ? {
-                    ...candidate,
-                    subdetailStatus: result.status,
-                    subdetailReviewed:
-                      result.status === "reviewed" || result.status === "applied",
-                  }
-                : candidate
-            )
+            prev.map((candidate) => {
+              if (candidate.candidateId !== candidateId) return candidate;
+              return restoreReviewedParent(candidate, result);
+            })
           );
         });
       } catch (err) {
+        if (!isOpenRef.current || generateRequestRef.current !== requestId) return;
         setSubdetailByCandidateId((prev) => ({
           ...prev,
           [candidateId]: {
@@ -506,8 +720,14 @@ export function GeneratedOuvrageDialog({
         }));
       }
     },
-    [draftId, targetVersionId]
+    [draftId, targetVersionId, projectId]
   );
+
+  const handleSubdetailChanged = useCallback((candidateId: string) => {
+    setCandidates((previous) => previous.map((candidate) => candidate.candidateId === candidateId
+      ? { ...candidate, subdetailReviewed: false, subdetailStatus: "pending_review" }
+      : candidate));
+  }, []);
 
   const handleSaveSubdetail = useCallback(
     async (
@@ -515,8 +735,15 @@ export function GeneratedOuvrageDialog({
       components: GeneratedOuvrageSubdetailEditorComponent[]
     ) => {
       if (!draftId) return;
+      const requestId = generateRequestRef.current;
       const candidate = candidates.find((entry) => entry.candidateId === candidateId);
       if (!candidate) return;
+      const expectedReviewToken = subdetailByCandidateId[candidateId]?.data?.reviewToken;
+      if (!expectedReviewToken || mutationBlockRef.current.isBlocked) {
+        setStatusMessage(mutationBlockRef.current.isBlocked ? mutationBlockRef.current.message : "Rechargez le sous-détail avant de le valider.");
+        return;
+      }
+      handleSubdetailChanged(candidateId);
 
       setSubdetailByCandidateId((prev) => ({
         ...prev,
@@ -532,7 +759,9 @@ export function GeneratedOuvrageDialog({
           versionId: targetVersionId,
           draftId,
           candidateId,
-          markReviewed: true,
+          expectedReviewToken,
+          draftLockSessionId: getEstimateDraftLockSessionId(targetVersionId),
+          markReviewed: components.some((component) => component.status !== "rejected"),
           reviewedCandidate: {
             designation: candidate.editedDesignation,
             unit: candidate.editedUnit,
@@ -540,6 +769,11 @@ export function GeneratedOuvrageDialog({
           },
           components,
         });
+        if (!isOpenRef.current || generateRequestRef.current !== requestId) return;
+        if ("ok" in result) throw new Error(result.error.message);
+        if (result.candidateId !== candidateId || result.draftId !== draftId ||
+          result.versionId !== targetVersionId || result.projectId !== projectId ||
+          !/^[a-f0-9]{64}$/i.test(result.reviewToken)) throw new Error("La revue reçue est invalide. Rechargez le sous-détail.");
         startTransition(() => {
           setSubdetailByCandidateId((prev) => ({
             ...prev,
@@ -552,18 +786,16 @@ export function GeneratedOuvrageDialog({
           setCandidates((prev) =>
             prev.map((candidate) =>
               candidate.candidateId === candidateId
-                ? {
-                    ...candidate,
-                    subdetailStatus: result.status,
-                    subdetailReviewed:
-                      result.status === "reviewed" || result.status === "applied",
-                  }
+                ? restoreReviewedParent(candidate, result)
                 : candidate
             )
           );
-          setStatusMessage("Sous-détail validé. L'insertion reste une action explicite.");
+          setStatusMessage(result.status === "reviewed"
+            ? "Revue enregistrée. L'insertion exige un parent conforme aux valeurs validées."
+            : "Décisions enregistrées. Rétablissez ou ajoutez un composant pour valider le sous-détail.");
         });
       } catch (err) {
+        if (!isOpenRef.current || generateRequestRef.current !== requestId) return;
         setSubdetailByCandidateId((prev) => ({
           ...prev,
           [candidateId]: {
@@ -577,7 +809,7 @@ export function GeneratedOuvrageDialog({
         }));
       }
     },
-    [draftId, targetVersionId, candidates]
+    [draftId, targetVersionId, projectId, candidates, subdetailByCandidateId, handleSubdetailChanged]
   );
 
   const handleClose = useCallback(() => {
@@ -612,8 +844,10 @@ export function GeneratedOuvrageDialog({
   const selectedMissingParentCount = selectedCount - selectedParentReadyCount;
   const selectedMissingReviewCount =
     selectedParentReadyCount - selectedInsertReadyCount;
+  const isSubdetailPending = Object.values(subdetailByCandidateId)
+    .some((state) => state.status === "saving" || state.status === "loading");
   const canInsertSelected =
-    selectedCount > 0 && selectedInsertReadyCount === selectedCount;
+    !isSubdetailPending && selectedCount > 0 && selectedInsertReadyCount === selectedCount;
 
   const isInserting = step === "inserting";
 
@@ -633,18 +867,32 @@ export function GeneratedOuvrageDialog({
         <DialogHeader className="border-b border-border px-5 py-4 pr-14 sm:px-6 sm:pr-16">
           <DialogTitle>Générer des ouvrages</DialogTitle>
           <DialogDescription>
-            Collez un texte (CCTP, note interne…) : l&apos;IA propose des ouvrages que vous
-            complétez et validez avant de les insérer dans le devis.
+            Reprenez vos propositions sauvegardées ou collez un texte (CCTP, note interne…)
+            pour générer des ouvrages à compléter et valider avant insertion.
           </DialogDescription>
         </DialogHeader>
 
         <DialogBody className="relative min-h-0 flex-1 gap-0 overflow-y-auto px-5 py-4 sm:px-6">
           {step === "input" && (
-            <GeneratedOuvrageSourceForm
-              existingSections={existingSections}
-              isGenerating={false}
-              onGenerate={handleGenerate}
-            />
+            <>
+              <GeneratedOuvrageDraftPicker
+                key={pickerRevision}
+                versionId={targetVersionId}
+                disabled={isMutationBlocked}
+                resumingDraftId={resumingDraftId}
+                resumeError={resumeError}
+                onResume={(requestedDraftId) => {
+                  startTransition(() => { void handleResume(requestedDraftId); });
+                }}
+              />
+              <fieldset disabled={resumingDraftId !== null || isMutationBlocked} className="min-w-0">
+                <GeneratedOuvrageSourceForm
+                  existingSections={existingSections}
+                  isGenerating={false}
+                  onGenerate={handleGenerate}
+                />
+              </fieldset>
+            </>
           )}
 
           {step === "generating" && (
@@ -673,6 +921,7 @@ export function GeneratedOuvrageDialog({
 
           {(step === "review" || isInserting) && (
             <>
+              <fieldset disabled={isInserting || isSubdetailPending || isMutationBlocked} className="min-w-0">
               <GeneratedOuvrageDraftReview
                 candidates={candidates}
                 summary={summary}
@@ -687,8 +936,10 @@ export function GeneratedOuvrageDialog({
                 onReject={handleReject}
                 onOpenSubdetail={handleOpenSubdetail}
                 onSaveSubdetail={handleSaveSubdetail}
+                onSubdetailChanged={handleSubdetailChanged}
                 subdetailByCandidateId={subdetailByCandidateId}
               />
+              </fieldset>
               <GeneratedOuvrageFooterBar
                 selectedCount={selectedCount}
                 selectedReviewedCount={selectedReviewedCount}

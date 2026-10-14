@@ -42,6 +42,8 @@ type ScopedAiDialogsState = {
 };
 
 export type EstimateEditorAiDialogsControllerInput = {
+  actorId: string | null;
+  tenantId: string | null;
   routeVersionId: string;
   activeVersion: Pick<EstimateVersionRow, "id" | "project_id"> | null;
   items: EditorEstimateItem[];
@@ -154,6 +156,8 @@ function canAutoOpenVersionZero(summary: VersionZeroDraftSummary | null) {
 }
 
 export function useEstimateEditorAiDialogsController({
+  actorId,
+  tenantId,
   routeVersionId,
   activeVersion,
   items,
@@ -167,7 +171,7 @@ export function useEstimateEditorAiDialogsController({
   highlightDurationMs = DEFAULT_HIGHLIGHT_DURATION_MS,
 }: EstimateEditorAiDialogsControllerInput): EstimateEditorAiDialogsController {
   const activeVersionId = activeVersion?.id ?? null;
-  const scopeKey = createAiDialogsScopeKey(routeVersionId, activeVersionId);
+  const scopeKey = `${actorId ?? ""}\u0000${tenantId ?? ""}\u0000${createAiDialogsScopeKey(routeVersionId, activeVersionId)}`;
   const [scopedState, setScopedState] = useState<ScopedAiDialogsState>(() =>
     createEmptyAiDialogsState(scopeKey)
   );
@@ -486,10 +490,10 @@ export function useEstimateEditorAiDialogsController({
       summary: VersionZeroDraftSummary | null,
       options?: { autoOpen?: boolean }
     ) => {
-      if (activeRouteVersionIdRef.current !== versionId) return;
+      if (activeRouteVersionIdRef.current !== versionId || activeScopeKeyRef.current !== scopeKey) return;
       if (summary && summary.versionId !== versionId) return;
 
-      const targetScopeKey = createAiDialogsScopeKey(versionId, versionId);
+      const targetScopeKey = `${actorId ?? ""}\u0000${tenantId ?? ""}\u0000${createAiDialogsScopeKey(versionId, versionId)}`;
       const shouldAutoOpen =
         isEstimateAiDraftEnabled() &&
         options?.autoOpen === true && canAutoOpenVersionZero(summary);
@@ -504,7 +508,7 @@ export function useEstimateEditorAiDialogsController({
           : {}),
       }));
     },
-    [updateStateForScope]
+    [actorId, tenantId, scopeKey, updateStateForScope]
   );
 
   const clearHighlightedItems = useCallback(() => {
@@ -567,6 +571,7 @@ export function useEstimateEditorAiDialogsController({
       }
       return {
         isOpen: true,
+        scopeKey,
         targetVersionId: routeVersionId,
         projectId: activeVersion.project_id ?? "",
         existingSections,

@@ -21,6 +21,8 @@ import {
 } from "@/lib/estimates/readiness";
 
 import { mapSupabaseError } from "./errors";
+import { loadCanonicalFixedDiscountEvidence } from "./fixed-discount-evidence-server";
+import { readAllEstimateItems } from "./read-all-items-server";
 import {
   evaluateRules,
   type EstimateRuleUnavailableSignal,
@@ -183,13 +185,17 @@ type EstimateGatingVersion = Pick<
       EstimateVersionRow,
       | "margin_bp"
       | "discount_bp"
+      | "discount_amount_cents"
+      | "tenant_id"
+      | "status"
+      | "updated_at"
       | "calc_engine_version"
       | "content_revision"
       | "calc_snapshot_content_revision"
       | "calc_snapshot_context"
     >
   >;
-type EstimateGatingProject = Pick<EstimateProjectRow, "id" | "client_name" | "notes">;
+type EstimateGatingProject = Pick<EstimateProjectRow, "id" | "client_name" | "notes"> & Partial<Pick<EstimateProjectRow, "user_id">>;
 
 type EvaluateEstimateSendGatingInput = {
   supabase: Supabase;
@@ -392,7 +398,7 @@ export async function evaluateEstimateSendGating(
   } = input;
 
   const [
-    itemsResult,
+    items,
     marginTiersResult,
     documentsResult,
     registerSummary,
@@ -401,12 +407,7 @@ export async function evaluateEstimateSendGating(
     blockingOverride,
     warningOverride,
   ] = await Promise.all([
-    supabase
-      .from("estimate_items")
-      .select("*")
-      .eq("tenant_id", tenantId)
-      .eq("version_id", version.id)
-      .order("position", { ascending: true }),
+    readAllEstimateItems({ supabase, tenantId, versionId: version.id }),
     supabase
       .from("margin_tiers")
       .select("id")
@@ -434,9 +435,6 @@ export async function evaluateEstimateSendGating(
     }),
   ]);
 
-  if (itemsResult.error) {
-    throw mapSupabaseError(itemsResult.error, "Impossible de charger les lignes.");
-  }
   if (marginTiersResult.error) {
     throw mapSupabaseError(
       marginTiersResult.error,
@@ -450,7 +448,6 @@ export async function evaluateEstimateSendGating(
     );
   }
 
-  const items = (itemsResult.data ?? []) as EstimateItemRow[];
   const marginTiers = (marginTiersResult.data ?? []) as MarginTierRow[];
   const documents = (documentsResult.data ?? []) as Pick<EstimateDocumentRow, "id">[];
   const severityByFlag = resolveSeverityByFlag({
@@ -539,9 +536,18 @@ export async function evaluateEstimateSendGating(
     itemIdsByFlag.version_zero_review_pending.add(version.id);
   }
 
+  const fixedDiscountEvidence = version.discount_amount_cents != null && project.user_id &&
+    version.tenant_id === tenantId && typeof version.status === "string" && typeof version.updated_at === "string" &&
+    typeof version.content_revision === "number"
+    ? await loadCanonicalFixedDiscountEvidence({
+        supabase, tenantId, projectUserId: project.user_id,
+        authorizedVersion: { ...version, status: version.status, updated_at: version.updated_at, content_revision: version.content_revision },
+      })
+    : null;
   const rulesEvaluation = await evaluateRules({
     supabase,
     tenantId,
+    fixedDiscountEvidence,
     version: {
       id: version.id,
       project_id: version.project_id,
@@ -549,6 +555,10 @@ export async function evaluateEstimateSendGating(
       margin_multiplier: version.margin_multiplier,
       margin_mode: version.margin_mode,
       discount_bp: version.discount_bp,
+      discount_amount_cents: version.discount_amount_cents,
+      tenant_id: version.tenant_id,
+      status: version.status,
+      updated_at: version.updated_at,
       calc_engine_version: version.calc_engine_version,
       content_revision: version.content_revision,
       calc_snapshot_content_revision: version.calc_snapshot_content_revision,

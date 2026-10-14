@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/layout/empty-state";
@@ -9,6 +12,7 @@ import type {
 import type { AffaireRegisterSummary } from "@/lib/affaires/register";
 import type { EstimateApprovalSummary } from "@/lib/estimates/rules-engine";
 import type { CockpitSurfaceId } from "@/lib/cockpit/suggestions";
+import type { PurchaseOrderReadiness } from "@/lib/estimates/purchase-order-readiness";
 import { AffaireFinishLineActions } from "./AffaireFinishLineActions";
 import {
   buildFinishLineCards,
@@ -95,27 +99,33 @@ function getExceptionBadgeLabel(severity: PilotageExceptionSeverity) {
 function getFinishLineBadgeVariant(status: FinishLineCard["status"]) {
   switch (status) {
     case "ready":
+    case "prepared":
       return "success";
     case "blocked":
       return "danger";
     case "warning":
       return "warning";
     case "waiting":
+    case "checking":
     case "unavailable":
       return "neutral";
   }
 }
 
-function getFinishLineBadgeLabel(status: FinishLineCard["status"]) {
-  switch (status) {
+function getFinishLineBadgeLabel(card: FinishLineCard) {
+  switch (card.status) {
     case "ready":
       return "Prêt";
+    case "prepared":
+      return "Déjà préparé";
     case "blocked":
       return "Bloqué";
     case "warning":
-      return "À surveiller";
+      return card.key === "order" ? "Partiellement prêt" : "À surveiller";
     case "waiting":
       return "En attente";
+    case "checking":
+      return "Vérification";
     case "unavailable":
       return "Indisponible";
   }
@@ -206,6 +216,26 @@ export function AffairePilotagePanel({
   ghost = false,
   hiddenExceptionIds = [],
 }: AffairePilotagePanelProps) {
+  const versionId = currentVersion?.id ?? null;
+  const activeVersionRef = useRef(versionId);
+  const [clientReadiness, setClientReadiness] = useState<{
+    versionId: string;
+    readiness: PurchaseOrderReadiness;
+  } | null>(null);
+  useLayoutEffect(() => {
+    activeVersionRef.current = versionId;
+  }, [versionId]);
+  const onPreparationReadiness = useCallback(
+    (readVersionId: string, readiness: PurchaseOrderReadiness) => {
+      if (readVersionId !== activeVersionRef.current) return;
+      setClientReadiness({ versionId: readVersionId, readiness });
+    },
+    [],
+  );
+  const effectiveFinishLineSummary =
+    finishLineSummary && clientReadiness?.versionId === versionId
+      ? { ...finishLineSummary, readyToOrder: clientReadiness.readiness }
+      : finishLineSummary;
   const allowSurfaceActions = typeof onOpenSurface === "function";
   const steps = ghost
     ? GHOST_STEPS
@@ -238,7 +268,7 @@ export function AffairePilotagePanel({
       ? buildFinishLineCards({
         projectId,
         currentVersion,
-        finishLineSummary,
+        finishLineSummary: effectiveFinishLineSummary,
       })
       : [];
 
@@ -275,7 +305,7 @@ export function AffairePilotagePanel({
                   </h3>
                 </div>
                 <Badge variant={getFinishLineBadgeVariant(card.status)} dot>
-                  {getFinishLineBadgeLabel(card.status)}
+                  {getFinishLineBadgeLabel(card)}
                 </Badge>
               </div>
 
@@ -310,6 +340,7 @@ export function AffairePilotagePanel({
           projectName={projectName}
           currentVersion={currentVersion}
           finishLineSummary={finishLineSummary}
+          onPreparationReadiness={onPreparationReadiness}
         />
       ) : null}
 

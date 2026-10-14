@@ -3,6 +3,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
 
 import { acquireEstimateDraftLock, batchEstimateOperations, bulkUpdateEstimateItems, createEstimate, createEstimateItem, fetchEstimateList, fetchEstimatePdfStatus, getEstimateDraftLockSessionId, isEstimateApiError, releaseEstimateDraftLock, requestEstimatePdfGeneration, renewEstimateDraftLock, saveEstimateVersion, takeoverEstimateDraftLock, updateEstimateStatus } from "@/lib/estimates/client";
+import type { Database } from "@/types/database";
+
+// Keep the precode intent executable before the product exposes this contract.
+const saveEstimateSettingsPrecode = saveEstimateVersion as unknown as (
+  versionId: string,
+  updates: Database["public"]["Tables"]["estimate_versions"]["Update"],
+  updatedAtToken: string,
+  expectedContentRevision: number
+) => Promise<{
+  version: Database["public"]["Tables"]["estimate_versions"]["Row"];
+  items: Database["public"]["Tables"]["estimate_items"]["Row"][];
+}>;
 
 const VERSION_ID = "77777777-7777-4777-8777-777777777777";
 const ITEM_ID = "88888888-8888-4888-8888-888888888888";
@@ -157,17 +169,14 @@ describe("estimate client optimistic concurrency", () => {
         JSON.stringify({
           ok: true,
           data: {
-            committed: true,
+            committed: false,
+            version: { id: VERSION_ID, updated_at: UPDATED_AT },
             results: [
               {
                 index: 0,
                 op: "update",
                 status: "ok",
-                data: {
-                  item: {
-                    id: ITEM_ID,
-                  },
-                },
+                data: { dry_run: true },
               },
             ],
           },
@@ -228,7 +237,7 @@ describe("estimate client optimistic concurrency", () => {
       ],
     });
     expect(result).toEqual({
-      committed: true,
+      committed: false,
       versionToken: {
         id: VERSION_ID,
         updated_at: UPDATED_AT,
@@ -238,11 +247,7 @@ describe("estimate client optimistic concurrency", () => {
           index: 0,
           op: "update",
           status: "ok",
-          data: {
-            item: {
-              id: ITEM_ID,
-            },
-          },
+          data: { dry_run: true },
         },
       ],
     });
@@ -365,8 +370,10 @@ describe("estimate client optimistic concurrency", () => {
             version: {
               id: VERSION_ID,
               updated_at: NEXT_UPDATED_AT,
+              content_revision: 2,
               title: "Maj",
             },
+            items: [],
           },
         }),
         {
@@ -379,12 +386,13 @@ describe("estimate client optimistic concurrency", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await saveEstimateVersion(
+    const result = await saveEstimateSettingsPrecode(
       VERSION_ID,
       {
         title: "Maj",
       },
-      UPDATED_AT
+      UPDATED_AT,
+      1
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -406,8 +414,9 @@ describe("estimate client optimistic concurrency", () => {
     expect(JSON.parse(String(requestInit.body))).toEqual({
       title: "Maj",
       updated_at: UPDATED_AT,
+      expected_content_revision: 1,
     });
-    expect(result.updated_at).toBe(NEXT_UPDATED_AT);
+    expect(result.version.updated_at).toBe(NEXT_UPDATED_AT);
   });
 
   it("exposes status, code and details for version conflicts", async () => {
@@ -434,12 +443,13 @@ describe("estimate client optimistic concurrency", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     try {
-      await saveEstimateVersion(
+      await saveEstimateSettingsPrecode(
         VERSION_ID,
         {
           title: "Maj",
         },
-        UPDATED_AT
+        UPDATED_AT,
+        1
       );
       throw new Error("Expected saveEstimateVersion to throw.");
     } catch (error) {

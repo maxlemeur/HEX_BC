@@ -44,7 +44,7 @@ function mockTenantContext(supabase: unknown) {
 function createPutSupabaseMock(
   { orderTenantId = TENANT_ID }: { orderTenantId?: string } = {}
 ) {
-  const rpc = vi.fn().mockResolvedValue({ data: ORDER_ID, error: null });
+  const rpc = vi.fn().mockResolvedValue({ data: { id: ORDER_ID, edit_revision: 1 }, error: null });
 
   const selectSingle = vi.fn().mockResolvedValue({
     data: {
@@ -198,6 +198,7 @@ describe("purchase orders [id] route regressions", () => {
         "content-type": "application/json",
       },
       body: JSON.stringify({
+        expectedRevision: 0,
         expectedDeliveryDate: "TBD",
       }),
     });
@@ -206,6 +207,7 @@ describe("purchase orders [id] route regressions", () => {
     expect(response.status).toBe(200);
     expect(rpc).toHaveBeenCalledWith("replace_purchase_order_draft", {
       p_order_id: ORDER_ID,
+      p_expected_revision: 0,
       p_header_patch: { expected_delivery_date: "TBD" },
       p_items: null,
     });
@@ -221,10 +223,12 @@ describe("purchase orders [id] route regressions", () => {
         "content-type": "application/json",
       },
       body: JSON.stringify({
+        expectedRevision: 0,
         items: [
           {
-            productId: "prod-1",
+            productId: "77777777-7777-4777-8777-777777777777",
             reference: "REF-001",
+            unit: "u",
             designation: 'Coffret "A"',
             quantity: 2,
             unitPriceCents: 1250,
@@ -240,11 +244,13 @@ describe("purchase orders [id] route regressions", () => {
     expect(rpc).toHaveBeenCalledTimes(1);
     expect(rpc).toHaveBeenCalledWith("replace_purchase_order_draft", {
       p_order_id: ORDER_ID,
+      p_expected_revision: 0,
       p_header_patch: {},
       p_items: [
         {
-          product_id: "prod-1",
+          product_id: "77777777-7777-4777-8777-777777777777",
           reference: "REF-001",
+            unit: "u",
           designation: 'Coffret "A"',
           quantity: 2,
           unit_price_ht_cents: 1250,
@@ -254,7 +260,7 @@ describe("purchase orders [id] route regressions", () => {
     });
   });
 
-  it("rejects non-integer quantities before calling the RPC", async () => {
+  it("rejects quantities exceeding three decimals before calling the RPC", async () => {
     const { supabase, rpc } = createPutSupabaseMock();
     mockTenantContext(supabase);
 
@@ -264,12 +270,14 @@ describe("purchase orders [id] route regressions", () => {
         "content-type": "application/json",
       },
       body: JSON.stringify({
+        expectedRevision: 0,
         items: [
           {
-            productId: "prod-1",
+            productId: "77777777-7777-4777-8777-777777777777",
             reference: "REF-001",
+            unit: "u",
             designation: 'Coffret "A"',
-            quantity: 0.5,
+            quantity: 0.0001,
             unitPriceCents: 1250,
             taxRateBp: 2000,
           },
@@ -300,6 +308,7 @@ describe("purchase orders [id] route regressions", () => {
         "content-type": "application/json",
       },
       body: JSON.stringify({
+        expectedRevision: 0,
         notes: "mise à jour concurrente",
       }),
     });

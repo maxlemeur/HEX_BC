@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "army-local-native-config-1",
+  "stackDirectory": "/absolute/physical/path/to/already-started-unlinked-test-stack",
+  "projectId": "replace-with-local-project-id",
+  "configSha256": "replace-with-actual-config-toml-sha256",
+  "cliPath": "/absolute/path/to/existing/supabase-cli",
+  "cliSha256": "replace-with-cli-file-sha256",
+  "postgresBinDirectory": "/absolute/path/to/native/postgres/bin",
+  "psqlSha256": "replace-with-psql-file-sha256",
+  "nodePath": "/absolute/path/to/node24/bin/node",
+  "apiUrl": "http://127.0.0.1:45001",
+  "dbPort": 45002,
+  "systemIdentifier": "replace-with-observed-postgresql-system-identifier",
+  "serverVersionNum": "replace-with-observed-postgresql-version-number"
+}

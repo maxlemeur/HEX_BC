@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "army-local-recipe-1",
+  "campaign": "replace-with-new-local-campaign",
+  "approvalReference": "replace-with-effective-local-authorization",
+  "backendOrigin": "http://127.0.0.1:45001",
+  "appOrigin": "http://localhost:3107",
+  "native": {
+    "configPath": ".e2e/replace-with-owned-native-config.json",
+    "configSha256": "replace-with-actual-sha256",
+    "nodePath": "/absolute/path/to/node24/bin/node",
+    "distribution": "Ubuntu-24.04"
+  },
+  "owner": {
+    "userId": "replace-with-existing-local-test-user-uuid",
+    "tenantId": "replace-with-existing-active-test-tenant-uuid",
+    "membershipId": "replace-with-existing-admin-membership-uuid",
+    "laborRoleId": "replace-with-existing-4000-labor-role-uuid"
+  }
+}

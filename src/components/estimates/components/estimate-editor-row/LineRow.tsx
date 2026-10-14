@@ -1,5 +1,7 @@
 "use client";
 
+import dynamic from "next/dynamic";
+
 import { EstimateOrderedCells } from "@/components/estimates/context/EstimateColumnOrderContext";
 import type { SupplierComparisonResult } from "@/components/estimates/hooks/useEstimateSupplierComparison";
 
@@ -23,7 +25,6 @@ import {
   formatMarkupRatio,
 } from "@/lib/estimates/line-margin";
 import { DecimalDraftInput } from "@/components/estimates/components/estimate-editor-row/DecimalDraftInput";
-import { TakeoffSourceBadge } from "@/components/takeoff/TakeoffSourceBadge";
 import { hasTakeoffSourceBadge } from "@/lib/takeoff/source-badge";
 import { Popover } from "@/components/ui-legacy/Popover";
 import { EstimateLineTruthBadges } from "@/components/estimates/components/estimate-editor-row/EstimateLineTruthBadges";
@@ -77,6 +78,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+
+const TakeoffSourceBadge = dynamic(
+  () => import("@/components/takeoff/TakeoffSourceBadge").then((module) => module.TakeoffSourceBadge),
+  {
+    ssr: false,
+    loading: () => <span role="status">Chargement de la provenance…</span>,
+  }
+);
 
 type LineRowProps = {
   versionId: string;
@@ -582,7 +591,7 @@ export function LineRow({
     actionableOutlierFlags.length > 0;
   const lineDetailNodes = (
     <>
-      <TakeoffSourceBadge
+      {hasTakeoffSourceBadge(item.source_provider) ? <TakeoffSourceBadge
         versionId={versionId}
         estimateItemId={item.id}
         lineLabel={item.title}
@@ -595,7 +604,7 @@ export function LineRow({
         sourceVersionNumber={item.source_version_number}
         sourceMetadata={sourceMetadata}
         cacheToken={item.updated_at}
-      />
+      /> : null}
       {hasSupplierComparisonMismatch ? (
         <div className="flex flex-wrap items-center gap-1">
           <span className="estimate-supplier-comparison-row-badge">

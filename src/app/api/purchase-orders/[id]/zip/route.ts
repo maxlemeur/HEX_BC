@@ -4,7 +4,8 @@ import { Readable } from "stream";
 
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { ApiError } from "@/lib/estimates/errors";
-import { getAccessiblePurchaseOrderOrNull } from "@/lib/purchase-orders";
+import { formatOrderQuantity } from "@/lib/purchase-orders/quantities";
+import { assertCompletePurchaseOrderSnapshot, getAccessiblePurchaseOrderOrNull } from "@/lib/purchase-orders";
 
 function jsonApiError(error: unknown) {
   if (error instanceof ApiError) {
@@ -26,6 +27,7 @@ type OrderRow = {
   id: string;
   reference: string;
   order_number: number;
+  edit_revision: number;
   status: PurchaseOrderStatus;
   order_date: string;
   expected_delivery_date: string | null;
@@ -36,12 +38,18 @@ type OrderRow = {
   currency: string;
   suppliers: { name: string } | null;
   delivery_sites: { name: string } | null;
+  purchase_order_items: OrderItemRow[];
 };
 
 type OrderItemRow = {
   designation: string;
   reference: string | null;
   quantity: number;
+  position: number;
+  unit: string | null;
+  price_unit: string | null;
+  line_tax_cents: number;
+  line_total_ttc_cents: number;
   unit_price_ht_cents: number;
   line_total_ht_cents: number;
 };
@@ -107,9 +115,12 @@ function buildOrderHtml(order: OrderRow, items: OrderItemRow[]) {
         <tr>
           <td>${designation}</td>
           <td>${referenceItem}</td>
-          <td class="num">${item.quantity}</td>
-          <td class="num">${formatEUR(item.unit_price_ht_cents)}</td>
+          <td class="num">${formatOrderQuantity(item.quantity)}</td>
+          <td>${escapeHtml(item.unit?.trim() || "Unité à confirmer")}</td>
+          <td class="num">${formatEUR(item.unit_price_ht_cents)} / ${escapeHtml(item.price_unit?.trim() || "unité à confirmer")}</td>
           <td class="num">${formatEUR(item.line_total_ht_cents)}</td>
+          <td class="num">${formatEUR(item.line_tax_cents)}</td>
+          <td class="num">${formatEUR(item.line_total_ttc_cents)}</td>
         </tr>
       `;
     })
@@ -228,13 +239,16 @@ function buildOrderHtml(order: OrderRow, items: OrderItemRow[]) {
         <tr>
           <th>Designation</th>
           <th>Référence</th>
-          <th class="num">Qte</th>
+          <th class="num">Quantité</th>
+          <th>Unité</th>
           <th class="num">P.U. HT</th>
           <th class="num">Total HT</th>
+          <th class="num">TVA</th>
+          <th class="num">Total TTC</th>
         </tr>
       </thead>
       <tbody>
-        ${rows || `<tr><td colspan="5">Aucun article</td></tr>`}
+        ${rows || `<tr><td colspan="8">Aucun article</td></tr>`}
       </tbody>
     </table>
 
@@ -286,7 +300,7 @@ export async function GET(
   const order = await getAccessiblePurchaseOrderOrNull<OrderRow>(
     supabase,
     id,
-    "id, reference, order_number, status, order_date, expected_delivery_date, notes, total_ht_cents, total_tax_cents, total_ttc_cents, currency, suppliers ( name ), delivery_sites ( name )"
+    "id, reference, order_number, edit_revision, status, order_date, expected_delivery_date, notes, total_ht_cents, total_tax_cents, total_ttc_cents, currency, suppliers ( name ), delivery_sites ( name ), purchase_order_items ( designation, reference, position, quantity, unit, price_unit, unit_price_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents )"
   );
 
   if (!order) {
@@ -296,20 +310,21 @@ export async function GET(
     );
   }
 
-  const [itemsResult, devisResult] = await Promise.all([
-    supabase
-      .from("purchase_order_items")
-      .select("designation, reference, quantity, unit_price_ht_cents, line_total_ht_cents")
-      .eq("purchase_order_id", id)
-      .order("position", { ascending: true }),
-    supabase
-      .from("purchase_order_devis")
-      .select("id, name, original_filename, storage_path, file_size_bytes, mime_type, position")
-      .eq("purchase_order_id", id)
-      .order("position", { ascending: true }),
-  ]);
+  try {
+    await assertCompletePurchaseOrderSnapshot(supabase, id, order.edit_revision, order.purchase_order_items?.length ?? -1);
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Lecture modifiée. Rechargez la commande." }, { status: 409 });
+  }
 
-  const items = (itemsResult.data ?? []) as OrderItemRow[];
+  const devisResult = await supabase
+    .from("purchase_order_devis")
+    .select("id, name, original_filename, storage_path, file_size_bytes, mime_type, position")
+    .eq("purchase_order_id", id)
+    .order("position", { ascending: true });
+  if (devisResult.error || !Array.isArray(order.purchase_order_items)) {
+    return NextResponse.json({ error: "Impossible de lire les éléments du dossier de commande." }, { status: 500 });
+  }
+  const items = [...order.purchase_order_items].sort((left, right) => left.position - right.position);
   const devis = (devisResult.data ?? []) as DevisRow[];
   const orderHtml = buildOrderHtml(order, items);
 
