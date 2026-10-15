@@ -7,6 +7,7 @@ import { ownEstimate, readEstimate, recordEvidence } from "../critical/fixtures"
 import { amounts, applyComponents, componentArticle, componentDecision, componentSection, openComponents, saveComponents,
   type PreparedComponents, type Ui } from "./generated-ouvrage-components-support";
 import type { Json } from "./generated-ouvrage-recovery-support";
+import { sdkResultsRoot } from "./sdk-results";
 
 // Failure contract precedes this harness: docs/testing/generated-ouvrage-numeric-entry.md.
 export type NumericOracle = {
@@ -262,7 +263,7 @@ async function files(directory: string): Promise<string[]> {
   return (await Promise.all((await readdir(directory, { withFileTypes: true })).map((entry) => entry.isDirectory() ? files(path.join(directory, entry.name)) : [path.join(directory, entry.name)]))).flat();
 }
 async function numericExports(c: NumericContext, versionId: string, target: "primary" | "reuse") {
-  const api = await readEstimate(c.ui.browser, versionId), lines = api.items.filter((row) => row.item_type === "line"), root = path.resolve(process.env.E2E_ARMY_ARTIFACT_ROOT!);
+  const api = await readEstimate(c.ui.browser, versionId), lines = api.items.filter((row) => row.item_type === "line"), root = sdkResultsRoot();
   expect(amounts(api.version)).toEqual(c.oracle.totals);
   for (const mode of ["standard", "dpgf"] as const) {
     const old = new Set(await files(root));

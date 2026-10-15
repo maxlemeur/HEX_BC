@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { renderToStaticMarkup } from "react-dom/server";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -36,6 +37,7 @@ import {
   markEstimatePdfProcessing,
 } from "@/lib/estimates/pdf-generator";
 import { PdfEstimateTotalsCard } from "@/lib/estimates/pdf-totals-card";
+import { COMPANY_INFO } from "@/lib/company-info";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
@@ -44,6 +46,7 @@ const TENANT_ID = "22222222-2222-4222-8222-222222222222";
 const PROJECT_ID = "33333333-3333-4333-8333-333333333333";
 const VERSION_ID = "44444444-4444-4444-8444-444444444444";
 const GENERATION_TOKEN = "77777777-7777-4777-8777-777777777777";
+const LOCK_SESSION_ID = "88888888-8888-4888-8888-888888888888";
 const MISSING_TERMS_SCHEMA_ERROR = {
   code: "PGRST205",
   message:
@@ -124,6 +127,7 @@ function createSupabasePdfMock(input?: PdfMockInput) {
 
   const versionSelectBuilder = {
     eq: vi.fn(),
+    abortSignal: vi.fn(),
     single: vi.fn().mockResolvedValue({
       data: {
         exclusions: "Peinture et percements structurels hors perimetre.",
@@ -149,6 +153,7 @@ function createSupabasePdfMock(input?: PdfMockInput) {
         total_ttc_cents: input?.versionTotals?.total_ttc_cents ?? 12000,
         rounding_adjustment_cents: 0,
         content_revision: input?.contentRevision ?? 1,
+        updated_at: "2026-02-21T00:00:00.000Z",
         estimate_projects: {
           id: PROJECT_ID,
           tenant_id: TENANT_ID,
@@ -164,6 +169,7 @@ function createSupabasePdfMock(input?: PdfMockInput) {
     }),
   };
   versionSelectBuilder.eq.mockReturnValue(versionSelectBuilder);
+  versionSelectBuilder.abortSignal.mockReturnValue(versionSelectBuilder);
   const missingRoundingVersionSelectBuilder = {
     eq: vi.fn(),
     single: vi.fn().mockResolvedValue({
@@ -306,6 +312,42 @@ function createSupabasePdfMock(input?: PdfMockInput) {
   };
   profileBuilder.eq.mockReturnValue(profileBuilder);
 
+  const lockBuilder = {
+    eq: vi.fn(),
+    gt: vi.fn(),
+    maybeSingle: vi.fn().mockResolvedValue({
+      data: {
+        id: "99999999-9999-4999-8999-999999999999",
+        version_id: VERSION_ID,
+        user_id: USER_ID,
+        session_id: LOCK_SESSION_ID,
+        locked_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
+      },
+      error: null,
+    }),
+  };
+  lockBuilder.eq.mockReturnValue(lockBuilder);
+  lockBuilder.gt.mockReturnValue(lockBuilder);
+  const dispatchBuilder = {
+    eq: vi.fn(),
+    single: vi.fn().mockResolvedValue({
+      data: {
+        request_contract_version: 2,
+        status: "preparing",
+        offer_identity_snapshot: {
+          schemaVersion: 1,
+          version: { id: VERSION_ID, tenantId: TENANT_ID, projectId: PROJECT_ID, contentRevision: input?.contentRevision ?? 1 },
+          project: { name: "Projet réservé", reference: "REF-001", estimateReference: "HEX_D26001MM", clientName: "Client réservé", siteAddress: "12 rue du Test\n75001 Paris" },
+          issuer: { userId: USER_ID, displayName: "Émetteur réservé", displayRole: null, phone: null, email: null },
+          company: COMPANY_INFO,
+        },
+      },
+      error: null,
+    }),
+  };
+  dispatchBuilder.eq.mockReturnValue(dispatchBuilder);
+
   const upload = vi.fn().mockResolvedValue({ error: input?.uploadError ?? null });
   const createSignedUrl = vi
     .fn()
@@ -334,6 +376,12 @@ function createSupabasePdfMock(input?: PdfMockInput) {
     }
     if (table === "profiles") {
       return { select: vi.fn(() => profileBuilder) };
+    }
+    if (table === "draft_locks") {
+      return { select: vi.fn(() => lockBuilder) };
+    }
+    if (table === "estimate_emails") {
+      return { select: vi.fn(() => dispatchBuilder) };
     }
     throw new Error(`Unexpected table: ${table}`);
   });
@@ -587,8 +635,8 @@ describe("estimate pdf generator", () => {
       },
     });
 
-    const renderedDocument = JSON.stringify(
-      vi.mocked(renderToBuffer).mock.calls[0]?.[0]
+    const renderedDocument = renderToStaticMarkup(
+      vi.mocked(renderToBuffer).mock.calls[0]![0]
     );
     expect(renderedDocument).toContain("Maxime MICHEL");
     expect(renderedDocument).toContain("Précisions et limites de prestation");
@@ -720,7 +768,7 @@ describe("estimate pdf generator", () => {
       "publish_estimate_pdf_generation",
       expect.objectContaining({ p_terms_snapshot: storedSnapshot }),
     );
-    expect(JSON.stringify(vi.mocked(renderToBuffer).mock.calls[0]?.[0])).not.toContain(
+    expect(renderToStaticMarkup(vi.mocked(renderToBuffer).mock.calls[0]![0])).not.toContain(
       storedSnapshot.body
     );
   });
@@ -809,7 +857,7 @@ describe("estimate pdf generator", () => {
       },
     });
 
-    const claim = await markEstimatePdfProcessing(VERSION_ID);
+    const claim = await markEstimatePdfProcessing(VERSION_ID, LOCK_SESSION_ID);
     await markEstimatePdfFailed(VERSION_ID, "rendu interrompu", claim);
     const status = await getEstimatePdfStatus(VERSION_ID);
 
@@ -1046,6 +1094,15 @@ describe("estimate pdf generator", () => {
         p_dispatch_id: dispatchId,
       }),
     );
+    expect(serviceRoleSupabase.rpc).toHaveBeenCalledWith(
+      "publish_estimate_pdf_generation",
+      expect.objectContaining({
+        p_client_contract_snapshot: expect.objectContaining({
+          project: expect.objectContaining({ name: "Projet réservé", clientName: "Client réservé" }),
+          issuer: expect.objectContaining({ displayName: "Émetteur réservé" }),
+        }),
+      }),
+    );
   });
 
   it.each(["manual", "send"] as const)(
@@ -1054,7 +1111,7 @@ describe("estimate pdf generator", () => {
       vi.mocked(renderToBuffer).mockResolvedValue(
         Buffer.from("v2-send-pdf") as never
       );
-      const { authenticatedSupabase } = usePdfClients({
+      const { authenticatedSupabase, serviceRoleSupabase } = usePdfClients({
         versionStatus: "draft",
         calcEngineVersion: 2,
         calcSnapshotContentRevision: 1,
@@ -1082,11 +1139,25 @@ describe("estimate pdf generator", () => {
         triggeredBy,
       });
 
-      const rendered = JSON.stringify(
-        vi.mocked(renderToBuffer).mock.calls[0]?.[0]
-      );
-      expect(rendered).toContain(
-        `"lineUnitPriceHtById":{"55555555-5555-4555-8555-555555555555":9500}`
+      expect(serviceRoleSupabase.rpc).toHaveBeenCalledWith(
+        "publish_estimate_pdf_generation",
+        expect.objectContaining({
+          p_client_contract_snapshot: expect.objectContaining({
+            rows: [expect.objectContaining({
+              id: "55555555-5555-4555-8555-555555555555",
+              quantity: 2,
+              unitSaleHtCents: 9500,
+              saleHtCents: 19000,
+            })],
+            totals: {
+              saleHtCents: 19000,
+              taxCents: 3800,
+              calculatedTtcCents: 22800,
+              payableTtcCents: 22800,
+              roundingAdjustmentCents: 0,
+            },
+          }),
+        }),
       );
       const queriedTables = authenticatedSupabase.__mocks.from.mock.calls.map(
         ([table]) => table

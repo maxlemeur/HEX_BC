@@ -1,9 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { test, type Browser } from "@e2e-dev/web";
 import { expect, type App, type JsonValue, type Screen } from "e2e";
+
+import { sdkResultsRoot } from "../local/sdk-results";
 
 export type OwnedEstimate = { projectId: string; versionId: string };
 export type ArmyState = {
@@ -31,6 +33,8 @@ export type ArmyVersion = {
   title: string | null;
   status: string;
   updated_at: string;
+  // Exigée par tout PATCH du devis : la révision de contenu lue avant l'écriture.
+  content_revision: number;
   total_ht_cents: number;
   total_tax_cents: number;
   total_ttc_cents: number;
@@ -95,6 +99,18 @@ export async function recordEvidence(army: ArmyState, label: string, data: unkno
   const file = path.join(directory, `${army.runPrefix}-${label}.json`);
   await writeFile(file, body);
   return { path: file, sha256: createHash("sha256").update(body).digest("hex") };
+}
+
+// web 0.15 identifies the exact download; never search other attempts by filename.
+// Resolve real paths so a link outside this run cannot become export evidence.
+export async function resolveDownload(download: { absolutePath: string }) {
+  expect(path.isAbsolute(download.absolutePath), "SDK download must have an absolute path").toBe(true);
+  const root = await realpath(sdkResultsRoot(".e2e/army/critical/results"));
+  const file = await realpath(download.absolutePath);
+  const relative = path.relative(root, file).split(path.sep).join("/");
+  expect(relative.startsWith("../") || path.isAbsolute(relative), "Download must remain inside this run").toBe(false);
+  expect(relative, "Download must belong to a retained attempt").toMatch(/^[^/]+\/(?:rerun-\d+\/)?attempt-\d+\/.+/);
+  return file;
 }
 
 export function ownEstimate(army: ArmyState, estimate: OwnedEstimate) {

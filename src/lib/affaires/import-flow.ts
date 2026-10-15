@@ -1,3 +1,4 @@
+import { parseDecimalInput } from "@/lib/numeric-input/parsers";
 import { computeEstimateLineValues } from "@/lib/estimate-calculations";
 import {
   IMPORT_ROW_PROVENANCE_KEY,
@@ -122,71 +123,8 @@ function normalizeOptionalText(value: unknown): string | null {
   return text.length > 0 ? text : null;
 }
 
-function normalizeDecimalString(raw: string): string {
-  const withoutSpaces = raw.replace(/[\s\u00A0]/g, "");
-  const cleaned = withoutSpaces.replace(/[^0-9,.\-]/g, "");
-  const hasComma = cleaned.includes(",");
-  const hasDot = cleaned.includes(".");
-
-  if (!hasComma && !hasDot) {
-    return cleaned;
-  }
-
-  if (hasComma && hasDot) {
-    const lastComma = cleaned.lastIndexOf(",");
-    const lastDot = cleaned.lastIndexOf(".");
-    const decimalSeparator = lastComma > lastDot ? "," : ".";
-    const digitsOnly = cleaned.replace(/[.,]/g, "");
-
-    if (decimalSeparator === ",") {
-      const decimalLength = cleaned.length - lastComma - 1;
-      if (decimalLength <= 0) return digitsOnly;
-      const integerPart = digitsOnly.slice(0, digitsOnly.length - decimalLength);
-      const decimalPart = digitsOnly.slice(digitsOnly.length - decimalLength);
-      return `${integerPart}.${decimalPart}`;
-    }
-
-    const decimalLength = cleaned.length - lastDot - 1;
-    if (decimalLength <= 0) return digitsOnly;
-    const integerPart = digitsOnly.slice(0, digitsOnly.length - decimalLength);
-    const decimalPart = digitsOnly.slice(digitsOnly.length - decimalLength);
-    return `${integerPart}.${decimalPart}`;
-  }
-
-  if (hasComma) {
-    const commaCount = (cleaned.match(/,/g) ?? []).length;
-    if (commaCount > 1) {
-      return cleaned.replace(/,/g, "");
-    }
-    return cleaned.replace(",", ".");
-  }
-
-  const dotCount = (cleaned.match(/\./g) ?? []).length;
-  if (dotCount > 1) {
-    return cleaned.replace(/\./g, "");
-  }
-
-  return cleaned;
-}
-
 export function parseLocalizedNumber(value: unknown): number | null {
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : null;
-  }
-
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  if (trimmed.length === 0) return null;
-
-  const normalized = normalizeDecimalString(trimmed);
-  if (normalized.length === 0) return null;
-
-  const parsed = Number(normalized);
-  if (!Number.isFinite(parsed)) return null;
-  return parsed;
+  return parseDecimalInput(value);
 }
 
 function toMoneyCents(value: number): number {
@@ -194,8 +132,9 @@ function toMoneyCents(value: number): number {
 }
 
 function toSafeRateBp(value: unknown, fallbackTaxRateBp: number): number | null {
+  if (isMissingNumericValue(value)) return fallbackTaxRateBp;
   const parsed = parseLocalizedNumber(value);
-  if (parsed === null) return fallbackTaxRateBp;
+  if (parsed === null) return null;
   if (parsed < 0) return null;
 
   const interpreted = parsed <= 100 ? Math.round(parsed * 100) : Math.round(parsed);
@@ -223,12 +162,12 @@ function isMissingNumericValue(value: unknown) {
   return EMPTY_NUMERIC_SENTINELS.has(value.trim().toLowerCase());
 }
 
-function parseOptionalNumericField(value: unknown): {
+function parseOptionalNumericField(value: unknown, money = false): {
   status: "missing" | "invalid" | "value";
   value: number | null;
 } {
   if (isMissingNumericValue(value)) return { status: "missing", value: null };
-  const parsed = parseLocalizedNumber(value);
+  const parsed = parseDecimalInput(value, money ? { maxFractionDigits: 2, currency: "EUR" } : {});
   if (parsed === null || parsed < 0) return { status: "invalid", value: null };
   return { status: "value", value: parsed };
 }
@@ -401,8 +340,8 @@ export function normalizeMappedRowsForEstimateCreation(
 
     const quantity = quantityField.value ?? 0;
     const roundedQuantity = Math.round(quantity * 1000) / 1000;
-    const unitPriceField = parseOptionalNumericField(row.mappedRow.unit_price_ht);
-    const totalHtField = parseOptionalNumericField(row.mappedRow.total_ht);
+    const unitPriceField = parseOptionalNumericField(row.mappedRow.unit_price_ht, true);
+    const totalHtField = parseOptionalNumericField(row.mappedRow.total_ht, true);
     if (unitPriceField.status === "invalid" || totalHtField.status === "invalid") {
       invalidLines.push({
         mappedRowId: row.id,
@@ -446,16 +385,18 @@ export function normalizeMappedRowsForEstimateCreation(
       continue;
     }
 
-    const kFo = Math.max(parseLocalizedNumber(row.mappedRow.k_fo) ?? 1, 0);
-    const hMo = Math.max(
-      parseLocalizedNumber(row.mappedRow.labor_hours ?? row.mappedRow.h_mo) ?? 0,
-      0
-    );
-    const hMoMajoration = Math.max(
-      parseLocalizedNumber(row.mappedRow.h_mo_majoration) ?? 1,
-      0
-    );
-    const kMo = Math.max(parseLocalizedNumber(row.mappedRow.k_mo) ?? 1, 0);
+    const kFoField = parseOptionalNumericField(row.mappedRow.k_fo);
+    const hMoField = parseOptionalNumericField(row.mappedRow.labor_hours ?? row.mappedRow.h_mo);
+    const majorationField = parseOptionalNumericField(row.mappedRow.h_mo_majoration);
+    const kMoField = parseOptionalNumericField(row.mappedRow.k_mo);
+    if ([kFoField, hMoField, majorationField, kMoField].some((field) => field.status === "invalid")) {
+      invalidLines.push({ mappedRowId: row.id, rowIndex: row.rowIndex, reason: "invalid_row_payload" });
+      continue;
+    }
+    const kFo = kFoField.value ?? 1;
+    const hMo = hMoField.value ?? 0;
+    const hMoMajoration = majorationField.value ?? 1;
+    const kMo = kMoField.value ?? 1;
 
     const lineValues = computeEstimateLineValues(
       {

@@ -272,7 +272,7 @@ async function prepare(ui: OfferUi, caseId: string) {
           const payload = JSON.parse(route.request.postData ?? "null") as { layout?: Record<string, unknown> } | null;
           requestedPdfLayout = payload?.layout ?? null;
         }
-        await route.continue();
+        await route.fallback();
       });
     }
     const [generation] = await Promise.all([ui.browser.waitForResponse(endpoint, { timeout: 120000 }),
@@ -302,7 +302,7 @@ async function send(ui: OfferUi, caseId: string, versionId: string, resend = fal
   let sendPosts = 0;
   await ui.browser.route(endpoint, async (route) => {
     if (route.request.method === "POST") sendPosts += 1;
-    await route.continue();
+    await route.fallback();
   });
   const open = ui.screen.getByRole("button", resend ? "Renvoyer par email" : "Envoyer par email", { exact: true });
   await open.click();
@@ -429,7 +429,7 @@ offerTest("OF04 manual issue and lifecycle preserve its final PDF without email"
   let sendPosts = 0;
   const statusRequests: { method: string; hasOwnPageSessionHeader: boolean; pageSessionSha256: string | null; concurrencyMatches: boolean }[] = [];
   const leaseRequests: { method: string; forced: boolean; pageSessionSha256: string | null }[] = [];
-  await ui.browser.route(sendEndpoint, async (route) => { if (route.request.method === "POST") sendPosts++; await route.continue(); });
+  await ui.browser.route(sendEndpoint, async (route) => { if (route.request.method === "POST") sendPosts++; await route.fallback(); });
   await ui.browser.route(statusEndpoint, async (route) => {
     if (route.request.method === "PATCH") {
       const headers = route.request.headers;
@@ -439,7 +439,7 @@ offerTest("OF04 manual issue and lifecycle preserve its final PDF without email"
         pageSessionSha256: session ? digest(session) : null,
         concurrencyMatches: headers["if-match"] === expectedConcurrency });
     }
-    await route.continue();
+    await route.fallback();
   });
   const leasePattern = new RegExp(`/api/estimates/${p.ids.versionId}/lock(?:\\?.*)?$`);
   await ui.browser.route(leasePattern, async (route) => {
@@ -448,7 +448,7 @@ offerTest("OF04 manual issue and lifecycle preserve its final PDF without email"
     leaseRequests.push({ method: route.request.method,
       forced: ["true", "1"].includes(params.get("force") ?? ""),
       pageSessionSha256: session ? digest(session) : null });
-    await route.continue();
+    await route.fallback();
   });
   try {
     // Observe any page-mount acquisition as well as click-time acquisition.
@@ -581,9 +581,9 @@ offerTest("OF0L another page lease prevents confirmation without takeover", opti
   await ui.browser.route(new RegExp(`/api/estimates/${p.ids.versionId}/lock(?:\\?.*)?$`), async (route) => {
     const force = new URL(route.request.url).searchParams.get("force");
     leaseRequests.push({ method: route.request.method, force: force === "true" || force === "1" });
-    await route.continue();
+    await route.fallback();
   });
-  await ui.browser.route(endpoint, async (route) => { if (route.request.method === "POST") posts++; await route.continue(); });
+  await ui.browser.route(endpoint, async (route) => { if (route.request.method === "POST") posts++; await route.fallback(); });
   const before = await receiptNames();
   const lease = await apiRequest(ui.browser, "POST", `/api/estimates/${p.ids.versionId}/lock`, {}, leaseHeaders);
   expect(lease.status).toBe(201);
@@ -744,7 +744,7 @@ async function observePdfLease(ui: OfferUi, versionId: string) {
     observations.push({ sequence: observations.length + 1, kind: url.pathname.endsWith("/lock") ? "lock" : "pdf",
       method: route.request.method, forced: ["1", "true"].includes(url.searchParams.get("force") ?? ""),
       sessionSha256: session ? digest(session) : null });
-    await route.continue();
+    await route.fallback();
   });
   return { observations, close: () => ui.browser.unroute(pattern) };
 }
@@ -820,7 +820,7 @@ offerTest("PDFL3 PDF lease renews while an actual status read is held", options,
   const released = new Promise<void>((resolve) => { release = resolve; });
   await ui.browser.route(statusUrl, async (route) => {
     if (!statusHeld && route.request.method === "GET") { statusHeld = true; await released; }
-    await route.continue();
+    await route.fallback();
   });
   try {
     await ui.app.open(`/dashboard/affaires/${p.ids.projectId}`);
@@ -995,11 +995,11 @@ offerTest("PDFL7 interrupted post-freeze read blocks stale writes and recovers p
   let bodyFailed = false;
   await ui.browser.route(pdfUrl, async (route) => {
     if (route.request.method === "POST") pdfPosts += 1;
-    await route.continue();
+    await route.fallback();
   });
   await ui.browser.route(batchUrl, async (route) => {
     if (route.request.method === "POST") batchPosts += 1;
-    await route.continue();
+    await route.fallback();
   });
   await ui.browser.route(ownerUrl, async (route) => {
     if (route.request.method === "GET" && pdfPosts > 0 && abortReads) {
@@ -1007,7 +1007,7 @@ offerTest("PDFL7 interrupted post-freeze read blocks stale writes and recovers p
       await route.abort();
       return;
     }
-    await route.continue();
+    await route.fallback();
   });
   try {
     await ui.screen.getByTestId("estimate-page-toolbar-more-actions-button").click();
@@ -1142,11 +1142,11 @@ offerTest("PDFL8 interrupted PDF read blocks catalogue edits of a newly created 
   let pdfPosts = 0;
   let roleWrites = 0;
   let abortReads = true;
-  await ui.browser.route(pdfUrl, async (route) => { if (route.request.method === "POST") pdfPosts++; await route.continue(); });
-  await ui.browser.route(roleUrl, async (route) => { if (["POST", "PATCH", "PUT", "DELETE"].includes(route.request.method)) roleWrites++; await route.continue(); });
+  await ui.browser.route(pdfUrl, async (route) => { if (route.request.method === "POST") pdfPosts++; await route.fallback(); });
+  await ui.browser.route(roleUrl, async (route) => { if (["POST", "PATCH", "PUT", "DELETE"].includes(route.request.method)) roleWrites++; await route.fallback(); });
   await ui.browser.route(ownerUrl, async (route) => {
     if (pdfPosts > 0 && abortReads && route.request.method === "GET") { await route.abort(); return; }
-    await route.continue();
+    await route.fallback();
   });
   const probeRole = () => ui.browser.evaluate(async (input) => {
     const response = await fetch(`/api/estimates/${input.versionId}?army_role_probe=1`, { credentials: "same-origin" });
@@ -1317,13 +1317,13 @@ async function efExerciseFirstSend(ui: OfferUi, caseId: EfCase) {
         ownSessionPresent: /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(session), ownSessionSha256: session ? digest(session) : null });
     }
     // Observe the REAL request and its REAL response. No assertion/abort/mock here.
-    await route.continue();
+    await route.fallback();
   });
   await ui.browser.route(leasePattern, async (route) => {
     const force = new URL(route.request.url).searchParams.get("force");
     const session = route.request.headers["x-estimate-draft-lock-session-id"] ?? "";
     leases.push({ method: route.request.method, forced: force === "true" || force === "1", sessionSha256: session ? digest(session) : null });
-    await route.continue();
+    await route.fallback();
   });
   const modal = ui.screen.getByRole("dialog", "Envoyer le devis par email", { exact: true });
   let primaryBodyFailed = true;
@@ -1500,7 +1500,7 @@ offerTest("EF04 another draft request key rejects before freezing its source", o
         ownSessionSha256: session ? digest(session) : null,
         requestKeyPresent: /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(key), requestKeySha256: key ? digest(key) : null });
     }
-    await route.continue();
+    await route.fallback();
   });
   const modal = ui.screen.getByRole("dialog", "Envoyer le devis par email", { exact: true });
   let secondEndpoint: string | null = null;
@@ -1582,13 +1582,13 @@ offerTest("EF04 another draft request key rejects before freezing its source", o
           requestKeyPresent: /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(key), requestKeySha256: key ? digest(key) : null });
       }
       // Never abort/assert/mock or override the request in this observer.
-      await route.continue();
+      await route.fallback();
     });
     await ui.browser.route(secondLeasePattern, async (route) => {
       const force = new URL(route.request.url).searchParams.get("force");
       const session = route.request.headers["x-estimate-draft-lock-session-id"] ?? "";
       secondLeases.push({ method: route.request.method, forced: force === "true" || force === "1", sessionSha256: session ? digest(session) : null });
-      await route.continue();
+      await route.fallback();
     });
     const installed = await ef04InstallKeyProbe(ui.browser, secondEndpoint, originalToken, firstRequestKey);
     firstRequestKey = null;
@@ -1751,13 +1751,13 @@ offerTest("EF05 valid foreign page session rejects before intent", options, asyn
         ownSessionSha256: session ? digest(session) : null,
         requestKeyPresent: /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(key), requestKeySha256: key ? digest(key) : null });
     }
-    await route.continue();
+    await route.fallback();
   });
   await ui.browser.route(leasePattern, async (route) => {
     const force = new URL(route.request.url).searchParams.get("force");
     const session = route.request.headers["x-estimate-draft-lock-session-id"] ?? "";
     leases.push({ method: route.request.method, forced: force === "true" || force === "1", sessionSha256: session ? digest(session) : null });
-    await route.continue();
+    await route.fallback();
   });
   const modal = ui.screen.getByRole("dialog", "Envoyer le devis par email", { exact: true });
   let primaryBodyFailed = true;
@@ -1865,7 +1865,7 @@ offerTest("NF02 first offer prepares PDF in email before human confirmation", op
     const force = new URL(route.request.url).searchParams.get("force");
     const session = route.request.headers["x-estimate-draft-lock-session-id"] ?? "";
     leases.push({ method: route.request.method, forced: force === "1" || force === "true", sessionSha256: session ? digest(session) : null });
-    await route.continue();
+    await route.fallback();
   });
   await ui.browser.route(endpoint, async (route) => {
     if (route.request.method === "POST") {
@@ -1874,7 +1874,7 @@ offerTest("NF02 first offer prepares PDF in email before human confirmation", op
       requests.push({ originalCas: route.request.headers["if-match"] === expectedToken, updatedAtSha256: digest(route.request.headers["if-match"] ?? ""),
         sessionSha256: session ? digest(session) : null, requestKeySha256: key ? digest(key) : null });
     }
-    await route.continue();
+    await route.fallback();
   });
   await ui.browser.route(pdfEndpoint, async (route) => {
     if (route.request.method === "POST") {
@@ -1882,7 +1882,7 @@ offerTest("NF02 first offer prepares PDF in email before human confirmation", op
       pdfRequests.push({ layout: body?.layout ?? null,
         ownSessionPresent: /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(route.request.headers["x-estimate-draft-lock-session-id"] ?? "") });
     }
-    await route.continue();
+    await route.fallback();
   });
   const modal = ui.screen.getByRole("dialog", "Envoyer le devis par email", { exact: true });
   const layout = ui.screen.getByRole("dialog", "Préparer le devis PDF", { exact: true });
@@ -2046,11 +2046,11 @@ offerTest("NF04 PDF preparation is disabled while the real email is submitting",
         await heldRequest;
       }
     }
-    await route.continue();
+    await route.fallback();
   });
   await ui.browser.route(pdfPattern, async (route) => {
     if (route.request.method === "POST") pdfPosts += 1;
-    await route.continue();
+    await route.fallback();
   });
   const modal = ui.screen.getByRole("dialog", "Envoyer le devis par email", { exact: true });
   let responsePromise: ReturnType<typeof ui.browser.waitForResponse> | undefined;
@@ -2207,25 +2207,25 @@ offerTest("NF03 first Affaire opening after editor PDF sends its original projec
         requestKeyPresent: uuid.test(key), requestKeySha256: key ? digest(key) : null,
         envelopeMatchesVisible, bodySha256: digest(body), explicitAffaireOpenCount, priorPageRequests: pages.length });
     }
-    await route.continue();
+    await route.fallback();
   });
   await ui.browser.route(leasePattern, async (route) => {
     const url = new URL(route.request.url), session = route.request.headers["x-estimate-draft-lock-session-id"] ?? "";
     let forceBody = false;
     try { forceBody = JSON.parse(route.request.postData ?? "{}").force === true; } catch { /* Preserve real body. */ }
     leases.push({ method: route.request.method, forced: ["true", "1"].includes(url.searchParams.get("force") ?? "") || forceBody, sessionSha256: session ? digest(session) : null });
-    await route.continue();
+    await route.fallback();
   });
   await ui.browser.route(pdfUrl, async (route) => {
     const session = route.request.headers["x-estimate-draft-lock-session-id"] ?? "";
     pdfRequests.push({ method: route.request.method, sessionPresent: uuid.test(session), sessionSha256: session ? digest(session) : null });
-    await route.continue();
+    await route.fallback();
   });
   await ui.browser.route(pagePattern, async (route) => {
     const url = new URL(route.request.url);
     pages.push({ path: url.pathname, method: route.request.method, rsc: route.request.headers.rsc === "1",
       prefetch: route.request.headers["next-router-prefetch"] === "1" || route.request.headers.purpose === "prefetch", phase: pagePhase });
-    await route.continue();
+    await route.fallback();
   });
   try {
     // UI preparation ends before prepare()'s detail/Affaire navigation.

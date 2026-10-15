@@ -37,7 +37,7 @@ for (const specification of [
         parentHeld = true;
         await parentGate;
       }
-      await route.continue();
+      await route.fallback();
     });
     const parentResponse = ui.browser.waitForResponse(itemsUrl.href, { timeout: 60000 });
     const addChild = ui.screen.getByRole("button", "Ajouter dans Nouveau lot", { exact: true });
@@ -94,7 +94,7 @@ for (const specification of [
     expect(business(baselineRow as ArmyItem)).toEqual(business(old[0])); expect(lineTotals(baselineRow as ArmyItem)).toEqual(lineTotals(old[0]));
     expect(amounts(ordinaryBefore.version)).toEqual(specification.old);
     const requests: string[] = [], insertUrl = new URL(`/api/estimates/assemblies/${assembly.id}/insert`, ui.app.baseUrl!); insertUrl.searchParams.set("versionId", target.versionId);
-    await ui.browser.route(insertUrl.href, async (route) => { requests.push(route.request.method); await route.continue(); });
+    await ui.browser.route(insertUrl.href, async (route) => { requests.push(route.request.method); await route.fallback(); });
     const financialWrites: Array<{ method: string; path: string }> = [];
     let insertionReturned = false;
     const financialRoute = "**/api/estimates/" + target.versionId + "**";
@@ -104,7 +104,7 @@ for (const specification of [
         ["/api/estimates/" + target.versionId, "/api/estimates/" + target.versionId + "/items/bulk", "/api/estimates/" + target.versionId + "/batch"].includes(pathname)) {
         financialWrites.push({ method, path: pathname });
       }
-      await route.continue();
+      await route.fallback();
     });
     const observe = async (phase: string, actual: unknown) => recordEvidence(ui.army, `${specification.caseId}-${phase}`, { schemaVersion: "army-assembly-totals-witness-1",
       caseId: specification.caseId, phase, source: p.s, target, assemblyId: assembly.id, libraryItem: library, expected: specification, actual });

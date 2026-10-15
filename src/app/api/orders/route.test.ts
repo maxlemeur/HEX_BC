@@ -20,6 +20,9 @@ const ORDER_ROW = {
   status: "draft",
   expected_delivery_date: "2026-08-20",
   total_ht_cents: 1500,
+  total_tax_cents: 300,
+  total_ttc_cents: 1800,
+  edit_revision: 1,
   suppliers: { id: SUPPLIER_ID, name: "Arcus" },
   delivery_sites: { id: SITE_ID, name: "Chantier Nord" },
 };
@@ -32,28 +35,40 @@ const ITEM_ROW = {
   quantity: 2,
   unit_price_ht_cents: 750,
   line_total_ht_cents: 1500,
+  line_tax_cents: 300,
+  line_total_ttc_cents: 1800,
+  tax_rate_bp: 2000,
+  unit: "u",
+  price_unit: "u",
+  product_id: null,
+  is_source_linked: false,
+  source_estimate_item_id: null,
+  source_selected_supplier_price_id: null,
 };
-
-function thenable<T extends Record<string, unknown>>(value: T, extra: Record<string, unknown> = {}) {
-  return {
-    ...extra,
-    then: (
-      resolve: (value: T) => unknown,
-      reject: (reason: unknown) => unknown
-    ) => Promise.resolve(value).then(resolve, reject),
-  };
-}
 
 function createOrdersSupabase(options: {
   authenticated?: boolean;
   orders?: unknown[];
   devis?: Array<{ purchase_order_id: string }>;
-  items?: unknown[];
+  items?: typeof ITEM_ROW[];
 } = {}) {
   const tables: string[] = [];
-  const itemFilters: unknown[] = [];
+  const rpc = vi.fn(async (name: string, args: { p_order_ids: string[] }) => {
+    if (name !== "get_purchase_order_documents") throw new Error(`Unexpected RPC: ${name}`);
+    return {
+      data: {
+        orders: args.p_order_ids.map((id) => ({
+          ...ORDER_ROW,
+          id,
+          items: (options.items ?? [ITEM_ROW]).filter((item) => item.purchase_order_id === id),
+        })),
+      },
+      error: null,
+    };
+  });
 
   const supabase = {
+    rpc,
     auth: {
       getUser: vi.fn().mockResolvedValue({
         data: {
@@ -109,34 +124,11 @@ function createOrdersSupabase(options: {
         };
       }
 
-      if (table === "purchase_order_items") {
-        const builder = {
-          select: vi.fn(() => builder),
-          in: vi.fn((column: string, ids: unknown) => {
-            itemFilters.push({ column, ids });
-            return builder;
-          }),
-          order: vi.fn(() =>
-            thenable(
-              {
-                data: options.items ?? [ITEM_ROW],
-                error: null,
-              },
-              { order: vi.fn(async () => ({
-                data: options.items ?? [ITEM_ROW],
-                error: null,
-              })) }
-            )
-          ),
-        };
-        return builder;
-      }
-
       throw new Error(`Unexpected table: ${table}`);
     }),
   };
 
-  return { supabase, tables, itemFilters };
+  return { supabase, tables, rpc };
 }
 
 describe("GET /api/orders", () => {
@@ -164,7 +156,7 @@ describe("GET /api/orders", () => {
   });
 
   it("returns items for one order", async () => {
-    const { supabase, itemFilters, tables } = createOrdersSupabase();
+    const { supabase, rpc, tables } = createOrdersSupabase();
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
     const response = await GET(
@@ -173,10 +165,8 @@ describe("GET /api/orders", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(tables).toEqual(["purchase_order_items"]);
-    expect(itemFilters).toEqual([
-      { column: "purchase_order_id", ids: [ORDER_ID] },
-    ]);
+    expect(tables).toEqual([]);
+    expect(rpc).toHaveBeenCalledWith("get_purchase_order_documents", { p_order_ids: [ORDER_ID] });
     expect(body).toMatchObject({
       ok: true,
       data: {
@@ -189,7 +179,7 @@ describe("GET /api/orders", () => {
   });
 
   it("groups export items by order id", async () => {
-    const { supabase, itemFilters } = createOrdersSupabase({
+    const { supabase, rpc } = createOrdersSupabase({
       items: [
         ITEM_ROW,
         { ...ITEM_ROW, id: "77777777-7777-4777-8777-777777777777", purchase_order_id: OTHER_ORDER_ID },
@@ -205,10 +195,7 @@ describe("GET /api/orders", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(itemFilters[0]).toEqual({
-      column: "purchase_order_id",
-      ids: [ORDER_ID, OTHER_ORDER_ID],
-    });
+    expect(rpc).toHaveBeenCalledWith("get_purchase_order_documents", { p_order_ids: [ORDER_ID, OTHER_ORDER_ID] });
     expect(Object.keys(body.data.itemsByOrderId)).toEqual([
       ORDER_ID,
       OTHER_ORDER_ID,

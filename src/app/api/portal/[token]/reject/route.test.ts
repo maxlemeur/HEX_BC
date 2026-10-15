@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createPortalLegacyOfferFixture } from "@/test/fixtures/portal-legacy-offer";
+
 // ---------------------------------------------------------------------------
 // Mock service-role client
 // ---------------------------------------------------------------------------
@@ -11,6 +13,8 @@ const mockEqChain = vi.fn();
 const mockUpdate = vi.fn();
 const mockFrom = vi.fn();
 const mockRpc = vi.fn();
+const mockStorageDownload = vi.fn();
+const offerFixture = createPortalLegacyOfferFixture();
 
 function setupFromMock() {
   // Fluent chain: from().select().eq().single() and from().update().eq().eq().select().single()
@@ -41,7 +45,15 @@ function setupFromMock() {
       };
     }
     if (table === "estimate_versions") {
+      const builder = {
+        eq: vi.fn(),
+        abortSignal: vi.fn(),
+        single: vi.fn().mockResolvedValue({ data: offerFixture.version, error: null }),
+      };
+      builder.eq.mockReturnValue(builder);
+      builder.abortSignal.mockReturnValue(builder);
       return {
+        select: vi.fn(() => builder),
         update: vi.fn(() => ({
           eq: vi.fn(() => ({
             eq: vi.fn(() => ({
@@ -51,6 +63,28 @@ function setupFromMock() {
         })),
       };
     }
+    if (table === "estimate_documents") {
+      const builder = {
+        eq: vi.fn(),
+        single: vi.fn().mockResolvedValue({ data: offerFixture.document, error: null }),
+      };
+      builder.eq.mockReturnValue(builder);
+      return { select: vi.fn(() => builder) };
+    }
+    if (table === "estimate_items") {
+      const builder = {
+        eq: vi.fn(),
+        order: vi.fn(),
+        range: vi.fn((from: number, to: number) => Promise.resolve({
+          data: offerFixture.items.slice(from, to + 1),
+          count: offerFixture.items.length,
+          error: null,
+        })),
+      };
+      builder.eq.mockReturnValue(builder);
+      builder.order.mockReturnValue(builder);
+      return { select: vi.fn(() => builder) };
+    }
     return {};
   });
 }
@@ -59,6 +93,7 @@ vi.mock("@/lib/supabase/service-role", () => ({
   createServiceRoleClient: () => ({
     from: mockFrom,
     rpc: mockRpc,
+    storage: { from: vi.fn(() => ({ download: mockStorageDownload })) },
   }),
 }));
 
@@ -84,9 +119,13 @@ function makeParams(token = VALID_TOKEN) {
 
 const PENDING_TOKEN = {
   id: "token-id-1",
-  version_id: "version-id-1",
+  tenant_id: offerFixture.version.tenant_id,
+  version_id: offerFixture.version.id,
   status: "pending",
   expires_at: new Date(Date.now() + 86400000).toISOString(),
+  email: "client@test.com",
+  capability_contract_version: 1,
+  estimate_email_dispatch_id: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -98,6 +137,7 @@ describe("POST /api/portal/[token]/reject", () => {
     vi.clearAllMocks();
     setupFromMock();
     mockRpc.mockResolvedValue({ error: null });
+    mockStorageDownload.mockResolvedValue({ data: offerFixture.blob, error: null });
   });
 
   afterEach(() => {
@@ -153,7 +193,8 @@ describe("POST /api/portal/[token]/reject", () => {
     const res = await POST(makeRequest({}), makeParams());
     expect(res.status).toBe(404);
     const json = await res.json();
-    expect(json.error).toMatch(/expire/i);
+    expect(json.error).toBe("Ce lien a expiré.");
+    expect(mockRpc).not.toHaveBeenCalled();
   });
 
   it("returns 200 and updates token on valid rejection", async () => {
@@ -171,6 +212,12 @@ describe("POST /api/portal/[token]/reject", () => {
         p_portal_token_id: "token-id-1",
         p_decision: "rejected",
         p_reject_reason: "Trop cher",
+        p_expected_seal_hash: offerFixture.version.seal_hash,
+        p_expected_document_contract: expect.objectContaining({
+          documentId: offerFixture.document.id,
+          sha256Hash: offerFixture.document.sha256_hash,
+          publishedContentRevision: offerFixture.version.content_revision,
+        }),
       })
     );
   });

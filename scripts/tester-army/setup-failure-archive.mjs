@@ -122,6 +122,7 @@ export async function archiveSetupFailure({ root, output, manifest, runnerOutput
   else unavailable("inputs", "not-configured");
   const copy = structuredClone(manifest);
   delete copy.report;
+  delete copy.evidenceRoots;
   delete copy.artifacts;
   delete copy.tracePaths;
   copy.failureEvidence = failureEvidence;

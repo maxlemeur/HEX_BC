@@ -1,3 +1,4 @@
+import { parseDecimalInput } from "@/lib/numeric-input/parsers";
 export const CLIPBOARD_TARGET_FIELDS = [
   "designation",
   "quantity",
@@ -279,75 +280,6 @@ function scoreAliasMatch(normalizedHeader: string, alias: string): number {
   }
 
   return 0;
-}
-
-function normalizeSingleSeparatorNumber(
-  value: string,
-  separator: "," | ".",
-  domain: ClipboardNumberDomain
-): string | null {
-  const parts = value.split(separator);
-  if (parts.length === 1) return value;
-
-  if (parts.length === 2) {
-    let left = parts[0] ?? "";
-    const right = parts[1] ?? "";
-
-    if (!/^\d*$/.test(left) || !/^\d*$/.test(right)) {
-      return null;
-    }
-
-    if (right.length === 0) {
-      return left.length > 0 ? left : "0";
-    }
-
-    if (left.length === 0) {
-      left = "0";
-    }
-
-    // T16 — l'ambiguite « 2,500 » se tranche par le DOMAINE, pas par la langue.
-    //
-    // Un montant a deux decimales : un groupe de trois chiffres ne peut donc pas
-    // en etre, c'est un separateur de milliers (2 500,00 EUR).
-    //
-    // Une quantite BTP en a jusqu'a trois : 2,500 t, 1,750 m³, et un coefficient
-    // k_fo a 1,050. Lire ces trois chiffres comme des milliers multipliait la
-    // valeur par mille, en silence, sur un collage en masse de metre.
-    //
-    // En francais le separateur de milliers est de toute facon l'espace, et les
-    // espaces sont deja retires en amont : ce qui suit un point ou une virgule
-    // dans une quantite est une decimale.
-    if (domain === "money" && right.length === 3 && left !== "0") {
-      return `${left}${right}`;
-    }
-
-    return `${left}.${right}`;
-  }
-
-  const head = parts.slice(0, -1);
-  const last = parts[parts.length - 1] ?? "";
-
-  if (!/^\d+$/.test(last)) {
-    return null;
-  }
-
-  const groupedHead = head.every((segment, index) =>
-    index === 0 ? /^\d+$/.test(segment) : /^\d{3}$/.test(segment)
-  );
-
-  if (!groupedHead) {
-    return null;
-  }
-
-  if (last.length === 3) {
-    return `${head.join("")}${last}`;
-  }
-
-  if (last.length >= 1 && last.length <= 6) {
-    return `${head.join("")}.${last}`;
-  }
-
-  return null;
 }
 
 function isNumericField(field: ClipboardTargetField): field is ClipboardNumericField {
@@ -636,97 +568,14 @@ export function suggestClipboardColumnMapping(headers: string[]): ClipboardColum
   return mapping;
 }
 
-/**
- * Domaine de la valeur collee, qui tranche l'ambiguite d'un separateur unique
- * suivi de trois chiffres (cf. `normalizeSingleSeparatorNumber`).
- *
- * `money` : deux decimales, donc « 2,500 » = 2500.
- * `quantity` : jusqu'a trois decimales, donc « 2,500 » = 2,5 (tonnes, m³,
- * coefficients). C'est le cas de tous les champs colles sauf le prix unitaire.
- */
+/** Money precision is checked, never used to guess a thousands separator. */
 export type ClipboardNumberDomain = "money" | "quantity";
 
 export function parseClipboardNumber(
   value: string | number | null | undefined,
-  domain: ClipboardNumberDomain = "money"
+  domain: ClipboardNumberDomain = "money",
 ): number | null {
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : null;
-  }
-
-  if (value === null || value === undefined) {
-    return null;
-  }
-
-  let raw = value.trim();
-  if (raw.length === 0) {
-    return null;
-  }
-
-  raw = raw.replace(/[−–—]/g, "-");
-
-  let isNegative = false;
-  if (raw.startsWith("(") && raw.endsWith(")")) {
-    isNegative = true;
-    raw = raw.slice(1, -1).trim();
-  }
-
-  raw = raw
-    .replace(/[^\d.,+'’`\-\s\u00A0\u202F]/g, "")
-    .replace(/[\s\u00A0\u202F]/g, "")
-    .replace(/['’`]/g, "");
-
-  if (raw.startsWith("+")) {
-    raw = raw.slice(1);
-  }
-
-  if (raw.startsWith("-")) {
-    isNegative = !isNegative;
-    raw = raw.slice(1);
-  }
-
-  if (raw.length === 0 || /[+\-]/.test(raw) || !/\d/.test(raw)) {
-    return null;
-  }
-
-  const commaCount = (raw.match(/,/g) ?? []).length;
-  const dotCount = (raw.match(/\./g) ?? []).length;
-  let normalized = raw;
-
-  if (commaCount > 0 && dotCount > 0) {
-    const lastComma = raw.lastIndexOf(",");
-    const lastDot = raw.lastIndexOf(".");
-    const decimalSeparator: "," | "." = lastComma > lastDot ? "," : ".";
-    const groupingRegex = decimalSeparator === "," ? /\./g : /,/g;
-
-    normalized = raw.replace(groupingRegex, "");
-    if (decimalSeparator === ",") {
-      normalized = normalized.replace(/,/g, ".");
-    }
-  } else if (commaCount > 0) {
-    const candidate = normalizeSingleSeparatorNumber(raw, ",", domain);
-    if (!candidate) return null;
-    normalized = candidate;
-  } else if (dotCount > 0) {
-    const candidate = normalizeSingleSeparatorNumber(raw, ".", domain);
-    if (!candidate) return null;
-    normalized = candidate;
-  }
-
-  if ((normalized.match(/\./g) ?? []).length > 1) {
-    return null;
-  }
-
-  if (!/^\d+(\.\d+)?$/.test(normalized)) {
-    return null;
-  }
-
-  const parsed = Number.parseFloat(normalized);
-  if (!Number.isFinite(parsed)) {
-    return null;
-  }
-
-  return isNegative ? -parsed : parsed;
+  return parseDecimalInput(value, domain === "money" ? { maxFractionDigits: 2, currency: "EUR" } : {});
 }
 
 export function buildClipboardPreviewRows(
@@ -781,7 +630,7 @@ export function buildClipboardPreviewRows(
         // Seul le prix unitaire est un montant ; quantites, heures et
         // coefficients acceptent trois decimales (T16).
         const parsed = parseClipboardNumber(
-          rawCell,
+          field === "h_mo_majoration" ? rawCell.replace(/\s*%$/, "") : rawCell,
           field === "unit_price_ht" ? "money" : "quantity"
         );
         if (parsed === null) {

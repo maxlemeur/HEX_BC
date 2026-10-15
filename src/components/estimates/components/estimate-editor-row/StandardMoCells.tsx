@@ -19,7 +19,6 @@ import {
   type SpreadsheetCell,
   type SpreadsheetNavigationResult,
   getMissingLaborRateMessage,
-  parseMajorationPercentToCoefficient,
   toCellClassName,
   toCellKeyDownHandler,
 } from "@/components/estimates/components/estimate-editor-row/shared";
@@ -141,41 +140,20 @@ export function StandardMoCells({
             "estimate-cell estimate-col--mo"
           )}
         >
-          <input
+          <DecimalDraftInput
             className="estimate-input"
             ref={hMoMajorationEditorProps.ref}
             tabIndex={hMoMajorationEditorProps.tabIndex}
-            type="number"
             step="0.1"
             min={0}
-            value={hMoMajorationPercent}
+            value={Number(hMoMajorationPercent)}
             aria-label={`Majoration de main-d’œuvre en pourcentage pour ${item.title || "sans titre"}`}
             onFocus={hMoMajorationEditorProps.onFocus}
             onKeyDown={hMoMajorationEditorProps.onKeyDown}
-            onChange={(event) =>
-              onPatchItem(
-                item.id,
-                {
-                  h_mo_majoration: parseMajorationPercentToCoefficient(
-                    event.target.value
-                  ),
-                },
-                { persist: false }
-              )
-            }
-            onBlur={(event) => {
-              hMoMajorationEditorProps.onBlur(event);
-              onPatchItem(
-                item.id,
-                {
-                  h_mo_majoration: parseMajorationPercentToCoefficient(
-                    event.target.value
-                  ),
-                },
-                { persist: true }
-              );
-            }}
-            placeholder="100"
+            onValueChange={(value) => onPatchItem(item.id, { h_mo_majoration: Math.max(value / 100, 0) }, { persist: false })}
+          onValueCommit={(value) => onPatchItem(item.id, { h_mo_majoration: Math.max(value / 100, 0) }, { persist: true })}
+          onBlur={hMoMajorationEditorProps.onBlur}
+          placeholder="100"
             disabled={isReadOnly}
           />
         </div>

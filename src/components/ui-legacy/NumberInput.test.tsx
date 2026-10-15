@@ -40,7 +40,7 @@ describe("ui/NumberInput", () => {
     await user.clear(input);
     await user.type(input, "1.2");
 
-    expect(input).toHaveValue(1.2);
+    expect(input).toHaveValue("1.2");
     expect((input as HTMLInputElement).value).toBe("1.2");
   });
 
@@ -53,7 +53,7 @@ describe("ui/NumberInput", () => {
     await user.clear(input);
     await user.tab();
 
-    expect(input).toHaveValue(0);
+    expect(input).toHaveValue("0");
     expect((input as HTMLInputElement).value).toBe("0");
   });
 });

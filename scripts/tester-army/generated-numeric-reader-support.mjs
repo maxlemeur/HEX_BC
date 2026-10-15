@@ -10,7 +10,8 @@ export function validateNumericResults(report, selection) {
   same(run.results.map((r) => r.titlePath.join(" > ")), titles, "Exact numeric titles required.");
   requireValue(["id", "testId"].every((key) => new Set(run.results.map((r) => r[key])).size === count && run.results.every((r) => typeof r[key] === "string" && r[key])) &&
     ["discovered", "selected", "executed"].every((key) => run.summary[key] === count) && run.summary.passed === count - Number(red) && run.summary.failed === Number(red) &&
-    run.summary.skipped === 0 && run.summary.flaky === 0 && run.exitCode === Number(red) && run.usage.modelTokens === 0 && run.usage.maxModelCallsInStep === 0 &&
+    // e2e 0.20 counts interrupted tests apart; earlier reports counted them as failed.
+    run.summary.skipped === 0 && run.summary.flaky === 0 && (run.summary.interrupted ?? 0) === 0 && run.exitCode === Number(red) && run.usage.modelTokens === 0 && run.usage.maxModelCallsInStep === 0 &&
     run.usage.downloads === (red ? 0 : numericDownloads(selection)), "Numeric selection, attempts, models or downloads differ.");
   for (const [index, r] of run.results.entries()) {
     const status = red && index === 1 ? "failed" : "passed";

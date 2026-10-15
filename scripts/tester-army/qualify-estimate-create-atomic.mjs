@@ -5,6 +5,7 @@ import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { fileURLToPath } from "node:url";
 import ExcelJS from "exceljs";
+import { sdkEvidenceDirectory } from "./local-recipe-common.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const relative = (file) => path.relative(root, file).replaceAll("\\", "/");
@@ -40,7 +41,9 @@ try {
   ];
   check(manifest.mode === "coverage" && manifest.result.status === "passed" && manifest.result.exitCode === 0 && report.run.status === "passed", "terminal-coverage-pass");
   check(isDeepStrictEqual(report.run.results.map((entry) => entry.titlePath.join(" > ")), expectedTitles) && report.run.results.every((entry) => entry.status === "passed") &&
-    ["discovered", "selected", "executed", "passed"].every((key) => report.run.summary[key] === expectedTitles.length) && ["failed", "skipped", "flaky"].every((key) => report.run.summary[key] === 0), "four-exact-results-no-exclusions");
+    ["discovered", "selected", "executed", "passed"].every((key) => report.run.summary[key] === expectedTitles.length) && ["failed", "skipped", "flaky"].every((key) => report.run.summary[key] === 0) &&
+    // e2e 0.20 counts interrupted tests apart; earlier reports counted them as failed.
+    (report.run.summary.interrupted ?? 0) === 0, "four-exact-results-no-exclusions");
   check(manifest.source.changedDuringRun === false && manifest.productionBuild.changedDuringRun === false && report.run.usage.modelTokens === 0 && report.run.usage.maxModelCallsInStep === 0 && manifest.tracePaths.length === 0, "stable-source-build-no-model-or-trace");
   const declared = [...manifest.artifacts, ...manifest.coverage.retainedEvidence, manifest.report, ...(manifest.appLog ? [manifest.appLog] : [])];
   const locations = new Set();
@@ -128,11 +131,12 @@ try {
   const noRepair = find("ca01-no-repair-observation");
   check(noRepair.versionId === nominal.versionId && noRepair.writes.length === 0 && noRepair.dialogs.length === 0, "no-bulk-through-reload-and-downloads");
   check(report.run.usage.downloads === 2, "two-real-downloads");
+  const evidenceDirectory = sdkEvidenceDirectory(report);
   for (const mode of ["standard", "dpgf"]) {
     const exported = find(`ca01-export-${mode}`);
-    const downloadRelative = path.relative(path.join(root, ".e2e/army/coverage/artifacts"), path.resolve(exported.artifact.path));
+    const downloadRelative = path.relative(path.join(root, ".e2e/army/coverage", evidenceDirectory), path.resolve(exported.artifact.path));
     check(downloadRelative && !downloadRelative.startsWith("..") && !path.isAbsolute(downloadRelative) && downloadRelative.split(path.sep).includes("downloads"), `owned-${mode}-download-path`);
-    const downloadFile = await realpath(path.join(run, "artifacts", downloadRelative));
+    const downloadFile = await realpath(path.join(run, evidenceDirectory, downloadRelative));
     const matches = declared.filter((entry) => entry.sha256 === exported.artifact.sha256 && path.resolve(root, entry.path) === downloadFile);
     check(matches.length === 1 && exported.versionId === nominal.versionId, `real-${mode}-download-sha`);
     const workbook = new ExcelJS.Workbook();

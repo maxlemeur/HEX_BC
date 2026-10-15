@@ -24,7 +24,8 @@ for (const page of ["login", "signup"] as const) {
         if (url.origin === origin && url.pathname.endsWith(".js")) {
           await route.fulfill({ headers: { "content-type": "application/javascript" }, body: "" });
         } else {
-          await route.continue();
+          // fallback(), not continue(): the campaign guard registered first must still decide.
+          await route.fallback();
         }
       });
       await browser.route(`**/${page}*`, async (route) => {
@@ -36,7 +37,7 @@ for (const page of ["login", "signup"] as const) {
         if (url.origin === origin && url.pathname === `/${page}`) {
           submissions.push({ method: route.request.method, queryKeys: [...url.searchParams.keys()] });
         }
-        await route.continue();
+        await route.fallback();
       });
       try {
         await app.open(`/${page}`);

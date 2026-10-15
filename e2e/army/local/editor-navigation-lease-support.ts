@@ -181,7 +181,7 @@ export async function observeLeaseRequests(ui: LeaseUi, p: LeasePrepared): Promi
       entry.continuedAt = new Date().toISOString();
     }
     // continue/fallback is not a server response or a commit observation.
-    await route.continue();
+    await route.fallback();
   });
   return { requests, alias, rowAlias, close: () => ui.browser.unroute(pattern) };
 }

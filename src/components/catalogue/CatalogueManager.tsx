@@ -18,7 +18,7 @@ import { FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input, controlSizes, controlSurface } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { NumberInput } from "@/components/ui-legacy/NumberInput";
+import { NumberInput, parseLocalizedNumberInput } from "@/components/ui-legacy/NumberInput";
 import { formatEUR, parseEuroToCents } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -651,8 +651,8 @@ export function CatalogueManager() {
                     max={5000}
                     value={linkLimit}
                     parseValue={(value) => {
-                      const parsedValue = Number.parseInt(value, 10);
-                      return Number.isFinite(parsedValue) ? parsedValue : null;
+                      const parsedValue = parseLocalizedNumberInput(value);
+                      return parsedValue !== null && Number.isInteger(parsedValue) ? parsedValue : null;
                     }}
                     emptyValue={1}
                     onValueChange={setLinkLimit}

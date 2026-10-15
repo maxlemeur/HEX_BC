@@ -11,8 +11,7 @@ on:
   schedule:
     - cron: "*/5 * * * *"
 
-# One recovery run at a time: the Vercel cron may fire on the same path, and an
-# overlapping GitHub run would only contend on the same leases.
+# One recovery run at a time so overlapping GitHub runs do not contend on leases.
 concurrency:
   group: recover-durable-fallback
   cancel-in-progress: false
@@ -25,42 +24,22 @@ jobs:
       contents: read
 
     steps:
-      - name: Validate required secrets
-        env:
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          HEX_APP_URL: ${{ secrets.HEX_APP_URL }}
-          APP_URL: ${{ vars.APP_URL }}
-        run: |
-          set -euo pipefail
-          if [ -z "${CRON_SECRET}" ]; then
-            echo "Missing secret: CRON_SECRET"
-            exit 1
-          fi
-          app_url="${HEX_APP_URL:-${APP_URL:-}}"
-          app_url="${app_url%/}"
-          if [ -z "${app_url}" ]; then
-            echo "Missing secret HEX_APP_URL (or variable APP_URL)"
-            exit 1
-          fi
-          case "${app_url}" in
-            https://*) ;;
-            *)
-              echo "HEX_APP_URL/APP_URL must be an https origin"
-              exit 1
-              ;;
-          esac
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - name: Recover durable workflows
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+
+      # HTTP 200 alone is insufficient. Emit counters only, never the response body.
+      # Individual failures warn; unavailable drains and exhausted retries fail.
+      # Contract: docs/testing/tech-debt-recovery-detection.md.
+      - name: Recover and check durable workflows
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           HEX_APP_URL: ${{ secrets.HEX_APP_URL }}
           APP_URL: ${{ vars.APP_URL }}
-        run: |
-          set -euo pipefail
-          app_url="${HEX_APP_URL:-${APP_URL:-}}"
-          app_url="${app_url%/}"
-          curl -fsS -X GET \
-            --connect-timeout 15 \
-            --max-time 280 \
-            -H "Authorization: Bearer ${CRON_SECRET}" \
-            "${app_url}/api/internal/workflows/recover"
+        run: node scripts/check-durable-recovery.mjs

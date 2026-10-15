@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile, readdir } from "node:fs/promises";
-import path from "node:path";
+import { readFile } from "node:fs/promises";
 
 import ExcelJS from "exceljs";
 import { expect } from "e2e";
@@ -13,6 +12,7 @@ import {
   ownEstimate,
   readEstimate,
   recordEvidence,
+  resolveDownload,
   setLineCoreValues,
   type ArmyState,
 } from "./fixtures";
@@ -64,14 +64,8 @@ async function saveSettings(ui: Ui) {
   await expect(ui.screen.getByRole("button", "Enregistrer le paramétrage", { exact: true })).toBeEnabled();
 }
 
-async function downloadWorkbook(download: { path: string; suggestedFilename: string }) {
-  const root = path.resolve(process.env.E2E_ARMY_ARTIFACT_ROOT ?? ".e2e/army/critical/artifacts");
-  const matches = (await readdir(root, { recursive: true })).filter((entry) => {
-    const normalized = entry.split(path.sep).join("/");
-    return normalized === download.path || normalized.endsWith(`/${download.path}`);
-  });
-  expect(matches).toHaveLength(1);
-  const absolutePath = path.resolve(root, matches[0]);
+async function downloadWorkbook(download: { path: string; absolutePath: string; suggestedFilename: string }) {
+  const absolutePath = await resolveDownload(download);
   const bytes = await readFile(absolutePath);
   expect(Array.from(bytes.subarray(0, 4))).toEqual([0x50, 0x4b, 0x03, 0x04]);
   const workbook = new ExcelJS.Workbook();
@@ -160,10 +154,24 @@ armyTest(
       const normalize = (value: string | null | undefined) => (value ?? "").replace(/\s+/g, " ").trim();
       const labels = ["Total HT", "TVA", "TTC calculé", "Arrondi commercial", "Montant à payer"];
       return Array.from(document.querySelectorAll("span"))
-        .filter((span) => labels.includes(normalize(span.textContent)))
+        // The streamed document can retain a second copy under a hidden div.
+        // Visible duplicates still fail the exact five-row oracle below.
+        .filter((span) => span.closest(".estimate-document") && span.getClientRects().length > 0 && labels.includes(normalize(span.textContent)))
         .map((span) => ({ label: normalize(span.textContent), value: normalize(span.parentElement?.children[1]?.textContent) }));
     });
     await recordEvidence(army, "rounding-print", { versionId: ids.versionId, footer: print });
+    await recordEvidence(army, "rounding-print-scope", await browser.evaluate(() => {
+      const labels = ["Total HT", "TVA", "TTC calculé", "Arrondi commercial", "Montant à payer"];
+      return Array.from(document.querySelectorAll("span"))
+        .filter((span) => labels.includes((span.textContent ?? "").trim()))
+        .map((span) => ({
+          label: span.textContent?.trim(),
+          inEstimateDocument: Boolean(span.closest(".estimate-document")),
+          visible: span.getClientRects().length > 0,
+          hiddenAncestor: span.closest('[hidden],[aria-hidden="true"]')?.tagName ?? null,
+          parentClasses: span.parentElement?.className,
+        }));
+    }));
     expect(print).toEqual([
       { label: "Total HT", value: "760,63 €" }, { label: "TVA", value: "152,13 €" },
       { label: "TTC calculé", value: "912,76 €" }, { label: "Arrondi commercial", value: "-0,76 €" },
@@ -194,6 +202,7 @@ armyTest(
       const before = await readEstimate(browser, ids.versionId);
       const seeded = await apiRequest(browser, "PATCH", `/api/estimates/${ids.versionId}`, {
         rounding_mode: mode, rounding_step_cents: step,
+        expected_content_revision: before.version.content_revision,
       }, { "If-Match": before.version.updated_at });
       expect(seeded.status).toBe(200);
       await openSettings(ui, ids.versionId);

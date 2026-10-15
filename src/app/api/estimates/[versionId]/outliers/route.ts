@@ -3,9 +3,9 @@ import { z } from "zod";
 
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import type { EstimateOutlierFlagKey } from "@/lib/estimates/outlier-detection";
+import { assertDraftLockOwnedByCurrentUser } from "@/lib/estimates/server-context";
 import {
   badRequest,
-  conflict,
   forbidden,
   mapSupabaseError,
   notFound,
@@ -161,63 +161,6 @@ async function getVersionAccessOrThrow(
   };
 }
 
-async function resolveLockOwnerName(supabase: Supabase, userId: string) {
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("full_name")
-    .eq("id", userId)
-    .maybeSingle();
-
-  if (error || !data) return null;
-
-  const fullName = typeof data.full_name === "string" ? data.full_name.trim() : "";
-  return fullName.length > 0 ? fullName : null;
-}
-
-async function assertDraftLockOwnedByCurrentUser(input: {
-  context: AuthenticatedContext;
-  versionId: string;
-}) {
-  const { data: lock, error } = await input.context.supabase
-    .from("draft_locks")
-    .select("id, version_id, user_id, locked_at, expires_at")
-    .eq("tenant_id", input.context.tenantId)
-    .eq("version_id", input.versionId)
-    .gt("expires_at", new Date().toISOString())
-    .maybeSingle();
-
-  if (error) {
-    throw mapSupabaseError(error, "Impossible de vérifier le verrou de brouillon.");
-  }
-
-  if (!lock) {
-    throw conflict(
-      "Un verrou actif est requis pour modifier cette version brouillon.",
-      {
-        lock: null,
-      },
-      "LOCK_REQUIRED"
-    );
-  }
-
-  if (lock.user_id === input.context.userId) {
-    return;
-  }
-
-  const holderName = await resolveLockOwnerName(input.context.supabase, lock.user_id);
-
-  throw conflict("Cette version est déjà verrouillée par un autre utilisateur.", {
-    lock: {
-      version_id: lock.version_id,
-      user_id: lock.user_id,
-      holder_name: holderName,
-      locked_at: lock.locked_at,
-      expires_at: lock.expires_at,
-      is_owner: false,
-    },
-  });
-}
-
 function buildDismissedMap(
   rows: Pick<OutlierDismissalRow, "item_id" | "flag_key">[]
 ) {
@@ -311,7 +254,9 @@ export async function POST(
     }
 
     await assertDraftLockOwnedByCurrentUser({
-      context,
+      supabase: context.supabase,
+      tenantId: context.tenantId,
+      userId: context.userId,
       versionId,
     });
 

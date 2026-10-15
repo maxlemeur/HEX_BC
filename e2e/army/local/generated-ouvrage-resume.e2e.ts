@@ -7,6 +7,7 @@ import { test, type Browser } from "@e2e-dev/web";
 import { expect, type App, type Screen } from "e2e";
 
 import { readEstimate, recordEvidence, restrictCriticalBrowser } from "../critical/fixtures";
+import { sdkResultsRoot } from "./sdk-results";
 
 type Candidate = { candidateId: string; designation: string; subdetailId: string; quantity: number; unit: string; components: Array<{ componentId: string; designation: string; quantity: number; unit: string; unitCostHtCents: number; dsCents: number; costType?: string; lossCoeffBp?: number; yieldValue?: number | null; yieldUnit?: string | null }> };
 type Draft = { draftId: string; createdAt: string; status: string; candidates: Candidate[] };
@@ -38,7 +39,7 @@ const generatedTest = test.extend<{ generated: Context }>({
         if (name === "generateOuvragesFromText") { context.calls.push({ name, actionId, pathname: new URL(route.request.url).pathname, body: null }); await route.abort(); throw new Error("Resume must never invoke generation."); }
       }
       if (context.intercept && await context.intercept(route)) return;
-      await route.continue();
+      await route.fallback();
     });
     try { await provide(context); }
     finally {
@@ -549,7 +550,7 @@ generatedTest("GR06 ignores an outstanding real resume when its dialog closes an
     if (generated.actionNames.get(route.request.headers["next-action"] ?? "") === "fetchResumableGeneratedOuvrageDraft") {
       observed = true;
       await held;
-      await route.continue();
+      await route.fallback();
       released = true;
       return true;
     }
@@ -643,7 +644,7 @@ generatedTest("GR08 preserves the explicitly reviewed parent unit in API UI and 
   const lines = estimate.items.filter((item) => item.item_type === "line");
   expect(lines).toHaveLength(1);
   const uiUnit = await screen.getByLabel(`Unité pour ${candidate.designation}`, { exact: true }).inputValue();
-  const root = path.resolve(process.env.E2E_ARMY_ARTIFACT_ROOT!);
+  const root = sdkResultsRoot();
   if (!root.startsWith(path.resolve(".e2e/product-foundation/runs") + path.sep)) throw new Error("Explicit current download artifact root required.");
   const before = new Set(await artifactFiles(root));
   await screen.getByTestId("estimate-page-toolbar-more-actions-button").tap();

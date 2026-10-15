@@ -158,7 +158,7 @@ armyTest("SC08 committed decision response lost then reload replays the same eve
   const posts: Array<{ pathname: string; body: unknown }> = [];
   await c.browser.route(`**${base(c.scenario)}**`, async (route) => {
     if (route.request.method === "POST") posts.push({ pathname: new URL(route.request.url).pathname, body: JSON.parse(route.request.postData!) });
-    await route.continue();
+    await route.fallback();
   });
   await c.browser.evaluate((pathname) => {
     const scope = window as Window & { __coverageLost?: { request: unknown; status: number; body: unknown; discarded: boolean } };
@@ -210,7 +210,7 @@ armyTest("SC09 unavailable workspace never becomes an empty or current coverage 
       await route.fulfill({ status: mode === "503" ? 503 : 200, headers: { "content-type": "application/json", "cache-control": "private, no-store" }, body: JSON.stringify(mode === "503" ? { ok: false, error: { code: "SOURCE_COVERAGE_TEMPORARILY_UNAVAILABLE", message: "Recette de lecture indisponible" } } : { ok: true, data: { ...prepared.state, counts: { ...s1Counts, total: 0 } } }) });
       intercepted++; return;
     }
-    await route.continue();
+    await route.fallback();
   });
   await selectRequirement(c, prepared.ids.E5);
   await c.screen.getByRole("button", "Préparer la décision", { exact: true }).tap();

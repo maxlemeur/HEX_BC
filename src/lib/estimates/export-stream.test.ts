@@ -114,12 +114,12 @@ describe("streamEstimateVersionXlsx", () => {
     vi.clearAllMocks();
   });
 
-  it("creates a streamable XLSX export from details + items with computed totals", async () => {
+  it.each(["draft", "sent"] as const)("exports a %s estimate with draft calculations or preserved issued totals", async (status) => {
     const details = {
       version: {
         id: VERSION_ID,
         version_number: 4,
-        status: "sent",
+        status,
         title: "Version export",
         margin_multiplier: 1.2,
         tax_rate_bp: 2000,
@@ -229,7 +229,11 @@ describe("streamEstimateVersionXlsx", () => {
     expect(linesSheet?.committed).toBe(true);
     expect(linesSheet?.rows.length).toBe(3);
 
-    const expectedLineValues = computeEstimateLineValues(
+    const expectedLineValues = status === "sent" ? {
+      saleLineCents: 13200,
+      taxLineCents: 2640,
+      ttcLineCents: 15840,
+    } : computeEstimateLineValues(
       {
         ...items[1],
         labor_role_hourly_rate_cents: 1200,

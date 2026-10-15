@@ -41,8 +41,8 @@ describe("margin tier configuration", () => {
     fireEvent.change(screen.getByLabelText("Coefficient"), { target: { value: "1.4" } });
     fireEvent.click(screen.getByRole("button", { name: "Ajouter" }));
     await waitFor(() => expect(callbacks.onCreate).toHaveBeenCalledExactlyOnceWith({ threshold_cents: 200_050, multiplier: 1.4 }));
-    await waitFor(() => expect(screen.getByLabelText("Coefficient")).toHaveValue(null));
-    expect(screen.getByLabelText("Coefficient de la tranche 0.00 EUR")).toHaveValue(1.2);
+    await waitFor(() => expect(screen.getByLabelText("Coefficient")).toHaveValue(""));
+    expect(screen.getByLabelText("Coefficient de la tranche 0.00 EUR")).toHaveValue("1,2");
   });
 
   it("does not save duplicate or blank edits on blur", () => {

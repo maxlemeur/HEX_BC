@@ -14,6 +14,7 @@ import {
 import { callGeminiStructured } from "@/lib/takeoff/gemini-client";
 import { getAuthenticatedTenantContext as getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
+import { assertDraftLockOwnedByCurrentUser } from "@/lib/estimates/server-context";
 import type { Database, Json } from "@/types/database";
 
 import {
@@ -521,69 +522,6 @@ async function getVersionAccessOrThrow(
     version,
     project,
   };
-}
-
-async function getActiveDraftLockForVersion(input: {
-  supabase: Supabase;
-  tenantId: string;
-  versionId: string;
-}) {
-  const { data, error } = await input.supabase
-    .from("draft_locks")
-    .select("id, version_id, user_id, locked_at, expires_at")
-    .eq("tenant_id", input.tenantId)
-    .eq("version_id", input.versionId)
-    .gt("expires_at", new Date().toISOString())
-    .maybeSingle();
-
-  if (error) {
-    throw mapSupabaseError(error, "Impossible de vérifier le verrou de brouillon.");
-  }
-
-  return (data ?? null) as
-    | {
-        id: string;
-        version_id: string;
-        user_id: string | null;
-        locked_at: string | null;
-        expires_at: string | null;
-      }
-    | null;
-}
-
-async function assertDraftLockOwnedByCurrentUser(input: {
-  supabase: Supabase;
-  tenantId: string;
-  versionId: string;
-  userId: string;
-}) {
-  const lock = await getActiveDraftLockForVersion({
-    supabase: input.supabase,
-    tenantId: input.tenantId,
-    versionId: input.versionId,
-  });
-
-  if (!lock) {
-    throw conflict(
-      "Un verrou actif est requis pour modifier cette version brouillon.",
-      { lock: null },
-      "LOCK_REQUIRED"
-    );
-  }
-
-  if (lock.user_id === input.userId) {
-    return;
-  }
-
-  throw conflict("Cette version est déjà verrouillée par un autre utilisateur.", {
-    lock: {
-      version_id: lock.version_id,
-      user_id: lock.user_id,
-      locked_at: lock.locked_at,
-      expires_at: lock.expires_at,
-      is_owner: false,
-    },
-  });
 }
 
 async function fetchEstimateVersionToken(input: {

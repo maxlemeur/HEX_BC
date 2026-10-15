@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { formatDecimalInput, NUMERIC_INPUT_ERROR, parseDecimalInput } from "@/lib/numeric-input/parsers";
 
 export type NumberInputProps = Omit<
   React.InputHTMLAttributes<HTMLInputElement>,
@@ -14,14 +15,7 @@ export type NumberInputProps = Omit<
 };
 
 export function parseLocalizedNumberInput(value: string): number | null {
-  const trimmedValue = value.trim();
-  if (trimmedValue.length === 0) {
-    return null;
-  }
-
-  const normalizedValue = trimmedValue.replace(",", ".");
-  const parsedValue = Number.parseFloat(normalizedValue);
-  return Number.isFinite(parsedValue) ? parsedValue : null;
+  return parseDecimalInput(value);
 }
 
 function formatNumberInputValue(value: number | null | undefined) {
@@ -29,7 +23,7 @@ function formatNumberInputValue(value: number | null | undefined) {
     return "";
   }
 
-  return String(value);
+  return formatDecimalInput(value);
 }
 
 export function NumberInput({
@@ -40,15 +34,26 @@ export function NumberInput({
   emptyValue,
   onBlur,
   onFocus,
+  min,
+  max,
   ...props
 }: Readonly<NumberInputProps>) {
   const [draftValue, setDraftValue] = useState<string | null>(null);
   const displayedValue = draftValue ?? formatValue(value);
+  const parse = (raw: string) => {
+    const parsed = parseValue(raw);
+    if (parsed === null || (min !== undefined && parsed < Number(min)) || (max !== undefined && parsed > Number(max))) return null;
+    return parsed;
+  };
+  const invalid = draftValue !== null && draftValue.trim() !== "" && parse(draftValue) === null;
 
   return (
     <input
       {...props}
-      type="number"
+      type="text"
+      inputMode="decimal"
+      aria-invalid={invalid || props["aria-invalid"]}
+      title={invalid ? NUMERIC_INPUT_ERROR : props.title}
       value={displayedValue}
       onFocus={(event) => {
         setDraftValue(event.currentTarget.value);
@@ -58,19 +63,21 @@ export function NumberInput({
         const nextValue = event.currentTarget.value;
         setDraftValue(nextValue);
 
-        const parsedValue = parseValue(nextValue);
-        if (parsedValue !== null) {
-          onValueChange(parsedValue);
-        }
+        event.currentTarget.setCustomValidity(nextValue.trim() !== "" && parse(nextValue) === null ? NUMERIC_INPUT_ERROR : "");
       }}
       onBlur={(event) => {
         const nextValue = draftValue ?? event.currentTarget.value;
-        const parsedValue = parseValue(nextValue);
+        const parsedValue = parse(nextValue);
 
         if (parsedValue !== null) {
           onValueChange(parsedValue);
         } else if (nextValue.trim().length === 0 && emptyValue !== undefined) {
           onValueChange(emptyValue);
+        } else if (nextValue.trim() !== "") {
+          event.currentTarget.setCustomValidity(NUMERIC_INPUT_ERROR);
+          event.currentTarget.reportValidity();
+          onBlur?.(event);
+          return;
         }
 
         setDraftValue(null);

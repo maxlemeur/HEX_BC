@@ -258,7 +258,7 @@ function createSupabaseMock(input: {
 
   estimateVersionUpdateBuilder.eq.mockReturnValue(estimateVersionUpdateBuilder);
 
-  const recalculationItems = (input.recalculationLineItems ?? []).map(
+  const recalculationItems: Array<Record<string, unknown>> = (input.recalculationLineItems ?? []).map(
     (item, index) => ({
       tenant_id: TENANT_ID,
       version_id: VERSION_ID,
@@ -271,6 +271,31 @@ function createSupabaseMock(input: {
       ...item,
     })
   );
+  mockServiceRoleRpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
+    if (name !== "save_estimate_settings_atomic") {
+      throw new Error(`Unexpected settings RPC: ${name}`);
+    }
+    if (input.rejectExclusionsColumn) {
+      return { data: null, error: { code: "PGRST204", message: "Missing exclusions column", details: null, hint: null } };
+    }
+    const projections = args.p_line_projections as Array<Record<string, unknown>>;
+    return {
+      data: {
+        version: {
+          ...estimateVersionAccessResponse.data,
+          ...(args.p_settings_patch as Record<string, unknown>),
+          ...(args.p_totals as Record<string, unknown>),
+          updated_at: NEXT_VERSION_UPDATED_AT,
+          content_revision: 2,
+        },
+        items: recalculationItems.map((item) => ({
+          ...item,
+          ...projections.find((projection) => projection.id === item.id),
+        })),
+      },
+      error: null,
+    };
+  });
   const estimateItemsBuilder = {
     eq: vi.fn(),
     order: vi.fn(),
@@ -868,89 +893,30 @@ describe("patchEstimateVersion optimistic concurrency", () => {
     });
   });
 
-  it("retries without empty exclusions when the schema column is unavailable", async () => {
-    const supabase = createSupabaseMock({
-      rpcResult: {
-        data: 0,
-        error: null,
-      },
-      touchResult: {
-        data: {
-          id: VERSION_ID,
-          updated_at: NEXT_VERSION_UPDATED_AT,
-        },
-        error: null,
-      },
-      rejectExclusionsColumn: true,
-    });
-
+  it("refuses an unavailable atomic schema without a partial exclusions fallback", async () => {
+    const supabase = createSupabaseMock({ rpcResult: { data: 0, error: null }, rejectExclusionsColumn: true });
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    await expect(
-      patchEstimateSettingsPrecode(
-        VERSION_ID,
-        {
-          expected_content_revision: 1,
-          title: "Maj",
-          exclusions: null,
-        },
-        VERSION_UPDATED_AT
-      )
-    ).resolves.toEqual({
-      version: {
-        id: VERSION_ID,
-        updated_at: NEXT_VERSION_UPDATED_AT,
-      },
-    });
-
-    expect(supabase.__mocks.estimateVersionUpdate).toHaveBeenCalledTimes(2);
-    expect(supabase.__mocks.estimateVersionUpdate).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
-        exclusions: null,
-        title: "Maj",
-      })
-    );
-    expect(
-      supabase.__mocks.estimateVersionUpdate.mock.calls[1]?.[0]
-    ).not.toHaveProperty("exclusions");
+    await expect(patchEstimateSettingsPrecode(VERSION_ID, {
+      expected_content_revision: 1, title: "Maj", exclusions: null,
+    }, VERSION_UPDATED_AT)).rejects.toMatchObject({ status: 400, code: "BAD_REQUEST" });
+    expect(mockServiceRoleRpc).toHaveBeenCalledTimes(1);
+    expect(mockServiceRoleRpc).toHaveBeenCalledWith("save_estimate_settings_atomic", expect.objectContaining({
+      p_settings_patch: expect.objectContaining({ title: "Maj", exclusions: null }),
+    }));
+    expect(supabase.__mocks.estimateVersionUpdate).not.toHaveBeenCalled();
   });
 
-  it("reports the missing migration when non-empty exclusions cannot be persisted", async () => {
-    const supabase = createSupabaseMock({
-      rpcResult: {
-        data: 0,
-        error: null,
-      },
-      touchResult: {
-        data: {
-          id: VERSION_ID,
-          updated_at: NEXT_VERSION_UPDATED_AT,
-        },
-        error: null,
-      },
-      rejectExclusionsColumn: true,
-    });
-
+  it("does not silently drop non-empty exclusions when the atomic schema is unavailable", async () => {
+    const supabase = createSupabaseMock({ rpcResult: { data: 0, error: null }, rejectExclusionsColumn: true });
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    await expect(
-      patchEstimateSettingsPrecode(
-        VERSION_ID,
-        {
-          expected_content_revision: 1,
-          exclusions: "Peinture hors perimetre",
-        },
-        VERSION_UPDATED_AT
-      )
-    ).rejects.toMatchObject({
-      status: 400,
-      code: "SCHEMA_MIGRATION_REQUIRED",
-      message:
-        "Les exclusions ne peuvent pas être enregistrées tant que la migration de la base de données n'est pas appliquée.",
-    });
-
-    expect(supabase.__mocks.estimateVersionUpdate).toHaveBeenCalledTimes(1);
+    await expect(patchEstimateSettingsPrecode(VERSION_ID, {
+      expected_content_revision: 1, exclusions: "Peinture hors perimetre",
+    }, VERSION_UPDATED_AT)).rejects.toMatchObject({ status: 400, code: "BAD_REQUEST" });
+    expect(mockServiceRoleRpc).toHaveBeenCalledTimes(1);
+    expect(mockServiceRoleRpc).toHaveBeenCalledWith("save_estimate_settings_atomic", expect.objectContaining({
+      p_settings_patch: expect.objectContaining({ exclusions: "Peinture hors perimetre" }),
+    }));
+    expect(supabase.__mocks.estimateVersionUpdate).not.toHaveBeenCalled();
   });
 
   it("rejects unsupported patch currency codes", async () => {
@@ -1007,20 +973,19 @@ describe("patchEstimateVersion optimistic concurrency", () => {
         },
         VERSION_UPDATED_AT
       )
-    ).resolves.toEqual({
-      version: {
-        id: VERSION_ID,
-        updated_at: NEXT_VERSION_UPDATED_AT,
-      },
+    ).resolves.toMatchObject({
+      version: { id: VERSION_ID, updated_at: NEXT_VERSION_UPDATED_AT, content_revision: 2 },
+      items: [],
     });
 
-    expect(supabase.__mocks.estimateVersionUpdate).toHaveBeenCalledWith(
+    expect(mockServiceRoleRpc).toHaveBeenCalledWith("save_estimate_settings_atomic",
       expect.objectContaining({
-        discount_mode: "cascade",
-        discount_steps: [400, 200],
-        global_coefficient: 1.1,
+        p_expected_content_revision: 1,
+        p_draft_lock_session_id: LOCK_SESSION_ID,
+        p_settings_patch: expect.objectContaining({ discount_mode: "cascade", discount_steps: [400, 200], global_coefficient: 1.1 }),
       })
     );
+    expect(supabase.__mocks.estimateVersionUpdate).not.toHaveBeenCalled();
   });
 
   it("recalculates and atomically persists reverse-charge totals when only the contractor role is patched", async () => {
@@ -1065,10 +1030,6 @@ describe("patchEstimateVersion optimistic concurrency", () => {
     });
 
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-    mockServiceRoleRpc.mockResolvedValueOnce({
-      data: updatedVersion,
-      error: null,
-    });
 
     await expect(
       patchEstimateSettingsPrecode(
@@ -1079,19 +1040,22 @@ describe("patchEstimateVersion optimistic concurrency", () => {
         },
         VERSION_UPDATED_AT
       )
-    ).resolves.toEqual({
+    ).resolves.toMatchObject({
       version: updatedVersion,
+      items: [expect.objectContaining({ id: ITEM_ID_1, line_total_ht_cents: 10_000, line_tax_cents: 0, line_total_ttc_cents: 10_000 })],
     });
 
     expect(mockServiceRoleRpc).toHaveBeenCalledWith(
-      "patch_estimate_contractor_role",
+      "save_estimate_settings_atomic",
       expect.objectContaining({
         p_version_id: VERSION_ID,
         p_tenant_id: TENANT_ID,
         p_expected_updated_at: VERSION_UPDATED_AT,
         p_actor_user_id: USER_ID,
-        p_patch: expect.objectContaining({
-          contractor_role: "subcontractor",
+        p_settings_patch: expect.objectContaining({ contractor_role: "subcontractor" }),
+        p_expected_content_revision: 1,
+        p_draft_lock_session_id: LOCK_SESSION_ID,
+        p_totals: expect.objectContaining({
           total_ht_cents: 10_000,
           total_tax_cents: 0,
           total_ttc_cents: 10_000,
@@ -1176,67 +1140,34 @@ describe("patchEstimateVersion optimistic concurrency", () => {
     }
   );
 
-  it("returns 409 when a concurrent write invalidates the token before update", async () => {
-    const supabase = createSupabaseMock({
-      rpcResult: {
-        data: 0,
-        error: null,
-      },
-      touchResult: {
-        data: null,
-        error: noRowsError(),
-      },
-    });
-
+  it("returns 409 when the atomic write loses its revision comparison", async () => {
+    const supabase = createSupabaseMock({ rpcResult: { data: 0, error: null } });
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    await expect(
-      patchEstimateSettingsPrecode(
-        VERSION_ID,
-        {
-          expected_content_revision: 1,
-          title: "Maj",
-        },
-        VERSION_UPDATED_AT
-      )
-    ).rejects.toMatchObject({
-      status: 409,
-      code: "VERSION_CONFLICT",
-      message: "Version modifiée ailleurs (autre onglet, autre session ou autre utilisateur)",
-      details: {
-        updated_at: VERSION_UPDATED_AT,
-      },
-    });
+    mockServiceRoleRpc.mockResolvedValueOnce({ data: null, error: {
+      code: "40001", message: "ESTIMATE_VERSION_CONFLICT", details: null, hint: null,
+    } });
+    await expect(patchEstimateSettingsPrecode(VERSION_ID, {
+      expected_content_revision: 1, title: "Maj",
+    }, VERSION_UPDATED_AT)).rejects.toMatchObject({ status: 409, code: "VERSION_CONFLICT" });
+    expect(mockServiceRoleRpc).toHaveBeenCalledTimes(1);
+    expect(supabase.__mocks.estimateVersionUpdate).not.toHaveBeenCalled();
   });
 
-  it("rejects incoherent totals with an explicit bad request message", async () => {
-    const supabase = createSupabaseMock({
-      rpcResult: {
-        data: 0,
-        error: null,
-      },
-    });
-
+  it("prevents caller totals from overriding the authoritative calculation", async () => {
+    const supabase = createSupabaseMock({ rpcResult: { data: 0, error: null } });
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    await expect(
-      patchEstimateSettingsPrecode(
-        VERSION_ID,
-        {
-          expected_content_revision: 1,
-          total_ht_cents: 100_00,
-          total_tax_cents: 20_00,
-          total_ttc_cents: 119_99,
-        },
-        VERSION_UPDATED_AT
-      )
-    ).rejects.toMatchObject({
-      status: 400,
-      code: "BAD_REQUEST",
-      message: expect.stringMatching(
-        /total_ttc_cents.*total_ht_cents.*total_tax_cents/i
-      ),
+    await expect(patchEstimateSettingsPrecode(VERSION_ID, {
+      expected_content_revision: 1, total_ht_cents: 100_00, total_tax_cents: 20_00, total_ttc_cents: 119_99,
+    }, VERSION_UPDATED_AT)).resolves.toMatchObject({
+      version: { total_ht_cents: 0, total_tax_cents: 0, total_ttc_cents: 0, content_revision: 2 }, items: [],
     });
+    expect(mockServiceRoleRpc).toHaveBeenCalledWith("save_estimate_settings_atomic", expect.objectContaining({
+      p_totals: { total_ht_cents: 0, total_tax_cents: 0, total_ttc_cents: 0, rounding_adjustment_cents: 0 },
+    }));
+    const settings = mockServiceRoleRpc.mock.calls[0]?.[1].p_settings_patch;
+    expect(settings).not.toHaveProperty("total_ht_cents");
+    expect(settings).not.toHaveProperty("total_tax_cents");
+    expect(settings).not.toHaveProperty("total_ttc_cents");
   });
 
   it("accepts null totals without raising invariant errors", async () => {
@@ -1267,52 +1198,24 @@ describe("patchEstimateVersion optimistic concurrency", () => {
         } as unknown as Parameters<typeof patchEstimateSettingsPrecode>[1],
         VERSION_UPDATED_AT
       )
-    ).resolves.toEqual({
-      version: {
-        id: VERSION_ID,
-        updated_at: NEXT_VERSION_UPDATED_AT,
-      },
+    ).resolves.toMatchObject({
+      version: { id: VERSION_ID, updated_at: NEXT_VERSION_UPDATED_AT, total_ht_cents: 0, total_tax_cents: 0, total_ttc_cents: 0, content_revision: 2 }, items: [],
     });
   });
 
-  it("logs invariant violations to audit_logs with action invariant_violation", async () => {
-    const supabase = createSupabaseMock({
-      rpcResult: {
-        data: 0,
-        error: null,
-      },
-    });
-
+  it("rejects an incoherent atomic confirmation without acknowledging or retrying the write", async () => {
+    const supabase = createSupabaseMock({ rpcResult: { data: 0, error: null } });
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    await expect(
-      patchEstimateSettingsPrecode(
-        VERSION_ID,
-        {
-          expected_content_revision: 1,
-          total_ht_cents: 100_00,
-          total_tax_cents: 20_00,
-          total_ttc_cents: 119_99,
-        },
-        VERSION_UPDATED_AT
-      )
-    ).rejects.toMatchObject({
-      status: 400,
-      code: "BAD_REQUEST",
-    });
-
-    expect(supabase.__mocks.auditLogInsert).toHaveBeenCalledTimes(1);
-    const auditCalls = supabase.__mocks.auditLogInsert.mock.calls as unknown[][];
-    const auditPayload = auditCalls[0] ? auditCalls[0][0] : null;
-    const firstEntry = Array.isArray(auditPayload)
-      ? auditPayload[0]
-      : auditPayload;
-
-    expect(firstEntry).toEqual(
-      expect.objectContaining({
-        action: "invariant_violation",
-      })
-    );
+    mockServiceRoleRpc.mockResolvedValueOnce({ data: { version: {
+      id: VERSION_ID, tenant_id: TENANT_ID, project_id: PROJECT_ID, status: "draft",
+      updated_at: NEXT_VERSION_UPDATED_AT, content_revision: 2,
+      total_ht_cents: 0, total_tax_cents: 0, total_ttc_cents: 1, rounding_adjustment_cents: 0,
+    }, items: [] }, error: null });
+    await expect(patchEstimateSettingsPrecode(VERSION_ID, {
+      expected_content_revision: 1, title: "Maj",
+    }, VERSION_UPDATED_AT)).rejects.toMatchObject({ status: 500, code: "INTERNAL_ERROR" });
+    expect(mockServiceRoleRpc).toHaveBeenCalledTimes(1);
+    expect(supabase.__mocks.estimateVersionUpdate).not.toHaveBeenCalled();
   });
 });
 
@@ -2240,6 +2143,7 @@ describe("estimate owner resource scoping regressions", () => {
 
 function createAssemblyInsertSupabaseMock(input?: {
   versionStatus?: "draft" | "sent";
+  lineItems?: Array<Record<string, unknown>>;
   draftLockUserId?: string | null;
   rpcError?: {
     code: string;
@@ -2274,6 +2178,9 @@ function createAssemblyInsertSupabaseMock(input?: {
     single: vi.fn().mockResolvedValue({
       data: {
         id: VERSION_ID,
+        tenant_id: TENANT_ID,
+        content_revision: 1,
+        calc_engine_version: 1,
         project_id: PROJECT_ID,
         status: input?.versionStatus ?? "draft",
         margin_multiplier: 1,
@@ -2309,6 +2216,7 @@ function createAssemblyInsertSupabaseMock(input?: {
               id: "lock-assembly",
               version_id: VERSION_ID,
               user_id: input?.draftLockUserId ?? USER_ID,
+              session_id: LOCK_SESSION_ID,
               locked_at: VERSION_UPDATED_AT,
               expires_at: LOCK_EXPIRES_AT,
             },
@@ -2402,44 +2310,38 @@ function createAssemblyInsertSupabaseMock(input?: {
   };
   estimateItemsUpdateBuilder.eq.mockReturnValue(estimateItemsUpdateBuilder);
 
-  const estimateItemsSelectIn = vi.fn().mockResolvedValue({
-    data: [
-      {
-        id: INSERTED_SECTION_ID,
-        item_type: "section",
-      },
-      {
-        id: INSERTED_LINE_ID,
-        item_type: "line",
-        labor_role_id: null,
-      },
-    ],
-    error: null,
-  });
+  const insertedItems: Array<Record<string, unknown>> = [
+    { id: INSERTED_SECTION_ID, tenant_id: TENANT_ID, version_id: VERSION_ID, item_type: "section", parent_id: null, position: 2 },
+    ...(input?.lineItems ?? [{ id: INSERTED_LINE_ID, item_type: "line", labor_role_id: null, quantity: 2, unit_price_ht_cents: 2500, k_fo: 1, h_mo: 0, k_mo: 1, tax_rate_bp: 2000 }]).map((item) => ({
+      tenant_id: TENANT_ID, version_id: VERSION_ID, parent_id: INSERTED_SECTION_ID, position: 1, ...item,
+    })),
+  ];
   const estimateItemsSelectBuilder = {
-    eq: vi.fn(),
-    in: estimateItemsSelectIn,
+    eq: vi.fn(), order: vi.fn(),
+    range: vi.fn().mockResolvedValue({ data: insertedItems.filter((item) => item.item_type === "line"), error: null }),
   };
   estimateItemsSelectBuilder.eq.mockReturnValue(estimateItemsSelectBuilder);
+  estimateItemsSelectBuilder.order.mockReturnValue(estimateItemsSelectBuilder);
+  const emptyDependencyBuilder = {
+    eq: vi.fn(), in: vi.fn(), order: vi.fn(),
+    maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+    then: (resolve: (value: { data: unknown[]; error: null }) => unknown) => Promise.resolve({ data: [], error: null }).then(resolve),
+  };
+  emptyDependencyBuilder.eq.mockReturnValue(emptyDependencyBuilder);
+  emptyDependencyBuilder.in.mockReturnValue(emptyDependencyBuilder);
+  emptyDependencyBuilder.order.mockReturnValue(emptyDependencyBuilder);
 
-  const rpc = vi.fn().mockResolvedValue({
-    data: [
-      {
-        id: INSERTED_SECTION_ID,
-        item_type: "section",
-        parent_id: null,
-        position: 2,
-        labor_role_id: null,
-      },
-      {
-        id: INSERTED_LINE_ID,
-        item_type: "line",
-        parent_id: INSERTED_SECTION_ID,
-        position: 1,
-        labor_role_id: LABOR_ROLE_ID,
-      },
-    ],
-    error: input?.rpcError ?? null,
+  const rpc = vi.fn(async (name: string, args: Record<string, unknown>) => {
+    if (name === "insert_estimate_assembly_into_version") return { data: insertedItems, error: input?.rpcError ?? null };
+    if (name === "finalize_estimate_assembly_calculation") {
+      const projections = args.p_item_updates as Array<Record<string, unknown>>;
+      return { data: {
+        items: insertedItems.map((item) => ({ ...item, ...projections.find((projection) => projection.id === item.id) })),
+        version: { id: VERSION_ID, updated_at: NEXT_VERSION_UPDATED_AT, content_revision: 2 },
+        totals: args.p_version_patch,
+      }, error: null };
+    }
+    throw new Error(`Unexpected assembly RPC: ${name}`);
   });
 
   const supabase = {
@@ -2489,6 +2391,7 @@ function createAssemblyInsertSupabaseMock(input?: {
           select: vi.fn(() => laborRolesBuilder),
         };
       }
+      if (["feature_flags", "margin_tiers"].includes(table)) return { select: vi.fn(() => emptyDependencyBuilder) };
       if (table === "estimate_items") {
         return {
           update: vi.fn(() => estimateItemsUpdateBuilder),
@@ -2500,7 +2403,6 @@ function createAssemblyInsertSupabaseMock(input?: {
     rpc,
     __mocks: {
       estimateItemsUpdateIn,
-      estimateItemsSelectIn,
       assemblyItemsBuilder,
     },
   };
@@ -2740,11 +2642,9 @@ describe("estimate assemblies insertion", () => {
   });
 
   it("renormalise les lignes inserees au lieu de les laisser a 0 EUR", async () => {
-    const supabase = createAssemblyInsertSupabaseMock();
-    // Le RPC materialize_estimate_assembly_tree insere les totaux a 0.
-    supabase.__mocks.estimateItemsSelectIn.mockResolvedValueOnce({
-      data: [
-        { id: INSERTED_SECTION_ID, item_type: "section" },
+    // SQL materializes lines at zero; the real calculator must provide the projection.
+    const supabase = createAssemblyInsertSupabaseMock({
+      lineItems: [
         {
           id: INSERTED_LINE_ID,
           item_type: "line",
@@ -2762,7 +2662,6 @@ describe("estimate assemblies insertion", () => {
           line_total_ttc_cents: 0,
         },
       ],
-      error: null,
     });
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
@@ -2774,11 +2673,10 @@ describe("estimate assemblies insertion", () => {
 
     const line = result.items.find((item) => item.id === INSERTED_LINE_ID);
     // 10 x 25,00 EUR : la ligne ne doit plus valoir 0.
-    expect(line?.line_total_ht_cents).toBeGreaterThan(0);
-    expect(line?.pu_ht_cents).toBeGreaterThan(0);
-    expect(line?.line_total_ttc_cents).toBeGreaterThan(
-      line?.line_total_ht_cents ?? 0
-    );
+    expect(line?.line_total_ht_cents).toBe(25_000);
+    expect(line?.pu_ht_cents).toBe(2_500);
+    expect(line?.line_total_ttc_cents).toBe(30_000);
+    expect(result.totals).toEqual({ total_ht_cents: 25_000, total_tax_cents: 5_000, total_ttc_cents: 30_000 });
   });
 
   it("refuse d'inserer un ouvrage contenant de la main-d'oeuvre sans role", async () => {
@@ -2788,8 +2686,8 @@ describe("estimate assemblies insertion", () => {
     // Un composant labor sans role : son taux horaire (unit_cost_ht_cents)
     // n'aurait nulle part ou atterrir sur la ligne de devis, et tout le cout
     // MO serait perdu (ligne inseree a 0 EUR).
-    supabase.__mocks.assemblyItemsBuilder.is.mockResolvedValueOnce({
-      data: [{ id: "labor-1", title: "Pose cloison" }],
+    supabase.__mocks.assemblyItemsBuilder.in.mockResolvedValueOnce({
+      data: [{ id: "labor-1", title: "Pose cloison", cost_type: "labor", h_mo: 1, labor_role_id: null }],
       error: null,
     });
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
@@ -2812,7 +2710,7 @@ describe("estimate assemblies insertion", () => {
     );
   });
 
-  it("inserts assembly items and clears invalid labor roles", async () => {
+  it("returns inserted assembly items only after atomic financial confirmation", async () => {
     const supabase = createAssemblyInsertSupabaseMock({
       validLaborRoleIds: [],
     });
@@ -2832,7 +2730,13 @@ describe("estimate assemblies insertion", () => {
         p_after_item_id: ITEM_ID_1,
       })
     );
-    expect(supabase.__mocks.estimateItemsUpdateIn).toHaveBeenCalled();
+    expect(supabase.rpc).toHaveBeenCalledWith("finalize_estimate_assembly_calculation", expect.objectContaining({
+      p_draft_lock_session_id: LOCK_SESSION_ID,
+      p_expected_content_revision: 1,
+      p_inserted_item_ids: [INSERTED_SECTION_ID, INSERTED_LINE_ID],
+      p_version_patch: { total_ht_cents: 5000, total_tax_cents: 1000, total_ttc_cents: 6000 },
+    }));
+    expect(supabase.__mocks.estimateItemsUpdateIn).not.toHaveBeenCalled();
     expect(result.items).toEqual([
       expect.objectContaining({ id: INSERTED_SECTION_ID }),
       expect.objectContaining({ id: INSERTED_LINE_ID }),

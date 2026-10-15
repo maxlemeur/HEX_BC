@@ -1,3 +1,4 @@
+import ts from "typescript";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -38,6 +39,101 @@ function expectInstallStepsToHaveNoSecrets(workflow: string) {
     expect(step).not.toContain("secrets.");
     expect(step).not.toMatch(/^\s+env:/mu);
   }
+}
+
+// @e2e-dev/web >= 0.14: route.continue() sends the request straight to the
+// network, skipping every older route; route.fallback() hands it to the route
+// registered before. Routes run newest first, so an observer that ends in
+// continue() silently bypasses the campaign guard installed before it (origin
+// allowlist, send/status/email/approve/invite blocks, offer recipient,
+// lifecycle and labor-role admissions). Every journey keeps passing: a guard
+// only fails a test when it sees a forbidden request, so no E2E assertion can
+// notice that it no longer sees any. Failure modes covered here: an observer
+// or mock (inline, extracted, or in a *-support.ts / *-fixtures.ts helper)
+// ends in continue(); a guard file gains a continue() outside its guard; a
+// guard scope gains a second catch-all; an allowlisted guard disappears.
+// Only the final allow decision of a guard that is the oldest route for its
+// requests may call continue(). Keyed by file | enclosing scopes | route
+// pattern, with the exact number of calls.
+const ARMY_ROUTE_GUARD_CONTINUES: Record<string, number> = {
+  "e2e/army/anonymous-login.e2e.ts | beforeEach | **/*": 1,
+  "e2e/army/public-navigation.e2e.ts | beforeEach | **/*": 1,
+  "e2e/army/critical/access-boundaries.e2e.ts | test | **/*": 1,
+  "e2e/army/critical/fixtures.ts | restrictCriticalBrowser | **/*": 1,
+  "e2e/army/local/brief-evidence.e2e.ts | test | **/*": 1,
+  "e2e/army/local/offer-emission-fixtures.ts | restrictOfferBrowser | **/*": 1,
+  "e2e/army/local/purchase-decimals.e2e.ts | fixture | **/*": 1,
+  "e2e/army/local/purchase-draft-eligibility.e2e.ts | test | **/*": 1,
+  "e2e/army/local/purchase-preparation.e2e.ts | campaign | **/*": 1,
+  "e2e/army/local/purchase-readiness.e2e.ts | readinessTestFor > fixture | **/*": 1,
+  "e2e/army/local/resend-portal-fixtures.ts | restrictOfferBrowser | **/*": 1,
+  "e2e/army/performance/editor-grid.e2e.ts | test | **/*": 1,
+};
+
+type RouteContinueSite = { site: string; key: string; scope: string; pattern: string };
+
+function scopeName(node: ts.Node): string | undefined {
+  if (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) {
+    return node.name?.getText() ?? "<anonymous>";
+  }
+  if (!ts.isArrowFunction(node) && !ts.isFunctionExpression(node)) return undefined;
+  const parent = node.parent;
+  if (ts.isVariableDeclaration(parent) || ts.isPropertyAssignment(parent)) {
+    return parent.name.getText();
+  }
+  if (ts.isCallExpression(parent)) {
+    const callee = parent.expression;
+    return ts.isPropertyAccessExpression(callee) ? callee.name.text : callee.getText();
+  }
+  return "<anonymous>";
+}
+
+// The pattern of the browser.route() call this function is the handler of.
+function routePattern(handler: ts.Node): string | undefined {
+  const call = handler.parent;
+  if (!call || !ts.isCallExpression(call) || call.arguments[1] !== handler) return undefined;
+  const callee = call.expression;
+  const pattern = call.arguments[0];
+  if (!ts.isPropertyAccessExpression(callee) || callee.name.text !== "route" || !pattern) {
+    return undefined;
+  }
+  return ts.isStringLiteralLike(pattern) ? pattern.text : pattern.getText();
+}
+
+function armyRouteContinueSites(): RouteContinueSite[] {
+  const files = fs
+    .readdirSync(path.join(root, "e2e", "army"), { recursive: true, encoding: "utf8" })
+    .filter((name) => /\.[cm]?[jt]sx?$/u.test(name))
+    .map((name) => path.posix.join("e2e/army", name.split(path.sep).join("/")))
+    .sort();
+  expect(files.length).toBeGreaterThan(0);
+
+  return files.flatMap((file) => {
+    const source = ts.createSourceFile(file, read(file), ts.ScriptTarget.Latest, true);
+    const sites: RouteContinueSite[] = [];
+    const visit = (node: ts.Node) => {
+      if (
+        ts.isCallExpression(node) &&
+        ts.isPropertyAccessExpression(node.expression) &&
+        node.expression.name.text === "continue"
+      ) {
+        let handler: ts.Node = node.parent;
+        while (!ts.isFunctionLike(handler) && !ts.isSourceFile(handler)) handler = handler.parent;
+        const scopes: string[] = [];
+        for (let ancestor: ts.Node | undefined = handler.parent; ancestor; ancestor = ancestor.parent) {
+          const name = scopeName(ancestor);
+          if (name) scopes.unshift(name);
+        }
+        const scope = scopes.join(" > ") || "<module>";
+        const pattern = routePattern(handler) ?? "<not a route handler>";
+        const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
+        sites.push({ site: `${file}:${line}`, key: `${file} | ${scope} | ${pattern}`, scope, pattern });
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+    return sites;
+  });
 }
 
 describe("CI and local quality guardrails", () => {
@@ -168,5 +264,28 @@ describe("CI and local quality guardrails", () => {
 
     expect(workflow).not.toMatch(/^\s{2}workflow_dispatch:/mu);
     expect(workflow).toContain('branches: ["main"]');
+  });
+  it("keeps every TesterArmy campaign guard on the path of the routes registered after it", () => {
+    const grouped = new Map<string, RouteContinueSite[]>();
+    for (const site of armyRouteContinueSites()) {
+      grouped.set(site.key, [...(grouped.get(site.key) ?? []), site]);
+    }
+
+    const offenders = [...grouped]
+      .filter(([key, sites]) => sites.length > (ARMY_ROUTE_GUARD_CONTINUES[key] ?? 0))
+      .flatMap(([, sites]) => sites)
+      .sort((a, b) => a.site.localeCompare(b.site, "en", { numeric: true }))
+      .map(({ site, scope, pattern }) => `${site} (in ${scope}, route ${pattern})`);
+    const staleGuards = Object.entries(ARMY_ROUTE_GUARD_CONTINUES)
+      .filter(([key, count]) => (grouped.get(key)?.length ?? 0) < count)
+      .map(([key]) => key);
+
+    expect(
+      { offenders, staleGuards },
+      "@e2e-dev/web >=0.14 route.continue() skips older routes (campaign guards); " +
+        "use route.fallback() in observers. Only the final allow decision of a guard " +
+        "that is the oldest route for its requests may call continue() " +
+        "(ARMY_ROUTE_GUARD_CONTINUES)."
+    ).toEqual({ offenders: [], staleGuards: [] });
   });
 });

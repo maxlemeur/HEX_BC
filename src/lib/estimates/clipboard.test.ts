@@ -74,7 +74,7 @@ describe("clipboard number parsing", () => {
     expect(parseClipboardNumber("1.234,56")).toBeCloseTo(1234.56, 6);
     expect(parseClipboardNumber("€2'345.70")).toBeCloseTo(2345.7, 6);
     expect(parseClipboardNumber("(1 234,5)")).toBeCloseTo(-1234.5, 6);
-    expect(parseClipboardNumber("1,234")).toBeCloseTo(1234, 6);
+    expect(parseClipboardNumber("1,234")).toBeNull();
   });
 
   it("returns null for invalid number inputs", () => {
@@ -148,9 +148,9 @@ describe("parseClipboardNumber - T16 : l'ambiguite se tranche par le domaine", (
   // et les espaces sont retires en amont. Ce qui discrimine, c'est le nombre de
   // decimales que le domaine autorise.
   it("money : trois chiffres = milliers (un montant a deux decimales)", () => {
-    expect(parseClipboardNumber("2,500", "money")).toBeCloseTo(2500, 6);
-    expect(parseClipboardNumber("2.500", "money")).toBeCloseTo(2500, 6);
-    expect(parseClipboardNumber("1,234", "money")).toBeCloseTo(1234, 6);
+    expect(parseClipboardNumber("2,500", "money")).toBe(2.5);
+    expect(parseClipboardNumber("2.500", "money")).toBeNull();
+    expect(parseClipboardNumber("1,234", "money")).toBeNull();
   });
 
   it("quantity : trois chiffres = decimales (tonnes, m³, coefficients)", () => {
@@ -158,7 +158,7 @@ describe("parseClipboardNumber - T16 : l'ambiguite se tranche par le domaine", (
     // 2500 t. Un facteur mille, en silence, sur un collage en masse.
     expect(parseClipboardNumber("2,500", "quantity")).toBeCloseTo(2.5, 6);
     expect(parseClipboardNumber("1,750", "quantity")).toBeCloseTo(1.75, 6);
-    expect(parseClipboardNumber("2.500", "quantity")).toBeCloseTo(2.5, 6);
+    expect(parseClipboardNumber("2.500", "quantity")).toBeNull();
     // Un coefficient k_fo a 1,050 devenait 1050.
     expect(parseClipboardNumber("1,050", "quantity")).toBeCloseTo(1.05, 6);
   });

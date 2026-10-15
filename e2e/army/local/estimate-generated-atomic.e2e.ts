@@ -114,10 +114,10 @@ for (const label of ["existing", "fallback"]) {
           versionId: body.versionId, operationKey: body.operationKey, expectedUpdatedAt: body.expectedUpdatedAt,
           sessionPresent: typeof body.draftLockSessionId === "string" });
       }
-      await route.continue();
+      await route.fallback();
     });
     const bulkUrl = new URL(`/api/estimates/${s.versionId}/items/bulk`, app.baseUrl!).href;
-    await browser.route(bulkUrl, async (route) => { repairs.push({ path: new URL(route.request.url).pathname, method: route.request.method }); await route.continue(); });
+    await browser.route(bulkUrl, async (route) => { repairs.push({ path: new URL(route.request.url).pathname, method: route.request.method }); await route.fallback(); });
     try {
       await app.open(new URL(editorUrl).pathname);
       await expect(screen.getByLabel(`Quantité pour WFC02 ${label} A`, { exact: true })).toBeEnabled();

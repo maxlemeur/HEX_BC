@@ -1,10 +1,9 @@
 import { createHash } from "node:crypto";
-import { readFile, readdir } from "node:fs/promises";
-import path from "node:path";
+import { readFile } from "node:fs/promises";
 import ExcelJS from "exceljs";
 import { test } from "@e2e-dev/web";
 import { expect } from "e2e";
-import { readEstimate, recordEvidence, restrictCriticalBrowser } from "../critical/fixtures";
+import { readEstimate, recordEvidence, resolveDownload, restrictCriticalBrowser } from "../critical/fixtures";
 
 // Failure oracle documented before implementation in
 // docs/testing/generated-ouvrage-resume.md: position,id differs from UUID order.
@@ -44,10 +43,8 @@ test("canonical save uses publication line order for discount allocation and exa
   expect([reloaded.version.total_ht_cents, reloaded.version.total_tax_cents, reloaded.version.total_ttc_cents]).toEqual([5, 0, 5]);
   await screen.getByRole("button", "Exporter", { exact: true }).tap();
   const download = await browser.waitForDownload(() => screen.getByRole("button", "Excel (.xlsx)", { exact: true }).tap(), { timeout: 45_000 });
-  const root = path.resolve(process.env.E2E_ARMY_ARTIFACT_ROOT!);
-  const matches = (await readdir(root, { recursive: true })).filter((entry) => entry.split(path.sep).join("/").endsWith(`/${download.path}`) || entry.split(path.sep).join("/") === download.path);
-  expect(matches).toHaveLength(1);
-  const absolutePath = path.resolve(root, matches[0]);
+  // Anchored to this run's <seg>/[rerun-<n>/]attempt-<n>/ directory, like the critical exports.
+  const absolutePath = await resolveDownload(download);
   const bytes = await readFile(absolutePath), workbook = new ExcelJS.Workbook(); await workbook.xlsx.readFile(absolutePath);
   const summary = workbook.getWorksheet("Resume"); expect(Boolean(summary)).toBe(true);
   const footer: Record<string, ExcelJS.CellValue> = {};
@@ -75,9 +72,7 @@ test("canonical save uses publication line order for discount allocation and exa
   expect(reordered.items.filter((i) => i.item_type === "line").sort((a, b) => a.position - b.position).map((i) => [i.id, i.position])).toEqual([[f.lineB, 1], [f.lineA, 2]]);
   await screen.getByRole("button", "Exporter", { exact: true }).tap();
   const swappedDownload = await browser.waitForDownload(() => screen.getByRole("button", "Excel (.xlsx)", { exact: true }).tap(), { timeout: 45_000 });
-  const swappedMatches = (await readdir(root, { recursive: true })).filter((entry) => entry.split(path.sep).join("/").endsWith(`/${swappedDownload.path}`) || entry.split(path.sep).join("/") === swappedDownload.path);
-  expect(swappedMatches).toHaveLength(1);
-  const swappedPath = path.resolve(root, swappedMatches[0]), swappedBytes = await readFile(swappedPath), swappedWorkbook = new ExcelJS.Workbook();
+  const swappedPath = await resolveDownload(swappedDownload), swappedBytes = await readFile(swappedPath), swappedWorkbook = new ExcelJS.Workbook();
   await swappedWorkbook.xlsx.readFile(swappedPath);
   const swappedFooter: Record<string, ExcelJS.CellValue> = {};
   swappedWorkbook.getWorksheet("Resume")!.eachRow((row) => { swappedFooter[row.getCell(1).text] = row.getCell(2).value; });

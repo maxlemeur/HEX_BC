@@ -5,7 +5,7 @@ import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { fileURLToPath } from "node:url";
 import { loadCoverageProfile } from "./coverage-profile.mjs";
-import { buildCommands } from "./local-recipe-common.mjs";
+import { buildCommands, sdkEvidenceDirectory } from "./local-recipe-common.mjs";
 import { assertCctpPrivateBytes, cctpScenarioNames, inspectCctpWorkbook, redactCctpMetadata, validateCctpResults, validateCctpScenarios, verifyCctpWorkbookValues } from "./cctp-reader-support.mjs";
 
 const root = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
@@ -88,10 +88,11 @@ try {
     locations.add(file); check(await sha(file) === entry.sha256, "artifact-sha");
   }
   check(files.every((file) => file === path.join(run, "manifest.json") || locations.has(file)), "complete-archive-inventory");
-  const downloads = [];
+  const downloads = [], evidenceDirectory = sdkEvidenceDirectory(report), sdkEvidence = path.join(run, evidenceDirectory);
+  check(true, "identified-sdk-evidence-directory");
   for (const result of report.run.results) for (const artifact of result.attempts[0].artifacts ?? []) {
     check(typeof artifact.path === "string" && !path.isAbsolute(artifact.path) && digest.test(artifact.sha256) && !["trace", "video"].includes(artifact.kind), "safe-report-artifact");
-    const file = await owned(path.join(run, "artifacts", artifact.path), path.join(run, "artifacts"));
+    const file = await owned(path.join(sdkEvidence, artifact.path), sdkEvidence);
     check(locations.has(file), "report-artifact-inventoried"); same(await sha(file), artifact.sha256, "report-artifact-sha");
     same((await lstat(file)).size, artifact.size, "report-artifact-size");
     if (artifact.kind === "download") downloads.push({ ...artifact, file });
@@ -158,7 +159,7 @@ try {
     same(captured.map((e) => e.mode), ["standard", "dpgf"], `two-export-modes-${name}-${label}`);
     for (const entry of captured) {
       check(typeof entry.path === "string" && digest.test(entry.sha256), "captured-workbook-shape");
-      const matching = downloads.filter((d) => entry.path.replaceAll("\\", "/") === path.join(root, ".e2e/army/coverage/artifacts", d.path).replaceAll("\\", "/"));
+      const matching = downloads.filter((d) => entry.path.replaceAll("\\", "/") === path.join(root, ".e2e/army/coverage", evidenceDirectory, d.path).replaceAll("\\", "/"));
       check(matching.length === 1 && !parsedDownloads.has(matching[0].file), "one-owned-download-per-capture");
       const download = matching[0]; same(entry.sha256, download.sha256, "workbook-captured-sha");
       const sheets = await inspectCctpWorkbook(await readFile(download.file), entry.sheets, forbidden);

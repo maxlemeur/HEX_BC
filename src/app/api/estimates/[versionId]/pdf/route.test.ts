@@ -23,9 +23,11 @@ import {
   markEstimatePdfProcessing,
 } from "@/lib/estimates/pdf-generator";
 import { forbidden } from "@/lib/estimates/errors";
+import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
 import { after } from "next/server";
 
 const VERSION_ID = "11111111-1111-4111-8111-111111111111";
+const LOCK_SESSION_ID = "33333333-3333-4333-8333-333333333333";
 const PUBLICATION_CLAIM = {
   token: "22222222-2222-4222-8222-222222222222",
   purpose: "manual" as const,
@@ -48,6 +50,7 @@ describe("estimate pdf route", () => {
 
     const request = new Request(`http://localhost/api/estimates/${VERSION_ID}/pdf`, {
       method: "POST",
+      headers: { [ESTIMATE_DRAFT_LOCK_SESSION_HEADER]: LOCK_SESSION_ID },
     });
 
     const response = await POST(request, {
@@ -64,7 +67,7 @@ describe("estimate pdf route", () => {
         }),
       })
     );
-    expect(vi.mocked(markEstimatePdfProcessing)).toHaveBeenCalledWith(VERSION_ID);
+    expect(vi.mocked(markEstimatePdfProcessing)).toHaveBeenCalledWith(VERSION_ID, LOCK_SESSION_ID);
     expect(vi.mocked(after)).toHaveBeenCalledTimes(1);
   });
 

@@ -31,6 +31,16 @@ export function requireValue(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+// Report artifact paths are relative to the run's SDK evidence directory:
+// <output>/results since e2e 0.20 (downloads, screenshots, trace.md pages),
+// <output>/artifacts before. An unidentified runner is not readable evidence.
+export function sdkEvidenceDirectory(report) {
+  const runner = report?.run?.runner;
+  const version = runner?.name === "e2e" && typeof runner.version === "string" ? /^(\d+)\.(\d+)\.\d+/.exec(runner.version) : null;
+  requireValue(version, "Report runner identity is required to locate its evidence.");
+  return Number(version[1]) > 0 || Number(version[2]) >= 20 ? "results" : "artifacts";
+}
+
 export function assertRecipeHost() {
   requireValue(process.cwd() === repositoryRoot && /^v24\./.test(process.version), "Run from the repository root with Node 24.");
 }

@@ -11,6 +11,8 @@ export function validateComponentResults(report, selection) {
   for (const k of ["id", "testId"]) requireValue(new Set(report.run.results.map((r) => r[k])).size === count, "Unique component result identities required.");
   requireValue(["discovered", "selected", "executed"].every((k) => report.run.summary[k] === count) && report.run.summary.passed === count - Number(red) &&
     report.run.summary.failed === Number(red) && report.run.summary.skipped === 0 && report.run.summary.flaky === 0 &&
+    // e2e 0.20 counts interrupted tests apart; earlier reports counted them as failed.
+    (report.run.summary.interrupted ?? 0) === 0 &&
     report.run.exitCode === Number(red) && report.run.usage.modelTokens === 0 && report.run.usage.maxModelCallsInStep === 0 &&
     report.run.usage.downloads === (red ? 0 : selection === "entry" ? 4 : 6), "Executed component outcomes/model/downloads differ.");
   for (const [i, r] of report.run.results.entries()) {

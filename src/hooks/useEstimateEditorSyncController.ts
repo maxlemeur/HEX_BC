@@ -3,14 +3,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
+import type { AutoSaveResult } from "@/hooks/useAutoSave";
 import {
-  isSaveShortcutKey,
-  resolveAutoSaveStatusLabel,
-  useAutoSave,
-  type AutoSaveResult,
-  type AutoSaveStatus,
-  type AutoSaveReason,
-} from "@/hooks/useAutoSave";
+  deferEffectStateUpdate,
+  useEstimateEditorAutoSave,
+} from "@/hooks/useEstimateEditorAutoSave";
 import { useAutoSaveNavigationGuard } from "@/hooks/useAutoSaveNavigationGuard";
 import { useDraftLock } from "@/hooks/useDraftLock";
 import { useEstimateBatchRecovery } from "@/hooks/useEstimateBatchRecovery";
@@ -31,10 +28,8 @@ import {
 import {
   clearAutoSaveDraftFromLocal,
   clearConflictDraftFromSession,
-  readAutoSaveEnabledPreferenceFromLocal,
   readAutoSaveDraftFromLocal,
   readConflictDraftFromSession,
-  writeAutoSaveEnabledPreferenceToLocal,
   writeAutoSaveDraftToLocal,
   writeConflictDraftToSession,
 } from "@/lib/estimates/editor-drafts";
@@ -55,9 +50,7 @@ import {
 } from "@/lib/estimates/editor-items";
 
 import {
-  AUTOSAVE_DEBOUNCE_MS,
   AUTOSAVE_IMMEDIATE_FLUSH_UPDATES,
-  AUTOSAVE_MAX_WAIT_MS,
   type EstimateEditorConflictDraft,
   type EstimateEditorConflictState,
   type EstimateEditorSyncController,
@@ -69,23 +62,6 @@ export type {
   EstimateEditorConflictState,
   EstimateEditorSyncController,
 };
-
-function deferEffectStateUpdate(
-  update: () => void | (() => void)
-): () => void {
-  let isActive = true;
-  let cleanup: void | (() => void);
-
-  queueMicrotask(() => {
-    if (!isActive) return;
-    cleanup = update();
-  });
-
-  return () => {
-    isActive = false;
-    if (cleanup) cleanup();
-  };
-}
 
 function isVersionConflictError(error: unknown) {
   return (
@@ -130,9 +106,6 @@ export function useEstimateEditorSyncController({
   const [readRequiredMessage, setReadRequiredMessage] = useState<string | null>(null);
   const [recoveryReloadMessage, setRecoveryReloadMessage] = useState<string | null>(null);
   const [isRecoveringRead, setIsRecoveringRead] = useState(false);
-  const [isAutoSaveEnabled, setIsAutoSaveEnabledState] = useState(() =>
-    readAutoSaveEnabledPreferenceFromLocal(currentUserId)
-  );
   const [conflict, setConflict] =
     useState<EstimateEditorConflictState | null>(null);
   const conflictMessageRef = useRef<string | null>(null);
@@ -146,7 +119,6 @@ export function useEstimateEditorSyncController({
   >(new Map());
   const pendingBufferedUpdateCountRef = useRef(0);
   const hasPendingTotalsSaveRef = useRef(false);
-  const isAutoSaveEnabledRef = useRef(isAutoSaveEnabled);
   const savePendingSettingsRef = useRef(savePendingSettings);
   const isFlushingBufferedUpdatesRef = useRef(false);
   const flushCompletionRef = useRef<Promise<void> | null>(null);
@@ -202,33 +174,8 @@ export function useEstimateEditorSyncController({
   }, [currentTenantId, currentUserId, routeVersionId]);
 
   useLayoutEffect(() => {
-    isAutoSaveEnabledRef.current = isAutoSaveEnabled;
-  }, [isAutoSaveEnabled]);
-
-  useLayoutEffect(() => {
     savePendingSettingsRef.current = savePendingSettings;
   }, [savePendingSettings]);
-
-  useEffect(() => {
-    const storedPreference =
-      readAutoSaveEnabledPreferenceFromLocal(currentUserId);
-    isAutoSaveEnabledRef.current = storedPreference;
-    setIsAutoSaveEnabledState(storedPreference);
-  }, [currentUserId]);
-
-  const setAutoSaveEnabled = useCallback(
-    (enabled: boolean) => {
-      isAutoSaveEnabledRef.current = enabled;
-      setIsAutoSaveEnabledState(enabled);
-      writeAutoSaveEnabledPreferenceToLocal(currentUserId, enabled);
-      reportNotice(
-        enabled
-          ? "Sauvegarde automatique activée."
-          : "Sauvegarde automatique désactivée. Utilisez « Sauvegarder maintenant » ou Ctrl+S pour synchroniser vos modifications."
-      );
-    },
-    [currentUserId, reportNotice]
-  );
 
   const updateHasPendingTotalsSave = useCallback((value: boolean) => {
     hasPendingTotalsSaveRef.current = value;
@@ -749,20 +696,6 @@ export function useEstimateEditorSyncController({
     triggerVersionReload();
   }, [isDraftLockOwnedByCurrentUser, isDraftVersion, triggerVersionReload]);
 
-  useEffect(() => {
-    if (!hasPendingSettingsChanges && !isSavingSettings) return;
-
-    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = "";
-    };
-
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => {
-      window.removeEventListener("beforeunload", handleBeforeUnload);
-    };
-  }, [hasPendingSettingsChanges, isSavingSettings]);
-
   const flushBufferedItemUpdates = useCallback(async (forceTotals = false): Promise<AutoSaveResult> => {
     if (forceTotals && restorableDraft && !restoredConflictDraftRef.current) {
       return "blocked";
@@ -1017,127 +950,43 @@ export function useEstimateEditorSyncController({
 
   const hasPendingAutoSaveChanges =
     hasPendingBufferedUpdates || hasPendingTotalsSave;
-  const saveAutoSaveChanges = useCallback(
-    (reason: AutoSaveReason) => flushBufferedItemUpdates(
-      reason === "manual" && allowManualTotalsReconciliation && !restorableDraft
-    ),
-    [allowManualTotalsReconciliation, flushBufferedItemUpdates, restorableDraft]
-  );
-  const {
-    status: rawAutoSaveStatus,
-    statusLabel: rawAutoSaveStatusLabel,
-    isSaving: isAutoSaveSaving,
-    isOnline,
-    lastSavedAt,
-    flushNow: flushAutoSaveNow,
-    scheduleSave: scheduleAutoSave,
-  } = useAutoSave({
-    enabled: Boolean(
-      routeVersionId && hasMatchingActiveVersion && !isSaveBlocked
-    ),
-    automaticEnabled: isAutoSaveEnabled,
-    hasPendingChanges: hasPendingAutoSaveChanges,
-    allowManualSaveWithoutChanges: allowManualTotalsReconciliation && isDraftVersion && !restorableDraft,
-    debounceMs: AUTOSAVE_DEBOUNCE_MS,
-    maxWaitMs: AUTOSAVE_MAX_WAIT_MS,
-    enableShortcut: !hasPendingSettingsChanges,
-    onSave: saveAutoSaveChanges,
-  });
-
-  // La cadence automatique est d'une minute : une modification en attente ne
-  // doit pas suivre l'utilisateur qui quitte l'onglet ou la page.
-  useEffect(() => {
-    if (!routeVersionId) return;
-
-    const flushBeforeLeaving = () => {
-      if (isSaveBlockedRef.current) return;
-      if (
-        pendingItemUpdatesRef.current.size === 0 &&
-        !hasPendingTotalsSaveRef.current
-      ) {
-        return;
-      }
-      void flushAutoSaveNow();
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState !== "hidden") return;
-      flushBeforeLeaving();
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener("pagehide", flushBeforeLeaving);
-
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.removeEventListener("pagehide", flushBeforeLeaving);
-    };
-  }, [flushAutoSaveNow, routeVersionId]);
-
-  useEffect(() => {
-    if (!routeVersionId || !hasPendingSettingsChanges) return;
-
-    const handleSettingsSaveShortcut = (event: KeyboardEvent) => {
-      if (!isSaveShortcutKey(event)) return;
-      event.preventDefault();
-      if (isSavingSettings) return;
-      void savePendingSettingsRef.current();
-    };
-
-    window.addEventListener("keydown", handleSettingsSaveShortcut);
-    return () => {
-      window.removeEventListener("keydown", handleSettingsSaveShortcut);
-    };
-  }, [hasPendingSettingsChanges, isSavingSettings, routeVersionId]);
-
   const hasPendingChanges =
     hasPendingAutoSaveChanges || hasPendingSettingsChanges || hasPendingMutations;
-  const autoSaveStatus = useMemo<AutoSaveStatus>(() => {
-    if (isSaveBlocked) return "blocked";
-    if (!isOnline && hasPendingChanges) return "offline";
-    if (isAutoSaveSaving || isSavingSettings || hasPendingMutations) return "saving";
-    if (hasPendingSettingsChanges || restorableDraft) return "pending";
-    return rawAutoSaveStatus;
-  }, [
+  const {
+    autoSaveStatus,
+    autoSaveStatusLabel,
+    isAutoSaveSaving,
+    isOnline,
+    lastSavedAt,
+    flushAutoSaveNow,
+    scheduleAutoSave,
+    isAutoSaveEnabled,
+    isAutoSaveEnabledRef,
+    setAutoSaveEnabled,
+  } = useEstimateEditorAutoSave({
+    routeVersionId,
+    currentUserId,
+    reportNotice,
+    hasMatchingActiveVersion,
+    isSaveBlocked,
+    isSaveBlockedRef,
+    hasPendingAutoSaveChanges,
     hasPendingChanges,
     hasPendingSettingsChanges,
     hasPendingMutations,
-    restorableDraft,
-    isAutoSaveSaving,
-    isOnline,
-    isSaveBlocked,
     isSavingSettings,
-    rawAutoSaveStatus,
-  ]);
-  const autoSaveStatusLabel = useMemo(() => {
-    if (autoSaveStatus === "blocked") {
-      if (readRequiredMessage || recoveryReloadMessage) return "Résultat à vérifier";
-      if (batchRecovery.blocked) return "Résultat à vérifier";
-      if (isConflictLocked) return "Conflit";
-      if (isDraftLockedByOther) return "Verrouillé";
-      if (isDraftLockPending) return "Connexion…";
-      return "Lecture seule";
-    }
-    if (autoSaveStatus === "pending" && restorableDraft) return "Brouillon à restaurer";
-    if (autoSaveStatus === "pending" && hasPendingSettingsChanges) {
-      return "Non sauvegardé";
-    }
-    return autoSaveStatus === rawAutoSaveStatus
-      ? rawAutoSaveStatusLabel
-      : resolveAutoSaveStatusLabel(autoSaveStatus);
-  }, [
-    autoSaveStatus,
-    readRequiredMessage,
-    recoveryReloadMessage,
-    batchRecovery.blocked,
-    hasPendingSettingsChanges,
-    restorableDraft,
+    allowManualTotalsReconciliation,
+    isDraftVersion,
+    restorableDraft: Boolean(restorableDraft),
+    flushBufferedItemUpdates,
+    pendingItemUpdatesRef,
+    hasPendingTotalsSaveRef,
+    savePendingSettingsRef,
+    requiresReadVerification: Boolean(readRequiredMessage || recoveryReloadMessage || batchRecovery.blocked),
     isConflictLocked,
-    isDraftLockPending,
     isDraftLockedByOther,
-    rawAutoSaveStatus,
-    rawAutoSaveStatusLabel,
-  ]);
+    isDraftLockPending,
+  });
 
   const handleBlockedNavigation = useCallback(() => {
     reportError(
@@ -1207,7 +1056,7 @@ export function useEstimateEditorSyncController({
 
       scheduleAutoSave();
     },
-    [flushAutoSaveNow, persistBufferedItemUpdatesToLocal, scheduleAutoSave]
+    [flushAutoSaveNow, isAutoSaveEnabledRef, persistBufferedItemUpdatesToLocal, scheduleAutoSave]
   );
 
   const restoreConflictDraft = useCallback(() => {

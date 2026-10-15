@@ -207,7 +207,7 @@ test("source reference UI prepares and confirms A then B with exact PDF bytes an
     const url = new URL(route.request.url);
     if (url.origin !== new URL(app.baseUrl!).origin) throw new Error("Source route escaped the local application");
     requests.push({ method: route.request.method, pathname: url.pathname + url.search, body: route.request.postData ? JSON.parse(route.request.postData) : null });
-    await route.continue();
+    await route.fallback();
   });
   await installProbe(browser, base, true);
   const current = screen.getByRole("region", "Référence actuelle", { exact: true });

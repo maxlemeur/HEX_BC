@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile, readdir } from "node:fs/promises";
-import path from "node:path";
+import { readFile } from "node:fs/promises";
 
 import ExcelJS from "exceljs";
 import { expect } from "e2e";
@@ -13,6 +12,7 @@ import {
   ownEstimate,
   readEstimate,
   recordEvidence,
+  resolveDownload,
   setLineCoreValues,
   waitForAutoSave,
   type ArmyEstimate,
@@ -175,17 +175,9 @@ function matchingRows(sheet: ExcelJS.Worksheet, titleColumn: number, title: stri
   return rows[0];
 }
 
-async function downloadedWorkbook(download: { path: string; suggestedFilename: string }) {
-  // The SDK path is relative to the attempt's artifacts directory. Its filename
-  // contains the unique ARMY project, so resolve that exact retained download.
-  const artifactRoot = path.resolve(".e2e/army/critical/artifacts");
-  const entries = await readdir(artifactRoot, { recursive: true });
-  const matches = entries.filter((entry) => {
-    const normalized = entry.split(path.sep).join("/");
-    return normalized === download.path || normalized.endsWith(`/${download.path}`);
-  });
-  expect(matches, "SDK download must resolve to exactly one retained artifact").toHaveLength(1);
-  const absolutePath = path.resolve(artifactRoot, matches[0]);
+async function downloadedWorkbook(download: { path: string; absolutePath: string; suggestedFilename: string }) {
+  // Read the exact SDK download, after checking its current-run containment.
+  const absolutePath = await resolveDownload(download);
   const bytes = await readFile(absolutePath);
   expect(download.suggestedFilename).toMatch(/\.xlsx$/i);
   expect(Array.from(bytes.subarray(0, 4))).toEqual([0x50, 0x4b, 0x03, 0x04]);

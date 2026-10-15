@@ -18,13 +18,20 @@ const helperPath = path.join(root, "scripts/tester-army/setup-failure-archive.mj
 const helperBytes = await readFile(helperPath).catch((error) => { if (error.code === "ENOENT") return null; throw error; });
 const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => /^(PATH|PATHEXT|SYSTEMROOT|WINDIR|TEMP|TMP|HOME|USERPROFILE)$/i.test(key)));
 const secret = "synthetic-setup-password-a75a2df7";
+// What the fixture CLI plants in the 0.20 app log, navigation events and trace page.
+const browserLeaks = ["aGFybmVzcy1zaWduYXR1cmU", "eyJzdWIiOiJoYXJuZXNz", "opaque-console-token", "pkce-harness-secret", "hash-harness-secret", "refresh-harness-secret", "json-harness-secret", secret, "current-token"];
 const results = [];
 
+// Mirrors the e2e 0.20 output layout: the SDK empties results/ when tests start,
+// files each test under results/<file>-<title>-<id16>/ (attempt-<n>/ evidence,
+// trace.md beside it) and never touches the journeys' artifacts/.
 const fixtureCli = `
 const fs = require("node:fs/promises");
 const path = require("node:path");
 (async () => {
-  const output = path.join(process.cwd(), ".e2e/army/coverage");
+  const critical = process.env.E2E_ARMY_SUITE === "critical";
+  const output = path.join(process.cwd(), ".e2e/army", critical ? "critical" : "coverage");
+  if (process.argv[2] === "list") { process.stdout.write(JSON.stringify({pairs:[]})); return; }
   const manifest = JSON.parse(await fs.readFile(path.join(output,"manifest.json"),"utf8"));
   const scenario = process.env.HARNESS_SCENARIO;
   if (scenario === "collision") {
@@ -36,16 +43,45 @@ const path = require("node:path");
   if (!["no-logs","source-link","destination-link","log-link"].includes(scenario)) {
     await fs.mkdir(path.join(output,"logs"),{recursive:true});
     await fs.appendFile(path.join(output,"logs/app.log"),"CURRENT "+process.env.E2E_LOGIN_PASSWORD+" Bearer arbitrary-token?token=current-token\\n");
-    await fs.writeFile(process.env.E2E_COVERAGE_NETWORK_LOG,JSON.stringify({kind:"current-network",password:process.env.E2E_LOGIN_PASSWORD})+"\\n");
+    if (process.env.E2E_COVERAGE_NETWORK_LOG) await fs.writeFile(process.env.E2E_COVERAGE_NETWORK_LOG,JSON.stringify({kind:"current-network",password:process.env.E2E_LOGIN_PASSWORD})+"\\n");
   }
   process.stdout.write("setup stdout "+process.env.E2E_LOGIN_PASSWORD+"\\n");
   process.stdout.write(JSON.stringify({details:JSON.stringify({session_id:"11111111-2222-4333-8444-555555555555"})})+"\\n");
   process.stderr.write("setup stderr Bearer opaque-current-token\\n");
   if (scenario === "large-output") process.stdout.write("current-line\\n".repeat(900000));
-  if (scenario === "fresh") {
-    const results=[{file:"e2e/army/critical/auth.setup.e2e.ts",titlePath:["fixture auth report"],targetId:"chromium-desktop",status:"passed"},{file:"e2e/army/local/fixture.e2e.ts",titlePath:["fixture business report"],targetId:"chromium-desktop",status:"passed"}];
-    await fs.mkdir(path.join(output,"artifacts"),{recursive:true}); await fs.writeFile(path.join(output,"artifacts/current.json"),"{\\"scope\\":\\"harness-only\\"}\\n");
-    await fs.writeFile(path.join(output,"report.json"),JSON.stringify({run:{startedAt:new Date().toISOString(),status:"passed",results,summary:{discovered:2,selected:2,executed:2,passed:2,failed:0,skipped:0,flaky:0},usage:{modelTokens:0,maxModelCallsInStep:0}}}));
+  if (scenario === "fresh" || scenario.startsWith("critical-") || scenario === "coverage-leaks") {
+    const sdk = path.join(output,"results");
+    if (path.resolve(process.env.E2E_ARMY_ARTIFACT_ROOT || ".") !== sdk) { process.exitCode=4; return; }
+    await fs.rm(sdk,{recursive:true,force:true});
+    const attempt = async (segment) => { const dir = path.join(sdk,segment,"attempt-1"); await fs.mkdir(dir,{recursive:true}); return dir; };
+    const at = new Date().toISOString();
+    if (scenario === "fresh") {
+      const results=[{file:"e2e/army/critical/auth.setup.e2e.ts",titlePath:["fixture auth report"],targetId:"chromium-desktop",status:"passed"},{file:"e2e/army/local/fixture.e2e.ts",titlePath:["fixture business report"],targetId:"chromium-desktop",status:"passed"}];
+      await attempt("auth-setup-fixture-auth-report-0000000000000001");
+      const business = await attempt("fixture-fixture-business-report-0000000000000002");
+      await fs.mkdir(path.join(business,"downloads")); await fs.writeFile(path.join(business,"downloads/001-export.xlsx"),"PK harness-only download\\n");
+      await fs.mkdir(path.join(output,"artifacts/business"),{recursive:true}); await fs.writeFile(path.join(output,"artifacts/business/ARMY-HARNESS-current.json"),"{\\"scope\\":\\"harness-only\\"}\\n");
+      await fs.writeFile(path.join(output,"report.json"),JSON.stringify({run:{startedAt:at,status:"passed",results,summary:{discovered:2,selected:2,executed:2,passed:2,failed:0,interrupted:0,skipped:0,flaky:0},usage:{modelTokens:0,maxModelCallsInStep:0}}},null,2)+"\\n");
+      return;
+    }
+    // Synthetic values only: what the 0.20 app log and navigation events can carry.
+    const leaks = [
+      "GET http://127.0.0.1:45585/storage/v1/object/sign/x?token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJoYXJuZXNzLWZ1bGwifQ.aGFybmVzcy1zaWduYXR1cmU 400",
+      "console cut eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJoYXJuZXNzLWN1dA",
+      "console Authorization: Bearer opaque-console-token",
+      "GET http://localhost:3107/auth/callback?code=pkce-harness-secret&next=/ 500",
+      "navigated to http://localhost:3107/auth#access_token=hash-harness-secret&refresh_token=refresh-harness-secret",
+      "console "+JSON.stringify({refresh_token:"json-harness-secret"}),
+      "console password "+process.env.E2E_LOGIN_PASSWORD,
+    ];
+    const appLog = leaks.map((text) => ({source:"console",level:"error",text,at}));
+    const steps = [{events:[{kind:"navigation",text:leaks[4]}]}];
+    const tests=[["e2e/army/critical/auth.setup.e2e.ts","authenticate","auth-setup-authenticate-0000000000000011"],["e2e/army/critical/access-boundaries.e2e.ts","access boundaries","access-boundaries-access-boundaries-0000000000000012"],["e2e/army/critical/estimate-integrity.e2e.ts","business","estimate-integrity-business-0000000000000013"]];
+    const results=tests.map(([file,title]) => ({file,titlePath:[title],targetId:"chromium-desktop",status:"passed",attempts:[{index:0,status:"passed",steps,appLog,artifacts:[]}]}));
+    for (const [, , segment] of tests) await attempt(segment);
+    // Coverage keeps trace "off": its report.json still carries the app log.
+    if (critical && scenario !== "critical-no-trace") await fs.writeFile(path.join(sdk,"access-boundaries-access-boundaries-0000000000000012","trace.md"),"# access boundaries\\n\\n"+leaks.map((line) => "- "+line).join("\\n")+"\\n");
+    await fs.writeFile(path.join(output,"report.json"),JSON.stringify({run:{startedAt:at,status:"passed",results,summary:{discovered:3,selected:3,executed:3,passed:3,failed:0,interrupted:0,skipped:0,flaky:0},usage:{modelTokens:0,maxModelCallsInStep:0}}},null,2)+"\\n");
     return;
   }
   process.exitCode=1;
@@ -81,12 +117,13 @@ async function fixture(name) {
   await mkdir(outside); await writeFile(path.join(outside, "app.log"), "outside-owner-bytes\n");
   return { cwd, output, outside, gitCommands };
 }
-async function execute(f, scenario, extras = {}) {
-  const result = command(f.cwd, process.execPath, ["scripts/run-tester-army.mjs", "coverage"], { ...environment, E2E_LOGIN_EMAIL: "harness@example.invalid", E2E_LOGIN_PASSWORD: secret, NEXT_PUBLIC_SUPABASE_ANON_KEY: "synthetic-anon-key", NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:45585", E2E_ALLOWED_SUPABASE_HOST: "127.0.0.1", HARNESS_SCENARIO: scenario, HARNESS_OUTSIDE: f.outside, ...extras });
+async function execute(f, scenario, extras = {}, mode = "coverage") {
+  const result = command(f.cwd, process.execPath, ["scripts/run-tester-army.mjs", mode], { ...environment, E2E_LOGIN_EMAIL: "harness@example.invalid", E2E_LOGIN_PASSWORD: secret, NEXT_PUBLIC_SUPABASE_ANON_KEY: "synthetic-anon-key", NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:45585", E2E_ALLOWED_SUPABASE_HOST: "127.0.0.1", HARNESS_SCENARIO: scenario, HARNESS_OUTSIDE: f.outside, ...extras });
   const invocation = `${scenario}-${randomUUID()}`;
   await writeFile(path.join(f.cwd, `${invocation}-stdout.log`), result.stdout);
   await writeFile(path.join(f.cwd, `${invocation}-stderr.log`), result.stderr);
-  return { ...result, invocation, manifest: JSON.parse(await readFile(path.join(f.output, "manifest.json"), "utf8")) };
+  const output = mode.startsWith("critical") ? path.join(f.cwd, ".e2e/army/critical") : f.output;
+  return { ...result, invocation, manifest: JSON.parse(await readFile(path.join(output, "manifest.json"), "utf8")) };
 }
 async function failures(f) { return (await readdir(path.join(f.output, "runs")).catch(error => { if (error.code === "ENOENT") return []; throw error; })).filter(name => name.endsWith("-setup-failed")); }
 async function allText(directory) { let text = ""; for (const entry of await readdir(directory, { withFileTypes: true })) { const file = path.join(directory, entry.name); assert.ok(!entry.isSymbolicLink(), "archive must not contain a link"); text += entry.isDirectory() ? await allText(file) : await readFile(file, "utf8"); } return text; }
@@ -97,7 +134,8 @@ async function failedManifest(f) {
   assert.equal(manifest.result.status, "evidence_unavailable"); assert.notEqual(manifest.result.exitCode, 0);
   assert.equal(manifest.report, undefined); assert.equal(manifest.result.tests, undefined); assert.equal(manifest.result.summary, undefined);
   assert.equal(manifest.fixtures.authentication?.attempted, undefined, "no Auth execution can be inferred from an unavailable report");
-  assert.ok(!(await readdir(archive)).includes("report.json")); assert.ok(!(await readdir(archive)).includes("artifacts"));
+  assert.ok(!(await readdir(archive)).includes("report.json")); assert.ok(!(await readdir(archive)).includes("artifacts")); assert.ok(!(await readdir(archive)).includes("results"));
+  assert.equal(manifest.evidenceRoots, undefined); assert.equal(manifest.artifacts, undefined); assert.equal(manifest.tracePaths, undefined);
   for (const entry of manifest.failureEvidence.files) assert.equal(entry.sha256, digest(await readFile(path.join(f.cwd, entry.path))), "retained byte hashes must match");
   return { archive, manifest };
 }
@@ -126,7 +164,12 @@ await test("absent-and-second-invocation", async f => {
 await test("stale-report-and-artifacts", async f => {
   await writeFile(path.join(f.output, "report.json"), JSON.stringify({ run: { startedAt: "2000-01-01T00:00:00Z", results: [{ status: "passed", file: "auth.setup.e2e.ts" }] } }));
   await mkdir(path.join(f.output, "artifacts")); await writeFile(path.join(f.output, "artifacts/old.json"), '{"marker":"STALE-ARTIFACT"}');
-  const run = await execute(f, "stale"); assert.equal(run.exitCode, 1); const { archive } = await failedManifest(f); assert.ok(!(await allText(archive)).includes("STALE-ARTIFACT"));
+  const oldResult = path.join(f.output, "results/old-test-0000000000000000");
+  await mkdir(path.join(oldResult, "attempt-1"), { recursive: true }); await writeFile(path.join(oldResult, "attempt-1/old.json"), '{"marker":"STALE-RESULT"}'); await writeFile(path.join(oldResult, "trace.md"), "STALE-TRACE\n");
+  const run = await execute(f, "stale"); assert.equal(run.exitCode, 1); const { archive } = await failedManifest(f); const staleText = await allText(archive);
+  for (const marker of ["STALE-ARTIFACT", "STALE-RESULT", "STALE-TRACE"]) assert.ok(!staleText.includes(marker), `${marker} must not become this run's evidence`);
+  assert.equal(run.manifest.artifacts, undefined); assert.equal(run.manifest.tracePaths, undefined);
+  await assert.rejects(readFile(path.join(f.output, "artifacts/old.json")), { code: "ENOENT" }, "business evidence is cleared before a non-discovery run");
   const recentAt = new Date().toISOString();
   await writeFile(path.join(f.output, "report.json"), JSON.stringify({ run: { startedAt: recentAt, status: "passed", results: [{ status: "passed", file: "e2e/army/critical/auth.setup.e2e.ts", titlePath: ["STALE-RECENT-AUTH"], targetId: "chromium-desktop" }], summary: { discovered: 1, selected: 1, executed: 1, passed: 1, failed: 0, skipped: 0, flaky: 0 }, usage: { modelTokens: 0, maxModelCallsInStep: 0 } } }));
   const recent = await execute(f, "stale"); assert.equal(recent.exitCode, 1);
@@ -154,8 +197,51 @@ await test("application-log-junction", async f => {
   await symlink(f.outside, path.join(f.output, "logs"), "junction"); await execute(f, "log-link"); const { archive } = await failedManifest(f); assert.ok(!(await allText(archive)).includes("outside-owner-bytes")); assert.equal(await readFile(path.join(f.outside, "app.log"), "utf8"), "outside-owner-bytes\n");
 });
 await test("fresh-success-contract", async f => {
-  const run = await execute(f, "fresh"); assert.equal(run.exitCode, 0); assert.equal(run.manifest.result.status, "passed"); assert.equal((await failures(f)).length, 0);
-  const archived = JSON.parse(await readFile(path.join(f.cwd, run.manifest.archive.path, "manifest.json"), "utf8")); assert.equal(archived.report.sha256, digest(await readFile(path.join(f.cwd, archived.report.path)))); assert.equal(archived.result.summary.passed, 2); assert.ok(archived.artifacts.length > 0);
+  await mkdir(path.join(f.output, "artifacts/business"), { recursive: true }); await writeFile(path.join(f.output, "artifacts/business/ARMY-OLD-stale.json"), '{"marker":"STALE-BUSINESS"}\n');
+  const run = await execute(f, "fresh"); assert.equal(run.exitCode, 0, run.stderr); assert.equal(run.manifest.result.status, "passed"); assert.equal((await failures(f)).length, 0);
+  const archiveDirectory = path.join(f.cwd, run.manifest.archive.path);
+  const archived = JSON.parse(await readFile(path.join(archiveDirectory, "manifest.json"), "utf8")); assert.equal(archived.report.sha256, digest(await readFile(path.join(f.cwd, archived.report.path)))); assert.equal(archived.result.summary.passed, 2);
+  assert.deepEqual(run.manifest.evidenceRoots, { sdk: ".e2e/army/coverage/results", business: ".e2e/army/coverage/artifacts" });
+  assert.deepEqual(run.manifest.artifacts.map(entry => entry.path), [".e2e/army/coverage/results/fixture-fixture-business-report-0000000000000002/attempt-1/downloads/001-export.xlsx", ".e2e/army/coverage/artifacts/business/ARMY-HARNESS-current.json"], "SDK results and this run's business evidence only");
+  assert.deepEqual(run.manifest.tracePaths, []);
+  assert.deepEqual(archived.evidenceRoots, { sdk: `${run.manifest.archive.path}/results`, business: `${run.manifest.archive.path}/artifacts` });
+  for (const entry of archived.artifacts) assert.equal(entry.sha256, digest(await readFile(path.join(f.cwd, entry.path))), "archived evidence must match its fingerprint");
+  assert.ok(!(await allText(archiveDirectory)).includes("STALE-BUSINESS"));
+});
+await test("critical-results-layout-and-scrub", async f => {
+  const output = path.join(f.cwd, ".e2e/army/critical");
+  await mkdir(path.join(output, "artifacts/chromium-desktop/old/trace"), { recursive: true }); await writeFile(path.join(output, "artifacts/chromium-desktop/old/trace/trace.zip"), "STALE-ZIP");
+  const leaks = [...browserLeaks, "STALE-ZIP"];
+  const clean = (text, label) => { for (const leak of leaks) assert.ok(!text.includes(leak), `${label} must not retain ${leak.slice(0, 12)}`); };
+  const run = await execute(f, "critical-fresh", {}, "critical"); assert.equal(run.exitCode, 0, run.stderr); assert.equal(run.manifest.result.status, "passed");
+  const trace = ".e2e/army/critical/results/access-boundaries-access-boundaries-0000000000000012/trace.md";
+  assert.deepEqual(run.manifest.tracePaths, [trace]); assert.ok(run.manifest.artifacts.every(entry => entry.path.startsWith(".e2e/army/critical/results/")), "no stale 0.15 zip or absent business folder");
+  const reportBytes = await readFile(path.join(output, "report.json")); assert.equal(run.manifest.report.sha256, digest(reportBytes), "the hash covers the scrubbed report");
+  const report = JSON.parse(reportBytes.toString()); assert.equal(report.run.results.length, 3); assert.ok(report.run.results[1].attempts[0].appLog[0].text.includes("<redacted"));
+  clean(reportBytes.toString(), "report.json"); clean(await readFile(path.join(f.cwd, trace), "utf8"), "trace.md");
+  assert.ok(run.manifest.confidentiality.reportValuesRedacted > 0); assert.equal(run.manifest.confidentiality.tracePagesRewritten, 1);
+  const archiveDirectory = path.join(f.cwd, run.manifest.archive.path);
+  assert.deepEqual((await readdir(archiveDirectory)).sort(), ["logs", "manifest.json", "report.json", "results"], "absent business evidence must not fail the archive");
+  clean(await allText(archiveDirectory), "archive");
+  const archived = JSON.parse(await readFile(path.join(archiveDirectory, "manifest.json"), "utf8"));
+  assert.deepEqual(archived.tracePaths, [`${run.manifest.archive.path}/results/access-boundaries-access-boundaries-0000000000000012/trace.md`]);
+  for (const entry of archived.artifacts) assert.equal(entry.sha256, digest(await readFile(path.join(f.cwd, entry.path))), "archived evidence must match its fingerprint");
+  await assert.rejects(readFile(path.join(output, "artifacts/chromium-desktop/old/trace/trace.zip")), { code: "ENOENT" });
+  const missing = await execute(f, "critical-no-trace", {}, "critical"); assert.equal(missing.exitCode, 3); assert.equal(missing.manifest.result.status, "evidence_unavailable"); assert.match(missing.manifest.result.error, /did not retain their traces/);
+});
+await test("coverage-browser-scrub", async f => {
+  const clean = (text, label) => { for (const leak of browserLeaks) assert.ok(!text.includes(leak), `${label} must not retain ${leak.slice(0, 12)}`); };
+  const run = await execute(f, "coverage-leaks"); assert.equal(run.exitCode, 0, run.stderr); assert.equal(run.manifest.result.status, "passed");
+  const reportBytes = await readFile(path.join(f.output, "report.json")); assert.equal(run.manifest.report.sha256, digest(reportBytes), "the hash covers the scrubbed report");
+  clean(reportBytes.toString(), "coverage report.json"); assert.deepEqual(run.manifest.tracePaths, []);
+  assert.equal(run.manifest.confidentiality.valuesRetained, false); assert.ok(run.manifest.confidentiality.browserEvidence.reportValuesRedacted > 0, "the 0.20 app-log rules must apply to coverage too");
+  const archiveDirectory = path.join(f.cwd, run.manifest.archive.path); clean(await allText(archiveDirectory), "coverage archive");
+  const archived = JSON.parse(await readFile(path.join(archiveDirectory, "manifest.json"), "utf8")); assert.equal(archived.report.sha256, digest(await readFile(path.join(f.cwd, archived.report.path))));
+});
+await test("list-keeps-business-evidence", async f => {
+  await mkdir(path.join(f.output, "artifacts/business"), { recursive: true }); await writeFile(path.join(f.output, "artifacts/business/keep.json"), '{"marker":"KEEP-BUSINESS"}\n');
+  const run = await execute(f, "list", {}, "coverage-list"); assert.equal(run.exitCode, 0, run.stderr); assert.equal(run.manifest.result.status, "collected");
+  assert.equal(await readFile(path.join(f.output, "artifacts/business/keep.json"), "utf8"), '{"marker":"KEEP-BUSINESS"}\n', "discovery must not clear business evidence");
 });
 assert.deepEqual(await readFile(path.join(root, "scripts/run-tester-army.mjs")), workspaceRunnerBytes, "workspace runner must remain frozen during check");
 if (helperBytes) assert.deepEqual(await readFile(helperPath), helperBytes, "helper must remain frozen during check");

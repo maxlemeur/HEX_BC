@@ -181,7 +181,8 @@ try {
   await writeFile(path.join(publicDirectory, "runner.log"), redact(output));
   // The existing helper writes ancillary creation artifacts. Copy only new owned prefixes.
   let prefixes = [];
-  for (const artifactRoot of [path.join(campaign, "sdk/artifacts"), path.join(publicDirectory, "business")]) {
+  // e2e >= 0.20 keeps SDK attempt evidence under sdk/results; it never writes sdk/artifacts.
+  for (const artifactRoot of [path.join(campaign, "sdk/results"), path.join(publicDirectory, "business")]) {
     try {
       for (const file of await walk(artifactRoot)) if (file.endsWith(".json")) {
         const value = JSON.parse(await readFile(file, "utf8"));
@@ -199,7 +200,8 @@ try {
     try { await sanitizeCoverageEvidence(directory); } catch (error) { if (error.code !== "ENOENT") throw error; }
     let files = [];
     try { files = await walk(directory); } catch (error) { if (error.code !== "ENOENT") throw error; }
-    for (const file of files) if (/\.(json|jsonl|log|txt|html)$/.test(file)) {
+    // Includes results/<test>/trace.md, the only trace format since e2e 0.20.
+    for (const file of files) if (/\.(json|jsonl|log|txt|html|md)$/.test(file)) {
       const content = redact(await readFile(file, "utf8"));
       if (file.endsWith(".json")) JSON.parse(content);
       await writeFile(file, content);

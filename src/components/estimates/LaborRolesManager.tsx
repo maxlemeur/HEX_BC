@@ -63,7 +63,11 @@ export function LaborRolesManager({
     if (!canManage || isSaving) return;
     setFormError(null);
     const trimmedName = newName.trim();
-    const rateCents = parseEuroToCents(newRate || "0") ?? 0;
+    const rateCents = parseEuroToCents(newRate.trim() || "0");
+    if (rateCents === null || rateCents < 0) {
+      setFormError("Saisissez un taux horaire valide, avec au plus deux décimales.");
+      return;
+    }
 
     if (!trimmedName) {
       setFormError("Le nom du rôle est obligatoire.");
@@ -81,7 +85,12 @@ export function LaborRolesManager({
     if (!draft) return;
 
     const trimmedName = draft.name.trim();
-    const rateCents = parseEuroToCents(draft.rate || "0") ?? 0;
+    const rateCents = parseEuroToCents(draft.rate.trim() || "0");
+    if (rateCents === null || rateCents < 0) {
+      setFormError("Saisissez un taux horaire valide, avec au plus deux décimales.");
+      return;
+    }
+    setFormError(null);
     const hasChanges =
       trimmedName !== role.name ||
       rateCents !== role.hourly_rate_cents ||
@@ -133,7 +142,8 @@ export function LaborRolesManager({
             id="new-role-rate"
             disabled={!canManage || isSaving}
             size="sm"
-            type="number"
+            type="text"
+                        inputMode="decimal"
             step="0.01"
             min={0}
             value={newRate}
@@ -212,7 +222,8 @@ export function LaborRolesManager({
                     <td>
                       <Input
                         size="sm"
-                        type="number"
+                        type="text"
+            inputMode="decimal"
                         step="0.01"
                         min={0}
                         value={draft.rate}

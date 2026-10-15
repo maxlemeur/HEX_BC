@@ -39,19 +39,20 @@ describe("DecimalDraftInput", () => {
       />,
     );
     expect(input).toHaveValue("1,5");
-    expect(onValueChange).toHaveBeenLastCalledWith(1.5);
+    expect(onValueChange).not.toHaveBeenCalled();
 
     fireEvent.blur(input);
+    expect(onValueChange).toHaveBeenLastCalledWith(1.5);
     expect(onValueCommit).toHaveBeenLastCalledWith(1.5);
-    expect(input).toHaveValue("1.5");
+    expect(input).toHaveValue("1,5");
 
     fireEvent.focus(input);
     fireEvent.change(input, { target: { value: "2." } });
     expect(input).toHaveValue("2.");
     fireEvent.change(input, { target: { value: "2.75" } });
     expect(input).toHaveValue("2.75");
-    expect(onValueChange).toHaveBeenLastCalledWith(2.75);
     fireEvent.blur(input);
+    expect(onValueChange).toHaveBeenLastCalledWith(2.75);
     expect(onValueCommit).toHaveBeenLastCalledWith(2.75);
   });
 
@@ -71,8 +72,9 @@ describe("DecimalDraftInput", () => {
 
     fireEvent.focus(input);
     fireEvent.change(input, { target: { value: "" } });
-    expect(onValueChange).toHaveBeenLastCalledWith(1);
+    expect(onValueChange).not.toHaveBeenCalled();
     fireEvent.blur(input);
+    expect(onValueChange).toHaveBeenLastCalledWith(1);
     expect(onValueCommit).toHaveBeenLastCalledWith(1);
   });
 

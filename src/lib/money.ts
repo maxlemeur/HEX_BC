@@ -1,3 +1,5 @@
+import { parseDecimalInput } from "@/lib/numeric-input/parsers";
+
 export const SUPPORTED_ESTIMATE_CURRENCIES = ["EUR", "USD", "GBP"] as const;
 
 export type SupportedEstimateCurrency =
@@ -49,24 +51,7 @@ function stripCurrencyMarkers(
 }
 
 function parseEuroInputToNumber(input: string) {
-  const stripped = stripCurrencyMarkers(input, "EUR").replace(/\s|\u00A0|\u202F/g, "");
-  if (!stripped) return null;
-
-  let normalized = stripped;
-  const hasComma = stripped.includes(",");
-  const hasDot = stripped.includes(".");
-
-  if (hasComma && hasDot) {
-    normalized = stripped.replace(/\./g, "").replace(",", ".");
-  } else if (hasComma) {
-    normalized = stripped.replace(",", ".");
-  } else if (/^-?\d{1,3}(?:\.\d{3})+$/.test(stripped)) {
-    normalized = stripped.replace(/\./g, "");
-  }
-
-  if (!/^-?\d+(?:\.\d{1,2})?$/.test(normalized)) return null;
-  const parsed = Number.parseFloat(normalized);
-  return Number.isFinite(parsed) ? parsed : null;
+  return parseDecimalInput(input, { maxFractionDigits: 2, currency: "EUR" });
 }
 
 function parseUsdGbpInputToNumber(

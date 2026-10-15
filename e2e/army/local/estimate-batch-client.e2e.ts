@@ -115,7 +115,7 @@ async function observe(ui: Ui, versionId: string) {
         ifMatch: route.request.headers["if-match"] ?? null,
         body: route.request.postData ? JSON.parse(route.request.postData) as Json : null });
     }
-    await route.continue();
+    await route.fallback();
   });
   return { requests, close: () => ui.browser.unroute(pattern) };
 }
@@ -215,7 +215,7 @@ for (const [code, fault] of [["BC01", "lost"], ["BC02", "malformed"]] as const) 
         let malformedReads = 0;
         await ui.browser.route(receiptUrl, async (route) => {
           if (route.request.method === "GET") { malformedReads++; await route.fulfill({ status: 200, headers: { "content-type": "application/json", "cache-control": "private, no-store" }, body: "{" }); }
-          else await route.continue();
+          else await route.fallback();
         });
         try {
           await ui.screen.getByRole("button", "Vérifier le résultat", { exact: true }).click();

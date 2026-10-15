@@ -395,10 +395,10 @@ armyTest("GO06 two real local fallback generations discard the previous pending 
       const [body] = JSON.parse(route.request.postData ?? "[]"), { draftLockSessionId, ...request } = body;
       calls.push({ action: actionName, request, sessionPresent: typeof draftLockSessionId === "string", at: new Date().toISOString() });
     }
-    await route.continue();
+    await route.fallback();
   });
   const bulkUrl = new URL(`/api/estimates/${g.versionId}/items/bulk`, ui.app.baseUrl!).href;
-  await ui.browser.route(bulkUrl, async (route) => { bulk.push(route.request.method); await route.continue(); });
+  await ui.browser.route(bulkUrl, async (route) => { bulk.push(route.request.method); await route.fallback(); });
   const open = async () => {
     const opener = ui.screen.getByTestId("estimate-editor-open-generated-ouvrage-button");
     if (!await opener.isVisible()) {

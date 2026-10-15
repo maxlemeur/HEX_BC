@@ -8,6 +8,7 @@ import {
   apiRequest, armyTest, ownEstimate, readEstimate, recordEvidence,
   type ArmyEstimate, type ArmyItem, type ArmyState, type ArmyVersion,
 } from "../critical/fixtures";
+import { sdkResultsRoot } from "./sdk-results";
 
 // Pre-code oracle: docs/testing/estimate-create-atomic.md.
 // No editor, autosave or supplied header totals may repair a POST observation.
@@ -149,7 +150,7 @@ function assertImmediate(observation: Observation) {
 }
 
 async function assertExports(ui: Ui, versionId: string, lines: ArmyItem[], sectionIds: string[]) {
-  const root = path.resolve(process.env.E2E_ARMY_ARTIFACT_ROOT!);
+  const root = sdkResultsRoot();
   const allFiles = async () => (await readdir(root, { recursive: true })).map((entry) => path.resolve(root, entry));
   for (const mode of ["standard", "dpgf"] as const) {
     const previous = new Set(await allFiles());
@@ -220,7 +221,7 @@ armyTest("CA01 each API creation immediately persists exact V2 totals, then relo
 
   const bulk = new URL(`/api/estimates/${owned.versionId}/items/bulk`, ui.app.baseUrl!).href;
   const writes: Array<{ method: string; observedAt: string }> = [];
-  await ui.browser.route(bulk, async (route) => { if (route.request.method !== "GET") writes.push({ method: route.request.method, observedAt: new Date().toISOString() }); await route.continue(); });
+  await ui.browser.route(bulk, async (route) => { if (route.request.method !== "GET") writes.push({ method: route.request.method, observedAt: new Date().toISOString() }); await route.fallback(); });
   const dialogs: string[] = [];
   const dispose = await ui.browser.onDialog(async (dialog) => { dialogs.push(dialog.message); await dialog.dismiss(); });
   try {

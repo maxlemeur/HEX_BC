@@ -9,7 +9,8 @@ import {
 import { parseNumberInput } from "@/lib/estimates/editor-values";
 
 function parseMajorationPercentToCoefficient(value: string) {
-  return Math.max(parseNumberInput(value) / 100, 0);
+  const parsed = parseNumberInput(value);
+  return parsed === null ? null : Math.max(parsed / 100, 0);
 }
 
 type UseEstimateSelectionParams = {
@@ -74,6 +75,7 @@ export function useEstimateSelection({
   const handleApplyBulkMajoration = useCallback(async () => {
     if (isReadOnly || !hasSelectedLines) return;
     const coefficient = parseMajorationPercentToCoefficient(bulkMajorationPercent);
+    if (coefficient === null) return;
     await onApplyBulkMajoration(selectedLineIdList, coefficient);
   }, [
     bulkMajorationPercent,

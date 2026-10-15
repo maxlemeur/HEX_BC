@@ -81,7 +81,7 @@ const structuralCases: Array<{ name: string; run: () => Promise<unknown>; data: 
   { name: "application de structure", run: () => applyEstimateStructureDraft(ID, OTHER, { mode: "create_empty", selectedRootNodeIds: [ITEM] }), data: { draftId: OTHER, versionId: ID, mode: "create_empty", createdCount: 1, mergedCount: 0, skippedCount: 0 } },
   { name: "matérialisation V0", run: () => materializeVersionZeroDraft(ID, OTHER), data: { status: "applied" } },
   { name: "insertion de template", run: () => insertTemplateIntoVersion(OTHER, { versionId: ID }), data: { items: [{ id: ITEM }] } },
-  { name: "insertion d’ouvrage", run: () => insertAssemblyIntoVersion(OTHER, { versionId: ID }), data: { items: [{ id: ITEM }] } },
+  { name: "insertion d’ouvrage", run: () => insertAssemblyIntoVersion(OTHER, { versionId: ID }), data: { items: [{ id: ITEM }], totals: { total_ht_cents: 100, total_tax_cents: 20, total_ttc_cents: 120 } } },
 ];
 
 describe("editor writes and optimistic concurrency", () => {
@@ -115,8 +115,8 @@ describe("editor writes and optimistic concurrency", () => {
             pu_ht_cents: 100, line_total_ht_cents: 200, line_tax_cents: 40,
             line_total_ttc_cents: 240,
           } } }],
-          version: { id: ID, updated_at: LAST },
-          current_version: { id: ID, updated_at: LAST, status: "draft" },
+          version: { id: ID, updated_at: LAST, content_revision: 3 },
+          current_version: { id: ID, updated_at: LAST, content_revision: 3, status: "draft" },
           totals: { total_ht_cents: 200, total_tax_cents: 40, total_ttc_cents: 240 },
           replayed: false,
           receipt: {
@@ -125,12 +125,12 @@ describe("editor writes and optimistic concurrency", () => {
           },
         });
       })
-      .mockResolvedValueOnce(response({ updated_count: 0, version: { id: ID, updated_at: LAST } }));
+      .mockResolvedValueOnce(response({ updated_count: 0, version: { id: ID, updated_at: LAST, content_revision: 3 } }));
     vi.stubGlobal("fetch", fetch);
     const removed = deleteEstimateItem(ID, ITEM);
     const saved = batchEstimateOperations(ID, INITIAL, [{ op: "update", id: OTHER, data: { quantity: 2 } }]);
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
-    deletion.resolve(response({ deleted_id: ITEM, deleted_ids: [ITEM], version: { id: ID, updated_at: NEXT } }));
+    deletion.resolve(response({ deleted_id: ITEM, deleted_ids: [ITEM], version: { id: ID, updated_at: NEXT, content_revision: 2 } }));
     await Promise.all([removed, saved]);
     await bulkUpdateEstimateItems(ID, INITIAL, [], { total_ht_cents: 200, total_tax_cents: 40, total_ttc_cents: 240 });
     const batch = fetch.mock.calls[1][1] as RequestInit;
@@ -146,13 +146,13 @@ describe("editor writes and optimistic concurrency", () => {
     const refresh = deferred<Response>();
     const fetch = vi.fn().mockResolvedValueOnce(response({ items: [] }))
       .mockReturnValueOnce(refresh.promise)
-      .mockResolvedValueOnce(response({ version: { id: ID, updated_at: LAST } }));
+      .mockResolvedValueOnce(response({ version: { id: ID, updated_at: LAST, content_revision: 2 } }));
     vi.stubGlobal("fetch", fetch);
-    const inserted = insertAssemblyIntoVersion(OTHER, { versionId: ID });
+    const inserted = insertTemplateIntoVersion(OTHER, { versionId: ID });
     const saved = updateEstimateStatus(ID, "sent", INITIAL);
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
     expect(fetch.mock.calls[1][0]).toBe(`/api/estimates/${ID}`);
-    refresh.resolve(response({ version: { id: ID, updated_at: NEXT } }));
+    refresh.resolve(response({ version: { id: ID, updated_at: NEXT, content_revision: 2 } }));
     await Promise.all([inserted, saved]);
     expect(new Headers(fetch.mock.calls[2][1].headers).get("If-Match")).toBe(NEXT);
   });

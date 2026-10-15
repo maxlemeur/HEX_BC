@@ -9,7 +9,6 @@ import { Modal } from "@/components/ui-legacy/Modal";
 import { DecimalDraftInput } from "@/components/estimates/components/estimate-editor-row/DecimalDraftInput";
 import {
   formatMajorationPercentInput,
-  parseMajorationPercentToCoefficient,
   type EstimateItem,
   type LaborRole,
 } from "@/components/estimates/components/estimate-editor-row/shared";
@@ -305,36 +304,15 @@ export function MobileEstimateLineEditor({
                 </Field>
               </div>
               <Field label="Majoration main d’œuvre (%)">
-                <input
+                <DecimalDraftInput
                   className={inputClassName}
-                  type="number"
                   min={0}
                   step="0.1"
-                  value={majorationPercent}
+                  value={Number(majorationPercent)}
                   aria-label={`Majoration de main-d’œuvre en pourcentage pour ${lineLabel}`}
                   disabled={isReadOnly}
-                  onChange={(event) =>
-                    onPatchItem(
-                      item.id,
-                      {
-                        h_mo_majoration: parseMajorationPercentToCoefficient(
-                          event.currentTarget.value,
-                        ),
-                      },
-                      { persist: false },
-                    )
-                  }
-                  onBlur={(event) =>
-                    onPatchItem(
-                      item.id,
-                      {
-                        h_mo_majoration: parseMajorationPercentToCoefficient(
-                          event.currentTarget.value,
-                        ),
-                      },
-                      { persist: true },
-                    )
-                  }
+                  onValueChange={(value) => onPatchItem(item.id, { h_mo_majoration: Math.max(value / 100, 0) }, { persist: false })}
+                  onValueCommit={(value) => onPatchItem(item.id, { h_mo_majoration: Math.max(value / 100, 0) }, { persist: true })}
                 />
               </Field>
 

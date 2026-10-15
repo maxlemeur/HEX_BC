@@ -8,6 +8,7 @@ import { strFromU8, unzipSync } from "fflate";
 import * as xlsx from "xlsx";
 
 import { apiRequest, readEstimate, recordEvidence, type ArmyState } from "../critical/fixtures";
+import { sdkResultsRoot } from "./sdk-results";
 
 type Browser = Parameters<typeof apiRequest>[0];
 type Envelope<T> = { ok: boolean; data: T; error?: { code: string } };
@@ -126,9 +127,7 @@ async function artifactFiles(directory: string): Promise<string[]> {
   return result;
 }
 async function retainDownload(army: ArmyState, browser: Browser, format: string, trigger: () => Promise<void>) {
-  const configuredRoot = process.env.E2E_ARMY_ARTIFACT_ROOT;
-  if (!configuredRoot) throw new Error("The current run's exact artifact root is required.");
-  const root = path.resolve(configuredRoot);
+  const root = sdkResultsRoot();
   const scoped = path.relative(path.resolve(".e2e/product-foundation/runs"), root);
   if (!scoped || scoped.startsWith("..") || path.isAbsolute(scoped)) throw new Error("Download root must stay inside the explicit current campaign.");
   const before = new Set(await artifactFiles(root));

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
-import { cp, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import nextEnv from "@next/env";
@@ -36,8 +36,13 @@ for (let index = 0; index < extraArgs.length; index += 1) {
   } else if (authenticated && !coverage && (arg === "--grep" || arg.startsWith("--grep="))) {
     const value = arg === "--grep" ? extraArgs[++index] : arg.slice("--grep=".length);
     if (!value) throw new Error("--grep requires a test-title pattern.");
+  } else if (!discoveryOnly && (arg === "--max-duration" || arg.startsWith("--max-duration="))) {
+    const value = arg === "--max-duration" ? extraArgs[++index] : arg.slice("--max-duration=".length);
+    if (!value || !/^[1-9]\d*$/.test(value) || Number(value) > 2_147_483_647) {
+      throw new Error("--max-duration requires a positive integer in milliseconds, at most 2147483647.");
+    }
   } else if (!["--headed", "--no-cache", "--debug"].includes(arg) || discoveryOnly) {
-    throw new Error("Pilot flags are limited to --target, --headed, --no-cache and --debug; list accepts --target only.");
+    throw new Error("Pilot flags are limited to --target, --headed, --no-cache, --debug and --max-duration; authenticated runs also accept --grep; list accepts selection flags only.");
   }
 }
 const hasTarget = extraArgs.some((arg) => arg === "--target" || arg.startsWith("--target="));
@@ -92,6 +97,73 @@ async function fingerprint(files) {
   })));
 }
 
+// e2e >= 0.20 owns <output>/results (one directory per test, attempt-<n>/
+// inside, trace.md beside them) and clears it when a run's tests start. The
+// journeys' own business evidence stays under <output>/artifacts.
+const sdkEvidence = path.join(output, "results");
+const businessEvidence = path.join(output, "artifacts");
+const isTracePage = (file) => {
+  const parts = path.relative(sdkEvidence, file).split(path.sep);
+  return parts.length === 2 && parts[0] !== ".." && parts[1] === "trace.md";
+};
+
+// Shared by the owned app log, report.json and trace pages. The SDK redacts
+// only configured credentials; generated Supabase tokens are not among them.
+// A truncated app-log line (300 characters) can keep a JWT without its
+// signature, and a session cookie is one unsigned base64url segment.
+function redactArmyText(text) {
+  let value = text;
+  const password = process.env.E2E_LOGIN_PASSWORD;
+  if (password) {
+    for (const form of new Set([password, encodeURIComponent(password), new URLSearchParams({ value: password }).toString().slice(6), JSON.stringify(password).slice(1, -1)])) {
+      value = value.replaceAll(form, "<redacted-army-password>");
+    }
+  }
+  return value
+    .replace(/([?&#](?:password|access_token|refresh_token|token|code|apikey|api_key)=)[^&\s"']*/gi, "$1<redacted>")
+    .replace(/\b(Bearer\s+)[A-Za-z0-9._~+/-]+=*/gi, "$1<redacted>")
+    .replace(/eyJ[A-Za-z0-9_-]{10,}(?:\.[A-Za-z0-9_-]*){0,2}/g, "<redacted-jwt>")
+    .replace(/("(?:password|access_token|refresh_token)"\s*:\s*")[^"]*(")/gi, "$1<redacted>$2");
+}
+
+// Since e2e 0.20, report.json keeps every attempt's browser app log (console,
+// uncaught errors, failed or >= 400 requests with their full URL) and the
+// navigation URLs whatever the trace mode, and trace.md renders them again.
+// Scrub string values only, so the report stays the SDK's JSON document.
+async function scrubBrowserEvidence() {
+  let values = 0;
+  const scrub = (value) => {
+    if (typeof value === "string") {
+      const clean = redactArmyText(value);
+      if (clean !== value) values += 1;
+      return clean;
+    }
+    if (Array.isArray(value)) return value.map(scrub);
+    if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, scrub(entry)]));
+    return value;
+  };
+  await assertSetupPath(root, reportPath);
+  const report = scrub(JSON.parse(await readFile(reportPath, "utf8")));
+  if (values) {
+    // Same serialization as the SDK writes; re-parse before replacing it.
+    const bytes = `${JSON.stringify(report, null, 2)}\n`;
+    JSON.parse(bytes);
+    await writeFile(reportPath, bytes);
+  }
+  const pages = (await filesIn(sdkEvidence)).filter(isTracePage);
+  let rewritten = 0;
+  for (const file of pages) {
+    await assertSetupPath(root, file);
+    const text = await readFile(file, "utf8");
+    const clean = redactArmyText(text);
+    if (clean !== text) {
+      await writeFile(file, clean);
+      rewritten += 1;
+    }
+  }
+  return { scope: "report.json and results/<test>/trace.md; business evidence untouched", textFiles: 1 + pages.length, reportValuesRedacted: values, tracePagesRewritten: rewritten, valuesRetained: false, appliedBeforeArtifactHashes: true };
+}
+
 await assertSetupPath(root, output, { allowMissing: true });
 await mkdir(output, { recursive: true });
 const untrackedRuntimeFiles = () => git(["ls-files", "--others", "--exclude-standard", "-z"])
@@ -110,6 +182,7 @@ const manifest = {
   runtime: { node: process.version, platform: process.platform, arch: process.arch },
   source: {},
   fixtures: {
+    ...(critical ? { selection: process.env.E2E_ARMY_CRITICAL_SELECTION ?? "all" } : {}),
     account: authenticated ? "configured E2E account, ordinary login UI" : "anonymous fresh browser context",
     paths: affaire ? ["/login", "/dashboard/affaires", "new owned ARMY affaire; retained fixture receipt"] : navigation ? ["/login", "/dashboard/affaires", "/dashboard/orders", "/dashboard/referentiel", "/dashboard/products"] : mode === "performance-grid" ? ["/login", "/dashboard/affaires", "existing ARMY editor; browser-only synthetic read-only payload"] : performance ? ["/login", "/signup", "/dashboard/affaires", "/dashboard/products", "/dashboard/orders"] : critical ? ["/login", "/dashboard/estimates/new", "new ARMY estimates and imports only"] : mode === "agent" ? ["/login", "/signup", "/login"] : ["/dashboard/affaires", "/login"],
     submittedForms: authenticated,
@@ -118,7 +191,7 @@ const manifest = {
     ...(affaire ? { mutationScope: "one new owned ARMY draft and two priced lines; owned approval-read projections/audit allowed; retain fixture; no emails or existing business changes" } : performance ? { mutationScope: "ordinary login; read-only page visits and local input/scroll interactions" } : critical ? { mutationScope: "new ARMY drafts/imports only; retain evidence; no email or existing business mutations" } : {}),
   },
   telemetry: "disabled in child environment",
-  tracePolicy: coverage ? "off; explicit business facts only, no credentials or session values" : performance ? "off; authenticated metrics contain no cookies, headers or response bodies" : critical ? "anonymous access only; authenticated traces off because generated tokens are not SDK secrets" : "all anonymous attempts",
+  tracePolicy: coverage ? "off: no trace.md page; report.json still keeps the SDK app log and navigation URLs, scrubbed with the whole coverage output and pattern-scrubbed by this wrapper like the critical report before hashing; explicit business facts only, no credentials or session values" : performance ? "off: no trace.md page; report.json still keeps the SDK app log (console, uncaught errors, failed or >= 400 requests with full URLs) and navigation URLs, redacted by the SDK for configured credentials only and pattern-scrubbed by this wrapper before hashing; authenticated metrics contain no cookies, headers or response bodies" : critical ? "markdown trace.md pages for anonymous access-boundaries results only; authenticated traces off because generated tokens are not SDK secrets; report.json and trace pages keep the SDK app log and navigation URLs, redacted by the SDK for configured credentials only and pattern-scrubbed by this wrapper before hashing; no Playwright trace zip" : "markdown trace.md page (results/<test>/trace.md, rendered from report.json) for every anonymous result that ran; no Playwright trace zip",
   result: { status: "running", exitCode: null },
 };
 const manifestPath = path.join(output, "manifest.json");
@@ -205,7 +278,7 @@ try {
       await cp(path.join(root, file), target);
     }
   }
-  if ((performance || coverage) && !live && !discoveryOnly) {
+  if ((performance || coverage || process.env.E2E_ARMY_SERVER_MODE === "production") && !live && !discoveryOnly) {
     const buildDirectory = path.join(root, ".e2e", "army", "next");
     const buildIdPath = path.join(buildDirectory, "BUILD_ID");
     manifest.productionBuild = {
@@ -223,6 +296,10 @@ try {
     await assertSetupPath(root, reportPath, { allowMissing: true });
     const before = await readFile(reportPath).catch((error) => { if (error.code === "ENOENT") return null; throw error; });
     reportBeforeSha256 = before ? digest(before) : null;
+    // e2e < 0.20 emptied <output>/artifacts for each run; it is now ours to
+    // clear. The previous run's copy is kept under runs/<stamp>/.
+    await assertSetupPath(root, businessEvidence, { allowMissing: true });
+    await rm(businessEvidence, { recursive: true, force: true });
   }
   appLogBefore = await readSetupLogBaseline(root, appLog);
   runnerOutput = { stdout: [], stderr: [], bytes: 0, truncated: false };
@@ -249,7 +326,10 @@ try {
         DO_NOT_TRACK: "1",
         NEXT_TELEMETRY_DISABLED: "1",
         E2E_ARMY_SUITE: coverage ? "coverage" : critical ? "critical" : performance ? "performance" : mode === "agent" ? "agent" : "anonymous",
-        ...(coverage ? { E2E_ARMY_ARTIFACT_ROOT: path.join(output, "artifacts"), E2E_COVERAGE_NETWORK_LOG: coverageNetworkLog } : {}),
+        // Journeys search this root for SDK downloads only (attempt-relative
+        // paths); e2e >= 0.20 files them under results/, cleared at test start.
+        ...(coverage || critical ? { E2E_ARMY_ARTIFACT_ROOT: sdkEvidence } : {}),
+        ...(coverage ? { E2E_COVERAGE_NETWORK_LOG: coverageNetworkLog } : {}),
         ...(performance ? { E2E_ARMY_SERVER_MODE: live ? "live" : "production", E2E_ARMY_BASE_URL: normalizedOrigin.origin } : {}),
       },
     });
@@ -283,7 +363,13 @@ try {
     const after = await readFile(reportPath).catch((error) => { if (error.code === "ENOENT") return null; throw error; });
     if (after && digest(after) === reportBeforeSha256) throw new Error("Runner did not replace the previous report for this invocation.");
   }
-  if (coverage) manifest.confidentiality = await sanitizeCoverageEvidence(output);
+  if (coverage) {
+    // The coverage sanitizer walks every text file but predates the 0.20 app
+    // log (signature cut at 300 characters, #fragments, JSON-encoded console
+    // values); the browser scrub covers those in report.json and trace pages.
+    manifest.confidentiality = await sanitizeCoverageEvidence(output);
+    if (!discoveryOnly) manifest.confidentiality.browserEvidence = await scrubBrowserEvidence();
+  } else if (authenticated && !discoveryOnly) manifest.confidentiality = await scrubBrowserEvidence();
 
   if (discoveryOnly) {
     const discovery = JSON.parse(collectedOutput);
@@ -328,14 +414,22 @@ try {
       runnerExitCode: childExitCode,
       summary: report.run.summary,
       usage: report.run.usage,
-      tests: results.map((result) => ({ file: result.file, titlePath: result.titlePath, targetId: result.targetId, status: result.status })),
+      limits: report.run.limits,
+      errors: report.run.errors ?? [],
+      tests: results.map((result) => ({ file: result.file, titlePath: result.titlePath, targetId: result.targetId, selected: result.selected, status: result.status, ...(result.skip ? { skip: result.skip } : {}) })),
     };
     manifest.report = { path: relative(reportPath), sha256: digest(bytes) };
-    manifest.artifacts = await fingerprint(await filesIn(path.join(output, "artifacts")));
-    manifest.tracePaths = manifest.artifacts.filter((file) => file.path.endsWith(".zip")).map((file) => file.path);
+    // One list, SDK evidence first; each entry's prefix names its owner.
+    const sdkFiles = await filesIn(sdkEvidence);
+    manifest.evidenceRoots = { sdk: relative(sdkEvidence), business: relative(businessEvidence) };
+    manifest.artifacts = await fingerprint([...sdkFiles, ...await filesIn(businessEvidence)]);
+    manifest.tracePaths = sdkFiles.filter(isTracePage).map(relative);
+    // e2e >= 0.20 keeps one trace.md per result, not per attempt: under "on",
+    // for every result that ran, failed ones included, never a skipped one.
+    const traced = (result) => result.status !== "skipped";
     const expectedTraces = performance || coverage ? 0 : critical
-      ? successful.filter((result) => result.file.endsWith("access-boundaries.e2e.ts")).length
-      : successful.length;
+      ? results.filter((result) => result.file.endsWith("access-boundaries.e2e.ts") && traced(result)).length
+      : results.filter(traced).length;
     if (evidenceExitCode === 0 && manifest.tracePaths.length < expectedTraces) {
       throw new Error("Passing browser attempts did not retain their traces.");
     }
@@ -380,18 +474,7 @@ await save();
 if (!live) try {
   // The SDK appends this owned log. Redact old query secrets after account changes.
   await assertSetupPath(root, appLog);
-  let log = await readFile(appLog, "utf8");
-  const password = process.env.E2E_LOGIN_PASSWORD;
-  if (password) {
-    for (const value of [password, encodeURIComponent(password), new URLSearchParams({ value: password }).toString().slice(6)]) {
-      log = log.replaceAll(value, "<redacted-army-password>");
-    }
-  }
-  log = log
-    .replace(/([?&](?:password|access_token|refresh_token|token|code|apikey|api_key)=)[^&\s"']*/gi, "$1<redacted>")
-    .replace(/\b(Bearer\s+)[A-Za-z0-9._~+/-]+=*/gi, "$1<redacted>")
-    .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "<redacted-jwt>")
-    .replace(/("(?:password|access_token|refresh_token)"\s*:\s*")[^"]*(")/gi, "$1<redacted>$2");
+  const log = redactArmyText(await readFile(appLog, "utf8"));
   await writeFile(appLog, log);
   manifest.appLog = {
     path: relative(appLog), sha256: digest(log),
@@ -408,11 +491,17 @@ if (!live) try {
   }
 }
 if (!discoveryOnly && manifest.report) {
-  // The SDK clears artifacts on the next run; keep a separate evidence snapshot.
+  // The SDK clears results/ when the next run's tests start and this script
+  // clears artifacts/ before it spawns one; keep a separate evidence snapshot.
   const archive = path.join(output, "runs", startedAt.toISOString().replace(/[:.]/g, "-"));
   try {
     await mkdir(archive, { recursive: true });
-    await cp(path.join(output, "artifacts"), path.join(archive, "artifacts"), { recursive: true });
+    for (const directory of [sdkEvidence, businessEvidence]) {
+      // A run may leave either one absent, e.g. smoke on a fresh checkout.
+      await assertSetupPath(root, directory, { allowMissing: true });
+      const present = await stat(directory).then(() => true, (error) => { if (error.code === "ENOENT") return false; throw error; });
+      if (present) await cp(directory, path.join(archive, path.basename(directory)), { recursive: true });
+    }
     await cp(reportPath, path.join(archive, "report.json"));
     if (manifest.appLog) {
       await mkdir(path.join(archive, "logs"), { recursive: true });
@@ -425,6 +514,7 @@ if (!discoveryOnly && manifest.report) {
     const archivedManifest = JSON.parse(JSON.stringify(manifest));
     const archivedPath = (file) => relative(path.join(archive, path.relative(output, path.join(root, file))));
     archivedManifest.report.path = archivedPath(archivedManifest.report.path);
+    archivedManifest.evidenceRoots = { sdk: archivedPath(archivedManifest.evidenceRoots.sdk), business: archivedPath(archivedManifest.evidenceRoots.business) };
     archivedManifest.artifacts = archivedManifest.artifacts.map((file) => ({ ...file, path: archivedPath(file.path) }));
     archivedManifest.tracePaths = archivedManifest.tracePaths.map(archivedPath);
     if (archivedManifest.appLog) archivedManifest.appLog.path = archivedPath(archivedManifest.appLog.path);

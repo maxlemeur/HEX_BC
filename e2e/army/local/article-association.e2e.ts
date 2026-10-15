@@ -12,6 +12,7 @@ import {
   ownEstimate,
   waitForAutoSave,
 } from "../critical/fixtures";
+import { sdkResultsRoot } from "./sdk-results";
 
 type LocalProduct = {
   id: string;
@@ -45,6 +46,8 @@ armyTest(
 
     const directory = path.resolve(".e2e/local-article/diagnostic/artifacts");
     await mkdir(directory, { recursive: true });
+    // SDK downloads land in the diagnostic output's results/, not beside this evidence.
+    const downloadRoot = sdkResultsRoot(".e2e/local-article/diagnostic/results");
     const ui = { app, screen, browser };
     const ids = await createEstimateViaWizard(ui, {
       projectName: army.projectName,
@@ -107,10 +110,10 @@ armyTest(
       const download = await browser.waitForDownload(
         () => screen.getByTestId("estimate-page-toolbar-export-dpgf-button").tap(), { timeout: 60_000 }
       );
-      const files = (await readdir(directory, { recursive: true }))
+      const files = (await readdir(downloadRoot, { recursive: true }))
         .filter((entry) => entry.split(path.sep).join("/").endsWith(download.path));
       expect(files).toHaveLength(1);
-      const file = path.join(directory, files[0]);
+      const file = path.join(downloadRoot, files[0]);
       const workbook = new ExcelJS.Workbook();
       await workbook.xlsx.readFile(file);
       const rows: ExcelJS.Row[] = [];
@@ -120,7 +123,7 @@ armyTest(
       expect(rows).toHaveLength(1);
       const exported = {
         unit: rows[0].getCell(5).text.trim(), quantity: rows[0].getCell(4).value,
-        price: rows[0].getCell(6).value, path: path.relative(directory, file),
+        price: rows[0].getCell(6).value, path: path.relative(downloadRoot, file),
         sha256: createHash("sha256").update(await readFile(file)).digest("hex"),
       };
       observations.push({

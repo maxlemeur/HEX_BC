@@ -9,6 +9,7 @@ import {
   apiRequest, armyTest, ownEstimate, readEstimate, recordEvidence,
   type ArmyEstimate, type ArmyItem, type ArmyVersion,
 } from "../critical/fixtures";
+import { sdkResultsRoot } from "./sdk-results";
 
 // Pre-code failures: docs/testing/estimate-workflow-atomicity.md, WFC-01.
 // Reuse the dedicated create-atomic owner fixture and ordinary `army` UI login.
@@ -176,7 +177,7 @@ armyTest("WFC01 failed ordinary batch preserves both V2 allocations and footer b
   const repairs: Array<{ method: string; at: string }> = [];
   await browser.route(bulkUrl, async (route) => {
     if (route.request.method !== "GET") repairs.push({ method: route.request.method, at: new Date().toISOString() });
-    await route.continue();
+    await route.fallback();
   });
   const dialogs: string[] = [];
   const dispose = await browser.onDialog(async (dialog) => { dialogs.push(dialog.message); await dialog.dismiss(); });
@@ -198,7 +199,7 @@ armyTest("WFC01 failed ordinary batch preserves both V2 allocations and footer b
       expect(repairs).toHaveLength(0); expect(dialogs).toHaveLength(0);
     }
 
-    const artifactRoot = path.resolve(process.env.E2E_ARMY_ARTIFACT_ROOT!);
+    const artifactRoot = sdkResultsRoot();
     const allFiles = async () => (await readdir(artifactRoot, { recursive: true })).map((entry) => path.resolve(artifactRoot, entry));
     for (const mode of ["standard", "dpgf"] as const) {
       const oldFiles = new Set(await allFiles());

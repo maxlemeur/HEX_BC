@@ -258,7 +258,8 @@ export function formatMajorationPercentInput(value: number | null | undefined) {
 }
 
 export function parseMajorationPercentToCoefficient(value: string) {
-  return Math.max(parseNumberInput(value) / 100, 0);
+  const parsed = parseNumberInput(value);
+  return parsed === null ? null : Math.max(parsed / 100, 0);
 }
 
 export function normalizeAidInput(value: string) {

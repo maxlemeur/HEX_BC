@@ -28,7 +28,9 @@ export function validateCctpResults(report, args) {
     !r.skip && !r.attempts[0].error && !r.attempts[0].secondaryErrors?.length));
   requireValue(report.run.results.filter((r) => r.kind === "setup").length === 1 && report.run.results[0].kind === "setup" &&
     ["discovered", "selected", "executed", "passed"].every((k) => report.run.summary[k] === 12) &&
-    ["failed", "skipped", "flaky"].every((k) => report.run.summary[k] === 0));
+    ["failed", "skipped", "flaky"].every((k) => report.run.summary[k] === 0) &&
+    // e2e 0.20 counts interrupted tests apart; earlier reports counted them as failed.
+    (report.run.summary.interrupted ?? 0) === 0);
   const allowed = new Set(["--headed", "--no-cache", "--debug"]);
   requireValue(isDeepStrictEqual(args.filter((arg) => !allowed.has(arg)), ["run", "--config", "e2e.config.ts", "--tag", "source-coverage", "--exclude-tag", "agent", "--target", "chromium-desktop", "--max-failures", "1"]));
   requireValue(report.run.usage.modelTokens === 0 && report.run.usage.maxModelCallsInStep === 0 && report.run.usage.downloads === 26);

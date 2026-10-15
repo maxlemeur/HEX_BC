@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { MarginTiersExplanation } from "@/components/estimates/MarginTiersExplanation";
 import { parseLocalizedNumberInput } from "@/components/ui-legacy/NumberInput";
 import { parseEuroToCents } from "@/lib/money";
+import { formatDecimalInput } from "@/lib/numeric-input/parsers";
 import type { Database } from "@/types/database";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -36,7 +37,7 @@ function formatThresholdInput(cents: number) {
 
 function formatMultiplierInput(value: number) {
   if (!Number.isFinite(value)) return "";
-  return String(value);
+  return formatDecimalInput(value);
 }
 
 export function MarginTiersManager({
@@ -168,7 +169,8 @@ export function MarginTiersManager({
             <Input
               id="new-tier-threshold"
               size="sm"
-              type="number"
+              type="text"
+              inputMode="decimal"
               step="0.01"
               min={0}
               value={newThreshold}
@@ -184,7 +186,8 @@ export function MarginTiersManager({
             <Input
               id="new-tier-multiplier"
               size="sm"
-              type="number"
+              type="text"
+              inputMode="decimal"
               step="0.01"
               min={0}
               max={100}
@@ -248,7 +251,8 @@ export function MarginTiersManager({
                     <td>
                       <Input
                         size="sm"
-                        type="number"
+                        type="text"
+                        inputMode="decimal"
                         step="0.01"
                         min={0}
                         value={draft.threshold}
@@ -269,7 +273,8 @@ export function MarginTiersManager({
                     <td>
                       <Input
                         size="sm"
-                        type="number"
+                        type="text"
+                        inputMode="decimal"
                         step="0.01"
                         min={0}
                         max={100}

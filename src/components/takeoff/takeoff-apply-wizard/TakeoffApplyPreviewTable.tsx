@@ -1,6 +1,6 @@
 "use client";
 
-import { NumberInput } from "@/components/ui-legacy/NumberInput";
+import { NumberInput, parseLocalizedNumberInput } from "@/components/ui-legacy/NumberInput";
 import type {
   TakeoffMappingOverride,
   TakeoffPreviewConversionResponse,
@@ -130,8 +130,8 @@ export function TakeoffApplyPreviewTable({
                       className={cn(controlSurface, controlSizes.sm, "w-full")}
                       value={override.action_params.unit_price_cents}
                       parseValue={(value) => {
-                        const parsedValue = Number.parseInt(value, 10);
-                        if (!Number.isFinite(parsedValue)) {
+                        const parsedValue = parseLocalizedNumberInput(value);
+                        if (parsedValue === null || !Number.isInteger(parsedValue)) {
                           return null;
                         }
                         return Math.max(parsedValue, 0);

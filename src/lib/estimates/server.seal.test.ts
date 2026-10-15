@@ -37,6 +37,16 @@ vi.mock("./version-totals", async (importOriginal) => {
   };
 });
 
+// Passthrough by default: selected transition tests replace the verified offer
+// copy one call at a time; those cases do not qualify document integrity.
+vi.mock("@/lib/estimates/offer-document", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/estimates/offer-document")>();
+  return {
+    ...actual,
+    loadVerifiedOfferDocument: vi.fn(actual.loadVerifiedOfferDocument),
+  };
+});
+
 import {
   buildCanonicalEstimateSealPayload,
   computeEstimateSealHash,
@@ -45,6 +55,7 @@ import {
   verifyEstimateSeal,
 } from "@/lib/estimates/server";
 import { evaluateEstimateSendGating } from "./gating";
+import { loadVerifiedOfferDocument } from "@/lib/estimates/offer-document";
 import { generateEstimatePdfNow } from "./pdf-generator";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
@@ -56,6 +67,7 @@ const USER_ID = "11111111-1111-4111-8111-111111111111";
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
 const PROJECT_ID = "33333333-3333-4333-8333-333333333333";
 const VERSION_ID = "44444444-4444-4444-8444-444444444444";
+const LOCK_SESSION_ID = "66666666-6666-4666-8666-666666666666";
 const UPDATED_AT = "2026-02-21T10:00:00.000Z";
 const NEXT_UPDATED_AT = "2026-02-21T10:00:01.000Z";
 const LOCK_EXPIRES_AT = "2099-02-21T10:00:00.000Z";
@@ -313,17 +325,22 @@ function createSupabaseSealMock(input: {
   });
 
   const versionResponses = [...input.versionSelectResponses];
-  const estimateVersionsSelect = vi.fn(() => {
-    const response = versionResponses.shift();
+  let lastVersionResponse: QueryResult | undefined;
+  const estimateVersionsSelect = vi.fn((columns?: string) => {
+    const isFence = columns === "id, tenant_id, project_id, status, updated_at, content_revision";
+    const response = isFence ? lastVersionResponse : versionResponses.shift();
     if (!response) {
       throw new Error("Unexpected estimate_versions select call.");
     }
+    lastVersionResponse = response;
 
     const builder = {
       eq: vi.fn(),
+      abortSignal: vi.fn(),
       single: vi.fn().mockResolvedValue(response),
     };
     builder.eq.mockReturnValue(builder);
+    builder.abortSignal.mockReturnValue(builder);
     return builder;
   });
 
@@ -389,6 +406,7 @@ function createSupabaseSealMock(input: {
               id: "lock-1",
               version_id: VERSION_ID,
               user_id: input.draftLockUserId ?? USER_ID,
+              session_id: LOCK_SESSION_ID,
               locked_at: UPDATED_AT,
               expires_at: LOCK_EXPIRES_AT,
             },
@@ -460,6 +478,7 @@ function createSupabaseSealMock(input: {
 function createVersionAccessRow(status: "draft" | "sent" | "accepted" | "archived") {
   return {
     id: VERSION_ID,
+    tenant_id: TENANT_ID,
     project_id: PROJECT_ID,
     status,
     margin_mode: "fixed",
@@ -639,7 +658,7 @@ describe("estimate status seal flow", () => {
     process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-key";
     mockServiceRoleRpc.mockImplementation(
       async (functionName: string, parameters: Record<string, unknown>) => {
-        if (functionName === "transition_estimate_version_status") {
+        if (functionName === "transition_estimate_version_status" || functionName === "transition_estimate_draft_to_sent") {
           return {
             data: {
               id: VERSION_ID,
@@ -740,7 +759,7 @@ describe("estimate status seal flow", () => {
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
     await expect(
-      patchEstimateStatus(VERSION_ID, { status: "accepted" }, UPDATED_AT)
+      patchEstimateStatus(VERSION_ID, { status: "accepted" }, UPDATED_AT, { draftLockSessionId: LOCK_SESSION_ID })
     ).rejects.toMatchObject({
       status: 400,
       code: "BAD_REQUEST",
@@ -749,6 +768,10 @@ describe("estimate status seal flow", () => {
   });
 
   it("returns conflict when status update token is stale at write time", async () => {
+    vi.mocked(loadVerifiedOfferDocument).mockResolvedValueOnce({
+      sealHash: "a".repeat(64),
+      proof: { clientContractVersion: 1 } as never,
+    } as never);
     const supabase = createSupabaseSealMock({
       versionSelectResponses: [
         {
@@ -774,7 +797,7 @@ describe("estimate status seal flow", () => {
     });
 
     await expect(
-      patchEstimateStatus(VERSION_ID, { status: "accepted" }, UPDATED_AT)
+      patchEstimateStatus(VERSION_ID, { status: "accepted" }, UPDATED_AT, { draftLockSessionId: LOCK_SESSION_ID })
     ).rejects.toMatchObject({
       status: 409,
       code: "VERSION_CONFLICT",
@@ -865,7 +888,7 @@ describe("estimate status seal flow", () => {
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
     await expect(
-      patchEstimateStatus(VERSION_ID, { status: "sent" }, UPDATED_AT)
+      patchEstimateStatus(VERSION_ID, { status: "sent" }, UPDATED_AT, { draftLockSessionId: LOCK_SESSION_ID })
     ).rejects.toMatchObject({
       status: 400,
       code: "ESTIMATE_GATING_BLOCKED",
@@ -908,7 +931,7 @@ describe("estimate status seal flow", () => {
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
     await expect(
-      patchEstimateStatus(VERSION_ID, { status: "sent", force: true }, UPDATED_AT)
+      patchEstimateStatus(VERSION_ID, { status: "sent", force: true }, UPDATED_AT, { draftLockSessionId: LOCK_SESSION_ID })
     ).rejects.toMatchObject({
       status: 403,
       code: "FORCE_SEND_FORBIDDEN",
@@ -918,7 +941,11 @@ describe("estimate status seal flow", () => {
     expect(supabase.__mocks.updatePayloads).toEqual([]);
   });
 
-  it("computes the seal and uses the atomic trusted send command", async () => {
+  it("uses the verified document seal and the atomic trusted send command", async () => {
+    vi.mocked(loadVerifiedOfferDocument).mockResolvedValueOnce({
+      sealHash: "a".repeat(64),
+      proof: { clientContractVersion: 1 } as never,
+    } as never);
     const supabase = createSupabaseSealMock({
       versionSelectResponses: [
         {
@@ -973,7 +1000,7 @@ describe("estimate status seal flow", () => {
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
     await expect(
-      patchEstimateStatus(VERSION_ID, { status: "sent" }, UPDATED_AT)
+      patchEstimateStatus(VERSION_ID, { status: "sent" }, UPDATED_AT, { draftLockSessionId: LOCK_SESSION_ID })
     ).resolves.toMatchObject({
       version: expect.objectContaining({
         id: VERSION_ID,
@@ -984,13 +1011,16 @@ describe("estimate status seal flow", () => {
     expect(supabase.__mocks.updatePayloads).toEqual([]);
     expect(supabase.__mocks.eventInsert).not.toHaveBeenCalled();
     expect(mockServiceRoleRpc).toHaveBeenCalledWith(
-      "transition_estimate_version_status",
+      "transition_estimate_draft_to_sent",
       expect.objectContaining({
         p_version_id: VERSION_ID,
         p_tenant_id: TENANT_ID,
         p_expected_updated_at: UPDATED_AT,
         p_next_status: "sent",
-        p_seal_hash: expect.stringMatching(/^[0-9a-f]{64}$/),
+        p_seal_hash: "a".repeat(64),
+        p_seal_payload_version: 5,
+        p_expected_document_contract: { clientContractVersion: 1 },
+        p_draft_lock_session_id: LOCK_SESSION_ID,
         p_actor_user_id: USER_ID,
         p_event_metadata: {},
         p_occurred_at: expect.any(String),
@@ -1059,7 +1089,7 @@ describe("estimate status seal flow", () => {
     });
 
     await expect(
-      patchEstimateStatus(VERSION_ID, { status: "sent" }, UPDATED_AT)
+      patchEstimateStatus(VERSION_ID, { status: "sent" }, UPDATED_AT, { draftLockSessionId: LOCK_SESSION_ID })
     ).rejects.toMatchObject({
       status: 400,
       code: "ESTIMATE_TOTALS_OUT_OF_SYNC",
@@ -1115,11 +1145,11 @@ describe("estimate status seal flow", () => {
     });
 
     await expect(
-      freezeEstimateV2SnapshotForSend(VERSION_ID, UPDATED_AT)
+      freezeEstimateV2SnapshotForSend(VERSION_ID, UPDATED_AT, { draftLockSessionId: LOCK_SESSION_ID })
     ).rejects.toMatchObject({ status: 409, code: "VERSION_CONFLICT" });
     expect(mockServiceRoleRpc).toHaveBeenCalledWith(
-      "freeze_estimate_v2_snapshot",
-      expect.objectContaining({ p_purpose: "send" })
+      "freeze_estimate_v2_document_snapshot",
+      expect.objectContaining({ p_draft_lock_session_id: LOCK_SESSION_ID })
     );
   });
 
@@ -1143,7 +1173,7 @@ describe("estimate status seal flow", () => {
     );
 
     await expect(
-      patchEstimateStatus(VERSION_ID, { status: "sent" }, UPDATED_AT)
+      patchEstimateStatus(VERSION_ID, { status: "sent" }, UPDATED_AT, { draftLockSessionId: LOCK_SESSION_ID })
     ).rejects.toThrow("pdf generation failed");
 
     expect(supabase.__mocks.updatePayloads).toEqual([]);

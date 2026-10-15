@@ -5,6 +5,7 @@ import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { fileURLToPath } from "node:url";
 import { loadCoverageProfile } from "./coverage-profile.mjs";
+import { sdkEvidenceDirectory } from "./local-recipe-common.mjs";
 
 // Reader failure modes are defined before implementation in
 // docs/testing/local-recipe-reader.md. This script performs no network or SQL.
@@ -126,7 +127,9 @@ try {
   check(report.run.results.filter((entry) => entry.kind === "setup").length === 1 &&
     report.run.results[0].titlePath[0] === titles[0] &&
     ["discovered", "selected", "executed", "passed"].every((key) => report.run.summary[key] === 7) &&
-    ["failed", "skipped", "flaky"].every((key) => report.run.summary[key] === 0), "seven-passed-no-exclusions");
+    ["failed", "skipped", "flaky"].every((key) => report.run.summary[key] === 0) &&
+    // e2e 0.20 counts interrupted tests apart; earlier reports counted them as failed.
+    (report.run.summary.interrupted ?? 0) === 0, "seven-passed-no-exclusions");
   const args = manifest.command.args.slice(1), allowedFlags = new Set(["--headed", "--no-cache", "--debug"]);
   same(args.filter((arg) => !allowedFlags.has(arg)), ["run", "--config", "e2e.config.ts", "--tag", "source-coverage",
     "--exclude-tag", "agent", "--target", "chromium-desktop", "--max-failures", "1"], "unfiltered-fail-fast-one");
@@ -145,10 +148,11 @@ try {
     same(await sha(file), entry.sha256, `artifact-sha-${path.basename(file)}`);
   }
   check(files.every((file) => file === path.join(run, "manifest.json") || locations.has(file)), "complete-archive-inventory");
+  const sdkEvidence = path.join(run, sdkEvidenceDirectory(report)); check(true, "identified-sdk-evidence-directory");
   for (const result of report.run.results) for (const artifact of result.attempts[0].artifacts ?? []) {
     check(typeof artifact.path === "string" && !path.isAbsolute(artifact.path) && digest.test(artifact.sha256) &&
       !["trace", "video"].includes(artifact.kind), "report-artifact-safe");
-    const file = await owned(path.join(run, "artifacts", artifact.path), path.join(run, "artifacts"));
+    const file = await owned(path.join(sdkEvidence, artifact.path), sdkEvidence);
     check(locations.has(file), "report-artifact-inventoried"); same(await sha(file), artifact.sha256, "report-artifact-sha");
     same((await lstat(file)).size, artifact.size, "report-artifact-size");
   }

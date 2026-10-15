@@ -32,7 +32,8 @@ jobs:
           node-version: "24"
           cache: npm
       - run: npm ci
-      - run: npx playwright install chromium --with-deps
+      # Browsers for the playwright-core version @e2e-dev/web pins, not the root playwright package.
+      - run: npx @e2e-dev/web install chromium --with-deps
       - run: npm run e2e
       - name: Retain anonymous evidence
         if: always()
@@ -43,5 +44,6 @@ jobs:
           path: |
             .e2e/army/manifest.json
             .e2e/army/report.json
+            .e2e/army/results/
             .e2e/army/runs/
           retention-days: 14

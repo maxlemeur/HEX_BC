@@ -90,6 +90,8 @@ describe("portal capability read boundary", () => {
           status,
           expires_at: "2020-01-01T00:00:00.000Z",
           email: "client@example.com",
+          capability_contract_version: 1,
+          estimate_email_dispatch_id: null,
         },
         error: null,
       });
@@ -104,15 +106,8 @@ describe("portal capability read boundary", () => {
         "redirect:/portal/44444444-4444-4444-8444-444444444444/expired"
       );
 
-      if (status === "pending") {
-        expect(tokenUpdateEqMock).toHaveBeenCalledWith(
-          "id",
-          "11111111-1111-4111-8111-111111111111"
-        );
-      } else {
-        expect(tokenUpdateEqMock).not.toHaveBeenCalled();
-      }
-      expect(fromMock).toHaveBeenCalledTimes(status === "pending" ? 2 : 1);
+      expect(tokenUpdateEqMock).not.toHaveBeenCalled();
+      expect(fromMock).toHaveBeenCalledOnce();
       expect(fromMock).toHaveBeenNthCalledWith(1, "portal_tokens");
       expect(redirectMock).toHaveBeenCalledOnce();
     }
@@ -128,6 +123,8 @@ describe("portal capability read boundary", () => {
         status: "expired",
         expires_at: "2099-01-01T00:00:00.000Z",
         email: "client@example.com",
+        capability_contract_version: 1,
+        estimate_email_dispatch_id: null,
       },
       error: null,
     });

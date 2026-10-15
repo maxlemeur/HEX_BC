@@ -7,6 +7,7 @@ import { expect, type App, type Screen } from "e2e";
 import type { Browser } from "@e2e-dev/web";
 import { ownEstimate, readEstimate, recordEvidence, type ArmyState } from "../critical/fixtures";
 import { installProbe, replies, type Json, type Reply } from "./generated-ouvrage-recovery-support";
+import { sdkResultsRoot } from "./sdk-results";
 
 export type Component = { componentId: string; fragmentId: string; sourceLinkId: string; designation: string; costType: string; quantity: number; unit: string; unitCostHtCents: number };
 export type Scenario = { label: string; projectId: string; versionId: string; sectionId: string; draftId: string; candidateId: string; subdetailId: string; designation: string; components: Component[] };
@@ -73,7 +74,7 @@ export async function prepareComponents(ui: Ui, label: string) {
       calls.push({ name, request, sessionPresent: typeof draftLockSessionId === "string" });
       if (refuseNextApplication && name === "insertGeneratedOuvrages") { refuseNextApplication = false; await route.abort(); return; }
     }
-    await route.continue();
+    await route.fallback();
   });
   const capture = async (tag: string) => {
     const estimate = await readEstimate(ui.browser, s.versionId), state = await objects();
@@ -159,7 +160,7 @@ export async function componentExports(ui: Ui, p: PreparedComponents, expected: 
   const versionId = options.versionId ?? p.s.versionId, label = options.label ?? "exports", indices = options.retainedIndices ?? [0, 1];
   const api = await readEstimate(ui.browser, versionId), lines = api.items.filter((r) => r.item_type === "line");
   expect(amounts(api.version)).toEqual(expected);
-  const root = path.resolve(process.env.E2E_ARMY_ARTIFACT_ROOT!), observed = [];
+  const root = sdkResultsRoot(), observed = [];
   for (const mode of ["standard", "dpgf"] as const) {
     const old = new Set(await files(root));
     if (mode === "standard") await ui.screen.getByRole("button", "Exporter", { exact: true }).click(); else await ui.screen.getByTestId("estimate-page-toolbar-more-actions-button").click();

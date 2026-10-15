@@ -75,10 +75,10 @@ export async function prepare(ui: Ui, label: string) {
       const { draftLockSessionId, ...request } = body;
       calls.push({ action, request, sessionPresent: typeof draftLockSessionId === "string", at: new Date().toISOString() });
     }
-    await route.continue();
+    await route.fallback();
   });
   const bulkUrl = new URL(`/api/estimates/${s.versionId}/items/bulk`, ui.app.baseUrl!).href;
-  await ui.browser.route(bulkUrl, async (route) => { bulk.push(route.request.method); await route.continue(); });
+  await ui.browser.route(bulkUrl, async (route) => { bulk.push(route.request.method); await route.fallback(); });
   const pending = async () => JSON.parse(await ui.browser.evaluate((identity) => {
     const raw = sessionStorage.getItem(`estimate:batch-pending:v1:${identity.actorId}:${identity.tenantId}:${identity.versionId}`);
     if (!raw) return "null";

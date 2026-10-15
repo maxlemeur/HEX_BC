@@ -120,7 +120,7 @@ async function prepare(ui: OfferUi, caseId: string) {
           const payload = JSON.parse(route.request.postData ?? "null") as { layout?: Record<string, unknown> } | null;
           requestedPdfLayout = payload?.layout ?? null;
         }
-        await route.continue();
+        await route.fallback();
       });
     }
     const [generation] = await Promise.all([ui.browser.waitForResponse(endpoint, { timeout: 120000 }),
@@ -150,7 +150,7 @@ async function send(ui: OfferUi, caseId: string, versionId: string, resend = fal
   let sendPosts = 0;
   await ui.browser.route(endpoint, async (route) => {
     if (route.request.method === "POST") sendPosts += 1;
-    await route.continue();
+    await route.fallback();
   });
   const open = ui.screen.getByRole("button", resend ? "Renvoyer par email" : "Envoyer par email", { exact: true });
   await open.click();

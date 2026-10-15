@@ -6,6 +6,7 @@ import { isDeepStrictEqual } from "node:util";
 import { fileURLToPath } from "node:url";
 import ExcelJS from "exceljs";
 import { loadCoverageProfile } from "./coverage-profile.mjs";
+import { sdkEvidenceDirectory } from "./local-recipe-common.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const relative = (file) => path.relative(root, file).replaceAll("\\", "/");
@@ -45,7 +46,9 @@ try {
   ];
   check(manifest.mode === "coverage" && manifest.result.status === "passed" && manifest.result.exitCode === 0 && report.run.status === "passed", "terminal-pass");
   same(report.run.results.map((entry) => entry.titlePath.join(" > ")), titles, "six-exact-titles");
-  check(report.run.results.every((entry) => entry.status === "passed") && ["discovered", "selected", "executed", "passed"].every((key) => report.run.summary[key] === 6) && ["failed", "skipped", "flaky"].every((key) => report.run.summary[key] === 0), "six-passed-no-exclusions");
+  check(report.run.results.every((entry) => entry.status === "passed") && ["discovered", "selected", "executed", "passed"].every((key) => report.run.summary[key] === 6) && ["failed", "skipped", "flaky"].every((key) => report.run.summary[key] === 0) &&
+    // e2e 0.20 counts interrupted tests apart; earlier reports counted them as failed.
+    (report.run.summary.interrupted ?? 0) === 0, "six-passed-no-exclusions");
   check(manifest.source.changedDuringRun === false && manifest.productionBuild.changedDuringRun === false && report.run.usage.modelTokens === 0 && report.run.usage.maxModelCallsInStep === 0 && manifest.tracePaths.length === 0, "stable-source-build-model-zero-trace-off");
   check(!manifest.command.args.some((value) => String(value).startsWith("--grep")) && manifest.command.args[manifest.command.args.indexOf("--max-failures") + 1] === "1", "unfiltered-fail-fast-one");
   const locations = new Set();
@@ -126,11 +129,12 @@ try {
   }
   const noRepair = find("wfc01-no-repair-observation"); check(noRepair.repairs.length === 0 && noRepair.dialogs.length === 0, "wfc01-no-repair-through-exports");
   same(report.run.usage.downloads, 2, "two-real-wfc-downloads");
+  const evidenceDirectory = sdkEvidenceDirectory(report);
   for (const mode of ["standard", "dpgf"]) {
     const exported = find(`wfc01-export-${mode}`);
-    const rel = path.relative(path.join(root, ".e2e/army/coverage/artifacts"), path.resolve(exported.artifact.path));
+    const rel = path.relative(path.join(root, ".e2e/army/coverage", evidenceDirectory), path.resolve(exported.artifact.path));
     check(rel && !rel.startsWith("..") && !path.isAbsolute(rel) && rel.split(path.sep).includes("downloads"), `owned-${mode}-download`);
-    const file = await realpath(path.join(run, "artifacts", rel)); check(locations.has(file), `inventoried-${mode}-download`); same(await sha(file), exported.artifact.sha256, `download-${mode}-sha`);
+    const file = await realpath(path.join(run, evidenceDirectory, rel)); check(locations.has(file), `inventoried-${mode}-download`); same(await sha(file), exported.artifact.sha256, `download-${mode}-sha`);
     const workbook = new ExcelJS.Workbook(); await workbook.xlsx.readFile(file);
     const sheets = Object.fromEntries(workbook.worksheets.map((sheet) => {
       const rows = []; sheet.eachRow((row) => rows.push(Array.from({ length: sheet.columnCount }, (_, index) => {

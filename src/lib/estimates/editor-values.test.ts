@@ -18,7 +18,7 @@ describe("estimate editor value normalization", () => {
 
   it("parses localized nullable numeric values", () => {
     expect(parseNullableNumericValue("12,5")).toBe(12.5);
-    expect(parseNullableNumericValue("12,5 kg")).toBe(12.5);
+    expect(parseNullableNumericValue("12,5 kg")).toBeNull();
     expect(parseNullableNumericValue(7.25)).toBe(7.25);
     expect(parseNullableNumericValue("  ")).toBeNull();
     expect(parseNullableNumericValue(Number.POSITIVE_INFINITY)).toBeNull();
@@ -45,15 +45,15 @@ describe("parseNumberInput", () => {
     expect(parseNumberInput("1.234.567,89")).toBe(1234567.89);
   });
 
-  it("ignore unites et symboles colles a la valeur", () => {
-    expect(parseNumberInput("12,5 m²")).toBe(12.5);
-    expect(parseNumberInput("1 234,56 €")).toBe(1234.56);
+  it("refuse les unites et symboles dans une quantite", () => {
+    expect(parseNumberInput("12,5 m²")).toBeNull();
+    expect(parseNumberInput("1 234,56 €")).toBeNull();
   });
 
   it("retombe sur 0 pour une saisie vide ou non numerique", () => {
     expect(parseNumberInput("")).toBe(0);
     expect(parseNumberInput("   ")).toBe(0);
-    expect(parseNumberInput("abc")).toBe(0);
+    expect(parseNumberInput("abc")).toBeNull();
   });
 
   it("gere le signe negatif, y compris le moins typographique", () => {
@@ -69,7 +69,7 @@ describe("parseNumberInput", () => {
   // voit ce qui bascule.
   it("T16 : un seul separateur reste decimal (a trancher, ne pas aligner a l'aveugle)", () => {
     expect(parseNumberInput("2,500")).toBe(2.5);
-    expect(parseNumberInput("2.500")).toBe(2.5);
+    expect(parseNumberInput("2.500")).toBeNull();
   });
 });
 

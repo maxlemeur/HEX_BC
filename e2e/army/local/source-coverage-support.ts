@@ -8,6 +8,7 @@ import type { Browser } from "@e2e-dev/web";
 import { expect, type App, type Screen } from "e2e";
 import type { CoverageRequirement, CoverageWorkspace } from "@/lib/estimates/source-coverage-contracts";
 import { apiRequest, readEstimate, recordEvidence, type ArmyState } from "../critical/fixtures";
+import { sdkResultsRoot } from "./sdk-results";
 
 export type CoverageScenario = {
   projectId: string; versionId: string; sectionA: string; sectionB: string;
@@ -198,7 +199,7 @@ export async function prepareEstimate(c: Case) {
   };
   await browser.route(bulkUrl, async (route) => {
     if (route.request.method === "POST") synchronization.posts.push({ observedAt: new Date().toISOString() });
-    await route.continue();
+    await route.fallback();
   });
   try {
     await browser.reload();
@@ -438,7 +439,7 @@ export async function exportsAt(c: Case, label: string) {
   const editorPath = `/dashboard/estimates/${c.scenario.versionId}/edit`;
   if (await c.browser.evaluate(() => location.pathname) !== editorPath) await c.app.open(editorPath);
   await expect(c.screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible();
-  const root = path.resolve(process.env.E2E_ARMY_ARTIFACT_ROOT!);
+  const root = sdkResultsRoot();
   const evidence = [];
   for (const mode of ["standard", "dpgf"] as const) {
     const old = new Set(await files(root));

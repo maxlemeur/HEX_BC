@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
@@ -247,6 +247,11 @@ function createListBuilder<T>(data: T[]) {
     lte: vi.fn(),
     order: vi.fn(),
     limit: vi.fn(),
+    range: vi.fn((from: number, to: number) => Promise.resolve({
+      data: data.slice(from, to + 1),
+      count: data.length,
+      error: null,
+    })),
     single: vi.fn(),
     then: vi.fn(),
   };
@@ -365,6 +370,10 @@ function expectApprovalPathsRevalidated() {
 }
 
 describe("estimate approval server actions", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(createOptionalServiceRoleClient).mockReturnValue(null as never);

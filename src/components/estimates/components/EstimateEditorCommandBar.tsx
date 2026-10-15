@@ -712,11 +712,10 @@ export function EstimateEditorCommandBar({
                         min={0.1}
                         value={outlierThreshold}
                         disabled={meta.isReadOnly}
-                        onChange={(event) =>
-                          onOutlierThresholdChange(
-                            parseNumberInput(event.target.value),
-                          )
-                        }
+                        onChange={(event) => {
+                          const value = parseNumberInput(event.target.value);
+                          if (value !== null) onOutlierThresholdChange(value);
+                        }}
                       />
                     </div>
                   </div>

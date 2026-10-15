@@ -7,6 +7,7 @@ import { getCommercialRoundingOptions } from "@/components/estimates/rounding-op
 import {
   SUPPORTED_ESTIMATE_CURRENCIES,
   formatCurrency,
+  parseCurrencyToCents,
   type SupportedEstimateCurrency,
 } from "@/lib/money";
 import type {
@@ -105,7 +106,7 @@ function parseIntegerNumberInput(value: string) {
     return null;
   }
 
-  return Math.max(Math.round(parsedValue), 0);
+  return Number.isInteger(parsedValue) && parsedValue >= 0 ? parsedValue : null;
 }
 
 export function EstimateSettingsPanel({
@@ -414,7 +415,11 @@ export function EstimateSettingsPanel({
                     (settings.discount_bp != null ? totals?.discountCents : undefined) ??
                     settings.discount_cents) / 100}
                   disabled={isReadOnly}
-                  parseValue={parseNonNegativeNumberInput}
+                  formatValue={(amount) => String(amount ?? "").replace(".", settings.currency === "EUR" ? "," : ".")}
+                  parseValue={(raw) => {
+                    const cents = parseCurrencyToCents(raw, settings.currency);
+                    return cents === null || cents < 0 ? null : cents / 100;
+                  }}
                   emptyValue={0}
                   onValueChange={(discountEuros) =>
                     onChange({

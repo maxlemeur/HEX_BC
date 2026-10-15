@@ -122,13 +122,9 @@ describe("Fixture E - marge par paliers [surface 1]", () => {
       });
   });
 
-  it("fige l'ecretage silencieux au plafond de stockage (MAX_CENTS)", () => {
-    // DIVERGENCE : capCents ecrete SANS erreur (estimate-calculations.ts:149).
-    //   Les lignes sont ecretees en premier (estimate-calculations.ts:226 et
-    //   :230), sans aucun marqueur. Consequence figee ici : isCapped vaut
-    //   FALSE (estimate-calculations.ts:386 teste l'agregat, deja ecrete en
-    //   amont) alors que le montant reel a bien depasse le plafond. Le devis
-    //   annonce 21 474 836,47 EUR au lieu de 32 000 000,00 EUR, en silence.
+  it("signale l'ecretage des lignes au plafond de stockage (MAX_CENTS)", () => {
+    // Le montant brut depasse le stockage : le signal doit remonter des
+    // lignes, meme si les agregats sont deja plafonnes a MAX_CENTS.
     const capLine = makeLine({
       id: "cap-1",
       parent_id: "sec-1",
@@ -156,7 +152,7 @@ describe("Fixture E - marge par paliers [surface 1]", () => {
         "MAX_CENTS": 2147483647,
         "exceedsMaxCentsBrut": true,
         "exceedsMaxCentsSousPlafond": false,
-        "isCapped": false,
+        "isCapped": true,
         "saleSubtotalBeforeCoefficientCents": 2147483647,
         "saleSubtotalCents": 2147483647,
       });

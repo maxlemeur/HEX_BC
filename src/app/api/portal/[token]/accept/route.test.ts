@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createPortalLegacyOfferFixture } from "@/test/fixtures/portal-legacy-offer";
+
 // ---------------------------------------------------------------------------
 // Mock service-role client
 // ---------------------------------------------------------------------------
@@ -11,11 +13,13 @@ const mockTokenUpdateSingle = vi.fn();
 const mockTokenPatchUpdate = vi.fn();
 const mockVersionUpdate = vi.fn();
 const mockStorageUpload = vi.fn();
+const mockStorageDownload = vi.fn();
 const mockRpc = vi.fn();
 const mockEmailInsert = vi.fn();
 const mockVersionDataSingle = vi.fn();
-const mockDocumentMaybeSingle = vi.fn();
+const mockDocumentSingle = vi.fn();
 const mockResendSend = vi.fn();
+const offerFixture = createPortalLegacyOfferFixture();
 
 function buildMockFrom() {
   return (table: string) => {
@@ -47,12 +51,15 @@ function buildMockFrom() {
       };
     }
     if (table === "estimate_versions") {
+      const builder = {
+        eq: vi.fn(),
+        abortSignal: vi.fn(),
+        single: mockVersionDataSingle,
+      };
+      builder.eq.mockReturnValue(builder);
+      builder.abortSignal.mockReturnValue(builder);
       return {
-        select: vi.fn(() => ({
-          eq: vi.fn(() => ({
-            single: mockVersionDataSingle,
-          })),
-        })),
+        select: vi.fn(() => builder),
         update: vi.fn(() => {
           mockVersionUpdate();
           return {
@@ -68,12 +75,26 @@ function buildMockFrom() {
     if (table === "estimate_documents") {
       const builder = {
         eq: vi.fn(),
-        maybeSingle: mockDocumentMaybeSingle,
+        single: mockDocumentSingle,
       };
       builder.eq.mockReturnValue(builder);
       return {
         select: vi.fn(() => builder),
       };
+    }
+    if (table === "estimate_items") {
+      const builder = {
+        eq: vi.fn(),
+        order: vi.fn(),
+        range: vi.fn((from: number, to: number) => Promise.resolve({
+          data: offerFixture.items.slice(from, to + 1),
+          count: offerFixture.items.length,
+          error: null,
+        })),
+      };
+      builder.eq.mockReturnValue(builder);
+      builder.order.mockReturnValue(builder);
+      return { select: vi.fn(() => builder) };
     }
     if (table === "estimate_emails") {
       return {
@@ -91,6 +112,7 @@ vi.mock("@/lib/supabase/service-role", () => ({
     storage: {
       from: vi.fn(() => ({
         upload: mockStorageUpload,
+        download: mockStorageDownload,
       })),
     },
   }),
@@ -130,11 +152,13 @@ function makeParams(token = VALID_TOKEN) {
 
 const PENDING_TOKEN = {
   id: "token-id-1",
-  tenant_id: "tenant-id-1",
-  version_id: "version-id-1",
+  tenant_id: offerFixture.version.tenant_id,
+  version_id: offerFixture.version.id,
   status: "pending",
   expires_at: new Date(Date.now() + 86400000).toISOString(),
   email: "client@test.com",
+  capability_contract_version: 1,
+  estimate_email_dispatch_id: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -146,16 +170,12 @@ describe("POST /api/portal/[token]/accept", () => {
     vi.clearAllMocks();
     mockRpc.mockResolvedValue({ error: null });
     mockStorageUpload.mockResolvedValue({ error: null });
+    mockStorageDownload.mockResolvedValue({ data: offerFixture.blob, error: null });
     mockEmailInsert.mockResolvedValue({ error: null });
     mockResendSend.mockResolvedValue({ data: { id: "email-1" }, error: null });
-    mockVersionDataSingle.mockResolvedValue({ data: null, error: null });
-    mockDocumentMaybeSingle.mockResolvedValue({
-      data: {
-        status: "ready",
-        generated_by: "issuer-id-1",
-        layout_options: { includeTerms: false },
-        terms_snapshot: null,
-      },
+    mockVersionDataSingle.mockResolvedValue({ data: offerFixture.version, error: null });
+    mockDocumentSingle.mockResolvedValue({
+      data: offerFixture.document,
       error: null,
     });
     // No email env vars by default (skip email sending)
@@ -245,7 +265,7 @@ describe("POST /api/portal/[token]/accept", () => {
       expect.stringContaining("tenants!inner(is_active)")
     );
     expect(mockTokenLookupEq).toHaveBeenCalledWith("tenants.is_active", true);
-    expect(mockDocumentMaybeSingle).not.toHaveBeenCalled();
+    expect(mockDocumentSingle).not.toHaveBeenCalled();
     expect(mockRpc).not.toHaveBeenCalled();
     expect(mockStorageUpload).not.toHaveBeenCalled();
   });
@@ -305,6 +325,12 @@ describe("POST /api/portal/[token]/accept", () => {
         p_portal_token_id: "token-id-1",
         p_decision: "accepted",
         p_client_ip: null,
+        p_expected_seal_hash: offerFixture.version.seal_hash,
+        p_expected_document_contract: expect.objectContaining({
+          documentId: offerFixture.document.id,
+          sha256Hash: offerFixture.document.sha256_hash,
+          publishedContentRevision: offerFixture.version.content_revision,
+        }),
       })
     );
   });
@@ -314,7 +340,7 @@ describe("POST /api/portal/[token]/accept", () => {
       data: PENDING_TOKEN,
       error: null,
     });
-    mockDocumentMaybeSingle.mockResolvedValueOnce({
+    mockDocumentSingle.mockResolvedValueOnce({
       data: null,
       error: { code: "42501", message: "permission denied" },
     });
@@ -324,8 +350,10 @@ describe("POST /api/portal/[token]/accept", () => {
       makeParams()
     );
 
-    expect(res.status).toBe(503);
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toMatch(/copie.*vérifiée/i);
     expect(mockRpc).not.toHaveBeenCalled();
+    expect(mockStorageUpload).not.toHaveBeenCalled();
   });
 
   it("fails closed when the stored layout expects CGV without a usable snapshot", async () => {
@@ -333,11 +361,9 @@ describe("POST /api/portal/[token]/accept", () => {
       data: PENDING_TOKEN,
       error: null,
     });
-    mockDocumentMaybeSingle.mockResolvedValueOnce({
+    mockDocumentSingle.mockResolvedValueOnce({
       data: {
-        status: "ready",
-        generated_by: "issuer-id-1",
-        layout_options: { includeTerms: true },
+        ...offerFixture.document,
         terms_snapshot: null,
       },
       error: null,
@@ -357,11 +383,9 @@ describe("POST /api/portal/[token]/accept", () => {
       data: PENDING_TOKEN,
       error: null,
     });
-    mockDocumentMaybeSingle.mockResolvedValueOnce({
+    mockDocumentSingle.mockResolvedValueOnce({
       data: {
-        status: "ready",
-        generated_by: "issuer-id-1",
-        layout_options: { includeTerms: true },
+        ...offerFixture.document,
         terms_snapshot: {
           templateId: "11111111-1111-4111-8111-111111111111",
           title: "CGV",
@@ -508,16 +532,6 @@ describe("POST /api/portal/[token]/accept", () => {
       data: PENDING_TOKEN,
       error: null,
     });
-    mockVersionDataSingle.mockResolvedValueOnce({
-      data: {
-        version_number: 1,
-        total_ttc_cents: 12_000,
-        currency: "EUR",
-        estimate_projects: { name: "Projet test" },
-      },
-      error: null,
-    });
-
     const response = await POST(
       makeRequest({ accepted_terms: true }),
       makeParams()
@@ -538,15 +552,6 @@ describe("POST /api/portal/[token]/accept", () => {
     process.env.EMAIL_FROM = "noreply@example.com";
     mockTokenLookupSingle.mockResolvedValueOnce({
       data: PENDING_TOKEN,
-      error: null,
-    });
-    mockVersionDataSingle.mockResolvedValueOnce({
-      data: {
-        version_number: 1,
-        total_ttc_cents: 12_000,
-        currency: "EUR",
-        estimate_projects: { name: "Projet test" },
-      },
       error: null,
     });
     mockResendSend.mockResolvedValueOnce({

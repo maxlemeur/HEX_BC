@@ -1,5 +1,7 @@
 "use client";
 
+import { formatDecimalInput } from "@/lib/numeric-input/parsers";
+
 import dynamic from "next/dynamic";
 
 import { EstimateOrderedCells } from "@/components/estimates/context/EstimateColumnOrderContext";
@@ -823,7 +825,7 @@ export function LineRow({
       <EditableCell
         cell={quantityCell}
         navigation={navigation}
-        value={item.quantity ?? 0}
+        value={formatDecimalInput(item.quantity ?? 0)}
         readOnly={isReadOnly}
         className={toCellClassName(
           navigation,
@@ -842,25 +844,18 @@ export function LineRow({
         placeholder="Obligatoire"
         ariaLabel={`Quantité pour ${item.title || "sans titre"}`}
         formatDisplayValue={(value) =>
-          formatNumberDisplay(parseNumberInput(String(value ?? "0")), {
+          formatNumberDisplay(Number(String(value ?? "0").replace(",", ".")), {
             minDecimals: 0,
             maxDecimals: 3,
           })
         }
-        onChange={(value) =>
-          onPatchItem(
-            item.id,
-            { quantity: parseNumberInput(value) },
-            { persist: false },
-          )
-        }
-        onCommit={(value) =>
-          onPatchItem(
-            item.id,
-            { quantity: parseNumberInput(value) },
-            { persist: true },
-          )
-        }
+        isValidInput={(value) => parseNumberInput(value) !== null}
+        onChange={() => undefined}
+        onCommit={(value) => {
+          const quantity = parseNumberInput(value);
+          if (quantity === null) return;
+          onPatchItem(item.id, { quantity }, { persist: true });
+        }}
       />
       <div
         {...unitCellProps}
@@ -909,8 +904,9 @@ export function LineRow({
         inputMode="decimal"
         placeholder="Obligatoire"
         ariaLabel={`Prix d’achat unitaire HT pour ${item.title || "sans titre"}`}
+        isValidInput={(value) => parseCurrencyToCents(value, estimateCurrency) !== null}
         formatDisplayValue={(value) =>
-          formatNumberDisplay(parseNumberInput(String(value ?? "0")), {
+          formatNumberDisplay(Number(String(value ?? "0").replace(",", ".")), {
             minDecimals: 2,
             maxDecimals: 2,
           })

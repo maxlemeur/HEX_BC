@@ -5,7 +5,8 @@ vi.mock("@/lib/auth/tenant-context", () => ({
   getAuthenticatedTenantContext: vi.fn(),
 }));
 
-vi.mock("@/lib/purchase-orders", () => ({
+vi.mock("@/lib/purchase-orders", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/purchase-orders")>(),
   getAccessiblePurchaseOrderOrNull: vi.fn(),
 }));
 
@@ -87,6 +88,8 @@ function buildOrder(overrides: Record<string, unknown> = {}) {
     total_tax_cents: 20_000,
     total_ttc_cents: 120_000,
     currency: "EUR",
+    edit_revision: 1,
+    purchase_order_items: [],
     suppliers: { name: "Fournisseur Test" },
     delivery_sites: { name: "Chantier Nord" },
     ...overrides,
@@ -134,7 +137,12 @@ function createSupabaseMock(options: {
     download,
     supabase: {
       from: vi.fn((table: string) => {
-        if (table === "purchase_order_items") return selectFor(items);
+        if (table === "purchase_order_items") return {
+          select: vi.fn(() => ({ eq: vi.fn().mockResolvedValue({ count: items.length, error: null }) })),
+        };
+        if (table === "purchase_orders") return {
+          select: vi.fn(() => ({ eq: vi.fn(() => ({ single: vi.fn().mockResolvedValue({ data: { edit_revision: 1 }, error: null }) })) })),
+        };
         if (table === "purchase_order_devis") return selectFor(devis);
         throw new Error(`Unexpected table: ${table}`);
       }),
@@ -211,19 +219,23 @@ describe("purchase order zip route", () => {
   // resolveurs mais explosait a l'execution. On verifie donc que la reponse est
   // une archive ZIP reellement lisible, pas seulement un 200.
   it("streams a readable zip containing the order html", async () => {
-    const { supabase } = createSupabaseMock({
-      items: [
-        {
-          designation: "Poutre IPE 200",
-          reference: "IPE200",
-          quantity: 4,
-          unit_price_ht_cents: 25_000,
-          line_total_ht_cents: 100_000,
-        },
-      ],
-    });
+    const items = [
+      {
+        designation: "Poutre IPE 200",
+        reference: "IPE200",
+        quantity: 4,
+        unit_price_ht_cents: 25_000,
+        line_total_ht_cents: 100_000,
+        position: 1,
+        unit: "u",
+        price_unit: "u",
+        line_tax_cents: 20_000,
+        line_total_ttc_cents: 120_000,
+      },
+    ];
+    const { supabase } = createSupabaseMock({ items });
     mockTenantContext(supabase);
-    mockedGetOrder.mockResolvedValue(buildOrder());
+    mockedGetOrder.mockResolvedValue(buildOrder({ purchase_order_items: items }));
 
     const response = await callRoute();
 

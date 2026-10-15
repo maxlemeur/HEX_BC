@@ -136,6 +136,8 @@ const eslintConfig = defineConfig([
     // Local e2e outputs and agent scratch directories (git-ignored, may hold huge traces).
     ".e2e/**",
     "**/.codex-tmp/**",
+    // Proof scripts of the independent audits, kept verbatim as evidence (CommonJS included).
+    "docs/audit-independant-*/reproductions/**",
   ]),
 ]);
 

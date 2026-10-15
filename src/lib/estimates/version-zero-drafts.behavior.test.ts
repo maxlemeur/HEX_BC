@@ -323,6 +323,9 @@ function createSupabaseHarness(scenario: HarnessScenario = {}) {
                 },
               ];
         break;
+      case "profiles":
+        data = [{ id: OTHER_USER_ID, full_name: "Autre utilisateur" }];
+        break;
       case "estimate_items":
         data = null;
         count = scenario.itemCount ?? 0;
@@ -647,7 +650,7 @@ describe("materializeVersionZeroDraft", () => {
         },
       },
     },
-  ])("rejects a $label draft lock before later reads", async ({ lockState, expected }) => {
+  ])("rejects a $label draft lock before later business reads", async ({ lockState, expected }) => {
     const harness = installHarness({ lockState });
 
     await expect(
@@ -658,7 +661,7 @@ describe("materializeVersionZeroDraft", () => {
     ).rejects.toMatchObject(expected);
 
     expect(harness.rpc).not.toHaveBeenCalled();
-    expect(harness.queries.map((query) => query.table)).toEqual([
+    expect(harness.queries.filter((query) => query.table !== "profiles").map((query) => query.table)).toEqual([
       "tenant_memberships",
       "estimate_versions",
       "draft_locks",

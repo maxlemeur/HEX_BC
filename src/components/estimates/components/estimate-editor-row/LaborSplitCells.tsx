@@ -1,5 +1,7 @@
 "use client";
 
+import { DecimalDraftInput } from "@/components/estimates/components/estimate-editor-row/DecimalDraftInput";
+
 import { EstimateOrderedCells } from "@/components/estimates/context/EstimateColumnOrderContext";
 
 import { EstimateTypeCombobox } from "@/components/estimates/EstimateTypeCombobox";
@@ -19,8 +21,6 @@ import {
   type LaborRole,
   type SpreadsheetCell,
   type SpreadsheetNavigationResult,
-  parseMajorationPercentToCoefficient,
-  parseNumberInput,
   toCellClassName,
   toCellKeyDownHandler,
 } from "@/components/estimates/components/estimate-editor-row/shared";
@@ -119,40 +119,19 @@ export function LaborSplitCells({
           "estimate-cell estimate-col--mo"
         )}
       >
-        <input
+        <DecimalDraftInput
           className="estimate-input"
           ref={hMoMajorationEditorProps.ref}
           tabIndex={hMoMajorationEditorProps.tabIndex}
-          type="number"
           step="0.1"
           min={0}
-          value={hMoMajorationPercent}
+          value={Number(hMoMajorationPercent)}
           aria-label={`Majoration de main-d’œuvre en pourcentage pour ${item.title || "sans titre"}`}
           onFocus={hMoMajorationEditorProps.onFocus}
           onKeyDown={hMoMajorationEditorProps.onKeyDown}
-          onChange={(event) =>
-            onPatchItem(
-              item.id,
-              {
-                h_mo_majoration: parseMajorationPercentToCoefficient(
-                  event.target.value
-                ),
-              },
-              { persist: false }
-            )
-          }
-          onBlur={(event) => {
-            hMoMajorationEditorProps.onBlur(event);
-            onPatchItem(
-              item.id,
-              {
-                h_mo_majoration: parseMajorationPercentToCoefficient(
-                  event.target.value
-                ),
-              },
-              { persist: true }
-            );
-          }}
+          onValueChange={(value) => onPatchItem(item.id, { h_mo_majoration: Math.max(value / 100, 0) }, { persist: false })}
+          onValueCommit={(value) => onPatchItem(item.id, { h_mo_majoration: Math.max(value / 100, 0) }, { persist: true })}
+          onBlur={hMoMajorationEditorProps.onBlur}
           placeholder="100"
           disabled={isReadOnly}
         />
@@ -170,32 +149,19 @@ export function LaborSplitCells({
           }`
         )}
       >
-        <input
+        <DecimalDraftInput
           className="estimate-input"
           ref={hMoAtelierEditorProps.ref}
           tabIndex={hMoAtelierEditorProps.tabIndex}
-          type="number"
           step="0.1"
           min={0}
-          value={splitFields.h_mo_atelier ?? ""}
+          value={splitFields.h_mo_atelier}
           aria-label={`Heures de main-d’œuvre en atelier pour ${item.title || "sans titre"}`}
           onFocus={hMoAtelierEditorProps.onFocus}
           onKeyDown={hMoAtelierEditorProps.onKeyDown}
-          onChange={(event) =>
-            onPatchItem(
-              item.id,
-              { h_mo_atelier: parseNumberInput(event.target.value) },
-              { persist: false }
-            )
-          }
-          onBlur={(event) => {
-            hMoAtelierEditorProps.onBlur(event);
-            onPatchItem(
-              item.id,
-              { h_mo_atelier: parseNumberInput(event.target.value) },
-              { persist: true }
-            );
-          }}
+          onValueChange={(value) => onPatchItem(item.id, { h_mo_atelier: value }, { persist: false })}
+          onValueCommit={(value) => onPatchItem(item.id, { h_mo_atelier: value }, { persist: true })}
+          onBlur={hMoAtelierEditorProps.onBlur}
           placeholder="0.0"
           disabled={isReadOnly}
         />
@@ -232,32 +198,19 @@ export function LaborSplitCells({
           "estimate-cell estimate-col--mo"
         )}
       >
-        <input
+        <DecimalDraftInput
           className="estimate-input"
           ref={kMoAtelierEditorProps.ref}
           tabIndex={kMoAtelierEditorProps.tabIndex}
-          type="number"
           step="0.01"
           min={0}
-          value={splitFields.k_mo_atelier ?? ""}
+          value={splitFields.k_mo_atelier}
           aria-label={`Coefficient de main-d’œuvre en atelier pour ${item.title || "sans titre"}`}
           onFocus={kMoAtelierEditorProps.onFocus}
           onKeyDown={kMoAtelierEditorProps.onKeyDown}
-          onChange={(event) =>
-            onPatchItem(
-              item.id,
-              { k_mo_atelier: parseNumberInput(event.target.value) },
-              { persist: false }
-            )
-          }
-          onBlur={(event) => {
-            kMoAtelierEditorProps.onBlur(event);
-            onPatchItem(
-              item.id,
-              { k_mo_atelier: parseNumberInput(event.target.value) },
-              { persist: true }
-            );
-          }}
+          onValueChange={(value) => onPatchItem(item.id, { k_mo_atelier: value }, { persist: false })}
+          onValueCommit={(value) => onPatchItem(item.id, { k_mo_atelier: value }, { persist: true })}
+          onBlur={kMoAtelierEditorProps.onBlur}
           placeholder="1.00"
           disabled={isReadOnly}
         />
@@ -275,32 +228,19 @@ export function LaborSplitCells({
           }`
         )}
       >
-        <input
+        <DecimalDraftInput
           className="estimate-input"
           ref={hMoChantierEditorProps.ref}
           tabIndex={hMoChantierEditorProps.tabIndex}
-          type="number"
           step="0.1"
           min={0}
-          value={splitFields.h_mo_chantier ?? ""}
+          value={splitFields.h_mo_chantier}
           aria-label={`Heures de main-d’œuvre sur chantier pour ${item.title || "sans titre"}`}
           onFocus={hMoChantierEditorProps.onFocus}
           onKeyDown={hMoChantierEditorProps.onKeyDown}
-          onChange={(event) =>
-            onPatchItem(
-              item.id,
-              { h_mo_chantier: parseNumberInput(event.target.value) },
-              { persist: false }
-            )
-          }
-          onBlur={(event) => {
-            hMoChantierEditorProps.onBlur(event);
-            onPatchItem(
-              item.id,
-              { h_mo_chantier: parseNumberInput(event.target.value) },
-              { persist: true }
-            );
-          }}
+          onValueChange={(value) => onPatchItem(item.id, { h_mo_chantier: value }, { persist: false })}
+          onValueCommit={(value) => onPatchItem(item.id, { h_mo_chantier: value }, { persist: true })}
+          onBlur={hMoChantierEditorProps.onBlur}
           placeholder="0.0"
           disabled={isReadOnly}
         />
@@ -337,32 +277,19 @@ export function LaborSplitCells({
           "estimate-cell estimate-col--mo"
         )}
       >
-        <input
+        <DecimalDraftInput
           className="estimate-input"
           ref={kMoChantierEditorProps.ref}
           tabIndex={kMoChantierEditorProps.tabIndex}
-          type="number"
           step="0.01"
           min={0}
-          value={splitFields.k_mo_chantier ?? ""}
+          value={splitFields.k_mo_chantier}
           aria-label={`Coefficient de main-d’œuvre sur chantier pour ${item.title || "sans titre"}`}
           onFocus={kMoChantierEditorProps.onFocus}
           onKeyDown={kMoChantierEditorProps.onKeyDown}
-          onChange={(event) =>
-            onPatchItem(
-              item.id,
-              { k_mo_chantier: parseNumberInput(event.target.value) },
-              { persist: false }
-            )
-          }
-          onBlur={(event) => {
-            kMoChantierEditorProps.onBlur(event);
-            onPatchItem(
-              item.id,
-              { k_mo_chantier: parseNumberInput(event.target.value) },
-              { persist: true }
-            );
-          }}
+          onValueChange={(value) => onPatchItem(item.id, { k_mo_chantier: value }, { persist: false })}
+          onValueCommit={(value) => onPatchItem(item.id, { k_mo_chantier: value }, { persist: true })}
+          onBlur={kMoChantierEditorProps.onBlur}
           placeholder="1.00"
           disabled={isReadOnly}
         />

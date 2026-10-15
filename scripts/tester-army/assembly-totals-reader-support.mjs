@@ -9,6 +9,8 @@ export function validateAssemblyTotalsResults(report) {
   same(run.results.map((result) => result.titlePath.join(" > ")), titles, "Exact Auth+AT01+AT02 titles required.");
   requireValue(report.schemaVersion === "report-1" && run.status === "passed" && run.exitCode === 0 && run.summary.discovered === 3 && run.summary.selected === 3 &&
     run.summary.executed === 3 && run.summary.passed === 3 && run.summary.failed === 0 && run.summary.skipped === 0 && run.summary.flaky === 0 &&
+    // e2e 0.20 counts interrupted tests apart; earlier reports counted them as failed.
+    (run.summary.interrupted ?? 0) === 0 &&
     run.usage.downloads === 8 && run.usage.modelTokens === 0 && run.usage.maxModelCallsInStep === 0, "Complete AT successes/downloads required; failed/unreached cases are missing proof.");
   for (const [index, result] of run.results.entries()) requireValue(result.selected && result.status === "passed" && result.repeat === 0 && result.platform === "web" &&
     result.targetId === "chromium-desktop" && result.kind === (index ? "test" : "setup") && result.file === (index ? "e2e/army/local/assembly-totals.e2e.ts" : "e2e/army/critical/auth.setup.e2e.ts") &&

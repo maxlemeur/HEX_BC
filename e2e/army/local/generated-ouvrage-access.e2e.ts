@@ -153,7 +153,7 @@ test("GR07 access refuses list and resume after real archive then owner role dow
         throw new Error("Access campaign must not generate, apply, reject, or review a draft");
       }
     }
-    await route.continue();
+    await route.fallback();
   });
   const observer = await ordinaryObserver(fixture);
   try {

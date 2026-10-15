@@ -2,7 +2,6 @@ import { z } from "zod";
 
 import {
   badRequest,
-  conflict,
   forbidden,
   mapSupabaseError,
   notFound,
@@ -11,6 +10,7 @@ import {
   getAuthenticatedTenantContext as getAuthenticatedContext,
   type ServerSupabaseClient,
 } from "@/lib/auth/tenant-context";
+import { assertDraftLockOwnedByCurrentUser } from "@/lib/estimates/server-context";
 import type { Database } from "@/types/database";
 
 type Supabase = ServerSupabaseClient;
@@ -369,68 +369,6 @@ async function getVersionAccessOrThrow(
   };
 }
 
-async function resolveDraftLockOwnerName(supabase: Supabase, userId: string) {
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("full_name")
-    .eq("id", userId)
-    .maybeSingle();
-
-  if (error || !data) {
-    return null;
-  }
-
-  const fullName = typeof data.full_name === "string" ? data.full_name.trim() : "";
-  return fullName.length > 0 ? fullName : null;
-}
-
-async function assertDraftLockOwnedByCurrentUser(input: {
-  context: AuthenticatedContext;
-  versionId: string;
-}) {
-  const { data: lock, error } = await input.context.supabase
-    .from("draft_locks")
-    .select("id, version_id, user_id, locked_at, expires_at")
-    .eq("tenant_id", input.context.tenantId)
-    .eq("version_id", input.versionId)
-    .gt("expires_at", new Date().toISOString())
-    .maybeSingle();
-
-  if (error) {
-    throw mapSupabaseError(error, "Impossible de vérifier le verrou de brouillon.");
-  }
-
-  if (!lock) {
-    throw conflict(
-      "Un verrou actif est requis pour modifier cette version brouillon.",
-      {
-        lock: null,
-      },
-      "LOCK_REQUIRED"
-    );
-  }
-
-  if (lock.user_id === input.context.userId) {
-    return;
-  }
-
-  const holderName = await resolveDraftLockOwnerName(
-    input.context.supabase,
-    lock.user_id
-  );
-
-  throw conflict("Cette version est déjà verrouillée par un autre utilisateur.", {
-    lock: {
-      version_id: lock.version_id,
-      user_id: lock.user_id,
-      holder_name: holderName,
-      locked_at: lock.locked_at,
-      expires_at: lock.expires_at,
-      is_owner: false,
-    },
-  });
-}
-
 async function getLearningConfig(
   context: Pick<AuthenticatedContext, "supabase" | "tenantId">
 ): Promise<SuggestionLearningConfig> {
@@ -648,7 +586,9 @@ export async function trackCorrection(input: {
   assertDraftStatus(version.status);
 
   await assertDraftLockOwnedByCurrentUser({
-    context,
+    supabase: context.supabase,
+    tenantId: context.tenantId,
+    userId: context.userId,
     versionId: input.versionId,
   });
 
