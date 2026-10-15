@@ -334,8 +334,17 @@ armyTest("DPGF03 generic mapping keeps catalogue linking a two-row dry run", {
   try {
     await app.open("/dashboard/imports");
     await expect(screen.getByRole("heading", /Import DPGF/i)).toBeVisible();
-    await browser.locator("#import-file-input").setInputFiles(fixturePath);
-    await screen.getByRole("button", /^(Importer|Lancer l['’]import)$/i).first().tap();
+    const fileInput = screen.getByLabel("Fichier DPGF à importer", { exact: true, visible: true });
+    await recordEvidence(army, "catalogue-dry-run-upload-controls", {
+      matchingInputs: await browser.locator("#import-file-input").count(),
+      visibleInputs: await fileInput.count(),
+    });
+    await expect(fileInput).toHaveCount(1);
+    await expect(fileInput).toBeVisible();
+    await fileInput.setInputFiles(fixturePath);
+    const importButton = screen.getByRole("button", /^(Importer|Lancer l['’]import)$/i, { visible: true });
+    await expect(importButton).toHaveCount(1);
+    await importButton.tap();
     const mapLink = screen.getByRole("link", /Mapper les colonnes/i);
     await expect(mapLink).toBeVisible({ timeout: 60_000 });
     const mapHref = await mapLink.getAttribute("href");

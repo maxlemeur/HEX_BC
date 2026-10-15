@@ -243,3 +243,33 @@ remplacement sur ce candidat. Leurs empreintes sont vérifiées avant retrait.
 `playwright` reste une dépendance du collecteur de prix Sofinther ; le moteur
 interne d'Army conserve son propre `playwright-core`. Aucun des deux ne fournit
 une seconde suite E2E. Les anciennes archives rouges restent conservées.
+
+## Publication et campagnes GitHub du 15 octobre
+
+Le candidat 15 (`90f9bde2aaa78da9a0f4c833c0fd240ccea90ebc`) passe le focus
+5/5, le full 122/122 et le développement 4/4 sur la pile native locale, sans
+skip/flaky/interruption ni divergence source/build. Les empreintes et la
+confidentialité passent ; la pile possédée est absente après nettoyage. Les
+50 fichiers de l'ancien runner sont alors retirés et le commit `a25b5c40`
+est publié sur `main`, avec cet arbre exact. Les autres travaux locaux et les
+trois suppressions initialement préparées sont préservés.
+
+Quality Gate `38805537928`, smoke Army `38805537987` et Vercel passent sur ce
+commit. Les deux campagnes métier GitHub restent rouges, et distinctes du local :
+
+- Critical `38805538063` : 63/64, aucun skip/retry. Le rechargement du parcours de
+  création expire ; les montants avant reload sont exacts, ceux après reload
+  ne sont pas exécutés. SQL/RLS/build/source/privacy et empreintes passent.
+- Full `38805560023` : 121/122 puis développement 4/4, aucun skip/retry. DPGF03
+  refuse le sélecteur de fichier ambigu, qui résout deux éléments alors que la
+  capture montre une seule zone visible. La création/relecture passe dans ce run.
+  SQL/RLS/build/source/privacy et empreintes passent.
+
+Les preuves expurgées sont conservées sous
+`.codex-tmp/army-ci-migration-20261015/published-critical-evidence/` et
+`github-full-38805560023/`. Ces résultats ne sont pas remplacés par le succès
+local. La suite exige des préconditions UI explicites avant navigation et un
+contrôle de fichier visible unique, avec les mêmes oracles financiers et
+l'import catalogue à deux lignes. Aucun délai ou retry supplémentaire n'est
+un correctif. La cause exacte du blocage de rechargement reste non établie ;
+voir `army-reload-readiness.md`.

@@ -221,7 +221,38 @@ armyTest(
   async ({ app, screen, browser, army }) => {
     const ui = { app, screen, browser };
     const { ids, expected } = await createFinancialFixture(ui, army, "autosave");
-    await browser.reload();
+    const nativeDialogs: Array<{ messageLength: number }> = [];
+    const removeDialogObserver = await browser.onDialog(async (dialog) => {
+      nativeDialogs.push({ messageLength: dialog.message.length });
+      await dialog.dismiss();
+      await recordEvidence(army, "autosave-reload-dialog", { ids, nativeDialogs });
+      throw new Error("The acknowledged autosave must reload without a native dialog.");
+    });
+    const reloadState = () => browser.evaluate(() => ({
+      pathname: window.location.pathname,
+      readyState: document.readyState,
+      timeOrigin: performance.timeOrigin,
+      navigations: performance.getEntriesByType("navigation").map((entry) => ({
+        type: (entry as PerformanceNavigationTiming).type,
+        domContentLoadedEventEnd: (entry as PerformanceNavigationTiming).domContentLoadedEventEnd,
+        loadEventEnd: (entry as PerformanceNavigationTiming).loadEventEnd,
+      })),
+      autosaveStatus: document.querySelector('[data-testid="estimate-page-toolbar-autosave-status"]')?.textContent?.trim() ?? null,
+    }));
+    let reloadCompleted = false;
+    try {
+      await recordEvidence(army, "autosave-before-reload", { ids, state: await reloadState() });
+      await browser.reload();
+      reloadCompleted = true;
+      expect(nativeDialogs).toEqual([]);
+    } finally {
+      try {
+        const state = await reloadState().catch(() => null);
+        await recordEvidence(army, "autosave-after-reload", { ids, reloadCompleted, nativeDialogs, state });
+      } finally {
+        await removeDialogObserver();
+      }
+    }
     await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible();
     const controls = [];
     for (const line of expected) {

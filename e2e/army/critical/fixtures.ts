@@ -328,8 +328,16 @@ export async function waitForAutoSave(
     })),
   });
   expect(predicate(snapshot)).toBe(true);
-  // On mobile the toolbar state is in the actions menu, so use the saved API
-  // values as the primary oracle, then let the caller assert reloaded controls.
+  // A separate API read can observe the commit before the editor receives its
+  // acknowledgement. Require both persisted values and the actual UI state.
+  const syncStatus = screen.getByTestId("estimate-page-toolbar-autosave-status");
+  if (army) await recordEvidence(army, `save-ui-before-${versionId}`, {
+    versionId, status: await syncStatus.textContent(),
+  });
+  await expect(syncStatus).toHaveText(/^(Sauvegardé|À jour)$/);
+  if (army) await recordEvidence(army, `save-ui-after-${versionId}`, {
+    versionId, status: await syncStatus.textContent(),
+  });
   await expect(screen.getByRole("heading", "Éditer le chiffrage", { exact: true })).toBeVisible();
   return snapshot;
 }
