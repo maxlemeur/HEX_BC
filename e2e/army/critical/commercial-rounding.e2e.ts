@@ -165,11 +165,11 @@ armyTest(
       return Array.from(document.querySelectorAll("span"))
         .filter((span) => labels.includes((span.textContent ?? "").trim()))
         .map((span) => ({
-          label: span.textContent?.trim(),
+          label: span.textContent?.trim() ?? "",
           inEstimateDocument: Boolean(span.closest(".estimate-document")),
           visible: span.getClientRects().length > 0,
           hiddenAncestor: span.closest('[hidden],[aria-hidden="true"]')?.tagName ?? null,
-          parentClasses: span.parentElement?.className,
+          parentClasses: span.parentElement?.className ?? null,
         }));
     }));
     expect(print).toEqual([

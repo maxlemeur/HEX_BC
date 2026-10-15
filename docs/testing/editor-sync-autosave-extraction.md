@@ -31,3 +31,12 @@ rejeu diagnostique sont conservés. La recette lit désormais les cinq totaux
 visibles dans `.estimate-document`, sans déduplication des valeurs : deux séries
 visibles restent un échec. Le relevé `rounding-print-scope` conserve aussi les
 éléments cachés, leur appartenance au document et leur visibilité.
+
+Le premier commit publié, `d484c5a1`, échoue ensuite au typage GitHub et au
+build : le relevé diagnostique ajouté après les contrôles locaux renvoie deux
+champs potentiellement `undefined`, interdits par le contrat JSON de
+`browser.evaluate`. Cet échec est reproduit sur la copie exacte du commit avec
+`npm run typecheck` (sortie 2). Les valeurs absentes deviennent une chaîne vide
+pour le libellé et `null` pour les classes du parent ; les assertions des cinq
+totaux restent inchangées. Les preuves avant/après et le rejeu métier sont
+conservés dans `.codex-tmp/publication-debt-20261015/ci-*`.
