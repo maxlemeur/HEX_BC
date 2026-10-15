@@ -1169,7 +1169,7 @@ export default function TakeoffReviewPage({
           overrides: payload.overrides.length > 0 ? payload.overrides : undefined,
           override: payload.override,
           override_justification: payload.overrideJustification,
-        });
+        }, versionId);
         setApplyWizardOpen(false);
         setApplySuccess({
           appliedAt: new Date().toISOString(),

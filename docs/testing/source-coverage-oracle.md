@@ -25,10 +25,13 @@ un corpus métier distinct.
 | Hypothèse et pièce manquante | `createAffaireRegisterEntryAction`, `updateAffaireRegisterEntryStatusAction`, actions de suivi/revalidation dans [register.ts](../../src/app/dashboard/affaires/_actions/register.ts), fonctions de [register-server.ts](../../src/lib/affaires/register-server.ts). | Types actuels `assumption` et `missing_piece` ; périmètres `project`, `lot`, `line`, `exception`. Aucun `scopeId` n'est implicitement une zone ou un réseau. La création et son événement sont encore deux appels ; les modifications de statut utilisent leur mutation atomique existante. |
 | Calcul et exports | [estimate-calculations.ts](../../src/lib/estimate-calculations.ts), [export-stream.ts](../../src/lib/estimates/export-stream.ts), [dpgf-export.ts](../../src/lib/estimates/dpgf-export.ts), `GET /api/estimates/{versionId}/export?format=xlsx&mode=standard` ou `mode=dpgf`. | L'export DPGF de travail contient déjà coefficients et heures. Il ne constitue pas une DPGF commerciale indépendante. Aucun motif de revue, extrait de CCTP ou sous-détail nouveau ne doit y être ajouté. |
 
-Les scénarios Playwright [generated-ouvrages-subdetail.spec.ts](../../e2e/estimates/generated-ouvrages-subdetail.spec.ts)
-et [generated-ouvrages.spec.ts](../../e2e/estimates/generated-ouvrages.spec.ts)
-montrent le parcours de revue/application et restent conservés. Ils ne
-constituent pas un oracle calorifuge à valeurs fixes déjà exécuté.
+Les scénarios TesterArmy [generated-review.e2e.ts](../../e2e/army/takeoff/generated-review.e2e.ts)
+reprennent les parcours de rejet, revue/application et provenance des anciens
+spécialistes. Leurs [prérequis locaux](generated-review-prerequisites.md) restent
+des propositions non revues ; les décisions passent par l'interface réelle.
+Le [suivi de migration](army-migration.md) distingue les recettes des preuves
+exécutées. Ces scénarios ne constituent pas un oracle calorifuge à valeurs fixes
+déjà exécuté, ni une qualification du fournisseur de génération.
 Le seed local ignoré `.e2e/product-foundation/seed-brief.cjs` montre les
 identités upload/document et le stockage privé ; son fichier texte associé
 à un brief ne prouve ni PDF ni passage vérifié. Le futur seed doit être neuf,

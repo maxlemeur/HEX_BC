@@ -12,10 +12,10 @@ import {
 } from "@/lib/imports/tabular-pdf-extraction";
 
 describe("detectTabularPdfTablesFromLayout", () => {
-  it("resolves the PDF.js worker module from a filesystem URL", () => {
+  it("resolves the PDF.js worker module from a filesystem URL", async () => {
     const requireFactory = vi.fn(createRequire);
     const pdfJsModuleUrl = new URL(
-      __testing__.getPdfJsModuleUrl(requireFactory)
+      await __testing__.getPdfJsModuleUrl(requireFactory)
     );
 
     expect(requireFactory).toHaveBeenCalledWith(

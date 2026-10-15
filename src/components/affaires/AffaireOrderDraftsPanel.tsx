@@ -1062,7 +1062,7 @@ export function AffaireOrderDraftsPanel({
                     </select>
                   </label>
 
-                  <label className="flex flex-col gap-2 text-sm text-foreground-secondary">
+                  <div className="flex flex-col gap-2 text-sm text-foreground-secondary">
                     <span className="font-medium">Livraison cible</span>
                     <div className="rounded-xl border border-border-strong bg-surface px-3 py-3">
                       <label className="flex items-center gap-2 text-sm text-foreground-secondary">
@@ -1082,6 +1082,7 @@ export function AffaireOrderDraftsPanel({
                       {expectedDeliveryDate !== "TBD" ? (
                         <input
                           type="date"
+                          aria-label="Livraison cible"
                           className="mt-3 w-full rounded-xl border border-border-strong bg-surface px-3 py-2"
                           value={expectedDeliveryDate}
                           onChange={(event) => {
@@ -1091,7 +1092,7 @@ export function AffaireOrderDraftsPanel({
                         />
                       ) : null}
                     </div>
-                  </label>
+                  </div>
                 </div>
 
                 {selectedSite ? (

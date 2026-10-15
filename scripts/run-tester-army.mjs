@@ -9,9 +9,19 @@ import { sanitizeCoverageEvidence } from "./tester-army/coverage-evidence.mjs";
 import { archiveSetupFailure, assertSetupPath, readSetupLogBaseline, readSetupLogDelta, redactSetupError } from "./tester-army/setup-failure-archive.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const mode = process.argv[2] ?? "smoke";
+const requestedMode = process.argv[2] ?? "smoke";
+const full = requestedMode === "full" || requestedMode === "full-list";
+const development = requestedMode === "development" || requestedMode === "development-list";
+const polish = requestedMode === "polish" || requestedMode === "polish-list";
+const mode = full ? requestedMode.replace("full", "critical") : development ? requestedMode.replace("development", "critical") : polish ? requestedMode.replace("polish", "critical") : requestedMode;
+if (polish) process.env.E2E_ARMY_CRITICAL_SELECTION = "polish";
+if (full) process.env.E2E_ARMY_CRITICAL_SELECTION = "full";
+if (development) {
+  process.env.E2E_ARMY_CRITICAL_SELECTION = "development";
+  process.env.E2E_ARMY_SERVER_MODE = "development";
+}
 if (!["smoke", "agent", "list", "critical", "critical-list", "coverage", "coverage-list", "performance", "performance-list", "performance-grid", "performance-navigation", "performance-navigation-live", "performance-affaire"].includes(mode)) {
-  throw new Error("Usage: node scripts/run-tester-army.mjs [smoke|agent|list|critical|critical-list|coverage|coverage-list|performance|performance-list|performance-grid|performance-navigation|performance-navigation-live|performance-affaire] [runner flags]");
+  throw new Error("Usage: node scripts/run-tester-army.mjs [smoke|agent|list|critical|critical-list|full|full-list|development|development-list|polish|polish-list|coverage|coverage-list|performance|performance-list|performance-grid|performance-navigation|performance-navigation-live|performance-affaire] [runner flags]");
 }
 const critical = mode.startsWith("critical");
 const coverage = mode.startsWith("coverage");
@@ -107,16 +117,22 @@ const isTracePage = (file) => {
   return parts.length === 2 && parts[0] !== ".." && parts[1] === "trace.md";
 };
 
-// Shared by the owned app log, report.json and trace pages. The SDK redacts
+// Shared by the owned app log, report.json and textual evidence. The SDK redacts
 // only configured credentials; generated Supabase tokens are not among them.
 // A truncated app-log line (300 characters) can keep a JWT without its
 // signature, and a session cookie is one unsigned base64url segment.
 function redactArmyText(text) {
   let value = text;
-  const password = process.env.E2E_LOGIN_PASSWORD;
-  if (password) {
-    for (const form of new Set([password, encodeURIComponent(password), new URLSearchParams({ value: password }).toString().slice(6), JSON.stringify(password).slice(1, -1)])) {
-      value = value.replaceAll(form, "<redacted-army-password>");
+  const localDatabaseUrl = process.env.E2E_ARMY_LOCAL_DB_URL;
+  let localDatabasePassword;
+  try { localDatabasePassword = localDatabaseUrl ? decodeURIComponent(new URL(localDatabaseUrl).password) : undefined; } catch { /* Invalid fixture URLs are rejected by the fixture guard. */ }
+  for (const [label, secret] of Object.entries({ password: process.env.E2E_LOGIN_PASSWORD, email: process.env.E2E_LOGIN_EMAIL,
+    "anon-key": process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, "service-role-key": process.env.SUPABASE_SERVICE_ROLE_KEY,
+    "portal-token": process.env.E2E_UX_PORTAL_TOKEN, "fixture-database-url": localDatabaseUrl,
+    "fixture-database-password": localDatabasePassword })) {
+    if (!secret) continue;
+    for (const form of new Set([secret, encodeURIComponent(secret), new URLSearchParams({ value: secret }).toString().slice(6), JSON.stringify(secret).slice(1, -1)])) {
+      value = value.replaceAll(form, `<redacted-army-${label}>`);
     }
   }
   return value
@@ -150,18 +166,25 @@ async function scrubBrowserEvidence() {
     JSON.parse(bytes);
     await writeFile(reportPath, bytes);
   }
-  const pages = (await filesIn(sdkEvidence)).filter(isTracePage);
-  let rewritten = 0;
-  for (const file of pages) {
+  // Failure screens exist even with traces off. Business JSON may contain a
+  // signed download URL; scrub owned text before fingerprinting either tree.
+  const textFiles = [...await filesIn(sdkEvidence), ...await filesIn(businessEvidence)]
+    .filter((file) => /\.(?:json|jsonl|txt|md|log|html|csv|xml)$/i.test(file));
+  let tracePagesRewritten = 0;
+  let failureScreensRewritten = 0;
+  let evidenceTextFilesRewritten = 0;
+  for (const file of textFiles) {
     await assertSetupPath(root, file);
     const text = await readFile(file, "utf8");
-    const clean = redactArmyText(text);
+    const clean = file.endsWith(".json") ? `${JSON.stringify(scrub(JSON.parse(text)), null, 2)}\n` : redactArmyText(text);
     if (clean !== text) {
       await writeFile(file, clean);
-      rewritten += 1;
+      evidenceTextFilesRewritten += 1;
+      if (isTracePage(file)) tracePagesRewritten += 1;
+      if (path.basename(file) === "screen-at-failure.txt") failureScreensRewritten += 1;
     }
   }
-  return { scope: "report.json and results/<test>/trace.md; business evidence untouched", textFiles: 1 + pages.length, reportValuesRedacted: values, tracePagesRewritten: rewritten, valuesRetained: false, appliedBeforeArtifactHashes: true };
+  return { scope: "report.json and owned SDK/business text evidence; binary evidence unchanged", textFiles: 1 + textFiles.length, reportValuesRedacted: values, tracePagesRewritten, failureScreensRewritten, evidenceTextFilesRewritten, valuesRetained: false, appliedBeforeArtifactHashes: true };
 }
 
 await assertSetupPath(root, output, { allowMissing: true });
@@ -174,6 +197,7 @@ let inputs = [];
 const startedAt = new Date();
 const coverageInputs = path.join(output, `profile-${startedAt.toISOString().replace(/[:.]/g, "-")}`);
 const coverageNetworkLog = path.join(output, `network-${startedAt.toISOString().replace(/[:.]/g, "-")}.jsonl`);
+let criticalNetworkLog = null;
 const manifest = {
   schemaVersion: "miaouffrage-tester-army-1",
   startedAt: startedAt.toISOString(),
@@ -186,7 +210,7 @@ const manifest = {
     account: authenticated ? "configured E2E account, ordinary login UI" : "anonymous fresh browser context",
     paths: affaire ? ["/login", "/dashboard/affaires", "new owned ARMY affaire; retained fixture receipt"] : navigation ? ["/login", "/dashboard/affaires", "/dashboard/orders", "/dashboard/referentiel", "/dashboard/products"] : mode === "performance-grid" ? ["/login", "/dashboard/affaires", "existing ARMY editor; browser-only synthetic read-only payload"] : performance ? ["/login", "/signup", "/dashboard/affaires", "/dashboard/products", "/dashboard/orders"] : critical ? ["/login", "/dashboard/estimates/new", "new ARMY estimates and imports only"] : mode === "agent" ? ["/login", "/signup", "/login"] : ["/dashboard/affaires", "/login"],
     submittedForms: authenticated,
-    credentials: authenticated ? "opaque password; no JWT extraction or service role" : "none",
+    credentials: authenticated ? "opaque password; no JWT extraction; local worker prerequisites may use a Node-only key after ARMY ownership checks" : "none",
     appOrigin: null,
     ...(affaire ? { mutationScope: "one new owned ARMY draft and two priced lines; owned approval-read projections/audit allowed; retain fixture; no emails or existing business changes" } : performance ? { mutationScope: "ordinary login; read-only page visits and local input/scroll interactions" } : critical ? { mutationScope: "new ARMY drafts/imports only; retain evidence; no email or existing business mutations" } : {}),
   },
@@ -236,6 +260,14 @@ try {
         throw new Error("Critical Supabase origin must exactly match E2E_ALLOWED_SUPABASE_HOST.");
       }
       manifest.fixtures.supabaseHost = supabase.hostname;
+      if (critical && loopback) {
+        const networkDirectory = path.join(root, ".e2e", "army", "coverage");
+        await mkdir(networkDirectory, { recursive: true });
+        process.env.E2E_COVERAGE_BACKEND_ORIGIN = supabase.origin;
+        criticalNetworkLog = path.join(networkDirectory, `business-network-${startedAt.toISOString().replace(/[:.]/g, "-")}.jsonl`);
+        process.env.E2E_COVERAGE_NETWORK_LOG = criticalNetworkLog;
+        process.env.E2E_ARMY_BLOCK_WORKERS = "1";
+      }
     }
   }
   // Capture failures must replace an earlier manifest before any runner starts.
@@ -358,6 +390,16 @@ try {
   });
 
   setupAppLog = await readSetupLogDelta(root, appLog, appLogBefore);
+  if (criticalNetworkLog && !discoveryOnly) {
+    await assertSetupPath(root, criticalNetworkLog);
+    const log = await readFile(criticalNetworkLog, "utf8");
+    if (!log.split(/\r?\n/).filter(Boolean).some(line => JSON.parse(line).kind === "guard-installed")) {
+      throw new Error("Local business run did not retain its server network guard receipt.");
+    }
+    await assertSetupPath(root, businessEvidence, { allowMissing: true });
+    await mkdir(businessEvidence, { recursive: true });
+    await writeFile(path.join(businessEvidence, "server-network.jsonl"), log);
+  }
   if (!discoveryOnly) {
     await assertSetupPath(root, reportPath, { allowMissing: true });
     const after = await readFile(reportPath).catch((error) => { if (error.code === "ENOENT") return null; throw error; });
@@ -536,7 +578,7 @@ if (!discoveryOnly && manifest.report) {
   }
 } else if (!discoveryOnly) {
   try {
-    manifest.failureArchive = await archiveSetupFailure({ root, output, manifest, runnerOutput, appLog: setupAppLog, networkFile: coverage ? coverageNetworkLog : null, inputsDirectory: coverage ? coverageInputs : null });
+    manifest.failureArchive = await archiveSetupFailure({ root, output, manifest, runnerOutput, appLog: setupAppLog, networkFile: coverage ? coverageNetworkLog : criticalNetworkLog, inputsDirectory: coverage ? coverageInputs : null });
   } catch {
     manifest.failureArchive = { status: "unavailable", error: "Could not preserve the setup failure in an exclusive confined archive." };
     childExitCode ||= 3;

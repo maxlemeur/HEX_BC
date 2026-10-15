@@ -19,7 +19,7 @@ const helperBytes = await readFile(helperPath).catch((error) => { if (error.code
 const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => /^(PATH|PATHEXT|SYSTEMROOT|WINDIR|TEMP|TMP|HOME|USERPROFILE)$/i.test(key)));
 const secret = "synthetic-setup-password-a75a2df7";
 // What the fixture CLI plants in the 0.20 app log, navigation events and trace page.
-const browserLeaks = ["aGFybmVzcy1zaWduYXR1cmU", "eyJzdWIiOiJoYXJuZXNz", "opaque-console-token", "pkce-harness-secret", "hash-harness-secret", "refresh-harness-secret", "json-harness-secret", secret, "current-token"];
+const browserLeaks = ["aGFybmVzcy1zaWduYXR1cmU", "eyJzdWIiOiJoYXJuZXNz", "opaque-console-token", "pkce-harness-secret", "hash-harness-secret", "refresh-harness-secret", "json-harness-secret", secret, "current-token", "harness@example.invalid", "signed-download-harness-token"];
 const results = [];
 
 // Mirrors the e2e 0.20 output layout: the SDK empties results/ when tests start,
@@ -43,7 +43,7 @@ const path = require("node:path");
   if (!["no-logs","source-link","destination-link","log-link"].includes(scenario)) {
     await fs.mkdir(path.join(output,"logs"),{recursive:true});
     await fs.appendFile(path.join(output,"logs/app.log"),"CURRENT "+process.env.E2E_LOGIN_PASSWORD+" Bearer arbitrary-token?token=current-token\\n");
-    if (process.env.E2E_COVERAGE_NETWORK_LOG) await fs.writeFile(process.env.E2E_COVERAGE_NETWORK_LOG,JSON.stringify({kind:"current-network",password:process.env.E2E_LOGIN_PASSWORD})+"\\n");
+    if (process.env.E2E_COVERAGE_NETWORK_LOG) await fs.writeFile(process.env.E2E_COVERAGE_NETWORK_LOG,JSON.stringify({kind:critical ? "guard-installed" : "current-network",password:process.env.E2E_LOGIN_PASSWORD})+"\\n");
   }
   process.stdout.write("setup stdout "+process.env.E2E_LOGIN_PASSWORD+"\\n");
   process.stdout.write(JSON.stringify({details:JSON.stringify({session_id:"11111111-2222-4333-8444-555555555555"})})+"\\n");
@@ -79,6 +79,11 @@ const path = require("node:path");
     const tests=[["e2e/army/critical/auth.setup.e2e.ts","authenticate","auth-setup-authenticate-0000000000000011"],["e2e/army/critical/access-boundaries.e2e.ts","access boundaries","access-boundaries-access-boundaries-0000000000000012"],["e2e/army/critical/estimate-integrity.e2e.ts","business","estimate-integrity-business-0000000000000013"]];
     const results=tests.map(([file,title]) => ({file,titlePath:[title],targetId:"chromium-desktop",status:"passed",attempts:[{index:0,status:"passed",steps,appLog,artifacts:[]}]}));
     for (const [, , segment] of tests) await attempt(segment);
+    // SDK 0.21 failure snapshots can contain the visible account identifier
+    // even with authenticated traces off (observed in candidate-1).
+    await fs.writeFile(path.join(sdk,"estimate-integrity-business-0000000000000013","attempt-1","screen-at-failure.txt"),"Visible account "+process.env.E2E_LOGIN_EMAIL+"\\n"+leaks.join("\\n")+"\\n");
+    await fs.mkdir(path.join(output,"artifacts/business"),{recursive:true});
+    await fs.writeFile(path.join(output,"artifacts/business/download-proof.json"),JSON.stringify({download_url:"http://127.0.0.1/storage/v1/object/sign/pdf?token=signed-download-harness-token",expectedCents:101,account:process.env.E2E_LOGIN_EMAIL})+"\\n");
     // Coverage keeps trace "off": its report.json still carries the app log.
     if (critical && scenario !== "critical-no-trace") await fs.writeFile(path.join(sdk,"access-boundaries-access-boundaries-0000000000000012","trace.md"),"# access boundaries\\n\\n"+leaks.map((line) => "- "+line).join("\\n")+"\\n");
     await fs.writeFile(path.join(output,"report.json"),JSON.stringify({run:{startedAt:at,status:"passed",results,summary:{discovered:3,selected:3,executed:3,passed:3,failed:0,interrupted:0,skipped:0,flaky:0},usage:{modelTokens:0,maxModelCallsInStep:0}}},null,2)+"\\n");
@@ -215,13 +220,22 @@ await test("critical-results-layout-and-scrub", async f => {
   const clean = (text, label) => { for (const leak of leaks) assert.ok(!text.includes(leak), `${label} must not retain ${leak.slice(0, 12)}`); };
   const run = await execute(f, "critical-fresh", {}, "critical"); assert.equal(run.exitCode, 0, run.stderr); assert.equal(run.manifest.result.status, "passed");
   const trace = ".e2e/army/critical/results/access-boundaries-access-boundaries-0000000000000012/trace.md";
-  assert.deepEqual(run.manifest.tracePaths, [trace]); assert.ok(run.manifest.artifacts.every(entry => entry.path.startsWith(".e2e/army/critical/results/")), "no stale 0.15 zip or absent business folder");
+  const network = ".e2e/army/critical/artifacts/server-network.jsonl";
+  assert.deepEqual(run.manifest.tracePaths, [trace]); assert.ok(run.manifest.artifacts.every(entry => entry.path.startsWith(".e2e/army/critical/results/") || entry.path.endsWith("artifacts/business/download-proof.json") || entry.path === network), "only current SDK and business proofs");
+  const networkText = await readFile(path.join(f.cwd, network), "utf8");
+  clean(networkText, "server network log");
+  assert.ok(networkText.trim().split(/\r?\n/).map(line => JSON.parse(line)).some(entry => entry.kind === "guard-installed"), "the current server guard receipt is retained");
   const reportBytes = await readFile(path.join(output, "report.json")); assert.equal(run.manifest.report.sha256, digest(reportBytes), "the hash covers the scrubbed report");
   const report = JSON.parse(reportBytes.toString()); assert.equal(report.run.results.length, 3); assert.ok(report.run.results[1].attempts[0].appLog[0].text.includes("<redacted"));
   clean(reportBytes.toString(), "report.json"); clean(await readFile(path.join(f.cwd, trace), "utf8"), "trace.md");
+  const screen = ".e2e/army/critical/results/estimate-integrity-business-0000000000000013/attempt-1/screen-at-failure.txt";
+  clean(await readFile(path.join(f.cwd, screen), "utf8"), "screen-at-failure.txt");
   assert.ok(run.manifest.confidentiality.reportValuesRedacted > 0); assert.equal(run.manifest.confidentiality.tracePagesRewritten, 1);
+  assert.equal(run.manifest.confidentiality.failureScreensRewritten, 1);
+  const business = JSON.parse(await readFile(path.join(output, "artifacts/business/download-proof.json"), "utf8"));
+  clean(JSON.stringify(business), "business JSON"); assert.equal(business.expectedCents, 101);
   const archiveDirectory = path.join(f.cwd, run.manifest.archive.path);
-  assert.deepEqual((await readdir(archiveDirectory)).sort(), ["logs", "manifest.json", "report.json", "results"], "absent business evidence must not fail the archive");
+  assert.deepEqual((await readdir(archiveDirectory)).sort(), ["artifacts", "logs", "manifest.json", "report.json", "results"], "current business proofs are archived");
   clean(await allText(archiveDirectory), "archive");
   const archived = JSON.parse(await readFile(path.join(archiveDirectory, "manifest.json"), "utf8"));
   assert.deepEqual(archived.tracePaths, [`${run.manifest.archive.path}/results/access-boundaries-access-boundaries-0000000000000012/trace.md`]);

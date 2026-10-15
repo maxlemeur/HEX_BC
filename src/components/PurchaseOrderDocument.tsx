@@ -274,7 +274,7 @@ export function PurchaseOrderDocument({
                 {onSupplierCreate ? (
                   <button
                     type="button"
-                    className="text-sm font-semibold text-brand-orange hover:underline disabled:opacity-60 disabled:hover:no-underline"
+                    className="text-sm font-semibold text-primary hover:underline disabled:opacity-60 disabled:hover:no-underline"
                     onClick={onSupplierCreate}
                     disabled={isSupplierCreateDisabled}
                   >
@@ -392,7 +392,7 @@ export function PurchaseOrderDocument({
                   {onDeliverySiteCreate ? (
                     <button
                       type="button"
-                      className="text-left text-sm font-semibold text-brand-orange hover:underline disabled:opacity-60 disabled:hover:no-underline"
+                      className="text-left text-sm font-semibold text-primary hover:underline disabled:opacity-60 disabled:hover:no-underline"
                       onClick={onDeliverySiteCreate}
                       disabled={isDeliverySiteCreateDisabled}
                     >

@@ -2461,6 +2461,191 @@ select set_config(
   true
 );
 
+-- Since 20261013130248, a seal is accepted only over a ready client contract
+-- document (client_contract_version = 1) and with seal_payload_version = 5.
+-- Publish that document through the real trusted renderer RPCs while the
+-- frozen estimate is still a draft; nothing below bypasses the offer guards.
+create function pg_temp.offer_company()
+returns jsonb
+language sql
+immutable
+as $$
+  select '{"name":"Calc governance company","tagline":"Synthetic test company","address":{"street":"1 rue du Test","postalCode":"75001","city":"Paris"},"registeredOffice":{"street":"2 rue du Test","postalCode":"75002","city":"Paris"},"phone":{"landline":"+33 1 00 00 00 01","mobile":"+33 6 00 00 00 01"},"legal":{"siret":"TEST-SIRET","vat":"TEST-VAT"}}'::jsonb
+$$;
+
+create function pg_temp.offer_layout()
+returns jsonb
+language sql
+immutable
+as $$
+  select '{"preset":"client_detailed","detailLevel":"lines","priceMode":"unit_and_total","density":"standard","showNumbering":true,"showSectionSubtotals":true,"conditionsPlacement":"auto","includeTerms":false}'::jsonb
+$$;
+
+-- Client image of the stored version, items and totals, with the identity the
+-- publication RPC compares against (captured for the actual renderer actor).
+create function pg_temp.offer_client_snapshot(p_version_id uuid, p_identity jsonb)
+returns jsonb
+language sql
+stable
+as $$
+  with recursive tree(id, depth) as (
+    select item.id, 0
+    from public.estimate_items as item
+    where item.version_id = p_version_id
+      and item.parent_id is null
+    union all
+    select child.id, tree.depth + 1
+    from public.estimate_items as child
+    join tree on child.parent_id = tree.id
+  ),
+  line_ancestry(ancestor_id, sale_cents) as (
+    select line.parent_id, coalesce(line.line_total_ht_cents, 0)::bigint
+    from public.estimate_items as line
+    where line.version_id = p_version_id
+      and line.item_type = 'line'::public.estimate_item_type
+      and line.parent_id is not null
+    union all
+    select parent.parent_id, line_ancestry.sale_cents
+    from line_ancestry
+    join public.estimate_items as parent
+      on parent.id = line_ancestry.ancestor_id
+    where parent.parent_id is not null
+  )
+  select jsonb_build_object(
+    'schemaVersion', 1,
+    'version', jsonb_build_object(
+      'id', version.id,
+      'tenantId', version.tenant_id,
+      'projectId', version.project_id,
+      'number', version.version_number,
+      'contentRevision', version.content_revision,
+      'calcEngineVersion', version.calc_engine_version,
+      'dateDevis', version.date_devis,
+      'validiteJours', version.validite_jours,
+      'currency', version.currency,
+      'contractorRole', version.contractor_role,
+      'taxRateBp', version.tax_rate_bp
+    ),
+    'project', p_identity -> 'project',
+    'issuer', p_identity -> 'issuer',
+    'company', p_identity -> 'company',
+    'rows', coalesce(
+      (
+        select jsonb_agg(
+          case
+            when item.item_type = 'section'::public.estimate_item_type then
+              jsonb_build_object(
+                'kind', 'section',
+                'id', item.id,
+                'parentId', item.parent_id,
+                'position', item.position,
+                'depth', tree.depth,
+                'number', item.position::text,
+                'title', coalesce(nullif(btrim(item.title), ''), 'Sans titre'),
+                'saleHtCents', coalesce(
+                  (
+                    select sum(ancestry.sale_cents)
+                    from line_ancestry as ancestry
+                    where ancestry.ancestor_id = item.id
+                  ),
+                  0
+                )
+              )
+            else
+              jsonb_build_object(
+                'kind', 'line',
+                'id', item.id,
+                'parentId', item.parent_id,
+                'position', item.position,
+                'depth', tree.depth,
+                'title', coalesce(nullif(btrim(item.title), ''), 'Sans titre'),
+                'quantity', item.quantity,
+                'unit', coalesce(nullif(btrim(item.description), ''), '-'),
+                'unitSaleHtCents', coalesce(item.snapshot_pu_ht_cents, item.pu_ht_cents, 0),
+                'saleHtCents', coalesce(item.line_total_ht_cents, 0)
+              )
+          end
+          order by tree.depth, item.position, item.id
+        )
+        from tree
+        join public.estimate_items as item
+          on item.id = tree.id
+      ),
+      '[]'::jsonb
+    ),
+    'totals', jsonb_build_object(
+      'saleHtCents', version.total_ht_cents,
+      'taxCents', version.total_tax_cents - coalesce(version.rounding_adjustment_cents, 0),
+      'calculatedTtcCents',
+        version.total_ht_cents + version.total_tax_cents - coalesce(version.rounding_adjustment_cents, 0),
+      'payableTtcCents', version.total_ttc_cents,
+      'roundingAdjustmentCents', coalesce(version.rounding_adjustment_cents, 0)
+    ),
+    'exclusions', coalesce(to_jsonb(version.exclusions), 'null'::jsonb)
+  )
+  from public.estimate_versions as version
+  where version.id = p_version_id
+$$;
+
+create function pg_temp.publish_manual_offer_document(
+  p_version_id uuid,
+  p_actor_user_id uuid,
+  p_sha256 text
+)
+returns public.estimate_documents
+language plpgsql
+as $$
+declare
+  target_version public.estimate_versions%rowtype;
+  claimed_document public.estimate_documents%rowtype;
+begin
+  select version.* into target_version
+  from public.estimate_versions as version
+  where version.id = p_version_id;
+
+  claimed_document := public.begin_estimate_pdf_generation(
+    target_version.id,
+    target_version.tenant_id,
+    p_actor_user_id,
+    'manual',
+    null
+  );
+
+  return public.publish_estimate_pdf_generation(
+    target_version.id,
+    target_version.tenant_id,
+    p_actor_user_id,
+    claimed_document.generation_token,
+    target_version.tenant_id || '/' || target_version.project_id || '/'
+      || target_version.id || '/' || p_sha256 || '.pdf',
+    p_sha256,
+    4096,
+    clock_timestamp(),
+    pg_temp.offer_layout(),
+    null,
+    pg_temp.offer_client_snapshot(
+      target_version.id,
+      public.capture_estimate_offer_identity(
+        target_version,
+        p_actor_user_id,
+        pg_temp.offer_company()
+      )
+    )
+  );
+end;
+$$;
+
+select lives_ok(
+  $$
+    select pg_temp.publish_manual_offer_document(
+      '71000000-0000-4000-8000-000000000051',
+      '71000000-0000-4000-8000-000000000001',
+      repeat('e', 64)
+    )
+  $$,
+  'the trusted renderer publishes the frozen v2 client contract document'
+);
+
 select lives_ok(
   $$
     update public.estimate_versions
@@ -2470,10 +2655,24 @@ select lives_ok(
   'a frozen v2 estimate may enter the sending state'
 );
 
-select lives_ok(
+select throws_ok(
   $$
     update public.estimate_versions
     set seal_hash = repeat('c', 64)
+    where id = '71000000-0000-4000-8000-000000000051'
+      and status = 'sending'::public.estimate_status
+  $$,
+  '23514',
+  'OFFER_NEW_EMISSION_CONTRACT_REQUIRED',
+  'a seal without the client offer payload marker is refused even for the trusted workflow'
+);
+
+select lives_ok(
+  $$
+    update public.estimate_versions
+    set
+      seal_hash = repeat('c', 64),
+      seal_payload_version = 5
     where id = '71000000-0000-4000-8000-000000000051'
       and status = 'sending'::public.estimate_status
   $$,

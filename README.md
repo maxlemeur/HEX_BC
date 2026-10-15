@@ -28,7 +28,7 @@ Affaire → dépôt des pièces (DPGF, plans, CCTP) → import DPGF / métré as
 - **Next.js 16** (App Router) · **React 19** · **TypeScript strict** · **Tailwind CSS 4**
 - **Supabase** — Postgres multi-tenant, RLS active sur toutes les tables, Auth, Storage, Edge Functions
 - **Gemini** pour le métré assisté et la classification documentaire
-- **Vitest** (projets `node` et `jsdom`) · **Playwright** · suites PowerShell héritées
+- **Vitest** (projets `node` et `jsdom`) · **TesterArmy** · suites PowerShell héritées
 - OpenAPI 3.1 généré depuis les schémas Zod, validé au build
 
 ## Prérequis
@@ -86,7 +86,7 @@ npm run build        # valide l'OpenAPI puis construit
 npm run typecheck    # TypeScript strict, sans émission
 npm run lint         # ESLint, zéro warning toléré
 npm test             # suite Vitest complète
-npm run e2e:pw:critical   # Playwright, parcours critiques
+npm run e2e:army:critical # TesterArmy, parcours critiques
 ```
 
 L'inventaire complet des scripts est dans `package.json`.

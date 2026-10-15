@@ -1,9 +1,0 @@
-import { defineConfig, devices } from "@playwright/test";
-
-export default defineConfig({
-  testDir: "./estimates", testMatch: "catalogue-offer.local.spec.ts",
-  workers: 1, retries: 0,
-  outputDir: "../.codex-tmp/demo-eight-20261002-01a07773/catalogue-local-results",
-  reporter: [["list"], ["html", { open: "never", outputFolder: ".codex-tmp/demo-eight-20261002-01a07773/catalogue-local-report" }]],
-  use: { ...devices["Desktop Chrome"], headless: true, trace: "on", screenshot: "on" },
-});

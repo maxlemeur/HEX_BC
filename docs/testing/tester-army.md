@@ -1,8 +1,12 @@
-# Tester Army pilot
+# TesterArmy
 
-[Tester Army e2e](https://github.com/tester-army/e2e) is the primary E2E runner under the mixed testing policy. Exact browser assertions remain the pass criteria; bounded agent navigation exercises visible user intent. Retained Playwright suites cover journeys without an equivalent executed Army replacement. This anonymous smoke does not establish authenticated estimate/import/RLS coverage. See [production performance](tester-army-performance.md) for measured page loading and interaction evidence.
+[Tester Army e2e](https://github.com/tester-army/e2e) is the primary E2E runner under the mixed testing policy. Exact browser assertions remain the pass criteria; bounded agent navigation exercises visible user intent. The [migration ledger](army-migration.md) maps the existing journeys to Army and retains failed runs. The anonymous smoke does not establish authenticated estimate/import/RLS coverage. See [native business CI](tester-army-ci.md) for the critical/full profiles and [production performance](tester-army-performance.md) for measured page loading and interaction evidence.
 
 ## Failure modes recorded before implementation
+
+The optional [route audit](tester-army-polish.md) reuses the existing route inventory
+and four viewport sizes through `e2e:army:polish`. Its explicit selection and
+authenticated screenshot limitations stay separate from the full business suite.
 
 | Failure | Observable check | Evidence |
 | --- | --- | --- |

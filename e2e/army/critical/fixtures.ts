@@ -6,12 +6,16 @@ import { test, type Browser } from "@e2e-dev/web";
 import { expect, type App, type JsonValue, type Screen } from "e2e";
 
 import { sdkResultsRoot } from "../local/sdk-results";
+import { allowsOwnedPurchaseRead, type OwnedPurchaseOrder } from "./owned-purchase-reads";
 
 export type OwnedEstimate = { projectId: string; versionId: string };
 export type ArmyState = {
   runPrefix: string;
   projectName: string;
   ownedEstimates: OwnedEstimate[];
+  ownedPlanSets?: Array<{ projectId: string; planSetId: string; tenantId: string }>;
+  ownedPriceLookupProjects?: string[];
+  ownedPurchaseOrders?: OwnedPurchaseOrder[];
 };
 export type ArmyItem = {
   id: string;
@@ -58,7 +62,7 @@ export type ArmyEstimate = {
 type Ui = { app: App; screen: Screen; browser: Browser };
 type ApiEnvelope<T> = { ok: boolean; data: T; error?: { code: string; message: string } };
 
-export async function restrictCriticalBrowser(browser: Browser, app: App) {
+export async function restrictCriticalBrowser(browser: Browser, app: App, army?: ArmyState) {
   const origin = new URL(app.baseUrl!).origin;
   const supabaseOrigin = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!).origin;
   await browser.route("**/*", async (route) => {
@@ -73,8 +77,22 @@ export async function restrictCriticalBrowser(browser: Browser, app: App) {
     // lookup directly. Allow only that read in the explicit hub campaigns.
     const performanceLookup = ["performance", "coverage"].includes(process.env.E2E_ARMY_SUITE ?? "") && readOnly &&
       url.origin === supabaseOrigin && url.pathname === "/rest/v1/delivery_sites";
+    const localBackend = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) &&
+      url.hostname === process.env.E2E_ALLOWED_SUPABASE_HOST && url.origin === supabaseOrigin;
+    const ownedPriceLookup = localBackend && route.request.method === "GET" &&
+      (army?.ownedPriceLookupProjects ?? []).some((projectId) =>
+        army?.ownedEstimates.some((estimate) => estimate.projectId === projectId)) &&
+      ((url.pathname === "/rest/v1/suppliers" && url.searchParams.get("select")?.replaceAll(" ", "") === "id,name") ||
+        (url.pathname === "/rest/v1/products" && url.searchParams.get("select")?.replaceAll(" ", "") === "id,designation,reference"));
+    const ownedPlanUpload = localBackend && ["PUT", "OPTIONS"].includes(route.request.method) &&
+      (army?.ownedPlanSets ?? []).some((set) =>
+        army?.ownedEstimates.some((estimate) => estimate.projectId === set.projectId) &&
+        url.pathname.startsWith(`/storage/v1/object/upload/sign/plan-files/${set.tenantId}/${set.planSetId}/`));
+    const ownedPurchaseRead = localBackend && allowsOwnedPurchaseRead(
+      url, route.request.method, army?.ownedEstimates ?? [], army?.ownedPurchaseOrders ?? [],
+    );
     const forbiddenMutation = !readOnly && /\/(send|email-dispatch|approve|status|invite|invitations|portal-tokens)(\/|$)/.test(url.pathname);
-    if ((url.origin !== origin && !auth && !performanceLookup) || forbiddenMutation) {
+    if ((url.origin !== origin && !auth && !performanceLookup && !ownedPriceLookup && !ownedPlanUpload && !ownedPurchaseRead) || forbiddenMutation) {
       await route.abort();
       const safePath = url.pathname.replace(/[0-9a-f]{8}-[0-9a-f-]{27,}/gi, "[id]");
       throw new Error(`Critical campaign blocked ${route.request.method} ${url.hostname}${safePath}; external request or email/status mutation.`);
@@ -94,6 +112,7 @@ export async function recordEvidence(army: ArmyState, label: string, data: unkno
     fixturePrefix: army.runPrefix,
     projectName: army.projectName,
     ownedEstimates: army.ownedEstimates,
+    ...(army.ownedPurchaseOrders?.length ? { ownedPurchaseOrders: army.ownedPurchaseOrders } : {}),
     data,
   }, null, 2)}\n`;
   const file = path.join(directory, `${army.runPrefix}-${label}.json`);
@@ -123,7 +142,7 @@ export const armyTest = test.extend<{ army: ArmyState }>({
   army: async ({ app, browser }, provideFixture) => {
     const runPrefix = `ARMY-${Date.now()}-${randomUUID().slice(0, 8)}`;
     const army = { runPrefix, projectName: runPrefix, ownedEstimates: [] };
-    await restrictCriticalBrowser(browser, app);
+    await restrictCriticalBrowser(browser, app, army);
     try {
       await provideFixture(army);
     } finally {
@@ -277,14 +296,32 @@ export async function waitForAutoSave(
 ): Promise<ArmyEstimate> {
   // The current editor deliberately debounces automatic saves for 60 seconds.
   const deadline = Date.now() + 90_000;
-  let snapshot = await readEstimate(browser, versionId);
-  while (!predicate(snapshot) && Date.now() < deadline) {
+  let conflicts = 0;
+  const readDuringSave = async () => {
+    const response = await apiRequest<ApiEnvelope<{ version: ArmyVersion; items: ArmyItem[] }>>(browser, "GET", `/api/estimates/${versionId}`);
+    // A consistent-read guard deliberately refuses a GET spanning a save.
+    // Only that named concurrency result is pending; all other errors fail.
+    if (response.status === 409 && response.body.error?.code === "VERSION_CONFLICT") {
+      conflicts += 1;
+      if (army) await recordEvidence(army, `save-read-conflict-${versionId}-${conflicts}`, { versionId, status: response.status, error: response.body.error });
+      return null;
+    }
+    if (army && response.status !== 200) await recordEvidence(army, `save-read-error-${versionId}`, { versionId, response });
+    expect(response.status).toBe(200);
+    expect(response.body.ok).toBe(true);
+    const { version, items } = response.body.data;
+    return { project: version.estimate_projects, version, items };
+  };
+  let snapshot = await readDuringSave();
+  while ((!snapshot || !predicate(snapshot)) && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 1500));
-    snapshot = await readEstimate(browser, versionId);
+    const current = await readDuringSave();
+    if (current) snapshot = current;
   }
+  if (!snapshot) throw new Error("No consistent estimate snapshot was available before the save deadline.");
   if (army) await recordEvidence(army, `save-observed-${versionId}`, {
     predicateMatched: predicate(snapshot),
-    versionId, totals: [snapshot.version.total_ht_cents, snapshot.version.total_tax_cents, snapshot.version.total_ttc_cents],
+    versionId, consistentReadConflicts: conflicts, totals: [snapshot.version.total_ht_cents, snapshot.version.total_tax_cents, snapshot.version.total_ttc_cents],
     lines: snapshot.items.filter((item) => item.item_type === "line").map((item) => ({
       id: item.id, title: item.title, quantity: item.quantity, price: item.unit_price_ht_cents,
       ht: item.line_total_ht_cents, tax: item.line_tax_cents, ttc: item.line_total_ttc_cents,

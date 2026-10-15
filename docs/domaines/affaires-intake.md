@@ -279,7 +279,7 @@ Le segment `new` est statique et prioritaire sur `[projectId]` (`src/app/dashboa
 
 Le paramètre `?devHubScenario` active dix-neuf scénarios de démonstration (`src/lib/affaires/hub-dev-scenarios.ts:27-47`) et n'est lu que hors production (`src/app/dashboard/affaires/[projectId]/page.tsx:67-70`).
 
-Couverture end-to-end du domaine : `e2e/estimates/affaire-pilotage-panel.spec.ts`, `affaire-recovery-flow.spec.ts`, `hub-launch-metre.spec.ts`, `hub-plans-card.spec.ts`, `hub-takeoff-auto-propose.spec.ts`, `import-flow-carry-over.spec.ts`, `team-a-hub-prod.spec.ts`, `team-b-user-stories.spec.ts`, `cockpit-command-bar.spec.ts`.
+Les parcours TesterArmy du domaine sont dans `e2e/army/critical/` (`hub-launch-metre.e2e.ts`, `hub-plans-card.e2e.ts`, `hub-takeoff-auto-propose.e2e.ts`, `team-a-hub.e2e.ts`) et `e2e/army/takeoff/` (`affaire-pilotage-panel.e2e.ts`, `affaire-recovery-flow.e2e.ts`, `import-flow-carry-over.e2e.ts`, `team-b-user-stories.e2e.ts`, `cockpit-command-bar.e2e.ts`). Le profil `npm run e2e:army:full` les sélectionne ; les résultats exécutés et leurs limites restent dans le [suivi de migration](../testing/army-migration.md).
 
 ---
 

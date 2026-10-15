@@ -8,8 +8,8 @@
 - Couche legacy plus forte que les utilitaires, ou tableau gelé écrasé : compiler le vrai globals.css, vérifier un bouton qui combine classe historique et utilitaire, puis les dimensions et styles du tableau réel.
 - Contraste FO/MO insuffisant : axe `color-contrast` sur les deux vrais super-en-têtes, aux largeurs 1600 et 1280 px.
 
-Commande : `npx playwright test --config=e2e/ui-polish.local.config.ts`.
-Rapport : `.e2e/ui-polish/report/` ; résultats, captures et manifestes : `.e2e/ui-polish/results/`.
+Commande actuelle : `npm run e2e:army:full -- --grep '^UI0[1-4]'`, après configuration du [runtime métier local autorisé](tester-army-critical.md). Les quatre parcours sont dans `e2e/army/extended/ui-polish.e2e.ts`.
+Rapport : `.e2e/army/critical/report.json` ; résultats et archive vérifiable : `.e2e/army/critical/results/` et `.e2e/army/critical/runs/`. Le [suivi de migration](army-migration.md) conserve les résultats des rejeux ; le port ne requalifie pas la preuve historique ci-dessous.
 La fixture utilise les composants réels, des identités synthétiques et un serveur HTTP loopback. Elle ne prouve pas une lecture connectée de Supabase ni l'autorisation serveur. Aucun changement SQL n'est requis : `getEstimateSupplierComparisons` et OpenAPI exposent déjà `stale_price_days` ; le raccordement manquant est dans le tableau.
 
 Les anciens tests de Toast, dépendants du DOM et des timers de l'implémentation remplacée, sont remplacés par ces scénarios navigateur. Aucun nouveau test isolé.
@@ -22,11 +22,11 @@ Le moteur [Base UI Toast](https://base-ui.com/react/components/toast) est charg�
 
 Le contrat API précise que `stale_price_days` est le seuil du tenant, entier de 1 à 3650 jours. Le tableau transmet la valeur à la comparaison. Une réponse ancienne sans valeur conserve un avertissement générique. OpenAPI est régénéré ; aucune migration ni modification de la logique serveur.
 
-Sur ce poste Windows, les tests nécessitent le cache navigateur existant :
-`$env:PLAYWRIGHT_BROWSERS_PATH='C:/Users/thann/AppData/Local/ms-playwright'; npx playwright test --config=e2e/ui-polish.local.config.ts`.
-Le sandbox bloque le réseau loopback de Chromium et certaines écritures de caches ; les validations exécutées hors sandbox restent locales.
-
 ## Validation du 9 octobre 2026
+
+Commande historique exécutée sur ce poste Windows avec son cache navigateur :
+`$env:PLAYWRIGHT_BROWSERS_PATH='C:/Users/thann/AppData/Local/ms-playwright'; npx playwright test --config=e2e/ui-polish.local.config.ts`.
+Le sandbox bloquait le réseau loopback de Chromium et certaines écritures de caches ; les validations exécutées hors sandbox restaient locales. Les preuves de cette campagne sont dans `.e2e/ui-polish/report/` et `.e2e/ui-polish/results/`.
 
 - Navigateur local : quatre scénarios réussis, zéro échec/saut ; captures et réponses de comparaison conservées. Chaque dossier de résultat contient `manifest.json` (commande, revision, diff, identités et SHA-256 des sources) et `actual.json` (résultat et stabilité des sources).
 - Contraste FO/MO : axe passe à 1600 et 1280 px ; avant correction, les ratios mesurés étaient 2,45:1 et 2,90:1.

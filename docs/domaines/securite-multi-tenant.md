@@ -338,12 +338,18 @@ CI (`.github/workflows/`, 5 fichiers) :
   matrice RLS avec des utilisateurs locaux éphémères, puis nettoie la pile. Un
   skip, zéro test, une migration divergente ou un nettoyage en échec rend le job
   rouge.
-- `e2e-playwright-critical.yml` : uniquement sur `push main`, dans
-  l'environnement GitHub nommé `e2e-staging`. Les secrets sont limités
-  aux deux steps qui en ont besoin, la cible Supabase doit correspondre au nom
-  d'hôte autorisé, les runs sont sérialisés et aucune clé service-role n'est
-  injectée. Les traces d'authentification ne sont pas archivées. Les règles de
-  protection de cet environnement sont une configuration distante à vérifier.
+- `e2e-army-critical.yml` : sur les PR et les push vers `main`, ainsi que sur
+  lancement manuel ; `e2e-army-full.yml` : lancement manuel et passe nocturne.
+  Ces workflows utilisent `scripts/run-tester-army-ci.ts` et leur propre pile
+  Supabase native éphémère sur loopback. Après les migrations, pgTAP et RLS,
+  le runner crée son compte ARMY, construit l'application et exécute les parcours
+  réels ; le profil complet conserve aussi sa phase développement. Les secrets
+  sont ceux de cette pile locale, sans cible partagée ni secret de production.
+  Les traces authentifiées restent désactivées ; journaux et preuves sont
+  expurgés avant empreintes et archivage. Un échec, un skip, une preuve absente
+  ou un nettoyage en échec reste bloquant. Contrat :
+  [TesterArmy CI](../testing/tester-army-ci.md). L'historique du risque de cible
+  partagée S-04 reste dans le [registre de sécurité](../security-remediation-91386191.md).
 - `supabase-backup.yml` : dump planifié avec la CLI Supabase verrouillée par le
   lock npm et artefact à rétention configurée. `release-please.yml` ouvre ou met
   à jour la release PR puis, après sa fusion, crée le tag et la GitHub Release ;

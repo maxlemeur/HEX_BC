@@ -65,7 +65,10 @@ insert into public.estimate_versions (
   project_id,
   version_number,
   status,
-  calc_engine_version
+  calc_engine_version,
+  margin_multiplier,
+  tax_rate_bp,
+  discount_amount_cents
 )
 select
   fixture.id,
@@ -73,7 +76,10 @@ select
   project.id,
   fixture.version_number,
   'draft'::public.estimate_status,
-  1
+  case when fixture.version_number = 1 then 2 else 1 end,
+  1,
+  0,
+  case when fixture.version_number = 1 then 101 else null end
 from public.estimate_projects project
 cross join (
   values
@@ -350,7 +356,7 @@ select lives_ok(
       }]'::jsonb
     )
   $$,
-  'atomic apply commits the line and its selected price together'
+  'atomic apply commits the v2 line and its selected price together'
 );
 
 select is(
@@ -385,6 +391,29 @@ select is(
   ),
   2500,
   'the committed estimate line carries the mapping price'
+);
+
+select is(
+  (select item.quantity from public.estimate_items item
+   where item.source_job_id = '8c000000-0000-4000-8000-000000000041'
+     and item.item_type = 'line'),
+  2::numeric,
+  'the applied quantity remains exact'
+);
+
+select is(
+  (select version.total_ht_cents from public.estimate_versions version
+   where version.id = '8c000000-0000-4000-8000-000000000011'),
+  4899,
+  'the v2 total preserves the 101-cent fixed discount on 5000 cents'
+);
+
+select is(
+  (select item.line_total_ht_cents from public.estimate_items item
+   where item.source_job_id = '8c000000-0000-4000-8000-000000000041'
+     and item.item_type = 'line'),
+  4899,
+  'the applied line receives the exact net amount'
 );
 
 select is(

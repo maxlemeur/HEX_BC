@@ -1,33 +1,36 @@
-# E2E tests (agent-browser)
+# E2E TesterArmy
 
-This folder contains lightweight E2E checks powered by the `agent-browser` CLI.
+TesterArmy (`e2e` 0.21 et `@e2e-dev/web`) exécute les parcours navigateur.
+Les assertions exactes déterminent le résultat ; la navigation par agent reste
+facultative. Voir [le guide Army](../docs/testing/tester-army.md),
+[la CI native](../docs/testing/tester-army-ci.md) et
+[la correspondance des parcours historiques](../docs/testing/army-migration.md).
 
-## Requirements
+## Profils
 
-- `agent-browser` installed and available in PATH.
-- Playwright browser binaries installed (`npx playwright install chromium`).
-- PowerShell runtime available in PATH (`pwsh` on Linux/macOS, `pwsh` or `powershell` on Windows).
-- App running locally (default base URL is `http://localhost:3000`).
+- `npm run e2e` : smoke anonyme desktop/mobile, sans modèle.
+- `npm run e2e:army:critical` : contrôles métier prioritaires.
+- `npm run e2e:army:full` : parcours de production, spécialistes et métré.
+- `npm run e2e:army:development` : trois scénarios du simulateur de hub.
+- `npm run e2e:army:polish` : audit optionnel des routes explicitement sélectionnées,
+  aux quatre largeurs historiques ; voir [ses limites](../docs/testing/tester-army-polish.md).
+- `npm run e2e:army:ci -- full` : SQL, RLS, build, production puis
+  développement sur une pile Supabase native éphémère (Linux/macOS ; Windows via WSL).
 
-## Commands
+La CI crée son compte ARMY, refuse les secrets et fichiers env ambiants et détruit
+sa pile locale. Pour une campagne manuelle, lire les prérequis du profil avant
+exécution : backend loopback explicitement autorisé, compte dédié et nouvelles
+fixtures ARMY. Les prérequis worker locaux gardent leurs clés côté Node ; les
+actions de l'application utilisent la connexion utilisateur normale.
 
-- `npm run e2e` runs the smoke flow:
-  - Opens the home page
-  - Clicks the Login CTA
-  - Checks the Login form fields
+Les manifestes et archives `.e2e/army/` conservent commande, sources, build,
+identités, assertions et empreintes. Échec, skip et setup incomplet restent des
+preuves manquantes. Les archives de CI sont contrôlées avant publication.
 
-- `npm run e2e:auth` logs in and saves an auth state file for future tests.
-- `npm run e2e:pw:critical` runs the explicit `chromium-critical` project: seven
-  production-compatible specs plus the authentication setup
-  (`dashboard-ux`, `duplicate`, `full-lifecycle`, `hub-launch-metre`,
-  `import-dpgf`, `plan-center`, `team-a-hub-prod`). The full
-  `e2e/estimates/*` corpus remains available through `npm run e2e:pw`.
-- `team-a-hub-dev-scenarios.spec.ts` is **not** in `chromium-critical` `testMatch`.
-  It is nightly-only: `e2e-playwright-nightly.yml` runs `npm run e2e:pw` with
-  `E2E_ALLOW_DEV_HUB_SCENARIOS=1`. Locally, set that flag or the spec skips.
-- `npm run e2e:pw:headed` runs the same suite in headed mode.
-- `npm run e2e:pw:report` opens the generated Playwright HTML report.
-- `npm run e2e:rls` runs the EST-261 RLS matrix integration suite.
+## Scripts PowerShell historiques
+
+Les scripts ci-dessous restent disponibles pour leurs contrôles spécialisés.
+Ils exigent `agent-browser`, PowerShell et une application locale déjà lancée.
 
 ## HEX ticket scripts
 
@@ -89,7 +92,7 @@ Scripts live in `e2e/hex/` and are grouped by feature suites. All npm commands a
 ## PowerShell / agent-browser : **non couverts en CI**
 
 Les suites `e2e/hex/*.ps1` (PowerShell + `agent-browser`) ne tournent dans
-aucun workflow GitHub Actions. Le filet PR / nightly est Playwright uniquement.
+aucun workflow GitHub Actions. Les workflows navigateur utilisent TesterArmy.
 Les scripts restent dans le dépôt pour une exécution locale
 (`npm run e2e:hex`, `npm run e2e:hex:all`, `npm run e2e:hex:<suite>`).
 Ce n'est pas un port : c'est la disposition du périmètre HEX hors CI.
@@ -111,65 +114,13 @@ Inventaire des scripts sous `e2e/hex/` :
 - assemblies : `ti-182-assemblies.ps1`
 - dpgf : `dpgf-import-flow.ps1`, `dpgf-affaire-wizard-editor-flow.ps1`
 
-Domaines qu'elles couvrent encore seules (pas de port Playwright équivalent) :
+Scripts spécialisés disponibles ; leur présence ne qualifie pas leur exécution en CI :
 
 - **settings** — `ti-146-parameters.ps1`, `ti-153-suggestions.ps1`, `ti-142-types.ps1`
 - **security** — `ti-141-db-rls.ps1`
 - **assemblies** — `ti-182-assemblies.ps1`
 - **output** — `ti-151-print.ps1`, `ti-152-export.ps1`
 - **editor** — `est-101-keyboard.ps1` … `est-106-undo-redo.ps1`
-
-## Playwright matrix (EST-262 partial)
-
-- `e2e/estimates/full-lifecycle.spec.ts`
-  - Scenario 1: creation wizard + line edition + autosave
-  - Scenario 2: status transitions (`draft -> sent -> accepted`)
-  - Scenario 4: export XLSX + print page checks
-- `e2e/estimates/duplicate.spec.ts`
-  - Scenario 3: duplicate estimate + copied line verification
-- `e2e/estimates/import-dpgf.spec.ts`
-  - Scenario 5: DPGF import + mapping save + catalogue link flow
-- `e2e/estimates/takeoff-guard.spec.ts`
-  - TKF-025: guard apply blocks unverified low-confidence items on Level C
-  - Verify items then retry apply (guard passes)
-  - Level A bypass (no guard)
-  - Admin override with justification
-  - Excluded items do not trigger guard
-  - Requires `SUPABASE_SERVICE_ROLE_KEY` for DB seeding
-- `e2e/estimates/takeoff-epics-matrix.spec.ts`
-  - E01: takeoff health and foundations smoke
-  - E02: level A job creation + listing
-  - E03: provenance fields + item review editability
-  - E04: plan-set CRUD smoke (create/list/delete)
-  - E06: job list offset ceiling validation (`offset <= 10000`)
-  - E07: compare endpoint delta on two revisions
-  - Requires `SUPABASE_SERVICE_ROLE_KEY` for DB seeding when available (falls back to authenticated user)
-
-Playwright config is in `playwright.config.ts` with:
-- automatic screenshots on failure (`screenshot: only-on-failure`),
-- HTML report output in `playwright-report/`,
-- CI retries treated as failures (`failOnFlakyTests`) and traces disabled in CI,
-- CI artifact upload from `.github/workflows/e2e-playwright-critical.yml` and
-  `.github/workflows/e2e-playwright-nightly.yml`, excluding `trace.zip` and
-  retaining reports for three days.
-
-The remote **critical** workflow (`.github/workflows/e2e-playwright-critical.yml`)
-runs the seven `chromium-critical` specs on `pull_request` and `push` to `main`,
-inside the `e2e-staging` environment. It uses `pull_request`, never
-`pull_request_target`. Fork / untrusted PRs do not receive environment secrets;
-`npm run e2e:validate-env` then fail-closes. Same-repo PRs that can read
-`e2e-staging` run the seven specs against staging.
-
-The **nightly** workflow (`.github/workflows/e2e-playwright-nightly.yml`) runs
-`npm run e2e:pw` (chromium project, the full `e2e/estimates` corpus) on a
-03:15 UTC schedule, with the same environment and secret hygiene.
-
-In both workflows, `npm ci` and `npx playwright install` have no `env:` secrets.
-Secrets appear only on the "Validate required environment" and test-run steps.
-The environment must define the four E2E secrets and the non-secret
-`E2E_ALLOWED_SUPABASE_HOST` variable; the URL hostname must match it exactly.
-Neither workflow exposes a service-role key. The secretless Webpack production
-build and HTTP smoke in `Quality Gate` still guard every PR.
 
 ## RLS matrix (EST-261 partial)
 

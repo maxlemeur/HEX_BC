@@ -234,7 +234,8 @@ describe("TakeoffJobMonitor", () => {
           target_section_id: null,
           strategy: "append",
           overrides: undefined,
-        }
+        },
+        "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
       );
       expect(releaseEstimateDraftLockMock).toHaveBeenCalledWith(
         "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"

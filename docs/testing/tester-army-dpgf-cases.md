@@ -1,5 +1,17 @@
 # Scénario critique DPGF TesterArmy
 
+## Complément de port du 15 octobre 2026
+
+Défaillances définies avant le port DPGF03 : le mapping générique ne conduit plus
+à la liaison catalogue, le contrôle Simulation est perdu, le mauvais import est
+analysé, des lignes sont omises ou des articles sont créés malgré le mode à blanc.
+Ce parcours reprend les deux lignes de `e2e/fixtures/dpgf-minimal.csv`, le mapping
+et les gestes de l'ancien `import-dpgf.spec.ts`. La réponse réelle doit conserver
+`dry_run: true`, `scanned_rows: 2`, `created_catalogue_count: 0`, l'identifiant de
+l'import courant et `linked_count + unmatched_count = 2`. Le fichier au nom ARMY,
+son empreinte, l'import et le résultat sont retenus même en cas d'échec. Aucun
+test isolé n'est ajouté ; les deux variantes canoniques ci-dessous restent intactes.
+
 Les défaillances et les observations ci-dessous sont définies avant l'écriture du scénario. Le test utilise une session `army`, une affaire neuve dont le nom commence par `ARMY-`, le navigateur réel, les routes de l'application et le Supabase courant explicitement autorisé pour ces données dédiées.
 
 | Défaillance réelle | Observation qui doit l'exposer |
@@ -33,6 +45,6 @@ Le CSV généré et son SHA-256 sont conservés sous `.e2e/army/critical/artifac
 
 Les traces du navigateur sont désactivées pour la campagne authentifiée : un ZIP Playwright pourrait contenir des jetons Supabase générés que la protection du mot de passe ne masque pas. La preuve métier de ce scénario est constituée du CSV et des JSON de résultats/identités, complétés par le rapport et le manifeste. Les traces du pilote anonyme restent une preuve distincte.
 
-Le CSV ordinaire n'a pas de provenance de page PDF : le scénario exige `source_page: null` et l'absence de `_timax_provenance`, tout en vérifiant sa provenance import/mapping. Il ne prouve pas l'extraction PDF, `sourceDocumentId`, le format XLS/XLSX, les hiérarchies Excel, les transactions concurrentes, l'isolation entre deux tenants ni le traitement Gemini du métré. Ces risques restent couverts séparément ou demandent leurs propres fixtures. Les scénarios Playwright actuels `e2e/estimates/import-dpgf.spec.ts` et `team-b-user-stories.spec.ts` couvrent notamment le mapping générique et la hiérarchie XLSX ; ils n'affirment pas toutes les valeurs et métadonnées CSV ci-dessus.
+Le CSV ordinaire n'a pas de provenance de page PDF : le scénario exige `source_page: null` et l'absence de `_timax_provenance`, tout en vérifiant sa provenance import/mapping. Il ne prouve pas l'extraction PDF, `sourceDocumentId`, le format XLS/XLSX, les hiérarchies Excel, les transactions concurrentes, l'isolation entre deux tenants ni le traitement Gemini du métré. Ces risques restent couverts séparément ou demandent leurs propres fixtures. Les parcours Army `critical/dpgf-import.e2e.ts` (DPGF03) et `takeoff/team-b-user-stories.e2e.ts` couvrent séparément le mapping générique et la hiérarchie XLSX ; les assertions CSV ci-dessus restent propres à DPGF01/02.
 
 Une session ARMY valide, un rôle autorisé à importer/créer des devis et un backend avec les migrations de création canonique sont des prérequis. Aucune base n'est lancée, modifiée ou remise à zéro par la préparation du scénario. Un échec de prérequis ou un test non exécuté ne constitue pas une preuve métier.

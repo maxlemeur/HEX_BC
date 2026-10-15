@@ -17194,7 +17194,7 @@
           "Takeoff"
         ],
         "summary": "Appliquer un job Takeoff",
-        "description": "Applique les items d'un job completed vers le chiffrage cible avec une strategie et une section optionnelle.",
+        "description": "Applique les items d'un job completed vers le chiffrage cible avec une strategie et une section optionnelle. La page doit posseder le verrou du brouillon cible et transmettre son identifiant de session.",
         "parameters": [
           {
             "name": "jobId",
@@ -17203,6 +17203,15 @@
             "required": true,
             "schema": {
               "$ref": "#/components/schemas/TakeoffJobIdPathParameter"
+            }
+          },
+          {
+            "name": "x-estimate-draft-lock-session-id",
+            "in": "header",
+            "description": "Identifiant UUID stable de la page d'edition qui acquiert et utilise le verrou.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/EstimateDraftLockSessionHeaderParameter"
             }
           }
         ],

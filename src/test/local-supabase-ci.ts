@@ -106,6 +106,7 @@ export interface LocalSupabaseStatus {
   url: string;
   anonKey: string;
   serviceRoleKey: string;
+  databaseUrl?: string;
 }
 
 interface ProvisionedUsers {
@@ -127,6 +128,8 @@ interface LocalSupabaseCiDependencies {
     status: LocalSupabaseStatus
   ) => Promise<ProvisionedUsers>;
   runRls: (environment: SupabaseEnvironment) => void;
+  runApplication?: (environment: SupabaseEnvironment) => Promise<void>;
+  resolvePsql: () => string;
   removeProject: (project: IsolatedSupabaseProject) => void;
   supabase: (args: string[], capture?: boolean) => string;
   validateProject: () => string[];
@@ -273,7 +276,33 @@ export function parseLocalSupabaseStatus(output: string): LocalSupabaseStatus {
   assertLoopbackSupabaseUrl(url);
   assertLocalApiKeyRole(anonKey, "anon", "sb_publishable_");
   assertLocalApiKeyRole(serviceRoleKey, "service_role", "sb_secret_");
-  return { url, anonKey, serviceRoleKey };
+  const databaseUrl = values.get("DB_URL")?.trim();
+  if (databaseUrl) {
+    try {
+      const database = new URL(databaseUrl);
+      if (!["postgres:", "postgresql:"].includes(database.protocol) ||
+        database.hostname !== new URL(url).hostname || !database.port ||
+        database.username !== "postgres" || !database.password ||
+        database.pathname !== "/postgres" || database.search || database.hash) {
+        throw new Error("invalid database route");
+      }
+    } catch {
+      throw new Error("Local PostgreSQL status must target the owned loopback backend without routing parameters");
+    }
+  }
+  return { url, anonKey, serviceRoleKey, ...(databaseUrl ? { databaseUrl } : {}) };
+}
+
+function resolveNativePsql() {
+  const cache = path.join(os.homedir(), ".supabase", "cache", "stack", "slim-services", "postgres");
+  const platform = `${process.platform === "darwin" ? "darwin" : "linux"}-${process.arch === "x64" ? "amd64" : "arm64"}`;
+  const candidates = fs.readdirSync(cache, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.join(cache, entry.name, platform, "bin", "psql"))
+    .filter((file) => fs.existsSync(file));
+  if (candidates.length !== 1) throw new Error("The native runtime must provide exactly one PostgreSQL client");
+  fs.accessSync(candidates[0], fs.constants.X_OK);
+  return candidates[0];
 }
 
 function assertLocalApiKeyRole(
@@ -540,6 +569,7 @@ function defaultDependencies(): LocalSupabaseCiDependencies {
     provisionUsers: provisionLocalUsers,
     removeProject: removeIsolatedProject,
     runRls: runRlsMatrix,
+    resolvePsql: resolveNativePsql,
     supabase: (args, capture = false) =>
       runSupabaseCli(args, { capture, environment: process.env }),
     validateProject: () => inspectSupabaseMigrations().errors,
@@ -594,7 +624,8 @@ export async function runLocalSupabaseCi(
   }
   dependencies.ensureRuntime();
 
-  const cliVersion = dependencies.supabase(["--version"], true).trim();
+  // The captured CLI output appends stderr update notices after stdout.
+  const cliVersion = dependencies.supabase(["--version"], true).trim().split(/\r?\n/, 1)[0];
   if (cliVersion !== PINNED_SUPABASE_CLI_VERSION) {
     throw new Error(
       `Supabase CLI must be exactly ${PINNED_SUPABASE_CLI_VERSION}; received ${cliVersion}`
@@ -665,7 +696,7 @@ export async function runLocalSupabaseCi(
     activePhase = "provision local Auth users";
     provisioned = await dependencies.provisionUsers(status);
     activePhase = "run behavioral RLS matrix";
-    dependencies.runRls({
+    const localEnvironment = {
       ...createLocalCiEnvironment(dependencies.environment),
       ...provisioned.environment,
       NEXT_PUBLIC_SUPABASE_ANON_KEY: status.anonKey,
@@ -674,8 +705,19 @@ export async function runLocalSupabaseCi(
       RLS_E2E_EPHEMERAL: "1",
       RLS_E2E_LOCAL: "1",
       SUPABASE_SERVICE_ROLE_KEY: status.serviceRoleKey,
-    });
+    };
+    dependencies.runRls(localEnvironment);
     dependencies.log("Behavioral RLS matrix passed.");
+    if (dependencies.runApplication) {
+      activePhase = "run application validation";
+      if (!status.databaseUrl) throw new Error("Local PostgreSQL status is missing for the application fixtures");
+      await dependencies.runApplication({
+        ...localEnvironment,
+        E2E_ARMY_LOCAL_DB_URL: status.databaseUrl,
+        E2E_ARMY_LOCAL_PSQL: dependencies.resolvePsql(),
+      });
+      dependencies.log("Application validation passed.");
+    }
   } catch (error) {
     primaryError = createPhaseError(activePhase, error);
   } finally {

@@ -1,3 +1,5 @@
+import { getEstimateDraftLockSessionId } from "@/lib/estimates/client";
+import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
 import type {
   CreatePlanSetInput as SharedCreatePlanSetInput,
   CreateTakeoffMappingRuleInput as SharedCreateTakeoffMappingRuleInput,
@@ -661,13 +663,17 @@ export async function cancelTakeoffJob(
 
 export async function applyTakeoffJob(
   jobId: string,
-  payload: TakeoffApplyRequest
+  payload: TakeoffApplyRequest,
+  versionId: string
 ): Promise<TakeoffApplyResponse> {
   return requestTakeoffJson<TakeoffApplyResponse>(
     `/api/takeoff/jobs/${encodeURIComponent(jobId)}/apply`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        [ESTIMATE_DRAFT_LOCK_SESSION_HEADER]: getEstimateDraftLockSessionId(versionId),
+      },
       body: JSON.stringify(payload),
     },
     "Impossible d'appliquer le job takeoff."

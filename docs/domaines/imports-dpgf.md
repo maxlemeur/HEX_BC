@@ -331,15 +331,15 @@ source, commentaires et provenance dans **source_metadata**.
 
 Tests unitaires et d'intégration (Vitest) : `src/lib/imports/server.test.ts` couvre notamment la persistance des lignes PDF approuvées dans le pipeline canonique (`:358`), la construction depuis `tables` sans enveloppe de lignes (`:496`), le rejet des payloads PDF sans `sourceKind` explicite (`:562`, `:618`, `:650`, `:682`), l'absence de `approvedTables` (`:590`) et un import multipart de PDF DPGF réaliste (`:783`). `src/lib/imports/tabular-pdf-extraction.test.ts` couvre les budgets et la terminaison du worker bloqué sans repli `pdftotext` (`:145`), ainsi qu'une extraction DPGF réaliste (`:439`). Autres fichiers : `src/lib/imports/tabular-pdf.test.ts`, `src/lib/imports/header-row.test.ts`, `src/lib/mappings/server.test.ts`, `src/app/dashboard/affaires/_actions/import-flow.test.ts`, `src/components/affaires/UnifiedImportFlow.test.tsx`, `src/components/imports/ImportWizard.test.tsx`.
 
-Playwright (`playwright.config.ts:36`, `testDir: "./e2e/estimates"`) :
+TesterArmy (`e2e.config.ts`, profil `npm run e2e:army:full`) :
 
-- `e2e/estimates/import-dpgf.spec.ts:8` — chaîne autonome import → mapping → liaison catalogue, fixture `e2e/fixtures/dpgf-minimal.csv`.
-- `e2e/estimates/team-b-user-stories.spec.ts:567` — statistiques de mapping et détection de doublons, classeur XLSX généré à l'exécution (`:62`).
-- `e2e/estimates/team-b-user-stories.spec.ts:606` — **unique test e2e du PDF tabulaire** : dépôt de `e2e/fixtures/us22_live_tabular.pdf` (`:609`), attente de `Validation renforcee` (`:616`), du message d'approbation explicite (`:618-621`), clic sur `Valider les tableaux et lancer l'import` (`:623`), puis arrivée sur `/dashboard/mappings?import_id=` (`:627-632`). Aucune assertion sur les colonnes extraites.
-- `e2e/estimates/team-b-user-stories.spec.ts:635` — matérialisation en version de chiffrage avec vérification des totaux en base.
-- `e2e/estimates/import-flow-carry-over.spec.ts:336` — flux unifié complet dans une affaire, avec carte carry-over takeoff et vérification des liens de version.
+- `e2e/army/critical/dpgf-import.e2e.ts` — import CSV, mapping et persistance des montants ; DPGF03 conserve la liaison catalogue en dry-run sur deux lignes, avec `e2e/fixtures/dpgf-minimal.csv`.
+- `e2e/army/takeoff/team-b-user-stories.e2e.ts`, US-2.1 — statistiques de mapping et détection de doublons, classeur XLSX généré à l'exécution.
+- Le même fichier, US-2.2 — dépôt réel de `e2e/fixtures/us22_live_tabular.pdf`, attente de `Validation renforcee` et de l'approbation explicite, clic sur `Valider les tableaux et lancer l'import`, puis arrivée sur `/dashboard/mappings?import_id=`. Ce scénario ne vérifie pas toutes les colonnes extraites.
+- Le même fichier, US-2.3 et US-2.4 — matérialisation en version de chiffrage avec vérification des totaux, puis revue des titres XLSX et hiérarchie DPGF sur deux niveaux.
+- `e2e/army/takeoff/import-flow-carry-over.e2e.ts`, US-6.1 — flux unifié complet dans une affaire, avec carte carry-over takeoff et vérification des liens de version.
 
-Aucun test Playwright n'intercepte le réseau : `grep -rn "page.route(" e2e/` ne renvoie aucun résultat. Aucun `data-testid` n'existe pour l'assistant d'import ; les sélecteurs stables sont `#import-file-input`, `input[type="file"]`, `#catalogue-link-import-id` et `table.data-table tbody tr` (`e2e/estimates/helpers.ts:989-1013`).
+Les helpers partagés sont `e2e/army/critical/fixtures.ts` et `e2e/army/takeoff/native-ui.ts`. Ils gardent les sélecteurs et assertions des parcours existants ; les gardes réseau et les réponses synthétiques des spécialistes sont explicites. La présence de ces recettes ne vaut pas réussite : le [suivi de migration](../testing/army-migration.md) conserve les échecs et les preuves des rejeux, notamment celui du PDF tabulaire compilé.
 
 ## 14. Constantes numériques
 

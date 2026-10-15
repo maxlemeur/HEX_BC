@@ -6,8 +6,12 @@ import type { E2EConfig } from "e2e";
 import { chatgpt } from "e2e/oauth/chatgpt";
 
 const critical = process.env.E2E_ARMY_SUITE === "critical";
+const full = critical && process.env.E2E_ARMY_CRITICAL_SELECTION === "full";
+const development = critical && process.env.E2E_ARMY_CRITICAL_SELECTION === "development";
+const polish = critical && process.env.E2E_ARMY_CRITICAL_SELECTION === "polish";
 const army021 = critical && process.env.E2E_ARMY_CRITICAL_SELECTION === "army-021";
 const techDebt = critical && (army021 || process.env.E2E_ARMY_CRITICAL_SELECTION === "tech-debt-lot1");
+const localBusiness = critical && /^http:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?\/?$/.test(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "");
 const coverage = process.env.E2E_ARMY_SUITE === "coverage";
 const numericComponents = ["numeric-price", "numeric-decimals", "numeric-loss", "numeric-all"].includes(process.env.E2E_GENERATED_COMPONENTS_SELECTION ?? "");
 const performance = process.env.E2E_ARMY_SUITE === "performance";
@@ -56,14 +60,16 @@ const app = {
     ],
     env: {
       E2E_ARMY: "1",
+      ...((critical || coverage) ? { TAKEOFF_MODULE_ENABLED_BY_DEFAULT: "1" } : {}),
       NEXT_TELEMETRY_DISABLED: "1",
-      ...(coverage || techDebt ? {
+      ...(coverage || techDebt || localBusiness ? {
         NODE_OPTIONS: `--import=${pathToFileURL(path.resolve("scripts/tester-army/coverage-network-guard.mjs")).href}`,
         E2E_COVERAGE_BACKEND_ORIGIN: process.env.E2E_COVERAGE_BACKEND_ORIGIN!,
         E2E_ARMY_BASE_URL: baseUrl.origin,
         E2E_COVERAGE_NETWORK_LOG: process.env.E2E_COVERAGE_NETWORK_LOG!,
         GEMINI_API_KEY: "",
         GOOGLE_GENERATIVE_AI_API_KEY: "",
+        ...(localBusiness ? { E2E_ARMY_BLOCK_WORKERS: "1" } : {}),
       } : {}),
     },
     startupTimeout: 180_000,
@@ -75,12 +81,12 @@ const app = {
 
 export default {
   projectId: coverage ? "miaouffrage-source-coverage" : critical ? "miaouffrage-critical-journeys" : performance ? "miaouffrage-performance" : "miaouffrage-anonymous-pilot",
-  tests: army021 ? ["e2e/army/critical/**/*.e2e.ts", "e2e/army/local/tech-debt-lock-boundaries.e2e.ts"] : techDebt ? [
+  tests: polish ? ["e2e/army/critical/auth.setup.e2e.ts", "e2e/army/polish/**/*.e2e.ts"] : development ? ["e2e/army/critical/auth.setup.e2e.ts", "e2e/army/development/**/*.e2e.ts"] : full ? ["e2e/army/critical/**/*.e2e.ts", "e2e/army/extended/**/*.e2e.ts", "e2e/army/takeoff/**/*.e2e.ts", "e2e/army/local/tech-debt-lock-boundaries.e2e.ts"] : army021 ? ["e2e/army/critical/**/*.e2e.ts", "e2e/army/local/tech-debt-lock-boundaries.e2e.ts"] : techDebt ? [
     "e2e/army/critical/auth.setup.e2e.ts",
     "e2e/army/critical/numeric-entry.e2e.ts",
     "e2e/army/critical/dpgf-import.e2e.ts",
     "e2e/army/local/tech-debt-lock-boundaries.e2e.ts",
-  ] : coverage ? ["e2e/army/critical/auth.setup.e2e.ts", process.env.E2E_COVERAGE_SCENARIO_SET === "generated-components" ? process.env.E2E_GENERATED_COMPONENTS_SELECTION === "assembly-totals" ? "e2e/army/local/assembly-totals.e2e.ts" : numericComponents ? "e2e/army/local/generated-ouvrage-numeric-entry.e2e.ts" : "e2e/army/local/generated-ouvrage-components.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "navigation-lease" ? "e2e/army/local/editor-navigation-lease.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "generated-recovery" ? "e2e/army/local/estimate-generated-recovery.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "generated-atomic" ? "e2e/army/local/estimate-generated-atomic.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "batch-atomic" ? "e2e/army/local/estimate-batch*.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "create-atomic" ? "e2e/army/local/estimate-create-atomic.e2e.ts" : "e2e/army/local/source-coverage.e2e.ts"] : critical ? "e2e/army/critical/**/*.e2e.ts" : performance
+  ] : coverage ? ["e2e/army/critical/auth.setup.e2e.ts", process.env.E2E_COVERAGE_SCENARIO_SET === "generated-components" ? process.env.E2E_GENERATED_COMPONENTS_SELECTION === "assembly-totals" ? "e2e/army/local/assembly-totals.e2e.ts" : numericComponents ? "e2e/army/local/generated-ouvrage-numeric-entry.e2e.ts" : "e2e/army/local/generated-ouvrage-components.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "navigation-lease" ? "e2e/army/local/editor-navigation-lease.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "generated-recovery" ? "e2e/army/local/estimate-generated-recovery.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "generated-atomic" ? "e2e/army/local/estimate-generated-atomic.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "batch-atomic" ? "e2e/army/local/estimate-batch*.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "create-atomic" ? "e2e/army/local/estimate-create-atomic.e2e.ts" : "e2e/army/local/source-coverage.e2e.ts"] : critical ? localBusiness ? ["e2e/army/critical/**/*.e2e.ts", "e2e/army/local/tech-debt-lock-boundaries.e2e.ts"] : "e2e/army/critical/**/*.e2e.ts" : performance
     ? ["e2e/army/critical/auth.setup.e2e.ts", "e2e/army/performance/**/*.e2e.ts"]
     : "e2e/army/*.e2e.ts",
   targets: [
@@ -98,7 +104,7 @@ export default {
   workers: 1,
   retries: 0,
   // This lot normally takes a few minutes; a hung campaign must stay a failure.
-  ...(techDebt ? { maxDuration: 900_000 } : {}),
+  ...(critical ? { maxDuration: full ? 3_600_000 : techDebt ? 900_000 : 1_800_000 } : {}),
   timeout: 90_000,
   actionTimeout: 30_000,
   assertionTimeout: 15_000,

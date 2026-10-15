@@ -27,6 +27,7 @@ function localJwt(role: "anon" | "service_role") {
 }
 
 function createDependencies(options: {
+  cliVersionOutput?: string;
   failDestroy?: boolean;
   failReset?: boolean;
   failStop?: boolean;
@@ -38,7 +39,7 @@ function createDependencies(options: {
     const command = args.join(" ");
     calls.push(command);
     if (command === "--version") {
-      return PINNED_SUPABASE_CLI_VERSION;
+      return options.cliVersionOutput ?? PINNED_SUPABASE_CLI_VERSION;
     }
     if (options.failReset && command.startsWith("db reset --local")) {
       throw new Error("reset failed");
@@ -90,6 +91,7 @@ function createDependencies(options: {
         userIds: ["admin-id", "engineer-id", "viewer-id"],
       })),
       runRls: vi.fn(),
+      resolvePsql: vi.fn(() => "/native/postgres/bin/psql"),
       removeProject: vi.fn(),
       supabase,
       validateProject: vi.fn(() => []),
@@ -128,8 +130,16 @@ describe("local Supabase CI", () => {
     expect(() => validatePgTapReport("Files=0, Tests=1,  1 wallclock secs\nResult: PASS\n", 0)).toThrow("pgTAP");
   });
   it("runs every local phase in order and never logs captured keys", async () => {
-    const { calls, dependencies } = createDependencies();
-    await runLocalSupabaseCi(dependencies);
+    const { calls, dependencies } = createDependencies({
+      cliVersionOutput: `${PINNED_SUPABASE_CLI_VERSION}\n\nA new version of Supabase CLI is available: v2.121.0`,
+    });
+    const runApplication = vi.fn(async () => {
+      expect(dependencies.runRls).toHaveBeenCalledOnce();
+      expect(dependencies.removeProject).not.toHaveBeenCalled();
+      await Promise.resolve();
+      calls.push("run application");
+    });
+    await runLocalSupabaseCi({ ...dependencies, runApplication });
     const projectRoot = "C:/temp/miaouffrage-supabase-ci-test";
     const databaseTests = path.join(
       projectRoot,
@@ -145,6 +155,7 @@ describe("local Supabase CI", () => {
       `migration list --local --output-format json --workdir ${projectRoot}`,
       `test db --local ${databaseTests} --workdir ${projectRoot}`,
       `status --env --workdir ${projectRoot}`,
+      "run application",
       `stop --workdir ${projectRoot}`,
       `stack destroy --yes --workdir ${projectRoot}`,
     ]);
@@ -161,9 +172,22 @@ describe("local Supabase CI", () => {
       })
     );
     expect(dependencies.removeProject).toHaveBeenCalledOnce();
+    expect(runApplication).toHaveBeenCalledWith(expect.objectContaining({
+      NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321",
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: localJwt("anon"),
+      SUPABASE_SERVICE_ROLE_KEY: localJwt("service_role"),
+      E2E_ARMY_LOCAL_DB_URL: "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+      E2E_ARMY_LOCAL_PSQL: "/native/postgres/bin/psql",
+    }));
+    expect(dependencies.runRls.mock.calls[0][0]).not.toHaveProperty("E2E_ARMY_LOCAL_DB_URL");
+    expect(logs).not.toContain("postgresql://");
   });
 
   it("stops after a reset failure and treats cleanup failure as fatal", async () => {
+    const versionFailure = createDependencies({ cliVersionOutput: "2.121.0\nupdate notification" });
+    await expect(runLocalSupabaseCi(versionFailure.dependencies)).rejects.toThrow("must be exactly 2.120.0");
+    expect(versionFailure.dependencies.prepareProject).not.toHaveBeenCalled();
+
     const resetFailure = createDependencies({ failReset: true });
     await expect(runLocalSupabaseCi(resetFailure.dependencies)).rejects.toThrow(
       "Phase failed: reset local database"
@@ -188,6 +212,18 @@ describe("local Supabase CI", () => {
     await expect(runLocalSupabaseCi(destroyFailure.dependencies)).rejects.toThrow(
       "Local Supabase CI cleanup failed"
     );
+
+    const applicationFailure = createDependencies();
+    const runApplication = vi.fn().mockRejectedValue(new Error("application failed"));
+    await expect(runLocalSupabaseCi({
+      ...applicationFailure.dependencies,
+      runApplication,
+    })).rejects.toThrow("Phase failed: run application validation");
+    expect(applicationFailure.calls.slice(-2)).toEqual([
+      "stop --workdir C:/temp/miaouffrage-supabase-ci-test",
+      "stack destroy --yes --workdir C:/temp/miaouffrage-supabase-ci-test",
+    ]);
+    expect(applicationFailure.dependencies.removeProject).toHaveBeenCalledOnce();
   });
 
   it("refuses hosts the Supabase native runtime does not support", () => {
@@ -308,6 +344,20 @@ describe("local Supabase CI", () => {
     expect(() => parseLocalSupabaseStatus('API_URL="http://127.0.0.1:54321"')).toThrow(
       "all required values"
     );
+    for (const databaseUrl of [
+      "postgresql://postgres:secret@remote.test:54322/postgres",
+      "postgresql://postgres:secret@localhost:54322/postgres",
+      "postgresql://postgres:secret@127.0.0.1:54322/postgres?host=remote.test",
+      "postgresql://postgres:secret@127.0.0.1:54322/other",
+      "not-a-url-secret",
+    ]) {
+      expect(() => parseLocalSupabaseStatus([
+        'API_URL="http://127.0.0.1:54321"',
+        `ANON_KEY="${localJwt("anon")}"`,
+        `SERVICE_ROLE_KEY="${localJwt("service_role")}"`,
+        `DB_URL="${databaseUrl}"`,
+      ].join("\n"))).toThrow("Local PostgreSQL status");
+    }
   });
 
   it("keeps the RLS workflow local-only and fail-closed", () => {

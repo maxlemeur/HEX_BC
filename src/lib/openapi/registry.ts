@@ -4002,9 +4002,9 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     path: "/api/takeoff/jobs/{jobId}/apply",
     summary: "Appliquer un job Takeoff",
     description:
-      "Applique les items d'un job completed vers le chiffrage cible avec une strategie et une section optionnelle.",
+      "Applique les items d'un job completed vers le chiffrage cible avec une strategie et une section optionnelle. La page doit posseder le verrou du brouillon cible et transmettre son identifiant de session.",
     tags: ["Takeoff"],
-    parameters: [takeoffJobIdPathParameter],
+    parameters: [takeoffJobIdPathParameter, estimateDraftLockSessionHeaderParameter],
     requestBody: applyTakeoffJobBody,
     responses: {
       "200": jsonResponse(

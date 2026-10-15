@@ -666,7 +666,7 @@ const takeoffDpgfCompareEstimateItemRowSchema = z.object({
   position: z.number().int().nonnegative(),
   title: z.string(),
   description: z.string().nullable(),
-  quantity: z.number().positive().nullable(),
+  quantity: z.number().nonnegative().nullable(),
   selected_supplier_price_id: z.string().uuid().nullable().optional(),
   source_file_name: z.string().nullable(),
   source_page: z.number().int().nullable(),
@@ -7418,7 +7418,9 @@ export async function createTakeoffJobFromFormData(
       mimeType: normalizedSourceFileType,
       sizeBytes: file.size,
     });
-    const sourceFilePath = `${tenantId}/${jobId}/${payloadFingerprint}-${sanitizeFilename(
+    // Each contender owns its upload; the job primary key arbitrates idempotency.
+    // A replacement cannot pass Storage RLS before the job references its file.
+    const sourceFilePath = `${tenantId}/${jobId}/${payloadFingerprint}-${randomUUID()}-${sanitizeFilename(
       sourceFileName
     )}`;
 
@@ -7426,7 +7428,7 @@ export async function createTakeoffJobFromFormData(
       .from(TAKEOFF_FILES_BUCKET)
       .upload(sourceFilePath, file, {
         contentType: normalizedSourceFileType,
-        upsert: Boolean(idempotencyKey),
+        upsert: false,
       });
 
     if (uploadError) {
@@ -7476,6 +7478,9 @@ export async function createTakeoffJobFromFormData(
           );
 
           if (existingFingerprint === payloadFingerprint) {
+            await removeUploadedFileIfPresent({
+              storagePath: sourceFilePath,
+            });
             return normalizeTakeoffJobRow(existingJob);
           }
 

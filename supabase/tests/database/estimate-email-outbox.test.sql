@@ -368,7 +368,140 @@ values
 
 set local role service_role;
 
-create or replace function pg_temp.publish_estimate_email_test_pdf(
+-- Offer client contract fixtures (20261013130248). Reservations now freeze a
+-- portal origin and the issuing company; publications carry a client contract
+-- snapshot; preparation and emission compare the exact document proof.
+create function pg_temp.offer_company()
+returns jsonb
+language sql
+immutable
+as $$
+  select '{"name":"Estimate email company","tagline":"Synthetic test company","address":{"street":"1 rue du Test","postalCode":"75001","city":"Paris"},"registeredOffice":{"street":"2 rue du Test","postalCode":"75002","city":"Paris"},"phone":{"landline":"+33 1 00 00 00 01","mobile":"+33 6 00 00 00 01"},"legal":{"siret":"TEST-SIRET","vat":"TEST-VAT"}}'::jsonb
+$$;
+
+create function pg_temp.offer_layout()
+returns jsonb
+language sql
+immutable
+as $$
+  select '{"preset":"client_detailed","detailLevel":"lines","priceMode":"unit_and_total","density":"standard","showNumbering":true,"showSectionSubtotals":true,"conditionsPlacement":"auto","includeTerms":false}'::jsonb
+$$;
+
+-- Identity compared by publication: the dispatch-frozen identity for an email
+-- render, otherwise the identity captured for the actual renderer actor.
+create function pg_temp.offer_identity(
+  p_version_id uuid,
+  p_actor_user_id uuid,
+  p_dispatch_id uuid
+)
+returns jsonb
+language plpgsql
+as $$
+declare
+  target_version public.estimate_versions%rowtype;
+begin
+  if p_dispatch_id is not null then
+    return (
+      select dispatch.offer_identity_snapshot
+      from public.estimate_emails as dispatch
+      where dispatch.id = p_dispatch_id
+    );
+  end if;
+
+  select version.* into target_version
+  from public.estimate_versions as version
+  where version.id = p_version_id;
+
+  return public.capture_estimate_offer_identity(
+    target_version,
+    p_actor_user_id,
+    pg_temp.offer_company()
+  );
+end;
+$$;
+
+-- These fixture versions carry no items, so the client image has no rows and
+-- reproduces the stored zero totals.
+create function pg_temp.offer_client_snapshot(p_version_id uuid, p_identity jsonb)
+returns jsonb
+language sql
+stable
+as $$
+  select jsonb_build_object(
+    'schemaVersion', 1,
+    'version', jsonb_build_object(
+      'id', version.id,
+      'tenantId', version.tenant_id,
+      'projectId', version.project_id,
+      'number', version.version_number,
+      'contentRevision', version.content_revision,
+      'calcEngineVersion', version.calc_engine_version,
+      'dateDevis', version.date_devis,
+      'validiteJours', version.validite_jours,
+      'currency', version.currency,
+      'contractorRole', version.contractor_role,
+      'taxRateBp', version.tax_rate_bp
+    ),
+    'project', p_identity -> 'project',
+    'issuer', p_identity -> 'issuer',
+    'company', p_identity -> 'company',
+    'rows', '[]'::jsonb,
+    'totals', jsonb_build_object(
+      'saleHtCents', version.total_ht_cents,
+      'taxCents', version.total_tax_cents - coalesce(version.rounding_adjustment_cents, 0),
+      'calculatedTtcCents',
+        version.total_ht_cents + version.total_tax_cents - coalesce(version.rounding_adjustment_cents, 0),
+      'payableTtcCents', version.total_ttc_cents,
+      'roundingAdjustmentCents', coalesce(version.rounding_adjustment_cents, 0)
+    ),
+    'exclusions', coalesce(to_jsonb(version.exclusions), 'null'::jsonb)
+  )
+  from public.estimate_versions as version
+  where version.id = p_version_id
+    and not exists (
+      select 1
+      from public.estimate_items as item
+      where item.version_id = version.id
+    )
+$$;
+
+-- Independent image of the document proof the server reads before preparing,
+-- emitting or deciding an offer.
+create function pg_temp.offer_document_proof(p_version_id uuid)
+returns jsonb
+language sql
+stable
+as $$
+  select jsonb_build_object(
+    'proofVersion', 1,
+    'documentId', document.id,
+    'tenantId', document.tenant_id,
+    'versionId', document.version_id,
+    'projectId', version.project_id,
+    'status', document.status,
+    'filePath', document.file_path,
+    'sha256Hash', document.sha256_hash,
+    'fileSizeBytes', document.file_size_bytes,
+    'generatedAt', to_char(document.generated_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+    'generatedBy', document.generated_by,
+    'publishedGenerationToken', document.published_generation_token,
+    'publishedPurpose', document.published_purpose,
+    'publishedDispatchId', document.published_dispatch_id,
+    'publishedContentRevision', document.published_content_revision,
+    'clientContractVersion', document.client_contract_version,
+    'clientContractSnapshot', document.client_contract_snapshot,
+    'layoutOptions', document.layout_options,
+    'termsSnapshot', document.terms_snapshot
+  )
+  from public.estimate_documents as document
+  join public.estimate_versions as version
+    on version.id = document.version_id
+  where document.version_id = p_version_id
+$$;
+
+-- Publishes through the trusted renderer RPCs (claim, then publication of the
+-- client contract) instead of writing a ready document row directly.
+create function pg_temp.publish_estimate_email_test_pdf(
   p_version_id uuid,
   p_dispatch_id uuid,
   p_sha256 text,
@@ -379,76 +512,95 @@ language plpgsql
 as $$
 declare
   target_version public.estimate_versions%rowtype;
-  target_path text;
+  claimed_document public.estimate_documents%rowtype;
+  published_document public.estimate_documents%rowtype;
 begin
-  select version.*
-    into target_version
-  from public.estimate_versions version
+  select version.* into target_version
+  from public.estimate_versions as version
   where version.id = p_version_id;
 
-  target_path := concat(
-    target_version.tenant_id::text,
-    '/',
-    target_version.project_id::text,
-    '/',
-    target_version.id::text,
-    '/',
-    p_sha256,
-    '.pdf'
+  claimed_document := public.begin_estimate_pdf_generation(
+    target_version.id,
+    target_version.tenant_id,
+    '11000000-0000-4000-8000-000000000001',
+    p_purpose,
+    p_dispatch_id
   );
 
-  insert into public.estimate_documents (
-    tenant_id,
-    version_id,
-    file_path,
-    sha256_hash,
-    file_size_bytes,
-    generated_by,
-    generated_at,
-    status,
-    published_purpose,
-    published_dispatch_id,
-    published_content_revision
-  ) values (
-    target_version.tenant_id,
+  published_document := public.publish_estimate_pdf_generation(
     target_version.id,
-    target_path,
+    target_version.tenant_id,
+    '11000000-0000-4000-8000-000000000001',
+    claimed_document.generation_token,
+    concat(
+      target_version.tenant_id::text,
+      '/',
+      target_version.project_id::text,
+      '/',
+      target_version.id::text,
+      '/',
+      p_sha256,
+      '.pdf'
+    ),
     p_sha256,
     1024,
-    '11000000-0000-4000-8000-000000000001',
     clock_timestamp(),
-    'ready',
-    p_purpose,
-    p_dispatch_id,
-    target_version.content_revision
-  )
-  on conflict (tenant_id, version_id)
-  do update set
-    file_path = excluded.file_path,
-    sha256_hash = excluded.sha256_hash,
-    file_size_bytes = excluded.file_size_bytes,
-    generated_by = excluded.generated_by,
-    generated_at = excluded.generated_at,
-    status = excluded.status,
-    last_error = null,
-    generation_token = null,
-    generation_purpose = null,
-    generation_dispatch_id = null,
-    generation_content_revision = null,
-    generation_started_at = null,
-    published_purpose = excluded.published_purpose,
-    published_dispatch_id = excluded.published_dispatch_id,
-    published_content_revision = excluded.published_content_revision;
+    pg_temp.offer_layout(),
+    null,
+    pg_temp.offer_client_snapshot(
+      target_version.id,
+      pg_temp.offer_identity(
+        target_version.id,
+        '11000000-0000-4000-8000-000000000001',
+        p_dispatch_id
+      )
+    )
+  );
 
-  return target_path;
+  return published_document.file_path;
 end;
 $$;
 
--- Model a document published before content-addressed paths existed. The
--- migration backfills these rows before installing the new path trigger.
+select throws_ok(
+  $$
+    insert into public.estimate_documents (
+      tenant_id,
+      version_id,
+      file_path,
+      sha256_hash,
+      file_size_bytes,
+      generated_by,
+      generated_at,
+      status,
+      published_purpose,
+      published_content_revision
+    ) values (
+      '21000000-0000-4000-8000-000000000001',
+      '41000000-0000-4000-8000-000000000001',
+      '21000000-0000-4000-8000-000000000001/31000000-0000-4000-8000-000000000001/41000000-0000-4000-8000-000000000001/' || repeat('a', 64) || '.pdf',
+      repeat('a', 64),
+      1024,
+      '11000000-0000-4000-8000-000000000001',
+      clock_timestamp(),
+      'ready',
+      'manual',
+      1
+    )
+  $$,
+  '23514',
+  'OFFER_NEW_DOCUMENT_CONTRACT_REQUIRED',
+  'a ready commercial PDF cannot be written without the publication RPC client contract'
+);
+
+-- Model a document published before content-addressed paths and the client
+-- contract existed. The path migration backfilled such rows as 'legacy' and
+-- the offer migration left their client contract NULL; only this historical
+-- seed bypasses the two guards installed after them.
 reset role;
 alter table public.estimate_documents
   disable trigger enforce_estimate_document_canonical_path;
+alter table public.estimate_documents
+  disable trigger aaa_guard_estimate_offer_document;
 insert into public.estimate_documents (
   tenant_id,
   version_id,
@@ -472,6 +624,8 @@ insert into public.estimate_documents (
   'legacy',
   1
 );
+alter table public.estimate_documents
+  enable trigger aaa_guard_estimate_offer_document;
 alter table public.estimate_documents
   enable trigger enforce_estimate_document_canonical_path;
 set local role service_role;
@@ -515,7 +669,9 @@ select throws_ok(
       null::text[],
       'Devis sans verrou',
       'Veuillez trouver le devis.',
-      'devis@example.test'
+      'devis@example.test',
+      'https://portal.example.test',
+      pg_temp.offer_company()
     )
   $$,
   '40001',
@@ -591,7 +747,9 @@ select lives_ok(
       null::text[],
       'Devis apres generation manuelle',
       'Veuillez trouver le devis.',
-      'devis@example.test'
+      'devis@example.test',
+      'https://portal.example.test',
+      pg_temp.offer_company()
     )
   $$,
   'email reservation wins the version lock after a manual render starts'
@@ -608,8 +766,16 @@ select throws_ok(
       repeat('a', 64),
       1024,
       clock_timestamp(),
-      '{}'::jsonb,
-      null
+      pg_temp.offer_layout(),
+      null,
+      pg_temp.offer_client_snapshot(
+        '41000000-0000-4000-8000-000000000001',
+        pg_temp.offer_identity(
+          '41000000-0000-4000-8000-000000000001',
+          '11000000-0000-4000-8000-000000000001',
+          null
+        )
+      )
     )
   $$,
   '40001',
@@ -640,8 +806,16 @@ select lives_ok(
       repeat('b', 64),
       2048,
       clock_timestamp(),
-      '{}'::jsonb,
-      null
+      pg_temp.offer_layout(),
+      null,
+      pg_temp.offer_client_snapshot(
+        '41000000-0000-4000-8000-000000000001',
+        pg_temp.offer_identity(
+          '41000000-0000-4000-8000-000000000001',
+          '11000000-0000-4000-8000-000000000001',
+          (select id from public.estimate_emails where request_id = '61000000-0000-4000-8000-000000000001')
+        )
+      )
     )
   $$,
   'the dispatch-owned replacement token publishes the immutable PDF'
@@ -718,7 +892,9 @@ select throws_ok(
       null::text[],
       'Devis viewer',
       'Veuillez trouver le devis.',
-      'devis@example.test'
+      'devis@example.test',
+      'https://portal.example.test',
+      pg_temp.offer_company()
     )
   $$,
   '42501',
@@ -739,7 +915,9 @@ select throws_ok(
       null::text[],
       'Devis autre tenant',
       'Veuillez trouver le devis.',
-      'devis@example.test'
+      'devis@example.test',
+      'https://portal.example.test',
+      pg_temp.offer_company()
     )
   $$,
   'P0001',
@@ -760,7 +938,9 @@ select throws_ok(
       null::text[],
       'Devis tenant inactif',
       'Veuillez trouver le devis.',
-      'devis@example.test'
+      'devis@example.test',
+      'https://portal.example.test',
+      pg_temp.offer_company()
     )
   $$,
   'P0001',
@@ -781,10 +961,24 @@ select lives_ok(
       null::text[],
       'Premier envoi fige',
       'Payload immuable du premier envoi.',
-      'devis@example.test'
+      'devis@example.test',
+      'https://portal.example.test',
+      pg_temp.offer_company()
     )
   $$,
   'a first-send dispatch is reserved for frozen retry coverage'
+);
+
+-- Publish before preparing: preparation now compares the exact proof of the
+-- already published document, so both cannot be arguments of one call.
+select is(
+  pg_temp.publish_estimate_email_test_pdf(
+    '41000000-0000-4000-8000-000000000009',
+    (select id from public.estimate_emails where request_id = '61000000-0000-4000-8000-000000000009'),
+    repeat('c', 64)
+  ),
+  '21000000-0000-4000-8000-000000000001/31000000-0000-4000-8000-000000000001/41000000-0000-4000-8000-000000000009/' || repeat('c', 64) || '.pdf',
+  'the first-send fixture publishes its reserved PDF proof'
 );
 
 select lives_ok(
@@ -797,13 +991,11 @@ select lives_ok(
       repeat('b', 64),
       '<p>Premier envoi fige</p>',
       'Premier envoi fige',
-      pg_temp.publish_estimate_email_test_pdf(
-        '41000000-0000-4000-8000-000000000009',
-        (select id from public.estimate_emails where request_id = '61000000-0000-4000-8000-000000000009'),
-        repeat('c', 64)
-      ),
+      '21000000-0000-4000-8000-000000000001/31000000-0000-4000-8000-000000000001/41000000-0000-4000-8000-000000000009/' || repeat('c', 64) || '.pdf',
       repeat('c', 64),
-      'DEVIS-PREMIER-ENVOI.pdf'
+      'DEVIS-PREMIER-ENVOI.pdf',
+      pg_temp.offer_document_proof('41000000-0000-4000-8000-000000000009'),
+      5::smallint
     )
   $$,
   'the first-send payload and document proof are frozen once'
@@ -866,7 +1058,9 @@ select throws_ok(
       null::text[],
       'Premier envoi fige',
       'Payload immuable du premier envoi.',
-      'devis@example.test'
+      'devis@example.test',
+      'https://portal.example.test',
+      pg_temp.offer_company()
     )
   $$,
   '23505',
@@ -897,7 +1091,9 @@ select lives_ok(
       null::text[],
       'Premier envoi corrige',
       'Enveloppe corrigee apres rejet certain.',
-      'devis@example.test'
+      'devis@example.test',
+      'https://portal.example.test',
+      pg_temp.offer_company()
     )
   $$,
   'a fresh request can reserve a corrected envelope after a certain rejection'
@@ -946,7 +1142,9 @@ select lives_ok(
       array['copie@example.test'],
       'Devis transactionnel',
       'Veuillez trouver le devis.',
-      'devis@example.test'
+      'devis@example.test',
+      'https://portal.example.test',
+      pg_temp.offer_company()
     )
   $$,
   'a writer with the active lock reserves the initial dispatch atomically'
@@ -978,7 +1176,9 @@ select is(
         array['copie@example.test'],
         'Devis transactionnel',
         'Veuillez trouver le devis.',
-        'devis@example.test'
+        'devis@example.test',
+        'https://portal.example.test',
+        pg_temp.offer_company()
       )
     ).id
   ),
@@ -1014,7 +1214,9 @@ select is(
         array['copie@example.test'],
         'Devis transactionnel',
         'Veuillez trouver le devis.',
-        'devis@example.test'
+        'devis@example.test',
+        'https://portal.example.test',
+        pg_temp.offer_company()
       )
     ).id
   ),
@@ -1039,7 +1241,9 @@ select throws_ok(
       array['copie@example.test'],
       'Devis transactionnel modifie',
       'Veuillez trouver le devis.',
-      'devis@example.test'
+      'devis@example.test',
+      'https://portal.example.test',
+      pg_temp.offer_company()
     )
   $$,
   '23505',
@@ -1078,7 +1282,9 @@ select throws_ok(
       array['copie@example.test'],
       'Devis transactionnel modifie',
       'Veuillez trouver le devis.',
-      'devis@example.test'
+      'devis@example.test',
+      'https://portal.example.test',
+      pg_temp.offer_company()
     )
   $$,
   '23505',
@@ -1108,7 +1314,9 @@ select lives_ok(
       'Devis transactionnel',
       '21000000-0000-4000-8000-000000000001/31000000-0000-4000-8000-000000000001/41000000-0000-4000-8000-000000000002/' || repeat('c', 64) || '.pdf',
       repeat('c', 64),
-      'DEVIS-TX.pdf'
+      'DEVIS-TX.pdf',
+      pg_temp.offer_document_proof('41000000-0000-4000-8000-000000000002'),
+      5::smallint
     )
   $$,
   'preparation freezes the provider payload, document proof, and version seal'
@@ -1223,7 +1431,9 @@ select lives_ok(
       null::text[],
       'Premier renvoi',
       'Premier message de renvoi.',
-      'devis@example.test'
+      'devis@example.test',
+      'https://portal.example.test',
+      pg_temp.offer_company()
     )
   $$,
   'a sent estimate can reserve a new immutable resend envelope'
@@ -1242,7 +1452,9 @@ select throws_ok(
       null::text[],
       'Objet de remplacement',
       'Message de remplacement.',
-      'autre@example.test'
+      'autre@example.test',
+      'https://portal.example.test',
+      pg_temp.offer_company()
     )
   $$,
   '23505',
@@ -1284,7 +1496,9 @@ select lives_ok(
       'Renvoi fige accepte',
       '21000000-0000-4000-8000-000000000001/31000000-0000-4000-8000-000000000001/41000000-0000-4000-8000-000000000002/' || repeat('c', 64) || '.pdf',
       repeat('c', 64),
-      'DEVIS-ACCEPTE.pdf'
+      'DEVIS-ACCEPTE.pdf',
+      pg_temp.offer_document_proof('41000000-0000-4000-8000-000000000002'),
+      5::smallint
     )
   $$,
   'a sent resend keeps preparing against its frozen proof after portal acceptance'
@@ -1342,7 +1556,9 @@ select lives_ok(
       null::text[],
       'Devis preparation echouee',
       'Veuillez trouver le devis.',
-      'devis@example.test'
+      'devis@example.test',
+      'https://portal.example.test',
+      pg_temp.offer_company()
     )
   $$,
   'a second draft is reserved for a preparation failure'
@@ -1374,11 +1590,38 @@ select results_eq(
   'a preparation failure never leaves a false sent or sealed state'
 );
 
-update public.estimate_versions
-set
-  status = 'sent'::public.estimate_status,
-  seal_hash = repeat('d', 64)
-where id = '41000000-0000-4000-8000-000000000003';
+-- A draft can only become sent over a published client contract with the
+-- version 5 seal payload: publish the manual PDF, then use the session-bound
+-- manual emission RPC instead of writing status and seal directly.
+select is(
+  pg_temp.publish_estimate_email_test_pdf(
+    '41000000-0000-4000-8000-000000000003',
+    null,
+    repeat('9', 64),
+    'manual'
+  ),
+  '21000000-0000-4000-8000-000000000001/31000000-0000-4000-8000-000000000001/41000000-0000-4000-8000-000000000003/' || repeat('9', 64) || '.pdf',
+  'the sent retry fixture publishes its contractual PDF before emission'
+);
+
+select lives_ok(
+  $$
+    select public.transition_estimate_draft_to_sent(
+      '41000000-0000-4000-8000-000000000003',
+      '21000000-0000-4000-8000-000000000001',
+      (select updated_at from public.estimate_versions where id = '41000000-0000-4000-8000-000000000003'),
+      'sent'::public.estimate_status,
+      repeat('d', 64),
+      '11000000-0000-4000-8000-000000000001',
+      '{}'::jsonb,
+      clock_timestamp(),
+      5::smallint,
+      pg_temp.offer_document_proof('41000000-0000-4000-8000-000000000003'),
+      '52000000-0000-4000-8000-000000000003'
+    )
+  $$,
+  'the sent retry fixture is sealed by the manual emission workflow'
+);
 
 select lives_ok(
   $$
@@ -1393,7 +1636,9 @@ select lives_ok(
       null::text[],
       'Devis preparation echouee',
       'Veuillez trouver le devis.',
-      'devis@example.test'
+      'devis@example.test',
+      'https://portal.example.test',
+      pg_temp.offer_company()
     )
   $$,
   'a failed resend on a sent version can resume with the same request'
@@ -1411,14 +1656,19 @@ select results_eq(
   'retrying a failed resend preserves the sent contractual state'
 );
 
-select is(
-  pg_temp.publish_estimate_email_test_pdf(
-    '41000000-0000-4000-8000-000000000003',
-    null,
-    repeat('9', 64),
-    'legacy'
-  ),
-  '21000000-0000-4000-8000-000000000001/31000000-0000-4000-8000-000000000001/41000000-0000-4000-8000-000000000003/' || repeat('9', 64) || '.pdf',
+select results_eq(
+  $$
+    select document.file_path, document.status, document.client_contract_version::integer
+    from public.estimate_documents as document
+    where document.version_id = '41000000-0000-4000-8000-000000000003'
+  $$,
+  $$
+    values (
+      ('21000000-0000-4000-8000-000000000001/31000000-0000-4000-8000-000000000001/41000000-0000-4000-8000-000000000003/' || repeat('9', 64) || '.pdf')::text,
+      'ready'::text,
+      1
+    )
+  $$,
   'the sent retry fixture reuses a previously published contractual PDF'
 );
 
@@ -1434,7 +1684,9 @@ select lives_ok(
       'Payload fige a reutiliser',
       '21000000-0000-4000-8000-000000000001/31000000-0000-4000-8000-000000000001/41000000-0000-4000-8000-000000000003/' || repeat('9', 64) || '.pdf',
       repeat('9', 64),
-      'DEVIS-RETRY-FIGE.pdf'
+      'DEVIS-RETRY-FIGE.pdf',
+      pg_temp.offer_document_proof('41000000-0000-4000-8000-000000000003'),
+      5::smallint
     )
   $$,
   'the retry payload is frozen once before the provider attempt'
@@ -1513,7 +1765,9 @@ select throws_ok(
       null::text[],
       'Devis preparation echouee',
       'Veuillez trouver le devis.',
-      'devis@example.test'
+      'devis@example.test',
+      'https://portal.example.test',
+      pg_temp.offer_company()
     )
   $$,
   '23505',
@@ -1562,16 +1816,144 @@ select throws_ok(
   'a direct service-role delete of a dispatch event is refused'
 );
 
+-- Since 20261013130248 every reservation issues an immutable, dispatch-bound
+-- portal capability. A draft that ever reserved an offer email therefore keeps
+-- its outbox history: even a privileged delete is refused atomically.
+-- Recorded consequence pending a product decision: through the same cascade
+-- (estimate_projects -> estimate_versions -> portal_tokens),
+-- public.bulk_delete_draft_affaires reports 'failed' for a draft-only affaire
+-- whose draft was released after a failed send; archiving it still works.
 reset role;
+
+select throws_ok(
+  $$
+    delete from public.estimate_versions
+    where id = '41000000-0000-4000-8000-000000000009'
+  $$,
+  '42501',
+  'OFFER_CAPABILITY_IMMUTABLE',
+  'a draft parent that issued an offer capability cannot be deleted'
+);
+
+select is(
+  (
+    select jsonb_build_object(
+      'events', (
+        select count(*)
+        from public.estimate_email_dispatch_events
+        where version_id = '41000000-0000-4000-8000-000000000009'
+      ),
+      'dispatches', (
+        select count(*)
+        from public.estimate_emails
+        where version_id = '41000000-0000-4000-8000-000000000009'
+      ),
+      'capabilities', (
+        select count(*)
+        from public.portal_tokens
+        where version_id = '41000000-0000-4000-8000-000000000009'
+          and capability_contract_version = 2
+      )
+    )
+  ),
+  '{"events":6,"dispatches":2,"capabilities":2}'::jsonb,
+  'a refused draft deletion keeps its append-only journal, dispatches and capabilities'
+);
+
+-- Pre-contract dispatches (request contract 1, no dispatch-bound capability)
+-- still cascade with their draft parent through the append-only journal. Seed
+-- such a historical row like the legacy document above, bypassing only the
+-- request contract guard installed after it existed.
+insert into public.estimate_versions (
+  id,
+  tenant_id,
+  project_id,
+  version_number,
+  status
+) values (
+  '41000000-0000-4000-8000-000000000011',
+  '21000000-0000-4000-8000-000000000001',
+  '31000000-0000-4000-8000-000000000001',
+  11,
+  'draft'::public.estimate_status
+);
+
+alter table public.estimate_emails
+  disable trigger guard_estimate_offer_request_insert;
+insert into public.estimate_emails (
+  id,
+  tenant_id,
+  version_id,
+  recipient,
+  subject,
+  body,
+  type,
+  status,
+  request_id,
+  payload_hash,
+  idempotency_key,
+  created_by,
+  version_content_revision,
+  from_address,
+  request_contract_version,
+  last_error_code,
+  last_error_message
+) values (
+  '81000000-0000-4000-8000-000000000011',
+  '21000000-0000-4000-8000-000000000001',
+  '41000000-0000-4000-8000-000000000011',
+  'legacy-client@example.test',
+  'Devis historique',
+  'Envoi anterieur au contrat client.',
+  'initial',
+  'failed',
+  '61000000-0000-4000-8000-000000000021',
+  repeat('4', 64),
+  'estimate-email/81000000-0000-4000-8000-000000000011',
+  '11000000-0000-4000-8000-000000000001',
+  1,
+  'devis@example.test',
+  1,
+  'PDF_PREPARATION_FAILED',
+  'Historical preparation failure.'
+);
+alter table public.estimate_emails
+  enable trigger guard_estimate_offer_request_insert;
+
+insert into public.estimate_email_dispatch_events (
+  tenant_id,
+  version_id,
+  dispatch_id,
+  event_type,
+  metadata,
+  created_by
+) values
+  (
+    '21000000-0000-4000-8000-000000000001',
+    '41000000-0000-4000-8000-000000000011',
+    '81000000-0000-4000-8000-000000000011',
+    'reserved',
+    '{}'::jsonb,
+    '11000000-0000-4000-8000-000000000001'
+  ),
+  (
+    '21000000-0000-4000-8000-000000000001',
+    '41000000-0000-4000-8000-000000000011',
+    '81000000-0000-4000-8000-000000000011',
+    'failed',
+    '{}'::jsonb,
+    '11000000-0000-4000-8000-000000000001'
+  );
+
 delete from public.estimate_versions
-where id = '41000000-0000-4000-8000-000000000009';
+where id = '41000000-0000-4000-8000-000000000011';
 set local role service_role;
 
 select is(
   (
     select count(*)::integer
     from public.estimate_email_dispatch_events
-    where version_id = '41000000-0000-4000-8000-000000000009'
+    where version_id = '41000000-0000-4000-8000-000000000011'
   ),
   0,
   'deleting a draft parent cascades through its append-only dispatch events'
@@ -1581,7 +1963,7 @@ select is(
   (
     select count(*)::integer
     from public.estimate_emails
-    where version_id = '41000000-0000-4000-8000-000000000009'
+    where version_id = '41000000-0000-4000-8000-000000000011'
   ),
   0,
   'deleting a draft parent cascades through its email dispatch'
@@ -1600,7 +1982,9 @@ select lives_ok(
       null::text[],
       'Devis issue inconnue sent',
       'Veuillez trouver le devis.',
-      'devis@example.test'
+      'devis@example.test',
+      'https://portal.example.test',
+      pg_temp.offer_company()
     )
   $$,
   'a dispatch is reserved for sent reconciliation'
@@ -1628,7 +2012,9 @@ select lives_ok(
       'Devis a reconcilier sent',
       '21000000-0000-4000-8000-000000000001/31000000-0000-4000-8000-000000000001/41000000-0000-4000-8000-000000000004/' || repeat('f', 64) || '.pdf',
       repeat('f', 64),
-      'DEVIS-UNKNOWN-SENT.pdf'
+      'DEVIS-UNKNOWN-SENT.pdf',
+      pg_temp.offer_document_proof('41000000-0000-4000-8000-000000000004'),
+      5::smallint
     )
   $$,
   'the sent-reconciliation payload is frozen'
@@ -1729,7 +2115,9 @@ select lives_ok(
       null::text[],
       'Devis issue inconnue failed',
       'Veuillez trouver le devis.',
-      'devis@example.test'
+      'devis@example.test',
+      'https://portal.example.test',
+      pg_temp.offer_company()
     )
   $$,
   'a dispatch is reserved for failed reconciliation'
@@ -1757,7 +2145,9 @@ select lives_ok(
       'Devis a reconcilier failed',
       '21000000-0000-4000-8000-000000000001/31000000-0000-4000-8000-000000000001/41000000-0000-4000-8000-000000000005/' || repeat('3', 64) || '.pdf',
       repeat('3', 64),
-      'DEVIS-UNKNOWN-FAILED.pdf'
+      'DEVIS-UNKNOWN-FAILED.pdf',
+      pg_temp.offer_document_proof('41000000-0000-4000-8000-000000000005'),
+      5::smallint
     )
   $$,
   'the failed-reconciliation payload is frozen'

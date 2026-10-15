@@ -35,7 +35,7 @@ npm run lint         # ESLint, --max-warnings=0
 npm test             # Vitest (projets node + jsdom)
 npm run check:quality # garde-fous CI sans secret, hors build
 npm run check:release # check:quality + build Webpack et smoke next start
-npm run e2e:pw:critical
+npm run e2e:army:critical
 ```
 
 Appliquer la validation proportionnée décrite dans [AGENTS.md](AGENTS.md). Pour une modification

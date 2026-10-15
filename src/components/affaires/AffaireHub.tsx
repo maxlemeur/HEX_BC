@@ -463,7 +463,6 @@ export function AffaireHub({
     temporarilyDismissed: promptTemporarilyDismissed,
     dismissPermanently: dismissPromptPermanently,
     dismissTemporarily: dismissPromptTemporarily,
-    clearTemporaryDismissal: clearPromptTemporaryDismissal,
   } = useTakeoffAutoProposeDismissed(summary.project.id, {
     context: "hub",
     profileId: viewerProfileId ?? null,
@@ -555,10 +554,6 @@ export function AffaireHub({
         : undefined,
     });
   }, [justCreated, router, summary.project.id, toast, dpgfSource, intakeWorkspace]);
-
-  useEffect(() => {
-    clearPromptTemporaryDismissal();
-  }, [clearPromptTemporaryDismissal, summary.project.id, plansSummary?.planSetCount]);
 
   const [showLaunchMetreDialog, setShowLaunchMetreDialog] = useState(false);
   const [cockpitState, setCockpitState] = useState<CockpitSuggestion[]>(

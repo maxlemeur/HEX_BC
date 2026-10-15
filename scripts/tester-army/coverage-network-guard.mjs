@@ -18,7 +18,10 @@ function inspect(kind, input) {
     else if (input?.url) url = new URL(input.url);
     else url = new URL(`${input?.protocol ?? "https:"}//${input?.hostname ?? input?.host ?? "invalid"}${input?.port ? ":" + input.port : ""}${input?.path ?? "/"}`);
   } catch { throw new Error("Coverage outbound target could not be verified."); }
-  const allowed = origins.includes(url.origin);
+  // Business journeys qualify request persistence and cancellation, not workers.
+  // A separate local Edge process could otherwise contact a real provider.
+  const worker = process.env.E2E_ARMY_BLOCK_WORKERS === "1" && url.pathname.startsWith("/functions/v1/");
+  const allowed = origins.includes(url.origin) && !worker;
   fs.appendFileSync(log, JSON.stringify({ time: new Date().toISOString(), kind, origin: url.origin, pathname: url.pathname, allowed }) + "\n");
   if (!allowed) throw new Error("Coverage campaign blocked outbound server request.");
 }

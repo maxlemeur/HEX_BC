@@ -1,10 +1,24 @@
-import ts from "typescript";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 const root = process.cwd();
+
+const ARMY_WORKFLOWS = [
+  {
+    file: ".github/workflows/e2e-army-critical.yml",
+    runStep: "Run native database and TesterArmy critical journeys",
+    command: "run: node --import tsx scripts/run-tester-army-ci.ts critical",
+  },
+  {
+    file: ".github/workflows/e2e-army-full.yml",
+    runStep: "Run native database and TesterArmy full journeys",
+    command: "run: node --import tsx scripts/run-tester-army-ci.ts full",
+  },
+] as const;
 
 function read(relativePath: string) {
   return fs.readFileSync(path.join(root, relativePath), "utf8");
@@ -14,17 +28,28 @@ function workflowSteps(workflow: string): string[] {
   return workflow.split(/^\s+- name:/mu).slice(1);
 }
 
-function expectServiceRoleOnlyOnRunStep(workflow: string, runStepName: string) {
-  const steps = workflowSteps(workflow);
-  const withServiceRole = steps.filter((step) =>
-    step.includes("SUPABASE_SERVICE_ROLE_KEY")
+function stepNamed(workflow: string, name: string): string {
+  const step = workflowSteps(workflow).find((candidate) =>
+    candidate.trimStart().startsWith(name)
   );
-  expect(withServiceRole).toHaveLength(1);
-  expect(withServiceRole[0]).toMatch(new RegExp(`^\\s*${runStepName}`, "u"));
-  expect(withServiceRole[0]).toContain(
-    "SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}"
-  );
-  expect(workflow).not.toContain("E2E_SUPABASE_SERVICE_ROLE_KEY");
+  expect(step, `step "${name}"`).toBeDefined();
+  return step ?? "";
+}
+
+// Body of a `run: |` block scalar, without its indentation.
+function runScript(step: string): string {
+  const lines = step.split(/\r?\n/u);
+  const start = lines.findIndex((line) => /^\s+run: \|$/u.test(line));
+  expect(start).toBeGreaterThan(-1);
+  const indent = lines[start].indexOf("run:") + 2;
+  const body: string[] = [];
+  for (const line of lines.slice(start + 1)) {
+    if (line.trim() !== "" && line.length - line.trimStart().length < indent) {
+      break;
+    }
+    body.push(line.slice(indent));
+  }
+  return body.join("\n");
 }
 
 function expectInstallStepsToHaveNoSecrets(workflow: string) {
@@ -40,6 +65,50 @@ function expectInstallStepsToHaveNoSecrets(workflow: string) {
     expect(step).not.toMatch(/^\s+env:/mu);
   }
 }
+
+// The guard is a bash script: run it for real when a bash >= 4 that receives
+// our environment is available (always the case on the ubuntu CI runner).
+const bashProbe = spawnSync(
+  "bash",
+  ["-c", 'printf "%s:%s" "${BASH_VERSINFO[0]}" "${GUARD_PROBE:-}"'],
+  { encoding: "utf8", env: { ...process.env, GUARD_PROBE: "ok" } }
+);
+const [bashMajor, probeEnv] = (bashProbe.stdout ?? "").split(":");
+const canRunGuard = Number(bashMajor) >= 4 && probeEnv === "ok";
+
+const PROD = "prodref.supabase.co";
+const STAGING = "stagingref.supabase.co";
+
+type GuardCase = {
+  label: string;
+  url: string;
+  staging?: string;
+  production?: string;
+  accepted: boolean;
+};
+
+const GUARD_CASES: GuardCase[] = [
+  { label: "production URL, current configuration (no variables)", url: `https://${PROD}`, accepted: false },
+  { label: "staging variable equal to production", url: `https://${PROD}`, staging: PROD, production: PROD, accepted: false },
+  { label: "production variable missing", url: `https://${STAGING}`, staging: STAGING, accepted: false },
+  { label: "production URL with a distinct staging host", url: `https://${PROD}`, staging: STAGING, production: PROD, accepted: false },
+  { label: "production variable pasted as a URL", url: `https://${PROD}`, staging: PROD, production: `https://${PROD}`, accepted: false },
+  { label: "production variable with a trailing dot", url: `https://${PROD}`, staging: PROD, production: `${PROD}.`, accepted: false },
+  { label: "production variable with a trailing slash", url: `https://${PROD}`, staging: PROD, production: ` ${PROD}/`, accepted: false },
+  { label: "production variable wildcard", url: `https://${PROD}`, staging: PROD, production: "*", accepted: false },
+  { label: "staging variable pasted as a URL", url: `https://${STAGING}`, staging: `https://${STAGING}`, production: PROD, accepted: false },
+  { label: "userinfo", url: `https://${STAGING}@${PROD}`, staging: STAGING, production: PROD, accepted: false },
+  { label: "suffix", url: `https://${STAGING}.${PROD}`, staging: STAGING, production: PROD, accepted: false },
+  { label: "explicit port", url: `https://${STAGING}:443`, staging: STAGING, production: PROD, accepted: false },
+  { label: "path", url: `https://${STAGING}/rest/v1`, staging: STAGING, production: PROD, accepted: false },
+  { label: "plain http", url: `http://${STAGING}`, staging: STAGING, production: PROD, accepted: false },
+  { label: "look-alike loopback", url: `http://localhost.${PROD}`, accepted: false },
+  { label: "embedded newline", url: `https://${STAGING}\nhttps://${PROD}`, staging: STAGING, production: PROD, accepted: false },
+  { label: "distinct staging host", url: `https://${STAGING}`, staging: STAGING, production: PROD, accepted: true },
+  { label: "distinct staging host, case and spaces", url: ` https://STAGINGREF.supabase.co/ `, staging: ` ${STAGING.toUpperCase()} `, production: PROD.toUpperCase(), accepted: true },
+  { label: "loopback 127.0.0.1", url: "http://127.0.0.1:54321", accepted: true },
+  { label: "loopback [::1]", url: "http://[::1]:54321", accepted: true },
+];
 
 // @e2e-dev/web >= 0.14: route.continue() sends the request straight to the
 // network, skipping every older route; route.fallback() hands it to the route
@@ -171,71 +240,65 @@ describe("CI and local quality guardrails", () => {
     expect(workflow).not.toContain("continue-on-error");
   });
 
-  it("never exposes remote E2E secrets to pull-request or install steps", () => {
-    const workflow = read(".github/workflows/e2e-playwright-critical.yml");
-    const nightly = read(".github/workflows/e2e-playwright-nightly.yml");
-
-    // Staging credentials must never be readable from an unreviewed PR branch.
-    expect(workflow).not.toMatch(/^\s{2}pull_request:/mu);
-    expect(workflow).not.toMatch(/pull_request_target/u);
-    expect(workflow).not.toMatch(/^\s{2}workflow_dispatch:/mu);
-    expect(workflow).toContain("environment: e2e-staging");
-    expect(workflow).toContain("E2E_ALLOWED_SUPABASE_HOST");
-    // Decision 2026-08-19: the production project is the only Supabase project,
-    // so the service-role key is allowed — but only on the Playwright run step.
-    expectServiceRoleOnlyOnRunStep(workflow, "Run critical Playwright suite");
-    expect(workflow).not.toMatch(
-      /^\s{6}NEXT_PUBLIC_SUPABASE_(?:URL|ANON_KEY):.*secrets/mu
-    );
-    expect(workflow.indexOf("secrets.")).toBeGreaterThan(
-      workflow.indexOf("Validate required environment")
-    );
-    expectInstallStepsToHaveNoSecrets(workflow);
-    expect(workflow).toContain("!test-results/**/trace.zip");
-    expect(workflow).toContain("retention-days: 3");
-
-    expect(nightly).toContain('cron: "15 3 * * *"');
-    expect(nightly).toContain("run: npm run e2e:pw");
-    expect(nightly).not.toMatch(/^\s{2}pull_request:/mu);
-    expect(nightly).not.toMatch(/pull_request_target/u);
-    expect(nightly).not.toMatch(/^\s{2}workflow_dispatch:/mu);
-    expect(nightly).toContain("environment: e2e-staging");
-    expect(nightly).toContain("E2E_ALLOWED_SUPABASE_HOST");
-    expectServiceRoleOnlyOnRunStep(nightly, "Run full Playwright suite");
-    expect(nightly).not.toMatch(
-      /^\s{6}NEXT_PUBLIC_SUPABASE_(?:URL|ANON_KEY):.*secrets/mu
-    );
-    expect(nightly.indexOf("secrets.")).toBeGreaterThan(
-      nightly.indexOf("Validate required environment")
-    );
-    expectInstallStepsToHaveNoSecrets(nightly);
-    expect(nightly).toContain("!test-results/**/trace.zip");
-    expect(nightly).toContain("retention-days: 3");
+  // The audited host guard remains; the business runner now owns an ephemeral
+  // native stack. Neither a PR nor a nightly run receives shared credentials.
+  it("runs Army business workflows only with their isolated native stack", () => {
+    const guards = new Set<string>();
+    for (const { file, runStep, command } of ARMY_WORKFLOWS) {
+      const workflow = read(file);
+      const steps = workflowSteps(workflow);
+      expect(workflow, file).not.toContain("secrets.");
+      expect(workflow, file).not.toContain("environment: e2e-staging");
+      expect(workflow, file).not.toContain("SUPABASE_SERVICE_ROLE_KEY");
+      expect(workflow, file).not.toContain("pull_request_target");
+      expect(steps[0], file).toMatch(/^\s+id: target_guard$/mu);
+      expect(steps[0], file).toContain("NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321");
+      guards.add(runScript(steps[0]));
+      expect(stepNamed(workflow, runStep), file).toContain(command);
+      expect(workflow, file).toContain("npx @e2e-dev/web install chromium --with-deps");
+      expect(workflow, file).toContain("steps.journeys.outputs.evidence");
+      expect(workflow, file).toContain("if-no-files-found: error");
+      expect(workflow, file).not.toContain("continue-on-error");
+      expectInstallStepsToHaveNoSecrets(workflow);
+    }
+    expect(guards.size).toBe(1);
   });
 
-  it("makes the critical Playwright project deterministic in CI", () => {
-    const config = read("playwright.config.ts");
-    const planCenter = read("e2e/estimates/plan-center.spec.ts");
-    const criticalProject = config.slice(
-      config.indexOf('name: "chromium-critical"'),
-      config.indexOf("webServer:")
-    );
+  it.skipIf(!canRunGuard && !process.env.CI)(
+    "refuses every Supabase target except loopback or a distinct, well-formed staging host",
+    () => {
+      expect(canRunGuard, "bash >= 4 is required on CI").toBe(true);
 
-    expect(config).toContain("failOnFlakyTests: !!process.env.CI");
-    expect(config).toContain('trace: "off"');
-    expect(config).toContain('name: "chromium-critical"');
-    expect(criticalProject).not.toMatch(/testIgnore/u);
-    expect(criticalProject).not.toContain("team-a-hub-dev-scenarios");
-    expect(criticalProject).toContain("dashboard-ux\\.spec\\.ts");
-    expect(criticalProject).toContain("duplicate\\.spec\\.ts");
-    expect(criticalProject).toContain("full-lifecycle\\.spec\\.ts");
-    expect(criticalProject).toContain("hub-launch-metre\\.spec\\.ts");
-    expect(criticalProject).toContain("import-dpgf\\.spec\\.ts");
-    expect(criticalProject).toContain("plan-center\\.spec\\.ts");
-    expect(criticalProject).toContain("team-a-hub-prod\\.spec\\.ts");
-    expect(planCenter).toContain(
-      '!process.env.CI && pageState === "unavailable"'
-    );
+      for (const { file } of ARMY_WORKFLOWS) {
+        const script = runScript(workflowSteps(read(file))[0]);
+        for (const scenario of GUARD_CASES) {
+          const result = spawnSync("bash", ["-e", "-c", script], {
+            encoding: "utf8",
+            env: {
+              NODE_ENV: process.env.NODE_ENV,
+              PATH: process.env.PATH ?? "",
+              NEXT_PUBLIC_SUPABASE_URL: scenario.url,
+              E2E_STAGING_SUPABASE_HOST: scenario.staging ?? "",
+              PRODUCTION_SUPABASE_HOST: scenario.production ?? "",
+            },
+          });
+          expect(
+            result.status === 0,
+            `${file} | ${scenario.label}: ${result.stdout}${result.stderr}`
+          ).toBe(scenario.accepted);
+        }
+      }
+    }
+  );
+
+  it("keeps Army business runs deterministic and authenticated evidence private", () => {
+    const config = read("e2e.config.ts");
+    expect(config).toContain("workers: 1");
+    expect(config).toContain("retries: 0");
+    expect(config).toContain('trace: critical || performance || coverage ? "off" : "on"');
+    expect(config).toContain('E2E_ARMY_BLOCK_WORKERS: "1"');
+    expect(config).toContain("maxDuration:");
+    expect(read("scripts/run-tester-army-ci.ts")).toMatch(/runLocalSupabaseCi\(\{\s*runApplication\s*,/u);
   });
 
   it("uses the project-pinned Supabase CLI for backups", () => {
@@ -265,6 +328,7 @@ describe("CI and local quality guardrails", () => {
     expect(workflow).not.toMatch(/^\s{2}workflow_dispatch:/mu);
     expect(workflow).toContain('branches: ["main"]');
   });
+
   it("keeps every TesterArmy campaign guard on the path of the routes registered after it", () => {
     const grouped = new Map<string, RouteContinueSite[]>();
     for (const site of armyRouteContinueSites()) {

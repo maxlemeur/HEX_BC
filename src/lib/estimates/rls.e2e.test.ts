@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import type { Database } from "@/types/database";
+import type { Database, Json } from "@/types/database";
 import { assertLoopbackSupabaseUrl } from "@/test/local-supabase-ci";
 
 const RLS_E2E_ENABLED = process.env.RLS_E2E === "1";
@@ -2207,7 +2207,7 @@ async function assertAuthenticatedTakeoffWorkflow() {
 async function assertInactiveTenantBoundaries() {
   const projectId = randomUUID();
   const versionId = randomUUID();
-  const portalTokenId = randomUUID();
+  const sessionId = randomUUID();
 
   const { error: projectError } = await serviceClient
     .from("estimate_projects")
@@ -2220,28 +2220,115 @@ async function assertInactiveTenantBoundaries() {
   await assertNoError("seed inactive portal project", projectError);
   trackRow("estimate_projects", projectId);
 
-  const { error: versionError } = await serviceClient
+  const { data: offerVersion, error: versionError } = await serviceClient
     .from("estimate_versions")
     .insert({
       id: versionId,
       tenant_id: seedContext.tenantId,
       project_id: projectId,
       version_number: nextVersionNumber(),
-      status: "sent",
+      status: "draft",
+      calc_engine_version: 1,
       title: nextSuffix("inactive-portal-version"),
-    });
+    }).select("*").single();
   await assertNoError("seed inactive portal version", versionError);
+  if (!offerVersion) throw new Error("Inactive portal version was not created");
   trackRow("estimate_versions", versionId);
 
-  const { error: tokenError } = await serviceClient.from("portal_tokens").insert({
-    id: portalTokenId,
-    tenant_id: seedContext.tenantId,
+  // The current contract issues capabilities only through an actual dispatch.
+  // Complete the database workflow locally; no mail provider is contacted.
+  const { error: lockError } = await serviceAdmin.from("draft_locks").insert({
     version_id: versionId,
-    email: "inactive-tenant@example.test",
-    expires_at: "2099-01-01T00:00:00.000Z",
-    status: "pending",
+    tenant_id: seedContext.tenantId,
+    user_id: users.engineer.userId,
+    session_id: sessionId,
+    expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
   });
-  await assertNoError("seed inactive portal token", tokenError);
+  await assertNoError("seed inactive portal draft lease", lockError);
+  const { data: dispatch, error: reserveError } = await serviceClient.rpc("reserve_estimate_email_dispatch_with_session", {
+    p_version_id: versionId,
+    p_tenant_id: seedContext.tenantId,
+    p_expected_updated_at: offerVersion.updated_at,
+    p_actor_user_id: users.engineer.userId,
+    p_request_id: randomUUID(),
+    p_payload_hash: "a".repeat(64),
+    p_recipient: "inactive-tenant@example.test",
+    p_cc: null,
+    p_subject: "RLS local offer",
+    p_body: "Local database fixture only",
+    p_from_address: "rls@example.test",
+    p_portal_origin: "http://127.0.0.1",
+    p_company_snapshot: {
+      name: "RLS test company", tagline: "Local fixture",
+      address: { street: "1 rue du Test", postalCode: "75001", city: "Paris" },
+      registeredOffice: { street: "1 rue du Test", postalCode: "75001", city: "Paris" },
+      phone: { landline: "+33 1 00 00 00 01", mobile: "+33 6 00 00 00 01" },
+      legal: { siret: "TEST-SIRET", vat: "TEST-VAT" },
+    },
+    p_draft_lock_session_id: sessionId,
+  });
+  await assertNoError("reserve inactive portal dispatch", reserveError);
+  if (!dispatch) throw new Error("Inactive portal dispatch was not created");
+  const identity = dispatch.offer_identity_snapshot as Record<string, Json>;
+  const { data: claim, error: claimError } = await serviceClient.rpc("begin_estimate_pdf_generation", {
+    p_version_id: versionId, p_tenant_id: seedContext.tenantId,
+    p_actor_user_id: users.engineer.userId, p_purpose: "email", p_dispatch_id: dispatch.id,
+  });
+  await assertNoError("claim inactive portal PDF", claimError);
+  if (!claim?.generation_token) throw new Error("Inactive portal PDF has no generation claim");
+  const sealHash = "b".repeat(64);
+  const documentHash = "c".repeat(64);
+  const { data: document, error: publicationError } = await serviceClient.rpc("publish_estimate_pdf_generation", {
+    p_version_id: versionId, p_tenant_id: seedContext.tenantId,
+    p_actor_user_id: users.engineer.userId, p_generation_token: claim.generation_token,
+    p_file_path: `${seedContext.tenantId}/${projectId}/${versionId}/${documentHash}.pdf`,
+    p_sha256_hash: documentHash, p_file_size_bytes: 1024, p_generated_at: new Date().toISOString(),
+    p_layout_options: {
+      preset: "client_detailed", detailLevel: "lines", priceMode: "unit_and_total", density: "standard",
+      showNumbering: true, showSectionSubtotals: true, conditionsPlacement: "auto", includeTerms: false,
+    },
+    p_terms_snapshot: null,
+    p_client_contract_snapshot: {
+      schemaVersion: 1,
+      version: {
+        id: versionId, tenantId: seedContext.tenantId, projectId, number: offerVersion.version_number,
+        contentRevision: offerVersion.content_revision, calcEngineVersion: offerVersion.calc_engine_version,
+        dateDevis: offerVersion.date_devis, validiteJours: offerVersion.validite_jours,
+        currency: offerVersion.currency, contractorRole: offerVersion.contractor_role, taxRateBp: offerVersion.tax_rate_bp,
+      },
+      project: identity.project, issuer: identity.issuer, company: identity.company,
+      rows: [], totals: { saleHtCents: 0, taxCents: 0, calculatedTtcCents: 0, payableTtcCents: 0, roundingAdjustmentCents: 0 },
+      exclusions: offerVersion.exclusions,
+    },
+  });
+  await assertNoError("publish inactive portal PDF contract", publicationError);
+  if (!document) throw new Error("Inactive portal PDF was not published");
+  const proofResult = await callLooseRpc(serviceAdmin, "estimate_offer_document_proof", { document, version: offerVersion });
+  await assertNoError("read inactive portal document proof", proofResult.error);
+  const documentProof = proofResult.data as Json;
+  const { error: prepareError } = await serviceClient.rpc("prepare_estimate_email_dispatch", {
+    p_dispatch_id: dispatch.id, p_tenant_id: seedContext.tenantId, p_actor_user_id: users.engineer.userId,
+    p_seal_hash: sealHash, p_provider_payload_hash: "d".repeat(64), p_html_body: "<p>Local RLS fixture</p>",
+    p_text_body: "Local RLS fixture", p_document_path: document.file_path!, p_document_sha256: documentHash,
+    p_attachment_filename: "RLS.pdf", p_expected_document_contract: documentProof, p_seal_payload_version: 5,
+  });
+  await assertNoError("prepare inactive portal dispatch", prepareError);
+  const leaseToken = randomUUID();
+  const { error: dispatchClaimError } = await serviceClient.rpc("claim_estimate_email_dispatch", {
+    p_dispatch_id: dispatch.id, p_tenant_id: seedContext.tenantId, p_actor_user_id: users.engineer.userId,
+    p_lease_token: leaseToken, p_lease_seconds: 60,
+  });
+  await assertNoError("claim inactive portal dispatch", dispatchClaimError);
+  const { error: completionError } = await serviceClient.rpc("complete_estimate_email_dispatch", {
+    p_dispatch_id: dispatch.id, p_tenant_id: seedContext.tenantId, p_actor_user_id: users.engineer.userId,
+    p_lease_token: leaseToken, p_provider_id: nextSuffix("local-rls-provider-proof"), p_sent_at: new Date().toISOString(),
+  });
+  await assertNoError("complete local inactive portal dispatch", completionError);
+  const { data: capability, error: tokenError } = await serviceAdmin.from("portal_tokens")
+    .select("id").eq("estimate_email_dispatch_id", dispatch.id).single();
+  await assertNoError("read dispatch-bound inactive portal token", tokenError);
+  if (typeof capability?.id !== "string") throw new Error("Inactive portal capability was not created");
+  const portalTokenId = capability.id;
   trackRow("portal_tokens", portalTokenId);
 
   const { data: activeMembership, error: activeMembershipError } =
@@ -2389,9 +2476,11 @@ async function assertInactiveTenantBoundaries() {
         p_decision: "accepted",
         p_client_ip: null,
         p_reject_reason: null,
+        p_expected_seal_hash: sealHash,
+        p_expected_document_contract: documentProof,
       }
     );
-    if (claimResult.error?.code !== "P0001") {
+    if (claimResult.error?.code !== "P0001" || claimResult.error.message !== "estimate version is no longer claimable") {
       throw new Error(
         `Inactive portal claim did not fail closed [${claimResult.error?.code ?? "no-code"}]`
       );
@@ -2432,6 +2521,16 @@ async function assertInactiveTenantBoundaries() {
       .eq("user_id", users.admin.userId);
     await assertNoError("restore primary admin default", restoreAdminDefaultError);
   }
+
+  const activeClaim = await callLooseRpc(serviceAdmin, "claim_portal_estimate_decision", {
+    p_portal_token_id: portalTokenId, p_decision: "accepted", p_client_ip: null, p_reject_reason: null,
+    p_expected_seal_hash: sealHash, p_expected_document_contract: documentProof,
+  });
+  await assertNoError("accept the same valid offer after tenant reactivation", activeClaim.error);
+  const { data: acceptedVersion, error: acceptedVersionError } = await serviceClient
+    .from("estimate_versions").select("status").eq("id", versionId).single();
+  await assertNoError("read accepted reactivated offer", acceptedVersionError);
+  if (acceptedVersion?.status !== "accepted") throw new Error("Reactivated valid offer was not accepted");
 }
 
 async function cleanupTrackedRows(table: KnownCleanupTable) {

@@ -303,7 +303,7 @@ armyTest(
 );
 
 armyTest(
-  "downloaded XLSX and DPGF cells and printed content match the persisted estimate",
+  "downloaded XLSX and DPGF cells, BDC download and printed content match the persisted estimate",
   { session: "army", tags: ["critical"], timeout: 180_000 },
   async ({ app, screen, browser, army }) => {
     const { ids, expected, snapshot } = await createFinancialFixture({ app, screen, browser }, army, "exports");
@@ -342,6 +342,12 @@ armyTest(
     await recordEvidence(army, "dpgf-xlsx", { artifact: dpgf.artifact, rows: dpgfRows, versionMetadata });
     expect(dpgfRows).toEqual(expected.map((line) => ({ type: "line", title: line.title, values: [line.quantity, line.price / 100, 1, 0, 1] })));
     expect(versionMetadata).toBe(`v${snapshot.version.version_number} - ${snapshot.version.title}`);
+    await screen.getByTestId("estimate-page-toolbar-more-actions-button").tap();
+    const bdc = await downloadedWorkbook(await browser.waitForDownload(
+      () => screen.getByTestId("estimate-page-toolbar-export-bdc-button").tap(), { timeout: 60_000 }
+    ));
+    expect(bdc.workbook.worksheets.length).toBeGreaterThan(0);
+    await recordEvidence(army, "bdc-xlsx", { artifact: bdc.artifact, worksheets: bdc.workbook.worksheets.map(item => item.name) });
     await browser.goto(`/dashboard/estimates/${ids.versionId}/print?price_mode=unit_and_total&detail_level=lines`, { waitUntil: "domcontentloaded" });
     await expect(screen.getByRole("heading", "Devis", { exact: true })).toBeVisible();
     await expect(screen.getByRole("button", "Mise en page / imprimer", { exact: true })).toBeVisible();
@@ -368,6 +374,29 @@ armyTest(
     }
   }
 );
+
+// Legacy full-lifecycle scenario 2 created an empty estimate. Keep its concrete
+// blocking gate, with one deterministic outcome instead of optional transitions.
+armyTest("LIF01 an empty estimate exposes blocking checks and remains a draft", {
+  session: "army", tags: ["critical"], timeout: 120_000,
+}, async ({ app, screen, browser, army }) => {
+  const ids = await createEstimateViaWizard({ app, screen, browser }, {
+    projectName: army.projectName, title: "ARMY empty estimate send gate",
+  }, army);
+  const send = screen.getByRole("button", "Envoyer", { exact: true });
+  await expect(send).toBeEnabled({ timeout: 30_000 });
+  await send.tap();
+  const dialog = screen.getByRole("dialog", "Vérification avant envoi", { exact: true });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("heading", /Bloquants/i)).toBeVisible();
+  await expect(dialog.getByRole("button", "Envoyer", { exact: true })).toBeDisabled();
+  await dialog.getByRole("button", /Annuler|Fermer/i).first().tap();
+  await expect(dialog).toBeHidden();
+  const snapshot = await readEstimate(browser, ids.versionId);
+  expect(snapshot.version.status).toBe("draft");
+  expect(snapshot.items.filter(item => item.item_type === "line")).toHaveLength(0);
+  await recordEvidence(army, "empty-estimate-gating", { ids, status: snapshot.version.status, lineCount: 0 });
+});
 
 // Failure modes: associating a catalogue article must not write the article designation
 // into the line unit (stored in estimate_items.description), and the DPGF "Unité" column

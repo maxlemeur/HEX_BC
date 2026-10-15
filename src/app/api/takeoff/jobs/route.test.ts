@@ -71,6 +71,7 @@ type SupabaseMockOptions = {
   estimateStatus?: "draft" | "sent" | "accepted" | "archived";
   missingEstimate?: boolean;
   simulateInsertConflictAfterUpload?: boolean;
+  synchronizeUploadCount?: number;
 };
 
 type TakeoffJobStoredRow = {
@@ -97,7 +98,10 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
     uploads: [] as string[],
     removals: [] as string[],
     audits: [] as Array<Record<string, unknown>>,
+    storageObjects: new Map<string, string>(),
   };
+  const uploadsReady = Promise.withResolvers<void>();
+  let completedUploads = 0;
 
   const membershipBuilder = {
     eq: vi.fn(),
@@ -167,12 +171,10 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
     return builder;
   }
 
-  function createTakeoffJobsInsertBuilder() {
+  function createTakeoffJobsInsertBuilder(payload: typeof takeoffJobsInsertInput) {
     return {
       select: vi.fn(() => ({
         single: vi.fn(async () => {
-          const payload = takeoffJobsInsertInput;
-
           if (
             options.simulateInsertConflictAfterUpload &&
             !state.jobsById.has(payload.id)
@@ -275,8 +277,17 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
 
         return {
           upload: vi.fn(
-            async (path: string) => {
+            async (path: string, file: File, uploadOptions?: { upsert?: boolean }) => {
               state.uploads.push(path);
+              if (!uploadOptions?.upsert && state.storageObjects.has(path)) {
+                return { data: null, error: { statusCode: "409", message: "The resource already exists" } };
+              }
+              state.storageObjects.set(path, await file.text());
+              if (options.synchronizeUploadCount) {
+                completedUploads += 1;
+                if (completedUploads === options.synchronizeUploadCount) uploadsReady.resolve();
+                await uploadsReady.promise;
+              }
               return { data: { path }, error: null };
             }
           ),
@@ -305,7 +316,7 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
           select: vi.fn(() => createTakeoffJobsSelectBuilder()),
           insert: vi.fn((payload) => {
             takeoffJobsInsertInput = payload as never;
-            return createTakeoffJobsInsertBuilder();
+            return createTakeoffJobsInsertBuilder(takeoffJobsInsertInput);
           }),
         };
       }
@@ -433,6 +444,7 @@ describe("GET /api/takeoff/jobs", () => {
 describe("POST /api/takeoff/jobs", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    serviceRoleRemoveMock.mockResolvedValue({ data: null, error: null });
     vi.mocked(assertTakeoffEnabled).mockResolvedValue(undefined);
     vi.mocked(triggerTakeoffJobProcessing).mockResolvedValue({
       triggered: true,
@@ -691,6 +703,46 @@ describe("POST /api/takeoff/jobs", () => {
     expect(response.status).toBe(400);
     expect(body.ok).toBe(false);
     expect(body.error?.code).toBe("IDEMPOTENCY_KEY_INVALID");
+  });
+
+  it.each([
+    { label: "identical", secondContent: "designation;quantity;unit\nTube PVC;12;ml", statuses: [201, 201] },
+    { label: "different", secondContent: "designation;quantity;unit\nTube Cuivre;3;ml", statuses: [201, 409] },
+  ])("preserves the winning file and removes only the losing $label concurrent upload", async ({ secondContent, statuses }) => {
+    const supabase = createSupabaseMock({ synchronizeUploadCount: 2 });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    serviceRoleRemoveMock.mockImplementation(async (paths: string[]) => {
+      for (const path of paths) supabase.__state.storageObjects.delete(path);
+      return { data: null, error: null };
+    });
+    const headers = { "idempotency-key": "concurrent-key" };
+    const responses = await Promise.all([
+      POST(buildTakeoffRequest({ headers })),
+      POST(buildTakeoffRequest({ headers, fileContent: secondContent })),
+    ]);
+    const bodies = await Promise.all(responses.map(async (response) => await response.json() as {
+      data?: { id: string }; error?: { code: string };
+    }));
+
+    expect(responses.map((response) => response.status).sort()).toEqual(statuses);
+    expect(supabase.__state.jobsById.size).toBe(1);
+    const [job] = [...supabase.__state.jobsById.values()];
+    const successful = bodies.filter((_, index) => responses[index].status === 201);
+    expect(successful.every((body) => body.data?.id === job.id)).toBe(true);
+    if (statuses.includes(409)) {
+      expect(bodies.find((_, index) => responses[index].status === 409)?.error?.code).toBe("IDEMPOTENCY_KEY_REUSED");
+    }
+    expect(supabase.__state.uploads).toHaveLength(2);
+    expect(new Set(supabase.__state.uploads).size).toBe(2);
+    const losingPath = supabase.__state.uploads.find((path) => path !== job.source_file_path)!;
+    expect(serviceRoleRemoveMock).toHaveBeenCalledExactlyOnceWith([losingPath]);
+    expect(supabase.__state.storageObjects.size).toBe(1);
+    expect(supabase.__state.storageObjects.get(job.source_file_path!)).toBe(
+      successful.length === 2 || responses[0].status === 201
+        ? "designation;quantity;unit\nTube PVC;12;ml"
+        : secondContent
+    );
+    expect(supabase.__state.audits).toHaveLength(1);
   });
 
   it("returns same job with same idempotency key and payload", async () => {

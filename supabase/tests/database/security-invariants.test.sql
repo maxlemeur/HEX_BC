@@ -785,16 +785,17 @@ select ok(
   'default-tenant switch is atomic, active-only and authenticated-only'
 );
 
+-- 20261013130248 replaced the four-argument portal decision RPC with the
+-- seal- and document-proof-bound six-argument contract.
 select ok(
   exists (
     select 1
     from pg_proc as procedure
     where procedure.oid =
-      'public.claim_portal_estimate_decision(uuid,text,inet,text)'::regprocedure
+      'public.claim_portal_estimate_decision(uuid,text,inet,text,text,jsonb)'::regprocedure
       and procedure.prosecdef = false
-      and position('join public.tenants t on t.id = ev.tenant_id' in procedure.prosrc) > 0
-      and position('and t.is_active' in procedure.prosrc) > 0
-      and position('for update of ev, t' in procedure.prosrc) > 0
+      and position('join public.tenants t on t.id=v.tenant_id and t.is_active' in procedure.prosrc) > 0
+      and position('for update of v,t' in procedure.prosrc) > 0
       and exists (
         select 1
         from unnest(coalesce(procedure.proconfig, array[]::text[])) as setting
@@ -807,19 +808,20 @@ select ok(
 select ok(
   has_function_privilege(
     'service_role',
-    'public.claim_portal_estimate_decision(uuid,text,inet,text)'::regprocedure,
+    'public.claim_portal_estimate_decision(uuid,text,inet,text,text,jsonb)'::regprocedure,
     'EXECUTE'
   )
   and not has_function_privilege(
     'authenticated',
-    'public.claim_portal_estimate_decision(uuid,text,inet,text)'::regprocedure,
+    'public.claim_portal_estimate_decision(uuid,text,inet,text,text,jsonb)'::regprocedure,
     'EXECUTE'
   )
   and not has_function_privilege(
     'anon',
-    'public.claim_portal_estimate_decision(uuid,text,inet,text)'::regprocedure,
+    'public.claim_portal_estimate_decision(uuid,text,inet,text,text,jsonb)'::regprocedure,
     'EXECUTE'
-  ),
+  )
+  and to_regprocedure('public.claim_portal_estimate_decision(uuid,text,inet,text)') is null,
   'portal decision RPC remains service-role only'
 );
 

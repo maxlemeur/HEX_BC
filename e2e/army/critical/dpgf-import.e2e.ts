@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { expect } from "e2e";
@@ -315,3 +315,69 @@ function businessSnapshot(estimate: ArmyEstimate) {
     }
   }
 ));
+
+armyTest("DPGF03 generic mapping keeps catalogue linking a two-row dry run", {
+  session: "army", trace: "off", tags: ["critical", "dpgf", "catalogue"], timeout: 180_000,
+}, async ({ app, browser, screen, army }) => {
+  const bytes = await readFile(path.resolve("e2e/fixtures/dpgf-minimal.csv"));
+  const filename = `${army.runPrefix}-catalogue-dry-run.csv`;
+  const directory = path.resolve(".e2e/army/critical/artifacts/fixtures");
+  await mkdir(directory, { recursive: true });
+  const fixturePath = path.join(directory, filename);
+  await writeFile(fixturePath, bytes);
+  let importId: string | null = null;
+  let stage = "upload";
+  await recordEvidence(army, "catalogue-dry-run-input", {
+    fixturePath, filename, sha256: createHash("sha256").update(bytes).digest("hex"),
+    expected: { dry_run: true, scanned_rows: 2, created_catalogue_count: 0, linkedPlusUnmatched: 2 },
+  });
+  try {
+    await app.open("/dashboard/imports");
+    await expect(screen.getByRole("heading", /Import DPGF/i)).toBeVisible();
+    await browser.locator("#import-file-input").setInputFiles(fixturePath);
+    await screen.getByRole("button", /^(Importer|Lancer l['’]import)$/i).first().tap();
+    const mapLink = screen.getByRole("link", /Mapper les colonnes/i);
+    await expect(mapLink).toBeVisible({ timeout: 60_000 });
+    const mapHref = await mapLink.getAttribute("href");
+    expect(mapHref).not.toBeNull();
+    importId = new URL(mapHref!, app.baseUrl).searchParams.get("import_id");
+    expect(importId).toMatch(UUID);
+    await recordEvidence(army, "catalogue-dry-run-import", { importId, filename });
+    await mapLink.tap();
+    await expect(browser).toHaveURL(/\/dashboard\/mappings\?import_id=/i);
+    await expect(screen.getByRole("heading", /Mapping DPGF/i)).toBeVisible();
+    stage = "mapping";
+    for (const field of ["hex_code", "designation", "unit_price_ht"]) {
+      const row = browser.locator("table.data-table tbody tr").filter({ hasText: field }).first();
+      await expect(row).toBeVisible();
+      await row.getByRole("combobox").selectOption({ value: field });
+    }
+    await screen.getByRole("button", /Enregistrer le mapping/i).tap();
+    const saved = screen.getByText(/Mapping enregistr[ée] avec succ[eè]s/i);
+    const memoryError = screen.getByText(/Impossible de mettre a jour la memoire de mapping/i);
+    await expect.poll(async () => await saved.isVisible() || await memoryError.isVisible(), { timeout: 60_000 }).toBe(true);
+    if (await saved.isVisible()) await screen.getByRole("link", /Lier au catalogue/i).tap();
+    else await app.open(`/dashboard/catalogue?import_id=${importId}`);
+    await expect(browser).toHaveURL(/\/dashboard\/catalogue\?import_id=/i);
+    stage = "catalogue-simulation";
+    await screen.getByRole("tab", /Liaison lignes import[ée]es/i).tap();
+    await expect(browser.locator("#catalogue-link-import-id")).toHaveValue(importId!);
+    await screen.getByLabel(/Simulation/i).check();
+    const responsePromise = browser.waitForResponse("**/api/catalogue", { timeout: 60_000 });
+    await screen.getByRole("button", /Lancer la liaison/i).tap();
+    const response = await responsePromise;
+    expect(response.status).toBe(200);
+    const payload = await response.json<Envelope<{
+      import_id: string; dry_run: boolean; scanned_rows: number; created_catalogue_count: number;
+      linked_count: number; unmatched_count: number;
+    }>>();
+    const summary = payload.data;
+    await recordEvidence(army, "catalogue-dry-run-result", { importId, status: response.status, summary });
+    expect(summary).toMatchObject({ import_id: importId, dry_run: true, scanned_rows: 2, created_catalogue_count: 0 });
+    expect(summary.linked_count + summary.unmatched_count).toBe(2);
+    await expect(screen.getByText(/Simulation termin[ée]e|Liaison termin[ée]e/i)).toBeVisible({ timeout: 60_000 });
+    stage = "complete";
+  } finally {
+    await recordEvidence(army, "catalogue-dry-run-identities", { stage, importId, filename, fixturePath, retained: true });
+  }
+});

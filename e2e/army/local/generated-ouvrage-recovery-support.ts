@@ -106,11 +106,19 @@ export async function prepare(ui: Ui, label: string) {
 export type Prepared = Awaited<ReturnType<typeof prepare>>;
 export async function saved(ui: Ui) { await expect(ui.screen.getByTestId("estimate-page-toolbar-autosave-status")).toHaveText(/^(Sauvegardé|À jour)$/); }
 export async function resumeDialog(ui: Ui, s: Scenario) {
+  await expect(ui.screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible();
+  await expect(ui.screen.getByTestId("estimate-editor-production-ribbon")).toBeVisible();
   const opener = ui.screen.getByTestId("estimate-editor-open-generated-ouvrage-button");
   if (!await opener.isVisible()) {
-    const tab = ui.screen.getByRole("tab", "Insérer", { exact: true }); if (await tab.isVisible()) await tab.click();
-    await ui.screen.getByRole("button", "Insérer", { exact: true }).click();
+    const tab = ui.screen.getByRole("tab", "Insérer", { exact: true });
+    await expect(tab).toBeVisible();
+    await tab.click();
+    await expect(tab).toBeSelected();
+    const insert = ui.screen.getByRole("button", "Insérer", { exact: true });
+    await expect(insert).toBeEnabled();
+    await insert.click();
   }
+  await expect(opener).toBeEnabled();
   await opener.click();
   await expect(ui.screen.getByRole("dialog", "Générer des ouvrages", { exact: true })).toBeVisible();
   await ui.screen.getByTestId(`generated-ouvrage-draft-${s.draftId}`).getByRole("button", "Reprendre", { exact: true }).click();

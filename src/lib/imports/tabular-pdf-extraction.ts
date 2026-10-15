@@ -1,6 +1,5 @@
 import { execFile } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -787,10 +786,13 @@ function getStandardFontDataUrl() {
   )}/`;
 }
 
-function getPdfJsModuleUrl(
-  requireFactory: typeof createRequire = createRequire
+async function getPdfJsModuleUrl(
+  requireFactory?: typeof import("node:module").createRequire
 ) {
-  const requireFromProject = requireFactory(
+  // Resolve through Node's native API: Webpack rewrites both static and dynamic
+  // node:module imports in production route bundles.
+  const factory = requireFactory ?? process.getBuiltinModule("node:module").createRequire;
+  const requireFromProject = factory(
     join(process.cwd(), "package.json")
   );
   const pdfJsModuleSpecifier = [
@@ -810,7 +812,7 @@ type PdfJsWorkerFactory = (
 
 async function createPdfJsWorker(fileBytes: ArrayBuffer): Promise<PdfJsWorker> {
   const { Worker } = await import("node:worker_threads");
-  const pdfJsModuleUrl = getPdfJsModuleUrl();
+  const pdfJsModuleUrl = await getPdfJsModuleUrl();
 
   return new Worker(PDF_JS_WORKER_SCRIPT, {
     eval: true,
