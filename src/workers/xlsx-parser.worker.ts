@@ -3,6 +3,7 @@ import * as XLSX from "xlsx";
 
 import { resolveHeaderRowIndex } from "../lib/imports/header-row";
 import { attachImportRowStructure } from "../lib/imports/payload";
+import { convertPercentFormattedCells } from "../lib/imports/percent-cells";
 import { selectDpgfSheetIndex } from "../lib/imports/sheet-selection";
 import {
   buildHeaders,
@@ -149,12 +150,15 @@ export async function parseWorkbook(
     type: "array",
     raw: true,
     cellDates: false,
+    // Number formats (`z`) tell a percent-formatted cell from a plain number (2.3 review).
+    cellNF: true,
   });
 
   const sheetMatrices = workbook.SheetNames.map((sheetName) => {
     const sheet = workbook.Sheets[sheetName];
     if (!sheet) return [];
 
+    convertPercentFormattedCells(sheet);
     return XLSX.utils.sheet_to_json<unknown[]>(sheet, {
       header: 1,
       defval: null,

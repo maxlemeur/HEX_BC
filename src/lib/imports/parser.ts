@@ -1,5 +1,6 @@
 import { resolveHeaderRowIndex } from "./header-row";
 import { attachImportRowStructure } from "./payload";
+import { convertPercentFormattedCells } from "./percent-cells";
 import { selectDpgfSheetIndex } from "./sheet-selection";
 // One header normalization for both upload parsers (server and browser worker): the key the
 // upload stores is what the mapping heuristic reads (sub-lot 2.3).
@@ -78,11 +79,13 @@ export function detectImportSourceFormat(
 // K-02: Parse timeout (30s) to prevent malicious files from blocking the server
 const PARSE_TIMEOUT_MS = 30_000;
 const DPGF_SHEET_SELECTOR_SOURCE = selectDpgfSheetIndex.toString();
+const PERCENT_CELLS_SOURCE = convertPercentFormattedCells.toString();
 const WORKER_PARSE_SCRIPT = `
 const { parentPort, workerData } = require("node:worker_threads");
 const XLSX = require("xlsx");
 const __name = (target) => target;
 const selectDpgfSheetIndex = (${DPGF_SHEET_SELECTOR_SOURCE});
+const convertPercentFormattedCells = (${PERCENT_CELLS_SOURCE});
 
 (async () => {
   try {
@@ -91,11 +94,14 @@ const selectDpgfSheetIndex = (${DPGF_SHEET_SELECTOR_SOURCE});
       type: "buffer",
       raw: true,
       cellDates: false,
+      cellNF: true,
     });
     const sheetMatrices = workbook.SheetNames.map((candidateSheetName) => {
       const candidateSheet = workbook.Sheets[candidateSheetName];
       if (!candidateSheet) return [];
 
+      // A percent-formatted cell keeps the percent it shows (2.3 review, percent-cells.ts).
+      convertPercentFormattedCells(candidateSheet);
       return XLSX.utils.sheet_to_json(candidateSheet, {
         header: 1,
         raw: true,

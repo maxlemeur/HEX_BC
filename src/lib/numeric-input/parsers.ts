@@ -217,8 +217,15 @@ export function parseMajorationCoefficient(input: unknown): number | null {
   return toMajorationCoefficient(readScaledUnits(input, COEFFICIENT_FRACTION_DIGITS));
 }
 
-/** OPTIMA additive majoration N (0 = neutral): coefficient = 1 + N, within [0 ; 10]. */
+/**
+ * OPTIMA additive majoration N (0 = neutral): coefficient = 1 + N, within [0 ; 10]. A cell the
+ * workbook formats in percent reaches the import as its percent text (« 15 % », 2.3 review): it is
+ * N in percent, two decimals at most, so +15 % gives ×1,15.
+ */
 export function parseMajorationAdditive(input: unknown): number | null {
-  const units = readScaledUnits(input, COEFFICIENT_FRACTION_DIGITS);
+  const percent = typeof input === "string" && /%\s*$/.test(input.trim());
+  const units = percent
+    ? readScaledUnits(input, COEFFICIENT_FRACTION_DIGITS - 2, { percent: true })
+    : readScaledUnits(input, COEFFICIENT_FRACTION_DIGITS);
   return toMajorationCoefficient(units === null ? null : units + MAJORATION_NEUTRAL_UNITS);
 }
