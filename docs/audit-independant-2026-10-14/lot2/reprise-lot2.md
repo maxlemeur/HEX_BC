@@ -5,6 +5,32 @@ Note de passation pour continuer le lot 2 sur une autre machine. Elle complète 
 l'on en est et comment reprendre. La mémoire de session de l'agent est restée sur le PC Windows :
 tout ce qui sert à la reprise est ici.
 
+## Consignes du porteur pour la suite (16/10/2026)
+
+À relire avant de reprendre : ces décisions ne figurent pas ailleurs sous cette forme.
+
+- **Sécurité hors périmètre pour l'instant** : projet en développement, toutes les données sont
+  fictives. Ne pas mettre en avant dépôt public, mots de passe, RLS, inscription ou en-têtes ; ne
+  signaler un point de sécurité que s'il bloque un objectif fonctionnel. Le lot 1 de sécurité est
+  archivé (`../lot1/`).
+- **Arbitrages validés** : les 14 arbitrages du rapport d'audit et les points P-01 à P-19 de la
+  conception, tels que proposés. Avis de l'expert-comptable sur P-06 et P-07 (TVA, arrondis) avant
+  tout usage client réel, pas avant le développement.
+- **Publication** : une branche et une PR par sous-lot vers `main` ; la CI GitHub valide ; fusion
+  et poussée quand elle est verte. Travailler dans un worktree dédié quand une tâche peut entrer en
+  collision avec les développeurs, qui poussent sur `main` en parallèle. Jamais de force-push.
+- **Base partagée** : ne jamais appliquer une migration sur le Supabase partagé sans l'accord
+  explicite du porteur (runbook `supabase/README.md` §3). Les tests E2E ne visent que la pile locale
+  possédée, jamais la production.
+- **Méthode** (AGENTS.md) : modes de défaillance, tests d'exigence et parcours TesterArmy écrits
+  rouges d'abord ; parcours ciblés (`--grep`) pendant le travail, suite complète à la validation ;
+  pas de remplacement mécanique sur du code logique (des corrections automatiques d'accents ont déjà
+  cassé requêtes, données de test et sélecteurs) : vérifier chaque usage.
+- **Builds Next** : toujours via `scripts/next-build.mjs` (limite mémoire du contrôle TypeScript ;
+  un garde-fou CI l'impose).
+- **Rythme** : le porteur veut avancer vite. Rapports courts, pourcentage d'avancement sur demande,
+  pas de vérification redondante ; garder la rigueur sur les montants.
+
 ## Où en est-on
 
 | Élément | État | Où |
