@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type RefObject } from "react";
 
 import {
-  CLIPBOARD_TARGET_FIELDS,
+  CLIPBOARD_MAPPING_TARGETS,
   DEFAULT_CLIPBOARD_FIELD_ORDER,
   buildClipboardPreviewRows,
   detectClipboardFormat,
@@ -14,7 +14,7 @@ import {
   type ClipboardFormat,
   type ClipboardPreviewRow,
   type ClipboardPreviewValues,
-  type ClipboardTargetField,
+  type ClipboardMappingTarget,
   type ClipboardTsvMatrix,
 } from "@/lib/estimates/clipboard";
 import type { Database } from "@/types/database";
@@ -45,7 +45,7 @@ type UseEstimateClipboardParams = {
   }) => Promise<void>;
 };
 
-const CLIPBOARD_TARGET_FIELD_LABELS: Record<ClipboardTargetField, string> = {
+const CLIPBOARD_TARGET_FIELD_LABELS: Record<ClipboardMappingTarget, string> = {
   designation: "Désignation",
   quantity: "Quantité",
   unit: "Unité",
@@ -54,7 +54,10 @@ const CLIPBOARD_TARGET_FIELD_LABELS: Record<ClipboardTargetField, string> = {
   k_fo: "K FO",
   h_mo: "h MO",
   k_mo: "K MO",
-  h_mo_majoration: "Majoration MO",
+  // D11 (2.3 review): an undeclared majoration unit is chosen here, explicitly.
+  h_mo_majoration: "Majoration MO (unité de l’en-tête)",
+  h_mo_majoration_percent: "Majoration MO (%), 100 = neutre",
+  h_mo_majoration_coefficient: "Majoration MO (coefficient), 1 = neutre",
 };
 
 function isTextEditingTarget(target: EventTarget | null) {
@@ -106,7 +109,7 @@ export function useEstimateClipboard({
     useState<ClipboardFormat>("generic");
 
   const clipboardTargetOptions = useMemo(() => {
-    return CLIPBOARD_TARGET_FIELDS.map((field) => ({
+    return CLIPBOARD_MAPPING_TARGETS.map((field) => ({
       value: field,
       label: CLIPBOARD_TARGET_FIELD_LABELS[field],
       required: field === "designation",
@@ -182,8 +185,8 @@ export function useEstimateClipboard({
         const next: ClipboardColumnMapping = { ...previous };
         if (!targetField) {
           delete next[sourceColumn];
-        } else if (CLIPBOARD_TARGET_FIELDS.includes(targetField as ClipboardTargetField)) {
-          next[sourceColumn] = targetField as ClipboardTargetField;
+        } else if (CLIPBOARD_MAPPING_TARGETS.includes(targetField as ClipboardMappingTarget)) {
+          next[sourceColumn] = targetField as ClipboardMappingTarget;
         }
 
         const preview = buildClipboardPreviewRows(pasteMatrix, next);

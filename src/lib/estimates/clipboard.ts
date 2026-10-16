@@ -29,7 +29,32 @@ export const CLIPBOARD_TARGET_FIELDS = [
 
 export type ClipboardTargetField = (typeof CLIPBOARD_TARGET_FIELDS)[number];
 export type ClipboardFormat = "bdc_v1_1" | "optima" | "generic";
-export type ClipboardColumnMapping = Record<string, ClipboardTargetField>;
+
+/**
+ * D11 (2.3 review): a majoration column whose header declares no unit « doit être choisie
+ * explicitement ». The mapping offers both units; the chosen one wins over the header and fills
+ * the same `h_mo_majoration` value. `h_mo_majoration` alone keeps the unit the header declares.
+ */
+const CLIPBOARD_MAJORATION_UNIT_TARGETS = {
+  h_mo_majoration_percent: "percent",
+  h_mo_majoration_coefficient: "coefficient",
+} as const;
+type ClipboardMajorationUnitTarget = keyof typeof CLIPBOARD_MAJORATION_UNIT_TARGETS;
+export type ClipboardMappingTarget = ClipboardTargetField | ClipboardMajorationUnitTarget;
+export const CLIPBOARD_MAPPING_TARGETS: readonly ClipboardMappingTarget[] = [
+  ...CLIPBOARD_TARGET_FIELDS,
+  "h_mo_majoration_percent",
+  "h_mo_majoration_coefficient",
+];
+export type ClipboardColumnMapping = Record<string, ClipboardMappingTarget>;
+
+function isMajorationUnitTarget(target: ClipboardMappingTarget): target is ClipboardMajorationUnitTarget {
+  return Object.prototype.hasOwnProperty.call(CLIPBOARD_MAJORATION_UNIT_TARGETS, target);
+}
+
+function toValueField(target: ClipboardMappingTarget): ClipboardTargetField {
+  return isMajorationUnitTarget(target) ? "h_mo_majoration" : target;
+}
 
 export type ClipboardTsvMatrix = {
   headers: string[];
@@ -374,9 +399,10 @@ function invertColumnMapping(
 ): Partial<Record<ClipboardTargetField, string>> {
   const fieldToSource: Partial<Record<ClipboardTargetField, string>> = {};
 
-  for (const [sourceHeader, field] of Object.entries(mapping)) {
+  for (const [sourceHeader, target] of Object.entries(mapping)) {
     const normalizedSource = sourceHeader.trim();
     if (!normalizedSource) continue;
+    const field = toValueField(target);
     if (fieldToSource[field]) continue;
     fieldToSource[field] = normalizedSource;
   }
@@ -387,8 +413,11 @@ function invertColumnMapping(
 type MajorationUnit = "percent" | "coefficient" | null;
 
 const MAJORATION_UNDECLARED_REASON =
-  `Majoration MO : unité non déclarée. Titrez la colonne « ${MAJORATION_PERCENT_HEADER} » (100 = neutre) ` +
+  "Majoration MO : unité non déclarée. Dans la correspondance, choisissez « Majoration MO (%) » ou " +
+  `« Majoration MO (coefficient) », titrez la colonne « ${MAJORATION_PERCENT_HEADER} » (100 = neutre) ` +
   `ou « ${MAJORATION_COEFFICIENT_HEADER} » (1 = neutre), ou ne l’importez pas.`;
+const MAJORATION_SEVERAL_COLUMNS_REASON =
+  "Majoration MO : une seule colonne de majoration peut être collée ; ignorez les autres.";
 
 /** L'en-tête déclare l'unité : « % », « pourcent(age) », « pct » ou « coef », « coefficient ». */
 function readDeclaredMajorationUnit(sourceHeader: string): MajorationUnit {
@@ -406,9 +435,10 @@ function readDeclaredMajorationUnit(sourceHeader: string): MajorationUnit {
  */
 function readPastedMajoration(
   rawCell: string,
-  sourceHeader: string
+  sourceHeader: string,
+  chosenUnit: MajorationUnit = null
 ): { coefficient: number } | { reason: string } {
-  const headerUnit = readDeclaredMajorationUnit(sourceHeader);
+  const headerUnit = chosenUnit ?? readDeclaredMajorationUnit(sourceHeader);
   const cellIsPercent = /%\s*$/.test(rawCell);
   if (cellIsPercent && headerUnit === "coefficient") {
     return { reason: `Majoration MO : « % » dans une colonne déclarée en coefficient (« ${MAJORATION_COEFFICIENT_HEADER} »).` };
@@ -674,6 +704,13 @@ export function buildClipboardPreviewRows(
   });
 
   const fieldToSource = invertColumnMapping(mapping);
+  const majorationTargets = Object.values(mapping).filter((target) => toValueField(target) === "h_mo_majoration");
+  const majorationSource = fieldToSource.h_mo_majoration;
+  const majorationTarget = majorationSource ? mapping[majorationSource] : undefined;
+  const chosenMajorationUnit =
+    majorationTarget && isMajorationUnitTarget(majorationTarget)
+      ? CLIPBOARD_MAJORATION_UNIT_TARGETS[majorationTarget]
+      : null;
   const hasExplicitLimit =
     typeof options.limit === "number" && Number.isFinite(options.limit);
   const normalizedLimit = hasExplicitLimit
@@ -713,7 +750,11 @@ export function buildClipboardPreviewRows(
         }
 
         if (field === "h_mo_majoration") {
-          const majoration = readPastedMajoration(rawCell, sourceHeader);
+          if (majorationTargets.length > 1) {
+            reasons.push(MAJORATION_SEVERAL_COLUMNS_REASON);
+            continue;
+          }
+          const majoration = readPastedMajoration(rawCell, sourceHeader, chosenMajorationUnit);
           if ("reason" in majoration) {
             reasons.push(majoration.reason);
           } else {
