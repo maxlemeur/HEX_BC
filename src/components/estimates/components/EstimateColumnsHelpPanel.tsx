@@ -283,11 +283,17 @@ export function EstimateColumnsHelpPanel() {
                 Exemple de calcul du PU
               </h3>
               <p className="mt-3 font-mono text-sm leading-6 text-primary-foreground">
-                (100 € × 1,20 + 1 h × 1,10 × 50 €) × 1,10 = 192,50 €
+                (1 × 100 € × 1,20 + 1 h × 1,10 × 50 €) × 1,10 = 192,50 €
               </p>
               <p className="mt-2 text-xs leading-5 text-primary-foreground">
-                Ici : PR FO 100 €, K FO 1,20, une heure de MO à 50 €, K MO
-                1,10 et coefficient de marge 1,10.
+                Ici : Qté 1, PR FO 100 €, K FO 1,20, une heure de MO pour la
+                ligne à 50 €, majoration 100 %, K MO 1,10 et coefficient de
+                marge 1,10.
+              </p>
+              <p className="mt-2 text-xs leading-5 text-primary-foreground">
+                h MO étant les heures totales de la ligne, une Qté de 2 double
+                la fourniture mais pas l’heure : (2 × 100 € × 1,20 + 1 h × 1,10
+                × 50 €) × 1,10 = 324,50 €, soit un PU de 162,25 €.
               </p>
             </section>
           </div>
