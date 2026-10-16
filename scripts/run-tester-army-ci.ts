@@ -39,6 +39,12 @@ for (let index = 3; index < process.argv.length; index += 2) {
     appPort = Number(value);
   }
 }
+// The journey environment below is an allowlist: forward the e2e.config.ts
+// worker knob explicitly, and refuse an invalid value before any SQL step.
+const workers = process.env.E2E_ARMY_WORKERS ?? "";
+if (workers !== "" && !/^[1-4]$/.test(workers)) {
+  throw new Error(`E2E_ARMY_WORKERS must be an integer from 1 to 4 (default 1); received "${workers}".`);
+}
 const root = process.cwd();
 const evidence = path.join(root, ".e2e/army/ci", `${new Date().toISOString().replace(/[:.]/g, "-")}-${suite}`);
 fs.mkdirSync(evidence, { recursive: true });
@@ -57,7 +63,7 @@ const manifest: Record<string, unknown> = {
   appOrigin: `http://localhost:${appPort}`,
   scope: suite === "dev" ? "interactive-development" : grep ? "filtered-critical" : suite,
   ...(grep ? { grep } : {}),
-  ...(suite === "dev" ? { e2e: "not-run" } : {}),
+  ...(suite === "dev" ? { e2e: "not-run" } : { workers: workers === "" ? 1 : Number(workers) }),
   status: "preparing",
   steps: [],
 };
@@ -174,6 +180,7 @@ async function runApplication(local: SupabaseEnvironment) {
     ...environment,
     E2E_ARMY_LOCAL_DB_URL: local.E2E_ARMY_LOCAL_DB_URL,
     E2E_ARMY_LOCAL_PSQL: local.E2E_ARMY_LOCAL_PSQL,
+    ...(workers === "" ? {} : { E2E_ARMY_WORKERS: workers }),
   };
   const failures: string[] = [];
   for (const phase of suite === "full" ? ["full", "development"] : [suite!]) {

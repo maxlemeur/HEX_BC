@@ -581,7 +581,6 @@ describe("CI and local quality guardrails", () => {
 
   it("keeps Army business runs deterministic and authenticated evidence private", () => {
     const config = read("e2e.config.ts");
-    expect(config).toContain("workers: 1");
     expect(config).toContain("retries: 0");
     expect(config).toContain('trace: critical || performance || coverage ? "off" : "on"');
     expect(config).toContain('E2E_ARMY_BLOCK_WORKERS: "1"');
@@ -606,6 +605,56 @@ describe("CI and local quality guardrails", () => {
       : [];
     expect(callbacks).toHaveLength(1);
   });
+
+  it("runs one Army worker unless critical journeys use the owned ephemeral stack", () => {
+    // Journeys share one account, tenant and ARMY fixtures. Parallel workers
+    // would write concurrently to a shared stack's fixtures or measure
+    // performance budgets under load; on the owned stack (the only runner that
+    // sets E2E_ARMY_LOCAL_DB_URL) 3 workers stay exploratory, since estimate
+    // creation failed there with 40001 on 16/10/2026. Each case re-evaluates
+    // e2e.config.ts as the e2e CLI would load it.
+    const ownedDatabase = "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+    const cases = [
+      { env: {}, workers: 1 as number | string },
+      { env: { E2E_ARMY_SUITE: "critical", E2E_ARMY_LOCAL_DB_URL: ownedDatabase, E2E_ARMY_WORKERS: "3" }, workers: 3 },
+      { env: { E2E_ARMY_SUITE: "critical", E2E_ARMY_WORKERS: "2" }, workers: "refused" },
+      { env: { E2E_ARMY_SUITE: "performance", E2E_ARMY_LOCAL_DB_URL: ownedDatabase, E2E_ARMY_WORKERS: "3" }, workers: "refused" },
+      { env: { E2E_ARMY_SUITE: "coverage", E2E_ARMY_LOCAL_DB_URL: ownedDatabase, E2E_ARMY_WORKERS: "2" }, workers: "refused" },
+      { env: { E2E_ARMY_SUITE: "agent", E2E_ARMY_LOCAL_DB_URL: ownedDatabase, E2E_ARMY_WORKERS: "2" }, workers: "refused" },
+      { env: { E2E_ARMY_SUITE: "critical", E2E_ARMY_LOCAL_DB_URL: ownedDatabase, E2E_ARMY_WORKERS: "9" }, workers: "refused" },
+    ];
+    const probe = [
+      'import { pathToFileURL } from "node:url";',
+      "const results = [];",
+      "for (const [index, env] of JSON.parse(process.env.ARMY_WORKER_CASES).entries()) {",
+      '  for (const name of ["E2E_ARMY_SUITE", "E2E_ARMY_CRITICAL_SELECTION", "E2E_ARMY_LOCAL_DB_URL", "E2E_ARMY_WORKERS"]) {',
+      "    delete process.env[name];",
+      "  }",
+      "  Object.assign(process.env, env);",
+      "  try {",
+      '    const loaded = await import(`${pathToFileURL("e2e.config.ts").href}?case=${index}`);',
+      "    results.push((loaded.default?.default ?? loaded.default).workers);",
+      "  } catch (error) {",
+      '    results.push(String(error?.message).startsWith("E2E_ARMY_WORKERS") ? "refused" : String(error));',
+      "  }",
+      "}",
+      "console.log(JSON.stringify(results));",
+    ].join("\n");
+    const result = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", probe], {
+      cwd: root,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        E2E_ARMY_BASE_URL: "http://localhost:3107",
+        ARMY_WORKER_CASES: JSON.stringify(cases.map(({ env }) => env)),
+      },
+      timeout: 60_000,
+      windowsHide: true,
+    });
+
+    expect(result.status, result.stderr || result.error?.message).toBe(0);
+    expect(JSON.parse(result.stdout.trim().split("\n").at(-1) ?? "null")).toEqual(cases.map(({ workers }) => workers));
+  }, 60_000);
 
   it("uses the project-pinned Supabase CLI for backups", () => {
     const workflow = read(".github/workflows/supabase-backup.yml");

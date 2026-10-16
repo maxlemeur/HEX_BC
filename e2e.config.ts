@@ -34,6 +34,22 @@ if (
   throw new Error("Tester Army requires a loopback HTTP origin with a fixed port.");
 }
 
+// Journeys share one account, tenant and ARMY fixtures: one worker by default.
+// The 16/10/2026 campaign (WSL, full critical suite) did not qualify parallel
+// runs: 1 worker passed 64/64; 3 workers failed 2 runs out of 2 when estimate
+// creation got 40001 ESTIMATE_CREATE_CONTEXT_CHANGED under concurrent writes in
+// the same tenant. A higher value is exploratory and accepted only for critical
+// journeys on the owned ephemeral stack, whose runner alone sets
+// E2E_ARMY_LOCAL_DB_URL; never against a shared stack or for performance.
+const workersSetting = process.env.E2E_ARMY_WORKERS ?? "";
+if (workersSetting !== "" && !/^[1-4]$/.test(workersSetting)) {
+  throw new Error(`E2E_ARMY_WORKERS must be an integer from 1 to 4 (default 1); received "${workersSetting}".`);
+}
+const workers = workersSetting === "" ? 1 : Number(workersSetting);
+if (workers > 1 && !(critical && process.env.E2E_ARMY_LOCAL_DB_URL)) {
+  throw new Error("E2E_ARMY_WORKERS above 1 is reserved for critical journeys on the owned ephemeral stack (npm run e2e:army:local or e2e:army:ci).");
+}
+
 // Next dev identifies itself as localhost; preserve hydration without config edits.
 baseUrl.hostname = "localhost";
 const app = {
@@ -101,7 +117,7 @@ export default {
       app,
     },
   ],
-  workers: 1,
+  workers,
   retries: 0,
   // This lot normally takes a few minutes; a hung campaign must stay a failure.
   ...(critical ? { maxDuration: full ? 3_600_000 : techDebt ? 900_000 : 1_800_000 } : {}),
