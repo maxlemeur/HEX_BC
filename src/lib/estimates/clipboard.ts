@@ -1,4 +1,14 @@
-import { parseDecimalInput } from "@/lib/numeric-input/parsers";
+import {
+  formatMajorationPercent,
+  MAJORATION_COEFFICIENT_ERROR,
+  MAJORATION_COEFFICIENT_HEADER,
+  MAJORATION_PERCENT_ERROR,
+  MAJORATION_PERCENT_HEADER,
+  readMajorationCoefficient,
+  readMajorationPercent,
+} from "@/lib/estimates/majoration";
+import { formatDecimalInput, NUMERIC_INPUT_ERROR, parseDecimalInput } from "@/lib/numeric-input/parsers";
+
 export const CLIPBOARD_TARGET_FIELDS = [
   "designation",
   "quantity",
@@ -76,7 +86,7 @@ const TARGET_FIELD_ALIASES: Record<ClipboardTargetField, string[]> = {
     "item",
   ],
   quantity: ["quantite", "qte", "qt", "quantity", "qty"],
-  unit: ["unite", "unit", "uom", "u"],
+  unit: ["unite", "unit", "uom", "u", "ute"],
   unit_price_ht: [
     "unit_price_ht",
     "unit price ht",
@@ -84,6 +94,8 @@ const TARGET_FIELD_ALIASES: Record<ClipboardTargetField, string[]> = {
     "prix unitaire ht",
     "pr fo",
     "pr fo eur",
+    "pr fourniture",
+    "pr fourniture unitaire",
     "prix ht",
     "pu ht",
     "pu",
@@ -155,6 +167,28 @@ const OPTIMA_CANONICAL_HEADERS: Partial<Record<ClipboardTargetField, string[]>> 
 };
 
 const NULL_LIKE_TOKENS = new Set<string>(["na", "n a", "null", "none", "vide"]);
+
+// F17, U-03 : « Prix Unitaire », « PR Fourniture unitaire » ou « Tps pose unitaire » contiennent
+// « unit » sans être une unité. Un en-tête qui nomme un prix, un temps, un total, un taux ou un
+// coefficient n'est jamais proposé comme unité (mots entiers).
+const NEVER_UNIT_HEADER_WORDS = new Set<string>([
+  "prix", "pu", "pr", "price", "cout", "cost", "montant", "total", "tarif",
+  "tps", "temps", "heure", "heures", "hours", "time", "taux", "rate",
+  "coef", "coeff", "coefficient", "majoration",
+]);
+
+/** Libellés de la copie de la grille : relus à l'identique par l'aperçu du collage (D11). */
+const CLIPBOARD_COPY_HEADERS: Record<ClipboardTargetField, string> = {
+  designation: "Désignation",
+  quantity: "Quantité",
+  unit: "Unité",
+  unit_price_ht: "Prix unitaire HT",
+  supply_type: "Type FO",
+  k_fo: "K FO",
+  h_mo: "h MO",
+  k_mo: "K MO",
+  h_mo_majoration: MAJORATION_PERCENT_HEADER,
+};
 
 const FIELD_LABELS: Record<ClipboardTargetField, string> = {
   designation: "Désignation",
@@ -330,24 +364,44 @@ function invertColumnMapping(
   return fieldToSource;
 }
 
-function coerceMajorationToCoefficient(
-  parsedValue: number,
+type MajorationUnit = "percent" | "coefficient" | null;
+
+const MAJORATION_UNDECLARED_REASON =
+  `Majoration MO : unité non déclarée. Titrez la colonne « ${MAJORATION_PERCENT_HEADER} » (100 = neutre) ` +
+  `ou « ${MAJORATION_COEFFICIENT_HEADER} » (1 = neutre), ou ne l’importez pas.`;
+
+/** L'en-tête déclare l'unité : « % », « pourcent(age) », « pct » ou « coef », « coefficient ». */
+function readDeclaredMajorationUnit(sourceHeader: string): MajorationUnit {
+  const words = normalizeClipboardHeader(sourceHeader).replace(/%/g, " % ").split(" ").filter(Boolean);
+  const percent = words.some((word) => ["%", "pourcent", "pourcentage", "percent", "pct"].includes(word));
+  const coefficient = words.some((word) => ["coef", "coeff", "coefficient"].includes(word));
+  if (percent === coefficient) return null;
+  return percent ? "percent" : "coefficient";
+}
+
+/**
+ * P-11 : une colonne en « % » est divisée par 100, une colonne « coefficient » est prise brute, une
+ * colonne sans unité déclarée est refusée (« 10 » valait ×10, « 150 » ×1,5) ; le coefficient reste
+ * dans [0 ; 10]. Un « % » écrit dans la cellule déclare l'unité de cette cellule.
+ */
+function readPastedMajoration(
   rawCell: string,
   sourceHeader: string
-) {
-  const normalizedHeader = normalizeClipboardHeader(sourceHeader);
-  const isPercentHeader =
-    rawCell.includes("%") ||
-    normalizedHeader.includes("%") ||
-    normalizedHeader.includes("pourcent") ||
-    normalizedHeader.includes("percent") ||
-    normalizedHeader.includes("pct");
-
-  if (isPercentHeader || parsedValue > 10) {
-    return parsedValue / 100;
+): { coefficient: number } | { reason: string } {
+  const headerUnit = readDeclaredMajorationUnit(sourceHeader);
+  const cellIsPercent = /%\s*$/.test(rawCell);
+  if (cellIsPercent && headerUnit === "coefficient") {
+    return { reason: `Majoration MO : « % » dans une colonne déclarée en coefficient (« ${MAJORATION_COEFFICIENT_HEADER} »).` };
   }
+  const unit = cellIsPercent ? "percent" : headerUnit;
+  if (!unit) return { reason: MAJORATION_UNDECLARED_REASON };
 
-  return parsedValue;
+  const reading = unit === "percent" ? readMajorationPercent(rawCell) : readMajorationCoefficient(rawCell);
+  if (reading.status === "valid") return { coefficient: reading.coefficient };
+  if (reading.status === "invalid" && reading.error === "number") {
+    return { reason: `${FIELD_LABELS.h_mo_majoration} : ${NUMERIC_INPUT_ERROR}` };
+  }
+  return { reason: unit === "percent" ? MAJORATION_PERCENT_ERROR : MAJORATION_COEFFICIENT_ERROR };
 }
 
 function dedupeReasons(reasons: string[]): string[] {
@@ -367,10 +421,16 @@ function sanitizeTsvCell(value: string): string {
   return value.replace(/[\t\r\n]+/g, " ").trim();
 }
 
-function formatSerializableValue(value: string | number | null | undefined): string {
+function formatSerializableValue(
+  field: ClipboardTargetField,
+  value: string | number | null | undefined
+): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "number") {
-    return Number.isFinite(value) ? String(value) : "";
+    // Virgule décimale : « 1.234 » serait refusé comme ambigu au collage (D11). La majoration,
+    // stockée en coefficient, est copiée en % sous « Majoration MO (%) » (P-11).
+    if (!Number.isFinite(value)) return "";
+    return field === "h_mo_majoration" ? formatMajorationPercent(value) : formatDecimalInput(value);
   }
   return sanitizeTsvCell(value);
 }
@@ -497,6 +557,10 @@ export function detectClipboardFormat(headers: string[]): ClipboardFormat {
   return "generic";
 }
 
+function isNeverUnitHeader(normalizedHeader: string) {
+  return normalizedHeader.split(" ").some((word) => NEVER_UNIT_HEADER_WORDS.has(word));
+}
+
 export function suggestClipboardColumnMapping(headers: string[]): ClipboardColumnMapping {
   type Candidate = {
     sourceHeader: string;
@@ -513,6 +577,7 @@ export function suggestClipboardColumnMapping(headers: string[]): ClipboardColum
     if (!normalizedHeader) return;
 
     for (const field of CLIPBOARD_TARGET_FIELDS) {
+      if (field === "unit" && isNeverUnitHeader(normalizedHeader)) continue;
       const aliases = TARGET_FIELD_ALIASES[field];
       let bestScore = 0;
 
@@ -627,21 +692,27 @@ export function buildClipboardPreviewRows(
           continue;
         }
 
-        // Seul le prix unitaire est un montant ; quantites, heures et
-        // coefficients acceptent trois decimales (T16).
-        const parsed = parseClipboardNumber(
-          field === "h_mo_majoration" ? rawCell.replace(/\s*%$/, "") : rawCell,
-          field === "unit_price_ht" ? "money" : "quantity"
-        );
-        if (parsed === null) {
-          reasons.push(`Nombre invalide pour ${FIELD_LABELS[field]}.`);
+        if (field === "h_mo_majoration") {
+          const majoration = readPastedMajoration(rawCell, sourceHeader);
+          if ("reason" in majoration) {
+            reasons.push(majoration.reason);
+          } else {
+            values[field] = majoration.coefficient;
+          }
           continue;
         }
 
-        const parsedValue =
-          field === "h_mo_majoration"
-            ? coerceMajorationToCoefficient(parsed, rawCell, sourceHeader)
-            : parsed;
+        // Seul le prix unitaire est un montant ; quantites, heures et
+        // coefficients acceptent trois decimales (T16).
+        const parsedValue = parseClipboardNumber(
+          rawCell,
+          field === "unit_price_ht" ? "money" : "quantity"
+        );
+        if (parsedValue === null) {
+          // Même message qu'en grille et dans les réglages (D11), précédé du champ refusé.
+          reasons.push(`${FIELD_LABELS[field]} : ${NUMERIC_INPUT_ERROR}`);
+          continue;
+        }
 
         if (parsedValue < 0) {
           reasons.push(`${FIELD_LABELS[field]} doit être >= 0.`);
@@ -709,12 +780,12 @@ export function serializeSelectedRowsToTsv(
   const lines: string[] = [];
 
   if (includeHeader) {
-    lines.push(dedupedFields.join("\t"));
+    lines.push(dedupedFields.map((field) => CLIPBOARD_COPY_HEADERS[field]).join("\t"));
   }
 
   for (const row of rows) {
     const serializedRow = dedupedFields.map((field) =>
-      formatSerializableValue(row[field])
+      formatSerializableValue(field, row[field])
     );
     lines.push(serializedRow.join("\t"));
   }

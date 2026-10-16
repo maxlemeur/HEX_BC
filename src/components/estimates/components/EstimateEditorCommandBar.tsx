@@ -24,6 +24,12 @@ import type {
 } from "@/components/estimates/components/EstimateEditorToolbar";
 import type { EstimateOutlierMethod } from "@/lib/estimates/outlier-detection";
 import { parseNumberInput } from "@/lib/estimates/editor-values";
+import {
+  formatMajorationCoefficient,
+  MAJORATION_PERCENT_ERROR,
+  readMajorationPercent,
+} from "@/lib/estimates/majoration";
+import { NUMERIC_INPUT_ERROR } from "@/lib/numeric-input/parsers";
 import { cn } from "@/lib/utils";
 
 const ROOT_KEY = "root";
@@ -137,6 +143,8 @@ export function EstimateEditorCommandBar({
   const actions = useEstimateEditorActions();
   const meta = useEstimateEditorMeta();
   const isSimplifiedMode = uiMode === "simplified";
+  // P-11 : le coefficient résultant est montré avant « Appliquer » ; vide ou invalide n'applique rien.
+  const bulkMajoration = readMajorationPercent(state.bulkMajorationPercent);
   const [activeRibbonTab, setActiveRibbonTab] =
     useState<EditorRibbonTab>("chiffrage");
   const availableColumnPresets = Object.keys(columnPresetLabels) as Array<keyof typeof columnPresetLabels>;
@@ -849,28 +857,47 @@ export function EstimateEditorCommandBar({
                     id="estimate-bulk-majoration"
                     size="sm"
                     className="min-w-0 flex-1"
-                    type="number"
-                    step="0.1"
-                    min={0}
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="100"
                     value={state.bulkMajorationPercent}
                     onChange={(event) =>
                       actions.setBulkMajorationPercent(event.target.value)
                     }
                     disabled={meta.isReadOnly}
                     aria-label="Majoration MO en pourcentage"
+                    aria-invalid={bulkMajoration.status === "invalid" || undefined}
+                    aria-describedby="estimate-bulk-majoration-coefficient"
                   />
                   <Button
                     type="button"
                     variant="outline"
                     size="md"
                     onClick={() => void onApplyBulkMajoration()}
-                    disabled={meta.isReadOnly}
+                    disabled={meta.isReadOnly || bulkMajoration.status !== "valid"}
                     aria-label="Appliquer majoration"
                     data-testid="estimate-editor-bulk-majoration-apply-button"
                   >
                     Appliquer
                   </Button>
                 </div>
+                <p
+                  id="estimate-bulk-majoration-coefficient"
+                  className={cn(
+                    "mt-1 text-xs",
+                    bulkMajoration.status === "invalid" ? "text-danger" : "text-muted-foreground",
+                  )}
+                  aria-live="polite"
+                  data-testid="estimate-editor-bulk-majoration-coefficient"
+                >
+                  {bulkMajoration.status === "valid"
+                    ? `Coefficient appliqué aux heures : ${formatMajorationCoefficient(bulkMajoration.coefficient)} (100 % = ×1, neutre)`
+                    : bulkMajoration.status === "empty"
+                      ? "Saisissez un pourcentage : 100 = neutre."
+                      : bulkMajoration.error === "number"
+                        ? NUMERIC_INPUT_ERROR
+                        : MAJORATION_PERCENT_ERROR}
+                </p>
               </div>
               <div>
                 <label

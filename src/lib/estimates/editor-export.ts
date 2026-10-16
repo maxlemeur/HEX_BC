@@ -17,6 +17,10 @@ import {
   toNullableFiniteNumber,
 } from "@/lib/estimates/editor-values";
 import {
+  majorationCoefficientToPercent,
+  MAJORATION_PERCENT_HEADER,
+} from "@/lib/estimates/majoration";
+import {
   formatCurrency,
   normalizeEstimateCurrency,
   type SupportedEstimateCurrency,
@@ -401,7 +405,7 @@ export function buildEstimateLineExportRows(input: {
           item.h_mo_majoration === null ||
           item.h_mo_majoration === undefined
             ? ""
-            : Math.round(item.h_mo_majoration * 10000) / 100,
+            : majorationCoefficientToPercent(item.h_mo_majoration),
         labor_role: laborLabel,
         k_mo: item.k_mo ?? "",
         h_mo_atelier: splitFields.h_mo_atelier ?? "",
@@ -435,7 +439,8 @@ const LINE_EXPORT_COLUMNS: ExportColumn<EstimateLineExportRow>[] = [
   { key: "supplier_3", header: "Fournisseur 3" },
   { key: "k_fo", header: "K FO" },
   { key: "h_mo", header: "h MO" },
-  { key: "h_mo_majoration_pct", header: "Majoration MO (%)" },
+  // P-11 : convention unique « Majoration MO (%) », 100 = neutre, relue par l'import et le collage.
+  { key: "h_mo_majoration_pct", header: MAJORATION_PERCENT_HEADER },
   { key: "labor_role", header: "Rôle MO" },
   { key: "k_mo", header: "K MO" },
   {

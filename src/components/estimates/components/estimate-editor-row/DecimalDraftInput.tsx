@@ -32,6 +32,13 @@ type DecimalDraftInputProps = Omit<
    * (vide -> 0) est conservé pour les autres cellules (heures, etc.).
    */
   emptyValue?: number;
+  /**
+   * Lecture d'un brouillon non vide ; par défaut la grammaire décimale commune. Une grandeur y
+   * applique sa précision, ses bornes ou son unité (parseurs de `@/lib/numeric-input/parsers`,
+   * ex. « Majoration MO (%) » → coefficient) : la valeur rendue, comme `emptyValue`, est celle
+   * transmise à `onValueChange` et `onValueCommit`. `null` garde le brouillon visible en erreur.
+   */
+  parseValue?: (raw: string) => number | null;
 };
 
 export const DecimalDraftInput = forwardRef<
@@ -45,6 +52,7 @@ export const DecimalDraftInput = forwardRef<
     onFocus,
     onBlur,
     emptyValue,
+    parseValue = parseDecimalDraft,
     ...inputProps
   },
   ref,
@@ -52,7 +60,7 @@ export const DecimalDraftInput = forwardRef<
   const [draftValue, setDraftValue] = useState<string | null>(null);
 
   const resolve = (raw: string): number | null => {
-    return raw.trim() === "" ? emptyValue ?? 0 : parseDecimalDraft(raw);
+    return raw.trim() === "" ? emptyValue ?? 0 : parseValue(raw);
   };
   const invalid = draftValue !== null && resolve(draftValue) === null;
 

@@ -9,6 +9,7 @@ import { Modal } from "@/components/ui-legacy/Modal";
 import { DecimalDraftInput } from "@/components/estimates/components/estimate-editor-row/DecimalDraftInput";
 import {
   formatMajorationPercentInput,
+  parseMajorationPercentToCoefficient,
   type EstimateItem,
   type LaborRole,
 } from "@/components/estimates/components/estimate-editor-row/shared";
@@ -309,10 +310,13 @@ export function MobileEstimateLineEditor({
                   min={0}
                   step="0.1"
                   value={Number(majorationPercent)}
+                  // P-11 : « % » saisi (100 = neutre) → coefficient borné à [0 ; 10] ; vidé → ×1.
+                  parseValue={parseMajorationPercentToCoefficient}
+                  emptyValue={1}
                   aria-label={`Majoration de main-d’œuvre en pourcentage pour ${lineLabel}`}
                   disabled={isReadOnly}
-                  onValueChange={(value) => onPatchItem(item.id, { h_mo_majoration: Math.max(value / 100, 0) }, { persist: false })}
-                  onValueCommit={(value) => onPatchItem(item.id, { h_mo_majoration: Math.max(value / 100, 0) }, { persist: true })}
+                  onValueChange={(value) => onPatchItem(item.id, { h_mo_majoration: value }, { persist: false })}
+                  onValueCommit={(value) => onPatchItem(item.id, { h_mo_majoration: value }, { persist: true })}
                 />
               </Field>
 

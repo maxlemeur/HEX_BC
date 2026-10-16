@@ -19,6 +19,7 @@ import {
   type SpreadsheetCell,
   type SpreadsheetNavigationResult,
   getMissingLaborRateMessage,
+  parseMajorationPercentToCoefficient,
   toCellClassName,
   toCellKeyDownHandler,
 } from "@/components/estimates/components/estimate-editor-row/shared";
@@ -147,11 +148,14 @@ export function StandardMoCells({
             step="0.1"
             min={0}
             value={Number(hMoMajorationPercent)}
+            // P-11 : « % » saisi (100 = neutre) → coefficient borné à [0 ; 10] ; vidé → ×1, jamais ×0.
+            parseValue={parseMajorationPercentToCoefficient}
+            emptyValue={1}
             aria-label={`Majoration de main-d’œuvre en pourcentage pour ${item.title || "sans titre"}`}
             onFocus={hMoMajorationEditorProps.onFocus}
             onKeyDown={hMoMajorationEditorProps.onKeyDown}
-            onValueChange={(value) => onPatchItem(item.id, { h_mo_majoration: Math.max(value / 100, 0) }, { persist: false })}
-          onValueCommit={(value) => onPatchItem(item.id, { h_mo_majoration: Math.max(value / 100, 0) }, { persist: true })}
+            onValueChange={(value) => onPatchItem(item.id, { h_mo_majoration: value }, { persist: false })}
+          onValueCommit={(value) => onPatchItem(item.id, { h_mo_majoration: value }, { persist: true })}
           onBlur={hMoMajorationEditorProps.onBlur}
           placeholder="100"
             disabled={isReadOnly}

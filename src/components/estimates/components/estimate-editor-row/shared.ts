@@ -13,6 +13,7 @@ import {
   type SupportedEstimateCurrency,
 } from "@/lib/money";
 import type { EstimateLineTruth } from "@/lib/estimates/line-truth";
+import { majorationPercentToCoefficient } from "@/lib/estimates/majoration";
 import type { ColumnKey } from "@/hooks/useColumnVisibility";
 import {
   type SpreadsheetCell,
@@ -257,9 +258,12 @@ export function formatMajorationPercentInput(value: number | null | undefined) {
   return Number.isInteger(percent) ? String(percent) : percent.toFixed(2);
 }
 
+/**
+ * « Majoration MO (%) », 100 = neutre (P-11) : renvoie le coefficient stocké, ou `null` pour un
+ * champ vide (non renseigné, jamais ×0), une saisie illisible ou un coefficient hors [0 ; 10].
+ */
 export function parseMajorationPercentToCoefficient(value: string) {
-  const parsed = parseNumberInput(value);
-  return parsed === null ? null : Math.max(parsed / 100, 0);
+  return majorationPercentToCoefficient(value);
 }
 
 export function normalizeAidInput(value: string) {

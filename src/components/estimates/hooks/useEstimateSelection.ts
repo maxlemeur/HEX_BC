@@ -6,12 +6,7 @@ import {
   useMultiSelect,
   type MultiSelectItemInteraction,
 } from "@/hooks/useMultiSelect";
-import { parseNumberInput } from "@/lib/estimates/editor-values";
-
-function parseMajorationPercentToCoefficient(value: string) {
-  const parsed = parseNumberInput(value);
-  return parsed === null ? null : Math.max(parsed / 100, 0);
-}
+import { majorationPercentToCoefficient } from "@/lib/estimates/majoration";
 
 type UseEstimateSelectionParams = {
   visibleLineIdList: string[];
@@ -74,7 +69,9 @@ export function useEstimateSelection({
 
   const handleApplyBulkMajoration = useCallback(async () => {
     if (isReadOnly || !hasSelectedLines) return;
-    const coefficient = parseMajorationPercentToCoefficient(bulkMajorationPercent);
+    // P-11 : « Majoration MO (%) », 100 = neutre. Un champ vidé ou hors [0 ; 10] n'applique rien,
+    // jamais ×0 à toute la sélection.
+    const coefficient = majorationPercentToCoefficient(bulkMajorationPercent);
     if (coefficient === null) return;
     await onApplyBulkMajoration(selectedLineIdList, coefficient);
   }, [
