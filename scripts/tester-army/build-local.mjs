@@ -2,11 +2,11 @@
 // Outputs remain ignored; no database, server or browser is started here.
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { readFile, mkdir, writeFile, copyFile, readdir, realpath } from "node:fs/promises";
+import { readFile, writeFile, copyFile, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
-import { assertRecipeHost, buildCommands, buildSourceEvidence, loopbackOrigin, newEvidenceDirectory, redactOutput, relativePath, repositoryRoot as root, requireValue, sha256 } from "./local-recipe-common.mjs";
+import { assertRecipeHost, buildCommands, buildSourceEvidence, loopbackOrigin, newEvidenceDirectory, prepareArmyTypeScriptConfig, redactOutput, relativePath, repositoryRoot as root, requireValue, sha256 } from "./local-recipe-common.mjs";
 
 /** Immutable production output; dev, cache and compiler diagnostics are not runtime inputs. */
 export async function buildOutputEvidence() {
@@ -61,10 +61,7 @@ async function main() {
     return;
   }
   const directory = await newEvidenceDirectory("army/recipes/builds", `${new Date().toISOString().replace(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}`);
-  await mkdir(path.join(root, ".e2e/army"), { recursive: true });
-  await writeFile(path.join(root, ".e2e/army/tsconfig.json"), JSON.stringify({ extends: "../../tsconfig.json",
-    compilerOptions: { paths: { "@/*": ["../../src/*"] } },
-    include: ["../../next-env.d.ts", "../../src/**/*.ts", "../../src/**/*.tsx", "next/types/**/*.ts", "next/dev/types/**/*.ts"], exclude: ["../../node_modules"] }, null, 2) + "\n");
+  await prepareArmyTypeScriptConfig(root);
   const manifest = { schemaVersion: "army-local-build-1", startedAt: new Date().toISOString(),
     revision: source.revision, diffSha256: source.diffSha256,
     command: { executable: process.execPath, args: process.argv.slice(1) }, inputs, offerProfileInputs, backend: backend.origin,

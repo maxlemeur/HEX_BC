@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
@@ -6,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   assertNativeRuntimeHost,
   enableNativeStack,
+  findAvailablePort,
   parseLocalSupabaseStatus,
   runLocalSupabaseCi,
   validatePgTapReport,
@@ -29,6 +31,7 @@ function localJwt(role: "anon" | "service_role") {
 function createDependencies(options: {
   cliVersionOutput?: string;
   failDestroy?: boolean;
+  failStart?: boolean;
   failReset?: boolean;
   failStop?: boolean;
   pgTapOutput?: string;
@@ -40,6 +43,9 @@ function createDependencies(options: {
     calls.push(command);
     if (command === "--version") {
       return options.cliVersionOutput ?? PINNED_SUPABASE_CLI_VERSION;
+    }
+    if (options.failStart && command.startsWith("start ")) {
+      throw new Error("Cannot bind inspector: address already in use");
     }
     if (options.failReset && command.startsWith("db reset --local")) {
       throw new Error("reset failed");
@@ -101,6 +107,120 @@ function createDependencies(options: {
 }
 
 describe("local Supabase CI", () => {
+  it("allocates eight distinct real listening ports outside the ephemeral client range", async () => {
+    const reserved = new Set<number>();
+    for (let index = 0; index < 8; index += 1) {
+      const port = await findAvailablePort(reserved, [[32768, 65535]]);
+      expect(port).toBeGreaterThanOrEqual(1024);
+      expect(port).toBeLessThan(32768);
+      expect(reserved.has(port)).toBe(false);
+      reserved.add(port);
+      const listener = net.createServer();
+      try {
+        await new Promise<void>((resolve, reject) => {
+          listener.once("error", reject);
+          listener.listen({ port, host: "127.0.0.1", exclusive: true }, resolve);
+        });
+        expect((listener.address() as net.AddressInfo).port).toBe(port);
+      } finally {
+        if (listener.listening) await new Promise<void>((resolve, reject) => listener.close((error) => error ? reject(error) : resolve()));
+      }
+    }
+    expect(reserved.size).toBe(8);
+  });
+
+  it("excludes a real occupied listener and refuses exhausted candidates", async () => {
+    const occupied = net.createServer();
+    const available = net.createServer();
+    const listen = (server: net.Server) => new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    try {
+      await listen(occupied);
+      await listen(available);
+      const occupiedPort = (occupied.address() as net.AddressInfo).port;
+      const availablePort = (available.address() as net.AddressInfo).port;
+      await new Promise<void>((resolve, reject) => available.close((error) => error ? reject(error) : resolve()));
+      const reserved = new Set(Array.from({ length: 65536 - 1024 }, (_, index) => index + 1024));
+      reserved.delete(occupiedPort);
+      reserved.delete(availablePort);
+      expect(await findAvailablePort(reserved, [[1024, 1024]])).toBe(availablePort);
+      reserved.add(availablePort);
+      await expect(findAvailablePort(reserved, [[1024, 1024]])).rejects.toThrow("No non-ephemeral Supabase port");
+      expect(occupied.listening).toBe(true);
+    } finally {
+      for (const server of [occupied, available]) {
+        if (server.listening) await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+      }
+    }
+  });
+
+  it("fails closed on a startup bind collision without retrying or provisioning", async () => {
+    const { dependencies, calls } = createDependencies({ failStart: true });
+    await expect(runLocalSupabaseCi(dependencies)).rejects.toThrow("Phase failed: start local stack: Cannot bind inspector");
+    expect(calls.filter((command) => command.startsWith("start "))).toHaveLength(1);
+    expect(calls.slice(-2)).toEqual([
+      "stop --workdir C:/temp/miaouffrage-supabase-ci-test",
+      "stack destroy --yes --workdir C:/temp/miaouffrage-supabase-ci-test",
+    ]);
+    expect(dependencies.provisionUsers).not.toHaveBeenCalled();
+    expect(dependencies.runRls).not.toHaveBeenCalled();
+    expect(dependencies.removeProject).toHaveBeenCalledOnce();
+  });
+
+  it("refuses missing or invalid ephemeral ranges instead of falling back to port zero", async () => {
+    for (const ranges of [[], [[0, 65535]], [[60999, 32768]], [[1024, 65536]], [[Number.NaN, 60999]]]) {
+      await expect(findAvailablePort(new Set(), ranges)).rejects.toThrow("Invalid host ephemeral port range");
+    }
+  });
+
+  it("keeps caller-owned future listeners out of the real isolated service configuration", async () => {
+    const allowed = new Set(Array.from({ length: 64 }, (_, index) => 16384 + index));
+    const reservedPorts = new Set(Array.from({ length: 65536 - 1024 }, (_, index) => index + 1024)
+      .filter((port) => !allowed.has(port)));
+    const dependencies: Parameters<typeof runLocalSupabaseCi>[0] = { ...createDependencies().dependencies };
+    delete dependencies.prepareProject;
+    delete dependencies.removeProject;
+    let allocated: number[] = [];
+    dependencies.supabase = vi.fn((args: string[]) => {
+      if (args[0] === "--version") return PINNED_SUPABASE_CLI_VERSION;
+      if (args[0] === "start") {
+        const directory = args[args.indexOf("--workdir") + 1];
+        const config = fs.readFileSync(path.join(directory, "supabase/config.toml"), "utf8");
+        allocated = [...config.matchAll(/^\s*(?:port|shadow_port|inspector_port)\s*=\s*(\d+)/gm)].map((match) => Number(match[1]));
+        throw new Error("Fixture stops before launching any service");
+      }
+      return "";
+    });
+    // Only host metadata is supplied; config copying and port probes stay real.
+    const nativeProcess = process;
+    const readFile = fs.readFileSync;
+    const reader = vi.spyOn(fs, "readFileSync").mockImplementation((file, ...args) => {
+      if (file === "/proc/sys/net/ipv4/ip_local_port_range") return "32768 65535\n";
+      return readFile(file, ...args);
+    });
+    vi.stubGlobal("process", new Proxy(nativeProcess, {
+      get: (target, key) => key === "platform" ? "linux" : Reflect.get(target, key),
+    }));
+    try {
+      await expect(runLocalSupabaseCi({ ...dependencies, reservedPorts })).rejects.toThrow("Fixture stops before launching any service");
+      expect(new Set(allocated).size).toBe(8);
+      expect(allocated.every((port) => allowed.has(port))).toBe(true);
+    } finally {
+      vi.stubGlobal("process", nativeProcess);
+      reader.mockRestore();
+    }
+  });
+
+  it("refuses browser-blocked ports even when they are the only unreserved candidates", async () => {
+    for (const port of [6000, 6667, 10080]) {
+      const reserved = new Set(Array.from({ length: 65536 - 1024 }, (_, index) => index + 1024));
+      reserved.delete(port);
+      await expect(findAvailablePort(reserved, [[32768, 65535]])).rejects.toThrow("No non-ephemeral Supabase port");
+    }
+  });
+
   it("rejects a zero-exit NOTESTS report before provisioning users and still cleans up", async () => {
     const { dependencies } = createDependencies({
       pgTapOutput: "Files=0, Tests=0,  0 wallclock secs\nResult: NOTESTS\n",

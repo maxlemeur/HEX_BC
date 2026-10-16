@@ -89,3 +89,20 @@ Anonymous smoke archives under `.e2e/army/runs/isolated-local-2026-10-14/`: `e2e
 Final replay on the final tree — 2026-10-15. After the adapted run above, the application's `zod` was restored to 4.4.3 (the upgrade had silently hoisted 4.6.1, which broke two OpenAPI/Gemini schema tests) and the `create-membership` contract text was corrected. The local stack had stopped overnight: `2026-10-15T05-26-30-514Z` (manifest `1541b1ac…7ef441`) failed at the login setup with the API unreachable and skipped the nine dependent journeys, which is missing proof, not a regression. After restarting the stack, resetting it from the 244 migrations (pgTAP 14 files, 1 268 tests, PASS) and recreating the local account and catalogue article, `2026-10-15T05-29-19-980Z` (manifest `71f5ae13…48dbab0`) passed **13/13** with `source.changedDuringRun` false; the smoke `2026-10-15T05-26-01-805Z` (manifest `b17f5e13…2daafb7`) passed 2/2 with two trace pages. Its archive contains no JWT, `Bearer` value or account password.
 
 Not established by these runs: the hosted database, mobile viewport, the `e2e/army/local/` suites (offer emission, Resend portal, coverage profiles), which need the native local recipe and were only checked statically (`check:army-recipes` and the offline checkers), and agent mode.
+
+## Rejeu partagé ciblé — 16 octobre 2026
+
+Après application explicitement autorisée des prérequis de création, édition,
+remise fixe et recalcul, le filtre `creation persists final French|duplication
+preserves hierarchy` passe **3/3** (connexion incluse) sur la source publiée
+`40ffb876`, en développement puis avec un build de production local, contre le
+Supabase partagé autorisé. Montants exacts, persistance, hiérarchie, provenance
+et indépendance de la copie sont vérifiés. Les échecs initiaux de connexion et
+de création HTTP 500 restent archivés ; le conflit de lecture 409 observé en
+production garde sa preuve séparée. Aucun 500 ne subsiste sur ces deux parcours.
+
+Le [reçu détaillé](shared-estimate-recovery-20261016.md) distingue cette preuve
+des anciennes campagnes locales et conserve la correspondance des migrations.
+Les autres parcours, le viewport mobile, les exports et Vercel ne sont pas
+qualifiés par cette sélection. Pour les itérations quotidiennes, utiliser le
+[même bootstrap local jetable que la CI](tester-army-local-development.md).

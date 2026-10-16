@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { randomInt } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -21,6 +22,13 @@ import {
 } from "@/test/supabase-migrations";
 
 type RoleKey = "admin" | "engineer" | "viewer";
+
+// Chromium's restricted HTTP ports above 1023; lower ports are never candidates.
+// https://chromium.googlesource.com/chromium/src/+/refs/heads/main/net/base/port_util.cc
+export const BROWSER_RESTRICTED_LOCAL_PORTS: ReadonlySet<number> = new Set([
+  1719, 1720, 1723, 2049, 3659, 4045, 5060, 5061, 6000, 6566,
+  6665, 6666, 6667, 6668, 6669, 6697, 10080,
+]);
 
 export interface NativeRuntimeHost {
   arch: string;
@@ -122,8 +130,9 @@ interface IsolatedSupabaseProject {
 interface LocalSupabaseCiDependencies {
   ensureRuntime: () => void;
   environment: SupabaseEnvironment;
+  reservedPorts: ReadonlySet<number>;
   log: (message: string) => void;
-  prepareProject: () => Promise<IsolatedSupabaseProject>;
+  prepareProject: (reservedPorts: ReadonlySet<number>) => Promise<IsolatedSupabaseProject>;
   provisionUsers: (
     status: LocalSupabaseStatus
   ) => Promise<ProvisionedUsers>;
@@ -136,29 +145,58 @@ interface LocalSupabaseCiDependencies {
   verifyMigrations: (output: string) => string[];
 }
 
-function findAvailablePort() {
-  return new Promise<number>((resolve, reject) => {
-    const server = net.createServer();
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      if (!address || typeof address === "string") {
-        server.close();
-        reject(new Error("Could not allocate an isolated Supabase port"));
-        return;
-      }
-      server.close((error) => {
-        if (error) {
-          reject(error);
-        } else {
-          resolve(address.port);
-        }
-      });
-    });
-  });
+function hostEphemeralPortRanges(): number[][] {
+  if (process.platform === "linux") {
+    const value = fs.readFileSync("/proc/sys/net/ipv4/ip_local_port_range", "utf8").trim();
+    if (!/^\d+\s+\d+$/.test(value)) throw new Error("Invalid host ephemeral port range");
+    return [value.split(/\s+/).map(Number)];
+  }
+  if (process.platform === "darwin") {
+    const result = spawnSync("/usr/sbin/sysctl", ["-n",
+      "net.inet.ip.portrange.first", "net.inet.ip.portrange.last",
+      "net.inet.ip.portrange.hifirst", "net.inet.ip.portrange.hilast",
+      "net.inet.ip.portrange.lowfirst", "net.inet.ip.portrange.lowlast",
+    ], { encoding: "utf8", timeout: 5_000, maxBuffer: 4096 });
+    const values = result.stdout?.trim().split(/\s+/) ?? [];
+    if (result.error || result.status !== 0 || values.length !== 6 || values.some((value) => !/^\d+$/.test(value))) {
+      throw new Error("Could not read host ephemeral port ranges");
+    }
+    // Darwin permits descending ranges, including the default low-port range.
+    return [0, 2, 4].map((index) => values.slice(index, index + 2).map(Number).sort((left, right) => left - right));
+  }
+  throw new Error("Host ephemeral port ranges require the supported native runtime host");
 }
 
-async function prepareIsolatedProject(): Promise<IsolatedSupabaseProject> {
+export async function findAvailablePort(
+  reserved: ReadonlySet<number>,
+  ephemeralRanges: ReadonlyArray<ReadonlyArray<number>>
+) {
+  if (ephemeralRanges.length === 0 || ephemeralRanges.some((range) => range.length !== 2 ||
+    range.some((port) => !Number.isInteger(port) || port < 1 || port > 65535) || range[0] > range[1])) {
+    throw new Error("Invalid host ephemeral port range");
+  }
+  const candidates = Array.from({ length: 65536 - 1024 }, (_, index) => index + 1024)
+    .filter((port) => !reserved.has(port) && !BROWSER_RESTRICTED_LOCAL_PORTS.has(port) &&
+      !ephemeralRanges.some(([first, last]) => port >= first && port <= last));
+  const offset = candidates.length ? randomInt(candidates.length) : 0;
+  for (let index = 0; index < candidates.length; index += 1) {
+    const port = candidates[(offset + index) % candidates.length];
+    const available = await new Promise<boolean>((resolve, reject) => {
+      const server = net.createServer();
+      server.once("error", (error: NodeJS.ErrnoException) => {
+        if (error.code === "EADDRINUSE") resolve(false);
+        else reject(error);
+      });
+      server.listen({ port, host: "127.0.0.1", exclusive: true }, () => {
+        server.close((error) => error ? reject(error) : resolve(true));
+      });
+    });
+    if (available) return port;
+  }
+  throw new Error("No non-ephemeral Supabase port is available");
+}
+
+async function prepareIsolatedProject(additionalReservedPorts: ReadonlySet<number>): Promise<IsolatedSupabaseProject> {
   const rootDirectory = fs.mkdtempSync(
     path.join(os.tmpdir(), "miaouffrage-supabase-ci-")
   );
@@ -189,13 +227,11 @@ async function prepareIsolatedProject(): Promise<IsolatedSupabaseProject> {
       54329,
       8083,
     ];
-    const reservedPorts = new Set(configuredPorts);
+    const reservedPorts = new Set([...configuredPorts, ...additionalReservedPorts]);
+    const ephemeralRanges = hostEphemeralPortRanges();
     const portReplacements = new Map<number, number>();
     for (const configuredPort of configuredPorts) {
-      let isolatedPort = await findAvailablePort();
-      while (reservedPorts.has(isolatedPort)) {
-        isolatedPort = await findAvailablePort();
-      }
+      const isolatedPort = await findAvailablePort(reservedPorts, ephemeralRanges);
       reservedPorts.add(isolatedPort);
       portReplacements.set(configuredPort, isolatedPort);
     }
@@ -564,6 +600,7 @@ function defaultDependencies(): LocalSupabaseCiDependencies {
   return {
     ensureRuntime: () => assertNativeRuntimeHost(currentNativeRuntimeHost()),
     environment: process.env,
+    reservedPorts: new Set(),
     log: console.log,
     prepareProject: prepareIsolatedProject,
     provisionUsers: provisionLocalUsers,
@@ -647,7 +684,7 @@ export async function runLocalSupabaseCi(
 
   try {
     activePhase = "prepare isolated project";
-    project = await dependencies.prepareProject();
+    project = await dependencies.prepareProject(dependencies.reservedPorts);
     startAttempted = true;
     activePhase = "start local stack";
     // Postgres starts eagerly; Auth and the Data API start on their first request.

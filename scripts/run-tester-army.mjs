@@ -7,6 +7,7 @@ import nextEnv from "@next/env";
 import { loadCoverageProfile } from "./tester-army/coverage-profile.mjs";
 import { sanitizeCoverageEvidence } from "./tester-army/coverage-evidence.mjs";
 import { archiveSetupFailure, assertSetupPath, readSetupLogBaseline, readSetupLogDelta, redactSetupError } from "./tester-army/setup-failure-archive.mjs";
+import { prepareArmyTypeScriptConfig } from "./tester-army/local-recipe-common.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const requestedMode = process.argv[2] ?? "smoke";
@@ -277,13 +278,7 @@ try {
   }
   manifest.fixtures.appOrigin = normalizedOrigin.origin;
   manifest.environment = live ? "existing loopback development server; attached without process ownership" : performance || coverage ? "owned isolated production server" : "owned loopback server";
-  // Keep Next's generated config updates separate from another active dev server.
-  await writeFile(path.join(root, ".e2e", "army", "tsconfig.json"), `${JSON.stringify({
-    extends: "../../tsconfig.json",
-    compilerOptions: { paths: { "@/*": ["../../src/*"] } },
-    include: ["../../next-env.d.ts", "../../src/**/*.ts", "../../src/**/*.tsx", "next/types/**/*.ts", "next/dev/types/**/*.ts"],
-    exclude: ["../../node_modules"],
-  }, null, 2)}\n`);
+  await prepareArmyTypeScriptConfig(root);
   inputs = [
     path.join(root, "e2e.config.ts"),
     path.join(root, "scripts", "run-tester-army.mjs"),

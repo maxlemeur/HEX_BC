@@ -105,6 +105,7 @@ async function fixture(name) {
   await writeFile(path.join(cwd, "scripts/run-tester-army.mjs"), runnerBytes);
   if (helperBytes) await writeFile(path.join(cwd, "scripts/tester-army/setup-failure-archive.mjs"), helperBytes);
   await cp(path.join(root, "scripts/tester-army/coverage-evidence.mjs"), path.join(cwd, "scripts/tester-army/coverage-evidence.mjs"));
+  await cp(path.join(root, "scripts/tester-army/local-recipe-common.mjs"), path.join(cwd, "scripts/tester-army/local-recipe-common.mjs"));
   await writeFile(path.join(cwd, "scripts/tester-army/coverage-profile.mjs"), 'export async function loadCoverageProfile(){if(process.env.E2E_ARMY_BASE_URL?.startsWith("invalid-"))throw new Error("profile setup failed for password "+process.env.E2E_LOGIN_PASSWORD);return {env:{},metadata:{scenarioSet:"harness-only",fixture:{scope:"no business/auth"}},evidence:[]};}\n');
   await mkdir(path.join(cwd, "node_modules/@next/env"), { recursive: true });
   await writeFile(path.join(cwd, "node_modules/@next/env/index.js"), "module.exports={loadEnvConfig(){}};\n");

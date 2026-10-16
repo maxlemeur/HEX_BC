@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, readdir, realpath, stat } from "node:fs/promises";
+import { mkdir, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -8,7 +8,18 @@ export const repositoryRoot = path.resolve(fileURLToPath(new URL("../../", impor
 export const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 export const relativePath = (file) => path.relative(repositoryRoot, file).replaceAll("\\", "/");
 export const digestPattern = /^[0-9a-f]{64}$/;
-export const buildCommands = [["scripts/validate-openapi-runner.mjs"], ["--max-old-space-size=8192", "node_modules/next/dist/bin/next", "build", "--webpack"], ["--import", "tsx", "scripts/check-performance-budgets.ts"]];
+export const buildCommands = [["scripts/validate-openapi-runner.mjs"], ["--max-old-space-size=4096", "node_modules/next/dist/bin/next", "build", "--webpack"], ["--import", "tsx", "scripts/check-performance-budgets.ts"]];
+
+/** Keep Next's generated config updates separate from another active dev server. */
+export async function prepareArmyTypeScriptConfig(root = repositoryRoot) {
+  await mkdir(path.join(root, ".e2e/army"), { recursive: true });
+  await writeFile(path.join(root, ".e2e/army/tsconfig.json"), `${JSON.stringify({
+    extends: "../../tsconfig.json",
+    compilerOptions: { paths: { "@/*": ["../../src/*"] } },
+    include: ["../../next-env.d.ts", "../../src/**/*.ts", "../../src/**/*.tsx", "next/types/**/*.ts", "next/dev/types/**/*.ts"],
+    exclude: ["../../node_modules"],
+  }, null, 2)}\n`);
+}
 
 export async function buildSourceEvidence() {
   const git = (args, encoding = "utf8") => {
