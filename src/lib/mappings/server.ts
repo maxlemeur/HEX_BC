@@ -894,6 +894,18 @@ function guessTargetFieldWithScore(sourceColumn: string): TargetGuess | null {
     return { target: "control_supply_unit_price", score: 0.58 };
   }
 
+  // D11 (2.3 review): an explicit purchase price ("prix d'achat", "prix de revient", "PR") is the
+  // supply cost, never the generic unit price checked below; its total is a check column.
+  if (!isLabor && has("achat", "revient") && has("prix", "cout", "pr")) {
+    return isTotal
+      ? { target: "control_supply_total", score: 0.58 }
+      : { target: "unit_price_ht", score: 0.62 };
+  }
+
+  if (!isLabor && !isTotal && has("pr")) {
+    return { target: "unit_price_ht", score: 0.6 };
+  }
+
   if (isLabor && has("h", "heure", "heures")) {
     return { target: "labor_hours", score: 0.61 };
   }
