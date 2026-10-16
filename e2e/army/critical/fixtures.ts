@@ -204,7 +204,7 @@ export async function readEstimate(browser: Browser, versionId: string): Promise
 
 export async function createEstimateViaWizard(
   { app, screen, browser }: Ui,
-  { projectName, title }: { projectName: string; title: string },
+  { projectName, title, marginPercent = "0" }: { projectName: string; title: string; marginPercent?: string },
   army: ArmyState
 ): Promise<OwnedEstimate> {
   if (!projectName.startsWith("ARMY-")) throw new Error("Campaign projects must start with ARMY-.");
@@ -217,7 +217,8 @@ export async function createEstimateViaWizard(
   await screen.getByLabel(/Date devis/).fill("2026-10-02");
   await screen.getByLabel(/Validité/).fill("30");
   await screen.getByRole("button", "Marge fixe", { exact: true }).tap();
-  await screen.getByLabel("Marge (%)", { exact: true }).fill("0");
+  // A fixed margin of N % is stored as the multiplier 1 + N / 100.
+  await screen.getByLabel("Marge (%)", { exact: true }).fill(marginPercent);
   await screen.getByLabel("Marge (%)", { exact: true }).press("Tab");
   await screen.getByLabel(/TVA \(%\)/).fill("20");
   await screen.getByLabel(/TVA \(%\)/).press("Tab");
