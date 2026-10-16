@@ -158,9 +158,7 @@ armyTest(
 
       stage = "upload-xlsx";
       await app.open(`/dashboard/affaires/${projectId}?created=1`);
-      await screen.getByRole("button", "Importer la DPGF", { exact: true }).tap();
-      await browser.locator('input[type="file"]').setInputFiles(fixturePath);
-      await screen.getByRole("button", "Lancer l'import", { exact: true }).tap();
+      await selectWorkbookInImportFlow({ app, screen, browser }, fixturePath);
       const nextMapping = screen.getByRole("button", "Suivant : Aperçu", { exact: true });
       const editMapping = screen.getByRole("button", "Modifier le mapping", { exact: true });
       await expect.poll(async () => (await nextMapping.isVisible()) || (await editMapping.isVisible()), {
@@ -308,12 +306,32 @@ async function writeWorkbookFixture(army: ArmyState, name: string, sheet: XLSX.W
   return { filename, fixturePath, sha256: createHash("sha256").update(bytes).digest("hex") };
 }
 
-/** Uploads a workbook through the affaire's import flow and stays on the mapping step. */
-async function uploadThroughAffaire({ app, screen, browser }: Ui, projectId: string, fixturePath: string) {
-  await app.open(`/dashboard/affaires/${projectId}?created=1`);
+/**
+ * Opens the affaire's import flow and selects the workbook in its upload step. The flow is loaded on
+ * demand and the affaire page also holds the « Ajouter des pièces à l'affaire » input (several files):
+ * wait for the upload step, target its single-file input, and select again until « Lancer l'import »
+ * appears (a full campaign once selected the file before the step was ready).
+ */
+async function selectWorkbookInImportFlow({ screen, browser }: Ui, fixturePath: string) {
   await screen.getByRole("button", "Importer la DPGF", { exact: true }).tap();
-  await browser.locator('input[type="file"]').setInputFiles(fixturePath);
-  await screen.getByRole("button", "Lancer l'import", { exact: true }).tap();
+  await expect(screen.getByText("Glissez-déposez votre fichier DPGF ici", { exact: true })).toBeVisible({
+    timeout: 30_000,
+  });
+  const workbookInput = browser.locator('input[type="file"]:not([multiple])');
+  expect(await workbookInput.count(), "single-file input of the import flow").toBe(1);
+  const launch = screen.getByRole("button", "Lancer l'import", { exact: true });
+  await expect.poll(async () => {
+    if (!(await launch.isVisible())) await workbookInput.setInputFiles(fixturePath);
+    return launch.isVisible();
+  }, { timeout: 30_000 }).toBe(true);
+  await launch.tap();
+}
+
+/** Uploads a workbook through the affaire's import flow and stays on the mapping step. */
+async function uploadThroughAffaire(ui: Ui, projectId: string, fixturePath: string) {
+  const { app, screen, browser } = ui;
+  await app.open(`/dashboard/affaires/${projectId}?created=1`);
+  await selectWorkbookInImportFlow(ui, fixturePath);
   const nextMapping = screen.getByRole("button", "Suivant : Aperçu", { exact: true });
   const editMapping = screen.getByRole("button", "Modifier le mapping", { exact: true });
   await expect.poll(async () => (await nextMapping.isVisible()) || (await editMapping.isVisible()), {
