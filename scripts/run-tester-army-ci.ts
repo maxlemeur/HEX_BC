@@ -8,27 +8,33 @@ import { createClient } from "@supabase/supabase-js";
 import { assertLoopbackSupabaseUrl, BROWSER_RESTRICTED_LOCAL_PORTS, runLocalSupabaseCi } from "../src/test/local-supabase-ci";
 import { createLocalCiEnvironment, type SupabaseEnvironment } from "../src/test/supabase-cli";
 import type { Database } from "../src/types/database";
+import { runCalcV3Campaign } from "./tester-army/calc-v3-campaign";
+import { isCalcV3Phase, type CalcV3Phase } from "./tester-army/calc-v3-phases";
 import { buildSourceEvidence, redactOutput, sqlInventory } from "./tester-army/local-recipe-common.mjs";
 import { assertLocalAppPortAvailable, runLocalDevelopmentSession } from "./tester-army/local-development";
 
 const suite = process.argv[2];
-if (!["critical", "full", "dev"].includes(suite)) {
-  throw new Error("Usage: run-tester-army-ci.ts critical|full|dev [--app-port PORT] [critical only: --grep PATTERN]");
+if (!["critical", "full", "dev", "calc-v3"].includes(suite)) {
+  throw new Error("Usage: run-tester-army-ci.ts critical|full|dev|calc-v3 [--app-port PORT] [critical only: --grep PATTERN] [calc-v3 only: --phase NAME [--grep PATTERN]]");
 }
 let grep: string | undefined;
+let calcV3Phase: CalcV3Phase | undefined;
 let appPort = 3107;
 const suppliedOptions = new Set<string>();
 for (let index = 3; index < process.argv.length; index += 2) {
   const option = process.argv[index];
   const value = process.argv[index + 1];
-  if (!["--grep", "--app-port"].includes(option) || suppliedOptions.has(option) || !value?.trim()) {
-    throw new Error("Only one --app-port and one critical --grep with explicit values are allowed.");
+  if (!["--grep", "--app-port", "--phase"].includes(option) || suppliedOptions.has(option) || !value?.trim()) {
+    throw new Error("Only one --app-port, one --grep and one calc-v3 --phase with explicit values are allowed.");
   }
   suppliedOptions.add(option);
   if (option === "--grep") {
-    if (suite !== "critical") throw new Error("--grep is restricted to critical; full and dev cannot be filtered.");
+    if (suite !== "critical" && suite !== "calc-v3") throw new Error("--grep is restricted to critical and one calc-v3 phase; full and dev cannot be filtered.");
     new RegExp(value);
     grep = value;
+  } else if (option === "--phase") {
+    if (suite !== "calc-v3" || !isCalcV3Phase(value)) throw new Error("--phase names one calc-v3 phase: journeys|components|numeric|resume|access|emission.");
+    calcV3Phase = value;
   } else {
     if (!/^[0-9]+$/.test(value) || Number(value) < 1024 || Number(value) > 65535) {
       throw new Error("--app-port must be an integer from 1024 to 65535; the host is always loopback.");
@@ -45,6 +51,7 @@ const workers = process.env.E2E_ARMY_WORKERS ?? "";
 if (workers !== "" && !/^[1-4]$/.test(workers)) {
   throw new Error(`E2E_ARMY_WORKERS must be an integer from 1 to 4 (default 1); received "${workers}".`);
 }
+if (suite === "calc-v3" && grep && !calcV3Phase) throw new Error("A calc-v3 --grep filters exactly one --phase.");
 const root = process.cwd();
 const evidence = path.join(root, ".e2e/army/ci", `${new Date().toISOString().replace(/[:.]/g, "-")}-${suite}`);
 fs.mkdirSync(evidence, { recursive: true });
@@ -61,8 +68,9 @@ const manifest: Record<string, unknown> = {
   node: process.version,
   platform: process.platform,
   appOrigin: `http://localhost:${appPort}`,
-  scope: suite === "dev" ? "interactive-development" : grep ? "filtered-critical" : suite,
+  scope: suite === "dev" ? "interactive-development" : grep ? `filtered-${suite}` : calcV3Phase ? `calc-v3-${calcV3Phase}` : suite,
   ...(grep ? { grep } : {}),
+  ...(calcV3Phase ? { calcV3Phase } : {}),
   ...(suite === "dev" ? { e2e: "not-run" } : { workers: workers === "" ? 1 : Number(workers) }),
   status: "preparing",
   steps: [],
@@ -166,6 +174,19 @@ async function runApplication(local: SupabaseEnvironment) {
     TAKEOFF_MODULE_ENABLED_BY_DEFAULT: "1",
     RESEND_API_KEY: "", EMAIL_FROM: "", GEMINI_API_KEY: "", GOOGLE_GENERATIVE_AI_API_KEY: "",
   };
+  if (suite === "calc-v3") {
+    // Lot 2 baseline phases (docs/testing/tester-army-calc-v3.md). The PostgreSQL
+    // route stays in this Node process for fixture seeding; journeys never get it.
+    await runCalcV3Campaign({
+      root, evidence, appPort, environment, backend: backend.origin, anonKey: local.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      databaseUrl: local.E2E_ARMY_LOCAL_DB_URL, psql: local.E2E_ARMY_LOCAL_PSQL, admin,
+      owner: { userId: user.user.id, tenantId, laborRoleId: laborRole.id },
+      phase: calcV3Phase, grep, remember: (secret) => { knownSecrets.push(secret); }, redact,
+      build: () => runNode(["scripts/tester-army/build-local.mjs", "--execute"], environment, "build"),
+    });
+    manifest.calcV3 = "calc-v3.json";
+    return;
+  }
   if (suite === "dev") {
     manifest.development = await runLocalDevelopmentSession({
       root, evidence, port: appPort, environment, email, password,

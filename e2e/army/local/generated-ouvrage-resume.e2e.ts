@@ -7,6 +7,7 @@ import { test, type Browser } from "@e2e-dev/web";
 import { expect, type App, type Screen } from "e2e";
 
 import { readEstimate, recordEvidence, restrictCriticalBrowser } from "../critical/fixtures";
+import { isolatedLocalBackend, isolatedRunsRoot } from "./isolated-backend";
 import { sdkResultsRoot } from "./sdk-results";
 
 type Candidate = { candidateId: string; designation: string; subdetailId: string; quantity: number; unit: string; components: Array<{ componentId: string; designation: string; quantity: number; unit: string; unitCostHtCents: number; dsCents: number; costType?: string; lossCoeffBp?: number; yieldValue?: number | null; yieldUnit?: string | null }> };
@@ -22,10 +23,10 @@ type Ui = { app: App; browser: Browser; screen: Screen };
 const generatedTest = test.extend<{ generated: Context }>({
   generated: async ({ app, browser }, provide) => {
     const file = process.env.E2E_GENERATED_OUVRAGE_FIXTURE_PATH;
-    if (!file || process.env.NEXT_PUBLIC_SUPABASE_URL !== "http://127.0.0.1:59827") throw new Error("An explicit isolated generated-ouvrage fixture is required.");
+    if (!file || process.env.NEXT_PUBLIC_SUPABASE_URL !== isolatedLocalBackend()) throw new Error("An explicit isolated generated-ouvrage fixture is required.");
     const fixture = JSON.parse(await readFile(file, "utf8")) as Fixture;
     expect(fixture.status).toBe("ready");
-    expect(fixture.apiUrl).toBe("http://127.0.0.1:59827");
+    expect(fixture.apiUrl).toBe(isolatedLocalBackend());
     const manifest = JSON.parse(await readFile(".e2e/army/next/server/server-reference-manifest.json", "utf8")) as { node: Record<string, { exportedName?: string }> };
     const actionNames = new Map(Object.entries(manifest.node).map(([id, entry]) => [id, entry.exportedName ?? "unknown"]));
     const context: Context = { fixture, calls: [], actionNames };
@@ -215,7 +216,7 @@ async function reviewAndInsert(ui: Ui, draft: Draft, candidate: Candidate, compl
 
 async function assertInsertionSessionDenials(browser: Browser, context: Context, scenario: Scenario, draft: Draft, candidate: Candidate) {
   const actionId = [...context.actionNames].find(([, name]) => name === "insertGeneratedOuvrages")?.[0];
-  if (!actionId || context.fixture.apiUrl !== "http://127.0.0.1:59827") throw new Error("Real insertion action and exact local fixture required.");
+  if (!actionId || context.fixture.apiUrl !== isolatedLocalBackend()) throw new Error("Real insertion action and exact local fixture required.");
   // Separate ordinary authentication is used only for independent RLS reads.
   // Session tokens stay inside the client and are never returned or recorded.
   const client = createClient(context.fixture.apiUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
@@ -645,7 +646,7 @@ generatedTest("GR08 preserves the explicitly reviewed parent unit in API UI and 
   expect(lines).toHaveLength(1);
   const uiUnit = await screen.getByLabel(`Unité pour ${candidate.designation}`, { exact: true }).inputValue();
   const root = sdkResultsRoot();
-  if (!root.startsWith(path.resolve(".e2e/product-foundation/runs") + path.sep)) throw new Error("Explicit current download artifact root required.");
+  if (!root.startsWith(isolatedRunsRoot() + path.sep)) throw new Error("Explicit current download artifact root required.");
   const before = new Set(await artifactFiles(root));
   await screen.getByTestId("estimate-page-toolbar-more-actions-button").tap();
   const download = await browser.waitForDownload(() => screen.getByTestId("estimate-page-toolbar-export-dpgf-button").tap(), { timeout: 60_000 });

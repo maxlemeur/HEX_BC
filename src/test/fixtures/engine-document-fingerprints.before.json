@@ -1,0 +1,988 @@
+{
+  "aggregateSha256": "2b9715519d99ad09cd06e69cbd6af3891cd1fe1e001773a8caf92a85391b78e4",
+  "corpusSha256": "3b8fc8c354b7125a9759e7ea951c048ad55efe9f16e7b8643bb380a0cde7c892",
+  "description": "Empreintes SHA-256 des documents client v1/v2 (données préparées du PDF, contrat client, preuve et sceaux 1 à 5, export XLSX relu, montants persistés) sur le corpus figé de scripts/engine-v3/document-fingerprints-corpus.ts. Chaque sous-lot du lot 2 doit les reproduire à l'identique avec `check`.",
+  "fingerprints": {
+    "v1-accepted-seal1-presplit-rounding": {
+      "engine": 1,
+      "flow": "historical-v1",
+      "stages": {
+        "issued": {
+          "amounts": {
+            "calc_snapshot_content_revision": null,
+            "content_revision": 4,
+            "historicalSealHash": "2b8ecebcef8d17bd843d96254e07ebc5e0c1d7b0294ab44206ebb2048e269bf8",
+            "historicalSealPayloadVersion": 1,
+            "rounding_adjustment_cents": 924,
+            "seal_payload_version": null,
+            "status": "accepted",
+            "total_ht_cents": 194384,
+            "total_tax_cents": 11616,
+            "total_ttc_cents": 206000
+          },
+          "checks": {
+            "sealVerified": true
+          },
+          "sha256": {
+            "export": "ad76aaca3a7a09ce71edbc923bbc05d54124d45abd8a66f8ff0e1b68283b2937",
+            "mirrorContract": "d80400f198166b520873de9f94bf12087684c6b83580e36e187039cac289a1df",
+            "mirrorPrepared": "feda447d676deb472395e74ec1cabd3c2ba3a18679c4201dd45ffa2d9a6fb449",
+            "rows": "5a04c06cb3e230f4dfc34492a5fc76abd13d83b0e6b7b55ecf695d7cfa85c67f",
+            "seal": "090a12249920cc2c0f49354063dfd375abdff1376892065481fd8821a1bfebd8"
+          }
+        },
+        "seeded": {
+          "amounts": {
+            "calc_snapshot_content_revision": null,
+            "content_revision": 4,
+            "rounding_adjustment_cents": 924,
+            "seal_payload_version": null,
+            "status": "draft",
+            "total_ht_cents": 194384,
+            "total_tax_cents": 11616,
+            "total_ttc_cents": 206000
+          },
+          "checks": {},
+          "sha256": {
+            "export": "83e2ac88bc07dea59cef9ce752122f6ba99742c55e46b3f78ac8dd34a39145ff",
+            "rows": "5483530554cde09ed7fc480ba93118d53a2640b46bbada10745c88ea035633fd",
+            "seal": "090a12249920cc2c0f49354063dfd375abdff1376892065481fd8821a1bfebd8"
+          }
+        }
+      },
+      "versionId": "d0cf1000-0000-4000-8000-000000000305"
+    },
+    "v1-draft-fixed-discount-bp": {
+      "engine": 1,
+      "flow": "document",
+      "stages": {
+        "document": {
+          "amounts": {
+            "calc_snapshot_content_revision": null,
+            "content_revision": 8,
+            "contractPayableTtcCents": 222338,
+            "contractRoundingAdjustmentCents": 0,
+            "contractSaleHtCents": 185281,
+            "contractTaxCents": 37057,
+            "rounding_adjustment_cents": 0,
+            "seal_payload_version": null,
+            "status": "draft",
+            "total_ht_cents": 185281,
+            "total_tax_cents": 37057,
+            "total_ttc_cents": 222338
+          },
+          "checks": {
+            "offerDocumentValid": true,
+            "offerSealPayloadVersion": 5,
+            "offerStoredSealMatches": null,
+            "offerVerified": true
+          },
+          "sha256": {
+            "contract": "8beb7f09b19aa032e0d6fa3d56e8e9a613cb4d48b0e55e2e0f7f7d57d36e757f",
+            "export": "d7584826d36bdf5e20ddb81a0400fccf9b8ae59d1f2753fc7c588ddb94b70b2a",
+            "prepared": "f7f4badbc03f6424fb952ba2d342a686063ac86b297d4e520a0ea232314762d7",
+            "proof": "ddb65a1c6e6d6675bda402d84d04af135d3cdfe7d45d52dbf6f9fbc34f44a033",
+            "rows": "3f89711580609c8ef30e3c5aed48b05561e346e6d8bfad9690fb77a8c41e97db",
+            "seal": "2af43446b93e2b4be1b60918ebc959e9807f8227604e3f2d8837662d2af27448",
+            "seal5": "c751fa9e254d48531580f468de039322e00a6a3babdc8825a028431306a24df1"
+          }
+        },
+        "seeded": {
+          "amounts": {
+            "calc_snapshot_content_revision": null,
+            "content_revision": 8,
+            "rounding_adjustment_cents": 0,
+            "seal_payload_version": null,
+            "status": "draft",
+            "total_ht_cents": 185281,
+            "total_tax_cents": 37057,
+            "total_ttc_cents": 222338
+          },
+          "checks": {},
+          "sha256": {
+            "export": "d7584826d36bdf5e20ddb81a0400fccf9b8ae59d1f2753fc7c588ddb94b70b2a",
+            "rows": "9f24408201044c9d1e72397cc401ecc85b99bdc06ef75605262b3b791aaa89ef",
+            "seal": "2af43446b93e2b4be1b60918ebc959e9807f8227604e3f2d8837662d2af27448"
+          }
+        }
+      },
+      "versionId": "d0cf1000-0000-4000-8000-000000000301"
+    },
+    "v1-draft-tiered-cascade-coefficient-rounding": {
+      "engine": 1,
+      "flow": "document",
+      "stages": {
+        "document": {
+          "amounts": {
+            "calc_snapshot_content_revision": null,
+            "content_revision": 5,
+            "contractPayableTtcCents": 727200,
+            "contractRoundingAdjustmentCents": 14,
+            "contractSaleHtCents": 661078,
+            "contractTaxCents": 66108,
+            "rounding_adjustment_cents": 14,
+            "seal_payload_version": null,
+            "status": "draft",
+            "total_ht_cents": 661078,
+            "total_tax_cents": 66122,
+            "total_ttc_cents": 727200
+          },
+          "checks": {
+            "offerDocumentValid": true,
+            "offerSealPayloadVersion": 5,
+            "offerStoredSealMatches": null,
+            "offerVerified": true
+          },
+          "sha256": {
+            "contract": "b1bed6fb95fd452f8e4fd41c10f9a705ff8db6ff379f8d22e4d70f62bd7cc853",
+            "export": "7748c3bd3cbfce14bce0abd759bfbc0d5efda9e1388b49c97ab50b22ff12fd88",
+            "prepared": "9402ec2ab3e51d5b4c5e14779e503c2a69ac767b4e712b3db5e42c3633e5b0dd",
+            "proof": "8ab4d65cc48cb44e2a51a6119a6582983eba37b630841bf66aaa089eae8caefd",
+            "rows": "6ec341c54c7a634a2deaeb275ee954505b2032b8d3ab35fe4cb4f8c1ee16c2a8",
+            "seal": "1d5d4f1e6b07bc990bfb1a38f705dbf541b79881ed0488428fb997705e1a78a3",
+            "seal5": "b78a89d3308b5cc77b13cf180702bd11492e65b2dfe7590c3ec74851d7202bbd"
+          }
+        },
+        "seeded": {
+          "amounts": {
+            "calc_snapshot_content_revision": null,
+            "content_revision": 5,
+            "rounding_adjustment_cents": 14,
+            "seal_payload_version": null,
+            "status": "draft",
+            "total_ht_cents": 661078,
+            "total_tax_cents": 66122,
+            "total_ttc_cents": 727200
+          },
+          "checks": {},
+          "sha256": {
+            "export": "7748c3bd3cbfce14bce0abd759bfbc0d5efda9e1388b49c97ab50b22ff12fd88",
+            "rows": "2788a44a3593275e4762b87453db2ec54c2b5c0e4d6f1069fb1895100283eaea",
+            "seal": "1d5d4f1e6b07bc990bfb1a38f705dbf541b79881ed0488428fb997705e1a78a3"
+          }
+        }
+      },
+      "versionId": "d0cf1000-0000-4000-8000-000000000302"
+    },
+    "v1-sent-seal1-split-reverse-charge": {
+      "engine": 1,
+      "flow": "historical-v1",
+      "stages": {
+        "issued": {
+          "amounts": {
+            "calc_snapshot_content_revision": null,
+            "content_revision": 4,
+            "historicalSealHash": "e7944cc9292b33deb6bcfadffc0da9b615ff3af29d3b9d7f54f8b7d6d96b1bda",
+            "historicalSealPayloadVersion": 1,
+            "rounding_adjustment_cents": 0,
+            "seal_payload_version": null,
+            "status": "sent",
+            "total_ht_cents": 147770,
+            "total_tax_cents": 0,
+            "total_ttc_cents": 147770
+          },
+          "checks": {
+            "sealVerified": true
+          },
+          "sha256": {
+            "export": "1c86a08aa39499ee0e691654f78dd615195c8f570297bfddba2c402737e32c68",
+            "mirrorContract": "4bca3210f1310405a8310e54429fb7f40acd819117ed61c883ddc26adc252b0f",
+            "mirrorPrepared": "5622e0c293468eabfe959c9b2948fe5c9f557c57ce539cb9810e3224e36a402d",
+            "rows": "1f9fd6a587de29d4ed758003f0b0cf5ed844582ba7d7e652ee5f23b0fe1cdf72",
+            "seal": "7f0e893325b3e1878fbe79694fa712313be597bbf48de674bef43cf5652511ee"
+          }
+        },
+        "seeded": {
+          "amounts": {
+            "calc_snapshot_content_revision": null,
+            "content_revision": 4,
+            "rounding_adjustment_cents": 0,
+            "seal_payload_version": null,
+            "status": "draft",
+            "total_ht_cents": 147770,
+            "total_tax_cents": 0,
+            "total_ttc_cents": 147770
+          },
+          "checks": {},
+          "sha256": {
+            "export": "62bb909a5c2c96b4b8cd6afe12b05e091ea77d6276194c70b5c37587496cb445",
+            "rows": "f9f1f330ea1ba504014154d4159f1f358846cec8556a14c13fa8303d4911b06a",
+            "seal": "7f0e893325b3e1878fbe79694fa712313be597bbf48de674bef43cf5652511ee"
+          }
+        }
+      },
+      "versionId": "d0cf1000-0000-4000-8000-000000000304"
+    },
+    "v1-sent-seal2": {
+      "engine": 1,
+      "flow": "historical-v1",
+      "stages": {
+        "issued": {
+          "amounts": {
+            "calc_snapshot_content_revision": null,
+            "content_revision": 6,
+            "historicalSealHash": "e994d4a9431ec31a0edfdb0966d4ea80497af27e04c234bf1e0c38d6820df3af",
+            "historicalSealPayloadVersion": 2,
+            "rounding_adjustment_cents": 0,
+            "seal_payload_version": 2,
+            "status": "sent",
+            "total_ht_cents": 255406,
+            "total_tax_cents": 51081,
+            "total_ttc_cents": 306487
+          },
+          "checks": {
+            "sealVerified": true
+          },
+          "sha256": {
+            "export": "a1ef7ae9d766f2b68e17f971c6d9ef7dd631d3db19e58716b079ed13c4fb7a81",
+            "mirrorContract": "14756898f6e55d144858a082595b5b40e39761ed1e11dd7143ed4856eacdfb85",
+            "mirrorPrepared": "982654683b069cdf8531efd3b07f7abc2e286074fe07095d1eea5fe6b03e5e22",
+            "rows": "32d48c0da6e6002efcb943c5b5bac17e2b121493063b0bed0f121fab3888c8e1",
+            "seal": "803d366cf600bae34da51b88c5dd1e49b1594a4124e5dc333feea705f520ebec"
+          }
+        },
+        "seeded": {
+          "amounts": {
+            "calc_snapshot_content_revision": null,
+            "content_revision": 6,
+            "rounding_adjustment_cents": 0,
+            "seal_payload_version": null,
+            "status": "draft",
+            "total_ht_cents": 255406,
+            "total_tax_cents": 51081,
+            "total_ttc_cents": 306487
+          },
+          "checks": {},
+          "sha256": {
+            "export": "d2173e7cbaeaefefcd5547f96d54bf184d8cd6387ff4f59490a382129abeb736",
+            "rows": "08546a15b894cf3d93c1fbb0842f1706d131f6dc807a022f873896a35699baa8",
+            "seal": "803d366cf600bae34da51b88c5dd1e49b1594a4124e5dc333feea705f520ebec"
+          }
+        }
+      },
+      "versionId": "d0cf1000-0000-4000-8000-000000000303"
+    },
+    "v2-draft-fixed-amount": {
+      "engine": 2,
+      "flow": "document",
+      "stages": {
+        "document": {
+          "amounts": {
+            "calc_snapshot_content_revision": 10,
+            "content_revision": 10,
+            "contractPayableTtcCents": 160821,
+            "contractRoundingAdjustmentCents": 0,
+            "contractSaleHtCents": 134017,
+            "contractTaxCents": 26804,
+            "rounding_adjustment_cents": 0,
+            "seal_payload_version": null,
+            "status": "draft",
+            "total_ht_cents": 134017,
+            "total_tax_cents": 26804,
+            "total_ttc_cents": 160821
+          },
+          "checks": {
+            "offerDocumentValid": true,
+            "offerSealPayloadVersion": 5,
+            "offerStoredSealMatches": null,
+            "offerVerified": true
+          },
+          "sha256": {
+            "contract": "30e12d8cd79befb7dc35caeae3011d8dc0cf0eaae520fb07e3d738def4b6ce60",
+            "export": "82157b9933b4649b383dee4790cf7a7a34f6219c3d40a5be686c00bf6bfb5bd7",
+            "prepared": "48b6ea2eb637b1634abe84cc70579c73b6516561f41f23781d24db938b204062",
+            "proof": "c5aba8672fda2c90b8c412f8d50c8fd0bdd940733acee9df211e2482d694ea19",
+            "rows": "cfbabd7bc640160c7b3a749d60370e9a084dae62d27a9cda224ac83beabe9eda",
+            "seal": "e7057dbba882342f85562fb3da84442b6c14bdef85fdfe8f0dbaa62aa85bd9d6",
+            "seal5": "437dcbc1178ca6899e75f0edfd71975774043ea8660d994866e4ca2539342f7b"
+          }
+        },
+        "seeded": {
+          "amounts": {
+            "calc_snapshot_content_revision": null,
+            "content_revision": 6,
+            "rounding_adjustment_cents": 0,
+            "seal_payload_version": null,
+            "status": "draft",
+            "total_ht_cents": 134017,
+            "total_tax_cents": 26803,
+            "total_ttc_cents": 160820
+          },
+          "checks": {},
+          "sha256": {
+            "export": "82157b9933b4649b383dee4790cf7a7a34f6219c3d40a5be686c00bf6bfb5bd7",
+            "rows": "ca3ee010571044de6d3cec205daa698474e7213a34a8a3047ce7504fd4aacdb8",
+            "seal": "74ed2e2be64de1ae3f015ed6d507a9223cdfd1def1165ece5a27f6a35c4bc694"
+          }
+        }
+      },
+      "versionId": "d0cf1000-0000-4000-8000-000000000311"
+    },
+    "v2-draft-live-cascade-coefficient": {
+      "engine": 2,
+      "flow": "export",
+      "stages": {
+        "seeded": {
+          "amounts": {
+            "calc_snapshot_content_revision": null,
+            "content_revision": 4,
+            "rounding_adjustment_cents": 24,
+            "seal_payload_version": null,
+            "status": "draft",
+            "total_ht_cents": 49564,
+            "total_tax_cents": 9936,
+            "total_ttc_cents": 59500
+          },
+          "checks": {},
+          "sha256": {
+            "export": "6621980955374ec07ca8c6979b540b7e7ba7c120b08ee56a1ab8c4ced0d8100d",
+            "rows": "92799a7a073da221f7e7ec758362770dd9a709547f6417a1b8f0ef136cd8ab67",
+            "seal": "29c34fd9e835d51ded9a00c538146447a3003db02c825cf55c99c41188bab418"
+          }
+        }
+      },
+      "versionId": "d0cf1000-0000-4000-8000-000000000319"
+    },
+    "v2-historical-seal2-multi-rate": {
+      "engine": 2,
+      "flow": "historical-v2",
+      "stages": {
+        "frozen": {
+          "amounts": {
+            "calc_snapshot_content_revision": 9,
+            "content_revision": 9,
+            "rounding_adjustment_cents": 0,
+            "seal_payload_version": null,
+            "status": "draft",
+            "total_ht_cents": 124331,
+            "total_tax_cents": 19505,
+            "total_ttc_cents": 143836
+          },
+          "checks": {},
+          "sha256": {
+            "export": "72ff81cd71e007c8a13438a082d52a64699161e2aabd003e23a14ea984c443ad",
+            "mirrorContract": "e514a0d0d1956f476e8f9e7d9947b10cd3c25c0c7f0e25da74f28b4fc3e6891a",
+            "mirrorPrepared": "b6ac4d5243f7cef465c1feafcb15beb5151d063d4a9e4a55d98c39ae05a69003",
+            "rows": "9ac1faa82fece9040e324851e575481abaa6e1426f5803ddd5b7889265169232",
+            "seal": "6feabfcaadc7e00ea3c32f2fccfa69967a2871cfe91a7bc8b22d7c925b227774"
+          }
+        },
+        "issued": {
+          "amounts": {
+            "calc_snapshot_content_revision": 9,
+            "content_revision": 9,
+            "historicalSealHash": "e5cfb696c00e3e135ee8d4913a26c0cf873e7b5c32f192e7488f41314d3e19ad",
+            "historicalSealPayloadVersion": 2,
+            "rounding_adjustment_cents": 0,
+            "seal_payload_version": 2,
+            "status": "sent",
+            "total_ht_cents": 124331,
+            "total_tax_cents": 19505,
+            "total_ttc_cents": 143836
+          },
+          "checks": {
+            "sealVerified": true
+          },
+          "sha256": {
+            "export": "304b2b9f7bd8654b624055ca204c9943e102d1107c529a8a2fb9dbb5a8b8f0f9",
+            "mirrorContract": "e514a0d0d1956f476e8f9e7d9947b10cd3c25c0c7f0e25da74f28b4fc3e6891a",
+            "mirrorPrepared": "b6ac4d5243f7cef465c1feafcb15beb5151d063d4a9e4a55d98c39ae05a69003",
+            "rows": "03c056bdb44b4e16154bc36dc1680a8ed49f96c9ab83705f55972d099837bb8f",
+            "seal": "6feabfcaadc7e00ea3c32f2fccfa69967a2871cfe91a7bc8b22d7c925b227774"
+          }
+        },
+        "seeded": {
+          "amounts": {
+            "calc_snapshot_content_revision": null,
+            "content_revision": 5,
+            "rounding_adjustment_cents": 0,
+            "seal_payload_version": null,
+            "status": "draft",
+            "total_ht_cents": 124331,
+            "total_tax_cents": 12434,
+            "total_ttc_cents": 136765
+          },
+          "checks": {},
+          "sha256": {
+            "export": "68aed5a372b63d6b00970b493ba21d9fc548478318df01adc575b3fb15feb198",
+            "rows": "ca4f1fcfa8cadcbcb5aa8bd1e777b180dd3936c3f857af8255e002825cb7ebaa",
+            "seal": "9a80cb866a180816f5dd48651dfaeb7a3a3646d0ef435fdc27d93db30a0d87b2"
+          }
+        }
+      },
+      "versionId": "d0cf1000-0000-4000-8000-000000000318"
+    },
+    "v2-historical-seal4-fixed-amount": {
+      "engine": 2,
+      "flow": "historical-v2",
+      "stages": {
+        "frozen": {
+          "amounts": {
+            "calc_snapshot_content_revision": 7,
+            "content_revision": 7,
+            "rounding_adjustment_cents": 0,
+            "seal_payload_version": null,
+            "status": "draft",
+            "total_ht_cents": 68675,
+            "total_tax_cents": 13735,
+            "total_ttc_cents": 82410
+          },
+          "checks": {},
+          "sha256": {
+            "export": "277e3660cc5a61297bf48d6e5e7b88c749cb33981f5a8a0072cccc8ef1874f7e",
+            "mirrorContract": "ea7b033585bcb7c92a931ab0f8fd5a6710896af260476c941ec2ef5cf92385df",
+            "mirrorPrepared": "8f81260b2952ef8934929e13ec6b6530c53e86d400c94b953f0a69c700476ee1",
+            "rows": "9f8a4ea9e1e9d389194a02c64b88af091dd8b5f59978744b9e41e690f2854310",
+            "seal": "0b776f8e505bb49a1c1bd317e3a2a7a26156a6d2632fa470c755f0888e27e689"
+          }
+        },
+        "issued": {
+          "amounts": {
+            "calc_snapshot_content_revision": 7,
+            "content_revision": 7,
+            "historicalSealHash": "a6eeacbdeb33cceaf6e479852ac265308dbbe64a9001e457ae3b78f09c174f56",
+            "historicalSealPayloadVersion": 4,
+            "rounding_adjustment_cents": 0,
+            "seal_payload_version": 4,
+            "status": "sent",
+            "total_ht_cents": 68675,
+            "total_tax_cents": 13735,
+            "total_ttc_cents": 82410
+          },
+          "checks": {
+            "sealVerified": true
+          },
+          "sha256": {
+            "export": "d0b78a15e4c5d25b9cfa580a1077291744fd53f42f2ecc614ec82dd7529e021a",
+            "mirrorContract": "ea7b033585bcb7c92a931ab0f8fd5a6710896af260476c941ec2ef5cf92385df",
+            "mirrorPrepared": "8f81260b2952ef8934929e13ec6b6530c53e86d400c94b953f0a69c700476ee1",
+            "rows": "dffd9253668d76808ad8d0409741de7266cdd019a85ccdbfdc0adbde70822f1b",
+            "seal": "0b776f8e505bb49a1c1bd317e3a2a7a26156a6d2632fa470c755f0888e27e689"
+          }
+        },
+        "seeded": {
+          "amounts": {
+            "calc_snapshot_content_revision": null,
+            "content_revision": 4,
+            "rounding_adjustment_cents": 0,
+            "seal_payload_version": null,
+            "status": "draft",
+            "total_ht_cents": 68675,
+            "total_tax_cents": 13735,
+            "total_ttc_cents": 82410
+          },
+          "checks": {},
+          "sha256": {
+            "export": "277e3660cc5a61297bf48d6e5e7b88c749cb33981f5a8a0072cccc8ef1874f7e",
+            "rows": "d302fe3b4160e745f13e441bc2636a7d448c6e1aff692fee849aba75fe4b9268",
+            "seal": "70bf3c238aa2aee0e6c59386261a89fee3805dbb8746bebbd6f57a7e4cf1782c"
+          }
+        }
+      },
+      "versionId": "d0cf1000-0000-4000-8000-000000000317"
+    },
+    "v2-sent-accepted-discount-bp": {
+      "engine": 2,
+      "flow": "emission-accept",
+      "stages": {
+        "accepted": {
+          "amounts": {
+            "calc_snapshot_content_revision": 11,
+            "content_revision": 11,
+            "contractPayableTtcCents": 304837,
+            "contractRoundingAdjustmentCents": 0,
+            "contractSaleHtCents": 277124,
+            "contractTaxCents": 27713,
+            "rounding_adjustment_cents": 0,
+            "seal_payload_version": 5,
+            "status": "accepted",
+            "total_ht_cents": 277124,
+            "total_tax_cents": 27713,
+            "total_ttc_cents": 304837
+          },
+          "checks": {
+            "offerDocumentValid": true,
+            "offerSealPayloadVersion": 5,
+            "offerStoredSealMatches": true,
+            "offerVerified": true,
+            "sealVerified": true
+          },
+          "sha256": {
+            "contract": "1477ed511b745b729296c2e1b18c8902f339e3f84ed199e03b50e38088f0a48d",
+            "export": "522d17756ce938ee7a0fa722ad1873694c5021366d83fe199587c5f947910d19",
+            "mirrorContract": "ae0b383e1c7035967d58cd9075d9ffbffcdae0a8baee2d1cc5348520f281184d",
+            "mirrorPrepared": "eaae6fcd73e8ede4db12809dc9a57295e24fbcfdb8819fbd916937c9cdec15d0",
+            "proof": "07ec7cf76e46394af20bea2b0cbd1c42c776f9c19fad58cf50e4f793e34e6cb4",
+            "rows": "dde2cf1cd47d129de402960e6231457a16c1820dd890adc38e2777a00bf1a8d8",
+            "seal": "05fd8f5efbf4eaf3ee5dba1619ad569efbd00cf9e3bcfadf522d36838b5e3e92",
+            "seal5": "2dc329aa0f94eefcddcc4af2d0bc447c2fdbe2f460294b26aa6172644c70b804"
+          }
+        },
+        "document": {
+          "amounts": {
+            "calc_snapshot_content_revision": 11,
+            "content_revision": 11,
+            "contractPayableTtcCents": 304837,
+            "contractRoundingAdjustmentCents": 0,
+            "contractSaleHtCents": 277124,
+            "contractTaxCents": 27713,
+            "rounding_adjustment_cents": 0,
+            "seal_payload_version": null,
+            "status": "draft",
+            "total_ht_cents": 277124,
+            "total_tax_cents": 27713,
+            "total_ttc_cents": 304837
+          },
+          "checks": {
+            "offerDocumentValid": true,
+            "offerSealPayloadVersion": 5,
+            "offerStoredSealMatches": null,
+            "offerVerified": true
+          },
+          "sha256": {
+            "contract": "1477ed511b745b729296c2e1b18c8902f339e3f84ed199e03b50e38088f0a48d",
+            "export": "ff7261992d3affbc2d736ebaa39891cdfa325ddcbf7ea963cd21164b47e3bf5b",
+            "prepared": "eaae6fcd73e8ede4db12809dc9a57295e24fbcfdb8819fbd916937c9cdec15d0",
+            "proof": "d242b8ee9aad773b41e8fa21aecce3b56ec44e54cdb0ce7209f253095abae4d0",
+            "rows": "0d2283e58343f7a682caaf52ea8c95fc03f4f963fb74594c475d3f73fc752b2b",
+            "seal": "05fd8f5efbf4eaf3ee5dba1619ad569efbd00cf9e3bcfadf522d36838b5e3e92",
+            "seal5": "2dc329aa0f94eefcddcc4af2d0bc447c2fdbe2f460294b26aa6172644c70b804"
+          }
+        },
+        "seeded": {
+          "amounts": {
+            "calc_snapshot_content_revision": null,
+            "content_revision": 7,
+            "rounding_adjustment_cents": 0,
+            "seal_payload_version": null,
+            "status": "draft",
+            "total_ht_cents": 277124,
+            "total_tax_cents": 27713,
+            "total_ttc_cents": 304837
+          },
+          "checks": {},
+          "sha256": {
+            "export": "fdf4cfc5c8088c555c314e90a26e284efcb54113059bab5a0e1f6bfac88c3087",
+            "rows": "ebed5950997f5c01553dca0ad63beb127607e32a2813c53ac249c5123d867414",
+            "seal": "d0028960eca12815b51b81b320bfa1cf0a4de49bae83ae0f9ba15f67c816bafd"
+          }
+        },
+        "sent": {
+          "amounts": {
+            "calc_snapshot_content_revision": 11,
+            "content_revision": 11,
+            "contractPayableTtcCents": 304837,
+            "contractRoundingAdjustmentCents": 0,
+            "contractSaleHtCents": 277124,
+            "contractTaxCents": 27713,
+            "rounding_adjustment_cents": 0,
+            "seal_payload_version": 5,
+            "status": "sent",
+            "total_ht_cents": 277124,
+            "total_tax_cents": 27713,
+            "total_ttc_cents": 304837
+          },
+          "checks": {
+            "mirrorMatchesEmission": true,
+            "offerDocumentValid": true,
+            "offerSealPayloadVersion": 5,
+            "offerStoredSealMatches": true,
+            "offerVerified": true,
+            "sealVerified": true
+          },
+          "sha256": {
+            "contract": "1477ed511b745b729296c2e1b18c8902f339e3f84ed199e03b50e38088f0a48d",
+            "export": "054969a4126968d4c817d4f480a46edc7c29e5f3f833c4b11c3faef80ff65120",
+            "mirrorContract": "ae0b383e1c7035967d58cd9075d9ffbffcdae0a8baee2d1cc5348520f281184d",
+            "mirrorPrepared": "eaae6fcd73e8ede4db12809dc9a57295e24fbcfdb8819fbd916937c9cdec15d0",
+            "prepared": "eaae6fcd73e8ede4db12809dc9a57295e24fbcfdb8819fbd916937c9cdec15d0",
+            "proof": "07ec7cf76e46394af20bea2b0cbd1c42c776f9c19fad58cf50e4f793e34e6cb4",
+            "rows": "3fe2df69b704a0fcea7f80e2127ac3e18010e413aa903b500be9dc40befb6c99",
+            "seal": "05fd8f5efbf4eaf3ee5dba1619ad569efbd00cf9e3bcfadf522d36838b5e3e92",
+            "seal5": "2dc329aa0f94eefcddcc4af2d0bc447c2fdbe2f460294b26aa6172644c70b804"
+          }
+        }
+      },
+      "versionId": "d0cf1000-0000-4000-8000-000000000312"
+    },
+    "v2-sent-cascade-coefficient-rounding": {
+      "engine": 2,
+      "flow": "emission",
+      "stages": {
+        "document": {
+          "amounts": {
+            "calc_snapshot_content_revision": 9,
+            "content_revision": 9,
+            "contractPayableTtcCents": 575000,
+            "contractRoundingAdjustmentCents": -671,
+            "contractSaleHtCents": 479725,
+            "contractTaxCents": 95946,
+            "rounding_adjustment_cents": -671,
+            "seal_payload_version": null,
+            "status": "draft",
+            "total_ht_cents": 479725,
+            "total_tax_cents": 95275,
+            "total_ttc_cents": 575000
+          },
+          "checks": {
+            "offerDocumentValid": true,
+            "offerSealPayloadVersion": 5,
+            "offerStoredSealMatches": null,
+            "offerVerified": true
+          },
+          "sha256": {
+            "contract": "b12f6a3f1abd2562f41a9ca6f1393ae4e485785df8d26abb5b068fb7d4ddfb8b",
+            "export": "f168dccfc5dae330e19fff2a66f13b7d7bf74c5dc181846e4555ee94ef545da9",
+            "prepared": "52c7248e6ee5a0cd3062c815bb5eb937f8200b5f7f2496e1bcd953f3c8392e7d",
+            "proof": "ffe65bd4717a5b60720bd4a3bf69627bedd0711f1116dcead57246353142be91",
+            "rows": "539390683980dce2334604237781f7dd97a24f118a412d6e197f1b9ffce0dfc4",
+            "seal": "d48c504c4897655a36288e4495146a5509f71bcfc9689e1abd22ab52cf928f98",
+            "seal5": "5fbdd9f5dc343d5908db3d7082f36298f8a3ce13c26019c206abfc6dabe6128e"
+          }
+        },
+        "seeded": {
+          "amounts": {
+            "calc_snapshot_content_revision": null,
+            "content_revision": 5,
+            "rounding_adjustment_cents": -670,
+            "seal_payload_version": null,
+            "status": "draft",
+            "total_ht_cents": 479725,
+            "total_tax_cents": 95275,
+            "total_ttc_cents": 575000
+          },
+          "checks": {},
+          "sha256": {
+            "export": "ffa8fc272bd280b239829a3605133b9ea06abf55f92ccf6a483184f1f310ab05",
+            "rows": "9c9553ab724d68ce36241fcf6558744a6246b253d19ccd07839157440a80dca3",
+            "seal": "2c18648e2f87d27a4df4e18b4d30517cd3e84ecf9cf775a85be9dcb8c3702e07"
+          }
+        },
+        "sent": {
+          "amounts": {
+            "calc_snapshot_content_revision": 9,
+            "content_revision": 9,
+            "contractPayableTtcCents": 575000,
+            "contractRoundingAdjustmentCents": -671,
+            "contractSaleHtCents": 479725,
+            "contractTaxCents": 95946,
+            "rounding_adjustment_cents": -671,
+            "seal_payload_version": 5,
+            "status": "sent",
+            "total_ht_cents": 479725,
+            "total_tax_cents": 95275,
+            "total_ttc_cents": 575000
+          },
+          "checks": {
+            "mirrorMatchesEmission": true,
+            "offerDocumentValid": true,
+            "offerSealPayloadVersion": 5,
+            "offerStoredSealMatches": true,
+            "offerVerified": true,
+            "sealVerified": true
+          },
+          "sha256": {
+            "contract": "b12f6a3f1abd2562f41a9ca6f1393ae4e485785df8d26abb5b068fb7d4ddfb8b",
+            "export": "7881110992409e64ee37e6cea42c18112ca16127d6785af8af710c54d58b96f3",
+            "mirrorContract": "a03e70c91bb3a93c04ba952404dc8e5c9bc062604ff3a05785871bb0fd567df7",
+            "mirrorPrepared": "52c7248e6ee5a0cd3062c815bb5eb937f8200b5f7f2496e1bcd953f3c8392e7d",
+            "prepared": "52c7248e6ee5a0cd3062c815bb5eb937f8200b5f7f2496e1bcd953f3c8392e7d",
+            "proof": "ac9dc01cd54c03241631d3d203981fef9067281a333bf871ebd194258e2462ca",
+            "rows": "5b5bd3eead91be9070d63e53a09a4c817bdeb187399ef2a72da20f61d66f350e",
+            "seal": "d48c504c4897655a36288e4495146a5509f71bcfc9689e1abd22ab52cf928f98",
+            "seal5": "5fbdd9f5dc343d5908db3d7082f36298f8a3ce13c26019c206abfc6dabe6128e"
+          }
+        }
+      },
+      "versionId": "d0cf1000-0000-4000-8000-000000000313"
+    },
+    "v2-sent-labor-split-majoration": {
+      "engine": 2,
+      "flow": "emission",
+      "stages": {
+        "document": {
+          "amounts": {
+            "calc_snapshot_content_revision": 9,
+            "content_revision": 9,
+            "contractPayableTtcCents": 261454,
+            "contractRoundingAdjustmentCents": 0,
+            "contractSaleHtCents": 217878,
+            "contractTaxCents": 43576,
+            "rounding_adjustment_cents": 0,
+            "seal_payload_version": null,
+            "status": "draft",
+            "total_ht_cents": 217878,
+            "total_tax_cents": 43576,
+            "total_ttc_cents": 261454
+          },
+          "checks": {
+            "offerDocumentValid": true,
+            "offerSealPayloadVersion": 5,
+            "offerStoredSealMatches": null,
+            "offerVerified": true
+          },
+          "sha256": {
+            "contract": "9ce0cb7c8bc977ce8ed30423abe187af251b1edcf28338b8e7d82896af89dc27",
+            "export": "b811cb969cdcbb3e556176e5ac9c61093462a475c9ceec9c19b96e587eede11f",
+            "prepared": "351aab09909c035f3918fce94cd51f666db7e5703c3ecb0de777a055449c379f",
+            "proof": "60cb55a244bf9928a2f23724afe13f449bc7a813aec29bceccd16569fd9d8d24",
+            "rows": "182fe53e291bd237584c7ac861877fbe06c6ac99b8e9fa9e51005dfea6254243",
+            "seal": "c076eda0daf20c7fab86863d160540a019f5999f663da3cee7077d98b994e288",
+            "seal5": "33c67b40bd403f8785afcea7d8832416c15018cd8b5d608af3c19ee184000aee"
+          }
+        },
+        "seeded": {
+          "amounts": {
+            "calc_snapshot_content_revision": null,
+            "content_revision": 5,
+            "rounding_adjustment_cents": 0,
+            "seal_payload_version": null,
+            "status": "draft",
+            "total_ht_cents": 217878,
+            "total_tax_cents": 43576,
+            "total_ttc_cents": 261454
+          },
+          "checks": {},
+          "sha256": {
+            "export": "b811cb969cdcbb3e556176e5ac9c61093462a475c9ceec9c19b96e587eede11f",
+            "rows": "dc08b05a3468d3afa835ffaefb3a891f5cf44326b7a72819e047de4950db99a4",
+            "seal": "65801610a1322367be905071266612c3ab58b99e1a8be41028d30985940594fa"
+          }
+        },
+        "sent": {
+          "amounts": {
+            "calc_snapshot_content_revision": 9,
+            "content_revision": 9,
+            "contractPayableTtcCents": 261454,
+            "contractRoundingAdjustmentCents": 0,
+            "contractSaleHtCents": 217878,
+            "contractTaxCents": 43576,
+            "rounding_adjustment_cents": 0,
+            "seal_payload_version": 5,
+            "status": "sent",
+            "total_ht_cents": 217878,
+            "total_tax_cents": 43576,
+            "total_ttc_cents": 261454
+          },
+          "checks": {
+            "mirrorMatchesEmission": true,
+            "offerDocumentValid": true,
+            "offerSealPayloadVersion": 5,
+            "offerStoredSealMatches": true,
+            "offerVerified": true,
+            "sealVerified": true
+          },
+          "sha256": {
+            "contract": "9ce0cb7c8bc977ce8ed30423abe187af251b1edcf28338b8e7d82896af89dc27",
+            "export": "9cefe9df319714b9f6f61cf68cbb77fc3a7130baba2fb727aaa12c2ca018fc1e",
+            "mirrorContract": "a9dcad692841857ba410c2ee57ae6186e39b597a120f5ce134f6b14f2dd459ff",
+            "mirrorPrepared": "351aab09909c035f3918fce94cd51f666db7e5703c3ecb0de777a055449c379f",
+            "prepared": "351aab09909c035f3918fce94cd51f666db7e5703c3ecb0de777a055449c379f",
+            "proof": "dfeb1757ded60d7621c4e713226e706107d1d3342b3eeea4c96badc1e1727589",
+            "rows": "f6e3a023dcb4b5eb0617780d567b5e25883baa55fab9e40fb9ad7cbdb3d06487",
+            "seal": "c076eda0daf20c7fab86863d160540a019f5999f663da3cee7077d98b994e288",
+            "seal5": "33c67b40bd403f8785afcea7d8832416c15018cd8b5d608af3c19ee184000aee"
+          }
+        }
+      },
+      "versionId": "d0cf1000-0000-4000-8000-000000000314"
+    },
+    "v2-sent-reverse-charge": {
+      "engine": 2,
+      "flow": "emission",
+      "stages": {
+        "document": {
+          "amounts": {
+            "calc_snapshot_content_revision": 7,
+            "content_revision": 7,
+            "contractPayableTtcCents": 206310,
+            "contractRoundingAdjustmentCents": 0,
+            "contractSaleHtCents": 206310,
+            "contractTaxCents": 0,
+            "rounding_adjustment_cents": 0,
+            "seal_payload_version": null,
+            "status": "draft",
+            "total_ht_cents": 206310,
+            "total_tax_cents": 0,
+            "total_ttc_cents": 206310
+          },
+          "checks": {
+            "offerDocumentValid": true,
+            "offerSealPayloadVersion": 5,
+            "offerStoredSealMatches": null,
+            "offerVerified": true
+          },
+          "sha256": {
+            "contract": "2079cca1a86bc3d04717c22b3b63148921e839a318c108bfec87073a2430c27c",
+            "export": "dd4c12e5365ba81b54e2864bca4999e19cb7cdef223918ac4a27c68575dcb738",
+            "prepared": "79f55ca023f0d69b9ffe9080cd977bb1e1515874c7a0f8876a1f397836d0228a",
+            "proof": "87473e63f0ea5899497802e565553a089eefd542daf13b509ef16d7ee2432cb9",
+            "rows": "fbb8673bd68569d11d749c16c7eda7ee691de3f5552e569936b5e1b5338db45b",
+            "seal": "580d697f48eac7d1a1b36236ffcfce0b0066dfe155a2e4aa8bf75276d2bc2c26",
+            "seal5": "523f6b03b5493b4b1aeee47d7e756c61118c755b61e36e08bc1b01381ce7b13e"
+          }
+        },
+        "seeded": {
+          "amounts": {
+            "calc_snapshot_content_revision": null,
+            "content_revision": 4,
+            "rounding_adjustment_cents": 0,
+            "seal_payload_version": null,
+            "status": "draft",
+            "total_ht_cents": 206310,
+            "total_tax_cents": 0,
+            "total_ttc_cents": 206310
+          },
+          "checks": {},
+          "sha256": {
+            "export": "ac6b7cbffb1fd6b610cff0e16d9e2d8809a9eea2f880752d732176aca4edc943",
+            "rows": "66dc4227f0bbedf890d6df466338ebdf85300e652e6cf099e84eb6719400fa17",
+            "seal": "03fd4e15e76a17da8f80d6d6e651debe32d83bbcaa82c87b7bba5e47a742748c"
+          }
+        },
+        "sent": {
+          "amounts": {
+            "calc_snapshot_content_revision": 7,
+            "content_revision": 7,
+            "contractPayableTtcCents": 206310,
+            "contractRoundingAdjustmentCents": 0,
+            "contractSaleHtCents": 206310,
+            "contractTaxCents": 0,
+            "rounding_adjustment_cents": 0,
+            "seal_payload_version": 5,
+            "status": "sent",
+            "total_ht_cents": 206310,
+            "total_tax_cents": 0,
+            "total_ttc_cents": 206310
+          },
+          "checks": {
+            "mirrorMatchesEmission": true,
+            "offerDocumentValid": true,
+            "offerSealPayloadVersion": 5,
+            "offerStoredSealMatches": true,
+            "offerVerified": true,
+            "sealVerified": true
+          },
+          "sha256": {
+            "contract": "2079cca1a86bc3d04717c22b3b63148921e839a318c108bfec87073a2430c27c",
+            "export": "a3d6c97331176b3057697a32e31e5e3ac51f964b9f676764974af3f0063beff1",
+            "mirrorContract": "b6504fd866ed018bccb826e8855fa2108ce7b77d2e154ecc9296d871252edfdd",
+            "mirrorPrepared": "79f55ca023f0d69b9ffe9080cd977bb1e1515874c7a0f8876a1f397836d0228a",
+            "prepared": "79f55ca023f0d69b9ffe9080cd977bb1e1515874c7a0f8876a1f397836d0228a",
+            "proof": "2bc0c99b3b409bfff6b5fb3e6641cf38bc0fc14078a9b88e41c90d2df416602d",
+            "rows": "af6ab1bcb2e92011da3c39474ac72d3e37f1c74ec638207e67798c2a50b296cd",
+            "seal": "580d697f48eac7d1a1b36236ffcfce0b0066dfe155a2e4aa8bf75276d2bc2c26",
+            "seal5": "523f6b03b5493b4b1aeee47d7e756c61118c755b61e36e08bc1b01381ce7b13e"
+          }
+        }
+      },
+      "versionId": "d0cf1000-0000-4000-8000-000000000315"
+    },
+    "v2-sent-tiered-reduced-rate": {
+      "engine": 2,
+      "flow": "emission",
+      "stages": {
+        "document": {
+          "amounts": {
+            "calc_snapshot_content_revision": 7,
+            "content_revision": 7,
+            "contractPayableTtcCents": 982733,
+            "contractRoundingAdjustmentCents": 0,
+            "contractSaleHtCents": 931500,
+            "contractTaxCents": 51233,
+            "rounding_adjustment_cents": 0,
+            "seal_payload_version": null,
+            "status": "draft",
+            "total_ht_cents": 931500,
+            "total_tax_cents": 51233,
+            "total_ttc_cents": 982733
+          },
+          "checks": {
+            "offerDocumentValid": true,
+            "offerSealPayloadVersion": 5,
+            "offerStoredSealMatches": null,
+            "offerVerified": true
+          },
+          "sha256": {
+            "contract": "151bde27007db49c97931a2b58978b0d8a7d97c83c405392a7c53883b3bfe0f2",
+            "export": "a040aa765dc8e4af7bd07905f531ad41a3c16985479d848ab2a4713c471b64b5",
+            "prepared": "1d03f3a141d7b1fae26ba9e26b1584cf4ed82ef901124d8c5db6250ecf0d70c9",
+            "proof": "9e5c3c492fed59960004f53305985529496094d5af2bfb4ffa3b64af66e1cedd",
+            "rows": "763b4b193ad6ac3a19a341ea99f16664ab5d9a6613fffa1cbdb07ae19f2cfd02",
+            "seal": "9d7bfc8b1ac89f7c715d0676f9773cae7d1c538bfee7c5dbe79bf436dae63426",
+            "seal5": "982262d4f002b1c15a457d4eb3c185092eb33e7c05bf017652e327296cdb6d0e"
+          }
+        },
+        "seeded": {
+          "amounts": {
+            "calc_snapshot_content_revision": null,
+            "content_revision": 4,
+            "rounding_adjustment_cents": 0,
+            "seal_payload_version": null,
+            "status": "draft",
+            "total_ht_cents": 931500,
+            "total_tax_cents": 51233,
+            "total_ttc_cents": 982733
+          },
+          "checks": {},
+          "sha256": {
+            "export": "a040aa765dc8e4af7bd07905f531ad41a3c16985479d848ab2a4713c471b64b5",
+            "rows": "ecb314fee9048557372e5b812e563428b5fab9bd2eb6898ae143410ce46fd692",
+            "seal": "a820deba1fd7f5977a94f1c73454c4aa3265cffa165df3efc03f67523edea91a"
+          }
+        },
+        "sent": {
+          "amounts": {
+            "calc_snapshot_content_revision": 7,
+            "content_revision": 7,
+            "contractPayableTtcCents": 982733,
+            "contractRoundingAdjustmentCents": 0,
+            "contractSaleHtCents": 931500,
+            "contractTaxCents": 51233,
+            "rounding_adjustment_cents": 0,
+            "seal_payload_version": 5,
+            "status": "sent",
+            "total_ht_cents": 931500,
+            "total_tax_cents": 51233,
+            "total_ttc_cents": 982733
+          },
+          "checks": {
+            "mirrorMatchesEmission": true,
+            "offerDocumentValid": true,
+            "offerSealPayloadVersion": 5,
+            "offerStoredSealMatches": true,
+            "offerVerified": true,
+            "sealVerified": true
+          },
+          "sha256": {
+            "contract": "151bde27007db49c97931a2b58978b0d8a7d97c83c405392a7c53883b3bfe0f2",
+            "export": "e6afbdccf1dea82d201553669490085569e59f68f36bad91ad854063afa98b9b",
+            "mirrorContract": "8d0257d9773d31a9118786fc1455bd16f85c4ff88296e3c092e4fb381de8810b",
+            "mirrorPrepared": "1d03f3a141d7b1fae26ba9e26b1584cf4ed82ef901124d8c5db6250ecf0d70c9",
+            "prepared": "1d03f3a141d7b1fae26ba9e26b1584cf4ed82ef901124d8c5db6250ecf0d70c9",
+            "proof": "cb3708c21d7c728762707341d5c78cd7cf1a50ec4520387fb809f0cd7b34ada1",
+            "rows": "6a510637f8a57d71b6d1beebdadb345d5bd85ca13178ad2278c84f47b6f20c9e",
+            "seal": "9d7bfc8b1ac89f7c715d0676f9773cae7d1c538bfee7c5dbe79bf436dae63426",
+            "seal5": "982262d4f002b1c15a457d4eb3c185092eb33e7c05bf017652e327296cdb6d0e"
+          }
+        }
+      },
+      "versionId": "d0cf1000-0000-4000-8000-000000000316"
+    }
+  },
+  "generator": {
+    "design": "docs/audit-independant-2026-10-14/lot2/conception-lot2-moteur-v3.md §10.3",
+    "script": "scripts/engine-v3/document-fingerprints.ts"
+  },
+  "recorded": {
+    "at": "2026-10-16T15:11:22.221Z",
+    "icu": "78.3",
+    "migrations": 244,
+    "migrationsSha256": "726391a248b942601a60e2f8c02f8c4b0bbe8ec244aa26860180321206d29a50",
+    "node": "v24.19.0",
+    "platform": "linux-x64",
+    "sourceDiffSha256": "b9ac3fe8c462add5ee7957f13e764d0da6ad0425e35ed954907b9d6f64250fd3",
+    "sourceRevision": "10da1caf5b76bca4929ef0d3400aa4330022523e"
+  },
+  "schemaVersion": "engine-document-fingerprints-1"
+}
