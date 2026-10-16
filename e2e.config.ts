@@ -38,9 +38,11 @@ if (
 // The 16/10/2026 campaign (WSL, full critical suite) did not qualify parallel
 // runs: 1 worker passed 64/64; 3 workers failed 2 runs out of 2 when estimate
 // creation got 40001 ESTIMATE_CREATE_CONTEXT_CHANGED under concurrent writes in
-// the same tenant. A higher value is exploratory and accepted only for critical
-// journeys on the owned ephemeral stack, whose runner alone sets
-// E2E_ARMY_LOCAL_DB_URL; never against a shared stack or for performance.
+// the same tenant. That race is fixed (GATE journeys), but 2 workers then failed
+// 2 runs out of 3 on a transient HUB02 locator ambiguity. A higher value is
+// exploratory and accepted only for critical journeys on the owned ephemeral
+// stack, whose runner alone sets E2E_ARMY_LOCAL_DB_URL; never against a shared
+// stack or for performance.
 const workersSetting = process.env.E2E_ARMY_WORKERS ?? "";
 if (workersSetting !== "" && !/^[1-4]$/.test(workersSetting)) {
   throw new Error(`E2E_ARMY_WORKERS must be an integer from 1 to 4 (default 1); received "${workersSetting}".`);
@@ -97,12 +99,12 @@ const app = {
 
 export default {
   projectId: coverage ? "miaouffrage-source-coverage" : critical ? "miaouffrage-critical-journeys" : performance ? "miaouffrage-performance" : "miaouffrage-anonymous-pilot",
-  tests: polish ? ["e2e/army/critical/auth.setup.e2e.ts", "e2e/army/polish/**/*.e2e.ts"] : development ? ["e2e/army/critical/auth.setup.e2e.ts", "e2e/army/development/**/*.e2e.ts"] : full ? ["e2e/army/critical/**/*.e2e.ts", "e2e/army/extended/**/*.e2e.ts", "e2e/army/takeoff/**/*.e2e.ts", "e2e/army/local/tech-debt-lock-boundaries.e2e.ts"] : army021 ? ["e2e/army/critical/**/*.e2e.ts", "e2e/army/local/tech-debt-lock-boundaries.e2e.ts"] : techDebt ? [
+  tests: polish ? ["e2e/army/critical/auth.setup.e2e.ts", "e2e/army/polish/**/*.e2e.ts"] : development ? ["e2e/army/critical/auth.setup.e2e.ts", "e2e/army/development/**/*.e2e.ts"] : full ? ["e2e/army/critical/**/*.e2e.ts", "e2e/army/extended/**/*.e2e.ts", "e2e/army/takeoff/**/*.e2e.ts", "e2e/army/local/tech-debt-lock-boundaries.e2e.ts", "e2e/army/local/estimate-create-calculation-gate.e2e.ts"] : army021 ? ["e2e/army/critical/**/*.e2e.ts", "e2e/army/local/tech-debt-lock-boundaries.e2e.ts", "e2e/army/local/estimate-create-calculation-gate.e2e.ts"] : techDebt ? [
     "e2e/army/critical/auth.setup.e2e.ts",
     "e2e/army/critical/numeric-entry.e2e.ts",
     "e2e/army/critical/dpgf-import.e2e.ts",
     "e2e/army/local/tech-debt-lock-boundaries.e2e.ts",
-  ] : coverage ? ["e2e/army/critical/auth.setup.e2e.ts", process.env.E2E_COVERAGE_SCENARIO_SET === "generated-components" ? process.env.E2E_GENERATED_COMPONENTS_SELECTION === "assembly-totals" ? "e2e/army/local/assembly-totals.e2e.ts" : numericComponents ? "e2e/army/local/generated-ouvrage-numeric-entry.e2e.ts" : "e2e/army/local/generated-ouvrage-components.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "navigation-lease" ? "e2e/army/local/editor-navigation-lease.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "generated-recovery" ? "e2e/army/local/estimate-generated-recovery.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "generated-atomic" ? "e2e/army/local/estimate-generated-atomic.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "batch-atomic" ? "e2e/army/local/estimate-batch*.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "create-atomic" ? "e2e/army/local/estimate-create-atomic.e2e.ts" : "e2e/army/local/source-coverage.e2e.ts"] : critical ? localBusiness ? ["e2e/army/critical/**/*.e2e.ts", "e2e/army/local/tech-debt-lock-boundaries.e2e.ts"] : "e2e/army/critical/**/*.e2e.ts" : performance
+  ] : coverage ? ["e2e/army/critical/auth.setup.e2e.ts", process.env.E2E_COVERAGE_SCENARIO_SET === "generated-components" ? process.env.E2E_GENERATED_COMPONENTS_SELECTION === "assembly-totals" ? "e2e/army/local/assembly-totals.e2e.ts" : numericComponents ? "e2e/army/local/generated-ouvrage-numeric-entry.e2e.ts" : "e2e/army/local/generated-ouvrage-components.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "navigation-lease" ? "e2e/army/local/editor-navigation-lease.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "generated-recovery" ? "e2e/army/local/estimate-generated-recovery.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "generated-atomic" ? "e2e/army/local/estimate-generated-atomic.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "batch-atomic" ? "e2e/army/local/estimate-batch*.e2e.ts" : process.env.E2E_COVERAGE_SCENARIO_SET === "create-atomic" ? "e2e/army/local/estimate-create-atomic.e2e.ts" : "e2e/army/local/source-coverage.e2e.ts"] : critical ? localBusiness ? ["e2e/army/critical/**/*.e2e.ts", "e2e/army/local/tech-debt-lock-boundaries.e2e.ts", "e2e/army/local/estimate-create-calculation-gate.e2e.ts"] : "e2e/army/critical/**/*.e2e.ts" : performance
     ? ["e2e/army/critical/auth.setup.e2e.ts", "e2e/army/performance/**/*.e2e.ts"]
     : "e2e/army/*.e2e.ts",
   targets: [

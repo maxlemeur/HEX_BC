@@ -85,9 +85,13 @@ tenant ; workers=2 n'a pas été mesuré. Une valeur supérieure à 1 n'est donc
 qualifiée : le défaut reste 1 et tout autre usage est exploratoire, avec des
 échecs intermittents attendus qui ne sont pas des régressions. La course
 applicative (rôles MO par défaut réécrits par `createEstimate` sous le verrou
-de calcul du tenant, 40001 renvoyé en 400 sans nouvel essai) relève d'un ticket
-applicatif distinct, régression rouge d'abord. Requalifier ensuite par deux
-suites complètes vertes, en commençant par workers=2.
+de calcul du tenant, 40001 renvoyé en 400 sans nouvel essai) est corrigée, avec
+sa régression rouge puis verte : voir
+[création de devis sous le verrou de calcul](estimate-create-calculation-gate.md).
+La requalification reste ouverte : à workers=2, une suite complète est verte
+67/67 et deux échouent sur HUB02 seul (`LOCATOR_AMBIGUOUS` transitoire au
+chargement du hub), sans aucun 40001 inattendu. Il faut encore deux suites
+complètes vertes, en commençant par workers=2.
 
 ### Build de production et limite de heap
 

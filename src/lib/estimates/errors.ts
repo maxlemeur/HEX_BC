@@ -183,6 +183,16 @@ function toPublicSupabaseErrorDetails(error: SupabaseErrorLike) {
   return error.code ? { code: error.code } : undefined;
 }
 
+/**
+ * Refus transitoire du verrou de calcul du tenant : les triggers de
+ * labor_roles, margin_tiers, feature_flags, tenant_memberships et tenants
+ * tentent ce verrou sans attendre pendant qu'un calcul le détient (création de
+ * ligne, lot, réglages). Rien n'est écrit ; l'appelant peut réessayer.
+ */
+export function isCalculationContextConflict(error: SupabaseErrorLike) {
+  return error.code === "40001" && error.message === "ESTIMATE_CREATE_CONTEXT_CHANGED";
+}
+
 export function mapSupabaseError(
   error: SupabaseErrorLike,
   fallbackMessage: string
@@ -195,6 +205,14 @@ export function mapSupabaseError(
     normalizedMessage.includes("row-level security")
   ) {
     return forbidden("Accès refusé.", publicDetails, "FORBIDDEN");
+  }
+
+  if (isCalculationContextConflict(error)) {
+    return conflict(
+      "Un calcul de devis est en cours dans l'entreprise. Réessayez dans un instant.",
+      publicDetails,
+      "CONTEXT_CHANGED"
+    );
   }
 
   if (error.code === "PGRST116") {

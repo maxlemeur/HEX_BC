@@ -76,6 +76,7 @@ import {
   conflict,
   forbidden,
   internalError,
+  isCalculationContextConflict,
   mapSupabaseError,
   notFound,
 } from "./errors";
@@ -4434,6 +4435,61 @@ export async function promoteEstimateVariant(versionId: string) {
   };
 }
 
+const DEFAULT_LABOR_ROLES_RETRY_DELAY_MS = 150;
+
+/**
+ * Seeds the owner's missing default labor roles. Every proposed labor_roles row,
+ * even one an upsert would skip, try-locks the tenant calculation gate
+ * exclusively and fails while any line, batch or settings save of the tenant
+ * holds it: write only when a default is missing. A refused gate is retried
+ * once from a fresh read; a residual refusal is a retryable 409.
+ */
+async function ensureDefaultLaborRoles(input: {
+  supabase: Supabase;
+  tenantId: string;
+  ownerUserId: string;
+}) {
+  const defaultNames = DEFAULT_LABOR_ROLES.map((role) => role.name);
+  for (let attempt = 1; ; attempt += 1) {
+    const { data, error } = await input.supabase
+      .from("labor_roles")
+      .select("name")
+      .eq("tenant_id", input.tenantId)
+      .eq("user_id", input.ownerUserId)
+      .in("name", defaultNames);
+
+    if (error) {
+      throw mapSupabaseError(error, "Impossible de préparer les rôles MO par défaut.");
+    }
+
+    const existingNames = new Set((data ?? []).map((role) => role.name));
+    const missingRoles = DEFAULT_LABOR_ROLES.filter((role) => !existingNames.has(role.name));
+    if (missingRoles.length === 0) return;
+
+    const payload: LaborRoleInsert[] = missingRoles.map((role) => ({
+      tenant_id: input.tenantId,
+      user_id: input.ownerUserId,
+      name: role.name,
+      hourly_rate_cents: role.hourly_rate_cents,
+      is_active: true,
+      position: role.position,
+    }));
+    const { error: insertError } = await input.supabase
+      .from("labor_roles")
+      .upsert(payload, {
+        onConflict: "tenant_id,user_id,name",
+        ignoreDuplicates: true,
+      });
+
+    if (!insertError) return;
+    if (attempt === 1 && isCalculationContextConflict(insertError)) {
+      await sleep(DEFAULT_LABOR_ROLES_RETRY_DELAY_MS);
+      continue;
+    }
+    throw mapSupabaseError(insertError, "Impossible de préparer les rôles MO par défaut.");
+  }
+}
+
 export async function createEstimate(
   input: CreateEstimateInput & { linked_import_id?: string | null }
 ) {
@@ -4533,28 +4589,11 @@ export async function createEstimate(
     throw mapSupabaseError(categoriesError, "Impossible de préparer les catégories par défaut.");
   }
 
-  const laborRolesPayload: LaborRoleInsert[] = DEFAULT_LABOR_ROLES.map((role) => ({
-    tenant_id: tenantId,
-    user_id: projectUserId,
-    name: role.name,
-    hourly_rate_cents: role.hourly_rate_cents,
-    is_active: true,
-    position: role.position,
-  }));
-
-  const { error: laborRolesError } = await supabase
-    .from("labor_roles")
-    .upsert(laborRolesPayload, {
-      onConflict: "tenant_id,user_id,name",
-      ignoreDuplicates: true,
-    });
-
-  if (laborRolesError) {
-    throw mapSupabaseError(
-      laborRolesError,
-      "Impossible de préparer les rôles MO par défaut."
-    );
-  }
+  await ensureDefaultLaborRoles({
+    supabase,
+    tenantId,
+    ownerUserId: projectUserId,
+  });
 
   let source: PersistCanonicalEstimateV2Input["source"] = {
     kind: "blank",
