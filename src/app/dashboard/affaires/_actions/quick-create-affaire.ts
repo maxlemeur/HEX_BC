@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import {
   buildImportFlowStats,
+  importRequiresPreview,
   normalizeMappedRowsForEstimateCreation,
 } from "@/lib/affaires/import-flow";
 import {
@@ -344,9 +345,12 @@ export async function startAffaireFromImport(
   const normalizedRows = normalizeMappedRowsForEstimateCreation(mappedRows, {
     marginMultiplier: DEFAULT_MARGIN_MULTIPLIER,
     defaultTaxRateBp: DEFAULT_TAX_RATE_BP,
+    entry: "direct",
   });
 
-  if (normalizedRows.validLines.length === 0) {
+  // Hours per unit and workbook parameters need the import preview (P-16, E17): the affaire is
+  // created empty with the import linked, as for an unconfident mapping, never priced at 0 €/h.
+  if (normalizedRows.validLines.length === 0 || importRequiresPreview(normalizedRows)) {
     return {
       destination: "estimate_editor",
       ...(await createAndOptionallyLinkEmptyAffaire({

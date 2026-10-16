@@ -413,9 +413,11 @@ export async function confirmUnifiedImportFlow(
     detectStructure: true,
     structureDecisions: parsed.data.structurePlan?.decisions ?? [],
   };
+  // The preview step showed h/u × Q, the workbook parameters and the labour role (P-16).
   const lineContext = {
     marginMultiplier: versionContext.margin_multiplier,
     defaultTaxRateBp: versionContext.tax_rate_bp,
+    entry: "preview" as const,
   };
   let normalizedRows = normalizeMappedRowsForEstimateCreation(mappedRows, lineContext, normalizationOptions);
 
@@ -635,6 +637,7 @@ export async function previewUnifiedImportFlowLines(
     context: {
       marginMultiplier: versionContext.margin_multiplier,
       defaultTaxRateBp: versionContext.tax_rate_bp,
+      entry: "preview",
     },
     options: { detectStructure: true },
     roles,

@@ -5,6 +5,8 @@ import { type SupabaseClient } from "@supabase/supabase-js";
 
 import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
 import {
+  IMPORT_PREVIEW_REQUIRED_MESSAGE,
+  importRequiresPreview,
   normalizeMappedRowsForEstimateCreation,
   type ValidImportFlowLine,
 } from "@/lib/affaires/import-flow";
@@ -2536,7 +2538,12 @@ async function importLinkedDpgfSourceIntoVersionInternal(
   const normalized = normalizeMappedRowsForEstimateCreation(mappedRows, {
     marginMultiplier: input.marginMultiplier,
     defaultTaxRateBp: input.defaultTaxRateBp,
+    entry: "direct",
   });
+  // No preview here: hours per unit and workbook parameters are refused, never priced at 0 €/h.
+  if (importRequiresPreview(normalized)) {
+    throw badRequest(IMPORT_PREVIEW_REQUIRED_MESSAGE);
+  }
   const validLines = sortValidImportFlowLines(normalized.validLines);
 
   if (validLines.length === 0) {
@@ -4591,7 +4598,12 @@ export async function createEstimate(
         input.version?.tax_rate_bp ??
         latestProjectVersionDefaults?.tax_rate_bp ??
         DEFAULT_TAX_RATE_BP,
+      entry: "direct",
     });
+    // No preview in the wizard's DPGF source mode (P-16, E17).
+    if (importRequiresPreview(normalized)) {
+      throw badRequest(IMPORT_PREVIEW_REQUIRED_MESSAGE);
+    }
     if (normalized.validLines.length === 0) {
       throw badRequest(
         "Aucune ligne DPGF valide à importer depuis la source liée."

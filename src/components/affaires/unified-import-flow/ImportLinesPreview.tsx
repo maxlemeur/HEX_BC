@@ -31,6 +31,7 @@ const INVALID_REASON_LABELS: Record<InvalidImportFlowLineReason, string> = {
   invalid_majoration: "majoration invalide (format refusé ou coefficient hors [0 ; 10])",
   undeclared_majoration_unit:
     "majoration sans unité déclarée : choisissez « Majoration MO (%) », « (coefficient) » ou « additive OPTIMA » dans le mapping",
+  preview_required: "heures par unité ou paramètres de classeur à vérifier dans l’aperçu",
   invalid_row_payload: "ligne illisible",
 };
 

@@ -43,7 +43,19 @@ export type ImportFlowLineValuesContext = {
   marginMultiplier: number;
   defaultTaxRateBp: number;
   laborRole?: ImportFlowLaborRole | null;
+  /**
+   * "preview": the unified import flow showed the import preview (h/u × Q, workbook parameters,
+   * labour role) before confirmation. "direct", the default: the linked-DPGF import, the estimate
+   * wizard's DPGF source and the quick-create action have no preview, so a line whose hours come
+   * from hours per unit, and every line of a workbook with a parameter row, is refused
+   * (`preview_required`) rather than priced at 0 €/h (P-16 « avec aperçu », E17).
+   */
+  entry?: "preview" | "direct";
 };
+
+export const IMPORT_PREVIEW_REQUIRED_MESSAGE =
+  "Ce DPGF porte des heures par unité ou une ligne de paramètres de classeur (OPTIMA) : importez-le depuis " +
+  "l’affaire (« Importer la DPGF ») pour vérifier l’aperçu h/u × Q et choisir le rôle MO.";
 
 export type ImportFlowMappedRowInput = {
   id: string;
@@ -98,6 +110,7 @@ export type InvalidImportFlowLineReason =
   | "conflicting_labor_hours"
   | "invalid_majoration"
   | "undeclared_majoration_unit"
+  | "preview_required"
   | "invalid_row_payload";
 
 export type InvalidImportFlowLine = {
@@ -458,6 +471,14 @@ export function normalizeMappedRowsForEstimateCreation(
       continue;
     }
 
+    if (
+      context.entry !== "preview" &&
+      (workbookParameters !== null || !isMissingNumericValue(row.mappedRow.labor_hours_per_unit))
+    ) {
+      reject("preview_required");
+      continue;
+    }
+
     const quantityField = readNumericField(row.mappedRow.quantity, parseQuantity);
     if (quantityField.status === "invalid") {
       reject("invalid_quantity");
@@ -604,6 +625,15 @@ export function normalizeMappedRowsForEstimateCreation(
     workbookParameters,
     unitPriceChecks,
   };
+}
+
+/** True when the rows carry hours per unit or workbook parameters, which only the preview shows. */
+export function importRequiresPreview(normalized: NormalizeImportFlowRowsResult): boolean {
+  return (
+    normalized.workbookParameters !== null ||
+    normalized.invalidLines.some((line) => line.reason === "preview_required") ||
+    normalized.validLines.some((line) => typeof line.hoursPerUnit === "number")
+  );
 }
 
 export type ImportLaborRoleCandidate = {
