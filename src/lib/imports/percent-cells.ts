@@ -24,7 +24,11 @@ export function convertPercentFormattedCells(sheet: Record<string, unknown>): vo
     const digits = String(Number(cell.v.toPrecision(15)));
     if (/e/i.test(digits)) continue;
     const negative = digits.startsWith("-");
-    const [integer, fraction = ""] = (negative ? digits.slice(1) : digits).split(".");
+    // No destructuring or helper-compiled syntax: the source runs as is in the server worker.
+    const unsigned = negative ? digits.slice(1) : digits;
+    const point = unsigned.indexOf(".");
+    const integer = point < 0 ? unsigned : unsigned.slice(0, point);
+    const fraction = point < 0 ? "" : unsigned.slice(point + 1);
     const whole = `${integer}${fraction.padEnd(2, "0").slice(0, 2)}`.replace(/^0+(?=\d)/, "");
     const decimals = fraction.slice(2);
     const text = `${negative && (whole !== "0" || decimals) ? "-" : ""}${whole}${decimals ? `,${decimals}` : ""} %`;
