@@ -297,11 +297,10 @@ export function DashboardShell({
   }
 
   return (
-    <DashboardNavigationProvider value={navigationContextValue}>
-      <div
-        className="flex min-h-screen flex-col bg-background"
-        data-navigation-mode={navigationMode}
-      >
+    <div
+      className="flex min-h-screen flex-col bg-background"
+      data-navigation-mode={navigationMode}
+    >
       <a
         href="#dashboard-main-content"
         className="sr-only fixed left-3 top-3 z-[70] rounded-lg bg-surface px-4 py-3 font-semibold text-primary shadow-lg focus:not-sr-only focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-primary"
@@ -309,6 +308,11 @@ export function DashboardShell({
         Aller au contenu principal
       </a>
 
+      {/* Keep this provider around the header only. Its value changes right after
+          hydration (last affaire, feature flags); React client-renders a streamed
+          page boundary still waiting for its reveal under a changed provider and
+          briefly keeps both copies in the document. */}
+      <DashboardNavigationProvider value={navigationContextValue}>
       <header ref={topbarRef} className="no-print dashboard-global-topbar">
         <Link
           href="/dashboard"
@@ -342,6 +346,7 @@ export function DashboardShell({
           </Link>
         </div>
       </header>
+      </DashboardNavigationProvider>
       {/* Drawer backdrop. */}
       {drawerOpen ? (
         <div
@@ -513,7 +518,6 @@ export function DashboardShell({
         onOpenChange={setShortcutsOpen}
         activeContext={shortcutContext}
       />
-      </div>
-    </DashboardNavigationProvider>
+    </div>
   );
 }
