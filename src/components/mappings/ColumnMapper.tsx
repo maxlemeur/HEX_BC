@@ -16,6 +16,15 @@ type TargetFieldOption = {
   value: string;
   label: string;
   required?: boolean;
+  // Grouped options (sub-lot 2.3): check columns, workbook parameters and recognised but
+  // unsupported columns are listed apart from the values an estimate line receives.
+  group?: string;
+};
+
+const TARGET_GROUP_LABELS: Record<string, string> = {
+  control: "Colonnes de contrôle (jamais importées)",
+  param: "Paramètres du classeur",
+  unsupported: "Reconnues, non prises en charge",
 };
 
 export type ColumnMapping = Record<string, string>;
@@ -40,6 +49,7 @@ const CONFIDENCE_VARIANTS: Record<MappingConfidenceBand, NonNullable<BadgeProps[
 
 const ORIGIN_LABELS: Record<MappingSuggestionOrigin, string> = {
   template: "Modèle",
+  profile: "Profil déclaré",
   memory: "Mémoire",
   heuristic: "Heuristique",
 };
@@ -155,8 +165,20 @@ export function ColumnMapper({
   }, [sourceColumns, mapping, filterMode]);
 
   const mappedCount = visibleMappings.length;
-  const totalTargetFields = targetFields.length;
-  const mappedTargetCount = mappedTargets.size;
+  const valueTargetFields = targetFields.filter((field) => !field.group || field.group === "value");
+  const valueTargetSet = new Set(valueTargetFields.map((field) => field.value));
+  const totalTargetFields = valueTargetFields.length;
+  const mappedTargetCount = [...mappedTargets].filter((target) => valueTargetSet.has(target)).length;
+  const optionGroups = targetFields.reduce<Array<{ group: string; options: TargetFieldOption[] }>>(
+    (groups, field) => {
+      const group = field.group ?? "value";
+      const existing = groups.find((entry) => entry.group === group);
+      if (existing) existing.options.push(field);
+      else groups.push({ group, options: [field] });
+      return groups;
+    },
+    []
+  );
   const filters: Array<{ mode: FilterMode; label: string }> = [
     { mode: "all", label: `Toutes (${sourceColumns.length})` },
     { mode: "mapped", label: `Mappées (${mappedCount})` },
@@ -326,12 +348,21 @@ export function ColumnMapper({
                           disabled={disabled}
                         >
                           <option value="">Ne pas mapper</option>
-                          {targetFields.map((target) => (
-                            <option key={target.value} value={target.value}>
-                              {target.label}
-                              {target.required ? " *" : ""}
-                            </option>
-                          ))}
+                          {optionGroups.map(({ group, options }) => {
+                            const renderedOptions = options.map((target) => (
+                              <option key={target.value} value={target.value}>
+                                {target.label}
+                                {target.required ? " *" : ""}
+                              </option>
+                            ));
+                            return group === "value" ? (
+                              renderedOptions
+                            ) : (
+                              <optgroup key={group} label={TARGET_GROUP_LABELS[group] ?? group}>
+                                {renderedOptions}
+                              </optgroup>
+                            );
+                          })}
                         </NativeSelect>
                         {isRequiredTarget ? (
                           <span className="text-micro text-danger">Champ requis</span>

@@ -12,7 +12,12 @@ import {
   isImportReservedKey,
   readImportRowStructure,
 } from "@/lib/imports/payload";
+import { detectImportProfile } from "@/lib/imports/optima-profile";
 import { analyzeImportStructure } from "@/lib/imports/structure";
+import {
+  isMajorationHeaderWords,
+  readMajorationUnitSuffix,
+} from "@/lib/imports/tabular-normalization";
 
 import {
   REQUIRED_MAPPING_TARGET_FIELDS,
@@ -104,7 +109,7 @@ export type MappingSuggestion = {
 };
 
 export type MappingConfidenceBand = "high" | "medium" | "low";
-export type MappingSuggestionOrigin = "template" | "memory" | "heuristic";
+export type MappingSuggestionOrigin = "template" | "profile" | "memory" | "heuristic";
 
 export type MappingSuggestionConfidence = {
   target_field: MappingTargetField;
@@ -144,6 +149,14 @@ const MEDIUM_CONFIDENCE_THRESHOLD = 0.5;
 const MEMORY_CONFIDENCE_WEIGHT = 0.4;
 const MEMORY_USAGE_WEIGHT = 0.6;
 const MEMORY_USAGE_LOG_BASE = Math.log(6);
+// A declared import profile (OPTIMA, editor export) states the meaning of its columns: it wins
+// over memory and heuristics, never over a template the user saved for these exact columns.
+const PROFILE_SUGGESTION_SCORE = 0.9;
+const DECLARED_MAJORATION_TARGETS = new Set<MappingTargetField>([
+  "h_mo_majoration_percent",
+  "h_mo_majoration_coefficient",
+  "h_mo_majoration_additive",
+]);
 const MAPPING_TARGET_FIELD_SET = new Set<MappingTargetField>(mappingTargetFieldSchema.options);
 
 export class MappingsApiError extends Error {
@@ -461,7 +474,8 @@ function findTemplateExactMatch(
 }
 
 function getCandidateOriginPriority(origin: MappingSuggestionOrigin): number {
-  if (origin === "template") return 3;
+  if (origin === "template") return 4;
+  if (origin === "profile") return 3;
   if (origin === "memory") return 2;
   return 1;
 }
@@ -777,28 +791,68 @@ function buildMappingImportStats(input: {
   };
 }
 
-function guessTargetFieldWithScore(
-  sourceColumn: string
-): { target: MappingTargetField; score: number } | null {
+type TargetGuess = { target: MappingTargetField; score: number };
+
+// Sub-lot 2.3 (F17, U-03, D11): whole words only, check and parameter columns before values,
+// prices before the unit. A price or a duration never becomes the unit.
+function guessTargetFieldWithScore(sourceColumn: string): TargetGuess | null {
   const normalized = stripAccents(sourceColumn.trim().toLowerCase()).replace(/[^a-z0-9]+/g, " ");
   const words = normalized.split(" ").filter(Boolean);
+  const phrase = words.join(" ");
   const wordSet = new Set(words);
+  const has = (...candidates: string[]) => candidates.some((word) => wordSet.has(word));
   const hasWordPrefix = (prefix: string) => words.some((word) => word.startsWith(prefix));
 
-  if (!normalized) return null;
+  if (!phrase) return null;
 
-  if (
-    (wordSet.has("type") && wordSet.has("fo")) ||
-    (wordSet.has("famille") && wordSet.has("fo"))
-  ) {
+  const isTotal = has("total", "totale", "totaux", "montant");
+  const isSupply = has("fo", "fourniture", "fournitures");
+  const isLabor = has("mo");
+  const isQuantity = has("qt", "qte", "qty", "quantite", "quantites", "quantity");
+  const isUnitPrice =
+    has("pu") ||
+    (has("p") && has("u")) ||
+    (has("prix") && has("unitaire", "unit", "u")) ||
+    phrase.includes("unit price");
+
+  if (has("type", "famille") && has("fo")) {
     return { target: "supply_type", score: 0.58 };
   }
 
-  if (
-    (wordSet.has("majoration") && wordSet.has("mo")) ||
-    (wordSet.has("temps") && hasWordPrefix("major"))
-  ) {
+  // Workshop and site split columns are recognised and reported, never imported as values.
+  if (has("atelier", "chantier")) {
+    const side = has("atelier") ? "workshop" : "site";
+    if (isQuantity) return { target: `unsupported_quantity_${side}` as const, score: 0.6 };
+    if (isLabor && (isUnitPrice || has("prix"))) {
+      return { target: `unsupported_labor_price_${side}` as const, score: 0.6 };
+    }
+    if (isLabor && isTotal) return { target: `unsupported_labor_total_${side}` as const, score: 0.6 };
+  }
+
+  // Durations: OPTIMA "Tps pose unitaire" is per unit; its marked-up and total twins are checks.
+  if (has("tps", "temps") && has("pose", "unitaire", "unit", "u", "total", "totale")) {
+    if (isTotal) return { target: "control_total_hours", score: 0.6 };
+    if (hasWordPrefix("major")) return { target: "control_marked_up_hours_per_unit", score: 0.6 };
+    if (has("unitaire", "unit", "u")) return { target: "labor_hours_per_unit", score: 0.62 };
+    return null;
+  }
+
+  if (isMajorationHeaderWords(words)) {
+    const unit = readMajorationUnitSuffix(sourceColumn, wordSet);
+    if (unit === "_pct") return { target: "h_mo_majoration_percent", score: 0.6 };
+    if (unit === "_coef") return { target: "h_mo_majoration_coefficient", score: 0.6 };
+    if (unit === "_additive") return { target: "h_mo_majoration_additive", score: 0.6 };
+    // No declared unit: the import refuses its values until the unit is chosen (P-11).
     return { target: "h_mo_majoration", score: 0.57 };
+  }
+
+  if (has("coeff", "coef", "coefficient")) {
+    if (has("fo")) return { target: "param_coeff_fo", score: 0.6 };
+    if (has("mo")) return { target: "param_coeff_mo", score: 0.6 };
+  }
+
+  if (has("taux") && has("horaire", "horaires")) {
+    return { target: "param_hourly_rate", score: 0.6 };
   }
 
   if (
@@ -807,9 +861,9 @@ function guessTargetFieldWithScore(
         normalized.includes("article") ||
         normalized.includes("poste") ||
         normalized.includes("produit"))) ||
-    normalized === "hex"
+    phrase === "hex"
   ) {
-    return { target: "hex_code", score: normalized === "hex" ? 0.58 : 0.56 };
+    return { target: "hex_code", score: phrase === "hex" ? 0.58 : 0.56 };
   }
 
   if (
@@ -821,49 +875,50 @@ function guessTargetFieldWithScore(
     return { target: "designation", score: 0.56 };
   }
 
-  if (
-    normalized === "qt" ||
-    normalized === "qte" ||
-    normalized.includes("quantite") ||
-    normalized.includes("quantity")
-  ) {
+  if (isQuantity) {
     return {
       target: "quantity",
-      score: normalized === "qt" || normalized === "qte" ? 0.58 : 0.56,
+      score: phrase === "qt" || phrase === "qte" ? 0.58 : 0.56,
     };
   }
 
-  if (
-    normalized === "u" ||
-    normalized.includes("unite") ||
-    normalized.includes("unit")
-  ) {
-    return { target: "unit", score: normalized === "u" ? 0.55 : 0.52 };
+  if (isSupply && isTotal) {
+    return { target: "control_supply_total", score: 0.6 };
   }
 
-  if (
-    wordSet.has("fo") &&
-    (wordSet.has("pr") || wordSet.has("prix") || normalized.includes("prix fourniture"))
-  ) {
+  if (isSupply && has("pr", "prix")) {
     return { target: "unit_price_ht", score: 0.64 };
   }
 
-  if (
-    wordSet.has("mo") &&
-    (wordSet.has("h") || wordSet.has("heure") || wordSet.has("heures"))
-  ) {
+  if (isSupply && isUnitPrice) {
+    return { target: "control_supply_unit_price", score: 0.58 };
+  }
+
+  if (isLabor && has("h", "heure", "heures")) {
     return { target: "labor_hours", score: 0.61 };
   }
 
   if (
-    normalized.includes("prix unitaire") ||
-    wordSet.has("pu") ||
-    normalized.includes("unit price")
+    has("h", "heure", "heures") &&
+    (has("unitaire") || (has("par") && has("unite", "u")) || phrase === "h u")
   ) {
-    return { target: "unit_price_ht", score: wordSet.has("pu") ? 0.58 : 0.55 };
+    return { target: "labor_hours_per_unit", score: 0.58 };
   }
 
-  if (normalized.includes("montant") || normalized.includes("total")) {
+  // A generic DPGF unit price is a sale price to check, not the supply cost (D11).
+  if (isUnitPrice) {
+    return { target: "control_unit_price", score: has("pu") ? 0.58 : 0.55 };
+  }
+
+  if (has("prix") && isTotal) {
+    return { target: "control_total_price", score: 0.55 };
+  }
+
+  if (phrase === "u" || has("ute", "unite", "unites", "unit", "units", "uom")) {
+    return { target: "unit", score: phrase === "u" ? 0.55 : 0.52 };
+  }
+
+  if (isTotal) {
     return { target: "total_ht", score: 0.54 };
   }
 
@@ -896,7 +951,7 @@ function guessContextualDesignation(input: {
   sourceColumns: string[];
   sampleRows: Array<{ payload: unknown }>;
   sampleValues: Record<string, string[]>;
-}): { target: MappingTargetField; score: number } | null {
+}): TargetGuess | null {
   let firstColumn: string | null = null;
 
   for (const row of input.sampleRows) {
@@ -924,7 +979,8 @@ function guessContextualDesignation(input: {
     contextualTargets.has("quantity") &&
     (contextualTargets.has("unit") ||
       contextualTargets.has("unit_price_ht") ||
-      contextualTargets.has("labor_hours"));
+      contextualTargets.has("labor_hours") ||
+      contextualTargets.has("labor_hours_per_unit"));
   if (!hasDpgfContext) return null;
 
   const samples = input.sampleValues[input.sourceColumn] ?? [];
@@ -1444,6 +1500,43 @@ export async function previewImportStructure(input: {
   );
 }
 
+export type MappedImportRowPreview = {
+  id: string;
+  payload: { row_index: number; raw_row: JsonRecord; mapped_row: JsonRecord };
+};
+
+/**
+ * Every raw row of the import with the mapping applied in memory, nothing written: the same
+ * dpgf_rows_raw → mapping projection that createMapping persists, read by the import preview
+ * (P-16 hours per unit × Q, labour role, controls) before confirmUnifiedImportFlow.
+ */
+export async function loadMappedImportRowsForPreview(input: {
+  import_id: string;
+  mapping: SourceToTargetMapping;
+}): Promise<MappedImportRowPreview[]> {
+  const { supabase, userId, tenantId, isTenantAdmin } = await getAuthenticatedContext();
+  await ensureImportAccess(supabase, input.import_id, {
+    userId,
+    tenantId,
+    isTenantAdmin,
+  });
+
+  const rows = await loadAllImportRows(supabase, input.import_id, tenantId);
+  const scopedMapping = filterMappingToSourceColumns(input.mapping, toSourceColumns(rows));
+
+  return rows.map((row) => {
+    const rawRow = asRecord(row.payload) ?? {};
+    return {
+      id: row.id,
+      payload: {
+        row_index: row.row_index,
+        raw_row: rawRow,
+        mapped_row: applyMappingToPayload(rawRow, scopedMapping),
+      },
+    };
+  });
+}
+
 export async function suggestMapping(input: { import_id: string }): Promise<MappingSuggestion> {
   const { supabase, userId, tenantId, isTenantAdmin } = await getAuthenticatedContext();
   const importSummary = await ensureImportAccess(supabase, input.import_id, {
@@ -1503,12 +1596,16 @@ export async function suggestMapping(input: { import_id: string }): Promise<Mapp
       }
 
       const memoryCandidates = memoryByNormalizedSource.get(normalizedSource) ?? [];
+      const headerGuess = guessTargetFieldWithScore(sourceColumn);
 
       let bestMemoryCandidate: MappingSuggestionCandidate | null = null;
 
       for (const memoryCandidate of memoryCandidates) {
         const targetField = memoryCandidate.target_field as MappingTargetField;
         if (!MAPPING_TARGET_FIELD_SET.has(targetField)) continue;
+        // P-11: only the header (or a declared profile) states a majoration unit. A unit learnt
+        // on another file, such as the OPTIMA additive one, never applies to a bare header.
+        if (DECLARED_MAJORATION_TARGETS.has(targetField) && headerGuess?.target !== targetField) continue;
 
         const computedScore = computeMemorySuggestionScore(memoryCandidate);
         const candidate: MappingSuggestionCandidate = {
@@ -1554,6 +1651,21 @@ export async function suggestMapping(input: { import_id: string }): Promise<Mapp
         target_field: heuristicSuggestion.target,
         score: roundScore(heuristicSuggestion.score),
         origin: "heuristic",
+        usage_count: null,
+        memory_confidence: null,
+      });
+    }
+
+    const profile = detectImportProfile(sourceColumns);
+    for (const sourceColumn of profile?.ignoredColumns ?? []) {
+      candidatesBySource.delete(sourceColumn);
+    }
+    for (const [sourceColumn, targetField] of Object.entries(profile?.mapping ?? {})) {
+      candidatesBySource.set(sourceColumn, {
+        source_column: sourceColumn,
+        target_field: targetField,
+        score: PROFILE_SUGGESTION_SCORE,
+        origin: "profile",
         usage_count: null,
         memory_confidence: null,
       });

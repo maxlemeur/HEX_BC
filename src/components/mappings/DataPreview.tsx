@@ -40,6 +40,16 @@ function normalizeCell(value: unknown): string {
   }
 }
 
+// The majoration column keeps its declared unit (%, coefficient, OPTIMA additive) as written.
+function readMappedMajoration(mappedRow: Record<string, unknown>) {
+  return (
+    mappedRow.h_mo_majoration_percent ??
+    mappedRow.h_mo_majoration_coefficient ??
+    mappedRow.h_mo_majoration_additive ??
+    mappedRow.h_mo_majoration
+  );
+}
+
 function plural(count: number, singular: string, pluralForm: string) {
   return `${count} ${count > 1 ? pluralForm : singular}`;
 }
@@ -204,7 +214,7 @@ export function DataPreview({
                     <td>{normalizeCell(row.mapped_row.unit)}</td>
                     <td>{normalizeCell(row.mapped_row.unit_price_ht)}</td>
                     <td>{normalizeCell(row.mapped_row.supply_type)}</td>
-                    <td>{normalizeCell(row.mapped_row.h_mo_majoration)}</td>
+                    <td>{normalizeCell(readMappedMajoration(row.mapped_row))}</td>
                     <td>
                       <Badge variant={hasMissingRequired ? "warning" : "success"} size="sm">
                         {hasMissingRequired ? "À compléter" : "OK"}

@@ -1,11 +1,15 @@
 import { resolveHeaderRowIndex } from "./header-row";
 import { attachImportRowStructure } from "./payload";
 import { selectDpgfSheetIndex } from "./sheet-selection";
+// One header normalization for both upload parsers (server and browser worker): the key the
+// upload stores is what the mapping heuristic reads (sub-lot 2.3).
 import {
+  buildHeaders,
   hasNonReservedValue,
+  isPlainObject,
+  normalizeCellValue,
   normalizeRowObject as normalizeTabularRowObject,
   type NormalizedImportRow,
-  type SimpleJsonValue,
 } from "./tabular-normalization";
 
 export type ImportSourceFormat = "json" | "csv" | "xlsx";
@@ -39,114 +43,12 @@ type ParseWorkbookRunner = (
   signal: AbortSignal
 ) => Promise<ParseWorkbookResult>;
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (value === null || typeof value !== "object") return false;
-  return Object.prototype.toString.call(value) === "[object Object]";
-}
-
-function stripAccents(value: string) {
-  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-}
-
-function normalizeOptimaHeader(raw: string): string | null {
-  const normalized = stripAccents(raw.toLowerCase()).replace(/[^a-z0-9]+/g, " ");
-  const words = normalized.split(" ").filter(Boolean);
-  const wordSet = new Set(words);
-  const hasWordPrefix = (prefix: string) => words.some((word) => word.startsWith(prefix));
-
-  if (
-    (wordSet.has("type") && wordSet.has("fo")) ||
-    (wordSet.has("famille") && wordSet.has("fo"))
-  ) {
-    return "Type_FO";
-  }
-
-  if (
-    (wordSet.has("majoration") && wordSet.has("mo")) ||
-    (wordSet.has("temps") && hasWordPrefix("major"))
-  ) {
-    return "Majoration_MO";
-  }
-
-  return null;
-}
-
-function normalizeHeaderValue(value: unknown, index: number) {
-  const raw =
-    typeof value === "string"
-      ? value.trim()
-      : value === null || value === undefined
-        ? ""
-        : String(value).trim();
-
-  if (raw.length === 0) {
-    return `column_${index + 1}`;
-  }
-
-  const optimaHeader = normalizeOptimaHeader(raw);
-  if (optimaHeader) {
-    return optimaHeader;
-  }
-
-  const sanitized = stripAccents(raw)
-    .replace(/\s+/g, "_")
-    .replace(/[^a-zA-Z0-9_.-]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-
-  return sanitized.length > 0 ? sanitized : `column_${index + 1}`;
-}
-
-function dedupeHeaders(headers: string[]) {
-  const counts = new Map<string, number>();
-
-  return headers.map((header) => {
-    const count = counts.get(header) ?? 0;
-    const nextCount = count + 1;
-    counts.set(header, nextCount);
-    return nextCount === 1 ? header : `${header}_${nextCount}`;
-  });
-}
-
-function normalizeCellValue(value: unknown): SimpleJsonValue {
-  if (value === null || value === undefined) return null;
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : null;
-  }
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : null;
-  }
-  if (typeof value === "boolean") return value;
-  if (value instanceof Date) return value.toISOString();
-  if (typeof value === "bigint") return value.toString();
-
-  if (Array.isArray(value) || isPlainObject(value)) {
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return String(value);
-    }
-  }
-
-  return String(value);
-}
-
 function normalizeRowObject(row: Record<string, unknown>) {
   return normalizeTabularRowObject(row);
 }
 
 function hasNonNullValue(row: NormalizedImportRow) {
   return hasNonReservedValue(row);
-}
-
-function buildHeaders(firstRow: unknown[], columnCount: number) {
-  const rawHeaders: string[] = [];
-
-  for (let index = 0; index < columnCount; index += 1) {
-    rawHeaders.push(normalizeHeaderValue(firstRow[index], index));
-  }
-
-  return dedupeHeaders(rawHeaders);
 }
 
 export function detectImportSourceFormat(

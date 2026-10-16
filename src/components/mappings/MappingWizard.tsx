@@ -14,6 +14,7 @@ import { FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { useUiMode } from "@/hooks/useUiMode";
+import { MAPPING_TARGET_FIELD_OPTIONS } from "@/lib/mappings/schemas";
 import type {
   MappingAutoValidation,
   MappingSuggestionConfidence,
@@ -82,20 +83,8 @@ function resolveImportIdQueryValue(value: string | null): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-const TARGET_FIELDS = [
-  { value: "hex_code", label: "Référence article" },
-  { value: "designation", label: "Désignation", required: true },
-  { value: "quantity", label: "Quantité" },
-  { value: "unit", label: "Unité" },
-  { value: "unit_price_ht", label: "Prix fourniture" },
-  { value: "total_ht", label: "Montant HT" },
-  { value: "category", label: "Catégorie" },
-  { value: "supply_type", label: "Type FO" },
-  { value: "supplier_ref", label: "Référence fournisseur" },
-  { value: "labor_hours", label: "Heures MO" },
-  { value: "h_mo_majoration", label: "Majoration MO" },
-  { value: "notes", label: "Notes" },
-] as const;
+const TARGET_FIELDS = MAPPING_TARGET_FIELD_OPTIONS;
+const VALUE_TARGET_FIELDS = TARGET_FIELDS.filter((field) => field.group === "value");
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -501,7 +490,11 @@ export function MappingWizard({ initialImportId = null }: { initialImportId?: st
     );
   }
 
-  const mappedTargetCount = new Set(Object.values(visibleMapping)).size;
+  const mappedTargetCount = new Set(
+    Object.values(visibleMapping).filter((target) =>
+      VALUE_TARGET_FIELDS.some((field) => field.value === target)
+    )
+  ).size;
 
   return (
     <div className="space-y-6">
@@ -698,7 +691,7 @@ export function MappingWizard({ initialImportId = null }: { initialImportId?: st
 
           <div className="flex flex-wrap items-center gap-4">
             <span className="hidden text-xs text-muted-foreground sm:inline">
-              {mappedTargetCount}/{TARGET_FIELDS.length} champs mappés
+              {mappedTargetCount}/{VALUE_TARGET_FIELDS.length} champs mappés
             </span>
             <Button
               size="lg"

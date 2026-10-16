@@ -20,7 +20,6 @@ function normalizeOptimaHeader(raw: string): string | null {
   const normalized = stripAccents(raw.toLowerCase()).replace(/[^a-z0-9]+/g, " ");
   const words = normalized.split(" ").filter(Boolean);
   const wordSet = new Set(words);
-  const hasWordPrefix = (prefix: string) => words.some((word) => word.startsWith(prefix));
 
   if (
     (wordSet.has("type") && wordSet.has("fo")) ||
@@ -29,14 +28,34 @@ function normalizeOptimaHeader(raw: string): string | null {
     return "Type_FO";
   }
 
-  if (
-    (wordSet.has("majoration") && wordSet.has("mo")) ||
-    (wordSet.has("temps") && hasWordPrefix("major"))
-  ) {
-    return "Majoration_MO";
+  if (isMajorationHeaderWords(words)) {
+    // P-11 / C-11: the key keeps the declared unit, otherwise an exported "Majoration MO (%)"
+    // re-imports as a bare coefficient and multiplies the labour cost by 100.
+    return `Majoration_MO${readMajorationUnitSuffix(raw, wordSet)}`;
   }
 
   return null;
+}
+
+/** Shared by both upload parsers and the column heuristic (sub-lot 2.3). */
+export function isMajorationHeaderWords(words: string[]) {
+  const wordSet = new Set(words);
+  const hasWordPrefix = (prefix: string) => words.some((word) => word.startsWith(prefix));
+  // "Tps/Temps pose unitaire majoré" is a duration (an OPTIMA control column), not a majoration.
+  const isDuration = ["tps", "pose", "unitaire", "unit", "total", "totale"].some((word) => wordSet.has(word));
+  return (
+    (wordSet.has("majoration") && wordSet.has("mo")) ||
+    (wordSet.has("temps") && hasWordPrefix("major") && !isDuration)
+  );
+}
+
+export function readMajorationUnitSuffix(raw: string, wordSet: Set<string>) {
+  if (raw.includes("%") || ["pct", "pourcent", "pourcentage", "percent"].some((word) => wordSet.has(word))) {
+    return "_pct";
+  }
+  if (["coef", "coeff", "coefficient"].some((word) => wordSet.has(word))) return "_coef";
+  if (["additive", "additif", "additionnelle"].some((word) => wordSet.has(word))) return "_additive";
+  return "";
 }
 
 export function normalizeHeaderValue(value: unknown, index: number) {
