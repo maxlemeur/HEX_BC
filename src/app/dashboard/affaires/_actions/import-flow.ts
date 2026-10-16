@@ -104,7 +104,7 @@ const confirmUnifiedImportFlowSchema = z.object({
   sectionTitle: z.string().trim().max(200).nullable().optional(),
   structurePlan: z.object({ decisions: z.array(structureDecisionSchema).max(10_000) }).optional(),
   // Labour role of the imported hours chosen at the preview (E17). Omitted: the workbook rate
-  // decides; null: no role, refused when the workbook states a rate.
+  // decides; null: the explicit « no role » choice (MO valued at 0 €/h, warned in the preview).
   laborRoleId: z.string().uuid("laborRoleId invalide.").nullable().optional(),
 });
 export type ConfirmUnifiedImportFlowInput = z.infer<typeof confirmUnifiedImportFlowSchema>;

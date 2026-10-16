@@ -36,6 +36,8 @@ const INVALID_REASON_LABELS: Record<InvalidImportFlowLineReason, string> = {
 };
 
 export const LABOR_ROLE_SELECT_LABEL = "Rôle MO des heures importées";
+// Explicit « no role » choice, sent as null (E17); "" is the unanswered placeholder.
+export const NO_LABOR_ROLE_OPTION_VALUE = "none";
 
 type ImportLinesPreviewProps = {
   preview: ImportFlowLinesPreview | null;
@@ -96,10 +98,11 @@ export function ImportLinesPreview({
     },
     new Map()
   );
-  const roleSelectValue = selectedLaborRoleId === undefined
-    ? (laborRole.roleId ?? "")
-    : (selectedLaborRoleId ?? "");
   const roleChoiceRequired = laborRole.status === "choice_required";
+  const roleSelectValue =
+    selectedLaborRoleId === null
+      ? NO_LABOR_ROLE_OPTION_VALUE
+      : (selectedLaborRoleId ?? laborRole.roleId ?? (roleChoiceRequired ? "" : NO_LABOR_ROLE_OPTION_VALUE));
   const workbookCoefficients = [workbookParameters?.coeffFo, workbookParameters?.coeffMo].filter(
     (value): value is number => typeof value === "number"
   );
@@ -206,11 +209,18 @@ export function ImportLinesPreview({
             wrapperClassName="max-w-md"
             value={roleSelectValue}
             aria-invalid={roleChoiceRequired || undefined}
-            onChange={(event) => onLaborRoleChange(event.target.value === "" ? null : event.target.value)}
+            onChange={(event) => {
+              const value = event.target.value;
+              if (value === "") return;
+              onLaborRoleChange(value === NO_LABOR_ROLE_OPTION_VALUE ? null : value);
+            }}
           >
-            <option value="">
-              {roleChoiceRequired ? "Choisir un rôle…" : "Aucun rôle (MO à 0 €/h)"}
-            </option>
+            {roleChoiceRequired ? (
+              <option value="" disabled>
+                Choisir un rôle…
+              </option>
+            ) : null}
+            <option value={NO_LABOR_ROLE_OPTION_VALUE}>Aucun rôle (MO à 0 €/h)</option>
             {preview.laborRoles.map((role) => (
               <option key={role.id} value={role.id}>
                 {role.name} ({formatEurosFromCents(role.hourlyRateCents)}/h)
@@ -220,13 +230,15 @@ export function ImportLinesPreview({
           {roleChoiceRequired ? (
             <p className="text-xs text-danger" role="alert">
               {laborRole.matchingRoleIds.length === 0
-                ? "Aucun rôle actif n’a le taux horaire du classeur : choisissez le rôle qui valorise ces heures."
-                : "Plusieurs rôles actifs ont le taux horaire du classeur : choisissez celui qui valorise ces heures."}
+                ? "Aucun rôle actif n’a le taux horaire du classeur : choisissez le rôle qui valorise ces heures, ou « Aucun rôle »."
+                : "Plusieurs rôles actifs ont le taux horaire du classeur : choisissez celui qui valorise ces heures, ou « Aucun rôle »."}
             </p>
           ) : laborRole.status === "unassigned" ? (
             <p className="text-xs text-warning">
               Sans rôle, ces heures sont valorisées à 0 €/h. Choisissez le rôle qui les valorise.
             </p>
+          ) : laborRole.status === "declined" ? (
+            <p className="text-xs text-warning">Sans rôle, ces heures sont valorisées à 0 €/h.</p>
           ) : null}
         </div>
       ) : null}

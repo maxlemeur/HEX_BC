@@ -652,6 +652,8 @@ export type ImportLaborRoleResolution =
   | { status: "choice_required"; role: null; matchingRoleIds: string[] }
   // Hours without a workbook rate: no role unless the user picks one (MO valued at 0 €/h).
   | { status: "unassigned"; role: null }
+  // The user explicitly declined any role in the preview: MO valued at 0 €/h, with its warning.
+  | { status: "declined"; role: null }
   | { status: "invalid_role"; role: null };
 
 /**
@@ -665,6 +667,9 @@ export function resolveImportLaborRole(input: {
   requestedRoleId?: string | null;
 }): ImportLaborRoleResolution {
   if (!input.hasLaborHours) return { status: "not_needed", role: null };
+  // An explicit null is the preview's « Aucun rôle (MO à 0 €/h) » choice, accepted even when the
+  // workbook rate matches no role or the owner has none (2.3 review: it looped back to the choice).
+  if (input.requestedRoleId === null) return { status: "declined", role: null };
 
   if (typeof input.requestedRoleId === "string") {
     const role = input.roles.find((candidate) => candidate.id === input.requestedRoleId);
@@ -676,7 +681,7 @@ export function resolveImportLaborRole(input: {
   const matching = input.roles.filter(
     (candidate) => candidate.hourlyRateCents === input.workbookHourlyRateCents
   );
-  if (input.requestedRoleId === undefined && matching.length === 1) {
+  if (matching.length === 1) {
     return { status: "resolved", role: matching[0]!, origin: "workbook_rate" };
   }
   return { status: "choice_required", role: null, matchingRoleIds: matching.map((role) => role.id) };
