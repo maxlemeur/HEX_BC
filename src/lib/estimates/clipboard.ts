@@ -87,19 +87,23 @@ const TARGET_FIELD_ALIASES: Record<ClipboardTargetField, string[]> = {
   ],
   quantity: ["quantite", "qte", "qt", "quantity", "qty"],
   unit: ["unite", "unit", "uom", "u", "ute"],
+  // The supply cost (PR FO). A generic sale price (« Prix Unitaire » of an OPTIMA sheet, « PU »,
+  // « Unit price », « Prix HT ») is never proposed here, or a v2 margin applies twice (D11, 2.3
+  // review); the user may still choose it. « Prix unitaire HT » stays: it is the paste field's own
+  // label and the developers' contract (d484c5a1), « Prix unitaire HT (EUR) » the BDC format's.
   unit_price_ht: [
     "unit_price_ht",
     "unit price ht",
-    "unit price",
     "prix unitaire ht",
     "pr fo",
     "pr fo eur",
     "pr fourniture",
     "pr fourniture unitaire",
-    "prix ht",
-    "pu ht",
-    "pu",
-    "price ht",
+    "prix fourniture",
+    "prix d achat",
+    "prix achat",
+    "prix de revient",
+    "cout d achat",
   ],
   supply_type: ["supply_type", "supply type", "type fo", "famille fo"],
   k_fo: ["k_fo", "k fo", "coef fo", "coefficient fo"],
@@ -161,7 +165,6 @@ const OPTIMA_CANONICAL_HEADERS: Partial<Record<ClipboardTargetField, string[]>> 
   designation: ["libelle", "designation"],
   quantity: ["qte", "qt"],
   unit: ["unite", "u"],
-  unit_price_ht: ["pu ht", "prix unit ht"],
   supply_type: ["famille fo", "type fo"],
   h_mo_majoration: ["temps majore", "majoration mo"],
 };
@@ -282,7 +285,9 @@ function hasExactNormalizedMatch(normalizedHeader: string, aliases?: string[]) {
   );
 }
 
-function scoreAliasMatch(normalizedHeader: string, alias: string): number {
+// `allowSubset: false` refuses a header whose words are only part of the alias (« Prix unitaire »
+// for « prix unitaire ht »): the supply cost needs its full name.
+function scoreAliasMatch(normalizedHeader: string, alias: string, allowSubset = true): number {
   const normalizedAlias = normalizeClipboardHeader(alias);
   if (!normalizedAlias) return 0;
 
@@ -309,7 +314,7 @@ function scoreAliasMatch(normalizedHeader: string, alias: string): number {
     return 110 + aliasWords.length;
   }
 
-  if (headerWords.length > 1 && headerWords.every((word) => aliasWords.includes(word))) {
+  if (allowSubset && headerWords.length > 1 && headerWords.every((word) => aliasWords.includes(word))) {
     return 90 + headerWords.length;
   }
 
@@ -582,7 +587,7 @@ export function suggestClipboardColumnMapping(headers: string[]): ClipboardColum
       let bestScore = 0;
 
       for (const alias of aliases) {
-        bestScore = Math.max(bestScore, scoreAliasMatch(normalizedHeader, alias));
+        bestScore = Math.max(bestScore, scoreAliasMatch(normalizedHeader, alias, field !== "unit_price_ht"));
       }
 
       if (bestScore === 0) continue;
