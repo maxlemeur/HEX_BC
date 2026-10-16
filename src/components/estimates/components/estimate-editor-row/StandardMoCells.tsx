@@ -19,6 +19,8 @@ import {
   type SpreadsheetCell,
   type SpreadsheetNavigationResult,
   getMissingLaborRateMessage,
+  parseCoefficientDraft,
+  parseLineHoursDraft,
   parseMajorationPercentToCoefficient,
   toCellClassName,
   toCellKeyDownHandler,
@@ -107,6 +109,7 @@ export function StandardMoCells({
           ref={hMoEditorProps.ref}
           tabIndex={hMoEditorProps.tabIndex}
           value={hMoValue}
+          parseValue={parseLineHoursDraft}
           aria-label={`Heures de main-d’œuvre pour ${item.title || "sans titre"}`}
           onFocus={hMoEditorProps.onFocus}
           onKeyDown={hMoEditorProps.onKeyDown}
@@ -209,6 +212,7 @@ export function StandardMoCells({
             tabIndex={kMoEditorProps.tabIndex}
             value={kMoValue}
             emptyValue={1}
+            parseValue={parseCoefficientDraft}
             aria-label={`Coefficient main-d'œuvre K MO pour ${item.title || "sans titre"}`}
             aria-invalid={missingLaborRateMessage ? true : undefined}
             title={

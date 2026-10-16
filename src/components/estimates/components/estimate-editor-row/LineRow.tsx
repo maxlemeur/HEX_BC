@@ -67,7 +67,8 @@ import {
   formatCentsInput,
   formatNumberDisplay,
   getQualityFlagCellTarget,
-  parseNumberInput,
+  parseCoefficientDraft,
+  parseQuantityInput,
   readLaborSplitFields,
   toCellClassName,
   toCellKeyDownHandler,
@@ -849,10 +850,11 @@ export function LineRow({
             maxDecimals: 3,
           })
         }
-        isValidInput={(value) => parseNumberInput(value) !== null}
+        // 2.3 review : même lecture qu'à l'import et au collage, trois décimales au plus.
+        isValidInput={(value) => parseQuantityInput(value) !== null}
         onChange={() => undefined}
         onCommit={(value) => {
-          const quantity = parseNumberInput(value);
+          const quantity = parseQuantityInput(value);
           if (quantity === null) return;
           onPatchItem(item.id, { quantity }, { persist: true });
         }}
@@ -979,6 +981,7 @@ export function LineRow({
             tabIndex={kFoEditorProps.tabIndex}
             value={kFoValue}
             emptyValue={1}
+            parseValue={parseCoefficientDraft}
             aria-label={`Coefficient fourniture K FO pour ${item.title || "sans titre"}`}
             title="K FO agit uniquement sur le prix de revient fourniture et ne modifie jamais le prix de revient MO."
             onFocus={kFoEditorProps.onFocus}

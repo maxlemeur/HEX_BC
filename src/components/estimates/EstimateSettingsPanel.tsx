@@ -15,6 +15,7 @@ import type {
   MarginMode,
   RoundingMode,
 } from "@/lib/estimate-calculations";
+import { parseRatePercentDraft } from "@/lib/estimates/editor-values";
 import { getMarginTiers, type MarginTier } from "@/lib/estimates/margin-tiers";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -528,7 +529,8 @@ export function EstimateSettingsPanel({
                   step="0.01"
                   min={0}
                   value={taxRatePercent}
-                  parseValue={parseNonNegativeNumberInput}
+                  // 2.3 review : le taux se lit comme à l'import (« 5,5 % », deux décimales, ≤ 100).
+                  parseValue={parseRatePercentDraft}
                   emptyValue={0}
                   onValueChange={(taxRatePercentValue) =>
                     onChange({

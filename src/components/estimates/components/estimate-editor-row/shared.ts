@@ -251,6 +251,13 @@ export { formatCentsInput } from "@/lib/money";
 // champ vide doit retomber sur la valeur neutre et non sur 0).
 export { parseNumberInput };
 export { parseNullableNumberInput as parseDecimalDraft };
+// Per-quantity readings of the grid cells, shared with the import and the paste (2.3 review).
+export {
+  parseAmountDraft,
+  parseCoefficientDraft,
+  parseLineHoursDraft,
+  parseQuantityInput,
+} from "@/lib/estimates/editor-values";
 
 export function formatMajorationPercentInput(value: number | null | undefined) {
   if (!Number.isFinite(value ?? NaN)) return "100";

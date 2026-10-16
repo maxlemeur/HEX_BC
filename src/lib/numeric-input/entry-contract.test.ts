@@ -11,6 +11,7 @@ import {
   type ClipboardPreviewValues,
 } from "@/lib/estimates/clipboard";
 import {
+  parseAmountDraft,
   parseCoefficientDraft,
   parseLineHoursDraft,
   parseNullableNumberInput,
@@ -237,6 +238,11 @@ const QUANTITY_KINDS: Array<{ kind: string; parsers: Record<string, KindParser>;
       "parseAmountCents (parsers.ts)": parseAmountCents,
       "montants (money.ts : réglages)": (input) => parseEuroToCents(String(input)),
       "grille (cellule PR FO)": (input) => parseCurrencyToCents(String(input), "EUR"),
+      // The mobile line editor multiplies the euros it reads back into cents.
+      "grille mobile (PR FO)": (input) => {
+        const euros = parseAmountDraft(String(input));
+        return euros === null ? null : Math.round(euros * 100);
+      },
       "collage (Prix unitaire HT)": (input) => {
         const value = pastedValue("Prix unitaire HT", input, "unit_price_ht");
         return value === null ? null : Math.round(value * 100);

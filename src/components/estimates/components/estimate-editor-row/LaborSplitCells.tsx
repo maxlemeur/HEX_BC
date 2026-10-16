@@ -21,6 +21,8 @@ import {
   type LaborRole,
   type SpreadsheetCell,
   type SpreadsheetNavigationResult,
+  parseCoefficientDraft,
+  parseLineHoursDraft,
   parseMajorationPercentToCoefficient,
   toCellClassName,
   toCellKeyDownHandler,
@@ -160,6 +162,7 @@ export function LaborSplitCells({
           step="0.1"
           min={0}
           value={splitFields.h_mo_atelier}
+          parseValue={parseLineHoursDraft}
           aria-label={`Heures de main-d’œuvre en atelier pour ${item.title || "sans titre"}`}
           onFocus={hMoAtelierEditorProps.onFocus}
           onKeyDown={hMoAtelierEditorProps.onKeyDown}
@@ -209,6 +212,7 @@ export function LaborSplitCells({
           step="0.01"
           min={0}
           value={splitFields.k_mo_atelier}
+          parseValue={parseCoefficientDraft}
           aria-label={`Coefficient de main-d’œuvre en atelier pour ${item.title || "sans titre"}`}
           onFocus={kMoAtelierEditorProps.onFocus}
           onKeyDown={kMoAtelierEditorProps.onKeyDown}
@@ -239,6 +243,7 @@ export function LaborSplitCells({
           step="0.1"
           min={0}
           value={splitFields.h_mo_chantier}
+          parseValue={parseLineHoursDraft}
           aria-label={`Heures de main-d’œuvre sur chantier pour ${item.title || "sans titre"}`}
           onFocus={hMoChantierEditorProps.onFocus}
           onKeyDown={hMoChantierEditorProps.onKeyDown}
@@ -288,6 +293,7 @@ export function LaborSplitCells({
           step="0.01"
           min={0}
           value={splitFields.k_mo_chantier}
+          parseValue={parseCoefficientDraft}
           aria-label={`Coefficient de main-d’œuvre sur chantier pour ${item.title || "sans titre"}`}
           onFocus={kMoChantierEditorProps.onFocus}
           onKeyDown={kMoChantierEditorProps.onKeyDown}

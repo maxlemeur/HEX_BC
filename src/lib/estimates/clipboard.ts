@@ -7,7 +7,13 @@ import {
   readMajorationCoefficient,
   readMajorationPercent,
 } from "@/lib/estimates/majoration";
-import { formatDecimalInput, NUMERIC_INPUT_ERROR, parseDecimalInput } from "@/lib/numeric-input/parsers";
+import {
+  formatDecimalInput,
+  NUMERIC_INPUT_ERROR,
+  parseDecimalInput,
+  parseQuantity,
+  parseStoredCoefficient,
+} from "@/lib/numeric-input/parsers";
 
 export const CLIPBOARD_TARGET_FIELDS = [
   "designation",
@@ -209,6 +215,15 @@ type ClipboardNumericField = Exclude<
   ClipboardTargetField,
   "designation" | "unit" | "supply_type"
 >;
+
+// 2.3 review: quantity, h MO, K FO and K MO are numeric(12,3) in v1/v2. A fourth decimal is
+// refused as in the import and the grid, instead of being rounded by PostgreSQL on write.
+const STORED_PRECISION_PARSERS: Partial<Record<ClipboardNumericField, (raw: string) => number | null>> = {
+  quantity: parseQuantity,
+  h_mo: parseQuantity,
+  k_fo: parseStoredCoefficient,
+  k_mo: parseStoredCoefficient,
+};
 
 const NUMERIC_FIELDS = new Set<ClipboardNumericField>([
   "quantity",
@@ -708,11 +723,16 @@ export function buildClipboardPreviewRows(
         }
 
         // Seul le prix unitaire est un montant ; quantites, heures et
-        // coefficients acceptent trois decimales (T16).
-        const parsedValue = parseClipboardNumber(
+        // coefficients acceptent trois decimales (T16), la precision de leur stockage.
+        const grammarValue = parseClipboardNumber(
           rawCell,
           field === "unit_price_ht" ? "money" : "quantity"
         );
+        const storedParser = STORED_PRECISION_PARSERS[field];
+        const parsedValue =
+          grammarValue === null || grammarValue < 0 || !storedParser
+            ? grammarValue
+            : storedParser(rawCell);
         if (parsedValue === null) {
           // Même message qu'en grille et dans les réglages (D11), précédé du champ refusé.
           reasons.push(`${FIELD_LABELS[field]} : ${NUMERIC_INPUT_ERROR}`);

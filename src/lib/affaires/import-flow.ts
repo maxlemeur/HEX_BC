@@ -8,6 +8,7 @@ import {
   parseMajorationPercent,
   parseQuantity,
   parseRateBp,
+  parseStoredCoefficient,
 } from "@/lib/numeric-input/parsers";
 import { computeEstimateLineValues } from "@/lib/estimate-calculations";
 import {
@@ -516,8 +517,9 @@ export function normalizeMappedRowsForEstimateCreation(
     }
     const taxRateBp = taxRateField.value ?? context.defaultTaxRateBp;
 
-    const kFoField = readNumericField(row.mappedRow.k_fo, parseCoefficient);
-    const kMoField = readNumericField(row.mappedRow.k_mo, parseCoefficient);
+    // K FO and K MO are stored numeric(12,3) in v1/v2 (2.3 review): a fourth decimal is refused.
+    const kFoField = readNumericField(row.mappedRow.k_fo, parseStoredCoefficient);
+    const kMoField = readNumericField(row.mappedRow.k_mo, parseStoredCoefficient);
     if (kFoField.status === "invalid" || kMoField.status === "invalid") {
       reject("invalid_coefficient");
       continue;

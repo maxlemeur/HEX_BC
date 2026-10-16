@@ -9,7 +9,11 @@ import { Modal } from "@/components/ui-legacy/Modal";
 import { DecimalDraftInput } from "@/components/estimates/components/estimate-editor-row/DecimalDraftInput";
 import {
   formatMajorationPercentInput,
+  parseAmountDraft,
+  parseCoefficientDraft,
+  parseLineHoursDraft,
   parseMajorationPercentToCoefficient,
+  parseQuantityInput,
   type EstimateItem,
   type LaborRole,
 } from "@/components/estimates/components/estimate-editor-row/shared";
@@ -168,6 +172,7 @@ export function MobileEstimateLineEditor({
                   className={inputClassName}
                   value={item.quantity ?? 0}
                   disabled={isReadOnly}
+                  parseValue={parseQuantityInput}
                   aria-label={`Quantité pour ${lineLabel}`}
                   onValueChange={(value) =>
                     onPatchItem(item.id, { quantity: value }, { persist: false })
@@ -200,6 +205,7 @@ export function MobileEstimateLineEditor({
                 className={inputClassName}
                 value={(item.unit_price_ht_cents ?? 0) / 100}
                 disabled={isReadOnly}
+                parseValue={parseAmountDraft}
                 aria-label={`Prix d’achat unitaire HT pour ${lineLabel}`}
                 onValueChange={(value) =>
                   onPatchItem(
@@ -228,6 +234,7 @@ export function MobileEstimateLineEditor({
                     className={inputClassName}
                     value={item.h_mo_atelier ?? 0}
                     disabled={isReadOnly}
+                    parseValue={parseLineHoursDraft}
                     aria-label={`Heures de main-d’œuvre en atelier pour ${lineLabel}`}
                     onValueChange={(value) =>
                       onPatchItem(item.id, { h_mo_atelier: value }, { persist: false })
@@ -242,6 +249,7 @@ export function MobileEstimateLineEditor({
                     className={inputClassName}
                     value={item.h_mo_chantier ?? 0}
                     disabled={isReadOnly}
+                    parseValue={parseLineHoursDraft}
                     aria-label={`Heures de main-d’œuvre sur chantier pour ${lineLabel}`}
                     onValueChange={(value) =>
                       onPatchItem(item.id, { h_mo_chantier: value }, { persist: false })
@@ -258,6 +266,7 @@ export function MobileEstimateLineEditor({
                   className={inputClassName}
                   value={item.h_mo ?? 0}
                   disabled={isReadOnly}
+                  parseValue={parseLineHoursDraft}
                   aria-label={`Heures de main-d’œuvre pour ${lineLabel}`}
                   onValueChange={(value) =>
                     onPatchItem(item.id, { h_mo: value }, { persist: false })
@@ -294,6 +303,7 @@ export function MobileEstimateLineEditor({
                     value={item.k_fo ?? 1}
                     emptyValue={1}
                     disabled={isReadOnly}
+                    parseValue={parseCoefficientDraft}
                     aria-label={`Coefficient fourniture K FO pour ${lineLabel}`}
                     onValueChange={(value) =>
                       onPatchItem(item.id, { k_fo: value }, { persist: false })
@@ -341,6 +351,7 @@ export function MobileEstimateLineEditor({
                         value={item.k_mo_atelier ?? 1}
                         emptyValue={1}
                         disabled={isReadOnly}
+                        parseValue={parseCoefficientDraft}
                         aria-label={`Coefficient de main-d’œuvre en atelier pour ${lineLabel}`}
                         onValueChange={(value) =>
                           onPatchItem(item.id, { k_mo_atelier: value }, { persist: false })
@@ -370,6 +381,7 @@ export function MobileEstimateLineEditor({
                         value={item.k_mo_chantier ?? 1}
                         emptyValue={1}
                         disabled={isReadOnly}
+                        parseValue={parseCoefficientDraft}
                         aria-label={`Coefficient de main-d’œuvre sur chantier pour ${lineLabel}`}
                         onValueChange={(value) =>
                           onPatchItem(item.id, { k_mo_chantier: value }, { persist: false })
@@ -401,6 +413,7 @@ export function MobileEstimateLineEditor({
                       value={item.k_mo ?? 1}
                       emptyValue={1}
                       disabled={isReadOnly}
+                      parseValue={parseCoefficientDraft}
                       aria-label={`Coefficient main-d’œuvre K MO pour ${lineLabel}`}
                       onValueChange={(value) =>
                         onPatchItem(item.id, { k_mo: value }, { persist: false })

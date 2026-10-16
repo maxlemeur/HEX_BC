@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input, controlSizes, controlSurface } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
+import { parseRatePercentDraft } from "@/lib/estimates/editor-values";
 import { cn } from "@/lib/utils";
 
 type PricingStepProps = {
@@ -168,7 +169,8 @@ export function PricingStep({
             max={100}
             value={Number(data.taxRateBp) > 0 ? Number(data.taxRateBp) / 100 : 0}
             formatValue={(percent) => ((percent ?? 0) > 0 ? String(percent) : "")}
-            parseValue={parseNonNegativePercent}
+            // 2.3 review : même lecture du taux que les réglages et l'import.
+            parseValue={parseRatePercentDraft}
             emptyValue={0}
             onValueChange={(percent) =>
               updateField("taxRateBp", String(Math.round(percent * 100)))

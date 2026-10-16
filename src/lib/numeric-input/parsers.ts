@@ -117,6 +117,8 @@ const AMOUNT_FRACTION_DIGITS = 2;
 const QUANTITY_FRACTION_DIGITS = 3;
 const HOURS_PER_UNIT_FRACTION_DIGITS = 4;
 const COEFFICIENT_FRACTION_DIGITS = 4;
+/** v1/v2 line storage of K FO, K MO, quantity and h MO: numeric(12,3). */
+const STORED_COEFFICIENT_FRACTION_DIGITS = 3;
 /** Two decimals of percent: the percent units of a rate are its basis points. */
 const RATE_PERCENT_FRACTION_DIGITS = 2;
 const MAX_RATE_BP = BigInt(10_000);
@@ -195,6 +197,15 @@ export function parseRateBp(input: unknown): number | null {
 export function parseCoefficient(input: unknown): number | null {
   const units = readScaledUnits(input, COEFFICIENT_FRACTION_DIGITS);
   return units === null || units < ZERO ? null : unitsToDecimal(units, COEFFICIENT_FRACTION_DIGITS);
+}
+
+/**
+ * K FO and K MO of v1/v2 lines (numeric(12,3), 2.3 review): three decimals at most, never negative.
+ * A fourth decimal cannot be stored, so text carrying one is refused rather than rounded on write.
+ */
+export function parseStoredCoefficient(input: unknown): number | null {
+  const units = readScaledUnits(input, STORED_COEFFICIENT_FRACTION_DIGITS);
+  return units === null || units < ZERO ? null : unitsToDecimal(units, STORED_COEFFICIENT_FRACTION_DIGITS);
 }
 
 function toMajorationCoefficient(units: bigint | null): number | null {
