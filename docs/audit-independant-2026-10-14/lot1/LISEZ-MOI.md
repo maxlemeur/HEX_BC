@@ -2,8 +2,16 @@
 
 Ce dossier conserve, sous forme de patch, le travail local réalisé le 14 et le 15/10/2026 à la suite de
 l'audit indépendant, et jamais publié. Le 16/10, le porteur a décidé de ne pas le publier : le projet est
-en développement, toutes les données sont fictives, la sécurité n'est pas prioritaire. L'arbre de travail
-a été ramené à `98408ef0`.
+en développement, toutes les données sont fictives, la sécurité n'est pas prioritaire. L'arbre suivi a été
+ramené à `98408ef0`. Des fichiers non suivis du lot 1 restent toutefois dans la copie de travail Windows
+(`src/app/HomeLanding.tsx`, `src/app/login/LoginView.tsx`, `src/app/signup/SignupForm.tsx`,
+`src/lib/auth/self-signup*.ts`, `src/lib/estimates/force-send-policy*.ts`,
+`supabase/migrations/20261014172511_restrict_tenant_membership_writes.sql`,
+`supabase/tests/database/tenant-membership-boundaries.test.sql`) : ils sont conservés dans le patch, sont à
+retirer avant de travailler sur `main` et ne doivent jamais être ajoutés par un `git add -A`.
+
+« Étape 0 du lot 2 » désigne ici la migration RLS des adhésions (S-09) du 14/10. Elle est sans rapport avec le
+sous-lot 2.0 (« Ligne de base et harnais de preuve ») de la conception du lot 2, qui n'a pas commencé.
 
 - Patch : [`lot1-et-etape0-2026-10-16.patch`](lot1-et-etape0-2026-10-16.patch), 59 fichiers,
   +4 598 / −2 465 lignes, SHA-256 `5b9527b76d004ee5525d6fd9c109f24cde73b4394ce4da3c6f6136e31d6def6f`.
