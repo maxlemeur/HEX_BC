@@ -298,7 +298,25 @@ describe("CI and local quality guardrails", () => {
     expect(config).toContain('trace: critical || performance || coverage ? "off" : "on"');
     expect(config).toContain('E2E_ARMY_BLOCK_WORKERS: "1"');
     expect(config).toContain("maxDuration:");
-    expect(read("scripts/run-tester-army-ci.ts")).toMatch(/runLocalSupabaseCi\(\{\s*runApplication\s*,/u);
+    const source = ts.createSourceFile(
+      "run-tester-army-ci.ts", read("scripts/run-tester-army-ci.ts"), ts.ScriptTarget.Latest, true
+    );
+    const calls: ts.CallExpression[] = [];
+    const visit = (node: ts.Node) => {
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "runLocalSupabaseCi") {
+        calls.push(node);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+    expect(calls).toHaveLength(1);
+    expect(ts.isAwaitExpression(calls[0].parent)).toBe(true);
+    const options = calls[0].arguments[0];
+    expect(options && ts.isObjectLiteralExpression(options)).toBe(true);
+    const callbacks = options && ts.isObjectLiteralExpression(options)
+      ? options.properties.filter((property) => ts.isShorthandPropertyAssignment(property) && property.name.text === "runApplication")
+      : [];
+    expect(callbacks).toHaveLength(1);
   });
 
   it("uses the project-pinned Supabase CLI for backups", () => {

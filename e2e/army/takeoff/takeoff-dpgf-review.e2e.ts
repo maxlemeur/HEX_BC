@@ -3,6 +3,7 @@ import { resolveDownload, recordEvidence } from "../critical/fixtures";
 import { localTakeoffWorkerClient } from "./fixtures";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
+import type { TakeoffDpgfComparisonResponse } from "@/lib/takeoff/types";
 
 type SeededEstimateLine = {
   id: string;
@@ -782,11 +783,55 @@ describe("V3-010 — DPGF review page", { session: "army", tags: ["critical", "e
       page.getByText("Chargement de la comparaison DPGF vs métré…")
     ).toHaveCount(0);
     await page.getByRole("button", { name: "Tout" }).click();
+    await expect(page.browser).toHaveURL(new RegExp(
+      `/dashboard/affaires/${projectId}/takeoff/${seededJob.jobId}/review\\?versionId=${versionId}&reviewMode=production&view=dpgf$`
+    ));
+    // Only the completed "all" payload contains Moquette; the old view can
+    // still show Cloison before navigation replaces its selection state.
+    await expect(page.getByRole("button", { name: /Moquette/i })).toBeVisible();
     await expect(cloisonRow).toBeVisible();
 
     await cloisonRow.click();
     await expect(page.getByText("Mode: manual")).toBeVisible();
     await expect(page.getByText("Agrégation", { exact: true })).toBeVisible();
+    await expect(page.getByText("Somme de 2 items takeoff", { exact: true })).toBeVisible();
+
+    const assertPersistedManualAggregation = async () => {
+      const response = await page.request.get(
+        `/api/takeoff/jobs/${seededJob.jobId}/dpgf-compare?version_id=${versionId}&view=all&page_size=50`
+      );
+      expect(response.status()).toBe(200);
+      const payload = await response.json() as unknown as { data: TakeoffDpgfComparisonResponse };
+      expect(payload.data).toMatchObject({ job_id: seededJob.jobId, version_id: versionId, view: "all" });
+      const row = payload.data.rows.find((candidate) => candidate.dpgf.estimate_item_id === cloisonLine.id);
+      expect(row).toMatchObject({
+        matched_by: "manual", manual_link_count: 2,
+        dpgf_quantity: 10, takeoff_quantity: 10, quantity_unit: "m2", delta_absolute: 0,
+      });
+      expect(row?.linked_takeoff_items.map(({ item_id, quantity }) => ({ item_id, quantity }))
+        .sort((left, right) => left.item_id.localeCompare(right.item_id))).toEqual([
+        { item_id: seededJob.itemIdsByDesignation.get("Zone A separatif")!, quantity: 4 },
+        { item_id: seededJob.itemIdsByDesignation.get("Zone B separatif")!, quantity: 6 },
+      ].sort((left, right) => left.item_id.localeCompare(right.item_id)));
+      const formulas = row?.proofs.filter((proof) => proof.type === "formula");
+      expect(formulas).toHaveLength(1);
+      expect(formulas?.[0]).toMatchObject({
+        type: "formula", kind: "inference",
+        label: "Somme de 2 items takeoff", source: "Aggregation manuelle",
+      });
+      expect(formulas?.[0].proof_id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+      return formulas![0].proof_id;
+    };
+    const formulaId = await assertPersistedManualAggregation();
+
+    await page.reload();
+    await waitForDpgfComparison(page);
+    await expect(page.getByRole("button", { name: /Moquette/i })).toBeVisible();
+    await cloisonRow.click();
+    await expect(page.getByText("Mode: manual")).toBeVisible();
+    await expect(page.getByText("Agrégation", { exact: true })).toBeVisible();
+    await expect(page.getByText("Somme de 2 items takeoff", { exact: true })).toBeVisible();
+    expect(await assertPersistedManualAggregation()).toBe(formulaId);
   });
 
   test("keeps carried-over provenance visible while allowing a new explicit decision", async ({ ui: page }) => {
