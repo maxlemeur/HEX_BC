@@ -110,7 +110,15 @@ export function ImportLinesPreview({
     (value) => Math.abs(value - preview.versionMarginMultiplier) > 1e-9
   );
 
-  if (!hasHours && !workbookParameters && preview.invalidLineCount === 0 && unitPriceChecks.checked === 0) {
+  const perUnitDurations = preview.perUnitDurationsAsLineHours;
+
+  if (
+    !hasHours &&
+    !workbookParameters &&
+    preview.invalidLineCount === 0 &&
+    unitPriceChecks.checked === 0 &&
+    perUnitDurations.length === 0
+  ) {
     return null;
   }
 
@@ -133,6 +141,18 @@ export function ImportLinesPreview({
           {preview.invalidLineCount > 0 ? ` · ${preview.invalidLineCount} refusée${preview.invalidLineCount > 1 ? "s" : ""}` : ""}
         </p>
       </div>
+
+      {perUnitDurations.length > 0 ? (
+        <Alert variant="warning">
+          <AlertTitle>Durée par unité lue comme heures de ligne</AlertTitle>
+          <AlertDescription>
+            {perUnitDurations.map((column) => `« ${column} »`).join(", ")}{" "}
+            {perUnitDurations.length > 1 ? "nomment" : "nomme"} une durée par unité, mais la correspondance{" "}
+            {perUnitDurations.length > 1 ? "les lit" : "la lit"} comme heures totales de la ligne. Si c’est une
+            durée par unité, choisissez « Heures MO par unité (h/u × Q) » dans le mapping.
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
       {hasHours ? (
         <div className="space-y-2">

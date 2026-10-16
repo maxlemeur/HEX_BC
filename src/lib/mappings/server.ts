@@ -1020,6 +1020,35 @@ export function guessTargetFieldFromColumn(sourceColumn: string): MappingTargetF
   return guessTargetFieldWithScore(sourceColumn)?.target ?? null;
 }
 
+function templateContradictsProfile(
+  templateMapping: SourceToTargetMapping,
+  profileMapping: SourceToTargetMapping
+) {
+  return Object.entries(profileMapping).some(([source, target]) => templateMapping[source] !== target);
+}
+
+const PER_UNIT_DURATION_TARGETS = new Set<MappingTargetField>([
+  "labor_hours_per_unit",
+  "control_marked_up_hours_per_unit",
+]);
+
+/**
+ * Source columns whose header names a duration per unit ("Tps pose unitaire", majorée or not) but
+ * that the mapping reads as the line's total hours (2.3 review, C-01): the import preview warns
+ * about them, whether the choice came from the user or from a template.
+ */
+export function findPerUnitDurationsMappedToLineHours(
+  mapping: Record<string, string | null | undefined>
+): string[] {
+  return Object.entries(mapping)
+    .filter(([source, target]) => {
+      if (target !== "labor_hours") return false;
+      const guess = guessTargetFieldFromColumn(source);
+      return guess !== null && PER_UNIT_DURATION_TARGETS.has(guess);
+    })
+    .map(([source]) => source);
+}
+
 async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
   const { supabase, user, error: userError } = await readAuthenticatedUser();
 
@@ -1566,7 +1595,16 @@ export async function suggestMapping(input: { import_id: string }): Promise<Mapp
   ]);
 
   const candidatesBySource = new Map<string, MappingSuggestionCandidate>();
-  const exactTemplateMatch = findTemplateExactMatch(sourceColumns, templates);
+  const profile = detectImportProfile(sourceColumns);
+  const templateMatch = findTemplateExactMatch(sourceColumns, templates);
+  // 2.3 review: a declared profile states the meaning of its columns. A saved template that
+  // contradicts it on one of them (saved before 2.3: "Tps pose unitaire" as line hours, an
+  // undeclared majoration) is stale for these columns and is not auto-applied; the profile's
+  // suggestions are shown instead. A template that agrees with the profile still wins.
+  const exactTemplateMatch =
+    templateMatch && profile && templateContradictsProfile(templateMatch.mapping, profile.mapping)
+      ? null
+      : templateMatch;
 
   if (exactTemplateMatch) {
     for (const [sourceColumn, targetField] of Object.entries(exactTemplateMatch.mapping)) {
@@ -1656,7 +1694,6 @@ export async function suggestMapping(input: { import_id: string }): Promise<Mapp
       });
     }
 
-    const profile = detectImportProfile(sourceColumns);
     for (const sourceColumn of profile?.ignoredColumns ?? []) {
       candidatesBySource.delete(sourceColumn);
     }

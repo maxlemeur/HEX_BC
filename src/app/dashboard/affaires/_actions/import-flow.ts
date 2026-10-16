@@ -33,7 +33,11 @@ import {
 } from "@/lib/affaires/import-flow-server";
 import { persistCanonicalEstimateV2 } from "@/lib/estimates/canonical-v2-creation";
 import { IMPORT_CONTROL_TOLERANCE_CENTS, type ImportUnitPriceCheck } from "@/lib/imports/optima-profile";
-import { createMapping, loadMappedImportRowsForPreview } from "@/lib/mappings/server";
+import {
+  createMapping,
+  findPerUnitDurationsMappedToLineHours,
+  loadMappedImportRowsForPreview,
+} from "@/lib/mappings/server";
 import { mappingRecordSchema } from "@/lib/mappings/schemas";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type {
@@ -149,6 +153,8 @@ export type ImportFlowLinesPreview = {
     toleranceCents: number;
     outOfTolerance: ImportUnitPriceCheck[];
   };
+  // Columns named as a duration per unit but read as the line's total hours (2.3 review, C-01).
+  perUnitDurationsAsLineHours: string[];
 };
 
 function hasImportedLaborHours(normalized: NormalizeImportFlowRowsResult) {
@@ -683,5 +689,6 @@ export async function previewUnifiedImportFlowLines(
         .filter((check) => Math.abs(check.deltaCents) > IMPORT_CONTROL_TOLERANCE_CENTS)
         .slice(0, PREVIEW_LINE_LIMIT),
     },
+    perUnitDurationsAsLineHours: findPerUnitDurationsMappedToLineHours(parsed.data.mapping),
   };
 }
