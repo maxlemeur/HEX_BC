@@ -12,8 +12,11 @@ import type { MappingTargetField, SourceToTargetMapping } from "@/lib/mappings/s
  *   read on the parameter row, "Majoration MO" is additive (coefficient = 1 + N).
  * - Editor export (src/lib/estimates/editor-export.ts): its "Prix unitaire HT (EUR)" is the supply
  *   cost (PR FO) and its sale columns are controls, so a re-import keeps the stored values.
+ * - DPGF export (src/lib/estimates/dpgf-export.ts, 2.3 review): "Prix unitaire HT EUR" is the supply
+ *   cost, "Majoration MO (%)" follows P-11 and the bare "Majoration MO" of its earlier files is the
+ *   raw coefficient it wrote then.
  */
-export type ImportProfileId = "optima" | "editor_export";
+export type ImportProfileId = "optima" | "editor_export" | "dpgf_export";
 
 export type ImportProfileMatch = {
   id: ImportProfileId;
@@ -86,7 +89,35 @@ const EDITOR_EXPORT_PROFILE: DeclaredProfile = {
   signature: ["Prix unitaire HT (EUR)", "PU HT (EUR)", "Total HT (EUR)"],
 };
 
-const DECLARED_PROFILES = [OPTIMA_PROFILE, EDITOR_EXPORT_PROFILE];
+const DPGF_EXPORT_PROFILE: DeclaredProfile = {
+  id: "dpgf_export",
+  label: "Export DPGF du chiffrage",
+  columns: [
+    { header: "Type", target: null },
+    { header: "AID", target: null },
+    { header: "Désignation", target: "designation" },
+    { header: "Quantité", target: "quantity" },
+    { header: "Unité", target: "unit" },
+    { header: "Prix unitaire HT EUR", target: "unit_price_ht" },
+    { header: "Type FO", target: "supply_type" },
+    { header: "K FO", target: null },
+    { header: "h MO", target: "labor_hours" },
+    { header: "K MO", target: null },
+    { header: "Majoration MO (%)", target: "h_mo_majoration_percent" },
+    { header: "Majoration MO", target: "h_mo_majoration_coefficient" },
+    { header: "Rôle MO", target: null },
+    { header: "Catégorie", target: "category" },
+    { header: "h MO Atelier", target: null },
+    { header: "K MO Atelier", target: null },
+    { header: "Rôle MO Atelier", target: null },
+    { header: "h MO Chantier", target: null },
+    { header: "K MO Chantier", target: null },
+    { header: "Rôle MO Chantier", target: null },
+  ],
+  signature: ["AID", "Prix unitaire HT EUR", "h MO", "Rôle MO"],
+};
+
+const DECLARED_PROFILES = [OPTIMA_PROFILE, EDITOR_EXPORT_PROFILE, DPGF_EXPORT_PROFILE];
 
 /**
  * Header identity shared by raw headers and the keys both upload parsers store: a raw header is

@@ -12,6 +12,10 @@ import {
   type EstimateExportStreamResult,
   type WorkbookWriterFactory,
 } from "@/lib/estimates/export-stream";
+import {
+  MAJORATION_PERCENT_HEADER,
+  majorationCoefficientToPercent,
+} from "@/lib/estimates/majoration";
 import { getEstimateVersionDetails } from "@/lib/estimates/server";
 
 type WorksheetRowValue = Record<string, unknown> | unknown[];
@@ -355,9 +359,10 @@ function buildDpgfRows(input: {
       kMo: input.preserveStoredSnapshot
         ? null
         : resolveLaborCoefficient(item, input.isLaborSplitEnabled),
+      // P-11: « Majoration MO (%) », 100 = neutral, as in the editor export (2.3 review).
       majorationMo: input.preserveStoredSnapshot
         ? null
-        : (item.h_mo_majoration ?? 1),
+        : majorationCoefficientToPercent(item.h_mo_majoration ?? 1),
       roleMo: input.preserveStoredSnapshot
         ? ""
         : resolveLaborRoleLabel(
@@ -396,7 +401,7 @@ async function writeWorkbook(input: {
     { header: "K FO", key: "k_fo", width: 10 },
     { header: "h MO", key: "h_mo", width: 10 },
     { header: "K MO", key: "k_mo", width: 10 },
-    { header: "Majoration MO", key: "majoration_mo", width: 18 },
+    { header: MAJORATION_PERCENT_HEADER, key: "majoration_mo", width: 18 },
     { header: "Rôle MO", key: "role_mo", width: 24 },
     { header: "Catégorie", key: "categorie", width: 24 },
     { header: "h MO Atelier", key: "h_mo_atelier", width: 14 },
