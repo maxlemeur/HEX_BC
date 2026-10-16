@@ -12,8 +12,10 @@
 //      ordre « somme puis arrondi ») : ±1 c sur coût, vente, PU, TVA, remise ou répartition.
 //  M2  L'ordre des opérations change : coefficient global avant/après remise, TVA par ligne ou
 //      sur le pied, TVA de la remise, plancher de l'arrondi commercial au HT.
-//  M3  Une v1 ou une v2 est aiguillée vers un autre chemin (`=== 2` remplacé par `>= 2`, un
-//      résolveur qui ramène 1 ou 2 vers 3, un `calcEngineVersion` oublié) : les montants changent.
+//  M3  Une v1 ou une v2 est aiguillée vers un autre chemin dans les moteurs (`=== 2` remplacé
+//      par `>= 2`, un `calcEngineVersion` oublié) : les montants changent. Le corpus passe
+//      `calcEngineVersion` explicitement : le résolveur `resolveCalcEngineVersion` n'est pas
+//      exercé ici, mais par les empreintes documentaires.
 //  M4  Remise : assiette (avant/après coefficient), plafonnement du montant fixe, remise
 //      historique en %, palier unique en mode simple, cascade (y compris un palier nul).
 //  M5  Autoliquidation : TVA fantôme réintroduite, ou arrondi TTC appliqué sans TVA.
@@ -27,7 +29,8 @@
 //  M11 Relecture figée : la relecture v1 (`computeStoredDiscountCents`, `computeReadOnlyTotals`)
 //      ou v2 (`buildStoredEstimateBreakdown`, sections relues) lit autre chose que les colonnes
 //      figées, ou reventile autrement la TVA quand un arrondi commercial existe.
-//  M12 Gel v2 (`buildEstimateV2SnapshotProjection`) : PU figé, TVA répartie, erreur levée.
+//  M12 Gel v2 (`buildEstimateV2SnapshotProjection`) : PU figé, TVA répartie. Aucun cas du
+//      corpus n'atteint le chemin d'erreur de la projection : il n'est pas couvert ici.
 //  M13 Arbre : ordre des sections, lignes racine, agrégation des sections imbriquées.
 // Défaillances du harnais lui-même :
 //  H1  Générateur non déterministe (hasard, date, ordre d'itération) : `--check` régénère et

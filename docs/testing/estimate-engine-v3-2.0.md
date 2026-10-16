@@ -22,7 +22,7 @@ Chaque preuve est montrée sensible : contrôle négatif rouge ou comparaison à
 | I2 : les montants enregistrés ne bougent pas pendant une montée de version | Une migration du lot 2 réécrit une ligne existante ; la comparaison est aveugle | Base remise à la dernière migration publiée avant le lot 2, fixture peuplée, captures `to_jsonb` avant et après les migrations ultérieures, 0 différence exigée ; contrôle négatif : une valeur modifiée hors migration doit sortir comme différence nommée | `npm run db:upgrade-check -- <libellé>` et `-- <libellé> --negative-control` |
 | I2 : découpage des migrations | Une migration de base modifiée ou supprimée, une migration antidatée absente de la base publiée, une coupure introuvable, un nom non canonique, ou une dépendance à l'ordre de listage rendent le test vide | Fonction pure `partitionUpgradeMigrations`, test isolé | `npx vitest run src/test/upgrade-check.test.ts` |
 | I3 : les documents émis restent immuables | `prepareEstimateDocumentData`, l'export analysé ou les hash de sceau changent pour un devis existant | Empreintes SHA-256 de 14 familles v1/v2 (brouillons, envoyés, acceptés, historiques à sceau 1, 2 et 4, export), produites par les vraies fonctions serveur sur une pile possédée | `npm run engine:document-fingerprints -- check` |
-| Parcours applicatifs de base | Mauvaise cible, preuve vide, fixture fausse, émission non prouvée, sources modifiées pendant la campagne, fuite dans les preuves, garde de route contourné | Campagne `calc-v3` en 6 phases sur la pile possédée ; contrat détaillé dans [tester-army-calc-v3.md](tester-army-calc-v3.md) | `npm run e2e:army:calc-v3` |
+| Parcours applicatifs de base | Mauvaise cible, preuve vide, fixture fausse, émission non prouvée, sources modifiées pendant la campagne, fuite dans les preuves, garde de route contourné | Campagne `calc-v3` en 6 phases sur la pile possédée ; chaque PDF émis doit porter l'en-tête et les montants attendus ; contrat détaillé dans [tester-army-calc-v3.md](tester-army-calc-v3.md) | `npm run e2e:army:calc-v3` |
 | Aucune régression ailleurs | Un fichier du 2.0 casse un test existant ou un parcours critique | Comparaison Vitest test par test avec `main` ; suite critique complète | `npm test`, `npm run e2e:army:local` |
 
 Tests isolés retenus (AGENTS.md) : le corpus figé, car 600 devis comparés au centime sur toutes les
@@ -139,4 +139,15 @@ la génération, ce qui est voulu ; on ne régénère jamais le corpus pour abso
   Tant qu'ils ne sont pas corrigés, la campagne ne prouve ni la confidentialité du portail (OF03) ni
   ces cas de reprise.
 - L'émission tourne en `next dev` ; l'extension au build de production relève du sous-lot 2.7.
+- En `--negative-control`, `db:upgrade-check` signale le succès attendu par le code de sortie 1, comme
+  toute autre panne (pile non démarrée, `psql` absent). Seul `report.negativeControl.verdict =
+  "detected"` dans `report.json` prouve la détection ; le mode normal exécute en plus son propre
+  contrôle négatif en cours d'exécution.
+- Les empreintes des documents v1 émis passent par la copie du générateur propre au harnais
+  (`mirrorStoredDocument`), comparée au vrai générateur pour les seules familles v2. Une modification
+  de la branche v1 « instantané stocké » de `pdf-generator.tsx` ne bougerait aucune empreinte v1.
+  À combler par une famille d'émission v1 si un sous-lot touche ce chemin.
+- Le corpus figé passe `calcEngineVersion` explicitement : le résolveur est couvert par les
+  empreintes, pas par le corpus ; le chemin d'erreur de `buildEstimateV2SnapshotProjection` n'est
+  couvert nulle part.
 - Les preuves restent sur la machine qui les a produites ; le dépôt garde les commandes et les valeurs.

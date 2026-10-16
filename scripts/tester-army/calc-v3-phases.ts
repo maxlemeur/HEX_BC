@@ -27,6 +27,11 @@ export type CalcV3PhaseDefinition = {
    * `--phase <phase> --grep <grep>`; docs/testing/tester-army-calc-v3.md records each cause.
    */
   knownRedAtBase?: { grep: string; journeys: readonly string[] };
+  /**
+   * Text every PDF received by the sentinel collector must contain in an unfiltered run:
+   * the business content of the default selection, not merely a readable file.
+   */
+  collectedPdfMustContain?: readonly RegExp[];
   maxDuration: number;
 };
 
@@ -98,6 +103,13 @@ export const CALC_V3_PHASE_DEFINITIONS: Readonly<Record<CalcV3Phase, CalcV3Phase
     // OF03's header matchers expect "P.U. HT" or "Prix unitaire"; the PDF and the
     // portal both print "PU HT". PDFL, EF and NF stay opt-in through --grep.
     knownRedAtBase: { grep: "^OF03\\s", journeys: ["OF03"] },
+    // OF00 to OF02 each send one ARMY-OFFER line of 1 u at 20,00 € HT with 20 % VAT.
+    collectedPdfMustContain: [
+      /ARMY-OFFER-/u,
+      /Désignation\s+Qté\s+Unité\s+PU\s+HT\s+Total\s+HT/u,
+      /\s1\s+u\s+20,00\s*€\s+20,00\s*€/u,
+      /Total\s+HT\s+20,00\s*€\s+TVA\s+4,00\s*€\s+Total\s+TTC\s+24,00\s*€/u,
+    ],
     maxDuration: 3_600_000,
   },
 };

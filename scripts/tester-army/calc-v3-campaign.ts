@@ -302,6 +302,13 @@ async function runPhase(input: CalcV3CampaignInput, phase: CalcV3Phase, runStamp
         fs.writeFileSync(file, `${JSON.stringify(scrubJson({ schemaVersion: "calc-v3-collected-pdf-text-1", ...text }, scrub), null, 2)}\n`);
       }
       if (!filtered && texts.length === 0) problems.push("no emitted PDF reached the sentinel collector");
+      if (!filtered) {
+        for (const text of texts) {
+          const content = text.pages.join("\n");
+          const missing = (definition.collectedPdfMustContain ?? []).filter((pattern) => !pattern.test(content));
+          if (missing.length) problems.push(`emitted PDF ${text.receiptId} lacks ${missing.map(String).join(", ")}`);
+        }
+      }
     }
     if (problems.length) throw new Error(problems.join("; "));
     summary.status = "passed";

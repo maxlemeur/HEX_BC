@@ -35,6 +35,10 @@ Défaillances à exposer, et refus correspondants :
    jointe doit correspondre à son reçu (SHA-256, taille) et son texte est relu par
    `scripts/tester-army/pdf-text.ts`, qui refuse un fichier non PDF, tronqué ou sans texte et
    extrait dans un thread terminable (PDF.js sans worker n'est pas préemptible, voir `AGENTS.md`).
+   Sans `--grep`, chaque PDF reçu doit contenir le contenu métier de la sélection
+   (`collectedPdfMustContain`, `scripts/tester-army/calc-v3-phases.ts`) : `ARMY-OFFER-`, l'en-tête
+   « Désignation Qté Unité PU HT Total HT », la ligne 1 u à 20,00 € et le pied 20,00 € / 4,00 € /
+   24,00 €. Un PDF lisible mais faux fait échouer la phase.
 5. **Sources ou build modifiés pendant la campagne.** Les sources (`buildSourceEvidence` et
    `e2e/army/**`) sont comparées avant et après ; l'identité du build de production est comparée
    avant et après chaque phase de production. La phase d'émission, servie par `next dev`, passe en
