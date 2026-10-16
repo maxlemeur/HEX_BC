@@ -96,6 +96,12 @@ est vide). Entre-temps, `main` n'a reçu que `45b4239c`, qui ne touche que la no
 | `e2e:army:calc-v3` | 33/33 en 6 min 02 s ; valeurs par phase dans [tester-army-calc-v3.md](tester-army-calc-v3.md) | 33/33 en 5 min 04 s au commit `b37441d4`, copie propre (diff local vide), sources inchangées, confidentialité passée ; quatre PDF de 2 pages, en-tête et pied 20,00 € / 4,00 € / 24,00 € identiques. Avant le recalage des parcours : 26/33 (voir plus bas) |
 | `e2e:army:local` | — | 68/68 (19 fichiers) en 9 min 54 s au commit `b37441d4`, copie propre, un worker, confidentialité passée ; archive `.e2e/army/ci/2026-10-16T18-48-16-830Z-critical/` |
 
+Après la relecture, `50d7e5b9` exige le contenu métier de chaque PDF émis. La phase `emission` a été
+rejouée sans filtre à ce commit : 6/6, quatre PDF reçus, tous conformes, copie propre (archive
+`.e2e/army/ci/2026-10-16T19-15-16-996Z-calc-v3/`). Avant de figer l'exigence, ses motifs ont été
+confrontés aux quatre textes archivés de la campagne précédente : tous passent, et une TVA, un total,
+une quantité ou un en-tête altérés échouent.
+
 ## Recalage sur 2.3 et passage sur macOS
 
 Première campagne `calc-v3` après le rebase sur `main` (macOS, `e3ef3622`, archive
