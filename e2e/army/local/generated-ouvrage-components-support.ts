@@ -14,6 +14,8 @@ export type Scenario = { label: string; projectId: string; versionId: string; se
 type Fixture = { schemaVersion: string; status: string; prefix: string; apiUrl: string; selection: string; owner: { userId: string; tenantId: string; laborRoleId: string }; scenarios: Scenario[]; reuse: { projectId: string; versionId: string; sectionId: string } };
 export type Ui = { app: App; screen: Screen; browser: Browser; army: ArmyState };
 export const amounts = (v: Json) => [v.total_ht_cents, v.total_tax_cents, v.total_ttc_cents];
+// DPGF export « Majoration MO (%) »: the stored coefficient in percent, 100 = neutral (P-11, sub-lot 2.3).
+export const majorationPercent = (coefficient: number) => Math.round(coefficient * 10000) / 100;
 export const componentSection = (ui: Ui, s: Scenario) => ui.browser.locator(`[data-testid="candidate-card-${s.candidateId}"] section`);
 export const componentArticle = (ui: Ui, s: Scenario, index: number) => componentSection(ui, s).getByRole("article").nth(index);
 
@@ -183,11 +185,11 @@ export async function componentExports(ui: Ui, p: PreparedComponents, expected: 
       for (const line of lines) {
         const rows = sheets.Données.filter((r) => r[1] === line.id); expect(rows).toHaveLength(1);
         expect([rows[0][3], rows[0][4], rows[0][5], rows[0][7], rows[0][8], rows[0][9], rows[0][10]]).toEqual([line.quantity, line.description,
-          Number(line.unit_price_ht_cents) / 100, line.k_fo ?? 1, line.h_mo ?? 0, line.k_mo ?? 1, line.h_mo_majoration ?? 1]);
+          Number(line.unit_price_ht_cents) / 100, line.k_fo ?? 1, line.h_mo ?? 0, line.k_mo ?? 1, majorationPercent(Number(line.h_mo_majoration ?? 1))]);
       }
       if (versionId === p.s.versionId && p.s.label === "GC01") {
         const rows = sheets.Données.filter((r) => r[1] === lines[0].id);
-        expect([rows[0][3], rows[0][4], rows[0][5], rows[0][7], rows[0][8], rows[0][9], rows[0][10]]).toEqual([1, "u", 80, 0.5, 1, 1, 1]);
+        expect([rows[0][3], rows[0][4], rows[0][5], rows[0][7], rows[0][8], rows[0][9], rows[0][10]]).toEqual([1, "u", 80, 0.5, 1, 1, 100]);
       }
     }
   }
