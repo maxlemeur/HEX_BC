@@ -1,4 +1,4 @@
-import { parseDecimalInput } from "@/lib/numeric-input/parsers";
+import { parseAmountCents } from "@/lib/numeric-input/parsers";
 
 export const SUPPORTED_ESTIMATE_CURRENCIES = ["EUR", "USD", "GBP"] as const;
 
@@ -50,10 +50,6 @@ function stripCurrencyMarkers(
   return value.replace(markerPatterns[currency], "");
 }
 
-function parseEuroInputToNumber(input: string) {
-  return parseDecimalInput(input, { maxFractionDigits: 2, currency: "EUR" });
-}
-
 function parseUsdGbpInputToNumber(
   input: string,
   currency: "USD" | "GBP"
@@ -74,10 +70,9 @@ export function parseCurrencyToCents(
   input: string,
   currency: SupportedEstimateCurrency
 ) {
-  const parsed =
-    currency === "EUR"
-      ? parseEuroInputToNumber(input)
-      : parseUsdGbpInputToNumber(input, currency);
+  // EUR shares the D11 amount parser (exact cents); USD/GBP keep their English convention.
+  if (currency === "EUR") return parseAmountCents(input);
+  const parsed = parseUsdGbpInputToNumber(input, currency);
   if (parsed === null) return null;
   return Math.round(parsed * 100);
 }
