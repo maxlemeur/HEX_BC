@@ -6,6 +6,15 @@ import { z } from "zod";
 import {
   buildImportFlowStats,
   normalizeMappedRowsForEstimateCreation,
+  resolveImportLaborRole,
+  type ImportFlowLineValuesContext,
+  type ImportFlowMappedRowInput,
+  type ImportLaborRoleCandidate,
+  type ImportLaborRoleResolution,
+  type ImportWorkbookParameters,
+  type InvalidImportFlowLineReason,
+  type NormalizeImportFlowRowsOptions,
+  type NormalizeImportFlowRowsResult,
 } from "@/lib/affaires/import-flow";
 import {
   type Supabase,
@@ -15,6 +24,7 @@ import {
   ensureImportProjectLink,
   fetchLatestMappingId,
   fetchMappedRowsForImport,
+  fetchProjectOwnerLaborRoles,
   fetchVersionComputationContext,
   getCurrentMembershipOrThrow,
   getImportOrThrow,
@@ -22,7 +32,8 @@ import {
   toRpcImportItems,
 } from "@/lib/affaires/import-flow-server";
 import { persistCanonicalEstimateV2 } from "@/lib/estimates/canonical-v2-creation";
-import { createMapping } from "@/lib/mappings/server";
+import { IMPORT_CONTROL_TOLERANCE_CENTS, type ImportUnitPriceCheck } from "@/lib/imports/optima-profile";
+import { createMapping, loadMappedImportRowsForPreview } from "@/lib/mappings/server";
 import { mappingRecordSchema } from "@/lib/mappings/schemas";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type {
@@ -92,8 +103,110 @@ const confirmUnifiedImportFlowSchema = z.object({
   versionTitle: z.string().trim().max(200).nullable().optional(),
   sectionTitle: z.string().trim().max(200).nullable().optional(),
   structurePlan: z.object({ decisions: z.array(structureDecisionSchema).max(10_000) }).optional(),
+  // Labour role of the imported hours chosen at the preview (E17). Omitted: the workbook rate
+  // decides; null: no role, refused when the workbook states a rate.
+  laborRoleId: z.string().uuid("laborRoleId invalide.").nullable().optional(),
 });
 export type ConfirmUnifiedImportFlowInput = z.infer<typeof confirmUnifiedImportFlowSchema>;
+
+const previewUnifiedImportFlowLinesSchema = z.object({
+  importId: z.string().uuid("importId invalide."),
+  projectId: z.string().uuid("projectId invalide."),
+  mapping: z.record(z.string(), z.union([z.string(), z.null()])),
+  laborRoleId: z.string().uuid("laborRoleId invalide.").nullable().optional(),
+});
+export type PreviewUnifiedImportFlowLinesInput = z.infer<typeof previewUnifiedImportFlowLinesSchema>;
+
+const PREVIEW_LINE_LIMIT = 200;
+
+export type ImportFlowLinesPreview = {
+  validLineCount: number;
+  ignoredParameterRows: number;
+  invalidLines: Array<{ rowIndex: number; reason: InvalidImportFlowLineReason }>;
+  invalidLineCount: number;
+  hours: {
+    linesWithHours: number;
+    convertedLines: number;
+    totalLineHours: number;
+    lines: Array<{
+      rowIndex: number;
+      title: string;
+      quantity: number;
+      hoursPerUnit: number | null;
+      lineHours: number;
+    }>;
+  };
+  workbookParameters: ImportWorkbookParameters | null;
+  versionMarginMultiplier: number;
+  laborRoles: ImportLaborRoleCandidate[];
+  laborRole: {
+    status: ImportLaborRoleResolution["status"];
+    roleId: string | null;
+    matchingRoleIds: string[];
+  };
+  unitPriceChecks: {
+    checked: number;
+    toleranceCents: number;
+    outOfTolerance: ImportUnitPriceCheck[];
+  };
+};
+
+function hasImportedLaborHours(normalized: NormalizeImportFlowRowsResult) {
+  return normalized.validLines.some((line) => line.hMo > 0);
+}
+
+/**
+ * Normalizes the mapped rows, resolves the labour role of their hours from the workbook rate or
+ * the explicit choice, then normalizes again with that role so PU and totals price the hours.
+ */
+function normalizeWithLaborRole(input: {
+  rows: ImportFlowMappedRowInput[];
+  context: Omit<ImportFlowLineValuesContext, "laborRole">;
+  options: NormalizeImportFlowRowsOptions;
+  roles: ImportLaborRoleCandidate[];
+  requestedRoleId: string | null | undefined;
+}) {
+  const withoutRole = normalizeMappedRowsForEstimateCreation(input.rows, input.context, input.options);
+  const resolution = resolveImportLaborRole({
+    hasLaborHours: hasImportedLaborHours(withoutRole),
+    workbookHourlyRateCents: withoutRole.workbookParameters?.hourlyRateCents ?? null,
+    roles: input.roles,
+    requestedRoleId: input.requestedRoleId,
+  });
+  const normalized =
+    resolution.status === "resolved"
+      ? normalizeMappedRowsForEstimateCreation(
+          input.rows,
+          {
+            ...input.context,
+            laborRole: { id: resolution.role.id, hourlyRateCents: resolution.role.hourlyRateCents },
+          },
+          input.options
+        )
+      : withoutRole;
+  return { normalized, resolution };
+}
+
+function formatHourlyRate(cents: number) {
+  const euros = (cents / 100).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${euros} €/h`;
+}
+
+function assertLaborRoleResolution(
+  resolution: ImportLaborRoleResolution,
+  workbookParameters: ImportWorkbookParameters | null
+) {
+  if (resolution.status === "invalid_role") {
+    throw new Error("Le rôle de main-d’œuvre choisi n’est pas un rôle actif du propriétaire de l’affaire.");
+  }
+  if (resolution.status === "choice_required") {
+    const rate = workbookParameters?.hourlyRateCents;
+    const rateText = typeof rate === "number" ? ` (${formatHourlyRate(rate)})` : "";
+    throw new Error(
+      `Choisissez le rôle de main-d’œuvre des heures importées : le taux horaire du classeur${rateText} ne désigne pas un rôle actif unique.`
+    );
+  }
+}
 
 const getUnifiedImportFlowTakeoffCarryOverPreviewSchema = z.object({
   projectId: z.string().uuid("projectId invalide."),
@@ -296,17 +409,41 @@ export async function confirmUnifiedImportFlow(
     );
   }
 
-  const normalizedRows = normalizeMappedRowsForEstimateCreation(
-    mappedRows,
-    {
-      marginMultiplier: versionContext.margin_multiplier,
-      defaultTaxRateBp: versionContext.tax_rate_bp,
-    },
-    {
-      detectStructure: true,
-      structureDecisions: parsed.data.structurePlan?.decisions ?? [],
-    }
-  );
+  const normalizationOptions = {
+    detectStructure: true,
+    structureDecisions: parsed.data.structurePlan?.decisions ?? [],
+  };
+  const lineContext = {
+    marginMultiplier: versionContext.margin_multiplier,
+    defaultTaxRateBp: versionContext.tax_rate_bp,
+  };
+  let normalizedRows = normalizeMappedRowsForEstimateCreation(mappedRows, lineContext, normalizationOptions);
+
+  // Roles are read only when a choice or the workbook rate needs them; hours without either keep
+  // the previous behaviour (no role), which the preview reports as valued at 0 €/h.
+  const needsLaborRoles =
+    typeof parsed.data.laborRoleId === "string" ||
+    typeof normalizedRows.workbookParameters?.hourlyRateCents === "number";
+  if (
+    parsed.data.createEstimate &&
+    effectiveProjectId &&
+    needsLaborRoles &&
+    hasImportedLaborHours(normalizedRows)
+  ) {
+    const withLaborRole = normalizeWithLaborRole({
+      rows: mappedRows,
+      context: lineContext,
+      options: normalizationOptions,
+      roles: await fetchProjectOwnerLaborRoles({
+        supabase,
+        projectId: effectiveProjectId,
+        tenantId: membership.tenant_id,
+      }),
+      requestedRoleId: parsed.data.laborRoleId,
+    });
+    assertLaborRoleResolution(withLaborRole.resolution, withLaborRole.normalized.workbookParameters);
+    normalizedRows = withLaborRole.normalized;
+  }
 
   if (parsed.data.createEstimate && normalizedRows.validLines.length === 0) {
     throw new Error("Aucune ligne valide à inserer pour créer le chiffrage.");
@@ -435,5 +572,113 @@ export async function confirmUnifiedImportFlow(
       totalTtcCents: createdVersion.version.total_ttc_cents,
     },
     stats,
+  };
+}
+
+/**
+ * Import preview before confirmation (P-16, E16-E18): stored line hours computed as h/u × Q,
+ * workbook parameters, labour role of the hours, and the self-check against « Prix Unitaire ».
+ * Reads dpgf_rows_raw through the mapping in memory; nothing is written.
+ */
+export async function previewUnifiedImportFlowLines(
+  input: PreviewUnifiedImportFlowLinesInput
+): Promise<ImportFlowLinesPreview> {
+  const parsed = previewUnifiedImportFlowLinesSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error("Payload d’aperçu invalide.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    throw new Error("Authentification requise.");
+  }
+
+  const membership = await getCurrentMembershipOrThrow(supabase, user.id);
+  const isTenantAdmin = membership.role === "admin";
+  const importRow = await getImportOrThrow({
+    supabase,
+    importId: parsed.data.importId,
+    tenantId: membership.tenant_id,
+    userId: user.id,
+    isTenantAdmin,
+  });
+  if (importRow.project_id && importRow.project_id !== parsed.data.projectId) {
+    throw new Error("Cet import est déjà lié a une autre affaire.");
+  }
+  await assertProjectAccessOrThrow({
+    supabase,
+    projectId: parsed.data.projectId,
+    tenantId: membership.tenant_id,
+    userId: user.id,
+    isTenantAdmin,
+  });
+
+  const [rows, versionContext, roles] = await Promise.all([
+    loadMappedImportRowsForPreview({
+      import_id: parsed.data.importId,
+      mapping: mappingRecordSchema.parse(parsed.data.mapping),
+    }),
+    fetchVersionComputationContext(supabase, parsed.data.projectId, membership.tenant_id),
+    fetchProjectOwnerLaborRoles({
+      supabase,
+      projectId: parsed.data.projectId,
+      tenantId: membership.tenant_id,
+    }),
+  ]);
+  const { normalized, resolution } = normalizeWithLaborRole({
+    rows,
+    context: {
+      marginMultiplier: versionContext.margin_multiplier,
+      defaultTaxRateBp: versionContext.tax_rate_bp,
+    },
+    options: { detectStructure: true },
+    roles,
+    requestedRoleId: parsed.data.laborRoleId,
+  });
+
+  const linesWithHours = normalized.validLines.filter(
+    (line) => line.hMo > 0 || typeof line.hoursPerUnit === "number"
+  );
+  const totalLineHourUnits = linesWithHours.reduce((sum, line) => sum + Math.round(line.hMo * 1000), 0);
+
+  return {
+    validLineCount: normalized.validLines.length,
+    ignoredParameterRows: normalized.ignoredRows.filter((row) => row.reason === "parameters").length,
+    invalidLines: normalized.invalidLines
+      .slice(0, PREVIEW_LINE_LIMIT)
+      .map((line) => ({ rowIndex: line.rowIndex, reason: line.reason })),
+    invalidLineCount: normalized.invalidLines.length,
+    hours: {
+      linesWithHours: linesWithHours.filter((line) => line.hMo > 0).length,
+      convertedLines: linesWithHours.filter((line) => typeof line.hoursPerUnit === "number").length,
+      totalLineHours: totalLineHourUnits / 1000,
+      lines: linesWithHours.slice(0, PREVIEW_LINE_LIMIT).map((line) => ({
+        rowIndex: line.rowIndex,
+        title: line.title,
+        quantity: line.quantity,
+        hoursPerUnit: line.hoursPerUnit ?? null,
+        lineHours: line.hMo,
+      })),
+    },
+    workbookParameters: normalized.workbookParameters,
+    versionMarginMultiplier: versionContext.margin_multiplier,
+    laborRoles: roles,
+    laborRole: {
+      status: resolution.status,
+      roleId: resolution.role?.id ?? null,
+      matchingRoleIds: resolution.status === "choice_required" ? resolution.matchingRoleIds : [],
+    },
+    unitPriceChecks: {
+      checked: normalized.unitPriceChecks.length,
+      toleranceCents: IMPORT_CONTROL_TOLERANCE_CENTS,
+      outOfTolerance: normalized.unitPriceChecks
+        .filter((check) => Math.abs(check.deltaCents) > IMPORT_CONTROL_TOLERANCE_CENTS)
+        .slice(0, PREVIEW_LINE_LIMIT),
+    },
   };
 }

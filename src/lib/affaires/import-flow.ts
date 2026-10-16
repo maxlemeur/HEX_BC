@@ -1,5 +1,24 @@
-import { parseDecimalInput } from "@/lib/numeric-input/parsers";
+import {
+  parseAmountCents,
+  parseCoefficient,
+  parseDecimalInput,
+  parseHoursPerUnit,
+  parseMajorationAdditive,
+  parseMajorationCoefficient,
+  parseMajorationPercent,
+  parseQuantity,
+  parseRateBp,
+} from "@/lib/numeric-input/parsers";
 import { computeEstimateLineValues } from "@/lib/estimate-calculations";
+import {
+  MAJORATION_TARGETS,
+  checkUnitPriceAgainstControl,
+  isWorkbookParameterRow,
+  readWorkbookParameterValues,
+  type ImportUnitPriceCheck,
+  type MajorationTarget,
+  type WorkbookParameterValues,
+} from "@/lib/imports/optima-profile";
 import {
   IMPORT_ROW_PROVENANCE_KEY,
   IMPORT_ROW_STRUCTURE_KEY,
@@ -14,9 +33,16 @@ import {
 
 type JsonRecord = Record<string, unknown>;
 
+/** Labour role priced on imported lines that carry hours (v1/v2 read the role's rate, else 0 €/h). */
+export type ImportFlowLaborRole = {
+  id: string;
+  hourlyRateCents: number;
+};
+
 export type ImportFlowLineValuesContext = {
   marginMultiplier: number;
   defaultTaxRateBp: number;
+  laborRole?: ImportFlowLaborRole | null;
 };
 
 export type ImportFlowMappedRowInput = {
@@ -37,9 +63,13 @@ export type ValidImportFlowLine = {
   unitPriceHtCents: number;
   taxRateBp: number;
   kFo: number;
+  // Stored v1/v2 line hours: the total of the line, never per unit.
   hMo: number;
+  // P-16: hours per unit read from the source when the line hours were computed as h/u × Q.
+  hoursPerUnit?: number | null;
   hMoMajoration: number;
   kMo: number;
+  laborRoleId?: string | null;
   puHtCents: number;
   lineTotalHtCents: number;
   lineTaxCents: number;
@@ -58,21 +88,38 @@ export type ValidImportFlowSection = {
 
 export type ValidImportFlowItem = ValidImportFlowLine | ValidImportFlowSection;
 
+export type InvalidImportFlowLineReason =
+  | "missing_title"
+  | "invalid_quantity"
+  | "invalid_unit_price"
+  | "invalid_tax_rate"
+  | "invalid_coefficient"
+  | "invalid_labor_hours"
+  | "conflicting_labor_hours"
+  | "invalid_majoration"
+  | "undeclared_majoration_unit"
+  | "invalid_row_payload";
+
 export type InvalidImportFlowLine = {
   mappedRowId: string;
   rowIndex: number;
-  reason:
-    | "missing_title"
-    | "invalid_quantity"
-    | "invalid_unit_price"
-    | "invalid_tax_rate"
-    | "invalid_row_payload";
+  reason: InvalidImportFlowLineReason;
 };
 
 export type IgnoredImportFlowRow = {
   mappedRowId: string;
   rowIndex: number;
-  reason: "footer" | "user_ignored";
+  reason: "footer" | "user_ignored" | "parameters";
+};
+
+/** Parameters read on the workbook parameter row (OPTIMA row 2), parsed with the D11 grammar. */
+export type ImportWorkbookParameters = {
+  rowIndex: number;
+  coeffFo: number | null;
+  coeffMo: number | null;
+  hourlyRateCents: number | null;
+  // Coefficient applied to lines whose own majoration cell is empty (OPTIMA: 1 + N2).
+  majorationCoefficient: number | null;
 };
 
 export type NormalizeImportFlowRowsResult = {
@@ -83,6 +130,8 @@ export type NormalizeImportFlowRowsResult = {
   invalidLines: InvalidImportFlowLine[];
   ignoredRows: IgnoredImportFlowRow[];
   zeroPriceRows: number;
+  workbookParameters: ImportWorkbookParameters | null;
+  unitPriceChecks: ImportUnitPriceCheck[];
 };
 
 export type NormalizeImportFlowRowsOptions = {
@@ -101,8 +150,6 @@ export type ImportFlowStats = {
   ignoredFooterRows: number;
   skippedRows: number;
 };
-
-const MAX_TAX_RATE_BP = 10_000;
 
 function asRecord(value: unknown): JsonRecord | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -127,24 +174,6 @@ export function parseLocalizedNumber(value: unknown): number | null {
   return parseDecimalInput(value);
 }
 
-function toMoneyCents(value: number): number {
-  return Math.round(value * 100);
-}
-
-function toSafeRateBp(value: unknown, fallbackTaxRateBp: number): number | null {
-  if (isMissingNumericValue(value)) return fallbackTaxRateBp;
-  const parsed = parseLocalizedNumber(value);
-  if (parsed === null) return null;
-  if (parsed < 0) return null;
-
-  const interpreted = parsed <= 100 ? Math.round(parsed * 100) : Math.round(parsed);
-  if (interpreted < 0 || interpreted > MAX_TAX_RATE_BP) {
-    return null;
-  }
-
-  return interpreted;
-}
-
 function resolveMappedPayload(payload: JsonRecord): JsonRecord | null {
   const embeddedMappedRow = asRecord(payload.mapped_row);
   return embeddedMappedRow ?? payload;
@@ -162,14 +191,97 @@ function isMissingNumericValue(value: unknown) {
   return EMPTY_NUMERIC_SENTINELS.has(value.trim().toLowerCase());
 }
 
-function parseOptionalNumericField(value: unknown, money = false): {
-  status: "missing" | "invalid" | "value";
-  value: number | null;
-} {
-  if (isMissingNumericValue(value)) return { status: "missing", value: null };
-  const parsed = parseDecimalInput(value, money ? { maxFractionDigits: 2, currency: "EUR" } : {});
-  if (parsed === null || parsed < 0) return { status: "invalid", value: null };
+type NumericField =
+  | { status: "missing"; value: null }
+  | { status: "invalid"; value: null }
+  | { status: "value"; value: number };
+
+const MISSING_FIELD: NumericField = { status: "missing", value: null };
+const INVALID_FIELD: NumericField = { status: "invalid", value: null };
+
+/**
+ * D11: one parser per quantity kind. Excess decimals in text are refused, never rounded; a native
+ * spreadsheet number is read at the kind's precision; an import never stores a negative value.
+ */
+function readNumericField(value: unknown, parse: (input: unknown) => number | null): NumericField {
+  if (isMissingNumericValue(value)) return MISSING_FIELD;
+  const parsed = parse(value);
+  if (parsed === null || parsed < 0) return INVALID_FIELD;
   return { status: "value", value: parsed };
+}
+
+type MajorationField =
+  | { status: "missing" }
+  | { status: "invalid"; reason: "invalid_majoration" | "undeclared_majoration_unit" }
+  | { status: "value"; coefficient: number };
+
+const MAJORATION_PARSERS: Record<Exclude<MajorationTarget, "h_mo_majoration">, (input: unknown) => number | null> = {
+  h_mo_majoration_percent: parseMajorationPercent,
+  h_mo_majoration_coefficient: parseMajorationCoefficient,
+  h_mo_majoration_additive: parseMajorationAdditive,
+};
+
+/**
+ * P-11: « Majoration MO (%) », 100 = neutral, is the single human convention. An imported column
+ * declares its unit (%, coefficient, or the OPTIMA additive N with coefficient = 1 + N); a value
+ * under an undeclared column is refused instead of being taken raw (C-11: « 100 » meant ×100).
+ */
+function readMajorationField(source: Partial<Record<MajorationTarget, unknown>>): MajorationField {
+  const provided = MAJORATION_TARGETS.filter((target) => !isMissingNumericValue(source[target]));
+  if (provided.length === 0) return { status: "missing" };
+  if (provided.length > 1) return { status: "invalid", reason: "invalid_majoration" };
+  const [target] = provided;
+  if (target === "h_mo_majoration") return { status: "invalid", reason: "undeclared_majoration_unit" };
+  const coefficient = MAJORATION_PARSERS[target](source[target]);
+  return coefficient === null
+    ? { status: "invalid", reason: "invalid_majoration" }
+    : { status: "value", coefficient };
+}
+
+const QUANTITY_SCALE = 1000;
+const HOURS_PER_UNIT_SCALE = 10_000;
+const PRODUCT_TO_LINE_HOURS = BigInt(HOURS_PER_UNIT_SCALE);
+const HALF_PRODUCT_UNIT = BigInt(HOURS_PER_UNIT_SCALE / 2);
+const ZERO_UNITS = BigInt(0);
+
+/**
+ * P-16: v1/v2 store the line's total hours (numeric(12,3)). Hours per unit (4 decimals) times
+ * the quantity (3 decimals) is exact in 1e-7 h, then rounded half up to the stored 0,001 h.
+ */
+export function computeLineHoursFromHoursPerUnit(quantity: number, hoursPerUnit: number): number | null {
+  const quantityUnits = Math.round(quantity * QUANTITY_SCALE);
+  const hoursPerUnitUnits = Math.round(hoursPerUnit * HOURS_PER_UNIT_SCALE);
+  if (!Number.isSafeInteger(quantityUnits) || !Number.isSafeInteger(hoursPerUnitUnits)) return null;
+  if (quantityUnits < 0 || hoursPerUnitUnits < 0) return null;
+  const product = BigInt(quantityUnits) * BigInt(hoursPerUnitUnits);
+  const lineHourUnits = (product + HALF_PRODUCT_UNIT) / PRODUCT_TO_LINE_HOURS;
+  if (lineHourUnits < ZERO_UNITS) return null;
+  const digits = lineHourUnits.toString().padStart(4, "0");
+  const value = Number(`${digits.slice(0, -3)}.${digits.slice(-3)}`);
+  return Number.isFinite(value) ? value : null;
+}
+
+function readControlUnitPriceCents(value: unknown): number | null {
+  if (isMissingNumericValue(value)) return null;
+  const euros = parseDecimalInput(value, { currency: "EUR" });
+  return euros === null || euros < 0 ? null : euros * 100;
+}
+
+function parseWorkbookParameters(
+  rowIndex: number,
+  values: WorkbookParameterValues
+): ImportWorkbookParameters {
+  const coeffFo = readNumericField(values.coeffFo, parseCoefficient);
+  const coeffMo = readNumericField(values.coeffMo, parseCoefficient);
+  const hourlyRate = readNumericField(values.hourlyRate, parseAmountCents);
+  const majoration = readMajorationField(values.majoration);
+  return {
+    rowIndex,
+    coeffFo: coeffFo.value,
+    coeffMo: coeffMo.value,
+    hourlyRateCents: hourlyRate.value,
+    majorationCoefficient: majoration.status === "value" ? majoration.coefficient : null,
+  };
 }
 
 function readSourcePage(rawRow: JsonRecord) {
@@ -213,6 +325,12 @@ function sortImportFlowItems(items: ValidImportFlowItem[]) {
   });
 }
 
+function resolveRowTitle(mappedRow: JsonRecord) {
+  const designation = normalizeText(mappedRow.designation);
+  const reference = normalizeText(mappedRow.reference ?? mappedRow.hex_code);
+  return designation || reference;
+}
+
 export function normalizeMappedRowsForEstimateCreation(
   rows: ImportFlowMappedRowInput[],
   context: ImportFlowLineValuesContext,
@@ -224,6 +342,7 @@ export function normalizeMappedRowsForEstimateCreation(
   const invalidLines: InvalidImportFlowLine[] = [];
   const ignoredRows: IgnoredImportFlowRow[] = [];
   const preparedRows: PreparedImportFlowRow[] = [];
+  const unitPriceChecks: ImportUnitPriceCheck[] = [];
   let zeroPriceRows = 0;
 
   rows.forEach((row, index) => {
@@ -259,6 +378,16 @@ export function normalizeMappedRowsForEstimateCreation(
     });
   });
 
+  // The first untitled row carrying workbook parameters (OPTIMA row 2) supplies them to the lines.
+  const parameterRow = preparedRows.find((row) =>
+    isWorkbookParameterRow(row.mappedRow, resolveRowTitle(row.mappedRow))
+  );
+  const parameterValues = parameterRow ? readWorkbookParameterValues(parameterRow.mappedRow) : null;
+  const workbookParameters =
+    parameterRow && parameterValues
+      ? parseWorkbookParameters(parameterRow.rowIndex, parameterValues)
+      : null;
+
   const structure = resolveImportStructure(
     preparedRows,
     options.detectStructure || (options.structureDecisions?.length ?? 0) > 0
@@ -290,11 +419,12 @@ export function normalizeMappedRowsForEstimateCreation(
       continue;
     }
 
-    const designation = normalizeText(row.mappedRow.designation);
-    const reference = normalizeText(
-      row.mappedRow.reference ?? row.mappedRow.hex_code
-    );
-    const title = designation || reference;
+    const title = resolveRowTitle(row.mappedRow);
+    if (isWorkbookParameterRow(row.mappedRow, title)) {
+      ignoredRows.push({ mappedRowId: row.id, rowIndex: row.rowIndex, reason: "parameters" });
+      continue;
+    }
+
     const notes = normalizeOptionalText(row.mappedRow.notes);
     const sourcePage = readSourcePage(row.rawRow);
     const sourceMetadata = buildSourceMetadata({
@@ -319,35 +449,26 @@ export function normalizeMappedRowsForEstimateCreation(
       continue;
     }
 
+    const reject = (reason: InvalidImportFlowLineReason) => {
+      invalidLines.push({ mappedRowId: row.id, rowIndex: row.rowIndex, reason });
+    };
+
     if (title.length === 0) {
-      invalidLines.push({
-        mappedRowId: row.id,
-        rowIndex: row.rowIndex,
-        reason: "missing_title",
-      });
+      reject("missing_title");
       continue;
     }
 
-    const quantityField = parseOptionalNumericField(row.mappedRow.quantity);
+    const quantityField = readNumericField(row.mappedRow.quantity, parseQuantity);
     if (quantityField.status === "invalid") {
-      invalidLines.push({
-        mappedRowId: row.id,
-        rowIndex: row.rowIndex,
-        reason: "invalid_quantity",
-      });
+      reject("invalid_quantity");
       continue;
     }
 
-    const quantity = quantityField.value ?? 0;
-    const roundedQuantity = Math.round(quantity * 1000) / 1000;
-    const unitPriceField = parseOptionalNumericField(row.mappedRow.unit_price_ht, true);
-    const totalHtField = parseOptionalNumericField(row.mappedRow.total_ht, true);
+    const roundedQuantity = quantityField.value ?? 0;
+    const unitPriceField = readNumericField(row.mappedRow.unit_price_ht, parseAmountCents);
+    const totalHtField = readNumericField(row.mappedRow.total_ht, parseAmountCents);
     if (unitPriceField.status === "invalid" || totalHtField.status === "invalid") {
-      invalidLines.push({
-        mappedRowId: row.id,
-        rowIndex: row.rowIndex,
-        reason: "invalid_unit_price",
-      });
+      reject("invalid_unit_price");
       continue;
     }
 
@@ -357,46 +478,64 @@ export function normalizeMappedRowsForEstimateCreation(
       totalHtField.value > 0 &&
       roundedQuantity <= 0
     ) {
-      invalidLines.push({
-        mappedRowId: row.id,
-        rowIndex: row.rowIndex,
-        reason: "invalid_unit_price",
-      });
+      reject("invalid_unit_price");
       continue;
     }
 
-    const resolvedUnitPrice =
+    const unitPriceHtCents =
       unitPriceField.value ??
       (totalHtField.value !== null && roundedQuantity > 0
-        ? totalHtField.value / roundedQuantity
+        ? Math.round(totalHtField.value / roundedQuantity)
         : 0);
-    const unitPriceHtCents = toMoneyCents(resolvedUnitPrice);
 
-    const taxRateBp = toSafeRateBp(
-      row.mappedRow.tax_rate_bp,
-      context.defaultTaxRateBp
-    );
-    if (taxRateBp === null) {
-      invalidLines.push({
-        mappedRowId: row.id,
-        rowIndex: row.rowIndex,
-        reason: "invalid_tax_rate",
-      });
+    const taxRateField = readNumericField(row.mappedRow.tax_rate_bp, parseRateBp);
+    if (taxRateField.status === "invalid") {
+      reject("invalid_tax_rate");
+      continue;
+    }
+    const taxRateBp = taxRateField.value ?? context.defaultTaxRateBp;
+
+    const kFoField = readNumericField(row.mappedRow.k_fo, parseCoefficient);
+    const kMoField = readNumericField(row.mappedRow.k_mo, parseCoefficient);
+    if (kFoField.status === "invalid" || kMoField.status === "invalid") {
+      reject("invalid_coefficient");
       continue;
     }
 
-    const kFoField = parseOptionalNumericField(row.mappedRow.k_fo);
-    const hMoField = parseOptionalNumericField(row.mappedRow.labor_hours ?? row.mappedRow.h_mo);
-    const majorationField = parseOptionalNumericField(row.mappedRow.h_mo_majoration);
-    const kMoField = parseOptionalNumericField(row.mappedRow.k_mo);
-    if ([kFoField, hMoField, majorationField, kMoField].some((field) => field.status === "invalid")) {
-      invalidLines.push({ mappedRowId: row.id, rowIndex: row.rowIndex, reason: "invalid_row_payload" });
+    // Line hours share the stored h_mo precision (numeric(12,3)), the quantity's.
+    const lineHoursField = readNumericField(row.mappedRow.labor_hours ?? row.mappedRow.h_mo, parseQuantity);
+    const hoursPerUnitField = readNumericField(row.mappedRow.labor_hours_per_unit, parseHoursPerUnit);
+    if (lineHoursField.status === "invalid" || hoursPerUnitField.status === "invalid") {
+      reject("invalid_labor_hours");
       continue;
     }
+    if (lineHoursField.status === "value" && hoursPerUnitField.status === "value") {
+      reject("conflicting_labor_hours");
+      continue;
+    }
+    const hoursPerUnit = hoursPerUnitField.value;
+    const hMo =
+      hoursPerUnit !== null
+        ? computeLineHoursFromHoursPerUnit(roundedQuantity, hoursPerUnit)
+        : (lineHoursField.value ?? 0);
+    if (hMo === null) {
+      reject("invalid_labor_hours");
+      continue;
+    }
+
+    let majorationField = readMajorationField(row.mappedRow);
+    if (majorationField.status === "missing" && parameterValues) {
+      majorationField = readMajorationField(parameterValues.majoration);
+    }
+    if (majorationField.status === "invalid") {
+      reject(majorationField.reason);
+      continue;
+    }
+
     const kFo = kFoField.value ?? 1;
-    const hMo = hMoField.value ?? 0;
-    const hMoMajoration = majorationField.value ?? 1;
+    const hMoMajoration = majorationField.status === "value" ? majorationField.coefficient : 1;
     const kMo = kMoField.value ?? 1;
+    const laborRole = hMo > 0 ? (context.laborRole ?? null) : null;
 
     const lineValues = computeEstimateLineValues(
       {
@@ -407,6 +546,7 @@ export function normalizeMappedRowsForEstimateCreation(
         h_mo: hMo,
         h_mo_majoration: hMoMajoration,
         k_mo: kMo,
+        labor_role_hourly_rate_cents: laborRole?.hourlyRateCents ?? 0,
         pu_ht_cents: 0,
       },
       {
@@ -430,8 +570,10 @@ export function normalizeMappedRowsForEstimateCreation(
       taxRateBp,
       kFo,
       hMo,
+      hoursPerUnit,
       hMoMajoration,
       kMo,
+      laborRoleId: laborRole?.id ?? null,
       puHtCents: lineValues.puHtCents,
       lineTotalHtCents: lineValues.saleLineCents,
       lineTaxCents: lineValues.taxLineCents,
@@ -440,6 +582,15 @@ export function normalizeMappedRowsForEstimateCreation(
     validLines.push(line);
     validItems.push(line);
     if (unitPriceHtCents === 0) zeroPriceRows += 1;
+
+    const unitPriceCheck = checkUnitPriceAgainstControl({
+      rowIndex: row.rowIndex,
+      title,
+      quantity: roundedQuantity,
+      lineTotalHtCents: lineValues.saleLineCents,
+      controlUnitPriceCents: readControlUnitPriceCents(row.mappedRow.control_unit_price),
+    });
+    if (unitPriceCheck) unitPriceChecks.push(unitPriceCheck);
   }
 
   return {
@@ -450,7 +601,55 @@ export function normalizeMappedRowsForEstimateCreation(
     invalidLines,
     ignoredRows,
     zeroPriceRows,
+    workbookParameters,
+    unitPriceChecks,
   };
+}
+
+export type ImportLaborRoleCandidate = {
+  id: string;
+  name: string;
+  hourlyRateCents: number;
+};
+
+export type ImportLaborRoleResolution =
+  // No imported line carries hours: no role is needed.
+  | { status: "not_needed"; role: null }
+  // The role is chosen: the one requested, or the single active role at the workbook rate.
+  | { status: "resolved"; role: ImportLaborRoleCandidate; origin: "requested" | "workbook_rate" }
+  // The workbook states a rate that matches no active role, or several: an explicit choice is
+  // required rather than importing hours at 0 €/h (E17).
+  | { status: "choice_required"; role: null; matchingRoleIds: string[] }
+  // Hours without a workbook rate: no role unless the user picks one (MO valued at 0 €/h).
+  | { status: "unassigned"; role: null }
+  | { status: "invalid_role"; role: null };
+
+/**
+ * Labour role for imported hours (sub-lot 2.3, E17). `requestedRoleId`: `undefined` lets the
+ * workbook rate decide, `null` declines any role, a string must be an active role of the owner.
+ */
+export function resolveImportLaborRole(input: {
+  hasLaborHours: boolean;
+  workbookHourlyRateCents: number | null;
+  roles: ImportLaborRoleCandidate[];
+  requestedRoleId?: string | null;
+}): ImportLaborRoleResolution {
+  if (!input.hasLaborHours) return { status: "not_needed", role: null };
+
+  if (typeof input.requestedRoleId === "string") {
+    const role = input.roles.find((candidate) => candidate.id === input.requestedRoleId);
+    return role ? { status: "resolved", role, origin: "requested" } : { status: "invalid_role", role: null };
+  }
+
+  if (input.workbookHourlyRateCents === null) return { status: "unassigned", role: null };
+
+  const matching = input.roles.filter(
+    (candidate) => candidate.hourlyRateCents === input.workbookHourlyRateCents
+  );
+  if (input.requestedRoleId === undefined && matching.length === 1) {
+    return { status: "resolved", role: matching[0]!, origin: "workbook_rate" };
+  }
+  return { status: "choice_required", role: null, matchingRoleIds: matching.map((role) => role.id) };
 }
 
 export function buildImportFlowStats(
@@ -477,4 +676,3 @@ export function buildImportFlowStats(
     skippedRows,
   };
 }
-

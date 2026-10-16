@@ -28,6 +28,7 @@ type ConfirmationStepProps = {
   onBack?: () => void;
   structurePreview: StructurePreviewData | null;
   structurePlan: { decisions: StructureDecision[] };
+  laborRoleId?: string | null;
   onResultReady?: (result: ConfirmUnifiedImportFlowResult) => void;
   onSuccess: (result: ConfirmUnifiedImportFlowResult) => void;
 };
@@ -41,6 +42,7 @@ export function ConfirmationStep({
   onSuccess,
   structurePreview,
   structurePlan,
+  laborRoleId,
   onResultReady,
 }: ConfirmationStepProps) {
   const [isConfirming, setIsConfirming] = useState(false);
@@ -112,6 +114,7 @@ export function ConfirmationStep({
           createEstimate,
           previewSourceVersionId,
           structurePlan,
+          ...(laborRoleId === undefined ? {} : { laborRoleId }),
         });
 
         setConfirmationResult(result);
@@ -126,7 +129,7 @@ export function ConfirmationStep({
         setIsConfirming(false);
       }
     },
-    [importId, mapping, onResultReady, previewSourceVersionId, projectId, structurePlan],
+    [importId, laborRoleId, mapping, onResultReady, previewSourceVersionId, projectId, structurePlan],
   );
 
   const carryOverPreviewCopy =

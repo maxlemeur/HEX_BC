@@ -3,6 +3,10 @@
 import dynamic from "next/dynamic";
 import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 
+import {
+  previewUnifiedImportFlowLines,
+  type ImportFlowLinesPreview,
+} from "@/app/dashboard/affaires/_actions/import-flow";
 import type { ColumnMapping } from "@/components/mappings/ColumnMapper";
 import type { MappingTemplateExactMatch } from "@/lib/mappings/server";
 
@@ -12,14 +16,16 @@ import {
   StructureReview,
 } from "./StructureReview";
 import { fetchApi } from "./api";
-import type {
-  DuplicatesSummary,
-  MappingPreviewRow,
-  MappingValidation,
-  PreviewData,
-  PreviewStepResult,
-  StructureDecision,
-  StructurePreviewData,
+import { ImportLinesPreview } from "./ImportLinesPreview";
+import {
+  mappingNeedsLinesPreview,
+  type DuplicatesSummary,
+  type MappingPreviewRow,
+  type MappingValidation,
+  type PreviewData,
+  type PreviewStepResult,
+  type StructureDecision,
+  type StructurePreviewData,
 } from "./types";
 import { ArrowRightIcon } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
@@ -43,6 +49,7 @@ const LazyDataPreview = dynamic(
 
 type PreviewStepProps = {
   importId: string;
+  projectId: string;
   mapping: ColumnMapping;
   wasAutoAdvanced?: boolean;
   templateExactMatch?: MappingTemplateExactMatch | null;
@@ -53,6 +60,7 @@ type PreviewStepProps = {
 
 export function PreviewStep({
   importId,
+  projectId,
   mapping,
   wasAutoAdvanced,
   templateExactMatch,
@@ -73,6 +81,14 @@ export function PreviewStep({
   const [isStructureLoading, setIsStructureLoading] = useState(true);
   const [structureError, setStructureError] = useState<string | null>(null);
   const structureRequestIdRef = useRef(0);
+  const needsLinesPreview = mappingNeedsLinesPreview(mapping);
+  const [linesPreview, setLinesPreview] = useState<ImportFlowLinesPreview | null>(null);
+  const [isLinesPreviewLoading, setIsLinesPreviewLoading] = useState(needsLinesPreview);
+  const [linesPreviewError, setLinesPreviewError] = useState<string | null>(null);
+  const [linesPreviewAttempt, setLinesPreviewAttempt] = useState(0);
+  // undefined: the server resolves the role from the workbook rate; null: explicitly none.
+  const [selectedLaborRoleId, setSelectedLaborRoleId] = useState<string | null | undefined>(undefined);
+  const linesRequestIdRef = useRef(0);
 
   const handlePreviewLimitChange = useCallback((limit: number) => {
     setPreviewLimit(limit);
@@ -171,6 +187,56 @@ export function PreviewStep({
     };
   }, [importId, mapping]);
 
+  useEffect(() => {
+    if (!needsLinesPreview) {
+      setLinesPreview(null);
+      setIsLinesPreviewLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const requestId = ++linesRequestIdRef.current;
+    setIsLinesPreviewLoading(true);
+    setLinesPreviewError(null);
+
+    previewUnifiedImportFlowLines({
+      importId,
+      projectId,
+      mapping,
+      ...(selectedLaborRoleId === undefined ? {} : { laborRoleId: selectedLaborRoleId }),
+    })
+      .then((data) => {
+        if (cancelled || linesRequestIdRef.current !== requestId) return;
+        setLinesPreview(data);
+      })
+      .catch((err) => {
+        if (cancelled || linesRequestIdRef.current !== requestId) return;
+        setLinesPreviewError(
+          err instanceof Error ? err.message : "Impossible de calculer l'aperçu des lignes.",
+        );
+      })
+      .finally(() => {
+        if (!cancelled && linesRequestIdRef.current === requestId) {
+          setIsLinesPreviewLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [importId, linesPreviewAttempt, mapping, needsLinesPreview, projectId, selectedLaborRoleId]);
+
+  const roleChoiceRequired =
+    needsLinesPreview && linesPreview?.laborRole.status === "choice_required";
+  const resolvedLaborRoleId =
+    selectedLaborRoleId !== undefined
+      ? selectedLaborRoleId
+      : linesPreview?.laborRole.status === "resolved"
+        ? linesPreview.laborRole.roleId
+        : undefined;
+  const isLinesPreviewBlocking =
+    needsLinesPreview && (isLinesPreviewLoading || linesPreviewError !== null || roleChoiceRequired);
+
   const structureValidationError = getStructureReviewError(
     structurePreview,
     structureDecisions,
@@ -233,6 +299,17 @@ export function PreviewStep({
         onChange={setStructureDecisions}
       />
 
+      {needsLinesPreview ? (
+        <ImportLinesPreview
+          preview={linesPreview}
+          isLoading={isLinesPreviewLoading}
+          error={linesPreviewError}
+          selectedLaborRoleId={selectedLaborRoleId}
+          onLaborRoleChange={setSelectedLaborRoleId}
+          onRetry={() => setLinesPreviewAttempt((attempt) => attempt + 1)}
+        />
+      ) : null}
+
       <LazyDataPreview
         rows={rows}
         validation={validation}
@@ -253,7 +330,12 @@ export function PreviewStep({
         <button
           type="button"
           className={buttonVariants({ variant: "primary", size: "lg" })}
-          disabled={isLoading || isStructureLoading || structureValidationError !== null}
+          disabled={
+            isLoading ||
+            isStructureLoading ||
+            structureValidationError !== null ||
+            isLinesPreviewBlocking
+          }
           onClick={() =>
             startTransition(() =>
               onNext({
@@ -262,6 +344,7 @@ export function PreviewStep({
                 duplicates,
                 structurePreview: structurePreview!,
                 structurePlan: { decisions: structureDecisions },
+                ...(resolvedLaborRoleId === undefined ? {} : { laborRoleId: resolvedLaborRoleId }),
               }),
             )
           }

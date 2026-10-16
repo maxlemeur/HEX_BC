@@ -426,6 +426,8 @@ function createImportItems(source: Extract<CanonicalV2CreationSource, { kind: "i
       h_mo: sourceItem.h_mo,
       h_mo_majoration: sourceItem.h_mo_majoration,
       k_mo: sourceItem.k_mo,
+      // Sub-lot 2.3 (E17): imported hours keep the labour role chosen at the preview.
+      labor_role_id: sourceItem.labor_role_id ?? null,
       pu_ht_cents: sourceItem.pu_ht_cents,
       source_provider: "dpgf",
       source_file_name: source.filename,

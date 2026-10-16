@@ -229,6 +229,7 @@ export function UnifiedImportFlow({
       {step === "preview" && importId && (
         <PreviewStep
           importId={importId}
+          projectId={projectId}
           mapping={currentMapping}
           wasAutoAdvanced={wasAutoAdvanced}
           templateExactMatch={autoAppliedTemplateMatch}
@@ -246,6 +247,7 @@ export function UnifiedImportFlow({
           validation={previewData?.validation ?? null}
           structurePreview={previewData?.structurePreview ?? null}
           structurePlan={previewData?.structurePlan ?? { decisions: [] }}
+          laborRoleId={previewData?.laborRoleId}
           onBack={handleBack}
           onSuccess={handleConfirmSuccess}
           onResultReady={setConfirmResult}

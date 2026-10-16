@@ -4,6 +4,7 @@ import { readActiveTenantMembership } from "@/lib/auth/tenant-context";
 import type { Database, Json } from "@/types/database";
 
 import type {
+  ImportLaborRoleCandidate,
   ValidImportFlowItem,
   ValidImportFlowLine,
 } from "@/lib/affaires/import-flow";
@@ -43,6 +44,7 @@ export type RpcImportLinesPayload = {
   h_mo: number;
   h_mo_majoration: number;
   k_mo: number;
+  labor_role_id?: string | null;
   pu_ht_cents: number;
   line_total_ht_cents: number;
   line_tax_cents: number;
@@ -212,6 +214,48 @@ export async function fetchVersionComputationContext(
   };
 }
 
+/**
+ * Active labour roles of the project owner: the creation RPC only accepts the owner's roles
+ * (ESTIMATE_LABOR_ROLE_OWNER_MISMATCH), and imported hours are priced at the chosen role's rate.
+ */
+export async function fetchProjectOwnerLaborRoles(input: {
+  supabase: Supabase;
+  projectId: string;
+  tenantId: string;
+}): Promise<ImportLaborRoleCandidate[]> {
+  const { data: project, error: projectError } = await input.supabase
+    .from("estimate_projects")
+    .select("user_id")
+    .eq("id", input.projectId)
+    .eq("tenant_id", input.tenantId)
+    .maybeSingle();
+
+  if (projectError) {
+    throw new Error("Impossible de charger le projet cible.");
+  }
+  if (!project?.user_id) {
+    return [];
+  }
+
+  const { data, error } = await input.supabase
+    .from("labor_roles")
+    .select("id, name, hourly_rate_cents")
+    .eq("tenant_id", input.tenantId)
+    .eq("user_id", project.user_id)
+    .eq("is_active", true)
+    .order("position", { ascending: true });
+
+  if (error) {
+    throw new Error("Impossible de charger les rôles de main-d'œuvre.");
+  }
+
+  return (data ?? []).map((role) => ({
+    id: role.id,
+    name: role.name,
+    hourlyRateCents: role.hourly_rate_cents ?? 0,
+  }));
+}
+
 export async function fetchMappedRowsForImport(input: {
   supabase: Supabase;
   importId: string;
@@ -305,6 +349,7 @@ export function toRpcImportLines(lines: ValidImportFlowLine[]): RpcImportLinesPa
     h_mo: line.hMo,
     h_mo_majoration: line.hMoMajoration,
     k_mo: line.kMo,
+    labor_role_id: line.laborRoleId ?? null,
     pu_ht_cents: line.puHtCents,
     line_total_ht_cents: line.lineTotalHtCents,
     line_tax_cents: line.lineTaxCents,

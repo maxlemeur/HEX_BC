@@ -1,4 +1,5 @@
 import type { ColumnMapping } from "@/components/mappings/ColumnMapper";
+import { MAPPING_TARGET_FIELD_OPTIONS } from "@/lib/mappings/schemas";
 import type {
   MappingAutoValidation,
   MappingSuggestionConfidence,
@@ -27,20 +28,8 @@ export const ACCEPTED_FILE_TYPES =
 
 export const VALID_EXTENSIONS = new Set(["csv", "xlsx", "xls", "pdf"]);
 
-export const TARGET_FIELDS = [
-  { value: "hex_code", label: "Référence article" },
-  { value: "designation", label: "Désignation", required: true },
-  { value: "quantity", label: "Quantité" },
-  { value: "unit", label: "Unité" },
-  { value: "unit_price_ht", label: "Prix fourniture" },
-  { value: "total_ht", label: "Montant HT" },
-  { value: "category", label: "Catégorie" },
-  { value: "supply_type", label: "Type FO" },
-  { value: "supplier_ref", label: "Référence fournisseur" },
-  { value: "labor_hours", label: "Heures MO" },
-  { value: "h_mo_majoration", label: "Majoration MO" },
-  { value: "notes", label: "Notes" },
-] as const;
+// One list for every mapping UI, grouped by role (values, checks, parameters, unsupported).
+export const TARGET_FIELDS = MAPPING_TARGET_FIELD_OPTIONS;
 
 export const TERMINAL_IMPORT_STATUSES = new Set([
   "parsed",
@@ -99,4 +88,18 @@ export type PreviewStepResult = {
   duplicates: DuplicatesSummary | null;
   structurePreview: StructurePreviewData;
   structurePlan: { decisions: StructureDecision[] };
+  // Labour role of the imported hours (sub-lot 2.3, E17); undefined lets the server resolve it.
+  laborRoleId?: string | null;
 };
+
+/** Targets whose values the line preview explains: hours, majoration, parameters, controls. */
+export function mappingNeedsLinesPreview(mapping: Record<string, string>) {
+  return Object.values(mapping).some(
+    (target) =>
+      target === "labor_hours" ||
+      target === "labor_hours_per_unit" ||
+      target.startsWith("h_mo_majoration") ||
+      target.startsWith("param_") ||
+      target === "control_unit_price"
+  );
+}
