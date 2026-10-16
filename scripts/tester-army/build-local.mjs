@@ -6,6 +6,7 @@ import { readFile, writeFile, copyFile, readdir, realpath } from "node:fs/promis
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
+import { withNextBuildHeap } from "../next-build-env.mjs";
 import { assertRecipeHost, buildCommands, buildSourceEvidence, loopbackOrigin, newEvidenceDirectory, prepareArmyTypeScriptConfig, redactOutput, relativePath, repositoryRoot as root, requireValue, sha256 } from "./local-recipe-common.mjs";
 
 /** Immutable production output; dev, cache and compiler diagnostics are not runtime inputs. */
@@ -66,7 +67,10 @@ async function main() {
     revision: source.revision, diffSha256: source.diffSha256,
     command: { executable: process.execPath, args: process.argv.slice(1) }, inputs, offerProfileInputs, backend: backend.origin,
     node: process.version, platform: process.platform, steps: [] };
-  const env = { ...process.env, E2E_ARMY: "1", PERFORMANCE_BUILD_DIR: ".e2e/army/next", NEXT_TELEMETRY_DISABLED: "1" };
+  // buildCommands stays the recorded contract. Its heap argument sizes the next
+  // process only: Next's TypeScript CLI child (tsc) gets a limit from NODE_OPTIONS.
+  const env = withNextBuildHeap({ ...process.env, E2E_ARMY: "1", PERFORMANCE_BUILD_DIR: ".e2e/army/next", NEXT_TELEMETRY_DISABLED: "1" });
+  manifest.nodeOptions = redactOutput(env.NODE_OPTIONS, env);
   let log = "", exitCode = 0;
   for (const commandArgs of buildCommands) {
     const result = spawnSync(process.execPath, commandArgs, { cwd: root, env, windowsHide: true,
@@ -89,6 +93,7 @@ async function main() {
   await writeFile(path.join(directory, "build.log"), log, { flag: "wx" });
   await copyFile(fileURLToPath(import.meta.url), path.join(directory, "build-local.mjs"));
   await copyFile(path.join(root, "scripts/tester-army/local-recipe-common.mjs"), path.join(directory, "local-recipe-common.mjs"));
+  await copyFile(path.join(root, "scripts/next-build-env.mjs"), path.join(directory, "next-build-env.mjs"));
   const bytes = JSON.stringify(manifest, null, 2) + "\n";
   await writeFile(path.join(directory, "manifest.json"), bytes, { flag: "wx" });
   console.log(JSON.stringify({ status: exitCode === 0 && !manifest.sourceChangedDuringBuild ? "built" : "failed",

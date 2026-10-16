@@ -9,7 +9,7 @@
     "dev": "next dev",
     "dev:webpack": "next dev --webpack",
     "dev:army": "node --import tsx scripts/run-tester-army-ci.ts dev",
-    "build": "npm run validate-openapi && next build --webpack && npm run check:performance",
+    "build": "npm run validate-openapi && node scripts/next-build.mjs --webpack && npm run check:performance",
     "start": "next start",
     "e2e": "npm run e2e:army",
     "e2e:legacy:smoke": "node ./e2e/run-ps1.mjs e2e/smoke.ps1",
