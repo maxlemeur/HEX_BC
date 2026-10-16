@@ -143,3 +143,27 @@ lève l'attente d'activation. Il ne change pas la date des validations Army
 antérieures. Les preuves initiales restent inchangées et l'état précédent de
 ce document est conservé dans le même dossier. Le premier reçu préparatoire
 invalide est conservé et exclu explicitement de la qualification.
+
+## Limite transmise par `NODE_OPTIONS`
+
+Le 16 octobre 2026, un build Army sous WSL (environ 12 Go) a de nouveau échoué
+pendant la vérification TypeScript, avant tout parcours, alors que
+`buildCommands` passait `--max-old-space-size=4096` en argument `node`. Avec la
+même limite dans `NODE_OPTIONS`, le build termine en 78 s.
+
+Cause confirmée le même jour : Next 16.4 vérifie TypeScript par la CLI `tsc`
+(`experimental.useTypeScriptCli`, actif par défaut), lancée avec `process.env`
+mais sans les arguments `node` du parent : seul `NODE_OPTIONS` lui transmet la
+limite. Le constat initial ci-dessus reste exact pour les workers de
+compilation Webpack, qui reçoivent l'argument ; il ne l'est plus pour
+TypeScript, qui ne passe pas par un worker dans ce mode. Contrôle WSL : argument
+seul → `tsc` sans `NODE_OPTIONS`, arrêt vers 2035 Mo de heap ; via le lanceur →
+`tsc` à 4096, pic RSS 3,0 Go.
+
+Depuis, `scripts/next-build.mjs` impose un plancher de 4096 Mio à tous les
+builds : `npm run build` (local, Vercel, `verify:production`) l'exécute et
+`build-local.mjs` utilise la fonction `withNextBuildHeap()` de
+`scripts/next-build-env.mjs`. Une limite héritée plus basse est relevée, une
+plus haute conservée. `buildCommands` reste inchangé pour les validateurs ; le
+manifeste ajoute `nodeOptions`. Règles et usage :
+[développement Army local](tester-army-local-development.md#build-de-production-et-limite-de-heap).

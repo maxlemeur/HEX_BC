@@ -48,6 +48,108 @@ enregistre les sources avant/après et produit `stopped`, avec `e2e: not-run`.
 Une session interactive ne qualifie pas une campagne métier. Les sources
 doivent rester figées pendant `critical` et `full`.
 
+### Itérer sur les parcours concernés
+
+Pendant le développement, n'exécuter que les parcours touchés par la
+modification ; la suite complète (`npm run e2e:army:ci -- full`) est lancée une
+seule fois, à la validation du lot, sur des sources figées :
+
+```sh
+npm run e2e:army:local -- --grep '<motif>' --app-port 3118
+```
+
+npm transmet tout ce qui suit `--` à `run-tester-army-ci.ts critical`. `--grep`
+est réservé à `critical`, accepté une seule fois et attend sa valeur dans
+l'argument suivant (pas de forme `--grep=`). Le motif est une expression
+régulière JavaScript appliquée aux titres des tests : la placer entre
+apostrophes, `|` sépare plusieurs titres. Une valeur absente ou une expression
+invalide est refusée avant toute étape. SQL/RLS/build et le setup de connexion
+restent exécutés à chaque run ; un motif qui ne retient aucun scénario métier
+authentifié reste un échec.
+
+`E2E_ARMY_WORKERS` (entier de 1 à 4, **1 par défaut**) fixe `workers` dans
+`e2e.config.ts` ; toute autre valeur arrête le run avec une erreur explicite.
+`run-tester-army-ci.ts` la refuse avant la création de la pile, la transmet aux
+parcours et l'enregistre (`workers`) dans le manifeste. Les parcours partagent
+un compte, son tenant et ses fixtures ARMY : `e2e.config.ts` refuse une valeur
+supérieure à 1 hors des parcours `critical` de la pile éphémère possédée, la
+seule pour laquelle `run-tester-army-ci.ts` définit `E2E_ARMY_LOCAL_DB_URL`.
+Elle est donc refusée contre un Supabase partagé et pour les suites
+performance, couverture et agent. Ne pas la définir dans le workflow CI.
+
+Campagne du 16/10/2026 (WSL, suite critique complète, `e2e:army:local`) :
+workers=1 vert 64/64 en 634 s ; workers=3 rouge 2 fois sur 2 (63/64, 408 s et
+428 s), création de devis refusée en 400 par
+`40001 ESTIMATE_CREATE_CONTEXT_CHANGED` sous écriture concurrente du même
+tenant ; workers=2 n'a pas été mesuré. Une valeur supérieure à 1 n'est donc pas
+qualifiée : le défaut reste 1 et tout autre usage est exploratoire, avec des
+échecs intermittents attendus qui ne sont pas des régressions. La course
+applicative (rôles MO par défaut réécrits par `createEstimate` sous le verrou
+de calcul du tenant, 40001 renvoyé en 400 sans nouvel essai) relève d'un ticket
+applicatif distinct, régression rouge d'abord. Requalifier ensuite par deux
+suites complètes vertes, en commençant par workers=2.
+
+### Build de production et limite de heap
+
+Tous les builds de production passent par `scripts/next-build.mjs`.
+`npm run build` l'appelle directement : poste local, Vercel (`vercel.json`),
+`verify:production` et Quality Gate. `build-local.mjs` (campagnes Army) garde
+son tableau `buildCommands` et construit l'environnement de ses étapes avec la
+même fonction `withNextBuildHeap()`, importée de `scripts/next-build-env.mjs`.
+Ce module n'a pas d'effet de bord ; le lanceur, lui, démarre le build dès qu'il
+est exécuté et n'est importé par aucun script. Il exécute `next build` avec le
+Node courant, sans shell, depuis la racine du dépôt : la commande est identique
+sous Windows, macOS, Linux, en CI et sur Vercel. Il renvoie le code de sortie
+de Next et, hors Windows, relaie les signaux d'arrêt.
+
+La limite est un plancher de **4096 Mio** de heap V8 (`--max-old-space-size`)
+pour le processus Next et les enfants qui héritent de `NODE_OPTIONS`, dont
+`tsc`. Next 16.4 vérifie TypeScript par la CLI `tsc`
+(`experimental.useTypeScriptCli`, actif par défaut), lancée avec `process.env`
+mais sans les arguments `node` du parent : seul `NODE_OPTIONS` lui transmet la
+limite. Les workers propres à Next reçoivent déjà l'argument ; les workers de
+génération statique retirent volontairement toute limite (`isolatedMemory`).
+Sans limite, V8 dérive son plafond de la RAM de l'hôte : 2240 Mio dans la VM
+WSL d'environ 12 Go, 4288 Mio sur le poste Windows de 64 Go mesuré (Node 24).
+Contrôle WSL du 16/10 : argument seul → `tsc` sans `NODE_OPTIONS`, arrêt vers
+2035 Mo de heap ; via le lanceur → `tsc` à 4096, pic RSS 3,0 Go, build complet
+en 81 s. Un build peut donc passer sur un poste et échouer sur une machine plus
+petite, ce que le plancher empêche.
+
+Les autres options de `NODE_OPTIONS` (par exemple `--import` des gardes réseau)
+sont conservées. Une limite supérieure déjà présente est conservée ; une limite
+inférieure, absolue ou en pourcentage de la RAM, est relevée à 4096 Mio et
+signalée par le lanceur, car elle reproduirait l'arrêt de `tsc` :
+`[next-build] raised NODE_OPTIONS heap from … to 4096 MiB`. Mesuré sous Node 24 :
+`--max-old-space-size-percentage` prime sur la valeur absolue quel que soit
+l'ordre ; entre valeurs absolues, la dernière l'emporte. Le plafond borne
+chaque processus, pas la mémoire totale ; voir le
+[budget du build Army](tester-army-build-resources.md). Marge : `tsc` culmine à
+2,9–3,0 Go de RSS ; une croissance d'environ un tiers du graphe de types
+imposerait de remesurer et de relever le plancher.
+
+Le manifeste de `build-local.mjs` enregistre `nodeOptions` (expurgé) et copie
+`next-build-env.mjs` avec les scripts de recette. Le garde
+`src/test/ci-guardrails.test.ts` refuse :
+
+- un script `package.json`, la commande Vercel ou une ligne de workflow qui
+  lancerait `next build` directement : nom nu, `npx next@<version>`, shim
+  `.bin` tel que `next.cmd`, ou `next/dist/bin/next` ;
+- tout lancement de `next build` sous `scripts/**` dont l'environnement ne
+  provient pas de `withNextBuildHeap()` ;
+- une limite inférieure conservée, absolue ou en pourcentage ;
+- un lanceur qui n'atteindrait pas la CLI Next ou ne relèverait pas la limite
+  (`next-build.mjs --help` avec `NODE_OPTIONS=--max-old-space-size=2048`).
+
+Preuves du 16/10 sur la version finale, avec Node 24.19 et
+`NODE_OPTIONS=--max-old-space-size=2048` hérité. Sous WSL Ubuntu 24.04, cache
+froid : sans le lanceur, `tsc` s'arrête sur `heap out of memory` ; avec
+`npm run build`, la limite est relevée et signalée, `tsc` reçoit 4096 (pic RSS
+2,9 Go) et le build passe en 76 s. Sous Windows 11, le même `npm run build`
+passe également (cache TypeScript chaud). macOS, GitHub Actions et Vercel
+empruntent le même `npm run build` mais n'ont pas été exécutés pour cette
+correction.
+
 ## Contrat défini avant implémentation
 
 Les scénarios et échecs attendus ont précédé le code :
