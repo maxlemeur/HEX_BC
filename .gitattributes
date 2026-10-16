@@ -1,2 +1,3 @@
 docs/test-fixtures/fake-plan-lot-archi.pdf binary
 e2e/fixtures/source-coverage/**/*.pdf binary
+docs/audit-independant-2026-10-14/lot1/*.patch binary
