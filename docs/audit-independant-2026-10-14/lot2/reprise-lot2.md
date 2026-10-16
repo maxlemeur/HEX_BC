@@ -31,7 +31,23 @@ tout ce qui sert à la reprise est ici.
 - **Rythme** : le porteur veut avancer vite. Rapports courts, pourcentage d'avancement sur demande,
   pas de vérification redondante ; garder la rigueur sur les montants.
 
-## Où en est-on
+## Mise à jour du 16/10 au soir : reprise faite sur le Mac
+
+- Reprise validée sur macOS 27 (puce Apple) : Node 24.19.0 par `mise` (le Node global est en 26),
+  `npm ci`, puis `npm run db:ci:local` : 13 fichiers pgTAP, 1 253 assertions PASS, matrice RLS passée,
+  en 44 s.
+- **2.0 terminé** : recalé sur `main` par rebase, régression finale verte sur le Mac, PR draft vers
+  `main` depuis `lot2/2.0-ligne-de-base-v2` (nouvelle branche : pas de force-push sur
+  `lot2/2.0-ligne-de-base`, restée à `b26f5648`). Preuves et valeurs dans [estimate-engine-v3-2.0.md](../../testing/estimate-engine-v3-2.0.md).
+- Les lanceurs `e2e:army:*` refusent un `.env.local` à la racine. Sur le Mac, ils tournent depuis un
+  worktree propre : `git worktree add --detach ../mergeone-worktrees/<nom> <commit>`, puis `npm ci`.
+- Le recalage a révélé que 2.3 avait rendu périmés quatre parcours de `e2e/army/local/` (majoration
+  exportée en %). La suite critique de la CI ne rejoue pas ces parcours ; seule la campagne `calc-v3`
+  les exécute.
+- Restés sur le PC Windows : le paquet `docs/handoff-army-dev-2026-10-16*`, absent du Mac, et le commit
+  `36bb9a68` de la course 40001, jamais poussé.
+
+## Où en est-on (état du 16/10 sur le PC)
 
 | Élément | État | Où |
 |---|---|---|

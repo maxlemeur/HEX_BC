@@ -115,6 +115,11 @@ npm run e2e:army:calc-v3 -- --phase emission                    # une phase
 npm run e2e:army:calc-v3 -- --phase emission --grep '^OF00\s'   # une phase filtrée
 ```
 
+Sur macOS (puce Apple, macOS 14 ou plus récent), le runtime natif tourne directement : lancer les
+mêmes commandes depuis une copie propre, sans `.env.local` à la racine, que le lanceur refuse
+(clone ou `git worktree add --detach`). Régression finale du 16/10/2026 sur macOS : voir
+[estimate-engine-v3-2.0.md](estimate-engine-v3-2.0.md).
+
 `--grep` n'est accepté qu'avec `--phase` ; une phase filtrée ne prouve que ses résultats
 sélectionnés et la manifeste l'indique (`filtered`). Les cas PDFL, EF et NF de l'offre restent
 disponibles par `--grep` sur la phase `emission`.
