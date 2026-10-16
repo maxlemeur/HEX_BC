@@ -10,6 +10,9 @@ import {
   type WorkbookWriterFactory,
 } from "@/lib/estimates/export-stream";
 import { streamEstimateVersionDpgfXlsx } from "@/lib/estimates/dpgf-export";
+import { normalizeMappedRowsForEstimateCreation } from "@/lib/affaires/import-flow";
+import { detectImportProfile } from "@/lib/imports/optima-profile";
+import { normalizeHeaderValue } from "@/lib/imports/tabular-normalization";
 import { getEstimateVersionDetails } from "@/lib/estimates/server";
 
 const VERSION_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -226,7 +229,8 @@ describe("streamEstimateVersionDpgfXlsx", () => {
       "K FO",
       "h MO",
       "K MO",
-      "Majoration MO",
+      // P-11: one human convention, « Majoration MO (%) », 100 = neutral (2.3 review).
+      "Majoration MO (%)",
       "Rôle MO",
       "Catégorie",
       "h MO Atelier",
@@ -253,7 +257,7 @@ describe("streamEstimateVersionDpgfXlsx", () => {
     expect(lineRow[7]).toBe(1.1);
     expect(lineRow[8]).toBe(4);
     expect(lineRow[9]).toBe(1.2);
-    expect(lineRow[10]).toBe(1.15);
+    expect(lineRow[10]).toBe(115);
     expect(lineRow[11]).toBe("Poseur");
     expect(lineRow[12]).toBe("Maconnerie");
     expect(lineRow[13]).toBeNull();
@@ -446,5 +450,58 @@ describe("streamEstimateVersionDpgfXlsx", () => {
     expect(lineRow[7]).toBe(1);
     expect(lineRow[8]).toBeNull();
     expect(lineRow[11]).toBe("");
+  });
+
+  // 2.3 review (P-11, C-11): the user-facing DPGF export wrote the raw coefficient under a bare
+  // « Majoration MO », a second human convention; its re-import refused every line
+  // (undeclared unit) and read « Prix unitaire HT EUR » as a control price. The export now
+  // writes « Majoration MO (%) » and is a declared import profile, as the editor export.
+  it("re-imports its own lines with the same values", async () => {
+    vi.mocked(getEstimateVersionDetails).mockResolvedValue({
+      version: {
+        id: VERSION_ID, version_number: 1, title: "Aller-retour", date_devis: "2026-10-16",
+        estimate_projects: { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", user_id: null, name: "Projet", reference: "AR", client_name: null },
+      },
+      items: [{
+        id: "line-1", item_type: "line", parent_id: null, position: 1, title: "Beton arme", description: "m3",
+        quantity: 3, unit_price_ht_cents: 12550, tax_rate_bp: 2000, k_fo: 1, h_mo: 4, h_mo_majoration: 1.15, k_mo: 1,
+        h_mo_atelier: null, k_mo_atelier: null, labor_role_atelier_id: null, h_mo_chantier: null, k_mo_chantier: null,
+        labor_role_chantier_id: null, pu_ht_cents: null, labor_role_id: null, category_id: null, supply_type_id: null,
+        line_total_ht_cents: null, line_tax_cents: null, line_total_ttc_cents: null,
+      }],
+      supply_types: [],
+      labor_roles: [],
+      categories: [],
+    } as never);
+    const { workbookWriterFactory, worksheets } = createWorkbookHarness();
+    const exported = await streamEstimateVersionDpgfXlsx(VERSION_ID, { workbookWriterFactory, isLaborSplitEnabled: false });
+    await new Response(exported.stream).arrayBuffer();
+    const [headerRow, lineRow] = worksheets.find((sheet) => sheet.name === "Données")!.rows as unknown[][];
+
+    // The key both upload parsers store for each exported header.
+    const keys = headerRow.map((header, index) => normalizeHeaderValue(header, index));
+    const profile = detectImportProfile(keys);
+    expect(profile?.id).toBe("dpgf_export");
+    const rawRow = Object.fromEntries(keys.map((key, index) => [key, lineRow[index]]));
+    const mappedRow = Object.fromEntries(
+      Object.entries(profile?.mapping ?? {}).map(([source, target]) => [target, rawRow[source]]),
+    );
+    const reimported = normalizeMappedRowsForEstimateCreation(
+      [{ id: "line-1", payload: { mapped_row: mappedRow } }],
+      { marginMultiplier: 1, defaultTaxRateBp: 2000 },
+    );
+    expect(reimported.invalidLines).toEqual([]);
+    expect(reimported.validLines[0]).toMatchObject({
+      title: "Beton arme", description: "m3", quantity: 3, unitPriceHtCents: 12550, hMo: 4, hMoMajoration: 1.15,
+    });
+  });
+
+  // DPGF exports written before this fix carry the raw coefficient under « Majoration MO ».
+  it("reads the legacy « Majoration MO » column of its earlier exports as a coefficient", () => {
+    const keys = ["Type", "AID", "Désignation", "Quantité", "Unité", "Prix unitaire HT EUR", "Type FO", "K FO", "h MO", "K MO", "Majoration MO", "Rôle MO"]
+      .map((header, index) => normalizeHeaderValue(header, index));
+    const profile = detectImportProfile(keys);
+    expect(profile?.id).toBe("dpgf_export");
+    expect(profile?.mapping).toMatchObject({ Majoration_MO: "h_mo_majoration_coefficient", Prix_unitaire_HT_EUR: "unit_price_ht" });
   });
 });

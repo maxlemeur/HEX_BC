@@ -1,10 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as XLSX from "xlsx";
 
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
 
-import { findDuplicates, listMappings, previewImportStructure, previewMapping, suggestMapping, validateMapping } from "@/lib/mappings/server";
+import { parseImportFile } from "@/lib/imports/parser";
+import { normalizeHeaderValue } from "@/lib/imports/tabular-normalization";
+import { parseWorkbook } from "@/workers/xlsx-parser.worker";
+import { findDuplicates, findPerUnitDurationsMappedToLineHours, guessTargetFieldFromColumn, listMappings, previewImportStructure, previewMapping, suggestMapping, validateMapping } from "@/lib/mappings/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -789,5 +793,222 @@ describe("mapping server workflows", () => {
       status: 401,
       code: "UNAUTHORIZED",
     });
+  });
+});
+
+// Sub-lot 2.3 (F17, U-03, D11): the column heuristic is shared by CSV, XLS, XLSX and PDF
+// imports, while only the XLSX OPTIMA journey runs in Army. Each header is read raw and as the
+// key the upload stores. Failure modes: docs/testing/estimate-input-import-2.3.md. Red before 2.3.
+// An accepted outcome is an exact target, null, or a role prefix ending in "_*": "control_*"
+// (a check column, never a value), "param_*" (a workbook parameter) or "unsupported_*"
+// (recognised and reported as not supported).
+type AcceptedGuess = Array<string | null>;
+
+const OPTIMA_HEADERS: Array<[string, AcceptedGuess]> = [
+  ["N°", [null]],
+  ["Désignation", ["designation"]],
+  ["Uté", ["unit"]],
+  ["Qté", ["quantity"]],
+  ["Prix\nUnitaire", ["control_*"]],
+  ["Prix\nTotal", ["control_*"]],
+  ["PR Fourniture unitaire", ["unit_price_ht"]],
+  ["PR Total\nfourniture", ["control_*", "total_ht"]],
+  ["Tps pose unitaire", ["labor_hours_per_unit"]],
+  ["Tps pose unitaire majoré", ["control_*"]],
+  ["Tps pose total", ["control_*"]],
+  ["Coeff FO", ["param_*"]],
+  ["Coeff MO", ["param_*"]],
+  // Without the OPTIMA profile the unit of a bare "Majoration MO" stays to be chosen.
+  ["Majoration MO", [null, "h_mo_majoration"]],
+  ["Taux horaire", ["param_*"]],
+];
+
+const CLIENT_B_HEADERS: Array<[string, AcceptedGuess]> = [
+  ["Description", ["designation"]],
+  ["Famille Achat", ["category"]],
+  ["FO / MO", [null]],
+  ["LOT", [null]],
+  ["n° LOT", [null]],
+  ["U", ["unit"]],
+  ["COMMENTAIRES STT ", ["notes"]],
+  ["Qté Atelier ", ["unsupported_*"]],
+  ["Qté Chantier ", ["unsupported_*"]],
+  ["PU FO ", ["control_*"]],
+  ["PU MO Atelier ", ["control_*", "unsupported_*"]],
+  ["PU MO Chantier ", ["control_*", "unsupported_*"]],
+  ["TOTAL FO ", ["control_*", "total_ht"]],
+  ["Total MO Atelier ", ["control_*", "unsupported_*"]],
+  ["Total MO Chantier ", ["control_*", "unsupported_*"]],
+  ["TOTAL HT ", ["control_*", "total_ht"]],
+];
+
+function isAcceptedGuess(target: string | null, accepted: AcceptedGuess) {
+  return accepted.some((entry) => entry === target || (
+    typeof entry === "string" && entry.endsWith("_*") && typeof target === "string" &&
+    target.startsWith(entry.slice(0, -1))
+  ));
+}
+
+function guessRawAndUploaded(header: string) {
+  return {
+    raw: guessTargetFieldFromColumn(header),
+    uploaded: guessTargetFieldFromColumn(normalizeHeaderValue(header, 0)),
+  };
+}
+
+describe("2.3 column heuristic on real OPTIMA and client B headers (F17, U-03)", () => {
+  it.each([
+    ...OPTIMA_HEADERS.map(([header, accepted]) => ({ source: "OPTIMA", header, accepted })),
+    ...CLIENT_B_HEADERS.map(([header, accepted]) => ({ source: "client B", header, accepted })),
+  ])("$source $header", ({ header, accepted }) => {
+    const guesses = guessRawAndUploaded(header);
+    expect({
+      raw: isAcceptedGuess(guesses.raw, accepted) ? "accepted" : guesses.raw,
+      uploaded: isAcceptedGuess(guesses.uploaded, accepted) ? "accepted" : guesses.uploaded,
+    }).toEqual({ raw: "accepted", uploaded: "accepted" });
+  });
+
+  it.each(["Prix Unitaire", "Prix\nUnitaire", "PR Fourniture unitaire", "Tps pose unitaire", "Tps pose unitaire majoré", "Prix unitaire HT"])(
+    "%j never becomes the unit",
+    (header) => {
+      expect(Object.values(guessRawAndUploaded(header))).not.toContain("unit");
+    },
+  );
+
+  it.each(["Uté", "UTE", "Ute"])("%j is the unit", (header) => {
+    expect(guessRawAndUploaded(header)).toEqual({ raw: "unit", uploaded: "unit" });
+  });
+
+  // A generic DPGF unit price is a sale price to check, not the supply cost (D11).
+  it.each(["Prix unitaire", "PU", "P.U."])("generic %j is proposed as a control price", (header) => {
+    const guesses = guessRawAndUploaded(header);
+    expect([guesses.raw, guesses.uploaded].map((target) => isAcceptedGuess(target, ["control_*"]))).toEqual([true, true]);
+  });
+
+  it.each(["PR FO", "PR. FO"])("%j stays the supply cost", (header) => {
+    expect(guessRawAndUploaded(header)).toEqual({ raw: "unit_price_ht", uploaded: "unit_price_ht" });
+  });
+
+  // The editor export writes "Majoration MO (%)" (100 = neutral). Both upload parsers (server
+  // and browser worker) store a key without the unit, so a re-import multiplied the labour
+  // cost by 100 (C-11).
+  it("keeps the declared percent unit of an exported majoration through both upload parsers", async () => {
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+      ["Désignation", "Majoration MO (%)"],
+      ["Ligne exportée", 112.5],
+    ]), "Lignes");
+    const buffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
+    const server = await parseImportFile(new File([buffer], "export.xlsx", {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }), { headerRowNumber: 1 });
+    const worker = await parseWorkbook(buffer, 1);
+    const majorationKeys = [...server.headers, ...Object.keys(worker[0] ?? {})].filter((key) => /majoration/i.test(key));
+    expect({
+      raw: guessTargetFieldFromColumn("Majoration MO (%)"),
+      uploaded: majorationKeys.map((key) => guessTargetFieldFromColumn(key)),
+    }).toEqual({ raw: "h_mo_majoration_percent", uploaded: ["h_mo_majoration_percent", "h_mo_majoration_percent"] });
+  });
+});
+
+// 2.3 review (D11): « prix d'achat » and « prix de revient » name the supply cost explicitly; the
+// generic « Prix unitaire → contrôle » rule caught them, so the column was never imported.
+describe("2.3 explicit purchase prices stay the supply cost (D11)", () => {
+  it.each(["Prix d'achat unitaire", "Prix d’achat unitaire HT", "Prix de revient unitaire", "PR unitaire", "Coût d'achat unitaire"])(
+    "%j is the supply cost",
+    (header) => {
+      expect(guessRawAndUploaded(header)).toEqual({ raw: "unit_price_ht", uploaded: "unit_price_ht" });
+    },
+  );
+
+  it.each(["Prix d'achat total", "Prix de revient total"])("%j is not a unit cost", (header) => {
+    expect(Object.values(guessRawAndUploaded(header))).not.toContain("unit_price_ht");
+  });
+});
+
+// 2.3 review: a template saved before 2.3 for OPTIMA columns maps « Tps pose unitaire » to line
+// hours and « Majoration MO » to the undeclared majoration. An exact template match used to win
+// over the declared profile, so C-01 went on silently for those users. A template that agrees
+// with the profile still wins.
+describe("2.3 declared profile against a saved template", () => {
+  const OPTIMA_SUBSET = ["Designation", "Ute", "Qte", "PR_Fourniture_unitaire", "Tps_pose_unitaire", "Majoration_MO", "Coeff_MO"];
+  const rawRows = [{
+    row_index: 1,
+    payload: Object.fromEntries(OPTIMA_SUBSET.map((column, index) => [column, column === "Designation" ? "Ligne OPTIMA" : index])),
+  }];
+  const PROFILE_MAPPING = {
+    Designation: "designation", Ute: "unit", Qte: "quantity", PR_Fourniture_unitaire: "unit_price_ht",
+    Tps_pose_unitaire: "labor_hours_per_unit", Majoration_MO: "h_mo_majoration_additive", Coeff_MO: "param_coeff_mo",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("applies the profile over a template that contradicts it", async () => {
+    const supabase = createSupabaseMock({
+      rawRows,
+      templates: [{
+        id: "tpl-legacy-optima", name: "OPTIMA (avant 2.3)", supplier_name: null,
+        mapping: { ...PROFILE_MAPPING, Tps_pose_unitaire: "labor_hours", Majoration_MO: "h_mo_majoration", Coeff_MO: "notes" },
+      }],
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await suggestMapping({ import_id: IMPORT_ID });
+
+    expect(result.template_exact_match).toBeNull();
+    expect(result.suggestions).toEqual(PROFILE_MAPPING);
+    expect(result.confidence_by_source.Tps_pose_unitaire?.origin).toBe("profile");
+  });
+
+  it("keeps a template that agrees with the profile", async () => {
+    const supabase = createSupabaseMock({
+      rawRows,
+      templates: [{ id: "tpl-optima", name: "OPTIMA", supplier_name: null, mapping: PROFILE_MAPPING }],
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await suggestMapping({ import_id: IMPORT_ID });
+
+    expect(result.template_exact_match?.id).toBe("tpl-optima");
+    expect(result.suggestions).toEqual(PROFILE_MAPPING);
+    expect(result.confidence_by_source.Tps_pose_unitaire?.origin).toBe("template");
+  });
+
+  // The preview names a per-unit duration read as line hours (chosen by hand or by a template).
+  it("names per-unit durations mapped to the line hours", () => {
+    expect(findPerUnitDurationsMappedToLineHours({ Tps_pose_unitaire: "labor_hours", Designation: "designation" })).toEqual(["Tps_pose_unitaire"]);
+    expect(findPerUnitDurationsMappedToLineHours({ "Tps pose unitaire majoré": "labor_hours" })).toEqual(["Tps pose unitaire majoré"]);
+    expect(findPerUnitDurationsMappedToLineHours({ "Heures MO": "labor_hours", "Tps pose total": "notes" })).toEqual([]);
+    expect(findPerUnitDurationsMappedToLineHours({ Tps_pose_unitaire: "labor_hours_per_unit" })).toEqual([]);
+  });
+});
+
+// 2.3 review: Excel stores a cell shown « 115 % » as 1,15. Both upload parsers stored the raw
+// fraction, so « Majoration MO (%) » imported ×0,0115 and a 20 % VAT read 0,2 %. A cell whose
+// number format scales by 100 is now stored as its percent text; a literal "%" in a format
+// (0"%") does not scale and keeps the number.
+describe("2.3 percent-formatted cells through both upload parsers", () => {
+  it("stores the percent text a percent-formatted cell shows", async () => {
+    const sheet = XLSX.utils.aoa_to_sheet([
+      ["Désignation", "Majoration MO (%)", "TVA", "Remise", "Repère"],
+      ["Ligne pourcentage", 1.15, 0.2, 0.125, 115],
+    ]);
+    sheet.B2!.z = "0%";
+    sheet.C2!.z = "0.0%";
+    sheet.D2!.z = "0.00 %";
+    sheet.E2!.z = '0"%"';
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, "Lignes");
+    const buffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
+    const server = await parseImportFile(new File([buffer], "pourcentages.xlsx", {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }), { headerRowNumber: 1 });
+    const worker = await parseWorkbook(buffer, 1);
+    const expected = { Majoration_MO_pct: "115 %", TVA: "20 %", Remise: "12,5 %", Repere: 115 };
+    for (const row of [server.rows[0], worker[0]]) {
+      expect(Object.fromEntries(Object.keys(expected).map((key) => [key, row?.[key]]))).toEqual(expected);
+    }
   });
 });
