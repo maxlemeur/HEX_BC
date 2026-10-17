@@ -1,7 +1,22 @@
 import { describe, expect, it } from "vitest";
 
 import { evaluateRules, type RulesEngineVersion } from "@/lib/estimates/rules-engine";
-import type { V3MarginEvidence } from "@/lib/estimates/v3-margin-evidence-server";
+
+/**
+ * Contrat de la preuve vivante de marque v3 que 2.5 exporte de
+ * `src/lib/estimates/v3-margin-evidence-server.ts` et que `evaluateRules` reçoit en
+ * `v3MarginEvidence`. Recopié ici tant que le module n'existe pas : le build de production
+ * vérifie aussi les tests, et le parcours E2E rouge doit pouvoir s'y construire. L'implémentation
+ * remplace ce type par `import type { V3MarginEvidence }` depuis ce module.
+ */
+type V3MarginEvidence = {
+  source: "authenticated_live";
+  version: { id: string; tenant_id: string; project_id: string; status: string; content_revision: number; updated_at: string };
+  /** HT net N, égal à `version.total_ht_cents`. */
+  net_ht_cents: number;
+  /** Déboursé Σ D (§4.5). */
+  cost_subtotal_cents: number;
+};
 
 /**
  * Lot 2, sous-lot 2.5 — règle `min_margin` sur une v3 (conception D5, F20, T-MARG du §5.3).
@@ -101,14 +116,16 @@ function liveEvidence(netHtCents: number, costSubtotalCents: number, contentRevi
 }
 
 async function evaluateMinMargin(version: RulesEngineVersion, thresholdBp: number, v3MarginEvidence?: V3MarginEvidence | null) {
-  return evaluateRules({
+  // Variable, not a fresh literal: `v3MarginEvidence` is the input 2.5 adds to evaluateRules.
+  const input: Parameters<typeof evaluateRules>[0] & { v3MarginEvidence?: V3MarginEvidence | null } = {
     supabase: supabaseWithRules([minMarginRule(thresholdBp)]) as never,
     tenantId: TENANT_ID,
     version,
     project: { id: PROJECT_ID, client_name: "Client v3" },
     items: [],
     v3MarginEvidence,
-  });
+  };
+  return evaluateRules(input);
 }
 
 const unavailableMargin = {
