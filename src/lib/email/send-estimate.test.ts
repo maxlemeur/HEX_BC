@@ -262,7 +262,7 @@ describe("sendEstimateEmail transactional workflow", () => {
   // Lot 2, sous-lot 2.1 (docs/testing/estimate-engine-v3-2.1.md, F-TS-05). Le refus du moteur
   // est une propriété de la version : il précède la configuration d'envoi, la relecture
   // d'un envoi, le gel, le contrôle bloquant, la réservation et toute livraison.
-  // Réaligné en 2.7 (estimate-engine-v3-2.7-vitest.md, « Tests existants à réaligner ») : la v3
+  // Réaligné en 2.7 (estimate-engine-v3-2.7.md §11.4, « Tests existants à réaligner ») : la v3
   // s'envoie désormais (contrat client 2, parcours V3M01) ; le refus avant tout effet reste exigé
   // pour un moteur hors domaine.
   it("refuses a draft of an unknown engine by name before configuration, replay, freeze, gating, reservation or delivery", async () => {

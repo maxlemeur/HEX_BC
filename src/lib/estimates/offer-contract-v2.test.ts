@@ -8,7 +8,7 @@ import {
   parseOfferDocumentProof,
 } from "@/lib/estimates/offer-contract";
 
-// Lot 2, sous-lot 2.7 (docs/testing/estimate-engine-v3-2.7-vitest.md, F27-V01 à F27-V12).
+// Lot 2, sous-lot 2.7 (docs/testing/estimate-engine-v3-2.7.md §11, F27-V01 à F27-V12).
 // Isolation justifiée (parseur strict, intégrité du document émis) : une copie commerciale v3
 // altérée d'un centime, d'une clé ou d'un type ne peut pas être fabriquée par un parcours E2E
 // (l'application n'écrit que des copies cohérentes) ; seul le parseur la refuse avant le sceau.

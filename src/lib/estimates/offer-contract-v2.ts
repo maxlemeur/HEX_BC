@@ -21,7 +21,7 @@ import type { EstimatePdfLayoutOptions } from "@/lib/estimates/pdf-layout";
 
 /**
  * Lot 2, sous-lot 2.7 - contrat client 2 (conception D14, F1 à F3 ;
- * docs/testing/estimate-engine-v3-2.7-vitest.md) : construction de la copie commerciale d'une v3
+ * docs/testing/estimate-engine-v3-2.7.md §11) : construction de la copie commerciale d'une v3
  * figée, analyse stricte (`offer-contract-v2-parser.ts`) et sceau d'offre au marqueur 5, dont le
  * calcul est la charge 6. Le contrat 1 (`offer-contract.ts`), ses validateurs et son enveloppe
  * (charge 4) ne changent pas. Règle d'appariement : v3 ⇔ contrat 2, v1/v2 ⇔ contrat 1.

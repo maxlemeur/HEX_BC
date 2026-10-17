@@ -1027,7 +1027,7 @@ describe("estimate pdf generator", () => {
 
   // Lot 2, sous-lot 2.1 (docs/testing/estimate-engine-v3-2.1.md, F-TS-04). Publier le PDF
   // contractuel d'un moteur inconnu le relirait comme une v1 : le refus est nommé avant tout
-  // gel, rendu, dépôt ou appel SQL de publication. Réaligné en 2.7 (estimate-engine-v3-2.7-vitest.md,
+  // gel, rendu, dépôt ou appel SQL de publication. Réaligné en 2.7 (estimate-engine-v3-2.7.md §11.4,
   // « Tests existants à réaligner ») : la v3 est désormais émise (contrat client 2, parcours
   // V3M01/V3M02) ; le refus avant tout effet reste exigé pour un moteur hors domaine.
   it("refuses to publish a document of an unknown engine before claiming, freezing, rendering or uploading", async () => {

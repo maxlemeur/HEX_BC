@@ -21,7 +21,7 @@ import {
   type FrozenCorpusFile,
 } from "../../../scripts/engine-v3/frozen-corpus";
 
-// Lot 2, sous-lot 2.7 (docs/testing/estimate-engine-v3-2.7-vitest.md, F27-S01 à F27-S08).
+// Lot 2, sous-lot 2.7 (docs/testing/estimate-engine-v3-2.7.md §11, F27-S01 à F27-S08).
 // Isolation justifiée (intégrité du sceau, D14, F1, F2) : un champ v3 oublié par la charge 6 rend
 // un devis émis modifiable sans que son sceau change, et un octet changé dans les charges 1 à 4
 // rend invérifiables des documents déjà émis. Aucun parcours E2E ne peut énumérer chaque champ

@@ -161,7 +161,7 @@ describe("computeEstimateSealHash", () => {
   // Lot 2, sous-lot 2.1 (docs/testing/estimate-engine-v3-2.1.md, F-TS-07). Isolation justifiée :
   // un sceau calculé pour une v3 avec une charge v1/v2 serait un document émis faux et
   // immuable ; aucune v3 ne peut atteindre l'émission en E2E pour le montrer.
-  // Réaligné en 2.7 (docs/testing/estimate-engine-v3-2.7-vitest.md, « Tests existants à
+  // Réaligné en 2.7 (docs/testing/estimate-engine-v3-2.7.md §11.4, « Tests existants à
   // réaligner ») : sans option, une v3 est désormais scellée par la charge 6 ; le refus nommé
   // d'une charge v1/v2 reste (détail : estimate-seal.v3.test.ts, F27-S01 et F27-S05).
   it("seals a v3 only with payload 6 and still refuses a historical payload by name", () => {

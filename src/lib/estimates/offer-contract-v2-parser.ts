@@ -19,7 +19,7 @@ import { ESTIMATE_LINE_PRICING_STATUSES, type EstimateLinePricingStatus } from "
 
 /**
  * Lot 2, sous-lot 2.7 - analyse stricte du contrat client 2 (conception D7, D8, D14 ;
- * docs/testing/estimate-engine-v3-2.7-vitest.md). Réservé au moteur 3 : lignes BRUTES
+ * docs/testing/estimate-engine-v3-2.7.md §11). Réservé au moteur 3 : lignes BRUTES
  * (PT = ⌈Q × PU⌋), unité et statut, pied v3 (brut, remise, arrondi commercial, HT net, TVA par
  * taux sur la base nette, TTC). Aucune réparation, aucune consultation de données vivantes (ni le
  * référentiel d'unités, ni la version) : une copie altérée d'un centime, d'une clé ou d'un type

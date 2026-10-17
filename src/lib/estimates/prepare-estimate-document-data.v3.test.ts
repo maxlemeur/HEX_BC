@@ -14,7 +14,7 @@ import { fixtureLineId, ORACLE_LINES, oracleItems, v3Line, v3Params } from "@/li
 import type { EstimatePdfLayoutOptions } from "@/lib/estimates/pdf-layout";
 import { MEASUREMENT_UNITS } from "@/lib/units/normalize";
 
-// Lot 2, sous-lot 2.7 (docs/testing/estimate-engine-v3-2.7-vitest.md, F27-D01 à F27-D06).
+// Lot 2, sous-lot 2.7 (docs/testing/estimate-engine-v3-2.7.md §11, F27-D01 à F27-D06).
 // Isolation justifiée (intégrité du document émis) : le parcours `engine-v3-emission` lit le texte
 // du PDF sur S2 et S5 ; il ne peut ni énumérer chaque ligne imprimée (PT = ⌈Q × PU⌋ sur 100 %
 // des lignes), ni prouver que le tableau de TVA vient du contexte figé et pas d'un recalcul, ni
