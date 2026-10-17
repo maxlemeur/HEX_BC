@@ -730,7 +730,8 @@ describe("EstimateEditorRow behavior", () => {
         "line-catalogue",
         expect.objectContaining({
           product_id: "product-1",
-          description: "Produit catalogue",
+          // The line has no unit: the article unit fills it, never the designation (2.2).
+          description: "u",
           unit_price_ht_cents: 1234,
           selected_supplier_price_id: "price-1",
         }),

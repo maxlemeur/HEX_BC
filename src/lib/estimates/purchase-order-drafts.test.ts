@@ -44,7 +44,7 @@ function coveredSnapshot() {
     supplier_reference: "REF-1", catalogue_url: null, updated_at: new Date().toISOString(),
     is_stale: false, product_designation: "Produit A", is_selected: true,
     unit: "u", min_quantity: 1, currency: "EUR", is_active: true,
-    valid_from: "2000-01-01", valid_to: "2099-12-31",
+    valid_from: "2000-01-01", valid_to: "2099-12-31", unit_price_cents: 1800,
   };
   vi.mocked(listEstimateItems).mockResolvedValue({ items: [line] } as never);
   vi.mocked(getEstimateSupplierComparisons).mockResolvedValue({

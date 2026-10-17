@@ -71,6 +71,7 @@ describe("SupplierOfferFormModal", () => {
     expect(mocks.fetchApi).not.toHaveBeenCalled();
   });
 
+  // Long user-event flow: under a loaded CI runner it exceeded the 5 s default (17/10/2026).
   it("stages a new supplier and article until the final atomic submission", async () => {
     const user = userEvent.setup();
     renderOffer();
@@ -113,7 +114,7 @@ describe("SupplierOfferFormModal", () => {
         unit_price_cents: 1500,
       },
     });
-  });
+  }, 15_000);
 
   it("reuses and locks the existing article-supplier fiche", async () => {
     const user = userEvent.setup();

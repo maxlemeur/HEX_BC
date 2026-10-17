@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SUPPLIER_OFFER_ZERO_PRICE_KIND_ERROR } from "@/lib/estimates/supplier-offer-price";
 
 import { isValidDateOnly } from "@/lib/date-only";
 import { resolvePriceValidity } from "@/lib/catalogue/price-validity";
@@ -397,10 +398,16 @@ export const updateSupplierOfferSchema = z.object({
       supplier_sku: optionalTextUpdateSchema,
       product_url: optionalHttpUrlSchema.optional(),
       transport_mode: z.enum(["included", "excluded"]).nullable().optional(),
+      zero_price_kind: z.enum(["included", "free"]).nullable().optional().describe(
+        "A7 : marque une offre à 0 € comme incluse ou gratuite ; refusé si le prix dépasse 0 €. Repasser le prix au-dessus de 0 € efface le marquage.",
+      ),
     })
     .partial()
     .superRefine((payload, ctx) => {
       if (payload.valid_from && payload.valid_to) ensurePriceValidity(payload, ctx);
+      if (payload.zero_price_kind && typeof payload.unit_price_cents === "number" && payload.unit_price_cents > 0) {
+        ctx.addIssue({ code: "custom", path: ["zero_price_kind"], message: SUPPLIER_OFFER_ZERO_PRICE_KIND_ERROR });
+      }
       if (Object.keys(payload).length === 0) {
         ctx.addIssue({ code: "custom", message: "Aucun champ de mise à jour fourni." });
       }

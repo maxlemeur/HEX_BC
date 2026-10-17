@@ -24,6 +24,7 @@ import {
 } from "@/lib/money";
 import type { SupplierOfferConditions } from "@/lib/estimates/supplier-offer-conditions";
 import { supplierOfferIneligibility } from "@/lib/estimates/supplier-offer-eligibility";
+import { supplierOfferZeroPriceLabel } from "@/lib/estimates/supplier-offer-price";
 
 /**
  * Affiche un prix fournisseur dans SA devise. Auparavant tout passait par
@@ -247,7 +248,7 @@ export function SupplierComparisonPanel({
                         </p>
                       </div>
                       <div className="estimate-supplier-comparison-option__price shrink-0 text-sm font-bold tabular-nums text-primary sm:text-right">
-                        {formatSupplierPrice(
+                        {supplierOfferZeroPriceLabel(alternative.zero_price_kind) ?? formatSupplierPrice(
                           alternative.adjusted_unit_price_cents,
                           alternative.currency
                         )}

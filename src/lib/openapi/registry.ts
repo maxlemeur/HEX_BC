@@ -483,6 +483,10 @@ const estimateVersionTokenSchema = z.object({
   updated_at: z.string(),
 });
 
+const supplierOfferZeroPriceKindSchema = z.enum(["included", "free"]).nullable().optional().describe(
+  "A7 : marquage d'une offre à 0 € (« Inclus » ou « Gratuit ») ; une offre à 0 € non marquée ne chiffre rien."
+);
+
 const suggestedSupplierAlternativeSchema = z.object({
   kind: supplierAlternativeKindSchema,
   supplier_price_id: uuidSchema,
@@ -496,6 +500,7 @@ const suggestedSupplierAlternativeSchema = z.object({
   updated_at: z.string().nullable(),
   is_stale: z.boolean(),
   catalogue_url: z.string().nullable(),
+  zero_price_kind: supplierOfferZeroPriceKindSchema,
 });
 
 const suggestedCataloguePriceSchema = z.object({
@@ -525,6 +530,7 @@ const suggestedCataloguePriceSchema = z.object({
   material_index_code: z.string().nullable(),
   material_index_value: z.number().nullable(),
   catalogue_url: z.string().nullable(),
+  zero_price_kind: supplierOfferZeroPriceKindSchema,
   supplier_offer_count: z.number().int(),
   alternatives: z.array(suggestedSupplierAlternativeSchema),
 });
@@ -535,6 +541,10 @@ const estimateSupplierComparisonAlternativeSchema = z.object({
   valid_from: z.string().nullable().optional(),
   valid_to: z.string().nullable().optional(),
   is_active: z.boolean().optional(),
+  unit_price_cents: z.number().int().nullable().optional().describe(
+    "Prix brut de l'offre en centimes, lu avec ses conditions ; absent, l'offre n'est pas éligible."
+  ),
+  zero_price_kind: supplierOfferZeroPriceKindSchema,
   kind: z.enum([
     "best_price",
     "most_recent",
