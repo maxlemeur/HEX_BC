@@ -21,8 +21,8 @@ type Fixture = {
   products: Record<"p4" | "p5", { id: string; designation: string }>;
   offers: Record<"p4Bar" | "p5Bar", Offer>;
   deliverySite: { id: string; updatedAt: string };
-  estimates: Record<"pu" | "pu04", { projectId: string; versionId: string; sectionId: string }>;
-  lines: Record<"puPopover" | "puSmall" | "puNegotiated" | "puBarSheet" | "puBarOrdered" | "puUiConverted",
+  estimates: Record<"pu" | "pu04" | "pu05", { projectId: string; versionId: string; sectionId: string }>;
+  lines: Record<"puPopover" | "puSmall" | "puNegotiated" | "puBarSheet" | "puBarOrdered" | "puUiConverted" | "puV3",
     { id: string; title: string; unit: string }>;
 };
 type Envelope<T> = { ok: boolean; data: T; error?: { code: string; message: string } };
@@ -189,4 +189,19 @@ armyTest("PU04 a converted offer serves both units, the comparison and purchase 
     await recordEvidence(army, "pu04-order", ordered);
     expect(ordered.items).toEqual([expect.objectContaining({ quantity: 94, unit: "barre", price_unit: "barre",
       unit_price_ht_cents: 26245, line_total_ht_cents: 2467030 })]);
+  });
+
+// After 2.5 (M4): the unit of an engine 3 line lives in unit_code, not in description. Purchase
+// preparation reads it there: 282 ml are ordered as 94 bars of the converted offer.
+armyTest("PU05 a v3 line in ml (unit_code) is ordered as 94 bars of the converted offer", options,
+  async ({ app, browser, army }) => {
+    const fixture = await loadFixture();
+    const estimate = fixture.estimates.pu05;
+    ownEstimate(army, { projectId: estimate.projectId, versionId: estimate.versionId });
+    await app.open("/dashboard");
+    const ordered = await orderLines(browser, fixture, [fixture.lines.puV3.id], estimate);
+    await recordEvidence(army, "pu05-order", ordered);
+    expect(ordered.items).toEqual([expect.objectContaining({ quantity: 94, unit: "barre", price_unit: "barre",
+      unit_price_ht_cents: 26245, line_total_ht_cents: 2467030 })]);
+    expect(ordered.order.total_ht_cents).toBe(2467030);
   });

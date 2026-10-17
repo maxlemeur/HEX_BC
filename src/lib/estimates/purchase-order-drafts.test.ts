@@ -190,6 +190,25 @@ describe("purchase preparation coherent review", () => {
     })]);
   });
 
+  // After 2.5 (M4): the unit of a v3 line lives in unit_code; description stays empty. The preview reads
+  // it there, like the SQL review, and orders a converted bar in its purchase unit.
+  it("orders a v3 line in ml (unit_code) as bars of the converted offer", async () => {
+    const snapshot = coveredSnapshot();
+    Object.assign(snapshot.line, { description: null, unit_code: "ml", quantity: 282, unit_price_ht_cents: 8748 });
+    const converted = { ...snapshot.offer, unit: "barre", unit_price_cents: 26245, adjusted_unit_price_cents: 8748,
+      estimate_unit_code: "ml", estimate_units_per_purchase_unit: "3.000000", purchase_rounding: "ceil" };
+    installDatabase(snapshot, {
+      currentOffers: () => [converted],
+      reviewLines: [{ ...snapshot.review, quantity: 282, unit_price_ht_cents: 8748, unit: "ml",
+        ordered_quantity: 94, ordered_unit: "barre", ordered_unit_price_ht_cents: 26245 }],
+    });
+    const result = await getEstimatePurchaseOrderDraftPreparation(VERSION_ID);
+    expect(result.blocked_lines).toEqual([]);
+    expect(result.groups).toEqual([expect.objectContaining({ total_ht_cents: 2467030,
+      lines: [expect.objectContaining({ item_id: LINE_ID, unit: "ml", ordered_quantity: 94, ordered_unit: "barre",
+        ordered_unit_price_ht_cents: 26245 })] })]);
+  });
+
   it("fails closed when current offer conditions cannot be read", async () => {
     const snapshot = coveredSnapshot();
     installDatabase(snapshot, { offerReadError: { code: "XX000", message: "unavailable" } });

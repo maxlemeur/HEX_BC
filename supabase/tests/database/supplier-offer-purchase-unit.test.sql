@@ -122,6 +122,37 @@ from (values
   ('29000000-0000-4000-8000-000000000068', 8, 'PU29 L8 hors limites', 'ml', 1::numeric, 800000000, '29000000-0000-4000-8000-000000000041')
 ) as line(id, position, title, unit, quantity, cents, offer);
 
+-- After 2.5 (M4): an engine 3 draft whose line L9 carries its unit in unit_code (no description),
+-- seeded as the native owner under its writer contract, like the 2.5 fixtures.
+select lives_ok(
+  $$insert into public.estimate_versions (id, tenant_id, project_id, version_number, calc_engine_version, max_section_depth,
+      currency, status, margin_mode, margin_multiplier, margin_bp, global_coefficient, discount_bp, discount_mode, tax_rate_bp,
+      rounding_mode, rounding_step_cents, sale_coefficient_fo, sale_coefficient_mo, gross_ht_cents, discount_applied_cents,
+      commercial_rounding_cents, total_ht_cents, total_tax_cents, total_ttc_cents)
+    values ('29000000-0000-4000-8000-000000000054', current_setting('test.tenant_id')::uuid,
+      '29000000-0000-4000-8000-000000000051', 2, 3, 1, 'EUR', 'draft', 'fixed', 1, 0, 1, 0, 'simple', 2000, 'none', 1,
+      1, 1, 0, 0, 0, 0, 0, 0)$$,
+  'fixture: an engine 3 draft'
+);
+select set_config('miaouffrage.estimate_v3_writer', '29000000-0000-4000-8000-000000000054', true);
+select lives_ok(
+  $$insert into public.estimate_items (id, tenant_id, version_id, item_type, position, title) values
+    ('29000000-0000-4000-8000-000000000055', current_setting('test.tenant_id')::uuid, '29000000-0000-4000-8000-000000000054',
+     'section', 1, 'PU29 lot v3')$$,
+  'fixture: its section'
+);
+select lives_ok(
+  $$insert into public.estimate_items (id, tenant_id, version_id, parent_id, item_type, line_nature, position, title,
+      description, unit_code, quantity, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, h_mo_per_unit, k_mo,
+      selected_supplier_price_id, product_id, pu_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents)
+    values ('29000000-0000-4000-8000-000000000069', current_setting('test.tenant_id')::uuid,
+      '29000000-0000-4000-8000-000000000054', '29000000-0000-4000-8000-000000000055', 'line', 'supply_only', 1,
+      'PU29 L9 v3 en ml', null, 'ml', 282, 8748, 2000, 1, 0, 0, 1, '29000000-0000-4000-8000-000000000041',
+      '29000000-0000-4000-8000-000000000021', 8748, 2466936, 493387, 2960323)$$,
+  'fixture: its line L9 in ml (unit_code, no description) on the converted bar'
+);
+select set_config('miaouffrage.estimate_v3_writer', '', true);
+
 select set_config('request.jwt.claim.sub', '29000000-0000-4000-8000-000000000001', true);
 select set_config('request.jwt.claims',
   jsonb_build_object('sub', '29000000-0000-4000-8000-000000000001', 'role', 'authenticated')::text, true);
@@ -217,6 +248,41 @@ select results_eq(
            ('29000000-0000-4000-8000-000000000065', 5::numeric, 'm.l.', 1000),
            ('29000000-0000-4000-8000-000000000067', 94::numeric, 'Barre', 26245)$$,
   'the purchase review carries the ordered quantity, unit and price'
+);
+
+-- After 2.5 (M4): purchase preparation reads the unit of a v3 line in unit_code.
+do $v3_purchase$
+declare
+  review jsonb;
+  reviewed jsonb;
+  groups jsonb;
+  outcome text;
+begin
+  begin
+    review := public.get_estimate_purchase_order_review('29000000-0000-4000-8000-000000000054',
+      array['29000000-0000-4000-8000-000000000069'::uuid]);
+    select jsonb_agg(jsonb_build_object('item_id', l->'item_id', 'review_fingerprint', l->'review_fingerprint'))
+      into reviewed from jsonb_array_elements(review->'lines') l;
+    select jsonb_build_array(jsonb_build_object('supplier_id', '29000000-0000-4000-8000-000000000011',
+      'delivery_site_id', s.id, 'delivery_site_updated_at', s.updated_at,
+      'item_ids', jsonb_build_array('29000000-0000-4000-8000-000000000069'), 'expected_delivery_date', null, 'notes', 'PU29 v3'))
+      into groups from public.delivery_sites s where s.id = '29000000-0000-4000-8000-000000000050';
+    perform public.create_estimate_purchase_order_drafts('29000000-0000-4000-8000-000000000054', gen_random_uuid(), reviewed, groups);
+    outcome := 'created';
+  exception when others then
+    outcome := sqlstate || ' ' || sqlerrm;
+  end;
+  insert into pu29_purchase values ('L9', outcome);
+end
+$v3_purchase$;
+
+select results_eq(
+  $$select p.outcome, item.quantity, item.unit, item.price_unit, item.unit_price_ht_cents, item.line_total_ht_cents
+    from pu29_purchase p
+    left join public.purchase_order_items item on item.source_estimate_item_id = '29000000-0000-4000-8000-000000000069'
+    where p.case_name = 'L9'$$,
+  $$values ('created'::text, 94::numeric, 'barre'::text, 'barre'::text, 26245, 2467030)$$,
+  'a v3 line in ml (unit_code, no description) is ordered as 94 bars of the converted offer'
 );
 
 -- Second review of 2.9: a conversion whose price per estimate unit exceeds an integer of cents is
