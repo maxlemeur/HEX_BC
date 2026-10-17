@@ -23,6 +23,7 @@ import {
   type EstimateItem,
   type EstimateItemUpdatePayload,
   type EstimateVersionRow,
+  type EstimateVersionTotalsPatch,
 } from "@/lib/estimates/editor-items";
 import { isRecord, toFiniteNumber, toNonEmptyString } from "@/lib/estimates/editor-values";
 import type {
@@ -332,7 +333,16 @@ type EstimateEditorSupplierControllerInput = {
   setTotalsOutOfSync: (value: boolean) => void;
   reportError: (message: string | null) => void;
   resolveErrorMessage: (message: string) => string;
-  applyVersionToken: (updatedAt: string, contentRevision?: number) => void;
+  /** Version totals of these rows, from the editor's persisted-totals calculation. */
+  computeVersionTotalsPatch: (
+    items: EditorEstimateItem[]
+  ) => EstimateVersionTotalsPatch | undefined;
+  /** `contentRevision` : rendue par l'écrivain v3 seulement (lot 2, sous-lot 2.6). */
+  applyVersionToken: (
+    updatedAt: string,
+    totals?: EstimateVersionTotalsPatch,
+    contentRevision?: number
+  ) => void;
   markItemsSynced: (
     entries: ReadonlyArray<{ id: string; updates: EstimateItemUpdatePayload }>
   ) => void;
@@ -355,6 +365,7 @@ export function useEstimateEditorSupplierController({
   setTotalsOutOfSync,
   reportError,
   resolveErrorMessage,
+  computeVersionTotalsPatch,
   applyVersionToken,
   markItemsSynced,
   ensureGroupedActionCanProceed,
@@ -655,6 +666,27 @@ export function useEstimateEditorSupplierController({
         : item;
     });
     const updatedById = new Map(updatedLines.map((item) => [item.id, item]));
+    const isV3 = resolveEditorEngineContext(versionSnapshot).isV3;
+    // The lines and the version totals they imply are written by one RPC: the
+    // stored totals feed the affaires list, approvals and documents. A v3
+    // sends no client total: its writer recalculates and checks them (D12).
+    const versionTotalsPatch = isV3
+      ? undefined
+      : computeVersionTotalsPatch(
+          snapshot.map((item) => updatedById.get(item.id) ?? item)
+        );
+    if (!isV3 && !versionTotalsPatch) {
+      setScopedDialogState((previous) => ({
+        routeVersionId,
+        dialog: {
+          ...(previous.routeVersionId === routeVersionId
+            ? previous.dialog
+            : EMPTY_DIALOG_STATE),
+          error: "Impossible de calculer les totaux du devis.",
+        },
+      }));
+      return;
+    }
 
     applyingRef.current = true;
     const generation = ++requestGenerationRef.current;
@@ -671,7 +703,6 @@ export function useEstimateEditorSupplierController({
     setItems((previous) =>
       previous.map((item) => updatedById.get(item.id) ?? item)
     );
-    const isV3 = resolveEditorEngineContext(versionSnapshot).isV3;
     const updates = updatedLines.map((item) => ({
       id: item.id,
       updates: isV3
@@ -679,17 +710,34 @@ export function useEstimateEditorSupplierController({
         : buildEstimateItemUpdatePayload(item),
     }));
     try {
-      const versionToken = isV3
-        ? await writeEstimateV3SupplierPreselection(targetVersionId, versionSnapshot.updated_at, updates)
-        : (await bulkUpdateEstimateItems(targetVersionId, versionSnapshot.updated_at, updates)).versionToken;
+      const result = isV3
+        ? {
+            versionToken: await writeEstimateV3SupplierPreselection(
+              targetVersionId,
+              versionSnapshot.updated_at,
+              updates
+            ),
+            totals: undefined,
+          }
+        : await bulkUpdateEstimateItems(
+            targetVersionId,
+            versionSnapshot.updated_at,
+            updates,
+            versionTotalsPatch
+          );
       if (
         !isCurrentRoute(targetVersionId) ||
         requestGenerationRef.current !== generation
       ) {
         return;
       }
-      // v1/v2 inchangées : seul l'écrivain v3 rend la révision de contenu qu'on reprend.
-      applyVersionToken(versionToken.updated_at, isV3 ? versionToken.content_revision : undefined);
+      // v2 returns the totals it recalculated; v1 stores the patch as sent.
+      // Only the v3 writer returns the content revision the editor resumes from.
+      applyVersionToken(
+        result.versionToken.updated_at,
+        result.totals ?? versionTotalsPatch,
+        isV3 ? result.versionToken.content_revision : undefined
+      );
       // Without a fresh baseline, an edit back to the previous value is dropped.
       markItemsSynced(updates);
       setTotalsOutOfSync(false);
@@ -754,6 +802,7 @@ export function useEstimateEditorSupplierController({
     }
   }, [
     applyVersionToken,
+    computeVersionTotalsPatch,
     ensureGroupedActionCanProceed,
     getItemsSnapshot,
     getVersionSnapshot,

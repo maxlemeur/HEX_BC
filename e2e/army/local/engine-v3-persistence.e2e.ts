@@ -9,8 +9,8 @@ import {
 } from "../critical/fixtures";
 import { ownedEstimateContext, versionCountOf } from "./calculation-gate-support";
 import {
-  insertCompletedTakeoffJob, insertProjectMarginRule, probeV3PersistenceSchema, readTenantCalcPolicy, setTenantCalcPolicy,
-  useDedicatedV3Owner, type V3Owner, type V3PersistenceSchema,
+  insertCompletedTakeoffJob, insertProjectMarginRule, itemCountOfVersions, probeV3PersistenceSchema, readTenantCalcPolicy,
+  setTenantCalcPolicy, useDedicatedV3Owner, versionIdsOf, type V3Owner, type V3PersistenceSchema,
 } from "./engine-v3-persistence-support";
 
 // Lot 2, sous-lot 2.5 — persistance, gel et règles v3 derrière la politique d'entreprise
@@ -41,6 +41,10 @@ import {
 //  V3P-16 Une ligne non chiffrée à un taux hors politique bloque le gel ; le lot ou le gel d'une copie
 //         déplace un centime de ses lignes.
 //  V3P-17 Le métré appliqué à une v3 n'est pas refusé par son nom (TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED).
+// Revue Codex de la PR #33 (§10.6) : la suppression directe d'une ligne v3 hors contrat d'écrivain est refusée en SQL
+// (pgTAP F25-25) ; ce que ce refus ne doit pas casser dans l'application :
+//  V3P-18 Le lot ne supprime plus une ligne v3 (ou son pied ne suit pas les lignes restantes), ou la suppression
+//         contrôlée d'une affaire brouillon qui porte des v3 chiffrées échoue ou laisse des versions ou des lignes.
 const options = { session: "army", tags: ["critical", "local", "engine-v3"], timeout: 300_000 } as const;
 const BANNER = "Ce devis utilise le moteur de calcul 3, pas encore disponible pour cette action.";
 type Envelope<T> = { ok: boolean; data: T; error?: { code: string; message: string } };
@@ -133,6 +137,8 @@ const REVIEW_EXPECTED = {
   takeoff: { response: [409, "TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED"], unchanged: true },
   directDelete: { response: [409, false, "ESTIMATE_ENGINE_UNAVAILABLE"], unchanged: true },
   v2Coefficient: { response: [400, false, "ESTIMATE_ENGINE_COLUMN_NOT_SUPPORTED"], created: 0 },
+  batchDelete: { response: [200, true, true], lines: 0, totals: [0, 0, 0], footer: [0, 0, 0] },
+  affaireDelete: { response: [200, true, true], itemsBefore: true, versions: 0, items: 0 },
 };
 
 function assertOwnedLocalBackend() {
@@ -315,6 +321,7 @@ armyTest("V3P01 a v3 born behind the tenant policy persists the oracle, its sett
   let countAroundUnexpected: [number, number] = [0, 0];
   const review: Record<keyof typeof REVIEW_EXPECTED, unknown> = {
     creationCoefficients: null, hubMargin: null, copyFreeze: null, takeoff: null, directDelete: null, v2Coefficient: null,
+    batchDelete: null, affaireDelete: null,
   };
   try {
     policy3 = await setTenantCalcPolicy(owner, { engine: 3, fo: "1.30", mo: "1.20", reason });
@@ -590,6 +597,39 @@ armyTest("V3P01 a v3 born behind the tenant policy persists the oracle, its sett
     response: [v2Coefficient.status, v2Coefficient.body.ok, v2Coefficient.body.error?.code ?? null],
     created: (await versionCountOf(projectId)) - countBeforeV2Coefficient,
   };
+
+  // V3P-18 : une ligne v3 se supprime par le lot (contrat d'écrivain), qui recalcule : EUHIST sans ligne a un pied nul.
+  await retakeLease(browser, euhistId);
+  const euhistBeforeBatchDelete = await readEstimate(browser, euhistId);
+  const batchDeleteRequest = {
+    operation_key: randomUUID(),
+    operations: lineItems(euhistBeforeBatchDelete).map(line => ({ op: "delete", id: line.id })),
+  };
+  const batchDelete = await apiRequest<Envelope<{ committed: boolean }>>(browser, "POST", `/api/estimates/${euhistId}/batch`,
+    batchDeleteRequest, { "if-match": euhistBeforeBatchDelete.version.updated_at });
+  const euhistAfterBatchDelete = await readEstimate(browser, euhistId);
+  review.batchDelete = {
+    response: [batchDelete.status, batchDelete.body.ok, batchDelete.body.data?.committed ?? null],
+    lines: lineItems(euhistAfterBatchDelete).length,
+    totals: totals(euhistAfterBatchDelete),
+    footer: [euhistAfterBatchDelete.version.gross_ht_cents ?? null, euhistAfterBatchDelete.version.discount_applied_cents ?? null,
+      euhistAfterBatchDelete.version.commercial_rounding_cents ?? null],
+  };
+  await recordEvidence(army, "v3p-batch-delete", { versionId: euhistId, request: batchDeleteRequest, response: batchDelete,
+    before: stamp(euhistBeforeBatchDelete), after: stamp(euhistAfterBatchDelete) });
+
+  // V3P-18 : l'affaire brouillon (v2, v3 chiffrées, copie v3 en revue) se supprime par son chemin contrôlé, cascades comprises.
+  const projectVersionIds = await versionIdsOf(projectId);
+  const itemsBeforeAffaireDelete = await itemCountOfVersions(projectVersionIds);
+  const affaireDelete = await apiRequest<Envelope<{ deleted: boolean }>>(browser, "DELETE", `/api/affaires/${projectId}`);
+  review.affaireDelete = {
+    response: [affaireDelete.status, affaireDelete.body.ok, affaireDelete.body.data?.deleted ?? null],
+    itemsBefore: itemsBeforeAffaireDelete > 0,
+    versions: await versionCountOf(projectId),
+    items: await itemCountOfVersions(projectVersionIds),
+  };
+  await recordEvidence(army, "v3p-affaire-delete", { projectId, versionIds: projectVersionIds, itemsBefore: itemsBeforeAffaireDelete,
+    response: affaireDelete, actual: review.affaireDelete });
   await recordEvidence(army, "v3p-review", { expected: REVIEW_EXPECTED, actual: review, v2Coefficient });
   expect(review).toEqual(REVIEW_EXPECTED);
 });

@@ -2,7 +2,6 @@ import { z } from "zod";
 import { SUPPORTED_ESTIMATE_CURRENCIES } from "@/lib/money";
 import { ESTIMATE_LINE_NATURES } from "@/lib/estimates/line-nature";
 import {
-  DEFAULT_MAX_SECTION_DEPTH,
   MAX_SECTION_DEPTH,
   MIN_SECTION_DEPTH,
 } from "@/lib/estimates/hierarchy";
@@ -195,7 +194,9 @@ const createEstimateVersionSchema = z
     contractor_role: estimateContractorRoleSchema.optional(),
     rounding_mode: estimateRoundingModeSchema.optional(),
     rounding_step_cents: positiveIntegerSchema.optional(),
-    max_section_depth: sectionDepthSchema.optional().default(DEFAULT_MAX_SECTION_DEPTH),
+    // Revue Codex de la PR #33 (F4) : sans défaut injecté ; omise, la profondeur vient de la dernière version
+    // de l'affaire, ou du défaut de la création canonique (DEFAULT_VERSION_SETTINGS) pour une affaire neuve.
+    max_section_depth: sectionDepthSchema.optional(),
     expected_calc_engine_version: expectedCalcEngineVersionSchema.optional(),
     ...v3SaleCoefficientFields,
   })

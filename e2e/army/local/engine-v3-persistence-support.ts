@@ -241,3 +241,22 @@ SELECT count(*) FROM public.takeoff_jobs WHERE id = '${jobId}' AND estimate_vers
   if (output.at(-1) !== "1") throw new Error("The owned v3 takeoff job was not persisted.");
   return jobId;
 }
+
+/**
+ * Versions of an owned affaire and their stored items (Codex review of PR #33, §10.6): the controlled
+ * draft-affaire deletion must cascade to every version and item, v3 lines included, although a direct
+ * deletion of a v3 line outside its writer contract is refused. Read only, through the owned SQL route.
+ */
+export async function versionIdsOf(projectId: string) {
+  if (!UUID.test(projectId)) throw new Error("Invalid project identity.");
+  const ids = await querySql(`SELECT id FROM public.estimate_versions WHERE project_id = '${projectId}' ORDER BY id;\n`);
+  if (!ids.every((id) => UUID.test(id))) throw new Error("Unexpected version identity output.");
+  return ids;
+}
+
+export async function itemCountOfVersions(versionIds: readonly string[]) {
+  if (versionIds.length === 0 || !versionIds.every((id) => UUID.test(id))) throw new Error("Invalid version identities.");
+  const [count] = await querySql(
+    `SELECT count(*) FROM public.estimate_items WHERE version_id IN (${versionIds.map((id) => `'${id}'`).join(", ")});\n`);
+  return Number(count);
+}

@@ -619,13 +619,12 @@ describe("quickCreateAffaire", () => {
         "/dashboard/estimates/99999999-9999-4999-8999-999999999999/edit?entry=manual",
     });
 
+    // Revue de suivi de F4 (PR #33, §10.6) : affaire existante, donc aucune profondeur imposée ; la création
+    // canonique reprend celle de la dernière version, avec ou sans titre.
     expect(createEstimate).toHaveBeenCalledWith({
       project_id: CREATED_PROJECT_ID,
       creation_mode: "blank",
-      version: {
-        title: "Base manuelle",
-        max_section_depth: expect.any(Number),
-      },
+      version: { title: "Base manuelle" },
     });
   });
 

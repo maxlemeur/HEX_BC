@@ -1,7 +1,9 @@
 # Persistance, gel et règles v3, derrière la politique (sous-lot 2.5)
 
-Statut : **intégré et vert** (17/10/2026) : rouge écrit et observé avant le code (§4, §9.6), M4 (§7), serveur
-TS et API (§8), intégration et preuves mesurées (§10). Document unique du sous-lot : l'ancien
+Statut : **intégré, revu et vert** (17/10/2026) : rouge écrit et observé avant le code (§4, §9.6), M4 (§7), serveur
+TS et API (§8), intégration et preuves mesurées (§10), revue indépendante et correctifs, rouge puis vert (§10.5),
+revue Codex de la PR #33 (§10.6) et revue de suivi de son correctif F4 (§10.6.1).
+Document unique du sous-lot : l'ancien
 `estimate-engine-v3-2.5-e2e.md` (parcours `V3P01`, isolation Vitest `R-01` à `R-05`) y est fondu au §9. Les
 §1 à §6 et le §9 sont rédigés avant tout code de production, avec
 `supabase/tests/database/estimate-engine-v3-persistence.test.sql`,
@@ -112,7 +114,9 @@ de l'autre ; `estimate_v3_assert_draft` → `ESTIMATE_V3_PROJECTION_MISMATCH`.
   `margin_bp` = ⌈(HT − Σ D) × 10 000 / HT⌋ (S1 : 2 054 ; T-MARG : **0**, pas NULL) ; sinon NULL. Le texte
   `version.calc_engine_version = 1` asserté par `estimate-calc-engine-governance.test.sql:1086` reste.
 - `duplicate_estimate_version_without_product_id` : copie les colonnes v3 sous le contrat d'écrivain ; le
-  moteur suit la source, quelle que soit la politique (I4, P-15).
+  moteur suit la source, quelle que soit la politique (I4, P-15). *Revue (§10.5) : les `id` neufs d'une copie v3
+  gardent l'ordre relatif des `id` source (ex aequo de D13), pour que ses montants copiés restent ceux du moteur
+  sur la copie.*
 - Métré : fonctions inchangées ; le contrat d'écrivain le refuse (`ESTIMATE_V3_WRITER_NOT_SUPPORTED`) ;
   le message TS `TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED` reste en 2.8 (D16). *Remplacé à l'implémentation :
   décision 7 du §8.1, le refus nommé TS est livré en 2.5.*
@@ -167,9 +171,12 @@ commencent par l'identifiant). E2E et Vitest : §9.
 | F25-15 | File d'approbation : marque v2 appliquée, 0 au lieu de NULL, NULL au lieu de 0, gel périmé lu comme frais | S1 2 054 ; T-MARG 0 ; S1 après changement de taux horaire → NULL | V3P-09 (carte « Marge 11.7 % ») |
 | F25-16 | Métré appliqué à une v3 (P-19) | `apply_takeoff_job_guarded_atomic` → `ESTIMATE_V3_WRITER_NOT_SUPPORTED` | — (TS : 2.8) |
 | F25-17 | Retour à la politique 2 : création encore v3, attente 3 acceptée, v3 existante modifiée, changement non tracé | v2 créée ; attente 3 refusée ; S1 intacte ; deuxième événement 3 → 2 | V3P-11, V3P-12 |
-| F25-18 | Duplication qui change moteur ou montants | S2 dupliquée sous politique 2 : moteur 3, coefficients, intention, totaux et lignes identiques | V3P-10 |
+| F25-18 | Duplication qui change moteur ou montants ; *copie dont les ex aequo D13 diffèrent de la source (revue)* | S2 dupliquée sous politique 2 : moteur 3, coefficients, intention, totaux et lignes identiques ; *huit copies : ordre relatif des `id` gardé, montants stockés = moteur sur la copie* | V3P-10, *V3P-16* |
 | F25-19 | Montée de version : une ligne v1/v2 existante reçoit une valeur v3 | la v2 témoin n'a que des valeurs neutres ; preuve complète par `npm run db:upgrade-check` sur base peuplée (§10.2) | — |
 | F25-20 | Règle `min_margin` calculée depuis 0 sur un brouillon v3 sans preuve ; T-MARG non violée | — | Vitest `R-01` à `R-05` (`src/lib/estimates/rules-engine.v3-margin.test.ts`) |
+| *F25-23* | *Revue Codex (§10.6) : gel v3 resté frais après un changement de taux horaire d'un rôle cité ou une bascule d'`EST_031_LABOR_SPLIT`* | *S1 gelé par `freeze_estimate_v3_snapshot` : marqueur et contexte NULL, file NULL (taux, drapeau inséré, drapeau existant basculé)* | *Vitest `R-01` (marqueur NULL → « indisponible »)* |
+| *F25-24* | *Revue Codex (§10.6) : propriétaire d'une affaire v3 changé, ou rôle cité déplacé, qui casse ensuite sauvegardes et gel* | *v3 canoniques : `ESTIMATE_PROJECT_OWNER_LABOR_ROLE_MISMATCH` (administrateur et postgres), `ESTIMATE_LABOR_ROLE_ASSIGNMENT_IN_USE` (rôle déplacé ou supprimé)* | *—* |
+| *F25-25* | *Revue Codex (§10.6) : suppression directe d'une ligne v3 qui laisse les montants stockés périmés ; ou refus qui casse le lot et les cascades* | *cinq suppressions hors contrat refusées ; contrat, lot (section et ligne), version et affaire supprimées (directe, `bulk_delete_draft_affaires`) admis* | *V3P-18 (lot, `DELETE /api/affaires/{id}`)* |
 
 Concurrence réelle (deux sessions, politique changée entre lecture et insertion) : non reproductible en
 pgTAP mono-session. La preuve repose sur le verrou `FOR SHARE` de la politique dans la création, lu par
@@ -285,7 +292,7 @@ la main sur cette base, les cinq autres dérivées par remplacements exacts vér
 | `duplicate_estimate_version(uuid, boolean)` (inchangée) | v3 → v3 (colonnes v3 comprises) quelle que soit la politique ; v1/v2 inchangées |
 | `freeze_estimate_v3_snapshot(p_version_id, p_tenant_id, p_expected_updated_at, p_expected_content_revision, p_actor_user_id, p_purpose, p_calculation_context, p_item_snapshots, p_version_totals) → estimate_versions` | `service_role` seul ; `p_purpose` ∈ `send` (bail du demandeur exigé) / `approval` (aucun bail d'un tiers). Contexte **égal** à l'objet §6.5 : `engine` 3, `labor_split_enabled`, `labor_roles` `[{id, hourly_rate_cents}]` (rôles cités par toute ligne, non chiffrée comprise, taux du rôle du propriétaire ou 0, `id` croissant), `sale_coefficients {fo, mo}`, `discount {kind, requested_cents, rate_bp, base_cents, applied_cents}`, `commercial_rounding {mode, step_cents, applied_cents}`, `cost_subtotal_cents`, `realized_sale_coefficient` (6 décimales ou nul), `tax_breakdown` (taux croissants) — aucune autre clé. Lignes : un objet par ligne (aucune section), onze clés (`id` + les dix du §1.5 ; `snapshot_pu_ht_cents` nul sur une ligne non chiffrée). Totaux : sept clés (`rounding_adjustment_cents` 0). Écrit aussi `pu_ht_cents`. Idempotente si le gel identique est déjà frais. Erreurs : `42501 SERVICE_ROLE_REQUIRED`, `22023 ESTIMATE_V3_SNAPSHOT_PURPOSE_INVALID`, `42501 ESTIMATE_V3_SNAPSHOT_NOT_WRITABLE`, `40001 ESTIMATE_DRAFT_LOCK_REQUIRED` / `ESTIMATE_DRAFT_LOCK_CONFLICT` / `ESTIMATE_VERSION_CONFLICT`, `42501 ESTIMATE_V3_SNAPSHOT_REQUIRES_DRAFT`, `22023 ESTIMATE_V3_SNAPSHOT_INVALID` (types), `23503 ESTIMATE_LABOR_ROLE_OWNER_MISMATCH`, `23502 ESTIMATE_V3_LABOR_ROLE_REQUIRED`, `22023 ESTIMATE_V3_UNIT_REQUIRED`, `22023 ESTIMATE_V3_TAX_RATE_NOT_ALLOWED`, `40001 ESTIMATE_V3_CALCULATION_CONTEXT_CONFLICT`, `22023 ESTIMATE_V3_PROJECTION_MISMATCH`, et celles de M3 (`22023 ESTIMATE_V3_INPUT_INVALID`, `22003 ESTIMATE_AMOUNT_OVERFLOW`) |
 | `list_approval_queue` | v3 : `margin_bp` = ⌊(2 (HT − Σ D) × 10 000 + HT) / (2 HT)⌋ (= `computeEstimateV3NetMarginBp`) sur un gel frais de contexte `engine` 3 avec `cost_subtotal_cents` numérique et HT > 0 ; sinon NULL |
-| Lignes, écritures directes | v1/v2 : colonnes v3 non nulles ou statut ≠ `priced` → `0A000 ESTIMATE_ENGINE_COLUMN_NOT_SUPPORTED`. v3 : sept colonnes sous contrat d'écrivain (`0A000 ESTIMATE_V3_WRITER_NOT_SUPPORTED`) ; `h_mo > 0` sans h/u, ou `h_mo*` modifié seul → `22023 ESTIMATE_V3_LABOR_HOURS_PER_UNIT_REQUIRED` |
+| Lignes, écritures directes | v1/v2 : colonnes v3 non nulles ou statut ≠ `priced` → `0A000 ESTIMATE_ENGINE_COLUMN_NOT_SUPPORTED`. v3 : sept colonnes sous contrat d'écrivain (`0A000 ESTIMATE_V3_WRITER_NOT_SUPPORTED`) ; `h_mo > 0` sans h/u, ou `h_mo*` modifié seul → `22023 ESTIMATE_V3_LABOR_HOURS_PER_UNIT_REQUIRED`. *Revue Codex (§10.6) : suppression d'une ligne d'un brouillon v3 sous contrat d'écrivain seulement (`0A000 ESTIMATE_V3_WRITER_NOT_SUPPORTED`), cascades d'une version ou d'une affaire supprimée admises* |
 
 Lecture canonique d'une v3 stockée (`private.estimate_v3_canonical_input`, à reproduire côté TS pour la
 parité du gel) : lignes par `id` croissant ; `labor_rate_cents` = taux du rôle du propriétaire ou 0 ;
@@ -394,7 +401,7 @@ piste SQL, §7) ; le TS tient l'interface du §7.1 telle quelle. Aucun montant v
 6. **Une v3 reste modifiable, gelable et duplicable sous politique 2** (D3, I4) ; la duplication d'une v2
    reste une v2 (P-15). La politique ne gouverne que la création.
 7. **Métré sur une v3** refusé par son nom en TS (`TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED`, 409) avant le
-   contrat d'écrivain SQL. **Émission** (PDF, envoi, documents) toujours fermée : le gel v3 n'est ouvert
+   contrat d'écrivain SQL (*prouvé depuis la revue par V3P-17, rouge observé sans le refus TS, §10.5*). **Émission** (PDF, envoi, documents) toujours fermée : le gel v3 n'est ouvert
    que pour l'approbation ; envoi et document lèvent `ESTIMATE_ENGINE_UNAVAILABLE` (2.7 l'ouvrira).
 
 ### 8.2 Choix de la piste TS
@@ -465,7 +472,9 @@ Le parcours `V3P01` et `npm run db:ci:local` se rejouent à l'intégration (WSL)
 ### 8.5 Limites
 
 - L'évolution de marge par version (hub d'affaire) lit encore `margin_multiplier` (1 en v3) : affichage
-  seulement, repris avec l'éditeur v3 (2.6).
+  seulement, repris avec l'éditeur v3 (2.6). *Corrigé à la revue (§10.5, V3P-14) : le résumé financier du hub, le
+  tableau dense et l'aperçu de soumission rendent la marque nette d'un gel v3 frais ou « Indisponible » ; les v3
+  sortent de l'évolution, dont la marge v2 ne se compare pas à leur marque.*
 - Pas de preuve vivante de remise en montant pour un brouillon v3 (règle `max_discount` indisponible tant
   qu'il n'est pas gelé) ; Direction idem.
 - Mise à jour unitaire d'une ligne, mise à jour groupée directe, ouvrages, modèles, version zéro et métré
@@ -509,6 +518,11 @@ Fichiers :
 | V3P-10 | La duplication rend une v2, perd une colonne v3 ou change un montant | Duplication **sous politique 2** de la v3 gelée |
 | V3P-11 | Politique remise à 2 : la création suivante n'est pas une v2 aux valeurs de base de 2.0 (2 000 / 400 / 2 400) ou hérite d'une colonne v3 | Création v2, ligne 1 u à 20,00 € |
 | V3P-12 | Une version existante change de moteur ou de montant quand la politique change | Empreinte finale (moteur, révision, totaux, lignes) de l'ancre v2, de l'oracle, d'EUHIST et de la copie |
+| V3P-13 | *Revue (§10.5).* Des coefficients de vente fournis à la création sont retirés en silence (v3 : politique à la place) ou ignorés (v2 créée) | v3 « coefficients fournis » (1 ; 1,5) dans la fenêtre ; sous politique 2, v2 avec coefficient → 400 nommé, rien de créé |
+| V3P-14 | *Revue.* Le résumé financier du hub affiche pour une v3 la marge v2 (multiplicateur 1 → « 0.0 % », « Coeff. 1.000 ») | KPI « Marge appliquée » du hub, oracle courant en S1 non gelé : « Indisponible » |
+| V3P-15 | *Revue.* `DELETE …/items` supprime une ligne v3 sans rien recalculer : six montants stockés périmés (D12) | EUHIST : 409 `ESTIMATE_ENGINE_UNAVAILABLE`, empreinte inchangée |
+| V3P-16 | *Revue.* Une ligne non chiffrée à un taux hors politique bloque le gel (contrôle TS sur toutes les lignes) ; le lot ou le gel d'une copie déplace un centime | Copie : ligne « pour mémoire » à 1 960 pb par lot, soumission 201, gel frais, lignes et totaux inchangés |
+| V3P-17 | *Revue.* Le métré appliqué à une v3 n'est pas refusé par son nom | Job de métré terminé sur EUHIST : 409 `TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED`, empreinte inchangée |
 
 ### 9.2 Déroulé du parcours `V3P01`
 
@@ -588,6 +602,10 @@ dans l'entreprise de recette partagée.*
 10. **Stabilité (V3P-12).** Moteur, révision, totaux et lignes de l'ancre v2, de l'oracle gelé, d'EUHIST et de la
     copie identiques à leur dernier état relu (`updated_at` exclu : les projections d'approbation peuvent
     l'avancer sans toucher au contenu).
+11. **Revue (V3P-13 à V3P-17, §10.5).** Relevées à leur place (création dans la fenêtre, KPI du hub à l'étape 5)
+    ou après V3P-12 (copie, métré, suppression, v2 avec coefficient), assertées ensemble en fin de parcours
+    (`REVIEW_EXPECTED`) pour qu'une seule exécution rouge les montre toutes, sans toucher un attendu des étapes 1
+    à 10. L'étape 4 asserte en outre l'état du lot de création lui-même, par titre, avant le réétiquetage.
 
 Origine des attendus : PU, bruts, déboursé et totaux S1 à S3 recopiés de la conception (§5.1, §5.2) ;
 répartitions par ligne (plus grand reste, D13), état « TVA 10 % », marque 1 171 pb et parts figées calculés par
@@ -775,7 +793,8 @@ sondes du parcours rouge. Aucun défaut de comportement, donc aucun nouveau test
 Les sept décisions données à l'intégration sont tenues : R-08 par le déclencheur (§7.2, 1) ; autoliquidation
 (§7.2, 2 ; `buildEstimateV3Input`) ; ligne non chiffrée à PU nul (F25-21, F25-22) ; CHECK de forme à `is not null`
 (F25-06) ; colonnes de modèles en M6 ; v3 modifiable, gelable et duplicable sous politique 2, v2 dupliquée en v2
-(V3P-10, V3P-12, F-SQL-11) ; métré refusé par son nom en TS (`TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED`, 409).
+(V3P-10, V3P-12, F-SQL-11) ; métré refusé par son nom en TS (`TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED`, 409 ; sans
+preuve exécutée à l'intégration, prouvé depuis la revue par V3P-17, §10.5).
 L'émission reste fermée (V3FC02 vert).
 
 ### 10.2 Corrections d'intégration (harnais et sondes du parcours, rouge puis vert)
@@ -790,9 +809,9 @@ clone WSL, sous `~/miaouffrage-lot2-25/.e2e/army/ci/`.
 | C1 | `20b2d9e2` | La fenêtre de politique 3, ouverte dans l'entreprise de recette partagée par les deux workers, fait échouer toute création concurrente (§9.5) | `useDedicatedV3Owner` : inscription d'un compte jetable sur la pile possédée (clé anonyme, `enable_confirmations = false`), entreprise renommée `ARMY V3P <run>`, cookies de session remplacés dans le seul contexte du parcours | `2026-10-17T16-37-39-228Z-critical` : V3FC02 `[409,false]` sur son ancre v2, lancé à 16:39:24,487Z dans la fenêtre de V3P01 (preuve `v3p-policy-window` à 16:39:24,901Z) |
 | C2 | `20b2d9e2` | `/dashboard/estimates` redirige vers `/dashboard/affaires` (`next.config.ts`) : la liste visée n'est pas atteignable | lecture dans la liste des versions du hub `/dashboard/affaires/{affaire}` (« Total HT » de la version) | même archive : `LOCATOR_NOT_FOUND`, écran `/dashboard/affaires` |
 | C3 | `134054df` | Le hub ne liste les versions que si sa version courante (numéro le plus haut) a des lignes (`isAffaireFreshStartState`) ; EUHIST, créée après l'oracle, était vide | EUHIST créée avant l'oracle ; l'aide de lecture prend l'élément `li` qui porte le lien de la version, pas le bouton d'en-tête | `2026-10-17T16-46-41-886Z-critical` : délai dépassé, hub en état « Affaire neuve » |
-| C4 | `134054df` | `app.open` efface l'identité de bail tenue en mémoire par `apiRequest` (l'application ne la restaure qu'au rechargement) : un réglage après navigation rencontre le bail du document précédent (`assertDraftLockOwnedByCurrentUser`, 409 « déjà verrouillée dans une autre page ») | `retakeLease` (`PATCH …/lock?force=true`) avant chaque réglage | corrigée à la lecture du code, avant exécution ; non observée |
+| C4 | `134054df` | `app.open` efface l'identité de bail tenue en mémoire par `apiRequest` (l'application ne la restaure qu'au rechargement) : un réglage après navigation rencontre le bail du document précédent (`assertDraftLockOwnedByCurrentUser`, 409 « déjà verrouillée dans une autre page ») | `retakeLease` (`PATCH …/lock?force=true`) avant chaque réglage | corrigée à la lecture du code, avant exécution ; *rouge observé à la revue (§10.5) : C4 retirée localement à `a95e31ca`, `2026-10-17T18-07-50-333Z-critical`, premier réglage S2 → 409 `CONFLICT` « Cette version est déjà verrouillée dans une autre page d'édition. »* |
 | C5 | `604782ed` | La route `approve` répond 201 à `submit_for_review` depuis `e3af04ee` (OpenAPI : 200 et 201) ; le parcours attendait 200 | 201 attendu ; le reste du gel inchangé | `2026-10-17T16-52-31-044Z-critical` : `[201,true]` contre `[200,true]`, gel par ailleurs exact (preuve `v3p-freeze`) |
-| C6 | `32d3aa6a`, `df01c4b9` | D13 départage les ex aequo par `id` croissant ; les attendus par ligne viennent du moteur pur sur des `id` de fixture croissants de O1 à O7, mais le lot tire des `id` au hasard | après le lot (7 créations, inchangé), un lot de 7 mises à jour et d'un `reorder` donne au k-ième plus petit `id` les entrées de O_k, en k-ième position ; le premier essai par `position` était refusé (`CONFLICT`, position occupée) | `2026-10-17T17-03-44-516Z-critical` : TVA S2 de O3 / O7 31 940 / 11 821 au lieu de 31 941 / 11 820 (total 1 381 071 identique), alors que `…16-52-31-044Z` passait la même assertion avec un autre ordre d'`id` ; `…17-08-01-804Z` : réétiquetage par `position` refusé |
+| C6 | `32d3aa6a`, `df01c4b9` | D13 départage les ex aequo par `id` croissant ; les attendus par ligne viennent du moteur pur sur des `id` de fixture croissants de O1 à O7, mais le lot tire des `id` au hasard | après le lot (7 créations, inchangé), un lot de 7 mises à jour et d'un `reorder` donne au k-ième plus petit `id` les entrées de O_k, en k-ième position ; le premier essai par `position` était refusé (`CONFLICT`, position occupée). *Revue (§10.5) : le réétiquetage renvoie unité, Q, PR et h/u, et masquait donc une perte au lot de création ; l'état de ce lot est désormais asserté avant lui, par titre, sur les champs indépendants des ex aequo (unité, statut, Q, PR, h/u, `h_mo` dérivé, PU, taux, net = brut en S1).* | `2026-10-17T17-03-44-516Z-critical` : TVA S2 de O3 / O7 31 940 / 11 821 au lieu de 31 941 / 11 820 (total 1 381 071 identique), alors que `…16-52-31-044Z` passait la même assertion avec un autre ordre d'`id` ; `…17-08-01-804Z` : réétiquetage par `position` refusé |
 
 Les §9.2, §9.3 et §9.5 portent ces corrections en italique, à leur place.
 
@@ -829,12 +848,161 @@ commentaire de test changent (`git diff --stat 3bc50fbb HEAD`) : elles valent po
 
 - **`origin/main` a avancé** (`b91f938f` : PR #31 de 2.4 avec `71850b7c`, et #30). `git merge-tree` : fusion sans
   conflit, non faite ici (ni poussée ni PR, consigne). La CI de la PR rejouera Vitest complet et la campagne
-  critique (V3P01 compris, sélectionné par la carte) sur le commit de fusion.
+  critique (V3P01 compris, sélectionné par la carte) sur le commit de fusion. *Fusionné à la revue (`f35616be`,
+  `origin/main` à `9c426368` : #31, #32, #29), sans conflit ni migration nouvelle ; preuves de la revue sur la tête
+  fusionnée (§10.5).*
 - Les refus SQL que le TS ne nomme pas (contrat d'écrivain `0A000`, `ESTIMATE_CREATE_INVALID_INPUT`, D12 de la
   création d'une ligne) rendent le 400 générique de `mapSupabaseError` ; inatteignables par les chemins de 2.5, à
   nommer avec l'éditeur v3 (2.6). La projection refusée à la création rend 500 (§8.5).
 - V3P01 dépend de l'inscription locale sans confirmation (`supabase/config.toml`, `enable_confirmations = false`) ;
   sinon il échoue au préalable, par une erreur nommée. Un compte jetable par exécution, détruit avec la pile.
-- C4 est préventive (lue dans le code, non observée).
+- C4 est préventive (lue dans le code, non observée). *Observée à la revue (§10.5).*
 - Restes des pistes : §7.5 (fixture 2.1, désormais alignée par C0′) et §8.5 (hub, remise en montant sans preuve
   vivante, chemins refusés jusqu'à 2.6 et 2.8).
+
+### 10.5 Revue indépendante (17/10/2026) : constats, rouge puis vert
+
+Deux revues en lecture seule de `f8baf852..44fd89c4` (montants contractuels et fermeture ; contrat SQL, sondes et
+politique de test), onze constats. Chacun revérifié dans le code avant d'agir ; aucun n'est écarté. Les correctifs
+suivent la politique de test : rouge écrit et observé d'abord (`a95e31ca`, `84c7af18`), puis le code (`3e4a38e7`,
+`f1d94213`), sans toucher une assertion existante.
+
+| Constat (gravité) | Vérification | Correctif | Rouge observé | Vert |
+|---|---|---|---|---|
+| `DELETE …/items` sur une v3 ne recalcule rien (majeur) | `deleteEstimateItem` n'a aucun aiguillage de moteur ; les gardes M4 ne voient que `INSERT`/`UPDATE` | refus nommé `ESTIMATE_ENGINE_UNAVAILABLE` (409) avant tout ; une v3 supprime par le lot (`op: "delete"`), qui recalcule et vérifie D12 | V3P-15 : `[200, true]`, EUHIST sans ligne mais 360 / 72 / 432 stockés | `[409, false, ESTIMATE_ENGINE_UNAVAILABLE]`, empreinte inchangée |
+| Coefficients de création retirés par Zod (majeur) | `createEstimateVersionSchema` n'avait pas les deux clés | `v3SaleCoefficientFields` dans le schéma de création ; sur une v2, 400 `ESTIMATE_ENGINE_COLUMN_NOT_SUPPORTED` | V3P-13 : v3 à [1,3 ; 1,2] au lieu de [1 ; 1,5] ; v2 créée (201, +1 version) | [1 ; 1,5] ; `[400, false, ESTIMATE_ENGINE_COLUMN_NOT_SUPPORTED]`, 0 version |
+| Marge v2 du hub pour une v3, « 0.0 % » (majeur) | `toAffaireHubVersionSummary` : `(margin_multiplier − 1) × 100` sans moteur | marque nette d'un gel v3 frais (`resolveV3NetMarginBp`) sinon `null` → « Indisponible » (résumé, tableau dense, aperçu de soumission) ; v3 hors de l'évolution | V3P-14 : « Marge appliquée0.0 %Coeff. 1.000Modifier la marge » | « Marge appliquéeIndisponible » |
+| Copie v3 aux `id` aléatoires : ex aequo D13 perdus (majeur) | `jsonb_object_agg(id, gen_random_uuid())` ; M3 départage par `parts.key` (uuid) | M4 : `id` neufs appariés par rang (k-ième plus petit source ↔ k-ième plus petit neuf), v3 seulement ; v1/v2 inchangées | pgTAP F25-18 (8 copies de S2) : `have: ok:8\|8\|1`, `want: ok:8\|0\|0` (ordre rompu 8 fois, montants ≠ moteur 1 fois) | `ok:8\|0\|0` |
+| C6 masquait V3P-04 (majeur, sonde) | le réétiquetage renvoie unité, Q, PR, h/u | état du lot de création asserté par titre avant le réétiquetage (champs indépendants des ex aequo) | — (correction de sonde ; passe dès le rouge `a95e31ca`) | identique |
+| Taux hors politique sur une ligne non chiffrée bloque le gel (mineur) | contrôle TS sur toutes les lignes, SQL sur les chiffrées | filtre `pricing_status === "priced"` | V3P-16 : soumission `[400, ESTIMATE_V3_TAX_RATE_NOT_ALLOWED]`, gel non frais | 201, gel frais, 8 lignes et 6 214 910 / 621 491 / 6 836 401 inchangés ; TVA par taux [{1 000 ; 6 214 910 ; 621 491}] |
+| Import et création rapide sous politique 3 : `CONTEXT_CHANGED` qui boucle (mineur) | aucune attente transmise ; le refus nommé venait après la comparaison | refus nommé avant la comparaison pour toute source non vierge sous politique 3 | Vitest : `CONTEXT_CHANGED` au lieu de `ESTIMATE_ENGINE_UNAVAILABLE` | 2/2 |
+| Course politique ↔ création sur les coefficients (mineur) | le TS envoyait toujours les défauts lus sans verrou | coefficients non fournis retirés de la charge ; la RPC prend ceux de la politique `FOR SHARE` (pgTAP F25-05) | Vitest : `sale_coefficient_fo` 1,3 envoyé | 2/2 |
+| Métré v3 sans preuve (mineur) | aucun test ne nommait `TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED` | V3P-17 : job terminé (seule ligne écrite en SQL) puis `POST …/apply` | refus TS neutralisé localement : `[409, CONFLICT]` (contrat d'écrivain SQL) | `[409, TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED]`, empreinte inchangée |
+| C4 sans rouge (mineur) | — | conservée | C4 retirée localement : premier réglage S2 → 409 `CONFLICT` (bail d'une autre page) | parcours vert avec C4 |
+| Types de `set_tenant_calc_policy` (mineur) | SQL : acteur requis, taux nul = défaut | `p_actor_user_id: string`, `p_allowed_tax_rates_bp: number[] \| null` (CRLF) | typage seul | `npm run typecheck` 0 |
+
+Choix : la duplication ne rappelle pas `estimate_v3_assert_draft` sur la copie (option de la revue) : un changement
+de taux horaire du propriétaire rendrait une source valide non duplicable, et chaque écrivain d'une v3 vérifie
+déjà D12 maintenant que la suppression directe est fermée. M4 n'a jamais quitté des piles jetables : corrigée en
+place, empreinte du manifeste rafraîchie par `npm run supabase:manifest:add` (entrée retirée puis réajoutée).
+Reste : une suppression directe par PostgREST (hors application) contourne encore le refus TS ; la ligne suivante
+écrite par le lot ou le gel recalcule tout (sécurité hors périmètre). *Fermé par la revue Codex de la PR #33 (§10.6) :
+refus SQL hors contrat d'écrivain, décision du propriétaire (intégrité des montants).*
+
+Preuves (Windows : Node 24.19.0 ; WSL : clone `~/miaouffrage-lot2-25` remis à la révision, au plus deux exécutions
+natives possédées) :
+
+| Preuve | Commande | Résultat |
+|---|---|---|
+| Rouge E2E (WSL, `a95e31ca` + refus TS du métré neutralisé localement) | `E2E_ARMY_WORKERS=2 npm run e2e:army:local -- --grep "V3P01"` | sortie 1, V3P01 en échec à l'assertion finale `REVIEW_EXPECTED` seulement (V3P-04 par titre vert) ; archive `.e2e/army/ci/2026-10-17T18-05-25-078Z-critical/` (manifeste SHA-256 `bb1e8080…09c6b`) |
+| Rouge C4 (WSL, `a95e31ca` + C4 retirée localement) | idem | sortie 1 au premier réglage, 409 `CONFLICT` ; `2026-10-17T18-07-50-333Z-critical/` (`b9629879…9dc0`) |
+| Rouge pgTAP (WSL, `84c7af18`) | `npm run db:ci:local` | sortie 1, `Files=19, Tests=1833`, `Failed test: 91` (F25-18, seul) |
+| Rouge Vitest (Windows, `a95e31ca`) | `npx vitest run --project=node src/lib/estimates/canonical-v2-creation.test.ts` | 2 échecs / 4, motifs ci-dessus |
+| Vert E2E + SQL + RLS (WSL, `f1d94213`, diff vide) | `E2E_ARMY_WORKERS=2 npm run e2e:army:local -- --grep "V3P01\|V3FC"` | sortie 0, **4/4** (setup, V3FC01, V3FC02, V3P01) ; pgTAP `Files=19, Tests=1833, Result: PASS` ; « Behavioral RLS matrix passed. » ; 248 migrations ; archive `2026-10-17T18-11-42-350Z-critical/` (`79e52912…e541`) ; valeurs S1 à S3, TVA 10 %, EUHIST, gel, 1 171, file et copie du §10.3 inchangées |
+| Montée de version (WSL, `f1d94213`) | `npm run db:upgrade-check -- lot2-2-5` | sortie 0, 4 migrations après la base peuplée, **0 différence**, contrôle négatif détecté ; `.e2e/engine-v3/upgrade-check/2026-10-17T18-11-42-308Z-lot2-2-5` |
+| Vitest (Windows, `f1d94213`) | `npx vitest run <18 fichiers>` (création, hub et ses écrans, approbation, réglages, schémas, OpenAPI, Direction, mutations d'éditeur, règle v3, corpus figé, carte d'impact, garde-fous CI) | 18 fichiers, 249 tests verts |
+| Types, lint, OpenAPI, architecture, migrations (Windows) | `npm run typecheck` ; `npx eslint <13 fichiers> --max-warnings=0` ; `npm run validate-openapi` ; `npm run check:architecture` ; `npm run supabase:validate` ; `npm run supabase:migrations:git-guard` | 0 ; 0 ; « valide et synchronisee » (144 routes, 192 opérations) ; 1 123 modules, 0 cycle ; 248 fichiers ; garde passée |
+
+| Parité TS/SQL (WSL, `c9139b56`, tête fusionnée avec `71850b7c`) | `npm run engine:v3:parity` | sortie 0, **0 écart** sur 10 357 cas (graine 20261017, empreinte des cas `d28f3bf0…`), contre-épreuve détectée, pile détruite ; `.e2e/engine-v3/parity/2026-10-17T18-15-26-535Z-seed-20261017/report.json` |
+| Empreintes documentaires (WSL, `c9139b56`) | `npm run engine:document-fingerprints -- check` | sortie 0, « Document fingerprints identical », 14 familles v1/v2 ; pgTAP `Files=19, Tests=1833, Result: PASS` et matrice RLS passés en amont ; `.e2e/engine-v3/document-fingerprints/2026-10-17T18-16-05-307Z-check` |
+
+Non rejouée : la campagne `calc-v3` (37/37 à `df01c4b9`, §10.3) ; la revue ne touche aucun chemin v1/v2 de calcul
+ni de document (empreintes identiques), et le hub v1/v2 rend les mêmes valeurs. La CI de la PR rejoue Vitest
+complet et la campagne critique sélectionnée par la carte d'impact.
+
+### 10.6 Revue Codex de la PR #33 (17/10/2026)
+
+Quatre constats d'une revue automatique de la tête poussée `d5d02860`, chacun revérifié dans le code puis sur une pile
+native possédée avant d'agir. Politique de test tenue : assertions écrites d'abord (`72662c74`), rouge observé là où le
+défaut est réel, puis le code (`f9d5a0b5`) ; aucune assertion existante affaiblie, une seule réécrite, délibérément, au
+contrat décidé par le propriétaire (F3). F1 et F2 sont des faux positifs : la revue lisait les définitions de
+`20260812032857`, que M1 (`20261017113844`) a remplacées et que M4 ne touche pas ; leur couverture est ajoutée quand même,
+sur des v3 nées de M4.
+
+| Constat (gravité) | Vérification | Verdict, preuve ou correctif | Rouge observé | Vert |
+|---|---|---|---|---|
+| F1 (P1) : après le gel d'une v3, changer le taux horaire d'un rôle cité ou le drapeau `EST_031_LABOR_SPLIT` laisserait le marqueur égal à `content_revision` (`invalidate_estimate_v2_snapshot_context` filtrerait encore `calc_engine_version = 2`), d'où une marque v3 lue comme fraîche | La définition citée (`20260812032857:2220-2249`) est remplacée par M1 (`20261017113844:813-977`) : ses trois mises à jour filtrent par `private.calc_engine_freezes_snapshot` (moteurs 2 et 3) ; M4 ne la redéfinit pas | **Non confirmé.** pgTAP F25-23 : S1 gelé par `freeze_estimate_v3_snapshot` (frais, contexte `engine` 3) ; taux 40 → 41 €/h, drapeau inséré actif, drapeau existant basculé (inséré inactif, S1 regelé à l'identique, puis activé) : marqueur et contexte NULL, marque de la file NULL. Côté TS, `resolveV3NetMarginBp` rend `null` (« indisponible ») sur ce marqueur NULL : Vitest `R-01`, même forme (`calc_snapshot_content_revision: null`, `calc_snapshot_context: null`). F-SQL-06 de 2.1 le prouvait déjà sur une v3 de fixture | — (vert tel qu'écrit, avant tout code) | `ok:true\|3\|false`, puis `ok:null\|null\|null` ×3 et file `ok:null` ×2 ; contrôle regelé `ok:true\|3\|false`, file `ok:2054` |
+| F2 (P1) : `guard_estimate_project_v2_owner_change` et `guard_labor_role_v2_owner_change` se limiteraient à `calc_engine_version = 2` ; réaffecter une affaire v3 (`assignDirectionProjectOwner`) ou déplacer un rôle cité passerait | M1 (`20261017113844:274-412`) les redéfinit avec `in (2, 3)` à chaque lecture ; M4 ne les touche pas | **Non confirmé.** pgTAP F25-24, sur les v3 créées par la RPC canonique (seules versions du projet dont les lignes citent un rôle : `3\|4`) : changement de propriétaire par l'administrateur authentifié (la mise à jour de `assignDirectionProjectOwner`) et par `postgres` → `23503 ESTIMATE_PROJECT_OWNER_LABOR_ROLE_MISMATCH` ; rôle cité déplacé ou supprimé → `23503 ESTIMATE_LABOR_ROLE_ASSIGNMENT_IN_USE` | — (vert tel qu'écrit) | les quatre refus nommés |
+| F3 (P2) : une suppression directe (Data API, politique `DELETE` des opérateurs) d'une ligne d'un brouillon v3 passe et laisse brut, remise, HT, TVA et TTC stockés périmés | Confirmé : la branche `DELETE` de `guard_estimate_v2_snapshot_columns` (M4) rendait `old` sans condition ; le contrat d'écrivain (`guard_estimate_item_engine_columns`) ne voit que `INSERT`/`UPDATE` ; la politique « Users can delete draft estimate items » admet le propriétaire ou l'administrateur d'un brouillon. Le TS refusait déjà (V3P-15) ; restait la Data API (§10.5, « Reste ») | **Confirmé, corrigé** dans M4 en place (jamais appliquée hors piles jetables) : hors contrat d'écrivain de sa version, la suppression d'une ligne d'un brouillon v3 lève `0A000 ESTIMATE_V3_WRITER_NOT_SUPPORTED`. Décision et chemins admis ci-dessous ; F-SQL-10 de 2.1 (« la suppression d'une ligne v3 reste possible sans contrat ») réécrite au nouveau contrat ; motif de la liste blanche F-SQL-14 complété (`= 3`) | pgTAP F25-25 : les cinq suppressions passent, `ok:6\|6214910\|5914976` ×4 (6 lignes, HT stocké 6 214 910, Σ nets 5 914 976), section `ok:0\|6214910\|0` ; F-SQL-10 réécrite `have: ok` | `0A000 ESTIMATE_V3_WRITER_NOT_SUPPORTED` ×5 ; chemins admis inchangés : `ok:6`, `ok:true\|0\|0\|0\|0\|0`, `ok:0\|0`, `ok:0\|0`, `ok:deleted\|0\|0` ; V3P-18 |
+| F4 (P2) : une v3 vierge créée dans une affaire existante reçoit `max_section_depth` 3 au lieu de la profondeur de la dernière version, contrairement à `V3_INHERITED_SETTINGS` | Confirmé, en v2 aussi : `createEstimateVersionSchema` injectait `.default(3)` (depuis UX2-022, `38a74714`) et `resolveV3VersionPayload` comme `resolveVersionPayload` étalent les réglages après l'héritage. Même chemin (`POST /api/estimates`). *Rectifié par la revue de suivi (§10.6.1) : la source DPGF liée de l'assistant passe aussi par ce schéma ; la création manuelle (`startAffaireManualEstimate`) imposait 3 dans une affaire existante, pas neuve ; l'import confirmé et les modèles n'y passent pas mais héritaient déjà de la dernière version* | **Confirmé, corrigé** pour v3 et v2 : défaut retiré du schéma ; une affaire neuve garde 3 (`DEFAULT_VERSION_SETTINGS` de la création canonique) ; OpenAPI régénéré (seul `"default": 3` disparaît) | Vitest (`canonical-v2-creation.test.ts`, chaîne de la route reproduite) : v3 `[[3,3],[3,3],[3,4]]` au lieu de `[[3,1],[3,4],[3,4]]` ; v2 `[[2,3],[2,2]]` au lieu de `[[2,1],[2,2]]` | 6/6 |
+
+**Décision F3 (écart assumé à D2).** D2 laissait les suppressions libres : elles ne réécrivaient aucune colonne de calcul.
+Depuis M4, une v3 stocke un pied (brut, remise appliquée, arrondi commercial, HT, TVA, TTC) que seul un écrivain maintient
+égal à ses lignes ; une ligne retirée sans recalcul laisse des montants faux jusqu'à la prochaine écriture. Décision du
+propriétaire (intégrité des montants, seule exception à « sécurité hors périmètre ») : les montants stockés d'une v3 sont
+toujours ceux de ses lignes. Refusé hors contrat d'écrivain de la version : la Data API de l'opérateur, `service_role`,
+`postgres`, le contrat d'une autre version, et une section qui emporte ses lignes (la cascade de `parent_id` est
+immédiate : une action référentielle n'est jamais différée, même sous `DEFERRABLE INITIALLY DEFERRED`). Restent admis : la
+suppression sous le contrat de la version (le lot, qui recalcule et vérifie D12, section et lignes comprises) et les
+cascades d'une version ou d'une affaire supprimée (suppression directe d'un brouillon, RPC contrôlée
+`bulk_delete_draft_affaires` de `DELETE /api/affaires/{id}`) : la ligne de version n'est alors plus visible de la garde,
+motif déjà suivi par `private.guard_estimate_batch_scope` et `public.enforce_takeoff_item_mutation_before_apply`. Une
+section vide reste libre (aucun montant). Une ligne d'une v3 non brouillon garde son refus `ESTIMATE_VERSION_READ_ONLY`,
+levé avant (F-SQL-04 inchangée) ; le métré en remplacement, déjà refusé par le contrat d'écrivain, l'est au même code.
+
+**Parcours de suppression.** Aucun parcours TesterArmy existant ne supprime une affaire ou une version (`e2e/army` : seul
+PLAN01 supprime des fichiers de plans) ; il n'y a donc pas de « parcours de suppression » à sélectionner par `--grep`. La
+matrice RLS comportementale (`src/lib/estimates/rls.e2e.test.ts`), rejouée par chaque `db:ci:local` et en tête de chaque
+`e2e:army:local`, prouve par PostgREST la cascade de `bulk_delete_draft_affaires` et de la suppression directe d'une
+affaire brouillon (v2). V3P-18, ajouté à V3P01, la prouve par la route sur une affaire qui porte des v3 chiffrées (6
+versions, 20 lignes et sections avant ; 0 et 0 après, `[200, true, true]`), et prouve la suppression par le lot (EUHIST :
+360 / 72 / 432 avant, ligne supprimée, `[200, true, true]`, pied 0 / 0 / 0 et brut, remise, arrondi à 0).
+
+Preuves (Windows : Node 24.19.0, worktree `miaouffrage-l2-25` ; WSL : Ubuntu 24.04, Node 24.14.0, Supabase CLI 2.120.0,
+TesterArmy `e2e` 0.21.0, clone `~/miaouffrage-lot2-25` remis à `f9d5a0b5`, diff local vide ; au plus deux exécutions
+natives possédées à la fois, ports 45585 et 33485 jamais touchés, aucune Supabase partagée ; journaux hors dépôt,
+`~/lot2-25-codex-logs/` du clone) :
+
+| Preuve | Commande | Résultat |
+|---|---|---|
+| Itération (WSL, pile jetable possédée à `d5d02860`) | suites rejouées par fichier (`psql -f`) avant, puis après la garde corrigée | rouge : persistance 94/95 (`not ok 88`, F25-25 hors contrat), garde 2.1 59/60 (`not ok 42`, F-SQL-10 réécrite) ; F25-23, F25-24 et les chemins admis de F25-25 verts ; journaux SHA-256 `427a7a0d…28c7`, `d71f4ad8…667f` ; vert : persistance 95/95, garde 60/60, non chiffrées 3/3, gouvernance 210/210, fonctions v3 210/210 |
+| Rouge Vitest (Windows, `72662c74`) | `npx vitest run --project=node src/lib/estimates/canonical-v2-creation.test.ts` | 2 échecs / 6, motifs ci-dessus ; `.e2e/lot2-2.5/codex/F4-red-vitest.log` (SHA-256 `3d94cc75…3f05`) |
+| SQL et RLS (WSL, `f9d5a0b5`) | `npm run db:ci:local` | sortie 0 : pile jetable, `db reset`, inventaire des 248 migrations conforme ; pgTAP `Files=19, Tests=1837, Result: PASS` (1 833 + F25-23, F25-24, F25-25 ×2) ; « Behavioral RLS matrix passed. » ; journal SHA-256 `def21a7e…27a3` |
+| Parcours (WSL, `f9d5a0b5`) | `E2E_ARMY_WORKERS=2 NODE_OPTIONS=--max-old-space-size=4096 npm run e2e:army:local -- --grep "V3P01\|V3FC"` | sortie 0, **4/4** : setup, V3FC01, V3FC02, V3P01 (10,7 s, V3P-18 compris) ; pgTAP `Files=19, Tests=1837, Result: PASS` et matrice RLS passés en amont ; archive `.e2e/army/ci/2026-10-17T19-02-51-250Z-critical/` (manifeste : `passed`, `filtered-critical`, 2 workers, révision `f9d5a0b5`, diff vide, 248 migrations, confidentialité `passed` ; SHA-256 `70648b93…a291`) ; valeurs de V3P01 du §10.5 inchangées (`v3p-review` : `directDelete` `[409, false, ESTIMATE_ENGINE_UNAVAILABLE]`) |
+| Montée de version (WSL, `f9d5a0b5`) | `npm run db:upgrade-check -- lot2-2-5` ; `… --negative-control` | sortie 0 : 244 migrations de base, fixture validée, 4 migrations du lot dont M4, **0 différence**, contrôle négatif interne détecté (`.e2e/engine-v3/upgrade-check/2026-10-17T19-06-16-559Z-lot2-2-5`) ; contrôle négatif : sortie 1 exigée, 1 différence, la synthétique (`…0112 pu_ht_cents: 1481 -> 1482`, `…/2026-10-17T19-06-48-530Z-lot2-2-5-negative-control`) |
+| Vitest (Windows, `f9d5a0b5`) | `npx vitest run --project=node <7 fichiers>` (création canonique, schémas, OpenAPI, serveur d'estimation, règle v3, carte d'impact, garde-fous CI) | 7 fichiers, 147 tests verts |
+| Types, lint, OpenAPI (Windows) | `npm run typecheck` ; `npx eslint src/lib/estimates/schemas.ts src/lib/estimates/canonical-v2-creation.test.ts e2e/army/local/engine-v3-persistence.e2e.ts e2e/army/local/engine-v3-persistence-support.ts --max-warnings=0` ; `npm run validate-openapi` | 0 ; 0 ; « valide et synchronisee » (144 routes, 192 opérations) |
+| Migrations (Windows) | `npm run supabase:manifest:add` (entrée M4 retirée puis réajoutée) ; `npm run supabase:validate` ; `npm run supabase:migrations:git-guard` | 248 entrées ; « 248 files, 248 unique versions » ; garde : en mode local, la base résolue est `@{upstream}` (`origin/lot2/2.5-persistance-v3`, tête poussée qui contient déjà M4), qui refuse M4 modifiée (« deployed migration is immutable (M) ») ; en mode PR contre `main`, comme la CI (`MIGRATION_DIFF_MODE=pull_request MIGRATION_BASE_SHA=$(git rev-parse origin/main)`) : « passed (pull_request, 2 scoped changes) » |
+| Fichiers moteur v1/v2 | `git diff --stat origin/main...HEAD -- src/lib/estimate-calculations.ts src/lib/estimate-v2-snapshot.ts` | vide |
+| Espaces et fins de ligne | `git -c core.whitespace=cr-at-eol diff --check origin/main...HEAD` ; `git ls-files --eol src/types/database.ts` | propre ; `i/crlf w/crlf` (non touché) |
+
+Non rejoués : parité TS/SQL, empreintes documentaires et campagne `calc-v3`. La revue ne touche ni M3, ni un calcul v1/v2,
+ni un document : la garde ne change que l'admission d'une suppression, le schéma une valeur de structure (profondeur des
+sections). La CI de la PR rejoue Vitest complet et la campagne critique sélectionnée par la carte d'impact.
+
+### 10.6.1 Revue de suivi du correctif F4 (17/10/2026)
+
+Deux constats d'une revue du correctif `f9d5a0b5`, revérifiés dans le code, puis le mécanisme sur une pile native
+possédée. Rouge écrit et observé d'abord (`e8c1171f`), puis le code (`aba2a74e`). Aucune assertion existante affaiblie :
+celle de `startAffaireManualEstimate` est resserrée (égalité exacte au lieu de `max_section_depth: expect.any(Number)`).
+
+| Constat (gravité) | Vérification | Verdict, correctif | Rouge observé | Vert |
+|---|---|---|---|---|
+| Majeur : sans le défaut 3 du schéma, la création « source DPGF liée » de l'assistant (`POST /api/estimates`, `creation_mode=linked_dpgf_source`) dans une affaire dont la dernière version est à 1 (ou à 2 avec des sections de niveau 2) hérite d'une profondeur trop faible pour la racine d'import et ses sections : le déclencheur refuse, la création échoue (`ESTIMATE_CANONICAL_V2_PERSIST_FAILED`) | Confirmé. Le client n'envoie jamais `max_section_depth` (`client.ts`, `submitEstimateCreation.ts`) ; `createEstimate` transmet les réglages sans profondeur et `resolveVersionPayload` reprend celle de la dernière version ; `createImportItems` place la racine au niveau 1 et les sections de niveaux 1 et 2 aux niveaux 2 et 3 ; `validate_estimate_item_hierarchy_depth` refuse au-delà de la profondeur de la version. Régression de `f9d5a0b5` pour l'assistant. Même défaut, antérieur, à la même jointure : l'import confirmé dans une affaire existante (`confirmUnifiedImportFlow`, réglages sans profondeur depuis toujours) et un modèle plus profond que la dernière version. En v3, toute création non vierge est refusée avant (2.8) | **Confirmé, corrigé** à la jointure (`persistCanonicalEstimateV2`, v2 et v3). Une profondeur fournie est gardée. Sinon, la profondeur héritée (3 pour une affaire neuve) est relevée au niveau de la section la plus profonde du contenu créé, jamais abaissée. Une profondeur fournie trop faible est refusée nommée, avant toute écriture (`400 ESTIMATE_SECTION_DEPTH_TOO_SHALLOW`, documenté au 400 de `POST /api/estimates`, OpenAPI régénéré) | Vitest : import `[[2,1],[2,1],[2,4],[2,1],[2,1]]` au lieu de `[[2,3],[2,2],[2,4],[2,1],[2,3]]` (assistant à 1 avec sections de niveaux 1 et 2, à 1 avec niveau 1, affaire à 4, lignes sous la racine seule, import confirmé à 1) ; modèle à deux niveaux `[2,1]` au lieu de `[2,2]` ; profondeur 2 fournie pour un besoin de 3 : création acceptée au lieu du refus nommé | 19/19 sur les deux fichiers ; mécanisme prouvé sur pile réelle (ci-dessous) |
+| Mineur : `startAffaireManualEstimate` passe encore `max_section_depth: 3` avec un titre, dans une affaire existante ; sans titre la profondeur est héritée | Confirmé, latent (aucun appelant d'écran ni d'E2E). La mention « création rapide (3 explicite, affaire neuve) » de la ligne F4 était fausse : l'action cible une affaire existante (`assertProjectAccessOrThrow`) | **Confirmé, corrigé** : champ retiré (et son import) ; le test exige `version: { title: "Base manuelle" }` exactement | `max_section_depth: 3` envoyé | vert |
+
+**Mécanisme sur pile réelle.** WSL, pile jetable possédée (248 migrations, `supabase/` identique de `f9d5a0b5` à la
+tête), arrêtée et détruite ensuite. Script hors dépôt : la fixture de `transactional-workflows.test.sql` jusqu'à la
+création atomique d'une version d'affaire existante, puis quatre créations par `persist_estimate_creation_atomic` dans
+cette affaire. Profondeur 1, racine et section de niveau 1 : `P0001 Profondeur de section depassee (max 1).` (ce
+qu'envoyait l'assistant depuis `f9d5a0b5`). Profondeur 1, racine et sections de niveaux 1 et 2 : même refus. Profondeur 2
+(besoin calculé) : créée, 3 éléments. Profondeur 3 : créée, 4 éléments. Résultat `24/24 ok` ; sortie SHA-256
+`4dc164e7…e3aa`, script `2982cf37…c132` (`~/lot2-25-codex-logs/followup/`).
+
+Preuves (Windows : Node 24.19.0, worktree `miaouffrage-l2-25` ; WSL : Ubuntu 24.04, Node 24.14.0, Supabase CLI 2.120.0,
+clone `~/miaouffrage-lot2-25` remis à `db164204`, diff local vide ; au plus deux exécutions natives à la fois, ports
+45585 et 33485 jamais touchés, aucune Supabase partagée) :
+
+| Preuve | Commande | Résultat |
+|---|---|---|
+| Rouge Vitest (Windows, `e8c1171f`) | `npx vitest run --project=node src/lib/estimates/canonical-v2-creation.test.ts src/app/dashboard/affaires/_actions/quick-create-affaire.test.ts` | 4 échecs / 19, motifs ci-dessus ; `.e2e/lot2-2.5/codex/F4-followup-red-vitest.log` (SHA-256 `c91a321e…571e`) |
+| Vert Vitest (Windows, `aba2a74e`) | même commande ; puis les 9 fichiers liés (création canonique, création rapide, import confirmé, schémas, serveur d'estimation et sa couverture, OpenAPI, carte d'impact, garde-fous CI) | 19/19 (`93bf8874…1f27`) ; 9 fichiers, 190 tests (`7e61e80b…2404`) |
+| Types, lint, OpenAPI (Windows) | `npm run typecheck` ; `npx eslint <4 fichiers touchés> --max-warnings=0` ; `npm run generate-openapi` puis `npm run validate-openapi` | 0 ; 0 ; « valide et synchronisee » (144 routes, 192 opérations), seule la description du 400 de `POST /api/estimates` change |
+| Parcours (WSL, `db164204`, tête fusionnée avec `origin/main` `2c2fa286`) | `E2E_ARMY_WORKERS=2 NODE_OPTIONS=--max-old-space-size=4096 npm run e2e:army:local -- --app-port 3157 --grep "CSV DPGF\|DPGF03\|OPTIMA\|percent-formatted\|V3P01\|V3FC\|GATE0"` | sortie 0, **13/13** (run complet 111 s) : setup, DPGF (CSV métier et opaque, importés en nouvelle version d'une affaire existante ; DPGF03), OPTIMA ×3, GATE01 à 03, V3FC01, V3FC02, V3P01 ; pgTAP `Files=19, Tests=1837, Result: PASS` et matrice RLS passés en amont ; archive `.e2e/army/ci/2026-10-17T19-46-27-962Z-critical/` (manifeste : `passed`, `filtered-critical`, 2 workers, révision `db164204`, diff vide, 248 migrations, confidentialité `passed` ; SHA-256 `ee5c9137…7e87`) |
+| Migrations (Windows) | `npm run supabase:validate` ; `MIGRATION_DIFF_MODE=pull_request MIGRATION_BASE_SHA=$(git rev-parse origin/main) npm run supabase:migrations:git-guard` | « 248 files, 248 unique versions » ; « passed (pull_request, 2 scoped changes) » ; aucune migration touchée par la revue de suivi (en mode local, même refus de M4 que ci-dessus, base `@{upstream}` = `d5d02860`) |
+| Fichiers moteur v1/v2, espaces | `git diff --stat origin/main...HEAD -- src/lib/estimate-calculations.ts src/lib/estimate-v2-snapshot.ts` ; `git -c core.whitespace=cr-at-eol diff --check origin/main...HEAD` | vide ; propre (fins de ligne de `quick-create-affaire.test.ts`, mixtes, et de `registry.ts`, CRLF, conservées) |
+
+La carte d'impact classe `canonical-v2-creation.ts` en suite complète (chargé par le setup critique) : la CI de la PR
+rejoue toute la suite critique. Non rejoués en local : parité TS/SQL, empreintes documentaires, campagne `calc-v3` et
+montée de version ; la revue de suivi ne touche ni SQL, ni calcul, ni document, seulement la profondeur de structure
+d'une version créée.

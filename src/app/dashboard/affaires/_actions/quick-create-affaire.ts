@@ -20,7 +20,6 @@ import {
   normalizeNullableText,
   toRpcImportItems,
 } from "@/lib/affaires/import-flow-server";
-import { DEFAULT_MAX_SECTION_DEPTH } from "@/lib/estimates/hierarchy";
 import { persistCanonicalEstimateV2 } from "@/lib/estimates/canonical-v2-creation";
 import { createEstimate } from "@/lib/estimates/server";
 import { createMapping } from "@/lib/mappings/server";
@@ -256,14 +255,9 @@ export async function startAffaireManualEstimate(
   const created = await createEstimate({
     project_id: parsed.data.projectId,
     creation_mode: "blank",
-    ...(versionTitle
-      ? {
-          version: {
-            title: versionTitle,
-            max_section_depth: DEFAULT_MAX_SECTION_DEPTH,
-          },
-        }
-      : {}),
+    // Affaire existante : la profondeur de sections vient de la dernière version, avec ou sans titre (revue de suivi
+    // de F4, PR #33).
+    ...(versionTitle ? { version: { title: versionTitle } } : {}),
   });
 
   revalidateQuickCreatePaths(created.project.id, created.version.id);

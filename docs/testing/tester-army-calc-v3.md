@@ -63,7 +63,7 @@ Chaque phase est une invocation TesterArmy distincte de `e2e.calc-v3.config.ts` 
 | `numeric` | idem | setup, `generated-ouvrage-numeric-entry` NI01–NI03 : 4 | plan `componentsRecords` (sélection `numeric-all`) |
 | `resume` | idem | setup, `generated-ouvrage-resume` GR02, GR04, GR06, GR08 : 5 (GR01, GR03, GR05, GR07, GR09 rouges à la base, hors sélection) | propriétaire dédié (RMO 4 000 c unique), autre auteur, tenant étranger, 13 scénarios dont 21 brouillons paginés et la matrice de coûts |
 | `access` | idem | setup, `generated-ouvrage-access` GR07 : 2 | propriétaire et observateur administrateurs dédiés ; le parcours archive et rétrograde ce seul propriétaire |
-| `offers` | build possédé, `next start` | setup, `supplier-offer-zero-price` OZ01–OZ03 : 4 (sous-lot 2.2, [estimate-engine-v3-2.2.md](estimate-engine-v3-2.2.md)) | propriétaire dédié en mode Expert, trois fournisseurs, trois articles et quatre offres en « ml » (dont trois à 0 €), un brouillon v2 par parcours, un chantier |
+| `offers` | build possédé, `next start` | setup, `supplier-offer-zero-price` OZ01–OZ04 : 5 (sous-lot 2.2, [estimate-engine-v3-2.2.md](estimate-engine-v3-2.2.md) ; OZ04 : [version-totals-after-preselection.md](version-totals-after-preselection.md)) | propriétaire dédié en mode Expert, trois fournisseurs, trois articles et quatre offres en « ml » (dont trois à 0 €), un brouillon par parcours (v2 pour OZ01–OZ03, v1 historique pour OZ04), un chantier |
 | `emission` | `next dev` | setup d'offre, `offer-emission` OF00, OF01, OF02, OF04, OF0L : 6 (OF03 rouge à la base, hors sélection) | aucune : les parcours créent leurs devis `ARMY-OFFER-` par l'interface |
 
 Une phase sans `--grep` applique sa sélection par défaut (`defaultGrep`) et exige exactement ces

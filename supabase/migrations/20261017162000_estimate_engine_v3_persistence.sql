@@ -13,7 +13,9 @@
 --   - colonnes v3 des versions et des lignes (D4 à D9), CHECK de forme v3 ; colonnes v1/v2
 --     neutres (aucune reprise, D17) ;
 --   - création, lot, ligne, réglages et duplication écrivent une v3 sous le contrat d'écrivain
---     et contrôlent la projection (private.estimate_v3_assert_draft, D12) ;
+--     et contrôlent la projection (private.estimate_v3_assert_draft, D12) ; une ligne d'un
+--     brouillon v3 ne se supprime que sous ce contrat (le lot), hors cascade d'une version ou
+--     d'une affaire supprimée (revue de la PR #33, écart assumé à D2) ;
 --   - gel v3 par public.freeze_estimate_v3_snapshot (recalcul complet, égalité au centime) ;
 --   - list_approval_queue lit la marque nette d'un gel v3 frais ;
 --   - l'émission d'une v3 reste refusée (M1, jusqu'à M5).
@@ -55,6 +57,25 @@ begin
   if exists (select 1 from public.estimate_versions version where version.calc_engine_version = 3) then
     raise exception 'LOT2_2_5_PREFLIGHT: an engine 3 version already exists';
   end if;
+  -- La contrainte estimate_items_item_type_payload_check est recréée plus bas avec la règle
+  -- canonique des sections (atelier/chantier neutres). Le Supabase partagé en porte une variante
+  -- plus souple (rapport docs/testing/shared-supabase-catch-up-2026-10-17.md) : une section qui
+  -- la viole ferait échouer la validation sans dire laquelle. On la nomme ici, sans rien réécrire (D17).
+  declare
+    offending_sections bigint;
+  begin
+    select count(*)
+      into offending_sections
+    from public.estimate_items item
+    where item.item_type = 'section'::public.estimate_item_type
+      and not (
+        item.h_mo_atelier is null and item.k_mo_atelier = 1.0 and item.labor_role_atelier_id is null
+        and item.h_mo_chantier is null and item.k_mo_chantier = 1.0 and item.labor_role_chantier_id is null
+      );
+    if offending_sections > 0 then
+      raise exception 'LOT2_2_5_PREFLIGHT: % section row(s) carry atelier/chantier labour values; align them with the canonical section payload before M4', offending_sections;
+    end if;
+  end;
 end;
 $preflight$;
 
@@ -1089,7 +1110,8 @@ end;
 $$;
 
 -- Point 5 (M1 complété) : snapshot_gross_* rejoignent les colonnes figées gérées ; unit_code,
--- pricing_status et h_mo*_per_unit rejoignent les colonnes dont l'édition efface le gel.
+-- pricing_status et h_mo*_per_unit rejoignent les colonnes dont l'édition efface le gel. Revue de
+-- la PR #33 : la suppression d'une ligne d'un brouillon v3 entre dans le contrat d'écrivain.
 create or replace function public.guard_estimate_v2_snapshot_columns()
 returns trigger
 language plpgsql
@@ -1143,6 +1165,23 @@ begin
   end if;
 
   if tg_op = 'DELETE' then
+    -- Revue de la PR #33 (écart assumé à D2, « les suppressions restent libres ») : les montants
+    -- stockés d'une v3 sont toujours ceux de ses lignes. Une ligne d'un brouillon v3 ne se
+    -- supprime que sous le contrat d'écrivain de sa version (le lot, qui recalcule et vérifie
+    -- D12) ; une section emporte ses lignes par la cascade immédiate de parent_id, refusée de
+    -- même hors contrat. Version ou affaire supprimée : la ligne de version n'est plus visible
+    -- ici (cascade, comme private.guard_estimate_batch_scope), la suppression reste admise.
+    if target_engine_version = 3
+      and old.item_type = 'line'::public.estimate_item_type
+      and coalesce(
+        pg_catalog.current_setting('miaouffrage.estimate_v3_writer', true),
+        ''
+      ) <> old.version_id::text
+    then
+      raise exception using
+        errcode = '0A000',
+        message = 'ESTIMATE_V3_WRITER_NOT_SUPPORTED';
+    end if;
     return old;
   end if;
 

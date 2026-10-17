@@ -20,7 +20,12 @@ import {
   usesSaleCoefficients,
 } from "@/lib/estimates/engine/capabilities";
 import { badRequest, internalError } from "@/lib/estimates/errors";
-import { DEFAULT_MAX_SECTION_DEPTH } from "@/lib/estimates/hierarchy";
+import {
+  buildHierarchyIndex,
+  DEFAULT_MAX_SECTION_DEPTH,
+  MAX_SECTION_DEPTH,
+  resolveSectionLevel,
+} from "@/lib/estimates/hierarchy";
 import { assertEstimateV3VersionShape, toEstimateV3VersionTotals } from "@/lib/estimates/v3-persistence";
 import {
   calculateEstimateSnapshotForItems,
@@ -511,9 +516,48 @@ async function loadExistingProjectContext(input: {
   };
 }
 
+/**
+ * Revue de suivi de F4 (PR #33, §10.6) : niveau de la section la plus profonde du contenu créé (0 sans section).
+ * Racine d'import 1, ses sections de niveau 1 et 2 aux niveaux 2 et 3 ; un modèle, sa propre hiérarchie.
+ */
+function requiredSectionDepthOf(items: CanonicalEstimateCreationItem[]) {
+  const index = buildHierarchyIndex(items.map((item) => ({
+    id: item.id!,
+    parent_id: item.parent_id ?? null,
+    item_type: item.item_type,
+  })));
+  return items.reduce((deepest, item) => item.item_type === "section"
+    ? Math.max(deepest, resolveSectionLevel(index, item.id!) ?? 0)
+    : deepest, 0);
+}
+
+/**
+ * Profondeur de la version créée : celle fournie par l'appelant, sinon celle héritée (dernière version de l'affaire,
+ * 3 pour une affaire neuve) relevée au besoin du contenu, jamais abaissée. Une version qui naîtrait moins profonde que
+ * ses sections serait refusée par `validate_estimate_item_hierarchy_depth`, opaque ; une profondeur fournie trop
+ * faible est refusée ici, nommée, avant toute écriture.
+ */
+function resolveCreationSectionDepth(input: {
+  supplied: number | null | undefined;
+  inherited: number | null | undefined;
+  required: number;
+}) {
+  const depth = input.supplied ??
+    Math.max(input.inherited ?? DEFAULT_VERSION_SETTINGS.max_section_depth, input.required);
+  if (input.required > depth || input.required > MAX_SECTION_DEPTH) {
+    throw badRequest(
+      "La profondeur de sections demandée ne contient pas les sections créées.",
+      { max_section_depth: depth, required_section_depth: input.required },
+      "ESTIMATE_SECTION_DEPTH_TOO_SHALLOW"
+    );
+  }
+  return depth;
+}
+
 function resolveVersionPayload(input: {
   overrides?: CanonicalV2VersionOverrides;
   latestVersion: LatestVersionDefaults | null;
+  requiredSectionDepth: number;
 }) {
   const base = {
     ...DEFAULT_VERSION_SETTINGS,
@@ -521,6 +565,11 @@ function resolveVersionPayload(input: {
     ...(input.latestVersion ?? {}),
     ...(input.overrides ?? {}),
   };
+  const maxSectionDepth = resolveCreationSectionDepth({
+    supplied: input.overrides?.max_section_depth,
+    inherited: input.latestVersion?.max_section_depth,
+    required: input.requiredSectionDepth,
+  });
 
   return {
     id: randomUUID(),
@@ -539,7 +588,7 @@ function resolveVersionPayload(input: {
     tax_rate_bp: base.tax_rate_bp,
     rounding_mode: base.rounding_mode,
     rounding_step_cents: base.rounding_step_cents,
-    max_section_depth: base.max_section_depth,
+    max_section_depth: maxSectionDepth,
     contractor_role: base.contractor_role,
     calc_engine_version: NEW_ESTIMATE_CALC_ENGINE_VERSION,
     total_ht_cents: 0,
@@ -571,6 +620,7 @@ function resolveV3VersionPayload(input: {
   overrides?: CanonicalV2VersionOverrides;
   latestVersion: LatestVersionDefaults | null;
   policy: TenantCalcPolicy;
+  requiredSectionDepth: number;
 }) {
   const inherited: Partial<LatestVersionDefaults> = {};
   for (const key of V3_INHERITED_SETTINGS) {
@@ -606,7 +656,11 @@ function resolveV3VersionPayload(input: {
     tax_rate_bp: base.tax_rate_bp,
     rounding_mode: base.rounding_mode,
     rounding_step_cents: base.rounding_step_cents,
-    max_section_depth: base.max_section_depth,
+    max_section_depth: resolveCreationSectionDepth({
+      supplied: input.overrides?.max_section_depth,
+      inherited: input.latestVersion?.max_section_depth,
+      required: input.requiredSectionDepth,
+    }),
     contractor_role: base.contractor_role,
     // Moteur attendu par le client, revérifié par la RPC sous la politique verrouillée (D3).
     calc_engine_version: 3,
@@ -691,6 +745,7 @@ async function prepareCanonicalV2Creation(input: PersistCanonicalEstimateV2Input
   const versionPayload = resolveVersionPayload({
     overrides: input.version,
     latestVersion: context.latestVersion,
+    requiredSectionDepth: requiredSectionDepthOf(sourceResult.items),
   });
   const calculationItems = sourceResult.items.map(toCalculationItem);
   const versionConfig: EstimateTotalsVersionConfig = {
@@ -786,6 +841,8 @@ export async function persistCanonicalEstimateV2(
         overrides: input.version,
         latestVersion: existingContext?.latestVersion ?? null,
         policy,
+        // Toujours 0 en 2.5 (seule une v3 vierge est créée) ; même règle que la v2 pour les entrées de 2.8.
+        requiredSectionDepth: requiredSectionDepthOf(sourceResult.items),
       });
       const calculated = await calculateEstimateV3SnapshotForItems({
         supabase: input.supabase,

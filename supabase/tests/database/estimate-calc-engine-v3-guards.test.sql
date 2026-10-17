@@ -76,7 +76,7 @@ values
   ('public.guard_estimate_version_engine_v3_writer', 'contrat d''écrivain v3 sur les versions (M1)'),
   ('public.guard_estimate_document_engine_v3', 'refus des documents v3 (M1, remplacé en M5)'),
   ('private.calc_engine_freezes_snapshot', 'prédicat d''héritage de la gouvernance v2 (M1)'),
-  ('public.guard_estimate_v2_snapshot_columns', 'prédicat d''héritage en ligne in (2, 3) : garde security invoker, schéma private fermé à authenticated/service_role (M1)'),
+  ('public.guard_estimate_v2_snapshot_columns', 'prédicat d''héritage en ligne in (2, 3) : garde security invoker, schéma private fermé à authenticated/service_role (M1) ; = 3 : suppression d''une ligne v3 sous contrat d''écrivain (M4, revue de la PR #33)'),
   ('public.guard_estimate_project_v2_owner_change', 'prédicat d''héritage en ligne in (2, 3) : garde security invoker, schéma private fermé à authenticated/service_role (M1)'),
   ('public.guard_labor_role_v2_owner_change', 'prédicat d''héritage en ligne in (2, 3) : garde security invoker, schéma private fermé à authenticated/service_role (M1)'),
   ('public.open_estimate_review_cycle', 'prédicat d''héritage en ligne in (2, 3) : security invoker, schéma private fermé à authenticated/service_role (M1)'),
@@ -970,12 +970,16 @@ select is(
   'F-SQL-10 moving a v3 line to another section (parent_id) stays writable without the contract'
 );
 
+-- Revue Codex de la PR #33 (2.5, docs/testing/estimate-engine-v3-2.5.md §10.6) : réécriture délibérée, écart
+-- assumé à D2 (« les suppressions restent libres »). Une suppression directe laissait le brut, la remise, le HT,
+-- la TVA et le TTC stockés d'une v3 différents de ses lignes ; hors contrat d'écrivain, elle est refusée (le lot
+-- supprime et recalcule ; les cascades d'une version ou d'une affaire supprimée restent admises, F25-25).
 select is(
   pg_temp.v3_probe(array[
     $s$delete from public.estimate_items where id = 'a3210000-0000-4000-8000-000000000203'$s$
   ]),
-  'ok',
-  'F-SQL-10 deleting a line of a v3 draft stays possible without the contract'
+  '0A000 ESTIMATE_V3_WRITER_NOT_SUPPORTED',
+  'F-SQL-10 deleting a line of a v3 draft needs the writer contract (review of 2.5: stored totals never go stale)'
 );
 
 select is(
