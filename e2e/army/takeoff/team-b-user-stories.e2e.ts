@@ -730,16 +730,24 @@ describe("VNEXT Team B - user stories e2e", { session: "army", tags: ["critical"
     page.army.ownedPriceLookupProjects = [ids.projectId];
     await recordEvidence(page.army, "supplier-import-lookups", { ...ids, tenantId: fixture.tenantId,
       boundary: "Only the two RLS-protected reference reads for this owned local import are permitted." });
+    // The client replaces the server-rendered import step with a loading state until
+    // these two reads finish, then mounts a new step: a file chosen earlier is lost.
+    const lookups = Promise.all([
+      page.browser.waitForResponse(/\/rest\/v1\/suppliers\?/, { timeout: 60_000 }),
+      page.browser.waitForResponse(/\/rest\/v1\/products\?/, { timeout: 60_000 }),
+    ]);
     await page.goto(`/dashboard/affaires/${ids.projectId}/prices`);
     await expect(page.getByRole("heading", { name: "Prix fournisseurs", exact: true })).toBeVisible();
+    for (const response of await lookups) expect(response.status).toBe(200);
 
-    await page.locator('input[type="file"]').first().setInputFiles(fixtureFile(page, "us41-guided.csv", Buffer.from(
+    await page.getByLabel("Fichier CSV", { exact: true }).setInputFiles(fixtureFile(page, "us41-guided.csv", Buffer.from(
         [
           "supplier_name;product_label;supplier_ref;unit_price_ht;currency",
           "Stabilize Supplier;Tube cuivre 18;TC18-STAB;21.00;EUR",
         ].join("\n"),
         "utf8"
       )));
+    await expect(page.getByText("us41-guided.csv", { exact: true })).toBeVisible();
 
     await page.getByRole("button", { name: "Analyser" }).first().click();
     await expect(page.getByRole("heading", { name: /Étape 1 [—-] Charger le CSV/i })).toBeVisible();
