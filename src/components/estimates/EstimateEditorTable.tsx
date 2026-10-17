@@ -1535,6 +1535,7 @@ export function EstimateEditorTable({
     openSupplierComparisonPanel,
     handleCloseSupplierComparisonPanel,
     activeSupplierComparisonItem,
+    activeSupplierComparisonUnit,
     activeSupplierComparison,
     supplierComparisonByItemId,
     bestSupplierPriceIdByItemId,
@@ -2709,7 +2710,7 @@ export function EstimateEditorTable({
           isOpen
           itemTitle={activeSupplierComparisonItem.title}
           quantity={activeSupplierComparisonItem.quantity}
-          itemUnit={activeSupplierComparisonItem.description}
+          itemUnit={activeSupplierComparisonUnit}
           currentUnitPriceCents={activeSupplierComparisonItem.unit_price_ht_cents}
           stalePriceDays={activeSupplierComparison?.stale_price_days ?? null}
           alternatives={activeSupplierComparison?.alternatives ?? []}
