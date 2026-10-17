@@ -49,7 +49,8 @@ export function usePriceLookups({
   const [productOptions, setProductOptions] = useState<ComboboxOption[]>([]);
   const [isSupplierLoading, setIsSupplierLoading] = useState(false);
   const [isProductLoading, setIsProductLoading] = useState(false);
-  const [isImportLookupsLoading, setIsImportLookupsLoading] = useState(false);
+  // An import open at mount loads its lookups right away: the server render already shows it.
+  const [isImportLookupsLoading, setIsImportLookupsLoading] = useState(importOpen);
   const supplierSequence = useRef(0);
   const productSequence = useRef(0);
   const supplierTimer = useRef<number | null>(null);

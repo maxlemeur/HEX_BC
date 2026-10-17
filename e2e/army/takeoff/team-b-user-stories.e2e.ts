@@ -758,6 +758,121 @@ describe("VNEXT Team B - user stories e2e", { session: "army", tags: ["critical"
     await expect(page.getByRole("button", { name: /Importer les lignes prêtes/i })).toBeDisabled();
   });
 
+  test("US-4.1b keeps the chosen supplier CSV while the import lookups load", async ({ ui: page }) => {
+    const ids = await createEstimateViaWizard(page, { projectName: `${page.army.runPrefix} US41 lookups`, title: "ARMY supplier CSV lookups" });
+    const fixture = await localTakeoffFixture(page.army, ids);
+    page.army.ownedPriceLookupProjects = [ids.projectId];
+    // A supplier that exists before the import: only loaded lookups can resolve it.
+    const knownSupplier = { id: randomUUID(), tenant_id: fixture.tenantId, name: `${page.army.runPrefix} Fournisseur connu`, is_active: true };
+    const seeded = await fixture.client.from("suppliers").insert(knownSupplier);
+    expect(seeded.error).toBe(null);
+    await recordEvidence(page.army, "supplier-import-lookups-held", { ...ids, tenantId: fixture.tenantId, knownSupplier,
+      boundary: "The supplier lookup read is held by the test, then handed to the owned-read guard unchanged." });
+    // Hold the supplier read so the file is chosen while the lookups are still loading.
+    let releaseSuppliers!: () => void;
+    let suppliersRequested!: () => void;
+    const suppliersReleased = new Promise<void>((resolve) => { releaseSuppliers = resolve; });
+    const suppliersPending = new Promise<void>((resolve) => { suppliersRequested = resolve; });
+    await page.browser.route(/\/rest\/v1\/suppliers\?/, async (route) => {
+      suppliersRequested();
+      await suppliersReleased;
+      await route.fallback();
+    });
+    try {
+      await page.goto(`/dashboard/affaires/${ids.projectId}/prices`);
+      await expect(page.getByRole("heading", { name: "Prix fournisseurs", exact: true })).toBeVisible();
+      let requestTimer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([suppliersPending, new Promise<never>((_, reject) => {
+        requestTimer = setTimeout(() => reject(new Error("The import never requested its supplier lookups.")), 60_000);
+      })]).finally(() => clearTimeout(requestTimer));
+      await expect(page.getByText("Chargement des référentiels pour l’import…")).toBeVisible();
+
+      await page.getByLabel("Fichier CSV", { exact: true }).setInputFiles(fixtureFile(page, "us41-lookups.csv", Buffer.from(
+        ["fournisseur;reference_produit;prix_unitaire;devise", `${knownSupplier.name};${page.army.runPrefix}-REF;21.00;EUR`].join("\n"),
+        "utf8"
+      )));
+      await expect(page.getByText("us41-lookups.csv", { exact: true })).toBeVisible();
+      // Analysing against empty lookups would mark existing suppliers and products as unknown.
+      await expect(page.getByRole("button", { name: "Analyser" })).toBeDisabled();
+    } finally {
+      releaseSuppliers();
+    }
+
+    await expect(page.getByText("Chargement des référentiels pour l’import…")).toBeHidden();
+    await expect(page.getByText("us41-lookups.csv", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Analyser" })).toBeEnabled();
+    await page.getByRole("button", { name: "Analyser" }).click();
+    await expect(page.getByRole("heading", { name: /Étape 2 [—-] Associer les colonnes/i })).toBeVisible();
+    await expect(page.getByText("Fournisseurs inconnus : 0 · Produits inconnus : 1", { exact: true })).toBeVisible();
+  });
+
+  test("US-4.1c keeps the supplier CSV wizard state after creating its unknowns", async ({ ui: page }) => {
+    const ids = await createEstimateViaWizard(page, { projectName: `${page.army.runPrefix} US41 create missing`, title: "ARMY supplier CSV unknowns" });
+    const fixture = await localTakeoffFixture(page.army, ids);
+    page.army.ownedPriceLookupProjects = [ids.projectId];
+    const supplierName = `${page.army.runPrefix} Fournisseur`;
+    const productReference = `${page.army.runPrefix}-REF`;
+    await recordEvidence(page.army, "supplier-import-create-missing", { ...ids, tenantId: fixture.tenantId, supplierName, productReference,
+      boundary: "Creates one supplier and one product named with this run's prefix in the owned ARMY tenant." });
+    const lookupReads = () => Promise.all([
+      page.browser.waitForResponse(/\/rest\/v1\/suppliers\?/, { timeout: 60_000 }),
+      page.browser.waitForResponse(/\/rest\/v1\/products\?/, { timeout: 60_000 }),
+    ]);
+    const initialLookups = lookupReads();
+    await page.goto(`/dashboard/affaires/${ids.projectId}/prices`);
+    await expect(page.getByRole("heading", { name: "Prix fournisseurs", exact: true })).toBeVisible();
+    for (const response of await initialLookups) expect(response.status).toBe(200);
+
+    await page.getByLabel("Fichier CSV", { exact: true }).setInputFiles(fixtureFile(page, "us41-create-missing.csv", Buffer.from(
+      ["fournisseur;reference_produit;prix_unitaire;devise", `${supplierName};${productReference};21.00;EUR`].join("\n"),
+      "utf8"
+    )));
+    await expect(page.getByText("us41-create-missing.csv", { exact: true })).toBeVisible();
+    const importCreated = page.browser.waitForResponse(/\/api\/imports$/, { timeout: 60_000 });
+    await page.getByRole("button", { name: "Analyser" }).click();
+    const importResponse = await importCreated;
+    expect(importResponse.status).toBe(201);
+    const sourceImportId = (await importResponse.json<{ data: { id: string } }>()).data.id;
+    await expect(page.getByText("Fournisseurs inconnus : 1 · Produits inconnus : 1", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Importer les lignes prêtes/i })).toBeDisabled();
+
+    const createMissing = page.browser.waitForResponse(/\/api\/prices\/import\/create-missing$/, { timeout: 60_000 });
+    const reloadedLookups = lookupReads();
+    await page.getByRole("button", { name: "Créer les inconnus" }).click();
+    const confirmation = page.getByRole("alertdialog", { name: "Créer 1 fournisseur(s) et 1 produit(s) ?" });
+    await expect(confirmation).toBeVisible();
+    await confirmation.getByRole("button", { name: "Créer", exact: true }).click();
+    const createResponse = await createMissing;
+    expect(createResponse.status).toBe(200);
+    const created = (await createResponse.json<{ data: {
+      createdSuppliers: Array<{ id: string; name: string }>;
+      createdProducts: Array<{ id: string; reference: string }>;
+    } }>()).data;
+    expect(created.createdSuppliers.map((supplier) => supplier.name)).toEqual([supplierName]);
+    expect(created.createdProducts.map((product) => product.reference)).toEqual([productReference]);
+    for (const response of await reloadedLookups) expect(response.status).toBe(200);
+
+    // Same file, mapping, canonical trace and preview, revalidated against the reloaded lookups.
+    await expect(page.getByText("Création assistée terminée : 1 fournisseur(s), 1 produit(s).", { exact: true })).toBeVisible();
+    await expect(page.getByText("us41-create-missing.csv", { exact: true })).toBeVisible();
+    await expect(page.getByText("Trace canonique liée", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Étape 2 [—-] Associer les colonnes/i })).toBeVisible();
+    await expect(page.getByText(/^1 ligne\(s\) détectée\(s\), 4 colonne\(s\) associée\(s\) automatiquement\.$/)).toBeVisible();
+    await expect(page.getByText("Fournisseurs inconnus : 0 · Produits inconnus : 0", { exact: true })).toBeVisible();
+    await expectSummaryValue(page, "Importables", "1");
+    await expect(page.getByRole("button", { name: /Importer les lignes prêtes/i })).toBeEnabled();
+
+    await page.getByRole("button", { name: /Importer les lignes prêtes/i }).click();
+    await expect(page.getByText(/^Import terminé : 1 ligne\(s\) importée\(s\)/)).toBeVisible();
+    const persisted = await fixture.client.from("supplier_pricebook")
+      .select("supplier_id, product_id, unit_price_cents, currency, source_import_id")
+      .eq("supplier_id", created.createdSuppliers[0].id);
+    expect(persisted.error).toBe(null);
+    expect(persisted.data).toEqual([{ supplier_id: created.createdSuppliers[0].id, product_id: created.createdProducts[0].id,
+      unit_price_cents: 2100, currency: "EUR", source_import_id: sourceImportId }]);
+    await recordEvidence(page.army, "supplier-import-create-missing-result", { ...ids, sourceImportId, created, persisted: persisted.data });
+  });
+
   test("US-4.3 reports missing supplier coverage without inventing alternatives", async ({ ui: page }) => {
     const ids = await createEstimateViaWizard(page, {
       projectName: `${page.army.runPrefix} no supplier coverage`, title: "ARMY Team B no supplier price",
