@@ -464,15 +464,27 @@ armyTest("V3E03 a catalogue suggestion keeps the v3 unit, and the supplier prese
         unit_price_ht_cents: 1500, tax_rate_bp: 2000, k_fo: 1, h_mo_per_unit: 0, h_mo_majoration: 1, k_mo: 1, source_provider: "manual" },
     ]);
     expect([line.unit_code, line.pu_ht_cents, line.line_total_ht_cents]).toEqual(["ml", 1950, 3900]);
-    // Article du catalogue en « ML » (alias de ml) et son offre A à 15,00 €, par l'API des prix.
+    // Article du catalogue en « ML » (alias de ml) et son offre A à 15,00 €, par les API du catalogue
+    // (même chemin que bulk-edit-sync-sources) ; seules les deux lectures catalogue de cette affaire passent.
+    army.ownedPriceLookupProjects = [draft.projectId];
     const designation = `${army.runPrefix} cuivre 22`;
-    type Offer = { item: { id: string; product_id: string; supplier_id: string; unit_price_cents: number } };
-    const offerA = await apiRequest<Envelope<Offer>>(browser, "POST", "/api/prices", { action: "create", item: {
-      new_supplier: { name: `${army.runPrefix} fournisseur A` }, new_product: { designation, reference: `${army.runPrefix}-CU22`, unit: "ML" },
-      unit: "ML", unit_price_cents: 1500,
-    } });
-    expect([offerA.status, offerA.body.ok, offerA.body.data.item.unit_price_cents]).toEqual([201, true, 1500]);
-    const productId = offerA.body.data.item.product_id;
+    const created = async <T>(label: string, pathname: string, body: unknown) => {
+      const response = await apiRequest<Envelope<{ item: T }>>(browser, "POST", pathname, body);
+      await recordEvidence(army, `v3e-catalogue-${label}`, { pathname, body, response });
+      expect([response.status, response.body.ok]).toEqual([201, true]);
+      return response.body.data.item;
+    };
+    const product = await created<{ id: string }>("product", "/api/products", {
+      action: "create", item: { designation, reference: `${army.runPrefix}-CU22`, unit: "ML", unit_price_cents: 1500 } });
+    const supplierA = await created<{ id: string }>("supplier-a", "/api/suppliers", {
+      action: "create", item: { name: `${army.runPrefix} fournisseur A`, is_active: true } });
+    type Offer = { id: string; product_id: string; supplier_id: string; unit_price_cents: number };
+    const offerFor = (label: string, supplierId: string, unit: string, cents: number) => created<Offer>(label, "/api/prices", {
+      action: "create", item: { supplier_id: supplierId, product_id: product.id, supplier_sku: `${army.runPrefix}-${label}`, unit,
+        min_quantity: 1, unit_price_cents: cents, currency: "EUR", valid_from: new Date().toISOString().slice(0, 10) } });
+    const offerA = await offerFor("offer-a", supplierA.id, "ML", 1500);
+    expect([offerA.product_id, offerA.unit_price_cents]).toEqual([product.id, 1500]);
+    const productId = product.id;
     await switchToExpertMode(ui);
     await openV3Editor(ui, army, draft, "v3e03");
 
@@ -484,7 +496,7 @@ armyTest("V3E03 a catalogue suggestion keeps the v3 unit, and the supplier prese
     await waitForAutoSave(ui, draft.versionId, (snapshot) => snapshot.items.find(item => item.id === line.id)?.product_id === productId, army);
     const linkedApi: ApiExpectation = {
       version: { totals: [3900, 780, 4680] },
-      lines: { [line.id]: { title: designation, unit: "ml", productId, offerId: offerA.body.data.item.id, prFo: 1500, pu: 1950, net: 3900 } },
+      lines: { [line.id]: { title: designation, unit: "ml", productId, offerId: offerA.id, prFo: 1500, pu: 1950, net: 3900 } },
     };
     await checkpoint(ui, army, "suggestion", draft.versionId, {
       api: linkedApi,
@@ -495,10 +507,10 @@ armyTest("V3E03 a catalogue suggestion keeps the v3 unit, and the supplier prese
     // V3E-11 : une offre B à 12,40 € ; appliquer la présélection recalcule et persiste (contrat F26-17), ou est
     // refusé par son nom avant toute écriture. La conception implique le refus (D16, P-14 : mise à jour groupée
     // directe refusée en v3 pendant le lot 2, message nommé) ; le message générique du moteur 3 est un échec.
-    const offerB = await apiRequest<Envelope<Offer>>(browser, "POST", "/api/prices", { action: "create", item: {
-      new_supplier: { name: `${army.runPrefix} fournisseur B` }, product_id: productId, unit: "ml", unit_price_cents: 1240,
-    } });
-    expect([offerB.status, offerB.body.ok, offerB.body.data.item.product_id]).toEqual([201, true, productId]);
+    const supplierB = await created<{ id: string }>("supplier-b", "/api/suppliers", {
+      action: "create", item: { name: `${army.runPrefix} fournisseur B`, is_active: true } });
+    const offerB = await offerFor("offer-b", supplierB.id, "ml", 1240);
+    expect([offerB.product_id, offerB.unit_price_cents]).toEqual([productId, 1240]);
     await openGrid(ui, draft.versionId);
     const before: ArmyEstimate = await readConsistent(ui, draft.versionId);
     await screen.getByRole("tab", /^Affichage & contrôle(?: \d+)?$/).tap();
@@ -520,7 +532,7 @@ armyTest("V3E03 a catalogue suggestion keeps the v3 unit, and the supplier prese
 
     const recomputedApi: ApiExpectation = {
       version: { totals: [3224, 645, 3869] },
-      lines: { [line.id]: { unit: "ml", productId, offerId: offerB.body.data.item.id, prFo: 1240, pu: 1612, net: 3224 } },
+      lines: { [line.id]: { unit: "ml", productId, offerId: offerB.id, prFo: 1240, pu: 1612, net: 3224 } },
     };
     const target = (expected: ApiExpectation) => JSON.stringify({ version: expected.version, lines: expected.lines ?? {} });
     const unchanged = (state: ArmyEstimate) => state.version.content_revision === before.version.content_revision &&
