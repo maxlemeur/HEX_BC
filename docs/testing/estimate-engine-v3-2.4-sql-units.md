@@ -1,6 +1,7 @@
 # Moteur v3 : jumeau SQL et référentiel d'unités (sous-lot 2.4, piste B)
 
-Statut : **tests d'exigence écrits rouges d'abord**, puis implémentation (migration M3). Branche
+Statut : **implémenté et prouvé** : tests d'exigence écrits rouges d'abord (`bccdd971`), puis implémentation
+et migration M3 (`b2c3eb09`). Branche
 `lot2/2.4-sql-units`, partie de `origin/lot2/2.1-socle-ferme` (`e30560f4` = `main` + 2.1). Document de piste :
 l'agent d'intégration le fusionne dans le document principal du sous-lot 2.4.
 Source : [conception du lot 2](../audit-independant-2026-10-14/lot2/conception-lot2-moteur-v3.md), §0, §2, D1,
@@ -225,6 +226,34 @@ lecture de ses tables temporaires d'attendu à `authenticated` avant de changer 
 comparaison échouait par droit, pas par donnée) ; `normalize.test.ts` gagne un test de dérive (un alias ajouté
 au JSON sans migration doit être signalé).
 
-### Vert
+### Vert (commit `b2c3eb09`)
 
-À compléter.
+| Commande | Résultat |
+|---|---|
+| `npx vitest run --project=node src/lib/units` | 88/88 (40 vecteurs × jeton et cible, null, codes, `ens` ≠ `fft`, parité et dérive des blocs, conflit, millilitre) |
+| `NODE_OPTIONS=--max-old-space-size=6144 npx tsc -p tsconfig.json --noEmit` | sortie 0 |
+| `npx eslint src/lib/units/normalize.ts src/lib/units/normalize.test.ts scripts/units/generate-units-sql.ts --max-warnings=0` | sortie 0 |
+| `npm run units:sql -- --check` | « Blocs d'unités alignés sur units.json (migration M3 et suite pgTAP) » |
+| `npm run supabase:manifest:add` / `supabase:validate` / `supabase:migrations:git-guard` | 247 entrées ; 247 fichiers, 247 versions ; garde passée (2 changements) |
+| `npm run check:architecture` | passé (1 102 modules) ; `normalize.ts` 216 lignes non vides, générateur 192 |
+| `git -c core.whitespace=cr-at-eol diff --cached --check` ; `git ls-files --eol src/types/database.ts` | propre ; `i/crlf w/crlf` |
+| `git diff --stat e30560f4 -- src/lib/estimate-calculations.ts src/lib/estimate-v2-snapshot.ts src/lib/estimates/engine src/lib/estimates/engine-v3` | vide |
+| `npm run db:ci:local` (WSL, clone à `b2c3eb09`) | `Files=17, Tests=1711, Result: PASS` ; « Behavioral RLS matrix passed. » ; sortie 0 |
+
+Le décompte pgTAP : 1 328 assertions des 15 suites existantes (mesurées au rouge), + 10 lignes de
+`security-invariants.test.sql` pour les deux nouvelles tables (RLS active, droits `service_role`), + 373 dans
+les deux nouvelles suites (178 pour le référentiel, 195 pour le jumeau). La garde F-SQL-14 de 2.1 rapporte
+« Entrées de la liste blanche sans comparaison littérale : aucune » et ne trouve aucune nouvelle comparaison.
+
+Boucle de mise au point (hors preuve) : PostgreSQL 17.11 du paquet natif Supabase, lancé seul dans un
+répertoire temporaire WSL, sans pile Supabase. Mutations vérifiées : TVA tronquée au lieu du demi supérieur →
+2 échecs (EU01, T-TVA-ARR) ; ex aequo par clé décroissante → 3 échecs (W = 0, ex aequo, remise d'un centime).
+Calcul de 10 000 lignes par `private.estimate_v3_compute_items` : environ 1,0 s.
+
+### Hors de la piste B
+
+- Parité TS/SQL sur 10 000 lignes et 300 devis (`scripts/engine-v3/parity.ts`), lots OPTIMA complets (§5.4) et
+  mesures de performance du moteur TS : pistes A et intégration.
+- Test de montée de version (`npm run db:upgrade-check`) non rejoué par la piste B : M3 n'ajoute que des objets
+  nouveaux et ne réécrit aucune ligne.
+- Les interprétations 2 à 13 doivent être confrontées au moteur TS de la piste A par le harnais de parité.
