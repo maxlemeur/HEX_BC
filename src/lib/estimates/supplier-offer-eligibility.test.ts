@@ -69,3 +69,27 @@ describe("linear metre spellings (P-08, T-UNIT2)", () => {
     expect(supplierOfferIneligibility({ ...priced, unit: "u" }, { ...context, unit: "ml" })).toBe("Unité différente du devis");
   });
 });
+
+describe("shared unit referential and purchase units (sub-lot 2.9)", () => {
+  // D9, point 30 of estimate-engine-v3-2.4.md: offers compare units through the shared referential.
+  it.each([
+    ["m.l.", "ml"], ["mètre linéaire", "m"], ["Pce", "u"], ["pièce", "U"], ["forfait", "fft"], ["Ft", "forfait"],
+  ])("treats line unit %j and offer unit %j as the same unit", (lineUnit, offerUnit) => {
+    expect(supplierOfferIneligibility({ ...priced, unit: offerUnit }, { ...context, unit: lineUnit })).toBeNull();
+  });
+  it("still compares units outside the referential by their spelling", () => {
+    expect(supplierOfferIneligibility({ ...priced, unit: "Barre" }, { ...context, unit: "barre" })).toBeNull();
+    expect(supplierOfferIneligibility({ ...priced, unit: "sac" }, { ...context, unit: "barre" })).toBe("Unité différente du devis");
+  });
+  it("accepts an offer sold by the bar for a line in linear metres when it declares the conversion", () => {
+    const bar = { ...priced, unit: "barre", estimate_unit_code: "ml", estimate_units_per_purchase_unit: "3.000000", purchase_rounding: "ceil" };
+    expect(supplierOfferIneligibility(bar, { ...context, unit: "ML", quantity: 282 })).toBeNull();
+    expect(supplierOfferIneligibility({ ...priced, unit: "barre" }, { ...context, unit: "ml" })).toBe("Unité différente du devis");
+  });
+  it("applies the minimum order to the purchase quantity", () => {
+    const bar = { ...priced, unit: "barre", estimate_unit_code: "ml", estimate_units_per_purchase_unit: "3.000000",
+      purchase_rounding: "ceil", min_quantity: 5 };
+    expect(supplierOfferIneligibility(bar, { ...context, unit: "ml", quantity: 12 })).toBe("Minimum 5 barre");
+    expect(supplierOfferIneligibility(bar, { ...context, unit: "ml", quantity: 13 })).toBeNull();
+  });
+});

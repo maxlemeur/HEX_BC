@@ -489,6 +489,9 @@ async function offersFixtures(context: CalcV3FixtureContext, campaign: string): 
     p1: { id: randomUUID(), designation: `${prefix} tube cuivre` },
     p2: { id: randomUUID(), designation: `${prefix} gaine nue` },
     p3: { id: randomUUID(), designation: `${prefix} collier fourni` },
+    // Sub-lot 2.9: cast-iron pipes sold by the bar of 3 m; PU01 and PU03 declare the conversion.
+    p4: { id: randomUUID(), designation: `${prefix} tube fonte DN100` },
+    p5: { id: randomUUID(), designation: `${prefix} tube fonte DN50` },
   };
   const offers = {
     p1Zero: { id: randomUUID(), catalogItemId: randomUUID(), supplierId: suppliers.zero, productId: products.p1.id, cents: 0,
@@ -499,11 +502,15 @@ async function offersFixtures(context: CalcV3FixtureContext, campaign: string): 
       updatedAt: new Date().toISOString() },
     p3Zero: { id: randomUUID(), catalogItemId: randomUUID(), supplierId: suppliers.included, productId: products.p3.id, cents: 0,
       updatedAt: new Date().toISOString() },
+    p4Bar: { id: randomUUID(), catalogItemId: randomUUID(), supplierId: suppliers.priced, productId: products.p4.id, cents: 26245,
+      updatedAt: new Date().toISOString(), unit: "barre" },
+    p5Bar: { id: randomUUID(), catalogItemId: randomUUID(), supplierId: suppliers.priced, productId: products.p5.id, cents: 2700,
+      updatedAt: new Date().toISOString(), unit: "barre" },
   };
   const deliverySite = { id: randomUUID(), updatedAt: new Date(Date.now() - 1_000).toISOString() };
   // One draft per journey: two editor sessions on one estimate would contend for its edit lock.
   const estimate = () => ({ projectId: randomUUID(), versionId: randomUUID(), sectionId: randomUUID() });
-  const estimates = { oz01: estimate(), oz02: estimate(), oz03: estimate() };
+  const estimates = { oz01: estimate(), oz02: estimate(), oz03: estimate(), pu: estimate() };
   type EstimateKey = keyof typeof estimates;
   type LineExtra = { quantity: number; unit_price_ht_cents?: number; product_id?: string; selected_supplier_price_id?: string };
   const line = (estimateKey: EstimateKey, title: string, unit: string, extra: LineExtra) =>
@@ -524,6 +531,11 @@ async function offersFixtures(context: CalcV3FixtureContext, campaign: string): 
       { quantity: 2, unit_price_ht_cents: 1240, product_id: products.p1.id, selected_supplier_price_id: offers.p1Priced.id }),
     purchaseZero: line("oz03", `${prefix} achat zéro`, "ml",
       { quantity: 1, unit_price_ht_cents: 500, product_id: products.p2.id, selected_supplier_price_id: offers.p2Zero.id }),
+    puPopover: line("pu", `${prefix} ligne fonte`, "ml", { quantity: 282 }),
+    puSmall: line("pu", `${prefix} fonte 10 ml`, "ml",
+      { quantity: 10, unit_price_ht_cents: 900, product_id: products.p5.id, selected_supplier_price_id: offers.p5Bar.id }),
+    puNegotiated: line("pu", `${prefix} fonte négociée`, "ml",
+      { quantity: 282, unit_price_ht_cents: 8000, product_id: products.p4.id, selected_supplier_price_id: offers.p4Bar.id }),
   };
   const records: PlanRecord[] = [
     ...Object.entries(suppliers).map(([key, id]) => ({ table: "suppliers", row: { ...common, id, name: `${prefix} fournisseur ${key}`, is_active: true } })),
@@ -533,7 +545,8 @@ async function offersFixtures(context: CalcV3FixtureContext, campaign: string): 
       supplier_id: offer.supplierId, product_id: offer.productId, supplier_sku: `${prefix}-${offer.id.slice(0, 8)}`, is_active: true } })),
     ...Object.values(offers).map((offer) => ({ table: "supplier_pricebook", row: { ...common, id: offer.id,
       supplier_catalog_item_id: offer.catalogItemId, supplier_id: offer.supplierId, product_id: offer.productId,
-      supplier_sku: `${prefix}-${offer.id.slice(0, 8)}`, unit: "ml", min_quantity: 1, unit_price_cents: offer.cents, currency: "EUR",
+      supplier_sku: `${prefix}-${offer.id.slice(0, 8)}`, unit: "unit" in offer ? offer.unit : "ml", min_quantity: 1,
+      unit_price_cents: offer.cents, currency: "EUR",
       valid_from: day(0), valid_to: day(30), is_active: true, created_at: offer.updatedAt, updated_at: offer.updatedAt } })),
     { table: "delivery_sites", row: { ...common, id: deliverySite.id, name: `${prefix} chantier`, is_active: true, updated_at: deliverySite.updatedAt } },
     ...Object.entries(estimates).flatMap(([key, entry]) => [

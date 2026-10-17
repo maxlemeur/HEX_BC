@@ -94,13 +94,14 @@ export const CALC_V3_PHASE_DEFINITIONS: Readonly<Record<CalcV3Phase, CalcV3Phase
     expected: { [CRITICAL_SETUP]: 1, "e2e/army/local/generated-ouvrage-access.e2e.ts": 1 },
     maxDuration: 900_000,
   },
-  // Sub-lot 2.2 (A7, P-08): zero-priced supplier offers and linear metre units, on
-  // catalogue records seeded for this phase only (docs/testing/estimate-engine-v3-2.2.md).
+  // Sub-lots 2.2 (A7, P-08) and 2.9 (P-18): zero-priced supplier offers, units and purchase units,
+  // on catalogue records seeded for this phase only (docs/testing/estimate-engine-v3-2.2.md, -2.9.md).
   offers: {
     serverMode: "production",
-    tests: [CRITICAL_SETUP, "e2e/army/local/supplier-offer-zero-price.e2e.ts"],
+    tests: [CRITICAL_SETUP, "e2e/army/local/supplier-offer-zero-price.e2e.ts", "e2e/army/local/supplier-offer-purchase-unit.e2e.ts"],
     setupTitle: CRITICAL_SETUP_TITLE,
-    expected: { [CRITICAL_SETUP]: 1, "e2e/army/local/supplier-offer-zero-price.e2e.ts": 3 },
+    expected: { [CRITICAL_SETUP]: 1, "e2e/army/local/supplier-offer-zero-price.e2e.ts": 3,
+      "e2e/army/local/supplier-offer-purchase-unit.e2e.ts": 3 },
     maxDuration: 1_200_000,
   },
   emission: {
