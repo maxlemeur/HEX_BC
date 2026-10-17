@@ -320,3 +320,170 @@ sur les fichiers du parcours et du harnais sortie 0 ;
   témoin v2 et les v3 diffèrent par conception ; V3E01 asserte le contenu de chaque PDF qu'il envoie, et la
   campagne exige toujours au moins un PDF reçu.
 - Le texte est comparé à espaces près, et le signe de la remise peut être U+2212 ou un trait d'union.
+
+## 8. Implémentation SQL (M5)
+
+Migration `supabase/migrations/20261017213500_estimate_offer_client_contract_v2.sql` (commit `af708134`),
+horodatée après `20261017162000` (M4) et après `20261017172127` (M7, PR #34) : si une migration plus récente
+arrive sur `main`, `npm run supabase:migrations:restamp` puis `npm run supabase:manifest:add`. Aucune colonne
+ajoutée, aucune ligne réécrite (D17) : `upgrade_check.declared_new_columns()` reste inchangée. Le contrat
+supposé du §5.1 est tenu sans écart ; les assertions de `estimate-offer-contract-v2.test.sql` ne sont pas
+modifiées.
+
+### 8.1 Interface pour la piste TypeScript
+
+| Objet | Signature | Droits |
+|---|---|---|
+| `public.estimate_offer_engine_client_contract` | `(p_calc_engine_version smallint) → smallint`, immuable : 3 → 2, 1 et 2 → 1, sinon NULL | `service_role` |
+| `public.estimate_offer_client_valid_v2` | `(value jsonb, layout jsonb) → boolean`, immuable, faux sur toute erreur | `service_role` |
+| `public.estimate_offer_client_items_match_v2` | `(snapshot jsonb, version public.estimate_versions) → boolean`, stable, faux sur toute erreur | `service_role` |
+| `public.freeze_estimate_v3_document_snapshot` | `(p_version_id uuid, p_tenant_id uuid, p_expected_updated_at timestamptz, p_expected_content_revision bigint, p_actor_user_id uuid, p_draft_lock_session_id uuid, p_calculation_context jsonb, p_item_snapshots jsonb, p_version_totals jsonb) → public.estimate_versions` | `service_role` |
+
+Signatures inchangées : `begin_estimate_pdf_generation` (5), `publish_estimate_pdf_generation` (11 ; aiguillage
+sur `p_client_contract_snapshot.schemaVersion`), `reserve_estimate_email_dispatch[_with_session]`,
+`prepare_estimate_email_dispatch` (12, `p_seal_payload_version = 5`), `transition_estimate_version_status`,
+`transition_estimate_draft_to_sent`, `claim_estimate_email_dispatch`, `complete_estimate_email_dispatch`,
+`claim_portal_estimate_decision`, `estimate_offer_document_proof` (porte `clientContractVersion: 2`).
+
+**Contrat 2 tel que SQL l'apparie** (clés exactes, D14 et doc Vitest) :
+
+- `version` : bloc du contrat 1 (`id`, `tenantId`, `projectId`, `number`, `contentRevision`,
+  `calcEngineVersion: 3`, `dateDevis`, `validiteJours`, `currency`, `contractorRole`, `taxRateBp`), égal à la
+  ligne verrouillée par la publication ; `project`, `issuer`, `company` : identité capturée
+  (`capture_estimate_offer_identity`), `issuer.userId` = acteur ; `exclusions` = `estimate_versions.exclusions`.
+- `rows` : **toutes** les lignes de la version (sections, lignes chiffrées ou non). Section
+  `{kind, id, parentId, position, depth, number, title, saleHtCents}` ; ligne `{kind, id, parentId, position,
+  depth, title, quantity, unitCode, unitLabel, pricingStatus, taxRateBp, unitSaleHtCents, saleHtCents}` ;
+  `foSaleHtCents` et `moSaleHtCents` sur chaque ligne et section si et seulement si
+  `layout.priceMode = fo_mo_and_total`. Correspondance : titre = titre rogné ou « Sans titre » (contrat 1),
+  `quantity` = `quantity`, `unitCode` = `unit_code`, `unitLabel` = `measurement_units.symbol` (« m² » pour
+  `m2`), `pricingStatus` = `pricing_status`, `taxRateBp` = `tax_rate_bp`, `unitSaleHtCents` =
+  `snapshot_pu_ht_cents` (`null` hors `priced`), `saleHtCents` = `snapshot_gross_ht_cents`, `foSaleHtCents` =
+  `snapshot_gross_fo_ht_cents`, `moSaleHtCents` = brut − FO brut ; section = Σ des lignes descendantes.
+- `totals` : `grossHtCents` = `gross_ht_cents`, `commercialDiscountCents` = `discount_applied_cents`,
+  `discountIntent` = `{kind}` de `calc_snapshot_context.discount.kind` (plus `rateBp` = `rate_bp` pour `rate`),
+  `commercialRoundingCents` = `commercial_rounding_cents`, `netHtCents` = `total_ht_cents`, `taxByRate` =
+  `calc_snapshot_context.tax_breakdown` renommé (`rate_bp` → `rateBp`, `base_cents` → `baseHtCents`,
+  `tax_cents` → `taxCents`), même ordre (taux croissants), `taxCents` = `total_tax_cents`, `payableTtcCents` =
+  `total_ttc_cents`, `reverseCharge` = (`contractor_role = 'subcontractor'`).
+
+**Session de document v3** (jumelle de la v2, D15) :
+
+1. bail de la page posé (`draft_locks`, utilisateur **et** `session_id`) ;
+2. `freeze_estimate_v3_document_snapshot(…)` avec la projection du gel v3 (contexte §6.5, onze clés par ligne,
+   pied à sept clés, comme `freeze_estimate_v3_snapshot`) : bail exact vérifié, puis
+   `freeze_estimate_v3_snapshot(…, 'send', …)` recalcule tout par `private.estimate_v3_compute` et refuse
+   1 c d'écart ; rejoué à l'identique, il ne réécrit rien ;
+3. `begin_estimate_pdf_generation(version, tenant, acteur, 'manual' | 'workflow', null)` **après** le gel
+   (la réclamation retient la révision de contenu) ;
+4. rendu et dépôt du PDF, puis `publish_estimate_pdf_generation(…, p_client_contract_snapshot => contrat 2)` :
+   document `ready`, `client_contract_version = 2` ;
+5. émission manuelle : `transition_estimate_draft_to_sent(…, 'sent', sceau, …, 5::smallint,
+   estimate_offer_document_proof(document, version), session)`.
+
+Envoi par courriel d'un brouillon v3 : gel v3 frais **avant** la réservation (le passage à `sending` l'exige),
+puis `reserve_estimate_email_dispatch_with_session` → `begin_estimate_pdf_generation(…, 'email', envoi)` →
+publication (contrat 2, identité de l'envoi) → `prepare_estimate_email_dispatch(…, 5)` → `claim` →
+`complete`. Renvoi d'une v3 envoyée : réservation (identité relue sur le contrat 2), préparation avec le même
+sceau et le même document. Portail : `claim_portal_estimate_decision` inchangé (marqueur 5 et contrat de son
+moteur).
+
+**Codes d'erreur** (nouveaux ou nouvellement atteints par une v3) :
+
+| Code | Fonction | Cas |
+|---|---|---|
+| `22023 ESTIMATE_PDF_PUBLICATION_INVALID` | `publish_estimate_pdf_generation` | contrat 1 ou 2 invalide en soi (clé, type, invariant, moteur ≠ 3 dans un contrat 2, contrat 1 d'une v3) |
+| `23514 OFFER_CLIENT_CONTRACT_ANCHOR_MISMATCH` | `publish_estimate_pdf_generation` | contrat d'un autre moteur, bloc version, exclusions, émetteur ; contrat 2 qui ne correspond pas au devis figé (ligne, unité, symbole, statut, taux, PU, brut, parts, pied, intention, TVA par taux) ou gel v3 absent ou périmé |
+| `23514 OFFER_CLIENT_CONTRACT_ENGINE_MISMATCH` | déclencheur `aa_guard_estimate_document_engine_v3` | ligne de document, de tout statut, portant le contrat d'un autre moteur |
+| `23514 OFFER_NEW_DOCUMENT_CONTRACT_REQUIRED` | `guard_estimate_offer_document` | document `ready` sans le contrat de son moteur |
+| `40001 ESTIMATE_V2_SNAPSHOT_STALE`, `23514 ESTIMATE_V2_SNAPSHOT_INVALID` | `require_fresh_v2_snapshot_for_publication` | v3 qui passe à `sending`/`sent` sans gel frais, ou gel incomplet (bruts figés absents, Σ bruts ≠ brut de version) |
+| `22023 ESTIMATE_V3_DOCUMENT_SNAPSHOT_INPUT_INVALID`, `42501 ESTIMATE_V3_SNAPSHOT_NOT_WRITABLE`, `42501 ESTIMATE_EMAIL_DISPATCH_FORBIDDEN`, `40001 ESTIMATE_DRAFT_LOCK_REQUIRED`, `40001 ESTIMATE_VERSION_CONFLICT`, `42501 ESTIMATE_V3_SNAPSHOT_REQUIRES_DRAFT` | `freeze_estimate_v3_document_snapshot` | entrée nulle ; version absente ; affaire archivée ou acteur refusé ; bail d'une autre session ou expiré ; jeton ou révision ; statut ou moteur |
+| codes de `freeze_estimate_v3_snapshot` (M4) | idem, en délégation | `23503 ESTIMATE_LABOR_ROLE_OWNER_MISMATCH`, `23502 ESTIMATE_V3_LABOR_ROLE_REQUIRED`, `22023 ESTIMATE_V3_UNIT_REQUIRED`, `22023 ESTIMATE_V3_TAX_RATE_NOT_ALLOWED`, `22023 ESTIMATE_V3_SNAPSHOT_INVALID`, `40001 ESTIMATE_V3_CALCULATION_CONTEXT_CONFLICT`, `22023 ESTIMATE_V3_PROJECTION_MISMATCH` |
+
+Les autres refus d'offre gardent leurs noms et s'appliquent au contrat 2 comme au contrat 1
+(`OFFER_CLIENT_IDENTITY_MISMATCH`, `ESTIMATE_PDF_GENERATION_SUPERSEDED`, `OFFER_DOCUMENT_PROOF_MISMATCH`,
+`OFFER_SEAL_PAYLOAD_VERSION_REQUIRED`, `OFFER_MANUAL_EMISSION_CONTRACT_REQUIRED`,
+`OFFER_NEW_EMISSION_CONTRACT_REQUIRED`, `OFFER_DOCUMENT_IMMUTABLE`, `OFFER_DISPATCH_DOCUMENT_PROOF_REQUIRED`).
+SQL ne lève plus `ESTIMATE_V3_EMISSION_NOT_READY` ; le garde TS de 2.1 (`ESTIMATE_ENGINE_UNAVAILABLE` sur
+`POST …/pdf` et `POST …/send`) relève de la piste TypeScript.
+
+### 8.2 Fonctions redéfinies
+
+Chaque fonction part de sa définition vivante, sans redéfinition postérieure : `20261013130248` pour les
+fonctions d'offre, `20261017113844` (M1) pour `require_fresh_v2_snapshot_for_publication` et
+`guard_estimate_document_engine_v3`. Toutes restent `security invoker`, `search_path` vide, mêmes droits
+(réaffirmés) ; aucun `UPDATE`/`DELETE` nouveau (ceux qui existent gardent leur `WHERE`). Pour une v1/v2 la règle
+d'appariement vaut 1 : chaque condition du contrat 1 est inchangée (`= 1` devient `in (1, 2)` sur une valeur
+appariée au moteur, `is distinct from 1` devient « contrat du moteur »).
+
+| Fonction | Changement |
+|---|---|
+| CHECK `estimate_documents_client_contract_pair_check` | `(2, copie non nulle)` admis (`not valid` puis `validate`) ; préliminaire : définition revue exacte, aucun document de v3 |
+| `estimate_offer_document_valid` | contrat attendu = contrat du moteur ; validateur selon le contrat ; aucun document historique sans contrat pour une v3 |
+| `guard_estimate_document_engine_v3` | refus M1 remplacé par l'appariement (`OFFER_CLIENT_CONTRACT_ENGINE_MISMATCH`) |
+| `guard_estimate_offer_document` | `ready` exige le contrat du moteur ; immuabilité et réclamation pour les contrats 1 et 2 |
+| `publish_estimate_pdf_generation` | validateur selon `schemaVersion` ; contrat présenté = contrat du moteur ; ancres du contrat 1 inchangées ou `estimate_offer_client_items_match_v2` ; écrit le contrat présenté |
+| `reserve_estimate_email_dispatch`, `prepare_estimate_email_dispatch`, `transition_estimate_version_status`, `claim_portal_estimate_decision`, `assert_estimate_offer_dispatch_proof` | branche du contrat 1 étendue au contrat 2 (identité relue sur la copie, marqueur 5) |
+| `guard_estimate_offer_seal` | marqueur 5 avec le contrat de son moteur |
+| `require_fresh_v2_snapshot_for_publication` | refus M1 retiré ; v3 sous la gouvernance v2 (`in (2, 3)`) ; ligne non chiffrée sans PU figé admise (seulement possible en v3) ; v3 : bruts figés présents et Σ bruts = `gross_ht_cents` |
+
+Inchangés : `estimate_offer_client_valid`, `estimate_offer_client_items_match` (faux hors {1, 2} depuis M1),
+`begin_estimate_pdf_generation`, `freeze_estimate_v2_document_snapshot`, `freeze_estimate_v3_snapshot`.
+
+### 8.3 Suites réalignées (`estimate-calc-engine-v3-guards.test.sql`)
+
+Elles figeaient le refus général de M1, que M5 lève volontairement (§5.1) ; elles portent désormais le
+comportement nommé qui le remplace, rouge sans M5 et vert avec :
+
+| Assertion | Avant (M1) | Après (M5) |
+|---|---|---|
+| F-SQL-09, réclamation d'un document de v3 | `0A000 ESTIMATE_V3_EMISSION_NOT_READY` | `ok` (ligne `processing` sans contrat) |
+| F-SQL-09, ligne de document de v3 | `failed` sans contrat refusée | `failed` portant le contrat 1 : `23514 OFFER_CLIENT_CONTRACT_ENGINE_MISMATCH` |
+| F-SQL-08, v3 jamais figée vers `sending` / `sent` | `0A000 ESTIMATE_V3_EMISSION_NOT_READY` | `40001 ESTIMATE_V2_SNAPSHOT_STALE` |
+| F-SQL-08, v3 au gel frais mais lignes non figées vers `sending` | `0A000 ESTIMATE_V3_EMISSION_NOT_READY` | `23514 ESTIMATE_V2_SNAPSHOT_INVALID` |
+| F-SQL-14, liste blanche | — | ajout de `estimate_offer_engine_client_contract`, `estimate_offer_document_valid`, `publish_estimate_pdf_generation`, `estimate_offer_client_items_match_v2`, `freeze_estimate_v3_document_snapshot` ; motif de `require_fresh_v2_snapshot_for_publication` mis à jour ; `guard_estimate_document_engine_v3` retirée (plus de comparaison littérale ; le diagnostic des entrées sans comparaison rend « aucune ») |
+
+### 8.4 Preuves
+
+Retenues : WSL Ubuntu-24.04, Node 24.19.0, clone `~/miaouffrage-lot2-27` amené à `af708134` (`git fetch` du
+dépôt Windows puis `reset --hard`), **aucun changement local**, garde de concurrence (au plus une autre
+exécution native active au départ). Journaux : `~/miaouffrage-lot2-27/.e2e/lot2-2.7/m5-*.log`.
+
+| Commande | Résultat (17/10/2026, UTC) |
+|---|---|
+| `npm run db:ci:local` | sortie 0 en 28 s (21:56–21:57) : `Files=20, Tests=1887`, `Result: PASS`, matrice RLS passée. Les 20 suites sont vertes, dont `estimate-offer-contract-v2` (ses 50 assertions : même total qu'au rouge du §6.1, 38 échecs alors), `estimate-email-outbox` et `portal-security-definer` sans modification |
+| `npm run db:upgrade-check -- lot2-2-7` | sortie 0 en 19 s : 5 migrations postérieures appliquées sur la base peuplée (dont M5), **0 différence** (lignes, colonnes, `estimate_offer_document_valid` strict et historique, preuve, validateur et appariement du contrat 1 des documents émis), contrôle négatif détecté. Preuves : `.e2e/engine-v3/upgrade-check/2026-10-17T21-58-59-088Z-lot2-2-7/` |
+| `npm run db:upgrade-check -- lot2-2-7 --negative-control` | sortie 1 en 19 s, échec exigé au verdict : exactement 1 différence, `estimate_items b2000000-…-000000000112 pu_ht_cents 1481 → 1482`. Preuves : `…/2026-10-17T21-59-19-110Z-lot2-2-7-negative-control/` |
+
+Windows, worktree `miaouffrage-l2-27` : `npm run supabase:manifest:add` (249 entrées), `npm run
+supabase:validate` (« 249 files, 249 unique versions »), `npm run supabase:migrations:git-guard` (passé),
+`git diff --cached --check` (sortie 0). `src/lib/estimate-calculations.ts` et
+`src/lib/estimate-v2-snapshot.ts` : aucun diff (piste sans TypeScript).
+
+Itération (clone privé `~/miaouffrage-l27-m5`, mêmes fichiers, journaux `~/l27-m5-logs/`) :
+
+- `db:ci:local` vert dès la deuxième exécution (la première échouait à l'application de M5 : un `case … then`
+  non parenthésé dans une condition PL/pgSQL `if`, corrigé avant tout commit) ; upgrade-check et contrôle
+  négatif identiques à ceux retenus ;
+- rouge des suites réalignées : sans M5, `estimate-calc-engine-v3-guards` échoue en 1 (F-SQL-14 : la garde de
+  M1 compare encore un moteur à 3) et 25 à 29 (F-SQL-08/09 réalignées), `estimate-offer-contract-v2` en 9 à 41
+  et 46 à 50, comme au §6.1 (`guards-red-without-m5.log`). Cette exécution a démarré alors que deux piles
+  natives d'autres sessions tournaient (trois exécutions simultanées, au-delà de la garde de deux) : elle a
+  abouti sans incident, les suivantes ont toutes attendu la garde ;
+- sonde non versionnée (supprimée après usage) : la suite `estimate-offer-contract-v2` suivie d'un parcours
+  SQL de S5 par les RPC de l'application, réservation (`reserve_estimate_email_dispatch_with_session`) →
+  réclamation `email` → publication du contrat 2 → `prepare(…, 5)` → `claim` → `complete` → renvoi (même
+  sceau, même document) → acceptation au portail par la capacité du renvoi. 60 assertions, toutes les étapes
+  `ok` ; état final `accepted`, marqueur 5, sceau inchangé, document de contrat 2 valide, deux envois `sent`
+  (les deux échecs relevés portaient sur l'écriture `t` d'un booléen dans la sonde elle-même).
+
+### 8.5 Limites
+
+- Le parcours `engine-v3-emission.e2e.ts` (les deux journées) dépend de la piste TypeScript (contrat 2,
+  charge 6, routes) : il n'est pas rejoué par cette piste. Le chemin courriel, renvoi et portail d'une v3 n'a
+  été prouvé en SQL que par la sonde non versionnée du §8.4 ; le parcours en reste la preuve retenue.
+- `safeupdate` ne se charge pas sous pgTAP (rôle natif) : M5 n'ajoute aucun `UPDATE` ni `DELETE`, ceux des
+  fonctions redéfinies gardent leur `WHERE` ; la preuve sous PostgREST passe par le parcours.
+- Le Supabase partagé n'est pas touché ; M5 n'y est pas appliquée.
+- Le renommage des identifiants du parcours (collision avec l'éditeur 2.6) relève des fichiers du parcours et
+  de la phase, hors de cette piste : cette section ne les cite pas.
