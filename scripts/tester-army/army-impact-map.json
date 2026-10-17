@@ -24,6 +24,7 @@
       "e2e/army/critical/prehydration-auth.e2e.ts",
       "e2e/army/critical/stale-save.e2e.ts",
       "e2e/army/critical/team-a-hub.e2e.ts",
+      "e2e/army/local/engine-v3-emission.e2e.ts",
       "e2e/army/local/engine-v3-fail-closed.e2e.ts",
       "e2e/army/local/engine-v3-persistence.e2e.ts",
       "e2e/army/local/estimate-create-calculation-gate.e2e.ts",
@@ -197,7 +198,8 @@
     ],
     "print": [
       "e2e/army/critical/commercial-rounding.e2e.ts",
-      "e2e/army/critical/estimate-integrity.e2e.ts"
+      "e2e/army/critical/estimate-integrity.e2e.ts",
+      "e2e/army/local/engine-v3-emission.e2e.ts"
     ]
   },
   "rules": [
@@ -279,6 +281,7 @@
     },
     {
       "id": "estimate-print",
+      "note": "Impression : V3E02 y relit les montants du document v3 (S2 puis S5).",
       "paths": ["src/app/dashboard/estimates/[versionId]/print/**"],
       "journeys": ["@print"]
     },

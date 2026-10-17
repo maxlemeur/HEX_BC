@@ -15,7 +15,7 @@ import {
 // failure modes are fixed in docs/testing/tester-army-calc-v3.md. It refuses
 // the developers' long-running stack (API 45585, DB 33485), any non-loopback
 // origin and any environment the owned-stack runner did not mark. The emission
-// phase serves `next dev`, where sandbox terms already apply
+// phases serve `next dev`, where sandbox terms already apply
 // (src/lib/estimates/pdf-terms-server.ts); every other phase serves the owned
 // production build. offer-emission.config.ts stays unchanged.
 function loopbackOrigin(name: string, options: { ipv4Only?: boolean } = {}) {
@@ -44,7 +44,7 @@ if (process.env.E2E_CALC_V3_OWNED_STACK !== "1") throw new Error("calc-v3 runs o
 const phase = process.env.E2E_CALC_V3_PHASE;
 if (!isCalcV3Phase(phase)) throw new Error("calc-v3 requires an explicit E2E_CALC_V3_PHASE.");
 const definition = CALC_V3_PHASE_DEFINITIONS[phase];
-const emission = phase === "emission";
+const emission = definition.sentinelCollector === true;
 const appOrigin = loopbackOrigin("E2E_ARMY_BASE_URL");
 const backend = loopbackOrigin("NEXT_PUBLIC_SUPABASE_URL", { ipv4Only: true });
 if (appOrigin.hostname !== "localhost") throw new Error("calc-v3 serves the app on localhost for Next hydration.");

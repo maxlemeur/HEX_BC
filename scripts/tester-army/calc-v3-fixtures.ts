@@ -569,6 +569,61 @@ async function offersFixtures(context: CalcV3FixtureContext, campaign: string): 
     identities: { owner: publicActor(actor), prefix, suppliers, products, offers, estimates } };
 }
 
+// Sub-lot 2.7 (D14, D15, M5; docs/testing/estimate-engine-v3-2.7.md). A dedicated owner whose
+// tenant policy is at engine 3 (1,30 / 1,20, rates 20 / 10 / 5,5 / 2,1 %), set by service_role
+// through set_tenant_calc_policy, the only writer of lot 2 (P-13), with one active labor role at
+// exactly 4,000 cents an hour (§5.1). Its v3 estimates are created by the journey through the
+// application. The policy governs only new versions: one v2 draft witness (one 1 u line at
+// 20,00 € HT, 20 % VAT, no snapshot) is seeded in the same tenant so that the journey issues a
+// contract 1 offer before any v3 and re-verifies it after the v3 emissions.
+async function emissionV3Fixtures(context: CalcV3FixtureContext, campaign: string): Promise<CalcV3PhaseFixtures> {
+  const actor = await createActor(context, campaign, "emission-v3", { rmo4000: true });
+  const reason = `ARMY calc-v3 ${campaign} sous-lot 2.7 émission v3`;
+  await checked("emission-v3:tenant policy at engine 3", context.admin.rpc("set_tenant_calc_policy", {
+    p_tenant_id: actor.tenantId, p_new_estimate_calc_engine: 3, p_default_sale_coefficient_fo: 1.3,
+    p_default_sale_coefficient_mo: 1.2, p_allowed_tax_rates_bp: [2000, 1000, 550, 210], p_change_reason: reason,
+    p_actor_user_id: actor.userId,
+  }));
+  const policy = await checked("emission-v3:policy readback", context.admin.from("tenant_calc_policies")
+    .select("new_estimate_calc_engine, default_sale_coefficient_fo, default_sale_coefficient_mo, allowed_tax_rates_bp")
+    .eq("tenant_id", actor.tenantId).single());
+  if (policy.new_estimate_calc_engine !== 3 || Number(policy.default_sale_coefficient_fo) !== 1.3 ||
+    Number(policy.default_sale_coefficient_mo) !== 1.2 || JSON.stringify(policy.allowed_tax_rates_bp) !== "[2000,1000,550,210]") {
+    throw new Error("calc-v3 fixture emission-v3: the tenant policy readback differs.");
+  }
+  const owner = { userId: actor.userId, tenantId: actor.tenantId };
+  const common = { tenant_id: owner.tenantId };
+  const prefix = `ARMY-V3E-calc-v3-${campaign}`;
+  const witness = { projectId: randomUUID(), versionId: randomUUID(), sectionId: randomUUID(), lineId: randomUUID(),
+    title: `${prefix} témoin v2`, lineTitle: `${prefix} témoin v2 prestation` };
+  const today = new Date().toISOString().slice(0, 10);
+  const records: PlanRecord[] = [
+    { table: "estimate_projects", row: { ...common, id: witness.projectId, user_id: owner.userId, name: witness.title } },
+    { table: "estimate_versions", row: { ...common, ...versionDefaults, id: witness.versionId, project_id: witness.projectId,
+      title: witness.title, calc_engine_version: 2, max_section_depth: 1, discount_bp: 0, discount_mode: "simple",
+      discount_steps: [], contractor_role: "principal", date_devis: today, validite_jours: 30,
+      total_ht_cents: 2000, total_tax_cents: 400, total_ttc_cents: 2400 } },
+    { table: "estimate_items", row: { ...common, id: witness.sectionId, version_id: witness.versionId, parent_id: null,
+      item_type: "section", position: 0, title: `${prefix} lot` } },
+    { table: "estimate_items", row: { ...common, id: witness.lineId, version_id: witness.versionId, parent_id: witness.sectionId,
+      item_type: "line", line_nature: "supply_only", position: 1, title: witness.lineTitle, description: "u", quantity: 1,
+      unit_price_ht_cents: 2000, tax_rate_bp: 2000, k_fo: 1, h_mo: 0, h_mo_majoration: 1, k_mo: 1, pu_ht_cents: 2000,
+      line_total_ht_cents: 2000, line_tax_cents: 400, line_total_ttc_cents: 2400 } },
+  ];
+  await executePlan(context, "emission-v3", records);
+  const engine = await checked("emission-v3:witness engine", context.admin.from("estimate_versions")
+    .select("calc_engine_version, status").eq("id", witness.versionId).single());
+  if (engine.calc_engine_version !== 2 || engine.status !== "draft") throw new Error("calc-v3 fixture emission-v3: the witness must be a v2 draft.");
+  const file = await writeFixture(context, "emission-v3", { schemaVersion: "calc-v3-emission-v3-1", status: "ready", campaign,
+    apiUrl: context.backend, createdAt: new Date().toISOString(), prefix, owner: { ...owner, laborRoleId: actor.laborRoleId },
+    policy: { engine: 3, saleCoefficientFo: 1.3, saleCoefficientMo: 1.2, allowedTaxRatesBp: [2000, 1000, 550, 210] },
+    v2Witness: { ...witness, expected: { ht: 2000, tax: 400, ttc: 2400 } },
+    boundary: "A new owner, its bootstrap tenant at policy 3 and one v2 draft witness; every v3 is created by the journey through the application." });
+  return { env: { E2E_V3_EMISSION_FIXTURE_PATH: file }, secretEnv: {},
+    login: { email: actor.email, password: actor.password },
+    identities: { owner: publicActor(actor), prefix, v2Witness: witness, policy: "engine 3, 1,30 / 1,20" } };
+}
+
 /** Prepares the explicit fixtures of one calc-v3 phase on the owned stack. */
 export async function prepareCalcV3Fixtures(phase: CalcV3Phase, context: CalcV3FixtureContext): Promise<CalcV3PhaseFixtures> {
   const campaign = randomUUID().slice(0, 8);
@@ -580,5 +635,6 @@ export async function prepareCalcV3Fixtures(phase: CalcV3Phase, context: CalcV3F
     case "access": return accessFixtures(context, campaign);
     case "offers": return offersFixtures(context, campaign);
     case "emission": return { env: {}, secretEnv: {}, identities: { note: "OF journeys create their own ARMY-OFFER estimates through the UI." } };
+    case "emission-v3": return emissionV3Fixtures(context, campaign);
   }
 }

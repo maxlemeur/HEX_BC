@@ -20,7 +20,7 @@ type Collector = { origin: string; directory: string; close: () => Promise<void>
 // `scripts/run-tester-army-ci.ts calc-v3` once pgTAP and RLS have passed.
 // Contract and failure modes: docs/testing/tester-army-calc-v3.md. Each phase
 // is its own TesterArmy invocation of e2e.calc-v3.config.ts with fresh
-// fixtures; production phases share one owned build, the emission phase runs
+// fixtures; production phases share one owned build, the emission phases run
 // last under `next dev` with the sentinel collector. A phase passes only when
 // every selected result passed, nothing was skipped, retried, interrupted or
 // silently deselected, its server guard reported, the sources and build stayed
@@ -229,7 +229,7 @@ async function runPhase(input: CalcV3CampaignInput, phase: CalcV3Phase, runStamp
       ...(fixtures.login ? { E2E_LOGIN_EMAIL: fixtures.login.email, E2E_LOGIN_PASSWORD: fixtures.login.password } : {}),
     };
     let networkLog: string;
-    if (phase === "emission") {
+    if (definition.sentinelCollector) {
       // Dynamic import: the collector module has a top-level-await CLI block that
       // tsx cannot compile to the CommonJS form this runner is loaded in.
       const { COLLECTOR_SENTINEL, startCollector } = await import("./offer-collector.mjs");
@@ -284,7 +284,7 @@ async function runPhase(input: CalcV3CampaignInput, phase: CalcV3Phase, runStamp
     summary.validation = validation;
     const problems = [...validation.problems];
     if (exitCode !== 0) problems.push(`TesterArmy exited ${exitCode}`);
-    const network = networkReceipt(networkLog, phase === "emission" ? "offer" : "coverage");
+    const network = networkReceipt(networkLog, definition.sentinelCollector ? "offer" : "coverage");
     summary.serverNetwork = network;
     if (!network.guardInstalled) problems.push("the server network guard did not report its installation");
     if (buildBefore) {
@@ -292,7 +292,7 @@ async function runPhase(input: CalcV3CampaignInput, phase: CalcV3Phase, runStamp
       summary.productionBuild = { identity: buildBefore, changedDuringRun: JSON.stringify(buildAfter) !== JSON.stringify(buildBefore) };
       if (buildBefore.length !== 3 || JSON.stringify(buildAfter) !== JSON.stringify(buildBefore)) problems.push("the production build is missing or changed during the phase");
     }
-    if (phase === "emission" && collector) {
+    if (definition.sentinelCollector && collector) {
       const texts = await extractCollectedPdfTexts(collector.directory, { root });
       summary.collectedPdfs = texts.map((text) => ({ receiptId: text.receiptId, receivedAt: text.receivedAt, sha256: text.sha256, bytes: text.bytes,
         pageCount: text.pageCount, characters: text.characters, mentionsArmyOffer: text.pages.some((page) => page.includes("ARMY-OFFER-")) }));
