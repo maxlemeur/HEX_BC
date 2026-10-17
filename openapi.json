@@ -50872,12 +50872,61 @@
                     "type": "null"
                   }
                 ]
+              },
+              "seal_payload_version": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Marqueur du sceau : 5 = sceau lié à l'offre (contrat client et PDF) ; 1 à 4 = sceau historique ; nul sans sceau."
+              },
+              "client_contract_version": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "const": 1
+                      },
+                      {
+                        "type": "number",
+                        "const": 2
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Marqueur 5 : contrat client 1 (moteurs 1 et 2) ou 2 (moteur 3) ; nul sinon."
+              },
+              "calc_payload_version": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Charge de calcul hachée : 4 (contrat 1) ou 6 (contrat 2, moteur 3) sous le marqueur 5, charge historique retrouvée sinon ; nulle si aucune."
               }
             },
             "required": [
               "valid",
               "computed_hash",
-              "stored_hash"
+              "stored_hash",
+              "seal_payload_version",
+              "client_contract_version",
+              "calc_payload_version"
             ],
             "additionalProperties": false
           }

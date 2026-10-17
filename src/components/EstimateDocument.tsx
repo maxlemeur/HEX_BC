@@ -4,13 +4,17 @@ import {
   BusinessDocumentFrame,
 } from "@/components/documents/BusinessDocumentPrimitives";
 import { EstimateDocumentTableRows } from "@/components/estimate-document/EstimateDocumentTableRows";
+import { EstimateDocumentTotalsV3 } from "@/components/estimate-document/EstimateDocumentTotalsV3";
 import {
   buildLegacyDocumentBreakdown,
   DOCUMENT_CALC_ENGINE_VERSION,
   prepareEstimateDocumentData,
+  prepareEstimateV3DocumentData,
   type EstimateDocumentCalculationVersion,
   type EstimateItem,
+  type PrepareEstimateDocumentV3Input,
 } from "@/components/estimate-document/prepare-estimate-document-data";
+import { footerFromStoredV3Document } from "@/lib/estimates/v3-document-presentation";
 import type { CalcEngineVersion } from "@/lib/estimates/calc-engine-version";
 import { normalizeDocumentIssuerDisplay } from "@/lib/documents/issuer-display";
 import {
@@ -67,6 +71,11 @@ export type EstimateDocumentProps = {
   preserveStoredSnapshot?: boolean;
   calculationVersion?: EstimateDocumentCalculationVersion;
   maxVisibleSectionLevel?: number | null;
+  /**
+   * Lot 2, sous-lot 2.7 : version v3 figée. Le document relit alors son gel (lignes brutes, pied
+   * v3) au lieu du moteur historique ; les grandeurs v1/v2 ci-dessus sont ignorées.
+   */
+  v3Version?: PrepareEstimateDocumentV3Input["version"];
 };
 
 function formatDate(dateStr: string): string {
@@ -219,9 +228,14 @@ export function EstimateDocument({
   preserveStoredSnapshot = false,
   calculationVersion,
   maxVisibleSectionLevel = null,
+  v3Version,
 }: EstimateDocumentProps) {
   const resolvedCurrency: SupportedEstimateCurrency =
     normalizeEstimateCurrency(currency) ?? "EUR";
+  const v3Prepared = v3Version
+    ? prepareEstimateV3DocumentData({ calcEngineVersion: 3, items, version: v3Version, currency: resolvedCurrency,
+        validiteJours, portalUrl, maxVisibleSectionLevel, layout })
+    : null;
 
   const formattedEstimateReference = formatEstimateReference(
     estimateReference,
@@ -240,7 +254,7 @@ export function EstimateDocument({
     validiteLabel,
     taxLabel,
     qrLikeCells,
-  } = prepareEstimateDocumentData({
+  } = v3Prepared ?? prepareEstimateDocumentData({
     items,
     // EST-E26 (T6, étape 12) : le document dérive du moteur d'autorité. Le
     // breakdown est construit ici à partir des props actuelles (étape 13 le
@@ -348,7 +362,7 @@ export function EstimateDocument({
               {validiteLabel}
             </dd>
           </div>
-          {discountCents > 0 ? (
+          {!v3Prepared && discountCents > 0 ? (
             <div className="flex items-center justify-between gap-4">
               <dt>Remise</dt>
               <dd className="font-semibold text-secondary-foreground">
@@ -446,11 +460,15 @@ export function EstimateDocument({
                 lineUnitPriceHtById={lineUnitPriceHtById}
                 currency={resolvedCurrency}
                 layout={resolvedLayout}
+                v3LinesById={v3Prepared?.v3.linesById}
               />
             </tbody>
           </table>
         </div>
 
+        {v3Prepared ? (
+          <EstimateDocumentTotalsV3 footer={footerFromStoredV3Document(v3Prepared.v3.totals)} currency={resolvedCurrency} />
+        ) : (
         <div className="mb-8 flex justify-end print:mb-4">
           <div className="w-full max-w-[320px] overflow-hidden rounded-xl border border-border">
             <div className="flex items-center justify-between bg-brand-blue px-5 py-3 print-color-adjust">
@@ -513,6 +531,7 @@ export function EstimateDocument({
             ) : null}
           </div>
         </div>
+        )}
 
         {conditionsText && !conditionsOnNewPage ? (
           <EstimateConditionsBlock text={conditionsText} />

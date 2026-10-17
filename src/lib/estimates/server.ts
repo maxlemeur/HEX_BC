@@ -52,9 +52,12 @@ import {
   shouldPreserveStoredEstimateV2Snapshot,
 } from "@/lib/estimates/calc-engine-version";
 import {
+  engineFreezesSnapshot,
   EstimateEngineUnavailableError,
   isUnifiedEngine,
+  requireHistoricalEngine,
   usesPerUnitLabor,
+  usesSaleCoefficients,
 } from "@/lib/estimates/engine/capabilities";
 import { getTakeoffLinkedSourceVersionByJobId } from "@/lib/takeoff/version-links";
 import { isSupplierAlternativeCurrencyCompatible } from "@/lib/estimates/supplier-preselection";
@@ -4767,8 +4770,11 @@ export async function getEstimateVersionDetails(
     throw notFound("Version de chiffrage introuvable.");
   }
 
+  // Lot 2, sous-lot 2.7 : une v3 n'a ni instantané v2 ni barème ; son export relit le gel v3
+  // (v3-export.ts) et ce contexte reste celui d'un brouillon (rôles, ventilation).
   const preserveStoredSnapshot =
     options?.includeExportCalculationContext === true &&
+    !usesSaleCoefficients(resolveEstimateEngineVersion(version)) &&
     shouldPreserveStoredEstimateV2Snapshot(version);
   const exportLaborSplitEnabled =
     options?.includeExportCalculationContext === true && !preserveStoredSnapshot
@@ -5544,7 +5550,8 @@ export async function freezeEstimateV2SnapshotForSend(
     }
     throw error;
   }
-  if (!isUnifiedEngine(resolveCalcEngineVersion(version))) {
+  // Lot 2, sous-lot 2.7 : la v3 fige aussi son document (freeze_estimate_v3_document_snapshot).
+  if (!engineFreezesSnapshot(resolveEstimateEngineVersion(version))) {
     return version;
   }
   return freezeEstimateV2Snapshot({
@@ -5635,7 +5642,8 @@ export async function patchEstimateStatus(
       );
     }
 
-    if (isUnifiedEngine(resolveCalcEngineVersion(version))) {
+    // Lot 2, sous-lot 2.7 : une v3 fige son document comme une v2 (gel v3, bail de la page).
+    if (engineFreezesSnapshot(resolveEstimateEngineVersion(version))) {
       const frozen = await freezeEstimateV2Snapshot({
         supabase,
         rpcClient: getServiceRoleSupabaseClient(),
@@ -5688,7 +5696,8 @@ export async function patchEstimateStatus(
       versionId,
       requireSealed: false,
     });
-    if (offer.proof.clientContractVersion !== 1) {
+    // Contrat 1 (v1/v2) ou contrat 2 (v3) : l'appariement au moteur est prouvé par la relecture.
+    if (offer.proof.clientContractVersion === null) {
       throw badRequest("La nouvelle émission exige une copie commerciale complète.", undefined, "OFFER_DOCUMENT_CONTRACT_INVALID");
     }
     sealHash = offer.sealHash;
@@ -5732,6 +5741,9 @@ export async function patchEstimateStatus(
   };
 }
 
+/** Charge de calcul de chaque schéma historique retrouvé par la vérification. */
+const SEAL_SCHEME_PAYLOAD_VERSIONS = { v4: 4, v3: 3, v2: 2, v1_split: 1, v1_pre_split: 1 } as const;
+
 export async function verifyEstimateSeal(versionId: string) {
   const context = await getAuthenticatedContext();
   const { supabase, tenantId, userId } = context;
@@ -5752,7 +5764,22 @@ export async function verifyEstimateSeal(versionId: string) {
       metadata: { valid: true, computed_hash: offer.sealHash, stored_hash: offer.sealHash, matched_seal_scheme: "v5" },
       occurredAt: new Date().toISOString(),
     });
-    return { valid: true, computed_hash: offer.sealHash, stored_hash: offer.sealHash };
+    // Lot 2, sous-lot 2.7 : le contrat (1 ou 2) et la charge de calcul (4 ou 6) du marqueur 5.
+    return { valid: true, computed_hash: offer.sealHash, stored_hash: offer.sealHash, seal_payload_version: 5,
+      client_contract_version: offer.proof.clientContractVersion, calc_payload_version: offer.calculationPayloadVersion };
+  }
+  // Lot 2, sous-lot 2.7 (D14) : une v3 n'a aucun candidat historique (marqueur 5 seulement) ;
+  // l'empreinte rendue est celle de sa charge 6, pour diagnostic.
+  if (usesSaleCoefficients(resolveEstimateEngineVersion(sealSource.version))) {
+    const computedV3Hash = computeEstimateSealHash(buildCanonicalEstimateSealPayload(sealSource));
+    const storedV3Hash = sealSource.version.seal_hash?.trim().toLowerCase() || null;
+    await logEstimateVersionEvent({
+      versionId, eventType: "seal_verified", actorUserId: userId,
+      metadata: { valid: false, computed_hash: computedV3Hash, stored_hash: storedV3Hash, matched_seal_scheme: null },
+      occurredAt: new Date().toISOString(),
+    });
+    return { valid: false, computed_hash: computedV3Hash, stored_hash: storedV3Hash,
+      seal_payload_version: sealSource.version.seal_payload_version ?? null, client_contract_version: null, calc_payload_version: null };
   }
   const currentSealCandidate = {
     scheme: "v4" as const,
@@ -5799,7 +5826,7 @@ export async function verifyEstimateSeal(versionId: string) {
   // l'arrondi commercial explicite en v4. Les candidats v3/v2 conservent la
   // compatibilite des sceaux emis avant ce contrat.
   const sealCandidates =
-    isUnifiedEngine(resolveCalcEngineVersion(sealSource.version))
+    isUnifiedEngine(requireHistoricalEngine(resolveEstimateEngineVersion(sealSource.version)))
       ? [currentSealCandidate, unifiedSealCandidate, previousSealCandidate]
       : [previousSealCandidate, ...legacySealCandidates];
   const storedHash = sealSource.version.seal_hash?.trim().toLowerCase() || null;
@@ -5830,6 +5857,9 @@ export async function verifyEstimateSeal(versionId: string) {
     valid: isValid,
     computed_hash: computedHash,
     stored_hash: storedHash,
+    seal_payload_version: sealSource.version.seal_payload_version ?? null,
+    client_contract_version: null,
+    calc_payload_version: matchedCandidate ? SEAL_SCHEME_PAYLOAD_VERSIONS[matchedCandidate.scheme] : null,
   };
 }
 

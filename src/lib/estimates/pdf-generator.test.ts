@@ -1026,18 +1026,19 @@ describe("estimate pdf generator", () => {
   );
 
   // Lot 2, sous-lot 2.1 (docs/testing/estimate-engine-v3-2.1.md, F-TS-04). Publier le PDF
-  // contractuel d'une v3 le relirait comme une v1 : le refus est nommé avant tout gel,
-  // rendu, dépôt ou appel SQL de publication.
-  it("refuses to publish a v3 document before claiming, freezing, rendering or uploading", async () => {
-    const { authenticatedSupabase, serviceRoleSupabase } = usePdfClients({ calcEngineVersion: 3 });
+  // contractuel d'un moteur inconnu le relirait comme une v1 : le refus est nommé avant tout
+  // gel, rendu, dépôt ou appel SQL de publication. Réaligné en 2.7 (estimate-engine-v3-2.7-vitest.md,
+  // « Tests existants à réaligner ») : la v3 est désormais émise (contrat client 2, parcours
+  // V3M01/V3M02) ; le refus avant tout effet reste exigé pour un moteur hors domaine.
+  it("refuses to publish a document of an unknown engine before claiming, freezing, rendering or uploading", async () => {
+    const { authenticatedSupabase, serviceRoleSupabase } = usePdfClients({ calcEngineVersion: 4 });
 
     await expect(markEstimatePdfProcessing(VERSION_ID, LOCK_SESSION_ID)).rejects.toMatchObject({
-      code: "ESTIMATE_ENGINE_UNAVAILABLE",
-      engineVersion: 3,
+      code: "ESTIMATE_CALC_ENGINE_UNSUPPORTED",
     });
     await expect(
       generateEstimatePdfNow(VERSION_ID, { force: true, triggeredBy: "manual" })
-    ).rejects.toMatchObject({ code: "ESTIMATE_ENGINE_UNAVAILABLE", engineVersion: 3 });
+    ).rejects.toMatchObject({ code: "ESTIMATE_CALC_ENGINE_UNSUPPORTED" });
 
     expect(renderToBuffer).not.toHaveBeenCalled();
     expect(authenticatedSupabase.__mocks.upload).not.toHaveBeenCalled();

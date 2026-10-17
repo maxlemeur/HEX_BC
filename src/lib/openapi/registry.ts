@@ -995,6 +995,15 @@ const estimateVerifySealDataSchema = z.object({
   valid: z.boolean(),
   computed_hash: z.string(),
   stored_hash: z.string().nullable(),
+  seal_payload_version: z.number().int().nullable().describe(
+    "Marqueur du sceau : 5 = sceau lié à l'offre (contrat client et PDF) ; 1 à 4 = sceau historique ; nul sans sceau."
+  ),
+  client_contract_version: z.union([z.literal(1), z.literal(2)]).nullable().describe(
+    "Marqueur 5 : contrat client 1 (moteurs 1 et 2) ou 2 (moteur 3) ; nul sinon."
+  ),
+  calc_payload_version: z.number().int().nullable().describe(
+    "Charge de calcul hachée : 4 (contrat 1) ou 6 (contrat 2, moteur 3) sous le marqueur 5, charge historique retrouvée sinon ; nulle si aucune."
+  ),
 });
 
 const estimateItemsDataSchema = z.object({

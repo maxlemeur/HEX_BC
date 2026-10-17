@@ -161,7 +161,10 @@ describe("computeEstimateSealHash", () => {
   // Lot 2, sous-lot 2.1 (docs/testing/estimate-engine-v3-2.1.md, F-TS-07). Isolation justifiée :
   // un sceau calculé pour une v3 avec une charge v1/v2 serait un document émis faux et
   // immuable ; aucune v3 ne peut atteindre l'émission en E2E pour le montrer.
-  it("refuses to seal a v3 until the v3 seal payload exists", () => {
+  // Réaligné en 2.7 (docs/testing/estimate-engine-v3-2.7-vitest.md, « Tests existants à
+  // réaligner ») : sans option, une v3 est désormais scellée par la charge 6 ; le refus nommé
+  // d'une charge v1/v2 reste (détail : estimate-seal.v3.test.ts, F27-S01 et F27-S05).
+  it("seals a v3 only with payload 6 and still refuses a historical payload by name", () => {
     const version = createVersion({ calc_engine_version: 3 });
     const thrownBy = (read: () => unknown) => {
       try {
@@ -172,10 +175,7 @@ describe("computeEstimateSealHash", () => {
       return undefined;
     };
 
-    expect(thrownBy(() => buildCanonicalEstimateSealPayload({ version, items: [createItem()] }))).toMatchObject({
-      code: "ESTIMATE_ENGINE_UNAVAILABLE",
-      engineVersion: 3,
-    });
+    expect(buildCanonicalEstimateSealPayload({ version, items: [createItem()] }).meta.payload_version).toBe(6);
     expect(
       thrownBy(() => buildCanonicalEstimateSealPayload({ version, items: [createItem()] }, { payloadVersion: 4 }))
     ).toMatchObject({ code: "ESTIMATE_ENGINE_UNAVAILABLE", engineVersion: 3 });

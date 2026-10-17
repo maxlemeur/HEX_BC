@@ -18,9 +18,10 @@ import {
 import { EstimateEngineUnavailableNotice } from "@/components/estimates/EstimateEngineUnavailableNotice";
 import {
   resolveCalcEngineVersionForDisplay,
+  resolveEstimateEngineVersionForDisplay,
   shouldPreserveStoredEstimateV2Snapshot,
 } from "@/lib/estimates/calc-engine-version";
-import { isLegacyEngine } from "@/lib/estimates/engine/capabilities";
+import { isLegacyEngine, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import {
   loadMarginTiersForTotals,
   resolveRenderMarginMode,
@@ -41,6 +42,7 @@ import { normalizeEstimateCurrency } from "@/lib/money";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 import { EstimatePrintLayoutButton } from "./EstimatePrintLayoutButton";
+import { EstimateV3PrintPage } from "./EstimateV3PrintPage";
 
 type EstimateProject =
   Database["public"]["Tables"]["estimate_projects"]["Row"];
@@ -167,6 +169,24 @@ export default async function PrintEstimatePage({
   const version = versionResult.data as EstimateVersion;
   if (!userContext.tenantId || userContext.tenantId !== version.tenant_id) {
     notFound();
+  }
+  // Lot 2, sous-lot 2.7 : le document client d'une v3 relit son gel (contrat client 2), sans le
+  // moteur historique ; vue séparée (EstimateV3PrintPage).
+  const estimateEngine = resolveEstimateEngineVersionForDisplay(version);
+  if (estimateEngine !== null && usesSaleCoefficients(estimateEngine)) {
+    return (
+      <EstimateV3PrintPage
+        supabase={supabase}
+        tenantId={version.tenant_id}
+        versionId={versionId}
+        project={resolveProject(version.estimate_projects)}
+        issuer={{ name: userContext.profile?.full_name, role: userContext.profile?.job_title,
+          phone: userContext.profile?.phone, email: userContext.profile?.work_email ?? userContext.userEmail }}
+        previewLayout={previewLayout}
+        autoPrint={autoPrint}
+        portalUrl={resolveEstimatePortalUrl(versionId)}
+      />
+    );
   }
   // Lot 2, sous-lot 2.1 : aucun document imprimable d'une v3 avant le contrat client 2.
   const calcEngineVersion = resolveCalcEngineVersionForDisplay(version);
