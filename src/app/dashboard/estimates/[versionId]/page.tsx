@@ -29,11 +29,13 @@ import {
   computeStoredDiscountCents,
 } from "@/lib/estimate-calculations";
 import { EstimateEngineUnavailableNotice } from "@/components/estimates/EstimateEngineUnavailableNotice";
+import { EstimateV3DraftSummary } from "@/components/estimates/v3/EstimateV3DraftSummary";
 import {
-  resolveCalcEngineVersionForDisplay,
+  resolveEstimateEngineVersionForDisplay,
   shouldPreserveStoredEstimateV2Snapshot,
 } from "@/lib/estimates/calc-engine-version";
-import { isLegacyEngine } from "@/lib/estimates/engine/capabilities";
+import { isLegacyEngine, requireHistoricalEngine, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
+import { readStoredEstimateV3DraftSummary } from "@/lib/estimates/v3-editor";
 import {
   loadMarginTiersForTotals,
   resolveRenderMarginMode,
@@ -55,7 +57,7 @@ import {
   listEstimateVersionVariants,
   verifyEstimateSeal,
 } from "@/lib/estimates/server";
-import { formatEUR } from "@/lib/money";
+import { formatEUR, normalizeEstimateCurrency } from "@/lib/money";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
@@ -119,6 +121,128 @@ function parseHistoryPage(
   return parsed;
 }
 
+/**
+ * Lot 2, sous-lot 2.6 : fiche d'un brouillon v3, en lecture. Totaux stockés (vérifiés à chaque
+ * sauvegarde, D12), TVA par taux, lignes ; ni statut d'émission ni document client avant 2.7.
+ */
+async function renderEstimateV3Detail(input: {
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  version: EstimateVersion;
+  versionId: string;
+  items: Awaited<ReturnType<typeof readAllEstimateItems>>;
+  timelinePage: number | undefined;
+  approvalSummary: Awaited<ReturnType<typeof getEstimateApprovalSummary>> | null;
+  approvalJournal: Awaited<ReturnType<typeof listEstimateApprovalDecisionJournal>> | null;
+  canEditVersion: boolean;
+}) {
+  const { version, versionId, items } = input;
+  const project = resolveProject(version.estimate_projects);
+  const [versionTimeline, plansSummary, registerSummary] = await Promise.all([
+    listEstimateProjectVersions({
+      projectId: version.project_id,
+      page: input.timelinePage,
+      pageSize: VERSION_TIMELINE_PAGE_SIZE,
+      anchorVersionId: versionId,
+    }),
+    fetchAffaireHubPlansSummary(version.project_id).catch(() => null),
+    fetchAffaireRegisterSummary({ projectId: version.project_id, versionId }).catch(() => null),
+  ]);
+  await assertEstimateVersionUnchanged({ supabase: input.supabase, version });
+  const summary = readStoredEstimateV3DraftSummary(version, items);
+  const currency = normalizeEstimateCurrency(version.currency) ?? "EUR";
+  const expiry = computeExpiryInfo(version.date_devis, version.validite_jours);
+  const statusBadge = STATUS_BADGES[version.status] ?? STATUS_BADGES.draft;
+  return (
+    <div className="animate-fade-in">
+      <PageHeader
+        breadcrumbs={[
+          { label: "Affaires", href: "/dashboard/affaires" },
+          ...(version.project_id && project?.name
+            ? [{ label: project.name, href: `/dashboard/affaires/${version.project_id}` }]
+            : []),
+          { label: `V${version.version_number}` },
+        ]}
+        title={`Chiffrage V${version.version_number}`}
+        description={project?.name ? [project.name, project.client_name].filter(Boolean).join(" — ") : undefined}
+        meta={<SealIntegrityBadge state="unsealed" hashPrefix={null} />}
+        actions={
+          <>
+            <Link className={buttonVariants({ variant: "outline", size: "md" })} href={`/dashboard/estimates/${versionId}/print`}>
+              <PrinterIcon aria-hidden="true" />
+              Imprimer
+            </Link>
+            <EstimateDetailActionsMenu versionId={versionId} versionStatus={version.status} canEditVersion={input.canEditVersion} />
+            {input.canEditVersion ? (
+              <Link className={buttonVariants({ variant: "primary", size: "md" })} href={`/dashboard/estimates/${versionId}/edit`}>
+                <PencilIcon aria-hidden="true" />
+                Éditer
+              </Link>
+            ) : null}
+          </>
+        }
+      />
+      <Card className="mb-6 p-4 sm:p-6">
+        <dl className="grid grid-cols-1 gap-6 min-[420px]:grid-cols-2 lg:grid-cols-4">
+          <div className="min-w-0">
+            <dt className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Projet</dt>
+            <dd className="mt-1 break-words text-sm font-semibold text-foreground">{project?.name ?? "—"}</dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Statut</dt>
+            <dd className="mt-1">
+              <Badge variant={statusBadge.variant} dot>{statusBadge.label}</Badge>
+            </dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Total HT</dt>
+            <dd className="mt-1 text-lg font-bold tabular-nums text-foreground">{formatEUR(summary.totalHtCents)}</dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Total TTC</dt>
+            <dd className="mt-1 text-lg font-bold tabular-nums text-foreground">{formatEUR(summary.payableTtcCents)}</dd>
+            {expiry ? (
+              <dd className={`mt-1 text-xs ${expiry.expired ? "text-danger" : "text-muted-foreground"}`}>
+                {expiry.expired ? "Expiré le" : "Valide jusqu’au"} {expiry.expiryDate}
+              </dd>
+            ) : null}
+          </div>
+        </dl>
+      </Card>
+      <div className="flex flex-col gap-6 xl:grid xl:grid-cols-[360px_minmax(0,1fr)]">
+        <div className="min-w-0 space-y-6">
+          {input.approvalSummary ? (
+            <EstimateApprovalSummaryCard summary={input.approvalSummary}>
+              <EstimateApprovalActions
+                versionId={versionId}
+                projectId={version.project_id}
+                summary={input.approvalSummary}
+                isEmpty={items.filter((item) => item.item_type === "line").length === 0}
+                submissionOverview={{
+                  coveragePercent: plansSummary?.coveragePercent ?? null,
+                  exceptionCount: plansSummary?.exceptionCount ?? null,
+                  openQuestionsCount: plansSummary?.openQuestionsCount ?? null,
+                  openAssumptionCount: registerSummary?.openAssumptionCount ?? null,
+                  openMissingPieceCount: registerSummary?.openMissingPieceCount ?? null,
+                  clarifyWithClientCount: registerSummary?.clarifyWithClientCount ?? null,
+                  // Marque v3 : calculée et figée côté serveur (D5), jamais un multiplicateur v2.
+                  marginPercent: null,
+                }}
+              />
+            </EstimateApprovalSummaryCard>
+          ) : null}
+          {input.approvalJournal ? (
+            <EstimateApprovalDecisionJournalCard versionId={versionId} initialJournal={input.approvalJournal} />
+          ) : null}
+          <EstimateTimeline currentVersionId={versionId} versions={versionTimeline.items} pagination={versionTimeline.pagination} />
+        </div>
+        <div className="min-w-0">
+          <EstimateV3DraftSummary summary={summary} items={items} currency={currency} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default async function EstimateDetailPage({
   params,
   searchParams,
@@ -151,7 +275,7 @@ export default async function EstimateDetailPage({
   const versionPromise = approvalSummaryPromise.then(() => supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, tenant_id, version_number, status, updated_at, seal_hash, seal_payload_version, title, exclusions, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, sale_coefficient_fo, sale_coefficient_mo, gross_ht_cents, discount_applied_cents, commercial_rounding_cents, content_revision, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, estimate_projects ( name, reference, estimate_reference, site_address, client_name )"
+      "id, project_id, tenant_id, version_number, status, updated_at, seal_hash, seal_payload_version, title, exclusions, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, sale_coefficient_fo, sale_coefficient_mo, gross_ht_cents, discount_applied_cents, commercial_rounding_cents, content_revision, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, currency, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, estimate_projects ( name, reference, estimate_reference, site_address, client_name )"
     )
     .eq("id", versionId)
     .single());
@@ -171,10 +295,11 @@ export default async function EstimateDetailPage({
   if (!userContext.tenantId || userContext.tenantId !== version.tenant_id) {
     notFound();
   }
-  // Lot 2, sous-lot 2.1 : une v3 n'est jamais relue en moteur 1 ; la fiche affiche le bandeau
-  // du moteur, sans calcul ni écriture.
-  const calcEngineVersion = resolveCalcEngineVersionForDisplay(version);
-  if (calcEngineVersion === null) {
+  // Lot 2, sous-lots 2.1 puis 2.6 : une v3 n'est jamais relue en moteur 1. Un brouillon v3 se lit sur
+  // ses montants stockés (TVA par taux), sans calcul ni émission ; seul un moteur inconnu garde le
+  // bandeau du moteur.
+  const estimateEngine = resolveEstimateEngineVersionForDisplay(version);
+  if (estimateEngine === null) {
     return (
       <EstimateEngineUnavailableNotice
         versionNumber={version.version_number}
@@ -188,6 +313,14 @@ export default async function EstimateDetailPage({
     tenantId: version.tenant_id,
     versionId,
   });
+  if (usesSaleCoefficients(estimateEngine)) {
+    const tenantRoleV3 = userContext.profile?.tenant_role ?? null;
+    return renderEstimateV3Detail({
+      supabase, version, versionId, items, timelinePage, approvalSummary, approvalJournal,
+      canEditVersion: tenantRoleV3 === "admin" || tenantRoleV3 === "engineer",
+    });
+  }
+  const calcEngineVersion = requireHistoricalEngine(estimateEngine);
   const preserveStoredSnapshot =
     isLegacyEngine(calcEngineVersion)
       ? version.status !== "draft"

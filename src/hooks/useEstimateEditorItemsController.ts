@@ -65,6 +65,8 @@ export type EstimateEditorItemPatch = Partial<
     | "supply_type_id"
     | "product_id"
     | "selected_supplier_price_id"
+    // Lot 2, sous-lot 2.6 : saisies d'une ligne v3 (D4, D9), jamais leurs totaux dérivés.
+    | "unit_code" | "pricing_status" | "h_mo_per_unit" | "h_mo_atelier_per_unit" | "h_mo_chantier_per_unit"
   >
 > &
   LaborSplitItemFields;
@@ -92,6 +94,8 @@ type EstimateEditorItemsControllerInput = {
   ) => void;
   pushHistoryCommand: (command: EstimateEditorHistoryCommand) => void;
   reloadItems: () => Promise<void>;
+  /** Lot 2, sous-lot 2.6 : charge de ligne du moteur (v3 : saisies seulement) ; historique par défaut. */
+  buildItemUpdatePayload?: (item: EstimateItem) => EstimateItemUpdatePayload;
 };
 
 export function useEstimateEditorItemsController({
@@ -111,6 +115,7 @@ export function useEstimateEditorItemsController({
   enqueueItemUpdate,
   pushHistoryCommand,
   reloadItems,
+  buildItemUpdatePayload = buildEstimateItemUpdatePayload,
 }: EstimateEditorItemsControllerInput) {
   const queuedPatchesByTempIdRef = useRef<
     Map<string, EstimateItemUpdatePayload>
@@ -548,7 +553,7 @@ export function useEstimateEditorItemsController({
             item.id === tempId
               ? (reconcileCreatedItemWithLocalDraft(
                   created,
-                  buildEstimateItemUpdatePayload(item),
+                  buildItemUpdatePayload(item),
                   queuedPatch,
                   item._clientKey ?? tempId
                 ) as EditorEstimateItem)
@@ -617,6 +622,7 @@ export function useEstimateEditorItemsController({
     },
     [
       applyCreatedItemVersionToken,
+      buildItemUpdatePayload,
       enqueueItemUpdate,
       getItemsSnapshot,
       getNextPosition,
@@ -822,7 +828,7 @@ export function useEstimateEditorItemsController({
       if (!persist) return;
 
       if (isTempEstimateItemId(itemId) || isPendingCreateEstimateItem(current)) {
-        const queuedPayload = buildEstimateItemUpdatePayload(updated);
+        const queuedPayload = buildItemUpdatePayload(updated);
         const existingPayload =
           queuedPatchesByTempIdRef.current.get(itemId) ?? {};
         queuedPatchesByTempIdRef.current.set(itemId, {
@@ -839,7 +845,7 @@ export function useEstimateEditorItemsController({
         return;
       }
 
-      enqueueItemUpdate(itemId, buildEstimateItemUpdatePayload(updated));
+      enqueueItemUpdate(itemId, buildItemUpdatePayload(updated));
       setTotalsOutOfSync(false);
       pushHistoryCommand({
         label: "patch-item",
@@ -851,7 +857,7 @@ export function useEstimateEditorItemsController({
           );
           enqueueItemUpdate(
             itemId,
-            buildEstimateItemUpdatePayload(previousItem)
+            buildItemUpdatePayload(previousItem)
           );
           setTotalsOutOfSync(false);
         },
@@ -859,12 +865,13 @@ export function useEstimateEditorItemsController({
           setItems((previous) =>
             previous.map((item) => (item.id === itemId ? updated : item))
           );
-          enqueueItemUpdate(itemId, buildEstimateItemUpdatePayload(updated));
+          enqueueItemUpdate(itemId, buildItemUpdatePayload(updated));
           setTotalsOutOfSync(false);
         },
       });
     },
     [
+      buildItemUpdatePayload,
       enqueueItemUpdate,
       getItemsSnapshot,
       isMutationBlocked,

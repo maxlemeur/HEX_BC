@@ -5163,7 +5163,7 @@ export async function getEstimateSupplierComparisons(
 
   let itemsQuery = supabase
     .from("estimate_items")
-    .select("id, item_type, title, quantity, description, selected_supplier_price_id")
+    .select("id, item_type, title, quantity, description, unit_code, selected_supplier_price_id")
     .eq("tenant_id", tenantId)
     .eq("version_id", versionId);
 
@@ -5185,8 +5185,12 @@ export async function getEstimateSupplierComparisons(
     title: string;
     quantity: number;
     description: string | null;
+    unit_code: string | null;
     selected_supplier_price_id: string | null;
   }>;
+  // Lot 2, sous-lot 2.6 (F26-17) : l'unité d'une ligne v3 est son code du référentiel, jamais `description`.
+  const unitOf = (item: (typeof items)[number] | undefined) =>
+    usesPerUnitLabor(resolveEstimateEngineVersion(accessedVersion)) ? item?.unit_code : item?.description;
   const lineItems = items.filter((item) => item.item_type === "line");
   const itemById = new Map(lineItems.map((item) => [item.id, item]));
   const resolvedItemIds = normalizedItemIds ?? lineItems.map((item) => item.id);
@@ -5348,7 +5352,7 @@ export async function getEstimateSupplierComparisons(
     comparisons.flatMap((comparison) => comparison.alternatives.map((alternative) => alternative.supplier_price_id)));
   comparisons.forEach((comparison) => {
     const item = itemById.get(comparison.item_id);
-    Object.assign(comparison, { quantity: item?.quantity, unit: item?.description });
+    Object.assign(comparison, { quantity: item?.quantity, unit: unitOf(item) });
     comparison.alternatives.forEach((alternative) => {
       Object.assign(alternative, conditions.get(alternative.supplier_price_id) ?? { is_active: false });
     });

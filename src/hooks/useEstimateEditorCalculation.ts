@@ -9,6 +9,8 @@ import {
 } from "@/lib/estimate-calculations";
 import type { CalcEngineVersion } from "@/lib/estimates/calc-engine-version";
 import { isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
+import type { EstimateV3Breakdown } from "@/lib/estimates/engine-v3";
+import { applyEstimateV3PreviewToItems, indexEstimateV3Lines } from "@/lib/estimates/v3-editor";
 import { computeEstimateLineValues } from "@/lib/estimate-calculations";
 import type {
   EditorEstimateItem,
@@ -28,6 +30,11 @@ type EstimateEditorCalculationInput = {
   laborRateById: Map<string, number>;
   laborRateAtelierById: Map<string, number>;
   laborRateChantierById: Map<string, number>;
+  /**
+   * Lot 2, sous-lot 2.6 : présent (même nul) seulement sur une v3. L'aperçu du moteur pur
+   * (`useEstimateV3Settings`) remplace alors tout calcul historique : aucun total v1/v2.
+   */
+  v3Breakdown?: EstimateV3Breakdown | null;
 };
 
 type EstimateEditorCalculationResult = {
@@ -200,9 +207,11 @@ export function useEstimateEditorCalculation(
     laborRateById,
     laborRateAtelierById,
     laborRateChantierById,
+    v3Breakdown,
   } = input;
+  const isV3 = v3Breakdown !== undefined;
   const calculationBreakdown = useMemo(() => {
-    if (!settings || isReadOnly) return null;
+    if (!settings || isReadOnly || isV3) return null;
     return computeDraftBreakdown({
       items,
       settings,
@@ -216,6 +225,7 @@ export function useEstimateEditorCalculation(
     calcEngineVersion,
     isLaborSplitEnabled,
     isReadOnly,
+    isV3,
     items,
     laborRateAtelierById,
     laborRateById,
@@ -224,7 +234,7 @@ export function useEstimateEditorCalculation(
   ]);
 
   const totals = useMemo(() => {
-    if (!settings) return null;
+    if (!settings || isV3) return null;
     if (!isReadOnly || !version) {
       return calculationBreakdown?.totals ?? null;
     }
@@ -253,6 +263,7 @@ export function useEstimateEditorCalculation(
     calcEngineVersion,
     isLaborSplitEnabled,
     isReadOnly,
+    isV3,
     items,
     laborRateAtelierById,
     laborRateById,
@@ -262,6 +273,7 @@ export function useEstimateEditorCalculation(
   ]);
 
   const editorDisplayItems = useMemo(() => {
+    if (isV3) return applyEstimateV3PreviewToItems(items, indexEstimateV3Lines(v3Breakdown));
     if (!isUnifiedEngine(calcEngineVersion)) return items;
     if (isReadOnly) {
       return items.map((item) =>
@@ -287,11 +299,13 @@ export function useEstimateEditorCalculation(
     calculationBreakdown,
     calcEngineVersion,
     isReadOnly,
+    isV3,
     items,
+    v3Breakdown,
   ]);
 
   const persistedTotals = useMemo(() => {
-    if (!savedSettings) return null;
+    if (!savedSettings || isV3) return null;
     return computeDraftBreakdown({
       items,
       settings: savedSettings,
@@ -304,6 +318,7 @@ export function useEstimateEditorCalculation(
   }, [
     calcEngineVersion,
     isLaborSplitEnabled,
+    isV3,
     items,
     laborRateAtelierById,
     laborRateById,

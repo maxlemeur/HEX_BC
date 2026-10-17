@@ -58,6 +58,8 @@ type EstimateEditorDrawerProps = {
   storedMarginMultiplier?: number;
   onChangeSettings: EstimateSettingsPanelProps["onChange"];
   onSaveSettings: EstimateSettingsPanelProps["onSave"];
+  /** Lot 2, sous-lot 2.6 : réglages d'une v3 (`useEstimateV3Settings`), nuls en v1/v2. */
+  v3Settings?: EstimateSettingsPanelProps["v3"];
   laborRoles: LaborRole[];
   onCreateRole: LaborRolesManagerProps["onCreate"];
   onUpdateRole: LaborRolesManagerProps["onUpdate"];
@@ -102,6 +104,7 @@ export function EstimateEditorDrawer({
   storedMarginMultiplier,
   onChangeSettings,
   onSaveSettings,
+  v3Settings = null,
   laborRoles,
   onCreateRole,
   onUpdateRole,
@@ -249,6 +252,7 @@ export function EstimateEditorDrawer({
             error={null}
             onChange={onChangeSettings}
             onSave={onSaveSettings}
+            v3={v3Settings}
           />
 
           <LaborRolesManager

@@ -29,6 +29,7 @@ import {
 import type { ImportFromEstimateDialog } from "@/components/estimates/ImportFromEstimateDialog";
 import type { EstimateSendGatingDialog } from "@/components/estimates/EstimateSendGatingDialog";
 import type { DiscountMode, EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
+import type { EstimateV3GridModel } from "@/components/estimates/v3/V3LineCells";
 import {
   EstimateSettingsSummaryBar,
   type SettingsSection,
@@ -69,14 +70,16 @@ import {
 } from "@/hooks/useEstimateEditorSyncController";
 import { useUiMode } from "@/hooks/useUiMode";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
-import {
-  computeInitialDiscountCents,
-  computeStoredDiscountCents,
-  normalizeDraftItems,
-  type EstimateTotals,
-} from "@/lib/estimate-calculations";
-import { hasFreshEstimateV2Snapshot, resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
+import { useEstimateV3Settings } from "@/hooks/useEstimateV3Settings";
+import type { EstimateTotals } from "@/lib/estimate-calculations";
+import { hasFreshEstimateV2Snapshot } from "@/lib/estimates/calc-engine-version";
 import { isLegacyEngine, isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
+import {
+  normalizeEditorDraftItems, reconcilesEditorTotals, resolveEditorEngineContext, resolveEditorInitialDiscountCents,
+} from "@/lib/estimates/editor-engine";
+import {
+  buildEditorItemSyncBaseline, buildEstimateV3ItemUpdatePayload, buildEstimateV3SummaryView, indexEstimateV3Lines,
+} from "@/lib/estimates/v3-editor";
 import {
   DEFAULT_TAX_RATE_BP,
   ESTIMATE_VERSION_CONFLICT_MESSAGE,
@@ -197,6 +200,89 @@ function buildSettingsComparisonSnapshot(
   };
 }
 
+/** Réglages de l'éditeur relus d'une version (chargement ; relecture d'une sauvegarde v3). */
+function buildEditorSettingsFromVersion(
+  versionRow: EstimateVersionRow,
+  context: { marginTiers: NonNullable<EstimateSettingsState["margin_tiers"]>; discountCents: number }
+) {
+  const discountMode: DiscountMode = versionRow.discount_mode === "cascade" ? "cascade" : "simple";
+  return {
+    title: versionRow.title ?? "",
+    exclusions: versionRow.exclusions ?? "",
+    date_devis: versionRow.date_devis,
+    validite_jours: versionRow.validite_jours,
+    currency: resolveEstimateCurrency(versionRow.currency),
+    margin_multiplier: versionRow.margin_multiplier,
+    margin_mode: versionRow.margin_mode ?? "fixed",
+    margin_tiers: context.marginTiers,
+    discount_cents: versionRow.discount_amount_cents ?? context.discountCents,
+    discount_amount_cents: versionRow.discount_amount_cents ?? null,
+    discount_bp: versionRow.discount_bp,
+    discount_mode: discountMode,
+    discount_steps: discountMode === "cascade" ? normalizeCascadeDiscountSteps(versionRow.discount_steps) : [],
+    global_coefficient: Number.isFinite(versionRow.global_coefficient ?? NaN) ? Math.max(versionRow.global_coefficient ?? 1, 0) : 1,
+    tax_rate_bp: versionRow.tax_rate_bp,
+    contractor_role: versionRow.contractor_role ?? "principal",
+    rounding_mode: versionRow.rounding_mode,
+    rounding_step_cents: versionRow.rounding_step_cents,
+  };
+}
+
+type EstimateVersionUpdate = Database["public"]["Tables"]["estimate_versions"]["Update"];
+
+/** Charge v1/v2 des réglages, inchangée (le moteur 3 a la sienne, `buildEstimateV3SettingsPayload`). */
+function buildHistoricalSettingsPayload(
+  settingsSnapshot: EstimateSettingsState,
+  versionSnapshot: EstimateVersionRow,
+  totalsSnapshot: EstimateTotals
+) {
+  const discountBase = totalsSnapshot.saleSubtotalCents;
+  const discountBp =
+    settingsSnapshot.discount_amount_cents == null
+      ? (settingsSnapshot.discount_bp ?? versionSnapshot.discount_bp)
+      : discountBase > 0
+      ? Math.round(
+          (totalsSnapshot.discountCents / discountBase) * 10000
+        )
+      : 0;
+  const discountMode: DiscountMode =
+    settingsSnapshot.discount_mode === "cascade" ? "cascade" : "simple";
+  const normalizedCascadeDiscountSteps = normalizeCascadeDiscountSteps(
+    settingsSnapshot.discount_steps
+  );
+  // EST-E26 etape 16 : le coefficient est une grandeur INDEPENDANTE du mode
+  // de remise, il est persiste tel qu'il est affiche (cf.
+  // buildVersionDiscountPatch). L'ecrire a 1 hors cascade rendait la version
+  // auto-contradictoire, `total_ht_cents` l'incluant toujours.
+  const discountPatch = buildVersionDiscountPatch({
+    discountMode,
+    globalCoefficient: settingsSnapshot.global_coefficient,
+    cascadeDiscountSteps: normalizedCascadeDiscountSteps,
+  });
+  const payload: EstimateVersionUpdate = {
+    title: settingsSnapshot.title.trim() || null,
+    exclusions: settingsSnapshot.exclusions.trim() || null,
+    date_devis: settingsSnapshot.date_devis,
+    validite_jours: settingsSnapshot.validite_jours,
+    currency: settingsSnapshot.currency,
+    margin_multiplier: totalsSnapshot.appliedMarginMultiplier,
+    margin_mode: settingsSnapshot.margin_mode ?? "fixed",
+    discount_bp: discountBp,
+    discount_amount_cents: settingsSnapshot.discount_amount_cents ?? null,
+    ...discountPatch,
+    tax_rate_bp: settingsSnapshot.tax_rate_bp,
+    // EST-E27 : le regime de TVA est une grandeur de version, persistee
+    // telle qu elle est choisie.
+    contractor_role: settingsSnapshot.contractor_role ?? "principal",
+    rounding_mode: settingsSnapshot.rounding_mode,
+    rounding_step_cents: settingsSnapshot.rounding_step_cents,
+    total_ht_cents: totalsSnapshot.saleTotalCents,
+    total_tax_cents: totalsSnapshot.adjustedTaxCents,
+    total_ttc_cents: totalsSnapshot.roundedTtcCents,
+  };
+  return { payload, discountPatch };
+}
+
 function haveEstimateSettingsChanged(
   settings: EstimateSettingsState | null,
   savedSettings: EstimateSettingsState | null
@@ -273,6 +359,8 @@ export type EstimateEditorStateModel = {
     | {
         kind: "ready";
         projectId: string | null;
+        /** Lot 2, sous-lot 2.6 : lignes du moteur v3 pour la grille, nul en v1/v2. */
+        v3Grid: EstimateV3GridModel | null;
         toolbarProps: ComponentProps<typeof EstimateEditorToolbar>;
         alertsProps: ComponentProps<typeof EstimateEditorAlerts>;
         summaryBarProps: ComponentProps<typeof EstimateSettingsSummaryBar>;
@@ -518,9 +606,15 @@ export function useEstimateEditorState({
     []
   );
 
+  // Lot 2, sous-lot 2.6 : moteur de la version ouverte ; une v3 délègue ses réglages et son aperçu.
+  const { isV3, historical: calcEngineVersion } = resolveEditorEngineContext(version);
+  const v3Settings = useEstimateV3Settings({
+    version, items, laborRoles, laborSplitEnabled: isLaborSplitEnabled, marginTiers: settings?.margin_tiers,
+  });
+  const v3Breakdown = isV3 ? (v3Settings?.preview?.breakdown ?? null) : undefined;
   const hasUnsavedSettings = useMemo(
-    () => haveEstimateSettingsChanged(settings, savedSettings),
-    [savedSettings, settings]
+    () => haveEstimateSettingsChanged(settings, savedSettings) || Boolean(v3Settings?.isDirty),
+    [savedSettings, settings, v3Settings?.isDirty]
   );
 
   const syncController = useEstimateEditorSyncController({
@@ -539,7 +633,7 @@ export function useEstimateEditorState({
     isSavingSettings,
     allowManualTotalsReconciliation:
       !isLoading && !loadError && Boolean(settings && savedSettings) &&
-      version?.id === resolvedVersionId && isUnifiedEngine(resolveCalcEngineVersion(version)),
+      version?.id === resolvedVersionId && reconcilesEditorTotals(version),
     savePendingSettings: async () => {
       return (await handleSaveSettings()) === true;
     },
@@ -709,69 +803,15 @@ export function useEstimateEditorState({
           );
         });
 
-        const normalizedItems =
-          versionRow.status === "draft"
-            ? normalizeDraftItems({
-                items: itemsRows,
-                version: versionRow,
-                rateById,
-                rateAtelierById,
-                rateChantierById,
-                isLaborSplitEnabled,
-                calcEngineVersion: resolveCalcEngineVersion(versionRow),
-              })
-            : itemsRows;
+        const normalizedItems = normalizeEditorDraftItems({
+          items: itemsRows, version: versionRow, rateById, rateAtelierById, rateChantierById, isLaborSplitEnabled,
+        });
 
-        const discountMode: DiscountMode =
-          versionRow.discount_mode === "cascade" ? "cascade" : "simple";
-        const cascadeDiscountSteps =
-          discountMode === "cascade"
-            ? normalizeCascadeDiscountSteps(versionRow.discount_steps)
-            : [];
-        const globalCoefficient = Number.isFinite(
-          versionRow.global_coefficient ?? NaN
-        )
-          ? Math.max(versionRow.global_coefficient ?? 1, 0)
-          : 1;
-        const storedCalcEngineVersion = resolveCalcEngineVersion(versionRow);
-        const discountCents =
-          versionRow.status === "draft"
-            ? computeInitialDiscountCents(
-                versionRow,
-                itemsRows,
-                rateById,
-                isLaborSplitEnabled,
-                rateAtelierById,
-                rateChantierById,
-                {
-                  calcEngineVersion: resolveCalcEngineVersion(versionRow),
-                  marginTiers: data.marginTiers ?? [],
-                }
-              )
-            : isUnifiedEngine(storedCalcEngineVersion)
-              ? 0
-              : computeStoredDiscountCents(versionRow, itemsRows);
-
-        const initialSettings = {
-          title: versionRow.title ?? "",
-          exclusions: versionRow.exclusions ?? "",
-          date_devis: versionRow.date_devis,
-          validite_jours: versionRow.validite_jours,
-          currency: resolveEstimateCurrency(versionRow.currency),
-          margin_multiplier: versionRow.margin_multiplier,
-          margin_mode: versionRow.margin_mode ?? "fixed",
-          margin_tiers: data.marginTiers ?? [],
-          discount_cents: versionRow.discount_amount_cents ?? discountCents,
-          discount_amount_cents: versionRow.discount_amount_cents ?? null,
-          discount_bp: versionRow.discount_bp,
-          discount_mode: discountMode,
-          discount_steps: cascadeDiscountSteps,
-          global_coefficient: globalCoefficient,
-          tax_rate_bp: versionRow.tax_rate_bp,
-          contractor_role: versionRow.contractor_role ?? "principal",
-          rounding_mode: versionRow.rounding_mode,
-          rounding_step_cents: versionRow.rounding_step_cents,
-        };
+        const discountCents = resolveEditorInitialDiscountCents({
+          version: versionRow, items: itemsRows, rateById, rateAtelierById, rateChantierById, isLaborSplitEnabled,
+          marginTiers: data.marginTiers ?? [],
+        });
+        const initialSettings = buildEditorSettingsFromVersion(versionRow, { marginTiers: data.marginTiers ?? [], discountCents });
 
         versionRef.current = versionRow;
         loadedReadIdentityRef.current = readActorId && readTenantId
@@ -927,7 +967,6 @@ export function useEstimateEditorState({
   }, [reloadNonce, resolvedVersionId]);
 
   const projectName = getProjectName(version?.estimate_projects ?? null);
-  const calcEngineVersion = resolveCalcEngineVersion(version);
 
   useLayoutEffect(() => {
     versionRef.current = version;
@@ -1210,6 +1249,7 @@ export function useEstimateEditorState({
     laborRateById,
     laborRateAtelierById,
     laborRateChantierById,
+    v3Breakdown,
   });
 
   const exportController = useEstimateEditorExportController({
@@ -1251,7 +1291,7 @@ export function useEstimateEditorState({
   const calculatedVersionTotals = buildVersionTotalsPatch(persistedTotals);
   const hasStoredTotalsMismatch = Boolean(
     !isLoading && !loadError && version?.id === resolvedVersionId &&
-    version.status === "draft" && isUnifiedEngine(calcEngineVersion) && calculatedVersionTotals &&
+    version.status === "draft" && reconcilesEditorTotals(version) && calculatedVersionTotals &&
     (version.total_ht_cents !== calculatedVersionTotals.total_ht_cents ||
       version.total_tax_cents !== calculatedVersionTotals.total_tax_cents ||
       version.total_ttc_cents !== calculatedVersionTotals.total_ttc_cents)
@@ -1286,18 +1326,10 @@ export function useEstimateEditorState({
         return applyPendingBufferedUpdatesToItems(itemsRows);
       }
 
-      const normalizedItems =
-        activeVersion.status === "draft"
-          ? normalizeDraftItems({
-              items: itemsRows,
-              version: activeVersion,
-              rateById: laborRateById,
-              rateAtelierById: laborRateAtelierById,
-              rateChantierById: laborRateChantierById,
-              isLaborSplitEnabled,
-              calcEngineVersion: resolveCalcEngineVersion(activeVersion),
-            })
-          : itemsRows;
+      const normalizedItems = normalizeEditorDraftItems({
+        items: itemsRows, version: activeVersion, rateById: laborRateById, rateAtelierById: laborRateAtelierById,
+        rateChantierById: laborRateChantierById, isLaborSplitEnabled,
+      });
 
       return applyPendingBufferedUpdatesToItems(normalizedItems);
     },
@@ -1340,15 +1372,14 @@ export function useEstimateEditorState({
     const rates = new Map(refreshed.laborRoles.map((role) => [role.id, role.hourly_rate_cents]));
     const atelierRates = new Map(refreshed.laborRoles.map((role) => [role.id, resolveLaborRoleHourlyRate(role, "atelier")]));
     const chantierRates = new Map(refreshed.laborRoles.map((role) => [role.id, resolveLaborRoleHourlyRate(role, "chantier")]));
-    const engine = resolveCalcEngineVersion(versionRow);
-    const normalized = versionRow.status === "draft" ? normalizeDraftItems({
+    const normalized = normalizeEditorDraftItems({
       items: itemsRows, version: versionRow, rateById: rates, rateAtelierById: atelierRates,
-      rateChantierById: chantierRates, isLaborSplitEnabled, calcEngineVersion: engine,
-    }) : itemsRows;
-    const discountCents = versionRow.status === "draft" ? computeInitialDiscountCents(
-      versionRow, itemsRows, rates, isLaborSplitEnabled, atelierRates, chantierRates,
-      { calcEngineVersion: engine, marginTiers: refreshed.marginTiers ?? [] }
-    ) : isUnifiedEngine(engine) ? 0 : computeStoredDiscountCents(versionRow, itemsRows);
+      rateChantierById: chantierRates, isLaborSplitEnabled,
+    });
+    const discountCents = resolveEditorInitialDiscountCents({
+      version: versionRow, items: itemsRows, rateById: rates, rateAtelierById: atelierRates, rateChantierById: chantierRates,
+      isLaborSplitEnabled, marginTiers: refreshed.marginTiers ?? [],
+    });
     const previousSaved = savedSettingsRef.current;
     const overlaidItems = applyPendingBufferedUpdatesToItems(normalized);
     versionRef.current = versionRow;
@@ -1395,7 +1426,7 @@ export function useEstimateEditorState({
   }
 
   async function performSaveSettings() {
-    if (!settings || !version || !totals) return;
+    if (!settings || !version || (!totals && !isV3)) return;
     if (version.id !== resolvedVersionId) return;
     if (isReadOnly) {
       setActionError(readOnlyActionErrorMessage);
@@ -1451,50 +1482,16 @@ export function useEstimateEditorState({
 
       const versionSnapshot = getVersionSnapshot();
       if (!versionSnapshot || versionSnapshot.id !== targetVersionId) return;
-      const discountBase = totalsSnapshot.saleSubtotalCents;
-      const discountBp =
-        settingsSnapshot.discount_amount_cents == null
-          ? (settingsSnapshot.discount_bp ?? versionSnapshot.discount_bp)
-          : discountBase > 0
-          ? Math.round(
-              (totalsSnapshot.discountCents / discountBase) * 10000
-            )
-          : 0;
-      const discountMode: DiscountMode =
-        settingsSnapshot.discount_mode === "cascade" ? "cascade" : "simple";
-      const normalizedCascadeDiscountSteps = normalizeCascadeDiscountSteps(
-        settingsSnapshot.discount_steps
-      );
-      // EST-E26 etape 16 : le coefficient est une grandeur INDEPENDANTE du mode
-      // de remise, il est persiste tel qu'il est affiche (cf.
-      // buildVersionDiscountPatch). L'ecrire a 1 hors cascade rendait la version
-      // auto-contradictoire, `total_ht_cents` l'incluant toujours.
-      const discountPatch = buildVersionDiscountPatch({
-        discountMode,
-        globalCoefficient: settingsSnapshot.global_coefficient,
-        cascadeDiscountSteps: normalizedCascadeDiscountSteps,
-      });
-      const payload: Database["public"]["Tables"]["estimate_versions"]["Update"] = {
-        title: settingsSnapshot.title.trim() || null,
-        exclusions: settingsSnapshot.exclusions.trim() || null,
-        date_devis: settingsSnapshot.date_devis,
-        validite_jours: settingsSnapshot.validite_jours,
-        currency: settingsSnapshot.currency,
-        margin_multiplier: totalsSnapshot.appliedMarginMultiplier,
-        margin_mode: settingsSnapshot.margin_mode ?? "fixed",
-        discount_bp: discountBp,
-        discount_amount_cents: settingsSnapshot.discount_amount_cents ?? null,
-        ...discountPatch,
-        tax_rate_bp: settingsSnapshot.tax_rate_bp,
-        // EST-E27 : le regime de TVA est une grandeur de version, persistee
-        // telle qu elle est choisie.
-        contractor_role: settingsSnapshot.contractor_role ?? "principal",
-        rounding_mode: settingsSnapshot.rounding_mode,
-        rounding_step_cents: settingsSnapshot.rounding_step_cents,
-        total_ht_cents: totalsSnapshot.saleTotalCents,
-        total_tax_cents: totalsSnapshot.adjustedTaxCents,
-        total_ttc_cents: totalsSnapshot.roundedTtcCents,
-      };
+      // Lot 2, sous-lot 2.6 : charge v3 du module pur (D5, D6, D8), jamais de taux dérivé ni de total client.
+      const v3Save = isV3 ? (v3Settings?.buildSavePayload() ?? null) : null;
+      if (isV3 && !v3Save?.ok) {
+        setActionError(v3Save?.ok === false ? v3Save.message : "Réglages du moteur de calcul 3 indisponibles.");
+        return;
+      }
+      const settingsPayload = v3Save?.ok ? { payload: v3Save.payload as EstimateVersionUpdate, discountPatch: {} }
+        : totalsSnapshot ? buildHistoricalSettingsPayload(settingsSnapshot, versionSnapshot, totalsSnapshot) : null;
+      if (!settingsPayload) return;
+      const { payload, discountPatch } = settingsPayload;
 
       const persistSettings = () =>
         saveEstimateVersion(
@@ -1545,15 +1542,17 @@ export function useEstimateEditorState({
         previous?.id === targetVersionId ? mergedVersion : previous
       );
 
-      const nextSavedSettings = {
-        ...settingsSnapshot,
-        margin_multiplier: mergedVersion.margin_multiplier,
-        margin_mode: settingsSnapshot.margin_mode ?? "fixed",
-        discount_cents: mergedVersion.discount_amount_cents ?? totalsSnapshot.discountCents,
-        discount_amount_cents: mergedVersion.discount_amount_cents ?? null,
-        discount_bp: mergedVersion.discount_bp,
-        ...discountPatch,
-      } as EstimateSettingsState;
+      const nextSavedSettings = (isV3 || !totalsSnapshot
+        ? buildEditorSettingsFromVersion(mergedVersion, { marginTiers: settingsSnapshot.margin_tiers ?? [], discountCents: 0 })
+        : {
+            ...settingsSnapshot,
+            margin_multiplier: mergedVersion.margin_multiplier,
+            margin_mode: settingsSnapshot.margin_mode ?? "fixed",
+            discount_cents: mergedVersion.discount_amount_cents ?? totalsSnapshot.discountCents,
+            discount_amount_cents: mergedVersion.discount_amount_cents ?? null,
+            discount_bp: mergedVersion.discount_bp,
+            ...discountPatch,
+          }) as EstimateSettingsState;
       setSavedSettings(nextSavedSettings);
       setSettings(nextSavedSettings);
 
@@ -1561,6 +1560,8 @@ export function useEstimateEditorState({
       const confirmedItems = saved.items.map((item) => ({ ...currentItemsById.get(item.id), ...item }));
       itemsRef.current = confirmedItems;
       setItems(confirmedItems);
+      // v3 : « Oui » réécrit le taux des lignes au serveur (D8) ; leur état relu devient la référence.
+      if (isV3) markItemsSynced(saved.items.map((item) => ({ id: item.id, updates: buildEditorItemSyncBaseline(item) })));
       if (isCurrentSettingsSave()) {
         clearConflictDraft({ onlyIfRestored: true });
         return true;
@@ -1667,7 +1668,8 @@ export function useEstimateEditorState({
         prev.map((role) => (role.id === id ? { ...role, ...updates } : role))
       );
 
-      if (updates.hourly_rate_cents === undefined || !settings) return;
+      // v3 : l'aperçu suit le nouveau taux ; la prochaine écriture le recalcule au serveur (2.5).
+      if (updates.hourly_rate_cents === undefined || !settings || isV3) return;
 
       const nextHourlyRate = updates.hourly_rate_cents ?? 0;
       const snapshot = itemsRef.current;
@@ -1718,6 +1720,7 @@ export function useEstimateEditorState({
       conflictState?.message,
       isConflictLocked,
       isReadOnly,
+      isV3,
       readOnlyActionErrorMessage,
       settings,
       version,
@@ -1820,7 +1823,8 @@ export function useEstimateEditorState({
 
   const normalizePatchedItem = useCallback(
     (item: EditorEstimateItem) => {
-      if (item.item_type !== "line") return item;
+      // v3 : la ligne garde ses saisies ; PU, nets et heures totales viennent du moteur v3.
+      if (item.item_type !== "line" || isV3) return item;
       const taxRate =
         item.tax_rate_bp ?? settings?.tax_rate_bp ?? 0;
       let marginMultiplier = settings?.margin_multiplier ?? 1;
@@ -1859,17 +1863,19 @@ export function useEstimateEditorState({
       computeLineValuesWithLaborContext,
       getItemsSnapshot,
       isLaborSplitEnabled,
+      isV3,
       laborRateMaps,
       settings,
     ]
   );
 
   const applyItemCreationVersionToken = useCallback(
-    (updatedAt: string) => {
+    (updatedAt: string, contentRevision?: number) => {
       applyVersionFlushResult({
         versionId: resolvedVersionId,
         totalsPatch: undefined,
         updatedAt,
+        ...(contentRevision === undefined ? {} : { contentRevision }),
       });
     },
     [applyVersionFlushResult, resolvedVersionId]
@@ -1894,6 +1900,7 @@ export function useEstimateEditorState({
     enqueueItemUpdate: enqueueBufferedItemUpdate,
     pushHistoryCommand,
     reloadItems,
+    buildItemUpdatePayload: isV3 ? buildEstimateV3ItemUpdatePayload : undefined,
   });
   const {
     addSection: handleAddSection,
@@ -1987,18 +1994,10 @@ export function useEstimateEditorState({
 
       const refreshedVersion = refreshed.version as EstimateVersionView;
       const refreshedItems = refreshed.items ?? [];
-      const normalizedItems =
-        refreshedVersion.status === "draft"
-          ? normalizeDraftItems({
-              items: refreshedItems,
-              version: refreshedVersion,
-              rateById: laborRateById,
-              rateAtelierById: laborRateAtelierById,
-              rateChantierById: laborRateChantierById,
-              isLaborSplitEnabled,
-              calcEngineVersion: resolveCalcEngineVersion(refreshedVersion),
-            })
-          : refreshedItems;
+      const normalizedItems = normalizeEditorDraftItems({
+        items: refreshedItems, version: refreshedVersion, rateById: laborRateById,
+        rateAtelierById: laborRateAtelierById, rateChantierById: laborRateChantierById, isLaborSplitEnabled,
+      });
 
       return {
         items: applyPendingBufferedUpdatesToItems(normalizedItems),
@@ -2266,7 +2265,8 @@ export function useEstimateEditorState({
     isSendBlockedForCurrentUser,
     sendWorkflowPhaseLabel,
   } = statusController.meta;
-  const canSend = canSendForStatus && !isViewerReadOnly;
+  // Lot 2, sous-lot 2.6 : l'émission d'une v3 reste fermée jusqu'au contrat client 2 (2.7).
+  const canSend = canSendForStatus && !isViewerReadOnly && !isV3;
 
   const supplierController = useEstimateEditorSupplierController({
     routeVersionId: resolvedVersionId,
@@ -2514,7 +2514,8 @@ export function useEstimateEditorState({
         discountMode: settings?.discount_mode ?? "simple",
         discountStepsBp: settings?.discount_steps ?? [],
         calcEngineVersion,
-        preserveStoredSnapshot: isReadOnly,
+        // v3 : les sections somment les nets de l'aperçu, sans calcul v2.
+        preserveStoredSnapshot: isReadOnly || isV3,
       },
       currency: settings?.currency ?? DEFAULT_ESTIMATE_CURRENCY,
       laborRateById,
@@ -2618,6 +2619,7 @@ export function useEstimateEditorState({
       isUndoRedoBusy,
       isLaborSplitEnabled,
       isReadOnly,
+      isV3,
       isViewerReadOnly,
       laborRateById,
       laborRoles,
@@ -2654,6 +2656,11 @@ export function useEstimateEditorState({
       version?.max_section_depth,
       resolvedVersionId,
     ]
+  );
+
+  const v3Grid = useMemo<EstimateV3GridModel | null>(
+    () => (v3Breakdown === undefined ? null : { lines: indexEstimateV3Lines(v3Breakdown) }),
+    [v3Breakdown]
   );
 
   const closeSettingsDrawer = useCallback(() => {
@@ -2722,7 +2729,8 @@ export function useEstimateEditorState({
         onOpenVersionZeroDialog: handleOpenVersionZeroDialog,
         versionZeroActionLabel,
         isVersionZeroActionDisabled,
-        isExportDisabled,
+        // Exports v3 (unité, h/u, PU et PT bruts, TVA par taux) : sous-lot 2.7.
+        isExportDisabled: isExportDisabled || isV3,
         isExporting,
         exportLoadingLabel,
         activeExportMode,
@@ -2805,20 +2813,23 @@ export function useEstimateEditorState({
             taxRateBp: settings.tax_rate_bp ?? DEFAULT_TAX_RATE_BP,
             isExpert,
             onOpenSettings: handleOpenSettingsDrawer,
+            v3Summary: v3Breakdown === undefined ? undefined : buildEstimateV3SummaryView(v3Breakdown),
           }
         : null,
-    [handleOpenSettingsDrawer, isExpert, settings, totals]
+    [handleOpenSettingsDrawer, isExpert, settings, totals, v3Breakdown]
   );
 
   const snapshotContext = version?.calc_snapshot_context;
   const snapshotMultiplier = snapshotContext && typeof snapshotContext === "object" && !Array.isArray(snapshotContext)
     ? snapshotContext.effective_margin_multiplier
     : undefined;
-  const storedMarginMultiplier = hasFreshEstimateV2Snapshot(version) &&
+  // Lot 2, sous-lot 2.6 : une v3 n'a pas de multiplicateur de marge (marque nette, D5) ; jamais
+  // `effective_margin_multiplier`, que la v2 affiche comme multiplicateur.
+  const storedMarginMultiplier = isV3 ? undefined : hasFreshEstimateV2Snapshot(version) &&
     typeof snapshotMultiplier === "number" && Number.isFinite(snapshotMultiplier) &&
     snapshotMultiplier >= 0 && snapshotMultiplier <= 100
     ? snapshotMultiplier
-    : isLegacyEngine(resolveCalcEngineVersion(version)) || settings?.margin_mode !== "tiered"
+    : isLegacyEngine(calcEngineVersion) || settings?.margin_mode !== "tiered"
       ? settings?.margin_multiplier
       : undefined;
 
@@ -2828,7 +2839,11 @@ export function useEstimateEditorState({
           isOpen: isSettingsDrawerOpen,
           onClose: closeSettingsDrawer,
           hasUnsavedSettings,
-          onDiscardSettings: () => setSettings(savedSettings),
+          onDiscardSettings: () => {
+            setSettings(savedSettings);
+            v3Settings?.reset();
+          },
+          v3Settings,
           onSaveBeforeClose: async () => (await handleSaveSettings()) === true,
           projectName,
           versionNumber: version.version_number,
@@ -3036,6 +3051,7 @@ export function useEstimateEditorState({
     meta: {
       kind: "ready",
       projectId: version.project_id ?? null,
+      v3Grid,
       toolbarProps: toolbarProps!,
       alertsProps,
       summaryBarProps: summaryBarProps!,

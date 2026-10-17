@@ -10,7 +10,13 @@ import {
   type SetStateAction,
 } from "react";
 
-import { bulkUpdateEstimateItems } from "@/lib/estimates/client";
+import { createEstimateBatchAttempt } from "@/lib/estimates/batch-intentions";
+import {
+  batchEstimateOperations,
+  bulkUpdateEstimateItems,
+  type EstimateVersionToken,
+} from "@/lib/estimates/client";
+import { resolveEditorEngineContext } from "@/lib/estimates/editor-engine";
 import {
   buildEstimateItemUpdatePayload,
   type EditorEstimateItem,
@@ -90,6 +96,31 @@ type ScopedSupplierDialogState = {
   routeVersionId: string;
   dialog: SupplierDialogState;
 };
+
+/**
+ * Lot 2, sous-lot 2.6 (F26-17, choix du doc 2.6) : sur une v3, la présélection passe par l'écrivain
+ * de lot de 2.5, comme une saisie de PR FO dans la grille : seuls le PR FO et l'offre retenue partent,
+ * le serveur recalcule PU, nets, TVA et totaux et les vérifie (D12) dans la même transaction.
+ */
+async function writeEstimateV3SupplierPreselection(
+  versionId: string,
+  updatedAt: string,
+  updates: ReadonlyArray<{ id: string; updates: EstimateItemUpdatePayload }>
+): Promise<EstimateVersionToken> {
+  const result = await batchEstimateOperations(
+    versionId,
+    updatedAt,
+    updates.map((entry) => ({ op: "update" as const, id: entry.id, data: entry.updates })),
+    { attempt: createEstimateBatchAttempt() }
+  );
+  if (!result.committed) {
+    const failed = result.results.find((entry) => entry.status === "error");
+    throw new Error(failed?.status === "error" ? failed.message : "La présélection fournisseurs n'a pas été enregistrée.");
+  }
+  return result.currentVersionToken?.updated_at === result.versionToken.updated_at
+    ? result.currentVersionToken
+    : result.versionToken;
+}
 
 const EMPTY_DIALOG_STATE: SupplierDialogState = {
   isOpen: false,
@@ -301,7 +332,7 @@ type EstimateEditorSupplierControllerInput = {
   setTotalsOutOfSync: (value: boolean) => void;
   reportError: (message: string | null) => void;
   resolveErrorMessage: (message: string) => string;
-  applyVersionToken: (updatedAt: string) => void;
+  applyVersionToken: (updatedAt: string, contentRevision?: number) => void;
   markItemsSynced: (
     entries: ReadonlyArray<{ id: string; updates: EstimateItemUpdatePayload }>
   ) => void;
@@ -640,23 +671,25 @@ export function useEstimateEditorSupplierController({
     setItems((previous) =>
       previous.map((item) => updatedById.get(item.id) ?? item)
     );
+    const isV3 = resolveEditorEngineContext(versionSnapshot).isV3;
     const updates = updatedLines.map((item) => ({
       id: item.id,
-      updates: buildEstimateItemUpdatePayload(item),
+      updates: isV3
+        ? { unit_price_ht_cents: item.unit_price_ht_cents, selected_supplier_price_id: item.selected_supplier_price_id }
+        : buildEstimateItemUpdatePayload(item),
     }));
     try {
-      const result = await bulkUpdateEstimateItems(
-        targetVersionId,
-        versionSnapshot.updated_at,
-        updates
-      );
+      const versionToken = isV3
+        ? await writeEstimateV3SupplierPreselection(targetVersionId, versionSnapshot.updated_at, updates)
+        : (await bulkUpdateEstimateItems(targetVersionId, versionSnapshot.updated_at, updates)).versionToken;
       if (
         !isCurrentRoute(targetVersionId) ||
         requestGenerationRef.current !== generation
       ) {
         return;
       }
-      applyVersionToken(result.versionToken.updated_at);
+      // v1/v2 inchangées : seul l'écrivain v3 rend la révision de contenu qu'on reprend.
+      applyVersionToken(versionToken.updated_at, isV3 ? versionToken.content_revision : undefined);
       // Without a fresh baseline, an edit back to the previous value is dropped.
       markItemsSynced(updates);
       setTotalsOutOfSync(false);
