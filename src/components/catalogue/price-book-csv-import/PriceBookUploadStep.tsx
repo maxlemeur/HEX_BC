@@ -2,6 +2,7 @@
 
 import type { RefObject } from "react";
 
+import { LoadingState } from "@/components/layout/loading-state";
 import { ColumnMapper } from "@/components/mappings/ColumnMapper";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -38,6 +39,7 @@ type PriceBookUploadStepProps = {
   isBusy: boolean;
   isParsing: boolean;
   isValidating: boolean;
+  isLookupsLoading: boolean;
   onFileChange: (file: File | null) => void;
   onAnalyzeFile: () => Promise<void>;
   onClearSelection: () => void;
@@ -64,6 +66,7 @@ export function PriceBookUploadStep({
   isBusy,
   isParsing,
   isValidating,
+  isLookupsLoading,
   onFileChange,
   onAnalyzeFile,
   onClearSelection,
@@ -127,7 +130,7 @@ export function PriceBookUploadStep({
           <Button
             size="lg"
             onClick={() => void onAnalyzeFile()}
-            disabled={!selectedFile || isBusy}
+            disabled={!selectedFile || isBusy || isLookupsLoading}
             loading={isParsing}
           >
             Analyser
@@ -142,6 +145,13 @@ export function PriceBookUploadStep({
             Vider
           </Button>
         </div>
+
+        {isLookupsLoading ? (
+          <LoadingState
+            label="Chargement des référentiels pour l’import…"
+            className="mt-2 justify-start py-0 text-xs"
+          />
+        ) : null}
 
         <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
           {selectedFile ? <p className="min-w-0 break-all">{selectedFile.name}</p> : null}
@@ -210,7 +220,7 @@ export function PriceBookUploadStep({
               variant="outline"
               size="lg"
               onClick={() => void onRefreshPreview()}
-              disabled={!canValidate || isBusy}
+              disabled={!canValidate || isBusy || isLookupsLoading}
               loading={isValidating}
             >
               Mettre à jour l’aperçu
