@@ -363,13 +363,14 @@ parité du gel) : lignes par `id` croissant ; `labor_rate_cents` = taux du rôle
 - `src/types/database.ts`, correspondance des nouveaux codes d'erreur vers l'API, message
   `TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED`, parcours `V3P01` : piste TS.
 
-## 7. Implémentation TypeScript (serveur et API)
+## 8. Implémentation TypeScript (serveur et API)
 
 Piste TS du sous-lot, parallèle à la migration M4 (`20261017162000_estimate_engine_v3_persistence.sql`,
-piste SQL). Aucun montant v1/v2 ne change : `estimate-calculations.ts` et `estimate-v2-snapshot.ts` à
-zéro ligne de diff, corpus figé (`engine-frozen-corpus.test.ts`) vert.
+piste SQL, §7) ; le TS tient l'interface du §7.1 telle quelle. Aucun montant v1/v2 ne change :
+`estimate-calculations.ts` et `estimate-v2-snapshot.ts` à zéro ligne de diff, corpus figé
+(`engine-frozen-corpus.test.ts`) vert.
 
-### 7.1 Décisions prises pour l'implémentation (17/10/2026)
+### 8.1 Décisions prises pour l'implémentation (17/10/2026)
 
 1. **R-08** : une ligne v3 non chiffrée porte `h_mo*` = `"0.000"` si h/u est saisi (nul sinon), comme
    `private.estimate_v3_line_values` de M3 ; le déclencheur de dérivation l'appelle (piste SQL). Le TS
@@ -388,7 +389,7 @@ zéro ligne de diff, corpus figé (`engine-frozen-corpus.test.ts`) vert.
    contrat d'écrivain SQL. **Émission** (PDF, envoi, documents) toujours fermée : le gel v3 n'est ouvert
    que pour l'approbation ; envoi et document lèvent `ESTIMATE_ENGINE_UNAVAILABLE` (2.7 l'ouvrira).
 
-### 7.2 Choix de la piste TS
+### 8.2 Choix de la piste TS
 
 - **Politique** (`calc-policy-server.ts`) : lue par le client de l'utilisateur (RLS membres), absente =
   moteur 2. `resolveNewEstimateEngine` compare l'attente du client (`version.expected_calc_engine_version`,
@@ -429,7 +430,7 @@ zéro ligne de diff, corpus figé (`engine-frozen-corpus.test.ts`) vert.
 - **Prédicats** : `usesSaleCoefficients` et `usesPerUnitLabor` (`engine/capabilities.ts`, D1) et
   `resolveEstimateEngineVersion` (`calc-engine-version.ts`, tolérance historique pour 1 et 2, 3 rendu tel quel).
 
-### 7.3 Assertions existantes réécrites (fausses par construction) et fixture adaptée
+### 8.3 Assertions existantes réécrites (fausses par construction) et fixture adaptée
 
 | Fichier | Avant (2.1) | Après (2.5) |
 |---|---|---|
@@ -439,7 +440,7 @@ zéro ligne de diff, corpus figé (`engine-frozen-corpus.test.ts`) vert.
 | `canonical-v2-creation.test.ts` | — | fixture : la lecture de politique répond « absente » (aucune assertion modifiée) |
 | `rules-engine.v3-margin.test.ts` | type `V3MarginEvidence` recopié | `import type` depuis le module, comme prévu au §4 de la doc E2E ; assertions inchangées |
 
-### 7.4 Preuves (Windows, worktree `miaouffrage-l2-25`)
+### 8.4 Preuves (Windows, worktree `miaouffrage-l2-25`)
 
 | Commande | Résultat |
 |---|---|
@@ -453,7 +454,7 @@ zéro ligne de diff, corpus figé (`engine-frozen-corpus.test.ts`) vert.
 
 Le parcours `V3P01` et `npm run db:ci:local` se rejouent à l'intégration (WSL), avec M4.
 
-### 7.5 Limites
+### 8.5 Limites
 
 - L'évolution de marge par version (hub d'affaire) lit encore `margin_multiplier` (1 en v3) : affichage
   seulement, repris avec l'éditeur v3 (2.6).
@@ -461,3 +462,9 @@ Le parcours `V3P01` et `npm run db:ci:local` se rejouent à l'intégration (WSL)
   qu'il n'est pas gelé) ; Direction idem.
 - Mise à jour unitaire d'une ligne, mise à jour groupée directe, ouvrages, modèles, version zéro et métré
   restent refusés sur une v3 (nommés en TS ou par le contrat d'écrivain) jusqu'à 2.6 et 2.8.
+- Codes SQL rendus par l'API : `ESTIMATE_V3_PROJECTION_MISMATCH` en 400 (réglages, ligne, gel ; 500 à la
+  création, que le TS n'envoie que calculée par le moteur pur), `ESTIMATE_V3_UNIT_REQUIRED`,
+  `ESTIMATE_V3_TAX_RATE_NOT_ALLOWED`, `ESTIMATE_V3_LABOR_ROLE_REQUIRED` en 400 à leur nom,
+  `ESTIMATE_V3_CALCULATION_CONTEXT_CONFLICT` en 409 `CONTEXT_CHANGED`.
+- `e2e/army/local/engine-v3-support.ts` (fixture v3 de 2.1 à `margin_multiplier` 1,5, sans coefficients) viole le
+  CHECK de forme de M4 (§7.5) : hors de cette piste, à aligner avant la campagne `engine-v3-fail-closed`.

@@ -4503,7 +4503,7 @@ export type Database = {
           p_change_reason: string;
           p_actor_user_id: string | null;
         };
-        Returns: Json;
+        Returns: Database["public"]["Tables"]["tenant_calc_policies"]["Row"];
       };
       open_estimate_review_cycle: {
         Args: {

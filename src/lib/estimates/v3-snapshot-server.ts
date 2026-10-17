@@ -41,6 +41,7 @@ export type FreezeEstimateV3SnapshotInput = {
 
 /** Refus nommés du gel v3 (SQL, D9, D8) rendus en 400 avec leur code. */
 const NAMED_FREEZE_ERRORS = [
+  "ESTIMATE_V3_LABOR_ROLE_REQUIRED",
   "ESTIMATE_V3_UNIT_REQUIRED",
   "ESTIMATE_V3_TAX_RATE_NOT_ALLOWED",
   "ESTIMATE_V3_PROJECTION_MISMATCH",
@@ -121,6 +122,9 @@ export async function freezeEstimateV3Snapshot(
   if (error) {
     const named = NAMED_FREEZE_ERRORS.find((code) => error.message.includes(code));
     if (named) throw badRequest("Le gel v3 a été refusé par le contrôle du calcul.", { code: error.code }, named);
+    if (error.message.includes("ESTIMATE_V3_CALCULATION_CONTEXT_CONFLICT")) {
+      throw conflict("Le contexte de calcul a changé. Rechargez le devis avant de poursuivre.", { code: error.code }, "CONTEXT_CHANGED");
+    }
     if (error.code === "40001" || error.code === "40P01" || error.message.includes("ESTIMATE_VERSION_CONFLICT")) {
       throw conflict(ESTIMATE_VERSION_CONFLICT_MESSAGE, { updated_at: input.expectedUpdatedAt }, "VERSION_CONFLICT");
     }
