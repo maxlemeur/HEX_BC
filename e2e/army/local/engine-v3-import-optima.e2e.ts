@@ -100,21 +100,47 @@ async function leaseSession(browser: Browser, versionId: string) {
   return { "x-estimate-draft-lock-session-id": sessionId };
 }
 
+/**
+ * GET /api/estimates/{id} started in the page and awaited by polling: the read of a v3 of ~880 enriched
+ * lines can outlast one browser.evaluate budget right after a settings save; its duration is recorded.
+ */
+async function readEstimatePatiently(browser: Browser, versionId: string) {
+  type Pending = { started: number; done: { status: number; ms: number; text: string } | null };
+  await browser.evaluate((path) => {
+    const scope = globalThis as typeof globalThis & { __ioRead?: Pending };
+    const pending: Pending = { started: performance.now(), done: null };
+    scope.__ioRead = pending;
+    void fetch(path, { credentials: "same-origin" }).then(async (response) => {
+      pending.done = { status: response.status, ms: Math.round(performance.now() - pending.started), text: await response.text() };
+    });
+    return 1;
+  }, `/api/estimates/${versionId}`);
+  await expect.poll(() => browser.evaluate(() =>
+    (globalThis as typeof globalThis & { __ioRead?: Pending }).__ioRead?.done !== null), { timeout: 180_000 }).toBe(true);
+  const done = await browser.evaluate(() => (globalThis as typeof globalThis & { __ioRead?: Pending }).__ioRead!.done!);
+  expect(done.status).toBe(200);
+  const body = JSON.parse(done.text) as Envelope<{ version: ArmyEstimate["version"]; items: ArmyItem[] }>;
+  return { state: { project: body.data.version.estimate_projects, version: body.data.version, items: body.data.items } as ArmyEstimate,
+    ms: done.ms };
+}
+
 async function saveSettings(browser: Browser, army: ArmyState, versionId: string, label: string, patch: Record<string, unknown>) {
   const started = Date.now();
   const mark = (step: string) => recordEvidence(army, `io-settings-${label}-progress`, { step, elapsedMs: Date.now() - started });
   await mark("lease");
   await retakeLease(browser, versionId);
   await mark("read");
-  const before = await readEstimate(browser, versionId);
+  const { state: before, ms: beforeMs } = await readEstimatePatiently(browser, versionId);
   await mark("save");
   const sent = Date.now();
   const response = await apiRequest<Envelope<unknown>>(browser, "PATCH", `/api/estimates/${versionId}`,
     { ...patch, expected_content_revision: before.version.content_revision }, { "if-match": before.version.updated_at });
   await recordEvidence(army, `io-settings-${label}`, { versionId, patch, status: response.status, ok: response.body.ok,
-    elapsedMs: { leaseAndRead: sent - started, save: Date.now() - sent } });
+    elapsedMs: { leaseAndRead: sent - started, read: beforeMs, save: Date.now() - sent } });
   expect([response.status, response.body.ok]).toEqual([200, true]);
-  return readEstimate(browser, versionId);
+  const reread = await readEstimatePatiently(browser, versionId);
+  await recordEvidence(army, `io-settings-${label}-reread`, { versionId, rereadMs: reread.ms });
+  return reread.state;
 }
 
 /** Owner, Tuyauteur role at 40 €/h and an affaire with a v2 anchor, then the tenant policy at 3. */
@@ -191,7 +217,7 @@ function lineItems(state: ArmyEstimate) {
 
 /** §5.4 at the workbook coefficients: PU = « Prix Unitaire » on every priced line, statuses at 0 €. */
 async function expectImportedLot(browser: Browser, army: ArmyState, versionId: string, lot: Lot, label: string) {
-  const state = await readEstimate(browser, versionId);
+  const { state, ms: readMs } = await readEstimatePatiently(browser, versionId);
   const workbook = await readLot(lot);
   const lines = lineItems(state);
   const priced = lines.filter((line) => field(line, "pricing_status") === "priced" && Number(line.quantity) > 0 && Number(line.pu_ht_cents) > 0);
@@ -211,7 +237,7 @@ async function expectImportedLot(browser: Browser, army: ArmyState, versionId: s
     hoursPerUnitRead: lines.filter((line) => num(field(line, "h_mo_per_unit")) !== null).length > 0,
     totalHtCents: state.version.total_ht_cents,
   };
-  await recordEvidence(army, `io-${label}-imported`, { versionId, workbookPriced: workbook.controls.length, workbookStatuses: workbook.statuses, observed });
+  await recordEvidence(army, `io-${label}-imported`, { versionId, readMs, workbookPriced: workbook.controls.length, workbookStatuses: workbook.statuses, observed });
   expect(observed).toEqual({
     engine: 3, coefficients: [1.3, 1.3], priced: lot.priced, pricesEqualControl: true, statuses: lot.statuses,
     statusLinesAtZero: true, priceAsUnit: 0, hoursPerUnitRead: true, totalHtCents: lot.sumAtWorkbookCoefficientsCents,

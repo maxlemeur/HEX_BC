@@ -122,6 +122,21 @@ describe("DPGF structure analysis", () => {
     expect(preview.summary.footer_start_row_index).toBe(3);
   });
 
+  it("still starts a classic footer at its first Sous-total when no line content follows", () => {
+    const preview = analyzeImportStructure([
+      row({ rowIndex: 0, title: "Tube acier", quantity: 2, unit: "ml", unitPrice: 10 }),
+      row({ rowIndex: 1, title: "Collier", quantity: 4, unit: "u", unitPrice: 3 }),
+      row({ rowIndex: 2, title: "Sous-total HT" }),
+      row({ rowIndex: 3, title: "TVA 20 %" }),
+      row({ rowIndex: 4, title: "Total TTC" }),
+      row({ rowIndex: 5, title: "Conditions générales de vente" }),
+    ]);
+
+    expect(preview.footer_row_indexes).toEqual([2, 3, 4, 5]);
+    expect(preview.summary.footer_start_row_index).toBe(2);
+    expect(preview.candidates.map((candidate) => candidate.row_index)).not.toContain(3);
+  });
+
   it("accepts a reviewed level-two section after level one", () => {
     const resolved = resolveImportStructure(rows, [
       { rowIndex: 0, kind: "section", level: 1 },
