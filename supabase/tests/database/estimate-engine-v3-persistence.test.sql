@@ -1754,5 +1754,58 @@ select is(
   'F25-18 duplicating S2 under policy 2 gives a v3 with the same coefficients, intent, amounts and lines'
 );
 
+-- F25-18 (revue 2.5, §10.5) : D13 départage les ex aequo des répartitions exactes (TVA, remise) par identifiant de
+-- ligne croissant, et S2 en a un (TVA de O3 / O7). Une copie aux identifiants tirés au hasard garde les montants de
+-- la source mais pas leurs départages : son propre recalcul (gel, lot suivant) déplacerait un centime sur des
+-- lignes que personne n'a touchées. Huit copies de S2 : chacune garde l'ordre relatif des identifiants de la source
+-- et ses montants stockés sont exactement ceux du moteur sur la copie elle-même.
+select is(
+  pg_temp.v3_probe(
+    array[
+      'set local role authenticated',
+      $s$select set_config('request.jwt.claim.sub', 'a3250000-0000-4000-8000-000000000001', true)$s$,
+      $s$select set_config('v3_test.copies', (
+           select string_agg(public.duplicate_estimate_version('a3250000-0000-4000-8000-000000000120', false)::text, ',')
+           from generate_series(1, 8)), true)$s$,
+      'reset role'
+    ],
+    $a$
+      with copies as (
+        select copy_id::uuid as id
+        from unnest(string_to_array(current_setting('v3_test.copies'), ',')) as copy_id
+      ),
+      pairs as (
+        select copies.id as copy_version_id, source.id as source_item_id, copy.id as copy_item_id
+        from copies
+        join public.estimate_items copy on copy.version_id = copies.id
+        join public.estimate_items source
+          on source.version_id = 'a3250000-0000-4000-8000-000000000120'
+          and source.item_type = copy.item_type and source.title = copy.title
+      ),
+      per_copy as (
+        select
+          copies.id,
+          (select array_agg(pairs.copy_item_id order by pairs.source_item_id)
+             <> array_agg(pairs.copy_item_id order by pairs.copy_item_id)
+           from pairs where pairs.copy_version_id = copies.id) as order_broken,
+          exists (
+            select 1
+            from jsonb_array_elements(private.estimate_v3_compute(copies.id) -> 'lines') as line
+            join public.estimate_items item on item.id = (line ->> 'id')::uuid
+            where (line ->> 'pu_ht_cents')::bigint is distinct from item.pu_ht_cents
+              or (line ->> 'line_total_ht_cents')::bigint <> item.line_total_ht_cents
+              or (line ->> 'line_tax_cents')::bigint <> item.line_tax_cents
+              or (line ->> 'line_total_ttc_cents')::bigint <> item.line_total_ttc_cents
+          ) as amounts_differ
+        from copies
+      )
+      select concat_ws('|', count(*), count(*) filter (where order_broken), count(*) filter (where amounts_differ))
+      from per_copy
+    $a$
+  ),
+  'ok:8|0|0',
+  'F25-18 a duplicated v3 keeps the relative order of its line ids, so its stored amounts are the engine''s on the copy'
+);
+
 select * from finish();
 rollback;
