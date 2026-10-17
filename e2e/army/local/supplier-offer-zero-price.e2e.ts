@@ -70,10 +70,10 @@ const priced = (item: ArmyItem) => ({
   selected: item.selected_supplier_price_id, product: item.product_id,
 });
 
-// Polls the persisted estimate. Known defect predating sub-lot 2.2, recorded and not asserted
-// here: applying a supplier preselection writes the lines but leaves the stored version totals
-// unchanged, and the editor shows "Totaux à synchroniser" instead of reconciling them. OZ04 (V1)
-// and the critical P1 journey (V2) assert it: docs/testing/version-totals-after-preselection.md.
+// Polls the persisted estimate and records the stored version totals without asserting them.
+// Applying a supplier preselection now writes its lines and the version totals in one RPC
+// (fixed in 0bc35c46); OZ04 (V1) and the critical P1 journey (V2) assert those totals right
+// after the write: docs/testing/version-totals-after-preselection.md.
 async function waitForPersisted(browser: Parameters<typeof apiRequest>[0], army: ArmyState, versionId: string,
   label: string, predicate: (snapshot: ArmyEstimate) => boolean) {
   const deadline = Date.now() + 90_000;
