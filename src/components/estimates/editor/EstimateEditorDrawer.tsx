@@ -60,6 +60,11 @@ type EstimateEditorDrawerProps = {
   onSaveSettings: EstimateSettingsPanelProps["onSave"];
   /** Lot 2, sous-lot 2.6 : réglages d'une v3 (`useEstimateV3Settings`), nuls en v1/v2. */
   v3Settings?: EstimateSettingsPanelProps["v3"];
+  /**
+   * Lot 2, sous-lot 2.6 : faux pour une v3, dont le moteur n'applique aucun barème (repère seulement,
+   * F26-12) ; le gestionnaire v1/v2 décrit l'application du barème et son barème par défaut.
+   */
+  showMarginTiers?: boolean;
   laborRoles: LaborRole[];
   onCreateRole: LaborRolesManagerProps["onCreate"];
   onUpdateRole: LaborRolesManagerProps["onUpdate"];
@@ -105,6 +110,7 @@ export function EstimateEditorDrawer({
   onChangeSettings,
   onSaveSettings,
   v3Settings = null,
+  showMarginTiers = true,
   laborRoles,
   onCreateRole,
   onUpdateRole,
@@ -264,15 +270,17 @@ export function EstimateEditorDrawer({
             onUpdate={onUpdateRole}
           />
 
-          <MarginTiersManager
-            tiers={(settings.margin_tiers ?? []) as MarginTierRow[]}
-            isSaving={isSavingMarginTiers}
-            error={marginTiersError}
-            canEdit={canEditMarginTiers}
-            onCreate={onCreateTier}
-            onUpdate={onUpdateTier}
-            onDelete={onDeleteTier}
-          />
+          {showMarginTiers ? (
+            <MarginTiersManager
+              tiers={(settings.margin_tiers ?? []) as MarginTierRow[]}
+              isSaving={isSavingMarginTiers}
+              error={marginTiersError}
+              canEdit={canEditMarginTiers}
+              onCreate={onCreateTier}
+              onUpdate={onUpdateTier}
+              onDelete={onDeleteTier}
+            />
+          ) : null}
 
           <EstimateSuggestionRulesManager
             rules={suggestionRules}

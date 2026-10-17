@@ -2844,6 +2844,7 @@ export function useEstimateEditorState({
             v3Settings?.reset();
           },
           v3Settings,
+          showMarginTiers: !isV3,
           onSaveBeforeClose: async () => (await handleSaveSettings()) === true,
           projectName,
           versionNumber: version.version_number,
