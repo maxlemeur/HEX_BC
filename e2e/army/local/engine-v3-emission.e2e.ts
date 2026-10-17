@@ -18,23 +18,23 @@ import { admitCollectedResendDecision, offerTest, recordOfferEvidence } from "./
 // Lot 2, sous-lot 2.7 — document client, contrat client 2, charge de calcul 6, émission v3
 // (docs/testing/estimate-engine-v3-2.7.md §3 ; conception §14 2.7). Défaillances observables,
 // écrites avant le code :
-//  V3E-01 Une v3 ne peut pas être émise (refus ESTIMATE_ENGINE_UNAVAILABLE ou ESTIMATE_V3_EMISSION_NOT_READY) :
+//  V3M-01 Une v3 ne peut pas être émise (refus ESTIMATE_ENGINE_UNAVAILABLE ou ESTIMATE_V3_EMISSION_NOT_READY) :
 //         premier rouge attendu avant M5 et le TS de 2.7.
-//  V3E-02 Le PDF émis imprime d'autres montants que le §5 : une ligne dont PT ≠ ⌈Q × PU⌋ (O1 20 ml
+//  V3M-02 Le PDF émis imprime d'autres montants que le §5 : une ligne dont PT ≠ ⌈Q × PU⌋ (O1 20 ml
 //         166,63 / 3 332,60, O4 1 139 ml 13,53 / 15 410,67), un net de ligne au lieu du brut,
 //         pas de ligne « Remise commerciale −1,01 € », un « Total HT net » ≠ 69 053,55.
-//  V3E-03 La TVA imprimée n'est pas calculée par taux sur la base nette (S2 : 20 % 69 053,55 /
+//  V3M-03 La TVA imprimée n'est pas calculée par taux sur la base nette (S2 : 20 % 69 053,55 /
 //         13 810,71 ; S5 : 10 % 5 554,53 / 555,45 et 20 % 63 499,02 / 12 699,80, TTC 82 308,80).
-//  V3E-04 Le sceau d'une v3 n'est pas marqué 5, n'est pas lié au contrat 2 et à la charge 6, ou ne se
+//  V3M-04 Le sceau d'une v3 n'est pas marqué 5, n'est pas lié au contrat 2 et à la charge 6, ou ne se
 //         vérifie pas ; le PDF joint n'est pas le document stocké.
-//  V3E-05 L'impression, le portail ou les exports XLSX et DPGF montrent d'autres PU, PT, remise ou
+//  V3M-05 L'impression, le portail ou les exports XLSX et DPGF montrent d'autres PU, PT, remise ou
 //         TVA que le PDF.
-//  V3E-06 Deux générations d'un même devis figé ou deux envois d'une même version scellée ne
+//  V3M-06 Deux générations d'un même devis figé ou deux envois d'une même version scellée ne
 //         produisent pas le même document.
-//  V3E-07 L'acceptation au portail d'une v3 échoue ou change son sceau.
-//  V3E-08 Régression : une v2 émise avant (contrat 1, charge 4, marqueur 5) ne se vérifie plus ou
+//  V3M-07 L'acceptation au portail d'une v3 échoue ou change son sceau.
+//  V3M-08 Régression : une v2 émise avant (contrat 1, charge 4, marqueur 5) ne se vérifie plus ou
 //         change de SHA-256 de PDF après les émissions v3.
-// V3E01 s'exécute dans la phase calc-v3 `emission-v3` (collecteur sentinelle, next dev) ; V3E02,
+// V3M01 s'exécute dans la phase calc-v3 `emission-v3` (collecteur sentinelle, next dev) ; V3M02,
 // sans courriel, dans la campagne critique locale sur le build de production. Chacun n'est défini
 // que dans sa campagne : la phase calc-v3 exige son résultat exact par fichier.
 const digest = (value: Buffer | string) => createHash("sha256").update(value).digest("hex");
@@ -49,12 +49,12 @@ type EmissionFixture = {
 
 function emissionFixture(): EmissionFixture {
   const file = process.env.E2E_V3_EMISSION_FIXTURE_PATH;
-  if (!file) throw new Error("V3E01 requires the calc-v3 emission-v3 fixture path.");
+  if (!file) throw new Error("V3M01 requires the calc-v3 emission-v3 fixture path.");
   const value = JSON.parse(readFileSync(file, "utf8")) as EmissionFixture;
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
   if (value.schemaVersion !== "calc-v3-emission-v3-1" || ![value.owner.userId, value.owner.tenantId, value.owner.laborRoleId,
     value.v2Witness.projectId, value.v2Witness.versionId].every((id) => uuid.test(id))) {
-    throw new Error("V3E01 fixture shape differs.");
+    throw new Error("V3M01 fixture shape differs.");
   }
   return value;
 }
@@ -154,7 +154,7 @@ async function openCollectedPortal(ui: Ui, portalUrl: string) {
   return ui.browser.evaluate(() => document.body.innerText);
 }
 
-/** PDF reçu, impression et exports d'une v3 émise : mêmes montants, au centime (V3E-02, V3E-03, V3E-05). */
+/** PDF reçu, impression et exports d'une v3 émise : mêmes montants, au centime (V3M-02, V3M-03, V3M-05). */
 async function expectIssuedDocument(ui: Ui, record: Evidence, label: string, versionId: string, scenario: Scenario, pdf: Buffer) {
   const text = await pdfText(pdf);
   const pdfChecks = documentChecks(text.text, scenario);
@@ -174,11 +174,11 @@ async function expectIssuedDocument(ui: Ui, record: Evidence, label: string, ver
 }
 
 if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE === "emission-v3") {
-  offerTest("V3E01 a v3 issued in S2 then S5 under client contract 2 and payload 6 prints, seals, exports and is accepted with the oracle amounts",
+  offerTest("V3M01 a v3 issued in S2 then S5 under client contract 2 and payload 6 prints, seals, exports and is accepted with the oracle amounts",
     { session: "army", trace: "off", tags: ["engine-v3", "offer-emission"], timeout: 900_000 }, async (ui) => {
       const { app, browser, army } = ui;
       const fixture = emissionFixture();
-      const record: Evidence = (label, data) => recordOfferEvidence(army, `v3e01-${label}`, data);
+      const record: Evidence = (label, data) => recordOfferEvidence(army, `v3m01-${label}`, data);
       await app.open("/dashboard/affaires");
 
       // Préparation, témoin v2 (contrat 1, charge 4, marqueur 5) émis avant toute v3 : comportement existant.
@@ -207,8 +207,8 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
         version: [2, "sent", 5, witness.expected.ht, witness.expected.tax, witness.expected.ttc], verified: [200, true] });
 
       // S2 : v3 créée et réglée par l'API de 2.5, puis émise (premier rouge attendu avant M5 : génération du PDF).
-      const s2 = await createV3(browser, army, record, "V3E-S2");
-      await settleV3(browser, army, record, "V3E-S2", s2, S2, fixture.owner.laborRoleId);
+      const s2 = await createV3(browser, army, record, "V3M-S2");
+      await settleV3(browser, army, record, "V3M-S2", s2, S2, fixture.owner.laborRoleId);
       await generatePdf(browser, record, "s2", s2.versionId);
       const s2Sent = await sendOffer(ui, record, "s2", s2.versionId);
       expect((await storedPdfState(browser, s2.versionId)).sha256).toBe(s2Sent.receipt.pdf.sha256);
@@ -223,8 +223,8 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
 
       // S5 : O1–O3 à 10 %, O4–O7 à 20 % ; émis, renvoyé (même document), puis accepté au portail.
       await app.open("/dashboard/affaires");
-      const s5 = await createV3(browser, army, record, "V3E-S5");
-      await settleV3(browser, army, record, "V3E-S5", s5, S5, fixture.owner.laborRoleId);
+      const s5 = await createV3(browser, army, record, "V3M-S5");
+      await settleV3(browser, army, record, "V3M-S5", s5, S5, fixture.owner.laborRoleId);
       await generatePdf(browser, record, "s5", s5.versionId);
       const s5Sent = await sendOffer(ui, record, "s5", s5.versionId);
       expect((await storedPdfState(browser, s5.versionId)).sha256).toBe(s5Sent.receipt.pdf.sha256);
@@ -265,7 +265,7 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
       expect([accepted.version.status, accepted.version.seal_hash, accepted.version.seal_payload_version, accepted.version.total_ttc_cents])
         .toEqual(["accepted", s5State.version.seal_hash, 5, S5.totals[2]]);
 
-      // V3E-08 : le témoin v2 émis avant les v3 se vérifie toujours, contrat 1 et charge 4, même PDF.
+      // V3M-08 : le témoin v2 émis avant les v3 se vérifie toujours, contrat 1 et charge 4, même PDF.
       const witnessAfter = await verifySeal(browser, witness.versionId);
       const witnessDocument = await storedPdfState(browser, witness.versionId);
       await record("v2-witness-regression", { versionId: witness.versionId, verified: witnessAfter, document: witnessDocument,
@@ -277,25 +277,25 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
 }
 
 if (process.env.E2E_ARMY_SUITE === "critical") {
-  armyTest("V3E02 a v3 in S2 then S5 renders its client document, print and exports with the oracle amounts on the production build",
+  armyTest("V3M02 a v3 in S2 then S5 renders its client document, print and exports with the oracle amounts on the production build",
     { session: "army", tags: ["critical", "local", "engine-v3"], timeout: 600_000 }, async ({ app, screen, browser, army }) => {
       const backend = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!);
       if (!["localhost", "127.0.0.1", "[::1]"].includes(backend.hostname) || backend.hostname !== process.env.E2E_ALLOWED_SUPABASE_HOST ||
-        !process.env.E2E_ARMY_LOCAL_DB_URL) throw new Error("V3E02 requires the owned local Supabase stack and its SQL route.");
+        !process.env.E2E_ARMY_LOCAL_DB_URL) throw new Error("V3M02 requires the owned local Supabase stack and its SQL route.");
       const ui: Ui = { app, screen, browser, army };
-      const record: Evidence = (label, data) => recordEvidence(army, `v3e02-${label}`, data);
+      const record: Evidence = (label, data) => recordEvidence(army, `v3m02-${label}`, data);
       // A policy at 3 on the shared campaign tenant would make concurrent creations fail (V3P01, §9.5).
       const owner = await useDedicatedV3Owner(browser, app.baseUrl!, army.runPrefix);
       await app.open("/dashboard/affaires");
       const policy = await setTenantCalcPolicy(owner, { engine: 3, fo: "1.30", mo: "1.20", reason: `${army.runPrefix} recette 2.7 document v3` });
       expect(policy).toMatchObject({ engine: 3, fo: 1.3, mo: 1.2, allowedTaxRatesBp: [2000, 1000, 550, 210] });
-      const ids = await createV3(browser, army, record, "V3E02");
+      const ids = await createV3(browser, army, record, "V3M02");
       const lock = await apiRequest(browser, "POST", `/api/estimates/${ids.versionId}/lock`);
       expect(lock.status).toBe(201);
       const role = await apiRequest<Envelope<{ labor_role: { id: string; hourly_rate_cents: number } }>>(browser, "POST",
         `/api/estimates/${ids.versionId}/labor-roles`, { name: "Tuyauteur", hourly_rate_cents: 4000 });
       expect([role.status, role.body.ok, role.body.data?.labor_role?.hourly_rate_cents]).toEqual([201, true, 4000]);
-      await settleV3(browser, army, record, "V3E02", ids, S2, role.body.data.labor_role.id);
+      await settleV3(browser, army, record, "V3M02", ids, S2, role.body.data.labor_role.id);
 
       // S2 : deux générations du même devis figé donnent le même texte (premier rouge attendu avant M5).
       await generatePdf(browser, record, "s2", ids.versionId);
@@ -307,7 +307,7 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
 
       // S5 sur le même brouillon : deux taux au pied, mêmes lignes brutes.
       await app.open("/dashboard/affaires");
-      await moveToS5(browser, record, "V3E02", ids.versionId);
+      await moveToS5(browser, record, "V3M02", ids.versionId);
       await generatePdf(browser, record, "s5", ids.versionId);
       await expectIssuedDocument(ui, record, "s5", ids.versionId, S5, await storedPdfBytes(browser, ids.versionId));
     });

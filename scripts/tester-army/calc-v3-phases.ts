@@ -131,7 +131,7 @@ export const CALC_V3_PHASE_DEFINITIONS: Readonly<Record<CalcV3Phase, CalcV3Phase
   // dedicated owner whose tenant policy is at engine 3, plus a v2 witness issued first under
   // contract 1 (docs/testing/estimate-engine-v3-2.7.md). Same next dev server, collector and offer
   // guard as `emission`. The phase sends the v2 witness and the v3 S2 and S5 offers (S5 twice):
-  // their PDFs differ by design, so the content is asserted per PDF by the journey (V3E01), not by a
+  // their PDFs differ by design, so the content is asserted per PDF by the journey (V3M01), not by a
   // pattern shared by every collected PDF.
   "emission-v3": {
     serverMode: "development",

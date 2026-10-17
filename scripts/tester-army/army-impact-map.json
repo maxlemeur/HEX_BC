@@ -281,7 +281,7 @@
     },
     {
       "id": "estimate-print",
-      "note": "Impression : V3E02 y relit les montants du document v3 (S2 puis S5).",
+      "note": "Impression : V3M02 y relit les montants du document v3 (S2 puis S5).",
       "paths": ["src/app/dashboard/estimates/[versionId]/print/**"],
       "journeys": ["@print"]
     },

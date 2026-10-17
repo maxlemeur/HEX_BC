@@ -593,7 +593,7 @@ async function emissionV3Fixtures(context: CalcV3FixtureContext, campaign: strin
   }
   const owner = { userId: actor.userId, tenantId: actor.tenantId };
   const common = { tenant_id: owner.tenantId };
-  const prefix = `ARMY-V3E-calc-v3-${campaign}`;
+  const prefix = `ARMY-V3M-calc-v3-${campaign}`;
   const witness = { projectId: randomUUID(), versionId: randomUUID(), sectionId: randomUUID(), lineId: randomUUID(),
     title: `${prefix} témoin v2`, lineTitle: `${prefix} témoin v2 prestation` };
   const today = new Date().toISOString().slice(0, 10);

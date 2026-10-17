@@ -10,12 +10,18 @@ charge 6, préparateur du document) sont décrits dans
 (mêmes clés, mêmes invariants). Là où ce document **choisit** (signalé « Choix »), il fixe ce que le rouge
 exige ; ailleurs, la conception fait foi.
 
+**Identifiants renommés le 18/10/2026** : V3E01 et V3E02 deviennent V3M01 et V3M02, et les défaillances V3E-01
+à V3E-08 deviennent V3M-01 à V3M-08 (préfixe d'affaire `ARMY-V3M-calc-v3-`, preuves `v3m01-*`, `v3m02-*`) :
+`engine-v3-editor.e2e.ts` (sous-lot 2.6) utilise déjà V3E01 à V3E03. Le renommage couvre le parcours, la phase
+`emission-v3`, sa fixture, la carte d'impact et ce document ; les preuves rouges du §6 gardent les noms, les
+commandes et les chemins tels qu'exécutés (`--grep '^V3E02\s'`, `v3e02-*`).
+
 ## 1. Fichiers
 
 | Fichier | Rôle |
 |---|---|
 | `supabase/tests/database/estimate-offer-contract-v2.test.sql` | pgTAP, F27-01 à F27-19 (§4) |
-| `e2e/army/local/engine-v3-emission.e2e.ts`, `engine-v3-emission-support.ts` | Parcours V3E01 (calc-v3) et V3E02 (critique locale), §3 |
+| `e2e/army/local/engine-v3-emission.e2e.ts`, `engine-v3-emission-support.ts` | Parcours V3M01 (calc-v3) et V3M02 (critique locale), §3 |
 | `scripts/tester-army/calc-v3-phases.ts` | Nouvelle phase `emission-v3` (next dev, collecteur sentinelle) |
 | `scripts/tester-army/calc-v3-fixtures.ts` | Fixture de la phase : propriétaire dédié en politique 3, témoin v2 brouillon |
 | `scripts/tester-army/calc-v3-campaign.ts`, `e2e/army/local/calc-v3.config.ts` | Collecteur, garde réseau d'offre et lecture des PDF reçus pilotés par `sentinelCollector` (et non plus par le nom `emission`) |
@@ -30,16 +36,16 @@ exige ; ailleurs, la conception fait foi.
 | Contrat 2 altéré d'1 c accepté : ligne, remise, base ou TVA d'un taux | pgTAP F27-03 à F27-05 (validateur), F27-10, F27-12 (publication), F27-13 (appariement) ; Vitest F27-V05 à F27-V08 |
 | Contrat 2 altéré d'une clé, d'une unité ou d'un statut accepté | pgTAP F27-06, F27-07, F27-10, F27-13 ; Vitest F27-V02 à F27-V04 |
 | Publication sans gel document v3 frais | pgTAP F27-14 (jamais figé ; passage à `sending`), F27-15 (gel périmé par le taux d'un rôle cité) |
-| Deux générations d'un même devis figé, ou deux envois d'une même version scellée, au texte différent | V3E02 (deux générations, même texte), V3E01 (renvoi : même SHA-256 et même texte) ; Vitest F27-S04 |
-| Empreintes v1/v2 qui changent | Vitest F27-S06, F27-S07 (charges 1 à 4 sur le corpus figé) ; V3E01 témoin v2 (V3E-08) ; `scripts/engine-v3/document-fingerprints.ts` et la montée de version (§10.2, §10.3), à rejouer à l'implémentation |
+| Deux générations d'un même devis figé, ou deux envois d'une même version scellée, au texte différent | V3M02 (deux générations, même texte), V3M01 (renvoi : même SHA-256 et même texte) ; Vitest F27-S04 |
+| Empreintes v1/v2 qui changent | Vitest F27-S06, F27-S07 (charges 1 à 4 sur le corpus figé) ; V3M01 témoin v2 (V3M-08) ; `scripts/engine-v3/document-fingerprints.ts` et la montée de version (§10.2, §10.3), à rejouer à l'implémentation |
 | Charge 6 sans un champ v3 | Vitest F27-S02, F27-S03 |
-| PDF : PT ≠ ⌈Q × PU⌋ | V3E01 et V3E02 (7 lignes, §3.3) ; pgTAP F27-03 ; Vitest F27-V06, F27-D01 |
-| PDF : Σ lignes ≠ brut | V3E01, V3E02 (7 lignes brutes et brut 69 054,56 €) ; pgTAP F27-03, F27-04 ; Vitest F27-V05, F27-D03 |
-| TVA d'un taux ≠ ⌈base × taux⌋ | V3E01, V3E02 (« TVA r % », base et montant) ; pgTAP F27-05, F27-12 ; Vitest F27-V08, F27-D04 |
-| Portail, impression ou exports avec d'autres montants | V3E01 (impression, portail, XLSX, DPGF), V3E02 (impression, XLSX, DPGF) |
-| Sceau d'une v3 sans marqueur 5, contrat 2 ou charge 6, ou vérification négative | V3E01 (`/verify`, §6.2) ; pgTAP F27-19 ; Vitest F27-S08 |
-| Acceptation au portail d'une v3 qui échoue ou change son sceau | V3E01 |
-| Conditions de développement hors du profil calc-v3 possédé | **Non couvert par ce rouge** : le test de garde-fou de l'extension de `canUseDevelopmentEstimateTerms` (`src/lib/estimates/pdf-terms-server.test.ts` : refus avec un marqueur d'hébergement ou hors profil `calc-v3`, cas `offer` sur 45585 inchangé) s'écrit rouge avec l'extension (conception §14 2.7). V3E01 tourne en next dev et V3E02 sans CGV (`includeTerms: false`) : aucun des deux n'en dépend |
+| PDF : PT ≠ ⌈Q × PU⌋ | V3M01 et V3M02 (7 lignes, §3.3) ; pgTAP F27-03 ; Vitest F27-V06, F27-D01 |
+| PDF : Σ lignes ≠ brut | V3M01, V3M02 (7 lignes brutes et brut 69 054,56 €) ; pgTAP F27-03, F27-04 ; Vitest F27-V05, F27-D03 |
+| TVA d'un taux ≠ ⌈base × taux⌋ | V3M01, V3M02 (« TVA r % », base et montant) ; pgTAP F27-05, F27-12 ; Vitest F27-V08, F27-D04 |
+| Portail, impression ou exports avec d'autres montants | V3M01 (impression, portail, XLSX, DPGF), V3M02 (impression, XLSX, DPGF) |
+| Sceau d'une v3 sans marqueur 5, contrat 2 ou charge 6, ou vérification négative | V3M01 (`/verify`, §6.2) ; pgTAP F27-19 ; Vitest F27-S08 |
+| Acceptation au portail d'une v3 qui échoue ou change son sceau | V3M01 |
+| Conditions de développement hors du profil calc-v3 possédé | **Non couvert par ce rouge** : le test de garde-fou de l'extension de `canUseDevelopmentEstimateTerms` (`src/lib/estimates/pdf-terms-server.test.ts` : refus avec un marqueur d'hébergement ou hors profil `calc-v3`, cas `offer` sur 45585 inchangé) s'écrit rouge avec l'extension (conception §14 2.7). V3M01 tourne en next dev et V3M02 sans CGV (`includeTerms: false`) : aucun des deux n'en dépend |
 
 ## 3. Parcours `engine-v3-emission.e2e.ts`
 
@@ -53,9 +59,9 @@ L'émission passe par les routes que l'interface appelle, sous le bail de la pag
 (lien collecté, acceptation) passent par l'écran. Le rouge porte donc sur l'émission fermée et le contrat 2
 absent, pas sur des écrans de 2.6. Chaque étape enregistre attendu et obtenu avant d'asserter.
 
-Chaque scénario n'est défini que dans sa campagne : V3E01 si `E2E_ARMY_SUITE=calc-v3` et
+Chaque scénario n'est défini que dans sa campagne : V3M01 si `E2E_ARMY_SUITE=calc-v3` et
 `E2E_CALC_V3_PHASE=emission-v3` (la phase exige exactement 1 résultat de ce fichier, setup compris à part) ;
-V3E02 si `E2E_ARMY_SUITE=critical` (le fichier entre dans la sélection critique locale et complète par
+V3M02 si `E2E_ARMY_SUITE=critical` (le fichier entre dans la sélection critique locale et complète par
 `engine-v3-*.e2e.ts`).
 
 ### 3.2 Valeurs attendues (§5.1, §5.2)
@@ -85,7 +91,7 @@ normalisation des seuls espaces (fines, insécables, retours → une espace). Il
 Exports XLSX et DPGF : pour chaque ligne-oracle, une ligne de classeur qui porte le titre de la ligne, son PU
 et son PT bruts en euros ; une ligne qui porte « Remise commerciale » et ±1,01.
 
-### 3.4 V3E01 — phase calc-v3 `emission-v3`
+### 3.4 V3M01 — phase calc-v3 `emission-v3`
 
 Fixture (`emissionV3Fixtures`) : propriétaire neuf, entreprise personnelle en politique 3 (1,30 / 1,20,
 taux 20 / 10 / 5,5 / 2,1 %) posée par `set_tenant_calc_policy` en `service_role`, un seul rôle actif à
@@ -104,7 +110,7 @@ propriétaire natif. Login de la phase : ce propriétaire.
 6. Régression : témoin v2 `/verify` `valid` avec `client_contract_version: 1`, `calc_payload_version: 4`,
    même `stored_hash`, PDF stocké au même SHA-256 que la pièce jointe.
 
-### 3.5 V3E02 — campagne critique locale (build de production, sans courriel)
+### 3.5 V3M02 — campagne critique locale (build de production, sans courriel)
 
 Propriétaire dédié (`useDedicatedV3Owner`, comme V3P01) et politique 3 par la route SQL possédée ; rôle
 « Tuyauteur » 40 €/h par l'API ; S2 réglé ; PDF manuel deux fois : même texte (§3.3) ; impression, XLSX,
@@ -311,13 +317,13 @@ sur les fichiers du parcours et du harnais sortie 0 ;
 - La régression « v2 émise avant M5 » est rejouée dans la même exécution (témoin émis avant les v3, puis
   revérifié) : l'antériorité réelle à la migration relève de la montée de version et des empreintes
   documentaires (§10.2, §10.3), à rejouer à l'implémentation.
-- V3E01 est servi en next dev (comme la phase `emission`) ; V3E02 qualifie le build de production sans
+- V3M01 est servi en next dev (comme la phase `emission`) ; V3M02 qualifie le build de production sans
   courriel. Le passage de la phase `emission-v3` au build possédé dépend de l'extension du garde des
   conditions, non couverte ici (§2).
 - La campagne complète `npm run e2e:army:calc-v3` est rouge tant que 2.7 n'est pas implémenté (phase
-  `emission-v3`), comme la campagne critique locale (V3E02).
+  `emission-v3`), comme la campagne critique locale (V3M02).
 - La phase `emission-v3` ne pose aucun motif commun à tous les PDF reçus (`collectedPdfMustContain`) : le
-  témoin v2 et les v3 diffèrent par conception ; V3E01 asserte le contenu de chaque PDF qu'il envoie, et la
+  témoin v2 et les v3 diffèrent par conception ; V3M01 asserte le contenu de chaque PDF qu'il envoie, et la
   campagne exige toujours au moins un PDF reçu.
 - Le texte est comparé à espaces près, et le signe de la remise peut être U+2212 ou un trait d'union.
 
