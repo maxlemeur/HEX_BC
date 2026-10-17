@@ -93,3 +93,15 @@ describe("shared unit referential and purchase units (sub-lot 2.9)", () => {
     expect(supplierOfferIneligibility(bar, { ...context, unit: "ml", quantity: 13 })).toBeNull();
   });
 });
+
+describe("purchase units after review (sub-lot 2.9)", () => {
+  const bar = { ...priced, unit: "barre", estimate_unit_code: "ml", estimate_units_per_purchase_unit: "3", purchase_rounding: "ceil" };
+  it("keeps a line written in the purchase unit eligible once the offer declares a conversion", () => {
+    expect(supplierOfferIneligibility(bar, { ...context, unit: "barre", quantity: 94 })).toBeNull();
+  });
+  it("refuses an unrepresentable purchase quantity even without a minimum", () => {
+    const exact = { ...bar, purchase_rounding: "none", min_quantity: null };
+    expect(supplierOfferIneligibility(exact, { ...context, unit: "ml", quantity: 10 })).toBe("Quantité non convertible en barre");
+    expect(supplierOfferIneligibility(exact, { ...context, unit: "ml", quantity: 9 })).toBeNull();
+  });
+});

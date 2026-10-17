@@ -115,7 +115,9 @@ from (values
   ('29000000-0000-4000-8000-000000000063', 3, 'PU29 L3 négocié', 'ml', 282::numeric, 8000, '29000000-0000-4000-8000-000000000041'),
   ('29000000-0000-4000-8000-000000000064', 4, 'PU29 L4 sans arrondi', 'ml', 10::numeric, 8748, '29000000-0000-4000-8000-000000000043'),
   ('29000000-0000-4000-8000-000000000065', 5, 'PU29 L5 m.l.', 'm.l.', 5::numeric, 1000, '29000000-0000-4000-8000-000000000044'),
-  ('29000000-0000-4000-8000-000000000066', 6, 'PU29 L6 minimum', 'ml', 282::numeric, 8748, '29000000-0000-4000-8000-000000000045')
+  ('29000000-0000-4000-8000-000000000066', 6, 'PU29 L6 minimum', 'ml', 282::numeric, 8748, '29000000-0000-4000-8000-000000000045'),
+  -- Review of 2.9: a line already written in the purchase unit keeps its bars and its bar price.
+  ('29000000-0000-4000-8000-000000000067', 7, 'PU29 L7 en barres', 'Barre', 94::numeric, 26245, '29000000-0000-4000-8000-000000000041')
 ) as line(id, position, title, unit, quantity, cents, offer);
 
 select set_config('request.jwt.claim.sub', '29000000-0000-4000-8000-000000000001', true);
@@ -137,7 +139,8 @@ begin
     select * from (values
       ('L1', '29000000-0000-4000-8000-000000000061'::uuid), ('L2', '29000000-0000-4000-8000-000000000062'::uuid),
       ('L3', '29000000-0000-4000-8000-000000000063'::uuid), ('L4', '29000000-0000-4000-8000-000000000064'::uuid),
-      ('L5', '29000000-0000-4000-8000-000000000065'::uuid), ('L6', '29000000-0000-4000-8000-000000000066'::uuid)
+      ('L5', '29000000-0000-4000-8000-000000000065'::uuid), ('L6', '29000000-0000-4000-8000-000000000066'::uuid),
+      ('L7', '29000000-0000-4000-8000-000000000067'::uuid)
     ) as cases(case_name, item_id)
   loop
     begin
@@ -162,7 +165,8 @@ $purchase$;
 select results_eq(
   $$select case_name, outcome from pu29_purchase order by case_name$$,
   $$values ('L1'::text, 'created'::text), ('L2', 'created'), ('L3', 'created'),
-           ('L4', '40001 ORDER_DRAFT_PREPARATION_STALE'), ('L5', 'created'), ('L6', '40001 ORDER_DRAFT_PREPARATION_STALE')$$,
+           ('L4', '40001 ORDER_DRAFT_PREPARATION_STALE'), ('L5', 'created'), ('L6', '40001 ORDER_DRAFT_PREPARATION_STALE'),
+           ('L7', 'created')$$,
   'converted lines are ordered; an unrepresentable quantity and a minimum missed in bars are refused; m.l. matches ml'
 );
 
@@ -171,12 +175,13 @@ select results_eq(
       item.line_total_ht_cents, item.line_tax_cents
     from public.purchase_order_items item
     where item.source_estimate_item_id in ('29000000-0000-4000-8000-000000000061', '29000000-0000-4000-8000-000000000062',
-      '29000000-0000-4000-8000-000000000063', '29000000-0000-4000-8000-000000000065')
+      '29000000-0000-4000-8000-000000000063', '29000000-0000-4000-8000-000000000065', '29000000-0000-4000-8000-000000000067')
     order by item.source_estimate_item_id$$,
   $$values ('29000000-0000-4000-8000-000000000061'::text, 94::numeric, 'barre'::text, 'barre'::text, 26245, 2467030, 493406),
            ('29000000-0000-4000-8000-000000000062', 4::numeric, 'barre', 'barre', 2700, 10800, 2160),
            ('29000000-0000-4000-8000-000000000063', 94::numeric, 'barre', 'barre', 24000, 2256000, 451200),
-           ('29000000-0000-4000-8000-000000000065', 5::numeric, 'm.l.', 'ml', 1000, 5000, 1000)$$,
+           ('29000000-0000-4000-8000-000000000065', 5::numeric, 'm.l.', 'ml', 1000, 5000, 1000),
+           ('29000000-0000-4000-8000-000000000067', 94::numeric, 'Barre', 'barre', 26245, 2467030, 493406)$$,
   'a converted line orders whole bars at the offer price, or at the negotiated price times 3; an unconverted line is unchanged'
 );
 
@@ -187,6 +192,14 @@ select results_eq(
     where item.source_estimate_item_id = '29000000-0000-4000-8000-000000000061'$$,
   $$values (2467030, 493406, 2960436)$$,
   'the draft totals follow the purchase quantity and price'
+);
+
+-- Review of 2.9: the catalogue compares offers per estimate unit. P1: bar of 3 m at 27,00 € (9,00 €/ml)
+-- beats the 10,00 €/ml offer and the bars at 262,45 € (87,48 €/ml).
+select is(
+  (select best_supplier_price_cents from public.catalogue_products_page(p_q => 'PU29'))::integer,
+  900,
+  'the catalogue best price is the cheapest price per estimate unit'
 );
 
 select * from finish();

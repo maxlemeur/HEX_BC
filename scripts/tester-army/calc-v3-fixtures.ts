@@ -536,6 +536,12 @@ async function offersFixtures(context: CalcV3FixtureContext, campaign: string): 
       { quantity: 10, unit_price_ht_cents: 900, product_id: products.p5.id, selected_supplier_price_id: offers.p5Bar.id }),
     puNegotiated: line("pu", `${prefix} fonte négociée`, "ml",
       { quantity: 282, unit_price_ht_cents: 8000, product_id: products.p4.id, selected_supplier_price_id: offers.p4Bar.id }),
+    // Review of 2.9: lines written in the purchase unit, and a converted line shown in the purchase review.
+    puBarSheet: line("pu", `${prefix} fonte en barres`, "barre", { quantity: 94 }),
+    puBarOrdered: line("pu", `${prefix} barres commandées`, "barre",
+      { quantity: 94, unit_price_ht_cents: 26245, product_id: products.p4.id, selected_supplier_price_id: offers.p4Bar.id }),
+    puUiConverted: line("pu", `${prefix} fonte 30 ml`, "ml",
+      { quantity: 30, unit_price_ht_cents: 8748, product_id: products.p4.id, selected_supplier_price_id: offers.p4Bar.id }),
   };
   const records: PlanRecord[] = [
     ...Object.entries(suppliers).map(([key, id]) => ({ table: "suppliers", row: { ...common, id, name: `${prefix} fournisseur ${key}`, is_active: true } })),

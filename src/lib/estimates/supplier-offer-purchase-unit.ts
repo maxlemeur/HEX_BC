@@ -80,3 +80,19 @@ export function purchaseUnitPriceCents(
   if (lineUnitPriceCents === offerEstimateUnitPriceCents(offer, offerPurchaseUnitPriceCents)) return offerPurchaseUnitPriceCents;
   return Number(divideHalfUp(BigInt(lineUnitPriceCents) * factor, MILLION));
 }
+
+/** Red-first stub (review of 2.9): the conversion that applies to a line written in `lineUnit`. */
+export function conversionForLineUnit<T extends SupplierOfferPurchaseUnit>(offer: T, lineUnit: string | null | undefined): T {
+  void lineUnit;
+  return offer;
+}
+
+/** Red-first stub (review of 2.9): the unit and price a converted offer gives a line written in `lineUnit`. */
+export function supplierPriceForLineUnit(
+  offer: SupplierOfferPurchaseUnit,
+  prices: { estimateUnitPriceCents: number; purchaseUnitPriceCents: number },
+  lineUnit: string | null | undefined,
+): { unit: string | null; priceCents: number } {
+  void lineUnit;
+  return { unit: offerEstimateUnit(offer), priceCents: prices.estimateUnitPriceCents };
+}

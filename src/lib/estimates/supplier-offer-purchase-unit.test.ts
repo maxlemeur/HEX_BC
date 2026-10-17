@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  conversionForLineUnit,
   hasPurchaseUnitConversion,
   offerEstimateUnit,
   offerEstimateUnitPriceCents,
   purchaseQuantity,
   purchaseUnitPriceCents,
+  supplierPriceForLineUnit,
 } from "@/lib/estimates/supplier-offer-purchase-unit";
 
 // T-UNIT3 (sub-lot 2.9). Isolation exception: the conversion arithmetic (division and half-up
@@ -48,5 +50,21 @@ describe("purchase unit conversion (T-UNIT3)", () => {
     expect(offerEstimateUnitPriceCents(plain, 26245)).toBe(26245);
     expect(purchaseQuantity(plain, 282)).toBe(282);
     expect(purchaseUnitPriceCents(plain, 26245, 8000)).toBe(8000);
+  });
+});
+
+describe("a converted offer serves both of its units (review of 2.9)", () => {
+  it("prices and orders a line written in the purchase unit without conversion", () => {
+    expect(supplierPriceForLineUnit(castIronBar, { estimateUnitPriceCents: 8748, purchaseUnitPriceCents: 26245 }, "barre"))
+      .toEqual({ unit: "barre", priceCents: 26245 });
+    expect(supplierPriceForLineUnit(castIronBar, { estimateUnitPriceCents: 8748, purchaseUnitPriceCents: 26245 }, "ML"))
+      .toEqual({ unit: "ml", priceCents: 8748 });
+    expect(supplierPriceForLineUnit(castIronBar, { estimateUnitPriceCents: 8748, purchaseUnitPriceCents: 26245 }, ""))
+      .toEqual({ unit: "ml", priceCents: 8748 });
+    expect(supplierPriceForLineUnit(plain, { estimateUnitPriceCents: 1000, purchaseUnitPriceCents: 1000 }, "ml"))
+      .toEqual({ unit: "ml", priceCents: 1000 });
+    expect(conversionForLineUnit(castIronBar, "barre")).toEqual({ ...castIronBar, estimate_unit_code: null,
+      estimate_units_per_purchase_unit: null, purchase_rounding: null });
+    expect(conversionForLineUnit(castIronBar, "ml")).toBe(castIronBar);
   });
 });

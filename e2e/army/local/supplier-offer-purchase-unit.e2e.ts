@@ -22,7 +22,8 @@ type Fixture = {
   offers: Record<"p4Bar" | "p5Bar", Offer>;
   deliverySite: { id: string; updatedAt: string };
   estimates: Record<"pu", { projectId: string; versionId: string; sectionId: string }>;
-  lines: Record<"puPopover" | "puSmall" | "puNegotiated", { id: string; title: string; unit: string }>;
+  lines: Record<"puPopover" | "puSmall" | "puNegotiated" | "puBarSheet" | "puBarOrdered" | "puUiConverted",
+    { id: string; title: string; unit: string }>;
 };
 type Envelope<T> = { ok: boolean; data: T; error?: { code: string; message: string } };
 type PriceItem = { id: string; unit: string | null; estimate_unit_code?: string | null;
@@ -138,4 +139,53 @@ armyTest("PU03 10 ml order 4 bars of 27,00 €, and a negotiated 80,00 €/ml or
     const after = await readEstimate(browser, estimate.versionId);
     expect([lineOf(after, lines.puSmall.id).unit_price_ht_cents, lineOf(after, lines.puNegotiated.id).unit_price_ht_cents])
       .toEqual([900, 8000]);
+  });
+
+armyTest("PU04 a converted offer serves both units, the comparison and purchase review show bars, the catalogue compares per metre",
+  options, async ({ app, screen, browser, army }) => {
+    const fixture = await loadFixture();
+    const estimate = fixture.estimates.pu;
+    ownEstimate(army, { projectId: estimate.projectId, versionId: estimate.versionId });
+    const { lines, offers, products, prefix } = fixture;
+
+    // Catalogue best price per estimate unit: the bar of 3 m at 262,45 € is 87,48 € per metre.
+    await app.open("/dashboard");
+    const catalogue = await apiRequest<Envelope<{ items: Array<{ id: string; _bestSupplierPriceCents: number | null }> }>>(browser, "GET",
+      `/api/catalogue?view=page&q=${encodeURIComponent(prefix)}&size=25`);
+    expect(catalogue.status).toBe(200);
+    expect(catalogue.body.data.items.find((item) => item.id === products.p4.id)?._bestSupplierPriceCents).toBe(8748);
+
+    // Article sheet on a line written in bars: it keeps its bars at the bar price.
+    await app.open(`/dashboard/estimates/${estimate.versionId}/edit`);
+    await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible();
+    await screen.getByRole("button", `Plus d'actions pour ${lines.puBarSheet.title}`, { exact: true }).tap();
+    const associate = screen.getByRole("menuitem", "Associer ou remplacer l’article", { exact: true });
+    await expect(associate).toBeEnabled({ timeout: 30_000 });
+    await associate.tap();
+    await screen.getByLabel("Rechercher dans le catalogue", { exact: true }).fill(products.p4.designation);
+    await screen.getByRole("dialog").getByText(products.p4.designation, { exact: true }).first().tap();
+    const associated = await waitForAutoSave({ screen, browser }, estimate.versionId, (snapshot) =>
+      lineOf(snapshot, lines.puBarSheet.id).product_id === products.p4.id, army);
+    const barLine = lineOf(associated, lines.puBarSheet.id);
+    expect({ unit: barLine.description, quantity: barLine.quantity, price: barLine.unit_price_ht_cents, offer: barLine.selected_supplier_price_id })
+      .toEqual({ unit: "barre", quantity: 94, price: 26245, offer: offers.p4Bar.id });
+
+    // Comparison panel on a line in metres: the converted price is labelled per metre.
+    await browser.reload();
+    await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible();
+    await screen.getByRole("button", `Changer d’offre pour ${lines.puUiConverted.title}`, { exact: true }).tap();
+    const panel = screen.getByRole("dialog", "Comparer fournisseurs");
+    await expect(panel.getByText("/ ml", { exact: false }).first()).toBeVisible({ timeout: 30_000 });
+    await expect(panel.getByText("/ barre", { exact: false })).toHaveCount(0);
+    await browser.keyboard.press("Escape");
+
+    // Purchase review in the affaire: the converted line is shown as ordered (10 bars at 262,45 €).
+    await app.open(`/dashboard/affaires/${estimate.projectId}`);
+    await expect(screen.getByText("10 barre", { exact: true }).first()).toBeVisible({ timeout: 60_000 });
+
+    // A line written in bars is ordered as such.
+    const ordered = await orderLines(browser, fixture, [lines.puBarOrdered.id]);
+    await recordEvidence(army, "pu04-order", ordered);
+    expect(ordered.items).toEqual([expect.objectContaining({ quantity: 94, unit: "barre", price_unit: "barre",
+      unit_price_ht_cents: 26245, line_total_ht_cents: 2467030 })]);
   });
