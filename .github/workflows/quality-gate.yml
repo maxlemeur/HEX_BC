@@ -4,9 +4,9 @@ name: Quality Gate
 # et le nom du job en echec dit deja ou chercher.
 #
 # Sur une PR, seuls « Statique » et « Tests » tournent : c'est le retour utile,
-# pour deux runners. Le build de production ne tourne que sur main (la branche
-# qui deploie) et en nocturne : il ne protege rien de plus sur une PR, puisque
-# rien ne part en production depuis une branche.
+# pour deux runners. Le build de production tourne sur main et sur demande
+# manuelle. La publication reste manuelle ; une nouvelle nuit sans changement
+# ne relance pas toute la validation. Les jobs et leurs controles sont identiques.
 #
 # Aucun job de plus pour gagner du temps : tsc et ESLint reprennent l'etat que
 # main a mis en cache (job « Statique »), et le projet Vitest jsdom tourne dans
@@ -17,8 +17,7 @@ on:
     branches: ["main"]
   push:
     branches: ["main"]
-  schedule:
-    - cron: "30 3 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -42,7 +41,7 @@ jobs:
     env:
       MIGRATION_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || (github.event.before != '0000000000000000000000000000000000000000' && github.event.before) || '' }}
       # Le garde n'accepte que local | pull_request | push : on mappe
-      # explicitement, sinon un declenchement planifie le ferait echouer.
+      # explicitement, sinon un declenchement manuel le ferait echouer.
       MIGRATION_DIFF_MODE: ${{ github.event_name == 'pull_request' && 'pull_request' || (github.event_name == 'push' && 'push') || 'local' }}
     steps:
       - name: Checkout
