@@ -106,9 +106,11 @@ armyTest("V3FC01 a v3 draft opens in the v3 editor and on its detail page withou
   await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible({ timeout: 60_000 });
   await expect.poll(async () => (await summaryChips()).includes(V3_PREVIEW_HT_CHIP), { timeout: 30_000 }).toBe(true);
   const editorChips = await summaryChips();
-  // Mode Simplifié : le détail (TVA, TTC) s'ouvre au clavier, sans le survol qui l'ouvre aussi.
-  await screen.getByRole("button", "Voir les détails de TVA, remise et TTC", { exact: true }).focus();
-  await browser.keyboard.press("Enter");
+  // Mode Simplifié : le détail (TVA, TTC) s'ouvre au clavier, sans le survol qui l'ouvre aussi. La grille (re)donne le
+  // focus à sa cellule active quand son modèle de navigation change (useSpreadsheetNavigation), parfois après l'aperçu :
+  // on attend ce focus, puis Entrée part sur le déclencheur lui-même (doc 2.6 §10.4, passage du 18/10/2026).
+  await expect.poll(() => browser.evaluate(() => Boolean(document.activeElement?.closest("[role=\"grid\"]"))), { timeout: 30_000 }).toBe(true);
+  await screen.getByRole("button", "Voir les détails de TVA, remise et TTC", { exact: true }).press("Enter");
   await expect.poll(async () => V3_PREVIEW_TTC.test(await visibleText(browser)), { timeout: 30_000 }).toBe(true);
   const editorText = await visibleText(browser);
   // La fiche relit les montants stockés (nuls pour cette fixture insérée en SQL), sans recalcul.
