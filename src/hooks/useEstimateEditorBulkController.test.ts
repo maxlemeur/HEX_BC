@@ -136,6 +136,7 @@ function createHarness(input: HarnessInput = {}) {
       version = { ...version, updated_at: updatedAt };
     }
   });
+  const markItemsSynced = vi.fn();
   const ensureGroupedActionCanProceed = vi.fn().mockResolvedValue(true);
   const handleVersionConflict = vi.fn().mockReturnValue(false);
   const triggerVersionReload = vi.fn();
@@ -160,6 +161,7 @@ function createHarness(input: HarnessInput = {}) {
       resolveErrorMessage,
       normalizeLine,
       applyVersionToken,
+      markItemsSynced,
       ensureGroupedActionCanProceed,
       handleVersionConflict,
       triggerVersionReload,

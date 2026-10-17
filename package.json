@@ -54,7 +54,7 @@
     "generate-openapi": "node --import tsx scripts/validate-openapi.ts --write",
     "validate-openapi": "node scripts/validate-openapi-runner.mjs",
     "prices:sofinther": "node --import tsx scripts/sofinther-prices.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "node scripts/typecheck.mjs",
     "test": "vitest run",
     "test:ci:node": "vitest run --project=node",
     "test:ci:jsdom": "vitest run --project=jsdom",

@@ -150,6 +150,7 @@ function createHarness(input?: {
         reportError,
         resolveErrorMessage: (message) => `public:${message}`,
         applyVersionToken,
+        markItemsSynced: vi.fn(),
         ensureGroupedActionCanProceed,
         handleVersionConflict,
       }),
