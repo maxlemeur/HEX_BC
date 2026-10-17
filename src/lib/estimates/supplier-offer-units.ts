@@ -11,3 +11,11 @@ function normalizedUnit(value: string) {
 export function areSupplierUnitsCompatible(lineUnit: string | null | undefined, offerUnit: string | null | undefined) {
   return !lineUnit?.trim() || !offerUnit?.trim() || normalizedUnit(lineUnit) === normalizedUnit(offerUnit);
 }
+
+/**
+ * The unit of an estimate line: unit_code on an engine 3 line (M4, a referential code), description on
+ * engines 1 and 2, whose unit_code is always null. SQL twin: coalesce(unit_code, btrim(description)).
+ */
+export function estimateLineUnit(line: { unit_code?: string | null; description?: string | null }): string | null {
+  return line.unit_code?.trim() || line.description?.trim() || null;
+}

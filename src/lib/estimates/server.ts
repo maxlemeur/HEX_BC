@@ -60,6 +60,7 @@ import { getTakeoffLinkedSourceVersionByJobId } from "@/lib/takeoff/version-link
 import { isSupplierAlternativeCurrencyCompatible } from "@/lib/estimates/supplier-preselection";
 import { readSupplierOfferConditions, readSelectedSupplierDetails, type SupplierOfferConditions, type SelectedSupplierDetails } from "@/lib/estimates/supplier-offer-conditions";
 import { supplierOfferIneligibility } from "@/lib/estimates/supplier-offer-eligibility";
+import { estimateLineUnit } from "@/lib/estimates/supplier-offer-units";
 import { isSupplierOfferPriceEligible } from "@/lib/estimates/supplier-offer-price";
 import {
   alternativePriceForLineUnit, offerEstimateUnit, offerEstimateUnitPriceCents,
@@ -5192,7 +5193,7 @@ export async function getEstimateSupplierComparisons(
 
   let itemsQuery = supabase
     .from("estimate_items")
-    .select("id, item_type, title, quantity, description, selected_supplier_price_id")
+    .select("id, item_type, title, quantity, description, unit_code, selected_supplier_price_id")
     .eq("tenant_id", tenantId)
     .eq("version_id", versionId);
 
@@ -5214,6 +5215,7 @@ export async function getEstimateSupplierComparisons(
     title: string;
     quantity: number;
     description: string | null;
+    unit_code?: string | null;
     selected_supplier_price_id: string | null;
   }>;
   const lineItems = items.filter((item) => item.item_type === "line");
@@ -5377,7 +5379,8 @@ export async function getEstimateSupplierComparisons(
     comparisons.flatMap((comparison) => comparison.alternatives.map((alternative) => alternative.supplier_price_id)));
   comparisons.forEach((comparison) => {
     const item = itemById.get(comparison.item_id);
-    Object.assign(comparison, { quantity: item?.quantity, unit: item?.description });
+    // The unit of the line: unit_code on an engine 3 line (M4), description otherwise.
+    Object.assign(comparison, { quantity: item?.quantity, unit: item ? estimateLineUnit(item) : undefined });
     comparison.alternatives.forEach((alternative) => {
       Object.assign(alternative, conditions.get(alternative.supplier_price_id) ?? { is_active: false });
     });

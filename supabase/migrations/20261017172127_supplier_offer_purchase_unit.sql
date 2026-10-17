@@ -21,6 +21,8 @@
 --    ordered quantity, unit and price of that snapshot;
 --    normalize_purchase_order_item orders a converted line in the purchase unit;
 --    update_supplier_offer accepts the three conversion fields.
+--    The unit of a line is coalesce(unit_code, description): unit_code on an engine 3 line (M4),
+--    description on engines 1 and 2, whose unit_code is always null.
 -- 5. catalogue_products_page compares and shows the best offer per estimate unit.
 -- Each function is copied from its latest definition (20261017093407, 20261011091744,
 -- 20261011083209) with only the lines above changed. CREATE OR REPLACE keeps owners and ACLs. No
@@ -34,7 +36,10 @@ begin
     or to_regprocedure('private.unit_token(text)') is null
     or to_regprocedure('public.create_estimate_purchase_order_drafts(uuid,uuid,jsonb,jsonb)') is null
     or to_regprocedure('public.update_supplier_offer(uuid,jsonb)') is null
-    or to_regprocedure('private.purchase_unit_token(text)') is null then
+    or to_regprocedure('private.purchase_unit_token(text)') is null
+    -- M4 (20261017162000, sub-lot 2.5): the unit of an engine 3 line lives in estimate_items.unit_code.
+    or not exists (select 1 from information_schema.columns where table_schema = 'public'
+      and table_name = 'estimate_items' and column_name = 'unit_code') then
     raise exception 'LOT2_2_9_PREREQUISITE_MISSING';
   end if;
 end;
@@ -141,16 +146,16 @@ returns jsonb language sql stable security definer set search_path='' set timezo
   from (
     select i.id,
       jsonb_build_object('item_id',i.id,'item_title',i.title,'quantity',i.quantity,
-        'unit_price_ht_cents',i.unit_price_ht_cents,'tax_rate_bp',i.tax_rate_bp,'unit',btrim(i.description),
+        'unit_price_ht_cents',i.unit_price_ht_cents,'tax_rate_bp',i.tax_rate_bp,'unit',btrim(coalesce(i.unit_code,i.description)),
         'selected_supplier_price_id',i.selected_supplier_price_id,'supplier_id',s.id,
         'supplier_name',s.name,'supplier_reference',case when ci.id is not null then ci.supplier_sku else sp.supplier_sku end,
         -- 2.9: what the draft orders, from the same row as the fingerprint.
         'ordered_quantity',private.purchase_quantity(i.quantity,cf.factor,sp.purchase_rounding),
-        'ordered_unit',case when cf.factor is null then btrim(i.description) else btrim(sp.unit) end,
+        'ordered_unit',case when cf.factor is null then btrim(coalesce(i.unit_code,i.description)) else btrim(sp.unit) end,
         'ordered_unit_price_ht_cents',private.purchase_unit_price_cents(i.unit_price_ht_cents,sp.unit_price_cents,cf.factor)) display,
       jsonb_build_object('version_currency',v.currency,'stale_price_days',private.estimate_purchase_stale_days(p_tenant_id),
         'item_id',i.id,'item_type',i.item_type,'item_title',i.title,'quantity',i.quantity,'unit_price_ht_cents',i.unit_price_ht_cents,
-        'tax_rate_bp',i.tax_rate_bp,'unit',btrim(i.description),'selected_supplier_price_id',i.selected_supplier_price_id,
+        'tax_rate_bp',i.tax_rate_bp,'unit',btrim(coalesce(i.unit_code,i.description)),'selected_supplier_price_id',i.selected_supplier_price_id,
         'supplier_id',s.id,'supplier_name',s.name,'supplier_active',s.is_active,
         'supplier_reference',case when ci.id is not null then ci.supplier_sku else sp.supplier_sku end,'catalog_item_id',sp.supplier_catalog_item_id,
         'product_id',sp.product_id,'offer_unit',sp.unit,'offer_currency',sp.currency,'offer_min_quantity',sp.min_quantity,
@@ -163,7 +168,7 @@ returns jsonb language sql stable security definer set search_path='' set timezo
     join public.supplier_pricebook sp on sp.id=i.selected_supplier_price_id and sp.tenant_id=i.tenant_id
     join public.suppliers s on s.id=sp.supplier_id and s.tenant_id=i.tenant_id
     left join public.supplier_catalog_items ci on ci.id=sp.supplier_catalog_item_id and ci.tenant_id=i.tenant_id
-    cross join lateral (select private.purchase_conversion_factor(i.description,sp.unit,sp.estimate_unit_code,
+    cross join lateral (select private.purchase_conversion_factor(coalesce(i.unit_code,i.description),sp.unit,sp.estimate_unit_code,
       sp.estimate_units_per_purchase_unit) factor) cf
     where i.version_id=p_version_id and i.tenant_id=p_tenant_id and i.id=any(p_item_ids) and i.item_type='line'
   ) base;
@@ -217,7 +222,7 @@ begin
     new.price_unit:=nullif(btrim(new.price_unit),'');
     new.is_source_linked:=new.source_estimate_item_id is not null or new.source_selected_supplier_price_id is not null;
     if new.is_source_linked then
-      select btrim(i.description),btrim(sp.unit),sp.estimate_unit_code,sp.estimate_units_per_purchase_unit
+      select btrim(coalesce(i.unit_code,i.description)),btrim(sp.unit),sp.estimate_unit_code,sp.estimate_units_per_purchase_unit
         into source_unit,offer_unit,estimate_unit,conversion_factor
       from public.estimate_items i join public.supplier_pricebook sp on sp.id=i.selected_supplier_price_id and sp.tenant_id=i.tenant_id
       where i.id=new.source_estimate_item_id and i.tenant_id=new.tenant_id and sp.id=new.source_selected_supplier_price_id
@@ -394,13 +399,13 @@ begin
   if exists(select 1 from public.estimate_versions where id=p_version_id and upper(btrim(currency))<>'EUR')
     or exists(select 1 from public.estimate_items i join public.supplier_pricebook sp on sp.id=i.selected_supplier_price_id
       join public.suppliers s on s.id=sp.supplier_id
-      cross join lateral (select private.purchase_conversion_factor(i.description,sp.unit,sp.estimate_unit_code,
+      cross join lateral (select private.purchase_conversion_factor(coalesce(i.unit_code,i.description),sp.unit,sp.estimate_unit_code,
         sp.estimate_units_per_purchase_unit) factor) cf
       where i.id=any(selected_ids) and (
         i.quantity is null or i.quantity<=0 or i.quantity<>trunc(i.quantity,3) or i.quantity>2147483647
         or i.unit_price_ht_cents is null or i.unit_price_ht_cents<0 or i.tax_rate_bp is null or i.tax_rate_bp not between 0 and 10000
-        or nullif(btrim(i.description),'') is null or nullif(btrim(sp.unit),'') is null
-        or private.purchase_unit_token(i.description)<>private.purchase_unit_token(case when cf.factor is null then sp.unit else sp.estimate_unit_code end)
+        or nullif(btrim(coalesce(i.unit_code,i.description)),'') is null or nullif(btrim(sp.unit),'') is null
+        or private.purchase_unit_token(coalesce(i.unit_code,i.description))<>private.purchase_unit_token(case when cf.factor is null then sp.unit else sp.estimate_unit_code end)
         or private.purchase_quantity(i.quantity,cf.factor,sp.purchase_rounding) is null
         or private.purchase_quantity(i.quantity,cf.factor,sp.purchase_rounding)>2147483647
         or not public.supplier_offer_price_eligible(sp.unit_price_cents,sp.zero_price_kind)

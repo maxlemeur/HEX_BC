@@ -26,6 +26,7 @@ import type {
 } from "@/lib/estimates/schemas";
 import { assertCanWriteEstimateWorkflows } from "@/lib/estimates/write-access";
 import { supplierOfferIneligibility } from "@/lib/estimates/supplier-offer-eligibility";
+import { estimateLineUnit } from "@/lib/estimates/supplier-offer-units";
 import {
   conversionForLineUnit, hasPurchaseUnitConversion, purchaseQuantity, purchaseUnitPriceCents,
 } from "@/lib/estimates/supplier-offer-purchase-unit";
@@ -283,11 +284,11 @@ function currentOfferIneligibility(
   // Purchase orders and their UI are EUR-only today. Never reinterpret the
   // negotiated estimate cost as EUR when the estimate uses another currency.
   if (eligibility.currency?.trim().toUpperCase() !== "EUR") return "Conversion vers EUR requise avant commande";
-  if (!line.description?.trim()) return "Unité du devis à préciser";
+  if (!estimateLineUnit(line)) return "Unité du devis à préciser";
   if (!offer.unit?.trim()) return "Unité de l'offre à préciser";
   if (!offer.currency?.trim()) return "Devise de l'offre à préciser";
   const ineligibility = supplierOfferIneligibility(offer, {
-    currency: eligibility.currency, quantity: line.quantity, unit: line.description,
+    currency: eligibility.currency, quantity: line.quantity, unit: estimateLineUnit(line),
   });
   if (ineligibility) return ineligibility;
   if (!offer.valid_from || !offer.valid_to) return "Validité de l'offre à préciser";
@@ -368,7 +369,7 @@ export async function getEstimatePurchaseOrderDraftPreparation(
     // the totals are those of the order, as in create_estimate_purchase_order_drafts.
     const selectedOffer = selectedSupplierPriceId ? eligibility.offers.get(selectedSupplierPriceId) : undefined;
     // A line already written in the purchase unit is ordered as is (review of 2.9).
-    const offer = selectedOffer ? conversionForLineUnit(selectedOffer, line.description) : undefined;
+    const offer = selectedOffer ? conversionForLineUnit(selectedOffer, estimateLineUnit(line)) : undefined;
     const converted = offer !== undefined && hasPurchaseUnitConversion(offer);
     const orderedQuantity = converted && typeof quantity === "number" ? purchaseQuantity(offer, quantity) : quantity;
     const orderedUnitPriceHtCents = converted && typeof unitPriceHtCents === "number"
@@ -428,7 +429,7 @@ export async function getEstimatePurchaseOrderDraftPreparation(
       item_id: line.id,
       item_title: line.title,
       quantity,
-      unit: line.description?.trim() ?? "",
+      unit: estimateLineUnit(line) ?? "",
       review_fingerprint: "",
       unit_price_ht_cents: unitPriceHtCents,
       tax_rate_bp: taxRateBp,
@@ -439,7 +440,7 @@ export async function getEstimatePurchaseOrderDraftPreparation(
       supplier_reference: selectedAlternative.supplier_reference,
       product_designation: selectedAlternative.product_designation,
       ordered_quantity: orderedQuantity as number,
-      ordered_unit: converted ? offer.unit.trim() : line.description?.trim() ?? "",
+      ordered_unit: converted ? offer.unit.trim() : estimateLineUnit(line) ?? "",
       ordered_unit_price_ht_cents: orderedUnitPriceHtCents as number,
     };
 
