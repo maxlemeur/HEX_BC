@@ -101,7 +101,9 @@ export async function freezeEstimateV3Snapshot(
       "ESTIMATE_V3_UNIT_REQUIRED");
   }
   const policy = await readTenantCalcPolicy(input.supabase, input.tenantId);
-  const refusedRates = breakdown.lines.filter((line) => !policy.allowedTaxRatesBp.includes(line.tax_rate_bp))
+  // Lignes chiffrées seulement, comme le SQL : une ligne non chiffrée n'a ni montant ni TVA (revue 2.5, V3P-16).
+  const refusedRates = breakdown.lines
+    .filter((line) => line.pricing_status === "priced" && !policy.allowedTaxRatesBp.includes(line.tax_rate_bp))
     .map((line) => line.id);
   if (refusedRates.length > 0) {
     throw badRequest("Un taux de TVA de ligne n'est pas autorisé par l'entreprise.", { item_ids: refusedRates },

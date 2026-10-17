@@ -4507,9 +4507,9 @@ export type Database = {
           p_new_estimate_calc_engine: number;
           p_default_sale_coefficient_fo: number | null;
           p_default_sale_coefficient_mo: number | null;
-          p_allowed_tax_rates_bp: number[];
+          p_allowed_tax_rates_bp: number[] | null;
           p_change_reason: string;
-          p_actor_user_id: string | null;
+          p_actor_user_id: string;
         };
         Returns: Database["public"]["Tables"]["tenant_calc_policies"]["Row"];
       };

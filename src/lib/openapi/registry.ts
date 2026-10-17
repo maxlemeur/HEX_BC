@@ -4269,8 +4269,12 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
         "Chiffrage cree avec succes.",
         apiEstimateCreatedSchemaDefinition
       ),
+      "400": jsonResponse(
+        "Requete invalide ou payload non conforme. ESTIMATE_ENGINE_COLUMN_NOT_SUPPORTED : version.sale_coefficient_fo ou version.sale_coefficient_mo fourni pour une version en moteur 2 ; rien n'est cree.",
+        openApiSharedSchemaDefinitions.apiFailureResponse
+      ),
       "409": jsonResponse(
-        "CONTEXT_CHANGED : un calcul du tenant detient son verrou pendant la creation des roles MO par defaut manquants, ou version.expected_calc_engine_version (absent = 2) differe du moteur des nouvelles versions de l'entreprise ; rien n'est cree. ESTIMATE_ENGINE_UNAVAILABLE : creation v3 depuis un modele ou un import (sous-lot 2.8).",
+        "CONTEXT_CHANGED : un calcul du tenant detient son verrou pendant la creation des roles MO par defaut manquants, ou version.expected_calc_engine_version (absent = 2) differe du moteur des nouvelles versions de l'entreprise ; rien n'est cree. ESTIMATE_ENGINE_UNAVAILABLE : creation depuis un modele ou un import quand l'entreprise cree en moteur 3, quelle que soit l'attente (sous-lot 2.8).",
         openApiSharedSchemaDefinitions.apiFailureResponse
       ),
     },
@@ -4457,7 +4461,8 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     method: "delete",
     path: "/api/estimates/{versionId}/items",
     summary: "Supprimer un item",
-    description: "Supprime une ligne ou section de la version.",
+    description:
+      "Supprime une ligne ou section de la version. Moteur 3 : 409 ESTIMATE_ENGINE_UNAVAILABLE, la suppression passe par le lot (op delete), qui recalcule les montants stockés.",
     tags: ["Estimate Items"],
     parameters: [versionIdPathParameter, ifMatchHeaderOptionalParameter],
     requestBody: deleteEstimateItemBody,

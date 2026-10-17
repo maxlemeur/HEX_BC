@@ -48,9 +48,14 @@ import {
 } from "@/lib/estimates/catalogue-suggestions";
 import {
   resolveCalcEngineVersion,
+  resolveEstimateEngineVersion,
   shouldPreserveStoredEstimateV2Snapshot,
 } from "@/lib/estimates/calc-engine-version";
-import { isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
+import {
+  EstimateEngineUnavailableError,
+  isUnifiedEngine,
+  usesPerUnitLabor,
+} from "@/lib/estimates/engine/capabilities";
 import { getTakeoffLinkedSourceVersionByJobId } from "@/lib/takeoff/version-links";
 import { isSupplierAlternativeCurrencyCompatible } from "@/lib/estimates/supplier-preselection";
 import { readSupplierOfferConditions, readSelectedSupplierDetails, type SupplierOfferConditions, type SelectedSupplierDetails } from "@/lib/estimates/supplier-offer-conditions";
@@ -6865,6 +6870,9 @@ export async function deleteEstimateItem(
   const context = await getAuthenticatedContext();
   const { supabase, tenantId, userId } = context;
   const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
+  // Lot 2, sous-lot 2.5 (revue, V3P-15) : cette suppression directe ne recalcule rien. Une v3 porte ses
+  // montants stockés sous D12 : elle supprime par le lot (`op: "delete"`), qui recalcule et vérifie.
+  if (usesPerUnitLabor(resolveEstimateEngineVersion(version))) throw new EstimateEngineUnavailableError();
 
   assertDraftStatus(version.status);
   if (concurrencyToken !== undefined) {

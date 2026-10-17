@@ -9,6 +9,7 @@ import {
 import {
   expectedCalcEngineVersionSchema,
   v3LineItemFields,
+  v3SaleCoefficientFields,
   v3VersionSettingsFields,
 } from "@/lib/estimates/v3-schemas";
 
@@ -196,6 +197,7 @@ const createEstimateVersionSchema = z
     rounding_step_cents: positiveIntegerSchema.optional(),
     max_section_depth: sectionDepthSchema.optional().default(DEFAULT_MAX_SECTION_DEPTH),
     expected_calc_engine_version: expectedCalcEngineVersionSchema.optional(),
+    ...v3SaleCoefficientFields,
   })
   .superRefine((payload, ctx) => {
     const mode = payload.discount_mode ?? "simple";

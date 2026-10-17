@@ -2237,7 +2237,7 @@
             }
           },
           "400": {
-            "description": "Requete invalide ou payload non conforme.",
+            "description": "Requete invalide ou payload non conforme. ESTIMATE_ENGINE_COLUMN_NOT_SUPPORTED : version.sale_coefficient_fo ou version.sale_coefficient_mo fourni pour une version en moteur 2 ; rien n'est cree.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2277,7 +2277,7 @@
             }
           },
           "409": {
-            "description": "CONTEXT_CHANGED : un calcul du tenant detient son verrou pendant la creation des roles MO par defaut manquants, ou version.expected_calc_engine_version (absent = 2) differe du moteur des nouvelles versions de l'entreprise ; rien n'est cree. ESTIMATE_ENGINE_UNAVAILABLE : creation v3 depuis un modele ou un import (sous-lot 2.8).",
+            "description": "CONTEXT_CHANGED : un calcul du tenant detient son verrou pendant la creation des roles MO par defaut manquants, ou version.expected_calc_engine_version (absent = 2) differe du moteur des nouvelles versions de l'entreprise ; rien n'est cree. ESTIMATE_ENGINE_UNAVAILABLE : creation depuis un modele ou un import quand l'entreprise cree en moteur 3, quelle que soit l'attente (sous-lot 2.8).",
             "content": {
               "application/json": {
                 "schema": {
@@ -4539,7 +4539,7 @@
           "Estimate Items"
         ],
         "summary": "Supprimer un item",
-        "description": "Supprime une ligne ou section de la version.",
+        "description": "Supprime une ligne ou section de la version. Moteur 3 : 409 ESTIMATE_ENGINE_UNAVAILABLE, la suppression passe par le lot (op delete), qui recalcule les montants stockés.",
         "parameters": [
           {
             "name": "versionId",
@@ -24034,6 +24034,16 @@
                       }
                     ],
                     "description": "Moteur de calcul attendu par le client (absent = 2). S'il diffère de la politique de l'entreprise, la création est refusée en 409 CONTEXT_CHANGED sans rien écrire."
+                  },
+                  "sale_coefficient_fo": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 10
+                  },
+                  "sale_coefficient_mo": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 10
                   }
                 }
               },

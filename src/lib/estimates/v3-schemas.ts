@@ -47,10 +47,18 @@ export const v3LineItemFields = {
   h_mo_chantier_per_unit: z.union([hoursPerUnitSchema, z.null()]).optional(),
 } as const;
 
-/** Réglages de version v3 (D5, D8). */
-export const v3VersionSettingsFields = {
+/**
+ * Coefficients de vente d'une v3 (D5), à la création comme aux réglages. À la création : absents = défauts de
+ * la politique, lus par la RPC sous verrou ; refusés sur une v2 (`ESTIMATE_ENGINE_COLUMN_NOT_SUPPORTED`).
+ */
+export const v3SaleCoefficientFields = {
   sale_coefficient_fo: saleCoefficientSchema.optional(),
   sale_coefficient_mo: saleCoefficientSchema.optional(),
+} as const;
+
+/** Réglages de version v3 (D5, D8). */
+export const v3VersionSettingsFields = {
+  ...v3SaleCoefficientFields,
   apply_tax_rate_to_lines: z
     .boolean()
     .optional()

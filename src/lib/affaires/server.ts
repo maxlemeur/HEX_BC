@@ -14,6 +14,7 @@ import { badRequest, conflict, mapSupabaseError, notFound } from "@/lib/estimate
 import { loadMarginTiersForTotals } from "@/lib/estimates/margin-tiers-loader";
 import { computeV3MarginAnalysis } from "@/lib/affaires/margin-analysis-v3";
 import { resolveEstimateEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
+import { resolveV3NetMarginBp } from "@/lib/estimates/effective-margin";
 import { usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import type { EstimateV3LineRecord } from "@/lib/estimates/v3-persistence";
 import type { MarginTier } from "@/lib/estimates/margin-tiers";
@@ -145,7 +146,15 @@ type AffaireHubVersionRow = Pick<
   | "total_ht_cents"
   | "margin_multiplier"
   | "updated_at"
+  | "calc_engine_version"
+  | "content_revision"
+  | "calc_snapshot_content_revision"
+  | "calc_snapshot_context"
 >;
+
+/** Colonnes lues par le hub pour une version (marge v1/v2, marque nette d'un gel v3 frais). */
+const AFFAIRE_HUB_VERSION_COLUMNS =
+  "id, project_id, version_number, status, total_ht_cents, margin_multiplier, updated_at, calc_engine_version, content_revision, calc_snapshot_content_revision, calc_snapshot_context";
 
 type AffaireHubDpgfImportRow = Pick<
   DpgfImportRow,
@@ -179,8 +188,10 @@ export type AffaireHubVersionSummary = {
   versionNumber: number;
   status: AffaireStatus;
   totalHtCents: number;
-  marginMultiplier: number;
-  marginPercent: number;
+  /** Multiplicateur de marge v1/v2 ; `null` pour une v3 (marge fixe à 1, coefficients de vente). */
+  marginMultiplier: number | null;
+  /** Marge v1/v2, marque nette d'un gel v3 frais ; `null` = indisponible, jamais 0 par défaut. */
+  marginPercent: number | null;
   updatedAt: string;
 };
 
@@ -613,19 +624,29 @@ function normalizeHubTimelinePage(page: number | undefined): number {
 }
 
 function toAffaireHubVersionSummary(row: AffaireHubVersionRow): AffaireHubVersionSummary {
-  const marginMultiplier = Number.isFinite(row.margin_multiplier)
-    ? row.margin_multiplier
-    : 1;
-
-  return {
+  const base = {
     id: row.id,
     projectId: row.project_id,
     versionNumber: toSafeInteger(row.version_number),
     status: row.status,
     totalHtCents: toSafeInteger(row.total_ht_cents),
+    updatedAt: row.updated_at,
+  };
+  // Lot 2, sous-lot 2.5 (revue, V3P-14) : une v3 a une marge fixe à 1 ; sa marge est la marque nette d'un gel
+  // frais (comme la file d'approbation), sinon indisponible, jamais « 0.0 % ». Moteur illisible : indisponible.
+  const engine = resolveEstimateEngineVersionForDisplay(row);
+  if (engine === null || usesSaleCoefficients(engine)) {
+    const netMarginBp = engine === null ? null : resolveV3NetMarginBp(row);
+    return { ...base, marginMultiplier: null, marginPercent: netMarginBp === null ? null : netMarginBp / 100 };
+  }
+  const marginMultiplier = Number.isFinite(row.margin_multiplier)
+    ? row.margin_multiplier
+    : 1;
+
+  return {
+    ...base,
     marginMultiplier,
     marginPercent: (marginMultiplier - 1) * 100,
-    updatedAt: row.updated_at,
   };
 }
 
@@ -827,7 +848,7 @@ const fetchAffaireHubProjectOrThrow = cache(async (
 function queryAffaireHubCurrentVersion(context: AffaireContext, projectId: string) {
   return context.supabase
     .from("estimate_versions")
-    .select("id, project_id, version_number, status, total_ht_cents, margin_multiplier, updated_at")
+    .select(AFFAIRE_HUB_VERSION_COLUMNS)
     .eq("tenant_id", context.tenantId)
     .eq("project_id", projectId)
     .order("version_number", { ascending: false })
@@ -853,9 +874,7 @@ async function fetchAffaireHubSummaryWithContext(
     readAffaireHubCurrentVersion(context, project.id),
     context.supabase
       .from("estimate_versions")
-      .select(
-        "id, project_id, version_number, status, total_ht_cents, margin_multiplier, updated_at"
-      )
+      .select(AFFAIRE_HUB_VERSION_COLUMNS)
       .eq("tenant_id", context.tenantId)
       .eq("project_id", project.id)
       .eq("status", "accepted")
@@ -2140,16 +2159,20 @@ type MarginAnalysisVersionRow = Pick<
 >;
 
 function buildMarginVersionEvolution(versions: MarginAnalysisVersionRow[]): MarginVersionPoint[] {
-  return versions.map((v) => {
+  // Lot 2, sous-lot 2.5 (revue, V3P-14) : la marge v2 d'une v3 (multiplicateur 1) vaudrait 0 % ; sa marque
+  // nette ne se compare pas à une marge v2. Une v3 (ou un moteur illisible) est absente de l'évolution.
+  return versions.flatMap((v) => {
+    const engine = resolveEstimateEngineVersionForDisplay(v);
+    if (engine === null || usesSaleCoefficients(engine)) return [];
     const mm = Number.isFinite(v.margin_multiplier) ? v.margin_multiplier : 1;
-    return {
+    return [{
       versionNumber: toSafeInteger(v.version_number),
       versionId: v.id,
       status: v.status,
       marginMultiplier: mm,
       marginPercent: (mm - 1) * 100,
       totalHtCents: toSafeInteger(v.total_ht_cents),
-    };
+    }];
   });
 }
 

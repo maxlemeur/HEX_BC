@@ -14,8 +14,12 @@ import {
   type TenantCalcPolicy,
 } from "@/lib/estimates/calc-policy-server";
 import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
-import { assertNever, EstimateEngineUnavailableError } from "@/lib/estimates/engine/capabilities";
-import { internalError } from "@/lib/estimates/errors";
+import {
+  assertNever,
+  EstimateEngineUnavailableError,
+  usesSaleCoefficients,
+} from "@/lib/estimates/engine/capabilities";
+import { badRequest, internalError } from "@/lib/estimates/errors";
 import { DEFAULT_MAX_SECTION_DEPTH } from "@/lib/estimates/hierarchy";
 import { assertEstimateV3VersionShape, toEstimateV3VersionTotals } from "@/lib/estimates/v3-persistence";
 import {
@@ -554,6 +558,9 @@ const V3_INHERITED_SETTINGS = [
   "contractor_role",
 ] as const satisfies ReadonlyArray<keyof LatestVersionDefaults>;
 
+/** Réglages de création propres au moteur 3 (D5) : fournis ou ceux de la politique ; refusés sur une v2. */
+const V3_CREATION_SETTINGS = ["sale_coefficient_fo", "sale_coefficient_mo"] as const;
+
 /**
  * Lot 2, sous-lot 2.5 - charge de version v3 (D5 à D7, §6.2). Une v3 naît en marge fixe à 1,
  * coefficient global 1, remise simple, avec les coefficients de vente fournis ou ceux de la
@@ -752,20 +759,29 @@ export async function persistCanonicalEstimateV2(
       : null;
   const projectUserId = existingContext?.projectUserId ?? input.actorUserId;
   const policy = await readTenantCalcPolicy(input.supabase, input.tenantId);
+  // Modèles, imports et autres chemins d'entrée v3 : sous-lot 2.8 (D16). Sous politique 3, refus nommé et
+  // définitif avant la comparaison des attentes : un chemin sans attente (import, création rapide) ne doit
+  // pas recevoir le CONTEXT_CHANGED « rechargez la page », qui boucle (revue 2.5).
+  if (input.source.kind !== "blank" && usesSaleCoefficients(policy.engine)) throw new EstimateEngineUnavailableError();
   const engine = resolveNewEstimateEngine({ policy, expectedEngine: input.expectedCalcEngineVersion });
   const sourceResult = resolveCanonicalSource(input.source);
   let prepared: { versionPayload: Record<string, unknown>; persistedItems: CanonicalEstimateCreationItem[] };
   switch (engine) {
-    case 2:
+    case 2: {
+      // Revue 2.5 (V3P-13) : un coefficient de vente est un réglage v3 ; refus nommé, jamais un retrait silencieux.
+      const v3Fields = V3_CREATION_SETTINGS.filter((key) => input.version?.[key] != null);
+      if (v3Fields.length > 0) {
+        throw badRequest("Ces réglages sont réservés au moteur de calcul 3.", { fields: v3Fields },
+          "ESTIMATE_ENGINE_COLUMN_NOT_SUPPORTED");
+      }
       prepared = await prepareCanonicalV2Creation(input, {
         projectUserId,
         latestVersion: existingContext?.latestVersion ?? null,
         sourceResult,
       });
       break;
+    }
     case 3: {
-      // Modèles, imports et autres chemins d'entrée v3 : sous-lot 2.8 (D16). Refus nommé d'ici là.
-      if (input.source.kind !== "blank") throw new EstimateEngineUnavailableError();
       const versionPayload = resolveV3VersionPayload({
         overrides: input.version,
         latestVersion: existingContext?.latestVersion ?? null,
@@ -778,8 +794,15 @@ export async function persistCanonicalEstimateV2(
         version: versionPayload,
         lineItems: [],
       });
+      // Coefficients que le client n'a pas fournis : la RPC prend ceux de la politique qu'elle relit FOR SHARE
+      // sous le verrou consultatif, jamais ceux lus ici sans verrou (revue 2.5). Une v3 à blanc vaut 0 sous
+      // n'importe quels coefficients : les totaux calculés restent exacts.
+      const persistedPayload: Record<string, unknown> = { ...versionPayload };
+      for (const key of V3_CREATION_SETTINGS) {
+        if (input.version?.[key] == null) delete persistedPayload[key];
+      }
       prepared = {
-        versionPayload: { ...versionPayload, ...toEstimateV3VersionTotals(calculated.breakdown) },
+        versionPayload: { ...persistedPayload, ...toEstimateV3VersionTotals(calculated.breakdown) },
         persistedItems: [],
       };
       break;
