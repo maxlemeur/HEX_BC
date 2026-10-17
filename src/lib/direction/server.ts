@@ -3,7 +3,9 @@ import { cache } from "react";
 
 import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import { forbidden } from "@/lib/estimates/errors";
+import { resolveCalcEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
 import { resolveEffectiveMarginBp } from "@/lib/estimates/effective-margin";
+import { isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
 import { resolveFixedDiscountSignal, type FixedDiscountSignal } from "@/lib/estimates/effective-discount";
 import { loadCanonicalFixedDiscountEvidence } from "@/lib/estimates/fixed-discount-evidence-server";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
@@ -939,7 +941,9 @@ async function listDirectionPlansMetricsByProjectId(
 
 async function resolveDirectionFixedDiscount(context: Awaited<ReturnType<typeof getAuthenticatedContext>>, version: VersionRow): Promise<FixedDiscountSignal> {
   const captured = resolveFixedDiscountSignal(version);
-  if (captured.state !== "unavailable" || (version.calc_engine_version === 2 && version.status !== "draft")) return captured;
+  const calcEngineVersion = resolveCalcEngineVersionForDisplay(version);
+  if (captured.state !== "unavailable" || calcEngineVersion === null ||
+    (isUnifiedEngine(calcEngineVersion) && version.status !== "draft")) return captured;
   const project = resolveEmbeddedProject(version.estimate_projects);
   if (!project) return { state: "unavailable" };
   try {

@@ -4,6 +4,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { computeReadOnlyTotals } from "@/lib/estimate-calculations";
 import { resolveFixedDiscountSignal, type CanonicalFixedDiscountEvidence, type FixedDiscountVersion } from "@/lib/estimates/effective-discount";
+import {
+  isLegacyEngine,
+  isUnifiedEngine,
+  requireEstimateEngineVersion,
+  requireHistoricalEngine,
+} from "@/lib/estimates/engine/capabilities";
 import { conflict, mapSupabaseError, notFound } from "@/lib/estimates/errors";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
 import { calculateEstimateSnapshotForItems, type EstimateCalculationDependencies } from "@/lib/estimates/version-totals";
@@ -62,6 +68,7 @@ export async function loadCanonicalFixedDiscountEvidence(input: {
   if (error) throw mapSupabaseError(error, "Impossible de charger la preuve de remise.");
   if (!data) throw notFound("Version de chiffrage introuvable.");
   const version = data as Version;
+  const calcEngineVersion = requireHistoricalEngine(requireEstimateEngineVersion(version));
   if (version.tenant_id !== input.tenantId || ["id", "project_id", "status", "updated_at", "content_revision", "discount_amount_cents", "total_ht_cents"].some((key) => {
     const name = key as keyof AuthorizedVersion;
     return input.authorizedVersion[name] !== version[name as keyof Version];
@@ -72,7 +79,7 @@ export async function loadCanonicalFixedDiscountEvidence(input: {
   if (!project || project.user_id !== input.projectUserId) throw notFound("Projet de chiffrage introuvable.");
 
   // Finalized V2 must use the actual frozen capture, never a live reconstruction.
-  if (version.status !== "draft" && version.calc_engine_version === 2) {
+  if (version.status !== "draft" && isUnifiedEngine(calcEngineVersion)) {
     await assertEstimateVersionUnchanged({ supabase: input.supabase, version });
     return null;
   }
@@ -92,7 +99,7 @@ export async function loadCanonicalFixedDiscountEvidence(input: {
     appliedCents = calculated.breakdown.totals.discountCents;
     source = "authenticated_live";
   } else {
-    if (version.calc_engine_version !== 1 || items.some((item) => item.item_type === "line" &&
+    if (!isLegacyEngine(calcEngineVersion) || items.some((item) => item.item_type === "line" &&
       (typeof item.line_total_ht_cents !== "number" || !Number.isSafeInteger(item.line_total_ht_cents) || item.line_total_ht_cents < 0))) return null;
     const stored = computeReadOnlyTotals({
       items, version, discountCents: version.discount_amount_cents ?? 0,

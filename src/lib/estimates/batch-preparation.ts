@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { EstimateItemRecord } from "@/lib/estimate-calculations";
 import { buildEstimateV2SnapshotProjection } from "@/lib/estimate-v2-snapshot";
 import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
+import { isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
 import { ApiError, badRequest, conflict, internalError, notFound } from "@/lib/estimates/errors";
 import {
   assertLinePlacementAllowed, assertSectionPlacementAllowed, assertSectionSubtreePlacementAllowed,
@@ -296,7 +297,7 @@ export async function prepareEstimateBatch(input: {
   });
   if (!dependencies) throw internalError("Contexte de calcul indisponible.");
   let itemUpdates: ItemProjection[];
-  if (resolveCalcEngineVersion(version) === 2) {
+  if (isUnifiedEngine(resolveCalcEngineVersion(version))) {
     if (!breakdown.invariants.matchesFooter) throw badRequest("Le calcul des lignes ne correspond pas au pied du devis.");
     itemUpdates = buildEstimateV2SnapshotProjection({ items: lines, breakdown }).items.map((item) => ({
       id: item.id, pu_ht_cents: item.snapshot_pu_ht_cents, line_total_ht_cents: item.line_total_ht_cents,

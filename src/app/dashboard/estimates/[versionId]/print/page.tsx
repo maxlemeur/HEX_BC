@@ -15,10 +15,12 @@ import {
   computeReadOnlyTotals,
   computeStoredDiscountCents,
 } from "@/lib/estimate-calculations";
+import { EstimateEngineUnavailableNotice } from "@/components/estimates/EstimateEngineUnavailableNotice";
 import {
-  resolveCalcEngineVersion,
+  resolveCalcEngineVersionForDisplay,
   shouldPreserveStoredEstimateV2Snapshot,
 } from "@/lib/estimates/calc-engine-version";
+import { isLegacyEngine } from "@/lib/estimates/engine/capabilities";
 import {
   loadMarginTiersForTotals,
   resolveRenderMarginMode,
@@ -166,14 +168,24 @@ export default async function PrintEstimatePage({
   if (!userContext.tenantId || userContext.tenantId !== version.tenant_id) {
     notFound();
   }
+  // Lot 2, sous-lot 2.1 : aucun document imprimable d'une v3 avant le contrat client 2.
+  const calcEngineVersion = resolveCalcEngineVersionForDisplay(version);
+  if (calcEngineVersion === null) {
+    return (
+      <EstimateEngineUnavailableNotice
+        versionNumber={version.version_number}
+        projectId={version.project_id}
+        projectName={resolveProject(version.estimate_projects)?.name}
+      />
+    );
+  }
   const items = await readAllEstimateItems({
     supabase,
     tenantId: version.tenant_id,
     versionId,
   });
-  const calcEngineVersion = resolveCalcEngineVersion(version);
   const preserveStoredSnapshot =
-    calcEngineVersion === 1
+    isLegacyEngine(calcEngineVersion)
       ? version.status !== "draft"
       : shouldPreserveStoredEstimateV2Snapshot(version);
   const selectedCurrency = normalizeEstimateCurrency(version.currency) ?? "EUR";
@@ -238,7 +250,7 @@ export default async function PrintEstimatePage({
       ? await loadMarginTiersForTotals({ supabase, tenantId: version.tenant_id })
       : [];
   const computedTotals = preserveStoredSnapshot
-    ? calcEngineVersion === 1
+    ? isLegacyEngine(calcEngineVersion)
       ? computeReadOnlyTotals({
           items,
           version,

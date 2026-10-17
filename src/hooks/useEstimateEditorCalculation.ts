@@ -8,6 +8,7 @@ import {
   type EstimateTotals,
 } from "@/lib/estimate-calculations";
 import type { CalcEngineVersion } from "@/lib/estimates/calc-engine-version";
+import { isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
 import { computeEstimateLineValues } from "@/lib/estimate-calculations";
 import type {
   EditorEstimateItem,
@@ -261,7 +262,7 @@ export function useEstimateEditorCalculation(
   ]);
 
   const editorDisplayItems = useMemo(() => {
-    if (calcEngineVersion !== 2) return items;
+    if (!isUnifiedEngine(calcEngineVersion)) return items;
     if (isReadOnly) {
       return items.map((item) =>
         item.item_type === "line" && item.snapshot_pu_ht_cents != null

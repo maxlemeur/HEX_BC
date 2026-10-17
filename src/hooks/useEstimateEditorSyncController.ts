@@ -48,7 +48,9 @@ import {
   type EstimateItem,
   type EstimateItemUpdatePayload,
 } from "@/lib/estimates/editor-items";
+import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
 import { isDraftLockRequiredError, isVersionConflictError } from "@/lib/estimates/editor-sync-errors";
+import { isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
 
 import {
   AUTOSAVE_IMMEDIATE_FLUSH_UPDATES,
@@ -724,7 +726,7 @@ export function useEstimateEditorSyncController({
       pendingItemUpdatesRef.current
     );
     const versionTotalsPatch = buildVersionTotalsPatch(getPersistedTotals());
-    const forceV2Totals = forceTotals && versionSnapshot.calc_engine_version === 2;
+    const forceV2Totals = forceTotals && isUnifiedEngine(resolveCalcEngineVersion(versionSnapshot));
     if (forceV2Totals && !versionTotalsPatch) return "blocked";
     const reconcileTotals = forceV2Totals && versionTotalsPatch && (
       versionTotalsPatch.total_ht_cents !== versionSnapshot.total_ht_cents ||

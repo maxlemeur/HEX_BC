@@ -1,5 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import {
+  isUnifiedEngine,
+  requireEstimateEngineVersion,
+  requireHistoricalEngine,
+} from "@/lib/estimates/engine/capabilities";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { Database } from "@/types/database";
 
@@ -24,7 +29,9 @@ export async function freezeApprovalV2DraftIfRequired(
   context: ApprovalSnapshotContext,
   version: ApprovalSnapshotVersion
 ) {
-  if (version.status !== "draft" || version.calc_engine_version !== 2) return false;
+  // Lot 2, sous-lot 2.1 : une v3 ne part jamais en approbation sans gel, comme une v1.
+  const calcEngineVersion = requireHistoricalEngine(requireEstimateEngineVersion(version));
+  if (version.status !== "draft" || !isUnifiedEngine(calcEngineVersion)) return false;
 
   const supabase = context.supabase as SupabaseClient<Database>;
   await freezeEstimateV2Snapshot({

@@ -50,6 +50,7 @@ import {
   resolveCalcEngineVersion,
   shouldPreserveStoredEstimateV2Snapshot,
 } from "@/lib/estimates/calc-engine-version";
+import { isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
 import { getTakeoffLinkedSourceVersionByJobId } from "@/lib/takeoff/version-links";
 import { isSupplierAlternativeCurrencyCompatible } from "@/lib/estimates/supplier-preselection";
 import { readSupplierOfferConditions, readSelectedSupplierDetails, type SupplierOfferConditions, type SelectedSupplierDetails } from "@/lib/estimates/supplier-offer-conditions";
@@ -5515,7 +5516,7 @@ export async function freezeEstimateV2SnapshotForSend(
     }
     throw error;
   }
-  if (resolveCalcEngineVersion(version) !== 2) {
+  if (!isUnifiedEngine(resolveCalcEngineVersion(version))) {
     return version;
   }
   return freezeEstimateV2Snapshot({
@@ -5606,7 +5607,7 @@ export async function patchEstimateStatus(
       );
     }
 
-    if (resolveCalcEngineVersion(version) === 2) {
+    if (isUnifiedEngine(resolveCalcEngineVersion(version))) {
       const frozen = await freezeEstimateV2Snapshot({
         supabase,
         rpcClient: getServiceRoleSupabaseClient(),
@@ -5770,7 +5771,7 @@ export async function verifyEstimateSeal(versionId: string) {
   // l'arrondi commercial explicite en v4. Les candidats v3/v2 conservent la
   // compatibilite des sceaux emis avant ce contrat.
   const sealCandidates =
-    resolveCalcEngineVersion(sealSource.version) === 2
+    isUnifiedEngine(resolveCalcEngineVersion(sealSource.version))
       ? [currentSealCandidate, unifiedSealCandidate, previousSealCandidate]
       : [previousSealCandidate, ...legacySealCandidates];
   const storedHash = sealSource.version.seal_hash?.trim().toLowerCase() || null;
@@ -6585,7 +6586,7 @@ export async function updateEstimateItem(
     line_total_ttc_cents: lineValues.ttcLineCents,
   };
   if (
-    resolveCalcEngineVersion(version) === 2 &&
+    isUnifiedEngine(resolveCalcEngineVersion(version)) &&
     version.margin_mode === "tiered" &&
     !isConvertingSectionToLine
   ) {
@@ -6644,7 +6645,7 @@ export async function bulkUpdateEstimateItems(
 
   // A structural mutation can commit before the editor refreshes its rows.
   // Reconcile v2 totals from those persisted rows, never its stale footer.
-  const shouldProjectDraft = resolveCalcEngineVersion(version) === 2 &&
+  const shouldProjectDraft = isUnifiedEngine(resolveCalcEngineVersion(version)) &&
     (version.margin_mode === "tiered" || versionPatch !== undefined);
   if (versionPatch && !shouldProjectDraft) {
     const persistedTotals: EstimateTotals = {
