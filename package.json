@@ -44,6 +44,7 @@
     "supabase:verify-local": "node --import tsx scripts/verify-local-supabase-migrations.ts",
     "db:ci:local": "node --import tsx scripts/run-local-supabase-ci.ts",
     "db:upgrade-check": "node --import tsx scripts/engine-v3/upgrade-check.ts",
+    "units:sql": "node --import tsx scripts/units/generate-units-sql.ts",
     "audit:dependencies": "node --import tsx scripts/check-dependency-audit.ts",
     "audit:signatures": "npm audit signatures",
     "check:architecture": "node --import tsx scripts/check-architecture-budgets.ts",
@@ -74,6 +75,9 @@
     "e2e:army:polish:list": "node scripts/run-tester-army.mjs polish-list",
     "engine:frozen-corpus": "node --import tsx scripts/engine-v3/frozen-corpus.ts",
     "engine:document-fingerprints": "node --import tsx scripts/engine-v3/document-fingerprints.ts",
+    "engine:v3:parity": "node --import tsx scripts/engine-v3/parity.ts",
+    "engine:v3:optima-lot-check": "node --import tsx scripts/engine-v3/optima-lot-check.ts",
+    "engine:v3:performance": "node --import tsx scripts/engine-v3/performance.ts",
     "e2e:army:calc-v3": "node --import tsx scripts/run-tester-army-ci.ts calc-v3"
   },
   "dependencies": {

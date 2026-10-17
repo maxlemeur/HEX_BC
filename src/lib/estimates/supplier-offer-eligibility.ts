@@ -3,7 +3,9 @@ import { isSupplierOfferPriceEligible, type SupplierOfferPrice } from "@/lib/est
 import { isSupplierAlternativeCurrencyCompatible } from "@/lib/estimates/supplier-preselection";
 
 // P-08: "ml" is the linear metre whatever its case ("ML" in a DPGF), equal to "m"; the
-// millilitre is not part of the unit referential. The full normaliser arrives in sub-lot 2.4.
+// millilitre is not part of the unit referential. Kept on purpose for every engine: the shared
+// normaliser of sub-lot 2.4 (src/lib/units) replaces it, together with its SQL twin
+// private.purchase_unit_token, only in sub-lot 2.9 (purchase unit carried by the offer, D9).
 function normalizedUnit(value: string) {
   const unit = value.trim().toLowerCase();
   return unit === "ml" ? "m" : unit;

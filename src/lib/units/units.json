@@ -1,0 +1,122 @@
+{
+  "$comment": "Source unique du référentiel d'unités (lot 2, D9, P-08, P-09). Le TS lit ce fichier ; scripts/units/generate-units-sql.ts en génère les données de la migration M3 et l'attendu de supabase/tests/database/measurement-units.test.sql. Toute modification exige une nouvelle migration : npm run units:sql -- --check refuse une dérive.",
+  "version": 1,
+  "units": [
+    {
+      "code": "u",
+      "label": "Unité",
+      "symbol": "u",
+      "dimension": "count",
+      "sort_order": 10,
+      "active": true,
+      "aliases": ["unité", "unités", "pièce", "pièces", "pce", "pc", "pcs"]
+    },
+    {
+      "code": "ens",
+      "label": "Ensemble",
+      "symbol": "ens",
+      "dimension": "set",
+      "sort_order": 20,
+      "active": true,
+      "aliases": ["ensemble", "ensembles"]
+    },
+    {
+      "code": "fft",
+      "label": "Forfait",
+      "symbol": "fft",
+      "dimension": "lump_sum",
+      "sort_order": 30,
+      "active": true,
+      "aliases": ["forfait", "forfaits", "ft"]
+    },
+    {
+      "code": "ml",
+      "label": "Mètre linéaire",
+      "symbol": "ml",
+      "dimension": "length",
+      "sort_order": 40,
+      "active": true,
+      "aliases": ["ML", "mL", "Ml", "m.l.", "m", "mètre", "mètres", "mètre linéaire", "mètres linéaires"]
+    },
+    {
+      "code": "m2",
+      "label": "Mètre carré",
+      "symbol": "m²",
+      "dimension": "area",
+      "sort_order": 50,
+      "active": true,
+      "aliases": ["m²", "M2", "mètre carré", "mètres carrés"]
+    },
+    {
+      "code": "m3",
+      "label": "Mètre cube",
+      "symbol": "m³",
+      "dimension": "volume",
+      "sort_order": 60,
+      "active": true,
+      "aliases": ["m³", "M3", "mètre cube", "mètres cubes"]
+    },
+    {
+      "code": "kg",
+      "label": "Kilogramme",
+      "symbol": "kg",
+      "dimension": "mass",
+      "sort_order": 70,
+      "active": true,
+      "aliases": ["kilogramme", "kilogrammes", "kilo", "kilos"]
+    },
+    {
+      "code": "t",
+      "label": "Tonne",
+      "symbol": "t",
+      "dimension": "mass",
+      "sort_order": 80,
+      "active": true,
+      "aliases": ["tonne", "tonnes"]
+    },
+    {
+      "code": "l",
+      "label": "Litre",
+      "symbol": "l",
+      "dimension": "volume",
+      "sort_order": 90,
+      "active": true,
+      "aliases": ["litre", "litres"]
+    },
+    {
+      "code": "h",
+      "label": "Heure",
+      "symbol": "h",
+      "dimension": "time",
+      "sort_order": 100,
+      "active": true,
+      "aliases": ["heure", "heures"]
+    },
+    {
+      "code": "j",
+      "label": "Jour",
+      "symbol": "j",
+      "dimension": "time",
+      "sort_order": 110,
+      "active": true,
+      "aliases": ["jour", "jours"]
+    },
+    {
+      "code": "pouce",
+      "label": "Pouce",
+      "symbol": "\"",
+      "dimension": "inch",
+      "sort_order": 120,
+      "active": true,
+      "aliases": ["\"", "''", "pouces", "inch"]
+    }
+  ],
+  "statuses": [
+    { "pricing_status": "priced", "label": "Chiffré", "aliases": [] },
+    { "pricing_status": "included", "label": "Inclus", "aliases": ["inc", "incl", "CP", "inclus", "compris"] },
+    { "pricing_status": "for_memory", "label": "Pour mémoire", "aliases": ["PM", "pour mémoire"] },
+    { "pricing_status": "not_priced", "label": "Non chiffré", "aliases": ["NC", "non chiffré"] },
+    { "pricing_status": "out_of_scope", "label": "Hors lot", "aliases": ["HL", "hors lot"] },
+    { "pricing_status": "not_applicable", "label": "Sans objet", "aliases": ["SO", "sans objet"] }
+  ]
+}

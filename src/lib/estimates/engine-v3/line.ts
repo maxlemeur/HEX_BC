@@ -62,6 +62,7 @@ function hasActiveLaborSplitPayload(line: NormalizedV3Line): boolean {
   );
 }
 
+/** Nulle si la colonne par unité est nulle (intégration 2.4 I-04) ; au-delà de `numeric(12,3)` : I-06. */
 function derivedHours(quantity: Decimal, hoursPerUnit: Decimal | null, field: string): string | null {
   if (hoursPerUnit === null) return null;
   const units = roundHalfUpToScale(multiply(quantity, hoursPerUnit), HOURS_SCALE);
@@ -131,7 +132,8 @@ export function computeV3LineGross(
         { key: "atelier", weight: multiply(multiply(line.majoration, atelierUnit), params.saleCoefficientMo) },
         { key: "chantier", weight: multiply(multiply(line.majoration, chantierUnit), params.saleCoefficientMo) },
       ])
-    : [ZERO, ZERO];
+    : // Sans ventilation, toute la MO est « chantier » (convention v2, intégration 2.4 I-01).
+      [ZERO, grossMo];
 
   return {
     priced,

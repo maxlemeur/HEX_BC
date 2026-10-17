@@ -8,6 +8,7 @@
  */
 import { allocateExact } from "@/lib/estimates/engine-v3/allocate";
 import {
+  type DecimalReadMode,
   divideHalfUp,
   formatScaled,
   INT32_MAX,
@@ -67,9 +68,15 @@ export function computeEstimateV3Breakdown(input: EstimateV3Input): EstimateV3Br
   return computeEstimateV3BreakdownFromUnknown(input);
 }
 
-/** Même calcul sur une entrée non typée (JSON canonique) : tout écart de forme est refusé. */
-export function computeEstimateV3BreakdownFromUnknown(rawInput: unknown): EstimateV3Breakdown {
-  const { params, lines } = normalizeEstimateV3Input(rawInput);
+/**
+ * Même calcul sur une entrée non typée : tout écart de forme est refusé. `canonical` applique le
+ * contrat JSON du jumeau SQL (nombres JSON seulement, adaptateur `computeEstimateV3Canonical`).
+ */
+export function computeEstimateV3BreakdownFromUnknown(
+  rawInput: unknown,
+  mode: DecimalReadMode = "editor"
+): EstimateV3Breakdown {
+  const { params, lines } = normalizeEstimateV3Input(rawInput, mode);
   const gross = lines.map((line, index) => computeV3LineGross(line, params, `items[${index}]`));
 
   const grossTotal = sum(gross.map((line) => line.gross));
@@ -94,12 +101,11 @@ export function computeEstimateV3BreakdownFromUnknown(rawInput: unknown): Estima
       { key: "fo", weight: line.grossFo },
       { key: "mo", weight: line.grossMo },
     ]);
-    const [atelier, chantier] = line.laborSplit
-      ? allocateExact(mo, [
-          { key: "atelier", weight: line.grossMoAtelier },
-          { key: "chantier", weight: line.grossMoChantier },
-        ])
-      : [ZERO, ZERO];
+    // Sans ventilation, le brut chantier porte toute la MO : le net chantier aussi (I-01).
+    const [atelier, chantier] = allocateExact(mo, [
+      { key: "atelier", weight: line.grossMoAtelier },
+      { key: "chantier", weight: line.grossMoChantier },
+    ]);
     return { fo, mo, atelier, chantier };
   });
 
@@ -180,6 +186,11 @@ export function computeEstimateV3BreakdownFromUnknown(rawInput: unknown): Estima
   assertEngineInvariant(
     netSplits.every((split, index) => split.fo + split.mo === nets[index]),
     "FO net + MO net = net"
+  );
+  assertEngineInvariant(
+    netSplits.every((split) => split.atelier + split.chantier === split.mo) &&
+      gross.every((line) => line.grossMoAtelier + line.grossMoChantier === line.grossMo),
+    "atelier + chantier = MO"
   );
   assertEngineInvariant(commercialRounding < params.roundingStepCents, "A < pas");
 
