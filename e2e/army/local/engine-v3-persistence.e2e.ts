@@ -142,7 +142,18 @@ async function writeLinesByBatch(browser: Browser, army: ArmyState, versionId: s
   return readEstimate(browser, versionId);
 }
 
+/**
+ * A navigation (app.open) discards the page's in-memory lease identity; only a reload restores it. The
+ * draft lease taken by an earlier document of this tab is retaken for the current one, as the editor
+ * does, before a settings save (§10.2).
+ */
+async function retakeLease(browser: Browser, versionId: string) {
+  const lease = await apiRequest(browser, "PATCH", `/api/estimates/${versionId}/lock?force=true`);
+  expect(lease.status).toBe(200);
+}
+
 async function saveSettings(browser: Browser, army: ArmyState, versionId: string, label: string, patch: Record<string, unknown>) {
+  await retakeLease(browser, versionId);
   const before = await readEstimate(browser, versionId);
   const response = await apiRequest<Envelope<unknown>>(browser, "PATCH", `/api/estimates/${versionId}`,
     { ...patch, expected_content_revision: before.version.content_revision }, { "if-match": before.version.updated_at });
@@ -195,8 +206,9 @@ async function submitForReviewFromJourneyProcess(app: App, browser: Browser, ver
 async function visibleRowText(browser: Browser, selector: { href?: string; heading?: string }) {
   return browser.evaluate((input) => {
     if (input.href) {
-      const link = document.querySelector(`a[href="${input.href}"]`);
-      return link?.closest("li, tr")?.textContent ?? null;
+      // The row (hub version list item or table row) that holds a link to the version.
+      const row = Array.from(document.querySelectorAll(`a[href="${input.href}"]`)).map(link => link.closest("li, tr")).find(Boolean);
+      return row?.textContent ?? null;
     }
     const article = Array.from(document.querySelectorAll("article"))
       .find(node => node.querySelector("h2")?.textContent?.trim() === input.heading);
@@ -246,8 +258,10 @@ armyTest("V3P01 a v3 born behind the tenant policy persists the oracle, its sett
     const countBefore = await versionCountOf(projectId);
     unexpected = await createVersion(browser, { project_id: projectId, version: { ...NEUTRAL_VERSION, title: `${army.runPrefix} sans attente` } });
     countAroundUnexpected = [countBefore, await versionCountOf(projectId)];
-    oracleCreated = await createVersion(browser, { project_id: projectId, version: { ...NEUTRAL_VERSION, title: `${army.runPrefix} oracle v3`, expected_calc_engine_version: 3 } });
+    // EUHIST first: the oracle is then the affaire's current (highest-numbered) version, whose lines
+    // make the hub show its version list for the on-screen reading below (§10.2).
     euhistCreated = await createVersion(browser, { project_id: projectId, version: { ...NEUTRAL_VERSION, title: `${army.runPrefix} EUHIST v3`, expected_calc_engine_version: 3 } });
+    oracleCreated = await createVersion(browser, { project_id: projectId, version: { ...NEUTRAL_VERSION, title: `${army.runPrefix} oracle v3`, expected_calc_engine_version: 3 } });
   } finally {
     if (policyOpened) policy2 = await setTenantCalcPolicy(owner, { engine: 2, fo: "1.30", mo: "1.20", reason: `${reason} fin` });
   }
