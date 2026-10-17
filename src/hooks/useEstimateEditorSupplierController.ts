@@ -17,6 +17,7 @@ import {
   type EstimateItem,
   type EstimateItemUpdatePayload,
   type EstimateVersionRow,
+  type EstimateVersionTotalsPatch,
 } from "@/lib/estimates/editor-items";
 import { isRecord, toFiniteNumber, toNonEmptyString } from "@/lib/estimates/editor-values";
 import type {
@@ -309,7 +310,14 @@ type EstimateEditorSupplierControllerInput = {
   setTotalsOutOfSync: (value: boolean) => void;
   reportError: (message: string | null) => void;
   resolveErrorMessage: (message: string) => string;
-  applyVersionToken: (updatedAt: string) => void;
+  /** Version totals of these rows, from the editor's persisted-totals calculation. */
+  computeVersionTotalsPatch: (
+    items: EditorEstimateItem[]
+  ) => EstimateVersionTotalsPatch | undefined;
+  applyVersionToken: (
+    updatedAt: string,
+    totals?: EstimateVersionTotalsPatch
+  ) => void;
   markItemsSynced: (
     entries: ReadonlyArray<{ id: string; updates: EstimateItemUpdatePayload }>
   ) => void;
@@ -332,6 +340,7 @@ export function useEstimateEditorSupplierController({
   setTotalsOutOfSync,
   reportError,
   resolveErrorMessage,
+  computeVersionTotalsPatch,
   applyVersionToken,
   markItemsSynced,
   ensureGroupedActionCanProceed,
@@ -632,6 +641,23 @@ export function useEstimateEditorSupplierController({
         : item;
     });
     const updatedById = new Map(updatedLines.map((item) => [item.id, item]));
+    // The lines and the version totals they imply are written by one RPC: the
+    // stored totals feed the affaires list, approvals and documents.
+    const versionTotalsPatch = computeVersionTotalsPatch(
+      snapshot.map((item) => updatedById.get(item.id) ?? item)
+    );
+    if (!versionTotalsPatch) {
+      setScopedDialogState((previous) => ({
+        routeVersionId,
+        dialog: {
+          ...(previous.routeVersionId === routeVersionId
+            ? previous.dialog
+            : EMPTY_DIALOG_STATE),
+          error: "Impossible de calculer les totaux du devis.",
+        },
+      }));
+      return;
+    }
 
     applyingRef.current = true;
     const generation = ++requestGenerationRef.current;
@@ -656,7 +682,8 @@ export function useEstimateEditorSupplierController({
       const result = await bulkUpdateEstimateItems(
         targetVersionId,
         versionSnapshot.updated_at,
-        updates
+        updates,
+        versionTotalsPatch
       );
       if (
         !isCurrentRoute(targetVersionId) ||
@@ -664,7 +691,11 @@ export function useEstimateEditorSupplierController({
       ) {
         return;
       }
-      applyVersionToken(result.versionToken.updated_at);
+      // v2 returns the totals it recalculated; v1 stores the patch as sent.
+      applyVersionToken(
+        result.versionToken.updated_at,
+        result.totals ?? versionTotalsPatch
+      );
       // Without a fresh baseline, an edit back to the previous value is dropped.
       markItemsSynced(updates);
       setTotalsOutOfSync(false);
@@ -729,6 +760,7 @@ export function useEstimateEditorSupplierController({
     }
   }, [
     applyVersionToken,
+    computeVersionTotalsPatch,
     ensureGroupedActionCanProceed,
     getItemsSnapshot,
     getVersionSnapshot,

@@ -1199,6 +1199,7 @@ export function useEstimateEditorState({
     totals,
     editorDisplayItems,
     persistedTotals,
+    computePersistedTotals,
   } = useEstimateEditorCalculation({
     items,
     settings,
@@ -1875,6 +1876,23 @@ export function useEstimateEditorState({
     [applyVersionFlushResult, resolvedVersionId]
   );
 
+  const computeVersionTotalsPatch = useCallback(
+    (nextItems: EditorEstimateItem[]) =>
+      buildVersionTotalsPatch(computePersistedTotals(nextItems)),
+    [computePersistedTotals]
+  );
+
+  const applyVersionTokenAndTotals = useCallback(
+    (updatedAt: string, totalsPatch?: EstimateVersionTotalsPatch) => {
+      applyVersionFlushResult({
+        versionId: resolvedVersionId,
+        totalsPatch,
+        updatedAt,
+      });
+    },
+    [applyVersionFlushResult, resolvedVersionId]
+  );
+
   const itemsController = useEstimateEditorItemsController({
     version,
     settings,
@@ -2282,7 +2300,8 @@ export function useEstimateEditorState({
     setTotalsOutOfSync,
     reportError: setActionError,
     resolveErrorMessage: resolveEstimateActionError,
-    applyVersionToken,
+    computeVersionTotalsPatch,
+    applyVersionToken: applyVersionTokenAndTotals,
     markItemsSynced,
     ensureGroupedActionCanProceed,
     handleVersionConflict,

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 
 import type { EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
 import {
@@ -34,6 +34,8 @@ type EstimateEditorCalculationResult = {
   totals: EstimateTotals | null;
   editorDisplayItems: EditorEstimateItem[];
   persistedTotals: EstimateTotals | null;
+  /** Same calculation as `persistedTotals`, for rows about to be written. */
+  computePersistedTotals: (items: EditorEstimateItem[]) => EstimateTotals | null;
 };
 
 export function computeDraftBreakdown(input: {
@@ -290,30 +292,38 @@ export function useEstimateEditorCalculation(
     items,
   ]);
 
-  const persistedTotals = useMemo(() => {
-    if (!savedSettings) return null;
-    return computeDraftBreakdown({
-      items,
-      settings: savedSettings,
+  const computePersistedTotals = useCallback(
+    (nextItems: EditorEstimateItem[]) => {
+      if (!savedSettings) return null;
+      return computeDraftBreakdown({
+        items: nextItems,
+        settings: savedSettings,
+        calcEngineVersion,
+        isLaborSplitEnabled,
+        laborRateById,
+        laborRateAtelierById,
+        laborRateChantierById,
+      }).totals;
+    },
+    [
       calcEngineVersion,
       isLaborSplitEnabled,
-      laborRateById,
       laborRateAtelierById,
+      laborRateById,
       laborRateChantierById,
-    }).totals;
-  }, [
-    calcEngineVersion,
-    isLaborSplitEnabled,
-    items,
-    laborRateAtelierById,
-    laborRateById,
-    laborRateChantierById,
-    savedSettings,
-  ]);
+      savedSettings,
+    ]
+  );
+
+  const persistedTotals = useMemo(
+    () => computePersistedTotals(items),
+    [computePersistedTotals, items]
+  );
 
   return {
     totals,
     editorDisplayItems,
     persistedTotals,
+    computePersistedTotals,
   };
 }
