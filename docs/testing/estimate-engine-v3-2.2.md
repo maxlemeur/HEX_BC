@@ -1,8 +1,9 @@
 # Offre à 0 € et « ML » = mètre linéaire (sous-lot 2.2)
 
-Statut : **implémenté et prouvé**, branche `lot2/2.2-offre-zero-ml` (base `28c7546b`). Contrat et tests
-d'exigence écrits rouges d'abord (`2cb71dcc`), puis l'implémentation et la migration M2
-(`20261017093407_supplier_offer_zero_price_policy.sql`).
+Statut : **implémenté, relu et prouvé**, branche `lot2/2.2-offre-zero-ml`, recalée sur `main` `3d8d2f8a`
+(PR #24). Contrat et tests d'exigence écrits rouges d'abord (`4824b335`), puis l'implémentation et la
+migration M2 (`8ecd693a`, `20261017093407_supplier_offer_zero_price_policy.sql`), puis les corrections de
+la relecture (`9ac86341` rouge, `e48814fa` et `c7e6571b`).
 Source : [conception du lot 2](../audit-independant-2026-10-14/lot2/conception-lot2-moteur-v3.md), D9 (unités),
 D10 (A7), §5.3 T-Z, §14 « 2.2 », décisions P-08 et P-17 (validées le 16/10/2026). Règle d'entrée valable
 pour tous les moteurs : aucune ligne de devis déjà liée n'est modifiée.
@@ -88,7 +89,7 @@ Rejouer aussi : corpus figé et empreintes documentaires (aucun montant v1/v2 ne
 - **Empreinte de relecture d'achat inchangée.** `private.estimate_purchase_review_lines` n'inclut pas
   `zero_price_kind` ; la création du brouillon refait le contrôle d'éligibilité au moment de l'écriture.
 
-## Exécution rouge (17/10/2026, macOS, base `28c7546b` + tests `2cb71dcc`)
+## Exécution rouge (17/10/2026, macOS, base `28c7546b` avant recalage, tests d'exigence aujourd'hui `4824b335`)
 
 Journaux : `.e2e/lot2-2.2/red/` (copie de travail, non versionnée).
 
@@ -122,15 +123,31 @@ attendent l'unité de l'article, et non plus la désignation, dans une ligne san
 
 | Preuve | Résultat |
 |---|---|
-| `npm test` | 3 342 tests : 3 339 réussis, 3 ignorés (les mêmes qu'avant), 0 échec |
+| `npm test` | 3 342 tests : 3 339 réussis, 3 ignorés (les mêmes qu'avant), 0 échec, à `c7e6571b` |
 | `npm run db:ci:local` | 14 fichiers pgTAP, 1 265 assertions PASS (1 253 + 12), matrice RLS passée |
 | `db:upgrade-check -- lot2-2-2` | M2 appliquée sur la base peuplée : 0 différence, colonne `zero_price_kind` neutre (`null`) partout ; contrôle négatif détecté |
 | Empreintes documentaires | 14 familles identiques |
 | Corpus figé | identique à l'octet (600 cas) |
 | `e2e:army:calc-v3 --phase offers` | 4/4 (setup, OZ01, OZ02, OZ03), copie propre |
-| `e2e:army:calc-v3` complet | 37/37 en 7 min 54 s (journeys 11, components 5, numeric 4, resume 5, access 2, offers 4, emission 6) au commit `729ca37f`, copie propre, sources inchangées |
-| `e2e:army:local` | 68/68 (19 fichiers) en 9 min 53 s |
+| `e2e:army:calc-v3` complet | 37/37 à `c7e6571b` (journeys 11, components 5, numeric 4, resume 5, access 2, offers 4, emission 6), copie propre, sources inchangées ; déjà 37/37 avant le recalage et avant la relecture |
+| `e2e:army:local` | 68/68 (19 fichiers) avant le recalage ; rejouée par la CI de la PR sur l'état final |
 | `npm run typecheck`, ESLint, OpenAPI | OK ; `openapi.json` ne gagne que `zero_price_kind` sur `update-offer` |
+
+## Relecture (17/10/2026)
+
+Un relecteur indépendant a confirmé la migration M2 : chaque fonction est identique à sa source hors des
+lignes visées, aucune migration ultérieure ne la redéfinit, droits et `search_path` sont conservés. Il a
+relevé quatre défauts, tous rendus observables en E2E rouge (`.e2e/lot2-2.2/red-review/`), puis corrigés :
+
+| # | Gravité | Défaut | Rouge | Correction |
+|---|---|---|---|---|
+| R1 | élevée | Les deux analyseurs client des comparaisons (`EstimateEditorTable.tsx`, `useEstimateEditorSupplierController.ts`) jetaient `unit_price_cents` et `zero_price_kind` : l'éligibilité fermée refusait toutes les offres du panneau « Comparer fournisseurs » (« Prix de l'offre à vérifier ») et les libellés ne s'affichaient pas | OZ01, panneau sur la ligne liée : « Retenir cette offre » désactivé partout | les deux analyseurs transmettent prix brut et marquage |
+| R2 | moyenne | Une ligne déjà liée à une offre à 0 € non marquée la voyait classée « meilleur prix » | OZ01 : `best_supplier_price_id` = l'offre à 0 € | l'offre retenue inéligible reste le choix courant, mais n'entre plus dans le classement |
+| R3 | moyenne | Le popover appliquait une offre dans une autre unité (ligne en m2, offre en ml) ; l'unité d'une alternative choisie n'était pas reprise | OZ01, ligne m2 (écrit avant la correction) | refus avec motif « Unité différente du devis » ; règle P-08 partagée (`areSupplierUnitsCompatible`) ; unité de l'offre choisie pour une ligne sans unité |
+| R4 | faible | Un marquage envoyé seul sur une offre à prix positif échouait en erreur générique | OZ02 : message générique | erreur de contrainte nommée, même message que le schéma |
+
+Les tests verts antérieurs ne voyaient pas R1 : les tests unitaires construisent des alternatives avec un
+prix, et OZ01 passait par l'API. Le panneau est désormais traversé par le parcours.
 
 ## Constats hors périmètre
 
