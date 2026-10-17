@@ -249,8 +249,14 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
       const portal = documentChecks(await openCollectedPortal(ui, s5Resent.portalUrl), S5);
       await record("s5-portal", { versionId: s5.versionId, portalUrlSha256: digest(s5Resent.portalUrl), expected: expectedDocumentChecks(S5), actual: portal });
       expect(portal).toEqual(expectedDocumentChecks(S5));
-      await ui.screen.getByRole("button", "Accepter le devis", { exact: true }).click();
+      // The portal actions are a client island: under next dev a click that lands before hydration
+      // opens nothing, so click again until the modal shows (as ownerLogin does for its toggle).
+      const accept = ui.screen.getByRole("button", "Accepter le devis", { exact: true });
       const modal = ui.screen.getByRole("dialog", "Accepter le devis", { exact: true });
+      await expect.poll(async () => {
+        if (!(await modal.isVisible())) await accept.click();
+        return modal.isVisible();
+      }, { timeout: 30_000 }).toBe(true);
       await expect(modal).toBeVisible();
       await modal.getByRole("checkbox", "J’accepte ce devis et ses conditions", { exact: true }).check();
       const [decision] = await Promise.all([
