@@ -18,6 +18,7 @@ import {
   fetchCatalogueSuggestions,
 } from "@/components/estimates/components/estimate-editor-row/shared";
 import { type SpreadsheetEditorProps } from "@/hooks/useSpreadsheetNavigation";
+import { areSupplierUnitsCompatible } from "@/lib/estimates/supplier-offer-eligibility";
 
 type UseCatalogueSuggestionsOptions = {
   versionId: string;
@@ -169,9 +170,14 @@ export function useCatalogueSuggestions({
         alternative?.adjusted_unit_price_cents ??
         suggestion.adjusted_unit_price_cents;
 
-      // The line unit lives in `description`. Keep it; fill it from the article only when
-      // the line has none (sub-lot 2.2: the designation was written there before).
-      const suggestedUnit = suggestion.unit?.trim() ?? "";
+      // The line unit lives in `description`. Keep it; fill it from the chosen offer only when
+      // the line has none (sub-lot 2.2: the designation was written there before), and never
+      // price a line with an offer in another unit.
+      const suggestedUnit = (alternative?.unit ?? suggestion.unit)?.trim() ?? "";
+      if (selectedSupplierPriceId && !areSupplierUnitsCompatible(item.description, suggestedUnit)) {
+        setCatalogueError(`Unité différente du devis : offre en ${suggestedUnit}, ligne en ${item.description?.trim()}.`);
+        return;
+      }
       const patch: ItemPatch = {
         product_id: suggestion.product_id,
         title: selectedDescription,

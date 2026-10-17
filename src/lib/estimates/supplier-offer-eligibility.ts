@@ -9,6 +9,11 @@ function normalizedUnit(value: string) {
   return unit === "ml" ? "m" : unit;
 }
 
+/** True when either unit is blank or both name the same unit (P-08). */
+export function areSupplierUnitsCompatible(lineUnit: string | null | undefined, offerUnit: string | null | undefined) {
+  return !lineUnit?.trim() || !offerUnit?.trim() || normalizedUnit(lineUnit) === normalizedUnit(offerUnit);
+}
+
 export function supplierOfferIneligibility(
   offer: SupplierOfferConditions & SupplierOfferPrice & { currency?: string | null },
   input: { currency: string; quantity?: number | null; unit?: string | null; today?: string },
@@ -17,9 +22,7 @@ export function supplierOfferIneligibility(
   if (offer.is_active === false) return "Offre archivée";
   if (typeof offer.unit_price_cents !== "number" || !Number.isFinite(offer.unit_price_cents)) return "Prix de l'offre à vérifier";
   if (!isSupplierOfferPriceEligible(offer)) return "Offre à 0 € non marquée";
-  if (input.unit?.trim() && offer.unit?.trim() && normalizedUnit(input.unit) !== normalizedUnit(offer.unit)) {
-    return "Unité différente du devis";
-  }
+  if (!areSupplierUnitsCompatible(input.unit, offer.unit)) return "Unité différente du devis";
   if (typeof offer.min_quantity === "number" && Number.isFinite(offer.min_quantity)) {
     if (typeof input.quantity !== "number" || !Number.isFinite(input.quantity)) return "Quantité du devis à préciser";
     if (input.quantity < offer.min_quantity) return `Minimum ${offer.min_quantity} ${offer.unit || "u"}`;

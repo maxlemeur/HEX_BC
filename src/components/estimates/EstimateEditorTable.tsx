@@ -423,6 +423,10 @@ function toSupplierComparisonAlternative(
     valid_from: toNonEmptyString(record.valid_from),
     valid_to: toNonEmptyString(record.valid_to),
     is_active: typeof record.is_active === "boolean" ? record.is_active : undefined,
+    // Raw price and A7 marking: the eligibility check refuses an offer whose price is unknown.
+    unit_price_cents: typeof record.unit_price_cents === "number" && Number.isFinite(record.unit_price_cents)
+      ? record.unit_price_cents : null,
+    zero_price_kind: toNonEmptyString(record.zero_price_kind),
   };
 }
 
