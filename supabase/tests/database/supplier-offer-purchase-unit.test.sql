@@ -117,7 +117,9 @@ from (values
   ('29000000-0000-4000-8000-000000000065', 5, 'PU29 L5 m.l.', 'm.l.', 5::numeric, 1000, '29000000-0000-4000-8000-000000000044'),
   ('29000000-0000-4000-8000-000000000066', 6, 'PU29 L6 minimum', 'ml', 282::numeric, 8748, '29000000-0000-4000-8000-000000000045'),
   -- Review of 2.9: a line already written in the purchase unit keeps its bars and its bar price.
-  ('29000000-0000-4000-8000-000000000067', 7, 'PU29 L7 en barres', 'Barre', 94::numeric, 26245, '29000000-0000-4000-8000-000000000041')
+  ('29000000-0000-4000-8000-000000000067', 7, 'PU29 L7 en barres', 'Barre', 94::numeric, 26245, '29000000-0000-4000-8000-000000000041'),
+  -- Second review of 2.9: a negotiated price whose bar price (x 3) exceeds an integer of cents.
+  ('29000000-0000-4000-8000-000000000068', 8, 'PU29 L8 hors limites', 'ml', 1::numeric, 800000000, '29000000-0000-4000-8000-000000000041')
 ) as line(id, position, title, unit, quantity, cents, offer);
 
 select set_config('request.jwt.claim.sub', '29000000-0000-4000-8000-000000000001', true);
@@ -140,7 +142,7 @@ begin
       ('L1', '29000000-0000-4000-8000-000000000061'::uuid), ('L2', '29000000-0000-4000-8000-000000000062'::uuid),
       ('L3', '29000000-0000-4000-8000-000000000063'::uuid), ('L4', '29000000-0000-4000-8000-000000000064'::uuid),
       ('L5', '29000000-0000-4000-8000-000000000065'::uuid), ('L6', '29000000-0000-4000-8000-000000000066'::uuid),
-      ('L7', '29000000-0000-4000-8000-000000000067'::uuid)
+      ('L7', '29000000-0000-4000-8000-000000000067'::uuid), ('L8', '29000000-0000-4000-8000-000000000068'::uuid)
     ) as cases(case_name, item_id)
   loop
     begin
@@ -166,8 +168,8 @@ select results_eq(
   $$select case_name, outcome from pu29_purchase order by case_name$$,
   $$values ('L1'::text, 'created'::text), ('L2', 'created'), ('L3', 'created'),
            ('L4', '40001 ORDER_DRAFT_PREPARATION_STALE'), ('L5', 'created'), ('L6', '40001 ORDER_DRAFT_PREPARATION_STALE'),
-           ('L7', 'created')$$,
-  'converted lines are ordered; an unrepresentable quantity and a minimum missed in bars are refused; m.l. matches ml'
+           ('L7', 'created'), ('L8', '22023 ORDER_DRAFT_INPUT_INVALID')$$,
+  'converted lines are ordered; an unrepresentable quantity, a minimum missed in bars and a bar price out of range are refused; m.l. matches ml'
 );
 
 select results_eq(
@@ -200,6 +202,34 @@ select is(
   (select best_supplier_price_cents from public.catalogue_products_page(p_q => 'PU29'))::integer,
   900,
   'the catalogue best price is the cheapest price per estimate unit'
+);
+
+-- Second review of 2.9: the review shows what the draft orders, computed from the snapshot of its
+-- fingerprint (the API compares it with its own preview and refuses a mixed reading).
+select results_eq(
+  $$select l->>'item_id', (l->>'ordered_quantity')::numeric, l->>'ordered_unit', (l->>'ordered_unit_price_ht_cents')::integer
+    from jsonb_array_elements(public.get_estimate_purchase_order_review('29000000-0000-4000-8000-000000000052',
+      array['29000000-0000-4000-8000-000000000061', '29000000-0000-4000-8000-000000000063',
+        '29000000-0000-4000-8000-000000000065', '29000000-0000-4000-8000-000000000067']::uuid[])->'lines') l
+    order by 1$$,
+  $$values ('29000000-0000-4000-8000-000000000061'::text, 94::numeric, 'barre'::text, 26245),
+           ('29000000-0000-4000-8000-000000000063', 94::numeric, 'barre', 24000),
+           ('29000000-0000-4000-8000-000000000065', 5::numeric, 'm.l.', 1000),
+           ('29000000-0000-4000-8000-000000000067', 94::numeric, 'Barre', 26245)$$,
+  'the purchase review carries the ordered quantity, unit and price'
+);
+
+-- Second review of 2.9: a conversion whose price per estimate unit exceeds an integer of cents is
+-- refused (27,00 € for 0.000001 ml would be 27 000 000 € per metre) and never breaks the catalogue.
+reset role;
+select throws_ok(
+  $$update public.supplier_pricebook set estimate_units_per_purchase_unit = 0.000001
+    where id = '29000000-0000-4000-8000-000000000042'$$,
+  '23514', null, 'a converted price beyond an integer of cents is refused'
+);
+select lives_ok(
+  $$select * from public.catalogue_products_page(p_q => 'PU29')$$,
+  'the catalogue page still reads'
 );
 
 select * from finish();

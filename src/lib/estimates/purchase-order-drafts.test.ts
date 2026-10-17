@@ -57,6 +57,7 @@ function coveredSnapshot() {
     unit_price_ht_cents: 1200, tax_rate_bp: 2000, unit: "u",
     selected_supplier_price_id: "price-1", supplier_id: SUPPLIER_ID,
     supplier_name: "Supplier A", supplier_reference: "REF-1", review_fingerprint: "a".repeat(64),
+    ordered_quantity: 2, ordered_unit: "u", ordered_unit_price_ht_cents: 1200,
   };
   return { line, review, offer: { ...alternative, id: "price-1", supplier_id: SUPPLIER_ID } };
 }
@@ -117,6 +118,11 @@ describe("purchase preparation coherent review", () => {
     { label: "supplier identity", change: { supplier_id: SECOND_SUPPLIER_ID } },
     { label: "supplier name", change: { supplier_name: "Renamed supplier" } },
     { label: "supplier reference", change: { supplier_reference: "REF-2" } },
+    // Second review of 2.9: an offer converted or repriced between the two reads (factor 3 → 2:
+    // 94 bars shown, 141 created) must not be ordered on the values shown.
+    { label: "ordered quantity", change: { ordered_quantity: 3 } },
+    { label: "ordered unit", change: { ordered_unit: "barre" } },
+    { label: "ordered price", change: { ordered_unit_price_ht_cents: 3600 } },
   ])("rejects a mixed snapshot when the canonical $label changes", async ({ change }) => {
     const snapshot = coveredSnapshot();
     installDatabase(snapshot, { reviewLines: [{ ...snapshot.review, ...change }] });
