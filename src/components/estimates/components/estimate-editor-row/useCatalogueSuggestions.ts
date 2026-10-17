@@ -20,6 +20,7 @@ import {
 import { type SpreadsheetEditorProps } from "@/hooks/useSpreadsheetNavigation";
 import { useEstimateV3Grid } from "@/components/estimates/v3/V3LineCells";
 import { areSupplierUnitsCompatible } from "@/lib/estimates/supplier-offer-eligibility";
+import { alternativePriceForLineUnit } from "@/lib/estimates/supplier-offer-purchase-unit";
 
 type UseCatalogueSuggestionsOptions = {
   versionId: string;
@@ -168,16 +169,14 @@ export function useCatalogueSuggestions({
       const selectedSupplierPriceId =
         alternative?.supplier_price_id ?? suggestion.supplier_price_id;
       const selectedDescription = suggestion.product_designation.trim();
-      const selectedAdjustedUnitPrice =
-        alternative?.adjusted_unit_price_cents ??
-        suggestion.adjusted_unit_price_cents;
-
       // The line unit lives in `description` (v1/v2) or in the referential `unit_code` (v3, sub-lot
       // 2.6, F26-10). Keep it; on v1/v2 fill it from the chosen offer only when the line has none
       // (sub-lot 2.2: the designation was written there before), and never price a line with an
       // offer in another unit. A v3 line unit is never replaced by a suggestion.
       const lineUnit = isV3 ? item.unit_code : item.description;
-      const suggestedUnit = (alternative?.unit ?? suggestion.unit)?.trim() ?? "";
+      // 2.9: a converted offer prices a line in metres per metre, a line in bars per bar.
+      const linePrice = alternativePriceForLineUnit(alternative ?? suggestion, lineUnit);
+      const suggestedUnit = linePrice.unit?.trim() ?? "";
       if (selectedSupplierPriceId && !areSupplierUnitsCompatible(lineUnit, suggestedUnit)) {
         setCatalogueError(`Unité différente du devis : offre en ${suggestedUnit}, ligne en ${lineUnit?.trim()}.`);
         return;
@@ -186,7 +185,7 @@ export function useCatalogueSuggestions({
         product_id: suggestion.product_id,
         title: selectedDescription,
         ...(!isV3 && !item.description?.trim() && suggestedUnit ? { description: suggestedUnit } : {}),
-        unit_price_ht_cents: selectedAdjustedUnitPrice,
+        unit_price_ht_cents: linePrice.priceCents,
         selected_supplier_price_id: selectedSupplierPriceId,
       };
 

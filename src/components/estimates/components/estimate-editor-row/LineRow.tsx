@@ -759,6 +759,7 @@ export function LineRow({
                   anchor={catalogueSuggestionsAnchor}
                   itemId={item.id}
                   query={item.title}
+                  lineUnit={v3Grid ? item.unit_code : item.description}
                   estimateCurrency={estimateCurrency}
                   catalogueListboxId={catalogueListboxId}
                   isCatalogueLoading={isCatalogueLoading}

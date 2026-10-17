@@ -126,6 +126,8 @@ type NormalizedCandidate = {
   metadata?: {
     supplierSource?: "F1" | "F2" | "F3" | null;
     autofilledSupplier?: boolean;
+    /** mm_bdc « Unite » (D4-16): the unit of the price, kept on the offer instead of defaulting to « u ». */
+    unit?: string | null;
   };
 };
 
@@ -557,6 +559,7 @@ function normalizeMMBdcRows(
         metadata: {
           supplierSource: prefix,
           autofilledSupplier,
+          unit: readCellByHeader(row, "Unite") || null,
         },
       });
     }
@@ -954,7 +957,7 @@ export async function validatePriceBookRows(
         product_id: resolvedProductId ?? undefined,
         catalogue_item_id: undefined,
         supplier_sku: null,
-        unit: null,
+        unit: candidate.metadata?.unit ?? null,
         min_quantity: null,
         unit_price_cents: typeof parsedPriceCents === "number" ? parsedPriceCents : 0,
         currency: rowCurrency,

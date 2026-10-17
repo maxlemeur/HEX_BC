@@ -319,3 +319,24 @@ describe("estimate editor line export rows", () => {
     ]);
   });
 });
+
+// Second review of 2.9: a converted offer (bar of 3 m at 262,45 €) is 87,48 € for a line in ml and
+// 262,45 € for a line written in bars; the export shows the price the line would take.
+describe("estimate editor export of a converted offer", () => {
+  it("prices the supplier columns in the unit of the line", () => {
+    const bar = { supplier_name: "Fonte", adjusted_unit_price_cents: 8748, unit_price_cents: 26245, unit: "barre",
+      estimate_unit_code: "ml", estimate_units_per_purchase_unit: 3, purchase_rounding: "ceil" };
+    const comparisons = normalizeSupplierComparisonsByItemId({
+      data: { comparisons: [{ estimate_item_id: "line-ml", suppliers: [bar] }, { estimate_item_id: "line-bar", suppliers: [bar] }] },
+    });
+    const rows = buildEstimateLineExportRows({
+      items: [createItem({ id: "line-ml", parent_id: null }), createItem({ id: "line-bar", parent_id: null, description: "barre" })],
+      currency: "EUR",
+      supplyTypeById: new Map(),
+      laborRoleById: new Map(),
+      qualityFlagsByItemId: {},
+      supplierComparisonsByItemId: comparisons,
+    });
+    expect(rows.map((row) => row.supplier_1.split(" | ")[1])).toEqual([formatCurrency(8748, "EUR"), formatCurrency(26245, "EUR")]);
+  });
+});

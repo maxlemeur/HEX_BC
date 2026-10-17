@@ -26,6 +26,10 @@ import type {
 } from "@/lib/estimates/schemas";
 import { assertCanWriteEstimateWorkflows } from "@/lib/estimates/write-access";
 import { supplierOfferIneligibility } from "@/lib/estimates/supplier-offer-eligibility";
+import { estimateLineUnit } from "@/lib/estimates/supplier-offer-units";
+import {
+  conversionForLineUnit, hasPurchaseUnitConversion, purchaseQuantity, purchaseUnitPriceCents,
+} from "@/lib/estimates/supplier-offer-purchase-unit";
 import { isPriceStale } from "@/lib/catalogue/stale-prices";
 import { purchaseReceiptSchema, purchaseReviewSchema, purchaseTransferSchema } from "@/lib/estimates/purchase-preparation-contracts";
 import { isValidOrderQuantity } from "@/lib/purchase-orders/quantities";
@@ -64,6 +68,10 @@ export type EstimatePurchaseOrderDraftLine = {
   selected_supplier_price_id: string;
   supplier_reference: string | null;
   product_designation: string;
+  /** What the order carries (2.9): the purchase quantity, unit and price of a converted offer. */
+  ordered_quantity: number;
+  ordered_unit: string;
+  ordered_unit_price_ht_cents: number;
 };
 
 export type EstimatePurchaseOrderDraftGroup = {
@@ -218,7 +226,8 @@ async function getDraftOrderContext() {
 
 type CurrentSupplierOffer = Pick<Database["public"]["Tables"]["supplier_pricebook"]["Row"],
   "id" | "supplier_id" | "unit" | "min_quantity" | "currency" | "is_active" |
-  "valid_from" | "valid_to" | "updated_at" | "created_at" | "unit_price_cents" | "zero_price_kind"
+  "valid_from" | "valid_to" | "updated_at" | "created_at" | "unit_price_cents" | "zero_price_kind" |
+  "estimate_unit_code" | "estimate_units_per_purchase_unit" | "purchase_rounding"
 >;
 
 async function readCurrentOfferEligibility(
@@ -243,7 +252,7 @@ async function readCurrentOfferEligibility(
 
   for (let start = 0; start < priceIds.length; start += SUPPLIER_COMPARISON_BATCH_SIZE) {
     const { data, error } = await context.supabase.from("supplier_pricebook")
-      .select("id, supplier_id, unit, min_quantity, currency, is_active, valid_from, valid_to, updated_at, created_at, unit_price_cents, zero_price_kind")
+      .select("id, supplier_id, unit, min_quantity, currency, is_active, valid_from, valid_to, updated_at, created_at, unit_price_cents, zero_price_kind, estimate_unit_code, estimate_units_per_purchase_unit, purchase_rounding")
       .eq("tenant_id", context.tenantId)
       .in("id", priceIds.slice(start, start + SUPPLIER_COMPARISON_BATCH_SIZE));
     if (error) throw mapSupabaseError(error, "Impossible de vérifier les conditions fournisseurs.");
@@ -275,11 +284,11 @@ function currentOfferIneligibility(
   // Purchase orders and their UI are EUR-only today. Never reinterpret the
   // negotiated estimate cost as EUR when the estimate uses another currency.
   if (eligibility.currency?.trim().toUpperCase() !== "EUR") return "Conversion vers EUR requise avant commande";
-  if (!line.description?.trim()) return "Unité du devis à préciser";
+  if (!estimateLineUnit(line)) return "Unité du devis à préciser";
   if (!offer.unit?.trim()) return "Unité de l'offre à préciser";
   if (!offer.currency?.trim()) return "Devise de l'offre à préciser";
   const ineligibility = supplierOfferIneligibility(offer, {
-    currency: eligibility.currency, quantity: line.quantity, unit: line.description,
+    currency: eligibility.currency, quantity: line.quantity, unit: estimateLineUnit(line),
   });
   if (ineligibility) return ineligibility;
   if (!offer.valid_from || !offer.valid_to) return "Validité de l'offre à préciser";
@@ -356,13 +365,22 @@ export async function getEstimatePurchaseOrderDraftPreparation(
     const coverageStatus = comparison?.coverage_status ?? null;
     const selectedSupplierPriceId = line.selected_supplier_price_id ?? null;
     const offerIneligibility = currentOfferIneligibility(line, eligibility, stale_price_days);
+    // 2.9: a converted offer is ordered in its purchase unit (282 ml → 94 bars at the bar price);
+    // the totals are those of the order, as in create_estimate_purchase_order_drafts.
+    const selectedOffer = selectedSupplierPriceId ? eligibility.offers.get(selectedSupplierPriceId) : undefined;
+    // A line already written in the purchase unit is ordered as is (review of 2.9).
+    const offer = selectedOffer ? conversionForLineUnit(selectedOffer, estimateLineUnit(line)) : undefined;
+    const converted = offer !== undefined && hasPurchaseUnitConversion(offer);
+    const orderedQuantity = converted && typeof quantity === "number" ? purchaseQuantity(offer, quantity) : quantity;
+    const orderedUnitPriceHtCents = converted && typeof unitPriceHtCents === "number"
+      ? purchaseUnitPriceCents(offer, offer.unit_price_cents, unitPriceHtCents) : unitPriceHtCents;
 
     let totals: LineTotals | null = null;
     let invalidAmount = false;
-    if (typeof quantity === "number" && isValidOrderQuantity(quantity) &&
-        typeof unitPriceHtCents === "number" && typeof taxRateBp === "number") {
+    if (typeof orderedQuantity === "number" && isValidOrderQuantity(orderedQuantity) &&
+        typeof orderedUnitPriceHtCents === "number" && typeof taxRateBp === "number") {
       try {
-        [totals] = computeTotalsFromInputs([{ quantity, unitPriceHtCents, taxRateBp }]).lineTotals;
+        [totals] = computeTotalsFromInputs([{ quantity: orderedQuantity, unitPriceHtCents: orderedUnitPriceHtCents, taxRateBp }]).lineTotals;
       } catch { invalidAmount = true; }
     }
     const isDraftable =
@@ -411,7 +429,7 @@ export async function getEstimatePurchaseOrderDraftPreparation(
       item_id: line.id,
       item_title: line.title,
       quantity,
-      unit: line.description?.trim() ?? "",
+      unit: estimateLineUnit(line) ?? "",
       review_fingerprint: "",
       unit_price_ht_cents: unitPriceHtCents,
       tax_rate_bp: taxRateBp,
@@ -421,6 +439,9 @@ export async function getEstimatePurchaseOrderDraftPreparation(
       selected_supplier_price_id: selectedSupplierPriceId,
       supplier_reference: selectedAlternative.supplier_reference,
       product_designation: selectedAlternative.product_designation,
+      ordered_quantity: orderedQuantity as number,
+      ordered_unit: converted ? offer.unit.trim() : estimateLineUnit(line) ?? "",
+      ordered_unit_price_ht_cents: orderedUnitPriceHtCents as number,
     };
 
     if (existingGroup) {
@@ -478,7 +499,11 @@ export async function getEstimatePurchaseOrderDraftPreparation(
           review.item_title !== line.item_title || review.quantity !== line.quantity ||
           review.unit_price_ht_cents !== line.unit_price_ht_cents || review.tax_rate_bp !== line.tax_rate_bp ||
           review.unit !== line.unit || review.selected_supplier_price_id !== line.selected_supplier_price_id ||
-          review.supplier_name !== group.supplier_name || review.supplier_reference !== line.supplier_reference) {
+          review.supplier_name !== group.supplier_name || review.supplier_reference !== line.supplier_reference ||
+          // 2.9: the ordered values shown are those the draft will order (an offer converted or
+          // repriced between the two reads would otherwise order other bars than those shown).
+          review.ordered_quantity !== line.ordered_quantity || review.ordered_unit !== line.ordered_unit ||
+          review.ordered_unit_price_ht_cents !== line.ordered_unit_price_ht_cents) {
         throw conflict("La préparation a changé pendant sa lecture. Rechargez-la.", undefined, "ORDER_DRAFT_PREPARATION_STALE");
       }
       line.review_fingerprint = review.review_fingerprint;
