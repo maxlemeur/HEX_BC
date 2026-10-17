@@ -28,8 +28,8 @@ import { parseHoursPerUnit } from "@/lib/numeric-input/parsers";
 import { MEASUREMENT_UNITS } from "@/lib/units/normalize";
 
 /**
- * Lot 2, sous-lot 2.6 - cellules v3 de la grille (conception D4, D8, D9 ; contrat d'écran §4.2 de
- * docs/testing/estimate-engine-v3-2.6-e2e.md). `LineRow`, `StandardMoCells` et `EstimateEditorRow`
+ * Lot 2, sous-lot 2.6 - cellules v3 de la grille (conception D4, D8, D9 ; contrat d'écran §9.4.2 de
+ * docs/testing/estimate-engine-v3-2.6.md). `LineRow`, `StandardMoCells` et `EstimateEditorRow`
  * délèguent ici quand l'éditeur est ouvert sur une v3 (contexte fourni par `EstimateEditorPage`) ;
  * sans contexte (v1/v2), rien ne change. Aucun montant n'est calculé : PU, PT et heures totales
  * viennent de l'aperçu du moteur pur ; les cellules n'écrivent que des saisies (`unit_code`,

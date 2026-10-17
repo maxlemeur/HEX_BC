@@ -1,6 +1,6 @@
 /**
  * Lot 2, sous-lot 2.6 - éditeur v3 côté client (conception D4, D5, D7 à D9, D11, §4 ;
- * docs/testing/estimate-engine-v3-2.6.md §1.4, docs/testing/estimate-engine-v3-2.6-e2e.md §4).
+ * docs/testing/estimate-engine-v3-2.6.md §1.4 et §9.4).
  *
  * Module pur, sans React ni Supabase, chargeable par le navigateur. Aucun montant n'est calculé
  * ici : la grille et le pied lisent l'aperçu du moteur pur de 2.4 que `useEstimateV3Settings`

@@ -12,10 +12,10 @@ import { ownedEstimateContext } from "./calculation-gate-support";
 import { setTenantCalcPolicy, useDedicatedV3Owner as signUpDedicatedV3Owner, type V3Owner } from "./engine-v3-persistence-support";
 
 // Lot 2, sous-lot 2.6 : préalables et lectures du parcours engine-v3-editor
-// (docs/testing/estimate-engine-v3-2.6-e2e.md). Les préalables reprennent ceux de V3P01
+// (docs/testing/estimate-engine-v3-2.6.md §9). Les préalables reprennent ceux de V3P01
 // (engine-v3-persistence.e2e.ts) : propriétaire dédié, rôle « Tuyauteur » 40 €/h par l'API,
 // politique 3 posée par le transport SQL possédé le temps de la création, puis remise à 2.
-// Les lectures d'écran suivent le contrat du §4 de ce document : rien ici ne dépend d'un
+// Les lectures d'écran suivent le contrat du §9.4 de ce document : rien ici ne dépend d'un
 // composant v3 précis, seulement des libellés accessibles et des attributs qu'il fixe.
 
 export type Ui = { app: App; screen: Screen; browser: Browser };
@@ -416,7 +416,7 @@ export async function waitPersisted(ui: Ui, versionId: string, expected: ApiExpe
   return actual;
 }
 
-/* ---------- Screen reads (contract §4) ---------- */
+/* ---------- Screen reads (contract §9.4) ---------- */
 
 export type RowExpectation = {
   id: string;
@@ -496,7 +496,7 @@ async function waitScreen(ui: Ui, expected: ScreenExpectation, timeoutMs = 30_00
 }
 
 /**
- * One saved state, read three ways (contract §3 of the doc): the persisted values (API), the
+ * One saved state, read three ways (contract §9.3 of the doc): the persisted values (API), the
  * values displayed by the editor that saved them, and the values displayed and reread after a
  * reload. The caller has already triggered the save (Ctrl+S, « Enregistrer le paramétrage »).
  */
@@ -519,7 +519,7 @@ export async function checkpoint(ui: Ui, army: ArmyState, label: string, version
   expect(reread, `${label}: reread after reload`).toEqual(apiTarget);
 }
 
-/* ---------- Settings drawer (contract §4.3) ---------- */
+/* ---------- Settings drawer (contract §9.4.4) ---------- */
 
 export const settingsDialog = (ui: Ui) => ui.screen.getByRole("dialog", "Paramétrage du devis", { exact: true });
 

@@ -188,8 +188,8 @@ function V3Summary({ breakdown, currency }: Readonly<{ breakdown: EstimateV3Brea
 
 /**
  * Lot 2, sous-lot 2.6 - réglages d'une v3 rendus par `EstimateSettingsPanel` à la place des blocs marge,
- * remise, TVA et arrondi du moteur 2 (conception D5 à D8 ; contrat d'écran §4.4 du parcours
- * `engine-v3-editor`). Aucun montant n'est calculé ici : l'aperçu vient du moteur pur, par le hook.
+ * remise, TVA et arrondi du moteur 2 (conception D5 à D8 ; contrat d'écran §9.4.4 de
+ * docs/testing/estimate-engine-v3-2.6.md). Aucun montant n'est calculé ici : l'aperçu vient du moteur pur, par le hook.
  */
 export function EstimateV3SettingsSection({
   controller,

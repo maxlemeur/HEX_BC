@@ -339,7 +339,7 @@ export function useEstimateV3Settings(input: UseEstimateV3SettingsInput): Estima
     if (!committed.draft || firstErrorMessage(committed.errors) !== null) return false;
     const request = propagationNeedOf(committed, itemsRef.current);
     if (request && !decisionFor(committed, request)) {
-      // Rien n'est envoyé avant la réponse (contrat §4.4 du parcours).
+      // Rien n'est envoyé avant la réponse (contrat §9.4.4 du doc 2.6).
       update({ ...committed, taxPropagation: request });
       return false;
     }

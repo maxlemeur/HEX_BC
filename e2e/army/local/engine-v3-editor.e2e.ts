@@ -12,8 +12,8 @@ import {
 } from "./engine-v3-editor-support";
 
 // Lot 2, sous-lot 2.6 — éditeur et réglages v3 (A2, A3, A5, A6 côté saisie), écrit rouge avant le code.
-// Scénarios, défaillances et contrat d'écran : docs/testing/estimate-engine-v3-2.6-e2e.md ; défaillances
-// F26-xx et isolation : docs/testing/estimate-engine-v3-2.6.md ; conception §14 « 2.6 » et §5.
+// Scénarios, défaillances et contrat d'écran : docs/testing/estimate-engine-v3-2.6.md §9 ; défaillances
+// F26-xx et isolation : même document, §2 et §4 ; conception §14 « 2.6 » et §5.
 // V3E-nn = scénario n du §14 (11 : présélection fournisseurs). Parcours :
 //  V3E01 — V3E-01 (éditeur ouvert, 7 lignes par la grille, 1,3 / 1,3), V3E-02 (coefficient vidé),
 //          V3E-03 (remise : montant, taux, c_FO doublé), V3E-05 (TVA par défaut, S5), V3E-07 (« ML »),
@@ -53,7 +53,7 @@ const O5_Q2 = { totals: [6936856, 1387371, 8324227] as Totals };
 const PU_CFO_260 = [23768, 33264, 15210, 1745, 34000, 28674, 8536];
 const CFO_260 = { totals: [9963426, 1992685, 11956111] as Totals, gross: 11070473, applied: 1107047 };
 const S2_VAT10 = { totals: [6905355, 690536, 7595891] as Totals };
-// Message du refus nommé ESTIMATE_V3_SUPPLIER_PRESELECTION_UNSUPPORTED (repli de F26-17 ; doc 2.6-e2e §4.6).
+// Message du refus nommé ESTIMATE_V3_SUPPLIER_PRESELECTION_UNSUPPORTED (repli de F26-17 ; doc 2.6 §9.4.6).
 const PRESELECTION_REFUSAL = "La présélection fournisseurs n’est pas disponible pour un devis au moteur de calcul 3.";
 // La marge v2 (multiplicateur ×1 en v3) ne doit jamais s'afficher « 0% » au pied (F26-12).
 const FORBIDDEN_V2_MARGIN = "Marge : 0%";
@@ -343,7 +343,7 @@ armyTest("V3E01 the v3 editor types the oracle through the grid and sets coeffic
       screen: { chips: chips(S2.totals, [["20", 1381071]]), forbiddenChipPrefixes: ["TVA 10 %"],
         rows: placed.map(({ id, title }) => ({ id, title, taxRate: "2000" })) },
     });
-    // 10 → 20 : aucune ligne n'a un autre taux, donc aucun dialogue (contrat §4.4).
+    // 10 → 20 : aucune ligne n'a un autre taux, donc aucun dialogue (contrat §9.4.4).
     await setDefaultVat("20", null);
     await waitSettingsSaved(ui, army, "vat-back-20", draft.versionId, { version: { taxRateBp: 2000, totals: S2.totals }, lines: ratesOf(2000) });
     const silentDialog = await propagation().isVisible();
@@ -508,7 +508,7 @@ armyTest("V3E03 a catalogue suggestion keeps the v3 unit, and the supplier prese
     // V3E-11 : une offre B à 12,40 € ; appliquer la présélection recalcule et persiste (contrat F26-17), ou est
     // refusé par son nom avant toute écriture. La conception implique le refus (D16, P-14 : mise à jour groupée
     // directe refusée en v3 pendant le lot 2, message nommé) ; le message générique du moteur 3 est un échec.
-    // Préalable corrigé au vert (doc 2.6-e2e §10) : une seule offre et aucune offre retenue sur la ligne.
+    // Préalable corrigé au vert (doc 2.6 §8.4) : une seule offre et aucune offre retenue sur la ligne.
     await releaseOfferForPreselection(ui, army, draft, line.id, offerA.id);
     const supplierB = await created<{ id: string }>("supplier-b", "/api/suppliers", {
       action: "create", item: { name: `${army.runPrefix} fournisseur B`, is_active: true } });

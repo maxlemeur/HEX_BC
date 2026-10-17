@@ -132,7 +132,7 @@ function SkeletonChips() {
 /**
  * Pied v3 : HT net, une TVA par taux présent (somme par taux, jamais ligne à ligne), TVA totale,
  * TTC à payer = HT + TVA, et la remise ou l'arrondi commercial dès qu'ils s'appliquent (contrat
- * d'écran §4.3 de docs/testing/estimate-engine-v3-2.6-e2e.md).
+ * d'écran §9.4.3 de docs/testing/estimate-engine-v3-2.6.md).
  */
 function V3SummaryItems({
   summary,
