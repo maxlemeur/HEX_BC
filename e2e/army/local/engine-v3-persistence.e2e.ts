@@ -347,7 +347,8 @@ armyTest("V3P01 a v3 born behind the tenant policy persists the oracle, its sett
       snapshotRevision: frozen.version.calc_snapshot_content_revision, context: frozen.version.calc_snapshot_context,
       lines: frozenLines.map(item => [item.snapshot_pu_ht_cents, item.snapshot_gross_ht_cents, item.snapshot_gross_fo_ht_cents, item.snapshot_fo_ht_cents, item.snapshot_mo_ht_cents]) },
   });
-  expect([submitted.status, (submitted.body as Envelope<unknown>).ok]).toEqual([200, true]);
+  // A review submission answers 201 (approve route since e3af04ee, OpenAPI 200/201): the red probe said 200 (§10.2).
+  expect([submitted.status, (submitted.body as Envelope<unknown>).ok]).toEqual([201, true]);
   expect(v3Version(frozen)).toEqual(v3Version(vat10));
   expect(frozen.version.approval_status).toBe("in_review");
   expect(Number(frozen.version.calc_snapshot_content_revision)).toBe(Number(frozen.version.content_revision));
