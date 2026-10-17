@@ -1,6 +1,7 @@
 # Persistance, gel et règles v3, derrière la politique (sous-lot 2.5)
 
-Statut : **rouge écrit, M4 non implémentée** (17/10/2026). Ce document et
+Statut : **rouge écrit et observé, M4 non implémentée** (17/10/2026, commits `bd194ba7` et `40adfc74`,
+`test(lot2-2.5)` ; preuve au §4). Ce document et
 `supabase/tests/database/estimate-engine-v3-persistence.test.sql` sont rédigés avant tout code de
 production et avant la migration M4. Le parcours E2E `V3P01` et l'isolation Vitest `R-01` à `R-05`
 sont décrits dans [estimate-engine-v3-2.5-e2e.md](estimate-engine-v3-2.5-e2e.md) ; ce document-ci
@@ -39,10 +40,11 @@ déjà `public.estimate_line_pricing_status`, `public.measurement_units` et les 
   coefficient ou un montant v3 est nul ; la suite exige le refus (coefficient nul, `gross_ht_cents` nul,
   `commercial_rounding_cents` nul). En v1/v2, les cinq colonnes restent nulles (même CHECK).
 - CHECK des sections (§6.2) : une section n'a ni unité, ni statut autre que `priced`, ni heures par
-  unité (`23514`, nom libre).
+  unité (`23514`, nom libre ; le refus `ESTIMATE_ENGINE_COLUMN_NOT_SUPPORTED` du déclencheur est aussi admis).
 - `guard_estimate_item_engine_columns` complété :
-  - v1/v2 : `unit_code`, `h_mo*_per_unit`, `snapshot_gross_*` non nuls ou statut ≠ `priced` →
+  - v1/v2 : `unit_code`, `h_mo*_per_unit` non nuls ou statut ≠ `priced` →
     `0A000 ESTIMATE_ENGINE_COLUMN_NOT_SUPPORTED` (**choix** du SQLSTATE, aligné sur le contrat d'écrivain) ;
+    `snapshot_gross_*` sur une v1/v2 est refusé aussi, sans code imposé (garde de gel ou de moteur) ;
   - v3 : les sept colonnes de ligne entrent dans le contrat d'écrivain
     (`0A000 ESTIMATE_V3_WRITER_NOT_SUPPORTED` sans `miaouffrage.estimate_v3_writer`) ;
   - v3 : `tax_rate_bp` nul → taux de la version (l'écrivain l'omet en passant NULL ; le défaut de colonne
@@ -153,7 +155,7 @@ commencent par l'identifiant). E2E et Vitest : [estimate-engine-v3-2.5-e2e.md](e
 | F25-04 | Politique ou journal lisibles par une autre entreprise, écrits ou effacés directement | lecture propre à chaque entreprise ; `insert`/`update`/`delete` d'un administrateur et lecture `anon` refusés, sur les deux tables | — |
 | F25-05 | v3 écrite sans coefficients, ou montants stockés faux ; intention de remise dérivée (S2 : `discount_bp` ≠ 0) | défauts 1,30 / 1,20 ; S1, S2, S3 au §5.2 (montant 101 avec `discount_bp` 0 ; taux 1 000 sans montant) | V3P-03, V3P-05, V3P-07 |
 | F25-06 | Une v3 garde un palier, un multiplicateur ou coefficient global ≠ 1, une cascade, montant et taux ensemble, le mode `up`, un ajustement d'arrondi, une identité de total fausse, un coefficient ou montant v3 nul ; une v2 porte un coefficient | douze sondes sous contrat d'écrivain + v2 → `estimate_versions_engine_v3_shape_check` | V3P-03, V3P-11 |
-| F25-07 | Dérive h/u ↔ `h_mo` : `h_mo` saisi sans h/u, modifié seul, non suivi de Q, mal arrondi ; colonnes v3 sur une v1/v2 ou une section ; colonnes v3 hors contrat d'écrivain | `h_mo` S1 (39,820 … 281,436) ; 10 × 0,5 ; 2,5 × 0,001 = 0,003 ; atelier/chantier ; refus D4 ; Q 20 → 10,000 ; h/u 0,75 → 7,500 ; cinq refus v1/v2 ; section ; quatre refus hors contrat | V3P-04 |
+| F25-07 | Dérive h/u ↔ `h_mo` : `h_mo` saisi sans h/u, modifié seul, non suivi de Q, mal arrondi ; colonnes v3 sur une v1/v2 ou une section ; colonnes v3 hors contrat d'écrivain | `h_mo` S1 (39,820 … 281,436) ; 10 × 0,5 ; 2,5 × 0,001 = 0,003 ; atelier/chantier ; refus D4 ; Q 20 → 10,000 ; h/u 0,75 → 7,500 ; quatre refus v1/v2 (h/u en mise à jour et à l'insertion, unité, statut) ; section ; quatre refus hors contrat | V3P-04 |
 | F25-08 | Ligne v3 sans taux : défaut de colonne 2 000 au lieu du taux de version | version à 1 000 : ligne créée et ligne insérée à 1 000 | V3P-08 (application à toutes les lignes) |
 | F25-09 | Projection décalée d'1 c acceptée à la sauvegarde | création : PU O1 16 664, net O1 > brut (erreur compensée), brut de version +1 (identité maintenue), TVA du groupe 20 % +1 (sommes cohérentes) ; réglages : PU EUHIST 401 | V3P-05 (positif) |
 | F25-10 | Projection décalée d'1 c acceptée au gel ; gel v3 incomplet ou au contexte v2 | 1 c déplacé dans le groupe de TVA, entre FO et MO nets, dans le FO brut, entre deux parts de remise (S2) ; S1, S2, S3 exacts acceptés ; S1 frais, contexte v3, bruts et PU figés | V3P-09 |
@@ -193,9 +195,34 @@ cas limites) :
 - **File d'approbation en NULL (F25-15)** : invalider un gel en cours de revue exige un changement de
   taux horaire qui toucherait les parcours concurrents de l'entreprise de recette.
 
-## 4. Preuve rouge
+## 4. Rouge observé (17/10/2026)
 
-Voir § « Rouge observé » (complété après l'exécution native).
+WSL Ubuntu 24.04, Node 24.14.0, clone `~/miaouffrage-lot2-25` au commit `40adfc74` (base `e175f9eb`
+sans M3 ni M4), une exécution native possédée, mutex respecté. Seul écart local, temporaire et annulé
+après l'exécution : la troncature des diagnostics du harnais (`slice(-6_000)` de
+`src/test/local-supabase-ci.ts:647`) portée à 400 000 caractères pour garder la sortie pgTAP complète.
+Journal (non versionné) : `.e2e/lot2-2.5/red/db-ci-local-full.log` du clone, SHA-256
+`c127b9786fb88fcfb5681b6906dbafb80b9d9a56150eb50697ff45ac9ec1080c`.
+
+`npm run db:ci:local` → sortie 1 : pile, `db reset` et inventaire des migrations passés ; pgTAP
+`Files=16, Tests=1418`, `Result: FAIL`. Les 15 autres suites passent (garde F-SQL-14 de 2.1 comprise :
+« aucune » entrée orpheline). La nouvelle suite va jusqu'au bout : 90 assertions, 87 rouges
+(`Failed tests: 2-37, 40-90`), 3 vertes : l'intégrité de la fixture oracle (S1-S3 du §5.2) et, déjà
+vrai avant M4, « politique absente → v2 » (fixture et assertion F25-01). Motifs des rouges :
+
+| Motif obtenu | Assertions |
+|---|---|
+| Objet de M4 absent : `42P01` (`tenant_calc_policies`, `tenant_calc_policy_events`), `42703` (colonnes v3 de version et de ligne), `42883` (`set_tenant_calc_policy`, `freeze_estimate_v3_snapshot`), `42704` (`estimate_versions_engine_v3_shape_check`), `has_table`/`col_type_is`/`fk_ok` négatifs | F25-02 à F25-04, F25-06, F25-07, F25-10 à F25-13, F25-19 |
+| Contrat `canonical_v3` absent : la création actuelle refuse le moteur 3 et les clés v3 (`22023 ESTIMATE_VERSION_PAYLOAD_INVALID`) au lieu de `ESTIMATE_CALC_POLICY_CONTEXT_CHANGED`, de créer la v3 ou de refuser la projection décalée | F25-01, F25-05, F25-09 (création) |
+| Refus absent : sous « politique 3 », une attente 2 crée une v2 (`ok`) | F25-01 |
+| Branche v3 des réglages absente : `22023 ESTIMATE_SETTINGS_INVALID_INPUT` (clé `sale_coefficient_fo` inconnue) | F25-14, F25-09 (réglages) |
+| Conséquence de l'absence de v3 (aucune version créée) : mises à jour sans ligne (`ok`), `DRAFT_LOCK_VERSION_NOT_FOUND`, clé étrangère du métré, `TAKEOFF_APPLY_OPERATOR_REQUIRED`, `ESTIMATE_REVIEW_OPEN_FORBIDDEN`, version introuvable à la duplication, file sans ligne | F25-06 (8 sondes sur 12), F25-07 (2 sondes), F25-15, F25-16, F25-18 |
+
+Premier passage sur `bd194ba7` (diagnostics tronqués par le harnais, `.e2e/lot2-2.5/red/db-ci-local.log`) :
+mêmes comptes (16 fichiers, 1 418 assertions, 87/90). `40adfc74` corrige deux sondes avant le vert : le
+refus d'un ajustement d'arrondi passe par le marqueur de réglages (`guard_estimate_rounding_adjustment`
+le refuserait avant le CHECK), et `snapshot_gross_*` sur une v2 sort de la liste (deux gardes possibles,
+ordre de déclencheurs non fixé).
 
 ## 5. Commandes
 
