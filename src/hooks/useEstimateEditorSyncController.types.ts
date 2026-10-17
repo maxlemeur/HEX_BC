@@ -101,6 +101,9 @@ export type EstimateEditorSyncController = {
       itemId: string,
       payload: EstimateItemUpdatePayload
     ) => void;
+    markItemsSynced: (
+      entries: ReadonlyArray<{ id: string; updates: EstimateItemUpdatePayload }>
+    ) => void;
     setAutoSaveEnabled: (enabled: boolean) => void;
     saveNow: () => Promise<void>;
     flushBeforeExternalAction: () => Promise<boolean>;

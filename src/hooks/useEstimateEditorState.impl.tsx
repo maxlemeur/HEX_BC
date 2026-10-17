@@ -575,6 +575,7 @@ export function useEstimateEditorState({
   const {
     overlayPendingUpdates: applyPendingBufferedUpdatesToItems,
     enqueueItemUpdate: enqueueBufferedItemUpdate,
+    markItemsSynced,
     setAutoSaveEnabled,
     saveNow,
     flushBeforeExternalAction,
@@ -2316,6 +2317,7 @@ export function useEstimateEditorState({
     resolveErrorMessage: resolveEstimateActionError,
     normalizeLine: normalizePatchedItem,
     applyVersionToken,
+    markItemsSynced,
     ensureGroupedActionCanProceed,
     handleVersionConflict,
     triggerVersionReload,

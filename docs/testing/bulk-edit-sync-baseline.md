@@ -1,0 +1,109 @@
+# Saisie ignorée après une action en lot (référence de synchronisation)
+
+Défaut préexistant relevé le 16/10/2026 pendant l'intégration du sous-lot 2.3
+(branche `lot2/2.3-saisie-import`, parcours `numeric-entry-v3`, étape 6 dans sa
+première forme) : après « Modifier les attributs » > « Majoration MO (%) » à
+150 % sur une ligne sélectionnée, la cellule de grille de cette ligne ramenée à
+la valeur d'avant le lot n'est jamais enregistrée. La grille affiche la nouvelle
+valeur, le statut indique « À jour », le serveur garde le coefficient du lot ;
+au rechargement, l'utilisateur retrouve 150 %. Archive d'origine (clone WSL
+`~/miaouffrage-2-3`) : `.e2e/army/ci/2026-10-16T15-27-43-620Z-critical`,
+`h_mo_majoration` resté à 1,5 pendant 15 s après la saisie.
+
+## Cause lue dans le code (avant correction)
+
+`useEstimateEditorSyncController` conserve, par ligne, le dernier état connu du
+serveur (`syncedItemPayloadsRef`). `enqueueItemUpdate()` abandonne toute saisie
+identique à cette référence : elle est réputée déjà enregistrée. La référence
+n'est remise à jour qu'au chargement des lignes et après une sauvegarde
+ordinaire. `applyBulkLineState()` (`useEstimateEditorBulkController`) écrit les
+lignes par `bulkUpdateEstimateItems()` sans la mettre à jour : elle garde l'état
+d'avant le lot, et une saisie qui y revient est ignorée. La majoration, la
+catégorie et le rôle de main-d'œuvre en lot, ainsi que l'annulation et le
+rétablissement de ces actions, passent tous par cette fonction.
+
+## Défaillances observables et scénarios
+
+| Défaillance observable | Scénario et oracle |
+| --- | --- |
+| D1. Après un lot, la saisie de la valeur d'avant le lot est ignorée | Ligne ARMY à ×1. Lot « Majoration MO (%) » 150 → API `h_mo_majoration` 1,5, cellule « 150 ». Cellule « 100 », Tab, Ctrl+S → API 1, statut « Sauvegardé » ou « À jour » ; après rechargement, cellule « 100 » et API 1. Rouge avant correction. |
+| D2. Même perte après annulation puis rétablissement du lot | Lot 150 → 1,5 ; « Annuler » → 1 ; « Rétablir » → 1,5, cellule « 150 ». Cellule « 100 », Tab, Ctrl+S → API 1 ; rechargement → « 100 ». Rouge avant correction : la référence est restée à ×1. |
+| D3. Après annulation du lot, la saisie de la valeur du lot est ignorée | Lot 150 → 1,5 ; « Annuler » → 1, cellule « 100 ». Cellule « 150 », Tab, Ctrl+S → API 1,5 ; rechargement → « 150 ». Vert avant correction (la référence périmée vaut ×1 par hasard) ; rouge pour une correction qui ne rafraîchirait la référence qu'à l'application du lot. |
+| D4. Catégorie et rôle de main-d'œuvre en lot : retour à la valeur antérieure ignoré | Même fonction `applyBulkLineState()` que D1–D3. Pas de parcours dédié : la correction porte sur la fonction partagée, et non sur la majoration. Limite assumée. |
+| D5. La correction efface à tort une saisie en attente | Seules les lignes que le lot a effectivement enregistrées reçoivent la nouvelle référence. Une saisie en attente n'est retirée que si elle est identique, champ par champ, à ce que le serveur vient d'accepter (règle existante `pruneSyncedBufferedUpdates`). Garanti par construction ; aucun test isolé ajouté. |
+| D6. Un lot refusé (conflit, erreur, changement de version ou de portée) modifie la référence | La référence n'est mise à jour qu'après une réponse réussie et dans la portée courante ; sinon l'état serveur est inchangé et l'ancienne référence reste juste. Garanti par construction. |
+
+Les parcours D1 à D3 sont dans `e2e/army/critical/bulk-edit-sync.e2e.ts`. La
+colonne « Majoration MO (%) » est masquée par tous les préréglages : chaque
+parcours l'active (« Affichage & contrôle » > affichage > « Personnalisé ») puis
+réinitialise les colonnes. L'enregistrement automatique des lignes est différé
+de 60 s : Ctrl+S le déclenche, comme dans `commercial-rounding.e2e.ts`.
+
+Le calcul n'est pas concerné : `src/lib/estimate-calculations.ts` et
+`src/lib/estimate-v2-snapshot.ts` restent sans modification.
+
+## Correction
+
+`useEstimateEditorSyncController` expose `markItemsSynced()` : les lignes
+données deviennent la référence (`mergeSyncedItemPayload`, comme après une
+sauvegarde ordinaire), puis une saisie en attente identique est retirée
+(`pruneSyncedBufferedUpdates`). `applyBulkLineState()` l'appelle avec les
+charges qu'il vient d'envoyer, après une réponse réussie et dans la portée
+courante, donc aussi pour l'annulation et le rétablissement. Le harnais existant
+`useEstimateEditorBulkController.test.ts` reçoit seulement cette dépendance
+(`vi.fn()`), sans nouvelle assertion : 8/8 avant et après.
+
+## Preuves (WSL Ubuntu 24.04, Node 24.19.0, Supabase CLI natif 2.120.0)
+
+Clone Linux `~/miaouffrage-bulk-sync-20261016`, révision `de54931d`, modifications
+locales recopiées depuis le worktree (empreintes dans les journaux
+`~/bulk-sync-logs/{red,green}.log`). Commande, après contrôle qu'aucun
+`run-tester-army-ci`, `run-local-supabase-ci`, `upgrade-check` ou
+`__supabase_stack_host__` ne tourne :
+
+```sh
+export NODE_OPTIONS=--max-old-space-size=4096
+npm run e2e:army:local -- --grep 'bulk edit sync' --app-port 3127
+```
+
+**Rouge, sans correction** (seuls le parcours et ce document ajoutés) :
+`.e2e/army/ci/2026-10-16T17-27-25-531Z-critical`, manifeste SHA-256
+`9521e16aff731ff9086561dae56807f45a3934b3c937b7b5afda4e3bdbadec5e`. pgTAP
+13 fichiers / 1253 assertions, matrice RLS et build réussis ; parcours : 2 échecs,
+2 réussites (connexion, D3).
+
+| Parcours | Saisie | Attendu | Serveur | Cellule | Statut |
+| --- | --- | --- | --- | --- | --- |
+| D1 | « 100 » après lot 150 % | 1 | 1,5 | « 100 » | « À jour » |
+| D2 | « 100 » après lot, annuler, rétablir | 1 | 1,5 | « 100 » | « À jour » |
+| D3 | « 150 » après lot, annuler | 1,5 | 1,5 | « 150 » | « Sauvegardé » |
+
+D1 et D2 échouent après l'attente de 90 s de `waitForAutoSave`, avec
+« État de synchronisation : À jour » dans `screen-at-failure.txt`.
+
+**Vert, avec correction** : `.e2e/army/ci/2026-10-16T17-45-18-425Z-critical`,
+manifeste SHA-256
+`8df0a861f2859e5f6c51c5f06b6cbe16ebf33a95f76488a4636a441761f7ae2b`, statut
+`passed`. pgTAP 1253 assertions, RLS, build neuf (`rVuV4X23C7Jzlfkjb_Iuf`,
+entrée `useEstimateEditorBulkController.ts` SHA-256 `6721d123…`, contre
+`c6f13493…` à HEAD pour le build rouge `sxzkcHCwiL_DiyDJ_UPbW`) ; parcours
+4/4 (connexion, D1, D2, D3), aucun ignoré. D1 et D2 : serveur 1, cellule
+« 100 », « Sauvegardé » ; D3 : serveur 1,5, cellule « 150 », « Sauvegardé ».
+Chaque parcours relit ensuite la page : cellule et API conformes.
+
+Contrôles du même clone corrigé : ESLint `--max-warnings=0` sur les six
+fichiers TypeScript touchés, `npm run typecheck` (avec la même
+`NODE_OPTIONS` : sans elle, `tsc` dépasse son tas par défaut), `git diff --check`,
+Vitest `useEstimateEditorBulkController` 8/8 et `useEstimateEditorSyncController`
+35/35. Le build Army est un build de production Next ; `npm run build`
+(validation OpenAPI comprise, sans objet ici) et la suite critique complète
+n'ont pas été rejoués pour ce correctif.
+
+## Hors périmètre, même famille
+
+La présélection fournisseurs (`useEstimateEditorSupplierController`) et
+l'application ou l'annulation des suggestions
+(`useEstimateEditorSuggestionsController`) écrivent aussi des lignes existantes
+par `bulkUpdateEstimateItems()` sans rafraîchir la référence. Elles exposent
+probablement la même perte (saisie de la valeur d'avant l'action ignorée). Non
+corrigées ici : un parcours rouge doit d'abord le démontrer.

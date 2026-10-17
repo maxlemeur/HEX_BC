@@ -11,6 +11,7 @@ import {
   buildEstimateItemUpdatePayload,
   type EditorEstimateItem,
   type EstimateItem,
+  type EstimateItemUpdatePayload,
   type EstimateVersionRow,
 } from "@/lib/estimates/editor-items";
 import { toFiniteNumber } from "@/lib/estimates/editor-values";
@@ -33,6 +34,9 @@ type EstimateEditorBulkControllerInput = {
   resolveErrorMessage: (message: string) => string;
   normalizeLine: (item: EditorEstimateItem) => EditorEstimateItem;
   applyVersionToken: (updatedAt: string) => void;
+  markItemsSynced: (
+    entries: ReadonlyArray<{ id: string; updates: EstimateItemUpdatePayload }>
+  ) => void;
   ensureGroupedActionCanProceed: (actionLabel: string) => Promise<boolean>;
   handleVersionConflict: (
     error: unknown,
@@ -65,6 +69,7 @@ export function useEstimateEditorBulkController({
   resolveErrorMessage,
   normalizeLine,
   applyVersionToken,
+  markItemsSynced,
   ensureGroupedActionCanProceed,
   handleVersionConflict,
   triggerVersionReload,
@@ -92,15 +97,16 @@ export function useEstimateEditorBulkController({
       setItems((previous) =>
         previous.map((item) => updatedById.get(item.id) ?? item)
       );
+      const updates = targetLines.map((line) => ({
+        id: line.id,
+        updates: buildEstimateItemUpdatePayload(line),
+      }));
 
       try {
         const bulkResult = await bulkUpdateEstimateItems(
           targetVersionId,
           versionSnapshot.updated_at,
-          targetLines.map((line) => ({
-            id: line.id,
-            updates: buildEstimateItemUpdatePayload(line),
-          }))
+          updates
         );
         if (
           getVersionSnapshot()?.id !== targetVersionId ||
@@ -109,6 +115,8 @@ export function useEstimateEditorBulkController({
           return false;
         }
         applyVersionToken(bulkResult.versionToken.updated_at);
+        // Without a fresh baseline, an edit back to the previous value is dropped.
+        markItemsSynced(updates);
         setTotalsOutOfSync(false);
         return true;
       } catch (error) {
@@ -134,6 +142,7 @@ export function useEstimateEditorBulkController({
       getItemsSnapshot,
       getVersionSnapshot,
       handleVersionConflict,
+      markItemsSynced,
       reportError,
       resolveErrorMessage,
       setItems,

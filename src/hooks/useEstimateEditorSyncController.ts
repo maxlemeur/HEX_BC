@@ -326,6 +326,22 @@ export function useEstimateEditorSyncController({
   }, [persistBufferedItemUpdatesToLocal]);
 
   /**
+   * Lignes qu'une ecriture hors file d'attente (action en lot, son annulation
+   * ou son retablissement) vient de faire accepter par le serveur. Sans cette
+   * reference, une saisie qui revient a l'etat precedent serait jugee deja
+   * synchronisee et ignoree.
+   */
+  const markItemsSynced = useCallback(
+    (entries: ReadonlyArray<{ id: string; updates: EstimateItemUpdatePayload }>) => {
+      entries.forEach((entry) => {
+        mergeSyncedItemPayload(entry.id, entry.updates);
+      });
+      pruneSyncedBufferedUpdates();
+    },
+    [mergeSyncedItemPayload, pruneSyncedBufferedUpdates]
+  );
+
+  /**
    * Les lignes recues ici sortent du serveur : elles constituent la reference
    * a partir de laquelle une modification locale est reconnue comme telle.
    */
@@ -1220,6 +1236,7 @@ export function useEstimateEditorSyncController({
     () => ({
       overlayPendingUpdates,
       enqueueItemUpdate,
+      markItemsSynced,
       setAutoSaveEnabled,
       saveNow,
       flushBeforeExternalAction: saveBeforeNavigation,
@@ -1252,6 +1269,7 @@ export function useEstimateEditorSyncController({
       handleVersionConflict,
       hasPendingUpdatesNow,
       isFlushInProgress,
+      markItemsSynced,
       markVersionReloadFinished,
       overlayPendingUpdates,
       registerVersionConflict,
