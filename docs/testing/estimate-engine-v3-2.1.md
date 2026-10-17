@@ -1,9 +1,10 @@
 # Socle fermé par défaut du moteur v3 (sous-lot 2.1)
 
-Statut : **implémenté, vert en local** (17/10/2026). Les tests rouges (commits `test(lot2-2.1)` sur
+Statut : **implémenté, vérifié en local** (17/10/2026). Les tests rouges (commits `test(lot2-2.1)` sur
 `lot2/2.1-socle-ferme`, base `141218a9`) ont été écrits avant le code ; la migration M1 et le code TS
 (commits `feat(lot2-2.1)`) les font passer sans en modifier les assertions. Voir
-[Implémentation](#implémentation-17102026) pour les écarts d'implémentation et les preuves. Source :
+[Implémentation](#implémentation-17102026) pour les écarts d'implémentation et les preuves, et
+[Vérification](#vérification-17102026) pour la contre-épreuve sur le commit final. Source :
 [conception du lot 2](../audit-independant-2026-10-14/lot2/conception-lot2-moteur-v3.md), D1, D2,
 §6.4, §7, §8, §9 et §14 « 2.1 ».
 
@@ -277,6 +278,43 @@ WSL, clone `~/miaouffrage-lot2` au commit de la branche, pile native possédée,
 
 Archives non versionnées (`.e2e/` est ignoré), dans le clone WSL ; journaux de commande sous
 `.e2e/lot2-2.1/green/`. Suites complètes : CI GitHub de la PR du sous-lot (voir ci-dessous).
+
+## Vérification (17/10/2026)
+
+Contre-épreuve sur `bd4e6ba7` (arbre propre), rejouée par une autre passe que l'implémentation.
+Rien n'a échoué et aucun correctif n'a été nécessaire. Le prédicat `= 2 or = 3` y est désormais
+couvert par tous les contrôles natifs, y compris `db:ci:local` et les parcours V3FC, qui avaient
+tourné sur le corps précédent.
+
+Windows (worktree), Node 24.19.0 :
+
+| Commande | Résultat |
+|---|---|
+| `npx tsc -p tsconfig.json --noEmit --incremental false` | sortie 0, aucun diagnostic |
+| `npx eslint . --max-warnings=0` | sortie 0, aucun message |
+| `npm test` | 448 fichiers réussis, 1 ignoré ; 3 370 tests réussis, 2 ignorés, 0 échec (donc 0 nouvel échec par rapport à `main`) ; corpus figé compris |
+| `npm run validate-openapi` | spécification valide et synchronisée ; 144 routes, 192 opérations |
+| `npm run check:architecture` | budgets respectés, 1 100 modules, 0 cycle |
+| `npm run supabase:validate` | 245 fichiers, 245 versions uniques |
+| `npm run supabase:migrations:git-guard` | passé (2 changements dans le périmètre) |
+| `git diff origin/main -- src/lib/estimate-calculations.ts src/lib/estimate-v2-snapshot.ts` | vide |
+| `git -c core.whitespace=cr-at-eol diff --check origin/main...HEAD` | propre |
+
+WSL, clone `~/miaouffrage-lot2` à `bd4e6ba7`, Node 24.14.0, Supabase CLI 2.120.0, au plus deux
+exécutions natives possédées à la fois :
+
+| Commande | Résultat | Archive (`.e2e/` du clone) |
+|---|---|---|
+| `npm run db:ci:local` | 14 fichiers, 1 316 assertions, `Result: PASS` ; liste blanche sans entrée superflue (« aucune ») ; matrice RLS passée ; 28 s | journal `lot2-2.1/verify/db-ci-local.log` |
+| `E2E_ARMY_WORKERS=2 npm run e2e:army:local -- --grep V3FC` | 3/3 (configuration, V3FC01, V3FC02), `workers: 2`, pgTAP 1 316 `PASS` et matrice RLS en amont ; 1 min 45 s | `army/ci/2026-10-17T12-17-19-520Z-critical/` |
+| `npm run db:upgrade-check -- lot2-2-1-verify` | 244 migrations de base, M1 seule appliquée, 0 différence ; contrôle négatif intégré détecté | `engine-v3/upgrade-check/2026-10-17T12-18-04-790Z-lot2-2-1-verify/` |
+| `npm run db:upgrade-check -- lot2-2-1-verify-neg --negative-control` | sortie 1 attendue : 1 différence, `estimate_items … pu_ht_cents: 1481 -> 1482`, exactement la migration synthétique | `engine-v3/upgrade-check/2026-10-17T12-18-27-089Z-lot2-2-1-verify-neg-negative-control/` |
+| `npm run engine:document-fingerprints -- check` | 14 familles identiques, agrégat `2b9715519d99…391b78e4`, égal à la référence de 2.0 | `engine-v3/document-fingerprints/2026-10-17T12-22-21-140Z-check/` |
+| `npm run e2e:army:calc-v3` | 33/33 : journeys 11, components 5, numeric 4, resume 5, access 2, emission 6 ; sources inchangées pendant la campagne ; 6 min 57 s | `army/ci/2026-10-17T12-19-15-539Z-calc-v3/` |
+
+M1 n'ajoute aucune colonne : `upgrade_check.declared_new_columns()` n'a rien à déclarer. Le libellé
+du contrôle de montée de version ne sert qu'à nommer l'archive. La campagne `e2e:army:local` complète
+n'a pas été lancée en local (décision du propriétaire, 17/10) : elle passe par la CI de la PR.
 
 ## Commandes
 
