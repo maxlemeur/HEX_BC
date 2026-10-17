@@ -9,12 +9,12 @@ import {
 } from "../critical/fixtures";
 import { ownedEstimateContext, versionCountOf } from "./calculation-gate-support";
 import {
-  insertProjectMarginRule, probeV3PersistenceSchema, readTenantCalcPolicy, setTenantCalcPolicy,
+  insertProjectMarginRule, probeV3PersistenceSchema, readTenantCalcPolicy, setTenantCalcPolicy, useDedicatedV3Owner,
   type V3Owner, type V3PersistenceSchema,
 } from "./engine-v3-persistence-support";
 
 // Lot 2, sous-lot 2.5 — persistance, gel et règles v3 derrière la politique d'entreprise
-// (docs/testing/estimate-engine-v3-2.5-e2e.md, V3P-01 à V3P-12). Défaillances observables,
+// (docs/testing/estimate-engine-v3-2.5.md §9, V3P-01 à V3P-12). Défaillances observables,
 // écrites avant le code :
 //  V3P-01 La politique n'existe pas ou n'est pas typée : aucune v3 ne peut naître (premier rouge).
 //  V3P-02 Une création sans attente de moteur, ou avec une attente fausse, réussit (v2 ou v3)
@@ -196,7 +196,7 @@ async function visibleRowText(browser: Browser, selector: { href?: string; headi
   return browser.evaluate((input) => {
     if (input.href) {
       const link = document.querySelector(`a[href="${input.href}"]`);
-      return link?.closest("tr")?.textContent ?? null;
+      return link?.closest("li, tr")?.textContent ?? null;
     }
     const article = Array.from(document.querySelectorAll("article"))
       .find(node => node.querySelector("h2")?.textContent?.trim() === input.heading);
@@ -206,6 +206,8 @@ async function visibleRowText(browser: Browser, selector: { href?: string; headi
 
 armyTest("V3P01 a v3 born behind the tenant policy persists the oracle, its settings, its freeze, its approval margin and its duplicate", options, async ({ app, screen, browser, army }) => {
   assertOwnedLocalBackend();
+  // The policy window must not reach the concurrent journeys of the shared campaign tenant (§9.5).
+  const dedicated = await useDedicatedV3Owner(browser, app.baseUrl!, army.runPrefix);
   await app.open("/dashboard/affaires");
   const projectName = `ARMY-L2-V3-${army.runPrefix}`;
 
@@ -217,6 +219,7 @@ armyTest("V3P01 a v3 born behind the tenant policy persists the oracle, its sett
   ownEstimate(army, { projectId, versionId: anchorId });
   const context = await ownedEstimateContext(projectId);
   const owner: V3Owner = { tenantId: context.tenantId, userId: context.userId };
+  if (owner.tenantId !== dedicated.tenantId || owner.userId !== dedicated.userId) throw new Error("V3P01 must run as its dedicated owner.");
   const tuyauteur = await ensureTuyauteur(browser, army, anchorId);
   const anchorBefore = await readEstimate(browser, anchorId);
 
@@ -283,10 +286,10 @@ armyTest("V3P01 a v3 born behind the tenant policy persists the oracle, its sett
   const afterEditor = await readEstimate(browser, oracleId);
   expect(stamp(afterEditor)).toEqual(stamp(s1));
 
-  // Lecture à l'écran (2.5) : la liste des chiffrages affiche le HT stocké de la v3.
-  await app.open("/dashboard/estimates");
-  await screen.getByPlaceholder("Rechercher par projet ou client...").fill(projectName);
-  await expect.poll(async () => normalized(await visibleRowText(browser, { href: `/dashboard/estimates/${oracleId}` }) ?? ""), { timeout: 30_000 })
+  // Lecture à l'écran (2.5) : la liste des versions de l'affaire affiche le HT stocké de la v3
+  // (/dashboard/estimates redirige vers /dashboard/affaires depuis next.config.ts, §10.2).
+  await app.open(`/dashboard/affaires/${projectId}`);
+  await expect.poll(async () => normalized(await visibleRowText(browser, { href: `/dashboard/estimates/${oracleId}/edit` }) ?? ""), { timeout: 30_000 })
     .toContain("69 054,56 €");
 
   // V3P-07 : S2 (montant), S3 (taux), sans intention dérivée.

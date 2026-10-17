@@ -181,7 +181,8 @@
       "e2e/army/critical/hub-plans-card.e2e.ts",
       "e2e/army/critical/hub-takeoff-auto-propose.e2e.ts",
       "e2e/army/critical/import-optima-v2.e2e.ts",
-      "e2e/army/critical/team-a-hub.e2e.ts"
+      "e2e/army/critical/team-a-hub.e2e.ts",
+      "e2e/army/local/engine-v3-persistence.e2e.ts"
     ],
     "plans": [
       "e2e/army/critical/hub-launch-metre.e2e.ts",
@@ -295,9 +296,9 @@
     },
     {
       "id": "estimate-list",
-      "note": "Monté par la fixture deslop-client-list ; V3P01 y lit le HT stocké d'une v3.",
+      "note": "Monté par la fixture deslop-client-list.",
       "paths": ["src/app/dashboard/estimates/page.tsx"],
-      "journeys": ["e2e/army/critical/deslop-components.e2e.ts", "e2e/army/local/engine-v3-persistence.e2e.ts"]
+      "journeys": ["e2e/army/critical/deslop-components.e2e.ts"]
     },
     {
       "id": "approvals-queue",

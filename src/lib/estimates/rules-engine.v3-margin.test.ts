@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { evaluateRules, type RulesEngineVersion } from "@/lib/estimates/rules-engine";
 // Contrat de la preuve vivante de marque v3 (2.5) : le type recopié au rouge est remplacé par
-// l'import du module, comme prévu par docs/testing/estimate-engine-v3-2.5-e2e.md §4.
+// l'import du module, comme prévu par docs/testing/estimate-engine-v3-2.5.md §9.4.
 import type { V3MarginEvidence } from "@/lib/estimates/v3-margin-evidence-server";
 
 /**
@@ -16,7 +16,7 @@ import type { V3MarginEvidence } from "@/lib/estimates/v3-margin-evidence-server
  *  - qu'une preuve périmée, un gel périmé, un HT nul ou la clé v2 `effective_margin_multiplier`
  *    ne sont jamais lus comme la marque nette v3 ;
  *  - la paire T-MARG : 0 % viole un minimum de 15 %, 20 % ne le viole pas.
- * Défaillances écrites avant le code (docs/testing/estimate-engine-v3-2.5-e2e.md, R-01 à R-05) :
+ * Défaillances écrites avant le code (docs/testing/estimate-engine-v3-2.5.md §9.4, R-01 à R-05) :
  *  R-01 brouillon v3 sans preuve → violation à 0 au lieu d'un signal indisponible ;
  *  R-02 preuve d'une autre révision, gel périmé ou HT nul → marque inventée ;
  *  R-03 contexte v3 lu par le multiplicateur v2 (marque prise sur `effective_margin_multiplier`) ;

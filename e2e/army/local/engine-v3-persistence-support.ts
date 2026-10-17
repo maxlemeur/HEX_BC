@@ -1,10 +1,13 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
+import type { Browser, Cookie } from "@e2e-dev/web";
+import { createServerClient } from "@supabase/ssr";
+
 import { localSqlTransport } from "../takeoff/generated-prerequisites";
 
 // Lot 2, sous-lot 2.5 : préalables SQL du parcours engine-v3-persistence
-// (docs/testing/estimate-engine-v3-2.5-e2e.md). Seule la politique d'entreprise et la règle
+// (docs/testing/estimate-engine-v3-2.5.md §9). Seule la politique d'entreprise et la règle
 // de marge de recette passent par le propriétaire natif de la pile possédée : la politique
 // n'a aucun écrivain applicatif pendant le lot 2 (P-13 : service_role seulement) et la règle
 // n'a qu'un écran d'administration hors sujet. Tout le reste passe par l'API de l'application.
@@ -38,6 +41,60 @@ export type V3Owner = { tenantId: string; userId: string };
 
 function assertOwner(owner: V3Owner) {
   if (!UUID.test(owner.tenantId) || !UUID.test(owner.userId)) throw new Error("Invalid v3 persistence owner identity.");
+}
+
+/**
+ * Dedicated owner of V3P01 (docs/testing/estimate-engine-v3-2.5.md §9.5, §10.2). The tenant policy is per
+ * tenant and the critical campaign shares one ARMY tenant between its two workers: a policy-3 window there
+ * makes every concurrent creation without an engine expectation fail with CONTEXT_CHANGED (observed on
+ * V3FC02, 17/10/2026). V3P01 therefore signs up its own disposable account on the owned loopback stack
+ * (self sign-up without confirmation, anon key only), renames its personal tenant `ARMY V3P <run>` and
+ * swaps this browser context's Supabase session cookies for it; the other contexts keep the campaign
+ * account. The password never leaves this process and the session lives only in this context's cookies.
+ */
+export async function useDedicatedV3Owner(browser: Browser, appBaseUrl: string, runPrefix: string): Promise<V3Owner & { email: string }> {
+  const backend = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!);
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const app = new URL(appBaseUrl);
+  if (!["localhost", "127.0.0.1", "[::1]"].includes(backend.hostname) || backend.hostname !== process.env.E2E_ALLOWED_SUPABASE_HOST ||
+    !anonKey || !/^http:\/\/localhost:\d+$/.test(app.origin) || !/^ARMY-[A-Za-z0-9-]{5,80}$/.test(runPrefix)) {
+    throw new Error("The dedicated v3 owner requires the owned loopback stack and app.");
+  }
+  const current = await browser.cookies();
+  const written: Array<{ name: string; value: string; remove: boolean }> = [];
+  const client = createServerClient(backend.origin, anonKey, {
+    cookies: {
+      getAll: () => current.map(cookie => ({ name: cookie.name, value: cookie.value })),
+      setAll: (cookies) => {
+        for (const cookie of cookies) written.push({ name: cookie.name, value: cookie.value, remove: cookie.options?.maxAge === 0 });
+      },
+    },
+  });
+  const email = `${runPrefix.toLowerCase()}-v3p-owner@example.test`;
+  const { data, error } = await client.auth.signUp({ email, password: `Army-${randomUUID()}-A1!` });
+  const userId = data.user?.id ?? "";
+  if (error || !data.session || !UUID.test(userId)) throw new Error("The dedicated v3 owner could not be signed up locally.");
+  if (!written.some(cookie => !cookie.remove)) throw new Error("The dedicated v3 owner session produced no cookie.");
+  await browser.setCookies(written.map((cookie): Cookie => ({
+    name: cookie.name, value: cookie.remove ? "" : cookie.value, url: app.origin, sameSite: "Lax",
+    ...(cookie.remove ? { expires: 1 } : {}),
+  })));
+  const tag = delimiter();
+  const output = await querySql(`BEGIN;
+DO ${tag}
+BEGIN
+  IF current_user <> 'postgres' THEN RAISE EXCEPTION 'Native owner identity differs'; END IF;
+  UPDATE public.tenants t SET name = 'ARMY V3P ${runPrefix}'
+  WHERE t.created_by = '${userId}' AND t.is_active AND t.id = (SELECT m.tenant_id FROM public.tenant_memberships m
+    WHERE m.user_id = '${userId}' AND m.role = 'admin' AND m.is_default);
+  IF NOT FOUND THEN RAISE EXCEPTION 'The dedicated owner must own its personal admin tenant'; END IF;
+END ${tag};
+COMMIT;
+SELECT coalesce(jsonb_agg(m.tenant_id), '[]'::jsonb) FROM public.tenant_memberships m WHERE m.user_id = '${userId}';
+`);
+  const tenants = JSON.parse(output.at(-1) ?? "[]") as string[];
+  if (tenants.length !== 1 || !UUID.test(tenants[0])) throw new Error("The dedicated v3 owner must have exactly one tenant.");
+  return { tenantId: tenants[0], userId, email };
 }
 
 // The owned ARMY tenant administered by the logged-in account, never another tenant.
