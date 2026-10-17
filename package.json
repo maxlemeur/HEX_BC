@@ -50,7 +50,7 @@
     "check:army-recipes": "node scripts/tester-army/check-local-recipe.mjs && node scripts/tester-army/check-setup-archive.mjs && node scripts/tester-army/check-cctp-recipe.mjs && node scripts/tester-army/check-cctp-seed.mjs && node scripts/tester-army/check-cctp-reader.mjs && node scripts/tester-army/check-cctp-rmo.mjs",
     "check:performance": "node --import tsx scripts/check-performance-budgets.ts",
     "benchmark:takeoff:provider": "node --env-file-if-exists=.env.local --import tsx scripts/run-takeoff-provider-benchmark.ts",
-    "lint": "eslint . --max-warnings=0",
+    "lint": "eslint . --max-warnings=0 --cache --cache-strategy content --cache-location .next/cache/eslint/.eslintcache",
     "generate-openapi": "node --import tsx scripts/validate-openapi.ts --write",
     "validate-openapi": "node scripts/validate-openapi-runner.mjs",
     "prices:sofinther": "node --import tsx scripts/sofinther-prices.ts",

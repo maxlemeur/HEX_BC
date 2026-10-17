@@ -8,6 +8,17 @@ import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
 
 import {
+  compareDatabaseFingerprints,
+  compareStackState,
+  createDatabaseSnapshotOperations,
+  type DatabaseFingerprint,
+  type DatabaseSnapshot,
+  type DatabaseSnapshotKey,
+  type DatabaseSnapshotOperations,
+  type NativePostgresTools,
+  resolveDatabaseSnapshotDirectory,
+} from "@/test/database-snapshot";
+import {
   assertNoRemoteSupabaseEnvironment,
   createLocalCiEnvironment,
   PINNED_SUPABASE_CLI_VERSION,
@@ -128,10 +139,17 @@ interface IsolatedSupabaseProject {
 }
 
 interface LocalSupabaseCiDependencies {
+  /** Snapshot steps, used only when ARMY_DB_SNAPSHOT_DIR is set. */
+  databaseSnapshot?: DatabaseSnapshotOperations;
   ensureRuntime: () => void;
   environment: SupabaseEnvironment;
   reservedPorts: ReadonlySet<number>;
   log: (message: string) => void;
+  /**
+   * Called once the migrated database is ready, before pgTAP: a run that fails
+   * afterwards still knows whether its database was reset or restored.
+   */
+  onDatabaseProvenance?: (provenance: LocalDatabaseProvenance) => void;
   prepareProject: (reservedPorts: ReadonlySet<number>) => Promise<IsolatedSupabaseProject>;
   provisionUsers: (
     status: LocalSupabaseStatus
@@ -631,11 +649,40 @@ function asError(error: unknown) {
 const SAFE_DIAGNOSTIC_PHASES = new Set([
   "prepare isolated project",
   "start local stack",
+  "restore database snapshot",
   "reset local database",
   "verify migration inventory",
+  "verify database snapshot",
   "run pgTAP",
   "run behavioral RLS matrix",
 ]);
+
+/** How the run obtained its migrated database; recorded in the run log. */
+export interface LocalDatabaseProvenance {
+  source: "reset" | "snapshot";
+  snapshot: "disabled" | "recorded" | "not-recorded" | "restored" | "rejected";
+  key?: string;
+  reason?: string;
+}
+
+/**
+ * The template every isolated config.toml derives from, before the project ID
+ * and the ports are replaced: part of the database snapshot key.
+ */
+export function readIsolatedConfigTemplate(rootDirectory = process.cwd()) {
+  return enableNativeStack(fs.readFileSync(path.join(rootDirectory, "supabase", "config.toml"), "utf8"));
+}
+
+function elapsedSeconds(startedAt: number) {
+  return ((Date.now() - startedAt) / 1000).toFixed(1);
+}
+
+function appliedMigrationVersions(output: string) {
+  return parseSupabaseMigrationList(output)
+    .map((row) => row.remote)
+    .filter((version): version is string => Boolean(version))
+    .sort();
+}
 
 function createPhaseError(phase: string, error: unknown) {
   const cause = asError(error);
@@ -651,7 +698,7 @@ function createPhaseError(phase: string, error: unknown) {
 
 export async function runLocalSupabaseCi(
   overrides: Partial<LocalSupabaseCiDependencies> = {}
-) {
+): Promise<{ database: LocalDatabaseProvenance }> {
   const dependencies = { ...defaultDependencies(), ...overrides };
   assertNoRemoteSupabaseEnvironment(dependencies.environment);
 
@@ -659,6 +706,8 @@ export async function runLocalSupabaseCi(
   if (projectErrors.length > 0) {
     throw new Error(projectErrors.join("\n"));
   }
+  // Opt-in: without ARMY_DB_SNAPSHOT_DIR every run keeps `db reset`.
+  const snapshotDirectory = resolveDatabaseSnapshotDirectory(dependencies.environment);
   dependencies.ensureRuntime();
 
   // The captured CLI output appends stderr update notices after stdout.
@@ -676,25 +725,19 @@ export async function runLocalSupabaseCi(
   let provisioned: ProvisionedUsers | undefined;
   const cleanupErrors: Error[] = [];
   let activePhase = "preflight";
+  const provenance: LocalDatabaseProvenance = { source: "reset", snapshot: "disabled" };
   const withWorkdir = (args: string[]) => [
     ...args,
     "--workdir",
     project?.rootDirectory ?? "",
   ];
-
-  try {
-    activePhase = "prepare isolated project";
-    project = await dependencies.prepareProject(dependencies.reservedPorts);
-    startAttempted = true;
-    activePhase = "start local stack";
-    // Postgres starts eagerly; Auth and the Data API start on their first request.
-    dependencies.supabase(withWorkdir(["start", "--runtime", "native"]), true);
-    dependencies.log("Local Supabase stack started.");
-
+  const resetDatabase = () => {
     activePhase = "reset local database";
+    const startedAt = Date.now();
     dependencies.supabase(withWorkdir(["db", "reset", "--local"]), true);
-    dependencies.log("Local database reset completed.");
-
+    dependencies.log(`Local database reset completed in ${elapsedSeconds(startedAt)} s.`);
+  };
+  const verifyMigrationInventory = () => {
     activePhase = "verify migration inventory";
     const migrationOutput = dependencies.supabase(
       withWorkdir([
@@ -711,6 +754,121 @@ export async function runLocalSupabaseCi(
       throw new Error(migrationErrors.join("\n"));
     }
     dependencies.log("Local migration inventory matches the repository.");
+    return appliedMigrationVersions(migrationOutput);
+  };
+
+  try {
+    activePhase = "prepare isolated project";
+    project = await dependencies.prepareProject(dependencies.reservedPorts);
+    startAttempted = true;
+    activePhase = "start local stack";
+    // Postgres starts eagerly; Auth and the Data API start on their first request.
+    dependencies.supabase(withWorkdir(["start", "--runtime", "native"]), true);
+    dependencies.log("Local Supabase stack started.");
+
+    let snapshotContext: {
+      databaseUrl: string;
+      directory: string;
+      key: DatabaseSnapshotKey;
+      operations: DatabaseSnapshotOperations;
+      tools: NativePostgresTools;
+    } | undefined;
+    let restored: DatabaseSnapshot | undefined;
+    let stackBeforeRestore: DatabaseFingerprint | undefined;
+    if (snapshotDirectory) {
+      activePhase = "restore database snapshot";
+      const operations = dependencies.databaseSnapshot ?? createDatabaseSnapshotOperations({
+        configTemplate: () => readIsolatedConfigTemplate(),
+        environment: dependencies.environment,
+        rootDirectory: process.cwd(),
+        supabaseCli: cliVersion,
+      });
+      const { databaseUrl } = parseLocalSupabaseStatus(
+        dependencies.supabase(withWorkdir(["status", "--env"]), true)
+      );
+      if (!databaseUrl) throw new Error("Local PostgreSQL status is missing for the database snapshot");
+      const tools = operations.resolveTools();
+      const key = operations.computeKey(tools.bundle);
+      snapshotContext = { databaseUrl, directory: snapshotDirectory, key, operations, tools };
+      provenance.key = key.key;
+      const lookup = operations.lookUp(snapshotDirectory, key.key);
+      if (lookup.hit) {
+        const startedAt = Date.now();
+        try {
+          // This stack's own state (stack-owned schemas, database settings),
+          // which the restore must carry over unchanged.
+          stackBeforeRestore = operations.fingerprint(tools, databaseUrl);
+          operations.restore({ databaseUrl, snapshot: lookup.snapshot, tools });
+          restored = lookup.snapshot;
+          dependencies.log(`Database snapshot ${key.key.slice(0, 12)} restored in ${elapsedSeconds(startedAt)} s instead of db reset.`);
+        } catch (error) {
+          provenance.snapshot = "rejected";
+          provenance.reason = `restore failed: ${asError(error).message}`;
+          dependencies.log(`Database snapshot ${key.key.slice(0, 12)} could not be restored (${asError(error).message}); falling back to db reset.`);
+        }
+      } else {
+        dependencies.log(`Database snapshot miss (${lookup.reason}); running db reset.`);
+      }
+    }
+
+    let appliedVersions: string[] = [];
+    if (restored && snapshotContext) {
+      // Cheap equivalence proof: the restored database must carry the very
+      // migrations and catalog fingerprint recorded right after a reset, and
+      // this stack's own state unchanged. Any doubt falls back to db reset.
+      const { databaseUrl, operations, tools } = snapshotContext;
+      let problems: string[];
+      try {
+        appliedVersions = verifyMigrationInventory();
+        activePhase = "verify database snapshot";
+        const fingerprint = operations.fingerprint(tools, databaseUrl);
+        problems = [
+          ...(JSON.stringify(appliedVersions) === JSON.stringify([...restored.manifest.migrations].sort())
+            ? []
+            : ["applied migrations differ from the snapshot"]),
+          ...compareDatabaseFingerprints(restored.manifest.fingerprint, fingerprint)
+            .map((component) => `fingerprint ${component} differs`),
+          ...(stackBeforeRestore && compareStackState(stackBeforeRestore, fingerprint)
+            ? []
+            : ["this stack's own state did not survive the restore"]),
+        ];
+      } catch (error) {
+        problems = [`verification failed: ${asError(error).message}`];
+      }
+      if (problems.length === 0) {
+        provenance.source = "snapshot";
+        provenance.snapshot = "restored";
+        dependencies.log("Database snapshot verified: applied migrations and catalog fingerprint match the recorded reset.");
+      } else {
+        provenance.snapshot = "rejected";
+        provenance.reason = problems.join("; ");
+        dependencies.log(`Database snapshot rejected after restore (${provenance.reason}); falling back to db reset.`);
+        restored = undefined;
+      }
+    }
+
+    if (!restored) {
+      resetDatabase();
+      appliedVersions = verifyMigrationInventory();
+      if (snapshotContext) {
+        // Recorded right after the reset and its inventory check, before
+        // pgTAP, Auth users or fixtures touch the database. A failed recording
+        // costs the next run its speed, never this run's evidence.
+        const { databaseUrl, directory, key, operations, tools } = snapshotContext;
+        activePhase = "record database snapshot";
+        const startedAt = Date.now();
+        try {
+          const fingerprint = operations.fingerprint(tools, databaseUrl);
+          const manifest = operations.record({ databaseUrl, directory, fingerprint, key, migrations: appliedVersions, tools });
+          if (provenance.snapshot === "disabled") provenance.snapshot = "recorded";
+          dependencies.log(`Database snapshot ${key.key.slice(0, 12)} recorded in ${elapsedSeconds(startedAt)} s (${manifest.dump.bytes} bytes).`);
+        } catch (error) {
+          if (provenance.snapshot === "disabled") provenance.snapshot = "not-recorded";
+          dependencies.log(`Database snapshot not recorded: ${asError(error).message}`);
+        }
+      }
+    }
+    dependencies.onDatabaseProvenance?.({ ...provenance });
 
     activePhase = "run pgTAP";
     const pgTapOutput = dependencies.supabase(withWorkdir([
@@ -787,4 +945,5 @@ export async function runLocalSupabaseCi(
       primaryError?.message ?? "Local Supabase CI cleanup failed"
     );
   }
+  return { database: provenance };
 }

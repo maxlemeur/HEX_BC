@@ -1,0 +1,385 @@
+{
+  "schemaVersion": 1,
+  "note": "Carte d'impact versionnée des parcours TesterArmy critical (docs/testing/tester-army-ci.md). Lue par select-journeys.ts. Glob : ** = zéro ou plusieurs dossiers, * = dans un segment, {a,b} = alternative ; les crochets des routes Next sont littéraux. Tout chemin modifié non couvert ici sélectionne la suite complète.",
+  "suite": {
+    "journeys": [
+      "e2e/army/critical/access-boundaries.e2e.ts",
+      "e2e/army/critical/auth-rejection.e2e.ts",
+      "e2e/army/critical/auth.setup.e2e.ts",
+      "e2e/army/critical/bulk-edit-sync-sources.e2e.ts",
+      "e2e/army/critical/bulk-edit-sync.e2e.ts",
+      "e2e/army/critical/bulk-move.e2e.ts",
+      "e2e/army/critical/commercial-rounding.e2e.ts",
+      "e2e/army/critical/dashboard-ux.e2e.ts",
+      "e2e/army/critical/deslop-components.e2e.ts",
+      "e2e/army/critical/dpgf-import.e2e.ts",
+      "e2e/army/critical/estimate-integrity.e2e.ts",
+      "e2e/army/critical/hub-launch-metre.e2e.ts",
+      "e2e/army/critical/hub-plans-card.e2e.ts",
+      "e2e/army/critical/hub-takeoff-auto-propose.e2e.ts",
+      "e2e/army/critical/import-optima-v2.e2e.ts",
+      "e2e/army/critical/numeric-entry-v3.e2e.ts",
+      "e2e/army/critical/numeric-entry.e2e.ts",
+      "e2e/army/critical/plan-center.e2e.ts",
+      "e2e/army/critical/prehydration-auth.e2e.ts",
+      "e2e/army/critical/stale-save.e2e.ts",
+      "e2e/army/critical/team-a-hub.e2e.ts",
+      "e2e/army/local/engine-v3-fail-closed.e2e.ts",
+      "e2e/army/local/estimate-create-calculation-gate.e2e.ts",
+      "e2e/army/local/tech-debt-lock-boundaries.e2e.ts"
+    ],
+    "setup": "e2e/army/critical/auth.setup.e2e.ts",
+    "anchor": "e2e/army/critical/stale-save.e2e.ts",
+    "anonymous": [
+      "e2e/army/critical/access-boundaries.e2e.ts",
+      "e2e/army/critical/auth-rejection.e2e.ts",
+      "e2e/army/critical/prehydration-auth.e2e.ts"
+    ]
+  },
+  "docs": [
+    "docs/**",
+    "maquette/**",
+    "**/*.md"
+  ],
+  "nonRuntime": [
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/**/*.test-utils.{ts,tsx}",
+    "src/**/*.d.ts",
+    "src/lib/estimate-calculations.golden/**",
+    "src/test/**",
+    "scripts/engine-v3/**",
+    "scripts/test-*-sql.mjs",
+    "scripts/{add-supabase-migrations-to-manifest,check-architecture-budgets,check-dependency-audit,guard-supabase-migrations,restamp-unpushed-migrations,run-local-supabase-ci,run-takeoff-provider-benchmark,sofinther-prices,validate-e2e-environment,validate-supabase-migrations,verify-local-supabase-migrations,verify-production-build}.ts",
+    "scripts/{check-durable-recovery,extract-audit-artifact,typecheck}.mjs",
+    "scripts/generate-fake-plan.py",
+    "supabase/.gitignore",
+    "supabase/benchmarks/**",
+    "supabase/maintenance/**",
+    "supabase/schema.sql",
+    "skills-lock.json",
+    ".gitignore",
+    "tools/next-eslint-root-glob/**",
+    ".github/dependabot.yml",
+    ".github/workflows/{e2e-army-full,e2e-army-smoke,e2e-rls-matrix,quality-gate,recover-durable-fallback,release-please,supabase-backup}.yml",
+    ".claude/**",
+    ".env.example",
+    ".release-please-manifest.json",
+    "release-please-config.json",
+    "components.json",
+    "config/architecture-budgets.json",
+    "config/dependency-audit-policy.json",
+    "eslint.config.mjs",
+    "openapi.json",
+    "vercel.json",
+    "vitest.config.ts",
+    "vitest.critical.config.ts",
+    "e2e.calc-v3.config.ts",
+    "e2e.offer.config.ts",
+    "e2e.resend-portal.config.ts",
+    "e2e/*.ps1",
+    "e2e/run-ps1.mjs",
+    "e2e/hex/**",
+    "e2e/polish/**",
+    "e2e/army/*.e2e.ts",
+    "e2e/army/{development,extended,local,performance,polish,takeoff}/**",
+    "e2e/fixtures/{autosave-navigation,catalogue-offer,ui-polish}.tsx",
+    "e2e/fixtures/source-coverage/**",
+    "e2e/fixtures/sample.csv",
+    "e2e/fixtures/us22_live_tabular.pdf",
+    "e2e/fixtures/.gitignore"
+  ],
+  "full": [
+    "package.json",
+    "package-lock.json",
+    ".npmrc",
+    ".nvmrc",
+    "next.config.ts",
+    "tsconfig.json",
+    "postcss.config.mjs",
+    "e2e.config.ts",
+    "e2e/army/critical/fixtures.ts",
+    "e2e/army/critical/auth.setup.e2e.ts",
+    "scripts/run-tester-army*.{ts,mjs}",
+    "scripts/tester-army/**",
+    "scripts/next-build*.mjs",
+    "scripts/validate-openapi.ts",
+    "scripts/validate-openapi-runner.mjs",
+    "scripts/check-performance-budgets.ts",
+    "config/performance-budgets.json",
+    "src/proxy.ts",
+    "src/app/layout.tsx",
+    "src/lib/auth/**",
+    "src/lib/estimate-calculations.ts",
+    "src/lib/estimate-v2-snapshot.ts",
+    "src/types/database.ts",
+    "supabase/migrations/**",
+    "supabase/migrations.manifest.json",
+    "supabase/config.toml",
+    ".github/workflows/e2e-army-critical.yml"
+  ],
+  "runnerEntries": [
+    "scripts/run-tester-army-ci.ts",
+    "scripts/run-tester-army.mjs",
+    "scripts/tester-army/build-local.mjs",
+    "scripts/tester-army/select-journeys.ts",
+    "scripts/next-build.mjs",
+    "e2e.config.ts",
+    "next.config.ts",
+    "e2e/army/critical/fixtures.ts"
+  ],
+  "graph": {
+    "sourceRoots": ["src", "e2e", "scripts"],
+    "extraFiles": ["e2e.config.ts", "next.config.ts"],
+    "apiRouteRoot": "src/app/api",
+    "apiCallers": ["src/**", "e2e/army/**", "e2e/fixtures/**"],
+    "apiCallersExcluded": ["src/lib/openapi/**", "src/test/**", "src/**/*.test.ts", "src/**/*.test.tsx", "src/**/*.test-utils.ts", "src/**/*.test-utils.tsx"],
+    "importersExcluded": ["src/**/*.test.ts", "src/**/*.test.tsx"],
+    "escalationExcluded": ["scripts/**"]
+  },
+  "groups": {
+    "anonymous": [
+      "e2e/army/critical/access-boundaries.e2e.ts",
+      "e2e/army/critical/auth-rejection.e2e.ts",
+      "e2e/army/critical/prehydration-auth.e2e.ts"
+    ],
+    "wizard": [
+      "e2e/army/critical/bulk-edit-sync-sources.e2e.ts",
+      "e2e/army/critical/bulk-edit-sync.e2e.ts",
+      "e2e/army/critical/bulk-move.e2e.ts",
+      "e2e/army/critical/commercial-rounding.e2e.ts",
+      "e2e/army/critical/dpgf-import.e2e.ts",
+      "e2e/army/critical/estimate-integrity.e2e.ts",
+      "e2e/army/critical/hub-launch-metre.e2e.ts",
+      "e2e/army/critical/hub-plans-card.e2e.ts",
+      "e2e/army/critical/hub-takeoff-auto-propose.e2e.ts",
+      "e2e/army/critical/import-optima-v2.e2e.ts",
+      "e2e/army/critical/numeric-entry-v3.e2e.ts",
+      "e2e/army/critical/numeric-entry.e2e.ts",
+      "e2e/army/critical/plan-center.e2e.ts",
+      "e2e/army/critical/stale-save.e2e.ts"
+    ],
+    "editor": [
+      "@wizard",
+      "e2e/army/critical/team-a-hub.e2e.ts",
+      "e2e/army/local/engine-v3-fail-closed.e2e.ts",
+      "e2e/army/local/tech-debt-lock-boundaries.e2e.ts"
+    ],
+    "affaires-list": [
+      "e2e/army/critical/dashboard-ux.e2e.ts",
+      "e2e/army/critical/team-a-hub.e2e.ts",
+      "e2e/army/local/engine-v3-fail-closed.e2e.ts",
+      "e2e/army/local/estimate-create-calculation-gate.e2e.ts",
+      "e2e/army/local/tech-debt-lock-boundaries.e2e.ts"
+    ],
+    "affaire-hub": [
+      "e2e/army/critical/dpgf-import.e2e.ts",
+      "e2e/army/critical/hub-launch-metre.e2e.ts",
+      "e2e/army/critical/hub-plans-card.e2e.ts",
+      "e2e/army/critical/hub-takeoff-auto-propose.e2e.ts",
+      "e2e/army/critical/import-optima-v2.e2e.ts",
+      "e2e/army/critical/team-a-hub.e2e.ts"
+    ],
+    "plans": [
+      "e2e/army/critical/hub-launch-metre.e2e.ts",
+      "e2e/army/critical/hub-plans-card.e2e.ts",
+      "e2e/army/critical/hub-takeoff-auto-propose.e2e.ts",
+      "e2e/army/critical/plan-center.e2e.ts"
+    ],
+    "affaire-takeoff": [
+      "e2e/army/critical/hub-launch-metre.e2e.ts",
+      "e2e/army/critical/hub-plans-card.e2e.ts",
+      "e2e/army/critical/hub-takeoff-auto-propose.e2e.ts"
+    ],
+    "print": [
+      "e2e/army/critical/commercial-rounding.e2e.ts",
+      "e2e/army/critical/estimate-integrity.e2e.ts"
+    ]
+  },
+  "rules": [
+    {
+      "id": "app-shell",
+      "note": "Racine applicative et coquille du tableau de bord : toutes les pages des parcours.",
+      "paths": [
+        "src/app/providers.tsx",
+        "src/app/globals.css",
+        "src/app/global-error.tsx",
+        "src/app/not-found.tsx",
+        "src/styles/**",
+        "src/instrumentation.ts",
+        "src/app/dashboard/{layout,error,loading,not-found}.tsx",
+        "src/app/dashboard/[...unknown]/**"
+      ],
+      "journeys": ["*"]
+    },
+    {
+      "id": "login-signup",
+      "note": "Formulaires publics ; le setup de connexion est toujours sélectionné.",
+      "paths": ["src/app/login/**", "src/app/signup/**"],
+      "journeys": ["@anonymous"]
+    },
+    {
+      "id": "dashboard-ux-pages",
+      "note": "Pages auditées par UX01-UX29.",
+      "paths": [
+        "src/app/dashboard/page.tsx",
+        "src/app/dashboard/takeoff/**",
+        "src/app/dashboard/products/**",
+        "src/app/dashboard/prices/**",
+        "src/app/dashboard/admin/*.tsx",
+        "src/app/dashboard/admin/flags/**",
+        "src/app/dashboard/admin/anomaly-history/**"
+      ],
+      "journeys": ["e2e/army/critical/dashboard-ux.e2e.ts"]
+    },
+    {
+      "id": "affaires-list",
+      "paths": ["src/app/dashboard/affaires/page.tsx"],
+      "journeys": ["@affaires-list"]
+    },
+    {
+      "id": "affaires-boundaries",
+      "note": "error/loading et actions serveur des affaires enveloppent la liste, le hub et ses sous-routes.",
+      "paths": [
+        "src/app/dashboard/affaires/{error,loading}.tsx",
+        "src/app/dashboard/affaires/_actions/**",
+        "src/app/dashboard/affaires/new/**"
+      ],
+      "journeys": ["@affaires-list", "@affaire-hub", "@plans", "@affaire-takeoff"]
+    },
+    {
+      "id": "affaire-hub",
+      "note": "Le layout du hub enveloppe plans, métré et prix de l'affaire.",
+      "paths": ["src/app/dashboard/affaires/[projectId]/*.tsx"],
+      "journeys": ["@affaire-hub", "@plans", "@affaire-takeoff"]
+    },
+    {
+      "id": "affaire-plans",
+      "paths": ["src/app/dashboard/affaires/[projectId]/plans/**"],
+      "journeys": ["@plans"]
+    },
+    {
+      "id": "affaire-takeoff",
+      "paths": ["src/app/dashboard/affaires/[projectId]/takeoff/**"],
+      "journeys": ["@affaire-takeoff"]
+    },
+    {
+      "id": "estimate-wizard",
+      "paths": ["src/app/dashboard/estimates/new/**"],
+      "journeys": ["@wizard"]
+    },
+    {
+      "id": "estimate-editor",
+      "paths": ["src/app/dashboard/estimates/[versionId]/edit/**"],
+      "journeys": ["@editor"]
+    },
+    {
+      "id": "estimate-print",
+      "paths": ["src/app/dashboard/estimates/[versionId]/print/**"],
+      "journeys": ["@print"]
+    },
+    {
+      "id": "estimate-detail",
+      "note": "Fiche de version : seul le parcours du moteur 3 fermé par défaut l’ouvre (bandeau de lecture).",
+      "paths": ["src/app/dashboard/estimates/[versionId]/page.tsx"],
+      "journeys": ["e2e/army/local/engine-v3-fail-closed.e2e.ts"]
+    },
+    {
+      "id": "estimates-boundaries",
+      "note": "error/loading des devis enveloppent assistant, éditeur et impression.",
+      "paths": ["src/app/dashboard/estimates/{error,loading}.tsx"],
+      "journeys": ["@editor", "e2e/army/critical/deslop-components.e2e.ts"]
+    },
+    {
+      "id": "estimate-list",
+      "note": "Monté par la fixture deslop-client-list.",
+      "paths": ["src/app/dashboard/estimates/page.tsx"],
+      "journeys": ["e2e/army/critical/deslop-components.e2e.ts"]
+    },
+    {
+      "id": "dpgf-pages",
+      "note": "DPGF03 traverse historique d'import, mapping et catalogue.",
+      "paths": [
+        "src/app/dashboard/imports/**",
+        "src/app/dashboard/mappings/**",
+        "src/app/dashboard/catalogue/**"
+      ],
+      "journeys": ["e2e/army/critical/dpgf-import.e2e.ts"]
+    },
+    {
+      "id": "unexercised-routes",
+      "note": "Routes connues qu'aucun parcours critical n'ouvre ; leurs modules partagés restent suivis par le graphe d'imports.",
+      "paths": [
+        "src/app/page.tsx",
+        "src/app/favicon.ico",
+        "src/app/portal/**",
+        "src/app/dashboard/_actions/**",
+        "src/app/dashboard/affaires/[projectId]/prices/**",
+        "src/app/dashboard/estimates/[versionId]/{diff,plans,source-review,takeoff}/**",
+        "src/app/dashboard/estimates/{assemblies,dashboard,templates}/**",
+        "src/app/dashboard/admin/{currencies,procurement-reset,rules,suggestion-learning,takeoff}/**",
+        "src/app/dashboard/{analytics,approvals,direction,indices,memberships,orders,profile,referentiel,sites,suppliers,tarifs,tenants}/**"
+      ],
+      "journeys": []
+    },
+    {
+      "id": "openapi",
+      "note": "Génération OpenAPI : validée par Quality Gate et par l'étape OpenAPI du build Army ; aucun parcours ne lit /api/docs.",
+      "paths": ["src/lib/openapi/**"],
+      "journeys": []
+    },
+    {
+      "id": "api-without-ui-caller",
+      "note": "Routes API qu'aucun code de l'application ni parcours ne nomme (documentation, santé, tâches internes et planifiées). Les autres routes sélectionnent, par le graphe, les parcours qui les appellent ; une nouvelle route sans appelant reste non cartographiée, donc suite complète.",
+      "paths": [
+        "src/app/api/docs/route.ts",
+        "src/app/api/docs/swagger-ui/[asset]/route.ts",
+        "src/app/api/health/route.ts",
+        "src/app/api/imports/tabular-pdf/review/route.ts",
+        "src/app/api/internal/takeoff/process-job/route.ts",
+        "src/app/api/internal/workflows/recover/route.ts"
+      ],
+      "journeys": []
+    },
+    {
+      "id": "runtime-unused-modules",
+      "note": "Modules importés seulement par des tests, ou par aucun fichier : aucune page ne les charge. Dès qu'un fichier de l'application les importe, le graphe suit cet importeur.",
+      "paths": [
+        "src/components/affaires/OnboardingIntakeDropzone.tsx",
+        "src/components/affaires/QuickCreateAffaireDialog.tsx",
+        "src/components/catalogue/prices-manager/SupplierCatalogItemModal.tsx",
+        "src/components/takeoff/ProjectTakeoffJobList.tsx",
+        "src/components/takeoff/evidence-source-context.ts",
+        "src/components/ui/{checkbox,empty,select,switch,table}.tsx",
+        "src/hooks/useEstimateLineTruthVisibility.ts",
+        "src/lib/affaires/route-segments.ts",
+        "src/lib/estimates/{assembly-library,calc-context,portal-document-contract}.ts",
+        "src/lib/reference.ts"
+      ],
+      "journeys": []
+    },
+    {
+      "id": "deslop-fixtures",
+      "note": "Chargées par chemin dans e2e/army/extended/component-fixture.ts.",
+      "paths": ["e2e/fixtures/deslop-{client-list,live-replacements}.tsx"],
+      "journeys": ["e2e/army/critical/deslop-components.e2e.ts"]
+    },
+    {
+      "id": "dpgf-fixture",
+      "paths": ["e2e/fixtures/dpgf-minimal.csv"],
+      "journeys": ["e2e/army/critical/dpgf-import.e2e.ts"]
+    },
+    {
+      "id": "plan-fixture",
+      "note": "Lu par uploadSamplePlan (plans-support.ts).",
+      "paths": ["e2e/fixtures/sample-plan.pdf"],
+      "journeys": ["@plans"]
+    },
+    {
+      "id": "pgtap",
+      "note": "pgTAP s'exécute avant les parcours ; le parcours d'ancrage suffit à faire passer la base.",
+      "paths": ["supabase/tests/**"],
+      "journeys": ["@anchor"]
+    }
+  ]
+}

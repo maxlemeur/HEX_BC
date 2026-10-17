@@ -1,5 +1,208 @@
 # TesterArmy métier sur une base CI éphémère
 
+## Sélection par impact des parcours critical
+
+Décision du 17/10/2026 : une pull request ne lance que les parcours TesterArmy
+critical que ses fichiers atteignent. La suite critical complète tourne à chaque
+push de code sur `main` et chaque nuit.
+
+| Événement | Parcours critical | Build Army |
+| --- | --- | --- |
+| Pull request, documentation seule ou chemins hors suite | aucun (`none`) | non |
+| Pull request, autres chemins | fichiers sélectionnés (`files`) ou suite complète (`full`) | oui |
+| Push sur `main` | suite complète, sauf push de documentation seule (aucun) | oui, sauf documentation |
+| `workflow_dispatch`, label `army-full` | suite complète | oui |
+| Nuit, 03:15 UTC (`e2e-army-full.yml`) | phase `full` : tous les parcours critical, plus extended et takeoff, puis phase développement | oui |
+
+### Décision
+
+`scripts/tester-army/select-journeys.ts` tourne avec Node seul, avant `npm ci`,
+et lit la carte versionnée `scripts/tester-army/army-impact-map.json`. Sur une
+pull request, le diff est celui du commit de fusion que GitHub teste contre son
+premier parent, la pointe de la base : ce sont les changements de la PR
+(`base...head`), avec un checkout de profondeur 2. L'étape vérifie que le second
+parent est bien la tête de la PR ; sinon, suite complète. Sur un push, le diff
+est `before...after`.
+
+Pour chaque chemin modifié :
+
+1. `docs` (`docs/**`, `maquette/**`, `**/*.md`) : rien à lancer. Sur un push,
+   tout autre chemin lance la suite complète.
+2. `full` (manifestes npm, `next.config.ts`, `tsconfig.json`, `e2e.config.ts`,
+   fixtures et setup des parcours, runners et build Army, `src/proxy.ts`,
+   `src/app/layout.tsx`, `src/lib/auth/**`, moteur de calcul et snapshot v2,
+   types de base, migrations, configuration Supabase, ce workflow), ou fichier
+   importé par le runner critical : suite complète.
+3. Sinon, la fermeture d'impact du chemin : les fichiers qui l'importent,
+   transitivement, et pour une route API les fichiers dont le code nomme son
+   chemin `/api/...` (chaînes statiques ; un `${...}` final compte comme un
+   sous-chemin, sauf s'il ferme un argument d'appel direct).
+   - Un membre couvert par `full` (hors `scripts/**`, outils de build) : suite
+     complète. Une dépendance de la racine applicative, de l'auth, du moteur de
+     calcul ou des fixtures change tous les parcours.
+   - Chaque règle (`rules`) atteinte ajoute ses parcours (`@groupe`, `*` pour
+     tous) ; un fichier de parcours s'ajoute lui-même.
+   - Chaque point d'entrée atteint (fichier que rien ne charge : page, route,
+     script, parcours) doit être couvert par une règle, `full` ou `nonRuntime` ;
+     sinon, suite complète.
+4. Seulement des points d'entrée `nonRuntime` (tests, outils d'autres suites) :
+   rien à lancer.
+
+Un chemin `full` ou non cartographié impose la suite complète ; aucun parcours
+atteint donne `none`. Sinon, le setup `auth.setup.e2e.ts` est toujours ajouté,
+et le parcours d'ancrage `stale-save.e2e.ts` quand seuls des parcours anonymes
+sont retenus (le runner exige un test métier authentifié). Si tous les parcours
+sont retenus, c'est la suite complète.
+
+Repli sûr : toute erreur git (révision absente du checkout, `before` d'un push
+non récupéré), carte illisible ou invalide, diff vide ou événement inconnu donne
+la suite complète. Une carte dont `suite.journeys` diffère des parcours que la
+CI lance (liste `localBusiness` de `e2e.config.ts` appliquée aux fichiers du
+checkout, ou liste illisible) est invalide : un parcours ajouté sans être
+inscrit ne serait jamais sélectionné. Seule une sortie explicite `none` saute
+les parcours : une sortie vide ou absente lance la suite complète.
+
+### Preuve d'une exécution filtrée
+
+La sélection passe par `--files` à `run-tester-army-ci.ts critical`, qui la
+transmet au CLI e2e comme fichiers positionnels (le filtre `--tag critical` et
+le setup de connexion restent appliqués). Le manifeste enregistre
+`scope: filtered-critical` et `journeyFiles` (la clé `files` y reste
+l'inventaire SHA-256 des preuves). Le run échoue si un fichier demandé n'a
+pas tous ses tests exécutés et réussis, ou si un autre fichier que ceux-là et le
+setup s'exécute. L'artefact `army-critical-selection` (`selection.json` :
+événement, révisions, SHA-256 de la carte, décision par chemin) et le résumé de
+l'étape gardent le motif, y compris pour `none`. Une exécution filtrée ne prouve
+que ses fichiers ; elle ne qualifie pas la suite complète.
+
+### Forcer la suite complète
+
+- Poser le label `army-full` sur la PR, puis pousser un commit : le label est
+  lu au déclenchement. Le poser seul ne relance rien, et relancer un job réutilise
+  les labels de l'événement d'origine.
+- Ou Actions → TesterArmy Critical → Run workflow sur la branche
+  (`workflow_dispatch`) : suite complète sur la tête de la branche, pas sur le
+  commit de fusion.
+
+### Maintenir la carte
+
+Le garde `src/test/army-impact-map.test.ts` (projet Vitest `node`, donc Quality
+Gate) échoue si : un parcours critical de la CI (liste `localBusiness` de
+`e2e.config.ts`) manque à `suite.journeys` ; aucune règle n'atteint un parcours ;
+la carte nomme un fichier absent ou un glob qui ne correspond à rien ; un chemin
+`full` exigé ou un repli sûr change ; une fixture lue par un parcours ne lui est
+pas routée ; le workflow saute les parcours pour autre chose que `none`, ou
+déplace `E2E_ARMY_WORKERS` ou l'enregistrement du cache. Sans protection de
+branche (plan Free), un Quality Gate rouge n'empêche pas une fusion : le
+contrôle de complétude des parcours est donc aussi fait par le sélecteur à
+chaque exécution (repli sûr ci-dessus).
+
+À l'ajout d'un parcours critical : l'inscrire dans `suite.journeys` et dans une
+règle ou un groupe ; sinon chaque exécution du sélecteur lance la suite
+complète. D'une page ou d'une route : la couvrir par une règle, sinon
+tout changement qui l'atteint lance la suite complète. D'une route API sans
+appelant UI : `api-without-ui-caller`. D'une fixture lue par chemin : une règle
+vers ses parcours. Voir la sélection d'une branche :
+
+```sh
+node scripts/tester-army/select-journeys.ts --event pull_request --base origin/main --head HEAD
+```
+
+### Caches et parallélisme
+
+- Cache webpack du build Army `.e2e/army/next/cache`, hors empreinte du build
+  (`build-local.mjs`) : restauré à chaque run critical et full depuis le dernier
+  enregistré par `main` (clé
+  `army-next-<OS>-<hash package-lock.json et next.config.ts>-<sha>`) ; seul un
+  push sur `main` enregistre le sien.
+- `E2E_ARMY_WORKERS: "2"` dans l'environnement de la seule étape des parcours
+  critical ([qualification](tester-army-local-development.md)). La suite full
+  reste à 1.
+- Ctrl+S au lieu de l'autosave à 60 s dans les parcours qui ne qualifient pas
+  l'autosave : seul « creation persists … after reload »
+  (`estimate-integrity.e2e.ts`) garde l'attente réelle du cycle automatique
+  ([cas couverts](tester-army-estimate-cases.md)). `AUTOSAVE_DEBOUNCE_MS` reste
+  à 60 000 ; aucun changement produit.
+- Instantané de base pré-migrée (`src/test/database-snapshot.ts`), opt-in par
+  `ARMY_DB_SNAPSHOT_DIR`, que seule l'étape des parcours critical fixe à
+  `${{ runner.temp }}/army-db-snapshot`. Clé interne : SHA-256 des migrations,
+  des seeds, du gabarit `config.toml` isolé, de la version du CLI Supabase, du
+  bundle PostgreSQL et du format. Absent ou périmé : `db reset`, contrôle des
+  migrations appliquées, puis `pg_dump` de la base avant pgTAP et avant tout
+  compte de test. Présent : `pg_restore` à la place du `db reset`, puis contrôle
+  des migrations appliquées, de l'empreinte du catalogue (schémas, droits,
+  fonctions, politiques, données…) et de l'état propre à la pile ; tout écart
+  ou toute erreur retombe sur un `db reset` journalisé. pgTAP et la matrice RLS
+  s'exécutent toujours. Le manifeste du run enregistre `database.provenance`
+  (`source` `reset` ou `snapshot` ; `snapshot` `disabled`, `recorded`,
+  `not-recorded`, `restored` ou `rejected` ; clé ; motif) dès que la base est
+  prête, avant pgTAP : un run qui échoue ensuite (pgTAP, matrice RLS,
+  parcours) la garde. Un échec antérieur (démarrage de la pile, `db reset`) ne
+  la laisse que dans `database.log`, qui journalise chaque décision. Cache
+  GitHub : restauré à chaque run critical sur la clé exacte
+  `army-db-snapshot-v1-<OS>-<arch>-<hash des entrées>`, enregistré seulement
+  par un push sur `main` quand la clé exacte est absente du cache (miss). Une
+  clé GitHub est immuable : si une restauration y est rejetée, chaque run
+  retombe sur `db reset` sans pouvoir la remplacer ; incrémenter alors
+  `army-db-snapshot-v1` dans le workflow. `e2e-army-full.yml` et `e2e-rls-matrix.yml` ne le
+  définissent pas : un `db reset` complet tourne chaque nuit.
+
+### Mesures
+
+Référence avant ces changements (analyse du 17/10/2026) : chemin critique d'une
+PR 16 min 13 s, tenu par `army-critical` (parcours 11 à 12 min à 1 worker,
+build 130 s sans cache, installation 54 s, démarrage Supabase 21 s, sept
+attentes d'autosave de 60 s) ; Quality Gate 2 min 24 s.
+
+Mesures locales du 17/10/2026, indicatives : WSL Ubuntu 24.04 (24 cœurs,
+31 Go), `run-tester-army-ci.ts critical`, `E2E_ARMY_WORKERS=2`, modifications
+non commitées sur `3d8d2f8a` ; ni `npm ci`, ni Chromium, ni téléchargement de
+cache. Durées lues sur les horodatages du journal du runner.
+
+| Étape | Run 1 : `--grep` des parcours passés à Ctrl+S | Run 2 : `--files` d'une PR sur `useEstimateEditorBulkController.ts` |
+| --- | --- | --- |
+| Sélection | 6 tests + setup (`filtered-critical`) | 14 fichiers sur 20, setup compris : 31 tests (`filtered-critical`, `journeyFiles`) |
+| Base de données | instantané absent : `db reset` 8,3 s, enregistrement 0,5 s, étape 9,5 s | instantané restauré 1,8 s, contrôles 0,5 s, étape 2,7 s |
+| Build Army | 80,5 s, sans cache | 45,4 s, cache webpack du run 1 (même source) |
+| Parcours | 90 s ; autosave 65 s (attente réelle conservée), les 5 autres 6 à 9 s | 131 s ; 31/31 verts |
+| Run complet | 194 s, vert | 195 s, vert |
+
+- Ctrl+S : chaque parcours concerné dure 6 à 10 s en tout, au lieu d'attendre
+  au moins 60 s le cycle automatique ; les six preuves
+  `save-shortcut-<versionId>` notent « En attente » avant le raccourci.
+- Base : `db:ci:local` seul, à la mise au point de l'instantané, donnait 9,8 s
+  sans instantané et 2,5 s avec.
+- Build : en CI le cache vient du dernier commit de `main`, pas de la même
+  source ; le gain local est un plafond.
+- Run 2 sert aussi de preuve du chemin `--files` de bout en bout et des
+  parcours sur une base restaurée.
+- Run 3, sur l'état fusionné non commité (`origin/main` `141218a9` + cette
+  branche + inscription dans la carte des trois parcours `bulk-*` de #25) : même
+  sélection, 17 fichiers sur 23 ; 38/38 verts à 2 workers, dont les 7 tests
+  `bulk-*` ; base restaurée, étape 2,6 s ; build 77 s sans cache ; parcours
+  153 s ; run 247 s.
+
+Chiffres CI de référence : la description de la PR qui introduit ces
+changements relève, avec les identifiants de run, la suite critical complète à
+2 workers et le Quality Gate de cette PR, caches froids (la PR modifie ce
+workflow, donc sa sélection est `full`). Les gains à caches chauds (build Army,
+instantané de base, tsc et ESLint) ne se mesurent qu'à partir du premier push
+sur `main`, qui enregistre ces caches.
+
+### Limites
+
+- Une PR `none` ne lance pas de build Army : un build de production cassé par
+  une telle PR n'apparaît qu'au push sur `main` (Build du Quality Gate et suite
+  Army complète). Le Quality Gate lance toujours OpenAPI, typecheck, lint et
+  tests sur la PR.
+- La détection est statique : imports (statiques, `import("...")`, `require`,
+  `new URL(..., import.meta.url)`, `@import` CSS) et chaînes `/api/...`. Un module
+  chargé par un chemin calculé, ou une route appelée par une URL dont le début
+  n'est pas un `/api/<famille>` littéral, n'est pas vu ; la règle des points
+  d'entrée, le push sur `main` et la nuit rattrapent le reste.
+- Gains mesurés en local seulement à la rédaction (section Mesures) ; le run CI
+  de la PR, suite complète, fait foi.
+
 ## Contrat défini avant migration
 
 Les anciens workflows Playwright critical/nightly sont remplacés par TesterArmy
