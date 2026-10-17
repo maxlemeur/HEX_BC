@@ -722,6 +722,23 @@ describe("sub-lot 2.4 integration: one contract for the TS engine and the SQL tw
     });
   });
 
+  it("I-03 refuses an undefined discount_amount_cents like a missing key (JSON has no undefined)", () => {
+    const input = v3Input([v3Line(1, { unit_price_ht_cents: 100 })]);
+    const params = { ...input.params, discount_amount_cents: undefined };
+    expect(thrown(() => computeEstimateV3Canonical({ ...input, params }))).toMatchObject({
+      code: "ESTIMATE_V3_INPUT_INVALID",
+      field: "params.discount_amount_cents",
+    });
+  });
+
+  it("names the original item index in a computation error when sections precede the line", () => {
+    const input = supplyLineInput(1, 2_000_000_000, "1.6");
+    const section = { ...v3Line(9), item_type: "section", tax_rate_bp: null } as never;
+    const error = thrown(() => computeEstimateV3Breakdown({ ...input, items: [section, ...input.items] }));
+    expect(error).toMatchObject({ code: "ESTIMATE_AMOUNT_OVERFLOW" });
+    expect((error as EstimateV3Error).field).toMatch(/^items\[1\]/);
+  });
+
   it("I-04 derives null line hours from a null hours-per-unit column, 0.000 on a non-priced line", () => {
     const output = computeEstimateV3Canonical(
       canonicalJson(

@@ -369,6 +369,14 @@ I-06 ci-dessus en font partie ; elles remplacent les choix contraires des pistes
 33. **Échantillons de la mesure de performance** : `--samples` refuse les zéros de tête (`05`, `0001`), qui
     passaient le contrôle de forme puis donnaient moins des 10 échantillons documentés. Vérifié à la ligne de
     commande : `05`, `0001`, `9` et `10000` sortent en erreur, `10` mesure.
+34. **Index d'origine dans les erreurs de calcul** : une ligne normalisée garde son chemin `items[i]` de l'entrée
+    d'origine, sections comprises ; un dépassement sur `items[1]` derrière une section n'est plus signalé sur
+    `items[0]`. Test rouge puis vert (« names the original item index… »).
+35. **`discount_amount_cents` à `undefined`** : la clé présente mais `undefined` est refusée comme une clé absente
+    (`ESTIMATE_V3_INPUT_INVALID` sur `params.discount_amount_cents`), puisque le JSON transmis au jumeau SQL la
+    perd. Test rouge puis vert.
+36. **Types de base** : `measurement_unit_aliases` déclare sa relation `measurement_unit_aliases_unit_code_fkey`
+    vers `measurement_units(code)`, comme la clé étrangère de M3, pour les jointures typées du client Supabase.
 
 ## Preuves rouges
 

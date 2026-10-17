@@ -77,7 +77,7 @@ export function computeEstimateV3BreakdownFromUnknown(
   mode: DecimalReadMode = "editor"
 ): EstimateV3Breakdown {
   const { params, lines } = normalizeEstimateV3Input(rawInput, mode);
-  const gross = lines.map((line, index) => computeV3LineGross(line, params, `items[${index}]`));
+  const gross = lines.map((line) => computeV3LineGross(line, params, line.path));
 
   const grossTotal = sum(gross.map((line) => line.gross));
   toCents(grossTotal, "gross_ht_cents");
@@ -125,7 +125,7 @@ export function computeEstimateV3BreakdownFromUnknown(
   const warnings: EstimateV3Warning[] = [];
   const resultLines: EstimateV3LineResult[] = lines.map((line, index) => {
     const computed = gross[index];
-    const path = `items[${index}]`;
+    const { path } = line;
     if (!computed.priced) {
       warnings.push({ code: "ESTIMATE_V3_LINE_NOT_PRICED", line_id: line.id, pricing_status: line.pricingStatus });
     } else if (computed.laborRateMissing) {

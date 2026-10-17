@@ -63,6 +63,8 @@ export type NormalizedV3Params = {
 export type NormalizedV3Line = {
   /** uuid en minuscules : clé de départage (ordre `uuid` PostgreSQL). */
   id: string;
+  /** Chemin de la ligne dans l'entrée d'origine (`items[i]`, sections comprises) pour les erreurs. */
+  path: string;
   pricingStatus: EstimateV3PricingStatus;
   taxRateBp: bigint;
   quantity: Decimal;
@@ -130,7 +132,8 @@ const PARAMS_KEYS = [
 function normalizeParams(raw: unknown, mode: DecimalReadMode): NormalizedV3Params {
   if (!isBag(raw)) throw invalidInput("params", "objet attendu");
   const path = "params";
-  const missing = PARAMS_KEYS.find((key) => !(key in raw));
+  // Une clé présente mais `undefined` n'existe pas en JSON : le jumeau SQL la voit absente.
+  const missing = PARAMS_KEYS.find((key) => !(key in raw) || raw[key] === undefined);
   if (missing) throw invalidInput(`${path}.${missing}`, "clé de paramètre absente");
   const discountAmount = optionalDecimal(raw, "discount_amount_cents", path, INTEGER_BOUNDS, mode);
   const discountBp = requiredDecimal(raw, "discount_bp", path, BASIS_POINTS_BOUNDS, mode).units;
@@ -193,6 +196,7 @@ function normalizeLine(raw: Bag, path: string, id: string, mode: DecimalReadMode
   }
   return {
     id,
+    path,
     pricingStatus: status as EstimateV3PricingStatus,
     taxRateBp: requiredDecimal(raw, "tax_rate_bp", path, BASIS_POINTS_BOUNDS, mode).units,
     quantity: optionalDecimal(raw, "quantity", path, QUANTITY_BOUNDS, mode) ?? DECIMAL_ZERO,

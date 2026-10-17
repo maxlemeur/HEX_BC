@@ -2419,7 +2419,15 @@ export type Database = {
             | "not_applicable"
             | null;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "measurement_unit_aliases_unit_code_fkey";
+            columns: ["unit_code"];
+            isOneToOne: false;
+            referencedRelation: "measurement_units";
+            referencedColumns: ["code"];
+          },
+        ];
       };
       estimate_suggestion_rules: {
         Row: {
