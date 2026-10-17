@@ -120,10 +120,14 @@ Preuves : chaque étape écrit `recordEvidence` (`v3p-schema`, `v3p-policy-windo
 ### 3.1 SQL (M4, appelé par la fixture)
 
 - `public.set_tenant_calc_policy(p_tenant_id uuid, p_new_estimate_calc_engine smallint,
-  p_default_sale_coefficient_fo numeric, p_default_sale_coefficient_mo numeric, p_change_reason text, …)` :
-  appel par **arguments nommés**, en `service_role` (`SET LOCAL ROLE service_role`) ; tout autre paramètre doit
-  avoir une valeur par défaut (`allowed_tax_rates_bp` : `{2000,1000,550,210}`). Une écriture = un événement dans
+  p_default_sale_coefficient_fo numeric, p_default_sale_coefficient_mo numeric, p_allowed_tax_rates_bp integer[],
+  p_change_reason text, p_actor_user_id uuid)` (signature du pgTAP `estimate-engine-v3-persistence.test.sql`) :
+  appel par **arguments nommés**, en `service_role` (`SET LOCAL ROLE service_role`), taux
+  `{2000,1000,550,210}`, auteur = le propriétaire de la recette. Une écriture = un événement dans
   `tenant_calc_policy_events` (`tenant_id`).
+- Création : l'attente de moteur reçue par l'API (`version.expected_calc_engine_version`) est transmise à
+  `persist_estimate_creation_atomic` dans la charge de version (`calc_engine_version`, comme le pgTAP) ; l'écart
+  SQL `40001 ESTIMATE_CALC_POLICY_CONTEXT_CHANGED` est rendu par l'API en 409 `CONTEXT_CHANGED`.
 - `public.tenant_calc_policies` : colonnes `tenant_id`, `new_estimate_calc_engine`,
   `default_sale_coefficient_fo`, `default_sale_coefficient_mo`, `allowed_tax_rates_bp`, `change_reason` (§6.3).
 - `public.estimate_rules` inchangée (insertion `min_margin` / `client` / `require_approval`).

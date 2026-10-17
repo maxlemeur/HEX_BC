@@ -131,7 +131,9 @@ SELECT public.set_tenant_calc_policy(
   p_new_estimate_calc_engine => ${input.engine}::smallint,
   p_default_sale_coefficient_fo => ${input.fo}::numeric,
   p_default_sale_coefficient_mo => ${input.mo}::numeric,
-  p_change_reason => '${reason}'::text);
+  p_allowed_tax_rates_bp => '{2000,1000,550,210}'::integer[],
+  p_change_reason => '${reason}'::text,
+  p_actor_user_id => '${owner.userId}'::uuid);
 RESET ROLE;
 COMMIT;
 `);
