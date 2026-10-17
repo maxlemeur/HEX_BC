@@ -359,6 +359,25 @@ I-06 ci-dessus en font partie ; elles remplacent les choix contraires des pistes
     le porteur de la conception : confirmer cette lecture de D9 ; l'autre lecture (`round(Q × h/u, 3)` aussi sur
     une ligne non chiffrée) exigerait de changer M3 avant sa publication.
 
+### Revue Codex de la PR #31
+
+32. **Coefficient réalisé figé** : la relecture d'une v3 figée vérifie désormais
+    `calc_snapshot_context.realized_sale_coefficient` contre le HT et le déboursé figés (⌈HT / déboursé⌋ à
+    6 décimales ; 1 si les deux sont nuls ; nul si seul le déboursé l'est, §4.11). Un coefficient faux (−1, 999,
+    0, nul ou décalé d'1 millionième) lève `ESTIMATE_V3_STORED_INCOHERENT` au lieu d'être affiché. Test rouge
+    puis vert dans `requirements.test.ts` (« refuses a frozen realized sale coefficient… »).
+33. **Échantillons de la mesure de performance** : `--samples` refuse les zéros de tête (`05`, `0001`), qui
+    passaient le contrôle de forme puis donnaient moins des 10 échantillons documentés. Vérifié à la ligne de
+    commande : `05`, `0001`, `9` et `10000` sortent en erreur, `10` mesure.
+34. **Index d'origine dans les erreurs de calcul** : une ligne normalisée garde son chemin `items[i]` de l'entrée
+    d'origine, sections comprises ; un dépassement sur `items[1]` derrière une section n'est plus signalé sur
+    `items[0]`. Test rouge puis vert (« names the original item index… »).
+35. **`discount_amount_cents` à `undefined`** : la clé présente mais `undefined` est refusée comme une clé absente
+    (`ESTIMATE_V3_INPUT_INVALID` sur `params.discount_amount_cents`), puisque le JSON transmis au jumeau SQL la
+    perd. Test rouge puis vert.
+36. **Types de base** : `measurement_unit_aliases` déclare sa relation `measurement_unit_aliases_unit_code_fkey`
+    vers `measurement_units(code)`, comme la clé étrangère de M3, pour les jointures typées du client Supabase.
+
 ## Preuves rouges
 
 ### Piste A (moteur TS, `de2c86db`, sur `e30560f4` plus les seuls tests)

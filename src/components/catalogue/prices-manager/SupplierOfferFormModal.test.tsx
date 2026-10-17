@@ -72,8 +72,14 @@ describe("SupplierOfferFormModal", () => {
   });
 
   // Long user-event flow: under a loaded CI runner it exceeded the 5 s default (17/10/2026).
+  // Free-text values are pasted (one input event each, not one re-render per
+  // key); the price keeps its typed decimal comma.
   it("stages a new supplier and article until the final atomic submission", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
+    const fill = async (label: string, value: string) => {
+      await user.click(screen.getByLabelText(label));
+      await user.paste(value);
+    };
     renderOffer();
 
     await user.click(
@@ -82,16 +88,10 @@ describe("SupplierOfferFormModal", () => {
     await user.click(
       screen.getByRole("button", { name: "Créer un nouveau fournisseur" }),
     );
-    await user.type(
-      screen.getByLabelText("Désignation *"),
-      "Balle de tennis pro",
-    );
-    await user.type(screen.getByLabelText("Nom *"), "Nouveau DJO");
-    await user.type(screen.getByLabelText("Référence fournisseur"), "DJO-BT-1");
-    await user.type(
-      screen.getByLabelText("URL fournisseur"),
-      "https://example.test/djo-bt-1",
-    );
+    await fill("Désignation *", "Balle de tennis pro");
+    await fill("Nom *", "Nouveau DJO");
+    await fill("Référence fournisseur", "DJO-BT-1");
+    await fill("URL fournisseur", "https://example.test/djo-bt-1");
     await user.type(screen.getByLabelText("Prix unitaire HT *"), "15,00");
 
     expect(mocks.fetchApi.mock.calls.filter(([, request]) => request?.method === "POST")).toHaveLength(0);

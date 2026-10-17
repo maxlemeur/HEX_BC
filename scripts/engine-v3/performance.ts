@@ -179,7 +179,7 @@ function time(run: () => unknown) {
 
 async function main() {
   const args = process.argv.slice(2);
-  if (args.length > 0 && !(args.length === 2 && args[0] === "--samples" && /^\d{2,4}$/.test(args[1]))) {
+  if (args.length > 0 && !(args.length === 2 && args[0] === "--samples" && /^[1-9]\d{1,3}$/.test(args[1]))) {
     throw new Error("Usage: npm run engine:v3:performance [-- --samples <n>] (n: 10 to 9999)");
   }
   const samples = args.length === 2 ? Number(args[1]) : 200;

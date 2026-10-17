@@ -900,7 +900,7 @@ et `coalesce(…, 1) = 2`. Toute nouvelle comparaison exige donc une revue expli
 | `estimate-seal.ts:10-13`, `:125-286`, `offer-document.ts:99-133`, `offer-contract.ts:330`, `server.ts:5666-5727` | charge 6 ; contrat 2 ; vérification | 2.7 |
 | `export-stream.ts:420-485`, `dpgf-export.ts:344`, `:358-360`, `editor-export.ts:382`, `:398-438`, `bdc-export.ts` | v3 : unité, h/u, PU et PT bruts, remise, TVA par taux ; base des heures dans l'en-tête | 2.7 |
 | `affaires/import-flow.ts:342-426`, `clipboard.ts`, `server.ts:2218-2264`, `generated-ouvrages.ts:1674-1728`, `generated-ouvrage-labor-hours.ts:11-40`, `assemblies-server.ts`, `templates-server.ts`, `src/lib/takeoff/server.ts:3419`, `:3839` | chemins d'entrée v3 ; refus nommé du métré | 2.8 |
-| `docs/metier/regles-de-calcul.md`, `cycle-de-vie.md`, `glossaire.md`, `CONTEXT.md:10-18`, `CLAUDE.md` (paragraphe moteurs) | section moteur 3, sur décision du porteur | 2.10 |
+| `docs/metier/regles-de-calcul.md`, `cycle-de-vie.md`, `glossaire.md`, `CONTEXT.md:10-18`, `AGENTS.md` (invariants de calcul) | section moteur 3, sur décision du porteur | 2.10 |
 
 ---
 
@@ -1592,8 +1592,8 @@ migration distante sans autorisation explicite.
     **sur autorisation explicite**, migrations par la chaîne tracée et politique 3 pour l'entreprise du
     porteur ; trois dossiers réels chiffrés en parallèle d'OPTIMA ;
   - bascule : M8, `NEW_ESTIMATE_CALC_ENGINE_VERSION = 3` (`calc-engine-version.ts:17`) ;
-  - documentation (`regles-de-calcul.md`, `cycle-de-vie.md`, `glossaire.md`, `CONTEXT.md`, paragraphe
-    moteurs de `CLAUDE.md`) ;
+  - documentation (`regles-de-calcul.md`, `cycle-de-vie.md`, `glossaire.md`, `CONTEXT.md`, invariants
+    de calcul de `AGENTS.md`) ;
   - registre des règles : goldens v1/v2 classés « historiques acceptés ».
 - **Tests d'exigence d'abord** : pgTAP « politique absente → v3 » après M8 ; E2E « duplication d'une v2 →
   v2 ».

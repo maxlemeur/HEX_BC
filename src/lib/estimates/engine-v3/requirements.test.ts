@@ -638,6 +638,23 @@ describe("stored v3 reader (frozen columns, no recomputation)", () => {
       ).toMatchObject({ code: "ESTIMATE_V3_STORED_INCOHERENT" });
     }
   });
+
+  it("refuses a frozen realized sale coefficient other than ⌈HT / déboursé⌋ at 6 decimals (§4.11)", () => {
+    const stored = storedS5();
+    const frozen = stored.version.calc_snapshot_context.realized_sale_coefficient;
+    expect(frozen).not.toBeNull();
+    expect(readStoredEstimateV3(stored).totals.realized_sale_coefficient).toBe(frozen);
+    for (const coefficient of [-1, 999, 0, null, (frozen ?? 0) + 0.000001]) {
+      const tampered = {
+        ...stored,
+        version: {
+          ...stored.version,
+          calc_snapshot_context: { ...stored.version.calc_snapshot_context, realized_sale_coefficient: coefficient },
+        },
+      };
+      expect(thrown(() => readStoredEstimateV3(tampered))).toMatchObject({ code: "ESTIMATE_V3_STORED_INCOHERENT" });
+    }
+  });
 });
 
 // Intégration 2.4 : règles où les deux pistes divergeaient, tranchées pour que le moteur TS et le
@@ -703,6 +720,23 @@ describe("sub-lot 2.4 integration: one contract for the TS engine and the SQL tw
     expect(thrown(() => computeEstimateV3Canonical({ ...input, params }))).toMatchObject({
       code: "ESTIMATE_V3_INPUT_INVALID",
     });
+  });
+
+  it("I-03 refuses an undefined discount_amount_cents like a missing key (JSON has no undefined)", () => {
+    const input = v3Input([v3Line(1, { unit_price_ht_cents: 100 })]);
+    const params = { ...input.params, discount_amount_cents: undefined };
+    expect(thrown(() => computeEstimateV3Canonical({ ...input, params }))).toMatchObject({
+      code: "ESTIMATE_V3_INPUT_INVALID",
+      field: "params.discount_amount_cents",
+    });
+  });
+
+  it("names the original item index in a computation error when sections precede the line", () => {
+    const input = supplyLineInput(1, 2_000_000_000, "1.6");
+    const section = { ...v3Line(9), item_type: "section", tax_rate_bp: null } as never;
+    const error = thrown(() => computeEstimateV3Breakdown({ ...input, items: [section, ...input.items] }));
+    expect(error).toMatchObject({ code: "ESTIMATE_AMOUNT_OVERFLOW" });
+    expect((error as EstimateV3Error).field).toMatch(/^items\[1\]/);
   });
 
   it("I-04 derives null line hours from a null hours-per-unit column, 0.000 on a non-priced line", () => {

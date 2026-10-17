@@ -5,7 +5,9 @@ import path from "node:path";
 
 import { createClient } from "@supabase/supabase-js";
 
-import { assertLoopbackSupabaseUrl, BROWSER_RESTRICTED_LOCAL_PORTS, runLocalSupabaseCi } from "../src/test/local-supabase-ci";
+import {
+  assertLoopbackSupabaseUrl, BROWSER_RESTRICTED_LOCAL_PORTS, describeSafeFailure, runLocalSupabaseCi, SafeDiagnosticError,
+} from "../src/test/local-supabase-ci";
 import { createLocalCiEnvironment, type SupabaseEnvironment } from "../src/test/supabase-cli";
 import type { Database } from "../src/types/database";
 import { runCalcV3Campaign } from "./tester-army/calc-v3-campaign";
@@ -131,47 +133,88 @@ async function runApplication(local: SupabaseEnvironment) {
   knownSecrets.push(local.NEXT_PUBLIC_SUPABASE_ANON_KEY!, local.SUPABASE_SERVICE_ROLE_KEY!);
   if (!local.E2E_ARMY_LOCAL_DB_URL || !local.E2E_ARMY_LOCAL_PSQL) throw new Error("The owned local SQL fixture transport is required.");
   knownSecrets.push(local.E2E_ARMY_LOCAL_DB_URL, decodeURIComponent(new URL(local.E2E_ARMY_LOCAL_DB_URL).password));
+  // auth-js reports a dropped connection without its cause; keep it here.
+  let networkFailure: unknown;
   const admin = createClient<Database>(backend.origin, local.SUPABASE_SERVICE_ROLE_KEY!, {
     auth: { autoRefreshToken: false, detectSessionInUrl: false, persistSession: false },
+    global: {
+      fetch: async (input, init) => {
+        try {
+          return await fetch(input, init);
+        } catch (error) {
+          networkFailure = error;
+          throw error;
+        }
+      },
+    },
   });
+  // A provisioning failure names its step and only allowlisted identifiers
+  // (error name, HTTP status, machine code, network cause), never a message.
+  const provisioning: { completed: string[]; failed?: { step: string; detail: string } } = { completed: [] };
+  manifest.provisioning = provisioning;
+  const provisioningFailure = (step: string, summary: string, error: unknown, status?: number, observed?: string) => {
+    const detail = [
+      error == null ? undefined : describeSafeFailure(error, status),
+      networkFailure === undefined ? undefined : `network ${describeSafeFailure(networkFailure)}`,
+      observed,
+    ].filter(Boolean).join("; ") || "unexpected result";
+    provisioning.failed = { step, detail };
+    return new SafeDiagnosticError(`${summary} [step ${step}: ${detail}]`);
+  };
   const email = `army-ci-${randomUUID()}@example.test`;
   const password = `Army-${randomUUID()}-A1!`;
   knownSecrets.push(email, password);
   const { data: user, error: userError } = await admin.auth.admin.createUser({ email, password, email_confirm: true });
-  if (userError || !user.user) throw new Error("Could not create the local ARMY account.");
+  if (userError || !user.user) throw provisioningFailure("create account", "Could not create the local ARMY account.", userError);
+  provisioning.completed.push("create account");
   if (suite === "dev" && developmentStop.signal.aborted) return;
-  const { data: memberships, error: membershipError } = await admin.from("tenant_memberships")
+  const { data: memberships, error: membershipError, status: membershipStatus } = await admin.from("tenant_memberships")
     .select("tenant_id, role, is_default").eq("user_id", user.user.id);
   if (membershipError || memberships?.length !== 1 || memberships[0].role !== "admin" || !memberships[0].is_default) {
-    throw new Error("New ARMY account must own exactly one default personal admin tenant.");
+    throw provisioningFailure("verify personal tenant", "New ARMY account must own exactly one default personal admin tenant.",
+      membershipError, membershipStatus, memberships
+        ? `memberships=${memberships.length} default-admin=${memberships.filter((row) => row.role === "admin" && row.is_default).length}`
+        : undefined);
   }
+  provisioning.completed.push("verify personal tenant");
   const tenantId = memberships[0].tenant_id;
   if (suite === "dev" && developmentStop.signal.aborted) return;
-  const { data: tenant, error: tenantError } = await admin.from("tenants")
+  const { data: tenant, error: tenantError, status: tenantStatus } = await admin.from("tenants")
     .update({ name: `ARMY CI ${suite}` }).eq("id", tenantId).eq("created_by", user.user.id)
     .eq("is_active", true).select("id").single();
-  if (tenantError || tenant?.id !== tenantId) throw new Error("Could not verify the newly owned ARMY tenant.");
+  if (tenantError || tenant?.id !== tenantId) {
+    throw provisioningFailure("verify owned tenant", "Could not verify the newly owned ARMY tenant.", tenantError, tenantStatus);
+  }
+  provisioning.completed.push("verify owned tenant");
   if (suite === "dev" && developmentStop.signal.aborted) return;
   // GEN's reviewed one-hour component costs exactly 4,000 cents. Create its
   // basis only for this newly provisioned CI owner, never alter existing roles.
-  const { data: laborRole, error: laborRoleError } = await admin.from("labor_roles").insert({
+  const { data: laborRole, error: laborRoleError, status: laborRoleStatus } = await admin.from("labor_roles").insert({
     tenant_id: tenantId, user_id: user.user.id, name: "ARMY CI generated-work basis",
     hourly_rate_cents: 4000, position: 0, is_active: true,
   }).select("id, tenant_id, user_id, hourly_rate_cents, position, is_active").single();
-  if (laborRoleError || !laborRole) throw new Error("Could not create the owned GEN labor-rate basis.");
+  if (laborRoleError || !laborRole) {
+    throw provisioningFailure("create labor basis", "Could not create the owned GEN labor-rate basis.", laborRoleError, laborRoleStatus);
+  }
+  provisioning.completed.push("create labor basis");
   if (suite === "dev" && developmentStop.signal.aborted) return;
-  const { data: preferredRole, error: preferredRoleError } = await admin.from("labor_roles")
+  const { data: preferredRole, error: preferredRoleError, status: preferredRoleStatus } = await admin.from("labor_roles")
     .select("id, hourly_rate_cents, position").eq("tenant_id", tenantId).eq("user_id", user.user.id)
     .eq("is_active", true).order("position", { ascending: true }).order("id", { ascending: true }).limit(1).single();
   if (preferredRoleError || preferredRole?.id !== laborRole.id || preferredRole.hourly_rate_cents !== 4000 || preferredRole.position !== 0) {
-    throw new Error("The owned GEN basis must be the first active labor role at exactly 4,000 cents.");
+    throw provisioningFailure("verify labor basis", "The owned GEN basis must be the first active labor role at exactly 4,000 cents.",
+      preferredRoleError, preferredRoleStatus);
   }
+  provisioning.completed.push("verify labor basis");
   if (suite === "dev" && developmentStop.signal.aborted) return;
-  const { data: article, error: articleError } = await admin.from("products").insert({
+  const { data: article, error: articleError, status: articleStatus } = await admin.from("products").insert({
     tenant_id: tenantId, reference: "ARMY-CU22-ML", designation: "ARMY cuivre plomberie 22 mm",
     unit: "ml", unit_price_cents: 1234, is_active: true,
   }).select("id").single();
-  if (articleError || !article) throw new Error("Could not create the local ARMY catalogue fixture.");
+  if (articleError || !article) {
+    throw provisioningFailure("create catalogue article", "Could not create the local ARMY catalogue fixture.", articleError, articleStatus);
+  }
+  provisioning.completed.push("create catalogue article");
   manifest.fixtures = { userId: user.user.id, tenantId, articleId: article.id, laborRole, backend: backend.origin, lifecycle: "destroyed with the owned stack" };
 
   fs.mkdirSync(path.join(root, ".e2e/army/coverage"), { recursive: true });
@@ -306,6 +349,12 @@ function retainCurrentJourney(required = false) {
   }
 }
 
+function failsPrivacyCheck(text: string) {
+  return knownSecrets.some((secret) => secret && (text.includes(secret) || text.includes(encodeURIComponent(secret)))) ||
+    /eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/.test(text) ||
+    /Bearer\s+[A-Za-z0-9._~+/-]+=*/i.test(text);
+}
+
 function retainEvidence() {
   retainCurrentJourney();
   const builds = path.join(root, ".e2e/army/recipes/builds");
@@ -325,10 +374,7 @@ function retainEvidence() {
       if (entry.isSymbolicLink()) throw new Error("CI evidence must not contain symlinks.");
       if (entry.isDirectory()) { if (entry.name === "sessions") throw new Error("Browser sessions cannot be published."); inspect(file); continue; }
       const bytes = fs.readFileSync(file);
-      const text = bytes.toString("utf8");
-      if (knownSecrets.some((secret) => secret && (text.includes(secret) || text.includes(encodeURIComponent(secret)))) ||
-        /eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/.test(text) ||
-        /Bearer\s+[A-Za-z0-9._~+/-]+=*/i.test(text)) throw new Error("CI evidence failed the privacy check; upload is forbidden.");
+      if (failsPrivacyCheck(bytes.toString("utf8"))) throw new Error("CI evidence failed the privacy check; upload is forbidden.");
       files.push({ path: path.relative(evidence, file).replaceAll("\\", "/"), sha256: createHash("sha256").update(bytes).digest("hex") });
     }
   }
@@ -399,8 +445,14 @@ async function main() {
       manifest.error = redact(error instanceof Error ? error.message : String(error));
       process.exitCode = 1;
     }
+    // The failure reason reaches the manifest and the public job log only
+    // through the same privacy check as the uploaded evidence.
+    if (manifest.status === "failed" && failsPrivacyCheck(String(manifest.error ?? ""))) {
+      manifest.error = "The failure detail failed the privacy check and was withheld.";
+    }
     fs.writeFileSync(path.join(evidence, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
     if (process.env.GITHUB_OUTPUT && manifest.privacy === "passed") fs.appendFileSync(process.env.GITHUB_OUTPUT, `evidence=${path.relative(root, evidence)}\n`);
+    if (manifest.status === "failed") console.log(`TesterArmy CI error: ${manifest.error ?? "unknown"}`);
     console.log(`TesterArmy CI ${manifest.status}; evidence: ${path.relative(root, evidence)}`);
   }
 }

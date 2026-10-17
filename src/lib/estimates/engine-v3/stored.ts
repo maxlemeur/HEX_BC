@@ -4,12 +4,13 @@
  * Lit les colonnes figées sans rien recalculer (un document émis ne dépend pas d'un nouveau
  * calcul) et refuse toute incohérence par `ESTIMATE_V3_STORED_INCOHERENT` : Σ nets = HT,
  * HT = brut − remise − arrondi, TTC = HT + TVA, ajustement nul, récapitulatif par taux conforme
- * aux lignes, TVA par taux = ⌈base × taux⌋ sauf autoliquidation, lignes non chiffrées à 0.
+ * aux lignes, TVA par taux = ⌈base × taux⌋ sauf autoliquidation, lignes non chiffrées à 0,
+ * coefficient réalisé = ⌈HT / déboursé⌋ à 6 décimales (§4.11).
  * L'autoliquidation se lit sur le rôle d'entreprise figé de la version (`contractor_role` =
  * `subcontractor`, convention v2), jamais sur des montants de TVA nuls. Les colonnes `snapshot_gross_*` et le contexte v3
  * arrivent avec M4 (2.5) ; ce lecteur en fixe dès 2.4 le contrat.
  */
-import { divideHalfUp } from "@/lib/estimates/engine-v3/decimal";
+import { divideHalfUp, formatScaled, pow10, ZERO } from "@/lib/estimates/engine-v3/decimal";
 import { storedIncoherent } from "@/lib/estimates/engine-v3/errors";
 import type { EstimateV3TaxBreakdownRow } from "@/lib/estimates/engine-v3/types";
 
@@ -82,6 +83,8 @@ function cents(value: unknown, field: string): number {
   }
   return value;
 }
+
+const REALIZED_COEFFICIENT_SCALE = 6;
 
 function ensure(condition: boolean, field: string, reason: string) {
   if (!condition) throw storedIncoherent(field, reason);
@@ -176,8 +179,21 @@ export function readStoredEstimateV3(stored: {
   ensure(net === gross - discount - rounding, "total_ht_cents", "HT ≠ brut − remise − arrondi");
   ensure(ttc === net + tax, "total_ttc_cents", "TTC ≠ HT + TVA");
   const context = readContext(version.calc_snapshot_context);
+  // Même règle que le moteur (§4.11) : 1 si HT = déboursé = 0, indéterminé si seul le déboursé est nul.
+  const cost = BigInt(context.costSubtotal);
+  const expectedCoefficient =
+    cost === ZERO
+      ? net === 0
+        ? 1
+        : null
+      : Number(formatScaled(divideHalfUp(BigInt(net) * pow10(REALIZED_COEFFICIENT_SCALE), cost), REALIZED_COEFFICIENT_SCALE));
+  ensure(
+    context.realizedSaleCoefficient === expectedCoefficient,
+    "calc_snapshot_context.realized_sale_coefficient",
+    "coefficient réalisé ≠ ⌈HT / déboursé⌋ à 6 décimales"
+  );
 
-  const lines = stored.items.filter((item) => item.item_type === "line").map(readLine);
+  const lines =stored.items.filter((item) => item.item_type === "line").map(readLine);
   const sumOf = (read: (line: StoredEstimateV3Line) => number, rows = lines) =>
     rows.reduce((total, line) => total + read(line), 0);
   ensure(sumOf((line) => line.gross_ht_cents) === gross, "gross_ht_cents", "Σ bruts ≠ brut");
