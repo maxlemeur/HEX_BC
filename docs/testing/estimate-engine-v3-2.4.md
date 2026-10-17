@@ -1,7 +1,9 @@
 # Moteur v3 pur — piste A, moteur TypeScript (sous-lot 2.4)
 
-Statut : **tests d'exigence écrits rouges** (commit `test(lot2-2.4)` sur `lot2/2.4-moteur-v3-pur`,
-base `e30560f4` = `main` + 2.1). Source : [conception du lot 2](../audit-independant-2026-10-14/lot2/conception-lot2-moteur-v3.md),
+Statut : **implémenté, vérifié en local** (17/10/2026). Les tests d'exigence ont été écrits rouges
+(commit `de2c86db`, `test(lot2-2.4)`, sur `lot2/2.4-moteur-v3-pur`, base `e30560f4` = `main` + 2.1) ;
+le commit `feat(lot2-2.4)` les fait passer sans en modifier une assertion (voir
+[Implémentation](#implémentation-et-vérification-17102026)). Source : [conception du lot 2](../audit-independant-2026-10-14/lot2/conception-lot2-moteur-v3.md),
 §0, §2, D1, D4 à D9, D12, D13, D18, §4, §5, §6.1 (M3), §6.2, §6.5, §7, §8.1, §10.1 et §14 « 2.4 ».
 Là où ce document résume la conception, la conception fait foi.
 
@@ -133,3 +135,53 @@ Error: Cannot find package '@/lib/estimates/engine-v3' imported from …/engine-
 Les deux fichiers verts sont déjà livrés et retenus par le filtre : `engine/capabilities.test.ts` (2.1)
 et `engine-frozen-corpus.test.ts` (2.0, corpus figé v1/v2). Les cinq fichiers de 2.4 échouent parce
 que le moteur v3 n'existe pas.
+
+## Implémentation et vérification (17/10/2026)
+
+Modules (`src/lib/estimates/engine-v3/`, lignes non vides, plafond 1 200) : `decimal.ts` (107),
+`allocate.ts` (66), `input.ts` (177), `line.ts` (139), `discount.ts` (30), `tax.ts` (40),
+`breakdown.ts` (192), `canonical.ts` (61), `projection.ts` (133), `stored.ts` (200), `errors.ts`
+(54), `types.ts` (139), `index.ts` (31) ; `oracle.fixtures.ts` (230). Façade
+`engine/compute.ts` (51). Aucun import de `estimate-calculations.ts` ni d'`estimate-allocation.ts`
+dans `engine-v3/` ; `bankersRound` et `allocateProRata` ne sont pas utilisés.
+
+API publique (`@/lib/estimates/engine-v3`) :
+
+| Export | Signature |
+|---|---|
+| `computeEstimateV3Breakdown` | `(input: EstimateV3Input) => EstimateV3Breakdown` |
+| `computeEstimateV3Canonical` | `(input: unknown) => EstimateV3CanonicalOutput` (objet ou texte JSON) |
+| `projectEstimateV3Snapshot` | `(breakdown, { laborRoles? }) => { items, version, context }` (colonnes figées et contexte §6.5) |
+| `readStoredEstimateV3` | `({ version, items }) => StoredEstimateV3View` (aucun recalcul) |
+| `computeEstimateV3NetMarginBp` | `({ total_ht_cents, cost_subtotal_cents }) => number \| null` |
+| `allocateExact` | `(amount: bigint, entries: { key: string; weight: bigint }[]) => bigint[]` |
+| `EstimateV3Error` | `code` ∈ `ESTIMATE_V3_INPUT_INVALID` (22023), `ESTIMATE_AMOUNT_OVERFLOW` (22003), `ESTIMATE_V3_STORED_INCOHERENT` ; `sqlstate`, `field` |
+| Façade | `computeVersionBreakdown({ calcEngineVersion: 3, v3 })` → `EstimateV3Breakdown` ; `{ calcEngineVersion: 1 \| 2, … }` → `EstimateBreakdown` inchangé |
+
+Écarts et précisions d'implémentation :
+
+- Une ligne non chiffrée n'est pas calculée (ni PU ni contrôle de dépassement sur ses saisies) :
+  elle ne contribue à rien. Le jumeau SQL doit faire de même pour que les erreurs coïncident.
+- Avertissement `ESTIMATE_V3_LABOR_RATE_MISSING` si une ligne chiffrée porte des heures sans taux
+  (le taux nul vaut 0, comme en v2) ; hors sortie canonique.
+- Les invariants du §4 sont revérifiés à la fin de chaque calcul ; une violation lève
+  `ESTIMATE_V3_ENGINE_INVARIANT_BROKEN` (défaut du moteur, jamais un résultat).
+- Le PU publié d'une ligne non chiffrée est nul, ses colonnes `snapshot_gross_*` valent 0.
+
+Commandes et résultats (Windows, Node 24.19.0, worktree `miaouffrage-l2-24`) :
+
+| Commande | Résultat |
+|---|---|
+| `npx vitest run --project=node src/lib/estimates/engine-v3 src/lib/estimates/engine` | 7 fichiers, 101 tests verts (10 000 tirages : 225 ms ; 500 devis : 198 ms) |
+| `npx vitest run --project=node src/test/engine-version-lint.test.ts` | 13 tests verts |
+| `npm run typecheck` | sortie 0 |
+| `npx eslint src/lib/estimates/engine-v3 src/lib/estimates/engine --max-warnings=0` | sortie 0 |
+| `npm run check:architecture` | « Architecture budgets passed (1115 modules, 0 allowed runtime cycles) » |
+| `git diff --stat e30560f4 -- src/lib/estimate-calculations.ts src/lib/estimate-v2-snapshot.ts` | vide |
+| Contre-épreuve : remise en taux tronquée au lieu du demi supérieur (mutation temporaire) | `properties.test.ts` rouge (« R per intent », devis 14) ; restauré, vert |
+| Mesure ponctuelle (script hors dépôt, `tsx`) | v3 1 000 lignes : p50 2,6 ms, p95 4,3 ms (≤ 50 ms) ; 3 000 lignes : v3 p50 9,7 ms contre v2 23,7 ms (≤ 2 ×) |
+
+Hors de cette piste et non prouvé ici : parité TS/SQL sur 10 000 lignes et 300 devis (harnais
+`scripts/engine-v3/parity.ts`, piste SQL), lots OPTIMA complets du §5.4
+(`scripts/engine-v3/optima-lot-check.ts`), normaliseur d'unités (40 vecteurs), suites pgTAP de M3,
+suite Vitest complète et E2E (CI de la PR).
