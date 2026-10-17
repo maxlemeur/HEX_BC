@@ -101,6 +101,10 @@ as $$
   select declared.table_name, declared.column_name, declared.neutral_value
   from (values
     ('supplier_pricebook'::text, 'zero_price_kind'::text, 'null'::jsonb),
+    -- Sous-lot 2.9 (20261017172127) : aucune offre existante ne porte de conversion d'unité d'achat.
+    ('supplier_pricebook', 'estimate_unit_code', 'null'::jsonb),
+    ('supplier_pricebook', 'estimate_units_per_purchase_unit', 'null'::jsonb),
+    ('supplier_pricebook', 'purchase_rounding', 'null'::jsonb),
     ('estimate_versions', 'sale_coefficient_fo', 'null'),
     ('estimate_versions', 'sale_coefficient_mo', 'null'),
     ('estimate_versions', 'gross_ht_cents', 'null'),

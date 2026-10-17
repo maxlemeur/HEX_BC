@@ -9,6 +9,7 @@ import {
 import { createPortal } from "react-dom";
 
 import { supplierOfferZeroPriceLabel } from "@/lib/estimates/supplier-offer-price";
+import { alternativePriceForLineUnit } from "@/lib/estimates/supplier-offer-purchase-unit";
 import { formatCurrency, type SupportedEstimateCurrency } from "@/lib/money";
 import {
   type CataloguePriceSuggestion,
@@ -77,6 +78,8 @@ type CatalogueSuggestionsPopoverProps = {
   anchor: HTMLDivElement;
   itemId: string;
   query: string;
+  /** Unit of the line (its `description`): a converted offer shows the price in it (2.9). */
+  lineUnit?: string | null;
   estimateCurrency: SupportedEstimateCurrency;
   catalogueListboxId: string;
   isCatalogueLoading: boolean;
@@ -160,6 +163,7 @@ export function CatalogueSuggestionsPopover({
   anchor,
   itemId,
   query,
+  lineUnit = null,
   estimateCurrency,
   catalogueListboxId,
   isCatalogueLoading,
@@ -261,6 +265,7 @@ export function CatalogueSuggestionsPopover({
               )
             : 0;
           const technicalDetails = getTechnicalDetails(suggestion);
+          const linePrice = alternativePriceForLineUnit(suggestion, lineUnit);
           return (
             <div
               key={`${itemId}:${suggestion.product_id}`}
@@ -288,13 +293,13 @@ export function CatalogueSuggestionsPopover({
                     {priceSource === "none"
                       ? "Prix à renseigner"
                       : supplierOfferZeroPriceLabel(suggestion.zero_price_kind) ?? formatCurrency(
-                          suggestion.adjusted_unit_price_cents,
+                          linePrice.priceCents,
                           resolveDisplayCurrency(
                             suggestion.currency,
                             estimateCurrency,
                           ),
                         )}
-                    {suggestion.unit ? <small>/{suggestion.unit}</small> : null}
+                    {linePrice.unit ? <small>/{linePrice.unit}</small> : null}
                   </span>
                 </div>
                 {technicalDetails.length > 0 ||
@@ -372,7 +377,7 @@ export function CatalogueSuggestionsPopover({
                         {toAlternativeKindLabel(alternative.kind)}:{" "}
                         {alternative.supplier_name} |{" "}
                         {supplierOfferZeroPriceLabel(alternative.zero_price_kind) ?? formatCurrency(
-                          alternative.adjusted_unit_price_cents,
+                          alternativePriceForLineUnit(alternative, lineUnit).priceCents,
                           resolveDisplayCurrency(
                             alternative.currency,
                             estimateCurrency,

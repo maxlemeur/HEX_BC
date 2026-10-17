@@ -23,6 +23,13 @@ export type SupplierAlternative = {
   catalogue_url: string | null;
   /** A7: "included" or "free" on an offer at 0 € that may price a line (sub-lot 2.2). */
   zero_price_kind?: string | null;
+  /** 2.9: the purchase unit and conversion of the offer behind this price. */
+  /** Price per purchase unit, adjusted by the material index like adjusted_unit_price_cents. */
+  adjusted_purchase_unit_price_cents?: number | null;
+  purchase_unit?: string | null;
+  estimate_unit_code?: string | null;
+  estimate_units_per_purchase_unit?: number | string | null;
+  purchase_rounding?: string | null;
 };
 
 export type CataloguePriceSuggestion = {
@@ -54,6 +61,13 @@ export type CataloguePriceSuggestion = {
   catalogue_url: string | null;
   /** A7 marking of the suggested supplier offer, if any. */
   zero_price_kind?: string | null;
+  /** 2.9: the purchase unit and conversion of the offer behind this price. */
+  /** Price per purchase unit, adjusted by the material index like adjusted_unit_price_cents. */
+  adjusted_purchase_unit_price_cents?: number | null;
+  purchase_unit?: string | null;
+  estimate_unit_code?: string | null;
+  estimate_units_per_purchase_unit?: number | string | null;
+  purchase_rounding?: string | null;
   supplier_offer_count: number;
   alternatives: SupplierAlternative[];
 };

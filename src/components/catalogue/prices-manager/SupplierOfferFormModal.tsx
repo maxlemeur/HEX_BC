@@ -26,6 +26,7 @@ import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { useToast } from "@/components/ui-legacy/Toast";
 import { parseEuroToCents } from "@/lib/money";
+import { MEASUREMENT_UNITS } from "@/lib/units/normalize";
 import { maxPriceValidTo, resolvePriceValidity } from "@/lib/catalogue/price-validity";
 import { ProductReferenceSuggestion } from "@/components/products/ProductReferenceSuggestion";
 import { useOptionalUserContext } from "@/components/UserContext";
@@ -70,6 +71,9 @@ type PriceDraft = {
   currency: string;
   transport_mode: "included" | "excluded" | "";
   zero_price_kind: "included" | "free" | "";
+  estimate_unit_code: string;
+  units_per_purchase_unit: string;
+  purchase_rounding: "none" | "ceil" | "";
   valid_from: string;
   valid_to: string;
   source: string;
@@ -128,6 +132,9 @@ const EMPTY_PRICE: PriceDraft = {
   currency: "EUR",
   transport_mode: "",
   zero_price_kind: "",
+  estimate_unit_code: "",
+  units_per_purchase_unit: "",
+  purchase_rounding: "",
   valid_from: "",
   valid_to: "",
   source: "",
@@ -168,6 +175,10 @@ function priceDraftFromItem(
     currency: item.currency ?? "EUR",
     transport_mode: item.transport_mode === "included" || item.transport_mode === "excluded" ? item.transport_mode : "",
     zero_price_kind: item.zero_price_kind === "included" || item.zero_price_kind === "free" ? item.zero_price_kind : "",
+    estimate_unit_code: item.estimate_unit_code ?? "",
+    units_per_purchase_unit: typeof item.estimate_units_per_purchase_unit === "number"
+      ? String(item.estimate_units_per_purchase_unit).replace(".", ",") : "",
+    purchase_rounding: item.purchase_rounding === "none" || item.purchase_rounding === "ceil" ? item.purchase_rounding : "",
     valid_from: item.valid_from ?? "",
     valid_to: item.valid_to ?? maxPriceValidTo(item.valid_from || new Date().toISOString().slice(0, 10)),
     source: item.source ?? "",
@@ -347,6 +358,15 @@ export function SupplierOfferFormModal({
       setFormError("La quantité minimale doit être supérieure à zéro.");
       return;
     }
+    // 2.9: a conversion to the purchase unit is declared whole, or not at all.
+    const unitsPerPurchaseUnitText = priceDraft.units_per_purchase_unit.trim().replace(",", ".");
+    const unitsPerPurchaseUnit = Number(unitsPerPurchaseUnitText);
+    const declaresConversion = Boolean(priceDraft.estimate_unit_code || unitsPerPurchaseUnitText || priceDraft.purchase_rounding);
+    if (declaresConversion && (!priceDraft.estimate_unit_code || !priceDraft.purchase_rounding ||
+      !/^\d+(?:\.\d{1,6})?$/.test(unitsPerPurchaseUnitText) || !(unitsPerPurchaseUnit > 0))) {
+      setFormError("La conversion exige l'unité du devis, une quantité par unité d'achat positive (six décimales au plus) et un arrondi.");
+      return;
+    }
     if (!isHttpUrl(priceDraft.product_url)) {
       setFormError("L'URL fournisseur doit commencer par http:// ou https://.");
       return;
@@ -398,6 +418,9 @@ export function SupplierOfferFormModal({
                   ? { transport_mode: priceDraft.transport_mode || null } : {}),
                 // A7: only an offer at 0 € may be marked; any other price leaves it unmarked.
                 zero_price_kind: unitPriceCents === 0 ? priceDraft.zero_price_kind || null : null,
+                estimate_unit_code: declaresConversion ? priceDraft.estimate_unit_code : null,
+                estimate_units_per_purchase_unit: declaresConversion ? unitsPerPurchaseUnit : null,
+                purchase_rounding: declaresConversion ? priceDraft.purchase_rounding || null : null,
                 ...(nullableText(priceDraft.supplier_sku) !== (catalogItem.supplier_sku ?? null)
                   ? { supplier_sku: nullableText(priceDraft.supplier_sku) } : {}),
                 ...(nullableText(priceDraft.product_url) !== (catalogItem.product_url ?? null)
@@ -803,6 +826,47 @@ export function SupplierOfferFormModal({
                   value={priceDraft.min_quantity}
                   onChange={(value) => updatePrice("min_quantity", value)}
                 />
+                {catalogItem ? (
+                  <>
+                    <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold text-foreground-secondary">
+                      Unité du devis
+                      <NativeSelect
+                        value={priceDraft.estimate_unit_code}
+                        onChange={(event) => {
+                          updatePrice("estimate_unit_code", event.target.value);
+                          // "Aucune conversion" clears the whole conversion (2.9).
+                          if (!event.target.value) {
+                            updatePrice("units_per_purchase_unit", "");
+                            updatePrice("purchase_rounding", "");
+                          }
+                        }}
+                      >
+                        <option value="">Aucune conversion</option>
+                        {MEASUREMENT_UNITS.filter((unit) => unit.active).map((unit) => (
+                          <option key={unit.code} value={unit.code}>{unit.code} — {unit.label}</option>
+                        ))}
+                      </NativeSelect>
+                    </label>
+                    <TextField
+                      label="Quantité par unité d'achat"
+                      value={priceDraft.units_per_purchase_unit}
+                      onChange={(value) => updatePrice("units_per_purchase_unit", value)}
+                    />
+                    <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold text-foreground-secondary">
+                      {"Arrondi à l'unité d'achat"}
+                      <NativeSelect
+                        value={priceDraft.purchase_rounding}
+                        onChange={(event) =>
+                          updatePrice("purchase_rounding", event.target.value as PriceDraft["purchase_rounding"])
+                        }
+                      >
+                        <option value="">—</option>
+                        <option value="none">Quantité exacte</option>
+                        <option value="ceil">Unités entières (arrondi supérieur)</option>
+                      </NativeSelect>
+                    </label>
+                  </>
+                ) : null}
                 {catalogItem && parseEuroToCents(priceDraft.unit_price_euros) === 0 ? (
                   <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold text-foreground-secondary">
                     Offre à 0 €

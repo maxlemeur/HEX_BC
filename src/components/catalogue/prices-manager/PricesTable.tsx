@@ -14,6 +14,11 @@ import { supplierOfferZeroPriceLabel } from "@/lib/estimates/supplier-offer-pric
 import { formatCurrency, formatEUR, normalizeEstimateCurrency } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
+/** Quantity per purchase unit (2.9), French decimals without trailing zeros. */
+function formatConversion(value: number) {
+  return new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 6 }).format(value);
+}
+
 function formatPrice(item: EnrichedPrice) {
   const zeroPriceLabel = supplierOfferZeroPriceLabel(item.zero_price_kind);
   if (zeroPriceLabel) return zeroPriceLabel;
@@ -127,6 +132,12 @@ export function PricesTable({
                 <div className="rounded-lg border border-info-border bg-info-subtle px-3 py-2 text-foreground">
                   <p className="font-mono text-sm font-semibold">{formatPrice(item)} / {item.unit || "u"}</p>
                   <p className="text-xs text-foreground-secondary">Prix unitaire HT</p>
+                  {item.estimate_unit_code && item.estimate_units_per_purchase_unit ? (
+                    <p className="text-xs text-foreground-secondary">
+                      {formatConversion(item.estimate_units_per_purchase_unit)} {item.estimate_unit_code} par {item.unit || "u"}
+                      {item.purchase_rounding === "ceil" ? " · commande en unités entières" : ""}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Button

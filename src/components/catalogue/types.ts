@@ -36,6 +36,10 @@ export type SupplierPrice = {
   transport_mode?: "included" | "excluded" | null;
   /** A7: an offer at 0 € marked as included or free; null otherwise. */
   zero_price_kind?: "included" | "free" | null;
+  /** 2.9: an offer sold in another purchase unit (e.g. 3 ml per bar). */
+  estimate_unit_code?: string | null;
+  estimate_units_per_purchase_unit?: number | null;
+  purchase_rounding?: "none" | "ceil" | null;
   [key: string]: unknown;
 };
 
