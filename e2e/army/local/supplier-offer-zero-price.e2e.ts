@@ -72,8 +72,8 @@ const priced = (item: ArmyItem) => ({
 
 // Polls the persisted estimate and records the stored version totals without asserting them.
 // Applying a supplier preselection now writes its lines and the version totals in one RPC
-// (fixed in 0bc35c46); OZ04 (V1) and the critical P1 journey (V2) assert those totals right
-// after the write: docs/testing/version-totals-after-preselection.md.
+// (fixed in 0bc35c46); OZ04 and V1PT01 (V1) and the critical P1 journey (V2) assert those totals
+// right after the write: docs/testing/version-totals-after-preselection.md.
 async function waitForPersisted(browser: Parameters<typeof apiRequest>[0], army: ArmyState, versionId: string,
   label: string, predicate: (snapshot: ArmyEstimate) => boolean) {
   const deadline = Date.now() + 90_000;
