@@ -891,6 +891,10 @@ export type EstimatePurchaseOrderDraftLine = {
   lineTotalHtCents: number;
   lineTaxCents: number;
   lineTotalTtcCents: number;
+  /** 2.9: what the order carries, in the purchase unit of a converted offer (94 barre at 262,45 €). */
+  orderedQuantity: number;
+  orderedUnit: string;
+  orderedUnitPriceHtCents: number;
   selectedSupplierPriceId: string;
   supplierReference: string | null;
   productDesignation: string;
@@ -1805,6 +1809,14 @@ function parseEstimatePurchaseOrderDraftLine(
     lineTotalHtCents,
     lineTaxCents,
     lineTotalTtcCents,
+    orderedQuantity:
+      toNumber(value.ordered_quantity) ?? toNumber(value.orderedQuantity) ?? quantity,
+    orderedUnit:
+      toStringValue(value.ordered_unit) ?? toStringValue(value.orderedUnit) ?? unit,
+    orderedUnitPriceHtCents:
+      toNumber(value.ordered_unit_price_ht_cents) ??
+      toNumber(value.orderedUnitPriceHtCents) ??
+      unitPriceHtCents,
     selectedSupplierPriceId,
     supplierReference:
       toStringValue(value.supplier_reference) ??

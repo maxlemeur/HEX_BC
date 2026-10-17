@@ -48,6 +48,8 @@ export type EstimateSupplierComparisonAlternativeContract = import("@/lib/estima
   supplier_id: string;
   supplier_name: string;
   adjusted_unit_price_cents: number;
+  /** 2.9: price per purchase unit, for a line written in it. */
+  adjusted_purchase_unit_price_cents?: number | null;
   currency?: string | null;
   supplier_reference: string | null;
   catalogue_url: string | null;

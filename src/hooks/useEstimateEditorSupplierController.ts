@@ -126,6 +126,8 @@ function normalizeAlternative(
     supplier_id: supplierId,
     supplier_name: supplierName,
     adjusted_unit_price_cents: toFiniteNumber(value.adjusted_unit_price_cents, 0),
+    adjusted_purchase_unit_price_cents: typeof value.adjusted_purchase_unit_price_cents === "number" &&
+      Number.isFinite(value.adjusted_purchase_unit_price_cents) ? value.adjusted_purchase_unit_price_cents : null,
     currency: toNonEmptyString(value.currency),
     unit: toNonEmptyString(value.unit),
     min_quantity: typeof value.min_quantity === "number" ? value.min_quantity : undefined,

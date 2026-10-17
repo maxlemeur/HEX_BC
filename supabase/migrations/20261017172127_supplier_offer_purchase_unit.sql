@@ -12,11 +12,14 @@
 --    unit (whole units when rounding up; null when not a multiple of 0.001) and price per purchase
 --    unit (the offer price unless the line price was negotiated, then line price x factor, half-up).
 --    Mirrored by src/lib/estimates/supplier-offer-purchase-unit.ts.
+--    private.purchase_conversion_factor: a converted offer serves both of its units; a line written in
+--    the purchase unit ("barre") is ordered as such, without conversion (review of 2.9).
 -- 4. create_estimate_purchase_order_drafts orders a converted line in the purchase unit, applies the
 --    minimum to the purchase quantity and compares units through the estimate unit of the offer;
 --    estimate_purchase_review_lines puts the conversion in the review fingerprint;
 --    normalize_purchase_order_item orders a converted line in the purchase unit;
 --    update_supplier_offer accepts the three conversion fields.
+-- 5. catalogue_products_page compares and shows the best offer per estimate unit.
 -- Each function is copied from its latest definition (20261017093407, 20261011091744,
 -- 20261011083209) with only the lines above changed. CREATE OR REPLACE keeps owners and ACLs. No
 -- existing row is rewritten: every existing offer stays without conversion.
@@ -99,6 +102,27 @@ as $$
 $$;
 revoke all on function private.purchase_unit_price_cents(integer, integer, numeric) from public, anon, authenticated;
 
+-- The factor that applies to a line: none for a line written in the purchase unit of the offer.
+create or replace function private.purchase_conversion_factor(
+  p_line_unit text, p_offer_unit text, p_estimate_unit_code text, p_factor numeric
+)
+returns numeric
+language sql
+stable
+parallel safe
+set search_path = ''
+as $$
+  select case
+    when p_factor is not null and p_estimate_unit_code is not null
+      and nullif(btrim(p_line_unit), '') is not null and nullif(btrim(p_offer_unit), '') is not null
+      and private.purchase_unit_token(p_line_unit) = private.purchase_unit_token(p_offer_unit)
+      and private.purchase_unit_token(p_line_unit) <> private.purchase_unit_token(p_estimate_unit_code)
+    then null
+    else p_factor
+  end;
+$$;
+revoke all on function private.purchase_conversion_factor(text, text, text, numeric) from public, anon, authenticated;
+
 create or replace function private.estimate_purchase_review_lines(p_tenant_id uuid,p_version_id uuid,p_item_ids uuid[])
 returns jsonb language sql stable security definer set search_path='' set timezone='UTC' as $$
   select coalesce(jsonb_agg(base.display||jsonb_build_object('_snapshot',base.snapshot,'review_fingerprint',
@@ -130,7 +154,7 @@ $$;
 
 create or replace function private.normalize_purchase_order_item()
 returns trigger language plpgsql security definer set search_path='' as $$
-declare ht numeric; tax numeric; source_unit text; offer_unit text; conversion_factor numeric; po public.purchase_orders%rowtype;
+declare ht numeric; tax numeric; source_unit text; offer_unit text; estimate_unit text; conversion_factor numeric; po public.purchase_orders%rowtype;
 begin
   select * into po from public.purchase_orders where id=new.purchase_order_id for update;
   if po.id is null or po.tenant_id<>new.tenant_id then
@@ -176,15 +200,19 @@ begin
     new.price_unit:=nullif(btrim(new.price_unit),'');
     new.is_source_linked:=new.source_estimate_item_id is not null or new.source_selected_supplier_price_id is not null;
     if new.is_source_linked then
-      select btrim(i.description),btrim(sp.unit),sp.estimate_units_per_purchase_unit into source_unit,offer_unit,conversion_factor
+      select btrim(i.description),btrim(sp.unit),sp.estimate_unit_code,sp.estimate_units_per_purchase_unit
+        into source_unit,offer_unit,estimate_unit,conversion_factor
       from public.estimate_items i join public.supplier_pricebook sp on sp.id=i.selected_supplier_price_id and sp.tenant_id=i.tenant_id
       where i.id=new.source_estimate_item_id and i.tenant_id=new.tenant_id and sp.id=new.source_selected_supplier_price_id
         and i.version_id=po.source_estimate_version_id for share of i,sp nowait;
       if not found or nullif(source_unit,'') is null or nullif(offer_unit,'') is null then
         raise exception using errcode='22023',message='PURCHASE_ORDER_UNIT_REQUIRED';
       end if;
-      -- 2.9: a line priced from a converted offer is ordered in the purchase unit (bars, not metres).
-      if conversion_factor is not null then source_unit:=offer_unit; end if;
+      -- 2.9: a line priced from a converted offer is ordered in the purchase unit (bars, not metres);
+      -- a line already written in bars keeps its own unit.
+      if private.purchase_conversion_factor(source_unit,offer_unit,estimate_unit,conversion_factor) is not null then
+        source_unit:=offer_unit;
+      end if;
       if (new.unit is not null and new.unit<>source_unit) or (new.price_unit is not null and new.price_unit<>offer_unit) then
         raise exception using errcode='22023',message='PURCHASE_ORDER_SOURCE_UNIT_IMMUTABLE';
       end if;
@@ -349,16 +377,18 @@ begin
   if exists(select 1 from public.estimate_versions where id=p_version_id and upper(btrim(currency))<>'EUR')
     or exists(select 1 from public.estimate_items i join public.supplier_pricebook sp on sp.id=i.selected_supplier_price_id
       join public.suppliers s on s.id=sp.supplier_id
+      cross join lateral (select private.purchase_conversion_factor(i.description,sp.unit,sp.estimate_unit_code,
+        sp.estimate_units_per_purchase_unit) factor) cf
       where i.id=any(selected_ids) and (
         i.quantity is null or i.quantity<=0 or i.quantity<>trunc(i.quantity,3) or i.quantity>2147483647
         or i.unit_price_ht_cents is null or i.unit_price_ht_cents<0 or i.tax_rate_bp is null or i.tax_rate_bp not between 0 and 10000
         or nullif(btrim(i.description),'') is null or nullif(btrim(sp.unit),'') is null
-        or private.purchase_unit_token(i.description)<>private.purchase_unit_token(coalesce(sp.estimate_unit_code,sp.unit))
-        or private.purchase_quantity(i.quantity,sp.estimate_units_per_purchase_unit,sp.purchase_rounding) is null
-        or private.purchase_quantity(i.quantity,sp.estimate_units_per_purchase_unit,sp.purchase_rounding)>2147483647
+        or private.purchase_unit_token(i.description)<>private.purchase_unit_token(case when cf.factor is null then sp.unit else sp.estimate_unit_code end)
+        or private.purchase_quantity(i.quantity,cf.factor,sp.purchase_rounding) is null
+        or private.purchase_quantity(i.quantity,cf.factor,sp.purchase_rounding)>2147483647
         or not public.supplier_offer_price_eligible(sp.unit_price_cents,sp.zero_price_kind)
         or upper(btrim(sp.currency))<>'EUR' or not sp.is_active or not s.is_active
-        or private.purchase_quantity(i.quantity,sp.estimate_units_per_purchase_unit,sp.purchase_rounding)<sp.min_quantity
+        or private.purchase_quantity(i.quantity,cf.factor,sp.purchase_rounding)<sp.min_quantity
         or sp.valid_from is null or sp.valid_to is null or sp.valid_from>today_value or sp.valid_to<today_value
         or sp.valid_to>(sp.valid_from+interval '6 months')::date
         or coalesce(sp.updated_at,sp.created_at)<clock_timestamp()-make_interval(days=>stale_days)
@@ -373,7 +403,8 @@ begin
     end if;
     ht:=0; tax:=0; ttc:=0; count_value:=0;
     for line_value in select l from jsonb_array_elements(snapshot) l where l->>'item_id' in(select jsonb_array_elements_text(group_value->'item_ids')) loop
-      conversion_factor:=(line_value->'_snapshot'->>'offer_units_per_purchase_unit')::numeric;
+      conversion_factor:=private.purchase_conversion_factor(line_value->>'unit',line_value->'_snapshot'->>'offer_unit',
+        line_value->'_snapshot'->>'offer_estimate_unit_code',(line_value->'_snapshot'->>'offer_units_per_purchase_unit')::numeric);
       purchase_quantity:=private.purchase_quantity((line_value->>'quantity')::numeric,conversion_factor,line_value->'_snapshot'->>'offer_purchase_rounding');
       purchase_price:=private.purchase_unit_price_cents((line_value->>'unit_price_ht_cents')::integer,
         (line_value->'_snapshot'->>'offer_unit_price_cents')::integer,conversion_factor);
@@ -397,7 +428,8 @@ begin
     position_value:=0;
     for line_value in select l from jsonb_array_elements(snapshot) l where l->>'item_id' in(select jsonb_array_elements_text(group_value->'item_ids')) order by l->>'item_id' loop
       position_value:=position_value+1;
-      conversion_factor:=(line_value->'_snapshot'->>'offer_units_per_purchase_unit')::numeric;
+      conversion_factor:=private.purchase_conversion_factor(line_value->>'unit',line_value->'_snapshot'->>'offer_unit',
+        line_value->'_snapshot'->>'offer_estimate_unit_code',(line_value->'_snapshot'->>'offer_units_per_purchase_unit')::numeric);
       purchase_quantity:=private.purchase_quantity((line_value->>'quantity')::numeric,conversion_factor,line_value->'_snapshot'->>'offer_purchase_rounding');
       purchase_price:=private.purchase_unit_price_cents((line_value->>'unit_price_ht_cents')::integer,
         (line_value->'_snapshot'->>'offer_unit_price_cents')::integer,conversion_factor);
@@ -510,6 +542,188 @@ begin
     'product_url', catalogue_item.product_url
   );
 end;
+$$;
+
+-- Copied from 20261017093407; only the price of the best offer (selected and ordered) changes.
+create or replace function public.catalogue_products_page(
+  p_q text default null,
+  p_materials text[] default '{}'::text[],
+  p_categories text[] default '{}'::text[],
+  p_units text[] default '{}'::text[],
+  p_price_statuses text[] default '{}'::text[],
+  p_statuses text[] default '{}'::text[],
+  p_sort text default 'designation',
+  p_dir text default 'asc',
+  p_page integer default 1,
+  p_size integer default 25
+)
+returns table (
+  id uuid,
+  created_at timestamptz,
+  updated_at timestamptz,
+  reference text,
+  designation text,
+  unit_price_cents integer,
+  is_active boolean,
+  category text,
+  product_type text,
+  material text,
+  grade text,
+  dimensions text,
+  standard text,
+  unit text,
+  reference_quantity numeric,
+  reference_transport_mode text,
+  reference_price_validation_id uuid,
+  reference_price_source_order_id uuid,
+  reference_price_source_order_reference text,
+  reference_price_source_supplier_name text,
+  reference_price_source_date date,
+  supplier_price_count bigint,
+  best_supplier_price_cents integer,
+  best_supplier_name text,
+  best_supplier_price_updated_at timestamptz,
+  price_status text,
+  total_count bigint
+)
+language sql
+stable
+security invoker
+set search_path = ''
+as $$
+  with enriched as (
+    select
+      product.id,
+      product.created_at,
+      product.updated_at,
+      product.reference,
+      product.designation,
+      product.unit_price_cents,
+      product.is_active,
+      product.category,
+      product.product_type,
+      product.material,
+      product.grade,
+      product.dimensions,
+      product.standard,
+      product.unit,
+      product.reference_quantity,
+      product.reference_transport_mode,
+      product.reference_price_validation_id,
+      product.reference_price_source_order_id,
+      reference_order.reference as reference_price_source_order_reference,
+      reference_supplier.name as reference_price_source_supplier_name,
+      product.reference_price_source_date,
+      coalesce(best_price.price_count, 0)::bigint as supplier_price_count,
+      case when best_price.price_eligible then best_price.unit_price_cents end as best_supplier_price_cents,
+      case when best_price.price_eligible then best_price.supplier_name end as best_supplier_name,
+      case when best_price.price_eligible then best_price.price_updated_at end as best_supplier_price_updated_at,
+      case
+        when best_price.id is null or not best_price.price_eligible then 'none'
+        when current_date - best_price.price_updated_at::date <= 30 then 'fresh'
+        when current_date - best_price.price_updated_at::date <= 90 then 'aging'
+        else 'stale'
+      end as price_status
+    from public.products product
+    left join public.purchase_orders reference_order
+      on reference_order.id = product.reference_price_source_order_id
+      and reference_order.tenant_id = product.tenant_id
+    left join public.suppliers reference_supplier
+      on reference_supplier.id = reference_order.supplier_id
+      and reference_supplier.tenant_id = product.tenant_id
+    left join lateral (
+      select
+        supplier_price.id,
+        -- 2.9: compared and shown per estimate unit (a bar of 3 m at 262,45 € is 87,48 € per metre).
+        case when supplier_price.estimate_units_per_purchase_unit is not null
+          then pg_catalog.round(supplier_price.unit_price_cents / supplier_price.estimate_units_per_purchase_unit)::integer
+          else supplier_price.unit_price_cents end as unit_price_cents,
+        supplier.name as supplier_name,
+        coalesce(supplier_price.updated_at, supplier_price.created_at) as price_updated_at,
+        public.supplier_offer_price_eligible(supplier_price.unit_price_cents, supplier_price.zero_price_kind) as price_eligible,
+        count(*) over ()::bigint as price_count
+      from public.supplier_pricebook supplier_price
+      join public.suppliers supplier on supplier.id = supplier_price.supplier_id
+      where supplier_price.product_id = product.id
+        and supplier_price.is_active
+        and supplier_price.valid_from <= current_date
+        and (supplier_price.valid_to is null or supplier_price.valid_to >= current_date)
+      order by public.supplier_offer_price_eligible(supplier_price.unit_price_cents, supplier_price.zero_price_kind) desc,
+        case when supplier_price.estimate_units_per_purchase_unit is not null
+          then pg_catalog.round(supplier_price.unit_price_cents / supplier_price.estimate_units_per_purchase_unit)
+          else supplier_price.unit_price_cents end asc, supplier_price.updated_at desc, supplier_price.id asc
+      limit 1
+    ) best_price on true
+  ),
+  filtered as (
+    select enriched.*
+    from enriched
+    where (
+      nullif(btrim(p_q), '') is null
+      or public.catalogue_normalize_search(
+        coalesce(enriched.reference, '') || ' ' ||
+        coalesce(enriched.designation, '') || ' ' ||
+        coalesce(enriched.category, '') || ' ' ||
+        coalesce(enriched.product_type, '') || ' ' ||
+        coalesce(enriched.material, '') || ' ' ||
+        coalesce(enriched.grade, '') || ' ' ||
+        coalesce(enriched.dimensions, '') || ' ' ||
+        coalesce(enriched.standard, '')
+      ) like '%' || public.catalogue_normalize_search(btrim(p_q)) || '%'
+    )
+      and (cardinality(p_materials) = 0 or coalesce(enriched.material, '') = any(p_materials))
+      and (cardinality(p_categories) = 0 or coalesce(enriched.category, '') = any(p_categories))
+      and (cardinality(p_units) = 0 or coalesce(enriched.unit, '') = any(p_units))
+      and (cardinality(p_price_statuses) = 0 or enriched.price_status = any(p_price_statuses))
+      and (
+        cardinality(p_statuses) = 0
+        or (enriched.is_active and 'active' = any(p_statuses))
+        or (not enriched.is_active and 'archived' = any(p_statuses))
+      )
+  )
+  select
+    filtered.id,
+    filtered.created_at,
+    filtered.updated_at,
+    filtered.reference,
+    filtered.designation,
+    filtered.unit_price_cents,
+    filtered.is_active,
+    filtered.category,
+    filtered.product_type,
+    filtered.material,
+    filtered.grade,
+    filtered.dimensions,
+    filtered.standard,
+    filtered.unit,
+    filtered.reference_quantity,
+    filtered.reference_transport_mode,
+    filtered.reference_price_validation_id,
+    filtered.reference_price_source_order_id,
+    filtered.reference_price_source_order_reference,
+    filtered.reference_price_source_supplier_name,
+    filtered.reference_price_source_date,
+    filtered.supplier_price_count,
+    filtered.best_supplier_price_cents,
+    filtered.best_supplier_name,
+    filtered.best_supplier_price_updated_at,
+    filtered.price_status,
+    count(*) over ()::bigint as total_count
+  from filtered
+  order by
+    case when p_sort = 'designation' and p_dir = 'asc' then lower(filtered.designation) end asc,
+    case when p_sort = 'designation' and p_dir = 'desc' then lower(filtered.designation) end desc,
+    case when p_sort = 'material' and p_dir = 'asc' then lower(filtered.material) end asc nulls last,
+    case when p_sort = 'material' and p_dir = 'desc' then lower(filtered.material) end desc nulls last,
+    case when p_sort = 'unit_price_cents' and p_dir = 'asc' then filtered.unit_price_cents end asc,
+    case when p_sort = 'unit_price_cents' and p_dir = 'desc' then filtered.unit_price_cents end desc,
+    case when p_sort = 'best_supplier_price_cents' and p_dir = 'asc' then filtered.best_supplier_price_cents end asc nulls last,
+    case when p_sort = 'best_supplier_price_cents' and p_dir = 'desc' then filtered.best_supplier_price_cents end desc nulls last,
+    case when p_sort = 'updated_at' and p_dir = 'asc' then filtered.updated_at end asc,
+    case when p_sort = 'updated_at' and p_dir = 'desc' then filtered.updated_at end desc,
+    filtered.id asc
+  offset (greatest(p_page, 1) - 1) * least(greatest(p_size, 1), 100)
+  limit least(greatest(p_size, 1), 100);
 $$;
 
 commit;

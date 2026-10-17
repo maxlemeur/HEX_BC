@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SupplierComparisonAlternative } from "@/components/estimates/SupplierComparisonPanel";
 import type { Database } from "@/types/database";
 import { supplierOfferIneligibility } from "@/lib/estimates/supplier-offer-eligibility";
-import { offerEstimateUnit } from "@/lib/estimates/supplier-offer-purchase-unit";
+import { alternativePriceForLineUnit } from "@/lib/estimates/supplier-offer-purchase-unit";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
 
@@ -193,13 +193,15 @@ export function useEstimateSupplierComparison({
         return;
       }
 
-      // 2.9: a converted offer keeps the line in its estimate unit (ml), never the purchase unit (barre).
-      const selectedUnit = offerEstimateUnit(alternative)?.trim() || activeSupplierComparisonItem.description;
+      // 2.9: a converted offer serves the line in the unit it is written in: per metre through the
+      // conversion, per bar for a line already in bars; the line never takes the other unit by surprise.
+      const linePrice = alternativePriceForLineUnit(alternative, activeSupplierComparisonItem.description);
+      const selectedUnit = linePrice.unit?.trim() || activeSupplierComparisonItem.description;
       onPatchItemWithSuggestionTracking(
         activeSupplierComparisonItem.id,
         {
           description: selectedUnit || null,
-          unit_price_ht_cents: alternative.adjusted_unit_price_cents,
+          unit_price_ht_cents: linePrice.priceCents,
           selected_supplier_price_id: alternative.supplier_price_id,
         },
         { persist: true }

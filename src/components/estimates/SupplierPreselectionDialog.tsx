@@ -216,8 +216,9 @@ export function SupplierPreselectionDialog({
                               {proposal.proposed_alternative.supplier_name}
                             </p>
                             <p className="tabular-nums">
+                              {/* The price the line receives: per bar for a line in bars (2.9). */}
                               {supplierOfferZeroPriceLabel(proposal.proposed_alternative.zero_price_kind) ??
-                                formatAlternativeLabel(proposal.proposed_alternative.adjusted_unit_price_cents)}
+                                formatAlternativeLabel(proposal.patch.unit_price_ht_cents)}
                             </p>
                             <p>{proposal.proposed_alternative.product_designation}</p>
                           </div>

@@ -832,7 +832,14 @@ export function SupplierOfferFormModal({
                       Unité du devis
                       <NativeSelect
                         value={priceDraft.estimate_unit_code}
-                        onChange={(event) => updatePrice("estimate_unit_code", event.target.value)}
+                        onChange={(event) => {
+                          updatePrice("estimate_unit_code", event.target.value);
+                          // "Aucune conversion" clears the whole conversion (2.9).
+                          if (!event.target.value) {
+                            updatePrice("units_per_purchase_unit", "");
+                            updatePrice("purchase_rounding", "");
+                          }
+                        }}
                       >
                         <option value="">Aucune conversion</option>
                         {MEASUREMENT_UNITS.filter((unit) => unit.active).map((unit) => (

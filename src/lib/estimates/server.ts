@@ -56,7 +56,9 @@ import { isSupplierAlternativeCurrencyCompatible } from "@/lib/estimates/supplie
 import { readSupplierOfferConditions, readSelectedSupplierDetails, type SupplierOfferConditions, type SelectedSupplierDetails } from "@/lib/estimates/supplier-offer-conditions";
 import { supplierOfferIneligibility } from "@/lib/estimates/supplier-offer-eligibility";
 import { isSupplierOfferPriceEligible } from "@/lib/estimates/supplier-offer-price";
-import { offerEstimateUnit, offerEstimateUnitPriceCents } from "@/lib/estimates/supplier-offer-purchase-unit";
+import {
+  alternativePriceForLineUnit, offerEstimateUnit, offerEstimateUnitPriceCents,
+} from "@/lib/estimates/supplier-offer-purchase-unit";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
 import { persistAtomicEstimateSettings } from "@/lib/estimates/settings-atomic";
 import type {
@@ -726,6 +728,8 @@ type EstimateSupplierComparisonSourceAlternative = {
   supplier_id: string;
   supplier_name: string;
   adjusted_unit_price_cents: number;
+  /** 2.9: price per purchase unit, for a line written in it. */
+  adjusted_purchase_unit_price_cents?: number | null;
   /** Devise du prix fournisseur ; null = déjà dans la devise du devis. */
   currency: string | null;
   supplier_reference: string | null;
@@ -741,6 +745,8 @@ export type EstimateSupplierComparisonAlternative = SupplierOfferConditions & {
   supplier_id: string;
   supplier_name: string;
   adjusted_unit_price_cents: number;
+  /** 2.9: price per purchase unit, for a line written in it. */
+  adjusted_purchase_unit_price_cents?: number | null;
   /** Devise du prix fournisseur ; null = déjà dans la devise du devis. */
   currency: string | null;
   supplier_reference: string | null;
@@ -788,6 +794,7 @@ export type EstimateSupplierComparisonCandidate = {
   supplier_id: string;
   supplier_name: string;
   adjusted_unit_price_cents: number;
+  adjusted_purchase_unit_price_cents?: number | null;
   /** Devise du prix fournisseur ; null = déjà dans la devise du devis. */
   currency: string | null;
   supplier_reference: string | null;
@@ -971,9 +978,10 @@ async function hydrateSuggestedCatalogueCandidates(input: {
       const hasMaterialIndexAdjustment =
         typeof materialIndex?.index_value === "number" && materialIndex.index_value > 0;
       // 2.9: a converted offer prices the estimate per estimate unit (bar of 3 m at 262,45 € → 87,48 €/ml).
-      const adjustedUnitPriceCents = offerEstimateUnitPriceCents(row, hasMaterialIndexAdjustment
+      const adjustedPurchaseUnitPriceCents = hasMaterialIndexAdjustment
         ? Math.round((row.unit_price_cents * materialIndex.index_value) / 100)
-        : row.unit_price_cents);
+        : row.unit_price_cents;
+      const adjustedUnitPriceCents = offerEstimateUnitPriceCents(row, adjustedPurchaseUnitPriceCents);
       const updatedAt = row.updated_at ?? row.created_at ?? null;
       const relevanceScore = computeCatalogueSearchRelevance({
         query: input.query,
@@ -1021,6 +1029,11 @@ async function hydrateSuggestedCatalogueCandidates(input: {
         material_index_value: materialIndex?.index_value ?? null,
         catalogue_url: row.product_url ?? extractCatalogueUrl(row.notes),
         zero_price_kind: row.zero_price_kind ?? null,
+        purchase_unit: row.unit ?? null,
+        adjusted_purchase_unit_price_cents: adjustedPurchaseUnitPriceCents,
+        estimate_unit_code: row.estimate_unit_code ?? null,
+        estimate_units_per_purchase_unit: row.estimate_units_per_purchase_unit ?? null,
+        purchase_rounding: row.purchase_rounding ?? null,
       } satisfies HydratedSuggestedCatalogueCandidate;
     })
     .filter((candidate) =>
@@ -1061,6 +1074,11 @@ function buildSuggestedCatalogueAlternatives(input: {
       is_stale: selected.is_stale,
       catalogue_url: selected.catalogue_url,
       zero_price_kind: selected.zero_price_kind ?? null,
+      purchase_unit: selected.purchase_unit ?? null,
+      adjusted_purchase_unit_price_cents: selected.adjusted_purchase_unit_price_cents ?? null,
+      estimate_unit_code: selected.estimate_unit_code ?? null,
+      estimate_units_per_purchase_unit: selected.estimate_units_per_purchase_unit ?? null,
+      purchase_rounding: selected.purchase_rounding ?? null,
     });
   };
 
@@ -1195,6 +1213,7 @@ function toEstimateSupplierComparisonSourceAlternative(input: {
   supplier_id: string;
   supplier_name: string;
   adjusted_unit_price_cents: number;
+  adjusted_purchase_unit_price_cents?: number | null;
   currency?: string | null;
   supplier_reference: string | null;
   catalogue_url: string | null;
@@ -1207,6 +1226,7 @@ function toEstimateSupplierComparisonSourceAlternative(input: {
     supplier_id: input.supplier_id,
     supplier_name: input.supplier_name,
     adjusted_unit_price_cents: input.adjusted_unit_price_cents,
+    adjusted_purchase_unit_price_cents: input.adjusted_purchase_unit_price_cents ?? null,
     currency: input.currency ?? null,
     supplier_reference: input.supplier_reference,
     catalogue_url: input.catalogue_url,
@@ -1227,6 +1247,7 @@ function toEstimateSupplierComparisonAlternative(input: {
     supplier_id: input.alternative.supplier_id,
     supplier_name: input.alternative.supplier_name,
     adjusted_unit_price_cents: input.alternative.adjusted_unit_price_cents,
+    adjusted_purchase_unit_price_cents: input.alternative.adjusted_purchase_unit_price_cents,
     currency: input.alternative.currency,
     supplier_reference: input.alternative.supplier_reference,
     catalogue_url: input.alternative.catalogue_url,
@@ -1300,7 +1321,7 @@ export function buildEstimateSupplierComparisonAlternatives(input: {
           supplier_id: bestPrice.supplier_id,
           supplier_name: bestPrice.supplier_name,
           adjusted_unit_price_cents: bestPrice.adjusted_unit_price_cents,
-
+          adjusted_purchase_unit_price_cents: bestPrice.adjusted_purchase_unit_price_cents ?? null,
           currency: bestPrice.currency ?? null,
           supplier_reference: bestPrice.supplier_reference,
           catalogue_url: bestPrice.catalogue_url,
@@ -1318,7 +1339,7 @@ export function buildEstimateSupplierComparisonAlternatives(input: {
           supplier_id: mostRecent.supplier_id,
           supplier_name: mostRecent.supplier_name,
           adjusted_unit_price_cents: mostRecent.adjusted_unit_price_cents,
-
+          adjusted_purchase_unit_price_cents: mostRecent.adjusted_purchase_unit_price_cents ?? null,
           currency: mostRecent.currency ?? null,
           supplier_reference: mostRecent.supplier_reference,
           catalogue_url: mostRecent.catalogue_url,
@@ -1336,7 +1357,7 @@ export function buildEstimateSupplierComparisonAlternatives(input: {
           supplier_id: preferredSupplier.supplier_id,
           supplier_name: preferredSupplier.supplier_name,
           adjusted_unit_price_cents: preferredSupplier.adjusted_unit_price_cents,
-
+          adjusted_purchase_unit_price_cents: preferredSupplier.adjusted_purchase_unit_price_cents ?? null,
           currency: preferredSupplier.currency ?? null,
           supplier_reference: preferredSupplier.supplier_reference,
           catalogue_url: preferredSupplier.catalogue_url,
@@ -1356,7 +1377,7 @@ export function buildEstimateSupplierComparisonAlternatives(input: {
             supplier_id: input.candidate.supplier_id,
             supplier_name: input.candidate.supplier_name,
             adjusted_unit_price_cents: input.candidate.adjusted_unit_price_cents,
-
+            adjusted_purchase_unit_price_cents: input.candidate.adjusted_purchase_unit_price_cents ?? null,
             currency: input.candidate.currency ?? null,
             supplier_reference: input.candidate.supplier_reference,
             catalogue_url: input.candidate.catalogue_url,
@@ -1378,7 +1399,7 @@ export function buildEstimateSupplierComparisonAlternatives(input: {
               supplier_id: selected.supplier_id,
               supplier_name: selected.supplier_name,
               adjusted_unit_price_cents: selected.adjusted_unit_price_cents,
-
+              adjusted_purchase_unit_price_cents: selected.adjusted_purchase_unit_price_cents ?? null,
               currency: selected.currency ?? null,
               supplier_reference: selected.supplier_reference,
               catalogue_url: selected.catalogue_url,
@@ -1609,8 +1630,9 @@ export function buildEstimateSupplierPreselectionReview(input: {
       );
 
     if (proposedAlternative) {
+      // 2.9: a converted offer gives a line written in bars the bar price, any other line the converted price.
       const patch: EstimateSupplierPreselectionPatch = {
-        unit_price_ht_cents: proposedAlternative.adjusted_unit_price_cents,
+        unit_price_ht_cents: alternativePriceForLineUnit(proposedAlternative, comparison.unit).priceCents,
         selected_supplier_price_id: proposedAlternative.supplier_price_id,
       };
 
@@ -5307,7 +5329,7 @@ export async function getEstimateSupplierComparisons(
         supplier_id: candidate.supplier_id,
         supplier_name: candidate.supplier_name,
         adjusted_unit_price_cents: candidate.adjusted_unit_price_cents,
-
+        adjusted_purchase_unit_price_cents: candidate.adjusted_purchase_unit_price_cents ?? null,
         currency: candidate.currency ?? null,
         supplier_reference: candidate.supplier_reference,
         catalogue_url: candidate.catalogue_url,

@@ -26,7 +26,9 @@ import type {
 } from "@/lib/estimates/schemas";
 import { assertCanWriteEstimateWorkflows } from "@/lib/estimates/write-access";
 import { supplierOfferIneligibility } from "@/lib/estimates/supplier-offer-eligibility";
-import { hasPurchaseUnitConversion, purchaseQuantity, purchaseUnitPriceCents } from "@/lib/estimates/supplier-offer-purchase-unit";
+import {
+  conversionForLineUnit, hasPurchaseUnitConversion, purchaseQuantity, purchaseUnitPriceCents,
+} from "@/lib/estimates/supplier-offer-purchase-unit";
 import { isPriceStale } from "@/lib/catalogue/stale-prices";
 import { purchaseReceiptSchema, purchaseReviewSchema, purchaseTransferSchema } from "@/lib/estimates/purchase-preparation-contracts";
 import { isValidOrderQuantity } from "@/lib/purchase-orders/quantities";
@@ -364,7 +366,9 @@ export async function getEstimatePurchaseOrderDraftPreparation(
     const offerIneligibility = currentOfferIneligibility(line, eligibility, stale_price_days);
     // 2.9: a converted offer is ordered in its purchase unit (282 ml → 94 bars at the bar price);
     // the totals are those of the order, as in create_estimate_purchase_order_drafts.
-    const offer = selectedSupplierPriceId ? eligibility.offers.get(selectedSupplierPriceId) : undefined;
+    const selectedOffer = selectedSupplierPriceId ? eligibility.offers.get(selectedSupplierPriceId) : undefined;
+    // A line already written in the purchase unit is ordered as is (review of 2.9).
+    const offer = selectedOffer ? conversionForLineUnit(selectedOffer, line.description) : undefined;
     const converted = offer !== undefined && hasPurchaseUnitConversion(offer);
     const orderedQuantity = converted && typeof quantity === "number" ? purchaseQuantity(offer, quantity) : quantity;
     const orderedUnitPriceHtCents = converted && typeof unitPriceHtCents === "number"

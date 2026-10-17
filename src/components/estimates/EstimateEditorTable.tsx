@@ -39,6 +39,7 @@ import { useToast } from "@/components/ui-legacy/Toast";
 import { useConfirm } from "@/components/feedback/confirm-provider";
 import type { SupplierComparisonAlternative } from "@/components/estimates/SupplierComparisonPanel";
 import type { CataloguePriceSuggestion } from "@/lib/estimates/catalogue-suggestions";
+import { alternativePriceForLineUnit } from "@/lib/estimates/supplier-offer-purchase-unit";
 import { EstimateEditorProvider } from "@/components/estimates/context/EstimateEditorContext";
 import {
   EstimateEditorRowActionsProvider,
@@ -410,6 +411,8 @@ function toSupplierComparisonAlternative(
     supplier_id: supplierId,
     supplier_name: supplierName,
     adjusted_unit_price_cents: adjustedUnitPriceCents,
+    adjusted_purchase_unit_price_cents: typeof record.adjusted_purchase_unit_price_cents === "number" &&
+      Number.isFinite(record.adjusted_purchase_unit_price_cents) ? record.adjusted_purchase_unit_price_cents : null,
     currency,
     supplier_reference: supplierReference,
     updated_at: updatedAt,
@@ -1567,7 +1570,11 @@ export function EstimateEditorTable({
     (suggestion: CataloguePriceSuggestion) => {
       if (!articleSheet || isReadOnly) return;
       const designation = suggestion.product_designation.trim();
-      const unit = suggestion.unit?.trim() || (mergedUnitDrafts[articleSheet.itemId] ?? "").trim();
+      const lineUnit = (mergedUnitDrafts[articleSheet.itemId] ?? "").trim();
+      // 2.9: a converted offer keeps a line in bars at the bar price; any other line takes the
+      // estimate unit of the offer and its converted price.
+      const linePrice = alternativePriceForLineUnit(suggestion, lineUnit);
+      const unit = linePrice.unit?.trim() || lineUnit;
       // The associated item becomes the source of truth, including after undo.
       setUnitDrafts((previous) => {
         if (!(articleSheet.itemId in previous)) return previous;
@@ -1581,7 +1588,7 @@ export function EstimateEditorTable({
           product_id: suggestion.product_id,
           title: designation || "Nouvelle ligne",
           description: unit || null,
-          unit_price_ht_cents: suggestion.adjusted_unit_price_cents,
+          unit_price_ht_cents: linePrice.priceCents,
           selected_supplier_price_id: suggestion.supplier_price_id,
         },
         { persist: true }
@@ -2675,6 +2682,7 @@ export function EstimateEditorTable({
           mode={articleSheet.mode}
           versionId={versionId}
           lineTitle={activeArticleItem.title}
+          lineUnit={mergedUnitDrafts[activeArticleItem.id] ?? activeArticleItem.description ?? null}
           productId={activeArticleItem.product_id ?? null}
           currency={currency}
           isReadOnly={isReadOnly}

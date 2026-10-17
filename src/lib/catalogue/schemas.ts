@@ -401,7 +401,10 @@ export const updateSupplierOfferSchema = z.object({
       estimate_unit_code: z.string().trim().min(1).max(16).nullable().optional().describe(
         "2.9 : unité du devis servie par une offre vendue dans une autre unité d'achat (code du référentiel, par exemple ml). Renseignée avec les deux champs suivants, ou les trois à null.",
       ),
-      estimate_units_per_purchase_unit: z.number().positive().max(99_999_999).nullable().optional().describe(
+      // numeric(14,6): below 10^8 with six decimals at most; a seventh is refused, never rounded.
+      estimate_units_per_purchase_unit: z.number().positive().lt(100_000_000)
+        .refine((value) => /^\d+(?:\.\d{1,6})?$/.test(String(value)), "Six décimales au plus.")
+        .nullable().optional().describe(
         "2.9 : quantité de l'unité du devis par unité d'achat (par exemple 3 ml par barre), six décimales au plus.",
       ),
       purchase_rounding: z.enum(["none", "ceil"]).nullable().optional().describe(

@@ -54621,7 +54621,7 @@
                       {
                         "type": "number",
                         "exclusiveMinimum": 0,
-                        "maximum": 99999999
+                        "exclusiveMaximum": 100000000
                       },
                       {
                         "type": "null"

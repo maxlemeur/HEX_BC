@@ -56,10 +56,17 @@ export function PurchaseOrderDraftLinesTable({
                 ) : null}
               </th>
               <td className="whitespace-nowrap px-2 py-3">
-                {line.quantity} {line.unit}
+                <span>
+                  {line.orderedQuantity} {line.orderedUnit}
+                </span>
+                {line.orderedUnit !== line.unit ? (
+                  <span className="mt-1 block text-xs">
+                    soit {line.quantity} {line.unit} au devis
+                  </span>
+                ) : null}
               </td>
               <td className="whitespace-nowrap px-2 py-3">
-                {formatEUR(line.unitPriceHtCents)}
+                {formatEUR(line.orderedUnitPriceHtCents)}
               </td>
               <td className="whitespace-nowrap px-2 py-3">
                 {formatEUR(line.lineTotalHtCents)}

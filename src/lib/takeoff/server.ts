@@ -22,6 +22,7 @@ import {
   unprocessableEntity,
 } from "@/lib/estimates/errors";
 import { detectEstimateOutliers } from "@/lib/estimates/outlier-detection";
+import { alternativePriceForLineUnit } from "@/lib/estimates/supplier-offer-purchase-unit";
 import { evaluateRules } from "@/lib/estimates/rules-engine";
 import { loadCanonicalFixedDiscountEvidence } from "@/lib/estimates/fixed-discount-evidence-server";
 import { getStalePriceDaysForTenant } from "@/lib/feature-flags";
@@ -2314,10 +2315,12 @@ async function collectTakeoffPriceSuggestionSources(input: {
 
   const pricebookSources: TakeoffPriceSuggestionCandidate[] =
     catalogueSuggestions.suggestions.slice(0, 5).map((suggestion, index) => {
+      // 2.9: a converted offer gives a takeoff line its price per estimate unit, or per bar for a line in bars.
+      const linePrice = alternativePriceForLineUnit(suggestion, input.line.unit);
       const unitMatch =
         normalizedUnit !== null &&
-        typeof suggestion.unit === "string" &&
-        normalizeTakeoffCompareText(suggestion.unit) === normalizedUnit;
+        typeof linePrice.unit === "string" &&
+        normalizeTakeoffCompareText(linePrice.unit) === normalizedUnit;
       const freshnessLabel = formatPriceSuggestionFreshnessLabel({
         updatedAt: suggestion.updated_at,
         isStale: suggestion.is_stale,
@@ -2334,7 +2337,7 @@ async function collectTakeoffPriceSuggestionSources(input: {
         sourceRef: suggestion.supplier_reference
           ? `Pricebook ${suggestion.supplier_name} (${suggestion.supplier_reference})`
           : `Pricebook ${suggestion.supplier_name}`,
-        priceCents: suggestion.adjusted_unit_price_cents,
+        priceCents: linePrice.priceCents,
         freshnessLabel,
         confidenceScore,
         sourceRecordTable: "supplier_pricebook",

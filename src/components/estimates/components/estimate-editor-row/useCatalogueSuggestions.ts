@@ -19,6 +19,7 @@ import {
 } from "@/components/estimates/components/estimate-editor-row/shared";
 import { type SpreadsheetEditorProps } from "@/hooks/useSpreadsheetNavigation";
 import { areSupplierUnitsCompatible } from "@/lib/estimates/supplier-offer-eligibility";
+import { alternativePriceForLineUnit } from "@/lib/estimates/supplier-offer-purchase-unit";
 
 type UseCatalogueSuggestionsOptions = {
   versionId: string;
@@ -166,14 +167,13 @@ export function useCatalogueSuggestions({
       const selectedSupplierPriceId =
         alternative?.supplier_price_id ?? suggestion.supplier_price_id;
       const selectedDescription = suggestion.product_designation.trim();
-      const selectedAdjustedUnitPrice =
-        alternative?.adjusted_unit_price_cents ??
-        suggestion.adjusted_unit_price_cents;
+      // 2.9: a converted offer prices a line in metres per metre, a line in bars per bar.
+      const linePrice = alternativePriceForLineUnit(alternative ?? suggestion, item.description);
 
       // The line unit lives in `description`. Keep it; fill it from the chosen offer only when
       // the line has none (sub-lot 2.2: the designation was written there before), and never
       // price a line with an offer in another unit.
-      const suggestedUnit = (alternative?.unit ?? suggestion.unit)?.trim() ?? "";
+      const suggestedUnit = linePrice.unit?.trim() ?? "";
       if (selectedSupplierPriceId && !areSupplierUnitsCompatible(item.description, suggestedUnit)) {
         setCatalogueError(`Unité différente du devis : offre en ${suggestedUnit}, ligne en ${item.description?.trim()}.`);
         return;
@@ -182,7 +182,7 @@ export function useCatalogueSuggestions({
         product_id: suggestion.product_id,
         title: selectedDescription,
         ...(!item.description?.trim() && suggestedUnit ? { description: suggestedUnit } : {}),
-        unit_price_ht_cents: selectedAdjustedUnitPrice,
+        unit_price_ht_cents: linePrice.priceCents,
         selected_supplier_price_id: selectedSupplierPriceId,
       };
 
