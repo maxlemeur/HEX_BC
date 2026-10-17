@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { EstimateItemRecord } from "@/lib/estimate-calculations";
 import { buildEstimateV2SnapshotProjection } from "@/lib/estimate-v2-snapshot";
 import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
+import { isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
 import { ApiError, badRequest, conflict, internalError, mapSupabaseError } from "@/lib/estimates/errors";
 import { calculateEstimateSnapshotForItems } from "@/lib/estimates/version-totals";
 import type { Database, Json } from "@/types/database";
@@ -49,7 +50,7 @@ export async function finalizeAssemblyCalculation(input: {
       total_ttc_cents: breakdown.totals.roundedTtcCents,
     };
     let updates: Array<{ id: string; pu_ht_cents: number; line_total_ht_cents: number; line_tax_cents: number; line_total_ttc_cents: number }>;
-    if (resolveCalcEngineVersion(version) === 2) {
+    if (isUnifiedEngine(resolveCalcEngineVersion(version))) {
       if (!breakdown.invariants.matchesFooter) throw badRequest("Le calcul des lignes ne correspond pas au pied du devis.");
       updates = buildEstimateV2SnapshotProjection({ items, breakdown }).items.map((line) => ({
         id: line.id, pu_ht_cents: line.snapshot_pu_ht_cents, line_total_ht_cents: line.line_total_ht_cents,

@@ -259,6 +259,29 @@ describe("sendEstimateEmail transactional workflow", () => {
     expect(generateEstimatePdfNow).not.toHaveBeenCalled();
   });
 
+  // Lot 2, sous-lot 2.1 (docs/testing/estimate-engine-v3-2.1.md, F-TS-05). Le refus du moteur
+  // est une propriété de la version : il précède la configuration d'envoi, la relecture
+  // d'un envoi, le gel, le contrôle bloquant, la réservation et toute livraison.
+  it("refuses a v3 draft by name before configuration, replay, freeze, gating, reservation or delivery", async () => {
+    delete process.env.RESEND_API_KEY;
+    delete process.env.EMAIL_FROM;
+    vi.mocked(getAuthenticatedTenantContext).mockResolvedValue(
+      createContext("draft", { calc_engine_version: 3 }) as never
+    );
+
+    await expect(sendEstimateEmail(request)).rejects.toMatchObject({
+      code: "ESTIMATE_ENGINE_UNAVAILABLE",
+      engineVersion: 3,
+    });
+    expect(outboxMocks.findByRequest).not.toHaveBeenCalled();
+    expect(outboxMocks.findActive).not.toHaveBeenCalled();
+    expect(serverMocks.freeze).not.toHaveBeenCalled();
+    expect(serverMocks.getGating).not.toHaveBeenCalled();
+    expect(outboxMocks.reserve).not.toHaveBeenCalled();
+    expect(generateEstimatePdfNow).not.toHaveBeenCalled();
+    expect(outboxMocks.deliver).not.toHaveBeenCalled();
+  });
+
   it("rejects a sent estimate whose seal no longer verifies", async () => {
     vi.mocked(getAuthenticatedTenantContext).mockResolvedValue(
       createContext("sent") as never

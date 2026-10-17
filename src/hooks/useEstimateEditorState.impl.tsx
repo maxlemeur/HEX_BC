@@ -76,6 +76,7 @@ import {
   type EstimateTotals,
 } from "@/lib/estimate-calculations";
 import { hasFreshEstimateV2Snapshot, resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
+import { isLegacyEngine, isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
 import {
   DEFAULT_TAX_RATE_BP,
   ESTIMATE_VERSION_CONFLICT_MESSAGE,
@@ -538,7 +539,7 @@ export function useEstimateEditorState({
     isSavingSettings,
     allowManualTotalsReconciliation:
       !isLoading && !loadError && Boolean(settings && savedSettings) &&
-      version?.id === resolvedVersionId && version.calc_engine_version === 2,
+      version?.id === resolvedVersionId && isUnifiedEngine(resolveCalcEngineVersion(version)),
     savePendingSettings: async () => {
       return (await handleSaveSettings()) === true;
     },
@@ -747,7 +748,7 @@ export function useEstimateEditorState({
                   marginTiers: data.marginTiers ?? [],
                 }
               )
-            : storedCalcEngineVersion === 2
+            : isUnifiedEngine(storedCalcEngineVersion)
               ? 0
               : computeStoredDiscountCents(versionRow, itemsRows);
 
@@ -1250,7 +1251,7 @@ export function useEstimateEditorState({
   const calculatedVersionTotals = buildVersionTotalsPatch(persistedTotals);
   const hasStoredTotalsMismatch = Boolean(
     !isLoading && !loadError && version?.id === resolvedVersionId &&
-    version.status === "draft" && calcEngineVersion === 2 && calculatedVersionTotals &&
+    version.status === "draft" && isUnifiedEngine(calcEngineVersion) && calculatedVersionTotals &&
     (version.total_ht_cents !== calculatedVersionTotals.total_ht_cents ||
       version.total_tax_cents !== calculatedVersionTotals.total_tax_cents ||
       version.total_ttc_cents !== calculatedVersionTotals.total_ttc_cents)
@@ -1347,7 +1348,7 @@ export function useEstimateEditorState({
     const discountCents = versionRow.status === "draft" ? computeInitialDiscountCents(
       versionRow, itemsRows, rates, isLaborSplitEnabled, atelierRates, chantierRates,
       { calcEngineVersion: engine, marginTiers: refreshed.marginTiers ?? [] }
-    ) : engine === 2 ? 0 : computeStoredDiscountCents(versionRow, itemsRows);
+    ) : isUnifiedEngine(engine) ? 0 : computeStoredDiscountCents(versionRow, itemsRows);
     const previousSaved = savedSettingsRef.current;
     const overlaidItems = applyPendingBufferedUpdatesToItems(normalized);
     versionRef.current = versionRow;
@@ -1823,7 +1824,7 @@ export function useEstimateEditorState({
       const taxRate =
         item.tax_rate_bp ?? settings?.tax_rate_bp ?? 0;
       let marginMultiplier = settings?.margin_multiplier ?? 1;
-      if (calcEngineVersion === 2 && settings?.margin_mode === "tiered") {
+      if (isUnifiedEngine(calcEngineVersion) && settings?.margin_mode === "tiered") {
         const currentItems = getItemsSnapshot();
         const postPatchItems = currentItems.some((current) => current.id === item.id)
           ? currentItems.map((current) => current.id === item.id ? item : current)
@@ -2817,7 +2818,7 @@ export function useEstimateEditorState({
     typeof snapshotMultiplier === "number" && Number.isFinite(snapshotMultiplier) &&
     snapshotMultiplier >= 0 && snapshotMultiplier <= 100
     ? snapshotMultiplier
-    : resolveCalcEngineVersion(version) === 1 || settings?.margin_mode !== "tiered"
+    : isLegacyEngine(resolveCalcEngineVersion(version)) || settings?.margin_mode !== "tiered"
       ? settings?.margin_multiplier
       : undefined;
 

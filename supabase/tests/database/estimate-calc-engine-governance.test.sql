@@ -647,13 +647,13 @@ select throws_ok(
       project.id,
       91,
       'draft'::public.estimate_status,
-      3
+      4
     from public.estimate_projects as project
     where project.id = '71000000-0000-4000-8000-000000000010'
   $$,
   '23514',
   'new row for relation "estimate_versions" violates check constraint "estimate_versions_calc_engine_version_check"',
-  'the CHECK constraint rejects calculation engine version 3'
+  'the CHECK constraint rejects calculation engine version 4'
 );
 
 alter table public.estimate_versions
@@ -849,8 +849,7 @@ with owner_change_definition as (
   )) as source
 )
 select ok(
-  position('version.calc_engine_version = 2' in source) > 0
-  and position('perform role.id' in source) > 0
+  position('perform role.id' in source) > 0
   and position('order by role.id' in source) >
     position('perform role.id' in source)
   and position('for share of role' in source) >
@@ -868,8 +867,7 @@ with labor_role_owner_definition as (
   )) as source
 )
 select ok(
-  position('version.calc_engine_version = 2' in source) > 0
-  and position('old.id in (' in source) > 0
+  position('old.id in (' in source) > 0
   and position('item.labor_role_id' in source) > 0
   and position('item.labor_role_atelier_id' in source) > 0
   and position('item.labor_role_chantier_id' in source) > 0
@@ -881,6 +879,116 @@ select ok(
   'labor-role reassignment checks all three v2 reference columns against the candidate owner while the role row is locked'
 )
 from labor_role_owner_definition;
+
+-- Lot 2, sous-lot 2.1 (docs/testing/estimate-engine-v3-2.1.md, F-SQL-05) : la recherche du
+-- texte « version.calc_engine_version = 2 » est remplacée par le comportement attendu, v3
+-- comprise. Chaque sonde crée son propre projet et sa v3 (fixture postgres sous contrat
+-- d'écrivain), puis annule tout ; tant que le moteur 3 n'est pas admis, l'insertion échoue.
+create function pg_temp.governance_v3_probe(p_statements text[])
+returns text
+language plpgsql
+as $probe$
+declare
+  probe_statement text;
+begin
+  begin
+    foreach probe_statement in array p_statements loop
+      execute probe_statement;
+    end loop;
+    raise exception using errcode = 'P0001', message = 'GOVERNANCE_V3_PROBE_ROLLBACK';
+  exception when others then
+    if sqlerrm = 'GOVERNANCE_V3_PROBE_ROLLBACK' then
+      return 'ok';
+    end if;
+    return sqlstate || ' ' || sqlerrm;
+  end;
+end;
+$probe$;
+
+create function pg_temp.governance_v3_fixture(p_project_id uuid, p_version_id uuid, p_role_id uuid)
+returns void
+language plpgsql
+as $fixture$
+begin
+  insert into public.estimate_projects (id, tenant_id, user_id, name, is_archived)
+  select p_project_id, membership.tenant_id, membership.user_id, 'Calc governance v3 probe', false
+  from public.tenant_memberships as membership
+  where membership.user_id = '71000000-0000-4000-8000-000000000001';
+
+  insert into public.estimate_versions (id, tenant_id, project_id, version_number, status, calc_engine_version)
+  select p_version_id, project.tenant_id, project.id, 1, 'draft'::public.estimate_status, 3
+  from public.estimate_projects as project
+  where project.id = p_project_id;
+
+  perform set_config('miaouffrage.estimate_v3_writer', p_version_id::text, true);
+  insert into public.estimate_items (id, tenant_id, version_id, item_type, position, title)
+  select p_project_id, version.tenant_id, version.id, 'section'::public.estimate_item_type, 1, 'v3 role section'
+  from public.estimate_versions as version
+  where version.id = p_version_id;
+  insert into public.estimate_items (
+    tenant_id, version_id, parent_id, item_type, position, title, labor_role_id,
+    quantity, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, h_mo_majoration, k_mo,
+    pu_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents
+  )
+  select
+    version.tenant_id, version.id, p_project_id, 'line'::public.estimate_item_type, 1, 'v3 role line', p_role_id,
+    1, 0, 2000, 1, 1, 1, 1, 0, 0, 0, 0
+  from public.estimate_versions as version
+  where version.id = p_version_id;
+  perform set_config('miaouffrage.estimate_v3_writer', '', true);
+end;
+$fixture$;
+
+select is(
+  pg_temp.governance_v3_probe(array[
+    $s$select pg_temp.governance_v3_fixture(
+         '71000000-0000-4000-8000-0000000000e1',
+         '71000000-0000-4000-8000-0000000000e2',
+         '71000000-0000-4000-8000-000000000060'
+       )$s$,
+    $s$update public.estimate_projects
+       set user_id = '71000000-0000-4000-8000-000000000003'
+       where id = '71000000-0000-4000-8000-0000000000e1'$s$
+  ]),
+  '23503 ESTIMATE_PROJECT_OWNER_LABOR_ROLE_MISMATCH',
+  'project owner transfer is refused when only a v3 version references a role of the current owner'
+);
+
+select is(
+  pg_temp.governance_v3_probe(array[
+    $s$insert into public.labor_roles (id, tenant_id, user_id, name, hourly_rate_cents, is_active, position)
+       select '71000000-0000-4000-8000-0000000000e3', membership.tenant_id, membership.user_id, 'v3 probe role', 4000, true, 9
+       from public.tenant_memberships as membership
+       where membership.user_id = '71000000-0000-4000-8000-000000000001'$s$,
+    $s$select pg_temp.governance_v3_fixture(
+         '71000000-0000-4000-8000-0000000000e4',
+         '71000000-0000-4000-8000-0000000000e5',
+         '71000000-0000-4000-8000-0000000000e3'
+       )$s$,
+    $s$update public.labor_roles
+       set user_id = '71000000-0000-4000-8000-000000000003'
+       where id = '71000000-0000-4000-8000-0000000000e3'$s$
+  ]),
+  '23503 ESTIMATE_LABOR_ROLE_ASSIGNMENT_IN_USE',
+  'labor-role reassignment is refused when only a v3 line references the role'
+);
+
+select is(
+  pg_temp.governance_v3_probe(array[
+    $s$insert into public.labor_roles (id, tenant_id, user_id, name, hourly_rate_cents, is_active, position)
+       select '71000000-0000-4000-8000-0000000000e6', membership.tenant_id, membership.user_id, 'v3 probe role', 4000, true, 9
+       from public.tenant_memberships as membership
+       where membership.user_id = '71000000-0000-4000-8000-000000000001'$s$,
+    $s$select pg_temp.governance_v3_fixture(
+         '71000000-0000-4000-8000-0000000000e7',
+         '71000000-0000-4000-8000-0000000000e8',
+         '71000000-0000-4000-8000-0000000000e6'
+       )$s$,
+    $s$delete from public.labor_roles where id = '71000000-0000-4000-8000-0000000000e6'$s$
+  ]),
+  '23503 ESTIMATE_LABOR_ROLE_ASSIGNMENT_IN_USE',
+  'labor-role deletion is refused when only a v3 line references the role'
+);
 
 with review_capture_definition as (
   select lower(pg_get_functiondef(

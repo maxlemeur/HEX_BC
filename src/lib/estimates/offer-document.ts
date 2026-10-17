@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 
 import type { ServerSupabaseClient } from "@/lib/auth/tenant-context";
+import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
+import { isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
 import { internalError, mapSupabaseError } from "@/lib/estimates/errors";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
 import { canUseDevelopmentEstimateTerms } from "@/lib/estimates/pdf-terms-server";
@@ -119,7 +121,7 @@ export async function loadVerifiedOfferDocument(input: {
     // Historical copies are admissible only after a real historical seal; no
     // live identity is reconstructed and no new draft can enter this path.
     if (!["sent", "accepted", "archived"].includes(version.status) || version.seal_payload_version === 5 || !storedHash) unavailable();
-    const candidates = version.calc_engine_version === 2
+    const candidates = isUnifiedEngine(resolveCalcEngineVersion(version))
       ? [4, 3, 2].map((payloadVersion) => ({ payloadVersion, hash: computeEstimateSealHash(buildCanonicalEstimateSealPayload(source, { payloadVersion })) }))
       : [
         { payloadVersion: 2, hash: computeEstimateSealHash(buildCanonicalEstimateSealPayload(source, { payloadVersion: 2 })) },

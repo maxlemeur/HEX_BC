@@ -1,3 +1,6 @@
+import { resolveCalcEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
+import { isLegacyEngine, isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
+
 const MAX_CENTS = 2_147_483_647;
 
 export type FixedDiscountVersion = {
@@ -87,6 +90,9 @@ export function resolveFixedDiscountSignal(
   version: FixedDiscountVersion,
   evidence?: CanonicalFixedDiscountEvidence | null,
 ): FixedDiscountSignal {
+  // Lot 2, sous-lot 2.1 : l'intention de remise exacte v3 arrive en 2.5 ; d'ici là, indisponible.
+  const calcEngineVersion = resolveCalcEngineVersionForDisplay(version);
+  if (calcEngineVersion === null) return { state: "unavailable" };
   if (version.discount_amount_cents == null) return { state: "legacy" };
   if (!cents(version.discount_amount_cents)) return { state: "unavailable" };
   if (evidence) {
@@ -94,7 +100,7 @@ export function resolveFixedDiscountSignal(
     const identityMatches = currentRevision !== null &&
       evidence.version.content_revision === currentRevision &&
       (evidence.source === "authenticated_live" ? version.status === "draft" :
-        evidence.source === "stored_v1" && version.calc_engine_version === 1 &&
+        evidence.source === "stored_v1" && isLegacyEngine(calcEngineVersion) &&
         typeof version.status === "string" && version.status !== "draft") &&
       ["id", "tenant_id", "project_id", "status", "updated_at"].every((key) => {
         const name = key as "id" | "tenant_id" | "project_id" | "status" | "updated_at";
@@ -106,7 +112,7 @@ export function resolveFixedDiscountSignal(
     }
   }
   const currentRevision = revision(version.content_revision);
-  if (version.calc_engine_version !== 2 || currentRevision === null ||
+  if (!isUnifiedEngine(calcEngineVersion) || currentRevision === null ||
     revision(version.calc_snapshot_content_revision) !== currentRevision) return { state: "unavailable" };
   const signal = readSignal(record(version.calc_snapshot_context)?.fixed_discount, version, "snapshot_v2");
   return signal ?? { state: "unavailable" };

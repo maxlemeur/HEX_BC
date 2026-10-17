@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { EstimateItemRecord } from "@/lib/estimate-calculations";
 import { buildEstimateV2SnapshotProjection } from "@/lib/estimate-v2-snapshot";
 import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
+import { isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
 import { badRequest, conflict, internalError, mapSupabaseError } from "@/lib/estimates/errors";
 import { calculateEstimateSnapshotForItems } from "@/lib/estimates/version-totals";
 import type { Database, Json } from "@/types/database";
@@ -97,7 +98,7 @@ export async function persistAtomicEstimateItem(input: {
     total_tax_cents: breakdown.totals.adjustedTaxCents,
     total_ttc_cents: breakdown.totals.roundedTtcCents,
   };
-  if (resolveCalcEngineVersion(version) === 2) {
+  if (isUnifiedEngine(resolveCalcEngineVersion(version))) {
     if (!breakdown.invariants.matchesFooter) {
       throw badRequest("Le calcul des lignes ne correspond pas au pied du devis.");
     }

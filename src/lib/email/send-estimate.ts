@@ -33,6 +33,11 @@ import {
   getEstimateSendGating,
   normalizeConcurrencyToken,
 } from "@/lib/estimates/server";
+import {
+  isUnifiedEngine,
+  requireEstimateEngineVersion,
+  requireHistoricalEngine,
+} from "@/lib/estimates/engine/capabilities";
 import { normalizeEstimateDraftLockSessionId } from "@/lib/estimates/lock-session";
 import { assertCanWriteEstimateWorkflows } from "@/lib/estimates/write-access";
 import { formatCurrency, normalizeEstimateCurrency } from "@/lib/money";
@@ -235,10 +240,13 @@ function assertDispatchMatchesSubmission(input: {
 }
 
 export async function sendEstimateEmail(input: SendEstimateEmailInput) {
-  const apiKey = getRequiredEnvVar("RESEND_API_KEY");
   const loaded = await loadVersionForEmail(input.versionId);
   const { context } = loaded;
   let version = loaded.version;
+  // Lot 2, sous-lot 2.1 : le refus du moteur 3 est une propriété de la version. Il précède
+  // la configuration d'envoi, toute relecture, tout gel, toute réservation et toute livraison.
+  const calcEngineVersion = requireHistoricalEngine(requireEstimateEngineVersion(version));
+  const apiKey = getRequiredEnvVar("RESEND_API_KEY");
   const versionStatus = String(version.status);
   const completedReplay = await findEstimateEmailDispatchByRequest({
     tenantId: context.tenantId,
@@ -308,7 +316,7 @@ export async function sendEstimateEmail(input: SendEstimateEmailInput) {
         throw conflict("Cette page doit détenir le verrou du devis avant l'envoi.", undefined, "LOCK_REQUIRED");
       }
       reservationUpdatedAt = originalUpdatedAt;
-      if (version.calc_engine_version === 2) {
+      if (isUnifiedEngine(calcEngineVersion)) {
         const frozen = await freezeEstimateV2SnapshotForSend(
           input.versionId,
           originalUpdatedAt,

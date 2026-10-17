@@ -11,6 +11,7 @@ import {
 } from "@/lib/estimate-calculations";
 import { aggregateEstimateV2Sections } from "@/lib/estimate-v2-snapshot";
 import type { CalcEngineVersion } from "@/lib/estimates/calc-engine-version";
+import { isLegacyEngine, isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
 import { COMPANY_INFO } from "@/lib/company-info";
 import { computeEstimateItemNumbering } from "@/lib/estimates/numbering";
 import {
@@ -145,7 +146,7 @@ export function buildLegacyDocumentBreakdown({
     rounding_adjustment_cents?: number | null;
   } & EstimateDocumentCalculationVersion;
 }): EstimateBreakdown {
-  if (calcEngineVersion === 1 && preserveStoredSnapshot) {
+  if (isLegacyEngine(calcEngineVersion) && preserveStoredSnapshot) {
     const version: EstimateVersionForCalc = {
       ...versionTotals,
       margin_multiplier: marginMultiplier,
@@ -205,7 +206,7 @@ export function buildLegacyDocumentBreakdown({
       },
     };
   }
-  if (calcEngineVersion === 2 && preserveStoredSnapshot) {
+  if (isUnifiedEngine(calcEngineVersion) && preserveStoredSnapshot) {
     return buildStoredEstimateBreakdown({
       items: items as EstimateItemRecord[],
       version: {
@@ -234,7 +235,7 @@ export function buildLegacyDocumentBreakdown({
     marginMode: "fixed",
     marginTiers: [],
     globalCoefficient:
-      calcEngineVersion === 2 ? (globalCoefficient ?? 1) : 1,
+      isUnifiedEngine(calcEngineVersion) ? (globalCoefficient ?? 1) : 1,
     discountMode: "simple",
     discountCents,
     discountStepsBp: [],
@@ -449,7 +450,7 @@ export function prepareEstimateDocumentData({
       detailLevel: maxVisibleSectionLevel ?? "lines",
     }
   );
-  if (calcEngineVersion === 1 && preserveStoredSnapshot
+  if (isLegacyEngine(calcEngineVersion) && preserveStoredSnapshot
     && resolvedLayout.priceMode === "fo_mo_and_total"
     && !items.filter((item) => item.item_type === "line")
       .every(hasCoherentStoredV1Split)) {
@@ -474,7 +475,7 @@ export function prepareEstimateDocumentData({
           return [item.id, { foTotalCents: 0, moTotalCents: 0, totalHtCents: 0 }];
         }
 
-        if (calcEngineVersion === 2) {
+        if (isUnifiedEngine(calcEngineVersion)) {
           // Moteur réconcilié : la ligne est déjà NETTE de coefficient et de
           // remise, donc Σ lignes === Σ sections === pied, au centime.
           return [
@@ -518,7 +519,7 @@ export function prepareEstimateDocumentData({
       .filter((item) => item.item_type === "line")
       .map((item) => [
         item.id,
-        calcEngineVersion === 2
+        isUnifiedEngine(calcEngineVersion)
           ? (breakdown.lineById.get(item.id)?.puNetHtCents ??
             item.snapshot_pu_ht_cents ??
             item.pu_ht_cents ??

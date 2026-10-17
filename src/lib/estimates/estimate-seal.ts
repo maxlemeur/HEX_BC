@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { hasActiveLaborSplitPayload } from "@/lib/estimate-calculations";
 import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
+import { isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
 import type { Database, Json } from "@/types/database";
 
 type EstimateVersionRow = Database["public"]["Tables"]["estimate_versions"]["Row"];
@@ -133,9 +134,12 @@ export function buildCanonicalEstimateSealPayload(
     includeCalcEngineVersion?: boolean;
   }
 ): EstimateSealPayload {
+  // Lot 2, sous-lot 2.1 : aucun sceau v1/v2 pour une v3, même avec une charge explicite ;
+  // la charge v3 (6) arrive avec le contrat client 2.
+  const calcEngineVersion = resolveCalcEngineVersion(input.version);
   const payloadVersion =
     options?.payloadVersion ??
-    (resolveCalcEngineVersion(input.version) === 2
+    (isUnifiedEngine(calcEngineVersion)
       ? CURRENT_ESTIMATE_SEAL_PAYLOAD_VERSION
       : PREVIOUS_ESTIMATE_SEAL_PAYLOAD_VERSION);
   const includeLaborSplit = options?.includeLaborSplit ?? true;
