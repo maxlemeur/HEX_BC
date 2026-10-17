@@ -177,30 +177,72 @@ Qualification E2E de la relecture : PU04 a d'abord révélé une collision de ve
 « pu » ; PU04 a désormais son devis, comme les parcours du 2.2) ; OZ02 a révélé une régression d'affichage de la
 fiche article (« Inclus / ml » au lieu de « Inclus ») : l'unité ne s'affiche plus qu'à côté d'un montant.
 
-## Preuves (17/10/2026, macOS, Node 24.19.0, pile native possédée, source `dcbcf912`)
+## Preuves (17-18/10/2026, macOS, Node 24.19.0, pile native possédée, source `1d463f77`)
 
-Branche rebasée sur `main` `9c426368`. Évidences sous `.e2e/` (copie de travail, non versionnée) ; campagnes
-TesterArmy lancées depuis une copie propre sans `.env*`, sources inchangées pendant chaque campagne.
+Tête de branche après fusion de `main` (`fc2ba2dc` : 2.5, #36, #37). Évidences sous `.e2e/` (copie de
+travail, non versionnée) ; campagnes TesterArmy lancées depuis une copie propre sans `.env*`, sources
+inchangées pendant chaque campagne, sauf le diagnostic d'OF00 décrit plus bas.
 
 | Preuve | Résultat |
 |---|---|
-| `npm run verify:pr` | réussi : Node 2 794 réussis, 3 ignorés ; jsdom 823 réussis ; couverture critique 12 ; audit, signatures, budgets d'architecture, OpenAPI, typecheck et lint passés |
-| `npm run db:ci:local` | 18 fichiers pgTAP, 1 727 assertions PASS, matrice RLS passée |
-| `db:upgrade-check -- lot2-2-9` | M1, M2, M3 et M7 appliquées sur la base peuplée : 0 différence ; contrôle négatif détecté (`.e2e/engine-v3/upgrade-check/2026-10-17T18-46-50-734Z-lot2-2-9`) |
-| Empreintes documentaires | 14 familles identiques |
-| Corpus figé | identique à l'octet (600 cas) |
-| `e2e:army:calc-v3` complet | 41/41 : journeys 11, components 5, numeric 4, resume 5, access 2, offers 8 (OZ01 à OZ03, PU01 à PU04, setup), emission 6 ; `.e2e/army/ci/2026-10-17T18-34-22-284Z-calc-v3` |
-| OpenAPI | `openapi.json` documente les trois champs de conversion sur `update-offer` (facteur strictement inférieur à 10⁸), les champs d'unité d'achat des suggestions et comparaisons, `item_unit` de la présélection et les valeurs commandées de la préparation d'achat |
+| `npm run verify:pr` | réussi : Node 2 807 réussis, 3 ignorés ; jsdom 823 réussis ; couverture critique 12 ; audit, signatures, budgets d'architecture, OpenAPI, typecheck et lint passés |
+| `npm run db:ci:local` | 20 fichiers pgTAP, 1 854 assertions PASS, matrice RLS passée |
+| `db:upgrade-check -- lot2-2-9-merged` | M1 à M4 puis M7 sur la base peuplée : 0 différence ; contrôle négatif détecté |
+| Empreintes documentaires, corpus figé | identiques à `dcbcf912` (14 familles ; 600 cas à l'octet) ; aucun moteur de calcul touché depuis |
+| `e2e:army:calc-v3` complet | journeys 11, components 5, numeric 4, resume 5, access 2, offers 10 (OZ01 à OZ04, PU01 à PU05, setup) : verts ; emission 5/6, OF00 rouge en mode développement (ci-dessous) ; `.e2e/army/ci/2026-10-17T21-32-34-260Z-calc-v3` |
+| `--phase emission` en production (diagnostic) | 6/6, OF00 vert ; `.e2e/army/ci/2026-10-17T22-21-00-172Z-calc-v3` |
+| OpenAPI | `openapi.json` documente les champs de conversion sur `update-offer` (facteur strictement inférieur à 10⁸), les champs d'unité d'achat des suggestions et comparaisons, `item_unit` de la présélection et les valeurs commandées de la préparation d'achat |
 
-Une première campagne complète sur la même source a échoué hors du code : pendant le run, un processus
-extérieur a supprimé le cache Playwright (« Executable doesn't exist ») puis les `node_modules` des deux copies.
-Après `npm ci`, la campagne relancée seule est passée (41/41).
+### OF00 en mode développement
+
+La phase `emission` tourne en `next dev`. Sur la tête combinée 2.9 + 2.5, OF00 échoue 7 fois sur 7 :
+dans `prepare()`, après la sauvegarde, la navigation vers la synthèse puis l'affaire laisse un bail de
+brouillon orphelin, et le dialogue PDF reçoit `PATCH /lock` 409 (« Ce devis est déjà ouvert dans une autre
+page »). Le journal applicatif montre l'éditeur, encore monté, qui recharge toutes ses données puis reprend
+le bail (`POST /lock` 201) pendant la navigation. Sur `main`, OF00 passe (3 sur 3, dont un run sous charge).
+
+Bissection : retirer M7 ou ramener les fichiers client de l'éditeur à `main` ne change rien. Un garde
+« aucune acquisition après `beforeunload` », par instance du hook comme pour tout le document, ne change
+rien non plus. Ramener à `main` tous les fichiers `src/` modifiés par le 2.9 rend OF00 vert ; le reste se
+concentre sur des modules sans lien avec le bail, dont l'éligibilité et l'export éditeur, qui importent
+désormais côté client le référentiel d'unités (`units.json`) et le module de conversion.
+
+Diagnostic : la même phase, rejouée en build de production sur la tête 2.9 (correctif local temporaire
+de `canUseDevelopmentEstimateTerms` et de la phase, empreinte du diff `abd12cb657a9781c`, patch sous
+`.e2e/lot2-2.9/green/emission-prod-diagnostic.patch`, annulé ensuite), passe 6/6. L'échec est donc un
+artefact du rechargement à chaud de `next dev` : à la première compilation de la page suivante, une mise à
+jour d'un module partagé avec l'éditeur provoque un rechargement complet, l'éditeur remonte et reprend le
+bail. Décision partagée avec le 2.7 : OF00 en développement ne bloque pas le 2.9 ; le 2.7 fait passer les
+phases d'émission en build de production.
+
+Point de robustesse noté pour le registre : un éditeur qui remonte pendant une navigation reprend son
+bail, qui survit à la page. Aujourd'hui seul `next dev` le déclenche ; `useDraftLock` gagnerait à ne
+jamais acquérir sur une page en cours de déchargement.
+
+## Intégration du 2.5 (lignes v3)
+
+Le 2.5 (#33, M4 `20261017162000`) a été fusionné dans `main` avant le 2.9. Sur une ligne v3, l'unité est dans
+`estimate_items.unit_code`, un code du référentiel, et `description` reste vide ; sur les moteurs 1 et 2,
+`unit_code` est toujours nul. `main` a été fusionné dans la branche (`68fec628`, sans rebase ni force-push ;
+conflits du manifeste et des colonnes neutres du contrôle de montée de version résolus en gardant les deux
+côtés), puis les chemins d'achat lisent `coalesce(unit_code, description)` :
+
+- TS : `estimateLineUnit` (`supplier-offer-units.ts`) dans l'aperçu d'achat (unité requise, éligibilité,
+  conversion, unités affichée et commandée) et dans l'unité des comparaisons fournisseurs ;
+- M7 : revue d'achat (unité affichée, instantané signé, valeurs commandées), validation et conversion des
+  brouillons, déclencheur des lignes de commande ; le préalable de M7 exige la colonne de M4.
+
+Rouge avant correction (`01cb7404`) : pgTAP L9 (ligne v3 de 282 ml sans description, `40001
+ORDER_DRAFT_PREPARATION_STALE`), Vitest (« Unité du devis à préciser »), TesterArmy PU05 (même refus, 8 autres
+parcours de la phase verts) ; `.e2e/lot2-2.9/red/offers-v3*.log`. La fixture de PU05 sème un brouillon v3 en
+propriétaire natif sous son contrat d'écrivain, comme les fixtures pgTAP du 2.5.
+
+M7 reste horodatée après M4. Modifiée après sa première publication sur la branche, elle n'est appliquée sur
+aucune base et n'est pas sur `main` : le garde de migrations de la PR, qui compare à `main`, la voit comme
+nouvelle.
 
 ## Limites et intégration
 
-- **Lignes v3 (2.5, M4)** : l'unité d'une ligne v3 est dans `estimate_items.unit_code`. Le 2.9 lit `description`
-  (lignes v1/v2) sur les chemins d'achat. Si le 2.5 fusionne avant, le 2.9 fera lire `coalesce(unit_code,
-  description)` aux chemins d'achat, par une fusion de `main` dans la branche.
 - Une unité d'offre héritée terminée par une tabulation ou une espace insécable se compare différemment entre
   `trim()` (TS) et `btrim()` (SQL) ; l'aperçu d'achat est alors refusé comme périmé. Les chemins d'écriture
   actuels suppriment ces espaces ; la comparaison de l'unité de ligne existante a la même limite.
