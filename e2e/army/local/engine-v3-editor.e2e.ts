@@ -6,39 +6,29 @@ import {
 } from "../critical/fixtures";
 import {
   BANNER, addGridLine, apiProjection, checkpoint, clickSaveSettings, eur, fillCell, grid, inputValue, lineView,
-  normalized, openSettings, openV3Editor, pause, prepareV3Draft, readConsistent, seedLines, settingsText, typeTitle,
-  switchToExpertMode, showStandardColumns, type ApiExpectation, type Envelope, type LineView, type RowExpectation, type Ui,
-  type V3Draft,
+  normalized, openSettings, openV3Editor, pause, prepareV3Draft, readConsistent, seedLines, settingsDialog, settingsText,
+  showStandardColumns, switchToExpertMode, typeTitle,
+  type ApiExpectation, type Envelope, type LineView, type RowExpectation, type Ui, type V3Draft,
 } from "./engine-v3-editor-support";
 
-// Lot 2, sous-lot 2.6 — éditeur et réglages v3 (A2, A3, A5, A6 côté saisie), écrit rouge avant
-// le code (docs/testing/estimate-engine-v3-2.6-e2e.md ; conception §14 « 2.6 », §5). Défaillances
-// observables (identifiants du document) :
-//  V3E-01 L'éditeur ne s'ouvre pas sur une v3 (bandeau 2.1) ou s'y ouvre en éditeur v2.
-//  V3E-02 Une ligne tapée dans la grille (désignation, unité, Q, PR FO, h/u) ne donne pas le PU,
-//         le PT ou les heures totales de l'oracle (§5.1) ; « ML » n'est pas lu « ml — mètre linéaire ».
-//  V3E-03 À 1,3 / 1,3, le PU de O1 n'est pas 174,59 €.
-//  V3E-04 Un coefficient de vente vidé retombe à 0 (ou à une autre valeur) en silence.
-//  V3E-05 Remise : une intention est dérivée de l'autre ; le taux ne suit pas le brut (EUHIST) ;
-//         le plafond n'est pas affiché « demandé / appliqué » (CAP).
-//  V3E-06 TVA par défaut : pas de dialogue ; « Non » touche les lignes ; « Oui » en oublie ;
-//         plusieurs taux ne donnent pas un récapitulatif par taux au pied (S5).
-//  V3E-07 « Hors lot » ne retire pas la ligne du HT, ou le retour à « Chiffrée » perd ses saisies.
-//  V3E-08 Une suggestion du catalogue change l'unité d'une ligne v3.
-//  V3E-09 Doubler Q ne double pas les heures et le PT d'une ligne avec heures.
-//  V3E-10 Un barème (par défaut ou d'entreprise) est affiché comme appliqué en v3.
-//  V3E-11 L'arrondi commercial au pas de 100 € n'est pas une remise HT (S4).
-//  V3E-12 La présélection fournisseurs écrit des lignes v3 sans recalcul (totaux périmés) au lieu
-//         d'un recalcul complet persisté ou d'un refus nommé.
-// Chaque relevé lit la valeur affichée, la valeur persistée (API) et les deux après rechargement.
+// Lot 2, sous-lot 2.6 — éditeur et réglages v3 (A2, A3, A5, A6 côté saisie), écrit rouge avant le code.
+// Scénarios, défaillances et contrat d'écran : docs/testing/estimate-engine-v3-2.6-e2e.md ; défaillances
+// F26-xx et isolation : docs/testing/estimate-engine-v3-2.6.md ; conception §14 « 2.6 » et §5.
+// V3E-nn = scénario n du §14 (11 : présélection fournisseurs). Parcours :
+//  V3E01 — V3E-01 (éditeur ouvert, 7 lignes par la grille, 1,3 / 1,3), V3E-02 (coefficient vidé),
+//          V3E-03 (remise : montant, taux, c_FO doublé), V3E-05 (TVA par défaut, S5), V3E-07 (« ML »),
+//          V3E-08 (Q doublée), V3E-09 (barèmes), V3E-10 (arrondi S4), fiche et impression du brouillon ;
+//  V3E02 — V3E-06 (« Hors lot » puis « Chiffrée »), V3E-04 (remise plafonnée, « demandé / appliqué ») ;
+//  V3E03 — V3E-07 (suggestion du catalogue), V3E-11 (présélection : recalcul persisté ou refus nommé).
+// Chaque état sauvegardé est lu à l'écran, par l'API, puis à l'écran et par l'API après rechargement.
 const options = (timeout: number) => ({ session: "army", tags: ["critical", "local", "engine-v3"], timeout }) as const;
 
 type OracleRow = {
   ref: string; typedUnit: string; unit: string; unitText: string; quantity: string; q: number; pr: string; prCents: number;
   h: string; hPerUnit: number; hMo: number; hTotal: string; pu: number; gross: number;
 };
-// §5.1 : 40 €/h, k_fo = k_mo = maj = 1, c_FO 1,30, c_MO 1,20. h_mo = arrondi(Q × h/u, 3) (D4).
-// O4 est saisi « ML » (scénario 7 : alias du référentiel d'unités, P-08).
+// §5.1 : 40 €/h, k_fo = k_mo = maj = 1, c_FO 1,30, c_MO 1,20 ; h_mo = arrondi(Q × h/u, 3) (D4).
+// O4 est saisi « ML » (V3E-07 : alias du référentiel d'unités, P-08).
 const ORACLE: OracleRow[] = [
   { ref: "O1", typedUnit: "ml", unit: "ml", unitText: "ml — mètre linéaire", quantity: "20", q: 20, pr: "54,66", prCents: 5466, h: "1,991", hPerUnit: 1.991, hMo: 39.82, hTotal: "39,82", pu: 16663, gross: 333260 },
   { ref: "O2", typedUnit: "u", unit: "u", unitText: "u — unité", quantity: "3", q: 3, pr: "95,63", prCents: 9563, h: "1,75", hPerUnit: 1.75, hMo: 5.25, hTotal: "5,25", pu: 20832, gross: 62496 },
@@ -48,26 +38,33 @@ const ORACLE: OracleRow[] = [
   { ref: "O6", typedUnit: "ml", unit: "ml", unitText: "ml — mètre linéaire", quantity: "282", q: 282, pr: "91,86", prCents: 9186, h: "0,998", hPerUnit: 0.998, hMo: 281.436, hTotal: "281,436", pu: 16732, gross: 4718424 },
   { ref: "O7", typedUnit: "ml", unit: "ml", unitText: "ml — mètre linéaire", quantity: "8", q: 8, pr: "8,83", prCents: 883, h: "1,30", hPerUnit: 1.3, hMo: 10.4, hTotal: "10,4", pu: 7388, gross: 59104 },
 ];
-// Totaux : §5.2 (S1 à S5) ; autres états (1,3 / 1,3, O5 à Q 2, c_FO 2,60 à 10 %, S2 à 10 %) : moteur pur 2.4
-// (computeEstimateV3Breakdown), indépendants de l'ordre des id (D13), vérifié sur les 5 040 permutations.
-const S1 = { totals: [6905456, 1381091, 8286547] as [number, number, number], nets: ORACLE.map(line => line.gross) };
-const S2 = { totals: [6905355, 1381071, 8286426] as [number, number, number], nets: [333255, 62495, 159703, 1541044, 31400, 4718355, 59103] };
-const S3 = { totals: [6214910, 1242982, 7457892] as [number, number, number], applied: 690546 };
-const S4 = { totals: [6900000, 1380000, 8280000] as [number, number, number], rounding: 5355 };
-const S5 = { totals: [6905355, 1325525, 8230880] as [number, number, number] };
+// Totaux S1 à S5 : §5.2 de la conception. Autres états (1,3 / 1,3, O5 à Q 2, c_FO 2,60 à 10 %, S2 à 10 %) et
+// nets par ligne : moteur pur 2.4 (computeEstimateV3Breakdown) ; ces valeurs ne dépendent pas de l'ordre des
+// id (D13), vérifié sur les 5 040 permutations (la TVA par ligne de S2 et S4 en dépend : jamais assertée ici).
+type Totals = [number, number, number];
+const S1 = { totals: [6905456, 1381091, 8286547] as Totals, nets: ORACLE.map(line => line.gross) };
+const S2 = { totals: [6905355, 1381071, 8286426] as Totals, nets: [333255, 62495, 159703, 1541044, 31400, 4718355, 59103] };
+const S3 = { totals: [6214910, 1242982, 7457892] as Totals, applied: 690546 };
+const S4 = { totals: [6900000, 1380000, 8280000] as Totals, rounding: 5355 };
+const S5 = { totals: [6905355, 1325525, 8230880] as Totals };
 const PU_130_130 = [17459, 21532, 7605, 1433, 33800, 17131, 7908];
-const C130_130 = { totals: [7133674, 1426735, 8560409] as [number, number, number] };
-const O5_Q2 = { totals: [6936856, 1387371, 8324227] as [number, number, number] };
+const C130_130 = { totals: [7133674, 1426735, 8560409] as Totals };
+const O5_Q2 = { totals: [6936856, 1387371, 8324227] as Totals };
 const PU_CFO_260 = [23768, 33264, 15210, 1745, 34000, 28674, 8536];
-const CFO_260 = { totals: [9963426, 1992685, 11956111] as [number, number, number], gross: 11070473, applied: 1107047 };
-const S2_VAT10 = { totals: [6905355, 690536, 7595891] as [number, number, number] };
+const CFO_260 = { totals: [9963426, 1992685, 11956111] as Totals, gross: 11070473, applied: 1107047 };
+const S2_VAT10 = { totals: [6905355, 690536, 7595891] as Totals };
+// Message du refus nommé ESTIMATE_V3_SUPPLIER_PRESELECTION_UNSUPPORTED (repli de F26-17 ; doc 2.6-e2e §4.6).
+const PRESELECTION_REFUSAL = "La présélection fournisseurs n’est pas disponible pour un devis au moteur de calcul 3.";
+// La marge v2 (multiplicateur ×1 en v3) ne doit jamais s'afficher « 0% » au pied (F26-12).
+const FORBIDDEN_V2_MARGIN = "Marge : 0%";
 
 const puText = (cents: number) => eur(cents).replace(" €", "");
-const chips = (totals: [number, number, number], rates: Array<[string, number]>, extra: string[] = []) => [
+const chips = (totals: Totals, rates: Array<[string, number]>, extra: string[] = []) => [
   `Total HT : ${eur(totals[0])}`, `TVA : ${eur(totals[1])}`, ...rates.map(([rate, tax]) => `TVA ${rate} % : ${eur(tax)}`),
   `TTC à payer : ${eur(totals[2])}`, ...extra,
 ];
 const discountChip = (applied: number) => `Remise commerciale : ${eur(-applied)}`;
+const apostrophes = (text: string) => text.replace(/[’']/g, "'");
 
 type Placed = { id: string; title: string; row: OracleRow };
 
@@ -115,7 +112,7 @@ armyTest("V3E01 the v3 editor types the oracle through the grid and sets coeffic
     await openV3Editor(ui, army, draft, "v3e01");
     await showStandardColumns(ui);
 
-    // V3E-02 (scénarios 1 et 7) : les 7 lignes-oracle saisies par la grille, une sauvegarde par ligne.
+    // V3E-01, V3E-07 : les 7 lignes-oracle saisies par la grille (désignation, U, Q, PR FO, h/u, rôle).
     const placed: Placed[] = [];
     for (const row of ORACLE) {
       const id = await addGridLine(ui, draft);
@@ -141,17 +138,38 @@ armyTest("V3E01 the v3 editor types the oracle through the grid and sets coeffic
       await recordEvidence(army, `v3e-grid-${row.ref.toLowerCase()}`, { versionId: draft.versionId, itemId: id, typed: row, expected, actual: lineView(item) });
       placed.push({ id, title, row });
     }
-    const rowsAt = (pus: number[], grosses: number[], extra: (index: number) => Partial<RowExpectation> = () => ({})): RowExpectation[] =>
-      placed.map(({ id, title, row }, index) => ({ id, title, unit: row.unitText, pu: puText(pus[index]), pt: eur(grosses[index]), hTotal: row.hTotal, ...extra(index) }));
-    const s1Rows = rowsAt(ORACLE.map(row => row.pu), ORACLE.map(row => row.gross));
+    // « h MO total » est dérivé (Q × h/u) et jamais saisi (F26-11).
+    const hTotalControl = await browser.evaluate((input) => {
+      const row = document.querySelector(`[data-estimate-item-id="${input.id}"]`);
+      const node = row ? Array.from(row.querySelectorAll("[aria-label]")).find(entry => entry.getAttribute("aria-label") === input.label) ?? null : null;
+      if (!node) return null;
+      const editable = (node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement) && !node.readOnly && !node.disabled;
+      return { tag: node.tagName.toLowerCase(), editable, ariaReadonly: node.getAttribute("aria-readonly") };
+    }, { id: placed[0].id, label: `Heures de main-d’œuvre totales pour ${placed[0].title}` });
+    await recordEvidence(army, "v3e-h-total-control", { control: hTotalControl });
+    expect(hTotalControl?.editable, "« h MO total » is read-only").toBe(false);
+    const s1Rows: RowExpectation[] = placed.map(({ id, title, row }) => ({ id, title, unit: row.unitText, pu: puText(row.pu), pt: eur(row.gross), hTotal: row.hTotal }));
     const s1Api: ApiExpectation = {
       version: { totals: S1.totals, gross: 6905456, applied: 0, commercialRounding: 0, roundingAdjustment: 0, saleCoefficients: [1.3, 1.2],
         discountBp: 0, discountAmountCents: null, taxRateBp: 2000, taxByRate: [{ rateBp: 2000, baseCents: 6905456, taxCents: 1381091 }] },
       lines: oracleLines(placed, draft.tuyauteurId, S1.nets),
     };
-    await checkpoint(ui, army, "s1", draft.versionId, { api: s1Api, screen: { chips: chips(S1.totals, [["20", 1381091]]), rows: s1Rows } });
+    await checkpoint(ui, army, "s1", draft.versionId, {
+      api: s1Api, screen: { chips: chips(S1.totals, [["20", 1381091]]), forbiddenChipPrefixes: [FORBIDDEN_V2_MARGIN], rows: s1Rows },
+    });
 
-    // V3E-09 (scénario 8) : Q de O5 (6 h/u) doublée → heures totales et PT doublés, exactement.
+    // Aide des colonnes selon le moteur (D11) : « h MO / u » en v3, jamais « heures totales de la ligne ».
+    await screen.getByTestId("estimate-columns-help-button", { visible: true }).click();
+    const help = screen.getByTestId("estimate-columns-help-panel");
+    await expect(help).toBeVisible();
+    const helpText = normalized(await help.textContent());
+    await recordEvidence(army, "v3e-columns-help", { helpText });
+    expect(helpText).toContain("h MO / u");
+    expect(helpText).not.toContain("heures totales de la ligne");
+    await screen.getByRole("button", "Fermer l’aide des colonnes", { exact: true }).click();
+    await expect(help).toBeHidden();
+
+    // V3E-08 : Q de O5 (6 h/u) doublée → heures totales et PT doublés, exactement.
     const o5 = placed[4];
     await fillCell(ui, `Quantité pour ${o5.title}`, "2");
     await saveLineEditsWithShortcut(ui, draft.versionId, o5.title, army);
@@ -168,25 +186,27 @@ armyTest("V3E01 the v3 editor types the oracle through the grid and sets coeffic
       screen: { chips: chips(S1.totals, [["20", 1381091]]), rows: [{ id: o5.id, title: o5.title, pu: "314,00", pt: eur(31400), hTotal: "6" }] },
     });
 
-    // V3E-10 (scénario 9, sans barème d'entreprise) : aucun barème par défaut affiché en v3.
+    // V3E-09 (sans barème d'entreprise) : aucun barème par défaut affiché en v3.
     let dialog = await openSettings(ui, draft.versionId);
     const noTierText = normalized(await dialog.textContent());
     const fields = {
       fo: await inputValue(dialog.getByLabel("Coefficient de vente FO", { exact: true })),
       mo: await inputValue(dialog.getByLabel("Coefficient de vente MO", { exact: true })),
-      defaultVat: await inputValue(dialog.getByLabel("TVA par défaut", { exact: true })),
+      amount: await inputValue(dialog.getByLabel("Remise (EUR HT)", { exact: true })),
+      rate: await inputValue(dialog.getByLabel("Remise (%)", { exact: true })),
+      defaultVat: await inputValue(dialog.getByLabel("TVA par défaut des nouvelles lignes", { exact: true })),
     };
     await recordEvidence(army, "v3e-settings-initial", { versionId: draft.versionId, fields, text: noTierText });
-    expect(fields).toEqual({ fo: "1,30", mo: "1,20", defaultVat: "20" });
+    expect(fields).toEqual({ fo: "1,30", mo: "1,20", amount: "", rate: "", defaultVat: "20" });
     expect(/barème par défaut/i.test(noTierText), "no default tier in v3").toBe(false);
     expect(/×\s?1[,.]60\b/.test(noTierText), "the hard-coded 1,60 tier is never shown in v3").toBe(false);
 
-    // V3E-04 (scénario 2) : coefficient FO vidé → refus explicite, 1,30 conservé, jamais 0.
+    // V3E-02 : coefficient FO vidé → refus explicite, 1,30 conservé, jamais 0.
     const fo = dialog.getByLabel("Coefficient de vente FO", { exact: true });
     await fo.fill("");
-    await fo.press("Tab");
+    await browser.keyboard.press("Tab");
     await expect(fo).toHaveAttribute("aria-invalid", "true");
-    await expect(dialog.getByText(/^Coefficient de vente obligatoire/)).toBeVisible();
+    await expect(dialog.getByText(/^Coefficient de vente FO obligatoire/)).toBeVisible();
     // A disabled save is one way to refuse; an enabled one may be tried, and nothing may be written.
     const save = dialog.getByRole("button", "Enregistrer le paramétrage", { exact: true });
     const saveEnabled = await save.isEnabled();
@@ -203,7 +223,7 @@ armyTest("V3E01 the v3 editor types the oracle through the grid and sets coeffic
     expect(apiProjection(afterRefusal, s1Api)).toEqual({ version: s1Api.version, lines: s1Api.lines });
     expect(foAfterReload).toBe("1,30");
 
-    // V3E-03 (scénario 1) : à 1,3 / 1,3, PU de O1 = 174,59 €.
+    // V3E-01 : à 1,3 / 1,3, PU de O1 = 174,59 €.
     await fillCell(ui, "Coefficient de vente MO", "1,30");
     await clickSaveSettings(ui);
     await waitSettingsSaved(ui, army, "mo-130", draft.versionId, { version: { saleCoefficients: [1.3, 1.3], totals: C130_130.totals } });
@@ -213,12 +233,12 @@ armyTest("V3E01 the v3 editor types the oracle through the grid and sets coeffic
       screen: { chips: chips(C130_130.totals, [["20", 1426735]]),
         rows: [{ id: placed[0].id, title: placed[0].title, pu: "174,59", pt: eur(349180) }] },
     });
-    dialog = await openSettings(ui, draft.versionId);
+    await openSettings(ui, draft.versionId);
     await fillCell(ui, "Coefficient de vente MO", "1,20");
     await clickSaveSettings(ui);
     await waitSettingsSaved(ui, army, "mo-120", draft.versionId, { version: { saleCoefficients: [1.3, 1.2], totals: S1.totals } });
 
-    // V3E-10 (scénario 9, barème d'entreprise) : le repère est affiché « non appliqué », les montants ne bougent pas.
+    // V3E-09 (barème d'entreprise) : repère affiché « non appliqué », montants inchangés.
     for (const tier of [{ threshold_cents: 0, multiplier: 1.15, position: 0 }, { threshold_cents: 5_000_000, multiplier: 1.1, position: 1 }]) {
       const created = await apiRequest<Envelope<unknown>>(browser, "POST", "/api/margin-tiers", tier);
       expect([created.status, created.body.ok]).toEqual([201, true]);
@@ -228,14 +248,13 @@ armyTest("V3E01 the v3 editor types the oracle through the grid and sets coeffic
     const hint = await settingsText(ui, "estimate-v3-margin-tier-hint");
     const tierText = normalized(await dialog.textContent());
     const afterTiers = await readConsistent(ui, draft.versionId);
-    await recordEvidence(army, "v3e-tier-hint", { versionId: draft.versionId, hint, totals: apiProjection(afterTiers, s1Api).version });
+    await recordEvidence(army, "v3e-tier-hint", { versionId: draft.versionId, hint, persisted: apiProjection(afterTiers, s1Api).version });
     expect(hint).toContain("×1,10");
     expect(hint).toContain("non appliqué");
     expect(/barème par défaut/i.test(tierText)).toBe(false);
     expect(apiProjection(afterTiers, s1Api)).toEqual({ version: s1Api.version, lines: s1Api.lines });
 
-    // V3E-05 (scénario 3, S2) : remise de 1,01 € → appliquée 1,01 €, discount_bp 0.
-    await dialog.getByRole("radio", "Remise en montant", { exact: true }).check();
+    // V3E-03 (S2) : remise de 1,01 € → appliquée 1,01 €, discount_bp 0, « demandé / appliqué ».
     await fillCell(ui, "Remise (EUR HT)", "1,01");
     await clickSaveSettings(ui);
     const s2Version = { totals: S2.totals, gross: 6905456, applied: 101, commercialRounding: 0, discountBp: 0, discountAmountCents: 101,
@@ -243,12 +262,20 @@ armyTest("V3E01 the v3 editor types the oracle through the grid and sets coeffic
     await waitSettingsSaved(ui, army, "s2", draft.versionId, { version: s2Version });
     await checkpoint(ui, army, "s2", draft.versionId, {
       api: { version: s2Version, lines: Object.fromEntries(placed.map(({ id }, index) => [id, { net: S2.nets[index] }])) },
-      screen: { chips: chips(S2.totals, [["20", 1381071]], [discountChip(101)]) },
+      screen: { chips: chips(S2.totals, [["20", 1381071]], [discountChip(101)]), forbiddenChipPrefixes: [FORBIDDEN_V2_MARGIN] },
     });
     dialog = await openSettings(ui, draft.versionId);
+    expect([await inputValue(dialog.getByLabel("Remise (EUR HT)", { exact: true })), await inputValue(dialog.getByLabel("Remise (%)", { exact: true }))])
+      .toEqual(["1,01", ""]);
     expect(await settingsText(ui, "estimate-v3-discount-applied")).toContain("demandé 1,01 € / appliqué 1,01 €");
 
-    // V3E-11 (scénario 10, S4) : arrondi au pas de 100 € inférieur = remise HT, TVA pure.
+    // V3E-10 (S4) : « Aucun » ou « palier inférieur » seulement ; 100 € inférieur = remise HT, TVA pure.
+    const roundingValues = await browser.evaluate(() => {
+      const select = Array.from(document.querySelectorAll("select")).find(node => node.getAttribute("aria-label") === "Arrondi" ||
+        Array.from(node.labels ?? []).some(label => (label.textContent ?? "").trim() === "Arrondi"));
+      return select ? Array.from(select.options).map(option => option.value) : null;
+    });
+    expect(roundingValues).toEqual(["none", "100", "1000", "5000", "10000"]);
     await dialog.getByLabel("Arrondi", { exact: true }).selectOption({ value: "10000" });
     await clickSaveSettings(ui);
     const s4Version = { totals: S4.totals, gross: 6905456, applied: 101, commercialRounding: S4.rounding, roundingAdjustment: 0,
@@ -263,9 +290,9 @@ armyTest("V3E01 the v3 editor types the oracle through the grid and sets coeffic
     await clickSaveSettings(ui);
     await waitSettingsSaved(ui, army, "s4-none", draft.versionId, { version: { ...s2Version, rounding: ["none", 1] } });
 
-    // V3E-05 (scénario 3, S3 puis EUHIST) : 10 % → 1 000 pb exacts ; c_FO doublé → toujours 10 %.
+    // V3E-03 (S3 puis EUHIST) : 10 % remplace le montant → 1 000 pb exacts ; c_FO doublé, curseur passé par
+    // le champ montant (vide pour une intention en taux) → toujours 10 %, remise appliquée = 10 % du nouveau brut.
     dialog = await openSettings(ui, draft.versionId);
-    await dialog.getByRole("radio", "Remise en pourcentage", { exact: true }).check();
     await fillCell(ui, "Remise (%)", "10");
     await clickSaveSettings(ui);
     const s3Version = { totals: S3.totals, gross: 6905456, applied: S3.applied, discountBp: 1000, discountAmountCents: null };
@@ -274,9 +301,12 @@ armyTest("V3E01 the v3 editor types the oracle through the grid and sets coeffic
       api: { version: s3Version }, screen: { chips: chips(S3.totals, [["20", 1242982]], [discountChip(S3.applied)]) },
     });
     dialog = await openSettings(ui, draft.versionId);
-    expect(await inputValue(dialog.getByLabel("Remise (%)", { exact: true }))).toBe("10");
+    expect([await inputValue(dialog.getByLabel("Remise (EUR HT)", { exact: true })), await inputValue(dialog.getByLabel("Remise (%)", { exact: true }))])
+      .toEqual(["", "10"]);
     expect(await settingsText(ui, "estimate-v3-discount-applied")).toContain(`appliqué ${eur(S3.applied)}`);
     await fillCell(ui, "Coefficient de vente FO", "2,60");
+    await dialog.getByLabel("Remise (EUR HT)", { exact: true }).focus();
+    await browser.keyboard.press("Tab");
     await clickSaveSettings(ui);
     const cfoVersion = { saleCoefficients: [2.6, 1.2] as [number, number], totals: CFO_260.totals, gross: CFO_260.gross, applied: CFO_260.applied,
       discountBp: 1000, discountAmountCents: null };
@@ -289,17 +319,17 @@ armyTest("V3E01 the v3 editor types the oracle through the grid and sets coeffic
     dialog = await openSettings(ui, draft.versionId);
     expect(await inputValue(dialog.getByLabel("Remise (%)", { exact: true }))).toBe("10");
     await fillCell(ui, "Coefficient de vente FO", "1,30");
-    await dialog.getByRole("radio", "Remise en montant", { exact: true }).check();
     await fillCell(ui, "Remise (EUR HT)", "1,01");
     await clickSaveSettings(ui);
     await waitSettingsSaved(ui, army, "back-to-s2", draft.versionId, { version: { ...s2Version, saleCoefficients: [1.3, 1.2] } });
 
-    // V3E-06 (scénario 5) : TVA par défaut 20 → 10 : dialogue ; « Non » garde les lignes à 20 %.
+    // V3E-05 : TVA par défaut 20 → 10 : dialogue ; « Non » garde les 7 lignes à 20 % (récapitulatif 20 %).
     const propagation = () => screen.getByRole("alertdialog", /^Appliquer ce taux à toutes les lignes\s?\?$/);
-    const setDefaultVat = async (value: string, answer: "Oui" | "Non") => {
-      dialog = await openSettings(ui, draft.versionId);
-      await fillCell(ui, "TVA par défaut", value);
+    const setDefaultVat = async (value: string, answer: "Oui" | "Non" | null) => {
+      await openSettings(ui, draft.versionId);
+      await fillCell(ui, "TVA par défaut des nouvelles lignes", value);
       await clickSaveSettings(ui);
+      if (answer === null) return;
       await expect(propagation()).toBeVisible({ timeout: 30_000 });
       await propagation().getByRole("button", answer, { exact: true }).tap();
       await expect(propagation()).toBeHidden({ timeout: 30_000 });
@@ -312,9 +342,13 @@ armyTest("V3E01 the v3 editor types the oracle through the grid and sets coeffic
       screen: { chips: chips(S2.totals, [["20", 1381071]]), forbiddenChipPrefixes: ["TVA 10 %"],
         rows: placed.map(({ id, title }) => ({ id, title, taxRate: "2000" })) },
     });
-    await setDefaultVat("20", "Non");
+    // 10 → 20 : aucune ligne n'a un autre taux, donc aucun dialogue (contrat §4.4).
+    await setDefaultVat("20", null);
     await waitSettingsSaved(ui, army, "vat-back-20", draft.versionId, { version: { taxRateBp: 2000, totals: S2.totals }, lines: ratesOf(2000) });
-    // « Oui » : les 7 lignes passent à 10 % dans la même sauvegarde.
+    const silentDialog = await propagation().isVisible();
+    await recordEvidence(army, "v3e-vat-back-20-dialog", { visible: silentDialog });
+    expect(silentDialog, "no propagation dialog when every line already has the new default").toBe(false);
+    // 20 → 10, « Oui » : les 7 lignes passent à 10 % dans la même sauvegarde.
     await setDefaultVat("10", "Oui");
     await waitSettingsSaved(ui, army, "vat-yes", draft.versionId, { version: { taxRateBp: 1000, totals: S2_VAT10.totals }, lines: ratesOf(1000) });
     await checkpoint(ui, army, "vat-yes", draft.versionId, {
@@ -323,7 +357,7 @@ armyTest("V3E01 the v3 editor types the oracle through the grid and sets coeffic
         rows: placed.map(({ id, title }) => ({ id, title, taxRate: "1000" })) },
     });
 
-    // V3E-06 (S5) : O4–O7 remis à 20 % par la grille → deux taux au pied, TVA 13 255,25 €.
+    // V3E-05 (S5) : O4–O7 remis à 20 % par la grille → deux taux au pied, TVA 13 255,25 €.
     await openGrid(ui, draft.versionId);
     for (const line of placed.slice(3)) {
       await screen.getByLabel(`Taux de TVA pour ${line.title}`, { exact: true }).selectOption({ value: "2000" });
@@ -336,10 +370,26 @@ armyTest("V3E01 the v3 editor types the oracle through the grid and sets coeffic
           taxByRate: [{ rateBp: 1000, baseCents: 555453, taxCents: 55545 }, { rateBp: 2000, baseCents: 6349902, taxCents: 1269980 }] },
         lines: Object.fromEntries(placed.map(({ id }, index) => [id, { taxRateBp: index < 3 ? 1000 : 2000, net: S2.nets[index] }])),
       },
-      screen: { chips: chips(S5.totals, [["10", 55545], ["20", 1269980]], [discountChip(101)]),
+      screen: { chips: chips(S5.totals, [["10", 55545], ["20", 1269980]], [discountChip(101)]), forbiddenChipPrefixes: [FORBIDDEN_V2_MARGIN],
         rows: placed.map(({ id, title }, index) => ({ id, title, taxRate: index < 3 ? "1000" : "2000" })) },
     });
-    await recordEvidence(army, "v3e01-end", { versionId: draft.versionId, nativeDialogs: dialogs });
+
+    // Fiche et impression du brouillon v3 (§14 « 2.6 », périmètre) : plus de bandeau, totaux stockés.
+    await app.open(`/dashboard/estimates/${draft.versionId}`);
+    const readDetail = () => browser.evaluate((banner) => {
+      const valueOf = (label: string) => {
+        const term = Array.from(document.querySelectorAll("dt")).find(node => (node.textContent ?? "").trim() === label);
+        return term?.nextElementSibling ? (term.nextElementSibling.textContent ?? "").replace(/[\s  ]+/g, " ").trim() : null;
+      };
+      return { banner: (document.body.textContent ?? "").includes(banner), ht: valueOf("Total HT"), ttc: valueOf("Total TTC") };
+    }, BANNER);
+    const expectedDetail = { banner: false, ht: eur(S5.totals[0]), ttc: eur(S5.totals[2]) };
+    await expect.poll(readDetail, { timeout: 30_000 }).toEqual(expectedDetail);
+    await app.open(`/dashboard/estimates/${draft.versionId}/print?price_mode=unit_and_total&detail_level=lines`);
+    await expect(screen.getByRole("heading", "Devis", { exact: true })).toBeVisible({ timeout: 30_000 });
+    const printBanner = await browser.evaluate((banner) => (document.body.textContent ?? "").includes(banner), BANNER);
+    await recordEvidence(army, "v3e01-end", { versionId: draft.versionId, detail: await readDetail().catch(() => null), printBanner, nativeDialogs: dialogs });
+    expect(printBanner).toBe(false);
   });
 
 armyTest("V3E02 an out-of-scope line leaves the net total and comes back priced; a 500 € discount on a 400 € base shows requested and applied",
@@ -347,7 +397,7 @@ armyTest("V3E02 an out-of-scope line leaves the net total and comes back priced;
     const ui: Ui = { app, screen, browser };
     const dialogs = await recordDialogs(ui);
     const draft = await prepareV3Draft(ui, army, "V3E02");
-    // A : 4 u × 76,92 € (PU ⌈7 692 × 1,3⌋ = 100,00 €) ; B : 1 u, 200,00 € + 5 h × 40 € (PU 500,00 €).
+    // A : 4 u à 76,92 € (PU ⌈7 692 × 1,3⌋ = 100,00 €) ; B : 1 u, 200,00 € + 5 h × 40 € (PU 500,00 €).
     const [lineA, lineB] = await seedLines(ui, army, draft, "v3e02", [
       { line_nature: "supply_only", title: `${army.runPrefix} A`, description: "u", unit_code: "u", pricing_status: "priced", quantity: 4,
         unit_price_ht_cents: 7692, tax_rate_bp: 2000, k_fo: 1, h_mo_per_unit: 0, h_mo_majoration: 1, k_mo: 1, labor_role_id: draft.tuyauteurId, source_provider: "manual" },
@@ -358,13 +408,13 @@ armyTest("V3E02 an out-of-scope line leaves the net total and comes back priced;
     await switchToExpertMode(ui);
     await openV3Editor(ui, army, draft, "v3e02");
     const rowB = (status: string, pt?: string): RowExpectation => ({ id: lineB.id, title: lineB.title, status, ...(pt ? { pt } : {}) });
-    const priced = { totals: [90000, 18000, 108000] as [number, number, number] };
+    const priced = { totals: [90000, 18000, 108000] as Totals };
     await checkpoint(ui, army, "tstat-initial", draft.versionId, {
       api: { version: { totals: priced.totals, gross: 90000 }, lines: { [lineB.id]: { status: "priced", net: 50000 } } },
       screen: { chips: chips(priced.totals, [["20", 18000]]), rows: [rowB("Chiffrée", eur(50000))] },
     });
 
-    // V3E-07 (scénario 6, T-STAT) : B « Hors lot » → HT −500,00 € ; ses saisies sont conservées.
+    // V3E-06 (T-STAT) : B « Hors lot » → HT −500,00 €, ses saisies conservées ; retour à « Chiffrée » → restaurée.
     const setStatus = async (value: string) => {
       await screen.getByLabel(`Statut de chiffrage pour ${lineB.title}`, { exact: true }).selectOption({ value });
       await saveLineEditsWithShortcut(ui, draft.versionId, lineB.title, army);
@@ -372,7 +422,7 @@ armyTest("V3E02 an out-of-scope line leaves the net total and comes back priced;
         snapshot.items.find(item => item.id === lineB.id)?.pricing_status === value, army);
     };
     await setStatus("out_of_scope");
-    const outOfScope = { totals: [40000, 8000, 48000] as [number, number, number] };
+    const outOfScope = { totals: [40000, 8000, 48000] as Totals };
     await checkpoint(ui, army, "tstat-out", draft.versionId, {
       api: { version: { totals: outOfScope.totals, gross: 40000 },
         lines: { [lineB.id]: { status: "out_of_scope", net: 0, tax: 0, quantity: 1, prFo: 20000, hPerUnit: 5 } } },
@@ -386,20 +436,21 @@ armyTest("V3E02 an out-of-scope line leaves the net total and comes back priced;
       screen: { chips: chips(priced.totals, [["20", 18000]]), rows: [rowB("Chiffrée", eur(50000))] },
     });
 
-    // V3E-05 (scénario 4, CAP) : B hors lot, assiette 400 € ; remise demandée 500 € → appliquée 400 €.
+    // V3E-04 (CAP) : B hors lot, assiette 400 € ; remise demandée 500 € → appliquée 400 €.
     await setStatus("out_of_scope");
-    const dialog = await openSettings(ui, draft.versionId);
-    await dialog.getByRole("radio", "Remise en montant", { exact: true }).check();
+    await openSettings(ui, draft.versionId);
     await fillCell(ui, "Remise (EUR HT)", "500");
     await clickSaveSettings(ui);
-    const capVersion = { totals: [0, 0, 0] as [number, number, number], gross: 40000, applied: 40000, discountAmountCents: 50000, discountBp: 0 };
+    const capVersion = { totals: [0, 0, 0] as Totals, gross: 40000, applied: 40000, discountAmountCents: 50000, discountBp: 0 };
     await waitSettingsSaved(ui, army, "cap", draft.versionId, { version: capVersion });
     await checkpoint(ui, army, "cap", draft.versionId, {
       api: { version: capVersion }, screen: { chips: chips([0, 0, 0], [["20", 0]], [discountChip(40000)]) },
     });
     await openSettings(ui, draft.versionId);
     const applied = await settingsText(ui, "estimate-v3-discount-applied");
-    await recordEvidence(army, "v3e-cap-text", { versionId: draft.versionId, applied, nativeDialogs: dialogs });
+    const amountField = await inputValue(settingsDialog(ui).getByLabel("Remise (EUR HT)", { exact: true }));
+    // The requested amount stays the intention (never replaced by the applied one); its field format is free.
+    await recordEvidence(army, "v3e-cap-text", { versionId: draft.versionId, applied, amountField, nativeDialogs: dialogs });
     expect(applied).toContain("demandé 500,00 € / appliqué 400,00 €");
   });
 
@@ -425,8 +476,8 @@ armyTest("V3E03 a catalogue suggestion keeps the v3 unit, and the supplier prese
     await switchToExpertMode(ui);
     await openV3Editor(ui, army, draft, "v3e03");
 
-    // V3E-08 (scénario 7) : la suggestion du catalogue lie l'article sans toucher à l'unité de la ligne.
-    await ui.browser.locator(`[data-estimate-item-id="${line.id}"] [data-testid="estimate-line-title-input"]`).fill(designation);
+    // V3E-07 : la suggestion du catalogue lie l'article sans toucher à l'unité de la ligne.
+    await browser.locator(`[data-estimate-item-id="${line.id}"] [data-testid="estimate-line-title-input"]`).fill(designation);
     await expect(screen.getByRole("listbox").first().getByText(designation, { exact: true }).first()).toBeVisible({ timeout: 30_000 });
     await browser.keyboard.press("Enter");
     await saveLineEditsWithShortcut(ui, draft.versionId, designation, army);
@@ -441,8 +492,9 @@ armyTest("V3E03 a catalogue suggestion keeps the v3 unit, and the supplier prese
         rows: [{ id: line.id, title: designation, unit: "ml — mètre linéaire", pu: "19,50", pt: eur(3900) }] },
     });
 
-    // V3E-12 (scénario 11) : une offre B à 12,40 € ; la présélection est soit recalculée et persistée,
-    // soit refusée par son nom. La conception implique le refus (D16, P-14 : mise à jour groupée directe).
+    // V3E-11 : une offre B à 12,40 € ; appliquer la présélection recalcule et persiste (contrat F26-17), ou est
+    // refusé par son nom avant toute écriture. La conception implique le refus (D16, P-14 : mise à jour groupée
+    // directe refusée en v3 pendant le lot 2, message nommé) ; le message générique du moteur 3 est un échec.
     const offerB = await apiRequest<Envelope<Offer>>(browser, "POST", "/api/prices", { action: "create", item: {
       new_supplier: { name: `${army.runPrefix} fournisseur B` }, product_id: productId, unit: "ml", unit_price_cents: 1240,
     } });
@@ -457,10 +509,14 @@ armyTest("V3E03 a catalogue suggestion keeps the v3 unit, and the supplier prese
     const panel = screen.getByRole("dialog", "Présélection fournisseurs", { exact: true });
     await expect(panel).toBeVisible({ timeout: 30_000 });
     const proposal = panel.getByLabel(`Sélectionner ${designation}`, { exact: true });
-    const refusalShown = async () => normalized(await panel.textContent()).includes(BANNER);
+    const applyButton = panel.getByRole("button", "Appliquer la sélection", { exact: true });
+    const panelText = async () => ((await panel.isVisible()) ? apostrophes(normalized(await panel.textContent())) : "");
+    const refusalShown = async () => (await panelText()).includes(apostrophes(PRESELECTION_REFUSAL));
     await expect.poll(async () => (await proposal.isVisible()) || (await refusalShown()), { timeout: 30_000 }).toBe(true);
-    const proposed = await proposal.isVisible();
-    if (proposed) await panel.getByRole("button", "Appliquer la sélection", { exact: true }).tap();
+    const refusedBeforeApply = await refusalShown();
+    const applyEnabled = async () => (await applyButton.count()) === 1 && await applyButton.isEnabled();
+    const applyEnabledBeforeRefusal = await applyEnabled();
+    if (!refusedBeforeApply) await applyButton.tap();
 
     const recomputedApi: ApiExpectation = {
       version: { totals: [3224, 645, 3869] },
@@ -470,24 +526,29 @@ armyTest("V3E03 a catalogue suggestion keeps the v3 unit, and the supplier prese
     const unchanged = (state: ArmyEstimate) => state.version.content_revision === before.version.content_revision &&
       JSON.stringify(apiProjection(state, linkedApi)) === target(linkedApi);
     const deadline = Date.now() + 60_000;
-    let outcome: { refused: boolean; recomputed: boolean; panelText: string; state: ArmyEstimate };
+    let outcome: { refused: boolean; recomputed: boolean; text: string; state: ArmyEstimate };
     do {
       await pause(1_000);
       const state = await readConsistent(ui, draft.versionId);
-      const panelText = (await panel.isVisible()) ? normalized(await panel.textContent()) : "";
+      const text = await panelText();
       outcome = {
-        refused: panelText.includes(BANNER) && unchanged(state),
+        refused: text.includes(apostrophes(PRESELECTION_REFUSAL)) && unchanged(state),
         recomputed: JSON.stringify(apiProjection(state, recomputedApi)) === target(recomputedApi),
-        panelText, state,
+        text, state,
       };
     } while (!outcome.refused && !outcome.recomputed && Date.now() < deadline);
+    const applyDisabledOnRefusal = outcome.refused ? !(await applyEnabled()) : null;
     await recordEvidence(army, "v3e-preselection", {
-      versionId: draft.versionId, proposed, designImplies: "refused", outcome: { refused: outcome.refused, recomputed: outcome.recomputed },
-      panelText: outcome.panelText, before: apiProjection(before, linkedApi), after: apiProjection(outcome.state, recomputedApi),
+      versionId: draft.versionId, designImplies: "refused (D16, P-14)", contractChoice: "recomputed (F26-17), named refusal as fallback",
+      refusedBeforeApply, applyEnabledBeforeRefusal, applyDisabledOnRefusal,
+      outcome: { refused: outcome.refused, recomputed: outcome.recomputed, genericBanner: outcome.text.includes(apostrophes(BANNER)) },
+      panelText: outcome.text, before: apiProjection(before, linkedApi), after: apiProjection(outcome.state, recomputedApi),
       revisions: [before.version.content_revision, outcome.state.version.content_revision], nativeDialogs: dialogs,
     });
-    // Exactement une des deux issues ; écrire les lignes sans recalculer les totaux (défaut v2 connu, 2.2) échoue.
+    // Exactement une des deux issues ; des lignes écrites avec des totaux périmés (défaut v2 connu, 2.2) ou le
+    // bandeau générique du moteur 3 n'en sont pas.
     expect([outcome.refused, outcome.recomputed].filter(Boolean)).toHaveLength(1);
+    if (outcome.refused) expect(applyDisabledOnRefusal, "the refused preselection cannot be applied").toBe(true);
     const settled = outcome.recomputed
       ? { api: recomputedApi, chips: chips([3224, 645, 3869], [["20", 645]]), pu: "16,12", pt: eur(3224) }
       : { api: linkedApi, chips: chips([3900, 780, 4680], [["20", 780]]), pu: "19,50", pt: eur(3900) };
