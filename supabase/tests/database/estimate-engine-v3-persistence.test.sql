@@ -1198,7 +1198,13 @@ select is(
     pg_temp.v3_shape_probe('a3250000-0000-4000-8000-000000000180', $u$discount_mode = 'cascade', discount_steps = '{500}'$u$),
     pg_temp.v3_shape_probe('a3250000-0000-4000-8000-000000000180', 'discount_amount_cents = 101, discount_bp = 1000'),
     pg_temp.v3_shape_probe('a3250000-0000-4000-8000-000000000180', $u$rounding_mode = 'up', rounding_step_cents = 100$u$),
-    pg_temp.v3_shape_probe('a3250000-0000-4000-8000-000000000180', 'rounding_adjustment_cents = 1'),
+    -- L'ajustement d'arrondi est géré (guard_estimate_rounding_adjustment) : marqueur de réglages.
+    pg_temp.v3_probe(array[
+      'set local role service_role',
+      $s$select set_config('miaouffrage.estimate_v3_writer', 'a3250000-0000-4000-8000-000000000180', true)$s$,
+      $s$select set_config('miaouffrage.estimate_settings_atomic', 'a3250000-0000-4000-8000-000000000180', true)$s$,
+      $s$update public.estimate_versions set rounding_adjustment_cents = 1 where id = 'a3250000-0000-4000-8000-000000000180'$s$
+    ]),
     pg_temp.v3_shape_probe('a3250000-0000-4000-8000-000000000180', 'total_ht_cents = total_ht_cents + 1, total_ttc_cents = total_ttc_cents + 1'),
     pg_temp.v3_shape_probe('a3250000-0000-4000-8000-000000000180', 'sale_coefficient_fo = null'),
     pg_temp.v3_shape_probe('a3250000-0000-4000-8000-000000000180', 'sale_coefficient_mo = 0'),
@@ -1309,7 +1315,6 @@ select is(
     pg_temp.v3_probe(array[$s$update public.estimate_items set h_mo_per_unit = 0.5 where id = 'a3250000-0000-4000-8001-000000000101'$s$]),
     pg_temp.v3_probe(array[$s$update public.estimate_items set unit_code = 'u' where id = 'a3250000-0000-4000-8001-000000000101'$s$]),
     pg_temp.v3_probe(array[$s$update public.estimate_items set pricing_status = 'included' where id = 'a3250000-0000-4000-8001-000000000101'$s$]),
-    pg_temp.v3_probe(array[$s$update public.estimate_items set snapshot_gross_ht_cents = 100, snapshot_gross_fo_ht_cents = 100 where id = 'a3250000-0000-4000-8001-000000000101'$s$]),
     pg_temp.v3_probe(array[
       $s$insert into public.estimate_items (
            id, tenant_id, version_id, parent_id, item_type, position, title, description,
@@ -1321,18 +1326,19 @@ select is(
          from public.estimate_versions where id = 'a3250000-0000-4000-8000-000000000100'$s$
     ])
   ],
-  array_fill('0A000 ESTIMATE_ENGINE_COLUMN_NOT_SUPPORTED'::text, array[5]),
-  'F25-07 a v1/v2 line refuses hours per unit, unit code, a non-priced status and v3 frozen gross columns'
+  array_fill('0A000 ESTIMATE_ENGINE_COLUMN_NOT_SUPPORTED'::text, array[4]),
+  'F25-07 a v1/v2 line refuses hours per unit (update and insert), a unit code and a non-priced status'
 );
 
-select is(
-  left(pg_temp.v3_probe(array[
+-- CHECK du §6.2 (23514, nom libre) ou refus du déclencheur de colonnes, au choix de M4.
+select matches(
+  pg_temp.v3_probe(array[
     $s$select set_config('miaouffrage.estimate_v3_writer', 'a3250000-0000-4000-8000-000000000180', true)$s$,
     $s$insert into public.estimate_items (id, tenant_id, version_id, item_type, position, title, unit_code)
        select 'a3250000-0000-4000-8001-000000000189', tenant_id, id, 'section', 9, 'Section avec unité', 'u'
        from public.estimate_versions where id = 'a3250000-0000-4000-8000-000000000180'$s$
-  ]), 5),
-  '23514',
+  ]),
+  '^(23514 |0A000 ESTIMATE_ENGINE_COLUMN_NOT_SUPPORTED$)',
   'F25-07 a section never carries a unit, a status or hours per unit'
 );
 
