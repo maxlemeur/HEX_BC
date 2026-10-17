@@ -117,7 +117,8 @@ function footerRows(contract: ClientContract1 | ClientContract2): Array<{ label:
 
 /** Taux d'en-tête : celui de la version (contrat 1) ou ceux du récapitulatif figé (contrat 2). */
 function validityTax(contract: ClientContract1 | ClientContract2): string {
-  if (contract.schemaVersion === 2) return `TVA : ${describeEstimateV3Rates(contract.totals)}`;
+  // Sans ligne chiffrée, le récapitulatif est vide : le taux par défaut de la version reste affiché.
+  if (contract.schemaVersion === 2 && contract.totals.taxByRate.length > 0) return `TVA : ${describeEstimateV3Rates(contract.totals)}`;
   return `TVA : ${contract.version.taxRateBp / 100} %`;
 }
 
