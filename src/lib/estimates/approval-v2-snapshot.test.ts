@@ -74,4 +74,24 @@ describe("freezeApprovalV2DraftIfRequired", () => {
     expect(createServiceRoleClient).not.toHaveBeenCalled();
     expect(freezeEstimateV2Snapshot).not.toHaveBeenCalled();
   });
+
+  // Lot 2, sous-lot 2.1 (docs/testing/estimate-engine-v3-2.1.md, F-TS-06) : une v3 ne doit pas
+  // partir en approbation sans gel, comme une v1 ; le refus est nommé avant tout appel SQL.
+  it("refuses a v3 draft by name instead of skipping the freeze like a v1", async () => {
+    await expect(
+      freezeApprovalV2DraftIfRequired(
+        { supabase: {}, tenantId: TENANT_ID, userId: USER_ID },
+        {
+          id: VERSION_ID,
+          status: "draft",
+          updated_at: "2026-03-01T09:00:00.000Z",
+          content_revision: 11,
+          calc_engine_version: 3,
+        }
+      )
+    ).rejects.toMatchObject({ code: "ESTIMATE_ENGINE_UNAVAILABLE", engineVersion: 3 });
+
+    expect(createServiceRoleClient).not.toHaveBeenCalled();
+    expect(freezeEstimateV2Snapshot).not.toHaveBeenCalled();
+  });
 });
