@@ -206,7 +206,7 @@ armyTest(
       const { ids, line, cell, price, persistedKFo } = await suggestionJourney(ui, army, "S2", cleanups);
       // BT5: the undo stores its own totals. The manual save first brings the stored totals to the
       // lines, so that a stale apply (BT4) cannot hide a stale undo.
-      await reconcileStoredTotals(browser, army, { estimate: ids, step: "bulk-sync-s2-apply", expected: AT_K_FO_1_3, from: price });
+      await reconcileStoredTotals({ browser, screen }, army, { estimate: ids, step: "bulk-sync-s2-apply", expected: AT_K_FO_1_3, from: price });
       await screen.getByTestId("estimate-editor-alert-undo-bulk-suggest-button").click();
       await expect.poll(persistedKFo, { timeout: 30_000, interval: 500 }).toBe(1);
       await expectStoredTotals(browser, army, { estimate: ids, step: "bulk-sync-s2-undo", expected: AT_K_FO_1 });

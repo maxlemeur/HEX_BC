@@ -76,7 +76,9 @@ export async function expectStoredTotals(browser: Browser, army: ArmyState, inpu
  * and its own write is the only one judged. Polled: this save is the reconciling one. `from` is a
  * grid input that lets the shortcut reach the editor (the line's price input, as commercial-rounding).
  */
-export async function reconcileStoredTotals(browser: Browser, army: ArmyState, input: StoredTotalsInput & { from: Locator }) {
+export async function reconcileStoredTotals(
+  { browser, screen }: Pick<Ui, "browser" | "screen">, army: ArmyState, input: StoredTotalsInput & { from: Locator },
+) {
   const { estimate, step, expected, from } = input;
   await from.focus();
   await browser.keyboard.press("ControlOrMeta+s");
@@ -88,6 +90,9 @@ export async function reconcileStoredTotals(browser: Browser, army: ArmyState, i
     await recordEvidence(army, `${step}-reconciled-totals`, { projectId: estimate.projectId, expected, ...read.evidence });
   }
   expect(read.fromLines, "persisted lines").toEqual(expected);
+  // The API can observe the commit before the editor receives its acknowledgement (waitForAutoSave):
+  // the next action starts only once the editor reports the save as done.
+  await expect(screen.getByTestId("estimate-page-toolbar-autosave-status")).toHaveText(/^(Sauvegardé|À jour)$/);
 }
 
 /**
