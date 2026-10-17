@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomInt } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
@@ -154,7 +154,7 @@ interface LocalSupabaseCiDependencies {
   provisionUsers: (
     status: LocalSupabaseStatus
   ) => Promise<ProvisionedUsers>;
-  runRls: (environment: SupabaseEnvironment) => void;
+  runRls: (environment: SupabaseEnvironment) => Promise<void>;
   runApplication?: (environment: SupabaseEnvironment) => Promise<void>;
   resolvePsql: () => string;
   removeProject: (project: IsolatedSupabaseProject) => void;
@@ -527,8 +527,55 @@ export function validatePgTapReport(output: string, expectedFiles: number) {
   }
 }
 
-function runRlsMatrix(environment: SupabaseEnvironment) {
-  const result = spawnSync(
+export interface ChildProcessResult {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+  error?: Error;
+}
+
+/**
+ * Runs a child without blocking this event loop. While a synchronous child
+ * runs, pooled keep-alive sockets outlive the server's idle timeout unseen:
+ * the next request goes out on a closed connection (UND_ERR_SOCKET).
+ */
+export function runChildProcess(
+  command: string,
+  args: string[],
+  options: { cwd: string; env: NodeJS.ProcessEnv; maxBuffer: number }
+) {
+  return new Promise<ChildProcessResult>((resolve) => {
+    const child = spawn(command, args, { cwd: options.cwd, env: options.env, stdio: ["ignore", "pipe", "pipe"] });
+    const output = { stdout: [] as Buffer[], stderr: [] as Buffer[] };
+    let bytes = 0;
+    let error: Error | undefined;
+    for (const stream of ["stdout", "stderr"] as const) {
+      child[stream].on("data", (chunk: Buffer) => {
+        bytes += chunk.length;
+        if (bytes <= options.maxBuffer) {
+          output[stream].push(chunk);
+        } else if (!error) {
+          error = new Error(`Child output exceeded ${options.maxBuffer} bytes`);
+          child.kill("SIGTERM");
+        }
+      });
+    }
+    const settle = (status: number | null) => resolve({
+      status,
+      stdout: Buffer.concat(output.stdout).toString("utf8"),
+      stderr: Buffer.concat(output.stderr).toString("utf8"),
+      ...(error ? { error } : {}),
+    });
+    child.once("error", (spawnError) => {
+      error ??= spawnError;
+      if (child.pid === undefined) settle(null);
+    });
+    child.once("close", settle);
+  });
+}
+
+async function runRlsMatrix(environment: SupabaseEnvironment) {
+  const result = await runChildProcess(
     process.execPath,
     [
       resolveVitestEntry(),
@@ -540,21 +587,18 @@ function runRlsMatrix(environment: SupabaseEnvironment) {
     ],
     {
       cwd: process.cwd(),
-      encoding: "utf8",
       env: environment as NodeJS.ProcessEnv,
       maxBuffer: 10 * 1024 * 1024,
-      stdio: ["ignore", "pipe", "pipe"],
     }
   );
   if (result.error) {
     throw new Error("Could not start the local RLS test process");
   }
 
-  const output = result.stdout ?? "";
   if (result.status !== 0) {
-    throw new Error(formatSafeRlsFailure(output, result.stderr ?? "", environment));
+    throw new Error(formatSafeRlsFailure(result.stdout, result.stderr, environment));
   }
-  validateRlsMatrixReport(output);
+  validateRlsMatrixReport(result.stdout);
 }
 
 function redactRlsEnvironmentValues(
@@ -684,9 +728,52 @@ function appliedMigrationVersions(output: string) {
     .sort();
 }
 
+/**
+ * An error whose author guarantees a message free of credentials, account
+ * identities and URLs. It is the only message a phase outside
+ * SAFE_DIAGNOSTIC_PHASES surfaces; any other cause stays hidden.
+ */
+export class SafeDiagnosticError extends Error {
+  override name = "SafeDiagnosticError";
+}
+
+// Error class names; machine codes in one case (Auth `email_exists`, undici
+// `UND_ERR_SOCKET`, PostgREST `PGRST116`) or a SQLSTATE such as `22P02`.
+// Supabase API keys (`sb_…`), JWTs, emails and URLs never match.
+const SAFE_FAILURE_NAME = /^[A-Za-z][A-Za-z0-9]{0,47}$/;
+const SAFE_FAILURE_CODE = /^(?!sb_)(?:[a-z][a-z0-9]*(?:_[a-z0-9]+)*|[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*|[0-9][0-9A-Z]{4})$/;
+
+function safeFailureField(source: unknown, key: "name" | "code", pattern: RegExp) {
+  const value = source && typeof source === "object" ? (source as Record<string, unknown>)[key] : undefined;
+  return typeof value === "string" && value.length <= 48 && pattern.test(value) ? value : undefined;
+}
+
+/**
+ * Identifies a Supabase client or fetch failure by its error name, HTTP
+ * status, machine code and network cause. Messages, details and hints can
+ * quote emails, row values or URLs, so they are never read.
+ */
+export function describeSafeFailure(error: unknown, status?: number) {
+  const name = safeFailureField(error, "name", SAFE_FAILURE_NAME);
+  const ownStatus = error && typeof error === "object" ? (error as { status?: unknown }).status : undefined;
+  const httpStatus = [status, ownStatus].find((value): value is number =>
+    typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 599);
+  const code = safeFailureField(error, "code", SAFE_FAILURE_CODE);
+  const cause = error && typeof error === "object" ? (error as { cause?: unknown }).cause : undefined;
+  const causeName = safeFailureField(cause, "name", SAFE_FAILURE_NAME);
+  const causeCode = safeFailureField(cause, "code", SAFE_FAILURE_CODE);
+  const parts = [
+    name,
+    httpStatus === undefined ? undefined : `status=${httpStatus}`,
+    code && `code=${code}`,
+    causeName || causeCode ? `cause=${[causeName, causeCode].filter(Boolean).join(":")}` : undefined,
+  ].filter(Boolean);
+  return parts.length ? parts.join(" ") : "unidentified failure";
+}
+
 function createPhaseError(phase: string, error: unknown) {
   const cause = asError(error);
-  let detail = SAFE_DIAGNOSTIC_PHASES.has(phase) ? `: ${cause.message}` : "";
+  let detail = SAFE_DIAGNOSTIC_PHASES.has(phase) || cause instanceof SafeDiagnosticError ? `: ${cause.message}` : "";
   if (
     SAFE_DIAGNOSTIC_PHASES.has(phase) &&
     error instanceof SupabaseCliCommandError
@@ -901,7 +988,7 @@ export async function runLocalSupabaseCi(
       RLS_E2E_LOCAL: "1",
       SUPABASE_SERVICE_ROLE_KEY: status.serviceRoleKey,
     };
-    dependencies.runRls(localEnvironment);
+    await dependencies.runRls(localEnvironment);
     dependencies.log("Behavioral RLS matrix passed.");
     if (dependencies.runApplication) {
       activePhase = "run application validation";

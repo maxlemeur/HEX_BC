@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import http from "node:http";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -13,10 +14,13 @@ import type {
 } from "@/test/database-snapshot";
 import {
   assertNativeRuntimeHost,
+  describeSafeFailure,
   enableNativeStack,
   findAvailablePort,
   parseLocalSupabaseStatus,
+  runChildProcess,
   runLocalSupabaseCi,
+  SafeDiagnosticError,
   validatePgTapReport,
   validateRlsMatrixReport,
 } from "@/test/local-supabase-ci";
@@ -344,17 +348,92 @@ describe("local Supabase CI", () => {
       "Local Supabase CI cleanup failed"
     );
 
+    // An arbitrary application error can quote fixture identities: it stays
+    // hidden. Only a SafeDiagnosticError reaches the phase message.
     const applicationFailure = createDependencies();
-    const runApplication = vi.fn().mockRejectedValue(new Error("application failed"));
+    const runApplication = vi.fn().mockRejectedValue(new Error("application failed for army-ci@example.test"));
     await expect(runLocalSupabaseCi({
       ...applicationFailure.dependencies,
       runApplication,
-    })).rejects.toThrow("Phase failed: run application validation");
+    })).rejects.toThrow(/^Phase failed: run application validation$/);
     expect(applicationFailure.calls.slice(-2)).toEqual([
       "stop --workdir C:/temp/miaouffrage-supabase-ci-test",
       "stack destroy --yes --workdir C:/temp/miaouffrage-supabase-ci-test",
     ]);
     expect(applicationFailure.dependencies.removeProject).toHaveBeenCalledOnce();
+
+    const diagnosedFailure = createDependencies();
+    await expect(runLocalSupabaseCi({
+      ...diagnosedFailure.dependencies,
+      runApplication: vi.fn().mockRejectedValue(
+        new SafeDiagnosticError("Could not create the local ARMY account [step create account: AuthRetryableFetchError status=0]")
+      ),
+    })).rejects.toThrow(
+      /^Phase failed: run application validation: Could not create the local ARMY account \[step create account: AuthRetryableFetchError status=0\]$/
+    );
+    expect(diagnosedFailure.dependencies.removeProject).toHaveBeenCalledOnce();
+  });
+
+  it("keeps its event loop running during a child so stale keep-alive sockets are not reused", async () => {
+    // TesterArmy CI 17/10/2026: the runner held keep-alive sockets to the
+    // native gateway (Keep-Alive: timeout=5, closed after 6 s) while the RLS
+    // matrix ran under spawnSync. When that child outlived the close, the
+    // hook's first createUser went out on the closed socket: UND_ERR_SOCKET.
+    const server = http.createServer((request, response) => {
+      request.resume();
+      request.on("end", () => response.end("ok"));
+    });
+    // Advertises timeout=3, which undici keeps; the socket closes at 3 s.
+    server.keepAliveTimeout = 3_000;
+    server.keepAliveTimeoutBuffer = 0;
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const url = `http://127.0.0.1:${(server.address() as net.AddressInfo).port}/`;
+    const post = async () => (await fetch(url, { method: "POST", body: "{}" })).text();
+    try {
+      // The three RLS users are created on one pooled connection.
+      for (let index = 0; index < 3; index += 1) await post();
+      const child = await runChildProcess(process.execPath, ["-e", "setTimeout(() => process.stdout.write('done'), 3500)"], {
+        cwd: process.cwd(), env: process.env, maxBuffer: 1024,
+      });
+      expect(child).toEqual({ status: 0, stdout: "done", stderr: "" });
+      await expect(post()).resolves.toBe("ok");
+      const flood = await runChildProcess(process.execPath, ["-e", "process.stdout.write('x'.repeat(4096))"], {
+        cwd: process.cwd(), env: process.env, maxBuffer: 1024,
+      });
+      expect(flood.error?.message).toBe("Child output exceeded 1024 bytes");
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  }, 15_000);
+
+  it("describes Supabase and network failures by allowlisted identifiers only", () => {
+    const email = "army-ci-0f3a@example.test";
+    const authError = Object.assign(new Error(`Email address "${email}" is invalid`), {
+      name: "AuthApiError", status: 400, code: "email_address_invalid",
+    });
+    expect(describeSafeFailure(authError)).toBe("AuthApiError status=400 code=email_address_invalid");
+    // auth-js reports a dropped connection without HTTP status or cause.
+    expect(describeSafeFailure(Object.assign(new Error("fetch failed"), { name: "AuthRetryableFetchError", status: 0 })))
+      .toBe("AuthRetryableFetchError status=0");
+    const network = Object.assign(new TypeError("fetch failed"), {
+      cause: Object.assign(new Error(`other side closed - local: 127.0.0.1:41000, remote: 127.0.0.1:54321 ${email}`), {
+        name: "SocketError", code: "UND_ERR_SOCKET",
+      }),
+    });
+    expect(describeSafeFailure(network)).toBe("TypeError cause=SocketError:UND_ERR_SOCKET");
+    // A PostgREST error carries row values in message/details; its HTTP
+    // status comes from the response.
+    const rowError = { message: `duplicate ${email}`, details: `Key (work_email)=(${email}) exists.`, hint: "", code: "23505" };
+    expect(describeSafeFailure(rowError, 409)).toBe("status=409 code=23505");
+    const hostile = {
+      name: "postgresql://postgres:secret@127.0.0.1:54322/postgres",
+      code: `Bearer ${localJwt("service_role")}`,
+      status: "500",
+      cause: { name: email, code: "sb_secret_0123456789" },
+    };
+    expect(describeSafeFailure(hostile, 1.5)).toBe("unidentified failure");
+    expect(describeSafeFailure(undefined)).toBe("unidentified failure");
   });
 
   it("refuses hosts the Supabase native runtime does not support", () => {
