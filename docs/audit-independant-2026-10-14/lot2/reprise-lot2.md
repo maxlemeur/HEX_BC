@@ -19,6 +19,10 @@ tout ce qui sert à la reprise est ici.
 - **Publication** : une branche et une PR par sous-lot vers `main` ; la CI GitHub valide ; fusion
   et poussée quand elle est verte. Travailler dans un worktree dédié quand une tâche peut entrer en
   collision avec les développeurs, qui poussent sur `main` en parallèle. Jamais de force-push.
+- **Déploiement Vercel manuel** (17/10/2026) : fusionner ou pousser sur `main` ne déploie rien
+  (`vercel.json`, `git.deploymentEnabled: false`) ; on ne déploie que sur demande explicite du
+  porteur, une fois les migrations nécessaires appliquées sur la base partagée. Les commits sont
+  signés `Thanh Chau <thannous@gmail.com>`.
 - **Base partagée** : ne jamais appliquer une migration sur le Supabase partagé sans l'accord
   explicite du porteur (runbook `supabase/README.md` §3). Les tests E2E ne visent que la pile locale
   possédée, jamais la production.
@@ -145,9 +149,11 @@ d'abord (AGENTS.md), parcours ciblés pendant le travail, suite complète à la 
 1. Finir et fusionner 2.0 (ci-dessus).
 2. Recaler 2.3 s'il n'est pas déjà fusionné ; le test du corpus figé arrive avec 2.0.
 3. 2.2 (offre à 0 €, « ML » = mètre linéaire) et 2.1 (socle fermé par défaut). **Ils ajoutent une
-   migration** : pousser sur `main` déploie sur Vercel, donc décider avec le porteur qui applique la
-   migration sur la base Supabase partagée (runbook `supabase/README.md` §3) et à quel moment, avant
-   de fusionner. Ne jamais appliquer une migration distante sans son accord.
+   migration.** Le déploiement Vercel est manuel (décision du porteur du 17/10/2026, `vercel.json`
+   `git.deploymentEnabled: false`) : fusionner sur `main` ne déploie rien, les PR se fusionnent dès
+   que leur CI est verte. Avant tout déploiement demandé par le porteur, ou avant d'utiliser `main`
+   contre la base Supabase partagée, ses migrations doivent y être appliquées (runbook
+   `supabase/README.md` §3). Ne jamais appliquer une migration distante sans son accord.
 4. 2.4 (moteur v3 pur et jumeau SQL), puis 2.5 à 2.8, 2.9 (unité d'achat), 2.10 (pilote).
 
 ## Points ouverts

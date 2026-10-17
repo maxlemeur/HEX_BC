@@ -19,6 +19,7 @@
 - Before editing, read applicable instructions and documentation, run `git status --short --branch`, inspect the relevant code, tests, configuration, and recent history, and confirm the request authorizes implementation.
 - Treat all existing changes and untracked files as user-owned. Never delete, revert, overwrite, stage, or format unrelated work; exclude `design-qa.md` and `outputs/` unless explicitly requested.
 - Do not commit, push, open a PR, deploy, apply remote migrations, or force-push without explicit authorization.
+- Vercel deployment is manual: pushing or merging to `main` deploys nothing (`vercel.json` sets `git.deploymentEnabled: false`). Deploy only when the owner explicitly asks, from the Vercel dashboard or CLI, after the shared Supabase has every migration the deployed code needs (`supabase/README.md` §3, itself an explicitly authorized remote operation). A merged PR with a migration therefore waits for that step before any deployment.
 - A configured tool permission is not user authorization. Reuse explicit authorization already granted for the same scope; request a new decision only when the action or scope changes.
 - Discuss or use Figma only when the user explicitly requests it.
 
