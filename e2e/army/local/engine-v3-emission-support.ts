@@ -104,14 +104,18 @@ export function expectedDocumentChecks(scenario: Scenario) {
   };
 }
 
-/** Lignes-oracle d'une version v3, écrites par le lot de 2.5 (contrat d'écrivain v3). */
+/**
+ * Lignes-oracle d'une version v3, écrites par le lot de 2.5 (contrat d'écrivain v3). Une ligne sans
+ * heure (O3, « fourniture seule ») ne porte pas de rôle de MO : la règle de nature de ligne, bloquante
+ * à l'envoi, compte un rôle comme de la main-d'oeuvre ; aucun montant n'en dépend (h/u = 0).
+ */
 function oracleLines(runPrefix: string, scenario: Scenario, laborRoleId: string, parentId: string) {
   return ORACLE.map((line, index) => ({
     item_type: "line", parent_id: parentId, position: index + 1,
     line_nature: line.hPerUnit > 0 ? "supply_and_labor" : "supply_only", title: `${runPrefix} ${line.ref}`, description: line.unit,
     unit_code: line.unit, pricing_status: "priced", quantity: line.quantity, unit_price_ht_cents: line.prFo,
     tax_rate_bp: scenario.rates[index], k_fo: 1, h_mo_per_unit: line.hPerUnit, h_mo_majoration: 1, k_mo: 1,
-    labor_role_id: laborRoleId, source_provider: "manual",
+    labor_role_id: line.hPerUnit > 0 ? laborRoleId : null, source_provider: "manual",
   }));
 }
 

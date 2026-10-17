@@ -591,6 +591,19 @@ async function emissionV3Fixtures(context: CalcV3FixtureContext, campaign: strin
     Number(policy.default_sale_coefficient_mo) !== 1.2 || JSON.stringify(policy.allowed_tax_rates_bp) !== "[2000,1000,550,210]") {
     throw new Error("calc-v3 fixture emission-v3: the tenant policy readback differs.");
   }
+  // Every new tenant receives the product's global approval rule at 5,000 EUR HT
+  // (seed_default_estimate_approval_rule, 20260812223050). S2 and S5 (69,053.55 EUR HT) would
+  // be blocked at send by the approval gate, which is outside the emission contract of 2.7
+  // and covered by the approval journeys: the rule of this dedicated tenant only is deactivated.
+  // `estimate_rules` is absent from the generated types: this one update goes through the untyped client.
+  const untyped = context.admin as unknown as SupabaseClient;
+  const deactivated = (await checked("emission-v3:default approval rule", untyped.from("estimate_rules")
+    .update({ is_active: false }).eq("tenant_id", actor.tenantId).eq("rule_type", "require_approval")
+    .eq("scope_type", "global").is("scope_id", null).select("id, threshold_value, is_active"))) as
+    Array<{ id: string; threshold_value: number; is_active: boolean }>;
+  if (deactivated.length !== 1 || Number(deactivated[0].threshold_value) !== 500000 || deactivated[0].is_active !== false) {
+    throw new Error("calc-v3 fixture emission-v3: the dedicated tenant must hold exactly its default approval rule at 5,000 EUR.");
+  }
   const owner = { userId: actor.userId, tenantId: actor.tenantId };
   const common = { tenant_id: owner.tenantId };
   const prefix = `ARMY-V3M-calc-v3-${campaign}`;
@@ -618,10 +631,12 @@ async function emissionV3Fixtures(context: CalcV3FixtureContext, campaign: strin
     apiUrl: context.backend, createdAt: new Date().toISOString(), prefix, owner: { ...owner, laborRoleId: actor.laborRoleId },
     policy: { engine: 3, saleCoefficientFo: 1.3, saleCoefficientMo: 1.2, allowedTaxRatesBp: [2000, 1000, 550, 210] },
     v2Witness: { ...witness, expected: { ht: 2000, tax: 400, ttc: 2400 } },
-    boundary: "A new owner, its bootstrap tenant at policy 3 and one v2 draft witness; every v3 is created by the journey through the application." });
+    approvalRule: { id: deactivated[0].id, thresholdCents: 500000, isActive: false },
+    boundary: "A new owner, its bootstrap tenant at policy 3 without its default approval rule, and one v2 draft witness; every v3 is created by the journey through the application." });
   return { env: { E2E_V3_EMISSION_FIXTURE_PATH: file }, secretEnv: {},
     login: { email: actor.email, password: actor.password },
-    identities: { owner: publicActor(actor), prefix, v2Witness: witness, policy: "engine 3, 1,30 / 1,20" } };
+    identities: { owner: publicActor(actor), prefix, v2Witness: witness, policy: "engine 3, 1,30 / 1,20",
+      approvalRule: "default 5,000 EUR global rule deactivated for this tenant" } };
 }
 
 /** Prepares the explicit fixtures of one calc-v3 phase on the owned stack. */
