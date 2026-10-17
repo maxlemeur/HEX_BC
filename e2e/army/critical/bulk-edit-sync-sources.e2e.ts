@@ -4,7 +4,7 @@ import {
   apiRequest, armyTest, createEstimateViaWizard, createLineViaApi, readEstimate,
   recordEvidence, waitForAutoSave, type ArmyItem, type ArmyState, type OwnedEstimate,
 } from "./fixtures";
-import { expectStoredTotals } from "./version-totals-support";
+import { expectStoredTotals, reconcileStoredTotals, type StoredTotals } from "./version-totals-support";
 
 type Ui = Parameters<typeof createEstimateViaWizard>[0];
 type Envelope<T> = { ok: boolean; data: T; error?: { code: string; message: string } };
@@ -13,6 +13,10 @@ type Cleanup = () => Promise<void>;
 
 // Failure plan (S1, S2, P1; P2 is not reachable): docs/testing/bulk-edit-sync-baseline.md.
 const options = { session: "army", tags: ["critical", "bulk-edit-sync"], timeout: 300_000 };
+// Wizard V2 draft, fixed 0 % margin, 20 % VAT: 1 u at 10,00 € with K FO 1, then 1,3 once the suggestion
+// is applied (docs/testing/version-totals-after-bulk-actions.md, BT4 and BT5).
+const AT_K_FO_1: StoredTotals = [1000, 200, 1200];
+const AT_K_FO_1_3: StoredTotals = [1300, 260, 1560];
 
 async function createdData<T>(response: { status: number; body: Envelope<T> }) {
   expect([200, 201]).toContain(response.status);
@@ -169,7 +173,8 @@ async function suggestionJourney(ui: Ui, army: ArmyState, label: string, cleanup
   await expect(dialog).toBeHidden({ timeout: 30_000 });
   await expect.poll(persistedKFo, { timeout: 30_000, interval: 500 }).toBe(1.3);
   await expect(cell).toHaveValue("1,3");
-  return { ids, line, cell, persistedKFo };
+  const price = screen.getByLabel(`Prix d’achat unitaire HT pour ${title}`, { exact: true });
+  return { ids, line, cell, price, persistedKFo };
 }
 
 armyTest(
@@ -179,6 +184,8 @@ armyTest(
     const ui = { app, screen, browser };
     await withSharedState(ui, army, "s1", async (cleanups) => {
       const { ids, line, cell, persistedKFo } = await suggestionJourney(ui, army, "S1", cleanups);
+      // BT4: applying the suggestions stores the version totals of their lines, not a later save.
+      await expectStoredTotals(browser, army, { estimate: ids, step: "bulk-sync-s1-apply", expected: AT_K_FO_1_3 });
       await cell.fill("1");
       await cell.press("Tab");
       await saveAndRecord(ui, army, ids, line, "s1-edit-back", cell, "1", { k_fo: 1 });
@@ -196,9 +203,13 @@ armyTest(
   async ({ app, screen, browser, army }) => {
     const ui = { app, screen, browser };
     await withSharedState(ui, army, "s2", async (cleanups) => {
-      const { ids, line, cell, persistedKFo } = await suggestionJourney(ui, army, "S2", cleanups);
+      const { ids, line, cell, price, persistedKFo } = await suggestionJourney(ui, army, "S2", cleanups);
+      // BT5: the undo stores its own totals. The manual save first brings the stored totals to the
+      // lines, so that a stale apply (BT4) cannot hide a stale undo.
+      await reconcileStoredTotals(browser, army, { estimate: ids, step: "bulk-sync-s2-apply", expected: AT_K_FO_1_3, from: price });
       await screen.getByTestId("estimate-editor-alert-undo-bulk-suggest-button").click();
       await expect.poll(persistedKFo, { timeout: 30_000, interval: 500 }).toBe(1);
+      await expectStoredTotals(browser, army, { estimate: ids, step: "bulk-sync-s2-undo", expected: AT_K_FO_1 });
       await expect(cell).toHaveValue("1");
       await cell.fill("1,3");
       await cell.press("Tab");
