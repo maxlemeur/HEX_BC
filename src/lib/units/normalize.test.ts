@@ -1,0 +1,126 @@
+// Lot 2, sous-lot 2.4 (piste B) : normaliseur d'unités partagé TS/SQL (D9, P-08, P-09).
+// Défaillances visées : docs/testing/estimate-engine-v3-2.4-sql-units.md (U1 à U9).
+// Les 40 vecteurs sont repris à l'identique dans supabase/tests/database/measurement-units.test.sql :
+// le même jeton et la même cible doivent sortir des deux langages.
+import { describe, expect, it } from "vitest";
+
+import {
+  buildUnitsReferential,
+  checkUnitsSqlBlocks,
+} from "../../../scripts/units/generate-units-sql";
+import {
+  MEASUREMENT_UNITS,
+  measurementUnitToken,
+  normalizeMeasurementUnit,
+} from "@/lib/units/normalize";
+import unitsSource from "@/lib/units/units.json";
+
+type Vector = readonly [
+  raw: string,
+  token: string,
+  unitCode: string | null,
+  pricingStatus: string | null,
+];
+
+const VECTORS: readonly Vector[] = [
+  ["ML", "ml", "ml", null],
+  ["ml", "ml", "ml", null],
+  ["mL", "ml", "ml", null],
+  ["m.l.", "ml", "ml", null],
+  ["mètre linéaire", "metrelineaire", "ml", null],
+  ["m", "m", "ml", null],
+  ["  Ml  ", "ml", "ml", null],
+  ["m l", "ml", "ml", null],
+  ["m-l", "ml", "ml", null],
+  ["métres linéaires", "metreslineaires", "ml", null],
+  ["ＭＬ", "ml", "ml", null],
+  ["m²", "m2", "m2", null],
+  ["M2", "m2", "m2", null],
+  ["m 2", "m2", "m2", null],
+  ["Mètre carré", "metrecarre", "m2", null],
+  ["m³", "m3", "m3", null],
+  ["M3", "m3", "m3", null],
+  ["U", "u", "u", null],
+  ["unité", "unite", "u", null],
+  ["Pce", "pce", "u", null],
+  ["ENS", "ens", "ens", null],
+  ["Ensemble", "ensemble", "ens", null],
+  ["Fft", "fft", "fft", null],
+  ["forfait", "forfait", "fft", null],
+  ["KG", "kg", "kg", null],
+  ["Tonne", "tonne", "t", null],
+  ["h", "h", "h", null],
+  ["Jours", "jours", "j", null],
+  ["\"", "\"", "pouce", null],
+  ["Pouces", "pouces", "pouce", null],
+  ["HL", "hl", null, "out_of_scope"],
+  ["h.l.", "hl", null, "out_of_scope"],
+  ["PM", "pm", null, "for_memory"],
+  ["NC", "nc", null, "not_priced"],
+  ["Inc.", "inc", null, "included"],
+  ["incl", "incl", null, "included"],
+  ["CP", "cp", null, "included"],
+  ["SO", "so", null, "not_applicable"],
+  ["millilitre", "millilitre", null, null],
+  ["", "", null, null],
+];
+
+describe("normaliseur d'unités (D9)", () => {
+  it("compte exactement 40 vecteurs, identiques à ceux de la suite pgTAP", () => {
+    expect(VECTORS).toHaveLength(40);
+  });
+
+  it.each(VECTORS)("« %s » donne le jeton « %s »", (raw, token) => {
+    expect(measurementUnitToken(raw)).toBe(token);
+  });
+
+  it.each(VECTORS)(
+    "« %s » (jeton « %s ») se résout en unité %s / statut %s",
+    (raw, _token, unitCode, pricingStatus) => {
+      expect(normalizeMeasurementUnit(raw)).toEqual({ unitCode, pricingStatus });
+    }
+  );
+
+  it("ne résout ni null ni undefined en unité par défaut (U9)", () => {
+    expect(normalizeMeasurementUnit(null)).toEqual({ unitCode: null, pricingStatus: null });
+    expect(normalizeMeasurementUnit(undefined)).toEqual({
+      unitCode: null,
+      pricingStatus: null,
+    });
+  });
+
+  it("n'admet aucun millilitre et fait de chaque code son propre jeton (P-08, U5, U7)", () => {
+    expect(MEASUREMENT_UNITS.map((unit) => unit.code)).toContain("ml");
+    for (const unit of MEASUREMENT_UNITS) {
+      expect(measurementUnitToken(unit.code)).toBe(unit.code);
+      expect(normalizeMeasurementUnit(unit.code)).toEqual({
+        unitCode: unit.code,
+        pricingStatus: null,
+      });
+      expect(unit.label.toLowerCase()).not.toContain("millilitre");
+    }
+  });
+
+  it("distingue l'ensemble du forfait (P-08 : ens ≠ fft)", () => {
+    expect(normalizeMeasurementUnit("ens").unitCode).toBe("ens");
+    expect(normalizeMeasurementUnit("fft").unitCode).toBe("fft");
+  });
+});
+
+describe("référentiel généré (U4, U5)", () => {
+  it("garde la migration M3 et la suite pgTAP alignées sur units.json", () => {
+    expect(checkUnitsSqlBlocks()).toEqual([]);
+  });
+
+  it("refuse un jeton qui viserait deux cibles", () => {
+    const source = structuredClone(unitsSource);
+    source.units[0].aliases.push("HL");
+    expect(() => buildUnitsReferential(source)).toThrow(/UNITS_ALIAS_CONFLICT/);
+  });
+
+  it("refuse le millilitre, quelle que soit sa graphie", () => {
+    const source = structuredClone(unitsSource);
+    source.units[0].aliases.push("Millilitres");
+    expect(() => buildUnitsReferential(source)).toThrow(/UNITS_MILLILITRE_FORBIDDEN/);
+  });
+});
