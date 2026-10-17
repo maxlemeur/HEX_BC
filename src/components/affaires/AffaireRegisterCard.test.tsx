@@ -209,7 +209,7 @@ describe("AffaireRegisterCard", () => {
   });
 
   it("requests a targeted revalidation from a resolved entry", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const projectId = "11111111-1111-4111-8111-111111111111";
     const versionId = "22222222-2222-4222-8222-222222222222";
 
@@ -261,14 +261,13 @@ describe("AffaireRegisterCard", () => {
     await user.clear(
       screen.getByLabelText("Pièce ou additif déclenchant (facultatif)")
     );
-    await user.type(
-      screen.getByLabelText("Pièce ou additif déclenchant (facultatif)"),
-      "additif-cfo.pdf"
+    // Pasted, not typed: one re-render of the card per key passed the 5 s
+    // default on loaded CI runners (17/10/2026). The payload is what counts.
+    await user.paste("additif-cfo.pdf");
+    await user.click(
+      screen.getByRole("textbox", { name: "Consigne de reprise (facultative)" })
     );
-    await user.type(
-      screen.getByRole("textbox", { name: "Consigne de reprise (facultative)" }),
-      "Relancer uniquement la revue documentaire et la readiness."
-    );
+    await user.paste("Relancer uniquement la revue documentaire et la readiness.");
     await user.click(
       within(screen.getByRole("dialog")).getByRole("button", {
         name: /Confirmer la revalidation/i,

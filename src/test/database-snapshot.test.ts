@@ -193,8 +193,9 @@ describe("database snapshot", () => {
     };
     const tools = {
       bundle: "17.11.0.004-r1",
-      // Consume the SQL like psql; an immediate exit can race spawnSync's stdin write.
-      psql: tool("psql", "cat > /dev/null"),
+      // Reads its piped SQL like the real psql: exiting first races the parent's
+      // write into an EPIPE (seen on the CI runner, 17/10/2026).
+      psql: tool("psql", "cat >/dev/null; exit 0"),
       pgDump: tool("pg_dump", "echo 'pg_dump: error: connection refused' >&2; exit 1"),
       pgRestore: tool("pg_restore", "exit 1"),
     };
