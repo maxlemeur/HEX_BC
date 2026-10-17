@@ -548,7 +548,7 @@ select col_type_is('public', 'tenant_calc_policy_events', 'created_at', 'timesta
 
 select is(
   array(
-    select format('%s:%s', relation.relname, relation.relrowsecurity)
+    select format('%s:%s', relation.relname, relation.relrowsecurity::text)
     from pg_class relation
     where relation.oid in (
       to_regclass('public.tenant_calc_policies'),
@@ -865,7 +865,7 @@ select is(
 
 select is(
   pg_temp.v3_probe(null, format(
-    $a$select concat_ws('|', count(*), bool_and(previous_policy is null),
+    $a$select concat_ws('|', count(*), bool_and(previous_policy is null)::text,
          max(new_policy->>'new_estimate_calc_engine'), max(change_reason), max(changed_by::text))
        from public.tenant_calc_policy_events where tenant_id = %L$a$,
     pg_temp.fx('tenant_a')
@@ -1410,12 +1410,12 @@ select is(
 select is(
   pg_temp.v3_probe(null, $a$
     select concat_ws('|',
-      version.calc_snapshot_content_revision = version.content_revision,
+      (version.calc_snapshot_content_revision = version.content_revision)::text,
       version.calc_snapshot_context->>'engine',
       version.calc_snapshot_context->>'cost_subtotal_cents',
-      version.calc_snapshot_context->'tax_breakdown' = '[{"rate_bp":2000,"base_cents":6905456,"tax_cents":1381091}]'::jsonb,
-      version.calc_snapshot_context ? 'effective_margin_multiplier',
-      version.calc_snapshot_context ? 'margin_tiers',
+      (version.calc_snapshot_context->'tax_breakdown' = '[{"rate_bp":2000,"base_cents":6905456,"tax_cents":1381091}]'::jsonb)::text,
+      (version.calc_snapshot_context ? 'effective_margin_multiplier')::text,
+      (version.calc_snapshot_context ? 'margin_tiers')::text,
       (select sum(item.snapshot_gross_ht_cents) from public.estimate_items item where item.version_id = version.id),
       (select sum(item.snapshot_gross_fo_ht_cents) from public.estimate_items item where item.version_id = version.id),
       (select string_agg(item.snapshot_pu_ht_cents::text, ',' order by item.position)
@@ -1720,7 +1720,7 @@ select is(
     $a$),
     pg_temp.v3_probe(null, format(
       $a$select concat_ws('|', count(*), bool_or(previous_policy->>'new_estimate_calc_engine' = '3'
-           and new_policy->>'new_estimate_calc_engine' = '2'))
+           and new_policy->>'new_estimate_calc_engine' = '2')::text)
          from public.tenant_calc_policy_events where tenant_id = %L$a$,
       pg_temp.fx('tenant_a')
     ))
@@ -1746,7 +1746,7 @@ select is(
          coalesce(version.discount_amount_cents::text, 'null'), version.discount_bp, version.gross_ht_cents,
          version.discount_applied_cents, version.commercial_rounding_cents, version.total_ht_cents,
          version.total_tax_cents, version.total_ttc_cents, version.rounding_adjustment_cents,
-         pg_temp.v3_lines_signature(version.id) = pg_temp.v3_lines_signature('a3250000-0000-4000-8000-000000000120'))
+         (pg_temp.v3_lines_signature(version.id) = pg_temp.v3_lines_signature('a3250000-0000-4000-8000-000000000120'))::text)
        from public.estimate_versions version
        where version.id = current_setting('v3_test.duplicate_id')::uuid$a$
   ),
