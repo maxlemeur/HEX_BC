@@ -1,5 +1,5 @@
 import type { Browser } from "@e2e-dev/web";
-import { expect, type App, type Locator, type Screen } from "e2e";
+import { expect, type App, type Screen } from "e2e";
 
 import { apiRequest, readEstimate, recordEvidence, type ArmyState, type OwnedEstimate } from "./fixtures";
 
@@ -73,14 +73,19 @@ export async function expectStoredTotals(browser: Browser, army: ArmyState, inpu
  * Ctrl+S with no buffered edit: on a V2 draft the editor's manual save writes the version totals
  * of its lines when the stored ones differ (allowManualTotalsReconciliation), and writes no line.
  * A journey calls it before an undo, so that the undo starts from stored totals equal to the lines
- * and its own write is the only one judged. Polled: this save is the reconciling one. `from` is a
- * grid input that lets the shortcut reach the editor (the line's price input, as commercial-rounding).
+ * and its own write is the only one judged. Polled: this save is the reconciling one. The shortcut
+ * is pressed with no grid input focused: a grid input commits its value on blur, changed or not,
+ * and that commit is an undo step of its own (patch-item) that the next "Annuler" would take.
  */
 export async function reconcileStoredTotals(
-  { browser, screen }: Pick<Ui, "browser" | "screen">, army: ArmyState, input: StoredTotalsInput & { from: Locator },
+  { browser, screen }: Pick<Ui, "browser" | "screen">, army: ArmyState, input: StoredTotalsInput,
 ) {
-  const { estimate, step, expected, from } = input;
-  await from.focus();
+  const { estimate, step, expected } = input;
+  // The editor listens on window: from the page body, the shortcut reaches it.
+  await browser.evaluate(() => {
+    (document.activeElement as HTMLElement | null)?.blur();
+    return null;
+  });
   await browser.keyboard.press("ControlOrMeta+s");
   let read = await readStoredTotals(browser, estimate.versionId);
   try {

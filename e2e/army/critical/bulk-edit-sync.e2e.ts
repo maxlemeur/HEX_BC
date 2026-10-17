@@ -46,7 +46,6 @@ async function openMajorationLine(ui: Ui, army: ArmyState, label: string, labour
   const cell = screen.getByLabel(`Majoration de main-d’œuvre en pourcentage pour ${title}`, { exact: true });
   await expect(cell).toHaveValue("100");
   await screen.getByRole("tab", "Chiffrage", { exact: true }).click();
-  const price = screen.getByLabel(`Prix d’achat unitaire HT pour ${title}`, { exact: true });
   const persistedLine = async () => (await readEstimate(browser, ids.versionId)).items.find((item) => item.id === line.id);
   const persisted = async () => (await persistedLine())?.h_mo_majoration;
   const persistedRole = async () => (await persistedLine())?.labor_role_id ?? null;
@@ -63,7 +62,7 @@ async function openMajorationLine(ui: Ui, army: ArmyState, label: string, labour
   }
 
   return {
-    ids, line, role, grid, cell, price, persisted, persistedRole,
+    ids, line, role, grid, cell, persisted, persistedRole,
     async bulkMajoration(percent: string, expected: number) {
       await withSelection(async () => {
         await screen.getByLabel("Majoration MO en pourcentage", { exact: true }).fill(percent);
@@ -147,7 +146,7 @@ armyTest(
     // BT2: the undo and the redo store their own totals. The manual save first brings the stored
     // totals to the lines, so that a stale bulk write (BT1) cannot hide a stale undo.
     await reconcileStoredTotals({ browser, screen }, army, {
-      estimate: journey.ids, step: "bulk-sync-d2-majoration", expected: LABOUR_AT_150, from: journey.price,
+      estimate: journey.ids, step: "bulk-sync-d2-majoration", expected: LABOUR_AT_150,
     });
     await journey.history("Annuler", 1);
     await expectStoredTotals(browser, army, { estimate: journey.ids, step: "bulk-sync-d2-undo", expected: LABOUR_AT_100 });
