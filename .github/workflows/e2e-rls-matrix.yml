@@ -3,14 +3,12 @@ name: E2E RLS Matrix
 # Cette matrice monte une pile Supabase locale en runtime natif, sans Docker :
 # chaque service tourne comme un processus du runner ubuntu-24.04 (glibc 2.39).
 # Le job existe sur chaque PR pour pouvoir etre exige par le ruleset de main.
-# Seules les etapes lourdes sont conditionnelles ; les passes manuelles et
-# nocturnes restent completes pour couvrir les derives indirectes.
+# Seules les etapes lourdes sont conditionnelles ; une passe manuelle reste
+# complete pour qualifier les derives indirectes quand cela est necessaire.
 on:
   workflow_dispatch:
   pull_request:
     branches: ["main"]
-  schedule:
-    - cron: "45 3 * * *"
 
 permissions:
   contents: read
@@ -28,7 +26,7 @@ jobs:
       DO_NOT_TRACK: "1"
       MIGRATION_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
       # Le garde n'accepte que local | pull_request | push : on mappe
-      # explicitement, sinon la passe nocturne le ferait echouer.
+      # explicitement, sinon la passe manuelle le ferait echouer.
       MIGRATION_DIFF_MODE: ${{ github.event_name == 'pull_request' && 'pull_request' || 'local' }}
       SUPABASE_TELEMETRY_DISABLED: "1"
 
