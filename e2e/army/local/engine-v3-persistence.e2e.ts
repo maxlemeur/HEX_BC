@@ -386,6 +386,11 @@ armyTest("V3P01 a v3 born behind the tenant policy persists the oracle, its sett
 
   // V3P-06, réécrit en 2.6 (doc 2.6 §1.4, F26-15) : l'éditeur v3 s'ouvre sur la v3 persistée, sans le
   // bandeau du moteur 3 de 2.1, et l'ouvrir ne la réécrit pas (ni normalisation v2, ni total client).
+  // Le bail de brouillon pris par l'API de ce document est rendu d'abord : l'éditeur ouvert par une
+  // navigation est une autre session de page (useDraftLock) et resterait « Verrouillé par vous dans un
+  // autre onglet ». Les écritures suivantes le reprennent (`retakeLease`).
+  const release = await apiRequest(browser, "DELETE", `/api/estimates/${oracleId}/lock`);
+  expect(release.status).toBe(200);
   await app.open(`/dashboard/estimates/${oracleId}/edit`);
   await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible({ timeout: 60_000 });
   await expect(screen.getByTestId("estimate-page-toolbar-autosave-status")).toHaveText(/^(Sauvegardé|À jour)$/, { timeout: 30_000 });

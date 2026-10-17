@@ -13,7 +13,9 @@ import { insertV3Fixture, readV3State, type V3Fixture } from "./engine-v3-suppor
 //         (45,00 € HT, 54,00 € TTC, PU 22,50 € pour 2 × 22,50 € à marge ×1).
 //         Réécrit en 2.6 (docs/testing/estimate-engine-v3-2.6.md §1.4) : l'éditeur et la fiche d'un
 //         brouillon v3 s'ouvrent sans le bandeau de 2.1 ; l'éditeur montre l'aperçu du moteur 3
-//         (PU 29,25 €, 58,50 € HT, 70,20 € TTC à c_FO 1,30), la fiche les montants stockés.
+//         (PU 29,25 €, 58,50 € HT, 70,20 € TTC à c_FO 1,30), la fiche les montants stockés. Le
+//         propriétaire de la fixture est en mode Simplifié : le pied montre la seule pastille HT et
+//         le TTC se lit dans son détail (« Voir les détails de TVA, remise et TTC »).
 //  E2E-02 Ouvrir une v3 la réécrit (sauvegarde, normalisation, totaux) : révision ou montants
 //         modifiés en base.
 //  E2E-03 Publier ou envoyer une v3 réussit, échoue sans message nommé, ou laisse un document,
@@ -27,7 +29,8 @@ const V1_AMOUNTS = /45,00|54,00|22,50/;
 // L'éditeur v3 affiche le PR FO saisi (22,50) : seule la lecture v1 du HT et du TTC y est interdite.
 const V1_TOTALS = /45,00\s?€|54,00\s?€/;
 // Aperçu du moteur 3 de la fixture : 2 × ⌈2 250 × 1,30⌋ = 5 850 c HT, TVA 20 % 1 170 c, TTC 7 020 c.
-const V3_PREVIEW_CHIPS = ["Total HT : 58,50 €", "TTC à payer : 70,20 €"];
+const V3_PREVIEW_HT_CHIP = "Total HT : 58,50 €";
+const V3_PREVIEW_TTC = /TTC à payer\s*70,20\s?€/;
 type Envelope<T> = { ok: boolean; data: T; error?: { code: string; message: string } };
 
 function assertOwnedLocalBackend() {
@@ -101,11 +104,12 @@ armyTest("V3FC01 a v3 draft opens in the v3 editor and on its detail page withou
   // 2.6 : l'éditeur v3 s'ouvre (grille, pied v3) ; on attend l'aperçu du moteur 3 avant de lire l'écran.
   await app.open(`/dashboard/estimates/${fixture.versionId}/edit`);
   await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible({ timeout: 60_000 });
-  await expect.poll(async () => {
-    const chips = await summaryChips();
-    return V3_PREVIEW_CHIPS.filter(chip => !chips.includes(chip));
-  }, { timeout: 30_000 }).toEqual([]);
+  await expect.poll(async () => (await summaryChips()).includes(V3_PREVIEW_HT_CHIP), { timeout: 30_000 }).toBe(true);
   const editorChips = await summaryChips();
+  // Mode Simplifié : le détail (TVA, TTC) s'ouvre au clavier, sans le survol qui l'ouvre aussi.
+  await screen.getByRole("button", "Voir les détails de TVA, remise et TTC", { exact: true }).focus();
+  await browser.keyboard.press("Enter");
+  await expect.poll(async () => V3_PREVIEW_TTC.test(await visibleText(browser)), { timeout: 30_000 }).toBe(true);
   const editorText = await visibleText(browser);
   // La fiche relit les montants stockés (nuls pour cette fixture insérée en SQL), sans recalcul.
   await app.open(`/dashboard/estimates/${fixture.versionId}`);
@@ -115,15 +119,18 @@ armyTest("V3FC01 a v3 draft opens in the v3 editor and on its detail page withou
   const after = await readV3State(fixture.versionId);
   await recordEvidence(army, "engine-v3-read", {
     fixture: { versionId: fixture.versionId, title: fixture.title },
-    expected: { banner: false, v1AmountsShown: false, editorChips: V3_PREVIEW_CHIPS, state: before },
+    expected: { banner: false, v1AmountsShown: false, editorHtChip: V3_PREVIEW_HT_CHIP, editorTtc: String(V3_PREVIEW_TTC), state: before },
     actual: {
-      editor: { banner: editorText.includes(BANNER), v1TotalsShown: V1_TOTALS.test(editorText), chips: editorChips },
+      editor: { banner: editorText.includes(BANNER), v1TotalsShown: V1_TOTALS.test(editorText), chips: editorChips,
+        ttcShown: V3_PREVIEW_TTC.test(editorText) },
       detail: { banner: detailText.includes(BANNER), v1AmountsShown: V1_AMOUNTS.test(detailText) },
       state: after,
     },
   });
   expect(editorText).not.toContain(BANNER);
   expect(detailText).not.toContain(BANNER);
+  expect(editorChips).toContain(V3_PREVIEW_HT_CHIP);
+  expect(editorText).toMatch(V3_PREVIEW_TTC);
   expect(editorText).not.toMatch(V1_TOTALS);
   expect(detailText).not.toMatch(V1_AMOUNTS);
   expect(after).toEqual(before);
