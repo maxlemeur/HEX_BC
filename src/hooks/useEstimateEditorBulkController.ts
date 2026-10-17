@@ -22,6 +22,15 @@ type RecreatedItems = {
   createdItems: EstimateItem[];
 };
 
+// A move is only saved with its placement; the line payload alone omits it.
+function buildPlacedLineUpdatePayload(line: EstimateItem): EstimateItemUpdatePayload {
+  return {
+    ...buildEstimateItemUpdatePayload(line),
+    parent_id: line.parent_id ?? null,
+    position: line.position,
+  };
+}
+
 type EstimateEditorBulkControllerInput = {
   isMutationBlocked: boolean;
   mutationBlockedMessage: string;
@@ -82,7 +91,8 @@ export function useEstimateEditorBulkController({
     async (
       targetLines: EstimateItem[],
       failureMessage: string,
-      isCurrentScope: () => boolean = () => true
+      isCurrentScope: () => boolean = () => true,
+      buildUpdate: (line: EstimateItem) => EstimateItemUpdatePayload = buildEstimateItemUpdatePayload
     ) => {
       const snapshot = getItemsSnapshot();
       const versionSnapshot = getVersionSnapshot();
@@ -99,7 +109,7 @@ export function useEstimateEditorBulkController({
       );
       const updates = targetLines.map((line) => ({
         id: line.id,
-        updates: buildEstimateItemUpdatePayload(line),
+        updates: buildUpdate(line),
       }));
 
       try {
@@ -417,7 +427,9 @@ export function useEstimateEditorBulkController({
         if (
           !(await applyBulkLineState(
             movedLines,
-            "Impossible de déplacer les lignes sélectionnées."
+            "Impossible de déplacer les lignes sélectionnées.",
+            undefined,
+            buildPlacedLineUpdatePayload
           ))
         ) {
           return;
@@ -428,14 +440,16 @@ export function useEstimateEditorBulkController({
             await applyBulkLineState(
               selectedLines,
               "Impossible d'annuler le déplacement des lignes.",
-              context?.isCurrentScope
+              context?.isCurrentScope,
+              buildPlacedLineUpdatePayload
             );
           },
           redo: async (context) => {
             await applyBulkLineState(
               movedLines,
               "Impossible de réappliquer le déplacement des lignes.",
-              context?.isCurrentScope
+              context?.isCurrentScope,
+              buildPlacedLineUpdatePayload
             );
           },
         });

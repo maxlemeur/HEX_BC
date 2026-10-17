@@ -149,6 +149,33 @@ fournisseurs et l'application puis l'annulation des suggestions appellent
 - `.e2e/army/ci/2026-10-17T09-18-37-849Z-critical` (manifeste SHA-256
   `dc59ca51ec8368700feb070e9363fe49f339e77f4663c4891df22c5d0be08d65`,
   `--grep 'bulk edit sync suggestions|bulk move'`) : **S1 rouge** (saisie « 1 »,
-  cellule « 1 », « À jour », serveur `k_fo` 1,3), **S2 vert** comme prévu.
+  cellule « 1 », « À jour », serveur `k_fo` 1,3), **S2 vert** comme prévu. Le
+  même run porte la preuve rouge du [déplacement en lot](bulk-move-placement.md).
 
 pgTAP 13 fichiers / 1253 assertions et matrice RLS réussis à chaque run.
+
+### Preuve verte finale (17/10/2026, tous les correctifs)
+
+`.e2e/army/ci/2026-10-17T09-24-39-195Z-critical`, manifeste SHA-256
+`c309995e388a48bd44a49a1e5b077e043a185a577d826be6530fc3240312de4f`, statut
+`passed`, commande
+`npm run e2e:army:local -- --grep 'bulk edit sync|bulk move' --app-port 3127`.
+Build neuf `zShSU5JoM1CVgJIZftsH2` dont les entrées correspondent aux fichiers
+corrigés du worktree (contrôleurs lot `6f2cd759…`, suggestions `016eed10…`,
+fournisseurs `d6df70e3…`), sources inchangées pendant le build. Parcours **8/8**
+(connexion, D1–D3, S1, S2, P1, déplacement), aucun ignoré :
+
+| Parcours | Serveur | Cellule | Statut |
+| --- | --- | --- | --- |
+| S1 | `k_fo` 1 | « 1 » | « Sauvegardé » |
+| S2 | `k_fo` 1,3 | « 1,3 » | « Sauvegardé » |
+| P1 | 1000, aucune offre | « 10.00 » | « Sauvegardé » |
+| D1 / D2 | `h_mo_majoration` 1 | « 100 » | « Sauvegardé » |
+| D3 | `h_mo_majoration` 1,5 | « 150 » | « Sauvegardé » |
+
+Mode initial « Simplifié » rétabli après S1, S2 et P1 ; règles S1 et S2
+désactivées. Contrôles du même clone : Vitest (lot 8, suggestions 12,
+fournisseurs 7, synchronisation 35) 62/62 avant et après, ESLint
+`--max-warnings=0` sur les fichiers TypeScript touchés, `npm run typecheck`
+(avec `NODE_OPTIONS`), `git diff --check`, fichiers de calcul sans diff.
+`npm run build` et la suite critique complète n'ont pas été rejoués.
