@@ -101,11 +101,18 @@ async function leaseSession(browser: Browser, versionId: string) {
 }
 
 async function saveSettings(browser: Browser, army: ArmyState, versionId: string, label: string, patch: Record<string, unknown>) {
+  const started = Date.now();
+  const mark = (step: string) => recordEvidence(army, `io-settings-${label}-progress`, { step, elapsedMs: Date.now() - started });
+  await mark("lease");
   await retakeLease(browser, versionId);
+  await mark("read");
   const before = await readEstimate(browser, versionId);
+  await mark("save");
+  const sent = Date.now();
   const response = await apiRequest<Envelope<unknown>>(browser, "PATCH", `/api/estimates/${versionId}`,
     { ...patch, expected_content_revision: before.version.content_revision }, { "if-match": before.version.updated_at });
-  await recordEvidence(army, `io-settings-${label}`, { versionId, patch, status: response.status, ok: response.body.ok });
+  await recordEvidence(army, `io-settings-${label}`, { versionId, patch, status: response.status, ok: response.body.ok,
+    elapsedMs: { leaseAndRead: sent - started, save: Date.now() - sent } });
   expect([response.status, response.body.ok]).toEqual([200, true]);
   return readEstimate(browser, versionId);
 }
@@ -377,5 +384,74 @@ armyTest("IO06 a v2 template enters a v3 with the same MO and lists its converte
       });
     } finally {
       await closePolicy(owner, army, "modele");
+    }
+  });
+
+// E10 (règle 6) : une section importée d'une autre version reçoit un refus nommé dans une v3, sans écriture ;
+// la conversion des heures (mêmes règles que les modèles) est une suite du 2.8.
+armyTest("IO07 a section imported from another version into a v3 is refused by name, nothing written", options,
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser };
+    const { owner, projectId, anchorId } = await prepareV3Owner(ui, army, "section");
+    try {
+      await retakeLease(browser, anchorId);
+      const anchor = await readEstimate(browser, anchorId);
+      const section = await apiRequest<Envelope<{ item: ArmyItem }>>(browser, "POST", `/api/estimates/${anchorId}/items`,
+        { item_type: "section", position: 1, title: `${army.runPrefix} lot à importer` }, { "if-match": anchor.version.updated_at });
+      expect([section.status, section.body.ok]).toEqual([201, true]);
+      const current = await readEstimate(browser, anchorId);
+      const line = await apiRequest<Envelope<{ item: ArmyItem }>>(browser, "POST", `/api/estimates/${anchorId}/items`,
+        { item_type: "line", parent_id: section.body.data.item.id, position: 1, title: `${army.runPrefix} tube`,
+          description: "ml", quantity: 10, unit_price_ht_cents: 1000, h_mo: 5 }, { "if-match": current.version.updated_at });
+      expect([line.status, line.body.ok]).toEqual([201, true]);
+      const versionId = await blankV3(ui, army, projectId, "section");
+      const before = await readEstimate(browser, versionId);
+      const imported = await apiRequest<Envelope<unknown>>(browser, "POST", `/api/estimates/${versionId}/import-sections`,
+        { source_version_id: anchorId, section_ids: [section.body.data.item.id] });
+      const after = await readEstimate(browser, versionId);
+      const observed = {
+        response: [imported.status, imported.body.ok, imported.body.error?.code ?? null],
+        unchanged: after.items.length === before.items.length && after.version.updated_at === before.version.updated_at,
+      };
+      await recordEvidence(army, "io-section-import", { versionId, observed });
+      expect(observed).toEqual({ response: [409, false, "ESTIMATE_ENGINE_UNAVAILABLE"], unchanged: true });
+    } finally {
+      await closePolicy(owner, army, "section");
+    }
+  });
+
+// Règle 8 (P-14) : structure IA et version zéro sont refusées dans une v3 avec le message nommé, avant toute
+// lecture de brouillon ou appel d'IA ; rien n'est écrit. La mise à jour groupée directe l'est déjà (2.5).
+armyTest("IO08 AI structure and version zero are refused by name in a v3, nothing written", options,
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser };
+    const { owner, projectId } = await prepareV3Owner(ui, army, "p14");
+    try {
+      const versionId = await blankV3(ui, army, projectId, "p14");
+      const before = await readEstimate(browser, versionId);
+      const draftId = randomUUID();
+      const nodeId = randomUUID();
+      const probes = {
+        structureGenerate: await apiRequest<Envelope<unknown>>(browser, "POST", `/api/estimates/${versionId}/structure-drafts`, {}),
+        structureApply: await apiRequest<Envelope<unknown>>(browser, "POST",
+          `/api/estimates/${versionId}/structure-drafts/${draftId}/apply`, { mode: "merge_existing", selected_root_node_ids: [nodeId] }),
+        versionZeroGenerate: await apiRequest<Envelope<unknown>>(browser, "POST", `/api/estimates/${versionId}/version-zero-drafts`, {}),
+        versionZeroMaterialize: await apiRequest<Envelope<unknown>>(browser, "POST",
+          `/api/estimates/${versionId}/version-zero-drafts/${draftId}/materialize`, {}),
+      };
+      const after = await readEstimate(browser, versionId);
+      const observed = {
+        responses: Object.fromEntries(Object.entries(probes).map(([name, response]) =>
+          [name, [response.status, response.body.ok, response.body.error?.code ?? null]])),
+        unchanged: after.items.length === before.items.length && after.version.updated_at === before.version.updated_at,
+      };
+      await recordEvidence(army, "io-p14", { versionId, observed });
+      const refused = [409, false, "ESTIMATE_ENGINE_UNAVAILABLE"];
+      expect(observed).toEqual({
+        responses: { structureGenerate: refused, structureApply: refused, versionZeroGenerate: refused, versionZeroMaterialize: refused },
+        unchanged: true,
+      });
+    } finally {
+      await closePolicy(owner, army, "p14");
     }
   });

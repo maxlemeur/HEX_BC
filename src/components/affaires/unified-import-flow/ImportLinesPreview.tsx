@@ -182,6 +182,14 @@ export function ImportLinesPreview({
   );
 
   const perUnitDurations = preview.perUnitDurationsAsLineHours;
+  // Sub-lot 2.8 (rule 1): on a v3 import, a chosen role whose rate is not the workbook's is signalled.
+  const chosenRoleId = selectedLaborRoleId === undefined ? laborRole.roleId : selectedLaborRoleId;
+  const chosenRole = chosenRoleId ? preview.laborRoles.find((role) => role.id === chosenRoleId) : undefined;
+  const workbookRateCents = workbookParameters?.hourlyRateCents ?? null;
+  const chosenRoleRateGap =
+    isV3 && chosenRole && workbookRateCents !== null && chosenRole.hourlyRateCents !== workbookRateCents
+      ? { workbookCents: workbookRateCents, roleCents: chosenRole.hourlyRateCents }
+      : null;
 
   if (
     !isV3 &&
@@ -346,6 +354,11 @@ export function ImportLinesPreview({
               </option>
             ))}
           </NativeSelect>
+          {chosenRoleRateGap ? (
+            <p className="text-xs text-warning">
+              {`Taux horaire du classeur ${formatEurosFromCents(chosenRoleRateGap.workbookCents)}/h, rôle choisi ${formatEurosFromCents(chosenRoleRateGap.roleCents)}/h : la MO différera du classeur.`}
+            </p>
+          ) : null}
           {roleChoiceRequired ? (
             <p className="text-xs text-danger" role="alert">
               {laborRole.matchingRoleIds.length === 0

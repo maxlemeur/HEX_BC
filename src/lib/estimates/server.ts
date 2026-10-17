@@ -4192,6 +4192,9 @@ export async function importSectionsFromVersion(
     targetVersionId,
     context
   );
+  // Lot 2, sous-lot 2.8 (règle 6) : une section d'une autre version n'entre pas encore dans une v3 (conversion
+  // des heures en h/u : suite du 2.8) ; refus nommé avant toute écriture, au lieu du refus SQL générique.
+  if (usesPerUnitLabor(resolveEstimateEngineVersion(targetVersion))) throw new EstimateEngineUnavailableError();
   assertDraftStatus(targetVersion.status);
   await assertDraftLockOwnedByCurrentUser({
     supabase,

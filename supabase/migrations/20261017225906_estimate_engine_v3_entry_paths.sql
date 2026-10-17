@@ -7,7 +7,7 @@
 -- 2. public.estimate_v3_complete_entry_for_writer: under the v3 writer contract, resolves the unit of the
 --    new lines through the shared referential (a code, or a status mention), then stores the amounts of
 --    the v3 engine (private.estimate_v3_compute) on every line and on the version, and asserts them
---    (private.estimate_v3_assert_draft). Same trust model as the M4 writer bridges.
+--    (private.estimate_v3_assert_draft). Draft v3 only; same trust model as the M4 writer bridges.
 -- 3. insert_estimate_template_into_version: into a v3, hours per unit from the template, or h / Q
 --    half up to 4 decimals for a v1/v2 template; Q = 0 with hours is refused, line named
 --    (ESTIMATE_V3_TEMPLATE_HOURS_WITHOUT_QUANTITY).
@@ -15,7 +15,7 @@
 --    unit = h_mo / default quantity, exact to 4 decimals; refused, component named, when the default
 --    quantity is 0 with hours (ESTIMATE_V3_ASSEMBLY_HOURS_WITHOUT_QUANTITY) or when the quotient is not
 --    exact (ESTIMATE_V3_ASSEMBLY_HOURS_PER_UNIT_INEXACT).
--- 5. private.generated_ouvrage_insert_line accepts unit_code, pricing_status and hours per unit;
+-- 5. private.generated_ouvrage_insert_line accepts unit_code, pricing_status and hours per unit (labour);
 --    commit_generated_ouvrages writes a v3 under the writer contract and lets the bridge compute its
 --    amounts (the client sends no projection for a v3).
 -- finalize_estimate_assembly_calculation stays v1/v2: a v3 gets its amounts at insertion (point 2).
@@ -71,7 +71,7 @@ begin
   if p_version_id is null
     or coalesce(pg_catalog.current_setting('miaouffrage.estimate_v3_writer', true), '') <> p_version_id::text
     or not exists (select 1 from public.estimate_versions version
-      where version.id = p_version_id and version.calc_engine_version = 3)
+      where version.id = p_version_id and version.calc_engine_version = 3 and version.status = 'draft')
   then
     raise exception using errcode = '0A000', message = 'ESTIMATE_V3_WRITER_NOT_SUPPORTED';
   end if;
@@ -1043,10 +1043,10 @@ begin
     -- 2.8 (M6): a v3 is written under its writer contract; its amounts come from the v3 engine.
     previous_v3_writer := coalesce(pg_catalog.current_setting('miaouffrage.estimate_v3_writer', true), '');
     perform pg_catalog.set_config('miaouffrage.estimate_v3_writer', target_version.id::text, true);
-    select coalesce(array_agg(materialized.id), '{}') into inserted_ids
+    select coalesce(array_agg(materialized.id order by materialized.ordinality), '{}') into inserted_ids
     from public.materialize_estimate_assembly_tree(
       target_version.id, source_assembly.id, target_parent_id, target_position, 1, 0
-    ) materialized;
+    ) with ordinality as materialized;
     update public.estimate_versions
     set updated_at = now()
     where id = target_version.id
@@ -1080,7 +1080,7 @@ begin
 end;
 $$;
 
--- Copied from 20261012043643; only the v3 keys are accepted and written.
+-- Copied from 20261012043643; only the v3 keys are accepted and written, and hours per unit count as labour.
 create or replace function private.generated_ouvrage_insert_line(p_version_id uuid,p_id uuid,data jsonb,projection jsonb)
 returns void language plpgsql security invoker set search_path='' as $$
 declare v public.estimate_versions%rowtype; item public.estimate_items%rowtype; normalized jsonb; next_position integer; has_labor boolean; has_supply boolean;
@@ -1093,7 +1093,8 @@ begin
   normalized:=jsonb_build_object('quantity',1,'unit_price_ht_cents',0,'tax_rate_bp',v.tax_rate_bp,'k_fo',1,'h_mo',0,'h_mo_majoration',1,'k_mo',1,'position',next_position)||data||
     jsonb_build_object('id',p_id,'tenant_id',v.tenant_id,'version_id',p_version_id)||(projection-'id');
   select * into item from jsonb_populate_record(null::public.estimate_items,normalized);
-  has_supply:=coalesce(item.unit_price_ht_cents,0)>0; has_labor:=coalesce(item.h_mo,0)>0 or item.labor_role_id is not null;
+  -- 2.8 (M6): a v3 line carries its labour as hours per unit.
+  has_supply:=coalesce(item.unit_price_ht_cents,0)>0; has_labor:=coalesce(item.h_mo,0)>0 or coalesce(item.h_mo_per_unit,0)>0 or item.labor_role_id is not null;
   if not(data?'line_nature') then item.line_nature:=(case when has_labor and not has_supply then 'labor_only' when has_labor then 'supply_and_labor' else 'supply_only' end)::public.estimate_line_nature; end if;
   insert into public.estimate_items(id,tenant_id,version_id,parent_id,item_type,position,title,description,quantity,unit_price_ht_cents,tax_rate_bp,k_fo,h_mo,h_mo_majoration,k_mo,h_mo_atelier,k_mo_atelier,labor_role_atelier_id,h_mo_chantier,k_mo_chantier,labor_role_chantier_id,pu_ht_cents,labor_role_id,line_total_ht_cents,line_tax_cents,line_total_ttc_cents,line_nature,source_provider,source_file_name,source_page,unit_code,pricing_status,h_mo_per_unit)
     values(item.id,item.tenant_id,item.version_id,item.parent_id,item.item_type,item.position,item.title,item.description,item.quantity,item.unit_price_ht_cents,item.tax_rate_bp,item.k_fo,item.h_mo,item.h_mo_majoration,item.k_mo,null,null,null,null,null,null,item.pu_ht_cents,item.labor_role_id,item.line_total_ht_cents,item.line_tax_cents,item.line_total_ttc_cents,item.line_nature,item.source_provider,item.source_file_name,item.source_page,
