@@ -3,7 +3,8 @@
 Statut : **implémenté, relu et prouvé**, branche `lot2/2.2-offre-zero-ml`, recalée sur `main` `3d8d2f8a`
 (PR #24). Contrat et tests d'exigence écrits rouges d'abord (`4824b335`), puis l'implémentation et la
 migration M2 (`8ecd693a`, `20261017093407_supplier_offer_zero_price_policy.sql`), puis les corrections de
-la relecture (`9ac86341` rouge, `e48814fa` et `c7e6571b`).
+la relecture (`9ac86341` rouge, `e48814fa` et `c7e6571b`), puis celles de la seconde relecture (`6b42d6b4`
+rouge, `af9859fd`), recalées sur `main` `8495c5d8` par fusion.
 Source : [conception du lot 2](../audit-independant-2026-10-14/lot2/conception-lot2-moteur-v3.md), D9 (unités),
 D10 (A7), §5.3 T-Z, §14 « 2.2 », décisions P-08 et P-17 (validées le 16/10/2026). Règle d'entrée valable
 pour tous les moteurs : aucune ligne de devis déjà liée n'est modifiée.
@@ -12,8 +13,10 @@ pour tous les moteurs : aucune ligne de devis déjà liée n'est modifiée.
 
 - **A7.** Une offre fournisseur n'est utilisable pour son prix que si `unit_price_cents > 0` ou si elle est
   marquée `zero_price_kind ∈ {included, free}` (« Inclus », « Gratuit »). Le marquage n'est admis qu'à
-  0 €. Prédicat unique : `private.supplier_offer_price_eligible` (SQL) et `isSupplierOfferPriceEligible`
-  (`src/lib/estimates/supplier-offer-price.ts`).
+  0 €. Prédicat unique : `public.supplier_offer_price_eligible` (SQL, dans `public` et non `private` : voir
+  « Écarts à la conception ») et `isSupplierOfferPriceEligible` (`src/lib/estimates/supplier-offer-price.ts`).
+  Une ligne dont l'offre retenue ne chiffre rien n'est pas « couverte » : la comparaison fournisseurs la
+  compte « ambiguë » (`coverage_status`, `coverage_summary`).
 - **P-08.** `m` = `ml` ; « ML », « mL », « Ml » sont le mètre linéaire, pas le millilitre, qui n'est pas au
   référentiel. Le normaliseur complet (NFKD, alias) arrive en 2.4 ; 2.2 rend seulement l'égalité
   `m` / `ml` insensible à la casse, en TS (`supplierOfferIneligibility`) et dans la préparation d'achat SQL
@@ -50,23 +53,30 @@ parcours tourne dans une nouvelle phase `offers` de `npm run e2e:army:calc-v3`, 
 une fixture semée par le propriétaire natif. Parcours `e2e/army/local/supplier-offer-zero-price.e2e.ts` :
 
 - **OZ01** article avec une offre à 0 € non marquée et une à 12,40 € (unité « ml ») ; ligne en « ML » :
-  - comparaison fournisseurs : meilleur prix 12,40 € ; l'offre à 0 € est inéligible ;
+  - comparaison fournisseurs : meilleur prix 12,40 € ; l'offre à 0 € est inéligible ; la ligne déjà liée à
+    l'offre à 0 € est « ambiguë », jamais « couverte » (résumé : 0 couverte, 2 ambiguës, 1 sans prix) ;
   - présélection : 12,40 € proposé et appliqué, relu en base (`unit_price_ht_cents` 1 240,
     `selected_supplier_price_id`) ;
   - popover de suggestion sur une autre ligne en « ML » : 12,40 € appliqué, unité « ML » conservée
     (relue en base) ;
   - fiche article de l'éditeur : l'offre à 0 € n'est pas applicable ; 12,40 € l'est.
-- **OZ02** offre à 0 € marquée « Inclus » par la fiche d'offre du catalogue : applicable et libellée
-  « Inclus » dans la fiche article ; elle reste hors du prix de référence.
+- **OZ02** page articles du catalogue (`GET /api/catalogue?view=page`, soit `catalogue_products_page` et
+  `catalogue_products_summary`) : meilleur prix de P1 12,40 € (fournisseur « priced »), P2 et P3 sans prix
+  fournisseur (statut `none`), offres toujours comptées ; puis offre à 0 € de P3 marquée « Inclus » par la
+  fiche d'offre du catalogue : P3 passe à 0 € « fresh » et le marquage seul la fait passer de « sans prix
+  fournisseur » à « couverte » dans les compteurs (+1 / −1). Elle est applicable et libellée « Inclus » dans
+  la fiche article ; elle reste hors du prix de référence.
 - **OZ03** brouillon de commande d'une ligne en « ML » liée à l'offre en « ml » : accepté, quantité et prix
   relus dans le brouillon ; une ligne liée à l'offre à 0 € non marquée est refusée à la préparation.
 
 ### Isolation (justifiée)
 
-- **pgTAP `supabase/tests/database/supplier-offer-eligibility.test.sql`** : les prédicats SQL de
-  `catalogue_products_page`, `catalogue_products_summary` et `create_estimate_purchase_order_drafts`
-  ne sont pas tous observables par un parcours (résumé du catalogue, comptages, refus transactionnel
-  `40001`) ; la contrainte `zero_price_kind` est une intégrité de données. Assertions : offre à 0 € non
+- **pgTAP `supabase/tests/database/supplier-offer-eligibility.test.sql`** : la page et les compteurs du
+  catalogue sont aussi observés par OZ02. Le refus du prédicat dans `create_estimate_purchase_order_drafts`
+  ne l'est pas : la préparation (OZ03) ne donne aucune empreinte de relecture à une ligne bloquée, et un
+  `POST` de cette ligne échoue d'abord au contrôle d'empreinte, sous le même `40001`
+  `ORDER_DRAFT_PREPARATION_STALE` ; seul pgTAP isole ce refus. La contrainte `zero_price_kind` est une
+  intégrité de données. Assertions : offre à 0 € non
   marquée jamais retenue comme prix minimal, marquée retenue ; nombre d'offres inchangé ; préparation
   refusée pour une offre à 0 € non marquée, acceptée « ML » contre « ml » ; `zero_price_kind` refusé si le
   prix > 0 ; prix de référence inchangé.
@@ -88,6 +98,14 @@ Rejouer aussi : corpus figé et empreintes documentaires (aucun montant v1/v2 ne
   (`create_supplier_catalog_price`, import en masse) n'accepte pas le marquage.
 - **Empreinte de relecture d'achat inchangée.** `private.estimate_purchase_review_lines` n'inclut pas
   `zero_price_kind` ; la création du brouillon refait le contrôle d'éligibilité au moment de l'écriture.
+- **Écriture du lien non filtrée côté serveur (à accepter par le porteur).** Créer ou modifier une ligne
+  (`items`, `items/bulk`, `batch`) ne vérifie que l'existence de l'offre dans le tenant : un client au
+  cache périmé ou un appel direct peut lier une offre à 0 € non marquée. Ce n'est pas un des six chemins
+  de la conception, et ce n'est pas corrigé : le serveur ne déduit aucun montant du lien (le prix de ligne
+  est celui que le client écrit, avec ou sans lien) ; le seul usage du prix lié, l'achat, refuse l'offre en
+  TS (OZ03) et en SQL (pgTAP) ; enfin l'annulation (Ctrl+Z) d'un remplacement d'offre sur une ligne
+  historique réécrit son ancien lien, qu'un refus serveur bloquerait, et dans `batch` tout le lot de
+  sauvegarde de l'éditeur avec lui, alors que la règle d'entrée garde ces liens.
 
 ## Exécution rouge (17/10/2026, macOS, base `28c7546b` avant recalage, tests d'exigence aujourd'hui `4824b335`)
 
@@ -168,6 +186,42 @@ relevé quatre défauts, tous rendus observables en E2E rouge (`.e2e/lot2-2.2/re
 
 Les tests verts antérieurs ne voyaient pas R1 : les tests unitaires construisent des alternatives avec un
 prix, et OZ01 passait par l'API. Le panneau est désormais traversé par le parcours.
+
+## Seconde relecture (17/10/2026, sur `c2747b0f`)
+
+Chaque constat a été revérifié dans le code avant d'être traité.
+
+| # | Constat | Verdict | Traitement |
+|---|---|---|---|
+| S1 | La couverture d'une comparaison est calculée avant la lecture du prix et du marquage : une ligne liée à une offre à 0 € non marquée est « couverte » | confirmé | rouge `6b42d6b4` (OZ01), corrigé `af9859fd` : couverture calculée après la fusion des conditions, offre retenue inéligible = « ambiguë » ; lien inchangé |
+| S2 | Pas de preuve E2E de la page et des compteurs du catalogue (6 chemins sur 6 exigés en E2E) | confirmé | OZ02 lit `GET /api/catalogue?view=page` avant et après le marquage (voir « Preuves ») ; le refus SQL de création du brouillon reste prouvé par pgTAP seul (voir « Isolation ») |
+| S3 | L'écriture serveur du lien (`items`, `items/bulk`, `batch`) n'applique pas A7 | confirmé, non corrigé | écart à accepter par le porteur (voir « Écarts à la conception ») |
+| S4 | « Règles retenues » nommait `private.supplier_offer_price_eligible` | confirmé | corrigé en `public.` |
+| S5 | L'OpenAPI ne déclare pas `unit_price_cents` ni `zero_price_kind` dans les réponses de comparaison et de suggestion | confirmé | déclarés (`registry.ts`), `openapi.json` régénéré (+254 lignes, ces seuls champs) |
+
+**Rouge observé** (WSL Ubuntu-24.04, Node 24.14.0, `npm run e2e:army:calc-v3 -- --phase offers --grep OZ01`
+à `6b42d6b4`) : OZ01 échoue sur « a line linked to the unmarked 0 € offer is not covered: expected "covered"
+to be "ambiguous" » ; résumé `{covered 1, ambiguous 1, no_price 1}` (preuves
+`.e2e/army/ci/2026-10-17T12-44-29-801Z-calc-v3` du clone).
+
+**Rouge non exécuté pour S2.** Le rendre rouge exigeait de neutraliser le prédicat SQL et d'écarter son
+fichier pgTAP le temps d'une exécution ; ce contournement n'a pas été fait. La contre-preuve est dans la
+même exécution verte : avant marquage, l'offre à 0 € de P3 laisse P3 à `none` et hors des couvertes ; après
+marquage, P3 passe à 0 € `fresh` et +1 couverte. Le code d'avant 2.2 traitait déjà l'offre non marquée
+comme l'offre marquée (pgTAP rouge à `28c7546b` : meilleur prix 0, résumé `(4,3,1)`) : l'assertion
+« avant » aurait échoué.
+
+| Preuve (état `a7a34b78`, après fusion de `main` `8495c5d8`) | Résultat |
+|---|---|
+| `npm run e2e:army:calc-v3 -- --phase offers` (WSL, pile native possédée) | 4/4 (setup, OZ01, OZ02, OZ03), pgTAP 14 fichiers 1 265 PASS, matrice RLS passée, 5 min 34 s ; preuves `.e2e/army/ci/2026-10-17T12-49-38-667Z-calc-v3` |
+| Compteurs du catalogue relevés par OZ02 | avant `{active 3, covered 1, withoutSupplierPrice 2}`, après `{3, 2, 1}` ; P1 1 240 c, P2 `none`, P3 `none` puis 0 c |
+| Vitest ciblé (`server.coverage`, route `supplier-comparisons`, `purchase-order-drafts`, `supplier-offer-eligibility`, `affaires/server`, `bdc-export`, `openapi`) | 8 fichiers, 140 tests passés ; le simulacre de `readSupplierOfferConditions` d'un test de comparaison renvoie désormais le prix que la vraie requête lit |
+| `npm run typecheck`, ESLint des fichiers touchés, `npm run validate-openapi` | OK |
+| `src/lib/estimate-calculations.ts`, `src/lib/estimate-v2-snapshot.ts` | aucune différence avec `3d8d2f8a` ni `main` |
+
+Non rejoués : `db:upgrade-check` et `engine:document-fingerprints` (aucune migration ni fichier du moteur
+ou des documents modifié) ; les autres phases `calc-v3` (aucun parcours n'y lit la couverture fournisseurs).
+La suite critique complète est prouvée par la CI de la PR.
 
 ## Constats hors périmètre
 
