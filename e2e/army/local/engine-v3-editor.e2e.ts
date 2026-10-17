@@ -20,6 +20,8 @@ import {
 //          V3E-08 (Q doublée), V3E-09 (barèmes), V3E-10 (arrondi S4), fiche et impression du brouillon ;
 //  V3E02 — V3E-06 (« Hors lot » puis « Chiffrée »), V3E-04 (remise plafonnée, « demandé / appliqué ») ;
 //  V3E03 — V3E-07 (suggestion du catalogue), V3E-11 (présélection : recalcul persisté ou refus nommé).
+//  V3E04 — V3E-12 (comparaison fournisseurs d'une ligne : unité de la ligne v3 lue dans unit_code), ajouté à
+//          l'intégration (doc 2.6 §10.4, F26-20), rouge avant la correction.
 // Chaque état sauvegardé est lu à l'écran, par l'API, puis à l'écran et par l'API après rechargement.
 const options = (timeout: number) => ({ session: "army", tags: ["critical", "local", "engine-v3"], timeout }) as const;
 
@@ -574,4 +576,85 @@ armyTest("V3E03 a catalogue suggestion keeps the v3 unit, and the supplier prese
     });
     // The known v2 defect (lines written, stored totals stale) shows « Totaux à synchroniser ».
     expect(normalized(await browser.evaluate(() => document.body.innerText))).not.toContain("Totaux à synchroniser");
+  });
+
+armyTest("V3E04 the per-line supplier comparison of a v3 line reads its unit_code: an offer in another unit is refused, a retained offer keeps unit_code and description",
+  options(420_000), async ({ app, screen, browser, army }) => {
+    const ui: Ui = { app, screen, browser };
+    const dialogs = await recordDialogs(ui);
+    const draft: V3Draft = await prepareV3Draft(ui, army, "V3E04");
+    // A v3 line as the grid makes it: its unit in unit_code (D9), nothing in description (F26-10).
+    const designation = `${army.runPrefix} cuivre 18`;
+    const [line] = await seedLines(ui, army, draft, "v3e04", [
+      { line_nature: "supply_only", title: designation, unit_code: "ml", pricing_status: "priced", quantity: 2,
+        unit_price_ht_cents: 1500, tax_rate_bp: 2000, k_fo: 1, h_mo_per_unit: 0, h_mo_majoration: 1, k_mo: 1, source_provider: "manual" },
+    ]);
+    expect([line.unit_code, line.description ?? null, line.pu_ht_cents, line.line_total_ht_cents]).toEqual(["ml", null, 1950, 3900]);
+    // Catalogue by its API (same path as V3E03): one offer in the line unit, one in another unit, no conversion.
+    army.ownedPriceLookupProjects = [draft.projectId];
+    const created = async <T>(label: string, pathname: string, body: unknown) => {
+      const response = await apiRequest<Envelope<{ item: T }>>(browser, "POST", pathname, body);
+      await recordEvidence(army, `v3e04-catalogue-${label}`, { pathname, body, response });
+      expect([response.status, response.body.ok]).toEqual([201, true]);
+      return response.body.data.item;
+    };
+    const product = await created<{ id: string }>("product", "/api/products", {
+      action: "create", item: { designation, reference: `${army.runPrefix}-CU18`, unit: "ML", unit_price_cents: 1500 } });
+    type Offer = { id: string; product_id: string; supplier_id: string; unit_price_cents: number };
+    const supplierMl = `${army.runPrefix} fournisseur ml`;
+    const supplierBar = `${army.runPrefix} fournisseur barre`;
+    const offerFrom = async (label: string, supplierName: string, unit: string, cents: number) => {
+      const supplier = await created<{ id: string }>(`supplier-${label}`, "/api/suppliers", {
+        action: "create", item: { name: supplierName, is_active: true } });
+      return created<Offer>(`offer-${label}`, "/api/prices", {
+        action: "create", item: { supplier_id: supplier.id, product_id: product.id, supplier_sku: `${army.runPrefix}-${label}`, unit,
+          min_quantity: 1, unit_price_cents: cents, currency: "EUR", valid_from: new Date().toISOString().slice(0, 10) } });
+    };
+    const offerMl = await offerFrom("ml", supplierMl, "ml", 1240);
+    const offerBar = await offerFrom("bar", supplierBar, "barre", 5000);
+    expect([offerMl.unit_price_cents, offerBar.unit_price_cents]).toEqual([1240, 5000]);
+    await switchToExpertMode(ui);
+    await openV3Editor(ui, army, draft, "v3e04");
+
+    // V3E-12 : la comparaison de la ligne juge chaque offre dans l'unité de la ligne v3 (unit_code), jamais
+    // dans description, vide : une offre à la barre est refusée (« Unité différente du devis »).
+    await screen.getByRole("button", `Plus d'actions pour ${designation}`, { exact: true }).tap();
+    await screen.getByRole("menuitem", "Comparer les fournisseurs", { exact: true }).tap();
+    const panel = screen.getByRole("dialog", "Comparer fournisseurs", { exact: true });
+    await expect(panel).toBeVisible({ timeout: 30_000 });
+    const card = (supplierName: string) => browser.locator("[role=\"dialog\"] article").filter({ hasText: supplierName });
+    const retain = (supplierName: string) =>
+      card(supplierName).getByRole("button", /^(Retenir cette offre|Actualiser cette offre|Offre retenue)$/);
+    await expect.poll(async () => (await card(supplierMl).count()) + (await card(supplierBar).count()), { timeout: 30_000 }).toBe(2);
+    const offerView = async (supplierName: string) => ({
+      unitRefused: normalized(await card(supplierName).textContent()).includes("Unité différente du devis"),
+      retainEnabled: await retain(supplierName).isEnabled(),
+    });
+    const offers = { ml: await offerView(supplierMl), bar: await offerView(supplierBar) };
+
+    // Retenir l'offre en ml : seuls le PR FO et l'offre changent ; unit_code reste ml, description reste vide.
+    await retain(supplierMl).tap();
+    await expect(panel).toBeHidden({ timeout: 30_000 });
+    await saveLineEditsWithShortcut(ui, draft.versionId, designation, army);
+    const saved = await waitForAutoSave(ui, draft.versionId,
+      (snapshot) => snapshot.items.find(item => item.id === line.id)?.selected_supplier_price_id === offerMl.id, army);
+    const savedLine = saved.items.find(item => item.id === line.id)!;
+    const review = {
+      offers,
+      persisted: { unitCode: savedLine.unit_code ?? null, description: savedLine.description ?? null,
+        prFo: Number(savedLine.unit_price_ht_cents), offerId: savedLine.selected_supplier_price_id ?? null },
+    };
+    const expected = {
+      offers: { ml: { unitRefused: false, retainEnabled: true }, bar: { unitRefused: true, retainEnabled: false } },
+      persisted: { unitCode: "ml", description: null, prFo: 1240, offerId: offerMl.id },
+    };
+    await recordEvidence(army, "v3e04-supplier-comparison", {
+      versionId: draft.versionId, lineId: line.id, offerMlId: offerMl.id, offerBarId: offerBar.id, expected, actual: review, nativeDialogs: dialogs,
+    });
+    expect(review, "the v3 line unit is unit_code for the supplier comparison and is never written to description").toEqual(expected);
+    await checkpoint(ui, army, "v3e04-retained", draft.versionId, {
+      api: { version: { totals: [3224, 645, 3869] }, lines: { [line.id]: { unit: "ml", offerId: offerMl.id, prFo: 1240, pu: 1612, net: 3224 } } },
+      screen: { chips: chips([3224, 645, 3869], [["20", 645]]),
+        rows: [{ id: line.id, title: designation, unit: "ml — mètre linéaire", pu: "16,12", pt: eur(3224) }] },
+    });
   });
