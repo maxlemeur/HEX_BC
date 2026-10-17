@@ -193,7 +193,8 @@ describe("database snapshot", () => {
     };
     const tools = {
       bundle: "17.11.0.004-r1",
-      psql: tool("psql", "exit 0"),
+      // Consume the SQL like psql; an immediate exit can race spawnSync's stdin write.
+      psql: tool("psql", "cat > /dev/null"),
       pgDump: tool("pg_dump", "echo 'pg_dump: error: connection refused' >&2; exit 1"),
       pgRestore: tool("pg_restore", "exit 1"),
     };
