@@ -1,6 +1,12 @@
-import { existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+
+import * as v3SettingsPayload from "@/lib/estimates/v3-settings-payload";
+import type {
+  EstimateV3SettingsDraft as Draft,
+  EstimateV3SettingsField as Field,
+  EstimateV3SettingsInputResult as InputResult,
+  EstimateV3SettingsPayload as Payload,
+} from "@/lib/estimates/v3-settings-payload";
 
 /**
  * Lot 2, sous-lot 2.6 — charge de sauvegarde des réglages d'une v3 (conception D5, D6, D11, F12 ;
@@ -17,64 +23,14 @@ import { describe, expect, it } from "vitest";
  *         message.
  *
  * Contrat du module pur que 2.6 crée (§1.2 du document) : `src/lib/estimates/v3-settings-payload.ts`,
- * réexporté par `src/hooks/useEstimateV3Settings.ts`. Recopié ici tant que le module n'existe pas :
- * le build de production des parcours Army vérifie aussi les tests, un import statique d'un module
- * absent le casserait. L'implémentation remplace ces types par
- * `import type { … } from "@/lib/estimates/v3-settings-payload"` et le chargement dynamique par un
- * import statique.
+ * réexporté par `src/hooks/useEstimateV3Settings.ts`. Le rouge recopiait ce contrat et chargeait le
+ * module par un spécificateur en variable tant qu'il n'existait pas (le build de production des
+ * parcours Army vérifie aussi les tests) ; au vert (§6 du document) : types importés du module et
+ * import statique, sans modifier une assertion.
  */
-type DiscountIntent =
-  | { kind: "none" }
-  | { kind: "amount"; amount_cents: number }
-  | { kind: "rate"; rate_bp: number };
-
-type Draft = {
-  title: string;
-  date_devis: string;
-  exclusions: string;
-  validite_jours: number;
-  currency: "EUR" | "USD" | "GBP";
-  contractor_role: "principal" | "subcontractor";
-  sale_coefficient_fo: number;
-  sale_coefficient_mo: number;
-  discount: DiscountIntent;
-  tax_rate_bp: number;
-  rounding_mode: "none" | "down";
-  rounding_step_cents: number;
-};
-
 type VersionRow = Omit<Draft, "discount"> & {
   discount_amount_cents: number | null;
   discount_bp: number;
-};
-
-type Field = "sale_coefficient_fo" | "sale_coefficient_mo" | "discount_amount" | "discount_rate";
-
-type InputErrorCode =
-  | "ESTIMATE_V3_SALE_COEFFICIENT_REQUIRED"
-  | "ESTIMATE_V3_SALE_COEFFICIENT_INVALID"
-  | "ESTIMATE_V3_DISCOUNT_INVALID";
-
-type InputResult = {
-  draft: Draft;
-  error: { field: Field; code: InputErrorCode; message: string } | null;
-};
-
-type Payload = {
-  title: string | null;
-  exclusions: string | null;
-  date_devis: string;
-  validite_jours: number;
-  currency: Draft["currency"];
-  contractor_role: Draft["contractor_role"];
-  sale_coefficient_fo: number;
-  sale_coefficient_mo: number;
-  discount_amount_cents: number | null;
-  discount_bp: number;
-  tax_rate_bp: number;
-  rounding_mode: Draft["rounding_mode"];
-  rounding_step_cents: number;
-  apply_tax_rate_to_lines?: true;
 };
 
 type V3SettingsPayloadApi = {
@@ -83,19 +39,8 @@ type V3SettingsPayloadApi = {
   buildEstimateV3SettingsPayload: (draft: Draft, options: { applyTaxRateToLines: boolean }) => Payload;
 };
 
-const MODULE_PATH = fileURLToPath(new URL("./v3-settings-payload.ts", import.meta.url));
-let loadedApi: Promise<V3SettingsPayloadApi> | null = null;
-
 function loadApi(): Promise<V3SettingsPayloadApi> {
-  if (!existsSync(MODULE_PATH)) {
-    return Promise.reject(new Error(
-      "MODULE_ABSENT: src/lib/estimates/v3-settings-payload.ts (sous-lot 2.6, contrat du §1.2 de " +
-      "docs/testing/estimate-engine-v3-2.6.md) n'existe pas encore."
-    ));
-  }
-  // Specifier held in a variable: neither tsc nor the Army build resolve the future module.
-  loadedApi ??= import(/* @vite-ignore */ MODULE_PATH) as Promise<V3SettingsPayloadApi>;
-  return loadedApi;
+  return Promise.resolve(v3SettingsPayload);
 }
 
 /** Clés exactes d'une charge v3 : aucune clé v2 (marge, coefficient global, cascade) ni total client. */
