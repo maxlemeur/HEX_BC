@@ -100,7 +100,7 @@ export const CALC_V3_PHASE_DEFINITIONS: Readonly<Record<CalcV3Phase, CalcV3Phase
     serverMode: "production",
     tests: [CRITICAL_SETUP, "e2e/army/local/supplier-offer-zero-price.e2e.ts"],
     setupTitle: CRITICAL_SETUP_TITLE,
-    expected: { [CRITICAL_SETUP]: 1, "e2e/army/local/supplier-offer-zero-price.e2e.ts": 3 },
+    expected: { [CRITICAL_SETUP]: 1, "e2e/army/local/supplier-offer-zero-price.e2e.ts": 4 },
     maxDuration: 1_200_000,
   },
   emission: {
