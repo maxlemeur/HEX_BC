@@ -7,6 +7,7 @@ import {
   apiRequest, armyTest, ownEstimate, readEstimate, recordEvidence, waitForAutoSave,
   type ArmyEstimate, type ArmyItem, type ArmyState,
 } from "../critical/fixtures";
+import { expectStoredTotalsMatchLines } from "../critical/version-totals-support";
 
 // Sub-lot 2.2 (A7, P-08). Contract written before the fix: docs/testing/estimate-engine-v3-2.2.md.
 // Failure modes exposed here, on catalogue records seeded for the calc-v3 "offers" phase:
@@ -25,10 +26,10 @@ type Fixture = {
   deliverySite: { id: string; updatedAt: string };
   estimates: Record<EstimateKey, { projectId: string; versionId: string; sectionId: string }>;
   lines: Record<"compareP1" | "compareP2" | "popover" | "sheet" | "linkedZero" | "popoverSquare" | "compareP3" | "sheetIncluded" |
-    "purchaseMl" | "purchaseZero",
+    "purchaseMl" | "purchaseZero" | "legacyV1",
     { id: string; title: string; unit: string; estimate: EstimateKey }>;
 };
-type EstimateKey = "oz01" | "oz02" | "oz03";
+type EstimateKey = "oz01" | "oz02" | "oz03" | "oz04";
 type Envelope<T> = { ok: boolean; data: T; error?: { code: string; message: string } };
 type Alternative = { supplier_price_id: string; adjusted_unit_price_cents: number; zero_price_kind?: string | null };
 type Comparisons = {
@@ -71,7 +72,8 @@ const priced = (item: ArmyItem) => ({
 
 // Polls the persisted estimate. Known defect predating sub-lot 2.2, recorded and not asserted
 // here: applying a supplier preselection writes the lines but leaves the stored version totals
-// unchanged, and the editor shows "Totaux à synchroniser" instead of reconciling them.
+// unchanged, and the editor shows "Totaux à synchroniser" instead of reconciling them. OZ04 (V1)
+// and the critical P1 journey (V2) assert it: docs/testing/version-totals-after-preselection.md.
 async function waitForPersisted(browser: Parameters<typeof apiRequest>[0], army: ArmyState, versionId: string,
   label: string, predicate: (snapshot: ArmyEstimate) => boolean) {
   const deadline = Date.now() + 90_000;
@@ -336,4 +338,34 @@ armyTest("OZ03 purchase preparation orders an ML line on an ml offer and refuses
       unit_price_ht_cents: 1240, line_total_ht_cents: 2480 })]);
     const after = await readEstimate(browser, estimate.versionId);
     expect(priced(lineOf(after, lines.purchaseZero.id))).toMatchObject({ price: 500, selected: offers.p2Zero.id });
+  });
+
+// Version totals after a supplier preselection (docs/testing/version-totals-after-preselection.md).
+// V1 path: the public creation schema only makes V2 drafts, so oz04 is a seeded legacy V1 draft
+// (fixed margin 1, 20 % VAT, no discount, totals 0 like its single line at 0 €).
+armyTest("OZ04 a supplier preselection on a legacy V1 draft stores the version totals with its lines", options,
+  async ({ app, screen, browser, army }) => {
+    const fixture = await loadFixture();
+    const estimate = fixture.estimates.oz04;
+    ownEstimate(army, { projectId: estimate.projectId, versionId: estimate.versionId });
+    const { lines, offers } = fixture;
+    await app.open("/dashboard");
+    const before = await readEstimate(browser, estimate.versionId);
+    expect(before.version.calc_engine_version, "legacy V1 draft").toBe(1);
+    expect([before.version.total_ht_cents, before.version.total_tax_cents, before.version.total_ttc_cents]).toEqual([0, 0, 0]);
+
+    await app.open(`/dashboard/estimates/${estimate.versionId}/edit`);
+    await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible();
+    await screen.getByRole("tab", /^Affichage & contrôle(?: \d+)?$/).tap();
+    await screen.getByTestId("estimate-editor-display-button").tap();
+    const preselect = screen.getByTestId("estimate-editor-supplier-preselection-button");
+    await expect(preselect).toBeEnabled({ timeout: 30_000 });
+    await preselect.tap();
+    await screen.getByRole("button", "Appliquer la sélection", { exact: true }).tap();
+    await waitForPersisted(browser, army, estimate.versionId, "oz04-preselection", (snapshot) =>
+      lineOf(snapshot, lines.legacyV1.id).selected_supplier_price_id === offers.p1Priced.id);
+    // 2 ML at 12,40 €: 24,80 € HT, 4,96 € VAT, 29,76 € TTC, stored with the preselection itself.
+    await expectStoredTotalsMatchLines({ app, screen, browser }, army, {
+      estimate, projectName: `${fixture.prefix} oz04`, step: "oz04", expected: [2480, 496, 2976],
+    });
   });

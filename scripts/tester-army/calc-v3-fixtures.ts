@@ -502,8 +502,10 @@ async function offersFixtures(context: CalcV3FixtureContext, campaign: string): 
   };
   const deliverySite = { id: randomUUID(), updatedAt: new Date(Date.now() - 1_000).toISOString() };
   // One draft per journey: two editor sessions on one estimate would contend for its edit lock.
+  // oz04 is a legacy V1 draft (docs/testing/version-totals-after-preselection.md): the public
+  // creation schema only makes V2 estimates, so the V1 preselection path needs this seed.
   const estimate = () => ({ projectId: randomUUID(), versionId: randomUUID(), sectionId: randomUUID() });
-  const estimates = { oz01: estimate(), oz02: estimate(), oz03: estimate() };
+  const estimates = { oz01: estimate(), oz02: estimate(), oz03: estimate(), oz04: estimate() };
   type EstimateKey = keyof typeof estimates;
   type LineExtra = { quantity: number; unit_price_ht_cents?: number; product_id?: string; selected_supplier_price_id?: string };
   const line = (estimateKey: EstimateKey, title: string, unit: string, extra: LineExtra) =>
@@ -524,6 +526,7 @@ async function offersFixtures(context: CalcV3FixtureContext, campaign: string): 
       { quantity: 2, unit_price_ht_cents: 1240, product_id: products.p1.id, selected_supplier_price_id: offers.p1Priced.id }),
     purchaseZero: line("oz03", `${prefix} achat zéro`, "ml",
       { quantity: 1, unit_price_ht_cents: 500, product_id: products.p2.id, selected_supplier_price_id: offers.p2Zero.id }),
+    legacyV1: line("oz04", products.p1.designation, "ML", { quantity: 2 }),
   };
   const records: PlanRecord[] = [
     ...Object.entries(suppliers).map(([key, id]) => ({ table: "suppliers", row: { ...common, id, name: `${prefix} fournisseur ${key}`, is_active: true } })),
@@ -539,7 +542,10 @@ async function offersFixtures(context: CalcV3FixtureContext, campaign: string): 
     ...Object.entries(estimates).flatMap(([key, entry]) => [
       { table: "estimate_projects", row: { ...common, id: entry.projectId, user_id: owner.userId, name: `${prefix} ${key}` } },
       { table: "estimate_versions", row: { ...common, ...versionDefaults, id: entry.versionId, project_id: entry.projectId,
-        title: `${prefix} ${key}`, calc_engine_version: 2, max_section_depth: 1, discount_bp: 0 } },
+        title: `${prefix} ${key}`, max_section_depth: 1, discount_bp: 0,
+        ...(key === "oz04"
+          ? { calc_engine_version: 1, discount_mode: "simple", discount_steps: [], contractor_role: "principal" }
+          : { calc_engine_version: 2 }) } },
       { table: "estimate_items", row: { ...common, id: entry.sectionId, version_id: entry.versionId, parent_id: null, item_type: "section",
         position: 0, title: `${prefix} ${key} lot` } },
     ]),
@@ -563,7 +569,7 @@ async function offersFixtures(context: CalcV3FixtureContext, campaign: string): 
     suppliers, products, offers, deliverySite, estimates,
     lines: Object.fromEntries(Object.entries(lines).map(([key, entry]) =>
       [key, { id: entry.id, title: entry.title, unit: entry.unit, estimate: entry.estimateKey }])),
-    boundary: "Catalogue records and one draft V2 estimate of the runner's ARMY tenant, seeded for this phase only." });
+    boundary: "Catalogue records, three draft V2 estimates and one legacy V1 draft of the runner's ARMY tenant, seeded for this phase only." });
   return { env: { E2E_SUPPLIER_OFFERS_FIXTURE_PATH: fixture }, secretEnv: {},
     login: { email: actor.email, password: actor.password },
     identities: { owner: publicActor(actor), prefix, suppliers, products, offers, estimates } };

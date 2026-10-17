@@ -4,6 +4,7 @@ import {
   apiRequest, armyTest, createEstimateViaWizard, createLineViaApi, readEstimate,
   recordEvidence, waitForAutoSave, type ArmyItem, type ArmyState, type OwnedEstimate,
 } from "./fixtures";
+import { expectStoredTotalsMatchLines } from "./version-totals-support";
 
 type Ui = Parameters<typeof createEstimateViaWizard>[0];
 type Envelope<T> = { ok: boolean; data: T; error?: { code: string; message: string } };
@@ -258,6 +259,13 @@ armyTest(
       await expect.poll(persistedLine, { timeout: 30_000, interval: 500 })
         .toEqual({ unit_price_ht_cents: 1234, selected_supplier_price_id: offer.id });
       await expect(price).toHaveValue("12.34");
+      // V2 draft, fixed 0 % margin, 20 % VAT: 1 u at 12,34 € gives 12,34 € HT, 2,47 € VAT, 14,81 € TTC.
+      // The version stores those totals with the preselection itself, not at a later save
+      // (docs/testing/version-totals-after-preselection.md).
+      await expectStoredTotalsMatchLines(ui, army, {
+        estimate: ids, projectName: army.projectName, step: "bulk-sync-p1-preselection", expected: [1234, 247, 1481],
+      });
+      await openEditor(ui, ids.versionId);
 
       // The offer is withdrawn from the catalogue; the estimator goes back to the article's reference price.
       await createdData(await apiRequest<Envelope<unknown>>(browser, "POST", "/api/prices", {
