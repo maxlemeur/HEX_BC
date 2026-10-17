@@ -244,6 +244,7 @@
     "20261014033048_estimate_approval_projection_clock.sql": "430124c8bb15ab70c8f5f6bd04dba6e04c5c06ba52c511dd7383b6d0d1e882d5",
     "20261014070453_estimate_settings_atomic.sql": "5b4115cd40a2b3106e02aa51f40d89cff5d39b404ae19f9c741add137b36bd35",
     "20261014114943_estimate_fixed_discount_and_template_parent_integrity.sql": "3741032da87f06688ecabe5e6f76ba90049839e6f783719693b35acce537bafe",
-    "20261015190000_scope_takeoff_recalculation_safeupdate.sql": "c44f026e098518cc9e3e08c1b53b2c2f9198e455920a25bd388186d2ccf2bed9"
+    "20261015190000_scope_takeoff_recalculation_safeupdate.sql": "c44f026e098518cc9e3e08c1b53b2c2f9198e455920a25bd388186d2ccf2bed9",
+    "20261017113844_estimate_calc_engine_v3_fail_closed.sql": "ab7abbe6e942f114e6f822aa2e6b3f2a52d9786e6af81b32843a606293fdf71d"
   }
 }
