@@ -1,17 +1,17 @@
 import type { SupplierOfferConditions } from "@/lib/estimates/supplier-offer-conditions";
 import { isSupplierOfferPriceEligible, type SupplierOfferPrice } from "@/lib/estimates/supplier-offer-price";
+import { offerEstimateUnit, purchaseQuantity } from "@/lib/estimates/supplier-offer-purchase-unit";
 import { isSupplierAlternativeCurrencyCompatible } from "@/lib/estimates/supplier-preselection";
+import { measurementUnitToken, normalizeMeasurementUnit } from "@/lib/units/normalize";
 
-// P-08: "ml" is the linear metre whatever its case ("ML" in a DPGF), equal to "m"; the
-// millilitre is not part of the unit referential. Kept on purpose for every engine: the shared
-// normaliser of sub-lot 2.4 (src/lib/units) replaces it, together with its SQL twin
-// private.purchase_unit_token, only in sub-lot 2.9 (purchase unit carried by the offer, D9).
+// Sub-lot 2.9 (D9, point 30 of estimate-engine-v3-2.4.md): units resolve through the shared referential
+// for every engine ("m.l." and "m" = ml, "Pce" = u, "forfait" = fft; no millilitre, P-08); a unit outside
+// it ("barre") compares by its spelling token. SQL twin: private.purchase_unit_token.
 function normalizedUnit(value: string) {
-  const unit = value.trim().toLowerCase();
-  return unit === "ml" ? "m" : unit;
+  return normalizeMeasurementUnit(value).unitCode ?? measurementUnitToken(value);
 }
 
-/** True when either unit is blank or both name the same unit (P-08). */
+/** True when either unit is blank or both name the same unit (P-08, D9). */
 export function areSupplierUnitsCompatible(lineUnit: string | null | undefined, offerUnit: string | null | undefined) {
   return !lineUnit?.trim() || !offerUnit?.trim() || normalizedUnit(lineUnit) === normalizedUnit(offerUnit);
 }
@@ -24,10 +24,13 @@ export function supplierOfferIneligibility(
   if (offer.is_active === false) return "Offre archivée";
   if (typeof offer.unit_price_cents !== "number" || !Number.isFinite(offer.unit_price_cents)) return "Prix de l'offre à vérifier";
   if (!isSupplierOfferPriceEligible(offer)) return "Offre à 0 € non marquée";
-  if (!areSupplierUnitsCompatible(input.unit, offer.unit)) return "Unité différente du devis";
+  // A converted offer (2.9) serves its estimate unit; its minimum counts purchase units.
+  if (!areSupplierUnitsCompatible(input.unit, offerEstimateUnit(offer))) return "Unité différente du devis";
   if (typeof offer.min_quantity === "number" && Number.isFinite(offer.min_quantity)) {
     if (typeof input.quantity !== "number" || !Number.isFinite(input.quantity)) return "Quantité du devis à préciser";
-    if (input.quantity < offer.min_quantity) return `Minimum ${offer.min_quantity} ${offer.unit || "u"}`;
+    const ordered = purchaseQuantity(offer, input.quantity);
+    if (ordered === null) return `Quantité non convertible en ${offer.unit || "unité d'achat"}`;
+    if (ordered < offer.min_quantity) return `Minimum ${offer.min_quantity} ${offer.unit || "u"}`;
   }
   const now = new Date();
   const today = input.today ?? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;

@@ -136,6 +136,10 @@ function normalizeAlternative(
     unit_price_cents: typeof value.unit_price_cents === "number" && Number.isFinite(value.unit_price_cents)
       ? value.unit_price_cents : null,
     zero_price_kind: toNonEmptyString(value.zero_price_kind),
+    estimate_unit_code: toNonEmptyString(value.estimate_unit_code),
+    estimate_units_per_purchase_unit: typeof value.estimate_units_per_purchase_unit === "number" ||
+      typeof value.estimate_units_per_purchase_unit === "string" ? value.estimate_units_per_purchase_unit : null,
+    purchase_rounding: toNonEmptyString(value.purchase_rounding),
     supplier_reference: toNonEmptyString(value.supplier_reference),
     catalogue_url: toNonEmptyString(value.catalogue_url),
     updated_at: toNonEmptyString(value.updated_at),

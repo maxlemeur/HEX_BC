@@ -54602,6 +54602,47 @@
                       }
                     ]
                   },
+                  "estimate_unit_code": {
+                    "description": "2.9 : unité du devis servie par une offre vendue dans une autre unité d'achat (code du référentiel, par exemple ml). Renseignée avec les deux champs suivants, ou les trois à null.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 16
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "estimate_units_per_purchase_unit": {
+                    "description": "2.9 : quantité de l'unité du devis par unité d'achat (par exemple 3 ml par barre), six décimales au plus.",
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "exclusiveMinimum": 0,
+                        "maximum": 99999999
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "purchase_rounding": {
+                    "description": "2.9 : ceil commande des unités d'achat entières ; none commande la quantité exacte.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "ceil"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "zero_price_kind": {
                     "description": "A7 : marque une offre à 0 € comme incluse ou gratuite ; refusé si le prix dépasse 0 €. Repasser le prix au-dessus de 0 € efface le marquage.",
                     "anyOf": [

@@ -398,6 +398,15 @@ export const updateSupplierOfferSchema = z.object({
       supplier_sku: optionalTextUpdateSchema,
       product_url: optionalHttpUrlSchema.optional(),
       transport_mode: z.enum(["included", "excluded"]).nullable().optional(),
+      estimate_unit_code: z.string().trim().min(1).max(16).nullable().optional().describe(
+        "2.9 : unité du devis servie par une offre vendue dans une autre unité d'achat (code du référentiel, par exemple ml). Renseignée avec les deux champs suivants, ou les trois à null.",
+      ),
+      estimate_units_per_purchase_unit: z.number().positive().max(99_999_999).nullable().optional().describe(
+        "2.9 : quantité de l'unité du devis par unité d'achat (par exemple 3 ml par barre), six décimales au plus.",
+      ),
+      purchase_rounding: z.enum(["none", "ceil"]).nullable().optional().describe(
+        "2.9 : ceil commande des unités d'achat entières ; none commande la quantité exacte.",
+      ),
       zero_price_kind: z.enum(["included", "free"]).nullable().optional().describe(
         "A7 : marque une offre à 0 € comme incluse ou gratuite ; refusé si le prix dépasse 0 €. Repasser le prix au-dessus de 0 € efface le marquage.",
       ),

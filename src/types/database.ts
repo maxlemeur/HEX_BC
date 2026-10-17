@@ -611,6 +611,9 @@ export type Database = {
           created_by: string | null;
           notes: string | null;
           zero_price_kind: "included" | "free" | null;
+          estimate_unit_code: string | null;
+          estimate_units_per_purchase_unit: number | null;
+          purchase_rounding: "none" | "ceil" | null;
         };
         Insert: {
           transport_mode?: "included" | "excluded" | null;
@@ -634,6 +637,9 @@ export type Database = {
           created_by?: string | null;
           notes?: string | null;
           zero_price_kind?: "included" | "free" | null;
+          estimate_unit_code?: string | null;
+          estimate_units_per_purchase_unit?: number | null;
+          purchase_rounding?: "none" | "ceil" | null;
         };
         Update: {
           transport_mode?: "included" | "excluded" | null;
@@ -657,6 +663,9 @@ export type Database = {
           created_by?: string | null;
           notes?: string | null;
           zero_price_kind?: "included" | "free" | null;
+          estimate_unit_code?: string | null;
+          estimate_units_per_purchase_unit?: number | null;
+          purchase_rounding?: "none" | "ceil" | null;
         };
         Relationships: [
           {

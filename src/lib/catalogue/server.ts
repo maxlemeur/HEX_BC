@@ -252,6 +252,14 @@ function mapSupabaseError(
     return badRequest(SUPPLIER_OFFER_ZERO_PRICE_KIND_ERROR, error, "BAD_REQUEST");
   }
 
+  if (normalizedMessage.includes("supplier_pricebook_purchase_unit_check")) {
+    return badRequest("La conversion d'unité d'achat exige l'unité du devis, une quantité par unité d'achat positive et un arrondi.", error, "BAD_REQUEST");
+  }
+
+  if (normalizedMessage.includes("supplier_pricebook_estimate_unit_code_fkey")) {
+    return badRequest("Unité du devis inconnue du référentiel.", error, "BAD_REQUEST");
+  }
+
   if (
     normalizedMessage.includes("supplier_pricebook_validity") ||
     normalizedMessage.includes("supplier_pricebook_check")
@@ -1408,15 +1416,20 @@ export async function listSupplierPricesPage(input: PricesPageQueryInput) {
   const priceIds = pageRows.map((row) => row.id).filter((id): id is string => typeof id === "string");
   const transportById = new Map<string, string | null>();
   const zeroPriceKindById = new Map<string, string | null>();
+  const conversionById = new Map<string, { estimate_unit_code: string | null;
+    estimate_units_per_purchase_unit: number | null; purchase_rounding: string | null }>();
   if (priceIds.length > 0) {
     const { data, error } = await supabase.from(SUPPLIER_PRICES_TABLE)
-      .select("id, transport_mode, zero_price_kind")
+      .select("id, transport_mode, zero_price_kind, estimate_unit_code, estimate_units_per_purchase_unit, purchase_rounding")
       .eq("tenant_id", tenantId)
       .in("id", priceIds);
     if (error) throw mapSupabaseError(error, "Impossible de charger les conditions de transport des offres.");
     data?.forEach((offer) => {
       transportById.set(offer.id, offer.transport_mode);
       zeroPriceKindById.set(offer.id, offer.zero_price_kind);
+      conversionById.set(offer.id, { estimate_unit_code: offer.estimate_unit_code,
+        estimate_units_per_purchase_unit: offer.estimate_units_per_purchase_unit === null ? null : Number(offer.estimate_units_per_purchase_unit),
+        purchase_rounding: offer.purchase_rounding });
     });
   }
 
@@ -1424,6 +1437,9 @@ export async function listSupplierPricesPage(input: PricesPageQueryInput) {
     ...normalizeSupplierPriceRecord(row),
     transport_mode: transportById.get(String(row.id)) ?? null,
     zero_price_kind: zeroPriceKindById.get(String(row.id)) ?? null,
+    estimate_unit_code: conversionById.get(String(row.id))?.estimate_unit_code ?? null,
+    estimate_units_per_purchase_unit: conversionById.get(String(row.id))?.estimate_units_per_purchase_unit ?? null,
+    purchase_rounding: conversionById.get(String(row.id))?.purchase_rounding ?? null,
     _supplierName:
       typeof row.supplier_name === "string"
         ? row.supplier_name

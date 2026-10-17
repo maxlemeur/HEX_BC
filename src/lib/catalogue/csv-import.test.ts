@@ -492,12 +492,12 @@ describe("price book csv import validation with lookups", () => {
   // Sub-lot 2.2/2.9 (D4-16, C-09): the base de chiffrage carries its unit in « Unite »; it was
   // written as null, then defaulted to « u » in SQL, so a tube priced per metre became a unit.
   it("keeps the mm_bdc unit column on every supplier alternative", async () => {
+    // Known articles and suppliers of TEST_LOOKUPS, so that every row is accepted.
     const rows: CsvImportRow[] = [
-      { ID: "TUBE-FONTE-100", Materiau: "Tube fonte", Dimension: "DN100", Unite: "ml",
-        F1_nom: "CEDEO", F1_prix: "87,48", F2_nom: "ARCUS", F2_prix: "90,00" },
-      { ID: "COUDE-FONTE-100", Materiau: "Coude fonte", Dimension: "DN100", Unite: "U",
-        F1_nom: "CEDEO", F1_prix: "21,00" },
-      { ID: "SANS-UNITE", Materiau: "Collier", Unite: "", F1_nom: "CEDEO", F1_prix: "3,00" },
+      { ID: "TUBE-INOX-28", Materiau: "Tube inox", Dimension: "DN15", Unite: "ml",
+        F1_nom: "CEDEO", F1_prix: "12,50", F2_nom: "ARCUS", F2_prix: "12,20" },
+      { ID: "CABLE-3G1.5", Materiau: "Cable", Dimension: "3G1.5", Unite: "U", F1_nom: "CEDEO", F1_prix: "1,10" },
+      { ID: "CABLE-3G1.5", Materiau: "Cable", Dimension: "3G1.5", Unite: "", F1_nom: "ARCUS", F1_prix: "1,15" },
     ];
 
     const result = await validatePriceBookRows(
@@ -506,6 +506,7 @@ describe("price book csv import validation with lookups", () => {
       { profile: "mm_bdc", lookups: TEST_LOOKUPS, includeSupplierAlternatives: true }
     );
 
+    expect(result.rejectedRowsCount).toBe(0);
     expect(result.acceptedItems.map((item) => item.unit)).toEqual(["ml", "ml", "U", null]);
   });
 

@@ -26,6 +26,7 @@ import type {
 } from "@/lib/estimates/schemas";
 import { assertCanWriteEstimateWorkflows } from "@/lib/estimates/write-access";
 import { supplierOfferIneligibility } from "@/lib/estimates/supplier-offer-eligibility";
+import { hasPurchaseUnitConversion, purchaseQuantity, purchaseUnitPriceCents } from "@/lib/estimates/supplier-offer-purchase-unit";
 import { isPriceStale } from "@/lib/catalogue/stale-prices";
 import { purchaseReceiptSchema, purchaseReviewSchema, purchaseTransferSchema } from "@/lib/estimates/purchase-preparation-contracts";
 import { isValidOrderQuantity } from "@/lib/purchase-orders/quantities";
@@ -64,6 +65,10 @@ export type EstimatePurchaseOrderDraftLine = {
   selected_supplier_price_id: string;
   supplier_reference: string | null;
   product_designation: string;
+  /** What the order carries (2.9): the purchase quantity, unit and price of a converted offer. */
+  ordered_quantity: number;
+  ordered_unit: string;
+  ordered_unit_price_ht_cents: number;
 };
 
 export type EstimatePurchaseOrderDraftGroup = {
@@ -218,7 +223,8 @@ async function getDraftOrderContext() {
 
 type CurrentSupplierOffer = Pick<Database["public"]["Tables"]["supplier_pricebook"]["Row"],
   "id" | "supplier_id" | "unit" | "min_quantity" | "currency" | "is_active" |
-  "valid_from" | "valid_to" | "updated_at" | "created_at" | "unit_price_cents" | "zero_price_kind"
+  "valid_from" | "valid_to" | "updated_at" | "created_at" | "unit_price_cents" | "zero_price_kind" |
+  "estimate_unit_code" | "estimate_units_per_purchase_unit" | "purchase_rounding"
 >;
 
 async function readCurrentOfferEligibility(
@@ -243,7 +249,7 @@ async function readCurrentOfferEligibility(
 
   for (let start = 0; start < priceIds.length; start += SUPPLIER_COMPARISON_BATCH_SIZE) {
     const { data, error } = await context.supabase.from("supplier_pricebook")
-      .select("id, supplier_id, unit, min_quantity, currency, is_active, valid_from, valid_to, updated_at, created_at, unit_price_cents, zero_price_kind")
+      .select("id, supplier_id, unit, min_quantity, currency, is_active, valid_from, valid_to, updated_at, created_at, unit_price_cents, zero_price_kind, estimate_unit_code, estimate_units_per_purchase_unit, purchase_rounding")
       .eq("tenant_id", context.tenantId)
       .in("id", priceIds.slice(start, start + SUPPLIER_COMPARISON_BATCH_SIZE));
     if (error) throw mapSupabaseError(error, "Impossible de vérifier les conditions fournisseurs.");
@@ -356,13 +362,20 @@ export async function getEstimatePurchaseOrderDraftPreparation(
     const coverageStatus = comparison?.coverage_status ?? null;
     const selectedSupplierPriceId = line.selected_supplier_price_id ?? null;
     const offerIneligibility = currentOfferIneligibility(line, eligibility, stale_price_days);
+    // 2.9: a converted offer is ordered in its purchase unit (282 ml → 94 bars at the bar price);
+    // the totals are those of the order, as in create_estimate_purchase_order_drafts.
+    const offer = selectedSupplierPriceId ? eligibility.offers.get(selectedSupplierPriceId) : undefined;
+    const converted = offer !== undefined && hasPurchaseUnitConversion(offer);
+    const orderedQuantity = converted && typeof quantity === "number" ? purchaseQuantity(offer, quantity) : quantity;
+    const orderedUnitPriceHtCents = converted && typeof unitPriceHtCents === "number"
+      ? purchaseUnitPriceCents(offer, offer.unit_price_cents, unitPriceHtCents) : unitPriceHtCents;
 
     let totals: LineTotals | null = null;
     let invalidAmount = false;
-    if (typeof quantity === "number" && isValidOrderQuantity(quantity) &&
-        typeof unitPriceHtCents === "number" && typeof taxRateBp === "number") {
+    if (typeof orderedQuantity === "number" && isValidOrderQuantity(orderedQuantity) &&
+        typeof orderedUnitPriceHtCents === "number" && typeof taxRateBp === "number") {
       try {
-        [totals] = computeTotalsFromInputs([{ quantity, unitPriceHtCents, taxRateBp }]).lineTotals;
+        [totals] = computeTotalsFromInputs([{ quantity: orderedQuantity, unitPriceHtCents: orderedUnitPriceHtCents, taxRateBp }]).lineTotals;
       } catch { invalidAmount = true; }
     }
     const isDraftable =
@@ -421,6 +434,9 @@ export async function getEstimatePurchaseOrderDraftPreparation(
       selected_supplier_price_id: selectedSupplierPriceId,
       supplier_reference: selectedAlternative.supplier_reference,
       product_designation: selectedAlternative.product_designation,
+      ordered_quantity: orderedQuantity as number,
+      ordered_unit: converted ? offer.unit.trim() : line.description?.trim() ?? "",
+      ordered_unit_price_ht_cents: orderedUnitPriceHtCents as number,
     };
 
     if (existingGroup) {

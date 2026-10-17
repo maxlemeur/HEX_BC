@@ -427,6 +427,11 @@ function toSupplierComparisonAlternative(
     unit_price_cents: typeof record.unit_price_cents === "number" && Number.isFinite(record.unit_price_cents)
       ? record.unit_price_cents : null,
     zero_price_kind: toNonEmptyString(record.zero_price_kind),
+    // Purchase unit conversion (2.9): the eligibility check compares the estimate unit of the offer.
+    estimate_unit_code: toNonEmptyString(record.estimate_unit_code),
+    estimate_units_per_purchase_unit: typeof record.estimate_units_per_purchase_unit === "number" ||
+      typeof record.estimate_units_per_purchase_unit === "string" ? record.estimate_units_per_purchase_unit : null,
+    purchase_rounding: toNonEmptyString(record.purchase_rounding),
   };
 }
 

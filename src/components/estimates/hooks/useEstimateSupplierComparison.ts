@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SupplierComparisonAlternative } from "@/components/estimates/SupplierComparisonPanel";
 import type { Database } from "@/types/database";
 import { supplierOfferIneligibility } from "@/lib/estimates/supplier-offer-eligibility";
+import { offerEstimateUnit } from "@/lib/estimates/supplier-offer-purchase-unit";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
 
@@ -192,7 +193,8 @@ export function useEstimateSupplierComparison({
         return;
       }
 
-      const selectedUnit = alternative.unit?.trim() || activeSupplierComparisonItem.description;
+      // 2.9: a converted offer keeps the line in its estimate unit (ml), never the purchase unit (barre).
+      const selectedUnit = offerEstimateUnit(alternative)?.trim() || activeSupplierComparisonItem.description;
       onPatchItemWithSuggestionTracking(
         activeSupplierComparisonItem.id,
         {

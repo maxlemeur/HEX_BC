@@ -56,6 +56,7 @@ import { isSupplierAlternativeCurrencyCompatible } from "@/lib/estimates/supplie
 import { readSupplierOfferConditions, readSelectedSupplierDetails, type SupplierOfferConditions, type SelectedSupplierDetails } from "@/lib/estimates/supplier-offer-conditions";
 import { supplierOfferIneligibility } from "@/lib/estimates/supplier-offer-eligibility";
 import { isSupplierOfferPriceEligible } from "@/lib/estimates/supplier-offer-price";
+import { offerEstimateUnit, offerEstimateUnitPriceCents } from "@/lib/estimates/supplier-offer-purchase-unit";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
 import { persistAtomicEstimateSettings } from "@/lib/estimates/settings-atomic";
 import type {
@@ -672,6 +673,9 @@ type SupplierPricebookRow = {
   unit: string;
   unit_price_cents: number;
   zero_price_kind?: string | null;
+  estimate_unit_code?: string | null;
+  estimate_units_per_purchase_unit?: number | string | null;
+  purchase_rounding?: string | null;
   currency: string;
   updated_at: string;
   created_at: string;
@@ -966,9 +970,10 @@ async function hydrateSuggestedCatalogueCandidates(input: {
       const materialIndex = materialIndexBySupplierPriceId.get(row.id);
       const hasMaterialIndexAdjustment =
         typeof materialIndex?.index_value === "number" && materialIndex.index_value > 0;
-      const adjustedUnitPriceCents = hasMaterialIndexAdjustment
+      // 2.9: a converted offer prices the estimate per estimate unit (bar of 3 m at 262,45 € → 87,48 €/ml).
+      const adjustedUnitPriceCents = offerEstimateUnitPriceCents(row, hasMaterialIndexAdjustment
         ? Math.round((row.unit_price_cents * materialIndex.index_value) / 100)
-        : row.unit_price_cents;
+        : row.unit_price_cents);
       const updatedAt = row.updated_at ?? row.created_at ?? null;
       const relevanceScore = computeCatalogueSearchRelevance({
         query: input.query,
@@ -999,7 +1004,7 @@ async function hydrateSuggestedCatalogueCandidates(input: {
         supplier_id: row.supplier_id,
         supplier_name: supplier?.name ?? "Fournisseur",
         supplier_reference: row.supplier_sku ?? null,
-        unit: row.unit ?? null,
+        unit: offerEstimateUnit(row),
         unit_price_cents: row.unit_price_cents,
         adjusted_unit_price_cents: adjustedUnitPriceCents,
         currency: row.currency ?? null,
@@ -1090,7 +1095,7 @@ async function findSelectedSupplierComparisonCandidate(input: {
   const { data: selectedPriceData, error: selectedPriceError } = await input.supabase
     .from("supplier_pricebook")
     .select(
-      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, zero_price_kind, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url)"
+      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, zero_price_kind, estimate_unit_code, estimate_units_per_purchase_unit, purchase_rounding, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url)"
     )
     .eq("tenant_id", input.tenantId)
     .eq("id", input.selectedSupplierPriceId)
@@ -1113,7 +1118,7 @@ async function findSelectedSupplierComparisonCandidate(input: {
   const { data: productPriceData, error: productPriceError } = await input.supabase
     .from("supplier_pricebook")
     .select(
-      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, zero_price_kind, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url)"
+      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, zero_price_kind, estimate_unit_code, estimate_units_per_purchase_unit, purchase_rounding, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url)"
     )
     .eq("tenant_id", input.tenantId)
     .eq("product_id", selectedPrice.product_id)
@@ -5043,7 +5048,7 @@ export async function suggestEstimateCataloguePrices(
   let supplierPricesQuery = supabase
     .from("supplier_pricebook")
     .select(
-      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, zero_price_kind, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url)"
+      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, zero_price_kind, estimate_unit_code, estimate_units_per_purchase_unit, purchase_rounding, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url)"
     )
     .eq("tenant_id", tenantId)
     .eq("is_active", true)
