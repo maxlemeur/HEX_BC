@@ -44,6 +44,7 @@
     "supabase:verify-local": "node --import tsx scripts/verify-local-supabase-migrations.ts",
     "db:ci:local": "node --import tsx scripts/run-local-supabase-ci.ts",
     "db:upgrade-check": "node --import tsx scripts/engine-v3/upgrade-check.ts",
+    "units:sql": "node --import tsx scripts/units/generate-units-sql.ts",
     "audit:dependencies": "node --import tsx scripts/check-dependency-audit.ts",
     "audit:signatures": "npm audit signatures",
     "check:architecture": "node --import tsx scripts/check-architecture-budgets.ts",
