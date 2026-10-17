@@ -7,7 +7,7 @@ import {
 import {
   BANNER, addGridLine, apiProjection, checkpoint, clickSaveSettings, eur, fillCell, grid, inputValue, lineView,
   normalized, openSettings, openV3Editor, pause, prepareV3Draft, readConsistent, releaseOfferForPreselection, seedLines,
-  settingsDialog, settingsText, showStandardColumns, switchToExpertMode, typeTitle,
+  settingsDialog, settingsText, showStandardColumns, switchToExpertMode, typeTitle, waitForDraftLease,
   type ApiExpectation, type Envelope, type LineView, type RowExpectation, type Ui, type V3Draft,
 } from "./engine-v3-editor-support";
 
@@ -86,6 +86,7 @@ async function recordDialogs(ui: Ui) {
 async function openGrid(ui: Ui, versionId: string) {
   await ui.browser.goto(`/dashboard/estimates/${versionId}/edit`, { waitUntil: "domcontentloaded" });
   await expect(grid(ui)).toBeVisible({ timeout: 60_000 });
+  await waitForDraftLease(ui);
 }
 
 async function waitSettingsSaved(ui: Ui, army: ArmyState, label: string, versionId: string, expected: ApiExpectation) {

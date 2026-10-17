@@ -523,10 +523,29 @@ export async function checkpoint(ui: Ui, army: ArmyState, label: string, version
 
 export const settingsDialog = (ui: Ui) => ui.screen.getByRole("dialog", "Paramétrage du devis", { exact: true });
 
+/** Sync states of a page that does not own its draft lease yet (useEstimateEditorAutoSave). */
+const LEASE_PENDING_LABELS = new Set(["Verrouillé", "Connexion…"]);
+
+/**
+ * Waits until the page owns its draft lease: every grid and drawer input stays disabled before
+ * (isDraftLockPending, isDraftLockedByOther). A navigation (goto) opens another page session, and
+ * the document it leaves hands its lease back by a keepalive release sent from beforeunload
+ * (useDraftLock). When that release does not land (once in the combined 2.6 run), the new page
+ * stays « Verrouillé par vous dans un autre onglet ou appareil » until the 120 s lease expires
+ * (DRAFT_LOCK_TTL_SECONDS) and its 5 s acquisition retry takes it, as a user's page would. The
+ * journey waits for that recovery; it retries nothing.
+ */
+export async function waitForDraftLease(ui: Ui) {
+  const status = ui.screen.getByTestId("estimate-page-toolbar-autosave-status");
+  await expect.poll(async () => LEASE_PENDING_LABELS.has(normalized(await status.textContent())), { timeout: 150_000, interval: 1_000 })
+    .toBe(false);
+}
+
 export async function openSettings(ui: Ui, versionId: string) {
   await ui.browser.goto(`/dashboard/estimates/${versionId}/edit?openSettings=general`, { waitUntil: "domcontentloaded" });
   await expect(settingsDialog(ui)).toBeVisible({ timeout: 60_000 });
   await expect(settingsDialog(ui).getByLabel("Coefficient de vente FO", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await waitForDraftLease(ui);
   return settingsDialog(ui);
 }
 
