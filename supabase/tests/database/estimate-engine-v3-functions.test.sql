@@ -655,7 +655,7 @@ select is(
     'reduction_cents', 0, 'line_total_ht_cents', 32500, 'snapshot_fo_ht_cents', 10000,
     'snapshot_mo_ht_cents', 22500, 'snapshot_mo_atelier_ht_cents', 0, 'snapshot_mo_chantier_ht_cents', 22500,
     'line_tax_cents', 6500, 'line_total_ttc_cents', 39000,
-    'h_mo', '5.000', 'h_mo_atelier', '0.000', 'h_mo_chantier', '0.000'),
+    'h_mo', '5.000', 'h_mo_atelier', null, 'h_mo_chantier', null),
   'T-HMO PU 3 250, total 32 500, MO 22 500 (v2: 12 250), hours 5.000'
 );
 select is(
@@ -751,7 +751,7 @@ select is(
     'reduction_cents', 0, 'line_total_ht_cents', 0, 'snapshot_fo_ht_cents', 0,
     'snapshot_mo_ht_cents', 0, 'snapshot_mo_atelier_ht_cents', 0, 'snapshot_mo_chantier_ht_cents', 0,
     'line_tax_cents', 0, 'line_total_ttc_cents', 0,
-    'h_mo', '0.000', 'h_mo_atelier', '0.000', 'h_mo_chantier', '0.000'),
+    'h_mo', '0.000', 'h_mo_atelier', null, 'h_mo_chantier', null),
   'T-STAT an out-of-scope line priceable at 500 EUR contributes 0 everywhere, PU null'
 );
 select is(
@@ -797,7 +797,7 @@ select is(
     'reduction_cents', 0, 'line_total_ht_cents', 15600, 'snapshot_fo_ht_cents', 0,
     'snapshot_mo_ht_cents', 15600, 'snapshot_mo_atelier_ht_cents', 9600, 'snapshot_mo_chantier_ht_cents', 6000,
     'line_tax_cents', 3120, 'line_total_ttc_cents', 18720,
-    'h_mo', '0.000', 'h_mo_atelier', '2.000', 'h_mo_chantier', '1.000'),
+    'h_mo', null, 'h_mo_atelier', '2.000', 'h_mo_chantier', '1.000'),
   'F5 labour split: MO_u = 1 h x 40 EUR + 0.5 h x 50 EUR, PU 7 800 at c_MO 1.2, atelier 9 600 / chantier 6 000'
 );
 select is(
@@ -885,6 +885,28 @@ select throws_ok(
 );
 
 -- ---------------------------------------------------------------------------
+-- Intégration 2.4 (I-04 à I-06) : mêmes règles que le moteur TS, tranchées à l'intégration
+-- (docs/testing/estimate-engine-v3-2.4.md).
+-- ---------------------------------------------------------------------------
+select is(
+  (
+    select jsonb_agg(jsonb_build_array(line -> 'h_mo', line -> 'h_mo_atelier', line -> 'h_mo_chantier') order by position)
+    from jsonb_array_elements(private.estimate_v3_compute_items(jsonb_build_array(
+      pg_temp.v3_line(pg_temp.uid(1), 2, 100),
+      pg_temp.v3_line(pg_temp.uid(2), 2, 0, 1.5, 4000, 2000, 'for_memory')), pg_temp.v3_params(1, 1)) -> 'lines')
+      with ordinality as entry(line, position)
+  ),
+  '[[null, null, null], ["0.000", null, null]]'::jsonb,
+  'I-04 a null hours-per-unit column gives null line hours; a non-priced line with hours per unit gives 0.000'
+);
+select throws_ok(
+  format('select private.estimate_v3_compute_items(%L::jsonb, %L::jsonb)',
+    jsonb_build_array(pg_temp.v3_line(pg_temp.uid(1), 999999999.999, 0, 2, 0)), pg_temp.v3_params(1, 1)),
+  '22003', 'ESTIMATE_AMOUNT_OVERFLOW',
+  'I-06 derived line hours beyond numeric(12,3) overflow, even at no cost'
+);
+
+-- ---------------------------------------------------------------------------
 -- F12 : entrée invalide refusée par son nom (22023).
 -- ---------------------------------------------------------------------------
 create temporary table v3_invalid_inputs (
@@ -919,10 +941,11 @@ from (values
   ('discount rate above 10000', jsonb_build_array(pg_temp.v3_line(pg_temp.uid(1), 1, 100)), pg_temp.v3_params(1, 1, null, 10001)),
   ('v2 rounding mode', jsonb_build_array(pg_temp.v3_line(pg_temp.uid(1), 1, 100)), pg_temp.v3_params(1, 1, null, 0, 'nearest', 100)),
   ('rounding down with a step of 0', jsonb_build_array(pg_temp.v3_line(pg_temp.uid(1), 1, 100)), pg_temp.v3_params(1, 1, null, 0, 'down', 0)),
+  ('rounding none with a step of 0', jsonb_build_array(pg_temp.v3_line(pg_temp.uid(1), 1, 100)), pg_temp.v3_params(1, 1, null, 0, 'none', 0)),
   ('missing parameter', jsonb_build_array(pg_temp.v3_line(pg_temp.uid(1), 1, 100)), pg_temp.v3_params(1, 1) - 'reverse_charge')
 ) as invalid(label, items, params);
 
-select is((select count(*)::integer from v3_invalid_inputs), 24, 'the suite carries 24 invalid inputs');
+select is((select count(*)::integer from v3_invalid_inputs), 25, 'the suite carries 25 invalid inputs');
 
 select throws_ok(
   format('select private.estimate_v3_compute_items(%L::jsonb, %L::jsonb)', invalid.items, invalid.params),

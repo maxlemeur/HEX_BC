@@ -349,7 +349,8 @@ describe("labour split atelier / chantier (same trigger as v2)", () => {
     const [line] = computeEstimateV3Breakdown(input).lines;
     expect(line.pu_ht_cents).toBe(3000);
     expect(line.gross_mo_atelier_ht_cents).toBe(0);
-    expect(line.gross_mo_chantier_ht_cents).toBe(0);
+    // Intégration 2.4 (I-01) : sans ventilation, toute la MO est « chantier » (convention v2).
+    expect(line.gross_mo_chantier_ht_cents).toBe(3000);
   });
 });
 
@@ -508,5 +509,98 @@ describe("stored v3 reader (frozen columns, no recomputation)", () => {
         })
       )
     ).toMatchObject({ code: "ESTIMATE_V3_STORED_INCOHERENT" });
+  });
+});
+
+// Intégration 2.4 : règles où les deux pistes divergeaient, tranchées pour que le moteur TS et le
+// jumeau SQL rendent la même sortie canonique (docs/testing/estimate-engine-v3-2.4.md, I-01 à I-06).
+describe("sub-lot 2.4 integration: one contract for the TS engine and the SQL twin", () => {
+  it("I-01 puts the whole MO on chantier without the labour split, gross and net (v2 convention)", () => {
+    const output = computeEstimateV3Canonical(tHmoInput(10));
+    expect(output.lines[0]).toMatchObject({
+      gross_mo_ht_cents: 22500,
+      gross_mo_atelier_ht_cents: 0,
+      gross_mo_chantier_ht_cents: 22500,
+      snapshot_mo_ht_cents: 22500,
+      snapshot_mo_atelier_ht_cents: 0,
+      snapshot_mo_chantier_ht_cents: 22500,
+    });
+    const discounted = computeEstimateV3Canonical({
+      ...tHmoInput(10),
+      params: { ...tHmoInput(10).params, discount_amount_cents: 3250 },
+    });
+    expect(discounted.lines[0].snapshot_mo_ht_cents).toBe(
+      discounted.lines[0].snapshot_mo_atelier_ht_cents + discounted.lines[0].snapshot_mo_chantier_ht_cents
+    );
+    expect(discounted.lines[0].snapshot_mo_chantier_ht_cents).toBeGreaterThan(0);
+  });
+
+  it("I-01 refuses a frozen line whose atelier and chantier no longer carry its MO", () => {
+    const breakdown = computeEstimateV3Breakdown(tHmoInput(10));
+    const projection = projectEstimateV3Snapshot(breakdown);
+    const items = projection.items.map((item, index) => ({
+      ...item,
+      item_type: "line" as const,
+      pricing_status: breakdown.lines[index].pricing_status,
+      tax_rate_bp: breakdown.lines[index].tax_rate_bp,
+    }));
+    const version = { ...projection.version, calc_snapshot_context: projection.context };
+    expect(() => readStoredEstimateV3({ version, items })).not.toThrow();
+    const tampered = [{ ...items[0], snapshot_mo_atelier_ht_cents: 0, snapshot_mo_chantier_ht_cents: 0 }];
+    expect(thrown(() => readStoredEstimateV3({ version, items: tampered }))).toMatchObject({
+      code: "ESTIMATE_V3_STORED_INCOHERENT",
+    });
+  });
+
+  it("I-02 validates sections like the SQL twin: uuid id, null or uuid parent, ids unique across items", () => {
+    const section = (overrides: Record<string, unknown>) =>
+      ({ ...v3Line(9), item_type: "section", tax_rate_bp: null, ...overrides }) as never;
+    for (const items of [
+      [section({ id: "section-1" }), v3Line(1)],
+      [section({ parent_id: "parent-1" }), v3Line(1)],
+      [section({ id: fixtureLineId(1) }), v3Line(1)],
+    ]) {
+      expect(thrown(() => computeEstimateV3Canonical(v3Input(items)))).toMatchObject({
+        code: "ESTIMATE_V3_INPUT_INVALID",
+        sqlstate: "22023",
+      });
+    }
+    const nested = v3Line(1, { parent_id: fixtureLineId(9) });
+    expect(computeEstimateV3Canonical(v3Input([section({}), nested])).lines).toHaveLength(1);
+  });
+
+  it("I-03 requires the eight canonical parameter keys, discount_amount_cents included", () => {
+    const input = v3Input([v3Line(1, { unit_price_ht_cents: 100 })]);
+    const { discount_amount_cents: _omitted, ...params } = input.params;
+    expect(thrown(() => computeEstimateV3Canonical({ ...input, params }))).toMatchObject({
+      code: "ESTIMATE_V3_INPUT_INVALID",
+    });
+  });
+
+  it("I-04 derives null line hours from a null hours-per-unit column, 0.000 on a non-priced line", () => {
+    const output = computeEstimateV3Canonical(
+      v3Input([
+        v3Line(1, { unit_price_ht_cents: 100, quantity: 2, h_mo_per_unit: null }),
+        v3Line(2, { pricing_status: "for_memory", quantity: 2, h_mo_per_unit: "1.5" }),
+      ])
+    );
+    expect(output.lines.map((line) => [line.h_mo, line.h_mo_atelier, line.h_mo_chantier])).toEqual([
+      [null, null, null],
+      ["0.000", null, null],
+    ]);
+  });
+
+  it("I-05 refuses a rounding step below 1 cent whatever the mode (column CHECK rounding_step_cents >= 1)", () => {
+    expect(
+      thrown(() => computeEstimateV3Canonical(supplyLineInput(1, 100, 1, { rounding_mode: "none", rounding_step_cents: 0 })))
+    ).toMatchObject({ code: "ESTIMATE_V3_INPUT_INVALID", sqlstate: "22023" });
+  });
+
+  it("I-06 raises ESTIMATE_AMOUNT_OVERFLOW for derived line hours beyond numeric(12,3), even at no cost", () => {
+    const input = v3Input([v3Line(1, { quantity: "999999999.999", h_mo_per_unit: "2", labor_rate_cents: 0 })]);
+    expect(thrown(() => computeEstimateV3Canonical(input))).toMatchObject({
+      code: "ESTIMATE_AMOUNT_OVERFLOW",
+      sqlstate: "22003",
+    });
   });
 });
