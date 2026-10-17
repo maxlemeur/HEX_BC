@@ -23,6 +23,7 @@ import {
   calculateEstimateSnapshotForItems,
   calculateEstimateV3SnapshotForItems,
 } from "@/lib/estimates/version-totals";
+import { createEstimateSchema } from "@/lib/estimates/schemas";
 
 import {
   instantiateCanonicalEstimateV2FromTemplate,
@@ -467,5 +468,92 @@ describe("persistCanonicalEstimateV2 under tenant policy 3 (review of 2.5)", () 
     expect(unsupplied).not.toHaveProperty("sale_coefficient_mo");
     expect(supplied).toMatchObject({ calc_engine_version: 3, sale_coefficient_fo: 1 });
     expect(supplied).not.toHaveProperty("sale_coefficient_mo");
+  });
+});
+
+/**
+ * Revue Codex de la PR #33 (docs/testing/estimate-engine-v3-2.5.md §10.6), F4. Isolation justifiée : défaut de
+ * charge utile entre le schéma de la route et la création canonique, que V3P01 ne voit pas (ses affaires n'ont
+ * qu'une profondeur de sections, 3, la valeur par défaut) : `createEstimateVersionSchema` injectait
+ * `max_section_depth: 3` quand le client l'omettait, et cette valeur remplaçait la profondeur de la dernière
+ * version de l'affaire (1 ou 4), en v3 comme en v2 (même schéma, même étalement des réglages). Chaîne de
+ * `POST /api/estimates` reproduite telle quelle : `createEstimateSchema.parse`, puis `createEstimate` retire
+ * `expected_calc_engine_version` et transmet le reste comme réglages de version.
+ */
+describe("max_section_depth of a version created in an existing affaire (Codex review of PR #33)", () => {
+  function existingProjectStub(policyRow: Record<string, unknown> | null, latestDepth: number) {
+    const projectBuilder = { select: vi.fn(), eq: vi.fn(), maybeSingle: vi.fn().mockResolvedValue({
+      data: { id: PROJECT_ID, user_id: USER_ID }, error: null }) };
+    projectBuilder.select.mockReturnValue(projectBuilder);
+    projectBuilder.eq.mockReturnValue(projectBuilder);
+    const latestVersionBuilder = { select: vi.fn(), eq: vi.fn(), order: vi.fn(), limit: vi.fn(), maybeSingle: vi.fn()
+      .mockResolvedValue({ data: { max_section_depth: latestDepth, tax_rate_bp: 2000, contractor_role: "principal" }, error: null }) };
+    latestVersionBuilder.select.mockReturnValue(latestVersionBuilder);
+    latestVersionBuilder.eq.mockReturnValue(latestVersionBuilder);
+    latestVersionBuilder.order.mockReturnValue(latestVersionBuilder);
+    latestVersionBuilder.limit.mockReturnValue(latestVersionBuilder);
+    return {
+      from: vi.fn((table: string) => {
+        if (table === "estimate_projects") return projectBuilder;
+        if (table === "estimate_versions") return latestVersionBuilder;
+        if (table === "tenant_calc_policies") return absentCalcPolicyBuilder(policyRow);
+        throw new Error(`Unexpected table: ${table}`);
+      }),
+    };
+  }
+
+  async function createThroughRoutePayload(policyRow: Record<string, unknown> | null, latestDepth: number,
+    version: Record<string, unknown>) {
+    const body = createEstimateSchema.parse({ project_id: PROJECT_ID, version });
+    const { expected_calc_engine_version: expectedCalcEngineVersion, ...versionOverrides } = body.version ?? {};
+    await persistCanonicalEstimateV2({
+      supabase: existingProjectStub(policyRow, latestDepth) as never,
+      tenantId: TENANT_ID,
+      actorUserId: USER_ID,
+      expectedCalcEngineVersion,
+      project: { kind: "existing", id: PROJECT_ID },
+      version: versionOverrides,
+      source: { kind: "blank" },
+    });
+    const call = serviceRoleRpc.mock.calls.at(-1)?.[1] as { p_version_payload: Record<string, unknown> };
+    return call.p_version_payload;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    serviceRoleRpc.mockResolvedValue({
+      data: { project: { id: PROJECT_ID }, version: { id: VERSION_ID } },
+      error: null,
+    });
+    vi.mocked(calculateEstimateV3SnapshotForItems).mockResolvedValue({
+      breakdown: { totals: { total_ht_cents: 0, total_tax_cents: 0, total_ttc_cents: 0, gross_ht_cents: 0,
+        discount_applied_cents: 0, commercial_rounding_cents: 0 } },
+      projection: {},
+    } as never);
+    vi.mocked(calculateEstimateSnapshotForItems).mockResolvedValue({
+      context: { effective_margin_multiplier: 1, labor_split_enabled: false, labor_roles: [], margin_tiers: [] },
+      breakdown: {
+        lineById: new Map(), sectionById: new Map(), rootLineIds: [],
+        totals: { saleTotalCents: 0, adjustedTaxCents: 0, roundedTtcCents: 0 },
+        invariants: { matchesFooter: true, sumAllocatedHtCents: 0 },
+      },
+    } as never);
+  });
+
+  it("keeps the latest version's section depth for a blank v3 unless the caller supplies one", async () => {
+    const inheritedShallow = await createThroughRoutePayload(POLICY_THREE, 1, { expected_calc_engine_version: 3 });
+    const inheritedDeep = await createThroughRoutePayload(POLICY_THREE, 4, { expected_calc_engine_version: 3 });
+    const supplied = await createThroughRoutePayload(POLICY_THREE, 1, { expected_calc_engine_version: 3, max_section_depth: 4 });
+
+    expect([inheritedShallow, inheritedDeep, supplied].map((payload) =>
+      [payload.calc_engine_version, payload.max_section_depth])).toEqual([[3, 1], [3, 4], [3, 4]]);
+  });
+
+  it("keeps the latest version's section depth for a v2 too (same schema default, same settings spread)", async () => {
+    const inherited = await createThroughRoutePayload(null, 1, {});
+    const supplied = await createThroughRoutePayload(null, 1, { max_section_depth: 2 });
+
+    expect([inherited, supplied].map((payload) => [payload.calc_engine_version, payload.max_section_depth]))
+      .toEqual([[2, 1], [2, 2]]);
   });
 });

@@ -1648,6 +1648,261 @@ select is(
 );
 
 -- ---------------------------------------------------------------------------
+-- F25-23 (revue Codex de la PR #33, §10.6) : un gel v3 écrit par public.freeze_estimate_v3_snapshot
+-- devient périmé quand le taux horaire d'un rôle cité par une ligne change, ou quand le drapeau
+-- EST_031_LABOR_SPLIT bascule (insertion, puis mise à jour d'un drapeau existant) : marqueur et
+-- contexte remis à NULL par invalidate_estimate_v2_snapshot_context (hérité par
+-- private.calc_engine_freezes_snapshot depuis M1), marque de la file d'approbation NULL. Le TS lit ce
+-- marqueur NULL comme une marque « indisponible » (resolveV3NetMarginBp ; Vitest R-01, même forme).
+-- ---------------------------------------------------------------------------
+create function pg_temp.v3_freeze_state(p_version uuid, p_statements text[] default '{}'::text[])
+returns text
+language sql
+as $$
+  select pg_temp.v3_probe(
+    p_statements,
+    format(
+      $a$select concat_ws('|',
+           coalesce((calc_snapshot_content_revision = content_revision)::text, 'null'),
+           coalesce(calc_snapshot_context->>'engine', 'null'),
+           coalesce(calc_snapshot_context->>'labor_split_enabled', 'null'))
+         from public.estimate_versions where id = %L$a$,
+      p_version
+    )
+  )
+$$;
+
+create function pg_temp.v3_split_flag_sql(p_enabled boolean)
+returns text
+language sql
+stable
+as $$
+  select format(
+    'insert into public.feature_flags (tenant_id, flag_key, enabled) values (%L, ''EST_031_LABOR_SPLIT'', %L)',
+    pg_temp.fx('tenant_a'),
+    p_enabled
+  )
+$$;
+
+-- Bascule d'un drapeau existant : drapeau inactif inséré (gel périmé), S1 regelé à l'identique (le
+-- drapeau inactif ne change pas le contexte), puis drapeau activé.
+create function pg_temp.v3_split_flag_toggle(p_enable boolean)
+returns text[]
+language sql
+stable
+as $$
+  select array[
+    pg_temp.v3_split_flag_sql(false),
+    'set local role service_role',
+    pg_temp.v3_freeze_sql(
+      'a3250000-0000-4000-8000-000000000110',
+      pg_temp.v3_oracle_context('S1'),
+      pg_temp.v3_oracle_snapshots('a3250000-0000-4000-8000-000000000110', 'S1'),
+      pg_temp.v3_oracle_totals('S1')
+    ),
+    'reset role'
+  ] || case when p_enable then array[format(
+    $s$update public.feature_flags set enabled = true where tenant_id = %L and flag_key = 'EST_031_LABOR_SPLIT'$s$,
+    pg_temp.fx('tenant_a')
+  )] else '{}'::text[] end
+$$;
+
+select is(
+  array[
+    pg_temp.v3_freeze_state('a3250000-0000-4000-8000-000000000110'),
+    pg_temp.v3_freeze_state(
+      'a3250000-0000-4000-8000-000000000110',
+      array[$s$update public.labor_roles set hourly_rate_cents = 4100 where id = 'a3250000-0000-4000-8000-000000000020'$s$]
+    ),
+    pg_temp.v3_freeze_state('a3250000-0000-4000-8000-000000000110', array[pg_temp.v3_split_flag_sql(true)]),
+    pg_temp.v3_queue_margin('a3250000-0000-4000-8000-000000000110', array[pg_temp.v3_split_flag_sql(true)]),
+    pg_temp.v3_freeze_state('a3250000-0000-4000-8000-000000000110', pg_temp.v3_split_flag_toggle(false)),
+    pg_temp.v3_queue_margin('a3250000-0000-4000-8000-000000000110', pg_temp.v3_split_flag_toggle(false)),
+    pg_temp.v3_freeze_state('a3250000-0000-4000-8000-000000000110', pg_temp.v3_split_flag_toggle(true)),
+    pg_temp.v3_queue_margin('a3250000-0000-4000-8000-000000000110', pg_temp.v3_split_flag_toggle(true))
+  ],
+  array[
+    'ok:true|3|false',
+    'ok:null|null|null',
+    'ok:null|null|null',
+    'ok:null',
+    'ok:true|3|false',
+    'ok:2054',
+    'ok:null|null|null',
+    'ok:null'
+  ],
+  'F25-23 a v3 freeze written by freeze_estimate_v3_snapshot goes stale (marker and context NULL, queue margin NULL) when a cited role''s hourly rate changes or EST_031_LABOR_SPLIT is inserted or toggled'
+);
+
+-- ---------------------------------------------------------------------------
+-- F25-24 (revue Codex de la PR #33, §10.6) : sur des v3 créées par la RPC canonique (seules versions du
+-- projet dont les lignes citent un rôle), changer le propriétaire du projet (assignDirectionProjectOwner :
+-- mise à jour de estimate_projects.user_id par un administrateur) est refusé par son nom, comme déplacer
+-- ou supprimer le rôle cité (gardes de M1, moteurs 2 et 3).
+-- ---------------------------------------------------------------------------
+select is(
+  array[
+    pg_temp.v3_probe(null, $a$
+      select concat_ws('|', string_agg(distinct version.calc_engine_version::text, ','), count(distinct version.id))
+      from public.estimate_versions version
+      join public.estimate_items item on item.version_id = version.id and item.tenant_id = version.tenant_id
+      where version.project_id = 'a3250000-0000-4000-8000-000000000010'
+        and coalesce(item.labor_role_id, item.labor_role_atelier_id, item.labor_role_chantier_id) is not null
+    $a$),
+    pg_temp.v3_probe(array[
+      'set local role authenticated',
+      $s$select set_config('request.jwt.claim.sub', 'a3250000-0000-4000-8000-000000000002', true)$s$,
+      $s$update public.estimate_projects set user_id = 'a3250000-0000-4000-8000-000000000002' where id = 'a3250000-0000-4000-8000-000000000010'$s$
+    ]),
+    pg_temp.v3_probe(array[
+      $s$update public.estimate_projects set user_id = 'a3250000-0000-4000-8000-000000000002' where id = 'a3250000-0000-4000-8000-000000000010'$s$
+    ]),
+    pg_temp.v3_probe(array[
+      $s$update public.labor_roles set user_id = 'a3250000-0000-4000-8000-000000000002' where id = 'a3250000-0000-4000-8000-000000000020'$s$
+    ]),
+    pg_temp.v3_probe(array[
+      $s$delete from public.labor_roles where id = 'a3250000-0000-4000-8000-000000000020'$s$
+    ])
+  ],
+  array[
+    'ok:3|4',
+    '23503 ESTIMATE_PROJECT_OWNER_LABOR_ROLE_MISMATCH',
+    '23503 ESTIMATE_PROJECT_OWNER_LABOR_ROLE_MISMATCH',
+    '23503 ESTIMATE_LABOR_ROLE_ASSIGNMENT_IN_USE',
+    '23503 ESTIMATE_LABOR_ROLE_ASSIGNMENT_IN_USE'
+  ],
+  'F25-24 on canonical v3 drafts, a project owner change (admin, as assignDirectionProjectOwner) and moving or deleting the cited role are refused by name'
+);
+
+-- ---------------------------------------------------------------------------
+-- F25-25 (revue Codex de la PR #33, §10.6 ; écart assumé à D2, « les suppressions restent libres ») :
+-- les montants stockés d'une v3 (brut, remise, arrondi, HT, TVA, TTC) sont toujours ceux de ses lignes.
+-- Hors du contrat d'écrivain de la version, aucune suppression directe d'une ligne d'un brouillon v3
+-- (Data API de l'opérateur, service_role, postgres, contrat d'une autre version, section emportant ses
+-- lignes) : 0A000 ESTIMATE_V3_WRITER_NOT_SUPPORTED. Restent admises : la suppression sous le contrat
+-- de la version (lot, qui recalcule et vérifie D12), y compris d'une section avec ses lignes, et les
+-- cascades d'une version ou d'une affaire supprimée (suppression directe ou RPC contrôlée
+-- bulk_delete_draft_affaires, celle de DELETE /api/affaires/{id}).
+-- ---------------------------------------------------------------------------
+create function pg_temp.v3_s3_state()
+returns text
+language sql
+as $$
+  select $a$
+    select concat_ws('|',
+      count(item.id) filter (where item.item_type = 'line'),
+      version.total_ht_cents,
+      coalesce(sum(item.line_total_ht_cents) filter (where item.item_type = 'line'), 0))
+    from public.estimate_versions version
+    left join public.estimate_items item on item.version_id = version.id and item.tenant_id = version.tenant_id
+    where version.id = 'a3250000-0000-4000-8000-000000000130'
+    group by version.total_ht_cents
+  $a$
+$$;
+
+select is(
+  array[
+    pg_temp.v3_probe(array[
+      'set local role authenticated',
+      $s$select set_config('request.jwt.claim.sub', 'a3250000-0000-4000-8000-000000000001', true)$s$,
+      $s$delete from public.estimate_items where id = 'a3250000-0000-4000-8001-000000000131'$s$,
+      'reset role'
+    ], pg_temp.v3_s3_state()),
+    pg_temp.v3_probe(array[
+      'set local role service_role',
+      $s$delete from public.estimate_items where id = 'a3250000-0000-4000-8001-000000000131'$s$,
+      'reset role'
+    ], pg_temp.v3_s3_state()),
+    pg_temp.v3_probe(array[
+      $s$delete from public.estimate_items where id = 'a3250000-0000-4000-8001-000000000131'$s$
+    ], pg_temp.v3_s3_state()),
+    pg_temp.v3_probe(array[
+      $s$select set_config('miaouffrage.estimate_v3_writer', 'a3250000-0000-4000-8000-000000000120', true)$s$,
+      $s$delete from public.estimate_items where id = 'a3250000-0000-4000-8001-000000000131'$s$
+    ], pg_temp.v3_s3_state()),
+    pg_temp.v3_probe(array[
+      'set local role authenticated',
+      $s$select set_config('request.jwt.claim.sub', 'a3250000-0000-4000-8000-000000000001', true)$s$,
+      $s$delete from public.estimate_items where id = 'a3250000-0000-4000-8001-000000000130'$s$,
+      'reset role'
+    ], pg_temp.v3_s3_state())
+  ],
+  array_fill('0A000 ESTIMATE_V3_WRITER_NOT_SUPPORTED'::text, array[5]),
+  'F25-25 outside its writer contract, no line of a v3 draft is deleted directly (operator Data API, service_role, postgres, another version''s contract, a section taking its lines): its stored totals never go stale'
+);
+
+select is(
+  array[
+    pg_temp.v3_probe(array[
+      $s$select set_config('miaouffrage.estimate_v3_writer', 'a3250000-0000-4000-8000-000000000130', true)$s$,
+      $s$delete from public.estimate_items where id = 'a3250000-0000-4000-8001-000000000131'$s$
+    ], $a$select count(*)::text from public.estimate_items where version_id = 'a3250000-0000-4000-8000-000000000130' and item_type = 'line'$a$),
+    pg_temp.v3_probe(
+      array[
+        format(
+          'insert into public.draft_locks (version_id, user_id, tenant_id, expires_at, session_id) values (%L, %L, %L, statement_timestamp() + interval ''30 minutes'', %L)',
+          'a3250000-0000-4000-8000-000000000150', 'a3250000-0000-4000-8000-000000000001', pg_temp.fx('tenant_a'),
+          'a3250000-0000-4000-8000-000000000403'
+        ),
+        'set local role authenticated',
+        $s$select set_config('request.jwt.claim.sub', 'a3250000-0000-4000-8000-000000000001', true)$s$,
+        $s$create temporary table v3_batch_delete on commit drop as
+           select public.commit_estimate_batch(
+             'a3250000-0000-4000-8000-000000000150',
+             gen_random_uuid(),
+             (select updated_at from public.estimate_versions where id = 'a3250000-0000-4000-8000-000000000150'),
+             'a3250000-0000-4000-8000-000000000403',
+             '[{"op":"delete","id":"a3250000-0000-4000-8001-000000000150"}]'::jsonb,
+             '[]'::jsonb,
+             '[]'::jsonb,
+             '{"total_ht_cents":0,"total_tax_cents":0,"total_ttc_cents":0,"gross_ht_cents":0,"discount_applied_cents":0,"commercial_rounding_cents":0}'::jsonb,
+             '{"labor_roles":[],"margin_tiers":[],"labor_split_flag":null}'::jsonb,
+             null
+           ) as response$s$,
+        'reset role'
+      ],
+      $a$select concat_ws('|', response->>'committed',
+           (select count(*) from public.estimate_items where version_id = 'a3250000-0000-4000-8000-000000000150'),
+           version.gross_ht_cents, version.total_ht_cents, version.total_tax_cents, version.total_ttc_cents)
+         from v3_batch_delete
+         cross join public.estimate_versions version
+         where version.id = 'a3250000-0000-4000-8000-000000000150'$a$
+    ),
+    pg_temp.v3_probe(array[
+      'set local role authenticated',
+      $s$select set_config('request.jwt.claim.sub', 'a3250000-0000-4000-8000-000000000001', true)$s$,
+      $s$delete from public.estimate_versions where id = 'a3250000-0000-4000-8000-000000000130'$s$,
+      'reset role'
+    ], $a$select concat_ws('|',
+         (select count(*) from public.estimate_versions where id = 'a3250000-0000-4000-8000-000000000130'),
+         (select count(*) from public.estimate_items where version_id = 'a3250000-0000-4000-8000-000000000130'))$a$),
+    pg_temp.v3_probe(array[
+      'set local role authenticated',
+      $s$select set_config('request.jwt.claim.sub', 'a3250000-0000-4000-8000-000000000001', true)$s$,
+      $s$delete from public.estimate_projects where id = 'a3250000-0000-4000-8000-000000000010'$s$,
+      'reset role'
+    ], $a$select concat_ws('|',
+         (select count(*) from public.estimate_versions where project_id = 'a3250000-0000-4000-8000-000000000010'),
+         (select count(*) from public.estimate_items item join v3_fx fixture on fixture.key = 'tenant_a' and item.tenant_id = fixture.id))$a$),
+    pg_temp.v3_probe(array[
+      'set local role authenticated',
+      $s$select set_config('request.jwt.claim.sub', 'a3250000-0000-4000-8000-000000000001', true)$s$,
+      format(
+        $s$create temporary table v3_bulk_delete on commit drop as
+           select * from public.bulk_delete_draft_affaires(%L::uuid, array['a3250000-0000-4000-8000-000000000010'::uuid])$s$,
+        pg_temp.fx('tenant_a')
+      ),
+      'reset role'
+    ], $a$select concat_ws('|',
+         (select string_agg(outcome, ',') from v3_bulk_delete),
+         (select count(*) from public.estimate_versions where project_id = 'a3250000-0000-4000-8000-000000000010'),
+         (select count(*) from public.estimate_items item join v3_fx fixture on fixture.key = 'tenant_a' and item.tenant_id = fixture.id))$a$)
+  ],
+  array['ok:6', 'ok:true|0|0|0|0|0', 'ok:0|0', 'ok:0|0', 'ok:deleted|0|0'],
+  'F25-25 a v3 line is still deleted under its writer contract, by the batch (a section with its line, zero footer) and by the cascade of a deleted version or affaire (direct, or bulk_delete_draft_affaires)'
+);
+
+-- ---------------------------------------------------------------------------
 -- F25-16 : métré sur une v3 refusé par le contrat d'écrivain (P-19), rien d'écrit.
 -- ---------------------------------------------------------------------------
 select is(

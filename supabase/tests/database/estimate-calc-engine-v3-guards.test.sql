@@ -970,12 +970,16 @@ select is(
   'F-SQL-10 moving a v3 line to another section (parent_id) stays writable without the contract'
 );
 
+-- Revue Codex de la PR #33 (2.5, docs/testing/estimate-engine-v3-2.5.md §10.6) : réécriture délibérée, écart
+-- assumé à D2 (« les suppressions restent libres »). Une suppression directe laissait le brut, la remise, le HT,
+-- la TVA et le TTC stockés d'une v3 différents de ses lignes ; hors contrat d'écrivain, elle est refusée (le lot
+-- supprime et recalcule ; les cascades d'une version ou d'une affaire supprimée restent admises, F25-25).
 select is(
   pg_temp.v3_probe(array[
     $s$delete from public.estimate_items where id = 'a3210000-0000-4000-8000-000000000203'$s$
   ]),
-  'ok',
-  'F-SQL-10 deleting a line of a v3 draft stays possible without the contract'
+  '0A000 ESTIMATE_V3_WRITER_NOT_SUPPORTED',
+  'F-SQL-10 deleting a line of a v3 draft needs the writer contract (review of 2.5: stored totals never go stale)'
 );
 
 select is(
