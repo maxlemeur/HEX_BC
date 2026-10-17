@@ -76,7 +76,7 @@ values
   ('public.guard_estimate_version_engine_v3_writer', 'contrat d''écrivain v3 sur les versions (M1)'),
   ('public.guard_estimate_document_engine_v3', 'refus des documents v3 (M1, remplacé en M5)'),
   ('private.calc_engine_freezes_snapshot', 'prédicat d''héritage de la gouvernance v2 (M1)'),
-  ('public.guard_estimate_v2_snapshot_columns', 'prédicat d''héritage en ligne in (2, 3) : garde security invoker, schéma private fermé à authenticated/service_role (M1)'),
+  ('public.guard_estimate_v2_snapshot_columns', 'prédicat d''héritage en ligne in (2, 3) : garde security invoker, schéma private fermé à authenticated/service_role (M1) ; = 3 : suppression d''une ligne v3 sous contrat d''écrivain (M4, revue de la PR #33)'),
   ('public.guard_estimate_project_v2_owner_change', 'prédicat d''héritage en ligne in (2, 3) : garde security invoker, schéma private fermé à authenticated/service_role (M1)'),
   ('public.guard_labor_role_v2_owner_change', 'prédicat d''héritage en ligne in (2, 3) : garde security invoker, schéma private fermé à authenticated/service_role (M1)'),
   ('public.open_estimate_review_cycle', 'prédicat d''héritage en ligne in (2, 3) : security invoker, schéma private fermé à authenticated/service_role (M1)'),
