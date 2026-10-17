@@ -1,6 +1,6 @@
 # Persistance, gel et règles v3, derrière la politique (sous-lot 2.5)
 
-Statut : **rouge écrit et observé, M4 non implémentée** (17/10/2026, commits `bd194ba7` et `40adfc74`,
+Statut : **rouge écrit et observé ; M4 implémentée, pgTAP vert (§7)** (17/10/2026, commits `bd194ba7` et `40adfc74`,
 `test(lot2-2.5)` ; preuve au §4). Ce document et
 `supabase/tests/database/estimate-engine-v3-persistence.test.sql` sont rédigés avant tout code de
 production et avant la migration M4. Le parcours E2E `V3P01` et l'isolation Vitest `R-01` à `R-05`
@@ -255,3 +255,110 @@ et empreintes documentaires identiques ; `git diff --stat` vide sur `estimate-ca
   (session PostgREST) le prouve.
 - Les sondes F25-13 retirent le CHECK de forme dans une sous-transaction annulée : elles supposent qu'aucun
   autre déclencheur ne vérifie l'identité des totaux de version.
+
+## 7. Implémentation SQL (M4)
+
+Migration `supabase/migrations/20261017162000_estimate_engine_v3_persistence.sql` (horodatage ramené dans la
+tolérance de 10 min de `supabase:validate`, qui refusait `20261017174500`), manifeste à jour. Commits :
+`db753d21` (`test`, sonde des lignes non chiffrées rouge d'abord, sondes booléennes corrigées), `40ac4c9f`
+(`feat`, M4 et réécritures du §1.7), puis ce document. Chaque fonction redéfinie part de `pg_get_functiondef`
+sur une pile native reconstruite à `20261017134443` ; seules les lignes v3 changent (`persist…` réécrite à
+la main sur cette base, les cinq autres dérivées par remplacements exacts vérifiés un à un).
+
+### 7.1 Interface SQL (piste TS et parcours `V3P01`)
+
+| Objet | Contrat |
+|---|---|
+| `set_tenant_calc_policy(p_tenant_id uuid, p_new_estimate_calc_engine smallint, p_default_sale_coefficient_fo numeric, p_default_sale_coefficient_mo numeric, p_allowed_tax_rates_bp integer[], p_change_reason text, p_actor_user_id uuid) → tenant_calc_policies` | `security definer`, `service_role` seul. `p_allowed_tax_rates_bp` nul → `{2000,1000,550,210}`. Erreurs `22023` : `TENANT_CALC_POLICY_REASON_REQUIRED` (motif nul, < 5 ou > 500 caractères après `btrim`), `TENANT_CALC_POLICY_INVALID` (entreprise, auteur ou moteur nul ou inconnu, moteur ∉ {2,3}, coefficient ∉ ]0 ; 10] ou à plus de 4 décimales, liste de taux vide, nulle ou hors [0 ; 10 000]), `TENANT_CALC_POLICY_V3_DEFAULTS_REQUIRED`. Écrit la ligne et un événement (`previous_policy` nul à la première écriture) |
+| `tenant_calc_policies`, `tenant_calc_policy_events` | Lecture par les membres (`is_tenant_member`) ; aucune écriture `authenticated`/`anon` |
+| `persist_estimate_creation_atomic` (signature inchangée) | Version : `calc_engine_version` = moteur **attendu** ∈ {1,2,3}, absent = 2 (hors liste : `22023 ESTIMATE_VERSION_PAYLOAD_INVALID`) ; ≠ politique (absente = 2) : `40001 ESTIMATE_CALC_POLICY_CONTEXT_CHANGED`, avant toute écriture. Clés v3 : `sale_coefficient_fo`, `sale_coefficient_mo` (facultatives, nombre ]0 ; 10] à 4 décimales au plus ; absentes ou nulles = défauts de la politique), `gross_ht_cents`, `discount_applied_cents`, `commercial_rounding_cents` (obligatoires en v3, entiers JSON ≥ 0). Sous politique 2, ces clés absentes ou nulles. Lignes : `unit_code` (code de `measurement_units`, sinon `23503`), `pricing_status` (défaut `priced`), `h_mo_per_unit`, `h_mo_atelier_per_unit`, `h_mo_chantier_per_unit` ; `tax_rate_bp` facultatif en v3 (taux de version) ; `h_mo*` non transmis (dérivés, écrasés s'ils le sont). Ligne non chiffrée : `pu_ht_cents` nul, net et TVA nuls. Puis D12 : `22023 ESTIMATE_V3_PROJECTION_MISMATCH` (le `detail` nomme le contrôle) |
+| `commit_estimate_batch` (inchangée) | `data` des créations et mises à jour de ligne : les cinq clés de ligne v3 (`unit_code` texte ou nul, `pricing_status`, h/u nombre ≥ 0 à 4 décimales au plus ou nul). v3 : `p_version_patch` = exactement six clés (`total_ht_cents`, `total_tax_cents`, `total_ttc_cents`, `gross_ht_cents`, `discount_applied_cents`, `commercial_rounding_cents`) ; v1/v2 : les trois clés historiques seules (sinon `ESTIMATE_BATCH_INVALID_INPUT`). v3 : `p_item_updates` couvre **toutes** les lignes (comme la v2), `pu_ht_cents` nul admis. Écart D12 → `22023 ESTIMATE_BATCH_PROJECTION_MISMATCH` |
+| `atomic_create_estimate_item` (inchangée) | `p_item` : les cinq clés v3. v3 : `p_version_patch` à six clés, même pour une section ; projections de toutes les lignes, `pu_ht_cents` nul admis ; forme fausse → `22023 ESTIMATE_CREATE_INVALID_INPUT` ; D12 → `22023 ESTIMATE_V3_PROJECTION_MISMATCH` |
+| `save_estimate_settings_atomic` (inchangée) | Clés de réglage : `sale_coefficient_fo`, `sale_coefficient_mo` (nombre ]0 ; 10], 4 décimales au plus), `apply_tax_rate_to_lines` (booléen) ; sur une v1/v2 → `ESTIMATE_SETTINGS_INVALID_INPUT`. v3 : `p_totals` à sept clés (les quatre historiques + `gross_ht_cents`, `discount_applied_cents`, `commercial_rounding_cents`) ; projections `id`, `pu_ht_cents` (nul si non chiffrée), `line_total_ht_cents`, `line_tax_cents`, `line_total_ttc_cents`, `tax_rate_bp` (= taux de version si `apply_tax_rate_to_lines`, sinon taux actuel de la ligne) ; forme non v3 (paliers, multiplicateur ou coefficient global ≠ 1, cascade, montant et taux, `up`/`nearest`) → `ESTIMATE_SETTINGS_INVALID_INPUT` avant écriture ; D12 → `22023 ESTIMATE_V3_PROJECTION_MISMATCH` ; dépendances inchangées (`margin_tiers` `[]`) |
+| `duplicate_estimate_version(uuid, boolean)` (inchangée) | v3 → v3 (colonnes v3 comprises) quelle que soit la politique ; v1/v2 inchangées |
+| `freeze_estimate_v3_snapshot(p_version_id, p_tenant_id, p_expected_updated_at, p_expected_content_revision, p_actor_user_id, p_purpose, p_calculation_context, p_item_snapshots, p_version_totals) → estimate_versions` | `service_role` seul ; `p_purpose` ∈ `send` (bail du demandeur exigé) / `approval` (aucun bail d'un tiers). Contexte **égal** à l'objet §6.5 : `engine` 3, `labor_split_enabled`, `labor_roles` `[{id, hourly_rate_cents}]` (rôles cités par toute ligne, non chiffrée comprise, taux du rôle du propriétaire ou 0, `id` croissant), `sale_coefficients {fo, mo}`, `discount {kind, requested_cents, rate_bp, base_cents, applied_cents}`, `commercial_rounding {mode, step_cents, applied_cents}`, `cost_subtotal_cents`, `realized_sale_coefficient` (6 décimales ou nul), `tax_breakdown` (taux croissants) — aucune autre clé. Lignes : un objet par ligne (aucune section), onze clés (`id` + les dix du §1.5 ; `snapshot_pu_ht_cents` nul sur une ligne non chiffrée). Totaux : sept clés (`rounding_adjustment_cents` 0). Écrit aussi `pu_ht_cents`. Idempotente si le gel identique est déjà frais. Erreurs : `42501 SERVICE_ROLE_REQUIRED`, `22023 ESTIMATE_V3_SNAPSHOT_PURPOSE_INVALID`, `42501 ESTIMATE_V3_SNAPSHOT_NOT_WRITABLE`, `40001 ESTIMATE_DRAFT_LOCK_REQUIRED` / `ESTIMATE_DRAFT_LOCK_CONFLICT` / `ESTIMATE_VERSION_CONFLICT`, `42501 ESTIMATE_V3_SNAPSHOT_REQUIRES_DRAFT`, `22023 ESTIMATE_V3_SNAPSHOT_INVALID` (types), `23503 ESTIMATE_LABOR_ROLE_OWNER_MISMATCH`, `23502 ESTIMATE_V3_LABOR_ROLE_REQUIRED`, `22023 ESTIMATE_V3_UNIT_REQUIRED`, `22023 ESTIMATE_V3_TAX_RATE_NOT_ALLOWED`, `40001 ESTIMATE_V3_CALCULATION_CONTEXT_CONFLICT`, `22023 ESTIMATE_V3_PROJECTION_MISMATCH`, et celles de M3 (`22023 ESTIMATE_V3_INPUT_INVALID`, `22003 ESTIMATE_AMOUNT_OVERFLOW`) |
+| `list_approval_queue` | v3 : `margin_bp` = ⌊(2 (HT − Σ D) × 10 000 + HT) / (2 HT)⌋ (= `computeEstimateV3NetMarginBp`) sur un gel frais de contexte `engine` 3 avec `cost_subtotal_cents` numérique et HT > 0 ; sinon NULL |
+| Lignes, écritures directes | v1/v2 : colonnes v3 non nulles ou statut ≠ `priced` → `0A000 ESTIMATE_ENGINE_COLUMN_NOT_SUPPORTED`. v3 : sept colonnes sous contrat d'écrivain (`0A000 ESTIMATE_V3_WRITER_NOT_SUPPORTED`) ; `h_mo > 0` sans h/u, ou `h_mo*` modifié seul → `22023 ESTIMATE_V3_LABOR_HOURS_PER_UNIT_REQUIRED` |
+
+Lecture canonique d'une v3 stockée (`private.estimate_v3_canonical_input`, à reproduire côté TS pour la
+parité du gel) : lignes par `id` croissant ; `labor_rate_cents` = taux du rôle du propriétaire ou 0 ;
+`labor_rate_atelier_cents` / `_chantier_` = taux du rôle ou nul ; `labor_split_enabled` = drapeau
+`EST_031_LABOR_SPLIT` actif ; `reverse_charge` = `contractor_role = 'subcontractor'`.
+
+### 7.2 Choix d'implémentation
+
+1. **R-08** : les heures sont dérivées par `private.estimate_v3_line_values` (M3), dans le déclencheur
+   `ab_derive_estimate_item_v3_columns` (`private.derive_estimate_item_v3_columns`, `security definer`) :
+   une ligne non chiffrée à h/u renseigné stocke `0.000` ; `h_mo_atelier`/`h_mo_chantier` restent nuls si
+   leur h/u l'est ; `h_mo`, que le CHECK de charge utile exige sur une ligne, vaut alors 0. Le déclencheur
+   suit la garde d'écrivain (`aay_`) et la garde de gel héritée (`aaz_`) : le contrat d'écrivain et le refus
+   `ESTIMATE_LABOR_ROLE_OWNER_MISMATCH` gardent leur priorité (sonde F-SQL-05 de 2.1 inchangée). Le taux de
+   version par défaut et les refus de D4 y sont portés aussi.
+2. **Autoliquidation** : `reverse_charge = (contractor_role = 'subcontractor')`, lu par le recalcul.
+3. **Lignes non chiffrées** : `pu_ht_cents` nul ; seuls `estimate_items_item_type_payload_check` et
+   `estimate_items_v2_snapshot_complete_check` sont détendus, par `pricing_status <> 'priced'`, que la garde
+   réserve à la v3 ; toute ligne existante reste valide (montée de version : 0 différence). Au gel : PU figé
+   nul, parts figées à 0 (le lecteur TS de 2.4 exige des entiers). Preuve : F25-21, F25-22 ci-dessous.
+4. **CHECK de forme** avec `is not null` explicite sur les cinq colonnes v3.
+5. **Modèles** : colonnes v3 en M6 (2.8), hors M4.
+6. **v3 sous politique 2** : modifiable, gelable, duplicable ; la duplication d'une v2 reste une v2. Une v3
+   se duplique par un contrat d'insertion distinct, `duplicate_source_v3` : `duplicate_source` ne produit
+   toujours pas de v3 (assertion F-SQL-02 de 2.1 inchangée). L'article lié est copié pour une v3, ce qui rend
+   neutre la mise à jour de `duplicate_estimate_version` (sinon refusée par le contrat d'écrivain).
+7. **Métré** : refusé en SQL par le contrat d'écrivain (F25-16) ; le message TS nommé relève de la piste TS.
+8. **Passerelles** : `persist…`, `save…` (`service_role`) et `atomic_create…` (`authenticated`) restent
+   `security invoker` ; le schéma `private` leur est fermé. `public.estimate_v3_assert_draft_for_writer(uuid)`
+   (`authenticated`, `service_role`) et `public.estimate_v3_compute_for_writer(uuid)` (`service_role`) sont
+   `security definer` et refusent (`0A000 ESTIMATE_V3_WRITER_NOT_SUPPORTED`) hors du contrat d'écrivain de la
+   version : même modèle de confiance que le contrat. Le lot et la duplication, `security definer`, appellent
+   `private` directement. Aucune fonction existante ne change de mode.
+9. **Contrôle de sauvegarde (D12)** : valeurs de ligne de M3 sans répartition ; R et A suivent les formules
+   de `private.estimate_v3_compute_items` ; la répartition exacte n'est contrôlée qu'au gel, qui recalcule tout.
+10. **Gel** : un contexte différent est un conflit à réessayer (`40001 …CONTEXT_CONFLICT`, comme la v2), une
+    valeur différente un refus (`…PROJECTION_MISMATCH`) ; MO sans rôle refusée comme en v2
+    (`ESTIMATE_V3_LABOR_ROLE_REQUIRED`).
+11. **Concurrence politique ↔ création** : verrou consultatif `estimate-calc-policy:<entreprise>` exclusif dans
+    l'écrivain, partagé dans la création et le gel, en plus de `FOR SHARE` (couvre la première écriture,
+    sans ligne à verrouiller).
+12. `updated_by` / `changed_by` : `on delete set null` (un profil supprimé ne bloque pas la suppression).
+13. `unit_code` n'est pas normalisé en SQL : l'écrivain envoie un code ; la clé étrangère refuse le reste.
+
+### 7.3 Sondes corrigées et assertions réécrites
+
+- **Persistance (5 sondes, `db753d21`)** : F25-03 (RLS, journal), F25-10 (gel S1), F25-17 et F25-18 rendaient
+  des booléens par `format()` / `concat_ws()`, qui écrivent `t`/`f` sous PostgreSQL 17.11
+  (`select format('%s', true)` → `t`, `true::text` → `true`) alors que les attendus écrivent `true`/`false`.
+  Rouge observé avec M4 appliquée, pour cette seule raison : 85/90, `have: …:t…` / `want: …:true…` ; sondes
+  castées en `::text`, attendus inchangés : 90/90.
+- **2.1 (`estimate-calc-engine-v3-guards`, §1.7)** : fixtures v3 avec coefficients, montants v3 et h/u
+  (`h_mo / 2`) ; F-SQL-02 « RPC de création » → `ESTIMATE_CALC_POLICY_CONTEXT_CHANGED` ; insertion v3 sans
+  contrat avec coefficients ; F-SQL-10 lot, ligne et réglages réécrits sur la branche v3 (ancien contrat
+  refusé, projection décalée d'1 c refusée — PU 4 301 au lieu de 4 300, PU 1 299 au lieu de 1 300 —,
+  projection exacte écrite, coefficient enregistré) ; F-SQL-11 : une v3 se duplique en v3 (et en variante) ;
+  F-SQL-14 : quatre entrées revues (`duplicate_estimate_version_without_product_id`,
+  `freeze_estimate_v3_snapshot`, `private.estimate_v3_canonical_input`,
+  `private.derive_estimate_item_v3_columns`) et motifs mis à jour ; diagnostic « aucune » entrée orpheline.
+- **Gouvernance** : `pg_temp.governance_v3_fixture` avec coefficients, montants v3 et h/u.
+- **2.4 (`estimate-engine-v3-functions`, F15)** : la sonde d'immuabilité exclut les trois lecteurs de lignes
+  de M4 (stables par construction, D12) ; les sondes de privilèges les couvrent toujours.
+- **Nouvelle suite `estimate-engine-v3-nonpriced.test.sql`** (F25-21, F25-22, R-08 et décision 3) : rouge
+  avant M4 sur la pile possédée (3/3, `42883 set_tenant_calc_policy` absente), vert après.
+
+### 7.4 Preuves (17/10/2026, WSL Ubuntu 24.04, Node 24.14.0, clone `~/miaouffrage-lot2-25` à `40ac4c9f`)
+
+| Commande | Résultat |
+|---|---|
+| `npm run supabase:manifest:add` ; `npm run supabase:validate` (Windows) | 248 entrées ; « 248 files, 248 unique versions » |
+| Itération : pile native possédée, M4 dans une transaction annulée + chaque suite | persistance 90/90, non chiffrées 3/3 ; les 17 autres suites vertes avant le dernier renommage du déclencheur, les quatre suites v3 et la gouvernance rejouées vertes après |
+| `npm run db:ci:local` | sortie 0 : inventaire des migrations conforme au dépôt (248 fichiers) ; pgTAP `Files=19, Tests=1832`, `Result: PASS` (persistance 90 comprise) ; « Behavioral RLS matrix passed » ; journal `.e2e/lot2-2.5/green/db-ci-local-m4.log` du clone, SHA-256 `27ffb7dc1ff7340cd4d4ebc70cbe149ec1a90c3168a2aabbebf5ddba4ea227ea` |
+| `npm run db:upgrade-check -- lot2-2-5` | sortie 0 : 244 migrations de base, fixture validée, 4 migrations du lot appliquées dont M4, **0 différence** (douze colonnes déclarées, valeurs neutres), contrôle négatif interne détecté ; preuve `.e2e/engine-v3/upgrade-check/2026-10-17T16-25-48-724Z-lot2-2-5/` |
+| `npm run db:upgrade-check -- lot2-2-5 --negative-control` | sortie 1, exigée : 1 différence, exactement celle de la migration synthétique (`estimate_items …0112 pu_ht_cents: 1481 -> 1482`) ; preuve `…/2026-10-17T16-26-15-520Z-lot2-2-5-negative-control/` |
+
+`git diff --stat` reste vide sur `estimate-calculations.ts` et `estimate-v2-snapshot.ts` (aucun TS dans la piste SQL).
+
+### 7.5 Reste hors de la piste SQL
+
+- `e2e/army/local/engine-v3-support.ts` (fixture v3 à `margin_multiplier` 1,5, sans coefficients, §1.7) viole
+  désormais le CHECK de forme : le parcours de 2.1 `engine-v3-fail-closed` échouera tant qu'il n'est pas aligné.
+- `src/types/database.ts`, correspondance des nouveaux codes d'erreur vers l'API, message
+  `TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED`, parcours `V3P01` : piste TS.
