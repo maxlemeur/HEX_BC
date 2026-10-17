@@ -1,7 +1,8 @@
 // Lot 2, sub-lot 2.4: reading of the OPTIMA control cells (design §5.4). Pure module, used by
-// optima-lot-check.ts and tested by src/test/engine-v3-optima-control.test.ts.
+// scripts/engine-v3/optima-lot-check.ts, by the v3 import self-check (sub-lot 2.8, D11) and tested by
+// src/test/engine-v3-optima-control.test.ts.
 
-import { decimalFromLiteral, roundHalfUpToScale } from "../../src/lib/estimates/engine-v3/decimal";
+import { decimalFromLiteral, roundHalfUpToScale } from "@/lib/estimates/engine-v3/decimal";
 
 /** Exact decimal string to cents, half up (x >= 0). */
 export function centsHalfUp(text: string): number {

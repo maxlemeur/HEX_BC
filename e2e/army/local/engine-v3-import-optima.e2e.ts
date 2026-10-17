@@ -11,7 +11,7 @@ import {
   type ArmyEstimate, type ArmyItem, type ArmyState,
 } from "../critical/fixtures";
 // The 2.4 reading of the OPTIMA control cells (15 significant digits, half up), shared with optima-lot-check.
-import { controlCents } from "../../../scripts/engine-v3/optima-control";
+import { controlCents } from "../../../src/lib/imports/optima-control";
 import { ownedEstimateContext } from "./calculation-gate-support";
 // Aliased: not a React hook, despite its name.
 import { setTenantCalcPolicy, useDedicatedV3Owner as signUpDedicatedV3Owner, type V3Owner } from "./engine-v3-persistence-support";

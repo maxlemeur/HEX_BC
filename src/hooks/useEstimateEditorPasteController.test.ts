@@ -71,6 +71,8 @@ function createRow(
     h_mo: 0,
     k_mo: 1,
     h_mo_majoration: 1,
+    h_mo_per_unit: null,
+    control_unit_price: null,
     ...overrides,
   };
 }
@@ -370,6 +372,22 @@ describe("useEstimateEditorPasteController anchors and payloads", () => {
     expect(harness.applyVersionToken).toHaveBeenCalledWith("token-1");
     expect(readHistoryCommand(harness.pushHistoryCommand).label).toBe(
       "paste-insert"
+    );
+  });
+
+  it("2.8: stores pasted hours per unit on a v1/v2 as line hours h/u × Q (P-16)", async () => {
+    const harness = createHarness({ items: [] });
+
+    await act(async () => {
+      await harness.result.current.actions.pasteRows({
+        anchorRowId: null,
+        rows: [createRow("O1", { quantity: 20, unit: "ml", h_mo: null, h_mo_per_unit: 1.991, control_unit_price: 174.59 })],
+      });
+    });
+
+    expect(mocks.computeEstimateLineValues).toHaveBeenCalledWith(
+      expect.objectContaining({ quantity: 20, h_mo: 39.82 }),
+      expect.anything()
     );
   });
 

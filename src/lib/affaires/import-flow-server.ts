@@ -9,6 +9,7 @@ import type {
   ValidImportFlowLine,
 } from "@/lib/affaires/import-flow";
 import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
+import type { EstimateV3PricingStatus } from "@/lib/estimates/engine-v3";
 
 export type Supabase = SupabaseClient<Database>;
 export type TenantMembershipRow = Pick<
@@ -49,6 +50,10 @@ export type RpcImportLinesPayload = {
   line_total_ht_cents: number;
   line_tax_cents: number;
   line_total_ttc_cents: number;
+  // Engine 3 only (2.8, D9, D4): absent from a v1/v2 payload, which stays unchanged.
+  unit_code?: string | null;
+  pricing_status?: EstimateV3PricingStatus;
+  h_mo_per_unit?: number | null;
 };
 
 export type RpcImportSectionPayload = {
@@ -354,6 +359,9 @@ export function toRpcImportLines(lines: ValidImportFlowLine[]): RpcImportLinesPa
     line_total_ht_cents: line.lineTotalHtCents,
     line_tax_cents: line.lineTaxCents,
     line_total_ttc_cents: line.lineTotalTtcCents,
+    ...(line.pricingStatus !== undefined
+      ? { unit_code: line.unitCode ?? null, pricing_status: line.pricingStatus, h_mo_per_unit: line.hoursPerUnit ?? null }
+      : {}),
   }));
 }
 

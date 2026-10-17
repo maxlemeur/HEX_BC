@@ -58,6 +58,10 @@ const CLIPBOARD_TARGET_FIELD_LABELS: Record<ClipboardMappingTarget, string> = {
   h_mo_majoration: "Majoration MO (unité de l’en-tête)",
   h_mo_majoration_percent: "Majoration MO (%), 100 = neutre",
   h_mo_majoration_coefficient: "Majoration MO (coefficient), 1 = neutre",
+  h_mo_majoration_additive: "Majoration MO (additive OPTIMA), 0 = neutre",
+  // Sub-lot 2.8: OPTIMA « Tps pose unitaire » (h/u × Q on a v1/v2) and the « Prix Unitaire » control.
+  h_mo_per_unit: "Heures MO par unité (h/u)",
+  control_unit_price: "Prix Unitaire (contrôle, non collé)",
 };
 
 function isTextEditingTarget(target: EventTarget | null) {

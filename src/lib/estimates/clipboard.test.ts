@@ -258,10 +258,16 @@ describe("2.3 pasted OPTIMA headers (U-03, F17)", () => {
 // 2.3 review: a generic sale price ("Prix Unitaire" of an OPTIMA sheet without its "PR Fourniture
 // unitaire", "PU", "Unit price") was proposed as the supply cost, so a v2 margin applied twice
 // (D11). The developers' "Prix unitaire HT" (d484c5a1, the paste field label and the BDC format)
-// and explicit purchase prices stay the supply cost.
+// and explicit purchase prices stay the supply cost. Since 2.8, « Prix Unitaire » is proposed as the
+// sale control (D11), which is never pasted.
 describe("2.3 pasted sale prices never become the supply cost (D11)", () => {
+  it("2.8: \"Prix Unitaire\" is proposed as the sale control, never as the supply cost", () => {
+    const mapping = suggestClipboardColumnMapping(["Désignation", "Uté", "Qté", "Prix Unitaire"]);
+    expect(mapping["Prix Unitaire"]).toBe("control_unit_price");
+    expect(Object.values(mapping)).not.toContain("unit_price_ht");
+  });
+
   it.each([
-    [["Désignation", "Uté", "Qté", "Prix Unitaire"], "Prix Unitaire"],
     [["Désignation", "Qté", "PU"], "PU"],
     [["Désignation", "Qté", "P.U."], "P.U."],
     [["Désignation", "Qté", "PU HT"], "PU HT"],

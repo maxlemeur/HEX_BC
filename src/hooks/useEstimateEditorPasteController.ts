@@ -5,6 +5,7 @@ import { useCallback, useMemo, type Dispatch, type SetStateAction } from "react"
 import type { EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
 import type { EstimateEditorHistoryCommand } from "@/hooks/useEstimateEditorHistoryController";
 import { computeEstimateLineValues } from "@/lib/estimate-calculations";
+import { computeLineHoursFromHoursPerUnit } from "@/lib/affaires/import-flow";
 import type { ClipboardPreviewValues } from "@/lib/estimates/clipboard";
 import {
   batchEstimateOperations,
@@ -137,7 +138,10 @@ export function useEstimateEditorPasteController({
           Math.max(toFiniteNumber(row.unit_price_ht, 0), 0) * 100
         );
         const kFo = Math.max(toFiniteNumber(row.k_fo, 1), 0);
-        const hMo = Math.max(toFiniteNumber(row.h_mo, 0), 0);
+        // Sub-lot 2.8 (P-16): a v1/v2 stores the line's hours; pasted hours per unit become h/u × Q.
+        const hMo = row.h_mo_per_unit !== null && row.h_mo_per_unit !== undefined
+          ? (computeLineHoursFromHoursPerUnit(quantity, Math.max(row.h_mo_per_unit, 0)) ?? 0)
+          : Math.max(toFiniteNumber(row.h_mo, 0), 0);
         const kMo = Math.max(toFiniteNumber(row.k_mo, 1), 0);
         const hMoMajoration = Math.max(
           toFiniteNumber(row.h_mo_majoration, 1),

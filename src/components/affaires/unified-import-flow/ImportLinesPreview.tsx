@@ -1,10 +1,14 @@
 "use client";
 
+import { useState } from "react";
+
 import type { ImportFlowLinesPreview } from "@/app/dashboard/affaires/_actions/import-flow";
 import type { InvalidImportFlowLineReason } from "@/lib/affaires/import-flow";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
+import { formatDecimalInput, parseCoefficient } from "@/lib/numeric-input/parsers";
 
 const decimalFormatter = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 4 });
 const centsFormatter = new Intl.NumberFormat("fr-FR", {
@@ -32,6 +36,8 @@ const INVALID_REASON_LABELS: Record<InvalidImportFlowLineReason, string> = {
   undeclared_majoration_unit:
     "majoration sans unité déclarée : choisissez « Majoration MO (%) », « (coefficient) » ou « additive OPTIMA » dans le mapping",
   preview_required: "heures par unité ou paramètres de classeur à vérifier dans l’aperçu",
+  line_hours_require_hours_per_unit:
+    "heures de ligne : un chiffrage moteur 3 porte des heures par unité, choisissez « Heures MO par unité » dans le mapping",
   invalid_row_payload: "ligne illisible",
 };
 
@@ -39,14 +45,77 @@ export const LABOR_ROLE_SELECT_LABEL = "Rôle MO des heures importées";
 // Explicit « no role » choice, sent as null (E17); "" is the unanswered placeholder.
 export const NO_LABOR_ROLE_OPTION_VALUE = "none";
 
+export type ImportSaleCoefficientsChoice = { fo: number; mo: number };
+
 type ImportLinesPreviewProps = {
   preview: ImportFlowLinesPreview | null;
   isLoading: boolean;
   error: string | null;
   selectedLaborRoleId: string | null | undefined;
   onLaborRoleChange: (roleId: string | null) => void;
+  // Sub-lot 2.8 (E4): the v3 sale coefficients proposed by the preview, modifiable before confirmation.
+  onSaleCoefficientsChange?: (coefficients: ImportSaleCoefficientsChoice) => void;
   onRetry: () => void;
 };
+
+function readSaleCoefficient(text: string): number | null {
+  const value = parseCoefficient(text);
+  return value !== null && value > 0 && value <= 10 ? value : null;
+}
+
+/**
+ * Sale coefficients of the v3 the import creates (sub-lot 2.8, D5): proposed from the workbook
+ * parameter row, or the company's; a valid change re-prices the preview.
+ */
+function SaleCoefficientsFields({
+  coefficients,
+  onChange,
+}: {
+  coefficients: ImportSaleCoefficientsChoice;
+  onChange?: (coefficients: ImportSaleCoefficientsChoice) => void;
+}) {
+  const [fo, setFo] = useState(() => formatDecimalInput(coefficients.fo));
+  const [mo, setMo] = useState(() => formatDecimalInput(coefficients.mo));
+  const parsedFo = readSaleCoefficient(fo);
+  const parsedMo = readSaleCoefficient(mo);
+  const commit = () => {
+    if (parsedFo === null || parsedMo === null) return;
+    if (parsedFo === coefficients.fo && parsedMo === coefficients.mo) return;
+    onChange?.({ fo: parsedFo, mo: parsedMo });
+  };
+  return (
+    <div className="mt-2 flex flex-wrap items-end gap-3">
+      {([
+        ["import-sale-coefficient-fo", "Coefficient de vente FO", fo, setFo, parsedFo],
+        ["import-sale-coefficient-mo", "Coefficient de vente MO", mo, setMo, parsedMo],
+      ] as const).map(([id, label, value, setValue, parsed]) => (
+        <div key={id} className="space-y-1">
+          <label htmlFor={id} className="text-xs font-semibold text-foreground">
+            {label}
+          </label>
+          <Input
+            id={id}
+            size="sm"
+            inputMode="decimal"
+            className="w-28"
+            value={value}
+            aria-invalid={parsed === null || undefined}
+            onChange={(event) => setValue(event.target.value)}
+            onBlur={commit}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") commit();
+            }}
+          />
+        </div>
+      ))}
+      {parsedFo === null || parsedMo === null ? (
+        <p className="text-xs text-danger" role="alert">
+          Coefficient de vente : nombre positif jusqu’à 10, quatre décimales au plus.
+        </p>
+      ) : null}
+    </div>
+  );
+}
 
 /**
  * Import preview of what the estimate lines receive (sub-lot 2.3): v1/v2 store the line's total
@@ -60,6 +129,7 @@ export function ImportLinesPreview({
   error,
   selectedLaborRoleId,
   onLaborRoleChange,
+  onSaleCoefficientsChange,
   onRetry,
 }: ImportLinesPreviewProps) {
   if (error) {
@@ -87,7 +157,8 @@ export function ImportLinesPreview({
     );
   }
 
-  const { hours, workbookParameters, laborRole, unitPriceChecks } = preview;
+  const { hours, workbookParameters, laborRole, unitPriceChecks, saleCoefficients } = preview;
+  const isV3 = preview.engine === 3;
   const hasHours = hours.lines.length > 0;
   const invalidByReason = preview.invalidLines.reduce<Map<InvalidImportFlowLineReason, number[]>>(
     (groups, line) => {
@@ -113,6 +184,7 @@ export function ImportLinesPreview({
   const perUnitDurations = preview.perUnitDurationsAsLineHours;
 
   if (
+    !isV3 &&
     !hasHours &&
     !workbookParameters &&
     preview.invalidLineCount === 0 &&
@@ -157,14 +229,18 @@ export function ImportLinesPreview({
       {hasHours ? (
         <div className="space-y-2">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-foreground-secondary">
-            {hours.convertedLines > 0
-              ? "Heures MO : h/u × Q = heures totales de la ligne"
-              : "Heures MO : heures totales de la ligne"}
+            {isV3
+              ? "Heures MO : heures par unité (h/u)"
+              : hours.convertedLines > 0
+                ? "Heures MO : h/u × Q = heures totales de la ligne"
+                : "Heures MO : heures totales de la ligne"}
           </h3>
           <p className="text-xs text-muted-foreground">
-            {hours.convertedLines > 0
-              ? "Ce devis stocke les heures totales de chaque ligne. Les heures par unité du fichier sont multipliées par la quantité (h/u × Q), arrondies au millième d’heure ; elles suivent la quantité à l’import seulement."
-              : "La colonne importée est lue comme les heures totales de la ligne, qui ne varient pas avec la quantité."}
+            {isV3
+              ? "Ce devis (moteur 3) stocke les heures par unité du fichier ; les heures de ligne en découlent (h/u × Q, au millième d’heure) et suivent la quantité."
+              : hours.convertedLines > 0
+                ? "Ce devis stocke les heures totales de chaque ligne. Les heures par unité du fichier sont multipliées par la quantité (h/u × Q), arrondies au millième d’heure ; elles suivent la quantité à l’import seulement."
+                : "La colonne importée est lue comme les heures totales de la ligne, qui ne varient pas avec la quantité."}
             {` Total : ${formatDecimal(hours.totalLineHours)} h sur ${hours.linesWithHours} ligne${hours.linesWithHours > 1 ? "s" : ""}.`}
           </p>
           <div className="table-scroll overflow-x-auto" role="region" aria-label="Heures MO importées" tabIndex={0}>
@@ -208,13 +284,36 @@ export function ImportLinesPreview({
               ? "—"
               : `${formatEurosFromCents(workbookParameters.hourlyRateCents)}/h`}
           </p>
-          <p className="mt-1 text-muted-foreground">
-            Les coefficients du classeur ne sont pas recopiés : la version applique sa marge
-            (×{formatDecimal(preview.versionMarginMultiplier)}), K FO et K MO restent à 1.
-            {coefficientsDiffer
-              ? " Ils diffèrent de la marge de la version : les prix calculés différeront du classeur."
-              : ""}
+          {isV3 ? null : (
+            <p className="mt-1 text-muted-foreground">
+              Les coefficients du classeur ne sont pas recopiés : la version applique sa marge
+              (×{formatDecimal(preview.versionMarginMultiplier)}), K FO et K MO restent à 1.
+              {coefficientsDiffer
+                ? " Ils diffèrent de la marge de la version : les prix calculés différeront du classeur."
+                : ""}
+            </p>
+          )}
+        </div>
+      ) : null}
+
+      {isV3 && saleCoefficients ? (
+        <div className="rounded-lg border border-border bg-surface-subtle px-4 py-3 text-xs text-foreground-secondary">
+          <p className="font-medium text-foreground">
+            {`${saleCoefficients.source === "workbook"
+              ? "Coefficients du classeur proposés"
+              : saleCoefficients.source === "policy"
+                ? "Coefficients de vente de l’entreprise proposés"
+                : "Coefficients de vente choisis"} : FO ${formatDecimal(saleCoefficients.fo)} · MO ${formatDecimal(saleCoefficients.mo)}`}
           </p>
+          <p className="mt-1 text-muted-foreground">
+            Le chiffrage créé (moteur 3) applique ces coefficients de vente ; les prix et le contrôle ci-dessous en
+            tiennent compte. Ils restent modifiables dans les réglages du devis.
+          </p>
+          <SaleCoefficientsFields
+            key={`${saleCoefficients.fo}:${saleCoefficients.mo}`}
+            coefficients={saleCoefficients}
+            onChange={onSaleCoefficientsChange}
+          />
         </div>
       ) : null}
 
@@ -274,6 +373,11 @@ export function ImportLinesPreview({
             {unitPriceChecks.outOfTolerance.length > 1 ? "s" : ""} supérieur
             {unitPriceChecks.outOfTolerance.length > 1 ? "s" : ""} à {formatDecimal(unitPriceChecks.toleranceCents)} c.
           </p>
+          {isV3 && unitPriceChecks.outOfTolerance.length === 0 ? (
+            <p className="mt-1 text-success">
+              {`Aucun écart supérieur à ${formatDecimal(unitPriceChecks.toleranceCents)} c avec « Prix Unitaire »`}
+            </p>
+          ) : null}
           {unitPriceChecks.outOfTolerance.length > 0 ? (
             <ul className="mt-1 list-inside list-disc text-foreground-secondary">
               {unitPriceChecks.outOfTolerance.map((check) => (
