@@ -27,7 +27,7 @@ SQL (M1, `…_estimate_calc_engine_v3_fail_closed.sql`, horodatée après la der
 | Émission | `require_fresh_v2_snapshot_for_publication` lève `0A000 ESTIMATE_V3_EMISSION_NOT_READY` au passage d'une v3 à `sending` ou `sent`, même figée ; `public.guard_estimate_document_engine_v3()` refuse toute ligne `estimate_documents` d'une v3 avec le même code ; `estimate_offer_client_items_match` renvoie faux hors {1,2} |
 | `list_approval_queue` | marge NULL pour une v3 (texte `version.calc_engine_version = 1` conservé) |
 | Immutabilité | `ESTIMATE_CALC_ENGINE_VERSION_IMMUTABLE` reste le premier refus d'un changement de moteur, contrat d'écrivain compris |
-| Garde `prosrc` | toute fonction `public`/`private` dont le source compare `*engine_version` à un littéral figure dans la liste blanche revue de la suite pgTAP |
+| Garde `prosrc` | toute fonction `public`/`private` dont le source compare `*engine_version` à un littéral (`=`, `<>`, `!=`, `is [not] distinct from`, `[not] in (…)`, `= any(…)`) figure dans la liste blanche revue de la suite pgTAP |
 
 TypeScript :
 
@@ -211,7 +211,8 @@ mis à jour). Chaque fonction redéfinie part de sa définition vivante (`202608
    `open_estimate_review_cycle` s'exécutent sous `authenticated` ou `service_role`. Le schéma
    `private` leur est fermé depuis `20260719132414`. Un appel à `private.calc_engine_freezes_snapshot`
    y lèverait donc `42501` sur toute écriture v2. Ces gardes portent le même prédicat en ligne,
-   `in (2, 3)`, que la garde `prosrc` ne voit pas ; les assertions de comportement F-SQL-04 à
+   `in (2, 3)`. Depuis la [revue](#revue-17102026), la garde `prosrc` voit ces listes et les quatre
+   gardes figurent dans sa liste blanche avec ce motif ; les assertions de comportement F-SQL-04 à
    F-SQL-07 les couvrent. Seules les fonctions `security definer`
    (`capture_estimate_review_content_revision`, `invalidate_estimate_v2_snapshot_context`) appellent
    le prédicat. `require_fresh_v2_snapshot_for_publication` (liste blanche) refuse le moteur 3 par
@@ -315,6 +316,22 @@ exécutions natives possédées à la fois :
 M1 n'ajoute aucune colonne : `upgrade_check.declared_new_columns()` n'a rien à déclarer. Le libellé
 du contrôle de montée de version ne sert qu'à nommer l'archive. La campagne `e2e:army:local` complète
 n'a pas été lancée en local (décision du propriétaire, 17/10) : elle passe par la CI de la PR.
+
+## Revue (17/10/2026)
+
+Deux constats de relecture, revérifiés puis corrigés sur la branche rebasée sur `8495c5d8` :
+
+1. **F-SQL-14 aveugle aux listes.** L'expression régulière ne voyait que `=`, `<>`, `!=` et
+   `is [not] distinct from` ; elle voit désormais `[not] in (…)` et `= any(…)`. Rouge d'abord :
+   `npm run db:ci:local` échoue sur F-SQL-14 avec exactement les quatre gardes de l'écart 8
+   (`guard_estimate_project_v2_owner_change`, `guard_estimate_v2_snapshot_columns`,
+   `guard_labor_role_v2_owner_change`, `open_estimate_review_cycle`) ; aucune autre fonction de
+   `main` n'est concernée. Après leur ajout à la liste blanche : 14 fichiers, 1 316 assertions,
+   `Result: PASS`, diagnostic « aucune », matrice RLS passée. Journaux du clone :
+   `lot2-2.1/ship/db-ci-local-red.log` et `lot2-2.1/ship/db-ci-local-green.log`.
+2. **Fins de ligne.** Les 21 lignes F-TS-04 ajoutées à `src/lib/estimates/pdf-generator.test.ts`
+   (fichier CRLF sur `main`) étaient en LF ; elles sont désormais en CRLF, et le diff contre `main`
+   reste ces 21 lignes.
 
 ## Commandes
 
