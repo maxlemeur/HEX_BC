@@ -293,7 +293,7 @@ npm run db:ci:local                                                      # si le
 npm run verify:pr
 ```
 
-Critère du vert (tenu, §10) : le même test, types recopiés remplacés par `import type` depuis le module et
+Critère du vert (tenu, §10.3) : le même test, types recopiés remplacés par `import type` depuis le module et
 chargement dynamique par un import statique, sans modifier une assertion ; parcours `engine-v3-editor` vert et
 inscrit à `scripts/tester-army/army-impact-map.json` ; `V3P-06` et le volet éditeur/fiche de `V3FC` réécrits
 (§1.4, §8.3) ; `npm run verify:pr` ; corpus figé et empreintes identiques.
@@ -821,11 +821,13 @@ gardant les deux intentions :
 | `useEstimateEditorSupplierController.ts` | `computeVersionTotalsPatch` des lignes présélectionnées, refus « Impossible de calculer les totaux du devis. » s'il est nul, patch envoyé par `bulkUpdateEstimateItems`, `applyVersionToken(updatedAt, totals)` | v3 par l'écrivain de lot, `applyVersionToken(updatedAt, contentRevision)` | v1/v2 : chemin de `main` à l'identique ; v3 : aucun patch calculé ni envoyé (le serveur recalcule et vérifie, D12), écrivain de lot de 2.6 ; `applyVersionToken(updatedAt, totals?, contentRevision?)`, la révision de contenu n'étant passée que par l'écrivain v3 |
 | `supabase/migrations.manifest.json` | empreinte révisée de M4 | migration `20261017205000` | empreinte de M4 de `main` + `20261017205000` (son contenu est inchangé) |
 
-Défaut évité par la résolution : prendre le côté `main` du contrôleur de présélection aurait refusé **toute**
-présélection v3 avant écriture, car l'aperçu historique est nul par construction sur une v3 (« Impossible de
+Défaut évité par la résolution (établi à la lecture du code, non rejoué) : prendre le côté `main` du contrôleur de
+présélection aurait refusé **toute** présélection v3 avant écriture, car l'aperçu historique est nul par
+construction sur une v3 (`buildVersionTotalsPatch(null)` rend `undefined`, d'où « Impossible de
 calculer les totaux du devis. » : ni recalcul ni refus nommé, l'échec « ni l'un ni l'autre » du §9.4.6). La
 défaillance est celle que `V3E03` (V3E-11) asserte déjà : aucun nouveau test ; la preuve est `V3E03` vert à la
-révision fusionnée, et `V1PT01`, `OZ04` et « bulk edit sync supplier preselection… » pour la v1/v2 (§10.3).
+révision fusionnée, et pour la v1/v2 `OZ04` (v1, phase `offers` de calc-v3) et « bulk edit sync supplier preselection
+saves a return… » (v2, P1 de `bulk-edit-sync-sources`) (§10.3).
 
 M4 révisée et la migration `20261017205000` : la migration de 2.6 ne touche ni le déclencheur de suppression de M4
 ni son contrôle préalable ; rejouée avec M4 révisée par la pile native (§10.3).
@@ -847,3 +849,69 @@ ni son contrôle préalable ; rejouée avec M4 révisée par la pile native (§1
   seulement (`toEngineItemWrite`, `buildEstimateV3ItemUpdatePayload`) ; présélection v3 = `unit_price_ht_cents` et
   `selected_supplier_price_id` par l'écrivain de lot ; aucun total client sur une v3.
 - Références documentaires des sources mises à jour vers ce document (commentaires seulement).
+
+### 10.3 Preuves mesurées (18/10/2026)
+
+WSL Ubuntu 24.04, Node 24.14.0, TesterArmy `e2e` 0.21.0, clone `~/miaouffrage-lot2-26` remis à la branche
+(`git -c safe.directory='*' fetch` du worktree Windows puis `git reset --hard FETCH_HEAD`), diff local vide
+(`diffSha256` `e3b0c442…b855`), `NODE_OPTIONS=--max-old-space-size=4096`, verrou natif attendu avant chaque
+lancement (au plus deux exécutions possédées). Windows 11 : worktree `miaouffrage-l2-26`, Node 24.19.0, Vitest
+4.1.11. La qualification est à `fb52abcb` (code identique à la pointe ; seul ce document change ensuite).
+
+| Preuve | Commande | Révision | Résultat | Archive (clone WSL) |
+|---|---|---|---|---|
+| Parcours 2.6, itération après fusion | `E2E_ARMY_WORKERS=2 npm run e2e:army:local -- --grep "V3E0\|V3P01\|V3FC"` | `28d04309` | sortie 0 ; 249 migrations, « Local migration inventory matches the repository. », pgTAP `Files=19, Tests=1837, Result: PASS`, matrice RLS, build ; `discovered 85, selected 7, executed 7, passed 7, failed 0, flaky 0`, une tentative chacun ; 5 min 13 s | `.e2e/army/ci/2026-10-17T22-20-39-207Z-critical`, manifeste `2a9d86460420107c7438ff089c820ecfba253fac959561bcdb7fd8d4018e73db` |
+| Parcours 2.6 et présélection v2, qualification | `E2E_ARMY_WORKERS=2 npm run e2e:army:local -- --grep "V3E0\|V3P01\|V3FC\|supplier preselection saves a return"` | `fb52abcb` | sortie 0 ; mêmes contrôles en amont ; `discovered 85, selected 8, executed 8, passed 8, failed 0, flaky 0`, une tentative chacun : V3E01 66,3 s, V3E02 136,4 s, V3E03 14,1 s, V3P01 12,8 s, V3FC01 1,6 s, V3FC02 0,9 s, « bulk edit sync supplier preselection saves a return… » 12,3 s ; 5 min 9 s | `.e2e/army/ci/2026-10-17T22-34-41-676Z-critical`, manifeste `e523888599b988dacf6064c9d4e0a08796f5daabbb14e15c4cc430dba9a4e1f7`, confidentialité `passed` |
+| Empreintes de documents | `npm run engine:document-fingerprints -- check` | `fb52abcb` | sortie 0 ; 14 familles v1/v2 ; « Document fingerprints identical » | `.e2e/engine-v3/document-fingerprints/2026-10-17T22-41-06-810Z-check`, manifeste `f0ce2a794b560f86d0f4c22fc357b7cf231dbd22158dd5f7a2a88379fef7b727` |
+| Parcours de référence 2.0 (hors CI) | `npm run e2e:army:calc-v3` | `fb52abcb` | sortie 0 ; sources inchangées pendant la campagne ; phases `journeys` 11/11, `components` 5/5, `numeric` 4/4, `resume` 5/5, `access` 2/2, `offers` 5/5 (dont OZ04, présélection v1 et totaux stockés), `emission` 6/6 et 4 PDF reçus : les comptes attendus de `calc-v3-phases.ts` ; 11 min 6 s | `.e2e/army/ci/2026-10-17T22-41-50-449Z-calc-v3`, manifeste `a5b545289cc549d26c7e4ebbd6b8fe586ea7f96757f6c85a2416184c6e065036` |
+| SQL et RLS natifs (M4 révisée + `20261017205000`) | `npm run db:ci:local` | `fb52abcb` | sortie 0 ; inventaire conforme, pgTAP `Files=19, Tests=1837, Result: PASS`, « Behavioral RLS matrix passed. » | journal non versionné du clone |
+| Qualité de PR | `npm run verify:pr` | `fb52abcb` | sortie 0 ; audit des dépendances (0 avis bloquant), 762 signatures vérifiées, budgets d'architecture (1 131 modules, 0 cycle), OpenAPI valide et synchronisée, `typecheck`, `lint` (`--max-warnings=0`), Vitest node 296 fichiers / 2 787 tests passés (1 fichier, 2 tests ignorés), jsdom 162 / 821 passés, couverture critique 3 / 12 | journal non versionné du clone |
+
+Preuves métier de la qualification, sous `critical/runs/2026-10-17T22-36-06-828Z/artifacts/business/` :
+
+| Preuve | SHA-256 |
+|---|---|
+| `v3e-v3e01-editor-open` | `ddaf4a4d3b756d31852015da5f8e00f7be7cb425ed719f05f42d6f17df74a8ae` |
+| `v3e-v3e02-editor-open` | `5bf2282073543b461fc97e2e11944fa1c22e73113a2a7f4ec5733b14062e716b` |
+| `v3e-v3e03-editor-open` | `251abe799e0269b8910a29ecce8ab4bc7e6fa4bc80802f22ca1075a79c9abf82` |
+| `v3e-preselection-precondition` | `b019472f200d2c63cd994b0fd87f0a4a7450d1c311b569e1bf9499d41b90aef2` |
+| `v3e-preselection` | `fc650f227f62c3b520b16cd0bcb5ad65a836676e2c0dac099ec70dee71bef757` |
+| `v3e-preselection-recomputed` | `48368d709629acfba88e31fabdf6740c32afa8e2466b3d3c205eab3febdbcde2` |
+| `v3p-editor-open` | `80caa77dc4c10039f74d1c4c7e23520eadfe484e601e979b2a047eff14319f72` |
+| `engine-v3-read` (V3FC01) | `d993c35708985911f6481113cdb1170144a0a20f2ffce9d24639b5e2d52e5d7b` |
+| `bulk-sync-p1-preselection-stored-totals` (v2) | `37ff78f056706734d2a0c29920a9a677e8ac71e17a179497495eaf7ff0960dfe` |
+
+**Issue de la présélection (V3E-11) à la révision fusionnée** : `{"refused": false, "recomputed": true,
+"genericBanner": false}` ; avant 3 900 / 780 / 4 680 c, PR 1 500, PU 1 950 ; après offre B, PR 1 240, PU 1 612, net
+3 224, totaux 3 224 / 645 / 3 869 c (§9.3.3) ; `content_revision` 12 → 16 ; écran après rechargement « Total HT :
+32,24 € », « TVA 20 % : 6,45 € », « TTC à payer : 38,69 € », PU 16,12, PT 32,24 €. Présélection v2 (P1 de
+`bulk-edit-sync-sources`) : totaux stockés 1 234 / 247 / 1 481 c, égaux à ceux des lignes (PR #36 inchangée).
+
+Windows, à `fb52abcb` :
+
+| Commande | Résultat |
+|---|---|
+| `npx vitest run --project=node src/lib/estimates/v3-settings-payload.test.ts` | 1 fichier, 4/4 (`V3S-01` à `V3S-04`, assertions inchangées) |
+| `npx vitest run --project=node src/test/army-impact-map.test.ts src/test/ci-guardrails.test.ts` | 2 fichiers, 23/23 |
+| `npx vitest run --project=node src/lib/estimates/engine-frozen-corpus.test.ts` | 1 fichier, 2/2 (corpus figé) |
+| `npx vitest run --project=jsdom src/hooks/useEstimateEditor src/components/estimates` | 57 fichiers, 392/392 |
+| `npx vitest run --project=node src/hooks src/lib/estimates` | 84 fichiers passés (1 ignoré), 1 056 tests passés (2 ignorés) |
+| `npm run typecheck` ; `npm run validate-openapi` ; `npm run check:architecture` | sortie 0 ; « OpenAPI spec valide et synchronisee. » (aucune route ni schéma changé, rien à régénérer) ; 1 131 modules, 0 cycle |
+| `npx eslint --max-warnings=0` sur les 36 fichiers `.ts`/`.tsx` ajoutés ou modifiés par la branche (`git diff --name-only --diff-filter=AM origin/main...HEAD`) | sortie 0 |
+| `git diff --stat origin/main...HEAD -- src/lib/estimate-calculations.ts src/lib/estimate-v2-snapshot.ts` (et depuis `f1d94213`) | vide |
+| `git -c core.whitespace=cr-at-eol diff --check origin/main...HEAD` | propre |
+
+Budgets (lignes non vides) : `EstimateEditorTable.tsx` 2 564 / 2 600, `useEstimateEditorState.impl.tsx` 2 926 / 3 100,
+`useEstimateEditorSyncController.ts` 1 199 / 1 200, `LineRow.tsx` 1 196 / 1 200.
+
+### 10.4 Limites et suites
+
+- Aucune revue indépendante en lecture seule n'a été conduite sur le diff stable de 2.6 (exigée par `AGENTS.md`
+  pour un changement de cette taille) : à faire avant la PR.
+- Migration `20261017205000_estimate_engine_v3_line_repricing.sql` : à appliquer au Supabase partagé avant tout
+  déploiement, sur autorisation explicite (`AGENTS.md`, `supabase/README.md` §3) ; rien n'a été appliqué à distance.
+- Limites de l'implémentation au §8.5 (suppression d'une ligne v3 depuis la grille, éditeur mobile, gestionnaire des
+  tranches de marge, liste des taux de l'entreprise, instabilité non reproduite de la liste des rôles : aucune perte
+  de saisie dans les six passages postérieurs à `86ef5886` du §8.5 ni dans les deux passages de `V3E01` du §10.3).
+- `V1PT01` (`supplier-preselection-v1-totals.e2e.ts`) n'est sélectionné que par la suite `full` ; la v1 est couverte
+  ici par `OZ04` (phase `offers`, même scénario) et la v2 par P1 de `bulk-edit-sync-sources`.
