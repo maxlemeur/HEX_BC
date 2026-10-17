@@ -4270,7 +4270,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
         apiEstimateCreatedSchemaDefinition
       ),
       "400": jsonResponse(
-        "Requete invalide ou payload non conforme. ESTIMATE_ENGINE_COLUMN_NOT_SUPPORTED : version.sale_coefficient_fo ou version.sale_coefficient_mo fourni pour une version en moteur 2 ; rien n'est cree.",
+        "Requete invalide ou payload non conforme. ESTIMATE_ENGINE_COLUMN_NOT_SUPPORTED : version.sale_coefficient_fo ou version.sale_coefficient_mo fourni pour une version en moteur 2 ; rien n'est cree. ESTIMATE_SECTION_DEPTH_TOO_SHALLOW : version.max_section_depth fourni plus faible que la profondeur des sections importees (creation_mode=linked_dpgf_source) ; omis, il reprend celui de la derniere version de l'affaire, releve au besoin des sections importees ; rien n'est cree.",
         openApiSharedSchemaDefinitions.apiFailureResponse
       ),
       "409": jsonResponse(
