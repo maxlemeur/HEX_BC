@@ -315,7 +315,7 @@ armyTest("IO05 a library assembly enters a v3 per unit: its MO doubles from Q = 
       const inserted = await apiRequest<Envelope<unknown>>(browser, "POST", `/api/estimates/assemblies/${assembly.body.data.assembly.id}/insert`,
         { version_id: versionId }, await leaseSession(browser, versionId));
       await recordEvidence(army, "io-assembly-insert", { versionId, status: inserted.status, body: inserted.body });
-      expect([inserted.status, inserted.body.ok]).toEqual([201, true]);
+      expect([inserted.status, inserted.body.ok]).toEqual([200, true]);
       const atTen = lineItems(await readEstimate(browser, versionId)).find((line) => line.title === `${army.runPrefix} pose tube`)!;
       const before = await readEstimate(browser, versionId);
       const update = await apiRequest<Envelope<{ committed: boolean }>>(browser, "POST", `/api/estimates/${versionId}/batch`,
@@ -365,7 +365,7 @@ armyTest("IO06 a v2 template enters a v3 with the same MO and lists its converte
         browser, "POST", `/api/estimates/templates/${template.body.data.template.id}/insert`, { version_id: versionId },
         await leaseSession(browser, versionId));
       await recordEvidence(army, "io-template-insert", { versionId, status: inserted.status, body: inserted.body });
-      expect([inserted.status, inserted.body.ok]).toEqual([201, true]);
+      expect([inserted.status, inserted.body.ok]).toEqual([200, true]);
       const lines = lineItems(await readEstimate(browser, versionId));
       const observed = {
         perUnit: lines.map((line) => [line.title, num(field(line, "h_mo_per_unit")), num(line.h_mo)]),

@@ -3304,6 +3304,11 @@ export type Database = {
           line_total_ht_cents: number | null;
           line_tax_cents: number | null;
           line_total_ttc_cents: number | null;
+          unit_code?: string | null;
+          pricing_status?: Database["public"]["Enums"]["estimate_line_pricing_status"];
+          h_mo_per_unit?: number | null;
+          h_mo_atelier_per_unit?: number | null;
+          h_mo_chantier_per_unit?: number | null;
         };
         Insert: {
           id?: string;
@@ -3336,6 +3341,11 @@ export type Database = {
           line_total_ht_cents?: number | null;
           line_tax_cents?: number | null;
           line_total_ttc_cents?: number | null;
+          unit_code?: string | null;
+          pricing_status?: Database["public"]["Enums"]["estimate_line_pricing_status"];
+          h_mo_per_unit?: number | null;
+          h_mo_atelier_per_unit?: number | null;
+          h_mo_chantier_per_unit?: number | null;
         };
         Update: {
           id?: string;
@@ -3368,6 +3378,11 @@ export type Database = {
           line_total_ht_cents?: number | null;
           line_tax_cents?: number | null;
           line_total_ttc_cents?: number | null;
+          unit_code?: string | null;
+          pricing_status?: Database["public"]["Enums"]["estimate_line_pricing_status"];
+          h_mo_per_unit?: number | null;
+          h_mo_atelier_per_unit?: number | null;
+          h_mo_chantier_per_unit?: number | null;
         };
         Relationships: [];
       };

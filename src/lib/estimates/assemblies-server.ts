@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { finalizeAssemblyCalculation } from "@/lib/estimates/assembly-calculation";
+import { resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
 import {
   loadAssemblyItemCountByAssemblyId,
   loadAssemblyMemberCountByAssemblyId,
@@ -49,6 +50,7 @@ import type {
   ListEstimateAssembliesQueryInput,
   UpdateEstimateAssemblyInput,
 } from "@/lib/estimates/schemas";
+import { listTemplateLinesConvertedForV3 } from "@/lib/estimates/template-v3-hours";
 import type { Database, Json } from "@/types/database";
 
 type Supabase = SupabaseClient<Database>;
@@ -717,6 +719,28 @@ export async function insertAssemblyIntoVersion(input: {
     );
   }
 
+  // Lot 2, 2.8 (M6): a v3 receives the v3 engine amounts in the insertion transaction itself.
+  if (resolveEstimateEngineVersion(version) === 3) {
+    const { data: inserted, error: insertedError } = await supabase
+      .from("estimate_versions")
+      .select("id, updated_at, total_ht_cents, total_tax_cents, total_ttc_cents")
+      .eq("tenant_id", tenantId)
+      .eq("id", input.versionId)
+      .single();
+    if (insertedError || !inserted) {
+      throw mapSupabaseError(insertedError, "Impossible de relire le devis après l'insertion de l'ouvrage.");
+    }
+    return {
+      items: insertedItems,
+      version: { id: inserted.id, updated_at: inserted.updated_at },
+      totals: {
+        total_ht_cents: inserted.total_ht_cents,
+        total_tax_cents: inserted.total_tax_cents,
+        total_ttc_cents: inserted.total_ttc_cents,
+      },
+    };
+  }
+
   return finalizeAssemblyCalculation({
     supabase,
     tenantId,
@@ -893,6 +917,14 @@ export async function insertTemplateIntoVersion(input: {
   const orderedItems = insertedItemIds
     .map((id) => reloadedItemsById.get(id))
     .filter((item): item is EstimateItemRow => Boolean(item));
+
+  // Lot 2, 2.8 (P-12): into a v3, the lines whose hours change through h / Q are listed.
+  if (resolveEstimateEngineVersion(version) === 3) {
+    return {
+      items: orderedItems,
+      converted_lines: listTemplateLinesConvertedForV3(templateItems),
+    };
+  }
 
   return {
     items: orderedItems,
