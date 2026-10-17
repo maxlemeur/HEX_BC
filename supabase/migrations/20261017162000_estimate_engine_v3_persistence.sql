@@ -57,6 +57,25 @@ begin
   if exists (select 1 from public.estimate_versions version where version.calc_engine_version = 3) then
     raise exception 'LOT2_2_5_PREFLIGHT: an engine 3 version already exists';
   end if;
+  -- La contrainte estimate_items_item_type_payload_check est recréée plus bas avec la règle
+  -- canonique des sections (atelier/chantier neutres). Le Supabase partagé en porte une variante
+  -- plus souple (rapport docs/testing/shared-supabase-catch-up-2026-10-17.md) : une section qui
+  -- la viole ferait échouer la validation sans dire laquelle. On la nomme ici, sans rien réécrire (D17).
+  declare
+    offending_sections bigint;
+  begin
+    select count(*)
+      into offending_sections
+    from public.estimate_items item
+    where item.item_type = 'section'::public.estimate_item_type
+      and not (
+        item.h_mo_atelier is null and item.k_mo_atelier = 1.0 and item.labor_role_atelier_id is null
+        and item.h_mo_chantier is null and item.k_mo_chantier = 1.0 and item.labor_role_chantier_id is null
+      );
+    if offending_sections > 0 then
+      raise exception 'LOT2_2_5_PREFLIGHT: % section row(s) carry atelier/chantier labour values; align them with the canonical section payload before M4', offending_sections;
+    end if;
+  end;
 end;
 $preflight$;
 
