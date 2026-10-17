@@ -14,7 +14,14 @@ describe("ProductFormModal", () => {
   });
 
   it("captures the structured product attributes and reference price", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
+    // Typed key by key, this flow passed the 5 s default on loaded CI runners
+    // (17/10/2026): paste sends one input event per field instead of one form
+    // re-render per key. The price keeps its typed decimal comma.
+    const fill = async (label: string, value: string) => {
+      await user.click(screen.getByLabelText(label));
+      await user.paste(value);
+    };
     const onSubmit = vi.fn().mockResolvedValue(undefined);
 
     render(
@@ -28,19 +35,19 @@ describe("ProductFormModal", () => {
       />
     );
 
-    await user.type(screen.getByLabelText("Référence"), "Tub.I4S.50");
-    await user.type(screen.getByLabelText("Désignation *"), "Tube inox 304L DN50");
-    await user.type(screen.getByLabelText("Famille"), "Tuyauterie");
-    await user.type(screen.getByLabelText("Matière"), "Inox");
+    await fill("Référence", "Tub.I4S.50");
+    await fill("Désignation *", "Tube inox 304L DN50");
+    await fill("Famille", "Tuyauterie");
+    await fill("Matière", "Inox");
     await user.selectOptions(screen.getByLabelText("Unité"), "ml");
     await user.type(screen.getByLabelText("Prix de référence HT"), "9,90");
 
     // Les attributs secondaires vivent derriere le repli "Details techniques".
     await user.click(screen.getByText(TECHNICAL_DETAILS_SUMMARY));
-    await user.type(screen.getByLabelText("Type d’article"), "Tube");
-    await user.type(screen.getByLabelText("Nuance"), "304L");
-    await user.type(screen.getByLabelText("Dimensions"), "DN50 · 60,3 × 2");
-    await user.type(screen.getByLabelText("Norme"), "EN 10217-7");
+    await fill("Type d’article", "Tube");
+    await fill("Nuance", "304L");
+    await fill("Dimensions", "DN50 · 60,3 × 2");
+    await fill("Norme", "EN 10217-7");
 
     await user.click(screen.getByRole("button", { name: "Ajouter le produit" }));
 
