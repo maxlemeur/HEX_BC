@@ -67,6 +67,23 @@ invalide est refusée avant toute étape. SQL/RLS/build et le setup de connexion
 restent exécutés à chaque run ; un motif qui ne retient aucun scénario métier
 authentifié reste un échec.
 
+`--files` remplace `--grep` par une liste de fichiers de parcours, séparés par
+des virgules, sous `e2e/army/critical/` ou `e2e/army/local/` : c'est l'option
+qu'utilise la sélection par impact de la CI. Les deux options s'excluent. Chaque
+fichier doit exister ; le run échoue si un fichier demandé n'a pas tous ses
+tests exécutés et réussis, ou si un autre fichier que ceux-là et le setup de
+connexion s'exécute. Pour obtenir la liste qu'une pull request lancerait :
+
+```sh
+node scripts/tester-army/select-journeys.ts --event pull_request --base origin/main --head HEAD
+npm run e2e:army:local -- --files '<liste « files » du rapport>' --app-port 3118
+```
+
+Le diff porte sur les commits (`base...head`), pas sur les modifications non
+commitées. Le manifeste enregistre alors `scope: filtered-critical` et la liste
+`journeyFiles`.
+Règles de sélection : [TesterArmy CI](tester-army-ci.md#sélection-par-impact-des-parcours-critical).
+
 `E2E_ARMY_WORKERS` (entier de 1 à 4, **1 par défaut**) fixe `workers` dans
 `e2e.config.ts` ; toute autre valeur arrête le run avec une erreur explicite.
 `run-tester-army-ci.ts` la refuse avant la création de la pile, la transmet aux
@@ -75,7 +92,10 @@ un compte, son tenant et ses fixtures ARMY : `e2e.config.ts` refuse une valeur
 supérieure à 1 hors des parcours `critical` de la pile éphémère possédée, la
 seule pour laquelle `run-tester-army-ci.ts` définit `E2E_ARMY_LOCAL_DB_URL`.
 Elle est donc refusée contre un Supabase partagé et pour les suites
-performance, couverture et agent. Ne pas la définir dans le workflow CI.
+performance, couverture et agent. En CI, `e2e-army-critical.yml` la fixe à
+`2` dans l'environnement de la seule étape des parcours, jamais dans les
+étapes d'installation (`src/test/ci-guardrails.test.ts` y refuse tout bloc
+`env`) ; `e2e-army-full.yml` ne la définit pas et reste à 1.
 
 Campagne du 16/10/2026 (WSL, suite critique complète, `e2e:army:local`) :
 workers=1 vert 64/64 en 634 s ; workers=3 rouge 2 fois sur 2 (63/64, 408 s et
@@ -98,9 +118,12 @@ possédée : avec les deux corrections, deux suites complètes vertes 68/68, san
 reprise (parcours 349 s et 348 s, contre 634 s à workers=1). Preuves :
 `.codex-tmp/hub02-hydration-20261016/w2-full-1` et `w2-full-2` du checkout
 principal ; le code fusionné est identique à celui exécuté, hors commentaires.
-Le défaut reste 1, CI comprise. 3 ou 4 workers restent exploratoires : une
-seule suite complète verte est prouvée à workers=3, avant la correction de
-HUB02.
+Le défaut reste 1. Depuis le 17/10/2026, la CI critical
+(`e2e-army-critical.yml`, pull request et push sur main) tourne à 2 workers ;
+la suite full nocturne (`e2e-army-full.yml`), dont les parcours étendus et
+takeoff ne sont pas qualifiés à 2, reste à 1. 3 ou 4 workers restent
+exploratoires : une seule suite complète verte est prouvée à workers=3, avant la
+correction de HUB02.
 
 ### Build de production et limite de heap
 

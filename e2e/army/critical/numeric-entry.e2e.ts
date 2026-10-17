@@ -2,7 +2,7 @@ import { expect } from "e2e";
 
 import {
   armyTest, createEstimateViaWizard, createLineViaApi, readEstimate,
-  recordEvidence, setLineCoreValues, waitForAutoSave,
+  recordEvidence, saveLineEditsWithShortcut, setLineCoreValues, waitForAutoSave,
 } from "./fixtures";
 
 // Contract and parser-only edge cases: docs/testing/tech-debt-numeric-entry.md.
@@ -19,6 +19,7 @@ armyTest(
     await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible();
     expect(await browser.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches)).toBe(true);
     await setLineCoreValues(ui, title, { quantity: "1 234,56", unitPriceHt: "12,50" });
+    await saveLineEditsWithShortcut(ui, ids.versionId, title, army);
     const saved = await waitForAutoSave(ui, ids.versionId, (snapshot) => snapshot.items.some((item) =>
       item.id === line.id && item.quantity === 1234.56 && item.unit_price_ht_cents === 1250), army);
     expect(saved.items.find((item) => item.id === line.id)?.line_total_ht_cents).toBe(1543200);
@@ -54,6 +55,7 @@ armyTest(
     await browser.reload();
     await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible();
     await setLineCoreValues(ui, title, { quantity: "1 234,56", unitPriceHt: "12,50" });
+    await saveLineEditsWithShortcut(ui, ids.versionId, title, army);
     await waitForAutoSave(ui, ids.versionId, (snapshot) => snapshot.items.some((item) =>
       item.id === line.id && item.line_total_ht_cents === 1543200), army);
 

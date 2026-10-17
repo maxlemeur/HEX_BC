@@ -24,6 +24,11 @@ export default defineConfig({
   test: {
     pool: "forks",
     maxWorkers: 4,
+    // Read only by the vmForks pool (jsdom project): after a file, a worker whose
+    // used heap passed this ceiling is recycled. Vitest's default, total memory /
+    // maxWorkers, is about 1.75 GB on the 7 GB CI runner, close to the default V8
+    // heap of a worker there; the measured peak was 0.86 GB (17/10/2026).
+    vmMemoryLimit: "1GB",
     coverage: {
       provider: "v8",
       include: ["src/**/*.{ts,tsx}"],
@@ -64,6 +69,12 @@ export default defineConfig({
         test: {
           name: "jsdom",
           environment: "jsdom",
+          // Each file still gets its own jsdom and its own module instances
+          // (Node built-ins aside), in a VM context of a long-lived worker rather
+          // than a new process: 162 files in 29-31 s instead of 73-79 s on 2 CPUs
+          // (17/10/2026). `--pool=forks` on the command line restores one
+          // process per file, to rule the pool out of a failure.
+          pool: "vmForks",
           include: jsdomTestFiles,
           setupFiles: ["src/test/vitest.setup.ts"],
         },
