@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createSupplierPriceSchema, priceLookupsQuerySchema, updateCatalogueItemSchema, updateSupplierPriceSchema } from "@/lib/catalogue/schemas";
+import { createSupplierPriceSchema, priceLookupsQuerySchema, updateCatalogueItemSchema, updateSupplierOfferSchema, updateSupplierPriceSchema } from "@/lib/catalogue/schemas";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const SUPPLIER_ID = "22222222-2222-4222-8222-222222222222";
@@ -156,5 +156,26 @@ describe("catalogue and price pagination schemas", () => {
         limit: 51,
       }).success,
     ).toBe(false);
+  });
+});
+
+// Review of 2.9 (finding 7): the factor is numeric(14,6); a seventh decimal must be refused, not rounded
+// silently by the database.
+describe("supplier offer conversion", () => {
+  const conversion = (factor: number) => updateSupplierOfferSchema.safeParse({
+    action: "update-offer",
+    id: ID,
+    item: { estimate_unit_code: "ml", estimate_units_per_purchase_unit: factor, purchase_rounding: "ceil" },
+  }).success;
+
+  it("accepts a factor with at most six decimals", () => {
+    expect(conversion(3)).toBe(true);
+    expect(conversion(0.333333)).toBe(true);
+    expect(conversion(99_999_999.999999)).toBe(true);
+  });
+
+  it("refuses a factor with a seventh decimal", () => {
+    expect(conversion(0.3333333)).toBe(false);
+    expect(conversion(0.0000001)).toBe(false);
   });
 });

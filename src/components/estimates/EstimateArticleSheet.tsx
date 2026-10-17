@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/sheet";
 import type { CataloguePriceSuggestion } from "@/lib/estimates/catalogue-suggestions";
 import { supplierOfferZeroPriceLabel } from "@/lib/estimates/supplier-offer-price";
+import { alternativePriceForLineUnit } from "@/lib/estimates/supplier-offer-purchase-unit";
 import { formatCurrency } from "@/lib/money";
 import type { SupportedEstimateCurrency } from "@/lib/money";
 
@@ -29,6 +30,8 @@ type EstimateArticleSheetProps = {
   mode: EstimateArticleSheetMode;
   versionId: string;
   lineTitle: string;
+  /** Unit of the line: a converted offer shows (and gives) its price in it (2.9). */
+  lineUnit?: string | null;
   productId: string | null;
   currency: SupportedEstimateCurrency;
   isReadOnly: boolean;
@@ -87,6 +90,7 @@ export function EstimateArticleSheet({
   mode,
   versionId,
   lineTitle,
+  lineUnit = null,
   productId,
   currency,
   isReadOnly,
@@ -227,28 +231,36 @@ export function EstimateArticleSheet({
             ) : null}
             {suggestions.length > 0 ? (
               <div className="min-h-0 overflow-y-auto rounded-lg border border-border">
-                {suggestions.map((suggestion) => (
-                  <button
-                    type="button"
-                    key={suggestion.product_id}
-                    className="flex w-full items-start justify-between gap-3 border-b border-border-subtle p-3 text-left outline-none last:border-b-0 hover:bg-surface-subtle focus-visible:bg-surface-subtle focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
-                    onClick={() => onAssociate(suggestion)}
-                  >
-                    <span className="min-w-0">
-                      <span className="block truncate font-medium text-foreground">
-                        {suggestion.product_designation}
+                {suggestions.map((suggestion) => {
+                  const linePrice = alternativePriceForLineUnit(suggestion, lineUnit);
+                  return (
+                    <button
+                      type="button"
+                      key={suggestion.product_id}
+                      className="flex w-full items-start justify-between gap-3 border-b border-border-subtle p-3 text-left outline-none last:border-b-0 hover:bg-surface-subtle focus-visible:bg-surface-subtle focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+                      onClick={() => onAssociate(suggestion)}
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium text-foreground">
+                          {suggestion.product_designation}
+                        </span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {suggestion.product_reference ?? "Sans référence"}
+                          {suggestion.supplier_name ? ` · ${suggestion.supplier_name}` : ""}
+                        </span>
                       </span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {suggestion.product_reference ?? "Sans référence"}
-                        {suggestion.supplier_name ? ` · ${suggestion.supplier_name}` : ""}
+                      <span className="shrink-0 font-medium tabular-nums text-foreground">
+                        {supplierOfferZeroPriceLabel(suggestion.zero_price_kind) ?? (
+                          <>
+                            {formatCurrency(linePrice.priceCents, currency)}
+                            {/* 2.9: the unit of the price (per metre, or per bar for a line in bars). */}
+                            {linePrice.unit ? ` / ${linePrice.unit}` : null}
+                          </>
+                        )}
                       </span>
-                    </span>
-                    <span className="shrink-0 font-medium tabular-nums text-foreground">
-                      {supplierOfferZeroPriceLabel(suggestion.zero_price_kind) ??
-                        formatCurrency(suggestion.adjusted_unit_price_cents, currency)}
-                    </span>
-                  </button>
-                ))}
+                    </button>
+                  );
+                })}
               </div>
             ) : null}
           </div>

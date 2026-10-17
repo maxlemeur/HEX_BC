@@ -8,6 +8,10 @@ import {
 } from "@/lib/estimate-calculations";
 import { shouldPreserveStoredEstimateV2Snapshot } from "@/lib/estimates/calc-engine-version";
 import {
+  alternativePriceForLineUnit,
+  type SupplierOfferPurchaseUnit,
+} from "@/lib/estimates/supplier-offer-purchase-unit";
+import {
   ESTIMATE_EXPORT_PROGRESS_COMPLETE,
   ESTIMATE_EXPORT_XLSX_CONTENT_TYPE,
   createWorkbookWriterFactory,
@@ -56,10 +60,12 @@ type WorkbookWriterLike = {
   commit: () => Promise<void>;
 };
 
-type SupplierAlternative = {
+type SupplierAlternative = SupplierOfferPurchaseUnit & {
   supplier_price_id: string;
   supplier_name: string;
   adjusted_unit_price_cents: number;
+  unit_price_cents?: number | null;
+  adjusted_purchase_unit_price_cents?: number | null;
   supplier_reference: string | null;
   catalogue_url?: string | null;
 };
@@ -341,7 +347,8 @@ function setCellNumberFormat(row: WorksheetRowLike, columnIndex: number, numFmt:
 
 function resolveSupplierByRank(
   comparison: SupplierComparison | undefined,
-  rank: 0 | 1 | 2
+  rank: 0 | 1 | 2,
+  lineUnit: string | null | undefined
 ) {
   const alternative = comparison?.alternatives?.[rank];
   if (!alternative) {
@@ -356,7 +363,8 @@ function resolveSupplierByRank(
   return {
     name: alternative.supplier_name ?? "",
     reference: alternative.supplier_reference ?? "",
-    unitPriceEur: toEuroAmount(alternative.adjusted_unit_price_cents),
+    // 2.9: the supplier price in the unit of the line (per metre, or per bar for a line in bars).
+    unitPriceEur: toEuroAmount(alternativePriceForLineUnit(alternative, lineUnit).priceCents),
     url: alternative.catalogue_url ?? "",
   };
 }
@@ -445,9 +453,9 @@ function buildBdcRows(input: {
     }
 
     const comparison = input.comparisonByItemId.get(item.id);
-    const supplier1 = resolveSupplierByRank(comparison, 0);
-    const supplier2 = resolveSupplierByRank(comparison, 1);
-    const supplier3 = resolveSupplierByRank(comparison, 2);
+    const supplier1 = resolveSupplierByRank(comparison, 0, item.description);
+    const supplier2 = resolveSupplierByRank(comparison, 1, item.description);
+    const supplier3 = resolveSupplierByRank(comparison, 2, item.description);
 
     const quantity = Math.max(toNullableNumber(item.quantity) ?? 0, 0);
     if (input.preserveStoredSnapshot) {

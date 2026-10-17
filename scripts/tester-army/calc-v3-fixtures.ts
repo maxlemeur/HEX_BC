@@ -26,7 +26,8 @@ import { CALC_V3_FORBIDDEN_PORTS, type CalcV3Phase } from "./calc-v3-phases";
 //   so they are written by the native owner, like the reviewed component recipe.
 
 type Row = Record<string, unknown>;
-type PlanRecord = { table: string; row: Row };
+// writer: the v3 version an inserted row belongs to (M4 writer contract miaouffrage.estimate_v3_writer).
+type PlanRecord = { table: string; row: Row; writer?: string };
 export type CalcV3Owner = { userId: string; tenantId: string; laborRoleId: string };
 export type CalcV3FixtureContext = {
   /** Fresh directory owned by this campaign; fixture files contain identities only. */
@@ -86,7 +87,8 @@ function sqlTransport(context: CalcV3FixtureContext) {
 
 /** Inserts the exact planned rows in one transaction as the native owner, with a per-row readback. */
 async function executePlan(context: CalcV3FixtureContext, label: string, records: PlanRecord[]) {
-  if (!records.length || records.some(({ table, row }) => !/^[a-z_]+$/.test(table) || Object.keys(row).some((key) => !/^[a-z_]+$/.test(key)))) {
+  if (!records.length || records.some(({ table, row, writer }) => !/^[a-z_]+$/.test(table) ||
+    Object.keys(row).some((key) => !/^[a-z_]+$/.test(key)) || (writer !== undefined && !/^[0-9a-f-]{36}$/.test(writer)))) {
     throw new Error(`calc-v3 fixture ${label}: invalid plan.`);
   }
   const transport = sqlTransport(context);
@@ -101,6 +103,7 @@ BEGIN
   IF current_database() <> 'postgres' OR current_user <> 'postgres' THEN RAISE EXCEPTION 'CALC_V3_FIXTURE_OWNER_DIFFERS'; END IF;
   FOR entry IN SELECT value FROM jsonb_array_elements(plan) LOOP
     table_name := entry->>'table'; proposal := entry->'row';
+    PERFORM set_config('miaouffrage.estimate_v3_writer', coalesce(entry->>'writer', ''), true);
     SELECT string_agg(quote_ident(key), ',' ORDER BY key) INTO column_names FROM jsonb_object_keys(proposal) key;
     EXECUTE format('INSERT INTO public.%I (%s) SELECT %s FROM jsonb_populate_record(null::public.%I,$1)', table_name, column_names, column_names, table_name) USING proposal;
     IF proposal ? 'id' THEN
@@ -489,6 +492,9 @@ async function offersFixtures(context: CalcV3FixtureContext, campaign: string): 
     p1: { id: randomUUID(), designation: `${prefix} tube cuivre` },
     p2: { id: randomUUID(), designation: `${prefix} gaine nue` },
     p3: { id: randomUUID(), designation: `${prefix} collier fourni` },
+    // Sub-lot 2.9: cast-iron pipes sold by the bar of 3 m; PU01 and PU03 declare the conversion.
+    p4: { id: randomUUID(), designation: `${prefix} tube fonte DN100` },
+    p5: { id: randomUUID(), designation: `${prefix} tube fonte DN50` },
   };
   const offers = {
     p1Zero: { id: randomUUID(), catalogItemId: randomUUID(), supplierId: suppliers.zero, productId: products.p1.id, cents: 0,
@@ -499,13 +505,21 @@ async function offersFixtures(context: CalcV3FixtureContext, campaign: string): 
       updatedAt: new Date().toISOString() },
     p3Zero: { id: randomUUID(), catalogItemId: randomUUID(), supplierId: suppliers.included, productId: products.p3.id, cents: 0,
       updatedAt: new Date().toISOString() },
+    p4Bar: { id: randomUUID(), catalogItemId: randomUUID(), supplierId: suppliers.priced, productId: products.p4.id, cents: 26245,
+      updatedAt: new Date().toISOString(), unit: "barre" },
+    p5Bar: { id: randomUUID(), catalogItemId: randomUUID(), supplierId: suppliers.priced, productId: products.p5.id, cents: 2700,
+      updatedAt: new Date().toISOString(), unit: "barre" },
   };
   const deliverySite = { id: randomUUID(), updatedAt: new Date(Date.now() - 1_000).toISOString() };
   // One draft per journey: two editor sessions on one estimate would contend for its edit lock.
   // oz04 is a legacy V1 draft (docs/testing/version-totals-after-preselection.md): the public
   // creation schema only makes V2 estimates, so the V1 preselection path needs this seed.
   const estimate = () => ({ projectId: randomUUID(), versionId: randomUUID(), sectionId: randomUUID() });
-  const estimates = { oz01: estimate(), oz02: estimate(), oz03: estimate(), oz04: estimate() };
+  const estimates = { oz01: estimate(), oz02: estimate(), oz03: estimate(), oz04: estimate(), pu: estimate(), pu04: estimate(),
+    pu05: estimate() };
+  // PU05: an engine 3 draft, whose line unit lives in unit_code (M4); seeded as the native owner under
+  // its writer contract, like the pgTAP fixtures of 2.5.
+  const v3Estimates = new Set<string>(["pu05"]);
   type EstimateKey = keyof typeof estimates;
   type LineExtra = { quantity: number; unit_price_ht_cents?: number; product_id?: string; selected_supplier_price_id?: string };
   const line = (estimateKey: EstimateKey, title: string, unit: string, extra: LineExtra) =>
@@ -527,6 +541,21 @@ async function offersFixtures(context: CalcV3FixtureContext, campaign: string): 
     purchaseZero: line("oz03", `${prefix} achat zéro`, "ml",
       { quantity: 1, unit_price_ht_cents: 500, product_id: products.p2.id, selected_supplier_price_id: offers.p2Zero.id }),
     legacyV1: line("oz04", products.p1.designation, "ML", { quantity: 2 }),
+    puPopover: line("pu", `${prefix} ligne fonte`, "ml", { quantity: 282 }),
+    puSmall: line("pu", `${prefix} fonte 10 ml`, "ml",
+      { quantity: 10, unit_price_ht_cents: 900, product_id: products.p5.id, selected_supplier_price_id: offers.p5Bar.id }),
+    puNegotiated: line("pu", `${prefix} fonte négociée`, "ml",
+      { quantity: 282, unit_price_ht_cents: 8000, product_id: products.p4.id, selected_supplier_price_id: offers.p4Bar.id }),
+    // Review of 2.9: lines written in the purchase unit, and a converted line shown in the purchase review.
+    // PU04 has its own draft: PU02 still holds the edit lock of the "pu" estimate.
+    puBarSheet: line("pu04", `${prefix} fonte en barres`, "barre", { quantity: 94 }),
+    puBarOrdered: line("pu04", `${prefix} barres commandées`, "barre",
+      { quantity: 94, unit_price_ht_cents: 26245, product_id: products.p4.id, selected_supplier_price_id: offers.p4Bar.id }),
+    // Review of 2.9 after 2.5: a v3 line (unit_code ml, no description) ordered from the converted bar.
+    puV3: line("pu05", `${prefix} fonte v3`, "ml",
+      { quantity: 282, unit_price_ht_cents: 8748, product_id: products.p4.id, selected_supplier_price_id: offers.p4Bar.id }),
+    puUiConverted: line("pu04", `${prefix} fonte 30 ml`, "ml",
+      { quantity: 30, unit_price_ht_cents: 8748, product_id: products.p4.id, selected_supplier_price_id: offers.p4Bar.id }),
   };
   const records: PlanRecord[] = [
     ...Object.entries(suppliers).map(([key, id]) => ({ table: "suppliers", row: { ...common, id, name: `${prefix} fournisseur ${key}`, is_active: true } })),
@@ -536,27 +565,38 @@ async function offersFixtures(context: CalcV3FixtureContext, campaign: string): 
       supplier_id: offer.supplierId, product_id: offer.productId, supplier_sku: `${prefix}-${offer.id.slice(0, 8)}`, is_active: true } })),
     ...Object.values(offers).map((offer) => ({ table: "supplier_pricebook", row: { ...common, id: offer.id,
       supplier_catalog_item_id: offer.catalogItemId, supplier_id: offer.supplierId, product_id: offer.productId,
-      supplier_sku: `${prefix}-${offer.id.slice(0, 8)}`, unit: "ml", min_quantity: 1, unit_price_cents: offer.cents, currency: "EUR",
+      supplier_sku: `${prefix}-${offer.id.slice(0, 8)}`, unit: "unit" in offer ? offer.unit : "ml", min_quantity: 1,
+      unit_price_cents: offer.cents, currency: "EUR",
       valid_from: day(0), valid_to: day(30), is_active: true, created_at: offer.updatedAt, updated_at: offer.updatedAt } })),
     { table: "delivery_sites", row: { ...common, id: deliverySite.id, name: `${prefix} chantier`, is_active: true, updated_at: deliverySite.updatedAt } },
-    ...Object.entries(estimates).flatMap(([key, entry]) => [
-      { table: "estimate_projects", row: { ...common, id: entry.projectId, user_id: owner.userId, name: `${prefix} ${key}` } },
-      { table: "estimate_versions", row: { ...common, ...versionDefaults, id: entry.versionId, project_id: entry.projectId,
-        title: `${prefix} ${key}`, max_section_depth: 1, discount_bp: 0,
-        ...(key === "oz04"
-          ? { calc_engine_version: 1, discount_mode: "simple", discount_steps: [], contractor_role: "principal" }
-          : { calc_engine_version: 2 }) } },
-      { table: "estimate_items", row: { ...common, id: entry.sectionId, version_id: entry.versionId, parent_id: null, item_type: "section",
-        position: 0, title: `${prefix} ${key} lot` } },
-    ]),
+    ...Object.entries(estimates).flatMap(([key, entry]) => {
+      const v3 = v3Estimates.has(key);
+      return [
+        { table: "estimate_projects", row: { ...common, id: entry.projectId, user_id: owner.userId, name: `${prefix} ${key}` } },
+        { table: "estimate_versions", row: { ...common, ...versionDefaults, id: entry.versionId, project_id: entry.projectId,
+          title: `${prefix} ${key}`, max_section_depth: 1, discount_bp: 0,
+          ...(key === "oz04"
+            ? { calc_engine_version: 1, discount_mode: "simple", discount_steps: [], contractor_role: "principal" }
+            : v3
+              ? { calc_engine_version: 3, sale_coefficient_fo: 1, sale_coefficient_mo: 1, gross_ht_cents: 0,
+                discount_applied_cents: 0, commercial_rounding_cents: 0 }
+              : { calc_engine_version: 2 }) } },
+        { table: "estimate_items", ...(v3 ? { writer: entry.versionId } : {}), row: { ...common, id: entry.sectionId,
+          version_id: entry.versionId, parent_id: null, item_type: "section", position: 0, title: `${prefix} ${key} lot` } },
+      ];
+    }),
     ...Object.values(lines).map((entry, index) => {
       const price = Number(entry.unit_price_ht_cents ?? 0);
       const quantity = Number(entry.quantity);
       const ht = price * quantity;
       const tax = Math.round(ht * 0.2);
       const owned = estimates[entry.estimateKey];
-      return { table: "estimate_items", row: { ...common, id: entry.id, version_id: owned.versionId, parent_id: owned.sectionId,
-        item_type: "line", line_nature: "supply_only", position: index + 1, title: entry.title, description: entry.unit,
+      const v3 = v3Estimates.has(entry.estimateKey);
+      return { table: "estimate_items", ...(v3 ? { writer: owned.versionId } : {}), row: { ...common, id: entry.id,
+        version_id: owned.versionId, parent_id: owned.sectionId,
+        item_type: "line", line_nature: "supply_only", position: index + 1, title: entry.title,
+        // A v3 line carries its unit in unit_code and its hours per unit (M4); description stays empty.
+        ...(v3 ? { description: null, unit_code: entry.unit, h_mo_per_unit: 0 } : { description: entry.unit }),
         quantity, unit_price_ht_cents: price, tax_rate_bp: 2000, k_fo: 1, h_mo: 0, h_mo_majoration: 1, k_mo: 1,
         ...(entry.product_id ? { product_id: entry.product_id } : {}),
         ...(entry.selected_supplier_price_id ? { selected_supplier_price_id: entry.selected_supplier_price_id } : {}),

@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import type { EstimateSupplierPreselectionReview } from "@/lib/estimates/supplier-preselection";
 import { supplierOfferZeroPriceLabel } from "@/lib/estimates/supplier-offer-price";
+import { alternativePriceForLineUnit } from "@/lib/estimates/supplier-offer-purchase-unit";
 import { formatCurrency } from "@/lib/money";
 
 type SupplierPreselectionDialogProps = {
@@ -202,7 +203,7 @@ export function SupplierPreselectionDialog({
                               <p>{proposal.current_alternative.supplier_name}</p>
                               <p className="tabular-nums">
                                 {formatAlternativeLabel(
-                                  proposal.current_alternative.adjusted_unit_price_cents
+                                  alternativePriceForLineUnit(proposal.current_alternative, proposal.item_unit).priceCents
                                 )}
                               </p>
                             </div>
@@ -216,8 +217,9 @@ export function SupplierPreselectionDialog({
                               {proposal.proposed_alternative.supplier_name}
                             </p>
                             <p className="tabular-nums">
+                              {/* The price the line receives: per bar for a line in bars (2.9). */}
                               {supplierOfferZeroPriceLabel(proposal.proposed_alternative.zero_price_kind) ??
-                                formatAlternativeLabel(proposal.proposed_alternative.adjusted_unit_price_cents)}
+                                formatAlternativeLabel(proposal.patch.unit_price_ht_cents)}
                             </p>
                             <p>{proposal.proposed_alternative.product_designation}</p>
                           </div>
@@ -263,7 +265,7 @@ export function SupplierPreselectionDialog({
                       </p>
                       <p>
                         {exception.selected_alternative
-                          ? `${exception.selected_alternative.supplier_name} · ${formatAlternativeLabel(exception.selected_alternative.adjusted_unit_price_cents)}`
+                          ? `${exception.selected_alternative.supplier_name} · ${formatAlternativeLabel(alternativePriceForLineUnit(exception.selected_alternative, exception.item_unit).priceCents)}`
                           : "Aucune sélection"}
                       </p>
                     </div>
@@ -276,7 +278,7 @@ export function SupplierPreselectionDialog({
                           ? exception.alternatives
                               .map(
                                 (alternative) =>
-                                  `${alternative.supplier_name} (${formatAlternativeLabel(alternative.adjusted_unit_price_cents)})`
+                                  `${alternative.supplier_name} (${formatAlternativeLabel(alternativePriceForLineUnit(alternative, exception.item_unit).priceCents)})`
                               )
                               .join(" · ")
                           : "Aucune option"}

@@ -57,6 +57,7 @@ function coveredSnapshot() {
     unit_price_ht_cents: 1200, tax_rate_bp: 2000, unit: "u",
     selected_supplier_price_id: "price-1", supplier_id: SUPPLIER_ID,
     supplier_name: "Supplier A", supplier_reference: "REF-1", review_fingerprint: "a".repeat(64),
+    ordered_quantity: 2, ordered_unit: "u", ordered_unit_price_ht_cents: 1200,
   };
   return { line, review, offer: { ...alternative, id: "price-1", supplier_id: SUPPLIER_ID } };
 }
@@ -117,6 +118,11 @@ describe("purchase preparation coherent review", () => {
     { label: "supplier identity", change: { supplier_id: SECOND_SUPPLIER_ID } },
     { label: "supplier name", change: { supplier_name: "Renamed supplier" } },
     { label: "supplier reference", change: { supplier_reference: "REF-2" } },
+    // Second review of 2.9: an offer converted or repriced between the two reads (factor 3 → 2:
+    // 94 bars shown, 141 created) must not be ordered on the values shown.
+    { label: "ordered quantity", change: { ordered_quantity: 3 } },
+    { label: "ordered unit", change: { ordered_unit: "barre" } },
+    { label: "ordered price", change: { ordered_unit_price_ht_cents: 3600 } },
   ])("rejects a mixed snapshot when the canonical $label changes", async ({ change }) => {
     const snapshot = coveredSnapshot();
     installDatabase(snapshot, { reviewLines: [{ ...snapshot.review, ...change }] });
@@ -182,6 +188,25 @@ describe("purchase preparation coherent review", () => {
     expect(result.blocked_lines).toEqual([expect.objectContaining({
       item_id: LINE_ID, reason: "supplier_offer_ineligible", reason_detail: message,
     })]);
+  });
+
+  // After 2.5 (M4): the unit of a v3 line lives in unit_code; description stays empty. The preview reads
+  // it there, like the SQL review, and orders a converted bar in its purchase unit.
+  it("orders a v3 line in ml (unit_code) as bars of the converted offer", async () => {
+    const snapshot = coveredSnapshot();
+    Object.assign(snapshot.line, { description: null, unit_code: "ml", quantity: 282, unit_price_ht_cents: 8748 });
+    const converted = { ...snapshot.offer, unit: "barre", unit_price_cents: 26245, adjusted_unit_price_cents: 8748,
+      estimate_unit_code: "ml", estimate_units_per_purchase_unit: "3.000000", purchase_rounding: "ceil" };
+    installDatabase(snapshot, {
+      currentOffers: () => [converted],
+      reviewLines: [{ ...snapshot.review, quantity: 282, unit_price_ht_cents: 8748, unit: "ml",
+        ordered_quantity: 94, ordered_unit: "barre", ordered_unit_price_ht_cents: 26245 }],
+    });
+    const result = await getEstimatePurchaseOrderDraftPreparation(VERSION_ID);
+    expect(result.blocked_lines).toEqual([]);
+    expect(result.groups).toEqual([expect.objectContaining({ total_ht_cents: 2467030,
+      lines: [expect.objectContaining({ item_id: LINE_ID, unit: "ml", ordered_quantity: 94, ordered_unit: "barre",
+        ordered_unit_price_ht_cents: 26245 })] })]);
   });
 
   it("fails closed when current offer conditions cannot be read", async () => {

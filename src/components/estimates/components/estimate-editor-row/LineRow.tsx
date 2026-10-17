@@ -762,6 +762,7 @@ export function LineRow({
                   anchor={catalogueSuggestionsAnchor}
                   itemId={item.id}
                   query={item.title}
+                  lineUnit={item.description}
                   estimateCurrency={estimateCurrency}
                   catalogueListboxId={catalogueListboxId}
                   isCatalogueLoading={isCatalogueLoading}

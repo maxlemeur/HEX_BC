@@ -48,6 +48,8 @@ export type EstimateSupplierComparisonAlternativeContract = import("@/lib/estima
   supplier_id: string;
   supplier_name: string;
   adjusted_unit_price_cents: number;
+  /** 2.9: price per purchase unit, for a line written in it. */
+  adjusted_purchase_unit_price_cents?: number | null;
   currency?: string | null;
   supplier_reference: string | null;
   catalogue_url: string | null;
@@ -81,6 +83,8 @@ export type EstimateSupplierPreselectionExceptionReason =
 export type EstimateSupplierPreselectionProposal = {
   item_id: string;
   item_title: string;
+  /** Unit of the line (2.9): a converted offer is shown per bar on a line written in bars. */
+  item_unit?: string | null;
   current_alternative: EstimateSupplierComparisonAlternativeContract | null;
   proposed_alternative: EstimateSupplierComparisonAlternativeContract;
   patch: EstimateSupplierPreselectionPatch;
@@ -92,6 +96,8 @@ export type EstimateSupplierPreselectionProposal = {
 export type EstimateSupplierPreselectionException = {
   item_id: string;
   item_title: string;
+  /** Unit of the line (2.9): a converted offer is shown per bar on a line written in bars. */
+  item_unit?: string | null;
   reason: EstimateSupplierPreselectionExceptionReason;
   coverage_status: EstimateSupplierComparisonCoverageStatus;
   risk_flags: EstimateSupplierComparisonRiskFlag[];
