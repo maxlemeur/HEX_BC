@@ -17,7 +17,8 @@ des référentiels (`reloadLookups`) refait ce cycle.
 1. Un fichier choisi avant la fin des deux lectures disparaît : le nom n'est plus
    affiché et « Analyser » reste désactivé. La fenêtre s'allonge avec un réseau
    lent ou un gros catalogue. C'est la cause du parcours US-4.1 instable
-   (contourné côté test par `4bcc4e89`, branche `Thanh/cool-hellman-081cf9`).
+   (attente côté test ajoutée sur cette branche par `e02f6d72`, reprise de
+   `4bcc4e89`).
 2. Pendant la lecture, l'assistant n'existe plus : aucun fichier ne peut être
    choisi, seul un état de chargement s'affiche.
 3. « Créer les inconnus » → « Créer » appelle `onLookupsUpdated` →
@@ -69,10 +70,9 @@ le rendu serveur annonce déjà le chargement.
 - Cible `chromium-desktop` seulement ; mobile non exécuté.
 - US-4.1 choisit son fichier dès le titre rendu par le serveur, sans attendre
   l'hydratation : un `change` émis avant l'hydratation serait encore perdu.
-  `4bcc4e89` (attente des deux lectures et du nom du fichier, branche
-  `Thanh/cool-hellman-081cf9`, absent de cette base) fermera ce risque côté
-  test une fois fusionné ; US-4.1b et US-4.1c attendent une lecture, émise
-  après l'hydratation.
+  Sur cette branche, `e02f6d72` (reprise de `4bcc4e89` : attente des deux
+  lectures et du nom du fichier) ferme ce risque côté test ; US-4.1b et
+  US-4.1c attendent une lecture, émise après l'hydratation.
 - Préexistant, hors périmètre : un échec de lecture des référentiels n'est
   signalé qu'en console ; « Analyser » redevient actif sur des référentiels
   vides. `fetchImportLookups` n'a pas de garde de séquence (chevauchement non
@@ -100,9 +100,11 @@ npm run e2e:army:local -- --grep 'US-4[.]1' --app-port 3131
 | green-2 | corrigé, mêmes sources | `937f1c5d…4fa3` | 3 / 3 (9,3 s), sans reprise |
 | green-3 | corrigé après revue | `b88dc17c…000d` | 3 / 3 (9,05 s) ; US-4.1b résout le fournisseur créé avant l'import (0 fournisseur inconnu) ; US-4.1c lit la même ligne exacte (2100 centimes, EUR, `source_import_id` de la première analyse) |
 
-US-4.1 passe sans le contournement côté test de `4bcc4e89`, qui reste
-compatible (même libellé « Fichier CSV », mêmes deux lectures) et fermera,
-une fois fusionné, le risque d'hydratation décrit dans « Limites ».
+Ces exécutions portent sur `94694ab3`, sans `4bcc4e89` : US-4.1 y passe sans
+l'attente côté test. La combinaison livrée par cette branche (`main` `91068850`
+\+ `e02f6d72`, reprise de `4bcc4e89`, + `80442118`) a sa propre preuve : la
+suite `full` déclenchée sur `fix/supplier-csv-import-lookups`, seule à exécuter
+`e2e/army/takeoff/**` en CI (résultat consigné dans la PR #39).
 
 Le grep red-1 a perdu sa barre oblique (`US-4.1`) : il retient les trois mêmes
 titres que `US-4[.]1`.
