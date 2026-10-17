@@ -1,9 +1,9 @@
 # Socle fermé par défaut du moteur v3 (sous-lot 2.1)
 
-Statut : **tests rouges écrits avant le code** (commits `test(lot2-2.1)` sur `lot2/2.1-socle-ferme`,
-base `141218a9`, rebasée depuis `3d8d2f8a` sans changement SQL ni de verrou de dépendances). Aucun
-fichier applicatif, aucune migration : la migration M1 et le code TS
-viennent ensuite et doivent faire passer ces tests sans en modifier les assertions. Source :
+Statut : **implémenté, vert en local** (17/10/2026). Les tests rouges (commits `test(lot2-2.1)` sur
+`lot2/2.1-socle-ferme`, base `141218a9`) ont été écrits avant le code ; la migration M1 et le code TS
+(commits `feat(lot2-2.1)`) les font passer sans en modifier les assertions. Voir
+[Implémentation](#implémentation-17102026) pour les écarts d'implémentation et les preuves. Source :
 [conception du lot 2](../audit-independant-2026-10-14/lot2/conception-lot2-moteur-v3.md), D1, D2,
 §6.4, §7, §8, §9 et §14 « 2.1 ».
 
@@ -180,6 +180,104 @@ l'envoi, session vérifiée (200 sur la v2 témoin), répond 500 `Configuration 
 RESEND_API_KEY` ; aucun document, aucun envoi, état inchangé. Les parcours détectent donc bien
 la relecture v1 et l'absence de refus nommé.
 
+## Implémentation (17/10/2026)
+
+Commits `feat(lot2-2.1)` : la migration M1, puis le code TS. `src/lib/estimate-calculations.ts` et
+`src/lib/estimate-v2-snapshot.ts` : 0 ligne de diff.
+
+**SQL** : `supabase/migrations/20261017113844_estimate_calc_engine_v3_fail_closed.sql` (manifeste
+mis à jour). Chaque fonction redéfinie part de sa définition vivante (`20260812032857…sql`,
+`20261013130248…sql`) ; le diff se limite aux lignes du moteur. M1 n'ajoute aucune colonne :
+`upgrade_check.declared_new_columns()` ne change pas.
+
+**TS** :
+- `engine/capabilities.ts` : `EstimateEngineVersion`, `requireEstimateEngineVersion` (strict),
+  `requireHistoricalEngine` (3 → `EstimateEngineUnavailableError`), `engineFreezesSnapshot`,
+  `isLegacyEngine` / `isUnifiedEngine` (typés sur le seul moteur historique), `assertNever` ;
+- `engine/compute.ts` : la façade `computeVersionBreakdown` ;
+- `resolveCalcEngineVersion` refuse 3 par son nom et 4 et plus comme non pris en charge ;
+- `errors.ts` : `EstimateEngineUnavailableError` devient une réponse 409 nommée ;
+- les 46 comparaisons signalées par la règle ESLint passent par les prédicats ;
+- publication du PDF, envoi, gel d'approbation, projection d'approbation, sceau, réglages et preuve
+  de remise refusent une v3 avant tout verrou, gel, rendu, réservation, configuration d'envoi ou appel
+  SQL ;
+- la fiche, l'impression et l'éditeur affichent le bandeau (`EstimateEngineUnavailableNotice`).
+
+### Écarts d'implémentation
+
+8. **Prédicat en ligne dans les gardes `security invoker`.** `guard_estimate_v2_snapshot_columns`,
+   `guard_estimate_project_v2_owner_change`, `guard_labor_role_v2_owner_change` et
+   `open_estimate_review_cycle` s'exécutent sous `authenticated` ou `service_role`. Le schéma
+   `private` leur est fermé depuis `20260719132414`. Un appel à `private.calc_engine_freezes_snapshot`
+   y lèverait donc `42501` sur toute écriture v2. Ces gardes portent le même prédicat en ligne,
+   `in (2, 3)`, que la garde `prosrc` ne voit pas ; les assertions de comportement F-SQL-04 à
+   F-SQL-07 les couvrent. Seules les fonctions `security definer`
+   (`capture_estimate_review_content_revision`, `invalidate_estimate_v2_snapshot_context`) appellent
+   le prédicat. `require_fresh_v2_snapshot_for_publication` (liste blanche) refuse le moteur 3 par
+   son nom avant sa branche v2, inchangée.
+9. **Création d'une v3.** `enforce_estimate_calc_engine_on_insert` refuse le moteur 3 sous tout
+   contrat autre que `canonical_v2` et `legacy_v1`, qui forcent 2 et 1. Il le refuse aussi hors du
+   propriétaire natif (`current_user <> 'postgres'`) : `service_role` ne peut pas insérer une v3.
+10. **Ordre des déclencheurs.**
+    - Lignes : `aay_guard_estimate_item_engine_columns`, avant la garde v2 héritée. Toute colonne est
+      « de calcul » sauf `title`, `position`, `aid`, `parent_id` et `updated_at` (comparaison
+      `to_jsonb`, fermée par défaut pour toute colonne future).
+    - Versions : `aac_guard_estimate_version_engine_v3_writer`, après le refus d'immutabilité
+      (`aaa_…workflow_columns`) et avant `aad_require_fresh…`. Les colonnes de calcul forment une
+      liste explicite : marges, remise, coefficient, TVA, arrondi, totaux, `contractor_role`,
+      `currency` et gel non nul.
+    - Documents : `aa_guard_estimate_document_engine_v3`, avant `aaa_guard_estimate_offer_document`.
+11. **Surfaces agrégées.** La marge effective, la remise fixe et la Direction lisent le moteur par
+    `resolveCalcEngineVersionForDisplay` : une v3 y est « indisponible », pas une erreur de page. Les
+    chemins contractuels, eux, refusent par le nom.
+12. **Éditeur.** Le composant serveur `edit/page.tsx` remplace l'éditeur par le bandeau avant tout
+    chargement client : ni verrou, ni normalisation, ni sauvegarde. Si cette lecture échoue,
+    l'éditeur signale sa propre erreur, et son chargement refuse lui aussi la v3 (résolveur).
+13. **Projection d'approbation.** `syncEstimateApprovalSummary` refuse une v3 avant toute lecture ou
+    écriture. La fiche l'appelle avant de lire la version : elle ne réécrit donc rien.
+14. **`src/types/database.ts` inchangé.** M1 n'ajoute ni colonne ni fonction appelable ; les fonctions
+    de déclencheur n'y figurent pas.
+15. **Sites hors annexe A, laissés en l'état.** Ils supposent un moteur sans le comparer :
+    - `src/lib/affaires/server.ts:2250-2269`, analyse de marge interne en v2 forcé (conception
+      2.5) ;
+    - `src/lib/takeoff/server.ts`, métré (2.8) ; le contrat d'écrivain le refuse déjà en SQL.
+
+### Preuves vertes
+
+Windows (worktree), Node 24 :
+- `npm run typecheck` : 0 erreur ;
+- `npx eslint . --max-warnings=0` : 0 message ; la règle est active, et 0 site reste hors de la
+  liste blanche ;
+- `npm run check:architecture` : budgets respectés, 0 cycle ;
+- `npx vitest run` (suite complète) : 448 fichiers, 3 370 tests réussis, 2 ignorés (les mêmes que
+  sur `main`). La commande du rouge (10 fichiers, ci-dessous) : 10 verts, 104 tests réussis.
+
+WSL, clone `~/miaouffrage-lot2` au commit de la branche, pile native possédée, une ou deux exécutions
+à la fois :
+- `npm run db:ci:local` : 14 fichiers, 1 316 assertions, `Result: PASS`, matrice RLS passée ;
+  `estimate-calc-engine-v3-guards.test.sql` (60) et la gouvernance réécrite passent. Le diagnostic
+  de la liste blanche citait alors `private.calc_engine_freezes_snapshot` (corps `in (2, 3)`) ; le
+  prédicat compare désormais 2 et 3 explicitement. Sur la migration finale, le pgTAP de la campagne
+  `calc-v3` ci-dessous donne le même résultat (1 316, `PASS`) et un diagnostic « aucune » ;
+- `npm run e2e:army:local -- --grep "V3FC"` : 3/3 (configuration, V3FC01, V3FC02), archive
+  `.e2e/army/ci/2026-10-17T12-01-40-713Z-critical/`.
+  - Éditeur et fiche : bandeau présent, aucun des montants v1, état SQL identique avant et après.
+  - `POST …/pdf` et `POST …/send` : 409 `ESTIMATE_ENGINE_UNAVAILABLE` avec le message du bandeau.
+    La session est vérifiée (200 sur la v2 témoin) ; aucun document, aucun envoi, statut `draft`.
+- `npm run db:upgrade-check -- lot2-2-1` : 244 migrations de base, M1 appliquée, 0 différence.
+  Le contrôle négatif intégré est détecté. Archive `.e2e/engine-v3/upgrade-check/2026-10-17T12-04-39-121Z-lot2-2-1/`.
+- `npm run db:upgrade-check -- lot2-2-1-neg --negative-control` : 1 différence nommée
+  (`estimate_items … pu_ht_cents: 1481 -> 1482`), verdict `detected`. La sortie 1 est attendue.
+- `npm run engine:document-fingerprints -- check` : 14 familles identiques, agrégat
+  `2b971551…78e4`, égal à la référence de 2.0 ;
+- `npm run e2e:army:calc-v3` (non couverte par la CI) : 33/33 en 6 min 23 s, comme la référence
+  de 2.0. Détail : journeys 11, components 5, numeric 4, resume 5, access 2, emission 6 ; pgTAP
+  1 316 `PASS` et matrice RLS sur la migration finale ; validation de l'application passée. Archive
+  `.e2e/army/ci/2026-10-17T12-06-11-633Z-calc-v3/`.
+
+Archives non versionnées (`.e2e/` est ignoré), dans le clone WSL ; journaux de commande sous
+`.e2e/lot2-2.1/green/`. Suites complètes : CI GitHub de la PR du sous-lot (voir ci-dessous).
+
 ## Commandes
 
 ```bash
@@ -207,8 +305,9 @@ et Army critique sur pile locale du runner, qui inclut les parcours `engine-v3-*
 - `commit_generated_ouvrages` n'est exercé que par sa section de repli « À classer », première
   écriture de la RPC ; `recalculate_takeoff_estimate_version` ne l'est qu'à travers
   `apply_takeoff_job_guarded_atomic`, seul point d'entrée autorisé.
-- pgTAP ne charge pas `safeupdate` ; les clauses `WHERE` des déclencheurs de M1 ne sont prouvées
-  que par les parcours E2E.
+- pgTAP ne charge pas `safeupdate`. Les nouveaux déclencheurs de M1 n'exécutent ni `UPDATE` ni
+  `DELETE` ; les fonctions redéfinies gardent leurs clauses `WHERE` à l'identique. Les parcours E2E
+  (session PostgREST) restent la seule preuve d'exécution sous `safeupdate`.
 - La sonde d'envoi E2E ne passe pas par le navigateur (garde critique) ; elle ne prouve pas le
   comportement du bouton « Envoyer », dont la présence sur une v3 n'est pas fixée en 2.1.
 - Les montants interdits du parcours (45,00, 54,00, 22,50) ne couvrent que la relecture v1 de la
