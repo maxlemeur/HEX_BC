@@ -1,7 +1,8 @@
 # Persistance, gel et règles v3, derrière la politique (sous-lot 2.5)
 
-Statut : **intégré et vert** (17/10/2026) : rouge écrit et observé avant le code (§4, §9.6), M4 (§7), serveur
-TS et API (§8), intégration et preuves mesurées (§10). Document unique du sous-lot : l'ancien
+Statut : **intégré, revu et vert** (17/10/2026) : rouge écrit et observé avant le code (§4, §9.6), M4 (§7), serveur
+TS et API (§8), intégration et preuves mesurées (§10), revue indépendante et correctifs, rouge puis vert (§10.5).
+Document unique du sous-lot : l'ancien
 `estimate-engine-v3-2.5-e2e.md` (parcours `V3P01`, isolation Vitest `R-01` à `R-05`) y est fondu au §9. Les
 §1 à §6 et le §9 sont rédigés avant tout code de production, avec
 `supabase/tests/database/estimate-engine-v3-persistence.test.sql`,
@@ -112,7 +113,9 @@ de l'autre ; `estimate_v3_assert_draft` → `ESTIMATE_V3_PROJECTION_MISMATCH`.
   `margin_bp` = ⌈(HT − Σ D) × 10 000 / HT⌋ (S1 : 2 054 ; T-MARG : **0**, pas NULL) ; sinon NULL. Le texte
   `version.calc_engine_version = 1` asserté par `estimate-calc-engine-governance.test.sql:1086` reste.
 - `duplicate_estimate_version_without_product_id` : copie les colonnes v3 sous le contrat d'écrivain ; le
-  moteur suit la source, quelle que soit la politique (I4, P-15).
+  moteur suit la source, quelle que soit la politique (I4, P-15). *Revue (§10.5) : les `id` neufs d'une copie v3
+  gardent l'ordre relatif des `id` source (ex aequo de D13), pour que ses montants copiés restent ceux du moteur
+  sur la copie.*
 - Métré : fonctions inchangées ; le contrat d'écrivain le refuse (`ESTIMATE_V3_WRITER_NOT_SUPPORTED`) ;
   le message TS `TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED` reste en 2.8 (D16). *Remplacé à l'implémentation :
   décision 7 du §8.1, le refus nommé TS est livré en 2.5.*
@@ -167,7 +170,7 @@ commencent par l'identifiant). E2E et Vitest : §9.
 | F25-15 | File d'approbation : marque v2 appliquée, 0 au lieu de NULL, NULL au lieu de 0, gel périmé lu comme frais | S1 2 054 ; T-MARG 0 ; S1 après changement de taux horaire → NULL | V3P-09 (carte « Marge 11.7 % ») |
 | F25-16 | Métré appliqué à une v3 (P-19) | `apply_takeoff_job_guarded_atomic` → `ESTIMATE_V3_WRITER_NOT_SUPPORTED` | — (TS : 2.8) |
 | F25-17 | Retour à la politique 2 : création encore v3, attente 3 acceptée, v3 existante modifiée, changement non tracé | v2 créée ; attente 3 refusée ; S1 intacte ; deuxième événement 3 → 2 | V3P-11, V3P-12 |
-| F25-18 | Duplication qui change moteur ou montants | S2 dupliquée sous politique 2 : moteur 3, coefficients, intention, totaux et lignes identiques | V3P-10 |
+| F25-18 | Duplication qui change moteur ou montants ; *copie dont les ex aequo D13 diffèrent de la source (revue)* | S2 dupliquée sous politique 2 : moteur 3, coefficients, intention, totaux et lignes identiques ; *huit copies : ordre relatif des `id` gardé, montants stockés = moteur sur la copie* | V3P-10, *V3P-16* |
 | F25-19 | Montée de version : une ligne v1/v2 existante reçoit une valeur v3 | la v2 témoin n'a que des valeurs neutres ; preuve complète par `npm run db:upgrade-check` sur base peuplée (§10.2) | — |
 | F25-20 | Règle `min_margin` calculée depuis 0 sur un brouillon v3 sans preuve ; T-MARG non violée | — | Vitest `R-01` à `R-05` (`src/lib/estimates/rules-engine.v3-margin.test.ts`) |
 
@@ -394,7 +397,7 @@ piste SQL, §7) ; le TS tient l'interface du §7.1 telle quelle. Aucun montant v
 6. **Une v3 reste modifiable, gelable et duplicable sous politique 2** (D3, I4) ; la duplication d'une v2
    reste une v2 (P-15). La politique ne gouverne que la création.
 7. **Métré sur une v3** refusé par son nom en TS (`TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED`, 409) avant le
-   contrat d'écrivain SQL. **Émission** (PDF, envoi, documents) toujours fermée : le gel v3 n'est ouvert
+   contrat d'écrivain SQL (*prouvé depuis la revue par V3P-17, rouge observé sans le refus TS, §10.5*). **Émission** (PDF, envoi, documents) toujours fermée : le gel v3 n'est ouvert
    que pour l'approbation ; envoi et document lèvent `ESTIMATE_ENGINE_UNAVAILABLE` (2.7 l'ouvrira).
 
 ### 8.2 Choix de la piste TS
@@ -465,7 +468,9 @@ Le parcours `V3P01` et `npm run db:ci:local` se rejouent à l'intégration (WSL)
 ### 8.5 Limites
 
 - L'évolution de marge par version (hub d'affaire) lit encore `margin_multiplier` (1 en v3) : affichage
-  seulement, repris avec l'éditeur v3 (2.6).
+  seulement, repris avec l'éditeur v3 (2.6). *Corrigé à la revue (§10.5, V3P-14) : le résumé financier du hub, le
+  tableau dense et l'aperçu de soumission rendent la marque nette d'un gel v3 frais ou « Indisponible » ; les v3
+  sortent de l'évolution, dont la marge v2 ne se compare pas à leur marque.*
 - Pas de preuve vivante de remise en montant pour un brouillon v3 (règle `max_discount` indisponible tant
   qu'il n'est pas gelé) ; Direction idem.
 - Mise à jour unitaire d'une ligne, mise à jour groupée directe, ouvrages, modèles, version zéro et métré
@@ -509,6 +514,11 @@ Fichiers :
 | V3P-10 | La duplication rend une v2, perd une colonne v3 ou change un montant | Duplication **sous politique 2** de la v3 gelée |
 | V3P-11 | Politique remise à 2 : la création suivante n'est pas une v2 aux valeurs de base de 2.0 (2 000 / 400 / 2 400) ou hérite d'une colonne v3 | Création v2, ligne 1 u à 20,00 € |
 | V3P-12 | Une version existante change de moteur ou de montant quand la politique change | Empreinte finale (moteur, révision, totaux, lignes) de l'ancre v2, de l'oracle, d'EUHIST et de la copie |
+| V3P-13 | *Revue (§10.5).* Des coefficients de vente fournis à la création sont retirés en silence (v3 : politique à la place) ou ignorés (v2 créée) | v3 « coefficients fournis » (1 ; 1,5) dans la fenêtre ; sous politique 2, v2 avec coefficient → 400 nommé, rien de créé |
+| V3P-14 | *Revue.* Le résumé financier du hub affiche pour une v3 la marge v2 (multiplicateur 1 → « 0.0 % », « Coeff. 1.000 ») | KPI « Marge appliquée » du hub, oracle courant en S1 non gelé : « Indisponible » |
+| V3P-15 | *Revue.* `DELETE …/items` supprime une ligne v3 sans rien recalculer : six montants stockés périmés (D12) | EUHIST : 409 `ESTIMATE_ENGINE_UNAVAILABLE`, empreinte inchangée |
+| V3P-16 | *Revue.* Une ligne non chiffrée à un taux hors politique bloque le gel (contrôle TS sur toutes les lignes) ; le lot ou le gel d'une copie déplace un centime | Copie : ligne « pour mémoire » à 1 960 pb par lot, soumission 201, gel frais, lignes et totaux inchangés |
+| V3P-17 | *Revue.* Le métré appliqué à une v3 n'est pas refusé par son nom | Job de métré terminé sur EUHIST : 409 `TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED`, empreinte inchangée |
 
 ### 9.2 Déroulé du parcours `V3P01`
 
@@ -588,6 +598,10 @@ dans l'entreprise de recette partagée.*
 10. **Stabilité (V3P-12).** Moteur, révision, totaux et lignes de l'ancre v2, de l'oracle gelé, d'EUHIST et de la
     copie identiques à leur dernier état relu (`updated_at` exclu : les projections d'approbation peuvent
     l'avancer sans toucher au contenu).
+11. **Revue (V3P-13 à V3P-17, §10.5).** Relevées à leur place (création dans la fenêtre, KPI du hub à l'étape 5)
+    ou après V3P-12 (copie, métré, suppression, v2 avec coefficient), assertées ensemble en fin de parcours
+    (`REVIEW_EXPECTED`) pour qu'une seule exécution rouge les montre toutes, sans toucher un attendu des étapes 1
+    à 10. L'étape 4 asserte en outre l'état du lot de création lui-même, par titre, avant le réétiquetage.
 
 Origine des attendus : PU, bruts, déboursé et totaux S1 à S3 recopiés de la conception (§5.1, §5.2) ;
 répartitions par ligne (plus grand reste, D13), état « TVA 10 % », marque 1 171 pb et parts figées calculés par
@@ -775,7 +789,8 @@ sondes du parcours rouge. Aucun défaut de comportement, donc aucun nouveau test
 Les sept décisions données à l'intégration sont tenues : R-08 par le déclencheur (§7.2, 1) ; autoliquidation
 (§7.2, 2 ; `buildEstimateV3Input`) ; ligne non chiffrée à PU nul (F25-21, F25-22) ; CHECK de forme à `is not null`
 (F25-06) ; colonnes de modèles en M6 ; v3 modifiable, gelable et duplicable sous politique 2, v2 dupliquée en v2
-(V3P-10, V3P-12, F-SQL-11) ; métré refusé par son nom en TS (`TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED`, 409).
+(V3P-10, V3P-12, F-SQL-11) ; métré refusé par son nom en TS (`TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED`, 409 ; sans
+preuve exécutée à l'intégration, prouvé depuis la revue par V3P-17, §10.5).
 L'émission reste fermée (V3FC02 vert).
 
 ### 10.2 Corrections d'intégration (harnais et sondes du parcours, rouge puis vert)
@@ -790,9 +805,9 @@ clone WSL, sous `~/miaouffrage-lot2-25/.e2e/army/ci/`.
 | C1 | `20b2d9e2` | La fenêtre de politique 3, ouverte dans l'entreprise de recette partagée par les deux workers, fait échouer toute création concurrente (§9.5) | `useDedicatedV3Owner` : inscription d'un compte jetable sur la pile possédée (clé anonyme, `enable_confirmations = false`), entreprise renommée `ARMY V3P <run>`, cookies de session remplacés dans le seul contexte du parcours | `2026-10-17T16-37-39-228Z-critical` : V3FC02 `[409,false]` sur son ancre v2, lancé à 16:39:24,487Z dans la fenêtre de V3P01 (preuve `v3p-policy-window` à 16:39:24,901Z) |
 | C2 | `20b2d9e2` | `/dashboard/estimates` redirige vers `/dashboard/affaires` (`next.config.ts`) : la liste visée n'est pas atteignable | lecture dans la liste des versions du hub `/dashboard/affaires/{affaire}` (« Total HT » de la version) | même archive : `LOCATOR_NOT_FOUND`, écran `/dashboard/affaires` |
 | C3 | `134054df` | Le hub ne liste les versions que si sa version courante (numéro le plus haut) a des lignes (`isAffaireFreshStartState`) ; EUHIST, créée après l'oracle, était vide | EUHIST créée avant l'oracle ; l'aide de lecture prend l'élément `li` qui porte le lien de la version, pas le bouton d'en-tête | `2026-10-17T16-46-41-886Z-critical` : délai dépassé, hub en état « Affaire neuve » |
-| C4 | `134054df` | `app.open` efface l'identité de bail tenue en mémoire par `apiRequest` (l'application ne la restaure qu'au rechargement) : un réglage après navigation rencontre le bail du document précédent (`assertDraftLockOwnedByCurrentUser`, 409 « déjà verrouillée dans une autre page ») | `retakeLease` (`PATCH …/lock?force=true`) avant chaque réglage | corrigée à la lecture du code, avant exécution ; non observée |
+| C4 | `134054df` | `app.open` efface l'identité de bail tenue en mémoire par `apiRequest` (l'application ne la restaure qu'au rechargement) : un réglage après navigation rencontre le bail du document précédent (`assertDraftLockOwnedByCurrentUser`, 409 « déjà verrouillée dans une autre page ») | `retakeLease` (`PATCH …/lock?force=true`) avant chaque réglage | corrigée à la lecture du code, avant exécution ; *rouge observé à la revue (§10.5) : C4 retirée localement à `a95e31ca`, `2026-10-17T18-07-50-333Z-critical`, premier réglage S2 → 409 `CONFLICT` « Cette version est déjà verrouillée dans une autre page d'édition. »* |
 | C5 | `604782ed` | La route `approve` répond 201 à `submit_for_review` depuis `e3af04ee` (OpenAPI : 200 et 201) ; le parcours attendait 200 | 201 attendu ; le reste du gel inchangé | `2026-10-17T16-52-31-044Z-critical` : `[201,true]` contre `[200,true]`, gel par ailleurs exact (preuve `v3p-freeze`) |
-| C6 | `32d3aa6a`, `df01c4b9` | D13 départage les ex aequo par `id` croissant ; les attendus par ligne viennent du moteur pur sur des `id` de fixture croissants de O1 à O7, mais le lot tire des `id` au hasard | après le lot (7 créations, inchangé), un lot de 7 mises à jour et d'un `reorder` donne au k-ième plus petit `id` les entrées de O_k, en k-ième position ; le premier essai par `position` était refusé (`CONFLICT`, position occupée) | `2026-10-17T17-03-44-516Z-critical` : TVA S2 de O3 / O7 31 940 / 11 821 au lieu de 31 941 / 11 820 (total 1 381 071 identique), alors que `…16-52-31-044Z` passait la même assertion avec un autre ordre d'`id` ; `…17-08-01-804Z` : réétiquetage par `position` refusé |
+| C6 | `32d3aa6a`, `df01c4b9` | D13 départage les ex aequo par `id` croissant ; les attendus par ligne viennent du moteur pur sur des `id` de fixture croissants de O1 à O7, mais le lot tire des `id` au hasard | après le lot (7 créations, inchangé), un lot de 7 mises à jour et d'un `reorder` donne au k-ième plus petit `id` les entrées de O_k, en k-ième position ; le premier essai par `position` était refusé (`CONFLICT`, position occupée). *Revue (§10.5) : le réétiquetage renvoie unité, Q, PR et h/u, et masquait donc une perte au lot de création ; l'état de ce lot est désormais asserté avant lui, par titre, sur les champs indépendants des ex aequo (unité, statut, Q, PR, h/u, `h_mo` dérivé, PU, taux, net = brut en S1).* | `2026-10-17T17-03-44-516Z-critical` : TVA S2 de O3 / O7 31 940 / 11 821 au lieu de 31 941 / 11 820 (total 1 381 071 identique), alors que `…16-52-31-044Z` passait la même assertion avec un autre ordre d'`id` ; `…17-08-01-804Z` : réétiquetage par `position` refusé |
 
 Les §9.2, §9.3 et §9.5 portent ces corrections en italique, à leur place.
 
@@ -829,12 +844,60 @@ commentaire de test changent (`git diff --stat 3bc50fbb HEAD`) : elles valent po
 
 - **`origin/main` a avancé** (`b91f938f` : PR #31 de 2.4 avec `71850b7c`, et #30). `git merge-tree` : fusion sans
   conflit, non faite ici (ni poussée ni PR, consigne). La CI de la PR rejouera Vitest complet et la campagne
-  critique (V3P01 compris, sélectionné par la carte) sur le commit de fusion.
+  critique (V3P01 compris, sélectionné par la carte) sur le commit de fusion. *Fusionné à la revue (`f35616be`,
+  `origin/main` à `9c426368` : #31, #32, #29), sans conflit ni migration nouvelle ; preuves de la revue sur la tête
+  fusionnée (§10.5).*
 - Les refus SQL que le TS ne nomme pas (contrat d'écrivain `0A000`, `ESTIMATE_CREATE_INVALID_INPUT`, D12 de la
   création d'une ligne) rendent le 400 générique de `mapSupabaseError` ; inatteignables par les chemins de 2.5, à
   nommer avec l'éditeur v3 (2.6). La projection refusée à la création rend 500 (§8.5).
 - V3P01 dépend de l'inscription locale sans confirmation (`supabase/config.toml`, `enable_confirmations = false`) ;
   sinon il échoue au préalable, par une erreur nommée. Un compte jetable par exécution, détruit avec la pile.
-- C4 est préventive (lue dans le code, non observée).
+- C4 est préventive (lue dans le code, non observée). *Observée à la revue (§10.5).*
 - Restes des pistes : §7.5 (fixture 2.1, désormais alignée par C0′) et §8.5 (hub, remise en montant sans preuve
   vivante, chemins refusés jusqu'à 2.6 et 2.8).
+
+### 10.5 Revue indépendante (17/10/2026) : constats, rouge puis vert
+
+Deux revues en lecture seule de `f8baf852..44fd89c4` (montants contractuels et fermeture ; contrat SQL, sondes et
+politique de test), onze constats. Chacun revérifié dans le code avant d'agir ; aucun n'est écarté. Les correctifs
+suivent la politique de test : rouge écrit et observé d'abord (`a95e31ca`, `84c7af18`), puis le code (`3e4a38e7`,
+`f1d94213`), sans toucher une assertion existante.
+
+| Constat (gravité) | Vérification | Correctif | Rouge observé | Vert |
+|---|---|---|---|---|
+| `DELETE …/items` sur une v3 ne recalcule rien (majeur) | `deleteEstimateItem` n'a aucun aiguillage de moteur ; les gardes M4 ne voient que `INSERT`/`UPDATE` | refus nommé `ESTIMATE_ENGINE_UNAVAILABLE` (409) avant tout ; une v3 supprime par le lot (`op: "delete"`), qui recalcule et vérifie D12 | V3P-15 : `[200, true]`, EUHIST sans ligne mais 360 / 72 / 432 stockés | `[409, false, ESTIMATE_ENGINE_UNAVAILABLE]`, empreinte inchangée |
+| Coefficients de création retirés par Zod (majeur) | `createEstimateVersionSchema` n'avait pas les deux clés | `v3SaleCoefficientFields` dans le schéma de création ; sur une v2, 400 `ESTIMATE_ENGINE_COLUMN_NOT_SUPPORTED` | V3P-13 : v3 à [1,3 ; 1,2] au lieu de [1 ; 1,5] ; v2 créée (201, +1 version) | [1 ; 1,5] ; `[400, false, ESTIMATE_ENGINE_COLUMN_NOT_SUPPORTED]`, 0 version |
+| Marge v2 du hub pour une v3, « 0.0 % » (majeur) | `toAffaireHubVersionSummary` : `(margin_multiplier − 1) × 100` sans moteur | marque nette d'un gel v3 frais (`resolveV3NetMarginBp`) sinon `null` → « Indisponible » (résumé, tableau dense, aperçu de soumission) ; v3 hors de l'évolution | V3P-14 : « Marge appliquée0.0 %Coeff. 1.000Modifier la marge » | « Marge appliquéeIndisponible » |
+| Copie v3 aux `id` aléatoires : ex aequo D13 perdus (majeur) | `jsonb_object_agg(id, gen_random_uuid())` ; M3 départage par `parts.key` (uuid) | M4 : `id` neufs appariés par rang (k-ième plus petit source ↔ k-ième plus petit neuf), v3 seulement ; v1/v2 inchangées | pgTAP F25-18 (8 copies de S2) : `have: ok:8\|8\|1`, `want: ok:8\|0\|0` (ordre rompu 8 fois, montants ≠ moteur 1 fois) | `ok:8\|0\|0` |
+| C6 masquait V3P-04 (majeur, sonde) | le réétiquetage renvoie unité, Q, PR, h/u | état du lot de création asserté par titre avant le réétiquetage (champs indépendants des ex aequo) | — (correction de sonde ; passe dès le rouge `a95e31ca`) | identique |
+| Taux hors politique sur une ligne non chiffrée bloque le gel (mineur) | contrôle TS sur toutes les lignes, SQL sur les chiffrées | filtre `pricing_status === "priced"` | V3P-16 : soumission `[400, ESTIMATE_V3_TAX_RATE_NOT_ALLOWED]`, gel non frais | 201, gel frais, 8 lignes et 6 214 910 / 621 491 / 6 836 401 inchangés ; TVA par taux [{1 000 ; 6 214 910 ; 621 491}] |
+| Import et création rapide sous politique 3 : `CONTEXT_CHANGED` qui boucle (mineur) | aucune attente transmise ; le refus nommé venait après la comparaison | refus nommé avant la comparaison pour toute source non vierge sous politique 3 | Vitest : `CONTEXT_CHANGED` au lieu de `ESTIMATE_ENGINE_UNAVAILABLE` | 2/2 |
+| Course politique ↔ création sur les coefficients (mineur) | le TS envoyait toujours les défauts lus sans verrou | coefficients non fournis retirés de la charge ; la RPC prend ceux de la politique `FOR SHARE` (pgTAP F25-05) | Vitest : `sale_coefficient_fo` 1,3 envoyé | 2/2 |
+| Métré v3 sans preuve (mineur) | aucun test ne nommait `TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED` | V3P-17 : job terminé (seule ligne écrite en SQL) puis `POST …/apply` | refus TS neutralisé localement : `[409, CONFLICT]` (contrat d'écrivain SQL) | `[409, TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED]`, empreinte inchangée |
+| C4 sans rouge (mineur) | — | conservée | C4 retirée localement : premier réglage S2 → 409 `CONFLICT` (bail d'une autre page) | parcours vert avec C4 |
+| Types de `set_tenant_calc_policy` (mineur) | SQL : acteur requis, taux nul = défaut | `p_actor_user_id: string`, `p_allowed_tax_rates_bp: number[] \| null` (CRLF) | typage seul | `npm run typecheck` 0 |
+
+Choix : la duplication ne rappelle pas `estimate_v3_assert_draft` sur la copie (option de la revue) : un changement
+de taux horaire du propriétaire rendrait une source valide non duplicable, et chaque écrivain d'une v3 vérifie
+déjà D12 maintenant que la suppression directe est fermée. M4 n'a jamais quitté des piles jetables : corrigée en
+place, empreinte du manifeste rafraîchie par `npm run supabase:manifest:add` (entrée retirée puis réajoutée).
+Reste : une suppression directe par PostgREST (hors application) contourne encore le refus TS ; la ligne suivante
+écrite par le lot ou le gel recalcule tout (sécurité hors périmètre).
+
+Preuves (Windows : Node 24.19.0 ; WSL : clone `~/miaouffrage-lot2-25` remis à la révision, au plus deux exécutions
+natives possédées) :
+
+| Preuve | Commande | Résultat |
+|---|---|---|
+| Rouge E2E (WSL, `a95e31ca` + refus TS du métré neutralisé localement) | `E2E_ARMY_WORKERS=2 npm run e2e:army:local -- --grep "V3P01"` | sortie 1, V3P01 en échec à l'assertion finale `REVIEW_EXPECTED` seulement (V3P-04 par titre vert) ; archive `.e2e/army/ci/2026-10-17T18-05-25-078Z-critical/` (manifeste SHA-256 `bb1e8080…09c6b`) |
+| Rouge C4 (WSL, `a95e31ca` + C4 retirée localement) | idem | sortie 1 au premier réglage, 409 `CONFLICT` ; `2026-10-17T18-07-50-333Z-critical/` (`b9629879…9dc0`) |
+| Rouge pgTAP (WSL, `84c7af18`) | `npm run db:ci:local` | sortie 1, `Files=19, Tests=1833`, `Failed test: 91` (F25-18, seul) |
+| Rouge Vitest (Windows, `a95e31ca`) | `npx vitest run --project=node src/lib/estimates/canonical-v2-creation.test.ts` | 2 échecs / 4, motifs ci-dessus |
+| Vert E2E + SQL + RLS (WSL, `f1d94213`, diff vide) | `E2E_ARMY_WORKERS=2 npm run e2e:army:local -- --grep "V3P01\|V3FC"` | sortie 0, **4/4** (setup, V3FC01, V3FC02, V3P01) ; pgTAP `Files=19, Tests=1833, Result: PASS` ; « Behavioral RLS matrix passed. » ; 248 migrations ; archive `2026-10-17T18-11-42-350Z-critical/` (`79e52912…e541`) ; valeurs S1 à S3, TVA 10 %, EUHIST, gel, 1 171, file et copie du §10.3 inchangées |
+| Montée de version (WSL, `f1d94213`) | `npm run db:upgrade-check -- lot2-2-5` | sortie 0, 4 migrations après la base peuplée, **0 différence**, contrôle négatif détecté ; `.e2e/engine-v3/upgrade-check/2026-10-17T18-11-42-308Z-lot2-2-5` |
+| Vitest (Windows, `f1d94213`) | `npx vitest run <18 fichiers>` (création, hub et ses écrans, approbation, réglages, schémas, OpenAPI, Direction, mutations d'éditeur, règle v3, corpus figé, carte d'impact, garde-fous CI) | 18 fichiers, 249 tests verts |
+| Types, lint, OpenAPI, architecture, migrations (Windows) | `npm run typecheck` ; `npx eslint <13 fichiers> --max-warnings=0` ; `npm run validate-openapi` ; `npm run check:architecture` ; `npm run supabase:validate` ; `npm run supabase:migrations:git-guard` | 0 ; 0 ; « valide et synchronisee » (144 routes, 192 opérations) ; 1 123 modules, 0 cycle ; 248 fichiers ; garde passée |
+
+Non rejoués, entrées inchangées : parité TS/SQL (M3 intacte), empreintes documentaires et campagne `calc-v3` (aucun
+chemin v1/v2 de calcul ni de document touché ; le hub v1/v2 rend les mêmes valeurs). La CI de la PR rejoue Vitest
+complet et la campagne critique sélectionnée par la carte d'impact.
