@@ -6,6 +6,11 @@ import {
   MAX_SECTION_DEPTH,
   MIN_SECTION_DEPTH,
 } from "@/lib/estimates/hierarchy";
+import {
+  expectedCalcEngineVersionSchema,
+  v3LineItemFields,
+  v3VersionSettingsFields,
+} from "@/lib/estimates/v3-schemas";
 
 const UUID_ERROR_MESSAGE = "Identifiant invalide.";
 const AID_TOO_LONG_ERROR_MESSAGE = "AID trop long.";
@@ -190,6 +195,7 @@ const createEstimateVersionSchema = z
     rounding_mode: estimateRoundingModeSchema.optional(),
     rounding_step_cents: positiveIntegerSchema.optional(),
     max_section_depth: sectionDepthSchema.optional().default(DEFAULT_MAX_SECTION_DEPTH),
+    expected_calc_engine_version: expectedCalcEngineVersionSchema.optional(),
   })
   .superRefine((payload, ctx) => {
     const mode = payload.discount_mode ?? "simple";
@@ -306,6 +312,7 @@ export const patchEstimateVersionSchema = z
     rounding_mode: estimateRoundingModeSchema.optional(),
     rounding_step_cents: positiveIntegerSchema.optional(),
     max_section_depth: sectionDepthSchema.optional(),
+    ...v3VersionSettingsFields,
     total_ht_cents: nonNegativeIntegerSchema.optional(),
     total_tax_cents: nonNegativeIntegerSchema.optional(),
     total_ttc_cents: nonNegativeIntegerSchema.optional(),
@@ -422,6 +429,7 @@ const createLineItemSchema = z.object({
   h_mo_majoration: nonNegativeNumberSchema.optional(),
   k_mo: nonNegativeNumberSchema.optional(),
   ...laborSplitItemFields,
+  ...v3LineItemFields,
   labor_role_id: nullableUuidSchema.optional(),
   category_id: nullableUuidSchema.optional(),
   supply_type_id: nullableUuidSchema.optional(),
@@ -450,6 +458,7 @@ const updateEstimateItemFields = {
   h_mo_majoration: nonNegativeNumberSchema.optional(),
   k_mo: nonNegativeNumberSchema.optional(),
   ...laborSplitItemFields,
+  ...v3LineItemFields,
   pu_ht_cents: nonNegativeIntegerSchema.optional(),
   line_total_ht_cents: nonNegativeIntegerSchema.optional(),
   line_tax_cents: nonNegativeIntegerSchema.optional(),

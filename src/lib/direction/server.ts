@@ -3,9 +3,10 @@ import { cache } from "react";
 
 import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import { forbidden } from "@/lib/estimates/errors";
-import { resolveCalcEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
-import { resolveEffectiveMarginBp } from "@/lib/estimates/effective-margin";
-import { isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
+import { resolveCalcEngineVersionForDisplay, resolveEstimateEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
+import { resolveEffectiveMarginBp, resolveV3NetMarginBp } from "@/lib/estimates/effective-margin";
+import { isUnifiedEngine, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
+import { loadV3MarginEvidence } from "@/lib/estimates/v3-margin-evidence-server";
 import { resolveFixedDiscountSignal, type FixedDiscountSignal } from "@/lib/estimates/effective-discount";
 import { loadCanonicalFixedDiscountEvidence } from "@/lib/estimates/fixed-discount-evidence-server";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
@@ -45,6 +46,8 @@ type VersionRow = {
   calc_snapshot_context: Database["public"]["Tables"]["estimate_versions"]["Row"]["calc_snapshot_context"];
   discount_bp: number | null;
   discount_amount_cents: number | null;
+  gross_ht_cents?: number | null;
+  discount_applied_cents?: number | null;
   updated_at: string;
   date_devis: string;
   validite_jours: number;
@@ -497,7 +500,7 @@ const listLatestDirectionVersions = cache(async function listLatestDirectionVers
   const { data, error } = await context.supabase
     .from("estimate_versions")
     .select(
-      "id, tenant_id, project_id, version_number, status, approval_status, total_ht_cents, margin_bp, margin_multiplier, margin_mode, calc_engine_version, content_revision, calc_snapshot_content_revision, calc_snapshot_context, discount_bp, discount_amount_cents, updated_at, date_devis, validite_jours, estimate_projects!inner(id, user_id, name, client_name, is_archived)"
+      "id, tenant_id, project_id, version_number, status, approval_status, total_ht_cents, margin_bp, margin_multiplier, margin_mode, calc_engine_version, content_revision, calc_snapshot_content_revision, calc_snapshot_context, discount_bp, discount_amount_cents, gross_ht_cents, discount_applied_cents, updated_at, date_devis, validite_jours, estimate_projects!inner(id, user_id, name, client_name, is_archived)"
     )
     .eq("tenant_id", context.tenantId)
     .neq("status", "archived")
@@ -532,7 +535,7 @@ const getDirectionVersionById = cache(async function getDirectionVersionById(
   const { data, error } = await context.supabase
     .from("estimate_versions")
     .select(
-      "id, tenant_id, project_id, version_number, status, approval_status, total_ht_cents, margin_bp, margin_multiplier, margin_mode, calc_engine_version, content_revision, calc_snapshot_content_revision, calc_snapshot_context, discount_bp, discount_amount_cents, updated_at, date_devis, validite_jours, estimate_projects!inner(id, user_id, name, client_name, is_archived)"
+      "id, tenant_id, project_id, version_number, status, approval_status, total_ht_cents, margin_bp, margin_multiplier, margin_mode, calc_engine_version, content_revision, calc_snapshot_content_revision, calc_snapshot_context, discount_bp, discount_amount_cents, gross_ht_cents, discount_applied_cents, updated_at, date_devis, validite_jours, estimate_projects!inner(id, user_id, name, client_name, is_archived)"
     )
     .eq("tenant_id", context.tenantId)
     .eq("id", versionId)
@@ -958,6 +961,27 @@ async function resolveDirectionFixedDiscount(context: Awaited<ReturnType<typeof 
   }
 }
 
+/**
+ * Lot 2, sous-lot 2.5 (D5, F20) : marque nette v3 d'un brouillon sans gel frais, par sa preuve
+ * vivante ; indisponible (null) plutôt qu'inventée si le calcul course ou ne retrouve pas le stocké.
+ */
+async function resolveDirectionMarginBp(context: Awaited<ReturnType<typeof getAuthenticatedContext>>, version: VersionRow): Promise<number | null> {
+  const captured = resolveEffectiveMarginBp(version);
+  const engine = resolveEstimateEngineVersionForDisplay(version);
+  if (captured !== null || engine === null || !usesSaleCoefficients(engine) || version.status !== "draft") return captured;
+  const project = resolveEmbeddedProject(version.estimate_projects);
+  if (!project) return null;
+  try {
+    const evidence = await loadV3MarginEvidence({
+      supabase: context.supabase, tenantId: context.tenantId,
+      projectUserId: project.user_id, authorizedVersion: version,
+    });
+    return resolveV3NetMarginBp(version, evidence);
+  } catch {
+    return null;
+  }
+}
+
 export const fetchDirectionProjectSignals = cache(
   async (
     projectId: string,
@@ -999,7 +1023,7 @@ export const fetchDirectionProjectSignals = cache(
     const actionableAlerts = filterAlertsForLatestJob(versionAlerts, latestJobId);
     const plansMetrics = plansMetricsByProjectId.get(projectId);
 
-    const marginBp = resolveEffectiveMarginBp(version);
+    const marginBp = await resolveDirectionMarginBp(context, version);
     const fixedDiscountSignal = await resolveDirectionFixedDiscount(context, version);
     return {
       latestJobId,
@@ -1074,9 +1098,11 @@ export async function fetchDirectionDashboardPageData(
   );
 
   const fixedDiscountByVersionId = new Map<string, FixedDiscountSignal>();
+  const marginByVersionId = new Map<string, number | null>();
   for (let offset = 0; offset < versions.length; offset += 4) {
     await Promise.all(versions.slice(offset, offset + 4).map(async (version) => {
       fixedDiscountByVersionId.set(version.id, await resolveDirectionFixedDiscount(context, version));
+      marginByVersionId.set(version.id, await resolveDirectionMarginBp(context, version));
     }));
   }
 
@@ -1099,7 +1125,7 @@ export async function fetchDirectionDashboardPageData(
         (maxScore, alert) => Math.max(maxScore, alert.risk_score),
         0
       );
-      const marginBp = resolveEffectiveMarginBp(version);
+      const marginBp = marginByVersionId.get(version.id) ?? null;
       const alerts = buildDirectionSyntheticAlerts({
         projectId: version.project_id,
         projectName: project.name,

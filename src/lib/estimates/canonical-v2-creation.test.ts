@@ -31,9 +31,18 @@ const PROJECT_ID = "33333333-3333-4333-8333-333333333333";
 const VERSION_ID = "44444444-4444-4444-8444-444444444444";
 const IMPORT_ID = "55555555-5555-4555-8555-555555555555";
 
+/** Lot 2, sous-lot 2.5 (D3) : la création lit la politique de l'entreprise ; absente = moteur 2. */
+function absentCalcPolicyBuilder() {
+  const builder = { select: vi.fn(), eq: vi.fn(), maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }) };
+  builder.select.mockReturnValue(builder);
+  builder.eq.mockReturnValue(builder);
+  return builder;
+}
+
 function createSupabaseStub() {
   return {
     from: vi.fn((table: string) => {
+      if (table === "tenant_calc_policies") return absentCalcPolicyBuilder();
       if (table === "labor_roles") {
         const builder = {
           select: vi.fn(),
@@ -322,6 +331,7 @@ describe("persistCanonicalEstimateV2", () => {
         if (table === "estimate_template_items") return itemBuilder;
         if (table === "estimate_projects") return projectBuilder;
         if (table === "estimate_versions") return latestVersionBuilder;
+        if (table === "tenant_calc_policies") return absentCalcPolicyBuilder();
         throw new Error(`Unexpected table: ${table}`);
       }),
     };

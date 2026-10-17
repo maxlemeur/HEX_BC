@@ -87,6 +87,7 @@ import { pricesActionSchema } from "@/lib/catalogue/schemas";
 import { referencePriceActionSchema, referencePriceResponseSchema } from "@/lib/catalogue/reference-price-schemas";
 import { estimateEmailIdempotencyKeyHeaderParameter, estimateStatusSchema } from "@/lib/openapi/estimate-email-contract";
 import { estimateExportFormatQueryParameter, estimateExportModeQueryParameter } from "@/lib/openapi/estimate-export-contract";
+import { estimateItemV3ResponseFields, estimateVersionV3ResponseFields } from "@/lib/openapi/estimate-v3-contract";
 import { TakeoffErrorCode } from "@/lib/takeoff/errors";
 
 const uuidSchema = z.string().uuid("Identifiant invalide.");
@@ -286,7 +287,8 @@ const estimateVersionSchema = z
     tax_rate_bp: z.number().int().optional(),
     rounding_mode: z.string().optional(),
     rounding_step_cents: z.number().int().optional(),
-    calc_engine_version: z.union([z.literal(1), z.literal(2)]),
+    calc_engine_version: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+    ...estimateVersionV3ResponseFields,
     total_ht_cents: z.number().int().nullable().optional(),
     total_tax_cents: z.number().int().nullable().optional(),
     total_ttc_cents: z.number().int().nullable().optional(),
@@ -344,6 +346,7 @@ const estimateItemSchema = z
     line_total_ht_cents: z.number().nullable().optional(),
     line_tax_cents: z.number().nullable().optional(),
     line_total_ttc_cents: z.number().nullable().optional(),
+    ...estimateItemV3ResponseFields,
   })
   .passthrough();
 
@@ -4267,7 +4270,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
         apiEstimateCreatedSchemaDefinition
       ),
       "409": jsonResponse(
-        "CONTEXT_CHANGED : un calcul du tenant detient son verrou pendant la creation des roles MO par defaut manquants ; rien n'est cree, la requete peut etre reessayee.",
+        "CONTEXT_CHANGED : un calcul du tenant detient son verrou pendant la creation des roles MO par defaut manquants, ou version.expected_calc_engine_version (absent = 2) differe du moteur des nouvelles versions de l'entreprise ; rien n'est cree. ESTIMATE_ENGINE_UNAVAILABLE : creation v3 depuis un modele ou un import (sous-lot 2.8).",
         openApiSharedSchemaDefinitions.apiFailureResponse
       ),
     },

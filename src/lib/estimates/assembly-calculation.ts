@@ -25,7 +25,7 @@ export async function finalizeAssemblyCalculation(input: {
   try {
     const { data: version, error: versionError } = await supabase
       .from("estimate_versions")
-      .select("id, status, updated_at, content_revision, margin_multiplier, margin_mode, tax_rate_bp, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, rounding_mode, rounding_step_cents, calc_engine_version, contractor_role")
+      .select("id, status, updated_at, content_revision, margin_multiplier, margin_mode, tax_rate_bp, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, rounding_mode, rounding_step_cents, calc_engine_version, sale_coefficient_fo, sale_coefficient_mo, gross_ht_cents, discount_applied_cents, commercial_rounding_cents, contractor_role")
       .eq("tenant_id", tenantId).eq("id", versionId).single();
     if (versionError) throw mapSupabaseError(versionError, "Impossible de charger le calcul du devis.");
     if (!version || version.status !== "draft") throw conflict("Le devis a changé. Rechargez pour vérifier l'ouvrage inséré.");

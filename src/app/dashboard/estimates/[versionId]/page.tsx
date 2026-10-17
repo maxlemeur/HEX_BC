@@ -151,7 +151,7 @@ export default async function EstimateDetailPage({
   const versionPromise = approvalSummaryPromise.then(() => supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, tenant_id, version_number, status, updated_at, seal_hash, seal_payload_version, title, exclusions, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, content_revision, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, estimate_projects ( name, reference, estimate_reference, site_address, client_name )"
+      "id, project_id, tenant_id, version_number, status, updated_at, seal_hash, seal_payload_version, title, exclusions, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, sale_coefficient_fo, sale_coefficient_mo, gross_ht_cents, discount_applied_cents, commercial_rounding_cents, content_revision, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, estimate_projects ( name, reference, estimate_reference, site_address, client_name )"
     )
     .eq("id", versionId)
     .single());

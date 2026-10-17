@@ -10,8 +10,10 @@ import {
 import { sendApprovalReviewRequestNotification } from "@/lib/email/send-approval-review-request";
 import { freezeApprovalV2DraftIfRequired } from "@/lib/estimates/approval-v2-snapshot";
 import { openEstimateReviewCycle } from "@/lib/estimates/review-cycle-submission";
-import { resolveEffectiveMarginBp } from "@/lib/estimates/effective-margin";
-import { requireEstimateEngineVersion, requireHistoricalEngine } from "@/lib/estimates/engine/capabilities";
+import { resolveEffectiveMarginBp, resolveV3NetMarginBp } from "@/lib/estimates/effective-margin";
+import { requireEstimateEngineVersion, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
+import { resolveEstimateEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
+import { loadV3MarginEvidence, type V3MarginEvidence } from "@/lib/estimates/v3-margin-evidence-server";
 import { exceedsDiscountThreshold, fixedDiscountBasisPoints, resolveFixedDiscountSignal, type CanonicalFixedDiscountEvidence, type FixedDiscountVersion } from "@/lib/estimates/effective-discount";
 import { loadCanonicalFixedDiscountEvidence } from "@/lib/estimates/fixed-discount-evidence-server";
 import type { EstimateReadinessCategory } from "@/lib/estimates/readiness";
@@ -342,6 +344,8 @@ type VersionAccessRow = Pick<
   | "approval_status"
   | "approval_summary"
   | "approval_evaluated_at"
+  | "gross_ht_cents"
+  | "discount_applied_cents"
 > & {
   estimate_projects:
     | EmbeddedApprovalProjectAccess
@@ -447,6 +451,7 @@ export type EstimateRuleUnavailableSignal = {
   threshold_value: number;
   action: EstimateRuleAction;
   metric_key:
+    | "margin_bp"
     | "discount_bp"
     | "critical_exceptions_count"
     | "missing_line_evidence_count"
@@ -1151,6 +1156,7 @@ function resolveMetricForRule(input: {
   version: RulesEngineVersion;
   signalContext: RuleSignalContext;
   fixedDiscountEvidence?: CanonicalFixedDiscountEvidence | null;
+  v3MarginEvidence?: V3MarginEvidence | null;
 }):
   | {
       metricKey: EstimateRuleViolation["metric_key"];
@@ -1168,6 +1174,19 @@ function resolveMetricForRule(input: {
   const thresholdValue = rule.threshold_value;
 
   if (rule.rule_type === "min_margin") {
+    // Lot 2, sous-lot 2.5 (D5, F20) : marque nette v3 depuis sa preuve ou un gel frais ; sans elle,
+    // le signal est indisponible, jamais une marge de 0. Les v1/v2 ne changent pas.
+    const engine = resolveEstimateEngineVersionForDisplay(version);
+    if (engine !== null && usesSaleCoefficients(engine)) {
+      const netMarginBp = resolveV3NetMarginBp(version, input.v3MarginEvidence);
+      if (netMarginBp === null) return { metricKey: "margin_bp", comparator: ">=", sourceState: "unavailable" };
+      return {
+        metricKey: "margin_bp",
+        check: checkMarginRule({ actualValue: netMarginBp, threshold: thresholdValue }),
+        comparator: ">=",
+        sourceState: "ready",
+      };
+    }
     return {
       metricKey: "margin_bp",
       check: checkMarginRule({
@@ -1322,6 +1341,9 @@ function resolveUnavailableSignalMessage(input: {
   if (input.rule.rule_type === "max_discount") {
     return "Signal indisponible : l'assiette et le montant appliqué de la remise fixe ne peuvent pas être vérifiés pour cette version.";
   }
+  if (input.rule.rule_type === "min_margin") {
+    return "Signal indisponible : la marge nette de cette version ne peut pas être prouvée pour sa révision courante.";
+  }
   if (input.rule.rule_type === "critical_exceptions_max") {
     return "Signal indisponible: le comptage des exceptions critiques n'est pas encore stabilise pour cette version.";
   }
@@ -1385,6 +1407,7 @@ export async function evaluateRules(input: {
   items: RulesEngineItemAccess[];
   preserveApprovedRequiresApproval?: boolean;
   fixedDiscountEvidence?: CanonicalFixedDiscountEvidence | null;
+  v3MarginEvidence?: V3MarginEvidence | null;
 }): Promise<EvaluateRulesResult> {
   const supabase = toRulesSupabaseClient(input.supabase);
 
@@ -1485,6 +1508,7 @@ export async function evaluateRules(input: {
       version: input.version,
       signalContext,
       fixedDiscountEvidence: input.fixedDiscountEvidence,
+      v3MarginEvidence: input.v3MarginEvidence,
     });
 
     if (!metric) {
@@ -2001,6 +2025,7 @@ async function evaluateApprovalSummaryBundle(input: {
   items: RulesEngineItemAccess[];
   evaluatedAt?: string;
   fixedDiscountEvidence?: CanonicalFixedDiscountEvidence | null;
+  v3MarginEvidence?: V3MarginEvidence | null;
 }) {
   const evaluatedAt = input.evaluatedAt ?? new Date().toISOString();
   const rulesEvaluation = await evaluateRules({
@@ -2011,6 +2036,7 @@ async function evaluateApprovalSummaryBundle(input: {
     items: input.items,
     preserveApprovedRequiresApproval: true,
     fixedDiscountEvidence: input.fixedDiscountEvidence,
+    v3MarginEvidence: input.v3MarginEvidence,
   });
 
   return {
@@ -2032,6 +2058,7 @@ export async function evaluateApprovalSummary(input: {
   items: RulesEngineItemAccess[];
   evaluatedAt?: string;
   fixedDiscountEvidence?: CanonicalFixedDiscountEvidence | null;
+  v3MarginEvidence?: V3MarginEvidence | null;
 }): Promise<EstimateApprovalSummaryCore> {
   const { summary } = await evaluateApprovalSummaryBundle(input);
   return summary;
@@ -2044,6 +2071,7 @@ async function evaluateSubmissionReadiness(input: {
   project: RulesEngineProject;
   items: RulesEngineItemAccess[];
   fixedDiscountEvidence?: CanonicalFixedDiscountEvidence | null;
+  v3MarginEvidence?: V3MarginEvidence | null;
 }) {
   const rulesEvaluation = await evaluateRules({
     supabase: input.supabase,
@@ -2053,6 +2081,7 @@ async function evaluateSubmissionReadiness(input: {
     items: input.items,
     preserveApprovedRequiresApproval: true,
     fixedDiscountEvidence: input.fixedDiscountEvidence,
+    v3MarginEvidence: input.v3MarginEvidence,
   });
 
   return enrichSubmissionReadinessWithAffaireRegister({
@@ -3519,9 +3548,8 @@ async function syncEstimateApprovalSummary(input: {
   trigger: ApprovalAuditTrigger;
   actorUserId?: string | null;
 }): Promise<EstimateApprovalSummary> {
-  // Lot 2, sous-lot 2.1 : aucune projection d'approbation (ni lecture des preuves, ni écriture)
-  // pour une v3 avant la preuve de marque v3 (2.5).
-  requireHistoricalEngine(requireEstimateEngineVersion(input.version));
+  // Lot 2, sous-lot 2.5 : une v3 a sa preuve de marque nette (D5) ; le moteur reste exigé en clair.
+  requireEstimateEngineVersion(input.version);
   const items = await loadApprovalSummaryItems({
     context: input.context,
     versionId: input.version.id,
@@ -3531,10 +3559,15 @@ async function syncEstimateApprovalSummary(input: {
     supabase: input.context.supabase, tenantId: input.context.tenantId,
     projectUserId: input.project.user_id, authorizedVersion: input.version,
   });
+  const v3MarginEvidence = await loadV3MarginEvidence({
+    supabase: input.context.supabase, tenantId: input.context.tenantId,
+    projectUserId: input.project.user_id, authorizedVersion: input.version,
+  });
   const coreSummary = await evaluateApprovalSummary({
     supabase: input.context.supabase,
     tenantId: input.context.tenantId,
     fixedDiscountEvidence,
+    v3MarginEvidence,
     version: {
       id: input.version.id,
       project_id: input.version.project_id,
@@ -3544,6 +3577,8 @@ async function syncEstimateApprovalSummary(input: {
       margin_mode: input.version.margin_mode,
       discount_bp: input.version.discount_bp,
       discount_amount_cents: input.version.discount_amount_cents,
+      gross_ht_cents: input.version.gross_ht_cents,
+      discount_applied_cents: input.version.discount_applied_cents,
       tenant_id: input.version.tenant_id,
       status: input.version.status,
       updated_at: input.version.updated_at,
@@ -3564,6 +3599,7 @@ async function syncEstimateApprovalSummary(input: {
     supabase: input.context.supabase,
     tenantId: input.context.tenantId,
     fixedDiscountEvidence,
+    v3MarginEvidence,
     version: {
       id: input.version.id,
       project_id: input.version.project_id,
@@ -3573,6 +3609,8 @@ async function syncEstimateApprovalSummary(input: {
       margin_mode: input.version.margin_mode,
       discount_bp: input.version.discount_bp,
       discount_amount_cents: input.version.discount_amount_cents,
+      gross_ht_cents: input.version.gross_ht_cents,
+      discount_applied_cents: input.version.discount_applied_cents,
       tenant_id: input.version.tenant_id,
       status: input.version.status,
       updated_at: input.version.updated_at,
@@ -3773,7 +3811,7 @@ async function getVersionAccessOrThrow(
   const { data, error } = await context.supabase
     .from("estimate_versions")
     .select(
-      "id, tenant_id, status, updated_at, content_revision, calc_engine_version, calc_snapshot_content_revision, calc_snapshot_context, version_number, project_id, title, date_devis, validite_jours, total_ht_cents, margin_bp, global_coefficient, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, currency, tax_rate_bp, rounding_mode, rounding_step_cents, approval_status, approval_summary, approval_evaluated_at, estimate_projects!inner(id, tenant_id, user_id, name, client_name)"
+      "id, tenant_id, status, updated_at, content_revision, calc_engine_version, calc_snapshot_content_revision, calc_snapshot_context, version_number, project_id, title, date_devis, validite_jours, total_ht_cents, margin_bp, global_coefficient, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, gross_ht_cents, discount_applied_cents, currency, tax_rate_bp, rounding_mode, rounding_step_cents, approval_status, approval_summary, approval_evaluated_at, estimate_projects!inner(id, tenant_id, user_id, name, client_name)"
     )
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)
@@ -4256,11 +4294,16 @@ export async function submitEstimateApproval(
       supabase: context.supabase, tenantId: context.tenantId,
       projectUserId: access.project.user_id, authorizedVersion: access.version,
     });
+    const v3MarginEvidence = await loadV3MarginEvidence({
+      supabase: context.supabase, tenantId: context.tenantId,
+      projectUserId: access.project.user_id, authorizedVersion: access.version,
+    });
     const [summary, submissionReadiness, assignedReviewer] = await Promise.all([
       evaluateApprovalSummary({
         supabase: context.supabase,
         tenantId: context.tenantId,
         fixedDiscountEvidence,
+        v3MarginEvidence,
         version: {
           id: access.version.id,
           project_id: access.version.project_id,
@@ -4270,6 +4313,8 @@ export async function submitEstimateApproval(
           margin_mode: access.version.margin_mode,
           discount_bp: access.version.discount_bp,
           discount_amount_cents: access.version.discount_amount_cents,
+          gross_ht_cents: access.version.gross_ht_cents,
+          discount_applied_cents: access.version.discount_applied_cents,
           tenant_id: access.version.tenant_id,
           status: access.version.status,
           updated_at: access.version.updated_at,
@@ -4289,6 +4334,7 @@ export async function submitEstimateApproval(
         supabase: context.supabase,
         tenantId: context.tenantId,
         fixedDiscountEvidence,
+        v3MarginEvidence,
         version: {
           id: access.version.id,
           project_id: access.version.project_id,
@@ -4298,6 +4344,8 @@ export async function submitEstimateApproval(
           margin_mode: access.version.margin_mode,
           discount_bp: access.version.discount_bp,
           discount_amount_cents: access.version.discount_amount_cents,
+          gross_ht_cents: access.version.gross_ht_cents,
+          discount_applied_cents: access.version.discount_applied_cents,
           tenant_id: access.version.tenant_id,
           status: access.version.status,
           updated_at: access.version.updated_at,
@@ -4567,10 +4615,15 @@ export async function submitEstimateApproval(
       supabase: context.supabase, tenantId: context.tenantId,
       projectUserId: access.project.user_id, authorizedVersion: access.version,
     });
+    const v3MarginEvidence = await loadV3MarginEvidence({
+      supabase: context.supabase, tenantId: context.tenantId,
+      projectUserId: access.project.user_id, authorizedVersion: access.version,
+    });
     const summary = await evaluateApprovalSummary({
       supabase: context.supabase,
       tenantId: context.tenantId,
       fixedDiscountEvidence,
+      v3MarginEvidence,
       version: {
         id: access.version.id,
         project_id: access.version.project_id,
@@ -4580,6 +4633,8 @@ export async function submitEstimateApproval(
         margin_mode: access.version.margin_mode,
         discount_bp: access.version.discount_bp,
         discount_amount_cents: access.version.discount_amount_cents,
+        gross_ht_cents: access.version.gross_ht_cents,
+        discount_applied_cents: access.version.discount_applied_cents,
         tenant_id: access.version.tenant_id,
         status: access.version.status,
         updated_at: access.version.updated_at,

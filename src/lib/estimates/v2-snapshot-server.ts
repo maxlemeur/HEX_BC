@@ -2,10 +2,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { computeEstimateQualityFlagsForItem } from "@/lib/estimate-quality";
 import { buildEstimateV2SnapshotProjection } from "@/lib/estimate-v2-snapshot";
-import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
-import { isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
+import { resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
+import {
+  EstimateEngineUnavailableError,
+  isUnifiedEngine,
+  usesSaleCoefficients,
+} from "@/lib/estimates/engine/capabilities";
 import { ESTIMATE_VERSION_CONFLICT_MESSAGE } from "@/lib/estimates/constants";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
+import { freezeEstimateV3Snapshot } from "@/lib/estimates/v3-snapshot-server";
 import {
   calculateEstimateSnapshotForItems,
   type EstimateTotalsVersionConfig,
@@ -57,7 +62,7 @@ export async function freezeEstimateV2Snapshot(
   const { data: versionData, error: versionError } = await input.supabase
     .from("estimate_versions")
     .select(
-      "id, tenant_id, project_id, status, updated_at, content_revision, margin_multiplier, margin_mode, tax_rate_bp, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, rounding_mode, rounding_step_cents, calc_engine_version, contractor_role, estimate_projects!inner(user_id)"
+      "id, tenant_id, project_id, status, updated_at, content_revision, margin_multiplier, margin_mode, tax_rate_bp, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, rounding_mode, rounding_step_cents, calc_engine_version, sale_coefficient_fo, sale_coefficient_mo, gross_ht_cents, discount_applied_cents, commercial_rounding_cents, contractor_role, estimate_projects!inner(user_id)"
     )
     .eq("tenant_id", input.tenantId)
     .eq("id", input.versionId)
@@ -75,7 +80,14 @@ export async function freezeEstimateV2Snapshot(
   const version = versionData as EstimateTotalsVersionConfig & {
     estimate_projects: { user_id: string } | { user_id: string }[] | null;
   };
-  if (!isUnifiedEngine(resolveCalcEngineVersion(version))) {
+  const engine = resolveEstimateEngineVersion(version);
+  if (usesSaleCoefficients(engine)) {
+    // Lot 2, sous-lot 2.5 : une v3 passe par son propre gel (D15) ; l'émission v3 (envoi,
+    // document) reste fermée jusqu'à M5 (2.7), par son refus nommé.
+    if (input.purpose !== "approval") throw new EstimateEngineUnavailableError();
+    return freezeEstimateV3Snapshot({ ...input, purpose: "approval" });
+  }
+  if (!isUnifiedEngine(engine)) {
     throw badRequest("Le gel du snapshot est réservé au moteur de calcul v2.");
   }
   const project = resolveEmbeddedOne(version.estimate_projects);

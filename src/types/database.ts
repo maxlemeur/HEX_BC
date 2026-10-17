@@ -126,6 +126,69 @@ export type Database = {
         };
         Relationships: [];
       };
+      tenant_calc_policies: {
+        Row: {
+          tenant_id: string;
+          new_estimate_calc_engine: number;
+          default_sale_coefficient_fo: number | null;
+          default_sale_coefficient_mo: number | null;
+          allowed_tax_rates_bp: number[];
+          change_reason: string;
+          updated_by: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          tenant_id: string;
+          new_estimate_calc_engine?: number;
+          default_sale_coefficient_fo?: number | null;
+          default_sale_coefficient_mo?: number | null;
+          allowed_tax_rates_bp?: number[];
+          change_reason: string;
+          updated_by?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          tenant_id?: string;
+          new_estimate_calc_engine?: number;
+          default_sale_coefficient_fo?: number | null;
+          default_sale_coefficient_mo?: number | null;
+          allowed_tax_rates_bp?: number[];
+          change_reason?: string;
+          updated_by?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      tenant_calc_policy_events: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          previous_policy: Json | null;
+          new_policy: Json;
+          change_reason: string;
+          changed_by: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          previous_policy?: Json | null;
+          new_policy: Json;
+          change_reason: string;
+          changed_by?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          tenant_id?: string;
+          previous_policy?: Json | null;
+          new_policy?: Json;
+          change_reason?: string;
+          changed_by?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       suppliers: {
         Row: {
           id: string;
@@ -1165,6 +1228,11 @@ export type Database = {
           variant_label: string | null;
           calc_engine_version: number;
           contractor_role: string;
+          sale_coefficient_fo?: number | null;
+          sale_coefficient_mo?: number | null;
+          gross_ht_cents?: number | null;
+          discount_applied_cents?: number | null;
+          commercial_rounding_cents?: number | null;
         };
         Insert: {
           seal_payload_version?: number | null;
@@ -1212,6 +1280,11 @@ export type Database = {
           variant_label?: string | null;
           calc_engine_version?: number;
           contractor_role?: string;
+          sale_coefficient_fo?: number | null;
+          sale_coefficient_mo?: number | null;
+          gross_ht_cents?: number | null;
+          discount_applied_cents?: number | null;
+          commercial_rounding_cents?: number | null;
         };
         Update: {
           seal_payload_version?: number | null;
@@ -1259,6 +1332,11 @@ export type Database = {
           variant_label?: string | null;
           calc_engine_version?: number;
           contractor_role?: string;
+          sale_coefficient_fo?: number | null;
+          sale_coefficient_mo?: number | null;
+          gross_ht_cents?: number | null;
+          discount_applied_cents?: number | null;
+          commercial_rounding_cents?: number | null;
         };
         Relationships: [
           {
@@ -2981,6 +3059,13 @@ export type Database = {
           line_total_ht_cents: number | null;
           line_tax_cents: number | null;
           line_total_ttc_cents: number | null;
+          unit_code?: string | null;
+          pricing_status?: Database["public"]["Enums"]["estimate_line_pricing_status"];
+          h_mo_per_unit?: number | null;
+          h_mo_atelier_per_unit?: number | null;
+          h_mo_chantier_per_unit?: number | null;
+          snapshot_gross_ht_cents?: number | null;
+          snapshot_gross_fo_ht_cents?: number | null;
         };
         Insert: {
           id?: string;
@@ -3031,6 +3116,13 @@ export type Database = {
           line_total_ht_cents?: number | null;
           line_tax_cents?: number | null;
           line_total_ttc_cents?: number | null;
+          unit_code?: string | null;
+          pricing_status?: Database["public"]["Enums"]["estimate_line_pricing_status"];
+          h_mo_per_unit?: number | null;
+          h_mo_atelier_per_unit?: number | null;
+          h_mo_chantier_per_unit?: number | null;
+          snapshot_gross_ht_cents?: number | null;
+          snapshot_gross_fo_ht_cents?: number | null;
         };
         Update: {
           id?: string;
@@ -3081,6 +3173,13 @@ export type Database = {
           line_total_ht_cents?: number | null;
           line_tax_cents?: number | null;
           line_total_ttc_cents?: number | null;
+          unit_code?: string | null;
+          pricing_status?: Database["public"]["Enums"]["estimate_line_pricing_status"];
+          h_mo_per_unit?: number | null;
+          h_mo_atelier_per_unit?: number | null;
+          h_mo_chantier_per_unit?: number | null;
+          snapshot_gross_ht_cents?: number | null;
+          snapshot_gross_fo_ht_cents?: number | null;
         };
         Relationships: [];
       };
@@ -4379,6 +4478,32 @@ export type Database = {
           p_version_totals: Json;
         };
         Returns: Database["public"]["Tables"]["estimate_versions"]["Row"];
+      };
+      freeze_estimate_v3_snapshot: {
+        Args: {
+          p_version_id: string;
+          p_tenant_id: string;
+          p_expected_updated_at: string;
+          p_expected_content_revision: number;
+          p_actor_user_id: string;
+          p_purpose: "send" | "approval";
+          p_calculation_context: Json;
+          p_item_snapshots: Json;
+          p_version_totals: Json;
+        };
+        Returns: Database["public"]["Tables"]["estimate_versions"]["Row"];
+      };
+      set_tenant_calc_policy: {
+        Args: {
+          p_tenant_id: string;
+          p_new_estimate_calc_engine: number;
+          p_default_sale_coefficient_fo: number | null;
+          p_default_sale_coefficient_mo: number | null;
+          p_allowed_tax_rates_bp: number[];
+          p_change_reason: string;
+          p_actor_user_id: string | null;
+        };
+        Returns: Json;
       };
       open_estimate_review_cycle: {
         Args: {

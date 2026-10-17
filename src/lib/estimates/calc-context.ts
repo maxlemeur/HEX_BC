@@ -38,7 +38,7 @@ const LOAD_ERROR_MESSAGE =
  * `calc_engine_version` ajoutee a l'etape 2 de la phase A.
  */
 export const ESTIMATE_CALC_CONTEXT_VERSION_COLUMNS =
-  "id, tenant_id, project_id, version_number, status, title, exclusions, date_devis, validite_jours, currency, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, seal_hash, calc_engine_version, content_revision, calc_snapshot_content_revision, calc_snapshot_context";
+  "id, tenant_id, project_id, version_number, status, title, exclusions, date_devis, validite_jours, currency, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, seal_hash, calc_engine_version, sale_coefficient_fo, sale_coefficient_mo, gross_ht_cents, discount_applied_cents, commercial_rounding_cents, content_revision, calc_snapshot_content_revision, calc_snapshot_context";
 
 export type EstimateCalcContextVersion = Pick<
   EstimateVersionRow,

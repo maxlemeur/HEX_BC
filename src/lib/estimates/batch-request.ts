@@ -1,4 +1,5 @@
 import type { BatchOperationInput } from "@/lib/estimates/schemas";
+import { normalizeMeasurementUnit } from "@/lib/units/normalize";
 
 // Browser-safe request identity only. The server still validates with Zod.
 // No version-dependent defaults, stored-decimal rounding, or pricing code here.
@@ -12,6 +13,8 @@ const LINE_FIELDS = [
   "h_mo_atelier", "k_mo_atelier", "labor_role_atelier_id",
   "h_mo_chantier", "k_mo_chantier", "labor_role_chantier_id",
   "category_id", "supply_type_id", "product_id", "selected_supplier_price_id",
+  // Lot 2, sous-lot 2.5 : colonnes de saisie v3 (D4, D9), jamais retirées en silence.
+  "unit_code", "pricing_status", "h_mo_per_unit", "h_mo_atelier_per_unit", "h_mo_chantier_per_unit",
 ] as const;
 const UPDATE_FIELDS = [
   "line_nature", "parent_id", "position", "title", "aid", "description",
@@ -20,6 +23,7 @@ const UPDATE_FIELDS = [
   "h_mo_chantier", "k_mo_chantier", "labor_role_chantier_id", "pu_ht_cents",
   "line_total_ht_cents", "line_tax_cents", "line_total_ttc_cents", "labor_role_id",
   "category_id", "supply_type_id", "product_id", "selected_supplier_price_id",
+  "unit_code", "pricing_status", "h_mo_per_unit", "h_mo_atelier_per_unit", "h_mo_chantier_per_unit",
 ] as const;
 const UUID_FIELDS = new Set([
   "parent_id", "source_job_id", "labor_role_id", "labor_role_atelier_id",
@@ -46,6 +50,11 @@ function canonicalItemData(data: object, fields: readonly string[]) {
       result[field] = value.trim() || null;
     } else if (typeof value === "string" && field === "title") {
       result[field] = value.trim();
+    } else if (typeof value === "string" && field === "unit_code") {
+      // Code du référentiel (« ML » → « ml ») ; une saisie inconnue reste telle quelle et sera
+      // refusée par la préparation (ESTIMATE_V3_UNIT_UNKNOWN), jamais remplacée par une unité.
+      const trimmed = value.trim();
+      result[field] = trimmed ? normalizeMeasurementUnit(trimmed).unitCode ?? trimmed : null;
     } else {
       result[field] = value;
     }

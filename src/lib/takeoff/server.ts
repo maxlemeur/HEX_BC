@@ -24,6 +24,8 @@ import {
 import { detectEstimateOutliers } from "@/lib/estimates/outlier-detection";
 import { evaluateRules } from "@/lib/estimates/rules-engine";
 import { loadCanonicalFixedDiscountEvidence } from "@/lib/estimates/fixed-discount-evidence-server";
+import { resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
+import { usesPerUnitLabor } from "@/lib/estimates/engine/capabilities";
 import { getStalePriceDaysForTenant } from "@/lib/feature-flags";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import {
@@ -6862,6 +6864,41 @@ async function logTakeoffMappingApplyAuditEvents(input: {
   }
 }
 
+/**
+ * Lot 2, sous-lot 2.5 (D16, P-19) : le métré est hors V1 pour le moteur 3. Le contrat d'écrivain
+ * SQL le refuse déjà (`ESTIMATE_V3_WRITER_NOT_SUPPORTED`) ; ce refus nommé le dit avant tout calcul.
+ */
+async function assertTakeoffTargetEngineSupported(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  versionId: string;
+  jobId: string;
+}) {
+  const { data, error } = await input.supabase
+    .from("estimate_versions")
+    .select("id, calc_engine_version")
+    .eq("tenant_id", input.tenantId)
+    .eq("id", input.versionId)
+    .maybeSingle();
+  if (error) {
+    throw toTakeoffError(error, {
+      fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+      fallbackMessage: "Impossible de vérifier le moteur de calcul du devis cible.",
+      jobId: input.jobId,
+    });
+  }
+  if (data && usesPerUnitLabor(resolveEstimateEngineVersion(data))) {
+    throw new TakeoffError({
+      status: 409,
+      code: TakeoffErrorCode.TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED,
+      message: "Le métré ne s'applique pas à un devis en moteur de calcul 3.",
+      details: { estimate_version_id: input.versionId, calc_engine_version: 3 },
+      retryable: false,
+      jobId: input.jobId,
+    });
+  }
+}
+
 export async function applyTakeoffJob(
   jobId: string,
   body: unknown
@@ -6914,6 +6951,13 @@ export async function applyTakeoffJob(
       userId,
       estimateVersionId: jobRow.estimate_version_id,
     };
+
+    await assertTakeoffTargetEngineSupported({
+      supabase,
+      tenantId,
+      versionId: jobRow.estimate_version_id,
+      jobId: normalizedJobId,
+    });
 
     if (jobRow.status !== "completed") {
       throw new TakeoffError({

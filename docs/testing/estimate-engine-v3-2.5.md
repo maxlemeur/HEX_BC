@@ -362,3 +362,102 @@ parité du gel) : lignes par `id` croissant ; `labor_rate_cents` = taux du rôle
   désormais le CHECK de forme : le parcours de 2.1 `engine-v3-fail-closed` échouera tant qu'il n'est pas aligné.
 - `src/types/database.ts`, correspondance des nouveaux codes d'erreur vers l'API, message
   `TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED`, parcours `V3P01` : piste TS.
+
+## 7. Implémentation TypeScript (serveur et API)
+
+Piste TS du sous-lot, parallèle à la migration M4 (`20261017162000_estimate_engine_v3_persistence.sql`,
+piste SQL). Aucun montant v1/v2 ne change : `estimate-calculations.ts` et `estimate-v2-snapshot.ts` à
+zéro ligne de diff, corpus figé (`engine-frozen-corpus.test.ts`) vert.
+
+### 7.1 Décisions prises pour l'implémentation (17/10/2026)
+
+1. **R-08** : une ligne v3 non chiffrée porte `h_mo*` = `"0.000"` si h/u est saisi (nul sinon), comme
+   `private.estimate_v3_line_values` de M3 ; le déclencheur de dérivation l'appelle (piste SQL). Le TS
+   n'envoie jamais `h_mo*` pour une v3 : un total nul (défaut des écrivains historiques) est retiré, un
+   total positif refusé (`ESTIMATE_V3_LABOR_HOURS_PER_UNIT_REQUIRED`).
+2. **Autoliquidation v3** = `contractor_role = 'subcontractor'`, comme en v2 ; le gel la transmet au jumeau
+   SQL par l'entrée canonique (`reverse_charge`).
+3. **Ligne v3 non chiffrée** : `pu_ht_cents` nul (moteur et futur contrat client 2) ; projections et gel
+   le transmettent nul, jamais un faux PU (`estimate_items_item_type_payload_check` relâché par M4 pour
+   ce seul cas).
+4. **CHECK de forme §6.2** avec `is not null` explicite sur les cinq colonnes v3 (piste SQL).
+5. **Colonnes v3 des modèles** : M6 (2.8), pas M4.
+6. **Une v3 reste modifiable, gelable et duplicable sous politique 2** (D3, I4) ; la duplication d'une v2
+   reste une v2 (P-15). La politique ne gouverne que la création.
+7. **Métré sur une v3** refusé par son nom en TS (`TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED`, 409) avant le
+   contrat d'écrivain SQL. **Émission** (PDF, envoi, documents) toujours fermée : le gel v3 n'est ouvert
+   que pour l'approbation ; envoi et document lèvent `ESTIMATE_ENGINE_UNAVAILABLE` (2.7 l'ouvrira).
+
+### 7.2 Choix de la piste TS
+
+- **Politique** (`calc-policy-server.ts`) : lue par le client de l'utilisateur (RLS membres), absente =
+  moteur 2. `resolveNewEstimateEngine` compare l'attente du client (`version.expected_calc_engine_version`,
+  absente = 2) à la politique et lève 409 `CONTEXT_CHANGED` avant tout calcul ; la RPC revérifie sous verrou
+  et son `40001 ESTIMATE_CALC_POLICY_CONTEXT_CHANGED` est rendu en 409 `CONTEXT_CHANGED`.
+- **Création v3** (`canonical-v2-creation.ts`) : seulement à blanc. Modèle, import DPGF et source liée vers
+  une v3 lèvent `ESTIMATE_ENGINE_UNAVAILABLE` (conversions de 2.8, D16). Une v3 ne reprend de la dernière
+  version que des réglages neutres (date, validité, devise, TVA, profondeur, rôle d'entreprise), jamais une
+  marge, un coefficient global ou deux intentions de remise d'une v2 ; coefficients de vente fournis ou de la
+  politique ; forme §6.2 vérifiée en TS (`ESTIMATE_V3_VERSION_SETTINGS_INVALID`, 400).
+- **Calcul** : `calculateEstimateV3SnapshotForItems` (`version-totals.ts`) lit les taux des rôles du
+  propriétaire (refus `ESTIMATE_LABOR_ROLE_OWNER_MISMATCH`, comme la v2), la ventilation de l'entreprise,
+  aucun barème, puis passe par la façade `computeVersionBreakdown` (moteur pur 2.4) et
+  `projectEstimateV3Snapshot`. Une `EstimateV3Error` devient un 400 à son code.
+- **Lot, ligne, réglages** : colonnes `unit_code` (normalisée par `src/lib/units`, « ML » → `ml`, inconnue
+  refusée `ESTIMATE_V3_UNIT_UNKNOWN`), `pricing_status`, `h_mo*_per_unit` acceptées par le schéma Zod
+  (`v3-schemas.ts`) et la forme canonique du lot ; refusées sur une v1/v2 et sur une section
+  (`ESTIMATE_ENGINE_COLUMN_NOT_SUPPORTED`). Toutes les lignes d'une v3 sont projetées (remise et TVA par
+  taux les touchent toutes). Réglages : aiguillage à trois branches, aucune intention dérivée (deux intentions
+  = refus), `apply_tax_rate_to_lines` transmis dans la charge de réglages, sans `margin_multiplier`.
+- **Gel v3** (`v3-snapshot-server.ts`) : contrôles nommés en TS avant la RPC (rôle requis, unité requise,
+  taux autorisé par la politique), puis `freeze_estimate_v3_snapshot`. Le contrôle « nature de ligne
+  incohérente » du gel v2 n'est pas appliqué à la v3 : en v3 la MO vient des heures par unité, et une ligne
+  `supply_only` à 0 h/u qui porte un rôle (O3 de l'oracle) n'a aucune MO.
+- **Marque nette** (`v3-margin-evidence-server.ts`, `effective-margin.ts`) : preuve vivante d'un brouillon v3,
+  liée à l'identité et à la révision, donnée seulement si le calcul vivant retrouve exactement les six
+  montants stockés ; sinon gel v3 frais (`cost_subtotal_cents`, jamais `effective_margin_multiplier`) ;
+  sinon « indisponible ». Version relue différente ou écrite pendant le calcul : pas de preuve (jamais 409).
+  La règle `min_margin` d'une v3 rend `margin_bp` indisponible au lieu de 0 ; v1/v2 inchangées.
+- **Remise exacte v3** (`effective-discount.ts`) : intention en taux lue dans `discount_bp` (exacte) ;
+  intention en montant prouvée seulement par un gel v3 frais dont `discount` retrouve brut et remise stockés.
+- **Direction et analyse d'affaire** : marque v3 par la preuve ou le gel ; l'analyse de marge d'une v3 passe par
+  la façade (`affaires/margin-analysis-v3.ts`, coût = Σ D, vente = HT net, par section racine).
+- **Types** (`src/types/database.ts`, CRLF, D18) : tables `tenant_calc_policies` et
+  `tenant_calc_policy_events`, fonctions `set_tenant_calc_policy` et `freeze_estimate_v3_snapshot`, colonnes
+  v3. Les colonnes v3 des lignes et des versions sont **optionnelles** dans `Row`, comme `line_nature`, `aid`
+  et `product_id` : les fixtures v1/v2 existantes restent valides sans réécriture.
+- **Prédicats** : `usesSaleCoefficients` et `usesPerUnitLabor` (`engine/capabilities.ts`, D1) et
+  `resolveEstimateEngineVersion` (`calc-engine-version.ts`, tolérance historique pour 1 et 2, 3 rendu tel quel).
+
+### 7.3 Assertions existantes réécrites (fausses par construction) et fixture adaptée
+
+| Fichier | Avant (2.1) | Après (2.5) |
+|---|---|---|
+| `approval-v2-snapshot.test.ts` | un brouillon v3 est refusé par son nom | il est figé par le gel v3, jamais par le gel v2 |
+| `settings-atomic.test.ts` | les réglages v3 sont refusés par leur nom | ils passent par le moteur 3, sept totaux, sans multiplicateur réécrit |
+| `openapi/generate.test.ts` | `calc_engine_version` ∈ {1, 2} dans la réponse | ∈ {1, 2, 3} |
+| `canonical-v2-creation.test.ts` | — | fixture : la lecture de politique répond « absente » (aucune assertion modifiée) |
+| `rules-engine.v3-margin.test.ts` | type `V3MarginEvidence` recopié | `import type` depuis le module, comme prévu au §4 de la doc E2E ; assertions inchangées |
+
+### 7.4 Preuves (Windows, worktree `miaouffrage-l2-25`)
+
+| Commande | Résultat |
+|---|---|
+| `npx vitest run --project=node src/lib/estimates/rules-engine.v3-margin.test.ts` | 5/5 verts (rouges 5/5 au §6 de la doc E2E) |
+| Vitest des modules touchés (33 fichiers, corpus figé compris) | 33 fichiers, 431 tests verts |
+| `npm run typecheck` | 0 erreur |
+| `npx eslint <37 fichiers TS touchés> --max-warnings=0` | 0 |
+| `npm run generate-openapi && npm run validate-openapi` | spec valide et synchronisée (144 routes, 192 opérations) |
+| `npm run check:architecture` | budgets respectés, 0 cycle |
+| `git diff --stat` sur `estimate-calculations.ts`, `estimate-v2-snapshot.ts` | vide |
+
+Le parcours `V3P01` et `npm run db:ci:local` se rejouent à l'intégration (WSL), avec M4.
+
+### 7.5 Limites
+
+- L'évolution de marge par version (hub d'affaire) lit encore `margin_multiplier` (1 en v3) : affichage
+  seulement, repris avec l'éditeur v3 (2.6).
+- Pas de preuve vivante de remise en montant pour un brouillon v3 (règle `max_discount` indisponible tant
+  qu'il n'est pas gelé) ; Direction idem.
+- Mise à jour unitaire d'une ligne, mise à jour groupée directe, ouvrages, modèles, version zéro et métré
+  restent refusés sur une v3 (nommés en TS ou par le contrat d'écrivain) jusqu'à 2.6 et 2.8.

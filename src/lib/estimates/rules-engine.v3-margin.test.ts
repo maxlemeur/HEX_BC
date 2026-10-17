@@ -1,22 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import { evaluateRules, type RulesEngineVersion } from "@/lib/estimates/rules-engine";
-
-/**
- * Contrat de la preuve vivante de marque v3 que 2.5 exporte de
- * `src/lib/estimates/v3-margin-evidence-server.ts` et que `evaluateRules` reçoit en
- * `v3MarginEvidence`. Recopié ici tant que le module n'existe pas : le build de production
- * vérifie aussi les tests, et le parcours E2E rouge doit pouvoir s'y construire. L'implémentation
- * remplace ce type par `import type { V3MarginEvidence }` depuis ce module.
- */
-type V3MarginEvidence = {
-  source: "authenticated_live";
-  version: { id: string; tenant_id: string; project_id: string; status: string; content_revision: number; updated_at: string };
-  /** HT net N, égal à `version.total_ht_cents`. */
-  net_ht_cents: number;
-  /** Déboursé Σ D (§4.5). */
-  cost_subtotal_cents: number;
-};
+// Contrat de la preuve vivante de marque v3 (2.5) : le type recopié au rouge est remplacé par
+// l'import du module, comme prévu par docs/testing/estimate-engine-v3-2.5-e2e.md §4.
+import type { V3MarginEvidence } from "@/lib/estimates/v3-margin-evidence-server";
 
 /**
  * Lot 2, sous-lot 2.5 — règle `min_margin` sur une v3 (conception D5, F20, T-MARG du §5.3).

@@ -177,11 +177,13 @@ describe("generateOpenApiDocument", () => {
         };
       };
     };
+    // Lot 2, sous-lot 2.5 : une v3 peut être créée et relue par l'API (moteur 3, D3) ; le
+    // contrat de réponse admet donc 3. Réécriture délibérée de l'assertion 1 | 2 de 2.1.
     expect(
       estimateVersionResponseSchema.properties?.data?.properties?.version
         ?.properties?.calc_engine_version
     ).toEqual({
-      anyOf: [{ type: "number", const: 1 }, { type: "number", const: 2 }],
+      anyOf: [{ type: "number", const: 1 }, { type: "number", const: 2 }, { type: "number", const: 3 }],
     });
 
     type JsonSchema = {
