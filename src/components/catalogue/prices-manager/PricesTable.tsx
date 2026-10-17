@@ -10,10 +10,13 @@ import { EmptyState } from "@/components/layout/empty-state";
 import { LoadingState } from "@/components/layout/loading-state";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { supplierOfferZeroPriceLabel } from "@/lib/estimates/supplier-offer-price";
 import { formatCurrency, formatEUR, normalizeEstimateCurrency } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
 function formatPrice(item: EnrichedPrice) {
+  const zeroPriceLabel = supplierOfferZeroPriceLabel(item.zero_price_kind);
+  if (zeroPriceLabel) return zeroPriceLabel;
   const currency = normalizeEstimateCurrency(item.currency);
   if (currency) return formatCurrency(item.unit_price_cents, currency);
   if (item.currency?.trim()) return `${(item.unit_price_cents / 100).toFixed(2)} ${item.currency.trim()}`;

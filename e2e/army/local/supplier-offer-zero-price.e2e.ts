@@ -150,7 +150,7 @@ armyTest("OZ02 an offer at 0 € marked Inclus from the offer form is usable and
     await offerList.getByRole("button", "Voir / modifier l’offre", { exact: true }).first().tap();
     await screen.getByLabel("Offre à 0 €", { exact: true }).selectOption({ value: "included" });
     await screen.getByRole("button", "Enregistrer l’offre", { exact: true }).tap();
-    await expect(offerList.getByText("Inclus", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
+    await expect(offerList.getByText("Inclus / ml", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
 
     const after = await compare(browser, fixture, [lines.compareP3.id]);
     await recordEvidence(army, "oz02-comparisons", { before, after });

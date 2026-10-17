@@ -241,7 +241,8 @@ describe("EstimateEditorRow catalogue suggestions", () => {
     expect(onPatchItem).toHaveBeenCalledWith(
       "line-1",
       expect.objectContaining({
-        description: "Rouge",
+        // The line has no unit: the article unit fills it, never the designation (2.2).
+        description: "u",
         selected_supplier_price_id: null,
         unit_price_ht_cents: 2000,
       }),

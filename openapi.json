@@ -54347,6 +54347,21 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "zero_price_kind": {
+                    "description": "A7 : marque une offre à 0 € comme incluse ou gratuite ; refusé si le prix dépasse 0 €. Repasser le prix au-dessus de 0 € efface le marquage.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "included",
+                          "free"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 }
               }

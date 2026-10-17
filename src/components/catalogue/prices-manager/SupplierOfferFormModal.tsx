@@ -69,6 +69,7 @@ type PriceDraft = {
   unit_price_euros: string;
   currency: string;
   transport_mode: "included" | "excluded" | "";
+  zero_price_kind: "included" | "free" | "";
   valid_from: string;
   valid_to: string;
   source: string;
@@ -126,6 +127,7 @@ const EMPTY_PRICE: PriceDraft = {
   unit_price_euros: "",
   currency: "EUR",
   transport_mode: "",
+  zero_price_kind: "",
   valid_from: "",
   valid_to: "",
   source: "",
@@ -165,6 +167,7 @@ function priceDraftFromItem(
     unit_price_euros: toEuroInput(item.unit_price_cents),
     currency: item.currency ?? "EUR",
     transport_mode: item.transport_mode === "included" || item.transport_mode === "excluded" ? item.transport_mode : "",
+    zero_price_kind: item.zero_price_kind === "included" || item.zero_price_kind === "free" ? item.zero_price_kind : "",
     valid_from: item.valid_from ?? "",
     valid_to: item.valid_to ?? maxPriceValidTo(item.valid_from || new Date().toISOString().slice(0, 10)),
     source: item.source ?? "",
@@ -393,6 +396,8 @@ export function SupplierOfferFormModal({
               ...(catalogItem ? {
                 ...(canEditTransport && (priceDraft.transport_mode || null) !== (item?.transport_mode ?? null)
                   ? { transport_mode: priceDraft.transport_mode || null } : {}),
+                // A7: only an offer at 0 € may be marked; any other price leaves it unmarked.
+                zero_price_kind: unitPriceCents === 0 ? priceDraft.zero_price_kind || null : null,
                 ...(nullableText(priceDraft.supplier_sku) !== (catalogItem.supplier_sku ?? null)
                   ? { supplier_sku: nullableText(priceDraft.supplier_sku) } : {}),
                 ...(nullableText(priceDraft.product_url) !== (catalogItem.product_url ?? null)
@@ -798,6 +803,21 @@ export function SupplierOfferFormModal({
                   value={priceDraft.min_quantity}
                   onChange={(value) => updatePrice("min_quantity", value)}
                 />
+                {catalogItem && parseEuroToCents(priceDraft.unit_price_euros) === 0 ? (
+                  <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold text-foreground-secondary">
+                    Offre à 0 €
+                    <NativeSelect
+                      value={priceDraft.zero_price_kind}
+                      onChange={(event) =>
+                        updatePrice("zero_price_kind", event.target.value as PriceDraft["zero_price_kind"])
+                      }
+                    >
+                      <option value="">Non marquée : exclue des prix</option>
+                      <option value="included">Inclus</option>
+                      <option value="free">Gratuit</option>
+                    </NativeSelect>
+                  </label>
+                ) : null}
                 <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold text-foreground-secondary">
                   Devise
                   <NativeSelect

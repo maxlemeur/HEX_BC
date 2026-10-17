@@ -18,6 +18,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import type { CataloguePriceSuggestion } from "@/lib/estimates/catalogue-suggestions";
+import { supplierOfferZeroPriceLabel } from "@/lib/estimates/supplier-offer-price";
 import { formatCurrency } from "@/lib/money";
 import type { SupportedEstimateCurrency } from "@/lib/money";
 
@@ -243,7 +244,8 @@ export function EstimateArticleSheet({
                       </span>
                     </span>
                     <span className="shrink-0 font-medium tabular-nums text-foreground">
-                      {formatCurrency(suggestion.adjusted_unit_price_cents, currency)}
+                      {supplierOfferZeroPriceLabel(suggestion.zero_price_kind) ??
+                        formatCurrency(suggestion.adjusted_unit_price_cents, currency)}
                     </span>
                   </button>
                 ))}

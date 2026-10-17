@@ -34,6 +34,8 @@ export type SupplierPrice = {
   source?: string | null;
   notes?: string | null;
   transport_mode?: "included" | "excluded" | null;
+  /** A7: an offer at 0 € marked as included or free; null otherwise. */
+  zero_price_kind?: "included" | "free" | null;
   [key: string]: unknown;
 };
 

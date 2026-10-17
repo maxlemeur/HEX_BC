@@ -36,6 +36,9 @@ export type SupplierOfferConditions = {
   valid_from?: string | null;
   valid_to?: string | null;
   is_active?: boolean;
+  /** Raw offer price and A7 marking, read with the conditions (sub-lot 2.2). */
+  unit_price_cents?: number | null;
+  zero_price_kind?: string | null;
 };
 
 /** Read only the offers already being compared, with an explicit tenant fence. */
@@ -46,7 +49,7 @@ export async function readSupplierOfferConditions(
 ): Promise<Map<string, SupplierOfferConditions>> {
   if (priceIds.length === 0) return new Map<string, SupplierOfferConditions>();
   const { data, error } = await supabase.from("supplier_pricebook")
-    .select("id, unit, min_quantity, valid_from, valid_to, is_active")
+    .select("id, unit, min_quantity, valid_from, valid_to, is_active, unit_price_cents, zero_price_kind")
     .eq("tenant_id", tenantId)
     .in("id", Array.from(new Set(priceIds)));
   if (error) throw mapSupabaseError(error, "Impossible de vérifier les conditions fournisseurs.");
@@ -56,5 +59,7 @@ export async function readSupplierOfferConditions(
     valid_from: row.valid_from,
     valid_to: row.valid_to,
     is_active: row.is_active,
+    unit_price_cents: row.unit_price_cents,
+    zero_price_kind: row.zero_price_kind,
   }]));
 }

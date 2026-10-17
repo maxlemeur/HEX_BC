@@ -1402,18 +1402,23 @@ export async function listSupplierPricesPage(input: PricesPageQueryInput) {
   // offer IDs; keep its authoritative shared SKU/URL projection intact.
   const priceIds = pageRows.map((row) => row.id).filter((id): id is string => typeof id === "string");
   const transportById = new Map<string, string | null>();
+  const zeroPriceKindById = new Map<string, string | null>();
   if (priceIds.length > 0) {
     const { data, error } = await supabase.from(SUPPLIER_PRICES_TABLE)
-      .select("id, transport_mode")
+      .select("id, transport_mode, zero_price_kind")
       .eq("tenant_id", tenantId)
       .in("id", priceIds);
     if (error) throw mapSupabaseError(error, "Impossible de charger les conditions de transport des offres.");
-    data?.forEach((offer) => transportById.set(offer.id, offer.transport_mode));
+    data?.forEach((offer) => {
+      transportById.set(offer.id, offer.transport_mode);
+      zeroPriceKindById.set(offer.id, offer.zero_price_kind);
+    });
   }
 
   const items = pageRows.map((row) => ({
     ...normalizeSupplierPriceRecord(row),
     transport_mode: transportById.get(String(row.id)) ?? null,
+    zero_price_kind: zeroPriceKindById.get(String(row.id)) ?? null,
     _supplierName:
       typeof row.supplier_name === "string"
         ? row.supplier_name

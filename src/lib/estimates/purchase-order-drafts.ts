@@ -218,7 +218,7 @@ async function getDraftOrderContext() {
 
 type CurrentSupplierOffer = Pick<Database["public"]["Tables"]["supplier_pricebook"]["Row"],
   "id" | "supplier_id" | "unit" | "min_quantity" | "currency" | "is_active" |
-  "valid_from" | "valid_to" | "updated_at" | "created_at"
+  "valid_from" | "valid_to" | "updated_at" | "created_at" | "unit_price_cents" | "zero_price_kind"
 >;
 
 async function readCurrentOfferEligibility(
@@ -243,7 +243,7 @@ async function readCurrentOfferEligibility(
 
   for (let start = 0; start < priceIds.length; start += SUPPLIER_COMPARISON_BATCH_SIZE) {
     const { data, error } = await context.supabase.from("supplier_pricebook")
-      .select("id, supplier_id, unit, min_quantity, currency, is_active, valid_from, valid_to, updated_at, created_at")
+      .select("id, supplier_id, unit, min_quantity, currency, is_active, valid_from, valid_to, updated_at, created_at, unit_price_cents, zero_price_kind")
       .eq("tenant_id", context.tenantId)
       .in("id", priceIds.slice(start, start + SUPPLIER_COMPARISON_BATCH_SIZE));
     if (error) throw mapSupabaseError(error, "Impossible de vérifier les conditions fournisseurs.");

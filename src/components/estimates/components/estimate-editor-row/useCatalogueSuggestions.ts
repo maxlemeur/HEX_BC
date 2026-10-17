@@ -169,10 +169,13 @@ export function useCatalogueSuggestions({
         alternative?.adjusted_unit_price_cents ??
         suggestion.adjusted_unit_price_cents;
 
+      // The line unit lives in `description`. Keep it; fill it from the article only when
+      // the line has none (sub-lot 2.2: the designation was written there before).
+      const suggestedUnit = suggestion.unit?.trim() ?? "";
       const patch: ItemPatch = {
         product_id: suggestion.product_id,
         title: selectedDescription,
-        description: selectedDescription.length > 0 ? selectedDescription : null,
+        ...(!item.description?.trim() && suggestedUnit ? { description: suggestedUnit } : {}),
         unit_price_ht_cents: selectedAdjustedUnitPrice,
         selected_supplier_price_id: selectedSupplierPriceId,
       };
@@ -180,7 +183,7 @@ export function useCatalogueSuggestions({
       onPatchItem(item.id, patch, { persist: true });
       setIsTitleFocused(false);
     },
-    [isReadOnly, item.id, item.item_type, onPatchItem]
+    [isReadOnly, item.description, item.id, item.item_type, onPatchItem]
   );
 
   const handleLineTitleFocus = useCallback(
