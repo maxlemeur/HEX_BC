@@ -693,3 +693,63 @@ describe("2.3 percent text from percent-formatted spreadsheet cells", () => {
     expect(importLine(fields).validLines).toEqual([]);
   });
 });
+
+// Sub-lot 2.8 (D16, D11): OPTIMA into a v3. Isolation exception: the half-cent control and the unit and
+// status mapping have edge cases (half cents, status mentions) that would each cost a journey; IO01 to
+// IO03 import the full workbooks. Contract: docs/testing/estimate-engine-v3-2.8.md.
+describe("2.8 OPTIMA into a v3 (D16, D11)", () => {
+  const parameterRow = { id: "params", payload: { row_index: 1, mapped_row: {
+    param_coeff_fo: 1.3, param_coeff_mo: 1.3, h_mo_majoration_additive: 0, param_hourly_rate: 40,
+  } } };
+  function optimaLine(id: string, rowIndex: number, fields: Record<string, unknown>) {
+    return { id, payload: { row_index: rowIndex, mapped_row: { designation: id, ...fields } } };
+  }
+  const o1 = optimaLine("O1", 2, {
+    quantity: 20, unit: "ml", unit_price_ht: 54.66, labor_hours_per_unit: 1.991, control_unit_price: 174.59,
+  });
+  const role40 = { id: "role-40", hourlyRateCents: 4000 };
+  // An engine 3 target: sale coefficients instead of a margin multiplier.
+  function v3Context(saleCoefficientFo: number, saleCoefficientMo: number) {
+    const context = { marginMultiplier: 1, defaultTaxRateBp: 2000, laborRole: role40, entry: "preview" as const,
+      engine: 3, saleCoefficientFo, saleCoefficientMo };
+    return context;
+  }
+  const fields = (line: object) => line as Record<string, unknown>;
+
+  it("reads hours per unit directly and prices O1 on the v3 engine", () => {
+    const at13 = normalizeMappedRowsForEstimateCreation([parameterRow, o1], v3Context(1.3, 1.3));
+    expect(at13.invalidLines).toEqual([]);
+    expect(at13.validLines.map((line) => [fields(line).hoursPerUnit, fields(line).unitCode, fields(line).pricingStatus,
+      line.puHtCents])).toEqual([[1.991, "ml", "priced", 17459]]);
+    expect(at13.unitPriceChecks).toEqual([expect.objectContaining({ computedUnitPriceCents: 17459, deltaCents: 0 })]);
+
+    const at1312 = normalizeMappedRowsForEstimateCreation([parameterRow, o1], v3Context(1.3, 1.2));
+    expect(at1312.validLines.map((line) => line.puHtCents)).toEqual([16663]);
+  });
+
+  it("maps status mentions to pricing statuses at 0 € and units to referential codes", () => {
+    const lines = [
+      optimaLine("HL1", 3, { quantity: 1, unit: "HL", unit_price_ht: 0 }),
+      optimaLine("PM1", 4, { quantity: 1, unit: "PM", unit_price_ht: 0 }),
+      optimaLine("INC1", 5, { quantity: 1, unit: "inc", unit_price_ht: 0 }),
+      optimaLine("M2", 6, { quantity: 4, unit: "m²", unit_price_ht: 10 }),
+    ];
+    const result = normalizeMappedRowsForEstimateCreation([parameterRow, ...lines], v3Context(1.3, 1.3));
+    expect(result.validLines.map((line) => [line.mappedRowId, fields(line).unitCode ?? null, fields(line).pricingStatus ?? null,
+      line.puHtCents])).toEqual([
+      ["HL1", null, "out_of_scope", 0],
+      ["PM1", null, "for_memory", 0],
+      ["INC1", null, "included", 0],
+      ["M2", "m2", "priced", 1300],
+    ]);
+  });
+
+  it("lists a control gap above half a cent before confirmation", () => {
+    const off = optimaLine("O1b", 3, {
+      quantity: 20, unit: "ml", unit_price_ht: 54.66, labor_hours_per_unit: 1.991, control_unit_price: 174.6,
+    });
+    const result = normalizeMappedRowsForEstimateCreation([parameterRow, o1, off], v3Context(1.3, 1.3));
+    expect(result.unitPriceChecks.filter((check) => Math.abs(check.deltaCents) > 0.5).map((check) => [check.title,
+      check.computedUnitPriceCents, check.expectedUnitPriceCents])).toEqual([["O1b", 17459, 17460]]);
+  });
+});

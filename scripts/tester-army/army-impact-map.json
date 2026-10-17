@@ -25,6 +25,7 @@
       "e2e/army/critical/stale-save.e2e.ts",
       "e2e/army/critical/team-a-hub.e2e.ts",
       "e2e/army/local/engine-v3-fail-closed.e2e.ts",
+      "e2e/army/local/engine-v3-import-optima.e2e.ts",
       "e2e/army/local/engine-v3-persistence.e2e.ts",
       "e2e/army/local/estimate-create-calculation-gate.e2e.ts",
       "e2e/army/local/tech-debt-lock-boundaries.e2e.ts"
@@ -164,6 +165,7 @@
       "@wizard",
       "e2e/army/critical/team-a-hub.e2e.ts",
       "e2e/army/local/engine-v3-fail-closed.e2e.ts",
+      "e2e/army/local/engine-v3-import-optima.e2e.ts",
       "e2e/army/local/engine-v3-persistence.e2e.ts",
       "e2e/army/local/tech-debt-lock-boundaries.e2e.ts"
     ],
@@ -182,6 +184,7 @@
       "e2e/army/critical/hub-takeoff-auto-propose.e2e.ts",
       "e2e/army/critical/import-optima-v2.e2e.ts",
       "e2e/army/critical/team-a-hub.e2e.ts",
+      "e2e/army/local/engine-v3-import-optima.e2e.ts",
       "e2e/army/local/engine-v3-persistence.e2e.ts"
     ],
     "plans": [
