@@ -152,6 +152,32 @@ async function retakeLease(browser: Browser, versionId: string) {
   expect(lease.status).toBe(200);
 }
 
+/**
+ * D13 breaks every tie of an exact allocation (VAT, discount and FO/MO shares) by increasing line id, and the
+ * per-line expectations above come from the pure engine on the fixture ids, which ascend from O1 to O7. The
+ * batch draws random ids, so a tie may go to another line from one run to the next (§10.2, C6). One batch of
+ * updates relabels the lines: the k-th smallest id takes O_k's inputs at position k. Totals never depend on it.
+ */
+async function alignWithFixtureIdOrder(browser: Browser, army: ArmyState, versionId: string, lines: ReadonlyArray<Record<string, unknown>>) {
+  const state = await readEstimate(browser, versionId);
+  const stored = lineItems(state);
+  const ids = stored.map(item => item.id).sort();
+  if (stored.every((item, index) => item.id === ids[index])) return state;
+  const request = {
+    operation_key: randomUUID(),
+    operations: ids.map((id, index) => {
+      const { line_nature, title, description, unit_code, quantity, unit_price_ht_cents, h_mo_per_unit } = lines[index];
+      return { op: "update", id, data: { line_nature, title, description, unit_code, quantity, unit_price_ht_cents, h_mo_per_unit, position: index + 1 } };
+    }),
+  };
+  const response = await apiRequest<Envelope<{ committed: boolean; results: Array<{ status: string; code?: string }> }>>(
+    browser, "POST", `/api/estimates/${versionId}/batch`, request, { "if-match": state.version.updated_at });
+  await recordEvidence(army, "v3p-batch-oracle-id-order", { versionId, idsByPosition: stored.map(item => item.id), request, response });
+  expect([response.status, response.body.ok, response.body.data?.committed]).toEqual([200, true, true]);
+  expect(response.body.data.results.filter(result => result.status === "error")).toEqual([]);
+  return readEstimate(browser, versionId);
+}
+
 async function saveSettings(browser: Browser, army: ArmyState, versionId: string, label: string, patch: Record<string, unknown>) {
   await retakeLease(browser, versionId);
   const before = await readEstimate(browser, versionId);
@@ -284,11 +310,13 @@ armyTest("V3P01 a v3 born behind the tenant policy persists the oracle, its sett
   expect(v3Version(await readEstimate(browser, euhistId))).toEqual(emptyV3);
 
   // V3P-04, V3P-05 : les 7 lignes-oracle par lot, puis relecture (S1).
-  const s1 = await writeLinesByBatch(browser, army, oracleId, "oracle", ORACLE.map(line => ({
+  const oracleLines = ORACLE.map(line => ({
     line_nature: line.hPerUnit > 0 ? "supply_and_labor" : "supply_only", title: `${army.runPrefix} ${line.ref}`, description: line.unit,
     unit_code: line.unit, pricing_status: "priced", quantity: line.quantity, unit_price_ht_cents: line.prFo, tax_rate_bp: 2000,
     k_fo: 1, h_mo_per_unit: line.hPerUnit, h_mo_majoration: 1, k_mo: 1, labor_role_id: tuyauteur.id, source_provider: "manual",
-  })));
+  }));
+  await writeLinesByBatch(browser, army, oracleId, "oracle", oracleLines);
+  const s1 = await alignWithFixtureIdOrder(browser, army, oracleId, oracleLines);
   await recordEvidence(army, "v3p-s1", { versionId: oracleId, expected: { version: { ...emptyV3, gross: 6905456, totals: S1.totals }, lines: expectedLines(S1, 2000) },
     actual: { version: v3Version(s1), lines: lineItems(s1).map(lineView) } });
   expect(lineItems(s1).map(lineView)).toEqual(expectedLines(S1, 2000));
