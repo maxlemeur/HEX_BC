@@ -898,6 +898,9 @@ natives possédées) :
 | Vitest (Windows, `f1d94213`) | `npx vitest run <18 fichiers>` (création, hub et ses écrans, approbation, réglages, schémas, OpenAPI, Direction, mutations d'éditeur, règle v3, corpus figé, carte d'impact, garde-fous CI) | 18 fichiers, 249 tests verts |
 | Types, lint, OpenAPI, architecture, migrations (Windows) | `npm run typecheck` ; `npx eslint <13 fichiers> --max-warnings=0` ; `npm run validate-openapi` ; `npm run check:architecture` ; `npm run supabase:validate` ; `npm run supabase:migrations:git-guard` | 0 ; 0 ; « valide et synchronisee » (144 routes, 192 opérations) ; 1 123 modules, 0 cycle ; 248 fichiers ; garde passée |
 
-Non rejoués, entrées inchangées : parité TS/SQL (M3 intacte), empreintes documentaires et campagne `calc-v3` (aucun
-chemin v1/v2 de calcul ni de document touché ; le hub v1/v2 rend les mêmes valeurs). La CI de la PR rejoue Vitest
+| Parité TS/SQL (WSL, `c9139b56`, tête fusionnée avec `71850b7c`) | `npm run engine:v3:parity` | sortie 0, **0 écart** sur 10 357 cas (graine 20261017, empreinte des cas `d28f3bf0…`), contre-épreuve détectée, pile détruite ; `.e2e/engine-v3/parity/2026-10-17T18-15-26-535Z-seed-20261017/report.json` |
+| Empreintes documentaires (WSL, `c9139b56`) | `npm run engine:document-fingerprints -- check` | sortie 0, « Document fingerprints identical », 14 familles v1/v2 ; pgTAP `Files=19, Tests=1833, Result: PASS` et matrice RLS passés en amont ; `.e2e/engine-v3/document-fingerprints/2026-10-17T18-16-05-307Z-check` |
+
+Non rejouée : la campagne `calc-v3` (37/37 à `df01c4b9`, §10.3) ; la revue ne touche aucun chemin v1/v2 de calcul
+ni de document (empreintes identiques), et le hub v1/v2 rend les mêmes valeurs. La CI de la PR rejoue Vitest
 complet et la campagne critique sélectionnée par la carte d'impact.
