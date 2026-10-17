@@ -41,6 +41,7 @@ import {
 import type { MappingTargetField } from "../../src/lib/mappings/schemas";
 import { normalizeMeasurementUnit } from "../../src/lib/units/normalize";
 import { newEvidenceDirectory } from "../tester-army/local-recipe-common.mjs";
+import { centsHalfUp, controlCents } from "./optima-control";
 
 type Expectation = {
   priced: number;
@@ -94,21 +95,6 @@ function decimalString(value: unknown, field: string, maxScale: number): string 
     throw new Error(`${field}: ${text} does not fit ${maxScale} decimals; it is never rounded silently`);
   }
   return text;
-}
-
-/** Exact decimal string to cents, half up (x >= 0). */
-function centsHalfUp(text: string): number {
-  const [whole, fraction = ""] = text.split(".");
-  const scaled = BigInt(whole + fraction.padEnd(2, "0").slice(0, 2));
-  const rest = fraction.slice(2);
-  const roundUp = rest.length > 0 && rest[0] >= "5";
-  return Number(scaled + (roundUp ? BigInt(1) : BigInt(0)));
-}
-
-/** A float control cell read at Excel's 15 significant digits, then to cents half up. */
-function controlCents(value: number): number {
-  const text = Number(value.toPrecision(15)).toFixed(12).replace(/0+$/, "").replace(/\.$/, "");
-  return centsHalfUp(text);
 }
 
 function lineId(lot: number, row: number) {

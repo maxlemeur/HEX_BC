@@ -1,7 +1,11 @@
 // Lot 2, sous-lot 2.4 (piste B) : normaliseur d'unités partagé TS/SQL (D9, P-08, P-09).
 // Défaillances visées : docs/testing/estimate-engine-v3-2.4.md (U1 à U9).
 // Les 40 vecteurs sont repris à l'identique dans supabase/tests/database/measurement-units.test.sql :
-// le même jeton et la même cible doivent sortir des deux langages.
+// le même jeton et la même cible doivent sortir des deux langages ; le premier test relit le bloc
+// pgTAP et le compare à cette liste (U3).
+import fs from "node:fs";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -65,9 +69,42 @@ const VECTORS: readonly Vector[] = [
   ["", "", null, null],
 ];
 
+const SQL_LITERAL = String.raw`(null|U&'(?:[^']|'')*'|'(?:[^']|'')*')`;
+const PGTAP_VECTOR_ROW = new RegExp(
+  String.raw`^\s*\((\d+), ${SQL_LITERAL}, ${SQL_LITERAL}, ${SQL_LITERAL}, ${SQL_LITERAL}\)[,;]$`
+);
+
+/** Littéral SQL décodé : chaîne standard ('' doublé) ou chaîne Unicode U&'…' (\XXXX, \+XXXXXX, \\). */
+function decodeSqlLiteral(literal: string): string | null {
+  if (literal === "null") return null;
+  const unicode = literal.startsWith("U&");
+  const body = literal.slice(unicode ? 3 : 1, -1).replace(/''/g, "'");
+  if (!unicode) return body;
+  return body.replace(/\\(\\|\+[0-9A-Fa-f]{6}|[0-9A-Fa-f]{4})/g, (_match, escape: string) =>
+    escape === "\\" ? "\\" : String.fromCodePoint(parseInt(escape.replace("+", ""), 16))
+  );
+}
+
+/** Les vecteurs du bloc `insert into unit_vectors` de la suite pgTAP, dans l'ordre de leur position. */
+function pgTapVectors(): Vector[] {
+  const sql = fs.readFileSync(path.join(process.cwd(), "supabase/tests/database/measurement-units.test.sql"), "utf8");
+  const start = sql.indexOf("insert into unit_vectors");
+  const block = sql.slice(start, sql.indexOf(";\n", start) + 1);
+  return block
+    .split("\n")
+    .map((line) => PGTAP_VECTOR_ROW.exec(line))
+    .filter((match): match is RegExpExecArray => match !== null)
+    .map((match, index) => {
+      expect(Number(match[1])).toBe(index + 1);
+      const [raw, token, unitCode, pricingStatus] = match.slice(2).map(decodeSqlLiteral);
+      return [raw ?? "", token ?? "", unitCode, pricingStatus] as const;
+    });
+}
+
 describe("normaliseur d'unités (D9)", () => {
-  it("compte exactement 40 vecteurs, identiques à ceux de la suite pgTAP", () => {
+  it("compte exactement 40 vecteurs, identiques octet pour octet à ceux de la suite pgTAP", () => {
     expect(VECTORS).toHaveLength(40);
+    expect(pgTapVectors()).toEqual(VECTORS);
   });
 
   it.each(VECTORS)("« %s » donne le jeton « %s »", (raw, token) => {

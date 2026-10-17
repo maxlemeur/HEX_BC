@@ -37,6 +37,47 @@ function thrown(run: () => unknown): unknown {
   return undefined;
 }
 
+// Colonnes numériques du contrat canonique : le jumeau SQL n'y admet que des nombres JSON.
+const CANONICAL_NUMERIC_KEYS = new Set([
+  "sale_coefficient_fo",
+  "sale_coefficient_mo",
+  "discount_amount_cents",
+  "discount_bp",
+  "rounding_step_cents",
+  "quantity",
+  "unit_price_ht_cents",
+  "k_fo",
+  "h_mo_per_unit",
+  "h_mo_atelier_per_unit",
+  "h_mo_chantier_per_unit",
+  "h_mo_majoration",
+  "k_mo",
+  "k_mo_atelier",
+  "k_mo_chantier",
+  "labor_rate_cents",
+  "labor_rate_atelier_cents",
+  "labor_rate_chantier_cents",
+  "tax_rate_bp",
+]);
+
+/** Texte JSON canonique : un décimal que la fixture écrit en chaîne devient le littéral numérique exact. */
+function canonicalJson(input: unknown): string {
+  return JSON.stringify(input).replace(/"([a-z_]+)":"(\d+(?:\.\d+)?)"/g, (match, key: string, digits: string) =>
+    CANONICAL_NUMERIC_KEYS.has(key) ? `"${key}":${digits}` : match
+  );
+}
+
+/** Texte canonique dont un champ (paramètre ou première ligne) porte le littéral JSON brut donné. */
+function canonicalJsonWith(input: EstimateV3Input, target: "params" | "line", key: string, literal: string) {
+  const marker = "__LITERAL__";
+  const copy = structuredClone(input) as unknown as {
+    params: Record<string, unknown>;
+    items: Array<Record<string, unknown>>;
+  };
+  (target === "params" ? copy.params : copy.items[0])[key] = marker;
+  return canonicalJson(copy).replace(`"${marker}"`, literal);
+}
+
 describe("§5.3 hours per unit (A1)", () => {
   it("T-HMO: labour follows hours per unit, PU 3 250, total 32 500, MO 22 500", () => {
     const [line] = computeEstimateV3Breakdown(tHmoInput()).lines;
@@ -399,7 +440,7 @@ describe("input parsing edge cases (named refusal, never 0, never float drift)",
 
 describe("canonical JSON adapter (TS/SQL parity contract)", () => {
   it("returns exactly the contract keys, in order, with fixed-scale decimal strings", () => {
-    const output = computeEstimateV3Canonical(JSON.stringify(oracleInput()));
+    const output = computeEstimateV3Canonical(canonicalJson(oracleInput()));
     expect(Object.keys(output)).toEqual(["lines", "totals"]);
     expect(Object.keys(output.lines[0])).toEqual([
       "id",
@@ -436,7 +477,44 @@ describe("canonical JSON adapter (TS/SQL parity contract)", () => {
     ]);
     expect(output.lines[0]).toMatchObject({ pu_ht_cents: 16663, h_mo: "39.820", h_mo_atelier: null });
     expect(output.totals.realized_sale_coefficient).toBe("1.258472");
-    expect(computeEstimateV3Canonical(oracleInput())).toEqual(output);
+    expect(computeEstimateV3Canonical(JSON.parse(canonicalJson(oracleInput())))).toEqual(output);
+  });
+
+  it("refuses decimal strings on the canonical path, text or object, like the SQL twin (JSON numbers only)", () => {
+    for (const input of [JSON.stringify(oracleInput()), oracleInput()]) {
+      expect(thrown(() => computeEstimateV3Canonical(input))).toMatchObject({
+        code: "ESTIMATE_V3_INPUT_INVALID",
+        sqlstate: "22023",
+      });
+    }
+    expect(
+      thrown(() => computeEstimateV3Canonical(canonicalJsonWith(supplyLineInput(1, 100), "params", "sale_coefficient_fo", '"1.30"')))
+    ).toMatchObject({ code: "ESTIMATE_V3_INPUT_INVALID" });
+    // L'éditeur (entrée typée) garde les chaînes décimales exactes.
+    expect(computeEstimateV3Breakdown(oracleInput()).lines[0].pu_ht_cents).toBe(16663);
+  });
+
+  it("reads JSON number literals at their source, never through a double", () => {
+    const base = supplyLineInput(1, 100);
+    for (const [key, literal] of [
+      ["quantity", "1.00000000000000000001"],
+      ["unit_price_ht_cents", "100.00000000000000001"],
+      ["quantity", "0.0000000000000000000001"],
+    ] as const) {
+      expect(thrown(() => computeEstimateV3Canonical(canonicalJsonWith(base, "line", key, literal)))).toMatchObject({
+        code: "ESTIMATE_V3_INPUT_INVALID",
+        sqlstate: "22023",
+      });
+    }
+    for (const [key, literal, gross] of [
+      ["quantity", "15e-1", 150],
+      ["quantity", "-0", 0],
+      ["quantity", "2.00000000000000000000", 200],
+      ["unit_price_ht_cents", "1E2", 100],
+    ] as const) {
+      const output = computeEstimateV3Canonical(canonicalJsonWith(base, "line", key, literal));
+      expect(output.lines[0].gross_ht_cents).toBe(gross);
+    }
   });
 
   it("refuses malformed JSON with ESTIMATE_V3_INPUT_INVALID", () => {
@@ -466,7 +544,7 @@ describe("stored v3 reader (frozen columns, no recomputation)", () => {
     );
     const projection = projectEstimateV3Snapshot(breakdown);
     return {
-      version: { ...projection.version, calc_snapshot_context: projection.context },
+      version: { ...projection.version, contractor_role: "principal", calc_snapshot_context: projection.context },
       items: projection.items.map((item, index) => ({
         ...item,
         item_type: "line" as const,
@@ -510,13 +588,63 @@ describe("stored v3 reader (frozen columns, no recomputation)", () => {
       )
     ).toMatchObject({ code: "ESTIMATE_V3_STORED_INCOHERENT" });
   });
+
+  /** Une ligne de fourniture de 10 000 c à 20 %, figée pour le rôle d'entreprise donné. */
+  function storedSupplyLine(contractorRole: string | null) {
+    const breakdown = computeEstimateV3Breakdown(
+      supplyLineInput(1, 10_000, 1, { reverse_charge: contractorRole === "subcontractor" })
+    );
+    const projection = projectEstimateV3Snapshot(breakdown);
+    return {
+      version: { ...projection.version, contractor_role: contractorRole, calc_snapshot_context: projection.context },
+      items: projection.items.map((item, index) => ({
+        ...item,
+        item_type: "line" as const,
+        pricing_status: breakdown.lines[index].pricing_status,
+        tax_rate_bp: breakdown.lines[index].tax_rate_bp,
+      })),
+    };
+  }
+
+  it("reads reverse charge from the frozen contractor role, like v2 (D8: T_r = 0 only under reverse charge)", () => {
+    expect(readStoredEstimateV3(storedSupplyLine("subcontractor")).totals).toMatchObject({
+      total_tax_cents: 0,
+      total_ttc_cents: 10_000,
+    });
+    expect(readStoredEstimateV3(storedSupplyLine("principal")).totals).toMatchObject({
+      total_tax_cents: 2000,
+      total_ttc_cents: 12_000,
+    });
+  });
+
+  it("refuses zeroed VAT without reverse charge, VAT under reverse charge and an unknown contractor role", () => {
+    const stored = storedSupplyLine("principal");
+    const zeroed = {
+      version: {
+        ...stored.version,
+        total_tax_cents: 0,
+        total_ttc_cents: 10_000,
+        calc_snapshot_context: {
+          ...stored.version.calc_snapshot_context,
+          tax_breakdown: [{ rate_bp: 2000, base_cents: 10_000, tax_cents: 0 }],
+        },
+      },
+      items: [{ ...stored.items[0], line_tax_cents: 0, line_total_ttc_cents: 10_000 }],
+    };
+    expect(thrown(() => readStoredEstimateV3(zeroed))).toMatchObject({ code: "ESTIMATE_V3_STORED_INCOHERENT" });
+    for (const contractorRole of ["subcontractor", null, "other"]) {
+      expect(
+        thrown(() => readStoredEstimateV3({ ...stored, version: { ...stored.version, contractor_role: contractorRole } }))
+      ).toMatchObject({ code: "ESTIMATE_V3_STORED_INCOHERENT" });
+    }
+  });
 });
 
 // Intégration 2.4 : règles où les deux pistes divergeaient, tranchées pour que le moteur TS et le
 // jumeau SQL rendent la même sortie canonique (docs/testing/estimate-engine-v3-2.4.md, I-01 à I-06).
 describe("sub-lot 2.4 integration: one contract for the TS engine and the SQL twin", () => {
   it("I-01 puts the whole MO on chantier without the labour split, gross and net (v2 convention)", () => {
-    const output = computeEstimateV3Canonical(tHmoInput(10));
+    const output = computeEstimateV3Canonical(canonicalJson(tHmoInput(10)));
     expect(output.lines[0]).toMatchObject({
       gross_mo_ht_cents: 22500,
       gross_mo_atelier_ht_cents: 0,
@@ -525,10 +653,9 @@ describe("sub-lot 2.4 integration: one contract for the TS engine and the SQL tw
       snapshot_mo_atelier_ht_cents: 0,
       snapshot_mo_chantier_ht_cents: 22500,
     });
-    const discounted = computeEstimateV3Canonical({
-      ...tHmoInput(10),
-      params: { ...tHmoInput(10).params, discount_amount_cents: 3250 },
-    });
+    const discounted = computeEstimateV3Canonical(
+      canonicalJson({ ...tHmoInput(10), params: { ...tHmoInput(10).params, discount_amount_cents: 3250 } })
+    );
     expect(discounted.lines[0].snapshot_mo_ht_cents).toBe(
       discounted.lines[0].snapshot_mo_atelier_ht_cents + discounted.lines[0].snapshot_mo_chantier_ht_cents
     );
@@ -544,7 +671,7 @@ describe("sub-lot 2.4 integration: one contract for the TS engine and the SQL tw
       pricing_status: breakdown.lines[index].pricing_status,
       tax_rate_bp: breakdown.lines[index].tax_rate_bp,
     }));
-    const version = { ...projection.version, calc_snapshot_context: projection.context };
+    const version = { ...projection.version, contractor_role: "principal", calc_snapshot_context: projection.context };
     expect(() => readStoredEstimateV3({ version, items })).not.toThrow();
     const tampered = [{ ...items[0], snapshot_mo_atelier_ht_cents: 0, snapshot_mo_chantier_ht_cents: 0 }];
     expect(thrown(() => readStoredEstimateV3({ version, items: tampered }))).toMatchObject({
@@ -580,10 +707,12 @@ describe("sub-lot 2.4 integration: one contract for the TS engine and the SQL tw
 
   it("I-04 derives null line hours from a null hours-per-unit column, 0.000 on a non-priced line", () => {
     const output = computeEstimateV3Canonical(
-      v3Input([
-        v3Line(1, { unit_price_ht_cents: 100, quantity: 2, h_mo_per_unit: null }),
-        v3Line(2, { pricing_status: "for_memory", quantity: 2, h_mo_per_unit: "1.5" }),
-      ])
+      canonicalJson(
+        v3Input([
+          v3Line(1, { unit_price_ht_cents: 100, quantity: 2, h_mo_per_unit: null }),
+          v3Line(2, { pricing_status: "for_memory", quantity: 2, h_mo_per_unit: "1.5" }),
+        ])
+      )
     );
     expect(output.lines.map((line) => [line.h_mo, line.h_mo_atelier, line.h_mo_chantier])).toEqual([
       [null, null, null],
@@ -599,7 +728,7 @@ describe("sub-lot 2.4 integration: one contract for the TS engine and the SQL tw
 
   it("I-06 raises ESTIMATE_AMOUNT_OVERFLOW for derived line hours beyond numeric(12,3), even at no cost", () => {
     const input = v3Input([v3Line(1, { quantity: "999999999.999", h_mo_per_unit: "2", labor_rate_cents: 0 })]);
-    expect(thrown(() => computeEstimateV3Canonical(input))).toMatchObject({
+    expect(thrown(() => computeEstimateV3Canonical(canonicalJson(input)))).toMatchObject({
       code: "ESTIMATE_AMOUNT_OVERFLOW",
       sqlstate: "22003",
     });
