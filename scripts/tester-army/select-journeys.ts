@@ -1,0 +1,586 @@
+// Impact-based selection of the TesterArmy critical journeys for one change.
+// Runs with plain Node (type stripping, no npm install): node builtins only and
+// erasable TypeScript syntax. Contract and fail-safe rules:
+// docs/testing/tester-army-ci.md, section "Sélection par impact des parcours critical".
+//
+// Decision, per changed path (git diff --name-only --no-renames base...head):
+// 1. docs globs: nothing to run (pull request and push). On push, anything
+//    else runs the full suite;
+// 2. full globs, or a file the critical runner itself imports: full suite;
+// 3. otherwise the reverse closure of the path (files that import it, and for
+//    an API route the files whose code names its /api/... path) is walked:
+//    - a member under a full glob (outside escalationExcluded): full suite;
+//    - every rule a member matches adds its journeys, a journey adds itself;
+//    - an entry point of the closure (nothing loads it) that no rule, full or
+//      nonRuntime glob covers: full suite, since nothing maps its impact;
+// 4. no rule hit and only nonRuntime entry points: nothing (pull request).
+// Any git or map error, an empty diff or an unknown event also gives "full",
+// and so does a map whose journeys differ from those the CI critical suite
+// runs (e2e.config.ts): a journey the map omits would never be selected.
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+export type ImpactRule = { id: string; note?: string; paths: string[]; journeys: string[] };
+export type ImpactMap = {
+  schemaVersion: number;
+  suite: { journeys: string[]; setup: string; anchor: string; anonymous: string[] };
+  docs: string[];
+  nonRuntime: string[];
+  full: string[];
+  runnerEntries: string[];
+  graph: {
+    sourceRoots: string[];
+    extraFiles: string[];
+    apiRouteRoot: string;
+    apiCallers: string[];
+    apiCallersExcluded: string[];
+    importersExcluded: string[];
+    escalationExcluded: string[];
+  };
+  groups: Record<string, string[]>;
+  rules: ImpactRule[];
+};
+export type PathClass = "docs" | "full" | "journeys" | "known-unexercised" | "non-runtime" | "unmapped";
+export type PathDecision = { path: string; class: PathClass; reason: string; journeys?: string[]; rules?: string[] };
+export type Selection = {
+  schemaVersion: "army-impact-selection-1";
+  event: string;
+  base: string | null;
+  head: string | null;
+  mapSha256: string | null;
+  mode: "none" | "full" | "files";
+  reason: string;
+  files: string[];
+  changedPaths: PathDecision[];
+};
+export type SourceGraph = {
+  files: Set<string>;
+  importers: Map<string, Set<string>>;
+  apiCallers: Map<string, Set<string>>;
+  runnerClosure: Set<string>;
+};
+
+export const MAP_PATH = "scripts/tester-army/army-impact-map.json";
+const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".css"];
+const RESOLVE_SUFFIXES = ["", ".ts", ".tsx", ".mts", ".js", ".jsx", ".mjs", ".cjs", ".json", ".css",
+  "/index.ts", "/index.tsx", "/index.js", "/index.jsx", "/index.mjs"];
+
+/** Glob with literal brackets (Next route segments): ** for directories, * within a segment, {a,b}. */
+export function globToRegExp(glob: string): RegExp {
+  return new RegExp(`^${globSource(glob)}$`);
+}
+
+function globSource(glob: string): string {
+  let source = "";
+  for (let index = 0; index < glob.length; index += 1) {
+    const char = glob[index];
+    if (char === "*" && glob[index + 1] === "*") {
+      const atSegmentStart = index === 0 || glob[index - 1] === "/";
+      const next = glob[index + 2];
+      if (!atSegmentStart || (next !== undefined && next !== "/")) throw new Error(`Unsupported "**" in glob ${glob}`);
+      source += next === "/" ? "(?:[^/]*/)*" : ".*";
+      index += next === "/" ? 2 : 1;
+    } else if (char === "*") {
+      source += "[^/]*";
+    } else if (char === "?") {
+      source += "[^/]";
+    } else if (char === "{") {
+      const end = glob.indexOf("}", index);
+      if (end === -1 || glob.slice(index + 1, end).includes("{")) throw new Error(`Unbalanced braces in glob ${glob}`);
+      source += `(?:${glob.slice(index + 1, end).split(",").map(globSource).join("|")})`;
+      index = end;
+    } else {
+      source += char.replace(/[\\^$.|+()[\]{}]/g, "\\$&");
+    }
+  }
+  return source;
+}
+
+const globCache = new Map<string, RegExp>();
+export function matchesAny(file: string, globs: readonly string[]): boolean {
+  return globs.some((glob) => {
+    let pattern = globCache.get(glob);
+    if (!pattern) {
+      pattern = globToRegExp(glob);
+      globCache.set(glob, pattern);
+    }
+    return pattern.test(file);
+  });
+}
+
+const MODULE_PATTERNS = [
+  /\b(?:import|export)\s[^"'`;]*?\bfrom\s*["']([^"'\r\n]+)["']/g,
+  /\bimport\s*["']([^"'\r\n]+)["']/g,
+  /\bimport\s*\(\s*["'`]([^"'`$\r\n]+)["'`]\s*\)/g,
+  /\brequire\s*\(\s*["']([^"'\r\n]+)["']\s*\)/g,
+  /\bnew\s+URL\s*\(\s*["'`]([^"'`$\r\n]+)["'`]\s*,\s*import\.meta\.url/g,
+  /@import\s+(?:url\(\s*)?["']([^"'\r\n]+)["']/g,
+];
+
+/** Module specifiers a file may load: static, side-effect, dynamic, require, worker URL and CSS @import. */
+export function scanModuleSpecifiers(text: string): string[] {
+  const specifiers = new Set<string>();
+  for (const pattern of MODULE_PATTERNS) {
+    for (const match of text.matchAll(pattern)) specifiers.add(match[1]);
+  }
+  return [...specifiers];
+}
+
+export type ApiReference = { segments: string[]; prefix: boolean };
+
+/**
+ * /api/... paths named in code: ${...}, {param}, [param] and :param are
+ * one-segment wildcards. A trailing ${...} may hide a sub-path (a base URL
+ * completed elsewhere), so it matches every route below, unless the literal
+ * is a direct call argument that ends (or starts its query) right after it.
+ */
+export function scanApiReferences(text: string): ApiReference[] {
+  const references: ApiReference[] = [];
+  for (let index = text.indexOf("/api/"); index !== -1; index = text.indexOf("/api/", index + 5)) {
+    // src/app/api/... or http://host/api/... is a file or an absolute URL, not a call path.
+    if (index > 0 && /[A-Za-z0-9_$./-]/.test(text[index - 1])) continue;
+    const quote = index > 0 && ["`", "\"", "'"].includes(text[index - 1]) ? text[index - 1] : "";
+    let before = index - 2;
+    while (before >= 0 && /\s/.test(text[before])) before -= 1;
+    const callArgument = quote !== "" && before >= 0 && (text[before] === "(" || text[before] === ",");
+    const segments: string[] = [];
+    let current = "";
+    let wildcard = false;
+    let trailing: "interpolation" | "param" | "rest" = "interpolation";
+    let cursor = index + 5;
+    for (; cursor < text.length; cursor += 1) {
+      const char = text[cursor];
+      if (char === "$" && text[cursor + 1] === "{") {
+        let depth = 0;
+        for (cursor += 1; cursor < text.length; cursor += 1) {
+          if (text[cursor] === "{") depth += 1;
+          else if (text[cursor] === "}" && --depth === 0) break;
+        }
+        wildcard = true;
+        trailing = "interpolation";
+      } else if (char === "/") {
+        if (!current && !wildcard) break;
+        segments.push(wildcard ? "*" : current);
+        current = "";
+        wildcard = false;
+      } else if (/[A-Za-z0-9_.~-]/.test(char)) {
+        current += char;
+      } else if ((char === "[" || char === "{" || char === ":") && !current) {
+        const close = char === "[" ? "]" : char === "{" ? "}" : "";
+        const end = close ? text.indexOf(close, cursor) : cursor;
+        if (close && (end === -1 || end - cursor > 64)) break;
+        trailing = char === "[" && text.startsWith("...", cursor + 1) ? "rest" : "param";
+        if (!close) {
+          while (cursor + 1 < text.length && /[A-Za-z0-9_]/.test(text[cursor + 1])) cursor += 1;
+        } else cursor = end;
+        wildcard = true;
+      } else break;
+    }
+    const trailingSlash = !current && !wildcard;
+    if (current || wildcard) segments.push(wildcard ? "*" : current);
+    // The API family is always literal in this repository; /api/${id}/... is a
+    // third-party URL (the Sentry store endpoint), not one of our routes.
+    if (segments.length === 0 || segments[0] === "*") continue;
+    const closed = callArgument && (text[cursor] === quote || text[cursor] === "?");
+    const oneSegment = wildcard && (trailing === "param" || (trailing === "interpolation" && closed));
+    references.push({ segments, prefix: trailingSlash || (segments.at(-1) === "*" && !oneSegment) });
+  }
+  return references;
+}
+
+function routeSegments(file: string, apiRouteRoot: string): string[] | undefined {
+  const match = new RegExp(`^${apiRouteRoot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/(.+)/route\\.(?:ts|tsx|js|mjs)$`).exec(file);
+  return match ? match[1].split("/") : undefined;
+}
+
+function referenceMatchesRoute(reference: ApiReference, route: string[], asPrefix: boolean): boolean {
+  for (let index = 0; index < reference.segments.length; index += 1) {
+    const segment = route[index];
+    if (segment === undefined) return false;
+    if (segment.startsWith("[...") || segment.startsWith("[[...")) return true;
+    const wanted = reference.segments[index];
+    if (wanted !== "*" && !segment.startsWith("[") && segment !== wanted) return false;
+  }
+  if (asPrefix || reference.prefix) return true;
+  const rest = route.slice(reference.segments.length);
+  return rest.length === 0 || (rest.length === 1 && rest[0].startsWith("[[..."));
+}
+
+function git(root: string, args: string[]) {
+  return spawnSync("git", ["-c", "safe.directory=*", ...args], {
+    cwd: root, encoding: "buffer", maxBuffer: 256 * 1024 * 1024, windowsHide: true,
+  });
+}
+
+/** Tracked and untracked (not ignored) files of the working tree, POSIX paths. */
+export function listRepositoryFiles(root: string): string[] {
+  const result = git(root, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"]);
+  if (result.status !== 0) throw new Error("git ls-files failed.");
+  return result.stdout.toString("utf8").split("\0").filter((file) => file && fs.existsSync(path.join(root, file)));
+}
+
+function resolveSpecifier(from: string, specifier: string, files: Set<string>): string | undefined {
+  let base: string;
+  if (specifier.startsWith("@/")) base = `src/${specifier.slice(2)}`;
+  else if (specifier.startsWith("./") || specifier.startsWith("../")) base = path.posix.normalize(path.posix.join(path.posix.dirname(from), specifier));
+  else return undefined;
+  base = base.replace(/[?#].*$/, "");
+  for (const suffix of RESOLVE_SUFFIXES) if (files.has(`${base}${suffix}`)) return `${base}${suffix}`;
+  const typescript = base.replace(/\.(m|c)?js$/, ".$1ts");
+  for (const candidate of [typescript, `${base.replace(/\.js$/, "")}.tsx`]) if (files.has(candidate)) return candidate;
+  return undefined;
+}
+
+export function buildSourceGraph(root: string, map: ImpactMap, repositoryFiles = listRepositoryFiles(root)): SourceGraph {
+  const files = new Set(repositoryFiles);
+  const sources = repositoryFiles.filter((file) =>
+    SOURCE_EXTENSIONS.includes(path.posix.extname(file)) &&
+    (map.graph.extraFiles.includes(file) || map.graph.sourceRoots.some((sourceRoot) => file.startsWith(`${sourceRoot}/`))));
+  const routes = repositoryFiles.flatMap((file) => {
+    const segments = routeSegments(file, map.graph.apiRouteRoot);
+    return segments ? [{ file, segments }] : [];
+  });
+  const imports = new Map<string, Set<string>>();
+  const importers = new Map<string, Set<string>>();
+  const apiCallers = new Map<string, Set<string>>();
+  const link = (edges: Map<string, Set<string>>, key: string, value: string) => {
+    let set = edges.get(key);
+    if (!set) edges.set(key, set = new Set());
+    set.add(value);
+  };
+  for (const file of sources) {
+    const text = fs.readFileSync(path.join(root, file), "utf8");
+    for (const specifier of scanModuleSpecifiers(text)) {
+      const target = resolveSpecifier(file, specifier, files);
+      if (!target || target === file) continue;
+      link(imports, file, target);
+      if (!matchesAny(file, map.graph.importersExcluded)) link(importers, target, file);
+    }
+    if (path.posix.extname(file) === ".css" || !matchesAny(file, map.graph.apiCallers) ||
+      matchesAny(file, map.graph.apiCallersExcluded)) continue;
+    for (const reference of scanApiReferences(text)) {
+      let matched = routes.filter((route) => referenceMatchesRoute(reference, route.segments, false));
+      // A base constant ("/api/takeoff") followed by a computed suffix.
+      if (matched.length === 0) matched = routes.filter((route) => referenceMatchesRoute(reference, route.segments, true));
+      for (const route of matched) if (route.file !== file) link(apiCallers, route.file, file);
+    }
+  }
+  const runnerClosure = new Set<string>();
+  const pending = map.runnerEntries.filter((file) => files.has(file));
+  while (pending.length) {
+    const file = pending.pop()!;
+    if (runnerClosure.has(file)) continue;
+    runnerClosure.add(file);
+    for (const target of imports.get(file) ?? []) pending.push(target);
+  }
+  return { files, importers, apiCallers, runnerClosure };
+}
+
+/** The file and every file that loads it or names its API route, transitively. */
+export function reverseClosure(graph: SourceGraph, file: string): Set<string> {
+  const closure = new Set<string>();
+  const pending = [file];
+  while (pending.length) {
+    const current = pending.pop()!;
+    if (closure.has(current)) continue;
+    closure.add(current);
+    for (const next of graph.importers.get(current) ?? []) pending.push(next);
+    for (const next of graph.apiCallers.get(current) ?? []) pending.push(next);
+  }
+  return closure;
+}
+
+/** Group, anchor and wildcard references expanded to journey files. */
+export function expandJourneys(map: ImpactMap, references: readonly string[], seen = new Set<string>()): string[] {
+  const journeys = new Set<string>();
+  for (const reference of references) {
+    if (reference === "*") map.suite.journeys.forEach((journey) => journeys.add(journey));
+    else if (reference === "@anchor") journeys.add(map.suite.anchor);
+    else if (reference.startsWith("@")) {
+      const name = reference.slice(1);
+      const group = map.groups[name];
+      if (!group) throw new Error(`Unknown journey group ${reference}.`);
+      if (seen.has(name)) throw new Error(`Recursive journey group ${reference}.`);
+      expandJourneys(map, group, new Set([...seen, name])).forEach((journey) => journeys.add(journey));
+    } else journeys.add(reference);
+  }
+  return [...journeys];
+}
+
+/**
+ * Journey files the CI critical suite runs: the localBusiness test list of
+ * e2e.config.ts (the CI stack is loopback), matched against the working tree.
+ */
+export function criticalSuiteJourneys(config: string, repositoryFiles: readonly string[]): string[] {
+  const branch = /critical \? localBusiness \? \[([^\]]*)\]/u.exec(config);
+  if (!branch) throw new Error("The localBusiness critical test list of e2e.config.ts cannot be read.");
+  const globs = [...branch[1].matchAll(/"([^"]+)"/gu)].map((match) => match[1]);
+  return repositoryFiles.filter((file) => globs.some((glob) => globToRegExp(glob).test(file))).sort();
+}
+
+/**
+ * Problems that make the map unusable, including any difference between its
+ * journeys and those the CI critical suite runs; the guardrail test also runs this.
+ */
+export function validateImpactMap(map: ImpactMap, exists: (file: string) => boolean, suiteJourneys: readonly string[]): string[] {
+  const problems: string[] = [];
+  const suite = new Set(map.suite.journeys);
+  if (map.schemaVersion !== 1) problems.push(`Unsupported map schemaVersion ${map.schemaVersion}.`);
+  const run = new Set(suiteJourneys);
+  for (const journey of suiteJourneys) if (!suite.has(journey)) problems.push(`The critical suite runs ${journey}, which the map does not list.`);
+  for (const journey of map.suite.journeys) if (!run.has(journey)) problems.push(`The map lists ${journey}, which the critical suite does not run.`);
+  for (const file of [...map.suite.journeys, map.suite.setup, map.suite.anchor, ...map.suite.anonymous, ...map.runnerEntries]) {
+    if (!exists(file)) problems.push(`Map points to a missing file: ${file}.`);
+  }
+  for (const file of [map.suite.setup, map.suite.anchor, ...map.suite.anonymous]) {
+    if (!suite.has(file)) problems.push(`${file} is not a suite journey.`);
+  }
+  if (map.suite.anonymous.includes(map.suite.anchor)) problems.push("The anchor journey must be authenticated.");
+  const globs = [...map.docs, ...map.nonRuntime, ...map.full, ...map.rules.flatMap((rule) => rule.paths),
+    ...map.graph.apiCallers, ...map.graph.apiCallersExcluded, ...map.graph.importersExcluded, ...map.graph.escalationExcluded];
+  for (const glob of globs) {
+    try { globToRegExp(glob); } catch (error) { problems.push((error as Error).message); }
+  }
+  const ids = new Set<string>();
+  for (const rule of map.rules) {
+    if (ids.has(rule.id)) problems.push(`Duplicate rule id ${rule.id}.`);
+    ids.add(rule.id);
+    try {
+      for (const journey of expandJourneys(map, rule.journeys)) {
+        if (!suite.has(journey)) problems.push(`Rule ${rule.id} points to ${journey}, which is not a suite journey.`);
+      }
+    } catch (error) { problems.push(`Rule ${rule.id}: ${(error as Error).message}`); }
+  }
+  for (const [name, members] of Object.entries(map.groups)) {
+    try { expandJourneys(map, [`@${name}`]); } catch (error) { problems.push((error as Error).message); }
+    for (const member of members) if (!member.startsWith("@") && !suite.has(member)) problems.push(`Group ${name} lists ${member}, which is not a suite journey.`);
+  }
+  return problems;
+}
+
+type FileImpact = { rules: string[]; journeys: string[] };
+
+/**
+ * Rules a single file matches, and their journeys; a suite journey file selects
+ * itself. A nonRuntime file (a colocated test under a mapped route folder, for
+ * example) matches no rule: the app never loads it, its importers still count.
+ */
+function fileImpact(map: ImpactMap, file: string, cache: Map<string, FileImpact>): FileImpact {
+  let impact = cache.get(file);
+  if (!impact) {
+    const self = map.suite.journeys.includes(file);
+    const rules = self || !matchesAny(file, map.nonRuntime) ? map.rules.filter((rule) => matchesAny(file, rule.paths)) : [];
+    impact = {
+      rules: [...(self ? ["journey-file"] : []), ...rules.map((rule) => rule.id)],
+      journeys: [...(self ? [file] : []), ...expandJourneys(map, rules.flatMap((rule) => rule.journeys))],
+    };
+    cache.set(file, impact);
+  }
+  return impact;
+}
+
+/** An entry point of the graph: nothing (but tests) loads it and no code names its API route. */
+export function isEntryPoint(graph: SourceGraph, file: string): boolean {
+  return !graph.importers.get(file)?.size && !graph.apiCallers.get(file)?.size;
+}
+
+export function classifyPath(map: ImpactMap, graph: SourceGraph, file: string, event: string,
+  cache = new Map<string, FileImpact>()): PathDecision {
+  if (matchesAny(file, map.docs)) return { path: file, class: "docs", reason: "documentation" };
+  if (event !== "pull_request") return { path: file, class: "full", reason: "push: only a documentation change skips the suite" };
+  if (matchesAny(file, map.full)) return { path: file, class: "full", reason: "shared core (full glob)" };
+  if (graph.runnerClosure.has(file)) return { path: file, class: "full", reason: "imported by the critical runner" };
+  const closure = graph.files.has(file) ? reverseClosure(graph, file) : new Set([file]);
+  const journeys = new Set<string>();
+  const rules = new Set<string>();
+  const unmappedEntries: string[] = [];
+  for (const member of [...closure].sort()) {
+    // A dependency of the shared core (root layout, proxy, auth, calculation
+    // engine, journey fixtures) changes every journey. Build tools under
+    // escalationExcluded run only their own step and are entry points below.
+    if (member !== file && matchesAny(member, map.full) && !matchesAny(member, map.graph.escalationExcluded)) {
+      return { path: file, class: "full", reason: `loaded by the shared core ${member}` };
+    }
+    const impact = fileImpact(map, member, cache);
+    impact.rules.forEach((rule) => rules.add(rule));
+    impact.journeys.forEach((journey) => journeys.add(journey));
+    // Impact stops at entry points (routes, pages, journeys, scripts): each one
+    // the change reaches must be known to the map, else nothing proves it.
+    if (!impact.rules.length && isEntryPoint(graph, member) &&
+      !matchesAny(member, map.nonRuntime) && !matchesAny(member, map.full)) unmappedEntries.push(member);
+  }
+  if (unmappedEntries.length) {
+    return { path: file, class: "unmapped", reason: unmappedReason(unmappedEntries, file, graph) };
+  }
+  if (!rules.size) return { path: file, class: "non-runtime", reason: "only non-runtime entry points load it" };
+  const sorted = [...journeys].sort();
+  return sorted.length
+    ? { path: file, class: "journeys", reason: `${closure.size} file(s) in its impact closure`, journeys: sorted, rules: [...rules].sort() }
+    : { path: file, class: "known-unexercised", reason: "no critical journey reaches it", rules: [...rules].sort() };
+}
+
+function unmappedReason(unmappedEntries: string[], file: string, graph: SourceGraph): string {
+  if (unmappedEntries[0] === file) return graph.files.has(file) ? "no map rule covers this entry point" : "deleted or unknown path without a map rule";
+  return `reaches the unmapped entry point ${unmappedEntries[0]}${unmappedEntries.length > 1 ? ` (+${unmappedEntries.length - 1})` : ""}`;
+}
+
+export function selectJourneys(input: {
+  map: ImpactMap;
+  graph: SourceGraph;
+  event: string;
+  paths: string[];
+  /** Why the full suite is forced (army-full label, unverifiable checkout); empty or absent: not forced. */
+  forceFull?: string | null;
+  base?: string | null;
+  head?: string | null;
+  mapSha256?: string | null;
+}): Selection {
+  const { map, graph, event } = input;
+  const selection = (mode: Selection["mode"], reason: string, files: string[] = [], changedPaths: PathDecision[] = []): Selection => ({
+    schemaVersion: "army-impact-selection-1", event, base: input.base ?? null, head: input.head ?? null,
+    mapSha256: input.mapSha256 ?? null, mode, reason, files, changedPaths,
+  });
+  if (input.forceFull) return selection("full", `full suite forced: ${input.forceFull}`);
+  if (event !== "pull_request" && event !== "push") return selection("full", `event ${event || "unknown"} always runs the full suite`);
+  const paths = [...new Set(input.paths)].sort();
+  if (paths.length === 0) return selection("full", "no changed path could be determined");
+  const cache = new Map<string, FileImpact>();
+  const decisions = paths.map((file) => classifyPath(map, graph, file, event, cache));
+  const blocking = decisions.filter((decision) => decision.class === "full" || decision.class === "unmapped");
+  if (blocking.length) return selection("full", `${blocking.length} path(s) require the full suite, first: ${blocking[0].path} (${blocking[0].reason})`, [], decisions);
+  const journeys = new Set(decisions.flatMap((decision) => decision.journeys ?? []));
+  if (journeys.size === 0) return selection("none", "no critical journey is affected", [], decisions);
+  const anonymous = new Set(map.suite.anonymous);
+  journeys.add(map.suite.setup);
+  // The runner refuses a run without an authenticated business journey.
+  if (![...journeys].some((journey) => journey !== map.suite.setup && !anonymous.has(journey))) journeys.add(map.suite.anchor);
+  if (map.suite.journeys.every((journey) => journeys.has(journey))) return selection("full", "every critical journey is affected", [], decisions);
+  return selection("files", `${journeys.size} of ${map.suite.journeys.length} journey files selected`, [...journeys].sort(), decisions);
+}
+
+export function loadImpactMap(root: string): { map: ImpactMap; sha256: string } {
+  const bytes = fs.readFileSync(path.join(root, MAP_PATH));
+  return { map: JSON.parse(bytes.toString("utf8")) as ImpactMap, sha256: createHash("sha256").update(bytes).digest("hex") };
+}
+
+function changedPathsFromGit(root: string, base: string, head: string): string[] {
+  for (const revision of [base, head]) {
+    if (!revision || /^0+$/.test(revision) || git(root, ["rev-parse", "--verify", "--quiet", `${revision}^{commit}`]).status !== 0) {
+      throw new Error(`Revision ${revision || "(empty)"} is not available in this checkout.`);
+    }
+  }
+  const result = git(root, ["diff", "--name-only", "--no-renames", "-z", `${base}...${head}`]);
+  if (result.status !== 0) throw new Error(`git diff ${base}...${head} failed.`);
+  return result.stdout.toString("utf8").split("\0").filter(Boolean);
+}
+
+export type SelectionRequest = {
+  event: string;
+  base?: string | null;
+  head?: string;
+  /** Changed paths; absent, read from pathsFile, else git diff base...head. */
+  paths?: string[];
+  pathsFile?: string;
+  forceFull?: string | null;
+  /** The working tree's files; absent, git ls-files lists them. */
+  repositoryFiles?: string[];
+};
+
+/** The command line decision: map checked against the working tree, then selection; any error selects the full suite. */
+export function selectFromRepository(root: string, request: SelectionRequest): Selection {
+  const { event } = request;
+  const base = request.base ?? null;
+  const head = request.head ?? "HEAD";
+  const givenPaths = request.paths !== undefined || request.pathsFile !== undefined;
+  try {
+    const { map, sha256 } = loadImpactMap(root);
+    const repositoryFiles = request.repositoryFiles ?? listRepositoryFiles(root);
+    const present = new Set(repositoryFiles);
+    const suiteJourneys = criticalSuiteJourneys(fs.readFileSync(path.join(root, "e2e.config.ts"), "utf8"), repositoryFiles);
+    const problems = validateImpactMap(map, (file) => present.has(file), suiteJourneys);
+    if (problems.length) {
+      throw new Error(`Invalid impact map: ${problems[0]}${problems.length > 1 ? ` (+${problems.length - 1} more)` : ""}`);
+    }
+    const forceFull = request.forceFull ?? null;
+    const paths = forceFull || (event !== "pull_request" && event !== "push")
+      ? []
+      : request.paths ?? (request.pathsFile
+        ? fs.readFileSync(request.pathsFile, "utf8").split(/[\0\r\n]+/).map((file) => file.trim()).filter(Boolean)
+        : changedPathsFromGit(root, base ?? "", head));
+    return selectJourneys({ map, graph: buildSourceGraph(root, map, repositoryFiles), event, paths,
+      forceFull, base, head: givenPaths ? null : head, mapSha256: sha256 });
+  } catch (error) {
+    return { schemaVersion: "army-impact-selection-1", event, base, head, mapSha256: null, mode: "full",
+      reason: `fail-safe: ${(error as Error).message}`, files: [], changedPaths: [] };
+  }
+}
+
+function summary(selection: Selection): string {
+  const title = selection.mode === "none"
+    ? "Aucun parcours TesterArmy critical concerné : étape des parcours ignorée (succès explicite)."
+    : selection.mode === "full"
+      ? "Suite TesterArmy critical complète."
+      : `Parcours TesterArmy critical sélectionnés par impact (exécution enregistrée « filtered-critical ») : ${selection.files.length} fichiers.`;
+  const lines = [`### Sélection TesterArmy critical`, "", title, "", `Motif : ${selection.reason}.`, ""];
+  if (selection.files.length) lines.push(...selection.files.map((file) => `- \`${file}\``), "");
+  if (selection.changedPaths.length) {
+    lines.push("<details><summary>Chemins modifiés</summary>", "", "| Chemin | Classe | Parcours |", "| --- | --- | --- |");
+    for (const decision of selection.changedPaths.slice(0, 300)) {
+      lines.push(`| \`${decision.path}\` | ${decision.class} | ${decision.journeys?.length ?? 0} |`);
+    }
+    lines.push("", "</details>", "");
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+function option(args: string[], name: string): string | undefined {
+  const index = args.indexOf(name);
+  return index === -1 ? undefined : args[index + 1];
+}
+
+function main() {
+  const args = process.argv.slice(2);
+  const known = new Set(["--event", "--base", "--head", "--paths-file", "--report", "--force-full"]);
+  const seen = new Set<string>();
+  for (let index = 0; index < args.length; index += 1) {
+    if (!known.has(args[index]) || seen.has(args[index])) throw new Error(`Unknown or repeated argument ${args[index]}.`);
+    seen.add(args[index]);
+    if (!args[index + 1] || known.has(args[index + 1])) throw new Error(`${args[index]} requires a value.`);
+    index += 1;
+  }
+  const event = option(args, "--event");
+  if (!event) {
+    throw new Error("Usage: node scripts/tester-army/select-journeys.ts --event pull_request|push|<other> " +
+      "[--base REV --head REV | --paths-file FILE] [--force-full REASON] [--report FILE]");
+  }
+  const result = selectFromRepository(process.cwd(), {
+    event,
+    base: option(args, "--base") ?? null,
+    head: option(args, "--head") ?? "HEAD",
+    pathsFile: option(args, "--paths-file"),
+    forceFull: option(args, "--force-full") ?? null,
+  });
+  const json = `${JSON.stringify(result, null, 2)}\n`;
+  const report = option(args, "--report");
+  if (report) {
+    fs.mkdirSync(path.dirname(path.resolve(report)), { recursive: true });
+    fs.writeFileSync(report, json);
+  }
+  if (process.env.GITHUB_OUTPUT) {
+    fs.appendFileSync(process.env.GITHUB_OUTPUT, `mode=${result.mode}\nfiles=${result.files.join(",")}\n`);
+  }
+  if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary(result));
+  process.stdout.write(json);
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try {
+    main();
+  } catch (error) {
+    console.error((error as Error).message);
+    process.exitCode = 2;
+  }
+}

@@ -15,20 +15,32 @@ import { assertLocalAppPortAvailable, runLocalDevelopmentSession } from "./teste
 
 const suite = process.argv[2];
 if (!["critical", "full", "dev", "calc-v3"].includes(suite)) {
-  throw new Error("Usage: run-tester-army-ci.ts critical|full|dev|calc-v3 [--app-port PORT] [critical only: --grep PATTERN] [calc-v3 only: --phase NAME [--grep PATTERN]]");
+  throw new Error("Usage: run-tester-army-ci.ts critical|full|dev|calc-v3 [--app-port PORT] [critical only: --grep PATTERN | --files A.e2e.ts,B.e2e.ts] [calc-v3 only: --phase NAME [--grep PATTERN]]");
 }
 let grep: string | undefined;
+let files: string[] = [];
 let calcV3Phase: CalcV3Phase | undefined;
 let appPort = 3107;
 const suppliedOptions = new Set<string>();
 for (let index = 3; index < process.argv.length; index += 2) {
   const option = process.argv[index];
   const value = process.argv[index + 1];
-  if (!["--grep", "--app-port", "--phase"].includes(option) || suppliedOptions.has(option) || !value?.trim()) {
-    throw new Error("Only one --app-port, one --grep and one calc-v3 --phase with explicit values are allowed.");
+  if (!["--grep", "--files", "--app-port", "--phase"].includes(option) || suppliedOptions.has(option) || !value?.trim()) {
+    throw new Error("Only one --app-port, one --grep or --files and one calc-v3 --phase with explicit values are allowed.");
   }
   suppliedOptions.add(option);
-  if (option === "--grep") {
+  if (option === "--files") {
+    // Impact selection (scripts/tester-army/select-journeys.ts): the e2e CLI
+    // narrows the critical tests glob to these files and still runs the login
+    // setup they depend on. Each file must exist and must run, checked below.
+    if (suite !== "critical" || suppliedOptions.has("--grep")) throw new Error("--files is restricted to critical and excludes --grep.");
+    files = value.split(",");
+    if (new Set(files).size !== files.length || files.some((file) =>
+      !/^e2e\/army\/(?:critical|local)\/[A-Za-z0-9][A-Za-z0-9._-]*\.e2e\.ts$/.test(file) || !fs.existsSync(file))) {
+      throw new Error("--files lists distinct existing e2e/army/critical or e2e/army/local *.e2e.ts paths, comma-separated.");
+    }
+  } else if (option === "--grep") {
+    if (files.length) throw new Error("--grep excludes --files.");
     if (suite !== "critical" && suite !== "calc-v3") throw new Error("--grep is restricted to critical and one calc-v3 phase; full and dev cannot be filtered.");
     new RegExp(value);
     grep = value;
@@ -68,8 +80,10 @@ const manifest: Record<string, unknown> = {
   node: process.version,
   platform: process.platform,
   appOrigin: `http://localhost:${appPort}`,
-  scope: suite === "dev" ? "interactive-development" : grep ? `filtered-${suite}` : calcV3Phase ? `calc-v3-${calcV3Phase}` : suite,
+  scope: suite === "dev" ? "interactive-development" : grep || files.length ? `filtered-${suite}` : calcV3Phase ? `calc-v3-${calcV3Phase}` : suite,
   ...(grep ? { grep } : {}),
+  // Not `files`: retainEvidence writes the evidence inventory under that key.
+  ...(files.length ? { journeyFiles: files } : {}),
   ...(calcV3Phase ? { calcV3Phase } : {}),
   ...(suite === "dev" ? { e2e: "not-run" } : { workers: workers === "" ? 1 : Number(workers) }),
   status: "preparing",
@@ -224,7 +238,7 @@ async function runJourneys(phase: string, environment: NodeJS.ProcessEnv) {
   await assertLocalAppPortAvailable(appPort);
   manifest.phase = phase;
   manifest.campaignStartedAt = new Date().toISOString();
-  await runNode(["scripts/run-tester-army.mjs", phase, ...(grep ? ["--grep", grep] : [])], environment, `journeys-${phase}`);
+  await runNode(["scripts/run-tester-army.mjs", phase, ...(grep ? ["--grep", grep] : []), ...files], environment, `journeys-${phase}`);
   const report = JSON.parse(fs.readFileSync(path.join(root, ".e2e/army/critical/report.json"), "utf8"));
   const run = report.run;
   type JourneyResult = { selected: boolean; status: string; kind: string; file: string;
@@ -246,6 +260,12 @@ async function runJourneys(phase: string, environment: NodeJS.ProcessEnv) {
     ["failed", "skipped", "flaky", "interrupted"].some((key) => (run.summary?.[key] ?? 0) !== 0) ||
     ["selected", "executed", "passed"].some((key) => run.summary?.[key] !== results.length)) {
     throw new Error("TesterArmy must execute every selected business journey without skip, retry success or interruption.");
+  }
+  // The CLI silently drops a positional file that matches no test: a filtered
+  // run proves exactly the requested files (plus the login setup), each passed.
+  if (files.length && (results.some((result) => !files.includes(result.file) && result.file !== "e2e/army/critical/auth.setup.e2e.ts") ||
+    files.some((file) => !results.some((result) => result.file === file && result.status === "passed")))) {
+    throw new Error("A --files run must execute and pass every requested journey file and nothing else.");
   }
   const armyManifest = JSON.parse(fs.readFileSync(path.join(root, ".e2e/army/critical/manifest.json"), "utf8"));
   if (armyManifest.source?.changedDuringRun !== false ||

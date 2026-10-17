@@ -47,13 +47,15 @@ for (let index = 0; index < extraArgs.length; index += 1) {
   } else if (authenticated && !coverage && (arg === "--grep" || arg.startsWith("--grep="))) {
     const value = arg === "--grep" ? extraArgs[++index] : arg.slice("--grep=".length);
     if (!value) throw new Error("--grep requires a test-title pattern.");
+  } else if (requestedMode === "critical" && /^e2e\/army\/(?:critical|local)\/[A-Za-z0-9][A-Za-z0-9._-]*\.e2e\.ts$/.test(arg)) {
+    // Impact selection: the e2e CLI narrows the config tests glob to these files.
   } else if (!discoveryOnly && (arg === "--max-duration" || arg.startsWith("--max-duration="))) {
     const value = arg === "--max-duration" ? extraArgs[++index] : arg.slice("--max-duration=".length);
     if (!value || !/^[1-9]\d*$/.test(value) || Number(value) > 2_147_483_647) {
       throw new Error("--max-duration requires a positive integer in milliseconds, at most 2147483647.");
     }
   } else if (!["--headed", "--no-cache", "--debug"].includes(arg) || discoveryOnly) {
-    throw new Error("Pilot flags are limited to --target, --headed, --no-cache, --debug and --max-duration; authenticated runs also accept --grep; list accepts selection flags only.");
+    throw new Error("Pilot flags are limited to --target, --headed, --no-cache, --debug and --max-duration; authenticated runs also accept --grep, critical runs e2e/army/{critical,local} journey files; list accepts selection flags only.");
   }
 }
 const hasTarget = extraArgs.some((arg) => arg === "--target" || arg.startsWith("--target="));
@@ -207,7 +209,7 @@ const manifest = {
   runtime: { node: process.version, platform: process.platform, arch: process.arch },
   source: {},
   fixtures: {
-    ...(critical ? { selection: process.env.E2E_ARMY_CRITICAL_SELECTION ?? "all" } : {}),
+    ...(critical ? { selection: extraArgs.some((arg) => arg.endsWith(".e2e.ts")) ? "files" : process.env.E2E_ARMY_CRITICAL_SELECTION ?? "all" } : {}),
     account: authenticated ? "configured E2E account, ordinary login UI" : "anonymous fresh browser context",
     paths: affaire ? ["/login", "/dashboard/affaires", "new owned ARMY affaire; retained fixture receipt"] : navigation ? ["/login", "/dashboard/affaires", "/dashboard/orders", "/dashboard/referentiel", "/dashboard/products"] : mode === "performance-grid" ? ["/login", "/dashboard/affaires", "existing ARMY editor; browser-only synthetic read-only payload"] : performance ? ["/login", "/signup", "/dashboard/affaires", "/dashboard/products", "/dashboard/orders"] : critical ? ["/login", "/dashboard/estimates/new", "new ARMY estimates and imports only"] : mode === "agent" ? ["/login", "/signup", "/login"] : ["/dashboard/affaires", "/login"],
     submittedForms: authenticated,
