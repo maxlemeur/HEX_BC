@@ -8,8 +8,13 @@ vi.mock("@/lib/estimates/v2-snapshot-server", () => ({
   freezeEstimateV2Snapshot: vi.fn(),
 }));
 
+vi.mock("@/lib/estimates/v3-snapshot-server", () => ({
+  freezeEstimateV3Snapshot: vi.fn(),
+}));
+
 import { freezeApprovalV2DraftIfRequired } from "@/lib/estimates/approval-v2-snapshot";
 import { freezeEstimateV2Snapshot } from "@/lib/estimates/v2-snapshot-server";
+import { freezeEstimateV3Snapshot } from "@/lib/estimates/v3-snapshot-server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 const VERSION_ID = "33333333-3333-4333-8333-333333333333";
@@ -75,12 +80,22 @@ describe("freezeApprovalV2DraftIfRequired", () => {
     expect(freezeEstimateV2Snapshot).not.toHaveBeenCalled();
   });
 
-  // Lot 2, sous-lot 2.1 (docs/testing/estimate-engine-v3-2.1.md, F-TS-06) : une v3 ne doit pas
-  // partir en approbation sans gel, comme une v1 ; le refus est nommé avant tout appel SQL.
-  it("refuses a v3 draft by name instead of skipping the freeze like a v1", async () => {
+  // Lot 2, sous-lot 2.1 (F-TS-06) puis 2.5 (D15, docs/testing/estimate-engine-v3-2.5.md) : une v3
+  // ne part jamais en approbation sans gel, comme une v1. 2.1 la refusait par son nom faute de gel
+  // v3 ; 2.5 livre ce gel : l'assertion est réécrite délibérément, la v2 n'est jamais appelée.
+  it("freezes a v3 draft through the v3 freeze, never through the v2 one", async () => {
+    const supabase = { name: "authenticated" };
+    const serviceRole = { name: "service-role" };
+    vi.mocked(createServiceRoleClient).mockReturnValue(serviceRole as never);
+    vi.mocked(freezeEstimateV3Snapshot).mockResolvedValue({
+      id: VERSION_ID,
+      updated_at: "2026-03-01T09:01:00.000Z",
+      content_revision: 12,
+    });
+
     await expect(
       freezeApprovalV2DraftIfRequired(
-        { supabase: {}, tenantId: TENANT_ID, userId: USER_ID },
+        { supabase, tenantId: TENANT_ID, userId: USER_ID },
         {
           id: VERSION_ID,
           status: "draft",
@@ -89,9 +104,19 @@ describe("freezeApprovalV2DraftIfRequired", () => {
           calc_engine_version: 3,
         }
       )
-    ).rejects.toMatchObject({ code: "ESTIMATE_ENGINE_UNAVAILABLE", engineVersion: 3 });
+    ).resolves.toBe(true);
 
-    expect(createServiceRoleClient).not.toHaveBeenCalled();
+    expect(createServiceRoleClient).toHaveBeenCalledOnce();
     expect(freezeEstimateV2Snapshot).not.toHaveBeenCalled();
+    expect(freezeEstimateV3Snapshot).toHaveBeenCalledWith({
+      supabase,
+      rpcClient: serviceRole,
+      tenantId: TENANT_ID,
+      versionId: VERSION_ID,
+      expectedUpdatedAt: "2026-03-01T09:00:00.000Z",
+      expectedContentRevision: 11,
+      actorUserId: USER_ID,
+      purpose: "approval",
+    });
   });
 });

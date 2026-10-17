@@ -25,6 +25,7 @@
       "e2e/army/critical/stale-save.e2e.ts",
       "e2e/army/critical/team-a-hub.e2e.ts",
       "e2e/army/local/engine-v3-fail-closed.e2e.ts",
+      "e2e/army/local/engine-v3-persistence.e2e.ts",
       "e2e/army/local/estimate-create-calculation-gate.e2e.ts",
       "e2e/army/local/tech-debt-lock-boundaries.e2e.ts"
     ],
@@ -163,12 +164,14 @@
       "@wizard",
       "e2e/army/critical/team-a-hub.e2e.ts",
       "e2e/army/local/engine-v3-fail-closed.e2e.ts",
+      "e2e/army/local/engine-v3-persistence.e2e.ts",
       "e2e/army/local/tech-debt-lock-boundaries.e2e.ts"
     ],
     "affaires-list": [
       "e2e/army/critical/dashboard-ux.e2e.ts",
       "e2e/army/critical/team-a-hub.e2e.ts",
       "e2e/army/local/engine-v3-fail-closed.e2e.ts",
+      "e2e/army/local/engine-v3-persistence.e2e.ts",
       "e2e/army/local/estimate-create-calculation-gate.e2e.ts",
       "e2e/army/local/tech-debt-lock-boundaries.e2e.ts"
     ],
@@ -178,7 +181,8 @@
       "e2e/army/critical/hub-plans-card.e2e.ts",
       "e2e/army/critical/hub-takeoff-auto-propose.e2e.ts",
       "e2e/army/critical/import-optima-v2.e2e.ts",
-      "e2e/army/critical/team-a-hub.e2e.ts"
+      "e2e/army/critical/team-a-hub.e2e.ts",
+      "e2e/army/local/engine-v3-persistence.e2e.ts"
     ],
     "plans": [
       "e2e/army/critical/hub-launch-metre.e2e.ts",
@@ -297,6 +301,12 @@
       "journeys": ["e2e/army/critical/deslop-components.e2e.ts"]
     },
     {
+      "id": "approvals-queue",
+      "note": "File d'approbation : V3P01 y lit la carte de l'affaire (HT et marge nette v3).",
+      "paths": ["src/app/dashboard/approvals/**"],
+      "journeys": ["e2e/army/local/engine-v3-persistence.e2e.ts"]
+    },
+    {
       "id": "dpgf-pages",
       "note": "DPGF03 traverse historique d'import, mapping et catalogue.",
       "paths": [
@@ -318,7 +328,7 @@
         "src/app/dashboard/estimates/[versionId]/{diff,plans,source-review,takeoff}/**",
         "src/app/dashboard/estimates/{assemblies,dashboard,templates}/**",
         "src/app/dashboard/admin/{currencies,procurement-reset,rules,suggestion-learning,takeoff}/**",
-        "src/app/dashboard/{analytics,approvals,direction,indices,memberships,orders,profile,referentiel,sites,suppliers,tarifs,tenants}/**"
+        "src/app/dashboard/{analytics,direction,indices,memberships,orders,profile,referentiel,sites,suppliers,tarifs,tenants}/**"
       ],
       "journeys": []
     },

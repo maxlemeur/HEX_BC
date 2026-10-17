@@ -7,11 +7,23 @@ import {
   type EstimateBreakdown,
   type EstimateItemRecord,
 } from "@/lib/estimate-calculations";
-import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
-import { isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
+import { resolveCalcEngineVersion, resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
+import { engineFreezesSnapshot, isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
+import { computeVersionBreakdown } from "@/lib/estimates/engine/compute";
+import {
+  type EstimateV3Breakdown,
+  type EstimateV3SnapshotProjection,
+  projectEstimateV3Snapshot,
+} from "@/lib/estimates/engine-v3";
 import { badRequest, mapSupabaseError } from "@/lib/estimates/errors";
 import { loadMarginTiersForTotals } from "@/lib/estimates/margin-tiers-loader";
 import { getMarginTiers } from "@/lib/estimates/margin-tiers";
+import {
+  buildEstimateV3Input,
+  type EstimateV3LineRecord,
+  type EstimateV3VersionConfig,
+  toEstimateV3ApiError,
+} from "@/lib/estimates/v3-persistence";
 import { isFeatureEnabled } from "@/lib/feature-flags";
 import type { Database } from "@/types/database";
 
@@ -210,7 +222,8 @@ async function resolveEstimateCalculationContext(input: {
       );
     }
 
-    if (isUnifiedEngine(resolveCalcEngineVersion(input.version))) {
+    // Moteurs qui figent (2 et 3) : les rôles doivent appartenir au propriétaire (v1/v2 inchangés).
+    if (engineFreezesSnapshot(resolveEstimateEngineVersion(input.version))) {
       const missingRoleIds = uniqueRoleIds.filter(
         (roleId) => !laborRatesById.has(roleId)
       );
@@ -440,5 +453,56 @@ export async function calculateEstimateTotalsForItems(input: {
     total_ht_cents: totals.saleTotalCents,
     total_tax_cents: totals.adjustedTaxCents,
     total_ttc_cents: totals.roundedTtcCents,
+  };
+}
+
+/** Réglages v3 d'une version, avec les colonnes historiques lues par le contexte de calcul. */
+export type EstimateV3TotalsVersionConfig = EstimateTotalsVersionConfig & EstimateV3VersionConfig;
+
+export type EstimateV3CalculationResult = {
+  breakdown: EstimateV3Breakdown;
+  projection: EstimateV3SnapshotProjection;
+  dependencies?: EstimateCalculationDependencies;
+};
+
+/**
+ * Lot 2, sous-lot 2.5 - calcul v3 d'une version (conception D5 à D8, §6.5) : aucun barème, les
+ * deux coefficients de vente, les taux horaires des rôles du propriétaire, la ventilation de
+ * l'entreprise, puis la façade `computeVersionBreakdown` (moteur pur 2.4). La projection porte
+ * les colonnes et le contexte figé v3 (`labor_roles` par `id` croissant, comme le gel v2).
+ */
+export async function calculateEstimateV3SnapshotForItems(input: {
+  supabase: Supabase;
+  tenantId: string;
+  projectUserId: string;
+  version: EstimateV3TotalsVersionConfig;
+  lineItems: Array<EstimateItemRecord & EstimateV3LineRecord>;
+  captureDependencies?: boolean;
+}): Promise<EstimateV3CalculationResult> {
+  // La v3 n'a jamais de barème : le contexte est lu en marge fixe (CHECK de forme v3).
+  const resolved = await resolveEstimateCalculationContext({
+    ...input,
+    version: { ...input.version, margin_mode: "fixed" },
+  });
+  let breakdown: EstimateV3Breakdown;
+  try {
+    breakdown = computeVersionBreakdown({
+      calcEngineVersion: 3,
+      v3: buildEstimateV3Input({
+        version: input.version,
+        lines: input.lineItems,
+        laborRatesById: resolved.laborRatesById,
+        laborSplitEnabled: resolved.isLaborSplitEnabled,
+      }),
+    });
+  } catch (error) {
+    throw toEstimateV3ApiError(error);
+  }
+  return {
+    breakdown,
+    projection: projectEstimateV3Snapshot(breakdown, { laborRoles: resolved.snapshot.labor_roles }),
+    ...(resolved.dependencies
+      ? { dependencies: { ...resolved.dependencies, margin_tiers: [] } }
+      : {}),
   };
 }

@@ -37,6 +37,8 @@ export enum TakeoffErrorCode {
   TAKEOFF_JOB_NOT_RETRIABLE = "TAKEOFF_JOB_NOT_RETRIABLE",
   TAKEOFF_JOB_NOT_CANCELABLE = "TAKEOFF_JOB_NOT_CANCELABLE",
   TAKEOFF_APPLY_GUARD_FAILED = "TAKEOFF_APPLY_GUARD_FAILED",
+  /** Lot 2, sous-lot 2.5 (D16, P-19) : métré refusé sur une version en moteur de calcul 3. */
+  TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED = "TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED",
 }
 
 type TakeoffErrorStatus = ApiError["status"];
