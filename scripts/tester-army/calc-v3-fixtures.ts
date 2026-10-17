@@ -510,7 +510,7 @@ async function offersFixtures(context: CalcV3FixtureContext, campaign: string): 
   const deliverySite = { id: randomUUID(), updatedAt: new Date(Date.now() - 1_000).toISOString() };
   // One draft per journey: two editor sessions on one estimate would contend for its edit lock.
   const estimate = () => ({ projectId: randomUUID(), versionId: randomUUID(), sectionId: randomUUID() });
-  const estimates = { oz01: estimate(), oz02: estimate(), oz03: estimate(), pu: estimate() };
+  const estimates = { oz01: estimate(), oz02: estimate(), oz03: estimate(), pu: estimate(), pu04: estimate() };
   type EstimateKey = keyof typeof estimates;
   type LineExtra = { quantity: number; unit_price_ht_cents?: number; product_id?: string; selected_supplier_price_id?: string };
   const line = (estimateKey: EstimateKey, title: string, unit: string, extra: LineExtra) =>
@@ -537,10 +537,11 @@ async function offersFixtures(context: CalcV3FixtureContext, campaign: string): 
     puNegotiated: line("pu", `${prefix} fonte négociée`, "ml",
       { quantity: 282, unit_price_ht_cents: 8000, product_id: products.p4.id, selected_supplier_price_id: offers.p4Bar.id }),
     // Review of 2.9: lines written in the purchase unit, and a converted line shown in the purchase review.
-    puBarSheet: line("pu", `${prefix} fonte en barres`, "barre", { quantity: 94 }),
-    puBarOrdered: line("pu", `${prefix} barres commandées`, "barre",
+    // PU04 has its own draft: PU02 still holds the edit lock of the "pu" estimate.
+    puBarSheet: line("pu04", `${prefix} fonte en barres`, "barre", { quantity: 94 }),
+    puBarOrdered: line("pu04", `${prefix} barres commandées`, "barre",
       { quantity: 94, unit_price_ht_cents: 26245, product_id: products.p4.id, selected_supplier_price_id: offers.p4Bar.id }),
-    puUiConverted: line("pu", `${prefix} fonte 30 ml`, "ml",
+    puUiConverted: line("pu04", `${prefix} fonte 30 ml`, "ml",
       { quantity: 30, unit_price_ht_cents: 8748, product_id: products.p4.id, selected_supplier_price_id: offers.p4Bar.id }),
   };
   const records: PlanRecord[] = [

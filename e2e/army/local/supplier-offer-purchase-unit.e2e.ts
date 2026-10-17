@@ -21,7 +21,7 @@ type Fixture = {
   products: Record<"p4" | "p5", { id: string; designation: string }>;
   offers: Record<"p4Bar" | "p5Bar", Offer>;
   deliverySite: { id: string; updatedAt: string };
-  estimates: Record<"pu", { projectId: string; versionId: string; sectionId: string }>;
+  estimates: Record<"pu" | "pu04", { projectId: string; versionId: string; sectionId: string }>;
   lines: Record<"puPopover" | "puSmall" | "puNegotiated" | "puBarSheet" | "puBarOrdered" | "puUiConverted",
     { id: string; title: string; unit: string }>;
 };
@@ -57,8 +57,9 @@ async function priceItem(browser: Parameters<typeof apiRequest>[0], fixture: Fix
   return response.body.data.items.find((item) => item.id === offerId);
 }
 
-async function orderLines(browser: Parameters<typeof apiRequest>[0], fixture: Fixture, itemIds: string[]) {
-  const endpoint = `/api/estimates/${fixture.estimates.pu.versionId}/purchase-order-drafts`;
+async function orderLines(browser: Parameters<typeof apiRequest>[0], fixture: Fixture, itemIds: string[],
+  estimate = fixture.estimates.pu) {
+  const endpoint = `/api/estimates/${estimate.versionId}/purchase-order-drafts`;
   const preview = await apiRequest<Envelope<Preparation>>(browser, "GET", endpoint);
   expect(preview.status).toBe(200);
   const reviewed = preview.body.data.groups.flatMap((group) => group.lines).filter((line) => itemIds.includes(line.item_id));
@@ -144,7 +145,7 @@ armyTest("PU03 10 ml order 4 bars of 27,00 €, and a negotiated 80,00 €/ml or
 armyTest("PU04 a converted offer serves both units, the comparison and purchase review show bars, the catalogue compares per metre",
   options, async ({ app, screen, browser, army }) => {
     const fixture = await loadFixture();
-    const estimate = fixture.estimates.pu;
+    const estimate = fixture.estimates.pu04;
     ownEstimate(army, { projectId: estimate.projectId, versionId: estimate.versionId });
     const { lines, offers, products, prefix } = fixture;
 
@@ -184,7 +185,7 @@ armyTest("PU04 a converted offer serves both units, the comparison and purchase 
     await expect(screen.getByText("10 barre", { exact: true }).first()).toBeVisible({ timeout: 60_000 });
 
     // A line written in bars is ordered as such.
-    const ordered = await orderLines(browser, fixture, [lines.puBarOrdered.id]);
+    const ordered = await orderLines(browser, fixture, [lines.puBarOrdered.id], estimate);
     await recordEvidence(army, "pu04-order", ordered);
     expect(ordered.items).toEqual([expect.objectContaining({ quantity: 94, unit: "barre", price_unit: "barre",
       unit_price_ht_cents: 26245, line_total_ht_cents: 2467030 })]);
