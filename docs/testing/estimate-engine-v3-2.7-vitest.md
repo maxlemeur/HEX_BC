@@ -194,3 +194,61 @@ inchangés et verts : `ci-guardrails`, `army-impact-map`, `estimate-seal`, `offe
 
 Au vert attendu : les trois fichiers entièrement verts sans modifier les attendus ni les empreintes, après
 `offer-contract-v2.ts`, la charge 6 et la branche v3 du préparateur, et les trois tests de 2.1 ci-dessus réalignés.
+
+## Vert (18/10/2026, piste TypeScript)
+
+Windows, worktree `miaouffrage-l2-27`, base `f8cc1dc8` (M5 et sa documentation, piste SQL) ; implémentation
+`71d04e03`, renommage des parcours `f2b70f87`. Les trois fichiers sont inchangés : aucun attendu, aucune
+empreinte ni aucune copie de type n'a été modifié (les modules sont toujours chargés par une variable).
+
+```bash
+npx vitest run --project=node src/lib/estimates/offer-contract-v2.test.ts \
+  src/lib/estimates/estimate-seal.v3.test.ts src/lib/estimates/prepare-estimate-document-data.v3.test.ts
+```
+
+Sortie 0 : `Test Files 3 passed (3)`, `Tests 291 passed (291)` (177 + 104 + 10), aucun cas ignoré ; F27-S06 et
+F27-S07 rendent les empreintes figées sur `c14b243d`.
+
+### Modules
+
+| Module | Rôle |
+|---|---|
+| `offer-contract-core.ts` (nouveau) | primitives strictes déplacées telles quelles d'`offer-contract.ts` (`object`, `text`, `cents`, `uuid`, `date`, `instant`, adresse, mise en page, conditions, `run`, `canonicalJson`, `OfferContractError`), communes aux deux contrats sans cycle d'exécution |
+| `offer-contract-v2-parser.ts` (nouveau) | analyse stricte de `ClientContract2` (clés exactes, domaines, arbre, PT = ⌈Q × PU⌋ en décimal exact, pied, TVA par taux) ; module bas, lu par `offer-contract.ts` |
+| `offer-contract-v2.ts` (nouveau) | interface publique : types, `parseClientContract2Snapshot`, `buildClientContract2` (copie construite depuis le document relu), `computeOfferSealHashV2` (marqueur 5, charge 6) |
+| `offer-contract.ts` | primitives importées du cœur ; la preuve accepte le marqueur 2 avec le contrat 2 seulement (et inversement), mêmes ancres ; la présentation aiguille sur `schemaVersion` ; `parseClientContractSnapshot` et `computeOfferSealHash` inchangés |
+| `estimate-seal.ts` | `ENGINE_V3_ESTIMATE_SEAL_PAYLOAD_VERSION = 6`, constructeur séparé de la charge 6 (ordre des clés fixe, JSON imbriqué trié) ; `ESTIMATE_SEAL_PAYLOAD_UNSUPPORTED` (v3 hors 6, v1/v2 hors 1 à 4) ; charges 1 à 4 inchangées |
+| `prepare-estimate-document-data.ts` | `prepareEstimateV3DocumentData` (entrée typée) ; `prepareEstimateDocumentData` aiguille une entrée v3 à l'exécution, sa signature v1/v2 reste celle des goldens |
+
+### Tests réalignés (refus de 2.1 levé volontairement)
+
+| Test | Avant | Après |
+|---|---|---|
+| `estimate-seal.test.ts` | v3 sans option : `ESTIMATE_ENGINE_UNAVAILABLE` | v3 sans option : charge 6 ; charge 4 toujours refusée par son nom |
+| `pdf-generator.test.ts` (F-TS-04) | v3 refusée avant réclamation, gel, rendu, dépôt | moteur hors domaine (4) refusé (`ESTIMATE_CALC_ENGINE_UNSUPPORTED`) avant tout effet ; la v3 est émise (V3M01, V3M02) |
+| `send-estimate.test.ts` (F-TS-05) | v3 refusée avant configuration et réservation | moteur hors domaine (4) refusé avant tout effet ; la v3 s'envoie (V3M01) |
+| `server.seal.test.ts` (deux `toEqual`) | `{ valid, computed_hash, stored_hash }` | plus `seal_payload_version`, `client_contract_version`, `calc_payload_version` (« Choix » du §5.2 de [estimate-engine-v3-2.7.md](estimate-engine-v3-2.7.md)) |
+
+### Garde des conditions bac à sable (`pdf-terms-server.test.ts`)
+
+Défaillance que le parcours ne peut pas produire (un marqueur d'hébergement, ou une pile sur 45585 interdite à
+la campagne) : écrit rouge avant l'extension (`7154c1ce` : `Tests 1 failed | 80 passed (81)`, le cas d'admission),
+vert après (`Tests 81 passed (81)`). Le profil admis est le build de production de la pile possédée calc-v3
+(`E2E_ARMY_SUITE=calc-v3`, `E2E_OFFER_SERVER_MODE=production`, `E2E_OFFER_SANDBOX_TERMS=1`, garde serveur
+d'offre, backend `http://127.0.0.1:<port>` hors 45585/33485 égal à `E2E_OFFER_BACKEND_ORIGIN`, application en
+boucle locale sur un autre port) ; tout marqueur d'hébergement, tout autre profil, la pile des développeurs et
+un environnement de test sont refusés ; le cas `offer` sur 45585 est inchangé. La phase `emission-v3` reste
+servie en `next dev` : son passage au build possédé est une évolution du harnais, hors de ce sous-lot.
+
+### Contrôles (Windows, arbre final `dad77e83`, aucun changement local hors documentation)
+
+| Commande | Résultat |
+|---|---|
+| `npx vitest run --project=node` | `Test Files 298 passed / 1 skipped`, `Tests 3111 passed / 3 skipped` (dont `engine-frozen-corpus`, seal, offre, PDF, document, exports, goldens) ; 2 exécutions sur 7 ont signalé un « Worker exited unexpectedly » de Vitest sans aucun test en échec (poste chargé par les piles natives d'autres sessions), puis 3 exécutions consécutives au rapporteur JSON sans erreur (299 fichiers, 0 suite en échec) |
+| `npx vitest run --project=jsdom` | `Test Files 162 passed`, `Tests 821 passed` |
+| `npm run test:critical-coverage` | `3 passed`, `12 passed` |
+| `node scripts/typecheck.mjs` | sortie 0 |
+| `npx eslint --max-warnings=0 <fichiers touchés>` | sortie 0 |
+| `npm run validate-openapi` | « spec valide et synchronisée » (144 routes, 192 opérations) |
+| `npm run check:architecture` | passé (1 133 modules, 0 cycle) ; `pdf-generator.tsx` 2 220 / 2 300 lignes non vides |
+| `git diff --stat -- src/lib/estimate-calculations.ts src/lib/estimate-v2-snapshot.ts` | vide |
