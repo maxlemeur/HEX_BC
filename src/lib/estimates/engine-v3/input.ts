@@ -105,9 +105,23 @@ function requiredBoolean(bag: Bag, key: string, path: string): boolean {
   return value;
 }
 
+/** Les huit clés du contrat canonique, exigées comme par le jumeau SQL (intégration 2.4 I-03). */
+const PARAMS_KEYS = [
+  "sale_coefficient_fo",
+  "sale_coefficient_mo",
+  "discount_amount_cents",
+  "discount_bp",
+  "rounding_mode",
+  "rounding_step_cents",
+  "reverse_charge",
+  "labor_split_enabled",
+] as const;
+
 function normalizeParams(raw: unknown): NormalizedV3Params {
   if (!isBag(raw)) throw invalidInput("params", "objet attendu");
   const path = "params";
+  const missing = PARAMS_KEYS.find((key) => !(key in raw));
+  if (missing) throw invalidInput(`${path}.${missing}`, "clé de paramètre absente");
   const discountAmount = optionalDecimal(raw, "discount_amount_cents", path, INTEGER_BOUNDS);
   const discountBp = requiredDecimal(raw, "discount_bp", path, BASIS_POINTS_BOUNDS).units;
   if (discountAmount !== null && discountBp !== BigInt(0)) {
@@ -140,9 +154,22 @@ function normalizeParams(raw: unknown): NormalizedV3Params {
   };
 }
 
-function normalizeLine(raw: Bag, path: string): NormalizedV3Line {
+/** Identifiant d'élément (section ou ligne) : uuid, mis en minuscules ; parent nul ou uuid (I-02). */
+function normalizeItemIdentity(raw: Bag, path: string): string {
   const id = typeof raw.id === "string" ? raw.id.toLowerCase() : "";
   if (!UUID_PATTERN.test(id)) throw invalidInput(`${path}.id`, "uuid attendu");
+  const parent = raw.parent_id;
+  if (
+    parent !== null &&
+    parent !== undefined &&
+    (typeof parent !== "string" || !UUID_PATTERN.test(parent.toLowerCase()))
+  ) {
+    throw invalidInput(`${path}.parent_id`, "uuid ou null attendu");
+  }
+  return id;
+}
+
+function normalizeLine(raw: Bag, path: string, id: string): NormalizedV3Line {
   const status = raw.pricing_status;
   if (typeof status !== "string" || !PRICING_STATUSES.has(status)) {
     throw invalidInput(`${path}.pricing_status`, "statut de chiffrage inconnu");
@@ -171,7 +198,10 @@ function normalizeLine(raw: Bag, path: string): NormalizedV3Line {
   };
 }
 
-/** Valide l'entrée canonique ; les sections sont ignorées (aucun montant propre). */
+/**
+ * Valide l'entrée canonique. Une section est validée (identifiant, parent, unicité des
+ * identifiants sur tous les éléments, comme le jumeau SQL : I-02) puis ignorée (aucun montant).
+ */
 export function normalizeEstimateV3Input(raw: unknown): NormalizedV3Input {
   if (!isBag(raw)) throw invalidInput("input", "objet { params, items } attendu");
   const params = normalizeParams(raw.params);
@@ -181,12 +211,13 @@ export function normalizeEstimateV3Input(raw: unknown): NormalizedV3Input {
   raw.items.forEach((item: unknown, index) => {
     const path = `items[${index}]`;
     if (!isBag(item)) throw invalidInput(path, "objet attendu");
-    if (item.item_type === "section") return;
-    if (item.item_type !== "line") throw invalidInput(`${path}.item_type`, "« section » ou « line » attendu");
-    const line = normalizeLine(item, path);
-    if (seen.has(line.id)) throw invalidInput(`${path}.id`, "identifiant de ligne en double");
-    seen.add(line.id);
-    lines.push(line);
+    if (item.item_type !== "section" && item.item_type !== "line") {
+      throw invalidInput(`${path}.item_type`, "« section » ou « line » attendu");
+    }
+    const id = normalizeItemIdentity(item, path);
+    if (seen.has(id)) throw invalidInput(`${path}.id`, "identifiant d'élément en double");
+    seen.add(id);
+    if (item.item_type === "line") lines.push(normalizeLine(item, path, id));
   });
   return { params, lines };
 }

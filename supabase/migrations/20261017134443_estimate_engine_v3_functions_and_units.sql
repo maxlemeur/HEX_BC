@@ -559,9 +559,10 @@ begin
   end if;
   params.rounding_mode := p_params ->> 'rounding_mode';
   params.rounding_step_cents := private.estimate_v3_input_number(p_params, 'rounding_step_cents', 0, 2147483647, null, false);
-  if params.rounding_mode = 'down' and params.rounding_step_cents < 1 then
+  -- Tout mode : la colonne porte CHECK (rounding_step_cents >= 1) (intégration 2.4 I-05).
+  if params.rounding_step_cents < 1 then
     raise exception using errcode = '22023', message = 'ESTIMATE_V3_INPUT_INVALID',
-      detail = 'rounding down needs a step of at least 1 cent';
+      detail = 'rounding_step_cents is at least 1 cent in every mode';
   end if;
   if jsonb_typeof(p_params -> 'reverse_charge') is distinct from 'boolean'
     or jsonb_typeof(p_params -> 'labor_split_enabled') is distinct from 'boolean' then
@@ -614,9 +615,11 @@ begin
   item.quantity := private.estimate_v3_input_number(p_item, 'quantity', 3, 999999999.999, 0, false);
   item.unit_price_ht_cents := private.estimate_v3_input_number(p_item, 'unit_price_ht_cents', 0, 2147483647, 0, false);
   item.k_fo := private.estimate_v3_input_number(p_item, 'k_fo', 3, 999999999.999, 1, false);
-  item.h_mo_per_unit := private.estimate_v3_input_number(p_item, 'h_mo_per_unit', 4, 99999999.9999, 0, false);
-  item.h_mo_atelier_per_unit := private.estimate_v3_input_number(p_item, 'h_mo_atelier_per_unit', 4, 99999999.9999, 0, false);
-  item.h_mo_chantier_per_unit := private.estimate_v3_input_number(p_item, 'h_mo_chantier_per_unit', 4, 99999999.9999, 0, false);
+  -- Heures par unité nullables : une colonne nulle donne des heures de ligne nulles (I-04) et
+  -- vaut 0 dans la MO.
+  item.h_mo_per_unit := private.estimate_v3_input_number(p_item, 'h_mo_per_unit', 4, 99999999.9999, null, true);
+  item.h_mo_atelier_per_unit := private.estimate_v3_input_number(p_item, 'h_mo_atelier_per_unit', 4, 99999999.9999, null, true);
+  item.h_mo_chantier_per_unit := private.estimate_v3_input_number(p_item, 'h_mo_chantier_per_unit', 4, 99999999.9999, null, true);
   item.h_mo_majoration := private.estimate_v3_input_number(p_item, 'h_mo_majoration', 4, 99999999.9999, 1, false);
   item.k_mo := private.estimate_v3_input_number(p_item, 'k_mo', 3, 999999999.999, 1, false);
   item.k_mo_atelier := private.estimate_v3_input_number(p_item, 'k_mo_atelier', 3, 999999999.999, 1, false);
@@ -630,8 +633,10 @@ $$;
 
 -- Ligne (§4, étapes 1 à 5) : PU = ⌈FO_u × c_FO + MO_u × c_MO⌋ (un seul arrondi), B = ⌈Q × PU⌋,
 -- FO/MO bruts répartis selon (FO_u × c_FO, MO_u × c_MO), atelier/chantier selon (MO_at_u, MO_ch_u),
--- D = ⌈Q × (FO_u + MO_u)⌋, heures de ligne = round(Q × h/u, 3). Sans ventilation, toute la MO est
--- « chantier » (convention v2). Une ligne non chiffrée contribue 0 partout et n'a pas de PU.
+-- D = ⌈Q × (FO_u + MO_u)⌋, heures de ligne = round(Q × h/u, 3), nulles si h/u est nul (I-04) et
+-- refusées au-delà de numeric(12,3) (ESTIMATE_AMOUNT_OVERFLOW, I-06). Sans ventilation, toute la MO
+-- est « chantier » (convention v2, I-01). Une ligne non chiffrée contribue 0 partout et n'a pas de PU ;
+-- ses heures valent 0.000 (nulles si h/u est nul).
 create function private.estimate_v3_line_values(
   p_item private.estimate_v3_item_input,
   p_params private.estimate_v3_params_input
@@ -651,6 +656,7 @@ declare
   fo_weight numeric;
   mo_weight numeric;
   parts bigint[];
+  line_hours numeric[];
 begin
   if p_item.item_type is distinct from 'line' then
     raise exception using errcode = '22023', message = 'ESTIMATE_V3_INPUT_INVALID',
@@ -667,29 +673,30 @@ begin
     line.gross_mo_atelier_ht_cents := 0;
     line.gross_mo_chantier_ht_cents := 0;
     line.cost_ht_cents := 0;
-    line.h_mo := '0.000';
-    line.h_mo_atelier := '0.000';
-    line.h_mo_chantier := '0.000';
+    line.h_mo := case when p_item.h_mo_per_unit is not null then '0.000' end;
+    line.h_mo_atelier := case when p_item.h_mo_atelier_per_unit is not null then '0.000' end;
+    line.h_mo_chantier := case when p_item.h_mo_chantier_per_unit is not null then '0.000' end;
     return line;
   end if;
 
   uses_split := p_params.labor_split_enabled and (
-    p_item.h_mo_atelier_per_unit > 0
+    coalesce(p_item.h_mo_atelier_per_unit, 0) > 0
     or p_item.labor_rate_atelier_cents is not null
-    or p_item.h_mo_chantier_per_unit > 0
+    or coalesce(p_item.h_mo_chantier_per_unit, 0) > 0
     or p_item.labor_rate_chantier_cents is not null
     or p_item.k_mo_atelier <> 1
     or p_item.k_mo_chantier <> 1
   );
   fo_unit := p_item.unit_price_ht_cents * p_item.k_fo;
   if uses_split then
-    mo_atelier_unit := p_item.h_mo_majoration * p_item.h_mo_atelier_per_unit
+    mo_atelier_unit := p_item.h_mo_majoration * coalesce(p_item.h_mo_atelier_per_unit, 0)
       * coalesce(p_item.labor_rate_atelier_cents, 0) * p_item.k_mo_atelier;
-    mo_chantier_unit := p_item.h_mo_majoration * p_item.h_mo_chantier_per_unit
+    mo_chantier_unit := p_item.h_mo_majoration * coalesce(p_item.h_mo_chantier_per_unit, 0)
       * coalesce(p_item.labor_rate_chantier_cents, 0) * p_item.k_mo_chantier;
   else
     mo_atelier_unit := 0;
-    mo_chantier_unit := p_item.h_mo_majoration * p_item.h_mo_per_unit * p_item.labor_rate_cents * p_item.k_mo;
+    mo_chantier_unit := p_item.h_mo_majoration * coalesce(p_item.h_mo_per_unit, 0)
+      * p_item.labor_rate_cents * p_item.k_mo;
   end if;
   fo_weight := fo_unit * p_params.sale_coefficient_fo;
   mo_weight := (mo_atelier_unit + mo_chantier_unit) * p_params.sale_coefficient_mo;
@@ -705,9 +712,18 @@ begin
   line.gross_mo_chantier_ht_cents := parts[2];
   line.cost_ht_cents := private.estimate_v3_amount(
     private.estimate_round_half_up(p_item.quantity * (fo_unit + mo_atelier_unit + mo_chantier_unit)), 'cost_ht_cents');
-  line.h_mo := private.estimate_round_half_up(p_item.quantity * p_item.h_mo_per_unit, 3)::text;
-  line.h_mo_atelier := private.estimate_round_half_up(p_item.quantity * p_item.h_mo_atelier_per_unit, 3)::text;
-  line.h_mo_chantier := private.estimate_round_half_up(p_item.quantity * p_item.h_mo_chantier_per_unit, 3)::text;
+  line_hours := array[
+    private.estimate_round_half_up(p_item.quantity * p_item.h_mo_per_unit, 3),
+    private.estimate_round_half_up(p_item.quantity * p_item.h_mo_atelier_per_unit, 3),
+    private.estimate_round_half_up(p_item.quantity * p_item.h_mo_chantier_per_unit, 3)
+  ];
+  if exists (select 1 from unnest(line_hours) as hours where hours >= 1000000000) then
+    raise exception using errcode = '22003', message = 'ESTIMATE_AMOUNT_OVERFLOW',
+      detail = format('line %s: derived line hours exceed numeric(12,3) and are never clamped', p_item.id);
+  end if;
+  line.h_mo := line_hours[1]::text;
+  line.h_mo_atelier := line_hours[2]::text;
+  line.h_mo_chantier := line_hours[3]::text;
   return line;
 end;
 $$;

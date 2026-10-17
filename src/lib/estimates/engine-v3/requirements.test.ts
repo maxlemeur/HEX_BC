@@ -571,7 +571,8 @@ describe("sub-lot 2.4 integration: one contract for the TS engine and the SQL tw
 
   it("I-03 requires the eight canonical parameter keys, discount_amount_cents included", () => {
     const input = v3Input([v3Line(1, { unit_price_ht_cents: 100 })]);
-    const { discount_amount_cents: _omitted, ...params } = input.params;
+    const params: Partial<typeof input.params> = { ...input.params };
+    delete params.discount_amount_cents;
     expect(thrown(() => computeEstimateV3Canonical({ ...input, params }))).toMatchObject({
       code: "ESTIMATE_V3_INPUT_INVALID",
     });

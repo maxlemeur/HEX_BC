@@ -126,7 +126,7 @@ function readLine(item: StoredEstimateV3Item): StoredEstimateV3Line {
   ensure(grossFo <= gross, path, "FO brut supérieur au brut");
   ensure(net <= gross, path, "net supérieur au brut");
   ensure(netFo + netMo === net, path, "FO net + MO net ≠ net");
-  ensure(netAtelier + netChantier === 0 || netAtelier + netChantier === netMo, path, "atelier + chantier ≠ MO net");
+  ensure(netAtelier + netChantier === netMo, path, "atelier + chantier ≠ MO net");
   ensure(ttc === net + tax, path, "TTC de ligne ≠ net + TVA");
   if (status === "priced") {
     ensure(item.pu_ht_cents !== null, path, "PU publié absent");

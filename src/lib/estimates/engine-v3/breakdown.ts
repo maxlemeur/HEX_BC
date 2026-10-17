@@ -94,12 +94,11 @@ export function computeEstimateV3BreakdownFromUnknown(rawInput: unknown): Estima
       { key: "fo", weight: line.grossFo },
       { key: "mo", weight: line.grossMo },
     ]);
-    const [atelier, chantier] = line.laborSplit
-      ? allocateExact(mo, [
-          { key: "atelier", weight: line.grossMoAtelier },
-          { key: "chantier", weight: line.grossMoChantier },
-        ])
-      : [ZERO, ZERO];
+    // Sans ventilation, le brut chantier porte toute la MO : le net chantier aussi (I-01).
+    const [atelier, chantier] = allocateExact(mo, [
+      { key: "atelier", weight: line.grossMoAtelier },
+      { key: "chantier", weight: line.grossMoChantier },
+    ]);
     return { fo, mo, atelier, chantier };
   });
 
@@ -180,6 +179,11 @@ export function computeEstimateV3BreakdownFromUnknown(rawInput: unknown): Estima
   assertEngineInvariant(
     netSplits.every((split, index) => split.fo + split.mo === nets[index]),
     "FO net + MO net = net"
+  );
+  assertEngineInvariant(
+    netSplits.every((split) => split.atelier + split.chantier === split.mo) &&
+      gross.every((line) => line.grossMoAtelier + line.grossMoChantier === line.grossMo),
+    "atelier + chantier = MO"
   );
   assertEngineInvariant(commercialRounding < params.roundingStepCents, "A < pas");
 
