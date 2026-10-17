@@ -43,11 +43,12 @@ import {
 import {
   buildEstimateItemUpdatePayload,
   buildVersionTotalsPatch,
-  getEstimateEditorItemClientKey,
+  withStableEditorClientKeys,
   type EditorEstimateItem,
   type EstimateItem,
   type EstimateItemUpdatePayload,
 } from "@/lib/estimates/editor-items";
+import { isDraftLockRequiredError, isVersionConflictError } from "@/lib/estimates/editor-sync-errors";
 
 import {
   AUTOSAVE_IMMEDIATE_FLUSH_UPDATES,
@@ -62,18 +63,6 @@ export type {
   EstimateEditorConflictState,
   EstimateEditorSyncController,
 };
-
-function isVersionConflictError(error: unknown) {
-  return (
-    isEstimateApiError(error) &&
-    error.status === 409 &&
-    ["VERSION_CONFLICT", "ESTIMATE_BATCH_STALE", "ESTIMATE_BATCH_CONTEXT_CHANGED"].includes(error.code ?? "")
-  );
-}
-
-function isDraftLockRequiredError(error: unknown) {
-  return isEstimateApiError(error) && ["LOCK_REQUIRED", "ESTIMATE_BATCH_LOCK_REQUIRED"].includes(error.code ?? "");
-}
 
 export function useEstimateEditorSyncController({
   routeVersionId,
@@ -346,18 +335,7 @@ export function useEstimateEditorSyncController({
    * a partir de laquelle une modification locale est reconnue comme telle.
    */
   const overlayPendingUpdates = useCallback((sourceItems: EditorEstimateItem[]) => {
-    const existingClientKeyByItemId = new Map(
-      itemsRef.current.map((item) => [
-        item.id,
-        getEstimateEditorItemClientKey(item),
-      ])
-    );
-    const sourceItemsWithStableClientKeys = sourceItems.map((item) => ({
-      ...item,
-      _clientKey:
-        existingClientKeyByItemId.get(item.id) ??
-        getEstimateEditorItemClientKey(item),
-    }));
+    const sourceItemsWithStableClientKeys = withStableEditorClientKeys(sourceItems, itemsRef.current);
 
     syncedItemPayloadsRef.current = new Map(
       sourceItemsWithStableClientKeys.map((item) => [

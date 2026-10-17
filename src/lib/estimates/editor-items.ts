@@ -76,6 +76,23 @@ export function getEstimateEditorItemClientKey(item: {
   return item._clientKey ?? item.id;
 }
 
+/**
+ * Lignes relues du serveur, avec la clé client que la grille leur donnait déjà :
+ * une ligne connue garde sa clé, une nouvelle reçoit la sienne.
+ */
+export function withStableEditorClientKeys<T extends { id: string; _clientKey?: string }>(
+  sourceItems: readonly T[],
+  currentItems: ReadonlyArray<{ id: string; _clientKey?: string }>
+): Array<T & { _clientKey: string }> {
+  const existingClientKeyByItemId = new Map(
+    currentItems.map((item) => [item.id, getEstimateEditorItemClientKey(item)])
+  );
+  return sourceItems.map((item) => ({
+    ...item,
+    _clientKey: existingClientKeyByItemId.get(item.id) ?? getEstimateEditorItemClientKey(item),
+  }));
+}
+
 export function readLaborSplitFields(
   source: EstimateItem | Record<string, unknown>
 ): Required<LaborSplitItemFields> {
