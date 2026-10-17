@@ -459,3 +459,70 @@ Sources et build production stables, contrôle de confidentialité passé ;
 la pile temporaire `miaouffrage-supabase-ci-eZdAhv` est absente après nettoyage.
 Les originaux privés et le cache du runtime restent conservés. Cette campagne
 ne qualifie pas les corrections de fixtures et de navigation préparées ensuite.
+
+## Échec intermittent du provisionnement ARMY (17 octobre 2026)
+
+Symptôme : environ 2 s après « Behavioral RLS matrix passed. », le job affichait
+seulement `TesterArmy CI failed` et le manifeste
+`Phase failed: run application validation`, étapes vides (run 39038501242,
+tentative 1, PR #28 ; run TesterArmy Full 39034514643, tentative 1). La relance
+du même commit passait. `createPhaseError` ne publie le message que pour les
+phases de `SAFE_DIAGNOSTIC_PHASES` : les messages du runner restaient masqués.
+
+Défaillances à exposer avant correction :
+
+1. Un échec du provisionnement doit nommer son étape (`create account`,
+   `verify personal tenant`, `verify owned tenant`, `create labor basis`,
+   `verify labor basis`, `create catalogue article`) dans le manifeste et le
+   journal du job, avec des identifiants non secrets : nom d'erreur, statut
+   HTTP, code machine et cause réseau. Les messages, `details` et `hint` ne sont
+   jamais lus : ils peuvent citer l'adresse du compte, une ligne ou une URL.
+2. Une erreur applicative quelconque reste masquée dans le message de phase ;
+   seule une `SafeDiagnosticError`, construite à partir de ces identifiants, le
+   traverse. Le motif publié passe le même contrôle de confidentialité que les
+   preuves téléversées, sinon il est retenu.
+3. Le premier appel Supabase du hook ne doit pas échouer parce que le runner a
+   gardé une connexion keep-alive fermée par la passerelle pendant la matrice RLS.
+
+Cause racine : la passerelle du runtime natif annonce `Keep-Alive: timeout=5` et
+ferme une connexion inactive après 6 s. Le runner crée les trois comptes RLS sur
+une connexion du pool undici, puis lançait la matrice RLS par `spawnSync` : la
+boucle d'événements restait bloquée, donc ni le délai d'inactivité d'undici ni
+la fermeture du serveur n'étaient traités. Quand l'enfant durait plus de 6 s,
+le `createUser` du hook partait sur la connexion fermée :
+`AuthRetryableFetchError status=0`, cause `SocketError UND_ERR_SOCKET`
+(`other side closed`). Ni la disponibilité d'Auth ni le trigger
+`handle_new_user` (synchrone, même transaction) ne sont en cause.
+
+Preuves (WSL Ubuntu 24.04, Node 24.14.0, CLI 2.120.0 ; révision `c2e1c91f`
+plus ce changement, puis ce changement rebasé sur `ef30a83d`) :
+
+- CI : sur 32 tentatives critical/full récentes, les deux seuls échecs de
+  provisionnement sont les deux segments pgTAP → RLS les plus longs (7,9 s et
+  8,7 s) ; toutes les tentatives jusqu'à 7,5 s atteignent le build.
+- Passerelle réelle, trois `createUser` puis blocage de la boucle : 39/39 échecs
+  `UND_ERR_SOCKET` pour un blocage de 6 à 9 s, aucun en dessous de 6 s.
+- Séquence CI complète réelle (pile, reset, pgTAP, comptes RLS, matrice RLS
+  enfant, puis appels du runner) sous charge CPU (pgTAP → RLS 10,8 à 12,3 s) :
+  module `main` 4/4 échecs à `create account`, module corrigé 0/6 puis 0/3
+  après rebase. Sans charge (4,3 à 5,5 s), 0/19 échec : l'enfant reste sous le
+  seuil de 6 s.
+- Échec réel forcé dans une copie jetable du nouveau runner : le journal affiche
+  `TesterArmy CI error: Phase failed: run application validation: Could not create the local ARMY account. [step create account: AuthRetryableFetchError status=0; network TypeError cause=SocketError:UND_ERR_SOCKET]`,
+  le manifeste porte `provisioning.failed`, aucune adresse, clé ni URL de base
+  dans les preuves, contrôle de confidentialité passé.
+- Recette réelle avec la correction,
+  `npm run e2e:army:local -- --grep "commercial rounding" --app-port 3127` :
+  pgTAP 15 fichiers / 1328 assertions, RLS 2/2, six étapes de provisionnement
+  dans `provisioning.completed`, build, 3/3 cas sélectionnés réussis,
+  confidentialité passée ; même résultat après rebase.
+
+Correction : la matrice RLS s'exécute par `runChildProcess`, asynchrone, avec la
+même limite de sortie de 10 Mio. Aucune relance n'est ajoutée : la défaillance
+est déterministe dès que l'enfant dépasse la fermeture de la passerelle, et
+relancer un `createUser` non idempotent masquerait cette cause. Le test de cycle
+existant reproduit l'échec sans Supabase (serveur HTTP keep-alive local, trois
+requêtes, enfant de 3,5 s) : rouge `ECONNRESET` avec l'exécution synchrone, vert
+avec l'exécution asynchrone. Cette isolation est justifiée par une course que
+la CI ne déclenche qu'avec un runner lent. Les scripts de sonde et leurs sorties
+sont conservés dans `.codex-tmp/army-provision-flake-20261017/`.
