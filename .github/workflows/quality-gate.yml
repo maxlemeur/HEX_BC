@@ -7,6 +7,10 @@ name: Quality Gate
 # pour deux runners. Le build de production ne tourne que sur main (la branche
 # qui deploie) et en nocturne : il ne protege rien de plus sur une PR, puisque
 # rien ne part en production depuis une branche.
+#
+# Aucun job de plus pour gagner du temps : tsc et ESLint reprennent l'etat que
+# main a mis en cache (job « Statique »), et le projet Vitest jsdom tourne dans
+# le pool vmForks (vitest.config.ts).
 
 on:
   pull_request:
@@ -55,6 +59,37 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # Etat incremental de tsc (tsconfig.tsbuildinfo, ecrit par `incremental`
+      # du tsconfig) et cache ESLint (--cache-location du script `lint`,
+      # strategie content). Les deux comparent le contenu des fichiers, pas leur
+      # date de checkout : seuls les fichiers modifies (et, pour tsc, ceux qui en
+      # dependent) sont recontroles, avec les memes diagnostics qu'un controle
+      # complet. Mesure du 17/10/2026 sur 2 CPU : tsc 28 s a froid, 4 a 19 s a
+      # chaud ; ESLint 37 s a froid, 1 a 2 s a chaud.
+      # Une PR vise l'etat que main a enregistre pour son commit de base, a
+      # defaut le dernier disponible (le sien, sinon celui de main) ; elle
+      # n'enregistre que dans ce second cas, dans sa propre portee, que main ne
+      # lit jamais. Un push sur main enregistre l'etat de son commit si le job
+      # reussit. Le hash du lockfile et des configs fait repartir de zero quand
+      # un outil, un plugin ou une option change. Le cache ESLint indexe des
+      # chemins absolus : il ne sert qu'au meme emplacement de checkout, celui,
+      # fixe, du runner.
+      - name: Cache TypeScript incremental state
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: tsconfig.tsbuildinfo
+          key: tsc-${{ runner.os }}-${{ hashFiles('package-lock.json', 'tsconfig.json') }}-${{ github.event.pull_request.base.sha || github.sha }}
+          restore-keys: |
+            tsc-${{ runner.os }}-${{ hashFiles('package-lock.json', 'tsconfig.json') }}-
+
+      - name: Cache ESLint results
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .next/cache/eslint
+          key: eslint-${{ runner.os }}-${{ hashFiles('package-lock.json', 'eslint.config.mjs', 'tools/next-eslint-root-glob/**') }}-${{ github.event.pull_request.base.sha || github.sha }}
+          restore-keys: |
+            eslint-${{ runner.os }}-${{ hashFiles('package-lock.json', 'eslint.config.mjs', 'tools/next-eslint-root-glob/**') }}-
 
       # Les etapes tournent meme si une precedente echoue : une PR voit ainsi
       # tous ses problemes en une passe au lieu d'un par aller-retour.
