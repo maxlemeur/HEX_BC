@@ -2328,6 +2328,107 @@ export type Database = {
         };
         Relationships: [];
       };
+      measurement_units: {
+        Row: {
+          code: string;
+          label: string;
+          symbol: string;
+          dimension:
+            | "count"
+            | "set"
+            | "lump_sum"
+            | "length"
+            | "area"
+            | "volume"
+            | "mass"
+            | "time"
+            | "inch";
+          sort_order: number;
+          active: boolean;
+        };
+        Insert: {
+          code: string;
+          label: string;
+          symbol: string;
+          dimension:
+            | "count"
+            | "set"
+            | "lump_sum"
+            | "length"
+            | "area"
+            | "volume"
+            | "mass"
+            | "time"
+            | "inch";
+          sort_order: number;
+          active?: boolean;
+        };
+        Update: {
+          code?: string;
+          label?: string;
+          symbol?: string;
+          dimension?:
+            | "count"
+            | "set"
+            | "lump_sum"
+            | "length"
+            | "area"
+            | "volume"
+            | "mass"
+            | "time"
+            | "inch";
+          sort_order?: number;
+          active?: boolean;
+        };
+        Relationships: [];
+      };
+      measurement_unit_aliases: {
+        Row: {
+          token: string;
+          unit_code: string | null;
+          pricing_status:
+            | "priced"
+            | "included"
+            | "for_memory"
+            | "not_priced"
+            | "out_of_scope"
+            | "not_applicable"
+            | null;
+        };
+        Insert: {
+          token: string;
+          unit_code?: string | null;
+          pricing_status?:
+            | "priced"
+            | "included"
+            | "for_memory"
+            | "not_priced"
+            | "out_of_scope"
+            | "not_applicable"
+            | null;
+        };
+        Update: {
+          token?: string;
+          unit_code?: string | null;
+          pricing_status?:
+            | "priced"
+            | "included"
+            | "for_memory"
+            | "not_priced"
+            | "out_of_scope"
+            | "not_applicable"
+            | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "measurement_unit_aliases_unit_code_fkey";
+            columns: ["unit_code"];
+            isOneToOne: false;
+            referencedRelation: "measurement_units";
+            referencedColumns: ["code"];
+          },
+        ];
+      };
       estimate_suggestion_rules: {
         Row: {
           id: string;
@@ -5405,6 +5506,13 @@ export type Database = {
         | "supply_only"
         | "supply_and_labor"
         | "labor_only";
+      estimate_line_pricing_status:
+        | "priced"
+        | "included"
+        | "for_memory"
+        | "not_priced"
+        | "out_of_scope"
+        | "not_applicable";
       estimate_margin_mode: "fixed" | "tiered";
       estimate_discount_mode: "simple" | "cascade";
       estimate_rounding_mode: "none" | "nearest" | "up" | "down";

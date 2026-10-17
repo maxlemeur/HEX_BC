@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { computeEstimateBreakdown, type EstimateComputationInput } from "@/lib/estimate-calculations";
 import { computeVersionBreakdown } from "@/lib/estimates/engine/compute";
+import { computeEstimateV3Breakdown } from "@/lib/estimates/engine-v3";
+import { oracleInput } from "@/lib/estimates/engine-v3/oracle.fixtures";
 
 // Lot 2, sous-lot 2.1 (docs/testing/estimate-engine-v3-2.1.md, F-TS-03). Isolation justifiée :
 // la façade est le seul aiguillage entre moteurs. Un aiguillage `>= 2` ou un repli
@@ -56,8 +58,11 @@ function thrownBy(read: () => unknown) {
 }
 
 describe("computeVersionBreakdown", () => {
-  it("refuses engine 3 with a named, displayable error until the v3 engine ships", () => {
-    const error = thrownBy(() => computeVersionBreakdown({ ...baseInput, calcEngineVersion: 3 }));
+  it("refuses a historical-shaped call for engine 3 with a named, displayable error", () => {
+    // 2.4 : un appelant non adapté (entrée v1/v2 sans entrée v3) échoue fermé, par son nom.
+    const error = thrownBy(() =>
+      computeVersionBreakdown({ ...baseInput, calcEngineVersion: 3 } as never)
+    );
     expect(error).toBeInstanceOf(Error);
     expect(error).toMatchObject({
       name: "EstimateEngineUnavailableError",
@@ -82,5 +87,27 @@ describe("computeVersionBreakdown", () => {
     expect(v2).toEqual(computeEstimateBreakdown({ ...baseInput, calcEngineVersion: 2 }));
     // The two engines differ on this input: a mis-routed engine cannot pass both checks.
     expect(v1).not.toEqual(v2);
+  });
+
+  it("routes engine 3 to the v3 engine and returns its own breakdown type (2.4)", () => {
+    const input = oracleInput({ discount_amount_cents: 101 });
+    const result = computeVersionBreakdown({ calcEngineVersion: 3, v3: input });
+
+    expect(result).toEqual(computeEstimateV3Breakdown(input));
+    expect(result.engine).toBe(3);
+    expect(result.totals.total_ht_cents).toBe(6_905_355);
+    // Jamais converti en EstimateBreakdown v2 : aucune structure v2 dans le résultat.
+    expect(result).not.toHaveProperty("lineById");
+    expect(result).not.toHaveProperty("sectionById");
+  });
+
+  it("keeps engines 1 and 2 byte-identical to the historical engine (2.4)", () => {
+    const serialize = (value: unknown) =>
+      JSON.stringify(value, (_key, inner) => (inner instanceof Map ? [...inner.entries()] : inner));
+    for (const engine of [1, 2] as const) {
+      const viaFacade = computeVersionBreakdown({ ...baseInput, calcEngineVersion: engine });
+      const direct = computeEstimateBreakdown({ ...baseInput, calcEngineVersion: engine });
+      expect(serialize(viaFacade)).toBe(serialize(direct));
+    }
   });
 });
