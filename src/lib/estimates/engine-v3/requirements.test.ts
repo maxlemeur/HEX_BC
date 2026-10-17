@@ -638,6 +638,23 @@ describe("stored v3 reader (frozen columns, no recomputation)", () => {
       ).toMatchObject({ code: "ESTIMATE_V3_STORED_INCOHERENT" });
     }
   });
+
+  it("refuses a frozen realized sale coefficient other than ⌈HT / déboursé⌋ at 6 decimals (§4.11)", () => {
+    const stored = storedS5();
+    const frozen = stored.version.calc_snapshot_context.realized_sale_coefficient;
+    expect(frozen).not.toBeNull();
+    expect(readStoredEstimateV3(stored).totals.realized_sale_coefficient).toBe(frozen);
+    for (const coefficient of [-1, 999, 0, null, (frozen ?? 0) + 0.000001]) {
+      const tampered = {
+        ...stored,
+        version: {
+          ...stored.version,
+          calc_snapshot_context: { ...stored.version.calc_snapshot_context, realized_sale_coefficient: coefficient },
+        },
+      };
+      expect(thrown(() => readStoredEstimateV3(tampered))).toMatchObject({ code: "ESTIMATE_V3_STORED_INCOHERENT" });
+    }
+  });
 });
 
 // Intégration 2.4 : règles où les deux pistes divergeaient, tranchées pour que le moteur TS et le
