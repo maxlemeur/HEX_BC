@@ -107,6 +107,21 @@ describe("DPGF structure analysis", () => {
     expect(preview.summary.footer_start_row_index).toBe(1);
   });
 
+  // Lot 2, sous-lot 2.8: an OPTIMA lot carries a « Sous-total » after each sub-lot (row 9 of the
+  // hydraulic lot). The footer started there and every later line was dropped (1 line of 785).
+  it("ignores an intermediate subtotal alone and keeps the lines that follow it", () => {
+    const preview = analyzeImportStructure([
+      row({ rowIndex: 0, title: "Tube acier", quantity: 2, unit: "ml", unitPrice: 10 }),
+      row({ rowIndex: 1, title: "Sous-total Alimentation EC surchauffée" }),
+      row({ rowIndex: 2, title: "Pose seule", quantity: 3, unit: "u" }),
+      row({ rowIndex: 3, title: "Total général" }),
+      row({ rowIndex: 4, title: "Les prix sont valables pendant 30 jours" }),
+    ]);
+
+    expect(preview.footer_row_indexes).toEqual([1, 3, 4]);
+    expect(preview.summary.footer_start_row_index).toBe(3);
+  });
+
   it("accepts a reviewed level-two section after level one", () => {
     const resolved = resolveImportStructure(rows, [
       { rowIndex: 0, kind: "section", level: 1 },

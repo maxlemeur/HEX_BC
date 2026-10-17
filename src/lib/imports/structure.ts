@@ -115,6 +115,15 @@ function hasUsablePrice(mappedRow: JsonRecord) {
   return (unitPrice !== null && unitPrice > 0) || (total !== null && total > 0);
 }
 
+/** A row that can become an estimate line: a price, a positive quantity or hours. */
+function hasLineContent(mappedRow: JsonRecord) {
+  if (hasUsablePrice(mappedRow)) return true;
+  return [mappedRow.quantity, mappedRow.labor_hours_per_unit, mappedRow.labor_hours, mappedRow.h_mo].some((value) => {
+    const parsed = parseNumericValue(value);
+    return parsed !== null && parsed > 0;
+  });
+}
+
 function resolveTitle(mappedRow: JsonRecord) {
   return asText(mappedRow.designation) || asText(mappedRow.reference ?? mappedRow.hex_code);
 }
@@ -180,15 +189,22 @@ export function analyzeImportStructure(rows: ImportStructureRow[]): ImportStruct
   let footerStarted = false;
   let footerStartRowIndex: number | null = null;
   let zeroPriceRows = 0;
+  // Lot 2, sous-lot 2.8: the footer is the trailing block. A total or legal row followed by line content
+  // (an OPTIMA « Sous-total » after each sub-lot) is ignored alone; the lines after it are kept.
+  const lastContentRowIndex = sortedRows.reduce((last, row) => {
+    const title = resolveTitle(row.mappedRow);
+    return title && !isFooterTitle(title) && hasLineContent(row.mappedRow) ? row.rowIndex : last;
+  }, Number.NEGATIVE_INFINITY);
 
   for (const row of sortedRows) {
     const title = resolveTitle(row.mappedRow);
-    if (!footerStarted && title && isFooterTitle(title)) {
+    const isTotalOrLegal = Boolean(title) && isFooterTitle(title);
+    if (!footerStarted && isTotalOrLegal && row.rowIndex > lastContentRowIndex) {
       footerStarted = true;
       footerStartRowIndex = row.rowIndex;
     }
 
-    if (footerStarted) {
+    if (footerStarted || isTotalOrLegal) {
       footerRowIndexes.push(row.rowIndex);
       continue;
     }

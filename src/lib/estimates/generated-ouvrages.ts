@@ -8,6 +8,8 @@ import {
   assertDraftStatus,
 } from "@/lib/estimates/server";
 import { prepareEstimateBatch, sameEstimateBatchTimestamp, EstimateBatchPreparationError } from "@/lib/estimates/batch-preparation";
+import { resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
+import { hoursPerUnitHalfUp } from "@/lib/estimates/template-v3-hours";
 import type { BatchOperationInput } from "@/lib/estimates/schemas";
 import { assertCanWriteEstimateWorkflows } from "@/lib/estimates/write-access";
 import { generatedOuvrageAcceptedCandidateSchema, generatedOuvrageReviewTokenSchema,
@@ -55,6 +57,8 @@ type VersionAccessRow = {
   status: EstimateStatus;
   updated_at: string;
   margin_multiplier: number | null;
+  // Lot 2, sous-lot 2.8: a v3 receives the yield per unit and the v3 engine amounts.
+  calc_engine_version: number | null;
   estimate_projects: EmbeddedProjectAccess | EmbeddedProjectAccess[] | null;
 };
 
@@ -847,7 +851,7 @@ async function getVersionAccessOrThrow(
   const { data, error } = await supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, status, updated_at, margin_multiplier, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name, notes, is_archived)"
+      "id, project_id, status, updated_at, margin_multiplier, calc_engine_version, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name, notes, is_archived)"
     )
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)
@@ -3294,6 +3298,9 @@ export async function insertGeneratedOuvrages(input: InsertGeneratedOuvragesInpu
   const { version, project } = await getVersionAccessOrThrow(supabase, parsed.versionId, context);
   assertDraftStatus(version.status);
   if (project.is_archived) throw conflict("Cette affaire est archivée.");
+  // Lot 2, sous-lot 2.8 (D16) : une v3 reçoit le rendement par unité ; ses montants sont ceux du moteur 3,
+  // calculés par la base dans la transaction (M6), sans projection du client.
+  const isV3 = resolveEstimateEngineVersion(version) === 3;
   if (!sameEstimateBatchTimestamp(version.updated_at, parsed.expectedUpdatedAt)) {
     throw conflict("Le devis a changé. Rechargez avant de préparer une nouvelle demande.", undefined, "VERSION_CONFLICT");
   }
@@ -3366,7 +3373,18 @@ export async function insertGeneratedOuvrages(input: InsertGeneratedOuvragesInpu
       source_provider: "generated_ouvrage", source_file_name: primary?.sourceFileName ?? null,
       source_page: primary?.sourcePageFrom ?? null };
     createdIds.push({ index: operations.length, id: estimateItemId });
-    operations.push({ op: "create", data: item });
+    if (isV3) {
+      const hoursPerUnit = hoursPerUnitHalfUp(mapping.hMo, accepted.quantity!);
+      if (hoursPerUnit === null) {
+        throw badRequest(`« ${accepted.designation} » porte des heures sans quantité : un chiffrage moteur 3 stocke des heures par unité.`,
+          undefined, "ESTIMATE_V3_GENERATED_HOURS_WITHOUT_QUANTITY");
+      }
+      const { h_mo: _lineHours, ...perUnitItem } = item;
+      void _lineHours;
+      operations.push({ op: "create", data: { ...perUnitItem, h_mo_per_unit: hoursPerUnit } });
+    } else {
+      operations.push({ op: "create", data: item });
+    }
     return { candidateId: accepted.candidateId, subdetailId: review.subdetailDraft!.id,
       estimateItemId, assemblyId: randomUUID(), applicationId: randomUUID(), snapshotId: randomUUID(),
       resolvedLotId: lotId, placementMode: accepted.lotId ? "explicit" : "fallback_unclassified",
@@ -3387,7 +3405,8 @@ export async function insertGeneratedOuvrages(input: InsertGeneratedOuvragesInpu
   try {
     response = await supabase.rpc("commit_generated_ouvrages", { ...baseArgs,
       p_draft_lock_session_id: parsed.draftLockSessionId, p_prepared_candidates: candidates as Json,
-      p_fallback_section: fallback, p_item_updates: financial.itemUpdates, p_version_patch: financial.versionPatch,
+      p_fallback_section: fallback,
+      p_item_updates: isV3 ? [] : financial.itemUpdates, p_version_patch: isV3 ? {} : financial.versionPatch,
       p_calculation_context: financial.calculationContext as Json,
       p_expected_preferred_role: preferredRole ? { id: preferredRole.id, name: preferredRole.name,
         hourly_rate_cents: preferredRole.hourlyRateCents, position: preferredRole.position, is_active: true } : null,

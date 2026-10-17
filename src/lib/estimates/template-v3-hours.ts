@@ -38,6 +38,19 @@ function readDecimal(value: number, field: string): Decimal {
   return decimalFromLiteral(String(value), field, 12);
 }
 
+/**
+ * Heures par unité d'une ligne dont on connaît les heures totales : arrondi demi-supérieur de h / Q à
+ * 4 décimales (Q nulle sans heures : 0 ; Q nulle avec des heures : `null`, refus nommé de l'appelant).
+ * Miroir de M6 (modèles, ouvrages générés).
+ */
+export function hoursPerUnitHalfUp(hours: number, quantity: number): number | null {
+  const q = readDecimal(quantity, "quantity");
+  const h = readDecimal(hours, "h_mo");
+  if (q.units === BigInt(0)) return h.units === BigInt(0) ? 0 : null;
+  const units = divideHalfUp(h.units * pow10(q.scale + HOURS_PER_UNIT_SCALE), q.units * pow10(h.scale));
+  return Number(formatScaled(units, HOURS_PER_UNIT_SCALE));
+}
+
 /** h dérivé dans la v3 : arrondi(Q × arrondi(h / Q, 4), 3) ; `null` sans conversion. */
 export function convertedTemplateLineHours(source: TemplateV3HoursSource): Decimal | null {
   if (source.item_type !== "line" || (source.h_mo_per_unit !== null && source.h_mo_per_unit !== undefined)) return null;
