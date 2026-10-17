@@ -87,8 +87,9 @@ as $$
 $$;
 
 -- Colonnes nouvelles admises, avec leur valeur neutre attendue sur les lignes existantes.
--- Sous-lot 2.0 : aucune. Chaque migration du lot 2 qui ajoute une colonne à une table
--- comparée l'ajoute ici, par exemple : ('estimate_versions', 'sale_coefficient_fo', 'null').
+-- Chaque migration du lot 2 qui ajoute une colonne à une table comparée l'ajoute ici, par
+-- exemple : ('estimate_versions', 'sale_coefficient_fo', 'null').
+-- Sous-lot 2.2 (20261017093407) : aucune offre existante n'est marquée « inclus / gratuit ».
 create or replace function upgrade_check.declared_new_columns()
 returns table (table_name text, column_name text, neutral_value jsonb)
 language sql
@@ -96,8 +97,9 @@ immutable
 set search_path = ''
 as $$
   select declared.table_name, declared.column_name, declared.neutral_value
-  from (values (null::text, null::text, null::jsonb)) as declared(table_name, column_name, neutral_value)
-  where false
+  from (values
+    ('supplier_pricebook'::text, 'zero_price_kind'::text, 'null'::jsonb)
+  ) as declared(table_name, column_name, neutral_value)
 $$;
 
 -- Les scénarios de la fixture ; leur absence avant migration rend la capture invalide.
