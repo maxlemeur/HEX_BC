@@ -49,7 +49,8 @@ $probe$;
 
 -- ---------------------------------------------------------------------------
 -- F-SQL-14 : garde structurelle. Toute fonction de public/private qui compare un
--- *engine_version à un littéral figure dans cette liste revue, avec son motif.
+-- *engine_version à un littéral (=, <>, !=, is [not] distinct from, [not] in (…), = any(…))
+-- figure dans cette liste revue, avec son motif.
 -- ---------------------------------------------------------------------------
 create temporary table v3_engine_literal_whitelist (
   function_name text primary key,
@@ -82,7 +83,7 @@ select is(
     from pg_proc procedure
     join pg_namespace namespace on namespace.oid = procedure.pronamespace
     where namespace.nspname in ('public', 'private')
-      and procedure.prosrc ~* 'engine_version\y[^;]{0,40}?(=|<>|!=|is (not )?distinct from)\s*[0-9]'
+      and procedure.prosrc ~* 'engine_version\y[^;]{0,40}?(=|<>|!=|is (not )?distinct from|(not\s+)?in\s*\(|=\s*any\s*\(\s*(array\s*\[)?)\s*[0-9]'
       and not exists (
         select 1
         from v3_engine_literal_whitelist whitelisted
@@ -104,7 +105,7 @@ select diag(
       from pg_proc procedure
       join pg_namespace namespace on namespace.oid = procedure.pronamespace
       where format('%s.%s', namespace.nspname, procedure.proname) = whitelisted.function_name
-        and procedure.prosrc ~* 'engine_version\y[^;]{0,40}?(=|<>|!=|is (not )?distinct from)\s*[0-9]'
+        and procedure.prosrc ~* 'engine_version\y[^;]{0,40}?(=|<>|!=|is (not )?distinct from|(not\s+)?in\s*\(|=\s*any\s*\(\s*(array\s*\[)?)\s*[0-9]'
     )
   ), 'aucune')
 );
