@@ -105,7 +105,8 @@ export async function prepareV3Draft(ui: Ui, army: ArmyState, label: string): Pr
   if (owner.tenantId !== dedicated.tenantId || owner.userId !== dedicated.userId) throw new Error(`${label} must run as its dedicated owner.`);
   const tuyauteurId = await ensureTuyauteur(ui.browser, army, anchorId);
 
-  const reason = `${army.runPrefix} recette 2.6 éditeur v3`;
+  // ASCII only: setTenantCalcPolicy guards the reason with /^ARMY-[A-Za-z0-9 :.,'()-]{5,200}$/.
+  const reason = `${army.runPrefix} recette 2.6 editeur v3`;
   let opened = false;
   let created: { status: number; body: Envelope<{ version: { id: string; calc_engine_version: number } }> } | null = null;
   try {
