@@ -1,7 +1,8 @@
 # Socle fermé par défaut du moteur v3 (sous-lot 2.1)
 
 Statut : **tests rouges écrits avant le code** (commits `test(lot2-2.1)` sur `lot2/2.1-socle-ferme`,
-base `3d8d2f8a`). Aucun fichier applicatif, aucune migration : la migration M1 et le code TS
+base `141218a9`, rebasée depuis `3d8d2f8a` sans changement SQL ni de verrou de dépendances). Aucun
+fichier applicatif, aucune migration : la migration M1 et le code TS
 viennent ensuite et doivent faire passer ces tests sans en modifier les assertions. Source :
 [conception du lot 2](../audit-independant-2026-10-14/lot2/conception-lot2-moteur-v3.md), D1, D2,
 §6.4, §7, §8, §9 et §14 « 2.1 ».
@@ -164,6 +165,10 @@ l'approbation rend `false` sans gel ; l'envoi échoue sur `Configuration email m
 RESEND_API_KEY` au lieu du refus nommé ; la publication du PDF et les réglages réussissent ; la
 règle ESLint ne signale aucune des six comparaisons. `npm run typecheck` : seules les deux
 importations de modules absents échouent. ESLint des fichiers touchés : 0 erreur.
+Rejoué le 17/10 après le rebasage sur `141218a9` (même commande, le filtre `engine` inclut aussi
+le corpus figé de 2.0) : 10 fichiers, 9 rouges, 13 tests en échec (les mêmes), 69 réussis, corpus
+figé vert. Le rebasage ne touchant ni SQL ni le verrou de dépendances, les rouges pgTAP et E2E
+ci-dessus restent valables sans nouvelle exécution native.
 
 **E2E** (`npm run e2e:army:local -- --grep "V3FC"`, un worker, sortie 1, archive
 `.e2e/army/ci/2026-10-17T10-58-41-678Z-critical/`, pgTAP rouge du sous-lot écarté du clone pour
@@ -178,7 +183,7 @@ la relecture v1 et l'absence de refus nommé.
 ## Commandes
 
 ```bash
-# WSL, clone Linux (une pile native à la fois)
+# WSL, clone Linux (au plus deux exécutions natives possédées en parallèle)
 npm run db:ci:local
 npm run e2e:army:local -- --grep "V3FC"
 # Windows ou WSL
@@ -190,7 +195,12 @@ npx vitest run src/lib/estimates/calc-engine-version.test.ts src/lib/estimates/e
 
 À la validation de 2.1 (§10.1 de la conception) : suite pgTAP complète, `npm run db:upgrade-check
 -- lot2-2-1` (0 différence) et son contrôle négatif, corpus figé, empreintes documentaires,
-`npm run e2e:army:calc-v3`, puis une campagne complète `E2E_ARMY_WORKERS=2 npm run e2e:army:local`.
+`npm run e2e:army:calc-v3` (non couverte par la CI), en local sur la pile possédée. Les suites
+complètes passent par la CI GitHub de la PR du sous-lot (décision du propriétaire, 17/10) :
+Quality Gate (typecheck, lint, Vitest node et jsdom), RLS matrix (`db:ci:local`, pgTAP complet)
+et Army critique sur pile locale du runner, qui inclut les parcours `engine-v3-*` ; la sélection
+`full` (planifiée) se lance par `workflow_dispatch` sur la branche. Pas de campagne
+`e2e:army:local` complète en local, seulement les parcours ciblés (`--grep`).
 
 ## Limites
 
