@@ -155,8 +155,9 @@ async function retakeLease(browser: Browser, versionId: string) {
 /**
  * D13 breaks every tie of an exact allocation (VAT, discount and FO/MO shares) by increasing line id, and the
  * per-line expectations above come from the pure engine on the fixture ids, which ascend from O1 to O7. The
- * batch draws random ids, so a tie may go to another line from one run to the next (§10.2, C6). One batch of
- * updates relabels the lines: the k-th smallest id takes O_k's inputs at position k. Totals never depend on it.
+ * batch draws random ids, so a tie may go to another line from one run to the next (§10.2, C6). One batch
+ * relabels the lines: the k-th smallest id takes O_k's inputs, then a reorder puts it k-th. Totals never
+ * depend on it.
  */
 async function alignWithFixtureIdOrder(browser: Browser, army: ArmyState, versionId: string, lines: ReadonlyArray<Record<string, unknown>>) {
   const state = await readEstimate(browser, versionId);
@@ -165,10 +166,13 @@ async function alignWithFixtureIdOrder(browser: Browser, army: ArmyState, versio
   if (stored.every((item, index) => item.id === ids[index])) return state;
   const request = {
     operation_key: randomUUID(),
-    operations: ids.map((id, index) => {
-      const { line_nature, title, description, unit_code, quantity, unit_price_ht_cents, h_mo_per_unit } = lines[index];
-      return { op: "update", id, data: { line_nature, title, description, unit_code, quantity, unit_price_ht_cents, h_mo_per_unit, position: index + 1 } };
-    }),
+    operations: [
+      ...ids.map((id, index) => {
+        const { line_nature, title, description, unit_code, quantity, unit_price_ht_cents, h_mo_per_unit } = lines[index];
+        return { op: "update", id, data: { line_nature, title, description, unit_code, quantity, unit_price_ht_cents, h_mo_per_unit } };
+      }),
+      { op: "reorder", data: { parent_id: stored[0].parent_id, ordered_ids: ids } },
+    ],
   };
   const response = await apiRequest<Envelope<{ committed: boolean; results: Array<{ status: string; code?: string }> }>>(
     browser, "POST", `/api/estimates/${versionId}/batch`, request, { "if-match": state.version.updated_at });
