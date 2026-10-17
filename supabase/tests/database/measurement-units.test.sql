@@ -401,6 +401,8 @@ select throws_ok(
 );
 
 reset role;
+-- Les attendus générés sont des tables temporaires du propriétaire : authenticated les lit pour comparer.
+grant select on expected_measurement_units, expected_measurement_unit_aliases to authenticated;
 set local role authenticated;
 
 select is(

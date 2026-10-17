@@ -112,6 +112,15 @@ describe("référentiel généré (U4, U5)", () => {
     expect(checkUnitsSqlBlocks()).toEqual([]);
   });
 
+  it("signale une dérive : un alias ajouté au JSON sans migration", () => {
+    const source = structuredClone(unitsSource);
+    source.units[0].aliases.push("unitaire");
+    expect(checkUnitsSqlBlocks(process.cwd(), source)).toEqual([
+      expect.stringContaining("le bloc généré diffère de units.json"),
+      expect.stringContaining("le bloc généré diffère de units.json"),
+    ]);
+  });
+
   it("refuse un jeton qui viserait deux cibles", () => {
     const source = structuredClone(unitsSource);
     source.units[0].aliases.push("HL");

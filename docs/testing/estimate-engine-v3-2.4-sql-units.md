@@ -82,12 +82,149 @@ toutes les autres suites et la matrice RLS.
 
 ## Contrat SQL livré
 
-À compléter après implémentation (signatures exactes et appel `psql`).
+Toutes les fonctions sont dans `private`, `immutable` (sauf `normalize_unit`, `stable` : elle lit la table
+d'alias), `security invoker`, `search_path = ''`, et révoquées pour `public`, `anon`, `authenticated` et
+`service_role` : seul le propriétaire (`postgres`) les exécute. Aucune ne compare un moteur à un littéral
+(garde F-SQL-14 de 2.1 inchangée).
+
+| Signature | Rôle |
+|---|---|
+| `private.unit_token(p_raw text) returns text` (strict) | Jeton D9 |
+| `private.normalize_unit(p_raw text, out unit_code text, out pricing_status public.estimate_line_pricing_status) returns record` | Unité active ou statut ; deux `null` si inconnu, vide ou nul |
+| `private.estimate_round_half_up(p_value numeric) returns bigint` (strict) | ⌈x⌋ = ⌊x + ½⌋, x ≥ 0 |
+| `private.estimate_round_half_up(p_value numeric, p_scale integer) returns numeric` (strict) | Demi supérieur à `p_scale` décimales (0 à 12), échelle fixe |
+| `private.estimate_allocate_exact(p_amount bigint, p_weights numeric[]) returns bigint[]` | Plus grand reste, ex aequo par position (fo puis mo, atelier puis chantier) |
+| `private.estimate_allocate_exact(p_amount bigint, p_weights numeric[], p_keys uuid[]) returns bigint[]` | Plus grand reste, ex aequo par uuid croissant ; résultat dans l'ordre d'entrée |
+| `private.estimate_v3_line(p_item jsonb, p_params jsonb) returns jsonb` | Ligne brute (§4, étapes 1 à 5) : `id`, `pricing_status`, `tax_rate_bp`, `pu_ht_cents`, `gross_ht_cents`, `gross_fo_ht_cents`, `gross_mo_ht_cents`, `gross_mo_atelier_ht_cents`, `gross_mo_chantier_ht_cents`, `cost_ht_cents`, `h_mo`, `h_mo_atelier`, `h_mo_chantier` |
+| `private.estimate_v3_compute_items(p_items jsonb, p_params jsonb) returns jsonb` | Devis complet (§4) : `{lines, totals}` du contrat canonique |
+
+Aides internes (mêmes propriétés) : `private.estimate_v3_input_number(jsonb, text, integer, numeric, numeric,
+boolean)`, `private.estimate_v3_amount(numeric, text)`, `private.estimate_v3_read_params(jsonb)`,
+`private.estimate_v3_read_item(jsonb)`, `private.estimate_v3_line_values(private.estimate_v3_item_input,
+private.estimate_v3_params_input)` ; types composites `private.estimate_v3_params_input`,
+`private.estimate_v3_item_input`, `private.estimate_v3_line_gross`.
+
+Erreurs : message = code exact, détail en `DETAIL`. `ESTIMATE_V3_INPUT_INVALID` (SQLSTATE 22023) et
+`ESTIMATE_AMOUNT_OVERFLOW` (22003, tout montant publié > 2 147 483 647 c : PU, brut, parts, déboursé, TVA, TTC,
+totaux ; jamais écrêté).
+
+Appel en `psql`, en `postgres`, sur une pile possédée (celle de `npm run dev:army`, ou une pile native jetable ;
+`DB_URL` vient de `supabase status --env --workdir <projet>`, jamais de la pile partagée 45585/33485) :
+
+```bash
+psql "$DB_URL" -X -v ON_ERROR_STOP=1 -At -c "select jsonb_pretty(private.estimate_v3_compute_items(
+  '[{\"id\": \"00000000-0000-4000-8000-000000000001\", \"item_type\": \"line\", \"parent_id\": null,
+     \"quantity\": 20, \"unit_price_ht_cents\": 5466, \"k_fo\": 1, \"h_mo_per_unit\": 1.991,
+     \"h_mo_atelier_per_unit\": null, \"h_mo_chantier_per_unit\": null, \"h_mo_majoration\": 1,
+     \"k_mo\": 1, \"k_mo_atelier\": null, \"k_mo_chantier\": null, \"labor_rate_cents\": 4000,
+     \"labor_rate_atelier_cents\": null, \"labor_rate_chantier_cents\": null,
+     \"pricing_status\": \"priced\", \"tax_rate_bp\": 2000, \"unit_code\": \"ml\"}]'::jsonb,
+  '{\"sale_coefficient_fo\": 1.30, \"sale_coefficient_mo\": 1.20, \"discount_amount_cents\": null,
+    \"discount_bp\": 0, \"rounding_mode\": \"none\", \"rounding_step_cents\": 1,
+    \"reverse_charge\": false, \"labor_split_enabled\": false}'::jsonb))"
+```
+
+Sortie (O1 seule) : `pu_ht_cents` 16 663, `gross_ht_cents` 333 260, `cost_ht_cents` 268 600, `h_mo` `"39.820"`,
+TVA 66 652, `total_ttc_cents` 399 912, `realized_sale_coefficient` `"1.240730"`. Une ligne se calcule aussi par
+`select private.estimate_v3_line(<item>::jsonb, <params>::jsonb);`. Les entiers sortent en nombres JSON ;
+`h_mo*` (3 décimales) et `realized_sale_coefficient` (6 décimales) en chaînes à échelle fixe ; les lignes dans
+l'ordre d'entrée.
 
 ## Interprétations
 
-À compléter au fil de l'implémentation.
+Chaque point est un choix de la piste B là où la conception ou le contrat partagé laissent une marge ; la piste A
+(moteur TS) et l'intégration doivent s'y aligner, ou le signaler.
+
+1. **Enum de statut en M3, non en M4** (écart à §6.1) : `measurement_unit_aliases.pricing_status` en a besoin.
+   M4 ne le créera donc pas et ajoutera seulement les colonnes.
+2. **Déclenchement de la ventilation** (même règle qu'en v2, `estimate-calculations.ts:142-166`) : le JSON
+   canonique ne porte pas les identifiants de rôle ; « rôle atelier/chantier affecté » est lu comme
+   `labor_rate_atelier_cents` / `labor_rate_chantier_cents` non nul. Charge active si h/u atelier > 0, taux
+   atelier présent, h/u chantier > 0, taux chantier présent, `k_mo_atelier ≠ 1` ou `k_mo_chantier ≠ 1`, et
+   `labor_split_enabled` vrai.
+3. **Sans ventilation, toute la MO est « chantier »** (convention v2, `estimate-calculations.ts:872-877`) :
+   atelier 0, chantier = MO. Avec ventilation, l'atelier/chantier brut est réparti selon (MO_at_u, MO_ch_u),
+   ce qui revient au même que selon (MO_at_u × c_MO, MO_ch_u × c_MO).
+4. **Ligne non chiffrée** : `pu_ht_cents` nul, tous les montants à 0, heures `"0.000"` (« contribue 0
+   partout »), réduction et TVA nulles, hors des groupes de TVA ; ses entrées sont tout de même validées. Le
+   contrat de sortie n'a pas de champ d'avertissement : l'avertissement reste côté TS.
+5. **Sections** : seuls `id`, `item_type` et `parent_id` sont validés ; elles n'apparaissent pas dans `lines`.
+   `parent_id` n'est pas rapproché d'une section de l'entrée.
+6. **Heures de ligne** : `round(Q × h/u, 3)` colonne par colonne (`h_mo` ← `h_mo_per_unit`, `h_mo_atelier` ←
+   `h_mo_atelier_per_unit`, `h_mo_chantier` ← `h_mo_chantier_per_unit`), que la ventilation soit active ou
+   non ; une valeur nulle vaut 0. Les heures ne sont pas bornées par le moteur (la colonne `numeric(12,3)`
+   refusera en M4).
+7. **Récapitulatif de TVA** : un groupe par taux porté par au moins une ligne chiffrée, même de base nulle
+   (CAP : base 0, TVA 0) ; trié par taux croissant ; vide si aucune ligne chiffrée. Autoliquidation : groupes
+   conservés, TVA 0.
+8. **Valeurs nulles ou absentes d'une ligne** : défauts neutres de la v2 (quantité 0, PR 0, `k_*` 1,
+   majoration 1, h/u 0, taux horaires 0). Sont exigés : `id` (uuid canonique, casse indifférente, rendu en
+   minuscules), `item_type`, et sur une ligne `pricing_status` et `tax_rate_bp` (0 à 10 000). Les huit clés de
+   `params` sont exigées ; seule `discount_amount_cents` peut valoir `null`.
+9. **Nombres** : nombres JSON seulement (une chaîne est refusée) ; les zéros de queue ne comptent pas
+   (`min_scale`) ; échelles et bornes des colonnes : quantité et `k_*` `numeric(12,3)` (< 10⁹), h/u et
+   majoration `numeric(12,4)` (< 10⁸), coefficients de vente `numeric(8,4)` dans ]0 ; 10], montants et taux
+   horaires `integer` (≤ 2 147 483 647), points de base 0 à 10 000. **Négatif refusé** : D13 ne définit le
+   demi supérieur que pour x ≥ 0 (point ouvert : aucune ligne de rabais négative n'existe en v3).
+10. **Ordre des erreurs** : toutes les entrées sont validées avant tout calcul ; une entrée invalide l'emporte
+    donc sur un dépassement.
+11. **Remise** : `discount_amount_cents` non nul (y compris 0) = intention en montant ; sinon taux
+    (`discount_bp` 0 = aucune remise). Arrondi `none` : le pas est ignoré (tout entier ≥ 0 admis) ; `down`
+    exige un pas ≥ 1.
+12. **Réductions** réparties sur toutes les lignes, les non chiffrées ayant un poids nul (même résultat que
+    sur les seules chiffrées, puisque R + A ≤ G).
+13. **Coefficient réalisé** : ⌈N × 10⁶ / Σ D⌋ par division entière exacte ; `"1.000000"` si Σ D = 0 et N = 0,
+    `null` si Σ D = 0 et N > 0 ; devis vide : `"1.000000"`.
+14. **Unité** : `unit_code` n'est ni validé contre le référentiel ni utilisé par le calcul (fonction pure sur
+    paramètres) ; l'unité requise au gel relève de M4.
+15. **Jeton** : la mise en minuscules ne touche que A-Z, sous la collation `"C"` en SQL et par `[A-Z]` en TS,
+    pour que le résultat ne dépende pas de la collation de la base ; après NFKD et retrait des diacritiques,
+    les lettres non ASCII restantes (Œ, Æ…) ne changent pas, dans les deux langages. Espaces retirés : espace,
+    tabulation, saut de ligne, retour, saut de page, tabulation verticale (les espaces Unicode, dont
+    l'insécable, deviennent des espaces par NFKD).
+16. **Normaliseur** : `normalize_unit` rend `(unit_code, pricing_status)` et ignore une unité inactive. Les
+    noms TS exportés sont `measurementUnitToken` et `normalizeMeasurementUnit` (D9 : éviter la collision avec
+    les `normalizeUnit` privés du métré, qui restent propres au métré).
+17. **Référentiel retenu** (fixtures DPGF/OPTIMA du dépôt, D4 §1.6, P-08, P-09) : `u`, `ens`, `fft`, `ml`
+    (`m`, « mètre » = `ml`), `m2`, `m3`, `kg`, `t`, `l` (litre), `h`, `j`, `pouce` (symbole `"`, sans
+    conversion). `ens` ≠ `fft`. Pas de millilitre. Les conditionnements de la bible (Bout., Pot, Rl., Bob.,
+    Jeu, Kit, Pqt, Paire, Bte) relèvent de l'unité d'achat (2.9) ; « Lot » n'est pas mappé (ambigu entre `ens`
+    et `fft`). Statuts : HL, « hors lot » → `out_of_scope` ; PM, « pour mémoire » → `for_memory` ; NC,
+    « non chiffré » → `not_priced` ; inc, incl, CP, « inclus », « compris » → `included` ; SO, « sans objet » →
+    `not_applicable`. Les libellés des six statuts sont dans `units.json` (impression en 2.7).
+18. **« anon : 0 ligne »** est obtenu par refus (42501, aucun droit), conformément à I6 (« rien pour anon ») :
+    anon ne voit aucune ligne. `service_role` garde ses droits de table (`security-invariants.test.sql`
+    l'exige sur toute table publique) ; « aucune écriture applicative » = aucun droit d'écriture pour
+    `authenticated`.
+19. **Contrainte de jeton** : la table vérifie un jeton déjà normalisé par une expression régulière, sans
+    appeler `private.unit_token` (une contrainte s'exécute sous le rôle qui écrit, et `service_role` n'a pas
+    accès à `private`) ; la suite pgTAP vérifie que chaque jeton stocké est un point fixe de `unit_token`.
+20. **Dérive du référentiel** : `npm run units:sql -- --check` (défaut) et le test Vitest de parité des blocs
+    échouent dès que `units.json` diffère de M3 ou de l'attendu pgTAP. Après publication de M3, une évolution
+    du référentiel exige une nouvelle migration et l'adaptation du générateur.
 
 ## Résultats
 
-À compléter : rouge (journal), puis vert.
+### Rouge (commit `bccdd971`, tests seuls)
+
+- `npx vitest run --project=node src/lib/units` : échec, module absent
+  (`Cannot find module '../../../scripts/units/generate-units-sql'`), aucun test exécuté.
+- `npm run db:ci:local` (WSL, clone `~/miaouffrage-lot2-24` à `bccdd971`) : pile démarrée, base réinitialisée,
+  inventaire des migrations conforme ; pgTAP `Files=17, Tests=1371, Result: FAIL`. Les 15 suites existantes
+  passent ; les deux nouvelles échouent :
+
+```text
+estimate-engine-v3-functions.test.sql (Wstat: 768 (exited 3) Tests: 6 Failed: 6)
+  ERROR:  function private.estimate_round_half_up(numeric) does not exist
+measurement-units.test.sql (Wstat: 768 (exited 3) Tests: 37 Failed: 37)
+  ERROR:  relation "public.measurement_units" does not exist
+```
+
+Après le rouge, deux retouches des tests, sans affaiblissement : `measurement-units.test.sql` accorde la
+lecture de ses tables temporaires d'attendu à `authenticated` avant de changer de rôle (sans quoi la
+comparaison échouait par droit, pas par donnée) ; `normalize.test.ts` gagne un test de dérive (un alias ajouté
+au JSON sans migration doit être signalé).
+
+### Vert
+
+À compléter.
