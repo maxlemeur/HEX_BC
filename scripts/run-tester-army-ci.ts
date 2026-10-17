@@ -356,6 +356,11 @@ async function main() {
     await runLocalSupabaseCi({
       reservedPorts: new Set([appPort]),
       runApplication,
+      // db reset or a verified pre-migrated snapshot (ARMY_DB_SNAPSHOT_DIR),
+      // reported before pgTAP and the journeys: a failed run records it too.
+      onDatabaseProvenance: (provenance) => {
+        manifest.database = { ...(manifest.database as Record<string, unknown>), provenance };
+      },
       log: (message) => {
         const line = redact(suite === "dev" && message === "Application validation passed."
           ? "Development session stopped; no E2E validation was run."
