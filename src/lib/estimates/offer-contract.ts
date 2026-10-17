@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { isLegacyEngine } from "@/lib/estimates/engine/capabilities";
 import type { EstimatePdfLayoutOptions } from "@/lib/estimates/pdf-layout";
 
 type SaleFoMo1 = { foSaleHtCents: number; moSaleHtCents: number };
@@ -327,7 +328,7 @@ function validateRows(rows: CommercialRow1[], contract: ClientContract1): void {
   }
   // Positive parent-depth increments with bounded depth exclude all cycles.
   // Engine1 deliberately retains its original presented detail/footer mismatch.
-  if (contract.version.calcEngineVersion === 1) return;
+  if (isLegacyEngine(contract.version.calcEngineVersion)) return;
   const sectionTotals = new Map<string, { ht: number; fo: number; mo: number }>();
   for (const entry of rows) if (entry.kind === "section") sectionTotals.set(entry.id, { ht: 0, fo: 0, mo: 0 });
   let totalHt = 0;

@@ -11,6 +11,7 @@ import { sendApprovalReviewRequestNotification } from "@/lib/email/send-approval
 import { freezeApprovalV2DraftIfRequired } from "@/lib/estimates/approval-v2-snapshot";
 import { openEstimateReviewCycle } from "@/lib/estimates/review-cycle-submission";
 import { resolveEffectiveMarginBp } from "@/lib/estimates/effective-margin";
+import { requireEstimateEngineVersion, requireHistoricalEngine } from "@/lib/estimates/engine/capabilities";
 import { exceedsDiscountThreshold, fixedDiscountBasisPoints, resolveFixedDiscountSignal, type CanonicalFixedDiscountEvidence, type FixedDiscountVersion } from "@/lib/estimates/effective-discount";
 import { loadCanonicalFixedDiscountEvidence } from "@/lib/estimates/fixed-discount-evidence-server";
 import type { EstimateReadinessCategory } from "@/lib/estimates/readiness";
@@ -3518,6 +3519,9 @@ async function syncEstimateApprovalSummary(input: {
   trigger: ApprovalAuditTrigger;
   actorUserId?: string | null;
 }): Promise<EstimateApprovalSummary> {
+  // Lot 2, sous-lot 2.1 : aucune projection d'approbation (ni lecture des preuves, ni écriture)
+  // pour une v3 avant la preuve de marque v3 (2.5).
+  requireHistoricalEngine(requireEstimateEngineVersion(input.version));
   const items = await loadApprovalSummaryItems({
     context: input.context,
     versionId: input.version.id,

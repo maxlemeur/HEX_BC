@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { computeEstimateQualityFlagsForItem } from "@/lib/estimate-quality";
 import { buildEstimateV2SnapshotProjection } from "@/lib/estimate-v2-snapshot";
 import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
+import { isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
 import { ESTIMATE_VERSION_CONFLICT_MESSAGE } from "@/lib/estimates/constants";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
 import {
@@ -74,7 +75,7 @@ export async function freezeEstimateV2Snapshot(
   const version = versionData as EstimateTotalsVersionConfig & {
     estimate_projects: { user_id: string } | { user_id: string }[] | null;
   };
-  if (resolveCalcEngineVersion(version) !== 2) {
+  if (!isUnifiedEngine(resolveCalcEngineVersion(version))) {
     throw badRequest("Le gel du snapshot est réservé au moteur de calcul v2.");
   }
   const project = resolveEmbeddedOne(version.estimate_projects);

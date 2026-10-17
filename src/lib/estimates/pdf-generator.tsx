@@ -13,9 +13,14 @@ import {
 } from "@react-pdf/renderer";
 
 import {
-  resolveCalcEngineVersion,
   shouldPreserveStoredEstimateV2Snapshot,
 } from "@/lib/estimates/calc-engine-version";
+import {
+  isLegacyEngine,
+  isUnifiedEngine,
+  requireEstimateEngineVersion,
+  requireHistoricalEngine,
+} from "@/lib/estimates/engine/capabilities";
 import { resolveRenderMarginMode } from "@/lib/estimates/margin-tiers-loader";
 import {
   buildLegacyDocumentBreakdown,
@@ -1445,6 +1450,8 @@ export async function markEstimatePdfProcessing(
 ): Promise<EstimatePdfGenerationClaim> {
   const context = await getAuthenticatedContext();
   let access = await getVersionAccessOrThrow(context, versionId);
+  // Lot 2, sous-lot 2.1 : une v3 est refusée par son nom avant tout verrou, gel ou appel SQL.
+  const calcEngineVersion = requireHistoricalEngine(requireEstimateEngineVersion(access.version));
   assertEstimatePdfMutationAllowed(access.version.status, "manual");
   assertCanWriteEstimateWorkflows(context.tenantRole);
   if (access.project.user_id !== context.userId && !context.isTenantAdmin) {
@@ -1462,7 +1469,7 @@ export async function markEstimatePdfProcessing(
   }
   const publicationClient = createServiceRoleClient();
 
-  if (resolveCalcEngineVersion(access.version) === 2) {
+  if (isUnifiedEngine(calcEngineVersion)) {
     const frozen = await freezeEstimateV2Snapshot({
       supabase: context.supabase,
       rpcClient: publicationClient,
@@ -1515,6 +1522,7 @@ export async function generateEstimatePdfNow(
 ): Promise<PdfReadyPayload> {
   const context = await getAuthenticatedContext();
   const access = await getVersionAccessOrThrow(context, versionId);
+  const calcEngineVersion = requireHistoricalEngine(requireEstimateEngineVersion(access.version));
 
   const existing = await getDocumentRow({
     supabase: context.supabase,
@@ -1614,9 +1622,8 @@ export async function generateEstimatePdfNow(
         (termsTemplate ? createEstimateTermsSnapshot(termsTemplate) : null))
       : storedTermsSnapshot;
     const lineItems = items.filter((item) => item.item_type === "line");
-    const calcEngineVersion = resolveCalcEngineVersion(access.version);
     const preserveStoredSnapshot =
-      calcEngineVersion === 1
+      isLegacyEngine(calcEngineVersion)
         ? access.version.status !== "draft"
         : shouldPreserveStoredEstimateV2Snapshot(access.version);
 
@@ -1679,7 +1686,7 @@ export async function generateEstimatePdfNow(
       ? buildLegacyDocumentBreakdown({
           items,
           marginMultiplier: access.version.margin_multiplier,
-          discountCents: calcEngineVersion === 1
+          discountCents: isLegacyEngine(calcEngineVersion)
             ? computeStoredDiscountCents(access.version, items) : 0,
           taxRateBp: access.version.tax_rate_bp,
           isLaborSplitEnabled: true,
@@ -1699,7 +1706,7 @@ export async function generateEstimatePdfNow(
             calc_snapshot_context: access.version.calc_snapshot_context,
             total_ht_cents: access.version.total_ht_cents,
             total_tax_cents:
-              calcEngineVersion === 1 ? access.version.total_tax_cents
+              isLegacyEngine(calcEngineVersion) ? access.version.total_tax_cents
                 : access.version.total_tax_cents - access.version.rounding_adjustment_cents,
             total_ttc_cents: access.version.total_ttc_cents,
             rounding_adjustment_cents:

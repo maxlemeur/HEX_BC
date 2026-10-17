@@ -1,4 +1,5 @@
-import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
+import { resolveCalcEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
+import { isLegacyEngine } from "@/lib/estimates/engine/capabilities";
 
 export type EffectiveMarginVersion = {
   calc_engine_version?: number | null;
@@ -63,7 +64,10 @@ export function resolveEffectiveMarginBp(
       : null;
   const configuredMultiplier = toPositiveMultiplier(version.margin_multiplier);
 
-  if (resolveCalcEngineVersion(version) === 1) {
+  // Lot 2, sous-lot 2.1 : la marque nette v3 arrive en 2.5 ; d'ici là elle est indisponible.
+  const calcEngineVersion = resolveCalcEngineVersionForDisplay(version);
+  if (calcEngineVersion === null) return null;
+  if (isLegacyEngine(calcEngineVersion)) {
     if (storedMarginBp !== null) return storedMarginBp;
     return configuredMultiplier === null
       ? null

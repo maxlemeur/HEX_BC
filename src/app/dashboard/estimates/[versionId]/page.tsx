@@ -28,10 +28,12 @@ import {
   computeReadOnlyTotals,
   computeStoredDiscountCents,
 } from "@/lib/estimate-calculations";
+import { EstimateEngineUnavailableNotice } from "@/components/estimates/EstimateEngineUnavailableNotice";
 import {
-  resolveCalcEngineVersion,
+  resolveCalcEngineVersionForDisplay,
   shouldPreserveStoredEstimateV2Snapshot,
 } from "@/lib/estimates/calc-engine-version";
+import { isLegacyEngine } from "@/lib/estimates/engine/capabilities";
 import {
   loadMarginTiersForTotals,
   resolveRenderMarginMode,
@@ -169,14 +171,25 @@ export default async function EstimateDetailPage({
   if (!userContext.tenantId || userContext.tenantId !== version.tenant_id) {
     notFound();
   }
+  // Lot 2, sous-lot 2.1 : une v3 n'est jamais relue en moteur 1 ; la fiche affiche le bandeau
+  // du moteur, sans calcul ni écriture.
+  const calcEngineVersion = resolveCalcEngineVersionForDisplay(version);
+  if (calcEngineVersion === null) {
+    return (
+      <EstimateEngineUnavailableNotice
+        versionNumber={version.version_number}
+        projectId={version.project_id}
+        projectName={resolveProject(version.estimate_projects)?.name}
+      />
+    );
+  }
   const items = await readAllEstimateItems({
     supabase,
     tenantId: version.tenant_id,
     versionId,
   });
-  const calcEngineVersion = resolveCalcEngineVersion(version);
   const preserveStoredSnapshot =
-    calcEngineVersion === 1
+    isLegacyEngine(calcEngineVersion)
       ? version.status !== "draft"
       : shouldPreserveStoredEstimateV2Snapshot(version);
   const project = resolveProject(version.estimate_projects);
@@ -282,7 +295,7 @@ export default async function EstimateDetailPage({
       ? await loadMarginTiersForTotals({ supabase, tenantId: version.tenant_id })
       : [];
   const computedTotals = preserveStoredSnapshot
-    ? calcEngineVersion === 1
+    ? isLegacyEngine(calcEngineVersion)
       ? computeReadOnlyTotals({
           items,
           version,

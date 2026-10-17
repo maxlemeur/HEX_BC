@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
+import { EstimateEngineUnavailableError } from "@/lib/estimates/engine/capabilities";
 import { toErrorResponse as toSharedErrorResponse } from "@/lib/http/errors";
 
 export type ApiErrorCode =
@@ -257,7 +258,12 @@ function fromZodError(error: ZodError): ApiError {
 }
 
 export function toErrorResponse(error: unknown) {
-  return toSharedErrorResponse(error, {
+  // Lot 2, sous-lot 2.1 : une action pas encore disponible en moteur 3 est un refus
+  // nommé (409), jamais une erreur interne.
+  const mappedError = error instanceof EstimateEngineUnavailableError
+    ? conflict(error.message, undefined, error.code)
+    : error;
+  return toSharedErrorResponse(mappedError, {
     isApiError: (value): value is ApiError => value instanceof ApiError,
     mapZodError: fromZodError,
     createInternalError: () => internalError(),

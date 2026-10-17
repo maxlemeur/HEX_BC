@@ -8,6 +8,7 @@ import {
   type EstimateItemRecord,
 } from "@/lib/estimate-calculations";
 import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
+import { isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
 import { badRequest, mapSupabaseError } from "@/lib/estimates/errors";
 import { loadMarginTiersForTotals } from "@/lib/estimates/margin-tiers-loader";
 import { getMarginTiers } from "@/lib/estimates/margin-tiers";
@@ -209,7 +210,7 @@ async function resolveEstimateCalculationContext(input: {
       );
     }
 
-    if (resolveCalcEngineVersion(input.version) === 2) {
+    if (isUnifiedEngine(resolveCalcEngineVersion(input.version))) {
       const missingRoleIds = uniqueRoleIds.filter(
         (roleId) => !laborRatesById.has(roleId)
       );
@@ -364,7 +365,7 @@ export async function calculateEstimateSnapshotForItems(input: {
   );
   const calcEngineVersion = resolveCalcEngineVersion(input.version);
   if (
-    calcEngineVersion === 2 &&
+    isUnifiedEngine(calcEngineVersion) &&
     input.requireCompleteLaborRoleAssignments === true
   ) {
     assertCompleteV2PublicationLaborAssignments({

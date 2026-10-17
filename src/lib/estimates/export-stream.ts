@@ -17,6 +17,7 @@ import {
   shouldPreserveStoredEstimateV2Snapshot,
 } from "@/lib/estimates/calc-engine-version";
 import { ESTIMATE_VAT_REVERSE_CHARGE_NOTICE } from "@/lib/estimates/document-copy";
+import { isLegacyEngine, isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
 import { internalError } from "@/lib/estimates/errors";
 import { getEstimateVersionDetails, listEstimateItems } from "@/lib/estimates/server";
 import { bankersRound } from "@/lib/money";
@@ -423,7 +424,7 @@ async function buildEstimateExportPayload(
   const preserveStoredSnapshot = shouldPreserveStoredEstimateV2Snapshot(
     versionDetails.version
   );
-  const liveV2 = calcEngineVersion === 2 && !preserveStoredSnapshot;
+  const liveV2 = isUnifiedEngine(calcEngineVersion) && !preserveStoredSnapshot;
   const items = liveV2
     ? [...listItemsResult.items].sort((left, right) =>
         left.position - right.position || left.id.localeCompare(right.id)
@@ -440,7 +441,7 @@ async function buildEstimateExportPayload(
       (versionDetails.version as { contractor_role?: string | null })
         .contractor_role === "subcontractor",
   };
-  if (calcEngineVersion === 1 && versionDetails.version.status !== "draft") {
+  if (isLegacyEngine(calcEngineVersion) && versionDetails.version.status !== "draft") {
     // V1 issued lines hold gross amounts. Preserve the contractual footer and
     // allocate it using those persisted weights, without today's MO or tiers.
     const totals = computeReadOnlyTotals({

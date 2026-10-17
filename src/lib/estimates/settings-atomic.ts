@@ -1,8 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { buildEstimateV2SnapshotProjection } from "@/lib/estimate-v2-snapshot";
-import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
 import { ESTIMATE_VERSION_CONFLICT_MESSAGE } from "@/lib/estimates/constants";
+import {
+  isUnifiedEngine,
+  requireEstimateEngineVersion,
+  requireHistoricalEngine,
+} from "@/lib/estimates/engine/capabilities";
 import { badRequest, conflict, forbidden, internalError, mapSupabaseError, notFound } from "@/lib/estimates/errors";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
 import { calculateEstimateSnapshotForItems } from "@/lib/estimates/version-totals";
@@ -31,6 +35,8 @@ export async function persistAtomicEstimateSettings(input: {
     .select("*").eq("tenant_id", tenantId).eq("id", authorizedVersion.id).single();
   if (readError) throw mapSupabaseError(readError, "Impossible de charger les paramètres du devis.");
   if (!version) throw notFound("Version de chiffrage introuvable.");
+  // Lot 2, sous-lot 2.1 : les réglages d'une v3 ne sont jamais recalculés en v1 ni envoyés.
+  const calcEngineVersion = requireHistoricalEngine(requireEstimateEngineVersion(version));
   if (version.project_id !== authorizedVersion.project_id || version.status !== "draft" ||
     version.updated_at !== authorizedVersion.updated_at || version.content_revision !== authorizedVersion.content_revision ||
     version.content_revision !== input.expectedContentRevision) {
@@ -44,7 +50,7 @@ export async function persistAtomicEstimateSettings(input: {
       prospectiveVersion.discount_mode !== "simple" || prospectiveVersion.discount_steps.length > 0)) {
     throw badRequest("Une remise fixe valide requiert le mode simple et aucun palier.");
   }
-  const isV2 = resolveCalcEngineVersion(prospectiveVersion) === 2;
+  const isV2 = isUnifiedEngine(calcEngineVersion);
   const lineItems = items.filter((item) => item.item_type === "line")
     .map((item) => isV2 ? item : { ...item, tax_rate_bp: prospectiveVersion.tax_rate_bp });
   const { breakdown, dependencies } = await calculateEstimateSnapshotForItems({
