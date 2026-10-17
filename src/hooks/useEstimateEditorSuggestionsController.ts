@@ -33,6 +33,7 @@ import {
   buildEstimateItemUpdatePayload,
   type EditorEstimateItem,
   type EstimateItem,
+  type EstimateItemUpdatePayload,
   type EstimateVersionRow,
 } from "@/lib/estimates/editor-items";
 import type { Database } from "@/types/database";
@@ -76,6 +77,9 @@ export type EstimateEditorSuggestionsControllerInput = {
   resolveErrorMessage: (message: string) => string;
   ensureGroupedActionCanProceed: (actionLabel: string) => Promise<boolean>;
   applyVersionToken: (updatedAt: string) => void;
+  markItemsSynced: (
+    entries: ReadonlyArray<{ id: string; updates: EstimateItemUpdatePayload }>
+  ) => void;
   handleVersionConflict: (
     error: unknown,
     options?: { persistDraft?: boolean }
@@ -315,6 +319,7 @@ export function useEstimateEditorSuggestionsController({
   resolveErrorMessage,
   ensureGroupedActionCanProceed,
   applyVersionToken,
+  markItemsSynced,
   handleVersionConflict,
 }: EstimateEditorSuggestionsControllerInput): EstimateEditorSuggestionsController {
   const [rulesState, setRulesState] = useState<SuggestionRulesState>(() =>
@@ -1005,6 +1010,8 @@ export function useEstimateEditorSuggestionsController({
           );
         }
         applyVersionToken(bulkResult.versionToken.updated_at);
+        // Without a fresh baseline, an edit back to the previous value is dropped.
+        markItemsSynced(updatesPayload);
         setTotalsOutOfSync(false);
         setInteractiveState((previous) =>
           previous.routeVersionId === targetVersionId
@@ -1105,6 +1112,7 @@ export function useEstimateEditorSuggestionsController({
     handleVersionConflict,
     isMutationBlocked,
     isScopeCurrent,
+    markItemsSynced,
     mutationBlockedMessage,
     normalizeLine,
     reportError,
@@ -1177,14 +1185,15 @@ export function useEstimateEditorSuggestionsController({
         previous.map((item) => previousById.get(item.id) ?? item)
       );
 
+      const undoPayload = previousItems.map((item) => ({
+        id: item.id,
+        updates: buildEstimateItemUpdatePayload(item),
+      }));
       try {
         const bulkResult = await bulkUpdateEstimateItems(
           targetVersionId,
           versionSnapshot.updated_at,
-          previousItems.map((item) => ({
-            id: item.id,
-            updates: buildEstimateItemUpdatePayload(item),
-          }))
+          undoPayload
         );
         if (
           !isScopeCurrent(targetVersionId, scopeGeneration) ||
@@ -1195,6 +1204,7 @@ export function useEstimateEditorSuggestionsController({
         }
 
         applyVersionToken(bulkResult.versionToken.updated_at);
+        markItemsSynced(undoPayload);
         setTotalsOutOfSync(false);
         setInteractiveState((previous) =>
           previous.routeVersionId === targetVersionId
@@ -1247,6 +1257,7 @@ export function useEstimateEditorSuggestionsController({
     handleVersionConflict,
     isMutationBlocked,
     isScopeCurrent,
+    markItemsSynced,
     mutationBlockedMessage,
     reportError,
     resolveErrorMessage,

@@ -99,11 +99,56 @@ Vitest `useEstimateEditorBulkController` 8/8 et `useEstimateEditorSyncController
 (validation OpenAPI comprise, sans objet ici) et la suite critique complète
 n'ont pas été rejoués pour ce correctif.
 
-## Hors périmètre, même famille
+## Même famille : suggestions en lot et présélection fournisseurs
 
-La présélection fournisseurs (`useEstimateEditorSupplierController`) et
-l'application ou l'annulation des suggestions
-(`useEstimateEditorSuggestionsController`) écrivent aussi des lignes existantes
-par `bulkUpdateEstimateItems()` sans rafraîchir la référence. Elles exposent
-probablement la même perte (saisie de la valeur d'avant l'action ignorée). Non
-corrigées ici : un parcours rouge doit d'abord le démontrer.
+La présélection fournisseurs (`useEstimateEditorSupplierController.apply`) et
+l'application ou l'annulation des suggestions en lot
+(`useEstimateEditorSuggestionsController.applySelected` / `undoLastApply`)
+écrivent aussi des lignes existantes par `bulkUpdateEstimateItems()` sans
+rafraîchir la référence. Une saisie n'est ignorée que si la charge complète de
+la ligne redevient identique à la référence périmée ; chaque scénario ci-dessous
+précise comment l'interface y parvient. Les deux actions sont dans
+« Affichage & contrôle » > affichage > « Contrôles avancés », visibles en mode
+Expert seulement : les parcours passent le compte en Expert par le commutateur
+du menu principal, puis rétablissent son mode initial.
+
+| Défaillance observable | Scénario et oracle |
+| --- | --- |
+| S1. Après des suggestions appliquées, ramener la valeur d'avant est ignoré | Règle ARMY « K FO 1,3 » dont le mot-clé est le titre exact d'une ligne neutre (K FO 1, K MO 1, sans unité ni catégorie). « Examiner 1 suggestion » > « Appliquer » → API `k_fo` 1,3. Cellule K FO « 1 », Tab, Ctrl+S → API 1, « Sauvegardé » ou « À jour » ; rechargement → « 1 ». Rouge attendu avant correction. |
+| S2. Après « Annuler les suggestions », saisir la valeur suggérée est ignoré | Même règle, application puis « Annuler les suggestions » → API 1. Cellule « 1,3 », Tab, Ctrl+S → API 1,3 ; rechargement → « 1,3 » (la cellule K FO affiche une virgule, celle du prix un point). Vert attendu avant correction (référence périmée égale à ×1 par hasard) ; rouge pour une correction qui oublierait l'annulation. |
+| P1. Après une présélection, revenir à l'article au prix de référence est ignoré | Article ARMY (référence 10,00 €, unité « u ») avec une seule offre active à 12,34 € ; ligne liée à l'article, titre = désignation, unité « u », 10,00 €, sans offre. « Présélectionner les fournisseurs » > « Appliquer la sélection » → API 1234 et offre retenue. L'offre est ensuite désactivée dans le catalogue (`POST /api/prices`, `update-offer`), puis « Associer ou remplacer l'article » sur le même article : la feuille propose son prix de référence. Ctrl+S → API 1000 et `selected_supplier_price_id` vide ; rechargement → « 10.00 ». Rouge attendu avant correction : la ligne redevient identique à son état d'avant la présélection. |
+| P2. Après une présélection, ressaisir l'ancien prix dans la cellule est ignoré | Non reproductible par l'interface : la saisie du prix conserve l'offre retenue, donc la charge diffère de la référence périmée (offre vide) et part au serveur. Aucune action n'efface seule l'offre retenue ; la présélection n'a pas d'annulation. Pas de parcours. |
+
+Chaque parcours crée ses propres article, fournisseur, offre et règle sous le
+préfixe ARMY du run (`e2e/army/critical/bulk-edit-sync-sources.e2e.ts`). Les
+règles de suggestion sont communes au tenant et leur correspondance floue
+pourrait toucher d'autres lignes ARMY : il n'existe pas de route de suppression,
+la règle est donc désactivée (`PATCH`, `is_active: false`) en fin de parcours,
+depuis l'éditeur, car l'écriture exige son verrou de brouillon. Le mode Expert,
+enregistré sur le profil du compte partagé, est rétabli en fin de parcours, y
+compris après un échec ; les preuves `*-restored.json` le vérifient.
+
+### Correction
+
+Après une réponse réussie et dans la portée courante, la présélection
+fournisseurs et l'application puis l'annulation des suggestions appellent
+`markItemsSynced()` avec les charges qu'elles viennent d'envoyer, comme
+`applyBulkLineState()`. Les harnais existants
+`useEstimateEditorSuggestionsController.test.ts` et
+`useEstimateEditorSupplierController.test.ts` reçoivent seulement la dépendance
+(`vi.fn()`), sans nouvelle assertion.
+
+### Preuves rouges (17/10/2026, même clone, correctif du lot présent, sans celui-ci)
+
+- `.e2e/army/ci/2026-10-17T09-12-29-684Z-critical` (manifeste SHA-256
+  `8be813c46cd147029afebacc4b3688e38c7df1eea1bfec48926e438873afb921`,
+  `--grep 'bulk edit sync (suggestions|supplier)'`) : **P1 rouge**, cellule
+  « 10.00 », statut « À jour », serveur 1234 avec l'offre retenue. S1 et S2 y
+  échouent avant l'oracle métier sur l'affichage « 1,3 » de la cellule K FO
+  (oracle corrigé, la suggestion était bien enregistrée à 1,3).
+- `.e2e/army/ci/2026-10-17T09-18-37-849Z-critical` (manifeste SHA-256
+  `dc59ca51ec8368700feb070e9363fe49f339e77f4663c4891df22c5d0be08d65`,
+  `--grep 'bulk edit sync suggestions|bulk move'`) : **S1 rouge** (saisie « 1 »,
+  cellule « 1 », « À jour », serveur `k_fo` 1,3), **S2 vert** comme prévu.
+
+pgTAP 13 fichiers / 1253 assertions et matrice RLS réussis à chaque run.

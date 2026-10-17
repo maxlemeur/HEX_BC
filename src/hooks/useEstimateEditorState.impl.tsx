@@ -2155,6 +2155,7 @@ export function useEstimateEditorState({
     resolveErrorMessage: resolveEstimateActionError,
     ensureGroupedActionCanProceed,
     applyVersionToken,
+    markItemsSynced,
     handleVersionConflict,
   });
   const {
@@ -2281,6 +2282,7 @@ export function useEstimateEditorState({
     reportError: setActionError,
     resolveErrorMessage: resolveEstimateActionError,
     applyVersionToken,
+    markItemsSynced,
     ensureGroupedActionCanProceed,
     handleVersionConflict,
   });
