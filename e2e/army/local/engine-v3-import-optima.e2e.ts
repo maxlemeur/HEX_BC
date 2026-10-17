@@ -10,6 +10,8 @@ import {
   apiRequest, armyTest, ownEstimate, readEstimate, recordEvidence,
   type ArmyEstimate, type ArmyItem, type ArmyState,
 } from "../critical/fixtures";
+// The 2.4 reading of the OPTIMA control cells (15 significant digits, half up), shared with optima-lot-check.
+import { controlCents } from "../../../scripts/engine-v3/optima-control";
 import { ownedEstimateContext } from "./calculation-gate-support";
 // Aliased: not a React hook, despite its name.
 import { setTenantCalcPolicy, useDedicatedV3Owner as signUpDedicatedV3Owner, type V3Owner } from "./engine-v3-persistence-support";
@@ -57,13 +59,6 @@ const EDITOR_URL = /\/dashboard\/estimates\/[0-9a-f-]{36}\/edit(?:[?#].*)?$/i;
 const STATUS_MENTIONS = /^(HL|inc|NC|PM|CP|SO)$/i;
 const field = (item: object, key: string) => (item as Record<string, unknown>)[key];
 const num = (value: unknown) => (value === null || value === undefined ? null : Number(value));
-
-/** A float control cell read at Excel's 15 significant digits, then to cents half up (as optima-control.ts). */
-function controlCents(value: number) {
-  const [whole, fraction = ""] = Number(value.toPrecision(15)).toFixed(10).split(".");
-  const cents = BigInt(whole + fraction.slice(0, 2)) + (fraction[2] >= "5" ? BigInt(1) : BigInt(0));
-  return Number(cents);
-}
 
 /** The control prices of the priced lines and the status mentions of a workbook (§5.4 reading). */
 async function readLot(lot: Lot) {
