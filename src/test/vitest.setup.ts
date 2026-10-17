@@ -16,9 +16,16 @@ afterEach(() => {
 // Base UI waits for CSS animations before unmounting popups; jsdom never runs them.
 (globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean }).BASE_UI_ANIMATIONS_DISABLED = true;
 
+// `configurable` must be explicit. In the forks pool, Vitest predefines every
+// window key, `matchMedia` included, on the Node global as a configurable
+// accessor, and this call keeps that attribute. The jsdom project runs in the
+// vmForks pool, whose jsdom window has no such key: the new property would
+// default to non-configurable, and `EstimateEditorTable.integration.test.tsx`
+// could no longer redefine `matchMedia` for its mobile cases.
 if (typeof window !== "undefined" && typeof window.matchMedia !== "function") {
   Object.defineProperty(window, "matchMedia", {
     writable: true,
+    configurable: true,
     value: vi.fn().mockImplementation((query: string) => ({
       matches: false,
       media: query,

@@ -289,6 +289,30 @@ export async function setLineCoreValues(
   await screen.getByLabel(`Prix d’achat unitaire HT pour ${title}`, { exact: true }).press("Tab");
 }
 
+// Line autosave is debounced for 60 s (AUTOSAVE_DEBOUNCE_MS). A journey that does not test
+// that cadence flushes its buffered line edits with Ctrl+S, the editor's manual save, and
+// still proves persistence with waitForAutoSave: same API predicate, same "Sauvegardé" or
+// "À jour" toolbar state. The shortcut does nothing without buffered edits or while the
+// draft lock is pending ("Connexion…"), so first wait until the toolbar reports buffered
+// edits ("En attente") or a save in flight. If it were still ignored, the 60 s autosave
+// would persist the edits within waitForAutoSave's deadline: slower, never weaker. Press it
+// from the line's price input, as commercial-rounding.e2e.ts does: the controls that Tab
+// reaches next in the row stop keydown propagation before the editor's window listener.
+export async function saveLineEditsWithShortcut(
+  { screen }: Pick<Ui, "screen">,
+  versionId: string,
+  lineTitle: string,
+  army?: ArmyState
+) {
+  const syncStatus = screen.getByTestId("estimate-page-toolbar-autosave-status");
+  await expect(syncStatus).toHaveText(/^(En attente|Synchronisation…)$/, { timeout: 30_000 });
+  const statusBefore = await syncStatus.textContent();
+  await screen.getByLabel(`Prix d’achat unitaire HT pour ${lineTitle}`, { exact: true }).press("ControlOrMeta+s");
+  if (army) await recordEvidence(army, `save-shortcut-${versionId}`, {
+    versionId, trigger: "ControlOrMeta+s", lineTitle, statusBefore,
+  });
+}
+
 export async function waitForAutoSave(
   { screen, browser }: Pick<Ui, "screen" | "browser">,
   versionId: string,

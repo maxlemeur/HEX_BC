@@ -245,7 +245,10 @@ function findClientXlsxViolations() {
 
 describe("xlsx is not statically reachable from use client modules", () => {
   // Whole-tree scan: give it a real budget instead of the 5s default, which it
-  // exceeds under CI contention (observed 4.9s idle).
+  // exceeds under CI contention (observed 4.9s idle). On the 2-CPU runner it
+  // shares the node project with the other whole-tree scans (the TesterArmy
+  // impact map builds the import graph in child processes): 31s observed on
+  // 17/10/2026, hence 90s.
   it(
     "fails when a use client module statically reaches xlsx at any depth (stopping at use server boundaries)",
     () => {
@@ -254,6 +257,6 @@ describe("xlsx is not statically reachable from use client modules", () => {
       expect(clientFiles.length).toBeGreaterThan(0);
       expect(violations).toEqual([]);
     },
-    30_000
+    90_000
   );
 });
