@@ -3,6 +3,12 @@ name: TesterArmy Full
 # The audited target guard is retained. This job has no shared Supabase secrets:
 # run-tester-army-ci creates and destroys its own native loopback stack, then
 # runs real authenticated journeys only after migrations, pgTAP and RLS pass.
+#
+# Nightly full suite: its "full" phase runs every critical journey (the
+# e2e.config.ts "full" selection includes e2e/army/critical/**) besides the
+# extended and takeoff ones, so the critical suite also runs in full each night
+# while pull requests run only the journeys their files reach
+# (e2e-army-critical.yml, docs/testing/tester-army-ci.md).
 on:
   workflow_dispatch:
   schedule:
@@ -92,6 +98,14 @@ jobs:
         run: npm ci
       - name: Install TesterArmy Chromium
         run: npx @e2e-dev/web install chromium --with-deps
+      # Restore only: e2e-army-critical.yml saves this cache on a push to main.
+      - name: Restore the Army Next build cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .e2e/army/next/cache
+          key: army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-${{ github.sha }}
+          restore-keys: |
+            army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-
       - name: Run native database and TesterArmy full journeys
         id: journeys
         run: node --import tsx scripts/run-tester-army-ci.ts full

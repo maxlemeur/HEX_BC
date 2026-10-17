@@ -507,8 +507,9 @@ describe("CI and local quality guardrails", () => {
       );
 
     expect(actionLines.length).toBeGreaterThan(0);
+    // A sub-action (actions/cache/restore) is pinned by its repository commit.
     for (const line of actionLines) {
-      expect(line).toMatch(/uses:\s+[\w.-]+\/[\w.-]+@[a-f0-9]{40}(?:\s+#\s+v\d[^\s]*)?$/u);
+      expect(line).toMatch(/uses:\s+[\w.-]+\/[\w.-]+(?:\/[\w.-]+)*@[a-f0-9]{40}(?:\s+#\s+v\d[^\s]*)?$/u);
     }
   });
 

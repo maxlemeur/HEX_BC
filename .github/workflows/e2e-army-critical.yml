@@ -3,6 +3,13 @@ name: TesterArmy Critical
 # The audited target guard is retained. This job has no shared Supabase secrets:
 # run-tester-army-ci creates and destroys its own native loopback stack, then
 # runs real authenticated journeys only after migrations, pgTAP and RLS pass.
+#
+# Impact selection (docs/testing/tester-army-ci.md, "Sélection par impact"):
+# a pull request runs only the critical journeys its files reach, recorded as
+# scope "filtered-critical"; shared or unknown paths run the full suite, a
+# docs-only change runs none. A push to main runs the full suite unless it is
+# docs-only; workflow_dispatch and the "army-full" label always run it. The
+# nightly full suite (critical journeys included) is e2e-army-full.yml.
 on:
   workflow_dispatch:
   pull_request:
@@ -85,18 +92,102 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The tested commit and its parents: a pull request's merge commit
+          # (base tip + PR head) or a push and its previous main tip.
+          fetch-depth: 2
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
           cache: npm
+      # Plain Node, before npm ci: a "none" selection skips the installs too.
+      # A selector error selects the full suite; a missing or empty output
+      # also runs it, since only an explicit "none" skips the journeys.
+      - name: Select the critical journeys this change reaches
+        id: select
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          ARMY_FULL_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'army-full') }}
+        run: |
+          set -euo pipefail
+          args=(--event "$EVENT_NAME" --report .e2e/army/ci/selection.json)
+          case "$EVENT_NAME" in
+            pull_request)
+              # The PR diff (base...head) is the merge commit against its first
+              # parent, the base tip. Anything else is not provable: full suite.
+              if [[ "$ARMY_FULL_LABEL" == "true" ]]; then
+                args+=(--force-full "label army-full")
+              elif [[ "$(git rev-parse --verify --quiet 'HEAD^2' || true)" != "$PR_HEAD_SHA" ]]; then
+                args+=(--force-full "the checkout is not the pull request merge commit")
+              else
+                args+=(--base "$(git rev-parse 'HEAD^1')" --head "$(git rev-parse HEAD)")
+              fi
+              ;;
+            push)
+              args+=(--base "$PUSH_BEFORE" --head "$(git rev-parse HEAD)")
+              ;;
+          esac
+          # Plain type stripping on a package without "type": silence the notice.
+          node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/tester-army/select-journeys.ts "${args[@]}"
+      - name: No critical journey reached by this change
+        if: steps.select.outputs.mode == 'none'
+        run: echo "::notice title=TesterArmy critical::Aucun parcours critical concerné (documentation ou chemins hors suite) ; parcours non exécutés, aucune preuve revendiquée."
       - name: Install dependencies
+        if: steps.select.outputs.mode != 'none'
         run: npm ci
       - name: Install TesterArmy Chromium
+        if: steps.select.outputs.mode != 'none'
         run: npx @e2e-dev/web install chromium --with-deps
+      # Next's webpack cache of the Army build (.e2e/army/next/cache, outside
+      # the build fingerprint of build-local.mjs). Every run restores the latest
+      # one main saved; only a push to main saves its own.
+      - name: Restore the Army Next build cache
+        if: steps.select.outputs.mode != 'none'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .e2e/army/next/cache
+          key: army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-${{ github.sha }}
+          restore-keys: |
+            army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-
+      # Pre-migrated database snapshot (src/test/database-snapshot.ts): a hit
+      # restores the database dumped right after a verified db reset; the runner
+      # re-proves the applied migrations and the catalog fingerprint and falls
+      # back to db reset on any mismatch. The key covers every input of the
+      # snapshot's own key; exact key only, since an older snapshot would miss.
+      - name: Restore the pre-migrated database snapshot
+        id: db_snapshot
+        if: steps.select.outputs.mode != 'none'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/army-db-snapshot
+          key: army-db-snapshot-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('supabase/migrations/**', 'supabase/seed*.sql', 'supabase/seeds/**', 'supabase/config.toml', 'src/test/supabase-cli.ts', 'src/test/database-snapshot.ts', 'src/test/local-supabase-ci.ts') }}
       - name: Run native database and TesterArmy critical journeys
         id: journeys
-        run: node --import tsx scripts/run-tester-army-ci.ts critical
+        if: steps.select.outputs.mode != 'none'
+        env:
+          # Qualified for the critical journeys of the owned ephemeral stack
+          # (e2e.config.ts, docs/testing/tester-army-local-development.md).
+          E2E_ARMY_WORKERS: "2"
+          ARMY_FILES: ${{ steps.select.outputs.files }}
+          # Opt-in: unset, run-tester-army-ci keeps db reset.
+          ARMY_DB_SNAPSHOT_DIR: ${{ runner.temp }}/army-db-snapshot
+        run: node --import tsx scripts/run-tester-army-ci.ts critical ${ARMY_FILES:+--files "$ARMY_FILES"}
+      # Only a push to main saves, and only after a cache miss; a failed
+      # recording leaves no directory (the save step then warns, stores nothing).
+      - name: Save the pre-migrated database snapshot
+        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.select.outputs.mode != 'none' && steps.db_snapshot.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/army-db-snapshot
+          key: ${{ steps.db_snapshot.outputs.cache-primary-key }}
+      - name: Save the Army Next build cache
+        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.select.outputs.mode != 'none' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .e2e/army/next/cache
+          key: army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-${{ github.sha }}
       - name: Retain sanitized business evidence
         if: always() && steps.journeys.outputs.evidence != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -104,5 +195,15 @@ jobs:
           name: army-critical-evidence
           include-hidden-files: true
           path: ${{ steps.journeys.outputs.evidence }}
+          if-no-files-found: error
+          retention-days: 7
+      # Paths, revisions and map digest only: why these journeys, or none, ran.
+      - name: Retain the journey selection
+        if: always() && steps.select.outputs.mode != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: army-critical-selection
+          include-hidden-files: true
+          path: .e2e/army/ci/selection.json
           if-no-files-found: error
           retention-days: 7

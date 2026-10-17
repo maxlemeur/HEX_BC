@@ -16,7 +16,9 @@
 //    stops forcing the full suite;
 // 5. a dependency of the shared core (root layout, auth, calculation engine,
 //    journey fixtures) is treated as a local change;
-// 6. a journey reads a fixture by path that the map does not route to it.
+// 6. a journey reads a fixture by path that the map does not route to it;
+// 7. the workflow skips the journeys for anything but an explicit "none", or
+//    leaks the worker count or the build-cache save outside their scope.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -296,5 +298,37 @@ describe("TesterArmy critical impact map", () => {
 
     expect(run(["--event", "pull_request", "--force-full"]).status).toBe(2);
     expect(run(["--event", "pull_request", "--unknown", "x"]).status).toBe(2);
+  });
+});
+
+describe("TesterArmy critical workflow wiring", () => {
+  const read = (file: string) => fs.readFileSync(path.join(root, file), "utf8");
+  const steps = (workflow: string) => workflow.split(/^\s+- name:/mu).slice(1);
+
+  it("skips the journeys only on an explicit none and keeps workers and cache saves in scope", () => {
+    const workflow = read(".github/workflows/e2e-army-critical.yml");
+    const all = steps(workflow);
+    const selectStep = all.findIndex((step) => /^\s+node .*scripts\/tester-army\/select-journeys\.ts /mu.test(step));
+    const install = all.findIndex((step) => /^\s+run: npm ci\b/mu.test(step));
+    const journeys = all.find((step) => step.trimStart().startsWith("Run native database and TesterArmy critical journeys"));
+    expect(selectStep).toBeGreaterThan(-1);
+    expect(selectStep).toBeLessThan(install);
+    expect(journeys).toBeDefined();
+    // An empty or missing selector output must run the full suite.
+    expect(journeys).toContain("if: steps.select.outputs.mode != 'none'");
+    expect(journeys).toMatch(/^\s+E2E_ARMY_WORKERS: "2"$/mu);
+
+    for (const file of fs.readdirSync(path.join(root, ".github/workflows"))) {
+      const other = read(`.github/workflows/${file}`);
+      const count = other.split("E2E_ARMY_WORKERS").length - 1;
+      expect(count, file).toBe(file === "e2e-army-critical.yml" ? 1 : 0);
+    }
+
+    const saves = all.filter((step) => /uses: actions\/cache\/save@/u.test(step));
+    expect(saves.length).toBeGreaterThan(0);
+    for (const save of saves) {
+      expect(save).toMatch(/if: .*github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'/u);
+    }
+    expect(workflow).not.toMatch(/uses: actions\/cache@/u);
   });
 });
