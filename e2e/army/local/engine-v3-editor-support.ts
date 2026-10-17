@@ -252,11 +252,16 @@ export async function fillCell(ui: Ui, label: string, value: string) {
  */
 export async function addGridLine(ui: Ui, draft: V3Draft) {
   const itemUrl = new URL(`/api/estimates/${draft.versionId}/items`, ui.app.baseUrl!).href;
-  await ui.browser.locator(`[data-estimate-item-id="${draft.sectionId}"] [data-testid="estimate-section-title-input"]`).hover();
-  await ui.screen.getByRole("button", `Ajouter dans ${draft.sectionTitle}`, { exact: true }).tap();
+  const addLine = ui.screen.getByTestId("estimate-section-add-line-button");
+  // The menu stays open after « + Ligne » until an outside click or Escape (usePopover): a second
+  // tap on « + » would close it, so it is opened only when it is not already.
+  if (!(await addLine.isVisible())) {
+    await ui.browser.locator(`[data-estimate-item-id="${draft.sectionId}"] [data-testid="estimate-section-title-input"]`).hover();
+    await ui.screen.getByRole("button", `Ajouter dans ${draft.sectionTitle}`, { exact: true }).tap();
+  }
   const [response] = await Promise.all([
     ui.browser.waitForResponse(itemUrl, { timeout: 60_000 }),
-    ui.screen.getByTestId("estimate-section-add-line-button").tap(),
+    addLine.tap(),
   ]);
   expect(response.status).toBe(201);
   const body = await response.json<Envelope<{ item: ArmyItem }>>();
