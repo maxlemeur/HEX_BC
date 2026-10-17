@@ -182,6 +182,12 @@ function createTrackResult(
   };
 }
 
+const TOTALS_PATCH = {
+  total_ht_cents: 750,
+  total_tax_cents: 150,
+  total_ttc_cents: 900,
+};
+
 function createBulkResult(
   updatedAt: string,
   updatedCount = 1,
@@ -261,6 +267,7 @@ function createHarness(input?: {
         reportError,
         resolveErrorMessage,
         ensureGroupedActionCanProceed,
+        computeVersionTotalsPatch: () => TOTALS_PATCH,
         applyVersionToken,
         markItemsSynced: vi.fn(),
         handleVersionConflict,
@@ -651,7 +658,8 @@ describe("useEstimateEditorSuggestionsController", () => {
     expect(clientMocks.bulkUpdateEstimateItems).toHaveBeenCalledWith(
       VERSION_A,
       "token-initial",
-      [expect.objectContaining({ id: "line-1" })]
+      [expect.objectContaining({ id: "line-1" })],
+      TOTALS_PATCH
     );
     expect(harness.normalizeLine).toHaveBeenCalledTimes(1);
     expect(
@@ -694,7 +702,8 @@ describe("useEstimateEditorSuggestionsController", () => {
             k_fo: 1.2,
           }),
         }),
-      ]
+      ],
+      TOTALS_PATCH
     );
     expect(clientMocks.sendEstimateSuggestionRuleFeedback).toHaveBeenCalledWith(
       VERSION_A,
@@ -702,7 +711,10 @@ describe("useEstimateEditorSuggestionsController", () => {
       "accept",
       2
     );
-    expect(harness.applyVersionToken).toHaveBeenCalledWith("token-applied");
+    expect(harness.applyVersionToken).toHaveBeenCalledWith(
+      "token-applied",
+      TOTALS_PATCH
+    );
     expect(harness.result.current.meta.appliedCount).toBe(2);
     expect(harness.getItems().map((item) => item.description)).toEqual([
       "u",
@@ -736,10 +748,14 @@ describe("useEstimateEditorSuggestionsController", () => {
             k_fo: 1,
           }),
         }),
-      ]
+      ],
+      TOTALS_PATCH
     );
     expect(harness.getItems()).toEqual(lines);
-    expect(harness.applyVersionToken).toHaveBeenLastCalledWith("token-undone");
+    expect(harness.applyVersionToken).toHaveBeenLastCalledWith(
+      "token-undone",
+      TOTALS_PATCH
+    );
     expect(harness.result.current.state.undoState).toBeNull();
     expect(harness.setTotalsOutOfSync).toHaveBeenNthCalledWith(1, false);
     expect(harness.setTotalsOutOfSync).toHaveBeenNthCalledWith(2, false);
@@ -757,7 +773,10 @@ describe("useEstimateEditorSuggestionsController", () => {
       await harness.result.current.actions.applySelected();
     });
 
-    expect(harness.applyVersionToken).toHaveBeenCalledWith("token-next");
+    expect(harness.applyVersionToken).toHaveBeenCalledWith(
+      "token-next",
+      TOTALS_PATCH
+    );
     expect(harness.result.current.meta.appliedCount).toBe(1);
     expect(harness.getItems()[0]?.description).toBe("u");
     expect(harness.reportError).toHaveBeenCalledWith(
@@ -882,7 +901,10 @@ describe("useEstimateEditorSuggestionsController", () => {
       applyPromise = harness.result.current.actions.applySelected();
     });
     await waitFor(() =>
-      expect(harness.applyVersionToken).toHaveBeenCalledWith("token-next")
+      expect(harness.applyVersionToken).toHaveBeenCalledWith(
+        "token-next",
+        TOTALS_PATCH
+      )
     );
 
     harness.replaceExternalVersion(createVersion(VERSION_B, "token-b"));

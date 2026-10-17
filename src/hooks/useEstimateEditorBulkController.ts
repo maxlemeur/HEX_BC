@@ -13,6 +13,7 @@ import {
   type EstimateItem,
   type EstimateItemUpdatePayload,
   type EstimateVersionRow,
+  type EstimateVersionTotalsPatch,
 } from "@/lib/estimates/editor-items";
 import { toFiniteNumber } from "@/lib/estimates/editor-values";
 import { buildSiblingOrderByParent } from "@/app/dashboard/estimates/[versionId]/edit/utils/item-tree";
@@ -42,7 +43,14 @@ type EstimateEditorBulkControllerInput = {
   reportError: (message: string | null) => void;
   resolveErrorMessage: (message: string) => string;
   normalizeLine: (item: EditorEstimateItem) => EditorEstimateItem;
-  applyVersionToken: (updatedAt: string) => void;
+  /** Version totals of these rows, from the editor's persisted-totals calculation. */
+  computeVersionTotalsPatch: (
+    items: EditorEstimateItem[]
+  ) => EstimateVersionTotalsPatch | undefined;
+  applyVersionToken: (
+    updatedAt: string,
+    totals?: EstimateVersionTotalsPatch
+  ) => void;
   markItemsSynced: (
     entries: ReadonlyArray<{ id: string; updates: EstimateItemUpdatePayload }>
   ) => void;
@@ -77,6 +85,7 @@ export function useEstimateEditorBulkController({
   reportError,
   resolveErrorMessage,
   normalizeLine,
+  computeVersionTotalsPatch,
   applyVersionToken,
   markItemsSynced,
   ensureGroupedActionCanProceed,
@@ -104,6 +113,15 @@ export function useEstimateEditorBulkController({
       const updatedById = new Map(
         targetLines.map((line) => [line.id, line])
       );
+      // The lines and the version totals they imply are written by one RPC: the
+      // stored totals feed the affaires list, approvals and documents.
+      const versionTotalsPatch = computeVersionTotalsPatch(
+        snapshot.map((item) => updatedById.get(item.id) ?? item)
+      );
+      if (!versionTotalsPatch) {
+        reportError("Impossible de calculer les totaux du devis.");
+        throw new Error("Impossible de calculer les totaux du devis.");
+      }
       setItems((previous) =>
         previous.map((item) => updatedById.get(item.id) ?? item)
       );
@@ -116,7 +134,8 @@ export function useEstimateEditorBulkController({
         const bulkResult = await bulkUpdateEstimateItems(
           targetVersionId,
           versionSnapshot.updated_at,
-          updates
+          updates,
+          versionTotalsPatch
         );
         if (
           getVersionSnapshot()?.id !== targetVersionId ||
@@ -124,7 +143,11 @@ export function useEstimateEditorBulkController({
         ) {
           return false;
         }
-        applyVersionToken(bulkResult.versionToken.updated_at);
+        // v2 returns the totals it recalculated; v1 stores the patch as sent.
+        applyVersionToken(
+          bulkResult.versionToken.updated_at,
+          bulkResult.totals ?? versionTotalsPatch
+        );
         // Without a fresh baseline, an edit back to the previous value is dropped.
         markItemsSynced(updates);
         setTotalsOutOfSync(false);
@@ -149,6 +172,7 @@ export function useEstimateEditorBulkController({
     },
     [
       applyVersionToken,
+      computeVersionTotalsPatch,
       getItemsSnapshot,
       getVersionSnapshot,
       handleVersionConflict,

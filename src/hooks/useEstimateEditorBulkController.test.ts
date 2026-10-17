@@ -94,6 +94,12 @@ function createLine(
   };
 }
 
+const TOTALS_PATCH = {
+  total_ht_cents: 750,
+  total_tax_cents: 150,
+  total_ttc_cents: 900,
+};
+
 function createBulkResult(updatedAt: string, updatedCount = 1) {
   return {
     updatedCount,
@@ -160,6 +166,7 @@ function createHarness(input: HarnessInput = {}) {
       reportError,
       resolveErrorMessage,
       normalizeLine,
+      computeVersionTotalsPatch: () => TOTALS_PATCH,
       applyVersionToken,
       markItemsSynced,
       ensureGroupedActionCanProceed,
@@ -291,7 +298,8 @@ describe("useEstimateEditorBulkController", () => {
             line_total_ht_cents: 1500,
           }),
         }),
-      ]
+      ],
+      TOTALS_PATCH
     );
     expect(harness.getItems()[0]).toMatchObject({
       h_mo_majoration: 1.5,
@@ -328,7 +336,8 @@ describe("useEstimateEditorBulkController", () => {
             line_total_ht_cents: 2800,
           }),
         }),
-      ]
+      ],
+      TOTALS_PATCH
     );
     expect(harness.applyVersionToken.mock.calls.map(([token]) => token)).toEqual(
       ["token-majoration", "token-role"]
