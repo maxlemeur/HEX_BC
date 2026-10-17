@@ -65,6 +65,16 @@ async function lockVersion(browser: Browser, versionId: string) {
   expect(lock.status).toBe(201);
 }
 
+/**
+ * Hands the draft lease back once a precondition is written. The lease belongs to this document's
+ * API session; the editor opened afterwards by a navigation is another page session (useDraftLock)
+ * and would otherwise stay read-only, « verrouillé par vous dans un autre onglet » (2.6 green run).
+ */
+async function releaseVersion(browser: Browser, versionId: string) {
+  const release = await apiRequest(browser, "DELETE", `/api/estimates/${versionId}/lock`);
+  expect(release.status).toBe(200);
+}
+
 async function ensureTuyauteur(browser: Browser, army: ArmyState, anchorId: string) {
   const details = await apiRequest<Envelope<{ labor_roles: Array<{ id: string; name: string; hourly_rate_cents: number; is_active: boolean }> }>>(
     browser, "GET", `/api/estimates/${anchorId}`);
@@ -130,12 +140,14 @@ export async function prepareV3Draft(ui: Ui, army: ArmyState, label: string): Pr
   const section = await apiRequest<Envelope<{ item: ArmyItem }>>(ui.browser, "POST", `/api/estimates/${versionId}/items`,
     { item_type: "section", position: 1, title: sectionTitle }, { "if-match": empty.version.updated_at });
   expect([section.status, section.body.ok]).toEqual([201, true]);
+  await releaseVersion(ui.browser, versionId);
   return { owner, projectId, anchorId, versionId, sectionId: section.body.data.item.id, sectionTitle, tuyauteurId };
 }
 
 /** Lines that a scenario does not type, by one committed batch (same contract as V3P01, §9.3.2 of 2.5). */
 export async function seedLines(ui: Ui, army: ArmyState, draft: V3Draft, label: string, lines: Array<Record<string, unknown>>) {
-  // The v3 lease taken by prepareV3Draft in this same document still holds.
+  // prepareV3Draft handed its lease back: this document takes it again for the batch only.
+  await lockVersion(ui.browser, draft.versionId);
   const before = await readEstimate(ui.browser, draft.versionId);
   const request = {
     operation_key: randomUUID(),
@@ -146,6 +158,7 @@ export async function seedLines(ui: Ui, army: ArmyState, draft: V3Draft, label: 
   await recordEvidence(army, `v3e-seed-${label}`, { versionId: draft.versionId, request, response });
   expect([response.status, response.body.ok, response.body.data?.committed]).toEqual([200, true, true]);
   expect(response.body.data.results.filter(result => result.status === "error")).toEqual([]);
+  await releaseVersion(ui.browser, draft.versionId);
   const state = await readEstimate(ui.browser, draft.versionId);
   return lines.map(line => {
     const item = state.items.find(candidate => candidate.item_type === "line" && candidate.title === line.title);
