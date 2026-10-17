@@ -88,15 +88,27 @@ Les valeurs sont exactes, en centimes, et enregistrées dans
 **Annulations.** Un lot qui n'écrit pas ses totaux laisse la version aux totaux d'avant le lot ;
 une annulation remet exactement les lignes d'avant le lot. Enchaînés sans autre sauvegarde, un
 lot périmé masquerait donc une annulation périmée. Les parcours d'annulation (BT2, BT5)
-commencent par ramener la version aux lignes : `reconcileStoredTotals()` presse Ctrl+S depuis le
-prix d'achat de la ligne, sans saisie en attente. Sur une v2, cette sauvegarde manuelle écrit les
-totaux des lignes quand ils diffèrent (`allowManualTotalsReconciliation`,
-`useEstimateEditorState.impl.tsx:540-542` ; `reconcileTotals`,
-`useEstimateEditorSyncController.ts:729-735`) par `bulkUpdateEstimateItems([], patch)`, que le
-serveur recalcule ; elle n'écrit aucune ligne, ne vide pas l'historique (`clearHistory()` ne
-suit qu'un lot de lignes, `:853`) ni l'annulation des suggestions. Après correction, ce Ctrl+S
-ne fait rien. L'annulation est alors la seule écriture jugée. En v1, ce rapprochement n'existe
-pas : l'annulation v1 n'a pas de parcours (même fonction `applyBulkLineState` que la v2).
+commencent par ramener la version aux lignes : `reconcileStoredTotals()` presse Ctrl+S, sans
+saisie en attente. Sur une v2, cette sauvegarde manuelle écrit les totaux des lignes quand ils
+diffèrent (`allowManualTotalsReconciliation`, `useEstimateEditorState.impl.tsx:540-542` ;
+`reconcileTotals`, `useEstimateEditorSyncController.ts:729-735`) par
+`bulkUpdateEstimateItems([], patch)`, que le serveur recalcule ; elle n'écrit aucune ligne, ne
+vide pas l'historique (`clearHistory()` ne suit qu'un lot de lignes, `:853`) ni l'annulation des
+suggestions. Après correction, ce Ctrl+S ne fait rien. L'annulation est alors la seule écriture
+jugée. En v1, ce rapprochement n'existe pas : l'annulation v1 n'a pas de parcours (même fonction
+`applyBulkLineState` que la v2).
+
+Deux conditions du rapprochement, établies par les runs 1 et 2 (plus bas) :
+
+- le raccourci part du corps de la page, aucun champ de grille actif. Un champ de grille valide
+  sa valeur à la perte du focus, même inchangée (`handleInputBlur`,
+  `src/components/estimates/EditableCell.tsx:145-162` ; `onCommit` du prix, `LineRow.tsx:928-939`
+  → `patchItem`, `useEstimateEditorItemsController.ts:842-845`), et cette validation empile une
+  étape d'annulation `patch-item` : « Annuler » reprend alors cette étape vide au lieu du lot.
+  Défaut d'ergonomie préexistant, hors de ce lot (une annulation sans effet visible), non
+  corrigé ici ;
+- l'action suivante attend que la barre affiche « Sauvegardé » ou « À jour » : l'API voit
+  l'écriture avant que l'éditeur n'en reçoive l'accusé (même règle que `waitForAutoSave`).
 
 Brouillon v2 créé par l'assistant : marge fixe 0 %, TVA 20 %, sans arrondi. Rôle : le seul rôle
 actif à 40 €/h du compte CI possédé (`run-tester-army-ci.ts`), relu par `basisLaborRole()`.
@@ -131,3 +143,41 @@ un run ajoute temporairement les deux fichiers à la liste critical `localBusine
 npm run e2e:army:local -- --grep "bulk edit sync|^V1BT01\s|^V1PT01\s" --app-port <port>
 npm run e2e:army:ci -- full --app-port <port>
 ```
+
+## Preuves rouges (18/10/2026, avant correction)
+
+WSL Ubuntu 24.04, Node 24.14.0, Supabase CLI natif 2.120.0, clone Linux
+`~/miaouffrage-totals-bulk`, branche `fix/version-totals-after-bulk-actions` (code produit de
+`main` `fc2ba2dc`, seuls les parcours changent). Seule modification locale : V1BT01 et V1PT01
+ajoutés à la liste critical `localBusiness` de `e2e.config.ts` pour les filtrer
+(`diffSha256` `7fbcd375…bae`), retirée après les runs. Chaque run démarre sa propre pile
+éphémère : pgTAP (19 fichiers, 1 837 assertions) et matrice RLS passés, build possédé, puis les
+parcours (1 worker). Une seule pile native possédée à la fois. Journaux :
+`~/totals-bulk-logs/red-critical-run{1,2,3}.log`.
+
+Commande des trois runs :
+`npm run e2e:army:local -- --grep "bulk edit sync|^V1BT01\s|^V1PT01\s" --app-port 3151`.
+
+| Run | Révision | Résultat | Preuves (sous `~/miaouffrage-totals-bulk/.e2e/army/ci`) |
+| --- | --- | --- | --- |
+| 1 | `a5bc3ec1` | exit 1 ; 4 verts, 6 rouges. D1, S1, V1BT01 rouges à l'oracle. Défauts du parcours : D4 ne trouve pas l'onglet (libellé « Affichage & contrôle » suivi du nombre d'alertes) ; D2 et S2 cliquent l'annulation avant l'accusé du Ctrl+S, et aucune requête d'annulation ne part | `2026-10-17T21-52-31-089Z-critical` (`manifest.json` sha256 `47e4501f…9c26`) |
+| 2 | `c6ce5563` (attente de l'accusé, onglet sans compte fixe) | exit 1 ; S2 et D4 rouges à l'oracle ; D2 annule encore sans effet : l'étape `patch-item` vide du prix quitté (voir « Annulations ») | `2026-10-17T22-03-59-474Z-critical` (`manifest.json` sha256 `8d85d45e…3a8b`) |
+| 3 | `0f1f0a15` (raccourci depuis le corps de la page) | exit 1 ; setup, P1, D3, V1PT01 verts ; D1, D2, D4, S1, S2, V1BT01 rouges, chacun à sa première lecture de totaux après l'action jugée | `2026-10-17T22-07-46-818Z-critical` (`manifest.json` sha256 `85b1d8b5…57b3`) |
+
+Run 3, valeurs relues dans la même lecture (`critical/artifacts/business/`) :
+
+| Scénario | Version (`id`) | État avant l'action (lignes = version) | Lignes après l'action | Version enregistrée | Fichier (sha256) |
+| --- | --- | --- | --- | --- | --- |
+| BT1, D1 majoration | `f7962672…` v2 `fixed` | `[5000, 1000, 6000]` | `[7000, 1400, 8400]` | `[5000, 1000, 6000]` | `ARMY-1792274962598-1c6ce8e9-bulk-sync-d1-majoration-stored-totals.json` (`89ca9bac…c69c`) |
+| BT2, D2 annulation | `0b80769b…` v2 `fixed` | `[7000, 1400, 8400]` (après Ctrl+S, `…-d2-majoration-reconciled-totals.json`, `4aebf9d2…6c78`) | `[5000, 1000, 6000]` | `[7000, 1400, 8400]` | `ARMY-1792274966913-11f0b1f5-bulk-sync-d2-undo-stored-totals.json` (`ce38bbbe…33a4`) |
+| BT3, D4 rôle MO | `ec5a449e…` v2 `fixed` | `[1000, 200, 1200]` | `[5000, 1000, 6000]` | `[1000, 200, 1200]` | `ARMY-1792274979530-fb438ae5-bulk-sync-d4-labor-role-stored-totals.json` (`a8b48d7d…e76e`) |
+| BT4, S1 suggestions | `4728738b…` v2 `fixed` | `[1000, 200, 1200]` | `[1300, 260, 1560]` | `[1000, 200, 1200]` | `ARMY-1792274934109-abf19f9a-bulk-sync-s1-apply-stored-totals.json` (`8178377a…547a`) |
+| BT5, S2 annulation des suggestions | `d03f3979…` v2 `fixed` | `[1300, 260, 1560]` (après Ctrl+S, `…-s2-apply-reconciled-totals.json`, `18af3b30…df57`) | `[1000, 200, 1200]` | `[1300, 260, 1560]` | `ARMY-1792274942409-c9a07e1a-bulk-sync-s2-undo-stored-totals.json` (`6076b3e5…ae2f`) |
+| BT6, V1BT01 majoration v1 | `19116945…` v1 `fixed` | `[6000, 1200, 7200]` (semé) | `[8000, 1600, 9600]` | `[6000, 1200, 7200]` ; hub et liste 60,00 € | `ARMY-1792274984423-4c6dcf5f-v1-bulk-majoration-stored-totals.json` (`bb587b18…4d3c`) |
+
+Les lignes sont égales aux valeurs attendues ; seul l'en-tête de version est périmé, à la valeur
+d'avant l'action. Chaque parcours s'arrête à cette première assertion fausse : les rétablissements
+de D2 et D4 ne sont pas encore atteints. Les états créés de D1 à D4 sont cohérents
+(`…-seeded-stored-totals.json`). Témoins verts dans le même run : P1 `[1234, 247, 1481]`
+(correction #36), V1PT01 `[3702, 740, 4442]`, hub et liste 37,02 €, sur le module de semis
+extrait ; les deux parcours v1 ont restauré le mode initial `simplified`.
