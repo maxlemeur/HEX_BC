@@ -1,5 +1,9 @@
 # Repository Guidelines
 
+This is the shared operational contract for all agents working in this
+repository, including Codex and Claude Code. Read it before work and keep
+repository instructions here.
+
 ## Core Rules
 
 - Use Visualize when a diagram or interactive comparison materially improves the explanation; otherwise use concise prose or a table.
@@ -38,7 +42,7 @@ Use current code, `package.json`, configuration, migrations, and focused documen
 ## Review and validation scope
 
 - Before implementation, name the intended behavior, affected journey and concrete failure to prevent. Batch related fixes into one coherent PR. Keep the Testing Policy above, including its isolated-test exceptions.
-- Review substantial changes with an independent, read-only reviewer on a stable diff. Give it the intent, applicable contracts, immediate consumers and current validation evidence; do not rely only on the author's summary. `CLAUDE.md` routes here, so these rules apply to local reviews without a separate `REVIEW.md`.
+- Review substantial changes with an independent, read-only reviewer on a stable diff. Give it the intent, applicable contracts, immediate consumers and current validation evidence; do not rely only on the author's summary. These rules apply to every agent's local review.
 - Scale the review to effects: documentation needs consistency and diff checks; an ordinary feature needs its affected journey; calculation versions/rounding, authorization/RLS, persistence, migrations, exports and validation/publication tooling need the relevant specialist checks. Existing validation and publication requirements still apply.
 - Report actionable defects with a trigger, impact, file/line and evidence or a reproducer. Group instances of the same defect. Separate pre-existing issues and optional polish; do not expand a lot to fix unrelated findings or repeat a resolved finding without new evidence.
 - Use one initial review and one correction-focused follow-up for ordinary work. Reopen the wider review only when the approach or risk changes. If an important defect remains, reduce the change or identify the precise decision needed; a round or time limit never means approval.
@@ -48,6 +52,10 @@ Use current code, `package.json`, configuration, migrations, and focused documen
 - CI budget: keep the existing PR impact selection, main critical suite, caches and PR quality/smoke/RLS protections. The nightly full Army suite remains the broad check beyond a filtered PR and includes native SQL/RLS validation. Only the additional quality and standalone RLS nightly runs move to explicit dispatch. This changes scheduling, not job checks, local validation, retained evidence or publication requirements; backup and recovery workflows have their own operational purpose.
 
 ## Architecture
+
+HEX is a multi-tenant French construction-estimating product. Its core journey
+runs from an affaire and its DPGF/plans/CCTP through import or takeoff, estimate,
+approval, PDF and sending, then the client portal and purchase orders.
 
 - `src/app/`: Next.js 16 App Router pages, layouts, server actions, and `api/**` handlers.
 - `src/components/`, `src/hooks/`: shared UI and reusable hooks.
@@ -65,8 +73,10 @@ Use Node.js 24 LTS as pinned by `.nvmrc` and used by CI/Vercel.
 
 - Install: `npm ci` on a clean checkout; use `npm install` only for intentional dependency or lockfile changes.
 - Run: `npm run dev`, `npm run dev:webpack` to isolate Turbopack behavior, or `npm run start` for an existing build.
-- Check: `npx eslint <touched-files>`, `npm run lint`, `npm run typecheck`, `npm test`.
-- Focus tests: `npm test -- path/to/file.test.ts`; add `--project=node` for server/domain tests or `--project=jsdom` for components/hooks.
+- PR quality: `npm run verify:pr` is the single local quality entry point. It aliases the existing `check:quality` chain: dependency audit/signatures, architecture budgets, OpenAPI, typecheck, lint, Node/jsdom tests and critical boundary coverage. It checks the current checkout; record the source revision, local changes and result. It adds no proof receipt or duration guarantee.
+- Optional iteration diagnostics: `npx eslint <touched-files>`, `npm run lint`, `npm run typecheck`, `npm test`. These components already run in `verify:pr`; do not repeat them as additional PR prerequisites on unchanged inputs.
+- Optional focused tests: `npm test -- path/to/file.test.ts`; add `--project=node` for server/domain tests or `--project=jsdom` for components/hooks.
+- Publication: `npm run check:release` adds production-build verification to the quality chain. Run it when preparing publication, separately from PR quality and the affected TesterArmy/SQL/RLS validation.
 - E2E: `npm run e2e` runs the TesterArmy anonymous smoke; use `e2e:army:critical` for priority business journeys, `e2e:army:full` for migrated production journeys and specialists, and `e2e:army:development` for the development-only hub scenarios. `e2e:army:ci -- full` runs both phases after native SQL/RLS checks on an owned ephemeral backend; read `docs/testing/tester-army-ci.md`. Opt-in agent navigation uses `e2e:army:agent`.
 - Optional route audit: use `e2e:army:polish` with explicit `E2E_ARMY_POLISH_ROUTES`; read `docs/testing/tester-army-polish.md` for fixture and screenshot limits. It does not qualify unselected screens.
 - TesterArmy pilot: `npm run e2e:army` runs anonymous desktop/mobile browser checks with `.e2e/army/manifest.json`, `report.json`, screenshots and markdown trace pages under `.e2e/army/results/` (no Playwright trace zip since `e2e` 0.20.0). Read `docs/testing/tester-army.md` and the installed `node_modules/e2e/skills/e2e/` guides before extending it. `npm run e2e:army:agent` requires the runner's separate subscription login; the anonymous pilot does not prove authenticated workflows.
@@ -77,12 +87,16 @@ Use Node.js 24 LTS as pinned by `.nvmrc` and used by CI/Vercel.
 
 Vitest uses `node` and `jsdom` projects. Legacy `e2e:hex`, `e2e:hex:all`, and feature-specific `e2e:hex:*` suites require a running app, `agent-browser`, and `pwsh` or `powershell`; verify prerequisites before blaming the product.
 
-Use relevant E2E as the primary behavioral validation for UI, routing, auth, workflows, or RLS and preserve its repeatable artifact. Run focused isolation regressions only for a documented E2E gap; run the retained Vitest suite when changing or pruning that coverage. Also run touched-file lint, typecheck, build for release, routing, configuration, or OpenAPI work, and `git diff --check` as scope requires. Test warnings about fallback, portal, storage, or toasts may be intentional; prioritize failed assertions and exit codes, while investigating unexpected logs. Report unrelated global failures separately.
+Use relevant E2E as the primary behavioral validation for UI, routing, auth, workflows, or RLS and preserve its repeatable artifact. Run focused isolation regressions only for a documented E2E gap; `verify:pr` already runs the retained Vitest suites when changing or pruning that coverage. Add affected specialist checks and `git diff --check` as scope requires. Build commands can diagnose routing, configuration or OpenAPI changes during iteration; the complete `check:release` chain belongs to publication preparation. Test warnings about fallback, portal, storage, or toasts may be intentional; prioritize failed assertions and exit codes, while investigating unexpected logs. Report unrelated global failures separately.
 
 When routes or schemas change, update the OpenAPI generator, regenerate `openapi.json`, inspect its diff, and validate it. Missing public Supabase variables can cause environment-only build failures; never invent or expose secrets. Never print `.env.local`; required variables are documented in `.env.example` and `e2e/README.md`.
 
 ## Domain and Security Invariants
 
+- Keep amounts in integer cents (`*_cents`) and rates in basis points (`*_bp`). Reuse `formatEUR()` and `parseEuroToCents()` from `src/lib/money.ts` for euro display and input. Read `docs/metier/regles-de-calcul.md` and the current calculation code before changing rounding; the historical engines mix `bankersRound` and `Math.round`.
+- Preserve the calculation contract pinned by `estimate_versions.calc_engine_version`. Read `src/lib/estimates/calc-engine-version.ts` and `src/lib/estimates/engine/capabilities.ts` for current creation policy and supported operations; never reinterpret a v3 version as v1. Preserve snapshot freshness and the stored amounts of issued/sealed estimates. Historical calculation code changes can alter contractual values.
+- Read `docs/metier/cycle-de-vie.md` and the current transition guards before changing estimate status, sending or recovery. Preserve the transactional sending state and the immutability of issued snapshots; do not copy a historical enum or transition list as the current contract.
+- `src/proxy.ts` handles session cookies and redirects. Keep business authorization and active-tenant membership checks in the existing server/auth boundaries (`src/lib/auth/server.ts`, `src/lib/auth/tenant-context.ts`) and reuse the existing server/browser Supabase clients. A session redirect does not establish authorization for an operation.
 - Preserve the DPGF path `dpgf_rows_raw` -> mappings -> `confirmUnifiedImportFlow`.
 - PDF imports must use that shared contract without regressing CSV/XLS/XLSX. Cover extraction and canonical import with realistic generated DPGF fixtures where practical, and preserve `sourceDocumentId` and `_timax_provenance`.
 - Treat tenant membership, active-tenant checks, RLS, service-role clients, Storage paths, portal tokens, email side effects, and takeoff workers as high-risk boundaries.

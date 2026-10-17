@@ -64,6 +64,7 @@
     "test:jsdom": "vitest run --project=jsdom",
     "test:node": "vitest run --project=node",
     "verify:production": "node --import tsx scripts/verify-production-build.ts",
+    "verify:pr": "npm run check:quality",
     "check:quality": "npm run audit:dependencies && npm run audit:signatures && npm run check:architecture && npm run validate-openapi && npm run typecheck && npm run lint && npm run test:ci:node && npm run test:ci:jsdom && npm run test:critical-coverage",
     "check:release": "npm run check:quality && npm run verify:production",
     "e2e:army:full": "node scripts/run-tester-army.mjs full",
