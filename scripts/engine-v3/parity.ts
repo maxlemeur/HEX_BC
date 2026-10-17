@@ -4,7 +4,8 @@
 //
 // 1. generate the seeded cases (scripts/engine-v3/parity-cases.ts): 10 000 random lines priced
 //    alone, 300 random estimates and named edge cases;
-// 2. compute every case with the TS canonical adapter (computeEstimateV3Canonical);
+// 2. compute every case with the TS canonical adapter (computeEstimateV3Canonical) on the very
+//    JSON text the SQL side reads;
 // 3. own a disposable native stack with every repository migration (owned-native-stack.ts) and
 //    compute the same JSON with private.estimate_v3_compute_items, as `postgres`, through the
 //    native psql; a named SQL error is captured per case (message = code, SQLSTATE);
@@ -92,10 +93,10 @@ async function main() {
 
   const cases = generateParityCases(seed);
   const tsStarted = performance.now();
-  const tsOutcomes = cases.map((entry) => computeTsOutcome(entry.input));
+  const tsOutcomes = cases.map((entry) => computeTsOutcome(entry));
   const tsDurationMs = Math.round(performance.now() - tsStarted);
   const casesText = cases
-    .map((entry) => `${entry.id}\t${copyText(JSON.stringify(entry.input.items), entry.label)}\t${copyText(JSON.stringify(entry.input.params), entry.label)}`)
+    .map((entry) => `${entry.id}\t${copyText(entry.text.items, entry.label)}\t${copyText(entry.text.params, entry.label)}`)
     .join("\n");
   fs.writeFileSync(path.join(evidence, "cases.tsv.gz"), gzipSync(`${casesText}\n`));
   const count = (family: ParityCase["family"]) => cases.filter((entry) => entry.family === family).length;

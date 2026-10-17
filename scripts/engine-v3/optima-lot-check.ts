@@ -16,11 +16,14 @@
 //   significant digits, then rounded half up to the cent.
 // - Run 1 at the workbook coefficients (1,3 / 1,3): PU v3 against "Prix Unitaire", gross against
 //   "Prix Total". Run 2 at 1,30 / 1,20 (the offer): net HT, cost and realized coefficient.
-// - The §5.4 expectations of the two lots of docs/prd_file are checked when the file name names
-//   the lot; any difference fails the run (exit 1): find the root cause, never move the number.
-// The report (numbers and row numbers only, no designation) is archived outside the tracked tree:
+// - The §5.4 expectations of the two lots of docs/prd_file are checked; each file must name one
+//   lot and both lots must be checked once, otherwise the run fails (exit 1) and claims nothing;
+//   any difference fails the run too: find the root cause, never move the number.
+// The report (numbers and row numbers only, no designation; source revision, local-diff hash,
+// command and the sha256 of each workbook) is archived outside the tracked tree:
 // .e2e/engine-v3/optima-lot-check/<timestamp>/report.json.
 
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
@@ -40,7 +43,7 @@ import {
 } from "../../src/lib/imports/optima-profile";
 import type { MappingTargetField } from "../../src/lib/mappings/schemas";
 import { normalizeMeasurementUnit } from "../../src/lib/units/normalize";
-import { newEvidenceDirectory } from "../tester-army/local-recipe-common.mjs";
+import { buildSourceEvidence, newEvidenceDirectory } from "../tester-army/local-recipe-common.mjs";
 import { centsHalfUp, controlCents } from "./optima-control";
 
 type Expectation = {
@@ -252,6 +255,7 @@ async function main() {
       .reduce((total, line) => total + Math.abs(line.gross_ht_cents) + Math.abs(line.line_total_ttc_cents), 0);
     const lot: Record<string, unknown> = {
       file: name,
+      sha256: createHash("sha256").update(fs.readFileSync(file)).digest("hex"),
       rows: workbook.rows,
       parameters: {
         coefficientFo: workbook.coefficientFo,
@@ -290,7 +294,10 @@ async function main() {
     );
 
     const lotKey = Object.keys(EXPECTATIONS).find((key) => name.toUpperCase().includes(key));
-    if (!lotKey) return;
+    if (!lotKey) {
+      failures.push(`${name}: aucun lot du §5.4 (${Object.keys(EXPECTATIONS).join(", ")}) dans le nom du fichier`);
+      return;
+    }
     const expected = EXPECTATIONS[lotKey];
     const check = (label: string, actual: unknown, wanted: unknown) => {
       if (!isDeepStrictEqual(actual, wanted)) {
@@ -311,14 +318,25 @@ async function main() {
     lot.expectation = lotKey;
   });
 
+  for (const key of Object.keys(EXPECTATIONS)) {
+    const checked = lots.filter((lot) => lot.expectation === key).length;
+    if (checked !== 1) failures.push(`lot ${key} contrôlé ${checked} fois (attendu : une fois)`);
+  }
+  const source = await buildSourceEvidence();
   const evidence = await newEvidenceDirectory(
     "engine-v3/optima-lot-check",
     started.toISOString().replace(/[:.]/g, "-")
   );
   const report = {
-    schemaVersion: "engine-v3-optima-lot-check-1",
+    schemaVersion: "engine-v3-optima-lot-check-2",
     startedAt: started.toISOString(),
     finishedAt: new Date().toISOString(),
+    command: [process.execPath, ...process.argv.slice(1)],
+    source: {
+      revision: source.revision,
+      diffSha256: source.diffSha256,
+      inputsSha256: createHash("sha256").update(JSON.stringify(source.inputs)).digest("hex"),
+    },
     node: process.version,
     platform: process.platform,
     lots,

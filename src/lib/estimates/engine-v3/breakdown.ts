@@ -8,6 +8,7 @@
  */
 import { allocateExact } from "@/lib/estimates/engine-v3/allocate";
 import {
+  type DecimalReadMode,
   divideHalfUp,
   formatScaled,
   INT32_MAX,
@@ -67,9 +68,15 @@ export function computeEstimateV3Breakdown(input: EstimateV3Input): EstimateV3Br
   return computeEstimateV3BreakdownFromUnknown(input);
 }
 
-/** Même calcul sur une entrée non typée (JSON canonique) : tout écart de forme est refusé. */
-export function computeEstimateV3BreakdownFromUnknown(rawInput: unknown): EstimateV3Breakdown {
-  const { params, lines } = normalizeEstimateV3Input(rawInput);
+/**
+ * Même calcul sur une entrée non typée : tout écart de forme est refusé. `canonical` applique le
+ * contrat JSON du jumeau SQL (nombres JSON seulement, adaptateur `computeEstimateV3Canonical`).
+ */
+export function computeEstimateV3BreakdownFromUnknown(
+  rawInput: unknown,
+  mode: DecimalReadMode = "editor"
+): EstimateV3Breakdown {
+  const { params, lines } = normalizeEstimateV3Input(rawInput, mode);
   const gross = lines.map((line, index) => computeV3LineGross(line, params, `items[${index}]`));
 
   const grossTotal = sum(gross.map((line) => line.gross));

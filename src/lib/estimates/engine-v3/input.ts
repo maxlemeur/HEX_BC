@@ -13,7 +13,9 @@ import {
   DECIMAL_ZERO,
   decimalFromInteger,
   type DecimalBounds,
+  type DecimalReadMode,
   INTEGER_BOUNDS,
+  JsonNumberLiteral,
   parseDecimal,
 } from "@/lib/estimates/engine-v3/decimal";
 import { invalidInput } from "@/lib/estimates/engine-v3/errors";
@@ -84,17 +86,25 @@ export type NormalizedV3Input = { params: NormalizedV3Params; lines: NormalizedV
 type Bag = Record<string, unknown>;
 
 function isBag(value: unknown): value is Bag {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return (
+    typeof value === "object" && value !== null && !Array.isArray(value) && !(value instanceof JsonNumberLiteral)
+  );
 }
 
-function optionalDecimal(bag: Bag, key: string, path: string, bounds: DecimalBounds): Decimal | null {
+function optionalDecimal(
+  bag: Bag,
+  key: string,
+  path: string,
+  bounds: DecimalBounds,
+  mode: DecimalReadMode
+): Decimal | null {
   const value = bag[key];
   if (value === null || value === undefined) return null;
-  return parseDecimal(value, `${path}.${key}`, bounds);
+  return parseDecimal(value, `${path}.${key}`, bounds, mode);
 }
 
-function requiredDecimal(bag: Bag, key: string, path: string, bounds: DecimalBounds): Decimal {
-  const value = optionalDecimal(bag, key, path, bounds);
+function requiredDecimal(bag: Bag, key: string, path: string, bounds: DecimalBounds, mode: DecimalReadMode): Decimal {
+  const value = optionalDecimal(bag, key, path, bounds, mode);
   if (value === null) throw invalidInput(`${path}.${key}`, "valeur obligatoire");
   return value;
 }
@@ -117,13 +127,13 @@ const PARAMS_KEYS = [
   "labor_split_enabled",
 ] as const;
 
-function normalizeParams(raw: unknown): NormalizedV3Params {
+function normalizeParams(raw: unknown, mode: DecimalReadMode): NormalizedV3Params {
   if (!isBag(raw)) throw invalidInput("params", "objet attendu");
   const path = "params";
   const missing = PARAMS_KEYS.find((key) => !(key in raw));
   if (missing) throw invalidInput(`${path}.${missing}`, "clé de paramètre absente");
-  const discountAmount = optionalDecimal(raw, "discount_amount_cents", path, INTEGER_BOUNDS);
-  const discountBp = requiredDecimal(raw, "discount_bp", path, BASIS_POINTS_BOUNDS).units;
+  const discountAmount = optionalDecimal(raw, "discount_amount_cents", path, INTEGER_BOUNDS, mode);
+  const discountBp = requiredDecimal(raw, "discount_bp", path, BASIS_POINTS_BOUNDS, mode).units;
   if (discountAmount !== null && discountBp !== BigInt(0)) {
     throw invalidInput("params.discount_bp", "intention de remise double (montant et taux)");
   }
@@ -131,10 +141,13 @@ function normalizeParams(raw: unknown): NormalizedV3Params {
   if (roundingMode !== "none" && roundingMode !== "down") {
     throw invalidInput("params.rounding_mode", "« none » ou « down » attendu");
   }
-  const roundingStep = requiredDecimal(raw, "rounding_step_cents", path, {
-    ...INTEGER_BOUNDS,
-    positive: true,
-  }).units;
+  const roundingStep = requiredDecimal(
+    raw,
+    "rounding_step_cents",
+    path,
+    { ...INTEGER_BOUNDS, positive: true },
+    mode
+  ).units;
   const discount: V3DiscountIntent =
     discountAmount !== null
       ? { kind: "amount", requestedCents: discountAmount.units }
@@ -142,8 +155,8 @@ function normalizeParams(raw: unknown): NormalizedV3Params {
         ? { kind: "rate", rateBp: discountBp }
         : { kind: "none" };
   return {
-    saleCoefficientFo: requiredDecimal(raw, "sale_coefficient_fo", path, SALE_COEFFICIENT_BOUNDS),
-    saleCoefficientMo: requiredDecimal(raw, "sale_coefficient_mo", path, SALE_COEFFICIENT_BOUNDS),
+    saleCoefficientFo: requiredDecimal(raw, "sale_coefficient_fo", path, SALE_COEFFICIENT_BOUNDS, mode),
+    saleCoefficientMo: requiredDecimal(raw, "sale_coefficient_mo", path, SALE_COEFFICIENT_BOUNDS, mode),
     discount,
     discountAmountCents: discountAmount?.units ?? null,
     discountBp,
@@ -169,7 +182,7 @@ function normalizeItemIdentity(raw: Bag, path: string): string {
   return id;
 }
 
-function normalizeLine(raw: Bag, path: string, id: string): NormalizedV3Line {
+function normalizeLine(raw: Bag, path: string, id: string, mode: DecimalReadMode): NormalizedV3Line {
   const status = raw.pricing_status;
   if (typeof status !== "string" || !PRICING_STATUSES.has(status)) {
     throw invalidInput(`${path}.pricing_status`, "statut de chiffrage inconnu");
@@ -181,30 +194,32 @@ function normalizeLine(raw: Bag, path: string, id: string): NormalizedV3Line {
   return {
     id,
     pricingStatus: status as EstimateV3PricingStatus,
-    taxRateBp: requiredDecimal(raw, "tax_rate_bp", path, BASIS_POINTS_BOUNDS).units,
-    quantity: optionalDecimal(raw, "quantity", path, QUANTITY_BOUNDS) ?? DECIMAL_ZERO,
-    unitPriceCents: optionalDecimal(raw, "unit_price_ht_cents", path, INTEGER_BOUNDS) ?? DECIMAL_ZERO,
-    kFo: optionalDecimal(raw, "k_fo", path, COST_COEFFICIENT_BOUNDS) ?? DECIMAL_ONE,
-    hoursPerUnit: optionalDecimal(raw, "h_mo_per_unit", path, HOURS_PER_UNIT_BOUNDS),
-    hoursAtelierPerUnit: optionalDecimal(raw, "h_mo_atelier_per_unit", path, HOURS_PER_UNIT_BOUNDS),
-    hoursChantierPerUnit: optionalDecimal(raw, "h_mo_chantier_per_unit", path, HOURS_PER_UNIT_BOUNDS),
-    majoration: optionalDecimal(raw, "h_mo_majoration", path, MAJORATION_BOUNDS) ?? DECIMAL_ONE,
-    kMo: optionalDecimal(raw, "k_mo", path, COST_COEFFICIENT_BOUNDS) ?? DECIMAL_ONE,
-    kMoAtelier: optionalDecimal(raw, "k_mo_atelier", path, COST_COEFFICIENT_BOUNDS),
-    kMoChantier: optionalDecimal(raw, "k_mo_chantier", path, COST_COEFFICIENT_BOUNDS),
-    laborRateCents: optionalDecimal(raw, "labor_rate_cents", path, INTEGER_BOUNDS),
-    laborRateAtelierCents: optionalDecimal(raw, "labor_rate_atelier_cents", path, INTEGER_BOUNDS),
-    laborRateChantierCents: optionalDecimal(raw, "labor_rate_chantier_cents", path, INTEGER_BOUNDS),
+    taxRateBp: requiredDecimal(raw, "tax_rate_bp", path, BASIS_POINTS_BOUNDS, mode).units,
+    quantity: optionalDecimal(raw, "quantity", path, QUANTITY_BOUNDS, mode) ?? DECIMAL_ZERO,
+    unitPriceCents: optionalDecimal(raw, "unit_price_ht_cents", path, INTEGER_BOUNDS, mode) ?? DECIMAL_ZERO,
+    kFo: optionalDecimal(raw, "k_fo", path, COST_COEFFICIENT_BOUNDS, mode) ?? DECIMAL_ONE,
+    hoursPerUnit: optionalDecimal(raw, "h_mo_per_unit", path, HOURS_PER_UNIT_BOUNDS, mode),
+    hoursAtelierPerUnit: optionalDecimal(raw, "h_mo_atelier_per_unit", path, HOURS_PER_UNIT_BOUNDS, mode),
+    hoursChantierPerUnit: optionalDecimal(raw, "h_mo_chantier_per_unit", path, HOURS_PER_UNIT_BOUNDS, mode),
+    majoration: optionalDecimal(raw, "h_mo_majoration", path, MAJORATION_BOUNDS, mode) ?? DECIMAL_ONE,
+    kMo: optionalDecimal(raw, "k_mo", path, COST_COEFFICIENT_BOUNDS, mode) ?? DECIMAL_ONE,
+    kMoAtelier: optionalDecimal(raw, "k_mo_atelier", path, COST_COEFFICIENT_BOUNDS, mode),
+    kMoChantier: optionalDecimal(raw, "k_mo_chantier", path, COST_COEFFICIENT_BOUNDS, mode),
+    laborRateCents: optionalDecimal(raw, "labor_rate_cents", path, INTEGER_BOUNDS, mode),
+    laborRateAtelierCents: optionalDecimal(raw, "labor_rate_atelier_cents", path, INTEGER_BOUNDS, mode),
+    laborRateChantierCents: optionalDecimal(raw, "labor_rate_chantier_cents", path, INTEGER_BOUNDS, mode),
   };
 }
 
 /**
  * Valide l'entrée canonique. Une section est validée (identifiant, parent, unicité des
  * identifiants sur tous les éléments, comme le jumeau SQL : I-02) puis ignorée (aucun montant).
+ * En mode `canonical` (contrat partagé avec le jumeau SQL), un champ numérique n'admet qu'un
+ * nombre JSON ; l'éditeur (`editor`) admet aussi une chaîne décimale exacte.
  */
-export function normalizeEstimateV3Input(raw: unknown): NormalizedV3Input {
+export function normalizeEstimateV3Input(raw: unknown, mode: DecimalReadMode = "editor"): NormalizedV3Input {
   if (!isBag(raw)) throw invalidInput("input", "objet { params, items } attendu");
-  const params = normalizeParams(raw.params);
+  const params = normalizeParams(raw.params, mode);
   if (!Array.isArray(raw.items)) throw invalidInput("items", "tableau attendu");
   const lines: NormalizedV3Line[] = [];
   const seen = new Set<string>();
@@ -217,7 +232,7 @@ export function normalizeEstimateV3Input(raw: unknown): NormalizedV3Input {
     const id = normalizeItemIdentity(item, path);
     if (seen.has(id)) throw invalidInput(`${path}.id`, "identifiant d'élément en double");
     seen.add(id);
-    if (item.item_type === "line") lines.push(normalizeLine(item, path, id));
+    if (item.item_type === "line") lines.push(normalizeLine(item, path, id, mode));
   });
   return { params, lines };
 }

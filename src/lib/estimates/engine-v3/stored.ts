@@ -4,7 +4,9 @@
  * Lit les colonnes figées sans rien recalculer (un document émis ne dépend pas d'un nouveau
  * calcul) et refuse toute incohérence par `ESTIMATE_V3_STORED_INCOHERENT` : Σ nets = HT,
  * HT = brut − remise − arrondi, TTC = HT + TVA, ajustement nul, récapitulatif par taux conforme
- * aux lignes, lignes non chiffrées à 0. Les colonnes `snapshot_gross_*` et le contexte v3
+ * aux lignes, TVA par taux = ⌈base × taux⌋ sauf autoliquidation, lignes non chiffrées à 0.
+ * L'autoliquidation se lit sur le rôle d'entreprise figé de la version (`contractor_role` =
+ * `subcontractor`, convention v2), jamais sur des montants de TVA nuls. Les colonnes `snapshot_gross_*` et le contexte v3
  * arrivent avec M4 (2.5) ; ce lecteur en fixe dès 2.4 le contrat.
  */
 import { divideHalfUp } from "@/lib/estimates/engine-v3/decimal";
@@ -12,6 +14,8 @@ import { storedIncoherent } from "@/lib/estimates/engine-v3/errors";
 import type { EstimateV3TaxBreakdownRow } from "@/lib/estimates/engine-v3/types";
 
 export type StoredEstimateV3Version = {
+  /** `principal` ou `subcontractor` (CHECK de la colonne) ; `subcontractor` = autoliquidation. */
+  contractor_role: string | null;
   gross_ht_cents: number | null;
   discount_applied_cents: number | null;
   commercial_rounding_cents: number | null;
@@ -163,6 +167,12 @@ export function readStoredEstimateV3(stored: {
   const tax = cents(version.total_tax_cents, "total_tax_cents");
   const ttc = cents(version.total_ttc_cents, "total_ttc_cents");
   ensure(version.rounding_adjustment_cents === 0, "rounding_adjustment_cents", "ajustement non nul en v3");
+  ensure(
+    version.contractor_role === "principal" || version.contractor_role === "subcontractor",
+    "contractor_role",
+    "rôle d'entreprise « principal » ou « subcontractor » attendu"
+  );
+  const reverseCharge = version.contractor_role === "subcontractor";
   ensure(net === gross - discount - rounding, "total_ht_cents", "HT ≠ brut − remise − arrondi");
   ensure(ttc === net + tax, "total_ttc_cents", "TTC ≠ HT + TVA");
   const context = readContext(version.calc_snapshot_context);
@@ -182,7 +192,6 @@ export function readStoredEstimateV3(stored: {
     "calc_snapshot_context.tax_breakdown",
     "taux du récapitulatif ≠ taux des lignes"
   );
-  const reverseCharge = context.taxBreakdown.every((row) => row.tax_cents === 0);
   context.taxBreakdown.forEach((row, index) => {
     const group = priced.filter((line) => line.tax_rate_bp === row.rate_bp);
     const field = `calc_snapshot_context.tax_breakdown[${index}]`;

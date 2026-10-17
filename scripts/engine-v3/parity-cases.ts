@@ -7,7 +7,10 @@
 //   4 decimals, the six pricing statuses, several VAT rates, reverse charge, labour split, discount
 //   by amount or rate (capped or not), commercial rounding down, sections, clone lines that tie in
 //   the allocations, upper-case ids;
-// - named edge cases where both engines must refuse with the same code (input or overflow).
+// - named edge cases where both engines must refuse with the same code (input or overflow),
+//   some written as raw JSON text (number literals beyond a double, decimal strings, exponents).
+// Both sides read the same canonical JSON text: the TS adapter parses it at the source of each
+// number literal, the SQL twin reads it as jsonb.
 
 import { computeEstimateV3Canonical, EstimateV3Error } from "../../src/lib/estimates/engine-v3";
 
@@ -15,8 +18,13 @@ export type ParityCase = {
   id: number;
   family: "line" | "estimate" | "edge";
   label: string;
+  /** Parsed view of the case (coverage counts); for a raw case, an approximation of the text. */
   input: { params: Record<string, unknown>; items: Array<Record<string, unknown>> };
+  /** The canonical JSON text both engines read. */
+  text: { params: string; items: string };
 };
+
+type RawText = { params: string; items: string };
 
 export type ParityOutcome =
   | { ok: unknown }
@@ -168,6 +176,30 @@ const EDGE_PARAMS = {
   labor_split_enabled: false,
 };
 
+/** Edge cases written as raw JSON text: one field of the edge line or params carries a literal. */
+function rawEdgeCases(): Array<[string, RawText]> {
+  const marker = "__LITERAL__";
+  const lineWith = (key: string, literal: string): RawText => ({
+    params: JSON.stringify(EDGE_PARAMS),
+    items: JSON.stringify([{ ...EDGE_LINE, [key]: marker }]).replace(`"${marker}"`, literal),
+  });
+  const paramWith = (key: string, literal: string): RawText => ({
+    params: JSON.stringify({ ...EDGE_PARAMS, [key]: marker }).replace(`"${marker}"`, literal),
+    items: JSON.stringify([EDGE_LINE]),
+  });
+  return [
+    ["quantity literal more precise than a double", lineWith("quantity", "1.00000000000000000001")],
+    ["unit price literal more precise than a double", lineWith("unit_price_ht_cents", "100.00000000000000001")],
+    ["sale coefficient written as a decimal string", paramWith("sale_coefficient_fo", '"1.30"')],
+    ["quantity written as a decimal string", lineWith("quantity", '"2"')],
+    ["quantity literal with an exponent", lineWith("quantity", "15e-1")],
+    ["unit price literal with an upper-case exponent", lineWith("unit_price_ht_cents", "1E2")],
+    ["negative-zero quantity literal", lineWith("quantity", "-0")],
+    ["trailing zeros beyond the scale", lineWith("quantity", "2.00000000000000000000")],
+    ["tiny literal beyond the scale", lineWith("quantity", "1e-30")],
+  ];
+}
+
 function edgeCases(): Array<[string, ParityCase["input"]]> {
   const line = (overrides: Record<string, unknown>) => ({ ...EDGE_LINE, ...overrides });
   const one = (overrides: Record<string, unknown>, params: Record<string, unknown> = {}) => ({
@@ -247,8 +279,14 @@ function edgeCases(): Array<[string, ParityCase["input"]]> {
 export function generateParityCases(seed = DEFAULT_PARITY_SEED): ParityCase[] {
   const random = mulberry32(seed);
   const cases: ParityCase[] = [];
-  const push = (family: ParityCase["family"], label: string, input: ParityCase["input"]) =>
-    cases.push({ id: cases.length + 1, family, label, input });
+  const push = (family: ParityCase["family"], label: string, input: ParityCase["input"], raw?: RawText) =>
+    cases.push({
+      id: cases.length + 1,
+      family,
+      label,
+      input,
+      text: raw ?? { params: JSON.stringify(input.params), items: JSON.stringify(input.items) },
+    });
   for (let n = 0; n < PARITY_LINE_COUNT; n += 1) {
     push("line", `line ${n + 1}`, {
       params: randomParams(random, "line"),
@@ -259,6 +297,9 @@ export function generateParityCases(seed = DEFAULT_PARITY_SEED): ParityCase[] {
     push("estimate", `estimate ${n + 1}`, randomEstimate(random));
   }
   for (const [label, input] of edgeCases()) push("edge", label, input);
+  for (const [label, raw] of rawEdgeCases()) {
+    push("edge", label, { params: JSON.parse(raw.params), items: JSON.parse(raw.items) }, raw);
+  }
   return cases;
 }
 
@@ -324,10 +365,11 @@ export function describeParityCoverage(cases: ParityCase[], outcomes: ParityOutc
   return coverage;
 }
 
-/** The TS side of the parity: the canonical adapter, or the named error it raises. */
-export function computeTsOutcome(input: ParityCase["input"]): ParityOutcome {
+/** The TS side of the parity: the canonical adapter on the case text, or the named error it raises. */
+export function computeTsOutcome(entry: Pick<ParityCase, "text">): ParityOutcome {
   try {
-    return { ok: JSON.parse(JSON.stringify(computeEstimateV3Canonical(input))) as unknown };
+    const text = `{"params":${entry.text.params},"items":${entry.text.items}}`;
+    return { ok: JSON.parse(JSON.stringify(computeEstimateV3Canonical(text))) as unknown };
   } catch (error) {
     if (error instanceof EstimateV3Error) return { error: { code: error.code, sqlstate: error.sqlstate } };
     throw error;

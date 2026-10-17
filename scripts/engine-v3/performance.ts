@@ -8,6 +8,7 @@
 // fixed margin, the same hours as line hours Q x h/u). Runs are interleaved after a warm-up;
 // every raw sample is archived in .e2e/engine-v3/performance/<timestamp>/report.json.
 
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -21,7 +22,7 @@ import {
   type EstimateV3Input,
   type EstimateV3ItemInput,
 } from "../../src/lib/estimates/engine-v3";
-import { newEvidenceDirectory } from "../tester-army/local-recipe-common.mjs";
+import { buildSourceEvidence, newEvidenceDirectory } from "../tester-army/local-recipe-common.mjs";
 
 const SEED = 20261017;
 const ROLE_ID = "00000000-0000-4000-8009-000000000001";
@@ -208,10 +209,17 @@ async function main() {
     "3 000 lines v3 p50 <= 2 x v2 p50": ratioP50 <= 2,
     "3 000 lines v3 p95 <= 2 x v2 p95": ratioP95 <= 2,
   };
+  const source = await buildSourceEvidence();
   const evidence = await newEvidenceDirectory("engine-v3/performance", started.toISOString().replace(/[:.]/g, "-"));
   const report = {
-    schemaVersion: "engine-v3-performance-1",
+    schemaVersion: "engine-v3-performance-2",
     startedAt: started.toISOString(),
+    command: [process.execPath, ...process.argv.slice(1)],
+    source: {
+      revision: source.revision,
+      diffSha256: source.diffSha256,
+      inputsSha256: createHash("sha256").update(JSON.stringify(source.inputs)).digest("hex"),
+    },
     node: process.version,
     platform: process.platform,
     arch: process.arch,

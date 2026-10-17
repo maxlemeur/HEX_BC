@@ -3,7 +3,9 @@
 // private.unit_token (migration M3) ; la table public.measurement_unit_aliases est générée depuis
 // ce JSON par scripts/units/generate-units-sql.ts. Les normaliseurs privés du métré
 // (takeoff/benchmark.ts, takeoff/dpgf-compare.ts, takeoff/processor.ts) restent propres au métré :
-// les noms exportés ici évitent la collision.
+// les noms exportés ici évitent la collision. Celui de l'éligibilité des offres
+// (estimates/supplier-offer-eligibility.ts, et private.purchase_unit_token en SQL) reste en place
+// pour tous les moteurs jusqu'au sous-lot 2.9 (D9 ; docs/testing/estimate-engine-v3-2.4.md).
 import unitsSource from "@/lib/units/units.json";
 
 export const ESTIMATE_LINE_PRICING_STATUSES = [
