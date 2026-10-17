@@ -244,9 +244,15 @@ export async function fillCell(ui: Ui, label: string, value: string) {
   await ui.browser.keyboard.press("Tab");
 }
 
-/** One line added through the grid (section « + » menu), its id read from the creation response. */
+/**
+ * One line added through the grid (section « + » menu), its id read from the creation response. The
+ * « + » appears on hover of the section's designation (pointer-events none until then,
+ * estimate-frozen.css « .estimate-section-quick-actions »): the pointer hovers the title first, as a
+ * user does; a section created by the API has no focus inside it to reveal the menu otherwise.
+ */
 export async function addGridLine(ui: Ui, draft: V3Draft) {
   const itemUrl = new URL(`/api/estimates/${draft.versionId}/items`, ui.app.baseUrl!).href;
+  await ui.browser.locator(`[data-estimate-item-id="${draft.sectionId}"] [data-testid="estimate-section-title-input"]`).hover();
   await ui.screen.getByRole("button", `Ajouter dans ${draft.sectionTitle}`, { exact: true }).tap();
   const [response] = await Promise.all([
     ui.browser.waitForResponse(itemUrl, { timeout: 60_000 }),
@@ -257,6 +263,27 @@ export async function addGridLine(ui: Ui, draft: V3Draft) {
   expect([body.ok, body.data.item.item_type, body.data.item.parent_id]).toEqual([true, "line", draft.sectionId]);
   await expect(ui.browser.locator(`[data-estimate-item-id="${body.data.item.id}"]`)).toHaveCount(1);
   return body.data.item.id;
+}
+
+/**
+ * V3E-11 precondition (2.6 green run): the supplier preselection proposes an offer only for a line with
+ * no retained offer and a single offer (server.ts « findEstimateSupplierPreselectionProposalAlternative »,
+ * every engine); a line holding offer A with a cheaper B is a « divergence » exception, never applied.
+ * Offer A is released from the line by the v3 batch writer (its lease taken over from the open editor
+ * page, then handed back), then removed from the catalogue, so that B is the line's single offer.
+ */
+export async function releaseOfferForPreselection(ui: Ui, army: ArmyState, draft: V3Draft, lineId: string, offerId: string) {
+  const lease = await apiRequest(ui.browser, "PATCH", `/api/estimates/${draft.versionId}/lock?force=true`);
+  expect(lease.status).toBe(200);
+  const before = await readEstimate(ui.browser, draft.versionId);
+  const request = { operation_key: randomUUID(), operations: [{ op: "update", id: lineId, data: { selected_supplier_price_id: null } }] };
+  const response = await apiRequest<Envelope<{ committed: boolean }>>(
+    ui.browser, "POST", `/api/estimates/${draft.versionId}/batch`, request, { "if-match": before.version.updated_at });
+  await releaseVersion(ui.browser, draft.versionId);
+  const removed = await apiRequest<Envelope<unknown>>(ui.browser, "POST", "/api/prices", { action: "delete", id: offerId });
+  await recordEvidence(army, "v3e-preselection-precondition", { versionId: draft.versionId, lineId, offerId, request, response, removed });
+  expect([response.status, response.body.ok, response.body.data?.committed]).toEqual([200, true, true]);
+  expect([removed.status, removed.body.ok]).toEqual([200, true]);
 }
 
 export async function typeTitle(ui: Ui, itemId: string, title: string) {

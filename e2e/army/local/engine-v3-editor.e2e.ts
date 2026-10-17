@@ -6,8 +6,8 @@ import {
 } from "../critical/fixtures";
 import {
   BANNER, addGridLine, apiProjection, checkpoint, clickSaveSettings, eur, fillCell, grid, inputValue, lineView,
-  normalized, openSettings, openV3Editor, pause, prepareV3Draft, readConsistent, seedLines, settingsDialog, settingsText,
-  showStandardColumns, switchToExpertMode, typeTitle,
+  normalized, openSettings, openV3Editor, pause, prepareV3Draft, readConsistent, releaseOfferForPreselection, seedLines,
+  settingsDialog, settingsText, showStandardColumns, switchToExpertMode, typeTitle,
   type ApiExpectation, type Envelope, type LineView, type RowExpectation, type Ui, type V3Draft,
 } from "./engine-v3-editor-support";
 
@@ -507,6 +507,8 @@ armyTest("V3E03 a catalogue suggestion keeps the v3 unit, and the supplier prese
     // V3E-11 : une offre B à 12,40 € ; appliquer la présélection recalcule et persiste (contrat F26-17), ou est
     // refusé par son nom avant toute écriture. La conception implique le refus (D16, P-14 : mise à jour groupée
     // directe refusée en v3 pendant le lot 2, message nommé) ; le message générique du moteur 3 est un échec.
+    // Préalable corrigé au vert (doc 2.6-e2e §10) : une seule offre et aucune offre retenue sur la ligne.
+    await releaseOfferForPreselection(ui, army, draft, line.id, offerA.id);
     const supplierB = await created<{ id: string }>("supplier-b", "/api/suppliers", {
       action: "create", item: { name: `${army.runPrefix} fournisseur B`, is_active: true } });
     const offerB = await offerFor("offer-b", supplierB.id, "ml", 1240);
