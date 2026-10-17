@@ -245,3 +245,128 @@ inscrit à `scripts/tester-army/army-impact-map.json` ; `V3P-06` et le volet éd
   verrou d'édition) : à construire par statuts ou quantités, au choix de l'agent du parcours.
 - La règle « vider le champ de l'intention active la supprime » est un **choix** : la conception ne dit pas ce
   que vaut une remise vidée en v3 ; la v2 la met à 0 €.
+
+## 8. Implémentation : grille, état d'éditeur, synchronisation et pages (vert)
+
+Piste « grille » du vert (la piste « réglages », §1.2 et §1.3, est le commit `e0022a1f`). Décisions prises par
+délégation du porteur, le 17/10/2026 :
+
+| Décision | Contrat retenu |
+|---|---|
+| F26-17, présélection fournisseurs sur une v3 | **Recalcul persisté** par l'écrivain de lot de 2.5 (`POST …/batch`, `op: "update"`) : seuls `unit_price_ht_cents` et `selected_supplier_price_id` partent ; le serveur recalcule PU, nets, TVA et totaux et les vérifie (D12) dans la même transaction. Le refus nommé du §2 n'est pas retenu. La comparaison lit l'unité d'une ligne v3 dans `unit_code`, jamais dans `description` |
+| Remise vidée | Vider le champ de l'intention active la met à `none` (choix du §7, tenu par le module pur) |
+| Émission | Fermée jusqu'en 2.7 : « Envoyer » masqué sur une v3, exports désactivés ; PDF et envoi restent refusés par le serveur (`ESTIMATE_ENGINE_UNAVAILABLE`, V3FC02) |
+| Modèles, ouvrages, métré | Refusés sur une v3 jusqu'en 2.8, par les refus nommés existants du serveur (aucune conversion côté éditeur) |
+
+### 8.1 Aiguillage et délégation
+
+| Fichier | Changement | Lignes non vides / budget |
+|---|---|---|
+| `src/lib/estimates/editor-engine.ts` (nouveau) | aiguillage exhaustif du moteur de l'éditeur : `resolveEditorEngineContext`, `reconcilesEditorTotals` (remplace l'expression de `forceV2Totals` qui levait sur une v3), `toEngineItemWrite`, `normalizeEditorDraftItems`, `resolveEditorInitialDiscountCents` ; une v1/v2 garde les mêmes appels historiques, une v3 n'est jamais normalisée ni calculée par le moteur 1/2 | 109 / 1 200 |
+| `src/lib/estimates/v3-editor.ts` (nouveau, pur) | lignes affichées depuis l'aperçu du moteur pur (PU, nets, TVA, parts FO/MO, heures dérivées), charge de ligne v3 (saisies seulement : `unit_code`, `pricing_status`, `h_mo*_per_unit`, jamais `h_mo` ni projection), référence de synchronisation, unité du référentiel (`ml — mètre linéaire`, alias validé, inconnue refusée par son nom), taux de TVA proposés, pied v3, pied stocké d'un brouillon | 238 / 1 200 |
+| `src/components/estimates/v3/V3LineCells.tsx` (nouveau) | contexte de grille v3, cellule « Unité pour {t} », « Heures de main-d’œuvre par unité » (`h_mo_per_unit`, 4 décimales) et `output` en lecture seule « Heures de main-d’œuvre totales », sélecteurs « Statut de chiffrage » et « Taux de TVA » | 242 / 1 200 |
+| `src/components/estimates/v3/EstimateV3DraftSummary.tsx` (nouveau) | lecture d'un brouillon v3 sur la fiche et l'impression : montants stockés, TVA par taux, lignes | 97 / 1 200 |
+| `useEstimateEditorState.impl.tsx` | moteur résolu une fois ; `useEstimateV3Settings` branché (aperçu, charge de sauvegarde, tiroir) ; chargement, relectures et normalisation par `editor-engine` ; charge v3 de `saveEstimateVersion` = `buildSavePayload()` (jamais de `discount_bp` dérivé ni de total client) ; lignes relues après « Oui » = nouvelle référence ; v3 : pas de multiplicateur de marge (`effective_margin_multiplier` jamais lu), envoi masqué, exports désactivés | 2 894 → 2 908 / 3 100 |
+| `useEstimateEditorSyncController.ts` | `:729` remplacé par `reconcilesEditorTotals` ; la charge de lot passe par `toEngineItemWrite` ; la référence de synchronisation porte les saisies v3 | 1 199 → 1 199 / 1 200 |
+| `useEstimateEditorCalculation.ts` | v3 : aucun calcul historique, lignes affichées depuis l'aperçu | — |
+| `EstimateEditorTable.tsx` | inchangé : la grille reçoit le contexte v3 d'`EstimateEditorPage` | 2 564 / 2 600 |
+| `LineRow.tsx`, `StandardMoCells.tsx`, `LaborSplitCells.tsx`, `EstimateEditorRow.tsx` | délégation aux cellules v3 ; PT = brut ⌈Q × PU⌋ ; PU vide pour une ligne non chiffrée ; atelier/chantier par unité en v3 | `LineRow` 1 198 → 1 196 / 1 200 |
+| `useEstimateEditorItemsController.ts`, `useEstimateEditorSupplierController.ts`, `useCatalogueSuggestions.ts` | charge de ligne v3 injectée ; présélection v3 par l'écrivain de lot ; une suggestion du catalogue ne remplace jamais l'unité d'une ligne v3 | — |
+| `batch-client.ts` | une ligne v3 non chiffrée relue sans PU (`pu_ht_cents` nul, décision 3 de 2.5) n'est plus une issue inconnue | — |
+| `EstimateEditorPage.tsx`, `EstimateEditorDrawer.tsx` | contexte de grille v3 autour de la grille ; tiroir : réglages v3 passés à `EstimateSettingsPanel`, gestionnaire v1/v2 des tranches de marge non rendu sur une v3 (`showMarginTiers`) | — |
+| `EstimateSettingsSummaryBar.tsx` | pied v3 : « Total HT », une entrée « TVA {r} % » par taux présent, « TVA », « TTC à payer », remise et arrondi commercial dès qu'ils s'appliquent, aucune marge v2 | — |
+| `ColumnHeaderHelp.tsx`, `EstimateColumnsHelpPanel.tsx`, `EstimateEditorTableChrome.tsx` | aide et en-têtes selon le moteur : v3 « h MO / u » et la formule complète du PU ; v1/v2 inchangées (« heures totales de la ligne ») | — |
+| `edit/page.tsx`, `[versionId]/page.tsx`, `print/page.tsx` | l'éditeur s'ouvre sur une v3 ; fiche et impression d'un brouillon v3 en lecture, sans bandeau ni émission ; seul un moteur inconnu garde le bandeau | — |
+
+`estimate-calculations.ts` et `estimate-v2-snapshot.ts` : aucun diff.
+
+### 8.2 Choix d'écran
+
+- « Statut » et « TVA % » sont deux sélecteurs compacts accolés au titre, dans la cellule Désignation, toujours
+  visibles : des colonnes dédiées toucheraient le modèle de colonnes partagé par la v1/v2 (identifiants, ordre
+  par groupes, largeurs, en-tête, pied). « h MO total » est un `output` sous « h MO / u », dans la même cellule.
+- Les sections et le pied de la grille somment les **nets** (sens historique de `line_total_ht_cents`, D7) ; le
+  PT d'une ligne affiche son **brut**. Le document client v3 (sections brutes) est de 2.7.
+- La fiche et l'impression lisent les montants **stockés** (vérifiés à chaque sauvegarde, D12), jamais un
+  recalcul ; l'éditeur lit l'aperçu du moteur pur.
+
+### 8.3 Réécritures délibérées (§1.4)
+
+- `V3P-06` (`engine-v3-persistence.e2e.ts`) : l'éditeur v3 s'ouvre sur la v3 persistée (grille, état
+  « Sauvegardé » ou « À jour », pas de bandeau) et l'ouvrir ne la réécrit pas (`stamp` inchangé).
+- `V3FC01` (`engine-v3-fail-closed.e2e.ts`) : éditeur et fiche d'un brouillon v3 sans bandeau ; l'éditeur
+  montre l'aperçu du moteur 3 de la fixture (pastille « Total HT : 58,50 € » et, le propriétaire de la fixture
+  étant en mode Simplifié, « TTC à payer » 70,20 € lu dans le détail du pied ouvert au clavier) et jamais la
+  lecture v1 du HT et du TTC (45,00 € / 54,00 €) ; le PR FO saisi (22,50) y reste affiché, d'où une expression
+  sans « 22,50 » pour l'éditeur ; la fiche garde l'expression complète ; l'état de la fixture est inchangé.
+  `V3FC02` (publication et envoi refusés) est inchangé.
+
+### 8.4 Défauts révélés par le vert
+
+Deux défauts, rouges par le parcours lui-même :
+
+- **Retour à « Chiffrée » refusé par l'écrivain de lot** (`V3E02`, T-STAT, passage 2) : une ligne « Hors lot »
+  n'a pas de PU (décision 3 de 2.5) ; `commit_estimate_batch` met la ligne à jour avant de la projeter, et le
+  CHECK `estimate_items_item_type_payload_check` (PU obligatoire d'une ligne chiffrée) annulait le lot (« Le lot
+  a été annulé. »). Migration `20261017205000_estimate_engine_v3_line_repricing.sql` : un déclencheur `BEFORE
+  UPDATE OF pricing_status` donne un PU provisoire nul à une ligne qui redevient chiffrée ; la projection du
+  même lot écrit le PU du moteur et `estimate_v3_assert_draft` vérifie chaque PU (D12), un PU provisoire ne peut
+  donc jamais être validé. Seule une ligne v3 peut quitter `priced` (CHECK de M4) : aucune v1/v2 n'est touchée,
+  aucune comparaison de moteur à un littéral (liste blanche F-SQL-14 inchangée). M4 n'est pas réécrite (encore
+  en revue dans 2.5). À appliquer au Supabase partagé avant tout déploiement (AGENTS.md).
+- **Barème v1/v2 dans le tiroir d'une v3** (`V3E01`, V3E-09, F26-12, passage 7) : le tiroir rendait, sous les
+  réglages v3, le gestionnaire « Tranches de marge » de la v1/v2, avec « Aucune tranche définie : le barème par
+  défaut est appliqué. » et l'exemple « × 1.60 » ; le moteur 3 n'applique aucun barème (repère seulement). Le
+  tiroir ne le rend plus sur une v3 (`showMarginTiers`, `ed93d1fd`) ; v1/v2 inchangées.
+
+Cinq préalables du parcours testaient autre chose que l'éditeur v3, corrigés sans toucher une assertion :
+
+| Passage | Constat | Correction |
+|---|---|---|
+| 1 (`d97107a7`) | éditeur ouvert mais en lecture seule, « Verrouillé par vous dans un autre onglet ou appareil » : `prepareV3Draft` et `seedLines` gardaient le verrou de la session d'API de leur document, et l'éditeur ouvert ensuite par une navigation est une autre session de page (`useDraftLock`) | les préalables rendent leur verrou une fois écrits (`3e145f55`) |
+| 2 | `addGridLine` touchait le « + » de la section sans le survol d'un utilisateur : ce menu est `pointer-events: none` tant que la désignation n'est ni survolée ni focalisée (`estimate-frozen.css`), et une section créée par l'API n'a pas de focus | survol du titre de la section avant le « + » (`99e63ef0`) |
+| 2 | `V3E03` ouvrait la présélection sur une ligne qui retient déjà l'offre A avec une offre B moins chère : pour tout moteur la revue en fait une exception « divergence », jamais une proposition (`findEstimateSupplierPreselectionProposalAlternative` exige aucune offre retenue et une seule offre), donc aucune des deux issues attendues ne pouvait paraître | `releaseOfferForPreselection` libère l'offre A de la ligne par l'écrivain de lot v3 et la retire du catalogue avant l'ajout de B (preuve `v3e-preselection-precondition`) (`99e63ef0`) |
+| 4 | le menu de section reste ouvert après « + Ligne » jusqu'à un clic extérieur ou Échap (`usePopover`) : le second `addGridLine` le refermait | le menu n'est ouvert que s'il ne l'est pas déjà (`86ef5886`) |
+| combiné (`73e2cbc9`) | après `openSettings`, tiroir et grille en lecture seule, « Verrouillé par vous dans un autre onglet ou appareil » : une navigation ouvre une autre session de page et le document quitté rend son bail par une libération `keepalive` envoyée au `beforeunload` (`useDraftLock`) ; elle n'est pas parvenue (hypothèse : le garde du navigateur critique route chaque requête, celle-ci partie avec la page), et la page ne reprend le bail qu'à son expiration (120 s, `DRAFT_LOCK_TTL_SECONDS`) par sa reprise automatique toutes les 5 s. Comportement inchangé de `useDraftLock`, tous moteurs | `waitForDraftLease` attend dans `openSettings` et `openGrid` que l'état de synchronisation ne soit plus « Verrouillé » ni « Connexion… » (jusqu'à 150 s), sans rejouer d'étape (`0deea428`) |
+
+Les deux réécritures du §8.3 testaient d'abord autre chose que leur intention, corrigées au premier passage
+`V3P01|V3FC0` (`73e2cbc9`) : `V3FC01` attendait la pastille TTC du mode Expert alors que le propriétaire de la
+fixture est en mode Simplifié (le pied n'y montre que le HT, le reste dans son détail) ; `V3P-06` ouvrait
+l'éditeur sous le bail de l'API du document (« Verrouillé par vous dans un autre onglet ou appareil »), rendu
+désormais avant l'ouverture comme dans les parcours de l'éditeur.
+
+### 8.5 Limites
+
+- La donnée de `V3E03` porte la même unité dans `description` et `unit_code` : la lecture de `unit_code` par la
+  comparaison fournisseurs n'y est pas discriminée.
+- Taux proposés par la cellule « TVA % » : la liste par défaut de la politique (20 / 10 / 5,5 / 2,1 %) et le taux
+  de la ligne ; une liste propre à l'entreprise n'est pas encore lue par l'éditeur (contrôlée au gel).
+- Changer le taux horaire d'un rôle n'écrit rien sur une v3 : l'aperçu le suit, la prochaine écriture recalcule.
+- L'éditeur mobile d'une ligne et la restauration d'un brouillon en conflit restent v2 : sur une v3, une heure
+  totale saisie est refusée par le serveur (`ESTIMATE_V3_LABOR_HOURS_PER_UNIT_REQUIRED`), jamais écrite.
+- Actions en lot (catégorie, rôle, majoration) : leur charge est réduite aux saisies par `toEngineItemWrite`.
+- Tiroir d'une v3 : le gestionnaire des tranches de marge n'y est plus rendu ; le barème de l'entreprise se
+  gère depuis le tiroir d'une v1/v2 (ou `/api/margin-tiers`) jusqu'à un gestionnaire rédigé pour le moteur 3.
+- **Instabilité observée, non reproduite** : à `86ef5886`, deux passages de `V3E01` sur trois
+  (`2026-10-17T21-01-04-472Z`, `2026-10-17T21-09-01-580Z`) ont perdu le rôle « Tuyauteur » saisi dans la liste
+  « Rôle de main-d'œuvre pour {t} » (ligne O2 puis O1) : après le remplissage, le champ est focalisé, la liste
+  ouverte et le texte vide, donc le Tab ne valide rien et la sauvegarde attendue n'arrive pas. Une sonde des
+  événements (focus, saisie, touches, piles d'appel) n'a ensuite montré que la séquence nominale, et les six
+  passages suivants (sondés ou non, dont le vert du §8.6) n'ont plus perdu de saisie dans la grille ; `ed93d1fd` ne touche
+  pas ce chemin (tiroir fermé pendant la saisie). Cause non établie ; aucune reprise ni attente ajoutée pour
+  faire passer le parcours (AGENTS.md).
+
+### 8.6 Preuves (17 et 18/10/2026)
+
+- Parcours : `V3E01`, `V3E02`, `V3E03`, `V3P01`, `V3FC01`, `V3FC02` verts ensemble à `0deea428`, une tentative
+  chacun, issue de la présélection « recalcul persisté » (commande, archive et empreintes au §10 du doc
+  `estimate-engine-v3-2.6-e2e.md`).
+- `npm run verify:pr` dans le clone WSL à `0deea428`, sortie 0 : audit des dépendances et des signatures (762
+  paquets vérifiés), budgets d'architecture (1 131 modules, 0 cycle), OpenAPI, `typecheck`, `lint`
+  (`--max-warnings=0`), Vitest node 296 fichiers / 2 782 tests passés (1 fichier, 2 tests ignorés), jsdom 162 / 821
+  passés (dont `v3-settings-payload.test.ts`, `useEstimateEditorSyncController.test.ts`,
+  `EstimateEditorTable.integration.test.tsx`, `EstimateEditorDrawer.test.tsx`,
+  `EstimateSettingsSummaryBar.test.tsx`), couverture critique 3 / 12.
+- Windows, à `0deea428` : `npm run typecheck` et `npm run check:architecture` sortie 0 ; `npx eslint
+  --max-warnings=0` sur chaque fichier touché par un commit de correction, sortie 0.
+- `git diff --stat f1d94213 HEAD -- src/lib/estimate-calculations.ts src/lib/estimate-v2-snapshot.ts` : vide.

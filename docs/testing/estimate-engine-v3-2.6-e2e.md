@@ -312,3 +312,50 @@ parcours et `npm run check:architecture` : sortie 0.
 
 La même commande, sans modifier une assertion : `V3E01`, `V3E02`, `V3E03` verts, issue de la présélection
 consignée ; `V3P01` et `V3FC` réécrits (§7) ; carte d'impact verte ; `npm run verify:pr`.
+
+## 10. Vert (17 et 18/10/2026)
+
+Même environnement que le §8 (WSL Ubuntu 24.04, Node 24.14.0, `e2e` 0.21.0, clone `~/miaouffrage-lot2-26` remis à
+la branche par `git reset --hard`, diff local vide : `diffSha256` `e3b0c442…b855`, verrou natif attendu avant chaque
+lancement). Aucune assertion des trois parcours n'est modifiée ; les préalables corrigés et leurs raisons sont au
+§8.4 du doc 2.6 (verrou rendu après les préalables, survol du menu de section, une seule offre non retenue pour la
+présélection, menu de section ouvert une fois, bail de page attendu après une navigation).
+
+```bash
+E2E_ARMY_WORKERS=2 NODE_OPTIONS=--max-old-space-size=4096 npm run e2e:army:local -- --grep "V3E0|V3P01|V3FC0"
+```
+
+Sortie 0 à `0deea428`. En amont : 249 migrations (dont `20261017205000_estimate_engine_v3_line_repricing.sql`),
+« Local migration inventory matches the repository. », pgTAP `Files=19, Tests=1833, Result: PASS`, « Behavioral RLS
+matrix passed. », build passé. Rapport : `discovered 85, selected 7, executed 7, passed 7, failed 0, flaky 0`,
+chaque parcours en une tentative :
+
+```text
+✓ V3E01 66.5s   ✓ V3E02 135.7s   ✓ V3E03 13.2s   ✓ V3P01 10.7s   ✓ V3FC01 1.7s   ✓ V3FC02 0.9s
+```
+
+Archive : `.e2e/army/ci/2026-10-17T22-02-38-629Z-critical/` du clone WSL (manifeste : `passed`, `filtered-critical`,
+`grep: V3E0|V3P01|V3FC0`, 2 workers, révision `0deea428`, confidentialité `passed` ; SHA-256 du manifeste
+`13d575d1dd4d6e0fac0ebacd3678b6c468e2372f9883ef3237d807b9f989ea5b`). Preuves sous
+`critical/runs/2026-10-17T22-03-45-000Z/artifacts/business/` :
+
+| Preuve | SHA-256 |
+|---|---|
+| `v3e-v3e01-editor-open` | `bd706ee8d7359bafbb69fa857932b0e2b8e306a2a975a13f8d1b2b7262bcb98e` |
+| `v3e-v3e02-editor-open` | `6fb59e5a002a44b70e010aa43487a6fea73aeed9620267d75ceb19be53fe77ef` |
+| `v3e-v3e03-editor-open` | `97a3dd91a1f27741d4916974d358b8c040ccef9299f5ca31491e84a6667f45a8` |
+| `v3e-preselection-precondition` | `e006a1bd6c1e8feb6ae6e052a759a6c53ede4749c38a89911fa2e23722496804` |
+| `v3e-preselection` | `d0d18d6d1f9cb2b0b7ea4e85627d08c4098c09aa75946900e99767b0c9a950c6` |
+| `v3e-preselection-recomputed` | `ce1650b39bcd8e01565689b8cb055302841e3bf703221947a05f2314f1039c2c` |
+| `v3p-editor-open` | `2f3e6f7cf38638c0a52b9a87522818e9ae2fe9378a4a49d36086a2768990959a` |
+| `engine-v3-read` (V3FC01) | `5ad119eda9d2519d4a69ebf6f381b047cd042c47248357356dde4988162fb8d5` |
+
+**Issue de la présélection (V3E-11)** : `{"refused": false, "recomputed": true, "genericBanner": false}` — recalcul
+persisté (F26-17) : l'offre B (PR 12,40 €) retenue, PU 16,12 €, net 32,24 €, totaux relus 3 224 / 645 / 3 869 c
+(§3.3), aucune écriture partielle.
+
+Passages intermédiaires, chacun à diff local vide sauf mention : `V3E0` vert à `ed93d1fd`
+(`2026-10-17T21-39-22-907Z`, manifeste `a45071334fb39e496c209f1e52d039a6563ce75be4f1df3577e85a9583096125`, 4/4) ;
+`V3P01|V3FC0` vert à `73e2cbc9` (`2026-10-17T21-50-26-939Z`, manifeste
+`ca5bbb54dc1a61b6962d4ea9a7a4a9025881e79a9bb94b4196e34c5f493777bb`, 4/4). Les échecs qui ont conduit aux corrections
+sont au §8.4 du doc 2.6 ; l'instabilité observée sur la liste des rôles à `86ef5886` est au §8.5 du doc 2.6.
