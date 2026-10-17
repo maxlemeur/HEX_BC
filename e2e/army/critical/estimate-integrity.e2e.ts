@@ -13,6 +13,7 @@ import {
   readEstimate,
   recordEvidence,
   resolveDownload,
+  saveLineEditsWithShortcut,
   setLineCoreValues,
   waitForAutoSave,
   type ArmyEstimate,
@@ -133,7 +134,10 @@ function assertFinancialSnapshot(snapshot: ArmyEstimate, expected: LineOracle[],
   }
 }
 
-async function createFinancialFixture(ui: Ui, army: ArmyState, label: string) {
+// "debounce" leaves the 60 s line autosave (AUTOSAVE_DEBOUNCE_MS) to fire on its own and is
+// reserved for the dedicated autosave journey; "shortcut" flushes the same edits with Ctrl+S.
+// Both prove persistence with the same waitForAutoSave predicate and snapshot assertions.
+async function createFinancialFixture(ui: Ui, army: ArmyState, label: string, save: "debounce" | "shortcut") {
   const ids = await createEstimateViaWizard(ui, {
     projectName: army.projectName,
     title: `${army.runPrefix} ${label}`,
@@ -154,8 +158,9 @@ async function createFinancialFixture(ui: Ui, army: ArmyState, label: string) {
       quantity: String(line.quantity), unitPriceHt: line.price === 2 ? "0,02" : "100,00",
     });
   }
+  if (save === "shortcut") await saveLineEditsWithShortcut(ui, ids.versionId, expected[expected.length - 1].title, army);
   const snapshot = await waitForAutoSave(ui, ids.versionId, (saved) => hasSavedInputs(saved, expected), army);
-  await recordEvidence(army, `${label}-persisted`, { oracle: expected, snapshot: evidence(snapshot) });
+  await recordEvidence(army, `${label}-persisted`, { oracle: expected, save, snapshot: evidence(snapshot) });
   assertFinancialSnapshot(snapshot, expected);
   return { ids, expected, snapshot };
 }
@@ -220,7 +225,11 @@ armyTest(
   { session: "army", tags: ["critical"], timeout: 180_000 },
   async ({ app, screen, browser, army }) => {
     const ui = { app, screen, browser };
-    const { ids, expected } = await createFinancialFixture(ui, army, "autosave");
+    // Deliberate real wait: the only critical journey that proves the automatic save itself.
+    // No Ctrl+S here, the edits must reach the server through the 60 s debounce
+    // (AUTOSAVE_DEBOUNCE_MS) alone. The other critical journeys flush with Ctrl+S; do not
+    // add a shortcut here and do not shorten this wait.
+    const { ids, expected } = await createFinancialFixture(ui, army, "autosave", "debounce");
     const nativeDialogs: Array<{ messageLength: number }> = [];
     const removeDialogObserver = await browser.onDialog(async (dialog) => {
       nativeDialogs.push({ messageLength: dialog.message.length });
@@ -273,7 +282,7 @@ armyTest(
   { session: "army", tags: ["critical"], timeout: 240_000 },
   async ({ app, screen, browser, army }) => {
     const ui = { app, screen, browser };
-    const source = await createFinancialFixture(ui, army, "duplication");
+    const source = await createFinancialFixture(ui, army, "duplication", "shortcut");
     const sourceProvenance = provenance(source.snapshot);
     expect(sourceProvenance).toEqual(source.expected.map((line, index) => ({
       title: line.title, provider: "manual", file: `${army.runPrefix}-manual-source.txt`,
@@ -304,6 +313,7 @@ armyTest(
     await browser.goto(`/dashboard/estimates/${copyId}/edit`, { waitUntil: "domcontentloaded" });
     const changedOracle = oracle(army, 3);
     await setLineCoreValues(ui, changedOracle[0].title, { quantity: "3", unitPriceHt: "100,00" });
+    await saveLineEditsWithShortcut(ui, copyId, changedOracle[0].title, army);
     const copyAfter = await waitForAutoSave(ui, copyId, (saved) => hasSavedInputs(saved, changedOracle), army);
     const sourceAfter = await readEstimate(browser, source.ids.versionId);
     await recordEvidence(army, "duplication-independent", {
@@ -337,7 +347,7 @@ armyTest(
   "downloaded XLSX and DPGF cells, BDC download and printed content match the persisted estimate",
   { session: "army", tags: ["critical"], timeout: 180_000 },
   async ({ app, screen, browser, army }) => {
-    const { ids, expected, snapshot } = await createFinancialFixture({ app, screen, browser }, army, "exports");
+    const { ids, expected, snapshot } = await createFinancialFixture({ app, screen, browser }, army, "exports", "shortcut");
     await screen.getByRole("button", "Exporter", { exact: true }).tap();
     const standard = await downloadedWorkbook(await browser.waitForDownload(
       () => screen.getByRole("button", "Excel (.xlsx)", { exact: true }).tap(), { timeout: 60_000 }
@@ -464,6 +474,10 @@ armyTest(
     await search.fill(designation);
     await screen.getByText(designation, { exact: true }).first().tap();
 
+    // The association closes the sheet and retitles the line with the designation; flush it
+    // with Ctrl+S once the sheet has gone, so that its focus handling cannot take the key.
+    await expect(search).toBeHidden();
+    await saveLineEditsWithShortcut(ui, ids.versionId, designation, army);
     const saved = await waitForAutoSave(ui, ids.versionId, (snapshot) =>
       snapshot.items.some((item) => item.id === line.id && item.product_id === article.product_id), army);
     const associated = saved.items.find((item) => item.id === line.id)!;
