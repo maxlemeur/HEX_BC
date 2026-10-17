@@ -63,7 +63,11 @@ import { getTakeoffLinkedSourceVersionByJobId } from "@/lib/takeoff/version-link
 import { isSupplierAlternativeCurrencyCompatible } from "@/lib/estimates/supplier-preselection";
 import { readSupplierOfferConditions, readSelectedSupplierDetails, type SupplierOfferConditions, type SelectedSupplierDetails } from "@/lib/estimates/supplier-offer-conditions";
 import { supplierOfferIneligibility } from "@/lib/estimates/supplier-offer-eligibility";
+import { estimateLineUnit } from "@/lib/estimates/supplier-offer-units";
 import { isSupplierOfferPriceEligible } from "@/lib/estimates/supplier-offer-price";
+import {
+  alternativePriceForLineUnit, offerEstimateUnit, offerEstimateUnitPriceCents,
+} from "@/lib/estimates/supplier-offer-purchase-unit";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
 import { persistAtomicEstimateSettings } from "@/lib/estimates/settings-atomic";
 import { pickV3ItemInputFields } from "@/lib/estimates/v3-persistence";
@@ -681,6 +685,9 @@ type SupplierPricebookRow = {
   unit: string;
   unit_price_cents: number;
   zero_price_kind?: string | null;
+  estimate_unit_code?: string | null;
+  estimate_units_per_purchase_unit?: number | string | null;
+  purchase_rounding?: string | null;
   currency: string;
   updated_at: string;
   created_at: string;
@@ -731,6 +738,8 @@ type EstimateSupplierComparisonSourceAlternative = {
   supplier_id: string;
   supplier_name: string;
   adjusted_unit_price_cents: number;
+  /** 2.9: price per purchase unit, for a line written in it. */
+  adjusted_purchase_unit_price_cents?: number | null;
   /** Devise du prix fournisseur ; null = déjà dans la devise du devis. */
   currency: string | null;
   supplier_reference: string | null;
@@ -746,6 +755,8 @@ export type EstimateSupplierComparisonAlternative = SupplierOfferConditions & {
   supplier_id: string;
   supplier_name: string;
   adjusted_unit_price_cents: number;
+  /** 2.9: price per purchase unit, for a line written in it. */
+  adjusted_purchase_unit_price_cents?: number | null;
   /** Devise du prix fournisseur ; null = déjà dans la devise du devis. */
   currency: string | null;
   supplier_reference: string | null;
@@ -793,6 +804,7 @@ export type EstimateSupplierComparisonCandidate = {
   supplier_id: string;
   supplier_name: string;
   adjusted_unit_price_cents: number;
+  adjusted_purchase_unit_price_cents?: number | null;
   /** Devise du prix fournisseur ; null = déjà dans la devise du devis. */
   currency: string | null;
   supplier_reference: string | null;
@@ -975,9 +987,11 @@ async function hydrateSuggestedCatalogueCandidates(input: {
       const materialIndex = materialIndexBySupplierPriceId.get(row.id);
       const hasMaterialIndexAdjustment =
         typeof materialIndex?.index_value === "number" && materialIndex.index_value > 0;
-      const adjustedUnitPriceCents = hasMaterialIndexAdjustment
+      // 2.9: a converted offer prices the estimate per estimate unit (bar of 3 m at 262,45 € → 87,48 €/ml).
+      const adjustedPurchaseUnitPriceCents = hasMaterialIndexAdjustment
         ? Math.round((row.unit_price_cents * materialIndex.index_value) / 100)
         : row.unit_price_cents;
+      const adjustedUnitPriceCents = offerEstimateUnitPriceCents(row, adjustedPurchaseUnitPriceCents);
       const updatedAt = row.updated_at ?? row.created_at ?? null;
       const relevanceScore = computeCatalogueSearchRelevance({
         query: input.query,
@@ -1008,7 +1022,7 @@ async function hydrateSuggestedCatalogueCandidates(input: {
         supplier_id: row.supplier_id,
         supplier_name: supplier?.name ?? "Fournisseur",
         supplier_reference: row.supplier_sku ?? null,
-        unit: row.unit ?? null,
+        unit: offerEstimateUnit(row),
         unit_price_cents: row.unit_price_cents,
         adjusted_unit_price_cents: adjustedUnitPriceCents,
         currency: row.currency ?? null,
@@ -1025,6 +1039,11 @@ async function hydrateSuggestedCatalogueCandidates(input: {
         material_index_value: materialIndex?.index_value ?? null,
         catalogue_url: row.product_url ?? extractCatalogueUrl(row.notes),
         zero_price_kind: row.zero_price_kind ?? null,
+        purchase_unit: row.unit ?? null,
+        adjusted_purchase_unit_price_cents: adjustedPurchaseUnitPriceCents,
+        estimate_unit_code: row.estimate_unit_code ?? null,
+        estimate_units_per_purchase_unit: row.estimate_units_per_purchase_unit ?? null,
+        purchase_rounding: row.purchase_rounding ?? null,
       } satisfies HydratedSuggestedCatalogueCandidate;
     })
     .filter((candidate) =>
@@ -1065,6 +1084,11 @@ function buildSuggestedCatalogueAlternatives(input: {
       is_stale: selected.is_stale,
       catalogue_url: selected.catalogue_url,
       zero_price_kind: selected.zero_price_kind ?? null,
+      purchase_unit: selected.purchase_unit ?? null,
+      adjusted_purchase_unit_price_cents: selected.adjusted_purchase_unit_price_cents ?? null,
+      estimate_unit_code: selected.estimate_unit_code ?? null,
+      estimate_units_per_purchase_unit: selected.estimate_units_per_purchase_unit ?? null,
+      purchase_rounding: selected.purchase_rounding ?? null,
     });
   };
 
@@ -1099,7 +1123,7 @@ async function findSelectedSupplierComparisonCandidate(input: {
   const { data: selectedPriceData, error: selectedPriceError } = await input.supabase
     .from("supplier_pricebook")
     .select(
-      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, zero_price_kind, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url)"
+      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, zero_price_kind, estimate_unit_code, estimate_units_per_purchase_unit, purchase_rounding, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url)"
     )
     .eq("tenant_id", input.tenantId)
     .eq("id", input.selectedSupplierPriceId)
@@ -1122,7 +1146,7 @@ async function findSelectedSupplierComparisonCandidate(input: {
   const { data: productPriceData, error: productPriceError } = await input.supabase
     .from("supplier_pricebook")
     .select(
-      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, zero_price_kind, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url)"
+      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, zero_price_kind, estimate_unit_code, estimate_units_per_purchase_unit, purchase_rounding, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url)"
     )
     .eq("tenant_id", input.tenantId)
     .eq("product_id", selectedPrice.product_id)
@@ -1199,6 +1223,7 @@ function toEstimateSupplierComparisonSourceAlternative(input: {
   supplier_id: string;
   supplier_name: string;
   adjusted_unit_price_cents: number;
+  adjusted_purchase_unit_price_cents?: number | null;
   currency?: string | null;
   supplier_reference: string | null;
   catalogue_url: string | null;
@@ -1211,6 +1236,7 @@ function toEstimateSupplierComparisonSourceAlternative(input: {
     supplier_id: input.supplier_id,
     supplier_name: input.supplier_name,
     adjusted_unit_price_cents: input.adjusted_unit_price_cents,
+    adjusted_purchase_unit_price_cents: input.adjusted_purchase_unit_price_cents ?? null,
     currency: input.currency ?? null,
     supplier_reference: input.supplier_reference,
     catalogue_url: input.catalogue_url,
@@ -1231,6 +1257,7 @@ function toEstimateSupplierComparisonAlternative(input: {
     supplier_id: input.alternative.supplier_id,
     supplier_name: input.alternative.supplier_name,
     adjusted_unit_price_cents: input.alternative.adjusted_unit_price_cents,
+    adjusted_purchase_unit_price_cents: input.alternative.adjusted_purchase_unit_price_cents,
     currency: input.alternative.currency,
     supplier_reference: input.alternative.supplier_reference,
     catalogue_url: input.alternative.catalogue_url,
@@ -1304,7 +1331,7 @@ export function buildEstimateSupplierComparisonAlternatives(input: {
           supplier_id: bestPrice.supplier_id,
           supplier_name: bestPrice.supplier_name,
           adjusted_unit_price_cents: bestPrice.adjusted_unit_price_cents,
-
+          adjusted_purchase_unit_price_cents: bestPrice.adjusted_purchase_unit_price_cents ?? null,
           currency: bestPrice.currency ?? null,
           supplier_reference: bestPrice.supplier_reference,
           catalogue_url: bestPrice.catalogue_url,
@@ -1322,7 +1349,7 @@ export function buildEstimateSupplierComparisonAlternatives(input: {
           supplier_id: mostRecent.supplier_id,
           supplier_name: mostRecent.supplier_name,
           adjusted_unit_price_cents: mostRecent.adjusted_unit_price_cents,
-
+          adjusted_purchase_unit_price_cents: mostRecent.adjusted_purchase_unit_price_cents ?? null,
           currency: mostRecent.currency ?? null,
           supplier_reference: mostRecent.supplier_reference,
           catalogue_url: mostRecent.catalogue_url,
@@ -1340,7 +1367,7 @@ export function buildEstimateSupplierComparisonAlternatives(input: {
           supplier_id: preferredSupplier.supplier_id,
           supplier_name: preferredSupplier.supplier_name,
           adjusted_unit_price_cents: preferredSupplier.adjusted_unit_price_cents,
-
+          adjusted_purchase_unit_price_cents: preferredSupplier.adjusted_purchase_unit_price_cents ?? null,
           currency: preferredSupplier.currency ?? null,
           supplier_reference: preferredSupplier.supplier_reference,
           catalogue_url: preferredSupplier.catalogue_url,
@@ -1360,7 +1387,7 @@ export function buildEstimateSupplierComparisonAlternatives(input: {
             supplier_id: input.candidate.supplier_id,
             supplier_name: input.candidate.supplier_name,
             adjusted_unit_price_cents: input.candidate.adjusted_unit_price_cents,
-
+            adjusted_purchase_unit_price_cents: input.candidate.adjusted_purchase_unit_price_cents ?? null,
             currency: input.candidate.currency ?? null,
             supplier_reference: input.candidate.supplier_reference,
             catalogue_url: input.candidate.catalogue_url,
@@ -1382,7 +1409,7 @@ export function buildEstimateSupplierComparisonAlternatives(input: {
               supplier_id: selected.supplier_id,
               supplier_name: selected.supplier_name,
               adjusted_unit_price_cents: selected.adjusted_unit_price_cents,
-
+              adjusted_purchase_unit_price_cents: selected.adjusted_purchase_unit_price_cents ?? null,
               currency: selected.currency ?? null,
               supplier_reference: selected.supplier_reference,
               catalogue_url: selected.catalogue_url,
@@ -1613,14 +1640,16 @@ export function buildEstimateSupplierPreselectionReview(input: {
       );
 
     if (proposedAlternative) {
+      // 2.9: a converted offer gives a line written in bars the bar price, any other line the converted price.
       const patch: EstimateSupplierPreselectionPatch = {
-        unit_price_ht_cents: proposedAlternative.adjusted_unit_price_cents,
+        unit_price_ht_cents: alternativePriceForLineUnit(proposedAlternative, comparison.unit).priceCents,
         selected_supplier_price_id: proposedAlternative.supplier_price_id,
       };
 
       proposals.push({
         item_id: comparison.item_id,
         item_title: itemTitle,
+        item_unit: comparison.unit ?? null,
         current_alternative: comparison.selected_alternative,
         proposed_alternative: proposedAlternative,
         patch,
@@ -1643,6 +1672,7 @@ export function buildEstimateSupplierPreselectionReview(input: {
       exceptions.push({
         item_id: comparison.item_id,
         item_title: itemTitle,
+        item_unit: comparison.unit ?? null,
         reason: exceptionReason,
         coverage_status: comparison.coverage_status,
         risk_flags: comparison.risk_flags,
@@ -5057,7 +5087,7 @@ export async function suggestEstimateCataloguePrices(
   let supplierPricesQuery = supabase
     .from("supplier_pricebook")
     .select(
-      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, zero_price_kind, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url)"
+      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, zero_price_kind, estimate_unit_code, estimate_units_per_purchase_unit, purchase_rounding, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url)"
     )
     .eq("tenant_id", tenantId)
     .eq("is_active", true)
@@ -5169,7 +5199,7 @@ export async function getEstimateSupplierComparisons(
 
   let itemsQuery = supabase
     .from("estimate_items")
-    .select("id, item_type, title, quantity, description, selected_supplier_price_id")
+    .select("id, item_type, title, quantity, description, unit_code, selected_supplier_price_id")
     .eq("tenant_id", tenantId)
     .eq("version_id", versionId);
 
@@ -5191,6 +5221,7 @@ export async function getEstimateSupplierComparisons(
     title: string;
     quantity: number;
     description: string | null;
+    unit_code?: string | null;
     selected_supplier_price_id: string | null;
   }>;
   const lineItems = items.filter((item) => item.item_type === "line");
@@ -5316,7 +5347,7 @@ export async function getEstimateSupplierComparisons(
         supplier_id: candidate.supplier_id,
         supplier_name: candidate.supplier_name,
         adjusted_unit_price_cents: candidate.adjusted_unit_price_cents,
-
+        adjusted_purchase_unit_price_cents: candidate.adjusted_purchase_unit_price_cents ?? null,
         currency: candidate.currency ?? null,
         supplier_reference: candidate.supplier_reference,
         catalogue_url: candidate.catalogue_url,
@@ -5354,7 +5385,8 @@ export async function getEstimateSupplierComparisons(
     comparisons.flatMap((comparison) => comparison.alternatives.map((alternative) => alternative.supplier_price_id)));
   comparisons.forEach((comparison) => {
     const item = itemById.get(comparison.item_id);
-    Object.assign(comparison, { quantity: item?.quantity, unit: item?.description });
+    // The unit of the line: unit_code on an engine 3 line (M4), description otherwise.
+    Object.assign(comparison, { quantity: item?.quantity, unit: item ? estimateLineUnit(item) : undefined });
     comparison.alternatives.forEach((alternative) => {
       Object.assign(alternative, conditions.get(alternative.supplier_price_id) ?? { is_active: false });
     });

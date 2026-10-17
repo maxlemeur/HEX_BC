@@ -25,6 +25,7 @@ import {
 import type { SupplierOfferConditions } from "@/lib/estimates/supplier-offer-conditions";
 import { supplierOfferIneligibility } from "@/lib/estimates/supplier-offer-eligibility";
 import { supplierOfferZeroPriceLabel } from "@/lib/estimates/supplier-offer-price";
+import { alternativePriceForLineUnit } from "@/lib/estimates/supplier-offer-purchase-unit";
 
 /**
  * Affiche un prix fournisseur dans SA devise. Auparavant tout passait par
@@ -56,6 +57,8 @@ export type SupplierComparisonAlternative = SupplierOfferConditions & {
   supplier_id: string;
   supplier_name: string;
   adjusted_unit_price_cents: number;
+  /** 2.9: price per purchase unit, for a line written in it. */
+  adjusted_purchase_unit_price_cents?: number | null;
   currency: string | null;
   supplier_reference: string | null;
   updated_at: string | null;
@@ -219,9 +222,11 @@ export function SupplierComparisonPanel({
                 const ineligibility = supplierOfferIneligibility(alternative, {
                   currency: estimateCurrency, quantity, unit: itemUnit,
                 });
+                // 2.9: the price and unit this offer gives the line (per metre, or per bar for a line in bars).
+                const linePrice = alternativePriceForLineUnit(alternative, itemUnit);
                 const retainedWithoutChange = alternative.is_selected && (
                   currentUnitPriceCents === undefined || currentUnitPriceCents === null ||
-                  currentUnitPriceCents === alternative.adjusted_unit_price_cents
+                  currentUnitPriceCents === linePrice.priceCents
                 );
                 const ageDays = computePriceAgeDays(alternative.updated_at);
                 const ineligibilityId = `${idPrefix}-${alternative.supplier_price_id}-ineligible`;
@@ -249,13 +254,13 @@ export function SupplierComparisonPanel({
                       </div>
                       <div className="estimate-supplier-comparison-option__price shrink-0 text-sm font-bold tabular-nums text-primary sm:text-right">
                         {supplierOfferZeroPriceLabel(alternative.zero_price_kind) ?? formatSupplierPrice(
-                          alternative.adjusted_unit_price_cents,
+                          linePrice.priceCents,
                           alternative.currency
                         )}
-                        {alternative.unit ? <span className="text-xs"> / {alternative.unit}</span> : null}
+                        {linePrice.unit ? <span className="text-xs"> / {linePrice.unit}</span> : null}
                         {typeof quantity === "number" && !ineligibility ? (
                           <p className="mt-1 text-xs font-normal text-foreground-secondary">
-                            Total fourniture : {formatSupplierPrice(bankersRound(alternative.adjusted_unit_price_cents * quantity), alternative.currency)} HT
+                            Total fourniture : {formatSupplierPrice(bankersRound(linePrice.priceCents * quantity), alternative.currency)} HT
                           </p>
                         ) : null}
                       </div>

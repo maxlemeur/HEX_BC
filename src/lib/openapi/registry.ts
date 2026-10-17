@@ -490,6 +490,17 @@ const supplierOfferZeroPriceKindSchema = z.enum(["included", "free"]).nullable()
   "A7 : marquage d'une offre à 0 € (« Inclus » ou « Gratuit ») ; une offre à 0 € non marquée ne chiffre rien."
 );
 
+// 2.9: purchase unit and conversion of an offer; a converted offer prices a line in metres per metre
+// (adjusted_unit_price_cents) and a line written in bars per bar (adjusted_purchase_unit_price_cents).
+const supplierOfferPurchaseUnitFields = {
+  estimate_unit_code: z.string().nullable().optional().describe("2.9 : unité du devis servie par l'offre (code du référentiel)."),
+  estimate_units_per_purchase_unit: z.union([z.number(), z.string()]).nullable().optional().describe(
+    "2.9 : quantité de l'unité du devis par unité d'achat (par exemple 3 ml par barre)."),
+  purchase_rounding: z.enum(["none", "ceil"]).nullable().optional().describe("2.9 : arrondi de la quantité d'achat."),
+  adjusted_purchase_unit_price_cents: z.number().int().nullable().optional().describe(
+    "2.9 : prix par unité d'achat, indice matière compris, pour une ligne écrite dans l'unité d'achat."),
+};
+
 const suggestedSupplierAlternativeSchema = z.object({
   kind: supplierAlternativeKindSchema,
   supplier_price_id: uuidSchema,
@@ -504,6 +515,8 @@ const suggestedSupplierAlternativeSchema = z.object({
   is_stale: z.boolean(),
   catalogue_url: z.string().nullable(),
   zero_price_kind: supplierOfferZeroPriceKindSchema,
+  purchase_unit: z.string().nullable().optional().describe("2.9 : unité d'achat de l'offre."),
+  ...supplierOfferPurchaseUnitFields,
 });
 
 const suggestedCataloguePriceSchema = z.object({
@@ -534,6 +547,8 @@ const suggestedCataloguePriceSchema = z.object({
   material_index_value: z.number().nullable(),
   catalogue_url: z.string().nullable(),
   zero_price_kind: supplierOfferZeroPriceKindSchema,
+  purchase_unit: z.string().nullable().optional().describe("2.9 : unité d'achat de l'offre."),
+  ...supplierOfferPurchaseUnitFields,
   supplier_offer_count: z.number().int(),
   alternatives: z.array(suggestedSupplierAlternativeSchema),
 });
@@ -548,6 +563,7 @@ const estimateSupplierComparisonAlternativeSchema = z.object({
     "Prix brut de l'offre en centimes, lu avec ses conditions ; absent, l'offre n'est pas éligible."
   ),
   zero_price_kind: supplierOfferZeroPriceKindSchema,
+  ...supplierOfferPurchaseUnitFields,
   kind: z.enum([
     "best_price",
     "most_recent",
@@ -601,6 +617,7 @@ const estimateSupplierPreselectionPatchSchema = z.object({
 const estimateSupplierPreselectionProposalSchema = z.object({
   item_id: uuidSchema,
   item_title: z.string(),
+  item_unit: z.string().nullable().optional().describe("2.9 : unité de la ligne."),
   current_alternative: estimateSupplierComparisonAlternativeSchema.nullable(),
   proposed_alternative: estimateSupplierComparisonAlternativeSchema,
   patch: estimateSupplierPreselectionPatchSchema,
@@ -612,6 +629,7 @@ const estimateSupplierPreselectionProposalSchema = z.object({
 const estimateSupplierPreselectionExceptionSchema = z.object({
   item_id: uuidSchema,
   item_title: z.string(),
+  item_unit: z.string().nullable().optional().describe("2.9 : unité de la ligne."),
   reason: z.enum(["divergence", "stale", "ambiguous", "no_price"]),
   coverage_status: z.enum(["covered", "ambiguous", "no_price", "stale"]),
   risk_flags: z.array(
@@ -669,6 +687,9 @@ const estimatePurchaseOrderDraftLineSchema = z.object({
   selected_supplier_price_id: uuidSchema,
   supplier_reference: z.string().nullable(),
   product_designation: z.string(),
+  ordered_quantity: z.number().describe("2.9 : quantité commandée, dans l'unité d'achat d'une offre convertie (282 ml → 94 barres)."),
+  ordered_unit: z.string().describe("2.9 : unité commandée."),
+  ordered_unit_price_ht_cents: z.number().int().describe("2.9 : prix HT par unité commandée."),
 });
 
 const estimatePurchaseOrderDraftGroupSchema = z.object({

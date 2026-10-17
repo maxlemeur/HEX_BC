@@ -149,6 +149,11 @@ function createHarness(input?: {
         setTotalsOutOfSync,
         reportError,
         resolveErrorMessage: (message) => `public:${message}`,
+        computeVersionTotalsPatch: () => ({
+          total_ht_cents: 750,
+          total_tax_cents: 150,
+          total_ttc_cents: 900,
+        }),
         applyVersionToken,
         markItemsSynced: vi.fn(),
         ensureGroupedActionCanProceed,

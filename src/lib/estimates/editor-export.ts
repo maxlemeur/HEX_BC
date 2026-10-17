@@ -21,6 +21,10 @@ import {
   MAJORATION_PERCENT_HEADER,
 } from "@/lib/estimates/majoration";
 import {
+  alternativePriceForLineUnit,
+  type SupplierOfferPurchaseUnit,
+} from "@/lib/estimates/supplier-offer-purchase-unit";
+import {
   formatCurrency,
   normalizeEstimateCurrency,
   type SupportedEstimateCurrency,
@@ -80,10 +84,12 @@ export type EstimateLineExportRow = {
   line_total_ttc_cents: number | "";
 };
 
-export type SupplierComparisonAlternative = {
+export type SupplierComparisonAlternative = SupplierOfferPurchaseUnit & {
   supplier_name: string;
   adjusted_unit_price_cents: number | null;
   unit_price_cents: number | null;
+  /** 2.9: price per purchase unit, for a line written in it. */
+  adjusted_purchase_unit_price_cents?: number | null;
   currency: string | null;
   supplier_reference: string | null;
   catalogue_url: string | null;
@@ -207,6 +213,15 @@ function normalizeSupplierComparisonAlternative(
       toNonEmptyString(value.catalogue_url) ?? toNonEmptyString(value.url),
     updated_at:
       toNonEmptyString(value.updated_at) ?? toNonEmptyString(value.date),
+    // 2.9: purchase unit and conversion, to price the line in its own unit (absent otherwise).
+    ...(toNonEmptyString(value.estimate_unit_code) ? {
+      unit: toNonEmptyString(value.unit),
+      estimate_unit_code: toNonEmptyString(value.estimate_unit_code),
+      estimate_units_per_purchase_unit: typeof value.estimate_units_per_purchase_unit === "number" ||
+        typeof value.estimate_units_per_purchase_unit === "string" ? value.estimate_units_per_purchase_unit : null,
+      purchase_rounding: toNonEmptyString(value.purchase_rounding),
+      adjusted_purchase_unit_price_cents: toNullableFiniteNumber(value.adjusted_purchase_unit_price_cents),
+    } : {}),
   };
 }
 
@@ -295,12 +310,16 @@ export function normalizeSupplierComparisonsByItemId(
 
 function formatSupplierAlternativeCompact(
   alternative: SupplierComparisonAlternative | undefined,
-  estimateCurrency: SupportedEstimateCurrency
+  estimateCurrency: SupportedEstimateCurrency,
+  lineUnit: string | null | undefined
 ): string {
   if (!alternative) return "";
 
-  const unitPriceCents =
-    alternative.adjusted_unit_price_cents ?? alternative.unit_price_cents;
+  // 2.9: the price the line would take (per metre, or per bar for a line written in bars).
+  const unitPriceCents = alternative.adjusted_unit_price_cents === null
+    ? alternative.unit_price_cents
+    : alternativePriceForLineUnit({ ...alternative, adjusted_unit_price_cents: alternative.adjusted_unit_price_cents },
+      lineUnit).priceCents;
   const currency = resolveEstimateCurrency(
     alternative.currency ?? estimateCurrency
   );
@@ -389,15 +408,18 @@ export function buildEstimateLineExportRows(input: {
         supply_type: supplyTypeLabel,
         supplier_1: formatSupplierAlternativeCompact(
           supplierAlternatives[0],
-          input.currency
+          input.currency,
+          item.description
         ),
         supplier_2: formatSupplierAlternativeCompact(
           supplierAlternatives[1],
-          input.currency
+          input.currency,
+          item.description
         ),
         supplier_3: formatSupplierAlternativeCompact(
           supplierAlternatives[2],
-          input.currency
+          input.currency,
+          item.description
         ),
         k_fo: item.k_fo ?? "",
         h_mo: item.h_mo ?? "",
