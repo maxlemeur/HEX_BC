@@ -14,7 +14,8 @@ exige. Les choix laissés ouverts au rouge ont été tranchés par délégation 
 
 Branche `lot2/2.6-editeur-v3`. Rouge écrit sur `f1d94213` (pointe de `lot2/2.5-persistance-v3` à ce moment : M4,
 politique d'entreprise, création `canonical_v3`, écrivains v3, gel v3, serveur TS et API). 2.5 est fusionné dans
-`main` (PR #33, `94694ab3`) ; la branche a fusionné `origin/main` (`fc2ba2dc`) au commit `28d04309` (§10.1).
+`main` (PR #33, `94694ab3`) ; la branche a fusionné `origin/main` à `fc2ba2dc` (commit `28d04309`), puis à `78ca0855`
+(2.9, commit `1ec72124`) et à `91068850` (documentation seule, commit `71802307`), sans rebase (§10.1).
 Dépendances : 2.5, 2.3.
 
 ## 1. Contrat
@@ -196,6 +197,7 @@ l'écran à l'API relue après rechargement et aux valeurs du §3.
 | F26-17 | Présélection fournisseurs sur une v3 : lignes normalisées en v2 (`normalizeLine`, `h_mo`, PU et totaux v2 envoyés par `bulkUpdateEstimateItems`), refus générique « moteur 3 indisponible » après avoir proposé le dialogue (`server.ts:6678`), ou unité de comparaison lue dans `description` au lieu de `unit_code` | V3E-11 | — |
 | F26-18 | Budget dépassé (`EstimateEditorTable.tsx` > 2 600, `useEstimateEditorState.impl.tsx` > 3 100, `useEstimateEditorSyncController.ts` > 1 200) | `npm run check:architecture` (dans `verify:pr`) | — |
 | F26-19 | Régression v1/v2 : charge, aperçu ou montants v2 changés | parcours critiques existants (`estimate-integrity`), corpus figé et empreintes ; `git diff --stat` vide sur `estimate-calculations.ts` et `estimate-v2-snapshot.ts` | — |
+| F26-20 | Ajouté à l'intégration (§10.4) : la comparaison fournisseurs d'une ligne v3 (« Comparer les fournisseurs », « Choisir une offre ») lit l'unité dans `description`, vide sur une ligne v3 : toute unité d'offre passe pour compatible (une ligne en ml peut prendre un prix à la barre) et retenir une offre écrit son unité dans `description` | V3E-12 | — |
 
 **F26-17, contrat retenu** (Choix au rouge, **décision** du porteur au vert, §8) : sur une v3, appliquer la
 présélection passe par l'écrivain v3 de 2.5 (les mêmes opérations de lot qu'une saisie de PR FO dans la grille) :
@@ -337,9 +339,10 @@ prises par délégation du porteur, le 17/10/2026 :
 | `useEstimateEditorState.impl.tsx` | moteur résolu une fois ; `useEstimateV3Settings` branché (aperçu, charge de sauvegarde, tiroir) ; chargement, relectures et normalisation par `editor-engine` ; charge v3 de `saveEstimateVersion` = `buildSavePayload()` (jamais de `discount_bp` dérivé ni de total client) ; lignes relues après « Oui » = nouvelle référence ; v3 : pas de multiplicateur de marge (`effective_margin_multiplier` jamais lu), envoi masqué, exports désactivés | 2 894 → 2 908 (pistes) → 2 926 après la fusion d'`origin/main` (§10.1) / 3 100 |
 | `useEstimateEditorSyncController.ts` | `:729` remplacé par `reconcilesEditorTotals` ; la charge de lot passe par `toEngineItemWrite` ; la référence de synchronisation porte les saisies v3 | 1 199 → 1 199 / 1 200 |
 | `useEstimateEditorCalculation.ts` | v3 : aucun calcul historique, lignes affichées depuis l'aperçu ; après la fusion, `computePersistedTotals` (PR #36) rend `null` sur une v3 | — |
-| `EstimateEditorTable.tsx` | inchangé : la grille reçoit le contexte v3 d'`EstimateEditorPage` | 2 564 / 2 600 |
-| `LineRow.tsx`, `StandardMoCells.tsx`, `LaborSplitCells.tsx`, `EstimateEditorRow.tsx` | délégation aux cellules v3 ; PT = brut ⌈Q × PU⌋ ; PU vide pour une ligne non chiffrée ; atelier/chantier par unité en v3 | `LineRow` 1 198 → 1 196 / 1 200 |
-| `useEstimateEditorItemsController.ts`, `useEstimateEditorSupplierController.ts`, `useCatalogueSuggestions.ts` | charge de ligne v3 injectée ; présélection v3 par l'écrivain de lot (sans patch de totaux client après la fusion, §10.1) ; une suggestion du catalogue ne remplace jamais l'unité d'une ligne v3 | — |
+| `EstimateEditorTable.tsx` | pistes : inchangé, la grille reçoit le contexte v3 d'`EstimateEditorPage` ; intégration : l'unité de la comparaison fournisseurs vient du hook (`activeSupplierComparisonUnit`, F26-20) | 2 564 → 2 577 (2.9) → 2 578 / 2 600 |
+| `hooks/useEstimateSupplierComparison.ts` | intégration (F26-20) : sur une v3, unité de la ligne = `unit_code` pour l'éligibilité, le prix converti et l'affichage ; retenir une offre n'écrit pas `description` ; v1/v2 inchangées | — |
+| `LineRow.tsx`, `StandardMoCells.tsx`, `LaborSplitCells.tsx`, `EstimateEditorRow.tsx` | délégation aux cellules v3 ; PT = brut ⌈Q × PU⌋ ; PU vide pour une ligne non chiffrée ; atelier/chantier par unité en v3 ; après la fusion de 2.9, l'unité passée à la liste des suggestions est `unit_code` sur une v3 | `LineRow` 1 198 → 1 196 → 1 197 (2.9) / 1 200 |
+| `useEstimateEditorItemsController.ts`, `useEstimateEditorSupplierController.ts`, `useCatalogueSuggestions.ts` | charge de ligne v3 injectée ; présélection v3 par l'écrivain de lot (sans patch de totaux client après la fusion, §10.1) ; une suggestion du catalogue ne remplace jamais l'unité d'une ligne v3 et, après la fusion de 2.9, son prix converti se lit dans `unit_code` | — |
 | `batch-client.ts` | une ligne v3 non chiffrée relue sans PU (`pu_ht_cents` nul, décision 3 de 2.5) n'est plus une issue inconnue | — |
 | `EstimateEditorPage.tsx`, `EstimateEditorDrawer.tsx` | contexte de grille v3 autour de la grille ; tiroir : réglages v3 passés à `EstimateSettingsPanel`, gestionnaire v1/v2 des tranches de marge non rendu sur une v3 (`showMarginTiers`) | — |
 | `EstimateSettingsSummaryBar.tsx` | pied v3 : « Total HT », une entrée « TVA {r} % » par taux présent, « TVA », « TTC à payer », remise et arrondi commercial dès qu'ils s'appliquent, aucune marge v2 | — |
@@ -417,6 +420,11 @@ désormais avant l'ouverture comme dans les parcours de l'éditeur.
 - L'éditeur mobile d'une ligne et la restauration d'un brouillon en conflit restent v2 : sur une v3, une heure
   totale saisie est refusée par le serveur (`ESTIMATE_V3_LABOR_HOURS_PER_UNIT_REQUIRED`), jamais écrite.
 - Actions en lot (catégorie, rôle, majoration) : leur charge est réduite aux saisies par `toEngineItemWrite`.
+- « Associer ou remplacer l'article » (fiche article, `handleAssociateArticle` d'`EstimateEditorTable.tsx`) lit encore
+  l'unité dans le brouillon d'unité v1/v2 (`description`) et écrit l'unité de l'offre dans `description` : sur une
+  v3, le prix retenu n'est pas jugé dans `unit_code` (même famille que F26-20, non corrigé ici, aucun parcours ne
+  le couvre ; le contrat de l'association, qui fait de l'article la source de l'unité en v1/v2, reste à fixer pour
+  une v3).
 - Tiroir d'une v3 : le gestionnaire des tranches de marge n'y est plus rendu ; le barème de l'entreprise se
   gère depuis le tiroir d'une v1/v2 (ou `/api/margin-tiers`) jusqu'à un gestionnaire rédigé pour le moteur 3.
 - F26-07, « rien n'est envoyé avant la réponse » : tenu par `requestSave` (§1.3) et vérifié seulement par un
@@ -512,7 +520,7 @@ création puis remise à 2, rôle « Tuyauteur » 40 €/h par l'API.
 
 | Fichier | Rôle |
 |---|---|
-| `e2e/army/local/engine-v3-editor.e2e.ts` | Parcours `V3E01`, `V3E02`, `V3E03` (sélection critique locale : motif `engine-v3-*.e2e.ts` d'`e2e.config.ts`) |
+| `e2e/army/local/engine-v3-editor.e2e.ts` | Parcours `V3E01`, `V3E02`, `V3E03`, `V3E04` (ajouté à l'intégration, §10.4) (sélection critique locale : motif `engine-v3-*.e2e.ts` d'`e2e.config.ts`) |
 | `e2e/army/local/engine-v3-editor-support.ts` | Préalables (propriétaire, v3, section, lignes par lot), mode Expert, préréglage « Standard », lectures d'écran et d'API, relevé `checkpoint` |
 | `scripts/tester-army/army-impact-map.json` | Parcours ajouté à `suite.journeys`, aux groupes `editor`, `affaires-list`, `print` et à la règle `estimate-detail` |
 
@@ -541,6 +549,7 @@ ceux du §2.
 | V3E-09 | pas de « Barème par défaut » en v3 ; repère du barème d'entreprise non appliqué | barème codé en dur (×1,60) ou « barème par défaut est appliqué » affiché ; barème appliqué aux montants | 12 | V3E01 |
 | V3E-10 | arrondi au pas de 100 € inférieur → S4 | arrondi traité hors remise HT, ajustement ≠ 0, modes `up`/`nearest` proposés | 13 | V3E01 |
 | V3E-11 | présélection fournisseurs appliquée sur une v3 | lignes écrites sans recalcul (totaux périmés, « Totaux à synchroniser » : défaut v2 connu de 2.2), écriture partielle, bandeau générique du moteur 3 | 17 | V3E03 |
+| V3E-12 | hors §14, ajouté à l'intégration : comparaison fournisseurs d'une ligne v3 en ml (`description` vide), offres en ml et à la barre | offre à la barre acceptée ; unité de l'offre écrite dans `description` ; PR ou totaux faux | 20 | V3E04 |
 
 En plus (périmètre du §14 « 2.6 ») : fiche et impression du brouillon v3 sans bandeau (F26-15), dans V3E01.
 
@@ -617,6 +626,17 @@ Dans les deux cas, jamais « Totaux à synchroniser ». La conception impliquait
 jour groupée directe » refusée en v3 pendant le lot 2 avec un message nommé ; la présélection passe aujourd'hui par
 `POST /api/estimates/{id}/items/bulk`). Ce document retient le **recalcul** (F26-17, décision du §8), le refus nommé
 en repli : le parcours admet l'un ou l'autre et consigne lequel (`v3e-preselection`).
+
+#### 9.3.4 `V3E04` (un brouillon v3, une ligne posée par un lot ; ajouté à l'intégration, §10.4)
+
+Ligne « … cuivre 18 » comme la grille la fait : `unit_code` ml, `description` vide, 2 ml, PR 15,00 € → PU 19,50 €,
+net 39,00 €. Article en « ML », offre en « ml » à 12,40 € et offre « barre » à 50,00 € (deux fournisseurs, aucune
+conversion), par les API du catalogue. Mode Expert ; « Plus d'actions pour {titre} » → « Comparer les
+fournisseurs » → dialogue « Comparer fournisseurs ». Attendu : la carte « barre » porte « Unité différente du
+devis » et son bouton est désactivé, la carte « ml » non ; « Retenir cette offre » sur la carte « ml » puis Ctrl+S :
+API `unit_code` ml, `description` nulle, PR 1 240, offre « ml », PU 1 612, net 3 224, totaux 3 224 / 645 / 3 869 c ;
+écran « Total HT : 32,24 € », « TVA 20 % : 6,45 € », « TTC à payer : 38,69 € », PU 16,12, PT 32,24 €, avant et
+après rechargement (`checkpoint`). Preuve `v3e04-supplier-comparison`.
 
 ### 9.4 Contrat d'écran
 
@@ -834,6 +854,19 @@ ni son contrôle préalable ; rejouée avec M4 révisée par la pile native (§1
 
 `useEstimateEditorState.impl.tsx` passe de 2 908 à 2 926 lignes non vides (+18 de la PR #36) : budget 3 100 tenu.
 
+**Seconde fusion.** `origin/main` a avancé pendant les preuves (PR #34, sous-lot 2.9, unité d'achat des offres,
+migration M7 `20261017172127_supplier_offer_purchase_unit.sql`) : `git merge --no-ff origin/main` (`78ca0855`) au
+commit `1ec72124`, sans rebase. Trois conflits, plus un branchement :
+
+| Fichier | `main` (2.9) | 2.6 | Résolution |
+|---|---|---|---|
+| `useCatalogueSuggestions.ts` | prix de l'offre converti pour l'unité de la ligne (`alternativePriceForLineUnit`), unité lue dans `description` | unité d'une ligne v3 dans `unit_code`, jamais écrite dans `description` | prix converti de 2.9 calculé pour `unit_code` sur une v3 ; contrôle d'unité et charge de 2.6 |
+| `server.ts` (comparaisons fournisseurs) | `estimateLineUnit` partagé (`coalesce(unit_code, description)`, jumeau SQL de M7) | aiguillage par moteur (`unit_code` en v3) | `estimateLineUnit` de 2.9 : même unité sur tous les moteurs, `unit_code` étant toujours nul en v1/v2 (M4) ; le fichier est celui de `main` |
+| `supabase/migrations.manifest.json` | M7 | `20261017205000` | les deux, dans l'ordre des noms (M4 → M7 → 2.6) |
+| `LineRow.tsx` (sans conflit) | nouvelle prop `lineUnit={item.description}` de la liste des suggestions | — | `lineUnit={v3Grid ? item.unit_code : item.description}` : la liste affiche le prix que la suggestion appliquera |
+
+Les budgets restent tenus après 2.9 : `EstimateEditorTable.tsx` 2 577 / 2 600 (+13 de 2.9), `LineRow.tsx` 1 197 / 1 200.
+
 ### 10.2 Réconciliation des pistes
 
 - **Un seul aperçu** : la piste grille lit l'aperçu du hook (`v3Settings.preview`, `useEstimateEditorCalculation`
@@ -856,55 +889,110 @@ WSL Ubuntu 24.04, Node 24.14.0, TesterArmy `e2e` 0.21.0, clone `~/miaouffrage-lo
 (`git -c safe.directory='*' fetch` du worktree Windows puis `git reset --hard FETCH_HEAD`), diff local vide
 (`diffSha256` `e3b0c442…b855`), `NODE_OPTIONS=--max-old-space-size=4096`, verrou natif attendu avant chaque
 lancement (au plus deux exécutions possédées). Windows 11 : worktree `miaouffrage-l2-26`, Node 24.19.0, Vitest
-4.1.11. La qualification est à `fb52abcb` (code identique à la pointe ; seul ce document change ensuite).
+4.1.11.
+
+**Révisions.** Le code final est celui de `a7417e3d` ; `71802307` n'ajoute que la documentation de `main` (PR #38) et
+le commit suivant ne change que ce document. `c8c750f3` → `a7417e3d` ne change qu'une sonde de `V3FC01` (§10.4) : les
+preuves qui ne lancent pas `V3FC01` (empreintes, calc-v3, SQL) sont prises à `c8c750f3`, les autres à `71802307`.
+
+#### 10.3.1 Qualification finale
 
 | Preuve | Commande | Révision | Résultat | Archive (clone WSL) |
 |---|---|---|---|---|
-| Parcours 2.6, itération après fusion | `E2E_ARMY_WORKERS=2 npm run e2e:army:local -- --grep "V3E0\|V3P01\|V3FC"` | `28d04309` | sortie 0 ; 249 migrations, « Local migration inventory matches the repository. », pgTAP `Files=19, Tests=1837, Result: PASS`, matrice RLS, build ; `discovered 85, selected 7, executed 7, passed 7, failed 0, flaky 0`, une tentative chacun ; 5 min 13 s | `.e2e/army/ci/2026-10-17T22-20-39-207Z-critical`, manifeste `2a9d86460420107c7438ff089c820ecfba253fac959561bcdb7fd8d4018e73db` |
-| Parcours 2.6 et présélection v2, qualification | `E2E_ARMY_WORKERS=2 npm run e2e:army:local -- --grep "V3E0\|V3P01\|V3FC\|supplier preselection saves a return"` | `fb52abcb` | sortie 0 ; mêmes contrôles en amont ; `discovered 85, selected 8, executed 8, passed 8, failed 0, flaky 0`, une tentative chacun : V3E01 66,3 s, V3E02 136,4 s, V3E03 14,1 s, V3P01 12,8 s, V3FC01 1,6 s, V3FC02 0,9 s, « bulk edit sync supplier preselection saves a return… » 12,3 s ; 5 min 9 s | `.e2e/army/ci/2026-10-17T22-34-41-676Z-critical`, manifeste `e523888599b988dacf6064c9d4e0a08796f5daabbb14e15c4cc430dba9a4e1f7`, confidentialité `passed` |
-| Empreintes de documents | `npm run engine:document-fingerprints -- check` | `fb52abcb` | sortie 0 ; 14 familles v1/v2 ; « Document fingerprints identical » | `.e2e/engine-v3/document-fingerprints/2026-10-17T22-41-06-810Z-check`, manifeste `f0ce2a794b560f86d0f4c22fc357b7cf231dbd22158dd5f7a2a88379fef7b727` |
-| Parcours de référence 2.0 (hors CI) | `npm run e2e:army:calc-v3` | `fb52abcb` | sortie 0 ; sources inchangées pendant la campagne ; phases `journeys` 11/11, `components` 5/5, `numeric` 4/4, `resume` 5/5, `access` 2/2, `offers` 5/5 (dont OZ04, présélection v1 et totaux stockés), `emission` 6/6 et 4 PDF reçus : les comptes attendus de `calc-v3-phases.ts` ; 11 min 6 s | `.e2e/army/ci/2026-10-17T22-41-50-449Z-calc-v3`, manifeste `a5b545289cc549d26c7e4ebbd6b8fe586ea7f96757f6c85a2416184c6e065036` |
-| SQL et RLS natifs (M4 révisée + `20261017205000`) | `npm run db:ci:local` | `fb52abcb` | sortie 0 ; inventaire conforme, pgTAP `Files=19, Tests=1837, Result: PASS`, « Behavioral RLS matrix passed. » | journal non versionné du clone |
-| Qualité de PR | `npm run verify:pr` | `fb52abcb` | sortie 0 ; audit des dépendances (0 avis bloquant), 762 signatures vérifiées, budgets d'architecture (1 131 modules, 0 cycle), OpenAPI valide et synchronisée, `typecheck`, `lint` (`--max-warnings=0`), Vitest node 296 fichiers / 2 787 tests passés (1 fichier, 2 tests ignorés), jsdom 162 / 821 passés, couverture critique 3 / 12 | journal non versionné du clone |
+| Parcours 2.6 et présélection v2 | `E2E_ARMY_WORKERS=2 npm run e2e:army:local -- --grep "V3E0\|V3P01\|V3FC\|supplier preselection saves a return"` | `71802307` | sortie 0 ; en amont 250 migrations, « Local migration inventory matches the repository. », pgTAP `Files=20, Tests=1854, Result: PASS`, « Behavioral RLS matrix passed. », build ; `discovered 86, selected 9, executed 9, passed 9, failed 0, flaky 0`, une tentative chacun : V3E01 67,6 s, V3E02 137,2 s, V3E03 13,8 s, V3E04 7,7 s, V3P01 11,7 s, V3FC01 1,6 s, V3FC02 0,9 s, « bulk edit sync supplier preselection saves a return… » 11,6 s ; 5 min 2 s | `.e2e/army/ci/2026-10-17T23-39-50-876Z-critical`, manifeste `c526604e750d524cae002dae0cf879925c06a3c56a224f2b386b840453a6c76c`, confidentialité `passed` |
+| Qualité de PR | `npm run verify:pr` | `71802307` | sortie 0 ; audit des dépendances (0 avis bloquant), 762 signatures vérifiées, budgets d'architecture (1 133 modules, 0 cycle), OpenAPI valide et synchronisée, `typecheck`, `lint` (`--max-warnings=0`), Vitest node 297 fichiers / 2 812 tests passés (1 fichier, 2 tests ignorés), jsdom 164 / 823, couverture critique 3 / 12 | journal non versionné du clone |
+| Empreintes de documents | `npm run engine:document-fingerprints -- check` | `c8c750f3` | sortie 0 ; 14 familles v1/v2 ; « Document fingerprints identical » | `.e2e/engine-v3/document-fingerprints/2026-10-17T23-21-30-687Z-check`, manifeste `146396e53e5607ff6502a1a4f9deaf29b448ffa94770b239f5083996ae7789bd` |
+| Parcours de référence 2.0 (hors CI) | `npm run e2e:army:calc-v3` | `c8c750f3` | sortie 1 ; sources inchangées pendant la campagne ; `journeys` 11/11, `components` 5/5, `numeric` 4/4, `resume` 5/5, `access` 2/2, `offers` 10/10 (OZ01 à OZ04, PU01 à PU05 de 2.9, setup), `emission` 5/6 : **OF00 rouge**, dialogue PDF bloqué par « Ce devis est déjà ouvert dans une autre page. » (`PATCH /lock` 409), artefact de `next dev` documenté par 2.9 (`estimate-engine-v3-2.9.md`, « OF00 en mode développement ») | `.e2e/army/ci/2026-10-17T22-41-50-449Z-calc-v3` à `fb52abcb` (avant 2.9 : 38/38) ; `.e2e/army/ci/2026-10-17T23-22-13-861Z-calc-v3` à `c8c750f3`, manifeste `4da4b5323bdd2200f0614866b617b75a2963f3cb557faf77cb28a310b916139f` |
+| OF00 sur `main` (référence) | `npm run e2e:army:calc-v3 -- --phase emission --grep "^OF00\s"`, clone détaché sur `origin/main` puis remis à la branche | `91068850` | sortie 1 ; même échec, même alerte : rouge hérité de `main` (2.9), pas de 2.6 | `.e2e/army/ci/2026-10-17T23-46-10-545Z-calc-v3`, manifeste `f711397f9ce47aaac94d50e5720af42708de819c0a111b06534c86a010d7f665` |
+| SQL et RLS natifs (M4, M7, `20261017205000`) | `npm run db:ci:local` | `c8c750f3` | sortie 0 ; inventaire conforme, pgTAP `Files=20, Tests=1854, Result: PASS`, « Behavioral RLS matrix passed. » | journal non versionné du clone |
 
-Preuves métier de la qualification, sous `critical/runs/2026-10-17T22-36-06-828Z/artifacts/business/` :
+Preuves métier de la qualification, sous `critical/runs/2026-10-17T23-41-00-767Z/artifacts/business/` :
 
 | Preuve | SHA-256 |
 |---|---|
-| `v3e-v3e01-editor-open` | `ddaf4a4d3b756d31852015da5f8e00f7be7cb425ed719f05f42d6f17df74a8ae` |
-| `v3e-v3e02-editor-open` | `5bf2282073543b461fc97e2e11944fa1c22e73113a2a7f4ec5733b14062e716b` |
-| `v3e-v3e03-editor-open` | `251abe799e0269b8910a29ecce8ab4bc7e6fa4bc80802f22ca1075a79c9abf82` |
-| `v3e-preselection-precondition` | `b019472f200d2c63cd994b0fd87f0a4a7450d1c311b569e1bf9499d41b90aef2` |
-| `v3e-preselection` | `fc650f227f62c3b520b16cd0bcb5ad65a836676e2c0dac099ec70dee71bef757` |
-| `v3e-preselection-recomputed` | `48368d709629acfba88e31fabdf6740c32afa8e2466b3d3c205eab3febdbcde2` |
-| `v3p-editor-open` | `80caa77dc4c10039f74d1c4c7e23520eadfe484e601e979b2a047eff14319f72` |
-| `engine-v3-read` (V3FC01) | `d993c35708985911f6481113cdb1170144a0a20f2ffce9d24639b5e2d52e5d7b` |
-| `bulk-sync-p1-preselection-stored-totals` (v2) | `37ff78f056706734d2a0c29920a9a677e8ac71e17a179497495eaf7ff0960dfe` |
+| `v3e-v3e01-editor-open` | `2e6e6a5a101e065c272dbd63ee85a13974afc0754431671891db865b56ed2189` |
+| `v3e-v3e02-editor-open` | `7f97cb1bb3a2f6ee29c40aad6dc077179a0c95f3f41a528e67b7f238f568da78` |
+| `v3e-v3e03-editor-open` | `cc4aeeb5333e6d48d843008abae90da89447b25d9429cfdd8ba03b87e3b0d124` |
+| `v3e-v3e04-editor-open` | `47d338cfcf35c35e9479b972a3ebd2c37b06c1d320f7be51d00e8e2c8919bbd9` |
+| `v3e-preselection-precondition` | `6255db0ff6f57e07e2e9b2257dd684a70e0f8835cb9d1c2fc28ed8854b7adc16` |
+| `v3e-preselection` | `47be308c8d16ab5fab7249faaba62235af76b3cee38299d20284125c462b4197` |
+| `v3e-preselection-recomputed` | `be21d0093f50f0fa7579db6512330646093f443e71ddbe3353ff9b8287233852` |
+| `v3e04-supplier-comparison` | `4f0c81351e4fd15fd2bbb205ef564912150ed6bb2a6e38afb648981e0c61f509` |
+| `v3e-v3e04-retained` | `1100b32c6374aad093247bdcbe8fba4fed2a5e825bed53417e0149d6b84560a1` |
+| `v3p-editor-open` | `c5872030f31e06d7f514b09fbae2ea3b64c7e7fdbf387f6e93bde8ea5747ebb4` |
+| `engine-v3-read` (V3FC01) | `570b0e354f56bd6a550ba745fd7f8fd33fa270454429c68c0012300d741fa666` |
+| `bulk-sync-p1-preselection-stored-totals` (v2) | `0b65118ddcaa564c6c91b335a0e9b8bafd87ce3e0df379e099421e176c0b4937` |
 
-**Issue de la présélection (V3E-11) à la révision fusionnée** : `{"refused": false, "recomputed": true,
-"genericBanner": false}` ; avant 3 900 / 780 / 4 680 c, PR 1 500, PU 1 950 ; après offre B, PR 1 240, PU 1 612, net
-3 224, totaux 3 224 / 645 / 3 869 c (§9.3.3) ; `content_revision` 12 → 16 ; écran après rechargement « Total HT :
-32,24 € », « TVA 20 % : 6,45 € », « TTC à payer : 38,69 € », PU 16,12, PT 32,24 €. Présélection v2 (P1 de
-`bulk-edit-sync-sources`) : totaux stockés 1 234 / 247 / 1 481 c, égaux à ceux des lignes (PR #36 inchangée).
+**Issues assertées.** Présélection v3 (V3E-11) : `{"refused": false, "recomputed": true, "genericBanner": false}`,
+offre B retenue, PR 1 240, PU 1 612, net 3 224, totaux 3 224 / 645 / 3 869 c (§9.3.3). Comparaison d'une ligne v3
+(V3E-12) : `{"offers":{"ml":{"unitRefused":false,"retainEnabled":true},"bar":{"unitRefused":true,
+"retainEnabled":false}},"persisted":{"unitCode":"ml","description":null,"prFo":1240,…}}`, puis 3 224 / 645 / 3 869 c
+et « Total HT : 32,24 € », « TVA 20 % : 6,45 € », « TTC à payer : 38,69 € » avant et après rechargement (§9.3.4).
+Présélection v2 (P1 de `bulk-edit-sync-sources`) : totaux stockés égaux à ceux des lignes (PR #36 inchangée).
+Valeurs S1 à S5, CAP, T-STAT et réglages : celles du §3 et du §9.3, assertées par le parcours à 0 c.
 
-Windows, à `fb52abcb` :
+Windows :
 
-| Commande | Résultat |
-|---|---|
-| `npx vitest run --project=node src/lib/estimates/v3-settings-payload.test.ts` | 1 fichier, 4/4 (`V3S-01` à `V3S-04`, assertions inchangées) |
-| `npx vitest run --project=node src/test/army-impact-map.test.ts src/test/ci-guardrails.test.ts` | 2 fichiers, 23/23 |
-| `npx vitest run --project=node src/lib/estimates/engine-frozen-corpus.test.ts` | 1 fichier, 2/2 (corpus figé) |
-| `npx vitest run --project=jsdom src/hooks/useEstimateEditor src/components/estimates` | 57 fichiers, 392/392 |
-| `npx vitest run --project=node src/hooks src/lib/estimates` | 84 fichiers passés (1 ignoré), 1 056 tests passés (2 ignorés) |
-| `npm run typecheck` ; `npm run validate-openapi` ; `npm run check:architecture` | sortie 0 ; « OpenAPI spec valide et synchronisee. » (aucune route ni schéma changé, rien à régénérer) ; 1 131 modules, 0 cycle |
-| `npx eslint --max-warnings=0` sur les 36 fichiers `.ts`/`.tsx` ajoutés ou modifiés par la branche (`git diff --name-only --diff-filter=AM origin/main...HEAD`) | sortie 0 |
-| `git diff --stat origin/main...HEAD -- src/lib/estimate-calculations.ts src/lib/estimate-v2-snapshot.ts` (et depuis `f1d94213`) | vide |
-| `git -c core.whitespace=cr-at-eol diff --check origin/main...HEAD` | propre |
+| Commande | Révision | Résultat |
+|---|---|---|
+| `npx vitest run --project=node src/lib/estimates/v3-settings-payload.test.ts` | `c8c750f3` | 4/4 (`V3S-01` à `V3S-04`, assertions inchangées) |
+| `npx vitest run --project=node src/test/army-impact-map.test.ts src/test/ci-guardrails.test.ts` | `c8c750f3`, `71802307` | 23/23 |
+| `npx vitest run --project=node src/lib/estimates/engine-frozen-corpus.test.ts` | `c8c750f3` | 2/2 (corpus figé) |
+| `npx vitest run --project=jsdom src/hooks/useEstimateEditor src/components/estimates` | `c8c750f3` | 58 fichiers, 393/393 |
+| `npx vitest run --project=node src/hooks src/lib/estimates` | `c8c750f3` | 85 fichiers passés (1 ignoré), 1 078 tests passés (2 ignorés) |
+| `npm run typecheck` | `c8c750f3`, `71802307` | sortie 0 |
+| `npm run validate-openapi` ; `npm run check:architecture` | `c8c750f3` | « OpenAPI spec valide et synchronisee. » (aucune route ni schéma changé par 2.6, rien à régénérer) ; 1 133 modules, 0 cycle |
+| `npx eslint --max-warnings=0` sur les 37 fichiers `.ts`/`.tsx` ajoutés ou modifiés par la branche (`git diff --name-only --diff-filter=AM origin/main...HEAD`), puis sur la sonde de `a7417e3d` | `c8c750f3`, `a7417e3d` | sortie 0 |
+| `git diff --stat origin/main...HEAD -- src/lib/estimate-calculations.ts src/lib/estimate-v2-snapshot.ts` (et depuis `f1d94213`) | `71802307` | vide |
+| `git -c core.whitespace=cr-at-eol diff --check origin/main...HEAD` | `71802307` | propre |
 
-Budgets (lignes non vides) : `EstimateEditorTable.tsx` 2 564 / 2 600, `useEstimateEditorState.impl.tsx` 2 926 / 3 100,
-`useEstimateEditorSyncController.ts` 1 199 / 1 200, `LineRow.tsx` 1 196 / 1 200.
+Budgets (lignes non vides) : `EstimateEditorTable.tsx` 2 578 / 2 600, `useEstimateEditorState.impl.tsx` 2 926 / 3 100,
+`useEstimateEditorSyncController.ts` 1 199 / 1 200, `LineRow.tsx` 1 197 / 1 200.
 
-### 10.4 Limites et suites
+#### 10.3.2 Passages précédents (avant la seconde fusion ; historique)
+
+| Commande | Révision | Résultat | Archive |
+|---|---|---|---|
+| `E2E_ARMY_WORKERS=2 npm run e2e:army:local -- --grep "V3E0\|V3P01\|V3FC"` | `28d04309` | sortie 0 ; 249 migrations, pgTAP `Files=19, Tests=1837` ; 7/7 | `2026-10-17T22-20-39-207Z-critical`, manifeste `2a9d86460420107c7438ff089c820ecfba253fac959561bcdb7fd8d4018e73db` |
+| même sélection et « supplier preselection saves a return » | `fb52abcb` | sortie 0 ; 8/8 ; issue de la présélection « recalcul persisté » | `2026-10-17T22-34-41-676Z-critical`, manifeste `e523888599b988dacf6064c9d4e0a08796f5daabbb14e15c4cc430dba9a4e1f7` |
+| `npm run engine:document-fingerprints -- check` | `fb52abcb` | identiques, 14 familles | `2026-10-17T22-41-06-810Z-check`, manifeste `f0ce2a794b560f86d0f4c22fc357b7cf231dbd22158dd5f7a2a88379fef7b727` |
+| `npm run e2e:army:calc-v3` | `fb52abcb` | sortie 0 ; 11 / 5 / 4 / 5 / 2 / 5 / 6, 4 PDF | `2026-10-17T22-41-50-449Z-calc-v3`, manifeste `a5b545289cc549d26c7e4ebbd6b8fe586ea7f96757f6c85a2416184c6e065036` |
+| `npm run db:ci:local` ; `npm run verify:pr` | `fb52abcb` | sortie 0 ; node 296 / 2 787, jsdom 162 / 821, couverture 3 / 12 | journaux du clone |
+| même sélection et « supplier preselection saves a return » | `c8c750f3` | sortie 1 : 8/9, `V3FC01` rouge sur sa sonde (§10.4), les autres verts dont `V3E04` | `2026-10-17T23-16-25-111Z-critical`, manifeste `2256db5cb5e512ad1b083b53f2121af45db940b83a6bd2d0e68848c39510edc5` |
+
+### 10.4 Défaut révélé par l'intégration (F26-20, V3E04)
+
+En résolvant la seconde fusion (2.9 fait lire l'unité de la ligne aux chemins d'achat), la comparaison fournisseurs
+d'une ligne (`useEstimateSupplierComparison.ts`, prop `itemUnit` du panneau dans `EstimateEditorTable.tsx`) lisait
+encore l'unité dans `description`. Une ligne v3 faite par la grille n'a rien dans `description` (son unité est
+`unit_code`, D9) ; `areSupplierUnitsCompatible` tient une unité de ligne vide pour compatible avec toute offre : le
+panneau proposait donc une offre dans une autre unité (prix à la barre sur une ligne en ml), et retenir une offre
+écrivait son unité dans `description`. Hors des scénarios du §14 « 2.6 » (`V3E03` porte la même unité dans
+`description` et `unit_code`, §8.5), donc non couvert jusque-là.
+
+- **Rouge d'abord** (`3e095711`, parcours `V3E04`, §9.3.4) : WSL, clone à `3e095711`, diff local vide,
+  `npm run e2e:army:local -- --grep "V3E04"`, sortie 1 ; en amont 250 migrations, pgTAP `Files=20, Tests=1854, Result:
+  PASS`, matrice RLS, build ; setup vert, `V3E04` rouge pour la raison visée :
+  `{"offers":{"ml":{"unitRefused":false,"retainEnabled":true},"bar":{"unitRefused":false,"retainEnabled":true}},
+  "persisted":{"unitCode":"ml","description":"ml","prFo":1240,…}}` au lieu de l'offre « barre » refusée et d'une
+  `description` nulle. Archive `.e2e/army/ci/2026-10-17T23-11-13-132Z-critical` (manifeste
+  `0b1866792a92d12fbebf1eb1e3396fccd740fda1abd8bfc2695b94dabce2f780`), preuve `v3e04-supplier-comparison`
+  `c9f57300d2ec9648ede0a325c950d34463287f82b95c2a3163c3d261f2d5c996`.
+- **Correction** (`c8c750f3`) : sur une v3 (contexte `useEstimateV3Grid`), l'unité de la ligne est `unit_code` pour
+  l'éligibilité, le prix converti (2.9) et l'affichage du panneau (`activeSupplierComparisonUnit`), et retenir une
+  offre n'écrit que le PR FO et l'offre ; v1/v2 inchangées (`description`, mêmes valeurs écrites). Vert au §10.3.
+- Même famille, non corrigée : l'association d'article depuis la fiche (§8.5).
+
+**Sonde de `V3FC01` corrigée** (`a7417e3d`, sans toucher une assertion) : à `c8c750f3`, `V3FC01` a attendu 30 s « TTC à
+payer 70,20 € » ; l'écran à l'échec montre le déclencheur « Voir les détails de TVA, remise et TTC » sans le focus et la
+première cellule de la grille focalisée. `useSpreadsheetNavigation` redonne le focus à sa cellule active quand son
+modèle de navigation change, ce qui peut arriver après l'aperçu : le `focus()` puis `keyboard.press("Enter")` de la
+sonde envoyait Entrée à la cellule, et le détail ne s'ouvrait pas. La sonde attend désormais que la grille tienne le
+focus, puis appuie sur Entrée sur le déclencheur lui-même (`locator.press`) ; l'assertion (TTC de l'aperçu v3, jamais la
+lecture v1) est inchangée et verte à `71802307`. Ce vol du focus de la barre d'outils par la grille est un comportement
+existant de l'éditeur, tous moteurs, hors du périmètre de 2.6.
+
+### 10.5 Limites et suites
 
 - Aucune revue indépendante en lecture seule n'a été conduite sur le diff stable de 2.6 (exigée par `AGENTS.md`
   pour un changement de cette taille) : à faire avant la PR.
@@ -912,6 +1000,11 @@ Budgets (lignes non vides) : `EstimateEditorTable.tsx` 2 564 / 2 600, `useEstima
   déploiement, sur autorisation explicite (`AGENTS.md`, `supabase/README.md` §3) ; rien n'a été appliqué à distance.
 - Limites de l'implémentation au §8.5 (suppression d'une ligne v3 depuis la grille, éditeur mobile, gestionnaire des
   tranches de marge, liste des taux de l'entreprise, instabilité non reproduite de la liste des rôles : aucune perte
-  de saisie dans les six passages postérieurs à `86ef5886` du §8.5 ni dans les deux passages de `V3E01` du §10.3).
+  de saisie dans les six passages postérieurs à `86ef5886` du §8.5 ni dans les quatre passages de `V3E01` du §10.3).
 - `V1PT01` (`supplier-preselection-v1-totals.e2e.ts`) n'est sélectionné que par la suite `full` ; la v1 est couverte
   ici par `OZ04` (phase `offers`, même scénario) et la v2 par P1 de `bulk-edit-sync-sources`.
+- `OF00` (phase `emission` de calc-v3, `next dev`) est rouge depuis 2.9, sur `main` comme sur la branche (§10.3.1) :
+  décision de 2.9 partagée avec 2.7 (la phase d'émission passera en build de production en 2.7) ; 2.6 ne l'aggrave
+  pas.
+- `origin/main` peut encore avancer : avant un push autorisé, refusionner et rejouer ce que la fusion invalide
+  (`AGENTS.md`).
