@@ -24,14 +24,15 @@ type Fixture = {
   offers: Record<"p1Zero" | "p1Priced" | "p2Zero" | "p3Zero", { id: string; supplierId: string; productId: string; cents: number }>;
   deliverySite: { id: string; updatedAt: string };
   estimates: Record<EstimateKey, { projectId: string; versionId: string; sectionId: string }>;
-  lines: Record<"compareP1" | "compareP2" | "popover" | "sheet" | "compareP3" | "sheetIncluded" | "purchaseMl" | "purchaseZero",
+  lines: Record<"compareP1" | "compareP2" | "popover" | "sheet" | "linkedZero" | "popoverSquare" | "compareP3" | "sheetIncluded" |
+    "purchaseMl" | "purchaseZero",
     { id: string; title: string; unit: string; estimate: EstimateKey }>;
 };
 type EstimateKey = "oz01" | "oz02" | "oz03";
 type Envelope<T> = { ok: boolean; data: T; error?: { code: string; message: string } };
 type Alternative = { supplier_price_id: string; adjusted_unit_price_cents: number; zero_price_kind?: string | null };
 type Comparisons = {
-  comparisons: Array<{ item_id: string; best_supplier_price_id: string | null; alternatives: Alternative[] }>;
+  comparisons: Array<{ item_id: string; best_supplier_price_id: string | null; risk_flags: string[]; alternatives: Alternative[] }>;
   bulk_preselection: { proposals: Array<{ item_id: string; proposed_alternative: Alternative;
     patch: { unit_price_ht_cents: number; selected_supplier_price_id: string } }> };
 };
@@ -94,13 +95,16 @@ armyTest("OZ01 an unmarked 0 € offer never prices a line: best price, preselec
     await app.open("/dashboard");
 
     // Best price and preselection proposals.
-    const comparison = await compare(browser, estimate.versionId, [lines.compareP1.id, lines.compareP2.id]);
+    const comparison = await compare(browser, estimate.versionId, [lines.compareP1.id, lines.compareP2.id, lines.linkedZero.id]);
     await recordEvidence(army, "oz01-comparisons", comparison);
     const p1 = comparison.comparisons.find((entry) => entry.item_id === lines.compareP1.id)!;
     const p2 = comparison.comparisons.find((entry) => entry.item_id === lines.compareP2.id)!;
     expect(p1.best_supplier_price_id, "best price of P1").toBe(offers.p1Priced.id);
     expect(p1.alternatives.map((entry) => entry.supplier_price_id)).not.toContain(offers.p1Zero.id);
     expect(p2.best_supplier_price_id, "P2 has no usable price").toBeNull();
+    const linked = comparison.comparisons.find((entry) => entry.item_id === lines.linkedZero.id)!;
+    expect(linked.best_supplier_price_id, "a line linked to the 0 € offer sees the 12,40 € best price").toBe(offers.p1Priced.id);
+    expect(linked.risk_flags).toContain("selected_not_best_price");
     const proposals = comparison.bulk_preselection.proposals;
     expect(proposals.filter((proposal) => proposal.item_id === lines.compareP2.id)).toEqual([]);
     expect(proposals.find((proposal) => proposal.item_id === lines.compareP1.id)?.patch)
@@ -138,6 +142,34 @@ armyTest("OZ01 an unmarked 0 € offer never prices a line: best price, preselec
     expect(priced(lineOf(suggested, lines.popover.id))).toEqual({ title: products.p1.designation, unit: "ML", price: 1240,
       selected: offers.p1Priced.id, product: products.p1.id });
 
+    // Comparison panel: the linked 0 € offer is shown ineligible and the 12,40 € offer can be retained.
+    await browser.reload();
+    await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible();
+    await screen.getByRole("button", `Changer d’offre pour ${lines.linkedZero.title}`, { exact: true }).tap();
+    const panel = screen.getByRole("dialog", "Comparer fournisseurs");
+    await expect(panel.getByText("Offre à 0 € non marquée", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
+    const retain = panel.getByRole("button", "Retenir cette offre", { exact: true });
+    await expect(retain).toBeEnabled({ timeout: 30_000 });
+    await retain.tap();
+    const retained = await waitForPersisted(browser, army, estimate.versionId, "oz01-retained", (snapshot) =>
+      lineOf(snapshot, lines.linkedZero.id).selected_supplier_price_id === offers.p1Priced.id);
+    expect(priced(lineOf(retained, lines.linkedZero.id))).toMatchObject({ price: 1240, selected: offers.p1Priced.id });
+
+    // Suggestion popover on a line in m2: an offer in ml is refused, with its reason, and nothing is written.
+    await browser.reload();
+    await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible();
+    const squareTitle = browser.locator(`[data-testid="estimate-line-title-input"][title="${lines.popoverSquare.title}"]`);
+    await squareTitle.fill(products.p1.designation);
+    await expect(screen.getByRole("listbox").first().getByText(products.p1.designation, { exact: true }).first())
+      .toBeVisible({ timeout: 30_000 });
+    await browser.keyboard.press("Enter");
+    await expect(screen.getByRole("listbox").first().getByText("Unité différente du devis", { exact: false }).first())
+      .toBeVisible({ timeout: 10_000 });
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    const refused = await readEstimate(browser, estimate.versionId);
+    expect(priced(lineOf(refused, lines.popoverSquare.id))).toMatchObject({ unit: "m2", price: 0, selected: null, product: null });
+    await browser.keyboard.press("Escape");
+
     // Article sheet association: the article's eligible offer, never the 0 € one.
     await browser.reload();
     await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible();
@@ -169,6 +201,12 @@ armyTest("OZ02 an offer at 0 € marked Inclus from the offer form is usable and
     await app.open("/dashboard");
     const before = await compare(browser, estimate.versionId, [lines.compareP3.id]);
     expect(before.bulk_preselection.proposals).toEqual([]);
+
+    // A marking sent alone on a priced offer is refused with a validation error, not a database failure.
+    const refusedMarking = await apiRequest<Envelope<unknown>>(browser, "POST", "/api/prices",
+      { action: "update-offer", id: offers.p1Priced.id, item: { zero_price_kind: "free" } });
+    expect(refusedMarking.status).toBe(400);
+    expect(refusedMarking.body.error?.message).toBe("Le marquage « Inclus » ou « Gratuit » exige un prix à 0 €.");
 
     // Mark it from the catalogue offer form.
     await app.open(`/dashboard/prices?q=${encodeURIComponent(products.p3.designation)}`);

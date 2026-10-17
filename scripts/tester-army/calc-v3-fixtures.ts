@@ -513,6 +513,11 @@ async function offersFixtures(context: CalcV3FixtureContext, campaign: string): 
     compareP2: line("oz01", products.p2.designation, "ml", { quantity: 1 }),
     popover: line("oz01", `${prefix} ligne popover`, "ML", { quantity: 3 }),
     sheet: line("oz01", `${prefix} ligne fiche`, "ens", { quantity: 1 }),
+    // Already linked to the unmarked 0 € offer before 2.2: the link stays, the offer is shown
+    // ineligible and the 12,40 € peer is the best price and can be retained.
+    linkedZero: line("oz01", `${prefix} ligne liée zéro`, "ML",
+      { quantity: 1, product_id: products.p1.id, selected_supplier_price_id: offers.p1Zero.id }),
+    popoverSquare: line("oz01", `${prefix} ligne m2`, "m2", { quantity: 1 }),
     compareP3: line("oz02", products.p3.designation, "ml", { quantity: 1 }),
     sheetIncluded: line("oz02", `${prefix} ligne incluse`, "ml", { quantity: 1 }),
     purchaseMl: line("oz03", `${prefix} achat ML`, "ML",
