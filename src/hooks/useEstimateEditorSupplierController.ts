@@ -132,6 +132,10 @@ function normalizeAlternative(
     valid_from: toNonEmptyString(value.valid_from),
     valid_to: toNonEmptyString(value.valid_to),
     is_active: typeof value.is_active === "boolean" ? value.is_active : undefined,
+    // Raw price and A7 marking, needed by the eligibility check and the "Inclus"/"Gratuit" labels.
+    unit_price_cents: typeof value.unit_price_cents === "number" && Number.isFinite(value.unit_price_cents)
+      ? value.unit_price_cents : null,
+    zero_price_kind: toNonEmptyString(value.zero_price_kind),
     supplier_reference: toNonEmptyString(value.supplier_reference),
     catalogue_url: toNonEmptyString(value.catalogue_url),
     updated_at: toNonEmptyString(value.updated_at),

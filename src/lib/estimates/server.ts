@@ -54,6 +54,7 @@ import { getTakeoffLinkedSourceVersionByJobId } from "@/lib/takeoff/version-link
 import { isSupplierAlternativeCurrencyCompatible } from "@/lib/estimates/supplier-preselection";
 import { readSupplierOfferConditions, readSelectedSupplierDetails, type SupplierOfferConditions, type SelectedSupplierDetails } from "@/lib/estimates/supplier-offer-conditions";
 import { supplierOfferIneligibility } from "@/lib/estimates/supplier-offer-eligibility";
+import { isSupplierOfferPriceEligible } from "@/lib/estimates/supplier-offer-price";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
 import { persistAtomicEstimateSettings } from "@/lib/estimates/settings-atomic";
 import type {
@@ -669,6 +670,7 @@ type SupplierPricebookRow = {
   supplier_sku: string | null;
   unit: string;
   unit_price_cents: number;
+  zero_price_kind?: string | null;
   currency: string;
   updated_at: string;
   created_at: string;
@@ -1012,6 +1014,7 @@ async function hydrateSuggestedCatalogueCandidates(input: {
         material_index_code: materialIndex?.index_code ?? null,
         material_index_value: materialIndex?.index_value ?? null,
         catalogue_url: row.product_url ?? extractCatalogueUrl(row.notes),
+        zero_price_kind: row.zero_price_kind ?? null,
       } satisfies HydratedSuggestedCatalogueCandidate;
     })
     .filter((candidate) =>
@@ -1051,6 +1054,7 @@ function buildSuggestedCatalogueAlternatives(input: {
       updated_at: selected.updated_at,
       is_stale: selected.is_stale,
       catalogue_url: selected.catalogue_url,
+      zero_price_kind: selected.zero_price_kind ?? null,
     });
   };
 
@@ -1085,7 +1089,7 @@ async function findSelectedSupplierComparisonCandidate(input: {
   const { data: selectedPriceData, error: selectedPriceError } = await input.supabase
     .from("supplier_pricebook")
     .select(
-      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url)"
+      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, zero_price_kind, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url)"
     )
     .eq("tenant_id", input.tenantId)
     .eq("id", input.selectedSupplierPriceId)
@@ -1108,7 +1112,7 @@ async function findSelectedSupplierComparisonCandidate(input: {
   const { data: productPriceData, error: productPriceError } = await input.supabase
     .from("supplier_pricebook")
     .select(
-      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url)"
+      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, zero_price_kind, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url)"
     )
     .eq("tenant_id", input.tenantId)
     .eq("product_id", selectedPrice.product_id)
@@ -1127,9 +1131,11 @@ async function findSelectedSupplierComparisonCandidate(input: {
     new Map(
       [
         selectedPrice,
+        // A7: a peer offer at 0 € that is not marked never becomes an alternative; the
+        // selected offer stays, so a line already linked to one is shown, not rewritten.
         ...((productPriceData ?? []) as unknown as SupplierPricebookRow[]).map(
           normalizeSupplierPricebookRow
-        ),
+        ).filter(isSupplierOfferPriceEligible),
       ].map(
         (row) => [row.id, row] as const
       )
@@ -1160,9 +1166,12 @@ async function findSelectedSupplierComparisonCandidate(input: {
     return null;
   }
 
+  // A7: an ineligible selected offer stays the candidate (shown as the current choice) but never
+  // ranks as best price, most recent or preferred supplier against eligible peers.
   const productCandidates = candidates.filter((candidate) => {
     const row = selectedAndPeerRowsById.get(candidate.supplier_price_id);
-    return candidate.product_id === selectedCandidate.product_id && row?.is_active === true;
+    return candidate.product_id === selectedCandidate.product_id && row?.is_active === true &&
+      isSupplierOfferPriceEligible(candidate);
   });
 
   return {
@@ -1441,7 +1450,12 @@ function computeEstimateSupplierComparisonCoverageStatus(input: {
     return "stale" satisfies EstimateSupplierComparisonCoverageStatus;
   }
 
-  if (input.riskFlags.includes("selection_missing")) {
+  // A7: a retained offer that prices nothing (unmarked 0 €, or price unknown) covers nothing.
+  // Needs the offer price and marking merged by readSupplierOfferConditions.
+  if (
+    input.riskFlags.includes("selection_missing") ||
+    (input.selectedAlternative !== null && !isSupplierOfferPriceEligible(input.selectedAlternative))
+  ) {
     return "ambiguous" satisfies EstimateSupplierComparisonCoverageStatus;
   }
 
@@ -5028,7 +5042,7 @@ export async function suggestEstimateCataloguePrices(
   let supplierPricesQuery = supabase
     .from("supplier_pricebook")
     .select(
-      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url)"
+      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, zero_price_kind, currency, updated_at, created_at, notes, is_active, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku, product_url)"
     )
     .eq("tenant_id", tenantId)
     .eq("is_active", true)
@@ -5046,9 +5060,10 @@ export async function suggestEstimateCataloguePrices(
     );
   }
 
+  // A7: an unmarked offer at 0 € never becomes a suggestion, a best price or a preselection.
   const supplierPrices = ((supplierPricesData ?? []) as unknown as SupplierPricebookRow[]).map(
     normalizeSupplierPricebookRow
-  );
+  ).filter(isSupplierOfferPriceEligible);
 
   const preferredSupplierId =
     supplierPrices.length > 0
@@ -5225,7 +5240,7 @@ export async function getEstimateSupplierComparisons(
   );
   const suggestionsByNormalizedQuery = new Map(suggestionsEntries);
 
-  const comparisons = await Promise.all(resolvedItemIds.map(async (itemId) => {
+  const comparisons = await Promise.all(resolvedItemIds.map(async (itemId): Promise<EstimateSupplierComparison> => {
     const item = itemById.get(itemId);
     if (!item) {
       return {
@@ -5307,17 +5322,13 @@ export async function getEstimateSupplierComparisons(
       bestSupplierPriceId: bestAlternative?.supplier_price_id ?? null,
       selectedAlternative,
     });
-    const coverageStatus = computeEstimateSupplierComparisonCoverageStatus({
-      alternatives,
-      selectedAlternative,
-      riskFlags,
-    });
 
     return {
       item_id: item.id,
       selected_supplier_price_id: selectedSupplierPriceId,
       best_supplier_price_id: bestAlternative?.supplier_price_id ?? null,
-      coverage_status: coverageStatus,
+      // Computed below, once each offer's price and marking are merged.
+      coverage_status: "no_price",
       risk_flags: riskFlags,
       selected_alternative: selectedAlternative,
       alternatives,
@@ -5331,6 +5342,11 @@ export async function getEstimateSupplierComparisons(
     Object.assign(comparison, { quantity: item?.quantity, unit: item?.description });
     comparison.alternatives.forEach((alternative) => {
       Object.assign(alternative, conditions.get(alternative.supplier_price_id) ?? { is_active: false });
+    });
+    comparison.coverage_status = computeEstimateSupplierComparisonCoverageStatus({
+      alternatives: comparison.alternatives,
+      selectedAlternative: comparison.selected_alternative,
+      riskFlags: comparison.risk_flags,
     });
   });
 

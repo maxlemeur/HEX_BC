@@ -21,6 +21,8 @@ export type SupplierAlternative = {
   updated_at: string | null;
   is_stale: boolean;
   catalogue_url: string | null;
+  /** A7: "included" or "free" on an offer at 0 € that may price a line (sub-lot 2.2). */
+  zero_price_kind?: string | null;
 };
 
 export type CataloguePriceSuggestion = {
@@ -50,6 +52,8 @@ export type CataloguePriceSuggestion = {
   material_index_code: string | null;
   material_index_value: number | null;
   catalogue_url: string | null;
+  /** A7 marking of the suggested supplier offer, if any. */
+  zero_price_kind?: string | null;
   supplier_offer_count: number;
   alternatives: SupplierAlternative[];
 };

@@ -51,6 +51,16 @@ tout ce qui sert à la reprise est ici.
 - Restés sur le PC Windows : le paquet `docs/handoff-army-dev-2026-10-16*`, absent du Mac, et le commit
   `36bb9a68` de la course 40001, jamais poussé.
 
+## Mise à jour du 17/10 : 2.0 fusionné, 2.2 en PR
+
+- **2.0 fusionné** sur `main` (PR #23, `28c7546b`).
+- **2.2 terminé** sur `lot2/2.2-offre-zero-ml`, PR draft vers `main`. Il ajoute la **migration M2**
+  `supabase/migrations/20261017093407_supplier_offer_zero_price_policy.sql`. Elle doit être appliquée sur
+  le Supabase partagé **avant** la fusion : le code lit la colonne `zero_price_kind`, alors que l'ancien
+  code fonctionne avec la nouvelle base. Preuves : [estimate-engine-v3-2.2.md](../../testing/estimate-engine-v3-2.2.md).
+- Constat hors périmètre à traiter : après une présélection fournisseurs, les totaux stockés de la
+  version restent périmés jusqu'à la sauvegarde suivante (détail dans le même document).
+
 ## Où en est-on (état du 16/10 sur le PC)
 
 | Élément | État | Où |

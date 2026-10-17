@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { EstimateSupplierPreselectionReview } from "@/lib/estimates/supplier-preselection";
+import { supplierOfferZeroPriceLabel } from "@/lib/estimates/supplier-offer-price";
 import { formatCurrency } from "@/lib/money";
 
 type SupplierPreselectionDialogProps = {
@@ -215,9 +216,8 @@ export function SupplierPreselectionDialog({
                               {proposal.proposed_alternative.supplier_name}
                             </p>
                             <p className="tabular-nums">
-                              {formatAlternativeLabel(
-                                proposal.proposed_alternative.adjusted_unit_price_cents
-                              )}
+                              {supplierOfferZeroPriceLabel(proposal.proposed_alternative.zero_price_kind) ??
+                                formatAlternativeLabel(proposal.proposed_alternative.adjusted_unit_price_cents)}
                             </p>
                             <p>{proposal.proposed_alternative.product_designation}</p>
                           </div>

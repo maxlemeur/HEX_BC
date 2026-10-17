@@ -610,6 +610,7 @@ export type Database = {
           source_mapped_row_id: string | null;
           created_by: string | null;
           notes: string | null;
+          zero_price_kind: "included" | "free" | null;
         };
         Insert: {
           transport_mode?: "included" | "excluded" | null;
@@ -632,6 +633,7 @@ export type Database = {
           source_mapped_row_id?: string | null;
           created_by?: string | null;
           notes?: string | null;
+          zero_price_kind?: "included" | "free" | null;
         };
         Update: {
           transport_mode?: "included" | "excluded" | null;
@@ -654,6 +656,7 @@ export type Database = {
           source_mapped_row_id?: string | null;
           created_by?: string | null;
           notes?: string | null;
+          zero_price_kind?: "included" | "free" | null;
         };
         Relationships: [
           {

@@ -8,6 +8,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
+import { supplierOfferZeroPriceLabel } from "@/lib/estimates/supplier-offer-price";
 import { formatCurrency, type SupportedEstimateCurrency } from "@/lib/money";
 import {
   type CataloguePriceSuggestion,
@@ -286,7 +287,7 @@ export function CatalogueSuggestionsPopover({
                   <span className="estimate-catalogue-suggestion__price">
                     {priceSource === "none"
                       ? "Prix à renseigner"
-                      : formatCurrency(
+                      : supplierOfferZeroPriceLabel(suggestion.zero_price_kind) ?? formatCurrency(
                           suggestion.adjusted_unit_price_cents,
                           resolveDisplayCurrency(
                             suggestion.currency,
@@ -370,7 +371,7 @@ export function CatalogueSuggestionsPopover({
                       >
                         {toAlternativeKindLabel(alternative.kind)}:{" "}
                         {alternative.supplier_name} |{" "}
-                        {formatCurrency(
+                        {supplierOfferZeroPriceLabel(alternative.zero_price_kind) ?? formatCurrency(
                           alternative.adjusted_unit_price_cents,
                           resolveDisplayCurrency(
                             alternative.currency,

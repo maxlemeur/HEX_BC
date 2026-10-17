@@ -3,7 +3,7 @@
 // the profile loads it at config time, so it must not import clients or fixtures.
 // Contract and failure modes: docs/testing/tester-army-calc-v3.md.
 
-export const CALC_V3_PHASES = ["journeys", "components", "numeric", "resume", "access", "emission"] as const;
+export const CALC_V3_PHASES = ["journeys", "components", "numeric", "resume", "access", "offers", "emission"] as const;
 export type CalcV3Phase = (typeof CALC_V3_PHASES)[number];
 
 /** The developers' long-running local recipe stack (API 45585, DB 33485): never a calc-v3 target. */
@@ -93,6 +93,15 @@ export const CALC_V3_PHASE_DEFINITIONS: Readonly<Record<CalcV3Phase, CalcV3Phase
     setupTitle: CRITICAL_SETUP_TITLE,
     expected: { [CRITICAL_SETUP]: 1, "e2e/army/local/generated-ouvrage-access.e2e.ts": 1 },
     maxDuration: 900_000,
+  },
+  // Sub-lot 2.2 (A7, P-08): zero-priced supplier offers and linear metre units, on
+  // catalogue records seeded for this phase only (docs/testing/estimate-engine-v3-2.2.md).
+  offers: {
+    serverMode: "production",
+    tests: [CRITICAL_SETUP, "e2e/army/local/supplier-offer-zero-price.e2e.ts"],
+    setupTitle: CRITICAL_SETUP_TITLE,
+    expected: { [CRITICAL_SETUP]: 1, "e2e/army/local/supplier-offer-zero-price.e2e.ts": 3 },
+    maxDuration: 1_200_000,
   },
   emission: {
     serverMode: "development",
