@@ -211,7 +211,7 @@ select is(
         where tax.scenario = scenario.scenario
           and (
             tax.base <> (select sum(split.net) from c2_split split where split.scenario = tax.scenario and split.rate = tax.rate)
-            or tax.tax <> round(tax.base * tax.rate / 10000.0)
+            or tax.tax <> round(tax.base::numeric * tax.rate / 10000)
             or tax.tax <> (select sum(split.tax) from c2_split split where split.scenario = tax.scenario and split.rate = tax.rate)
           )
       )
@@ -530,9 +530,9 @@ as $$
   select jsonb_build_object(
     'schemaVersion', 2,
     'version', pg_temp.c2_version_block(p_version),
-    'project', (select value -> 'project' from c2_fx where key = 'identity'),
-    'issuer', (select value -> 'issuer' from c2_fx where key = 'identity'),
-    'company', (select value -> 'company' from c2_fx where key = 'identity'),
+    'project', (select value -> 'project' from c2_fx where key = 'identity:' || p_version::text),
+    'issuer', (select value -> 'issuer' from c2_fx where key = 'identity:' || p_version::text),
+    'company', (select value -> 'company' from c2_fx where key = 'identity:' || p_version::text),
     'rows', jsonb_build_array(jsonb_build_object(
         'kind', 'section', 'id', pg_temp.c2_item(p_version, 0), 'parentId', null, 'position', 1, 'depth', 0,
         'title', 'Lot oracle', 'number', '1', 'saleHtCents', scenario.gross
@@ -571,9 +571,9 @@ as $$
   select jsonb_build_object(
     'schemaVersion', 1,
     'version', pg_temp.c2_version_block(p_version),
-    'project', (select value -> 'project' from c2_fx where key = 'identity'),
-    'issuer', (select value -> 'issuer' from c2_fx where key = 'identity'),
-    'company', (select value -> 'company' from c2_fx where key = 'identity'),
+    'project', (select value -> 'project' from c2_fx where key = 'identity:' || p_version::text),
+    'issuer', (select value -> 'issuer' from c2_fx where key = 'identity:' || p_version::text),
+    'company', (select value -> 'company' from c2_fx where key = 'identity:' || p_version::text),
     'rows', jsonb_build_array(jsonb_build_object(
         'kind', 'section', 'id', pg_temp.c2_item(p_version, 0), 'parentId', null, 'position', 1, 'depth', 0,
         'title', 'Lot oracle', 'number', '1', 'saleHtCents', scenario.ht
@@ -602,9 +602,9 @@ stable
 as $$
   select case when p_schema = 1 then jsonb_build_object(
       'schemaVersion', 1, 'version', pg_temp.c2_version_block(p_version),
-      'project', (select value -> 'project' from c2_fx where key = 'identity'),
-      'issuer', (select value -> 'issuer' from c2_fx where key = 'identity'),
-      'company', (select value -> 'company' from c2_fx where key = 'identity'),
+      'project', (select value -> 'project' from c2_fx where key = 'identity:' || p_version::text),
+      'issuer', (select value -> 'issuer' from c2_fx where key = 'identity:' || p_version::text),
+      'company', (select value -> 'company' from c2_fx where key = 'identity:' || p_version::text),
       'rows', '[]'::jsonb,
       'totals', (
         select jsonb_build_object('saleHtCents', version.total_ht_cents,
@@ -615,9 +615,9 @@ as $$
       'exclusions', null)
     else jsonb_build_object(
       'schemaVersion', 2, 'version', pg_temp.c2_version_block(p_version),
-      'project', (select value -> 'project' from c2_fx where key = 'identity'),
-      'issuer', (select value -> 'issuer' from c2_fx where key = 'identity'),
-      'company', (select value -> 'company' from c2_fx where key = 'identity'),
+      'project', (select value -> 'project' from c2_fx where key = 'identity:' || p_version::text),
+      'issuer', (select value -> 'issuer' from c2_fx where key = 'identity:' || p_version::text),
+      'company', (select value -> 'company' from c2_fx where key = 'identity:' || p_version::text),
       'rows', '[]'::jsonb,
       'totals', jsonb_build_object('grossHtCents', 0, 'commercialDiscountCents', 0,
         'discountIntent', jsonb_build_object('kind', 'none'), 'commercialRoundingCents', 0, 'netHtCents', 0,
@@ -722,12 +722,12 @@ select is(
   pg_temp.v3_try(array[
     'set local role service_role',
     $s$insert into c2_fx (key, value)
-       select 'identity', public.capture_estimate_offer_identity(version,
+       select 'identity:' || version.id::text, public.capture_estimate_offer_identity(version,
          'a3270000-0000-4000-8000-000000000001', pg_temp.c2_company())
-       from public.estimate_versions version where version.id = 'a3270000-0000-4000-8000-000000000120'$s$
+       from public.estimate_versions version where version.project_id = 'a3270000-0000-4000-8000-000000000010'$s$
   ]),
   'ok',
-  'fixture: the offer identity (project, issuer, company) of the renderer is captured'
+  'fixture: the offer identity (project, issuer, company) of the renderer is captured per version (reference suffix _V<n>)'
 );
 
 insert into public.draft_locks (id, version_id, user_id, tenant_id, locked_at, expires_at, session_id)
@@ -1097,7 +1097,7 @@ select is(
 select is(
   pg_temp.v3_probe(array['set local role service_role'], $a$
     select concat_ws('|', document.status, document.client_contract_version,
-      public.estimate_offer_document_valid(document, version, false))
+      public.estimate_offer_document_valid(document, version, false)::text)
     from public.estimate_documents document join public.estimate_versions version on version.id = document.version_id
     where document.version_id = 'a3270000-0000-4000-8000-000000000170'
   $a$),
@@ -1119,7 +1119,7 @@ select is(
   pg_temp.v3_probe(array['set local role service_role'], $a$
     select concat_ws('|', document.status, document.client_contract_version,
       (document.client_contract_snapshot->'totals'->>'netHtCents'),
-      public.estimate_offer_document_valid(document, version, false))
+      public.estimate_offer_document_valid(document, version, false)::text)
     from public.estimate_documents document join public.estimate_versions version on version.id = document.version_id
     where document.version_id = 'a3270000-0000-4000-8000-000000000120'
   $a$),
@@ -1145,7 +1145,7 @@ select is(
     select concat_ws('|', version.status, version.seal_payload_version, version.seal_hash,
       version.total_ht_cents, version.total_tax_cents, version.total_ttc_cents,
       (version.calc_snapshot_content_revision = version.content_revision)::text,
-      public.estimate_offer_document_valid(document, version, false))
+      public.estimate_offer_document_valid(document, version, false)::text)
     from public.estimate_versions version join public.estimate_documents document on document.version_id = version.id
     where version.id = 'a3270000-0000-4000-8000-000000000120'
   $a$),
