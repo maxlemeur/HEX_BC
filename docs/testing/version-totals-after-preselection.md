@@ -85,3 +85,30 @@ Commandes (clone WSL `~/miaouffrage-totals`, pile Supabase native possédée) :
 npm run e2e:army:local -- --grep "supplier preselection saves a return" --app-port <port>
 npm run e2e:army:calc-v3 -- --phase offers --grep "^OZ04\s" --app-port <port>
 ```
+
+## Preuves rouges (17/10/2026, avant correction)
+
+WSL Ubuntu 24.04, Node 24.14.0, Supabase CLI natif 2.120.0, clone Linux
+`~/miaouffrage-totals`, révision `1479970b` (branche
+`fix/version-totals-after-preselection`), aucune modification locale
+(`diffSha256` vide). Chaque run démarre sa propre pile éphémère : pgTAP
+17 fichiers / 1 714 assertions et matrice RLS passés, build possédé, puis le
+parcours. Journaux : `~/totals-logs/red-critical.log`,
+`~/totals-logs/red-offers-v1.log`.
+
+| Run | Commande | Résultat | Preuves (sous `~/miaouffrage-totals`) |
+| --- | --- | --- | --- |
+| T1, v2 | `npm run e2e:army:local -- --grep "supplier preselection saves a return" --app-port 3141` | setup vert, P1 rouge : `stored version totals right after the write, without any other save: expected [1000,200,1200] to equal [1234,247,1481]` | `.e2e/army/ci/2026-10-17T18-24-45-029Z-critical` (`manifest.json` sha256 `67dc849d…2354`) ; `critical/artifacts/business/ARMY-1792261589089-739ad35e-bulk-sync-p1-preselection-stored-totals.json` (sha256 `8c0f4c59…55ec`) |
+| T2, v1 | `npm run e2e:army:calc-v3 -- --phase offers --grep "^OZ04\s" --app-port 3142` | setup vert, OZ04 rouge : `expected [0,0,0] to equal [2480,496,2976]` | `.e2e/army/ci/2026-10-17T18-27-08-015Z-calc-v3` (`manifest.json` sha256 `6c426ba0…ddd9`) ; `offers/business/ARMY-1792261692024-6d1a5850-oz04-stored-totals.json` (sha256 `919ff7df…261f`) |
+
+Valeurs relues dans la même lecture, avant toute autre sauvegarde :
+
+| Run | Lignes (HT, TVA, TTC) | Version enregistrée | Hub « HT version courante » | Liste des affaires |
+| --- | --- | --- | --- | --- |
+| T1, v2 (`791abb01…`, marge `fixed`) | `[1234, 247, 1481]` | `[1000, 200, 1200]` | 10,00 € | 10,00 € |
+| T2, v1 (`4c990711…`, marge `fixed`) | `[2480, 496, 2976]` | `[0, 0, 0]` | 0,00 € | 0,00 € |
+
+Les lignes sont justes et égales aux valeurs attendues : seul l'en-tête de
+version est périmé, et le hub comme la liste affichent l'ancien HT. Le parcours
+s'arrête à la première assertion fausse (version) ; le hub et la liste sont
+lus et enregistrés avant elle.
