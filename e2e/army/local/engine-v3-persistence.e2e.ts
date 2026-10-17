@@ -9,8 +9,8 @@ import {
 } from "../critical/fixtures";
 import { ownedEstimateContext, versionCountOf } from "./calculation-gate-support";
 import {
-  insertProjectMarginRule, probeV3PersistenceSchema, readTenantCalcPolicy, setTenantCalcPolicy, useDedicatedV3Owner,
-  type V3Owner, type V3PersistenceSchema,
+  insertCompletedTakeoffJob, insertProjectMarginRule, probeV3PersistenceSchema, readTenantCalcPolicy, setTenantCalcPolicy,
+  useDedicatedV3Owner, type V3Owner, type V3PersistenceSchema,
 } from "./engine-v3-persistence-support";
 
 // Lot 2, sous-lot 2.5 — persistance, gel et règles v3 derrière la politique d'entreprise
@@ -33,6 +33,13 @@ import {
 //  V3P-10 La duplication rend une v2, perd une colonne v3 ou change un montant.
 //  V3P-11 Politique remise à 2 : la création suivante n'est pas une v2 aux valeurs de base de 2.0.
 //  V3P-12 Une v3 existante change de moteur ou de montant quand la politique change.
+// Revue du sous-lot (§10.5), sondes écrites rouges avant les correctifs :
+//  V3P-13 Des coefficients de vente fournis à la création sont retirés en silence (v3) ou ignorés (v2).
+//  V3P-14 Le hub d'affaire affiche pour une v3 la marge v2 (multiplicateur 1 → « 0.0 % »).
+//  V3P-15 La suppression directe d'une ligne v3 laisse ses six montants stockés périmés.
+//  V3P-16 Une ligne non chiffrée à un taux hors politique bloque le gel ; le lot ou le gel d'une copie
+//         déplace un centime de ses lignes.
+//  V3P-17 Le métré appliqué à une v3 n'est pas refusé par son nom (TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED).
 const options = { session: "army", tags: ["critical", "local", "engine-v3"], timeout: 300_000 } as const;
 const BANNER = "Ce devis utilise le moteur de calcul 3, pas encore disponible pour cette action.";
 type Envelope<T> = { ok: boolean; data: T; error?: { code: string; message: string } };
@@ -104,6 +111,28 @@ const stamp = (state: ArmyEstimate) => ({
   totals: totals(state), lines: lineItems(state).map(lineView),
 });
 const normalized = (text: string) => text.replace(/[\s  ]+/g, " ").trim();
+const sameStamp = (left: ArmyEstimate, right: ArmyEstimate) => JSON.stringify(stamp(left)) === JSON.stringify(stamp(right));
+// V3P-16 : ligne « pour mémoire » (non chiffrée) à 19,6 %, taux hors politique : PU nul, montants nuls (décision 3).
+const FOR_MEMORY_LINE = {
+  unit: "u", status: "for_memory", quantity: 1, prFo: 500, hPerUnit: 0, hMo: 0, pu: null, net: 0, tax: 0, ttc: 0, taxRateBp: 1960,
+};
+// Revue (§10.5) : relevées à leur place, assertées ensemble en fin de parcours, pour qu'une seule exécution
+// rouge les montre toutes ; aucune ne modifie un attendu de V3P-01 à V3P-12.
+const REVIEW_EXPECTED = {
+  creationCoefficients: { response: [201, true], saleCoefficients: [1, 1.5] },
+  hubMargin: { unavailable: true, percent: false, coefficient: false },
+  copyFreeze: {
+    batch: [200, true, true],
+    linesAfterBatch: [...expectedLines(S3_VAT10, 1000), FOR_MEMORY_LINE],
+    submitted: [201, true, null],
+    fresh: true,
+    totals: S3_VAT10.totals,
+    frozenLines: [...expectedLines(S3_VAT10, 1000), FOR_MEMORY_LINE],
+  },
+  takeoff: { response: [409, "TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED"], unchanged: true },
+  directDelete: { response: [409, false, "ESTIMATE_ENGINE_UNAVAILABLE"], unchanged: true },
+  v2Coefficient: { response: [400, false, "ESTIMATE_ENGINE_COLUMN_NOT_SUPPORTED"], created: 0 },
+};
 
 function assertOwnedLocalBackend() {
   const backend = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!);
@@ -281,13 +310,20 @@ armyTest("V3P01 a v3 born behind the tenant policy persists the oracle, its sett
   let unexpected: Response<Created> | null = null;
   let oracleCreated: Response<Created> | null = null;
   let euhistCreated: Response<Created> | null = null;
+  let suppliedCreated: Response<Created> | null = null;
   let countAroundUnexpected: [number, number] = [0, 0];
+  const review: Record<keyof typeof REVIEW_EXPECTED, unknown> = {
+    creationCoefficients: null, hubMargin: null, copyFreeze: null, takeoff: null, directDelete: null, v2Coefficient: null,
+  };
   try {
     policy3 = await setTenantCalcPolicy(owner, { engine: 3, fo: "1.30", mo: "1.20", reason });
     policyOpened = true;
     const countBefore = await versionCountOf(projectId);
     unexpected = await createVersion(browser, { project_id: projectId, version: { ...NEUTRAL_VERSION, title: `${army.runPrefix} sans attente` } });
     countAroundUnexpected = [countBefore, await versionCountOf(projectId)];
+    // V3P-13 : des coefficients fournis à la création sont repris (§1.3), jamais remplacés par la politique.
+    suppliedCreated = await createVersion(browser, { project_id: projectId, version: { ...NEUTRAL_VERSION, title: `${army.runPrefix} coefficients fournis`,
+      expected_calc_engine_version: 3, sale_coefficient_fo: 1, sale_coefficient_mo: 1.5 } });
     // EUHIST first: the oracle is then the affaire's current (highest-numbered) version, whose lines
     // make the hub show its version list for the on-screen reading below (§10.2).
     euhistCreated = await createVersion(browser, { project_id: projectId, version: { ...NEUTRAL_VERSION, title: `${army.runPrefix} EUHIST v3`, expected_calc_engine_version: 3 } });
@@ -295,7 +331,13 @@ armyTest("V3P01 a v3 born behind the tenant policy persists the oracle, its sett
   } finally {
     if (policyOpened) policy2 = await setTenantCalcPolicy(owner, { engine: 2, fo: "1.30", mo: "1.20", reason: `${reason} fin` });
   }
-  await recordEvidence(army, "v3p-policy-window", { policy3, policy2, unexpected, countAroundUnexpected, oracleCreated, euhistCreated });
+  await recordEvidence(army, "v3p-policy-window", { policy3, policy2, unexpected, countAroundUnexpected, oracleCreated, euhistCreated, suppliedCreated });
+  const suppliedId = suppliedCreated?.body.data?.version?.id ?? null;
+  if (suppliedId) ownEstimate(army, { projectId, versionId: suppliedId });
+  review.creationCoefficients = {
+    response: [suppliedCreated?.status ?? null, suppliedCreated?.body.ok ?? null],
+    saleCoefficients: suppliedId ? v3Version(await readEstimate(browser, suppliedId)).saleCoefficients : null,
+  };
   expect(policy3).toMatchObject({ engine: 3, fo: 1.3, mo: 1.2, allowedTaxRatesBp: [2000, 1000, 550, 210] });
   expect(policy2?.engine).toBe(2);
   expect(policy2!.events - policy3!.events).toBe(1);
@@ -319,7 +361,22 @@ armyTest("V3P01 a v3 born behind the tenant policy persists the oracle, its sett
     unit_code: line.unit, pricing_status: "priced", quantity: line.quantity, unit_price_ht_cents: line.prFo, tax_rate_bp: 2000,
     k_fo: 1, h_mo_per_unit: line.hPerUnit, h_mo_majoration: 1, k_mo: 1, labor_role_id: tuyauteur.id, source_provider: "manual",
   }));
-  await writeLinesByBatch(browser, army, oracleId, "oracle", oracleLines);
+  const created = await writeLinesByBatch(browser, army, oracleId, "oracle", oracleLines);
+  // V3P-04 sur l'état du lot de création lui-même, ligne par ligne par titre, avant tout réétiquetage (§10.2, C6 ;
+  // revue §10.5) : unité, statut, Q, PR, h/u, h_mo dérivé, PU, taux et, en S1 sans remise, net = brut. Seule la
+  // TVA par ligne dépend de l'ordre des id (D13) ; elle est assertée après le réétiquetage.
+  const createdByTitle = ORACLE.map((line) => {
+    const item = lineItems(created).find(candidate => candidate.title === `${army.runPrefix} ${line.ref}`);
+    if (!item) return null;
+    const { unit, status, quantity, prFo, hPerUnit, hMo, pu, net, taxRateBp } = lineView(item);
+    return { unit, status, quantity, prFo, hPerUnit, hMo, pu, net, taxRateBp };
+  });
+  const createdExpected = ORACLE.map(line => ({
+    unit: line.unit, status: "priced", quantity: line.quantity, prFo: line.prFo, hPerUnit: line.hPerUnit, hMo: line.hMo, pu: line.pu,
+    net: line.gross, taxRateBp: 2000,
+  }));
+  await recordEvidence(army, "v3p-batch-oracle-created", { versionId: oracleId, expected: createdExpected, actual: createdByTitle });
+  expect(createdByTitle).toEqual(createdExpected);
   const s1 = await alignWithFixtureIdOrder(browser, army, oracleId, oracleLines);
   await recordEvidence(army, "v3p-s1", { versionId: oracleId, expected: { version: { ...emptyV3, gross: 6905456, totals: S1.totals }, lines: expectedLines(S1, 2000) },
     actual: { version: v3Version(s1), lines: lineItems(s1).map(lineView) } });
@@ -337,6 +394,15 @@ armyTest("V3P01 a v3 born behind the tenant policy persists the oracle, its sett
   await app.open(`/dashboard/affaires/${projectId}`);
   await expect.poll(async () => normalized(await visibleRowText(browser, { href: `/dashboard/estimates/${oracleId}/edit` }) ?? ""), { timeout: 30_000 })
     .toContain("69 054,56 €");
+  // V3P-14 : la marge du résumé financier d'une v3 n'est jamais la marge v2 (multiplicateur 1 → « 0.0 % »).
+  const hubMarginText = normalized(await browser.evaluate(() => {
+    const label = Array.from(document.querySelectorAll("#financial p")).find(node => node.textContent?.trim() === "Marge appliquée");
+    return label?.parentElement?.textContent ?? "";
+  }));
+  await recordEvidence(army, "v3p-hub-margin", { projectId, versionId: oracleId, actual: hubMarginText });
+  review.hubMargin = {
+    unavailable: hubMarginText.includes("Indisponible"), percent: /\d %/.test(hubMarginText), coefficient: hubMarginText.includes("Coeff."),
+  };
 
   // V3P-07 : S2 (montant), S3 (taux), sans intention dérivée.
   const s2 = await saveSettings(browser, army, oracleId, "s2", { discount_amount_cents: 101, discount_bp: 0 });
@@ -451,4 +517,68 @@ armyTest("V3P01 a v3 born behind the tenant policy persists the oracle, its sett
   };
   await recordEvidence(army, "v3p-final", { expected: { anchor: stamp(anchorBefore), oracle: stamp(frozen), euhist: stamp(euhistAt2), copy: stamp(copy) }, actual: finals });
   expect(finals).toEqual({ anchor: stamp(anchorBefore), oracle: stamp(frozen), euhist: stamp(euhistAt2), copy: stamp(copy) });
+
+  // V3P-16 : sur la copie (brouillon v3), une ligne « pour mémoire » à 19,6 % par lot, puis le gel d'approbation.
+  // Seules les lignes chiffrées sont contrôlées au gel (comme le SQL) ; ni le lot ni le gel ne déplacent un centime.
+  await lockVersion(browser, copyId);
+  const copyBefore = await readEstimate(browser, copyId);
+  const copyLines = lineItems(copyBefore);
+  const memoRequest = {
+    operation_key: randomUUID(),
+    operations: [{ op: "create", data: {
+      item_type: "line", parent_id: copyLines[0].parent_id, position: copyLines.length + 1, line_nature: "supply_only",
+      title: `${army.runPrefix} pour mémoire`, description: "u", unit_code: "u", pricing_status: "for_memory", quantity: 1,
+      unit_price_ht_cents: 500, tax_rate_bp: 1960, k_fo: 1, h_mo_per_unit: 0, h_mo_majoration: 1, k_mo: 1, source_provider: "manual",
+    } }],
+  };
+  const memoBatch = await apiRequest<Envelope<{ committed: boolean }>>(browser, "POST", `/api/estimates/${copyId}/batch`, memoRequest,
+    { "if-match": copyBefore.version.updated_at });
+  const copyWithMemo = await readEstimate(browser, copyId);
+  const copySubmitted = await submitForReviewFromJourneyProcess(app, browser, copyId, ruleId, `${army.runPrefix} gel de la copie`);
+  const copyFrozen = await readEstimate(browser, copyId);
+  const copyEnvelope = copySubmitted.body as Partial<Envelope<unknown>>;
+  review.copyFreeze = {
+    batch: [memoBatch.status, memoBatch.body.ok, memoBatch.body.data?.committed ?? null],
+    linesAfterBatch: lineItems(copyWithMemo).map(lineView),
+    submitted: [copySubmitted.status, copyEnvelope.ok ?? null, copyEnvelope.error?.code ?? null],
+    fresh: Number(copyFrozen.version.calc_snapshot_content_revision) === Number(copyFrozen.version.content_revision),
+    totals: totals(copyFrozen),
+    frozenLines: lineItems(copyFrozen).map(lineView),
+  };
+  await recordEvidence(army, "v3p-copy-freeze", { copyId, memoRequest, memoBatch, copySubmitted, actual: review.copyFreeze,
+    context: copyFrozen.version.calc_snapshot_context });
+
+  // V3P-17 : le métré sur une v3 est refusé par son nom, avant tout calcul, et n'écrit rien (EUHIST).
+  await retakeLease(browser, euhistId);
+  const euhistBeforeProbes = await readEstimate(browser, euhistId);
+  const takeoffJobId = await insertCompletedTakeoffJob(owner, euhistId);
+  const takeoff = await apiRequest<{ ok?: boolean; error?: { code?: string } }>(browser, "POST", `/api/takeoff/jobs/${takeoffJobId}/apply`,
+    { strategy: "append" });
+  const euhistAfterTakeoff = await readEstimate(browser, euhistId);
+  review.takeoff = { response: [takeoff.status, takeoff.body.error?.code ?? null], unchanged: sameStamp(euhistAfterTakeoff, euhistBeforeProbes) };
+  await recordEvidence(army, "v3p-takeoff", { versionId: euhistId, takeoffJobId, response: takeoff, actual: review.takeoff });
+
+  // V3P-15 : la suppression directe d'une ligne v3 (DELETE …/items) ne recalcule rien : refus nommé, rien d'écrit.
+  const euhistBeforeDelete = await readEstimate(browser, euhistId);
+  const deleted = await apiRequest<Envelope<unknown>>(browser, "DELETE", `/api/estimates/${euhistId}/items`,
+    { id: lineItems(euhistBeforeDelete)[0].id }, { "if-match": euhistBeforeDelete.version.updated_at });
+  const euhistAfterDelete = await readEstimate(browser, euhistId);
+  review.directDelete = {
+    response: [deleted.status, deleted.body.ok, deleted.body.error?.code ?? null], unchanged: sameStamp(euhistAfterDelete, euhistBeforeDelete),
+  };
+  await recordEvidence(army, "v3p-direct-delete", { versionId: euhistId, response: deleted, before: stamp(euhistBeforeDelete),
+    after: stamp(euhistAfterDelete) });
+
+  // V3P-13 (v2) : sous politique 2, un coefficient de vente à la création est refusé par son nom, rien n'est créé.
+  const countBeforeV2Coefficient = await versionCountOf(projectId);
+  const v2Coefficient = await createVersion(browser, { project_id: projectId, version: { ...NEUTRAL_VERSION,
+    title: `${army.runPrefix} v2 avec coefficient`, sale_coefficient_fo: 1 } });
+  const v2CoefficientId = v2Coefficient.body.data?.version?.id;
+  if (v2CoefficientId) ownEstimate(army, { projectId, versionId: v2CoefficientId });
+  review.v2Coefficient = {
+    response: [v2Coefficient.status, v2Coefficient.body.ok, v2Coefficient.body.error?.code ?? null],
+    created: (await versionCountOf(projectId)) - countBeforeV2Coefficient,
+  };
+  await recordEvidence(army, "v3p-review", { expected: REVIEW_EXPECTED, actual: review, v2Coefficient });
+  expect(review).toEqual(REVIEW_EXPECTED);
 });

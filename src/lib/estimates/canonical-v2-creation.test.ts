@@ -15,10 +15,14 @@ vi.mock("@/lib/estimates/version-totals", async (importOriginal) => {
   return {
     ...actual,
     calculateEstimateSnapshotForItems: vi.fn(),
+    calculateEstimateV3SnapshotForItems: vi.fn(),
   };
 });
 
-import { calculateEstimateSnapshotForItems } from "@/lib/estimates/version-totals";
+import {
+  calculateEstimateSnapshotForItems,
+  calculateEstimateV3SnapshotForItems,
+} from "@/lib/estimates/version-totals";
 
 import {
   instantiateCanonicalEstimateV2FromTemplate,
@@ -32,17 +36,26 @@ const VERSION_ID = "44444444-4444-4444-8444-444444444444";
 const IMPORT_ID = "55555555-5555-4555-8555-555555555555";
 
 /** Lot 2, sous-lot 2.5 (D3) : la création lit la politique de l'entreprise ; absente = moteur 2. */
-function absentCalcPolicyBuilder() {
-  const builder = { select: vi.fn(), eq: vi.fn(), maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }) };
+function absentCalcPolicyBuilder(policyRow: Record<string, unknown> | null = null) {
+  const builder = { select: vi.fn(), eq: vi.fn(), maybeSingle: vi.fn().mockResolvedValue({ data: policyRow, error: null }) };
   builder.select.mockReturnValue(builder);
   builder.eq.mockReturnValue(builder);
   return builder;
 }
 
-function createSupabaseStub() {
+/** Revue 2.5 : politique 3 de l'entreprise, défauts 1,30 / 1,20, lue par le TS sans verrou. */
+const POLICY_THREE = {
+  tenant_id: TENANT_ID,
+  new_estimate_calc_engine: 3,
+  default_sale_coefficient_fo: 1.3,
+  default_sale_coefficient_mo: 1.2,
+  allowed_tax_rates_bp: [2000, 1000, 550, 210],
+};
+
+function createSupabaseStub(policyRow: Record<string, unknown> | null = null) {
   return {
     from: vi.fn((table: string) => {
-      if (table === "tenant_calc_policies") return absentCalcPolicyBuilder();
+      if (table === "tenant_calc_policies") return absentCalcPolicyBuilder(policyRow);
       if (table === "labor_roles") {
         const builder = {
           select: vi.fn(),
@@ -384,5 +397,75 @@ describe("persistCanonicalEstimateV2", () => {
         }),
       })
     );
+  });
+});
+
+/**
+ * Revue du sous-lot 2.5 (docs/testing/estimate-engine-v3-2.5.md §10.5). Isolation justifiée :
+ * - l'import DPGF et la création rapide sont des actions serveur sans route ; sous politique 3, leur refus
+ *   doit être nommé et définitif (ESTIMATE_ENGINE_UNAVAILABLE, conversions en 2.8), jamais le 409
+ *   CONTEXT_CHANGED « rechargez la page », qui boucle (aucune attente de moteur n'est envoyée) ;
+ * - course politique ↔ création : la politique peut changer entre la lecture TS (sans verrou) et la RPC.
+ *   Les coefficients que le client n'a pas fournis restent à la RPC, qui lit la politique FOR SHARE sous le
+ *   verrou consultatif (pgTAP F25-05) ; le TS n'envoie jamais les défauts qu'il a lus. Course non
+ *   reproductible en E2E.
+ */
+describe("persistCanonicalEstimateV2 under tenant policy 3 (review of 2.5)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    serviceRoleRpc.mockResolvedValue({
+      data: { project: { id: PROJECT_ID }, version: { id: VERSION_ID } },
+      error: null,
+    });
+    vi.mocked(calculateEstimateV3SnapshotForItems).mockResolvedValue({
+      breakdown: {
+        totals: {
+          total_ht_cents: 0,
+          total_tax_cents: 0,
+          total_ttc_cents: 0,
+          gross_ht_cents: 0,
+          discount_applied_cents: 0,
+          commercial_rounding_cents: 0,
+        },
+      },
+      projection: {},
+    } as never);
+  });
+
+  it("refuses a DPGF import by name, never as a retryable CONTEXT_CHANGED, and writes nothing", async () => {
+    await expect(
+      persistCanonicalEstimateV2({
+        supabase: createSupabaseStub(POLICY_THREE) as never,
+        tenantId: TENANT_ID,
+        actorUserId: USER_ID,
+        project: { kind: "new", id: PROJECT_ID, name: "Affaire importée" },
+        source: { kind: "import", importId: IMPORT_ID, mappingId: null, filename: "dpgf.xlsx", items: [] },
+      })
+    ).rejects.toMatchObject({ code: "ESTIMATE_ENGINE_UNAVAILABLE", status: 409 });
+    expect(serviceRoleRpc).not.toHaveBeenCalled();
+  });
+
+  it("leaves the default sale coefficients to the RPC's locked policy read and keeps supplied ones", async () => {
+    const blankV3 = (version: { sale_coefficient_fo?: number } = {}) =>
+      persistCanonicalEstimateV2({
+        supabase: createSupabaseStub(POLICY_THREE) as never,
+        tenantId: TENANT_ID,
+        actorUserId: USER_ID,
+        project: { kind: "new", id: PROJECT_ID, name: "Affaire v3" },
+        version,
+        source: { kind: "blank" },
+        expectedCalcEngineVersion: 3,
+      });
+    await blankV3();
+    await blankV3({ sale_coefficient_fo: 1 });
+
+    const [unsupplied, supplied] = serviceRoleRpc.mock.calls.map(
+      (call) => (call[1] as { p_version_payload: Record<string, unknown> }).p_version_payload
+    );
+    expect(unsupplied).toMatchObject({ calc_engine_version: 3, gross_ht_cents: 0, total_ht_cents: 0 });
+    expect(unsupplied).not.toHaveProperty("sale_coefficient_fo");
+    expect(unsupplied).not.toHaveProperty("sale_coefficient_mo");
+    expect(supplied).toMatchObject({ calc_engine_version: 3, sale_coefficient_fo: 1 });
+    expect(supplied).not.toHaveProperty("sale_coefficient_mo");
   });
 });

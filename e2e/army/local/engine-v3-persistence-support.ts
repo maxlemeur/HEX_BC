@@ -218,3 +218,26 @@ SELECT count(*) FROM public.estimate_rules WHERE id = '${ruleId}' AND scope_id =
   if (output.at(-1) !== "1") throw new Error("The project margin rule was not persisted.");
   return ruleId;
 }
+
+/**
+ * A completed takeoff job of an owned v3 (review of 2.5, §10.5): the worker state cannot be forged by an
+ * operator and the dedicated owner has no plan to upload. Only the job row is written, for a version of
+ * the owned affaire whose engine is 3; the application is then asked to apply it through its API.
+ */
+export async function insertCompletedTakeoffJob(owner: V3Owner, versionId: string) {
+  assertOwner(owner);
+  if (!UUID.test(versionId)) throw new Error("Invalid takeoff job fixture input.");
+  const jobId = randomUUID();
+  const output = await querySql(`BEGIN;
+${ownerGuard(owner, delimiter())}
+INSERT INTO public.takeoff_jobs (id, tenant_id, estimate_version_id, level, status, source_file_name, source_file_type,
+  source_file_size_bytes, schema_version, started_at, completed_at)
+SELECT '${jobId}'::uuid, v.tenant_id, v.id, 'A', 'completed', 'ARMY-v3p.csv', 'text/csv', 512, 'v1', now(), now()
+FROM public.estimate_versions v JOIN public.estimate_projects p ON p.id = v.project_id AND p.tenant_id = v.tenant_id
+WHERE v.id = '${versionId}' AND v.tenant_id = '${owner.tenantId}' AND p.user_id = '${owner.userId}' AND v.calc_engine_version = 3;
+COMMIT;
+SELECT count(*) FROM public.takeoff_jobs WHERE id = '${jobId}' AND estimate_version_id = '${versionId}';
+`);
+  if (output.at(-1) !== "1") throw new Error("The owned v3 takeoff job was not persisted.");
+  return jobId;
+}
