@@ -118,10 +118,19 @@ de travail recréé puis retiré). Après redémarrage, `w3-full-3` (3 workers) 
 verte 67/67 avec manifeste `passed`, sans reprise, parcours 349 s : la
 configuration rouge du matin passe.
 
-**Requalification parallèle non acquise** : le critère (deux suites complètes
-vertes, en commençant par 2 workers) n'est pas atteint. À 2 workers, HUB02,
-indépendant de la course corrigée, échoue 2 fois sur 3 ; à 3 workers, une seule
-suite verte est prouvée. `E2E_ARMY_WORKERS` reste à 1 par défaut.
+Ces exécutions seules ne requalifiaient pas le parallélisme : à 2 workers,
+HUB02, indépendant de la course corrigée, échouait 2 fois sur 3 ; à 3 workers,
+une seule suite verte est prouvée.
+
+**Requalification de workers=2** : HUB02 a été corrigé à part (`dc869ce4`,
+`DashboardNavigationProvider` limité à l'en-tête, parcours HUB11), puis fusionné
+avec ce correctif. Avec les deux, la suite critique complète passe deux fois à
+2 workers, 68/68 (64 existants, GATE01–03, HUB11), sans reprise, parcours 349 s
+et 348 s, manifestes `passed` / `workers: 2`. Preuves sous
+`.codex-tmp/hub02-hydration-20261016/w2-full-1` et `w2-full-2`. Le code produit
+fusionné est identique à celui exécuté, et les deux parcours GATE ont les mêmes
+empreintes ; seuls des commentaires diffèrent. `E2E_ARMY_WORKERS` reste à 1 par
+défaut ; 3 ou 4 restent exploratoires.
 
 ## Limites
 

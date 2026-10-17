@@ -35,14 +35,13 @@ if (
 }
 
 // Journeys share one account, tenant and ARMY fixtures: one worker by default.
-// The 16/10/2026 campaign (WSL, full critical suite) did not qualify parallel
-// runs: 1 worker passed 64/64; 3 workers failed 2 runs out of 2 when estimate
-// creation got 40001 ESTIMATE_CREATE_CONTEXT_CHANGED under concurrent writes in
-// the same tenant. That race is fixed (GATE journeys), but 2 workers then failed
-// 2 runs out of 3 on a transient HUB02 locator ambiguity. A higher value is
-// exploratory and accepted only for critical journeys on the owned ephemeral
-// stack, whose runner alone sets E2E_ARMY_LOCAL_DB_URL; never against a shared
-// stack or for performance.
+// On 16/10/2026 (WSL, full critical suite) 3 workers first failed 2 runs out of
+// 2 on the estimate-creation lock race (40001), then 2 workers failed 2 runs out
+// of 3 on a transient HUB02 double render. With both fixed (GATE and HUB11
+// journeys), 2 workers passed the full critical suite twice (68/68) and are
+// qualified; 3 or 4 stay exploratory. Above 1, accepted only for critical
+// journeys on the owned ephemeral stack, whose runner alone sets
+// E2E_ARMY_LOCAL_DB_URL; never against a shared stack or for performance.
 const workersSetting = process.env.E2E_ARMY_WORKERS ?? "";
 if (workersSetting !== "" && !/^[1-4]$/.test(workersSetting)) {
   throw new Error(`E2E_ARMY_WORKERS must be an integer from 1 to 4 (default 1); received "${workersSetting}".`);

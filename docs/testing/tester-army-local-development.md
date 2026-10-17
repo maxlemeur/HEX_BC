@@ -81,17 +81,26 @@ Campagne du 16/10/2026 (WSL, suite critique complète, `e2e:army:local`) :
 workers=1 vert 64/64 en 634 s ; workers=3 rouge 2 fois sur 2 (63/64, 408 s et
 428 s), création de devis refusée en 400 par
 `40001 ESTIMATE_CREATE_CONTEXT_CHANGED` sous écriture concurrente du même
-tenant ; workers=2 n'a pas été mesuré. Une valeur supérieure à 1 n'est donc pas
-qualifiée : le défaut reste 1 et tout autre usage est exploratoire, avec des
-échecs intermittents attendus qui ne sont pas des régressions. La course
-applicative (rôles MO par défaut réécrits par `createEstimate` sous le verrou
-de calcul du tenant, 40001 renvoyé en 400 sans nouvel essai) est corrigée, avec
-sa régression rouge puis verte : voir
-[création de devis sous le verrou de calcul](estimate-create-calculation-gate.md).
-La requalification reste ouverte : à workers=2, une suite complète est verte
-67/67 et deux échouent sur HUB02 seul (`LOCATOR_AMBIGUOUS` transitoire au
-chargement du hub), sans aucun 40001 inattendu. Il faut encore deux suites
-complètes vertes, en commençant par workers=2.
+tenant. Deux défauts applicatifs ont ensuite été corrigés, chacun avec sa
+régression rouge puis verte :
+
+- la course de création : `createEstimate` réécrivait les rôles MO par défaut
+  sous le verrou de calcul du tenant et le 40001 sortait en 400 sans nouvel
+  essai. Voir [création de devis sous le verrou de calcul](estimate-create-calculation-gate.md) ;
+- le double rendu transitoire du hub d'affaire (HUB02, `LOCATOR_AMBIGUOUS`,
+  2 suites sur 3 à workers=2) : `DashboardNavigationProvider` n'enveloppe plus
+  que l'en-tête. Son changement de valeur juste après l'hydratation obligeait
+  React à recréer côté client la page streamée encore masquée ; les deux copies
+  coexistaient jusqu'à sa révélation. Parcours HUB11 dans `team-a-hub.e2e.ts`.
+
+**workers=2 est requalifié** pour les parcours `critical` de la pile éphémère
+possédée : avec les deux corrections, deux suites complètes vertes 68/68, sans
+reprise (parcours 349 s et 348 s, contre 634 s à workers=1). Preuves :
+`.codex-tmp/hub02-hydration-20261016/w2-full-1` et `w2-full-2` du checkout
+principal ; le code fusionné est identique à celui exécuté, hors commentaires.
+Le défaut reste 1, CI comprise. 3 ou 4 workers restent exploratoires : une
+seule suite complète verte est prouvée à workers=3, avant la correction de
+HUB02.
 
 ### Build de production et limite de heap
 
