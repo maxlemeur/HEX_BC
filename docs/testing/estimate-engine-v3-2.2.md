@@ -133,6 +133,26 @@ attendent l'unité de l'article, et non plus la désignation, dans une ligne san
 | `e2e:army:local` | 68/68 (19 fichiers) avant le recalage ; rejouée par la CI de la PR sur l'état final |
 | `npm run typecheck`, ESLint, OpenAPI | OK ; `openapi.json` ne gagne que `zero_price_kind` sur `update-offer` |
 
+## Vérification finale de `c2747b0f` (17/10/2026, CI GitHub et WSL)
+
+État vérifié : `c2747b0f`, après la fusion de `main` `141218a9` (PR #25) dans la branche.
+`src/lib/estimate-calculations.ts` et `src/lib/estimate-v2-snapshot.ts` : aucune différence avec `3d8d2f8a`.
+
+| Preuve | Où | Résultat |
+|---|---|---|
+| Quality Gate : git-guard des migrations, architecture, OpenAPI, typecheck, ESLint, Vitest `node` et `jsdom`, couverture critique | CI de la PR #26, run `39028643166` | « Statique » et « Tests » réussis |
+| TesterArmy Critical : migrations, pgTAP (14 fichiers, 1 265 assertions), matrice RLS, parcours critiques | CI, run `39028643217` | réussi, 17 min 39 s |
+| TesterArmy Full, déclenché sur la branche | CI, run `39029275133` | réussi : pgTAP 1 265 PASS, matrice RLS, `journeys-full` et `journeys-development`, 32 min 48 s |
+| Matrice RLS, smoke anonyme | CI | réussis |
+| `npm run e2e:army:calc-v3` complet | WSL Ubuntu-24.04, Node 24.14.0, copie propre | 37/37 (journeys 11, components 5, numeric 4, resume 5, access 2, offers 4, emission 6), pgTAP 1 265 PASS, sources identiques avant et après, 11 min 23 s ; preuves `.e2e/army/ci/2026-10-17T11-36-08-386Z-calc-v3` dans le clone |
+| `npm run supabase:validate` | WSL | 245 fichiers, 245 versions uniques |
+
+Non rejoués car sans objet depuis les preuves macOS : `db:upgrade-check -- lot2-2-2` (aucune migration
+ajoutée ni modifiée depuis, la fusion de `main` n'en apporte pas) et `engine:document-fingerprints` (aucun
+fichier du moteur ni du document modifié depuis ; le PDF est en outre relu par la phase `emission`).
+Le contrôle « Vercel » échoue avant tout build (« Deployment was blocked ») : c'est le déploiement de
+prévisualisation, pas une suite de tests.
+
 ## Relecture (17/10/2026)
 
 Un relecteur indépendant a confirmé la migration M2 : chaque fonction est identique à sa source hors des
