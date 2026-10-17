@@ -43,6 +43,7 @@
     "supabase:migrations:restamp": "node --import tsx scripts/restamp-unpushed-migrations.ts",
     "supabase:verify-local": "node --import tsx scripts/verify-local-supabase-migrations.ts",
     "db:ci:local": "node --import tsx scripts/run-local-supabase-ci.ts",
+    "db:upgrade-check": "node --import tsx scripts/engine-v3/upgrade-check.ts",
     "audit:dependencies": "node --import tsx scripts/check-dependency-audit.ts",
     "audit:signatures": "npm audit signatures",
     "check:architecture": "node --import tsx scripts/check-architecture-budgets.ts",
@@ -70,7 +71,10 @@
     "e2e:army:local": "node --import tsx scripts/run-tester-army-ci.ts critical",
     "e2e:army:development": "node scripts/run-tester-army.mjs development",
     "e2e:army:polish": "node scripts/run-tester-army.mjs polish",
-    "e2e:army:polish:list": "node scripts/run-tester-army.mjs polish-list"
+    "e2e:army:polish:list": "node scripts/run-tester-army.mjs polish-list",
+    "engine:frozen-corpus": "node --import tsx scripts/engine-v3/frozen-corpus.ts",
+    "engine:document-fingerprints": "node --import tsx scripts/engine-v3/document-fingerprints.ts",
+    "e2e:army:calc-v3": "node --import tsx scripts/run-tester-army-ci.ts calc-v3"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

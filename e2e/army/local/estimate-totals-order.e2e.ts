@@ -4,6 +4,7 @@ import ExcelJS from "exceljs";
 import { test } from "@e2e-dev/web";
 import { expect } from "e2e";
 import { readEstimate, recordEvidence, resolveDownload, restrictCriticalBrowser } from "../critical/fixtures";
+import { isolatedLocalBackend } from "./isolated-backend";
 
 // Failure oracle documented before implementation in
 // docs/testing/generated-ouvrage-resume.md: position,id differs from UUID order.
@@ -11,9 +12,9 @@ test("canonical save uses publication line order for discount allocation and exa
   session: "army", tags: ["critical", "totals-order"], timeout: 120_000,
 }, async ({ app, screen, browser }) => {
   const file = process.env.E2E_TOTALS_ORDER_FIXTURE_PATH;
-  if (!file || process.env.NEXT_PUBLIC_SUPABASE_URL !== "http://127.0.0.1:59827") throw new Error("Explicit isolated order witness required");
+  if (!file || process.env.NEXT_PUBLIC_SUPABASE_URL !== isolatedLocalBackend()) throw new Error("Explicit isolated order witness required");
   const f = JSON.parse(await readFile(file, "utf8")) as { status: string; apiUrl: string; prefix: string; projectId: string; versionId: string; lineA: string; lineB: string };
-  expect(f.status).toBe("ready"); expect(f.apiUrl).toBe("http://127.0.0.1:59827"); expect(f.lineB < f.lineA).toBe(true);
+  expect(f.status).toBe("ready"); expect(f.apiUrl).toBe(isolatedLocalBackend()); expect(f.lineB < f.lineA).toBe(true);
   const army = { runPrefix: f.prefix, projectName: f.prefix, ownedEstimates: [{ projectId: f.projectId, versionId: f.versionId }] };
   await restrictCriticalBrowser(browser, app);
   await app.open(`/dashboard/estimates/${f.versionId}/edit`);

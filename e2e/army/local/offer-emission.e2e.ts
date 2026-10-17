@@ -652,7 +652,12 @@ offerTest("OF03 public HTML and RSC preserve sales presentation without private 
     const sale20 = (value: string) => /^20[,.]00(?:\s*€)?$/.test(value);
     const html = await fetch(location.href, { credentials: "omit", redirect: "error" });
     const htmlBody = await html.text();
-    const rsc = await fetch(location.href, { credentials: "omit", redirect: "error", headers: { RSC: "1" } });
+    // Next 16 validates RSC requests (experimental.validateRSCRequestHeaders, on by default):
+    // without router-state headers the expected cache-busting key is a bare `_rsc`, and a
+    // request lacking it is answered 307 to that same URL. Redirects stay refused.
+    const rscUrl = new URL(location.href);
+    rscUrl.search = rscUrl.search ? `${rscUrl.search}&_rsc` : "?_rsc";
+    const rsc = await fetch(rscUrl.href, { credentials: "omit", redirect: "error", headers: { RSC: "1" } });
     const rscBody = await rsc.text();
     const internal = await fetch(`/api/estimates/${expected.versionId}`, { credentials: "omit", redirect: "error" });
     const internalBody = await internal.json().catch(() => null) as { ok?: boolean; data?: unknown; error?: { code?: string } } | null;

@@ -5,6 +5,7 @@ import { expect, type App, type Screen } from "e2e";
 
 // Destination after coordination: e2e/army/local/generated-ouvrage-access.e2e.ts.
 import { recordEvidence, restrictCriticalBrowser } from "../critical/fixtures";
+import { isolatedLocalBackend } from "./isolated-backend";
 
 type Actor = { userId: string; tenantId: string; membershipId: string; laborRoleId?: string };
 type Scenario = { label: string; prefix: string; projectId: string; versionId: string; sectionA: string; sectionB: string; draftId: string; candidateId: string; fragmentId: string; subdetailId: string; componentIds: string[]; designation: string };
@@ -131,11 +132,11 @@ test("GR07 access refuses list and resume after real archive then owner role dow
   session: "army", trace: "off", retries: 0, timeout: 240_000,
 }, async ({ app, browser, screen }) => {
   const filename = process.env.E2E_GENERATED_ACCESS_FIXTURE_PATH;
-  if (!filename || process.env.NEXT_PUBLIC_SUPABASE_URL !== "http://127.0.0.1:59827") throw new Error("Explicit local access fixture required");
+  if (!filename || process.env.NEXT_PUBLIC_SUPABASE_URL !== isolatedLocalBackend()) throw new Error("Explicit local access fixture required");
   const fixture = JSON.parse(await readFile(filename, "utf8")) as Fixture;
   expect(fixture.schemaVersion).toBe("generated-ouvrage-access-1");
   expect(fixture.status).toBe("ready");
-  expect(fixture.apiUrl).toBe("http://127.0.0.1:59827");
+  expect(fixture.apiUrl).toBe(isolatedLocalBackend());
   expect(fixture.owner.tenantId).toBe(fixture.observer.tenantId);
   expect(fixture.owner.userId === fixture.observer.userId).toBe(false);
   const manifest = JSON.parse(await readFile(".e2e/army/next/server/server-reference-manifest.json", "utf8")) as { node: Record<string, { exportedName?: string }> };

@@ -478,7 +478,8 @@ export async function exportsAt(c: Case, label: string) {
       const estimate = await readEstimate(c.browser, c.scenario.versionId);
       const rows = sheets.Données.filter((row) => estimate.items.some((item) => item.id === row[1]));
       expect(rows).toHaveLength(6);
-      const expected = [[c.scenario.designation, 10, "m", 40, 0.5, 5, 1, 1], ["ARMY Protection parties droites CH-A", 4, "m", 10, 1, 1, 1, 1], ["ARMY Protection démontable des raccords CH-A", 2, "u", 15, 1, 0.5, 1, 1], ["ARMY Canalisation ECS-B sans calorifuge", 6, "m", 20, 1, 1.5, 1, 1]];
+      // Last column: « Majoration MO (%) », 100 = neutral (P-11, sub-lot 2.3).
+      const expected = [[c.scenario.designation, 10, "m", 40, 0.5, 5, 1, 100], ["ARMY Protection parties droites CH-A", 4, "m", 10, 1, 1, 1, 100], ["ARMY Protection démontable des raccords CH-A", 2, "u", 15, 1, 0.5, 1, 100], ["ARMY Canalisation ECS-B sans calorifuge", 6, "m", 20, 1, 1.5, 1, 100]];
       for (const expectedRow of expected) {
         const row = rows.find((candidate) => String(candidate[2]).trim() === expectedRow[0]);
         expect(row).toBeDefined(); expect([String(row![2]).trim(), ...row!.slice(3, 6), ...row!.slice(7, 11)]).toEqual(expectedRow);

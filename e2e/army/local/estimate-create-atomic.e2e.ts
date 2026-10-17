@@ -29,6 +29,8 @@ type Observation = {
 };
 const options = { session: "army", tags: ["source-coverage", "create-atomic"], trace: "off" as const, timeout: 180_000 };
 const totals = (version: ArmyVersion) => [version.total_ht_cents, version.total_tax_cents, version.total_ttc_cents];
+// DPGF export « Majoration MO (%) »: the stored coefficient in percent, 100 = neutral (P-11, sub-lot 2.3).
+const majorationPercent = (coefficient: number) => Math.round(coefficient * 10000) / 100;
 const values = (item: ArmyItem) => ({
   id: item.id, parent_id: item.parent_id, position: item.position, item_type: item.item_type,
   title: item.title, description: item.description, quantity: item.quantity,
@@ -186,7 +188,7 @@ async function assertExports(ui: Ui, versionId: string, lines: ArmyItem[], secti
       expect(rows.map((row) => row[1]).sort()).toEqual([...ids].sort());
       for (const line of lines) {
         const row = rows.find((candidate) => candidate[1] === line.id)!;
-        expect([String(row[2]).trim(), ...row.slice(3, 6), ...row.slice(7, 11)]).toEqual([line.title, line.quantity, line.description, Number(line.unit_price_ht_cents) / 100, line.k_fo, line.h_mo, line.h_mo_majoration, line.k_mo]);
+        expect([String(row[2]).trim(), ...row.slice(3, 6), ...row.slice(7, 11)]).toEqual([line.title, line.quantity, line.description, Number(line.unit_price_ht_cents) / 100, line.k_fo, line.h_mo, line.k_mo, majorationPercent(Number(line.h_mo_majoration))]);
       }
     }
   }

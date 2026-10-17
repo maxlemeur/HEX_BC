@@ -237,8 +237,9 @@ armyTest("WFC01 failed ordinary batch preserves both V2 allocations and footer b
         expect(sheets.Données.filter((row) => ids.includes(String(row[1]))).map((row) => row[1]).sort()).toEqual(ids);
         for (const line of before.items.filter((item) => item.item_type === "line")) {
           const row = sheets.Données.find((candidate) => candidate[1] === line.id)!;
+          // K FO, h MO, K MO, then « Majoration MO (%) » where 100 = neutral (P-11, sub-lot 2.3).
           expect([String(row[2]).trim(), ...row.slice(3, 6), ...row.slice(7, 11)])
-            .toEqual([line.title, 1, "u", 0.03, 1, 0, 1, 1]);
+            .toEqual([line.title, 1, "u", 0.03, 1, 0, 1, 100]);
         }
       }
     }

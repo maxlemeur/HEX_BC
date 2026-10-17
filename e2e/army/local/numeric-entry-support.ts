@@ -4,8 +4,8 @@ import path from "node:path";
 import ExcelJS from "exceljs";
 import { expect, type Locator } from "e2e";
 import { ownEstimate, readEstimate, recordEvidence } from "../critical/fixtures";
-import { amounts, applyComponents, componentArticle, componentDecision, componentSection, openComponents, saveComponents,
-  type PreparedComponents, type Ui } from "./generated-ouvrage-components-support";
+import { amounts, applyComponents, componentArticle, componentDecision, componentSection, majorationPercent, openComponents,
+  saveComponents, type PreparedComponents, type Ui } from "./generated-ouvrage-components-support";
 import type { Json } from "./generated-ouvrage-recovery-support";
 import { sdkResultsRoot } from "./sdk-results";
 
@@ -63,7 +63,8 @@ export async function numericBaseline(c: NumericContext, field: Locator, fieldIn
   for (const table of ["applications", "snapshots", "assemblies", "libraryComponents"]) expect(state.objects[table]).toHaveLength(0);
 }
 export async function typeNumeric(c: NumericContext, field: Locator, fieldIndex: number, tag: string, prefix: string, tail?: string) {
-  await field.focus(); await field.press("Control+A"); await field.press("Backspace");
+  // ControlOrMeta: on macOS, Control+A only moves the caret to the line start.
+  await field.focus(); await field.press("ControlOrMeta+A"); await field.press("Backspace");
   await numericWitness(c, `typed-${tag}-clear`, { input: "", fieldIndex },
     { ...await numericInput(c, field, fieldIndex), method: "pressSequentially", submitted: "" });
   await field.pressSequentially(prefix);
@@ -289,7 +290,7 @@ async function numericExports(c: NumericContext, versionId: string, target: "pri
       for (const line of lines) {
         const rows = sheets.Données.filter((row) => row[1] === line.id); expect(rows).toHaveLength(1);
         expect([rows[0][3], rows[0][4], rows[0][5], rows[0][7], rows[0][8], rows[0][9], rows[0][10]])
-          .toEqual([line.quantity, line.description, Number(line.unit_price_ht_cents) / 100, line.k_fo ?? 1, line.h_mo ?? 0, line.k_mo ?? 1, line.h_mo_majoration ?? 1]);
+          .toEqual([line.quantity, line.description, Number(line.unit_price_ht_cents) / 100, line.k_fo ?? 1, line.h_mo ?? 0, line.k_mo ?? 1, majorationPercent(Number(line.h_mo_majoration ?? 1))]);
       }
     }
   }
