@@ -98,7 +98,11 @@ set search_path = ''
 as $$
   select declared.table_name, declared.column_name, declared.neutral_value
   from (values
-    ('supplier_pricebook'::text, 'zero_price_kind'::text, 'null'::jsonb)
+    ('supplier_pricebook'::text, 'zero_price_kind'::text, 'null'::jsonb),
+    -- Sous-lot 2.9 (20261017172127) : aucune offre existante ne porte de conversion d'unité d'achat.
+    ('supplier_pricebook', 'estimate_unit_code', 'null'::jsonb),
+    ('supplier_pricebook', 'estimate_units_per_purchase_unit', 'null'::jsonb),
+    ('supplier_pricebook', 'purchase_rounding', 'null'::jsonb)
   ) as declared(table_name, column_name, neutral_value)
 $$;
 
