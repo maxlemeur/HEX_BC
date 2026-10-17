@@ -915,8 +915,12 @@ begin
   from public.tenant_memberships as membership
   where membership.user_id = '71000000-0000-4000-8000-000000000001';
 
-  insert into public.estimate_versions (id, tenant_id, project_id, version_number, status, calc_engine_version)
-  select p_version_id, project.tenant_id, project.id, 1, 'draft'::public.estimate_status, 3
+  -- M4 (2.5) : une v3 porte ses coefficients et ses montants v3 (CHECK de forme).
+  insert into public.estimate_versions (
+    id, tenant_id, project_id, version_number, status, calc_engine_version,
+    sale_coefficient_fo, sale_coefficient_mo, gross_ht_cents, discount_applied_cents, commercial_rounding_cents
+  )
+  select p_version_id, project.tenant_id, project.id, 1, 'draft'::public.estimate_status, 3, 1.3, 1.2, 0, 0, 0
   from public.estimate_projects as project
   where project.id = p_project_id;
 
@@ -928,11 +932,11 @@ begin
   insert into public.estimate_items (
     tenant_id, version_id, parent_id, item_type, position, title, labor_role_id,
     quantity, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, h_mo_majoration, k_mo,
-    pu_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents
+    pu_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents, h_mo_per_unit
   )
   select
     version.tenant_id, version.id, p_project_id, 'line'::public.estimate_item_type, 1, 'v3 role line', p_role_id,
-    1, 0, 2000, 1, 1, 1, 1, 0, 0, 0, 0
+    1, 0, 2000, 1, 1, 1, 1, 0, 0, 0, 0, 1
   from public.estimate_versions as version
   where version.id = p_version_id;
   perform set_config('miaouffrage.estimate_v3_writer', '', true);

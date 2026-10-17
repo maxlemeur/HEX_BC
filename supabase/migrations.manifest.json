@@ -247,6 +247,7 @@
     "20261015190000_scope_takeoff_recalculation_safeupdate.sql": "c44f026e098518cc9e3e08c1b53b2c2f9198e455920a25bd388186d2ccf2bed9",
     "20261017093407_supplier_offer_zero_price_policy.sql": "e4e36925cc11b50a96e516858319f51b599e5795cf0a107e7a4ba542412b11f4",
     "20261017113844_estimate_calc_engine_v3_fail_closed.sql": "ab7abbe6e942f114e6f822aa2e6b3f2a52d9786e6af81b32843a606293fdf71d",
-    "20261017134443_estimate_engine_v3_functions_and_units.sql": "459a0273e6fbcfc75561c65f652a7845dd36e191f1c3ee39f476458fbcc54515"
+    "20261017134443_estimate_engine_v3_functions_and_units.sql": "459a0273e6fbcfc75561c65f652a7845dd36e191f1c3ee39f476458fbcc54515",
+    "20261017162000_estimate_engine_v3_persistence.sql": "06684094f5bcf37ec28ee0284d38c78dcc9fb1fe439ed6c7d9dd31275d8b2aae"
   }
 }

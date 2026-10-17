@@ -288,7 +288,9 @@ select ok(
 from pg_proc as procedure
 join pg_namespace as namespace on namespace.oid = procedure.pronamespace
 where namespace.nspname = 'private'
-  and (procedure.proname like 'estimate\_v3\_%' or procedure.proname in ('estimate_round_half_up', 'estimate_allocate_exact'));
+  and (procedure.proname like 'estimate\_v3\_%' or procedure.proname in ('estimate_round_half_up', 'estimate_allocate_exact'))
+  -- M4 (2.5) : lecteurs des lignes stockées (D12), stables par construction, hors du jumeau pur.
+  and procedure.proname not in ('estimate_v3_canonical_input', 'estimate_v3_compute', 'estimate_v3_assert_draft');
 
 -- ---------------------------------------------------------------------------
 -- F1 : arrondi au demi supérieur, en décimal exact (D13).

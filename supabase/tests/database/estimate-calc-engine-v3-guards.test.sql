@@ -59,16 +59,16 @@ create temporary table v3_engine_literal_whitelist (
 
 insert into v3_engine_literal_whitelist (function_name, reason)
 values
-  ('public.enforce_estimate_calc_engine_on_insert', 'contrats d''insertion : admission 1-3, coercition canonical_v2 -> 2 et legacy_v1 -> 1, refus de 3 hors fixture'),
-  ('public.persist_estimate_creation_atomic', 'création canonique : charge utile au moteur 2 uniquement jusqu''au contrat canonical_v3 (M4)'),
-  ('public.list_approval_queue', 'marge v1 lue en margin_bp (texte = 1 conservé) ; v3 -> NULL depuis M1, marque v3 en M4'),
+  ('public.enforce_estimate_calc_engine_on_insert', 'contrats d''insertion : admission 1-3, coercition canonical_v2 -> 2, canonical_v3 et duplicate_source_v3 -> 3 (M4), legacy_v1 -> 1, refus de 3 hors de ces contrats et de la fixture'),
+  ('public.persist_estimate_creation_atomic', 'création canonique (M4) : moteur attendu du client dans 1-3, comparé à la politique (absente = 2), contrat canonical_v3 sous politique 3'),
+  ('public.list_approval_queue', 'marge v1 lue en margin_bp (texte = 1 conservé) ; v3 : marque nette d''un gel v3 frais, sinon NULL (M4)'),
   ('public.estimate_offer_client_items_match', 'branche v1/v2 inchangée ; faux pour tout moteur hors {1,2} depuis M1'),
   ('public.require_fresh_v2_snapshot_for_publication', 'refus nommé ESTIMATE_V3_EMISSION_NOT_READY (retiré en M5)'),
   ('public.freeze_estimate_v2_snapshot_without_explicit_rounding', 'gel v2 : refuse tout moteur autre que 2 (inchangé)'),
   ('public.freeze_estimate_v2_document_snapshot', 'gel documentaire v2 : refuse tout moteur autre que 2 (inchangé)'),
-  ('public.save_estimate_settings_atomic', 'branches v1/v2 ; le contrat d''écrivain refuse la v3 jusqu''à M4'),
-  ('public.commit_estimate_batch', 'branches v1/v2 ; le contrat d''écrivain refuse la v3 jusqu''à M4'),
-  ('public.atomic_create_estimate_item', 'branches v1/v2 ; le contrat d''écrivain refuse la v3 jusqu''à M4'),
+  ('public.save_estimate_settings_atomic', 'branches v1 et v2/v3 (in (2, 3), invoker) ; branche v3 sous contrat d''écrivain (M4)'),
+  ('public.commit_estimate_batch', 'branche v3 sous contrat d''écrivain (M4) ; v2/v3 par le prédicat d''héritage'),
+  ('public.atomic_create_estimate_item', 'branches v1 et v2/v3 (in (2, 3), invoker) ; branche v3 sous contrat d''écrivain (M4)'),
   ('public.finalize_estimate_assembly_calculation', 'branches v1/v2 ; le contrat d''écrivain refuse la v3 jusqu''à M6'),
   ('public.commit_generated_ouvrages', 'branches v1/v2 ; le contrat d''écrivain refuse la v3 jusqu''à M6'),
   ('public.recalculate_takeoff_estimate_version', 'métré v1/v2 inchangé ; le contrat d''écrivain refuse la v3 (P-19)'),
@@ -79,7 +79,11 @@ values
   ('public.guard_estimate_v2_snapshot_columns', 'prédicat d''héritage en ligne in (2, 3) : garde security invoker, schéma private fermé à authenticated/service_role (M1)'),
   ('public.guard_estimate_project_v2_owner_change', 'prédicat d''héritage en ligne in (2, 3) : garde security invoker, schéma private fermé à authenticated/service_role (M1)'),
   ('public.guard_labor_role_v2_owner_change', 'prédicat d''héritage en ligne in (2, 3) : garde security invoker, schéma private fermé à authenticated/service_role (M1)'),
-  ('public.open_estimate_review_cycle', 'prédicat d''héritage en ligne in (2, 3) : security invoker, schéma private fermé à authenticated/service_role (M1)');
+  ('public.open_estimate_review_cycle', 'prédicat d''héritage en ligne in (2, 3) : security invoker, schéma private fermé à authenticated/service_role (M1)'),
+  ('public.duplicate_estimate_version_without_product_id', 'duplication (M4) : une v3 se duplique par le contrat duplicate_source_v3 sous contrat d''écrivain ; v1/v2 inchangées (P-15)'),
+  ('public.freeze_estimate_v3_snapshot', 'gel v3 (M4) : refuse tout moteur autre que 3'),
+  ('private.estimate_v3_canonical_input', 'entrées canoniques v3 (M4) : refuse tout moteur autre que 3'),
+  ('private.derive_estimate_item_v3_columns', 'dérivation des heures et du taux d''une ligne v3 (M4) : sans effet hors moteur 3');
 
 select is(
   array(
@@ -294,8 +298,8 @@ select is(
          null
        )$s$
   ]),
-  '22023 ESTIMATE_VERSION_PAYLOAD_INVALID',
-  'F-SQL-02 the canonical creation RPC refuses a requested engine 3'
+  '40001 ESTIMATE_CALC_POLICY_CONTEXT_CHANGED',
+  'F-SQL-02 without a policy at engine 3, the canonical creation RPC refuses a client expecting engine 3 (M4)'
 );
 
 select is(
@@ -311,8 +315,9 @@ select is(
 
 select is(
   pg_temp.v3_probe(array[
-    $s$insert into public.estimate_versions (id, tenant_id, project_id, version_number, status, calc_engine_version)
-       select 'a3210000-0000-4000-8000-000000000555', tenant_id, id, 55, 'draft', 3
+    $s$insert into public.estimate_versions (id, tenant_id, project_id, version_number, status, calc_engine_version,
+         sale_coefficient_fo, sale_coefficient_mo, gross_ht_cents, discount_applied_cents, commercial_rounding_cents)
+       select 'a3210000-0000-4000-8000-000000000555', tenant_id, id, 55, 'draft', 3, 1.3, 1.2, 0, 0, 0
        from public.estimate_projects where id = 'a3210000-0000-4000-8000-000000000010'$s$
   ]),
   'ok',
@@ -322,6 +327,8 @@ select is(
 -- ---------------------------------------------------------------------------
 -- Fixture v3 (postgres, contrat d'écrivain par version). Sans M1, l'insertion échoue ici.
 -- ---------------------------------------------------------------------------
+-- M4 (2.5) : chaque v3 porte ses coefficients et ses montants v3 (CHECK de forme) ; la v2
+-- témoin les garde nuls.
 insert into public.estimate_versions (
   id,
   tenant_id,
@@ -329,7 +336,12 @@ insert into public.estimate_versions (
   version_number,
   status,
   calc_engine_version,
-  title
+  title,
+  sale_coefficient_fo,
+  sale_coefficient_mo,
+  gross_ht_cents,
+  discount_applied_cents,
+  commercial_rounding_cents
 )
 select
   fixture.id,
@@ -338,7 +350,12 @@ select
   fixture.version_number,
   fixture.status,
   fixture.calc_engine_version,
-  fixture.title
+  fixture.title,
+  case when fixture.calc_engine_version = 3 then 1.3 end,
+  case when fixture.calc_engine_version = 3 then 1.2 end,
+  case when fixture.calc_engine_version = 3 then 0 end,
+  case when fixture.calc_engine_version = 3 then 0 end,
+  case when fixture.calc_engine_version = 3 then 0 end
 from public.estimate_projects project
 cross join (
   values
@@ -386,7 +403,8 @@ begin
     pu_ht_cents,
     line_total_ht_cents,
     line_tax_cents,
-    line_total_ttc_cents
+    line_total_ttc_cents,
+    h_mo_per_unit
   )
   select
     entry.id,
@@ -409,7 +427,8 @@ begin
     case when entry.item_type = 'line' then 1000 end,
     case when entry.item_type = 'line' then 2000 end,
     case when entry.item_type = 'line' then 400 end,
-    case when entry.item_type = 'line' then 2400 end
+    case when entry.item_type = 'line' then 2400 end,
+    case when entry.item_type = 'line' then coalesce(entry.h_mo, 0) / 2 end
   from public.estimate_versions version
   cross join jsonb_to_recordset(p_items) as entry(
     id uuid,
@@ -1021,7 +1040,11 @@ select is(
 -- ---------------------------------------------------------------------------
 -- F-SQL-10 : écrivains applicatifs non adaptés (RPC). Le propriétaire détient le verrou.
 -- ---------------------------------------------------------------------------
+-- M4 (2.5, §1.7) : le lot a une branche v3. L'ancien contrat (pied v2 à trois clés) est refusé
+-- sans rien écrire ; une projection v3 décalée d'un centime aussi (D12) ; la projection v3 exacte
+-- de toutes les lignes (PU 4 300 et 1 300, TVA 20 % par taux) est validée.
 select is(
+  array[
   pg_temp.v3_probe(
     array[
       'set local role authenticated',
@@ -1052,23 +1075,82 @@ select is(
          (select count(*) from public.estimate_items where version_id = 'a3210000-0000-4000-8000-000000000101')::text
        from v3_batch_result$a$
   ),
-  'ok:false ESTIMATE_BATCH_INVALID_INPUT 4',
-  'F-SQL-10 commit_estimate_batch cannot create an item in a v3 and writes nothing'
+  pg_temp.v3_probe(
+    array[
+      'set local role authenticated',
+      $s$select set_config('request.jwt.claim.sub', 'a3210000-0000-4000-8000-000000000001', true)$s$,
+      $s$create temporary table v3_batch_result on commit drop as
+         select public.commit_estimate_batch(
+           'a3210000-0000-4000-8000-000000000101',
+           gen_random_uuid(),
+           (select updated_at from public.estimate_versions where id = 'a3210000-0000-4000-8000-000000000101'),
+           'a3210000-0000-4000-8000-000000000301',
+           '[{"op":"create","data":{"item_type":"section","title":"Lot par lot"}}]'::jsonb,
+           '[{"index":0,"id":"a3210000-0000-4000-8000-000000000570"}]'::jsonb,
+           '[{"id":"a3210000-0000-4000-8000-000000000202","pu_ht_cents":4301,"line_total_ht_cents":8600,"line_tax_cents":1720,"line_total_ttc_cents":10320},{"id":"a3210000-0000-4000-8000-000000000203","pu_ht_cents":1300,"line_total_ht_cents":2600,"line_tax_cents":520,"line_total_ttc_cents":3120}]'::jsonb,
+           '{"total_ht_cents":11200,"total_tax_cents":2240,"total_ttc_cents":13440,"gross_ht_cents":11200,"discount_applied_cents":0,"commercial_rounding_cents":0}'::jsonb,
+           jsonb_build_object(
+             'labor_roles', jsonb_build_array(jsonb_build_object(
+               'id', 'a3210000-0000-4000-8000-000000000020',
+               'tenant_id', (select tenant_id from public.estimate_projects where id = 'a3210000-0000-4000-8000-000000000010'),
+               'user_id', 'a3210000-0000-4000-8000-000000000001',
+               'hourly_rate_cents', 5000)),
+             'margin_tiers', '[]'::jsonb,
+             'labor_split_flag', null),
+           null
+         ) as response$s$
+    ],
+    $a$select (response->>'committed') || ' ' ||
+         coalesce((select result->>'code' from jsonb_array_elements(response->'results') result where result->>'status' = 'error' limit 1), '-') || ' ' ||
+         (select count(*) from public.estimate_items where version_id = 'a3210000-0000-4000-8000-000000000101')::text
+       from v3_batch_result$a$
+  ),
+  pg_temp.v3_probe(
+    array[
+      'set local role authenticated',
+      $s$select set_config('request.jwt.claim.sub', 'a3210000-0000-4000-8000-000000000001', true)$s$,
+      $s$create temporary table v3_batch_result on commit drop as
+         select public.commit_estimate_batch(
+           'a3210000-0000-4000-8000-000000000101',
+           gen_random_uuid(),
+           (select updated_at from public.estimate_versions where id = 'a3210000-0000-4000-8000-000000000101'),
+           'a3210000-0000-4000-8000-000000000301',
+           '[{"op":"create","data":{"item_type":"section","title":"Lot par lot"}}]'::jsonb,
+           '[{"index":0,"id":"a3210000-0000-4000-8000-000000000570"}]'::jsonb,
+           '[{"id":"a3210000-0000-4000-8000-000000000202","pu_ht_cents":4300,"line_total_ht_cents":8600,"line_tax_cents":1720,"line_total_ttc_cents":10320},{"id":"a3210000-0000-4000-8000-000000000203","pu_ht_cents":1300,"line_total_ht_cents":2600,"line_tax_cents":520,"line_total_ttc_cents":3120}]'::jsonb,
+           '{"total_ht_cents":11200,"total_tax_cents":2240,"total_ttc_cents":13440,"gross_ht_cents":11200,"discount_applied_cents":0,"commercial_rounding_cents":0}'::jsonb,
+           jsonb_build_object(
+             'labor_roles', jsonb_build_array(jsonb_build_object(
+               'id', 'a3210000-0000-4000-8000-000000000020',
+               'tenant_id', (select tenant_id from public.estimate_projects where id = 'a3210000-0000-4000-8000-000000000010'),
+               'user_id', 'a3210000-0000-4000-8000-000000000001',
+               'hourly_rate_cents', 5000)),
+             'margin_tiers', '[]'::jsonb,
+             'labor_split_flag', null),
+           null
+         ) as response$s$
+    ],
+    $a$select (response->>'committed') || ' ' ||
+         coalesce((select result->>'code' from jsonb_array_elements(response->'results') result where result->>'status' = 'error' limit 1), '-') || ' ' ||
+         (select count(*) from public.estimate_items where version_id = 'a3210000-0000-4000-8000-000000000101')::text
+       from v3_batch_result$a$
+  )
+  ],
+  array['22023 ESTIMATE_BATCH_INVALID_INPUT', '22023 ESTIMATE_BATCH_PROJECTION_MISMATCH', 'ok:true - 5'],
+  'F-SQL-10 commit_estimate_batch writes a v3 only with the v3 footer and the exact v3 projection (M4)'
 );
 
+-- M4 (2.5, §1.7) : la création atomique a une branche v3 (même contrat que le lot).
 select is(
+  array[
   pg_temp.v3_probe(array[
     'set local role authenticated',
     $s$select set_config('request.jwt.claim.sub', 'a3210000-0000-4000-8000-000000000001', true)$s$,
     $s$select public.atomic_create_estimate_item(
          'a3210000-0000-4000-8000-000000000101',
          '{"id":"a3210000-0000-4000-8000-000000000571","parent_id":"a3210000-0000-4000-8000-000000000201","item_type":"line","position":3,"title":"Ligne atomique"}'::jsonb,
-         '[
-           {"id":"a3210000-0000-4000-8000-000000000202","pu_ht_cents":1000,"line_total_ht_cents":2000,"line_tax_cents":400,"line_total_ttc_cents":2400},
-           {"id":"a3210000-0000-4000-8000-000000000203","pu_ht_cents":1000,"line_total_ht_cents":2000,"line_tax_cents":400,"line_total_ttc_cents":2400},
-           {"id":"a3210000-0000-4000-8000-000000000571","pu_ht_cents":0,"line_total_ht_cents":0,"line_tax_cents":0,"line_total_ttc_cents":0}
-         ]'::jsonb,
-         '{"total_ht_cents":4000,"total_tax_cents":800,"total_ttc_cents":4800}'::jsonb,
+         '[{"id":"a3210000-0000-4000-8000-000000000202","pu_ht_cents":4300,"line_total_ht_cents":8600,"line_tax_cents":1720,"line_total_ttc_cents":10320},{"id":"a3210000-0000-4000-8000-000000000203","pu_ht_cents":1300,"line_total_ht_cents":2600,"line_tax_cents":520,"line_total_ttc_cents":3120},{"id":"a3210000-0000-4000-8000-000000000571","pu_ht_cents":0,"line_total_ht_cents":0,"line_tax_cents":0,"line_total_ttc_cents":0}]'::jsonb,
+         '{"total_ht_cents":11200,"total_tax_cents":2240,"total_ttc_cents":13440}'::jsonb,
          (select updated_at from public.estimate_versions where id = 'a3210000-0000-4000-8000-000000000101'),
          'a3210000-0000-4000-8000-000000000301',
          jsonb_build_object(
@@ -1079,10 +1161,51 @@ select is(
              'hourly_rate_cents', 5000)),
            'margin_tiers', '[]'::jsonb,
            'labor_split_flag', null)
-       )$s$
+       )->'totals'->>'total_ht_cents'$s$
   ]),
-  '0A000 ESTIMATE_V3_WRITER_NOT_SUPPORTED',
-  'F-SQL-10 atomic_create_estimate_item cannot create a v3 line'
+  pg_temp.v3_probe(array[
+    'set local role authenticated',
+    $s$select set_config('request.jwt.claim.sub', 'a3210000-0000-4000-8000-000000000001', true)$s$,
+    $s$select public.atomic_create_estimate_item(
+         'a3210000-0000-4000-8000-000000000101',
+         '{"id":"a3210000-0000-4000-8000-000000000571","parent_id":"a3210000-0000-4000-8000-000000000201","item_type":"line","position":3,"title":"Ligne atomique"}'::jsonb,
+         '[{"id":"a3210000-0000-4000-8000-000000000202","pu_ht_cents":4300,"line_total_ht_cents":8600,"line_tax_cents":1720,"line_total_ttc_cents":10320},{"id":"a3210000-0000-4000-8000-000000000203","pu_ht_cents":1299,"line_total_ht_cents":2600,"line_tax_cents":520,"line_total_ttc_cents":3120},{"id":"a3210000-0000-4000-8000-000000000571","pu_ht_cents":0,"line_total_ht_cents":0,"line_tax_cents":0,"line_total_ttc_cents":0}]'::jsonb,
+         '{"total_ht_cents":11200,"total_tax_cents":2240,"total_ttc_cents":13440,"gross_ht_cents":11200,"discount_applied_cents":0,"commercial_rounding_cents":0}'::jsonb,
+         (select updated_at from public.estimate_versions where id = 'a3210000-0000-4000-8000-000000000101'),
+         'a3210000-0000-4000-8000-000000000301',
+         jsonb_build_object(
+           'labor_roles', jsonb_build_array(jsonb_build_object(
+             'id', 'a3210000-0000-4000-8000-000000000020',
+             'tenant_id', (select tenant_id from public.estimate_projects where id = 'a3210000-0000-4000-8000-000000000010'),
+             'user_id', 'a3210000-0000-4000-8000-000000000001',
+             'hourly_rate_cents', 5000)),
+           'margin_tiers', '[]'::jsonb,
+           'labor_split_flag', null)
+       )->'totals'->>'total_ht_cents'$s$
+  ]),
+  pg_temp.v3_probe(array[
+    'set local role authenticated',
+    $s$select set_config('request.jwt.claim.sub', 'a3210000-0000-4000-8000-000000000001', true)$s$,
+    $s$select public.atomic_create_estimate_item(
+         'a3210000-0000-4000-8000-000000000101',
+         '{"id":"a3210000-0000-4000-8000-000000000571","parent_id":"a3210000-0000-4000-8000-000000000201","item_type":"line","position":3,"title":"Ligne atomique"}'::jsonb,
+         '[{"id":"a3210000-0000-4000-8000-000000000202","pu_ht_cents":4300,"line_total_ht_cents":8600,"line_tax_cents":1720,"line_total_ttc_cents":10320},{"id":"a3210000-0000-4000-8000-000000000203","pu_ht_cents":1300,"line_total_ht_cents":2600,"line_tax_cents":520,"line_total_ttc_cents":3120},{"id":"a3210000-0000-4000-8000-000000000571","pu_ht_cents":0,"line_total_ht_cents":0,"line_tax_cents":0,"line_total_ttc_cents":0}]'::jsonb,
+         '{"total_ht_cents":11200,"total_tax_cents":2240,"total_ttc_cents":13440,"gross_ht_cents":11200,"discount_applied_cents":0,"commercial_rounding_cents":0}'::jsonb,
+         (select updated_at from public.estimate_versions where id = 'a3210000-0000-4000-8000-000000000101'),
+         'a3210000-0000-4000-8000-000000000301',
+         jsonb_build_object(
+           'labor_roles', jsonb_build_array(jsonb_build_object(
+             'id', 'a3210000-0000-4000-8000-000000000020',
+             'tenant_id', (select tenant_id from public.estimate_projects where id = 'a3210000-0000-4000-8000-000000000010'),
+             'user_id', 'a3210000-0000-4000-8000-000000000001',
+             'hourly_rate_cents', 5000)),
+           'margin_tiers', '[]'::jsonb,
+           'labor_split_flag', null)
+       )->'totals'->>'total_ht_cents'$s$
+  ])
+  ],
+  array['22023 ESTIMATE_CREATE_INVALID_INPUT', '22023 ESTIMATE_V3_PROJECTION_MISMATCH', 'ok'],
+  'F-SQL-10 atomic_create_estimate_item writes a v3 line only with the v3 footer and the exact v3 projection (M4)'
 );
 
 select is(
@@ -1100,24 +1223,65 @@ select is(
   'F-SQL-10 bulk_update_estimate_items cannot write v3 amounts'
 );
 
+-- M4 (2.5, §1.7) : les réglages ont une branche v3 ; l'ancien contrat (pied v2) et une forme v2
+-- (paliers) sont refusés, un coefficient de vente est enregistré.
 select is(
-  pg_temp.v3_probe(array[
-    'set local role service_role',
-    $s$select public.save_estimate_settings_atomic(
-         'a3210000-0000-4000-8000-000000000107',
-         (select tenant_id from public.estimate_versions where id = 'a3210000-0000-4000-8000-000000000107'),
-         'a3210000-0000-4000-8000-000000000001',
-         (select updated_at from public.estimate_versions where id = 'a3210000-0000-4000-8000-000000000107'),
-         (select content_revision from public.estimate_versions where id = 'a3210000-0000-4000-8000-000000000107'),
-         'a3210000-0000-4000-8000-000000000302',
-         '{"margin_bp":1500}'::jsonb,
-         '[]'::jsonb,
-         '{"total_ht_cents":0,"total_tax_cents":0,"total_ttc_cents":0,"rounding_adjustment_cents":0}'::jsonb,
-         '{"labor_roles":[],"margin_tiers":[],"labor_split_flag":null}'::jsonb
-       )$s$
-  ]),
-  '0A000 ESTIMATE_V3_WRITER_NOT_SUPPORTED',
-  'F-SQL-10 save_estimate_settings_atomic cannot change v3 settings'
+  array[
+  pg_temp.v3_probe(
+    array[
+      'set local role service_role',
+      $s$select public.save_estimate_settings_atomic(
+           'a3210000-0000-4000-8000-000000000107',
+           (select tenant_id from public.estimate_versions where id = 'a3210000-0000-4000-8000-000000000107'),
+           'a3210000-0000-4000-8000-000000000001',
+           (select updated_at from public.estimate_versions where id = 'a3210000-0000-4000-8000-000000000107'),
+           (select content_revision from public.estimate_versions where id = 'a3210000-0000-4000-8000-000000000107'),
+           'a3210000-0000-4000-8000-000000000302',
+           '{"margin_bp":1500}'::jsonb,
+           '[]'::jsonb,
+           '{"total_ht_cents":0,"total_tax_cents":0,"total_ttc_cents":0,"rounding_adjustment_cents":0}'::jsonb,
+           '{"labor_roles":[],"margin_tiers":[],"labor_split_flag":null}'::jsonb
+         )$s$
+    ]
+  ),
+  pg_temp.v3_probe(
+    array[
+      'set local role service_role',
+      $s$select public.save_estimate_settings_atomic(
+           'a3210000-0000-4000-8000-000000000107',
+           (select tenant_id from public.estimate_versions where id = 'a3210000-0000-4000-8000-000000000107'),
+           'a3210000-0000-4000-8000-000000000001',
+           (select updated_at from public.estimate_versions where id = 'a3210000-0000-4000-8000-000000000107'),
+           (select content_revision from public.estimate_versions where id = 'a3210000-0000-4000-8000-000000000107'),
+           'a3210000-0000-4000-8000-000000000302',
+           '{"margin_mode":"tiered"}'::jsonb,
+           '[]'::jsonb,
+           '{"total_ht_cents":0,"total_tax_cents":0,"total_ttc_cents":0,"rounding_adjustment_cents":0,"gross_ht_cents":0,"discount_applied_cents":0,"commercial_rounding_cents":0}'::jsonb,
+           '{"labor_roles":[],"margin_tiers":[],"labor_split_flag":null}'::jsonb
+         )$s$
+    ]
+  ),
+  pg_temp.v3_probe(
+    array[
+      'set local role service_role',
+      $s$select public.save_estimate_settings_atomic(
+           'a3210000-0000-4000-8000-000000000107',
+           (select tenant_id from public.estimate_versions where id = 'a3210000-0000-4000-8000-000000000107'),
+           'a3210000-0000-4000-8000-000000000001',
+           (select updated_at from public.estimate_versions where id = 'a3210000-0000-4000-8000-000000000107'),
+           (select content_revision from public.estimate_versions where id = 'a3210000-0000-4000-8000-000000000107'),
+           'a3210000-0000-4000-8000-000000000302',
+           '{"sale_coefficient_fo":1.5}'::jsonb,
+           '[]'::jsonb,
+           '{"total_ht_cents":0,"total_tax_cents":0,"total_ttc_cents":0,"rounding_adjustment_cents":0,"gross_ht_cents":0,"discount_applied_cents":0,"commercial_rounding_cents":0}'::jsonb,
+           '{"labor_roles":[],"margin_tiers":[],"labor_split_flag":null}'::jsonb
+         )$s$
+    ],
+    $a$select sale_coefficient_fo::text from public.estimate_versions where id = 'a3210000-0000-4000-8000-000000000107'$a$
+  )
+  ],
+  array['22023 ESTIMATE_SETTINGS_INVALID_INPUT', '22023 ESTIMATE_SETTINGS_INVALID_INPUT', 'ok:1.5000'],
+  'F-SQL-10 save_estimate_settings_atomic changes v3 settings only through the v3 branch (M4)'
 );
 
 select is(
@@ -1261,9 +1425,10 @@ select is(
     'set local role authenticated',
     $s$select set_config('request.jwt.claim.sub', 'a3210000-0000-4000-8000-000000000001', true)$s$,
     $s$select public.duplicate_estimate_version('a3210000-0000-4000-8000-000000000101', false)$s$
-  ]),
-  '0A000 ESTIMATE_V3_WRITER_NOT_SUPPORTED',
-  'F-SQL-11 a v3 cannot be duplicated before the v3 duplication contract'
+  ], $a$select calc_engine_version || ':' || coalesce(variant_label, '-') from public.estimate_versions
+       where project_id = 'a3210000-0000-4000-8000-000000000010' order by version_number desc limit 1$a$),
+  'ok:3:-',
+  'F-SQL-11 a v3 is duplicated as a v3 through the duplicate_source_v3 contract (M4)'
 );
 
 select is(
@@ -1271,9 +1436,10 @@ select is(
     'set local role authenticated',
     $s$select set_config('request.jwt.claim.sub', 'a3210000-0000-4000-8000-000000000001', true)$s$,
     $s$select public.duplicate_estimate_version('a3210000-0000-4000-8000-000000000101', true)$s$
-  ]),
-  '0A000 ESTIMATE_V3_WRITER_NOT_SUPPORTED',
-  'F-SQL-11 a v3 cannot be duplicated as a variant either'
+  ], $a$select calc_engine_version || ':' || coalesce(variant_label, '-') from public.estimate_versions
+       where project_id = 'a3210000-0000-4000-8000-000000000010' order by version_number desc limit 1$a$),
+  'ok:3:A',
+  'F-SQL-11 a v3 is duplicated as a v3 variant as well (M4)'
 );
 
 -- ---------------------------------------------------------------------------
