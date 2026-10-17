@@ -186,14 +186,17 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
       ownEstimate(army, { projectId: witness.projectId, versionId: witness.versionId });
       const witnessLock = await apiRequest(browser, "POST", `/api/estimates/${witness.versionId}/lock`);
       expect(witnessLock.status).toBe(201);
-      const witnessPdf = await generatePdf(browser, record, "v2-witness", witness.versionId);
+      await generatePdf(browser, record, "v2-witness", witness.versionId);
       await expectOfferGuardInstalled(record);
       const witnessSent = await sendOffer(ui, record, "v2-witness", witness.versionId);
+      // Sending a draft renders its email PDF again (preparePdfForDispatch, force) : the attachment
+      // must be the document stored after the send, as in OF00.
+      const witnessStored = await storedPdfState(browser, witness.versionId);
       const witnessText = await pdfText(witnessSent.pdf);
       const witnessState = await readEstimate(browser, witness.versionId);
       const witnessVerified = await verifySeal(browser, witness.versionId);
       const witnessBefore = {
-        receiptMatchesDocument: witnessSent.receipt.pdf.sha256 === witnessPdf.sha256,
+        receiptMatchesDocument: witnessSent.receipt.pdf.sha256 === witnessStored.sha256,
         line: /(?:^| )1 u 20,00 ?€ 20,00 ?€/u.test(witnessText.text),
         version: [witnessState.version.calc_engine_version, witnessState.version.status, witnessState.version.seal_payload_version,
           witnessState.version.total_ht_cents, witnessState.version.total_tax_cents, witnessState.version.total_ttc_cents],
@@ -206,9 +209,9 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
       // S2 : v3 créée et réglée par l'API de 2.5, puis émise (premier rouge attendu avant M5 : génération du PDF).
       const s2 = await createV3(browser, army, record, "V3E-S2");
       await settleV3(browser, army, record, "V3E-S2", s2, S2, fixture.owner.laborRoleId);
-      const s2Pdf = await generatePdf(browser, record, "s2", s2.versionId);
+      await generatePdf(browser, record, "s2", s2.versionId);
       const s2Sent = await sendOffer(ui, record, "s2", s2.versionId);
-      expect(s2Sent.receipt.pdf.sha256).toBe(s2Pdf.sha256);
+      expect((await storedPdfState(browser, s2.versionId)).sha256).toBe(s2Sent.receipt.pdf.sha256);
       const s2State = await readEstimate(browser, s2.versionId);
       const s2Verified = await verifySeal(browser, s2.versionId);
       await record("s2-seal", { versionId: s2.versionId, status: s2State.version.status, marker: s2State.version.seal_payload_version, verified: s2Verified });
@@ -222,9 +225,9 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
       await app.open("/dashboard/affaires");
       const s5 = await createV3(browser, army, record, "V3E-S5");
       await settleV3(browser, army, record, "V3E-S5", s5, S5, fixture.owner.laborRoleId);
-      const s5Pdf = await generatePdf(browser, record, "s5", s5.versionId);
+      await generatePdf(browser, record, "s5", s5.versionId);
       const s5Sent = await sendOffer(ui, record, "s5", s5.versionId);
-      expect(s5Sent.receipt.pdf.sha256).toBe(s5Pdf.sha256);
+      expect((await storedPdfState(browser, s5.versionId)).sha256).toBe(s5Sent.receipt.pdf.sha256);
       const s5State = await readEstimate(browser, s5.versionId);
       const s5Verified = await verifySeal(browser, s5.versionId);
       await record("s5-seal", { versionId: s5.versionId, status: s5State.version.status, marker: s5State.version.seal_payload_version, verified: s5Verified });
