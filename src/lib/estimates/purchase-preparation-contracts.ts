@@ -57,5 +57,9 @@ export const purchaseReviewSchema = z.object({
     supplier_name: z.string(),
     supplier_reference: z.string().nullable(),
     review_fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+    // 2.9: what the draft orders, computed from the fingerprinted snapshot.
+    ordered_quantity: z.number().finite().nullable(),
+    ordered_unit: z.string().nullable(),
+    ordered_unit_price_ht_cents: centsSchema.nullable(),
   })),
 });

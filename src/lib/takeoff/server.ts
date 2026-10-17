@@ -2357,7 +2357,7 @@ async function collectTakeoffPriceSuggestionSources(input: {
           updated_at: suggestion.updated_at,
           is_stale: suggestion.is_stale,
           relevance_score: suggestion.relevance_score,
-          unit: suggestion.unit,
+          unit: linePrice.unit,
           unit_match: unitMatch,
           category_match: false,
         },

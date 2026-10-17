@@ -256,6 +256,10 @@ function mapSupabaseError(
     return badRequest("La conversion d'unité d'achat exige l'unité du devis, une quantité par unité d'achat positive et un arrondi.", error, "BAD_REQUEST");
   }
 
+  if (normalizedMessage.includes("supplier_pricebook_converted_price_check")) {
+    return badRequest("Le prix converti par unité du devis dépasse la capacité d'un montant : vérifiez la quantité par unité d'achat.", error, "BAD_REQUEST");
+  }
+
   if (normalizedMessage.includes("supplier_pricebook_estimate_unit_code_fkey")) {
     return badRequest("Unité du devis inconnue du référentiel.", error, "BAD_REQUEST");
   }

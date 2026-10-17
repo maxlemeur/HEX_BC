@@ -83,6 +83,8 @@ export type EstimateSupplierPreselectionExceptionReason =
 export type EstimateSupplierPreselectionProposal = {
   item_id: string;
   item_title: string;
+  /** Unit of the line (2.9): a converted offer is shown per bar on a line written in bars. */
+  item_unit?: string | null;
   current_alternative: EstimateSupplierComparisonAlternativeContract | null;
   proposed_alternative: EstimateSupplierComparisonAlternativeContract;
   patch: EstimateSupplierPreselectionPatch;
@@ -94,6 +96,8 @@ export type EstimateSupplierPreselectionProposal = {
 export type EstimateSupplierPreselectionException = {
   item_id: string;
   item_title: string;
+  /** Unit of the line (2.9): a converted offer is shown per bar on a line written in bars. */
+  item_unit?: string | null;
   reason: EstimateSupplierPreselectionExceptionReason;
   coverage_status: EstimateSupplierComparisonCoverageStatus;
   risk_flags: EstimateSupplierComparisonRiskFlag[];

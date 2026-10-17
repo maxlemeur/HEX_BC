@@ -498,7 +498,11 @@ export async function getEstimatePurchaseOrderDraftPreparation(
           review.item_title !== line.item_title || review.quantity !== line.quantity ||
           review.unit_price_ht_cents !== line.unit_price_ht_cents || review.tax_rate_bp !== line.tax_rate_bp ||
           review.unit !== line.unit || review.selected_supplier_price_id !== line.selected_supplier_price_id ||
-          review.supplier_name !== group.supplier_name || review.supplier_reference !== line.supplier_reference) {
+          review.supplier_name !== group.supplier_name || review.supplier_reference !== line.supplier_reference ||
+          // 2.9: the ordered values shown are those the draft will order (an offer converted or
+          // repriced between the two reads would otherwise order other bars than those shown).
+          review.ordered_quantity !== line.ordered_quantity || review.ordered_unit !== line.ordered_unit ||
+          review.ordered_unit_price_ht_cents !== line.ordered_unit_price_ht_cents) {
         throw conflict("La préparation a changé pendant sa lecture. Rechargez-la.", undefined, "ORDER_DRAFT_PREPARATION_STALE");
       }
       line.review_fingerprint = review.review_fingerprint;

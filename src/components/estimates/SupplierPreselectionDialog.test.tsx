@@ -45,8 +45,9 @@ describe("SupplierPreselectionDialog and converted offers", () => {
         error={null} onClose={vi.fn()} onConfirm={vi.fn()} onToggleItem={vi.fn()} onToggleAll={vi.fn()} />,
     );
 
-    const bar = formatCurrency(26245, "EUR");
-    expect(screen.getAllByText(bar, { exact: false }).length).toBeGreaterThanOrEqual(3);
-    expect(screen.queryByText(formatCurrency(8748, "EUR"), { exact: false })).toBeNull();
+    // Testing Library normalizes the narrow no-break space of the DOM text, not the searched string.
+    const text = (cents: number) => formatCurrency(cents, "EUR").replace(/\s/g, " ");
+    expect(screen.getAllByText(text(26245), { exact: false }).length).toBeGreaterThanOrEqual(3);
+    expect(screen.queryByText(text(8748), { exact: false })).toBeNull();
   });
 });

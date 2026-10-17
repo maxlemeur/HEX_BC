@@ -33711,6 +33711,20 @@
                               },
                               "product_designation": {
                                 "type": "string"
+                              },
+                              "ordered_quantity": {
+                                "type": "number",
+                                "description": "2.9 : quantité commandée, dans l'unité d'achat d'une offre convertie (282 ml → 94 barres)."
+                              },
+                              "ordered_unit": {
+                                "type": "string",
+                                "description": "2.9 : unité commandée."
+                              },
+                              "ordered_unit_price_ht_cents": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991,
+                                "description": "2.9 : prix HT par unité commandée."
                               }
                             },
                             "required": [
@@ -33726,7 +33740,10 @@
                               "line_total_ttc_cents",
                               "selected_supplier_price_id",
                               "supplier_reference",
-                              "product_designation"
+                              "product_designation",
+                              "ordered_quantity",
+                              "ordered_unit",
+                              "ordered_unit_price_ht_cents"
                             ],
                             "additionalProperties": false
                           }
@@ -33932,6 +33949,63 @@
                                     }
                                   ]
                                 },
+                                "estimate_unit_code": {
+                                  "description": "2.9 : unité du devis servie par l'offre (code du référentiel).",
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "estimate_units_per_purchase_unit": {
+                                  "description": "2.9 : quantité de l'unité du devis par unité d'achat (par exemple 3 ml par barre).",
+                                  "anyOf": [
+                                    {
+                                      "anyOf": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "string"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "purchase_rounding": {
+                                  "description": "2.9 : arrondi de la quantité d'achat.",
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "none",
+                                        "ceil"
+                                      ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "adjusted_purchase_unit_price_cents": {
+                                  "description": "2.9 : prix par unité d'achat, indice matière compris, pour une ligne écrite dans l'unité d'achat.",
+                                  "anyOf": [
+                                    {
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "kind": {
                                   "type": "string",
                                   "enum": [
@@ -34089,6 +34163,63 @@
                                       "included",
                                       "free"
                                     ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "estimate_unit_code": {
+                                "description": "2.9 : unité du devis servie par l'offre (code du référentiel).",
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "estimate_units_per_purchase_unit": {
+                                "description": "2.9 : quantité de l'unité du devis par unité d'achat (par exemple 3 ml par barre).",
+                                "anyOf": [
+                                  {
+                                    "anyOf": [
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "string"
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "purchase_rounding": {
+                                "description": "2.9 : arrondi de la quantité d'achat.",
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "none",
+                                      "ceil"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "adjusted_purchase_unit_price_cents": {
+                                "description": "2.9 : prix par unité d'achat, indice matière compris, pour une ligne écrite dans l'unité d'achat.",
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
                                   },
                                   {
                                     "type": "null"
@@ -46513,6 +46644,74 @@
                         }
                       ]
                     },
+                    "purchase_unit": {
+                      "description": "2.9 : unité d'achat de l'offre.",
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "estimate_unit_code": {
+                      "description": "2.9 : unité du devis servie par l'offre (code du référentiel).",
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "estimate_units_per_purchase_unit": {
+                      "description": "2.9 : quantité de l'unité du devis par unité d'achat (par exemple 3 ml par barre).",
+                      "anyOf": [
+                        {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "purchase_rounding": {
+                      "description": "2.9 : arrondi de la quantité d'achat.",
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "none",
+                            "ceil"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "adjusted_purchase_unit_price_cents": {
+                      "description": "2.9 : prix par unité d'achat, indice matière compris, pour une ligne écrite dans l'unité d'achat.",
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "supplier_offer_count": {
                       "type": "integer",
                       "minimum": -9007199254740991,
@@ -46616,6 +46815,74 @@
                                   "included",
                                   "free"
                                 ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "purchase_unit": {
+                            "description": "2.9 : unité d'achat de l'offre.",
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "estimate_unit_code": {
+                            "description": "2.9 : unité du devis servie par l'offre (code du référentiel).",
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "estimate_units_per_purchase_unit": {
+                            "description": "2.9 : quantité de l'unité du devis par unité d'achat (par exemple 3 ml par barre).",
+                            "anyOf": [
+                              {
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "purchase_rounding": {
+                            "description": "2.9 : arrondi de la quantité d'achat.",
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "none",
+                                  "ceil"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "adjusted_purchase_unit_price_cents": {
+                            "description": "2.9 : prix par unité d'achat, indice matière compris, pour une ligne écrite dans l'unité d'achat.",
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
                               },
                               {
                                 "type": "null"
@@ -48204,6 +48471,63 @@
                                 }
                               ]
                             },
+                            "estimate_unit_code": {
+                              "description": "2.9 : unité du devis servie par l'offre (code du référentiel).",
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "estimate_units_per_purchase_unit": {
+                              "description": "2.9 : quantité de l'unité du devis par unité d'achat (par exemple 3 ml par barre).",
+                              "anyOf": [
+                                {
+                                  "anyOf": [
+                                    {
+                                      "type": "number"
+                                    },
+                                    {
+                                      "type": "string"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "purchase_rounding": {
+                              "description": "2.9 : arrondi de la quantité d'achat.",
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "none",
+                                    "ceil"
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "adjusted_purchase_unit_price_cents": {
+                              "description": "2.9 : prix par unité d'achat, indice matière compris, pour une ligne écrite dans l'unité d'achat.",
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
                             "kind": {
                               "type": "string",
                               "enum": [
@@ -48361,6 +48685,63 @@
                                   "included",
                                   "free"
                                 ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "estimate_unit_code": {
+                            "description": "2.9 : unité du devis servie par l'offre (code du référentiel).",
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "estimate_units_per_purchase_unit": {
+                            "description": "2.9 : quantité de l'unité du devis par unité d'achat (par exemple 3 ml par barre).",
+                            "anyOf": [
+                              {
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "purchase_rounding": {
+                            "description": "2.9 : arrondi de la quantité d'achat.",
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "none",
+                                  "ceil"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "adjusted_purchase_unit_price_cents": {
+                            "description": "2.9 : prix par unité d'achat, indice matière compris, pour une ligne écrite dans l'unité d'achat.",
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
                               },
                               {
                                 "type": "null"
@@ -48535,6 +48916,17 @@
                         "item_title": {
                           "type": "string"
                         },
+                        "item_unit": {
+                          "description": "2.9 : unité de la ligne.",
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "current_alternative": {
                           "anyOf": [
                             {
@@ -48605,6 +48997,63 @@
                                         "included",
                                         "free"
                                       ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "estimate_unit_code": {
+                                  "description": "2.9 : unité du devis servie par l'offre (code du référentiel).",
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "estimate_units_per_purchase_unit": {
+                                  "description": "2.9 : quantité de l'unité du devis par unité d'achat (par exemple 3 ml par barre).",
+                                  "anyOf": [
+                                    {
+                                      "anyOf": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "string"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "purchase_rounding": {
+                                  "description": "2.9 : arrondi de la quantité d'achat.",
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "none",
+                                        "ceil"
+                                      ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "adjusted_purchase_unit_price_cents": {
+                                  "description": "2.9 : prix par unité d'achat, indice matière compris, pour une ligne écrite dans l'unité d'achat.",
+                                  "anyOf": [
+                                    {
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
                                     },
                                     {
                                       "type": "null"
@@ -48772,6 +49221,63 @@
                                 }
                               ]
                             },
+                            "estimate_unit_code": {
+                              "description": "2.9 : unité du devis servie par l'offre (code du référentiel).",
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "estimate_units_per_purchase_unit": {
+                              "description": "2.9 : quantité de l'unité du devis par unité d'achat (par exemple 3 ml par barre).",
+                              "anyOf": [
+                                {
+                                  "anyOf": [
+                                    {
+                                      "type": "number"
+                                    },
+                                    {
+                                      "type": "string"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "purchase_rounding": {
+                              "description": "2.9 : arrondi de la quantité d'achat.",
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "none",
+                                    "ceil"
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "adjusted_purchase_unit_price_cents": {
+                              "description": "2.9 : prix par unité d'achat, indice matière compris, pour une ligne écrite dans l'unité d'achat.",
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
                             "kind": {
                               "type": "string",
                               "enum": [
@@ -48914,6 +49420,17 @@
                         "item_title": {
                           "type": "string"
                         },
+                        "item_unit": {
+                          "description": "2.9 : unité de la ligne.",
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "reason": {
                           "type": "string",
                           "enum": [
@@ -49014,6 +49531,63 @@
                                         "included",
                                         "free"
                                       ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "estimate_unit_code": {
+                                  "description": "2.9 : unité du devis servie par l'offre (code du référentiel).",
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "estimate_units_per_purchase_unit": {
+                                  "description": "2.9 : quantité de l'unité du devis par unité d'achat (par exemple 3 ml par barre).",
+                                  "anyOf": [
+                                    {
+                                      "anyOf": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "string"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "purchase_rounding": {
+                                  "description": "2.9 : arrondi de la quantité d'achat.",
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "none",
+                                        "ceil"
+                                      ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "adjusted_purchase_unit_price_cents": {
+                                  "description": "2.9 : prix par unité d'achat, indice matière compris, pour une ligne écrite dans l'unité d'achat.",
+                                  "anyOf": [
+                                    {
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
                                     },
                                     {
                                       "type": "null"
@@ -49177,6 +49751,63 @@
                                       "included",
                                       "free"
                                     ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "estimate_unit_code": {
+                                "description": "2.9 : unité du devis servie par l'offre (code du référentiel).",
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "estimate_units_per_purchase_unit": {
+                                "description": "2.9 : quantité de l'unité du devis par unité d'achat (par exemple 3 ml par barre).",
+                                "anyOf": [
+                                  {
+                                    "anyOf": [
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "string"
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "purchase_rounding": {
+                                "description": "2.9 : arrondi de la quantité d'achat.",
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "none",
+                                      "ceil"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "adjusted_purchase_unit_price_cents": {
+                                "description": "2.9 : prix par unité d'achat, indice matière compris, pour une ligne écrite dans l'unité d'achat.",
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
                                   },
                                   {
                                     "type": "null"

@@ -250,9 +250,13 @@ export function EstimateArticleSheet({
                         </span>
                       </span>
                       <span className="shrink-0 font-medium tabular-nums text-foreground">
-                        {supplierOfferZeroPriceLabel(suggestion.zero_price_kind) ??
-                          formatCurrency(linePrice.priceCents, currency)}
-                        {linePrice.unit ? ` / ${linePrice.unit}` : ""}
+                        {supplierOfferZeroPriceLabel(suggestion.zero_price_kind) ?? (
+                          <>
+                            {formatCurrency(linePrice.priceCents, currency)}
+                            {/* 2.9: the unit of the price (per metre, or per bar for a line in bars). */}
+                            {linePrice.unit ? ` / ${linePrice.unit}` : null}
+                          </>
+                        )}
                       </span>
                     </button>
                   );

@@ -6,6 +6,7 @@
 -- 1. supplier_pricebook.estimate_unit_code (unit of the estimate, referential code),
 --    estimate_units_per_purchase_unit (> 0, e.g. 3 ml per bar) and purchase_rounding (none | ceil):
 --    all null (no conversion) or all set. unit stays the purchase unit, unit_price_cents its price.
+--    The converted price per estimate unit must fit an integer of cents (second review of 2.9).
 -- 2. private.purchase_unit_token now resolves through the shared referential (private.normalize_unit),
 --    falling back to the spelling token for units outside it ("barre"): m.l. = ml, Pce = u, forfait = fft.
 -- 3. private.purchase_quantity / private.purchase_unit_price_cents: quantity ordered in the purchase
@@ -16,7 +17,8 @@
 --    the purchase unit ("barre") is ordered as such, without conversion (review of 2.9).
 -- 4. create_estimate_purchase_order_drafts orders a converted line in the purchase unit, applies the
 --    minimum to the purchase quantity and compares units through the estimate unit of the offer;
---    estimate_purchase_review_lines puts the conversion in the review fingerprint;
+--    estimate_purchase_review_lines puts the conversion in the review fingerprint and shows the
+--    ordered quantity, unit and price of that snapshot;
 --    normalize_purchase_order_item orders a converted line in the purchase unit;
 --    update_supplier_offer accepts the three conversion fields.
 -- 5. catalogue_products_page compares and shows the best offer per estimate unit.
@@ -49,6 +51,13 @@ alter table public.supplier_pricebook add constraint supplier_pricebook_purchase
   -- Explicit IS NOT NULL: a comparison with a null column would make the CHECK pass.
   or (estimate_unit_code is not null and estimate_units_per_purchase_unit is not null and estimate_units_per_purchase_unit > 0
     and purchase_rounding is not null and purchase_rounding in ('none', 'ceil'))
+);
+-- CASE keeps the division away from a zero factor, which the CHECK above refuses.
+alter table public.supplier_pricebook drop constraint if exists supplier_pricebook_converted_price_check;
+alter table public.supplier_pricebook add constraint supplier_pricebook_converted_price_check check (
+  case when estimate_units_per_purchase_unit > 0
+    then pg_catalog.round(unit_price_cents / estimate_units_per_purchase_unit) <= 2147483647
+    else true end
 );
 create index if not exists supplier_pricebook_estimate_unit_code_idx
   on public.supplier_pricebook (estimate_unit_code) where estimate_unit_code is not null;
@@ -97,6 +106,8 @@ as $$
   select case
     when p_factor is null then p_line_cents
     when p_line_cents = pg_catalog.round(p_offer_cents / p_factor) then p_offer_cents
+    -- Out of an integer of cents: no price (the drafts refuse the line with ORDER_DRAFT_INPUT_INVALID).
+    when pg_catalog.round(p_line_cents * p_factor) > 2147483647 then null
     else pg_catalog.round(p_line_cents * p_factor)::integer
   end;
 $$;
@@ -132,7 +143,11 @@ returns jsonb language sql stable security definer set search_path='' set timezo
       jsonb_build_object('item_id',i.id,'item_title',i.title,'quantity',i.quantity,
         'unit_price_ht_cents',i.unit_price_ht_cents,'tax_rate_bp',i.tax_rate_bp,'unit',btrim(i.description),
         'selected_supplier_price_id',i.selected_supplier_price_id,'supplier_id',s.id,
-        'supplier_name',s.name,'supplier_reference',case when ci.id is not null then ci.supplier_sku else sp.supplier_sku end) display,
+        'supplier_name',s.name,'supplier_reference',case when ci.id is not null then ci.supplier_sku else sp.supplier_sku end,
+        -- 2.9: what the draft orders, from the same row as the fingerprint.
+        'ordered_quantity',private.purchase_quantity(i.quantity,cf.factor,sp.purchase_rounding),
+        'ordered_unit',case when cf.factor is null then btrim(i.description) else btrim(sp.unit) end,
+        'ordered_unit_price_ht_cents',private.purchase_unit_price_cents(i.unit_price_ht_cents,sp.unit_price_cents,cf.factor)) display,
       jsonb_build_object('version_currency',v.currency,'stale_price_days',private.estimate_purchase_stale_days(p_tenant_id),
         'item_id',i.id,'item_type',i.item_type,'item_title',i.title,'quantity',i.quantity,'unit_price_ht_cents',i.unit_price_ht_cents,
         'tax_rate_bp',i.tax_rate_bp,'unit',btrim(i.description),'selected_supplier_price_id',i.selected_supplier_price_id,
@@ -148,6 +163,8 @@ returns jsonb language sql stable security definer set search_path='' set timezo
     join public.supplier_pricebook sp on sp.id=i.selected_supplier_price_id and sp.tenant_id=i.tenant_id
     join public.suppliers s on s.id=sp.supplier_id and s.tenant_id=i.tenant_id
     left join public.supplier_catalog_items ci on ci.id=sp.supplier_catalog_item_id and ci.tenant_id=i.tenant_id
+    cross join lateral (select private.purchase_conversion_factor(i.description,sp.unit,sp.estimate_unit_code,
+      sp.estimate_units_per_purchase_unit) factor) cf
     where i.version_id=p_version_id and i.tenant_id=p_tenant_id and i.id=any(p_item_ids) and i.item_type='line'
   ) base;
 $$;
@@ -408,6 +425,9 @@ begin
       purchase_quantity:=private.purchase_quantity((line_value->>'quantity')::numeric,conversion_factor,line_value->'_snapshot'->>'offer_purchase_rounding');
       purchase_price:=private.purchase_unit_price_cents((line_value->>'unit_price_ht_cents')::integer,
         (line_value->'_snapshot'->>'offer_unit_price_cents')::integer,conversion_factor);
+      if purchase_price is null then
+        raise exception using errcode='22023',message='ORDER_DRAFT_INPUT_INVALID';
+      end if;
       line_ht:=round(purchase_quantity*purchase_price);
       line_tax:=round(line_ht::numeric*(line_value->>'tax_rate_bp')::integer/10000);
       if line_ht+line_tax>2147483647 then

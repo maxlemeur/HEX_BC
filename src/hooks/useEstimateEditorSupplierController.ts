@@ -196,6 +196,7 @@ function normalizeProposal(
   return {
     item_id: itemId,
     item_title: itemTitle,
+    item_unit: toNonEmptyString(value.item_unit),
     current_alternative: currentAlternative,
     proposed_alternative: proposedAlternative,
     patch: {
@@ -256,6 +257,7 @@ function normalizeException(
   return {
     item_id: itemId,
     item_title: itemTitle,
+    item_unit: toNonEmptyString(value.item_unit),
     reason: rawReason as EstimateSupplierPreselectionExceptionReason,
     coverage_status: rawCoverageStatus as EstimateSupplierComparisonCoverageStatus,
     risk_flags: riskFlags,

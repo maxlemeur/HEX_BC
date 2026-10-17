@@ -1639,6 +1639,7 @@ export function buildEstimateSupplierPreselectionReview(input: {
       proposals.push({
         item_id: comparison.item_id,
         item_title: itemTitle,
+        item_unit: comparison.unit ?? null,
         current_alternative: comparison.selected_alternative,
         proposed_alternative: proposedAlternative,
         patch,
@@ -1661,6 +1662,7 @@ export function buildEstimateSupplierPreselectionReview(input: {
       exceptions.push({
         item_id: comparison.item_id,
         item_title: itemTitle,
+        item_unit: comparison.unit ?? null,
         reason: exceptionReason,
         coverage_status: comparison.coverage_status,
         risk_flags: comparison.risk_flags,
