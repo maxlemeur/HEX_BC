@@ -114,11 +114,18 @@ export function useEstimateEditorBulkController({
         targetLines.map((line) => [line.id, line])
       );
       // The lines and the version totals they imply are written by one RPC: the
-      // stored totals feed the affaires list, approvals and documents.
-      const versionTotalsPatch = computeVersionTotalsPatch(
-        snapshot.map((item) => updatedById.get(item.id) ?? item)
-      );
-      if (!versionTotalsPatch) {
+      // stored totals feed the affaires list, approvals and documents. A move
+      // changes no amount and keeps its line-only write: with a version patch, a
+      // v2 draft rewrites every line, and the RPC's negative-position pass then
+      // collides on (parent_id, position) when a line moves back beside a
+      // sibling holding its old position (bulk-move undo, 409).
+      const isPlacementWrite = buildUpdate === buildPlacedLineUpdatePayload;
+      const versionTotalsPatch = isPlacementWrite
+        ? undefined
+        : computeVersionTotalsPatch(
+            snapshot.map((item) => updatedById.get(item.id) ?? item)
+          );
+      if (!isPlacementWrite && !versionTotalsPatch) {
         reportError("Impossible de calculer les totaux du devis.");
         throw new Error("Impossible de calculer les totaux du devis.");
       }
