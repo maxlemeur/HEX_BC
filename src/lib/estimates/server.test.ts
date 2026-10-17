@@ -516,6 +516,11 @@ function createCreateEstimateSupabaseMock() {
   const estimateLaborRolesUpsert = vi.fn().mockResolvedValue({
     error: null,
   });
+  const laborRolesReadBuilder = {
+    eq: vi.fn(),
+    in: vi.fn().mockResolvedValue({ data: [], error: null }),
+  };
+  laborRolesReadBuilder.eq.mockReturnValue(laborRolesReadBuilder);
 
   const supabase = {
     auth: {
@@ -544,6 +549,7 @@ function createCreateEstimateSupabaseMock() {
 
       if (table === "labor_roles") {
         return {
+          select: vi.fn(() => laborRolesReadBuilder),
           upsert: estimateLaborRolesUpsert,
         };
       }

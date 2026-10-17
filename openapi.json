@@ -2277,7 +2277,7 @@
             }
           },
           "409": {
-            "description": "Conflit metier ou de concurrence.",
+            "description": "CONTEXT_CHANGED : un calcul du tenant detient son verrou pendant la creation des roles MO par defaut manquants ; rien n'est cree, la requete peut etre reessayee.",
             "content": {
               "application/json": {
                 "schema": {

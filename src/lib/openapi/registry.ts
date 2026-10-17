@@ -4256,6 +4256,10 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
         "Chiffrage cree avec succes.",
         apiEstimateCreatedSchemaDefinition
       ),
+      "409": jsonResponse(
+        "CONTEXT_CHANGED : un calcul du tenant detient son verrou pendant la creation des roles MO par defaut manquants ; rien n'est cree, la requete peut etre reessayee.",
+        openApiSharedSchemaDefinitions.apiFailureResponse
+      ),
     },
   },
   {

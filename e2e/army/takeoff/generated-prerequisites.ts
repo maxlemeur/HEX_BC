@@ -21,7 +21,7 @@ const tables = [
 ];
 const literal = (value: unknown) => `'${JSON.stringify(value).replaceAll("'", "''")}'::jsonb`;
 
-function localSqlTransport() {
+export function localSqlTransport() {
   let api: URL, db: URL;
   try {
     api = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!);

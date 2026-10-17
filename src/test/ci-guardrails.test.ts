@@ -610,9 +610,9 @@ describe("CI and local quality guardrails", () => {
     // Journeys share one account, tenant and ARMY fixtures. Parallel workers
     // would write concurrently to a shared stack's fixtures or measure
     // performance budgets under load; on the owned stack (the only runner that
-    // sets E2E_ARMY_LOCAL_DB_URL) 3 workers stay exploratory, since estimate
-    // creation failed there with 40001 on 16/10/2026. Each case re-evaluates
-    // e2e.config.ts as the e2e CLI would load it.
+    // sets E2E_ARMY_LOCAL_DB_URL) 2 workers are qualified (two green full
+    // critical runs on 16/10/2026) and 3 stay exploratory. Each case
+    // re-evaluates e2e.config.ts as the e2e CLI would load it.
     const ownedDatabase = "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
     const cases = [
       { env: {}, workers: 1 as number | string },
