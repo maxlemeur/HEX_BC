@@ -32,7 +32,9 @@ type EstimateKey = "oz01" | "oz02" | "oz03";
 type Envelope<T> = { ok: boolean; data: T; error?: { code: string; message: string } };
 type Alternative = { supplier_price_id: string; adjusted_unit_price_cents: number; zero_price_kind?: string | null };
 type Comparisons = {
-  comparisons: Array<{ item_id: string; best_supplier_price_id: string | null; risk_flags: string[]; alternatives: Alternative[] }>;
+  coverage_summary: { total_items: number; covered_items: number; ambiguous_items: number; no_price_items: number; stale_items: number };
+  comparisons: Array<{ item_id: string; best_supplier_price_id: string | null; coverage_status: string; risk_flags: string[];
+    alternatives: Alternative[] }>;
   bulk_preselection: { proposals: Array<{ item_id: string; proposed_alternative: Alternative;
     patch: { unit_price_ht_cents: number; selected_supplier_price_id: string } }> };
 };
@@ -41,6 +43,11 @@ type Preparation = {
   groups: Array<{ supplier_id: string; total_ht_cents: number; total_tax_cents: number; total_ttc_cents: number;
     lines: Array<{ item_id: string; review_fingerprint: string }> }>;
   blocked_lines: Array<{ item_id: string; reason: string; reason_detail?: string }>;
+};
+type CataloguePage = {
+  items: Array<{ id: string; _bestSupplierPriceCents: number | null; _bestSupplierName: string | null; _priceStatus: string;
+    _supplierPriceCount: number }>;
+  counters: { active: number; covered: number; withoutSupplierPrice: number; stale: number };
 };
 
 const options = { session: "army", tags: ["calc-v3", "supplier-offers"], trace: "off" as const, timeout: 300_000 };
@@ -79,6 +86,20 @@ async function waitForPersisted(browser: Parameters<typeof apiRequest>[0], army:
   return snapshot;
 }
 
+// Catalogue products page (catalogue_products_page) and its counters (catalogue_products_summary).
+async function cataloguePage(browser: Parameters<typeof apiRequest>[0], prefix: string) {
+  const response = await apiRequest<Envelope<CataloguePage>>(browser, "GET",
+    `/api/catalogue?view=page&q=${encodeURIComponent(prefix)}&size=25`);
+  expect(response.status).toBe(200);
+  const page = response.body.data;
+  const row = (id: string) => {
+    const entry = page.items.find((item) => item.id === id);
+    return entry && { best: entry._bestSupplierPriceCents, supplier: entry._bestSupplierName, status: entry._priceStatus,
+      offers: entry._supplierPriceCount };
+  };
+  return { page, row };
+}
+
 async function compare(browser: Parameters<typeof apiRequest>[0], versionId: string, itemIds: string[]) {
   const response = await apiRequest<Envelope<Comparisons>>(browser, "POST",
     `/api/estimates/${versionId}/supplier-comparisons`, { item_ids: itemIds });
@@ -105,6 +126,9 @@ armyTest("OZ01 an unmarked 0 € offer never prices a line: best price, preselec
     const linked = comparison.comparisons.find((entry) => entry.item_id === lines.linkedZero.id)!;
     expect(linked.best_supplier_price_id, "a line linked to the 0 € offer sees the 12,40 € best price").toBe(offers.p1Priced.id);
     expect(linked.risk_flags).toContain("selected_not_best_price");
+    // Coverage indicator: a line priced by the unmarked 0 € offer is never counted as covered.
+    expect(linked.coverage_status, "a line linked to the unmarked 0 € offer is not covered").toBe("ambiguous");
+    expect(comparison.coverage_summary).toEqual({ total_items: 3, covered_items: 0, ambiguous_items: 2, no_price_items: 1, stale_items: 0 });
     const proposals = comparison.bulk_preselection.proposals;
     expect(proposals.filter((proposal) => proposal.item_id === lines.compareP2.id)).toEqual([]);
     expect(proposals.find((proposal) => proposal.item_id === lines.compareP1.id)?.patch)
@@ -202,6 +226,16 @@ armyTest("OZ02 an offer at 0 € marked Inclus from the offer form is usable and
     const before = await compare(browser, estimate.versionId, [lines.compareP3.id]);
     expect(before.bulk_preselection.proposals).toEqual([]);
 
+    // Catalogue products page: an unmarked 0 € offer is still counted as an offer, never as the best
+    // price, and leaves its article without supplier price in the counters.
+    const supplierName = (key: keyof Fixture["suppliers"]) => `${fixture.prefix} fournisseur ${key}`;
+    const catalogueBefore = await cataloguePage(browser, fixture.prefix);
+    expect(catalogueBefore.row(products.p1.id), "P1 best price").toEqual({ best: 1240, supplier: supplierName("priced"),
+      status: "fresh", offers: 2 });
+    expect(catalogueBefore.row(products.p2.id), "P2 has no usable supplier price").toEqual({ best: null, supplier: null,
+      status: "none", offers: 1 });
+    expect(catalogueBefore.row(products.p3.id), "P3 before marking").toEqual({ best: null, supplier: null, status: "none", offers: 1 });
+
     // A marking sent alone on a priced offer is refused with a validation error, not a database failure.
     const refusedMarking = await apiRequest<Envelope<unknown>>(browser, "POST", "/api/prices",
       { action: "update-offer", id: offers.p1Priced.id, item: { zero_price_kind: "free" } });
@@ -216,6 +250,18 @@ armyTest("OZ02 an offer at 0 € marked Inclus from the offer form is usable and
     await screen.getByLabel("Offre à 0 €", { exact: true }).selectOption({ value: "included" });
     await screen.getByRole("button", "Enregistrer l’offre", { exact: true }).tap();
     await expect(offerList.getByText("Inclus / ml", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
+
+    // Marked, the offer becomes P3's best price and moves P3 from "without supplier price" to "covered".
+    const catalogueAfter = await cataloguePage(browser, fixture.prefix);
+    await recordEvidence(army, "oz02-catalogue", { before: catalogueBefore.page, after: catalogueAfter.page });
+    expect(catalogueAfter.row(products.p3.id), "P3 after marking").toEqual({ best: 0, supplier: supplierName("included"),
+      status: "fresh", offers: 1 });
+    const [countersBefore, countersAfter] = [catalogueBefore.page.counters, catalogueAfter.page.counters];
+    expect({
+      active: countersAfter.active - countersBefore.active,
+      covered: countersAfter.covered - countersBefore.covered,
+      withoutSupplierPrice: countersAfter.withoutSupplierPrice - countersBefore.withoutSupplierPrice,
+    }, "the marking alone moves P3 into the covered counter").toEqual({ active: 0, covered: 1, withoutSupplierPrice: -1 });
 
     const after = await compare(browser, estimate.versionId, [lines.compareP3.id]);
     await recordEvidence(army, "oz02-comparisons", { before, after });
