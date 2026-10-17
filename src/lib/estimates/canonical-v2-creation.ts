@@ -6,10 +6,30 @@ import type { EstimateItemRecord } from "@/lib/estimate-calculations";
 import type { RpcImportItemPayload } from "@/lib/affaires/import-flow-server";
 import { buildEstimateV2SnapshotProjection } from "@/lib/estimate-v2-snapshot";
 import { NEW_ESTIMATE_CALC_ENGINE_VERSION } from "@/lib/estimates/calc-engine-version";
+import {
+  calcPolicyContextChanged,
+  isCalcPolicyContextChangedError,
+  readTenantCalcPolicy,
+  resolveNewEstimateEngine,
+  type TenantCalcPolicy,
+} from "@/lib/estimates/calc-policy-server";
 import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
-import { DEFAULT_MAX_SECTION_DEPTH } from "@/lib/estimates/hierarchy";
+import {
+  assertNever,
+  EstimateEngineUnavailableError,
+  usesSaleCoefficients,
+} from "@/lib/estimates/engine/capabilities";
+import { badRequest, internalError } from "@/lib/estimates/errors";
+import {
+  buildHierarchyIndex,
+  DEFAULT_MAX_SECTION_DEPTH,
+  MAX_SECTION_DEPTH,
+  resolveSectionLevel,
+} from "@/lib/estimates/hierarchy";
+import { assertEstimateV3VersionShape, toEstimateV3VersionTotals } from "@/lib/estimates/v3-persistence";
 import {
   calculateEstimateSnapshotForItems,
+  calculateEstimateV3SnapshotForItems,
   type EstimateTotalsVersionConfig,
 } from "@/lib/estimates/version-totals";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
@@ -58,6 +78,8 @@ type CanonicalV2VersionOverrides = Partial<
     | "rounding_step_cents"
     | "max_section_depth"
     | "contractor_role"
+    | "sale_coefficient_fo"
+    | "sale_coefficient_mo"
   >
 >;
 
@@ -117,6 +139,11 @@ export type PersistCanonicalEstimateV2Input = {
   project: ExistingProjectTarget | NewProjectTarget;
   version?: CanonicalV2VersionOverrides;
   source: CanonicalV2CreationSource;
+  /**
+   * Lot 2, sous-lot 2.5 (D3) : moteur que le client attend pour ses projections. Absent = 2 ;
+   * tout écart avec la politique de l'entreprise lève `CONTEXT_CHANGED` sans rien écrire.
+   */
+  expectedCalcEngineVersion?: number | null;
 };
 
 export type PersistCanonicalEstimateV2Result = {
@@ -489,9 +516,48 @@ async function loadExistingProjectContext(input: {
   };
 }
 
+/**
+ * Revue de suivi de F4 (PR #33, §10.6) : niveau de la section la plus profonde du contenu créé (0 sans section).
+ * Racine d'import 1, ses sections de niveau 1 et 2 aux niveaux 2 et 3 ; un modèle, sa propre hiérarchie.
+ */
+function requiredSectionDepthOf(items: CanonicalEstimateCreationItem[]) {
+  const index = buildHierarchyIndex(items.map((item) => ({
+    id: item.id!,
+    parent_id: item.parent_id ?? null,
+    item_type: item.item_type,
+  })));
+  return items.reduce((deepest, item) => item.item_type === "section"
+    ? Math.max(deepest, resolveSectionLevel(index, item.id!) ?? 0)
+    : deepest, 0);
+}
+
+/**
+ * Profondeur de la version créée : celle fournie par l'appelant, sinon celle héritée (dernière version de l'affaire,
+ * 3 pour une affaire neuve) relevée au besoin du contenu, jamais abaissée. Une version qui naîtrait moins profonde que
+ * ses sections serait refusée par `validate_estimate_item_hierarchy_depth`, opaque ; une profondeur fournie trop
+ * faible est refusée ici, nommée, avant toute écriture.
+ */
+function resolveCreationSectionDepth(input: {
+  supplied: number | null | undefined;
+  inherited: number | null | undefined;
+  required: number;
+}) {
+  const depth = input.supplied ??
+    Math.max(input.inherited ?? DEFAULT_VERSION_SETTINGS.max_section_depth, input.required);
+  if (input.required > depth || input.required > MAX_SECTION_DEPTH) {
+    throw badRequest(
+      "La profondeur de sections demandée ne contient pas les sections créées.",
+      { max_section_depth: depth, required_section_depth: input.required },
+      "ESTIMATE_SECTION_DEPTH_TOO_SHALLOW"
+    );
+  }
+  return depth;
+}
+
 function resolveVersionPayload(input: {
   overrides?: CanonicalV2VersionOverrides;
   latestVersion: LatestVersionDefaults | null;
+  requiredSectionDepth: number;
 }) {
   const base = {
     ...DEFAULT_VERSION_SETTINGS,
@@ -499,6 +565,11 @@ function resolveVersionPayload(input: {
     ...(input.latestVersion ?? {}),
     ...(input.overrides ?? {}),
   };
+  const maxSectionDepth = resolveCreationSectionDepth({
+    supplied: input.overrides?.max_section_depth,
+    inherited: input.latestVersion?.max_section_depth,
+    required: input.requiredSectionDepth,
+  });
 
   return {
     id: randomUUID(),
@@ -517,9 +588,87 @@ function resolveVersionPayload(input: {
     tax_rate_bp: base.tax_rate_bp,
     rounding_mode: base.rounding_mode,
     rounding_step_cents: base.rounding_step_cents,
-    max_section_depth: base.max_section_depth,
+    max_section_depth: maxSectionDepth,
     contractor_role: base.contractor_role,
     calc_engine_version: NEW_ESTIMATE_CALC_ENGINE_VERSION,
+    total_ht_cents: 0,
+    total_tax_cents: 0,
+    total_ttc_cents: 0,
+  };
+}
+
+/** Réglages neutres repris de la dernière version de l'affaire pour une v3 (jamais sa marge v2). */
+const V3_INHERITED_SETTINGS = [
+  "date_devis",
+  "validite_jours",
+  "currency",
+  "tax_rate_bp",
+  "max_section_depth",
+  "contractor_role",
+] as const satisfies ReadonlyArray<keyof LatestVersionDefaults>;
+
+/** Réglages de création propres au moteur 3 (D5) : fournis ou ceux de la politique ; refusés sur une v2. */
+const V3_CREATION_SETTINGS = ["sale_coefficient_fo", "sale_coefficient_mo"] as const;
+
+/**
+ * Lot 2, sous-lot 2.5 - charge de version v3 (D5 à D7, §6.2). Une v3 naît en marge fixe à 1,
+ * coefficient global 1, remise simple, avec les coefficients de vente fournis ou ceux de la
+ * politique ; elle ne reprend de la dernière version que des réglages neutres (une v2 peut porter
+ * un palier, un coefficient global ou deux intentions de remise que la v3 interdit).
+ */
+function resolveV3VersionPayload(input: {
+  overrides?: CanonicalV2VersionOverrides;
+  latestVersion: LatestVersionDefaults | null;
+  policy: TenantCalcPolicy;
+  requiredSectionDepth: number;
+}) {
+  const inherited: Partial<LatestVersionDefaults> = {};
+  for (const key of V3_INHERITED_SETTINGS) {
+    if (input.latestVersion) Object.assign(inherited, { [key]: input.latestVersion[key] });
+  }
+  const base = {
+    ...DEFAULT_VERSION_SETTINGS,
+    date_devis: todayDateOnly(),
+    ...inherited,
+    ...(input.overrides ?? {}),
+  };
+  assertEstimateV3VersionShape(base);
+  const saleCoefficientFo = input.overrides?.sale_coefficient_fo ?? input.policy.defaultSaleCoefficientFo;
+  const saleCoefficientMo = input.overrides?.sale_coefficient_mo ?? input.policy.defaultSaleCoefficientMo;
+  if (saleCoefficientFo === null || saleCoefficientFo === undefined ||
+    saleCoefficientMo === null || saleCoefficientMo === undefined) {
+    throw internalError("La politique de calcul de l'entreprise n'a pas de coefficients de vente par défaut.");
+  }
+  return {
+    id: randomUUID(),
+    title: normalizeNullableText(input.overrides?.title),
+    date_devis: base.date_devis,
+    validite_jours: base.validite_jours,
+    margin_multiplier: base.margin_multiplier,
+    margin_mode: base.margin_mode,
+    currency: base.currency,
+    margin_bp: base.margin_bp,
+    discount_bp: base.discount_bp,
+    discount_amount_cents: base.discount_amount_cents,
+    discount_mode: base.discount_mode,
+    discount_steps: base.discount_steps,
+    global_coefficient: base.global_coefficient,
+    tax_rate_bp: base.tax_rate_bp,
+    rounding_mode: base.rounding_mode,
+    rounding_step_cents: base.rounding_step_cents,
+    max_section_depth: resolveCreationSectionDepth({
+      supplied: input.overrides?.max_section_depth,
+      inherited: input.latestVersion?.max_section_depth,
+      required: input.requiredSectionDepth,
+    }),
+    contractor_role: base.contractor_role,
+    // Moteur attendu par le client, revérifié par la RPC sous la politique verrouillée (D3).
+    calc_engine_version: 3,
+    sale_coefficient_fo: saleCoefficientFo,
+    sale_coefficient_mo: saleCoefficientMo,
+    gross_ht_cents: 0,
+    discount_applied_cents: 0,
+    commercial_rounding_cents: 0,
     total_ht_cents: 0,
     total_tax_cents: 0,
     total_ttc_cents: 0,
@@ -557,47 +706,47 @@ function toCalculationItem(item: CanonicalEstimateCreationItem): EstimateItemRec
   };
 }
 
-/**
- * Unique seam for every non-duplication estimate creation path. It owns source
- * normalization, hierarchy remapping, v2 calculation and the protected atomic
- * persistence contract; callers only provide authenticated domain context.
- */
-export async function persistCanonicalEstimateV2(
-  input: PersistCanonicalEstimateV2Input
-): Promise<PersistCanonicalEstimateV2Result> {
-  const existingContext =
-    input.project.kind === "existing"
-      ? await loadExistingProjectContext({
-          supabase: input.supabase,
-          tenantId: input.tenantId,
-          projectId: input.project.id,
-        })
-      : null;
-  const projectUserId = existingContext?.projectUserId ?? input.actorUserId;
+type CanonicalSourceResult = {
+  items: CanonicalEstimateCreationItem[];
+  insertedLineCount: number;
+  insertedSectionCount: number;
+  rootSectionId: string | null;
+};
+
+function resolveCanonicalSource(source: CanonicalV2CreationSource): CanonicalSourceResult {
+  return source.kind === "blank"
+    ? {
+        items: [],
+        insertedLineCount: 0,
+        insertedSectionCount: 0,
+        rootSectionId: null,
+      }
+    : source.kind === "template"
+    ? {
+        items: cloneTemplateItems(source.items),
+        insertedLineCount: source.items.filter(
+          (item) => item.item_type === "line"
+        ).length,
+        insertedSectionCount: source.items.filter(
+          (item) => item.item_type === "section"
+        ).length,
+        rootSectionId: null,
+      }
+    : createImportItems(source);
+}
+
+/** Préparation v2 inchangée : projection du moteur historique et charge canonique v2. */
+async function prepareCanonicalV2Creation(input: PersistCanonicalEstimateV2Input, context: {
+  projectUserId: string;
+  latestVersion: LatestVersionDefaults | null;
+  sourceResult: CanonicalSourceResult;
+}) {
+  const { projectUserId, sourceResult } = context;
   const versionPayload = resolveVersionPayload({
     overrides: input.version,
-    latestVersion: existingContext?.latestVersion ?? null,
+    latestVersion: context.latestVersion,
+    requiredSectionDepth: requiredSectionDepthOf(sourceResult.items),
   });
-  const sourceResult =
-    input.source.kind === "blank"
-      ? {
-          items: [],
-          insertedLineCount: 0,
-          insertedSectionCount: 0,
-          rootSectionId: null,
-        }
-      : input.source.kind === "template"
-      ? {
-          items: cloneTemplateItems(input.source.items),
-          insertedLineCount: input.source.items.filter(
-            (item) => item.item_type === "line"
-          ).length,
-          insertedSectionCount: input.source.items.filter(
-            (item) => item.item_type === "section"
-          ).length,
-          rootSectionId: null,
-        }
-      : createImportItems(input.source);
   const calculationItems = sourceResult.items.map(toCalculationItem);
   const versionConfig: EstimateTotalsVersionConfig = {
     margin_multiplier: versionPayload.margin_multiplier,
@@ -644,6 +793,82 @@ export async function persistCanonicalEstimateV2(
     total_ttc_cents: projection.totals.total_ttc_cents,
   });
 
+  return { versionPayload, persistedItems };
+}
+
+/**
+ * Unique seam for every non-duplication estimate creation path. It owns source
+ * normalization, hierarchy remapping, v2 calculation and the protected atomic
+ * persistence contract; callers only provide authenticated domain context.
+ */
+export async function persistCanonicalEstimateV2(
+  input: PersistCanonicalEstimateV2Input
+): Promise<PersistCanonicalEstimateV2Result> {
+  const existingContext =
+    input.project.kind === "existing"
+      ? await loadExistingProjectContext({
+          supabase: input.supabase,
+          tenantId: input.tenantId,
+          projectId: input.project.id,
+        })
+      : null;
+  const projectUserId = existingContext?.projectUserId ?? input.actorUserId;
+  const policy = await readTenantCalcPolicy(input.supabase, input.tenantId);
+  // Modèles, imports et autres chemins d'entrée v3 : sous-lot 2.8 (D16). Sous politique 3, refus nommé et
+  // définitif avant la comparaison des attentes : un chemin sans attente (import, création rapide) ne doit
+  // pas recevoir le CONTEXT_CHANGED « rechargez la page », qui boucle (revue 2.5).
+  if (input.source.kind !== "blank" && usesSaleCoefficients(policy.engine)) throw new EstimateEngineUnavailableError();
+  const engine = resolveNewEstimateEngine({ policy, expectedEngine: input.expectedCalcEngineVersion });
+  const sourceResult = resolveCanonicalSource(input.source);
+  let prepared: { versionPayload: Record<string, unknown>; persistedItems: CanonicalEstimateCreationItem[] };
+  switch (engine) {
+    case 2: {
+      // Revue 2.5 (V3P-13) : un coefficient de vente est un réglage v3 ; refus nommé, jamais un retrait silencieux.
+      const v3Fields = V3_CREATION_SETTINGS.filter((key) => input.version?.[key] != null);
+      if (v3Fields.length > 0) {
+        throw badRequest("Ces réglages sont réservés au moteur de calcul 3.", { fields: v3Fields },
+          "ESTIMATE_ENGINE_COLUMN_NOT_SUPPORTED");
+      }
+      prepared = await prepareCanonicalV2Creation(input, {
+        projectUserId,
+        latestVersion: existingContext?.latestVersion ?? null,
+        sourceResult,
+      });
+      break;
+    }
+    case 3: {
+      const versionPayload = resolveV3VersionPayload({
+        overrides: input.version,
+        latestVersion: existingContext?.latestVersion ?? null,
+        policy,
+        // Toujours 0 en 2.5 (seule une v3 vierge est créée) ; même règle que la v2 pour les entrées de 2.8.
+        requiredSectionDepth: requiredSectionDepthOf(sourceResult.items),
+      });
+      const calculated = await calculateEstimateV3SnapshotForItems({
+        supabase: input.supabase,
+        tenantId: input.tenantId,
+        projectUserId,
+        version: versionPayload,
+        lineItems: [],
+      });
+      // Coefficients que le client n'a pas fournis : la RPC prend ceux de la politique qu'elle relit FOR SHARE
+      // sous le verrou consultatif, jamais ceux lus ici sans verrou (revue 2.5). Une v3 à blanc vaut 0 sous
+      // n'importe quels coefficients : les totaux calculés restent exacts.
+      const persistedPayload: Record<string, unknown> = { ...versionPayload };
+      for (const key of V3_CREATION_SETTINGS) {
+        if (input.version?.[key] == null) delete persistedPayload[key];
+      }
+      prepared = {
+        versionPayload: { ...persistedPayload, ...toEstimateV3VersionTotals(calculated.breakdown) },
+        persistedItems: [],
+      };
+      break;
+    }
+    default:
+      return assertNever(engine);
+  }
+  const { versionPayload, persistedItems } = prepared;
+
   const projectId =
     input.project.kind === "existing" ? input.project.id : input.project.id ?? randomUUID();
   const projectPayload =
@@ -664,7 +889,7 @@ export async function persistCanonicalEstimateV2(
       p_actor_user_id: input.actorUserId,
       p_project_id: input.project.kind === "existing" ? projectId : null,
       p_project_payload: projectPayload,
-      p_version_payload: versionPayload,
+      p_version_payload: versionPayload as Json,
       p_items: persistedItems,
       p_import_id:
         input.source.kind === "import"
@@ -674,6 +899,7 @@ export async function persistCanonicalEstimateV2(
             : null,
     }
   );
+  if (isCalcPolicyContextChangedError(error)) throw calcPolicyContextChanged();
   if (error || !data) {
     throw new Error("ESTIMATE_CANONICAL_V2_PERSIST_FAILED", {
       cause: error ?? undefined,

@@ -90,6 +90,8 @@ $$;
 -- Chaque migration du lot 2 qui ajoute une colonne à une table comparée l'ajoute ici, par
 -- exemple : ('estimate_versions', 'sale_coefficient_fo', 'null').
 -- Sous-lot 2.2 (20261017093407) : aucune offre existante n'est marquée « inclus / gratuit ».
+-- Sous-lot 2.5 (M4, 20261017162000) : colonnes v3 nulles sur toute version et toute ligne
+-- existantes (v1/v2, D17), statut de ligne au défaut constant « priced ».
 create or replace function upgrade_check.declared_new_columns()
 returns table (table_name text, column_name text, neutral_value jsonb)
 language sql
@@ -98,7 +100,19 @@ set search_path = ''
 as $$
   select declared.table_name, declared.column_name, declared.neutral_value
   from (values
-    ('supplier_pricebook'::text, 'zero_price_kind'::text, 'null'::jsonb)
+    ('supplier_pricebook'::text, 'zero_price_kind'::text, 'null'::jsonb),
+    ('estimate_versions', 'sale_coefficient_fo', 'null'),
+    ('estimate_versions', 'sale_coefficient_mo', 'null'),
+    ('estimate_versions', 'gross_ht_cents', 'null'),
+    ('estimate_versions', 'discount_applied_cents', 'null'),
+    ('estimate_versions', 'commercial_rounding_cents', 'null'),
+    ('estimate_items', 'unit_code', 'null'),
+    ('estimate_items', 'pricing_status', '"priced"'),
+    ('estimate_items', 'h_mo_per_unit', 'null'),
+    ('estimate_items', 'h_mo_atelier_per_unit', 'null'),
+    ('estimate_items', 'h_mo_chantier_per_unit', 'null'),
+    ('estimate_items', 'snapshot_gross_ht_cents', 'null'),
+    ('estimate_items', 'snapshot_gross_fo_ht_cents', 'null')
   ) as declared(table_name, column_name, neutral_value)
 $$;
 

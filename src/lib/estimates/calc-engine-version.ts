@@ -13,6 +13,7 @@
 import {
   engineFreezesSnapshot,
   EstimateEngineUnavailableError,
+  type EstimateEngineVersion,
   EstimateEngineVersionError,
 } from "@/lib/estimates/engine/capabilities";
 
@@ -51,6 +52,31 @@ export function resolveCalcEngineVersion(
     );
   }
   return LEGACY_CALC_ENGINE_VERSION;
+}
+
+/**
+ * Lot 2, sous-lot 2.5 : meme tolerance historique que `resolveCalcEngineVersion`
+ * pour les moteurs 1 et 2 (resultat identique), mais une v3 est rendue comme 3,
+ * pour les chemins qui savent desormais l'aiguiller. Au-dela de 3 : refus.
+ */
+export function resolveEstimateEngineVersion(
+  version: { calc_engine_version?: number | null } | null | undefined
+): EstimateEngineVersion {
+  const raw = version?.calc_engine_version;
+  if (Number.isFinite(raw ?? NaN) && Math.trunc(raw as number) === 3) return 3;
+  return resolveCalcEngineVersion(version);
+}
+
+/** Variante d'affichage de `resolveEstimateEngineVersion` : `null` pour un moteur inconnu. */
+export function resolveEstimateEngineVersionForDisplay(
+  version: { calc_engine_version?: number | null } | null | undefined
+): EstimateEngineVersion | null {
+  try {
+    return resolveEstimateEngineVersion(version);
+  } catch (error) {
+    if (error instanceof EstimateEngineVersionError) return null;
+    throw error;
+  }
 }
 
 /**

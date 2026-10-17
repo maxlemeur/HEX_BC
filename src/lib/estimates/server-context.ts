@@ -126,7 +126,7 @@ export async function getVersionAccessOrThrow(
   const { data, error } = await supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, tenant_id, status, margin_mode, margin_multiplier, margin_bp, discount_bp, discount_amount_cents, max_section_depth, tax_rate_bp, updated_at, content_revision, total_ht_cents, total_tax_cents, total_ttc_cents, calc_engine_version, calc_snapshot_content_revision, calc_snapshot_context, parent_version_id, variant_label, currency, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, site_address, client_name, notes, is_archived)"
+      "id, project_id, tenant_id, status, margin_mode, margin_multiplier, margin_bp, discount_bp, discount_amount_cents, max_section_depth, tax_rate_bp, updated_at, content_revision, total_ht_cents, total_tax_cents, total_ttc_cents, calc_engine_version, sale_coefficient_fo, sale_coefficient_mo, gross_ht_cents, discount_applied_cents, commercial_rounding_cents, calc_snapshot_content_revision, calc_snapshot_context, parent_version_id, variant_label, currency, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, site_address, client_name, notes, is_archived)"
     )
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)

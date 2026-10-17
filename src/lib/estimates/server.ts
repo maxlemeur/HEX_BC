@@ -48,9 +48,14 @@ import {
 } from "@/lib/estimates/catalogue-suggestions";
 import {
   resolveCalcEngineVersion,
+  resolveEstimateEngineVersion,
   shouldPreserveStoredEstimateV2Snapshot,
 } from "@/lib/estimates/calc-engine-version";
-import { isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
+import {
+  EstimateEngineUnavailableError,
+  isUnifiedEngine,
+  usesPerUnitLabor,
+} from "@/lib/estimates/engine/capabilities";
 import { getTakeoffLinkedSourceVersionByJobId } from "@/lib/takeoff/version-links";
 import { isSupplierAlternativeCurrencyCompatible } from "@/lib/estimates/supplier-preselection";
 import { readSupplierOfferConditions, readSelectedSupplierDetails, type SupplierOfferConditions, type SelectedSupplierDetails } from "@/lib/estimates/supplier-offer-conditions";
@@ -58,6 +63,7 @@ import { supplierOfferIneligibility } from "@/lib/estimates/supplier-offer-eligi
 import { isSupplierOfferPriceEligible } from "@/lib/estimates/supplier-offer-price";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
 import { persistAtomicEstimateSettings } from "@/lib/estimates/settings-atomic";
+import { pickV3ItemInputFields } from "@/lib/estimates/v3-persistence";
 import type {
   EstimateSupplierPreselectionException,
   EstimateSupplierPreselectionExceptionReason,
@@ -1823,7 +1829,7 @@ export async function loadEstimateSealSource(input: {
   const { data: versionData, error: versionError } = await input.supabase
     .from("estimate_versions")
     .select(
-      "id, tenant_id, project_id, status, updated_at, version_number, title, exclusions, date_devis, validite_jours, currency, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, max_section_depth, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, seal_hash, seal_payload_version, content_revision"
+      "id, tenant_id, project_id, status, updated_at, version_number, title, exclusions, date_devis, validite_jours, currency, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, max_section_depth, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, sale_coefficient_fo, sale_coefficient_mo, gross_ht_cents, discount_applied_cents, commercial_rounding_cents, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, seal_hash, seal_payload_version, content_revision"
     )
     .eq("tenant_id", input.tenantId)
     .eq("id", input.versionId)
@@ -2720,7 +2726,7 @@ async function recalculateEstimateVersionTotals(
   const { data: versionData, error: versionError } = await input.supabase
     .from("estimate_versions")
     .select(
-      "id, tenant_id, project_id, status, updated_at, content_revision, margin_multiplier, margin_mode, tax_rate_bp, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, rounding_mode, rounding_step_cents, calc_engine_version, contractor_role, estimate_projects!inner(user_id)"
+      "id, tenant_id, project_id, status, updated_at, content_revision, margin_multiplier, margin_mode, tax_rate_bp, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, rounding_mode, rounding_step_cents, calc_engine_version, sale_coefficient_fo, sale_coefficient_mo, gross_ht_cents, discount_applied_cents, commercial_rounding_cents, contractor_role, estimate_projects!inner(user_id)"
     )
     .eq("tenant_id", input.tenantId)
     .eq("id", input.versionId)
@@ -3631,7 +3637,7 @@ export async function listEstimateVersionVariants(
   const { data, error } = await supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, status, margin_mode, margin_multiplier, max_section_depth, tax_rate_bp, updated_at, total_ht_cents, total_tax_cents, total_ttc_cents, calc_engine_version, parent_version_id, variant_label, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, site_address, client_name, notes, is_archived)"
+      "id, project_id, status, margin_mode, margin_multiplier, max_section_depth, tax_rate_bp, updated_at, total_ht_cents, total_tax_cents, total_ttc_cents, calc_engine_version, sale_coefficient_fo, sale_coefficient_mo, gross_ht_cents, discount_applied_cents, commercial_rounding_cents, parent_version_id, variant_label, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, site_address, client_name, notes, is_archived)"
     )
     .eq("id", versionId)
     .eq("tenant_id", tenantId)
@@ -4689,10 +4695,12 @@ export async function createEstimate(
       : normalizeEstimateCurrencyOrThrow(requestedCurrency, {
           fallback: DEFAULT_CURRENCY,
         });
+  const { expected_calc_engine_version: expectedCalcEngineVersion, ...versionOverrides } = input.version ?? {};
   const persisted = await persistCanonicalEstimateV2({
     supabase,
     tenantId,
     actorUserId: userId,
+    expectedCalcEngineVersion,
     project: targetProjectId
       ? { kind: "existing", id: targetProjectId }
       : {
@@ -4703,7 +4711,7 @@ export async function createEstimate(
           notes: toNullableText(input.project!.notes),
         },
     version: {
-      ...(input.version ?? {}),
+      ...versionOverrides,
       ...(normalizedCurrency === undefined
         ? {}
         : { currency: normalizedCurrency }),
@@ -5456,7 +5464,11 @@ export async function patchEstimateVersion(
       DEFAULT_MAX_SECTION_DEPTH
     );
   }
+  // Lot 2, sous-lot 2.5 (D5, D8) : réglages v3, refusés par leur nom sur une v1/v2.
+  if ("sale_coefficient_fo" in input) payload.sale_coefficient_fo = input.sale_coefficient_fo;
+  if ("sale_coefficient_mo" in input) payload.sale_coefficient_mo = input.sale_coefficient_mo;
   return persistAtomicEstimateSettings({
+    applyTaxRateToLines: input.apply_tax_rate_to_lines === true,
     supabase,
     rpcClient: getServiceRoleSupabaseClient(),
     tenantId,
@@ -5989,6 +6001,8 @@ export async function createEstimateItem(
     supply_type_id: supplyTypeId,
     ...(productId ? { product_id: productId } : {}),
     selected_supplier_price_id: selectedSupplierPriceId,
+    // Lot 2, sous-lot 2.5 : colonnes v3 transmises telles quelles (refusées hors v3 par l'écrivain).
+    ...pickV3ItemInputFields(input),
     source_provider: sourceProvider,
     source_job_id: sourceJobId,
     source_file_name: sourceFileName,
@@ -6036,7 +6050,7 @@ async function projectDraftMutation(input: {
   assertCanWriteEstimateWorkflows(input.context.tenantRole);
   const { data: versionData, error: versionError } = await supabase
     .from("estimate_versions")
-    .select("id, status, updated_at, margin_multiplier, margin_mode, tax_rate_bp, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, rounding_mode, rounding_step_cents, calc_engine_version, contractor_role")
+    .select("id, status, updated_at, margin_multiplier, margin_mode, tax_rate_bp, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, rounding_mode, rounding_step_cents, calc_engine_version, sale_coefficient_fo, sale_coefficient_mo, gross_ht_cents, discount_applied_cents, commercial_rounding_cents, contractor_role")
     .eq("tenant_id", tenantId)
     .eq("id", input.versionId)
     .single();
@@ -6856,6 +6870,9 @@ export async function deleteEstimateItem(
   const context = await getAuthenticatedContext();
   const { supabase, tenantId, userId } = context;
   const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
+  // Lot 2, sous-lot 2.5 (revue, V3P-15) : cette suppression directe ne recalcule rien. Une v3 porte ses
+  // montants stockés sous D12 : elle supprime par le lot (`op: "delete"`), qui recalcule et vérifie.
+  if (usesPerUnitLabor(resolveEstimateEngineVersion(version))) throw new EstimateEngineUnavailableError();
 
   assertDraftStatus(version.status);
   if (concurrencyToken !== undefined) {

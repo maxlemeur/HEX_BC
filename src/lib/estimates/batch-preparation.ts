@@ -3,8 +3,8 @@ import { z } from "zod";
 
 import type { EstimateItemRecord } from "@/lib/estimate-calculations";
 import { buildEstimateV2SnapshotProjection } from "@/lib/estimate-v2-snapshot";
-import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
-import { isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
+import { resolveCalcEngineVersion, resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
+import { isUnifiedEngine, usesPerUnitLabor } from "@/lib/estimates/engine/capabilities";
 import { ApiError, badRequest, conflict, internalError, notFound } from "@/lib/estimates/errors";
 import {
   assertLinePlacementAllowed, assertSectionPlacementAllowed, assertSectionSubtreePlacementAllowed,
@@ -21,19 +21,26 @@ import {
 import type { AuthenticatedContext } from "@/lib/estimates/server-context";
 import { normalizeStoredItemNumerics } from "@/lib/estimates/stored-item-numeric";
 import {
-  calculateEstimateSnapshotForItems, type CalculatedEstimateTotals, type EstimateCalculationDependencies,
+  assertHistoricalItemHasNoV3Columns, type EstimateV3VersionTotals, normalizeV3ItemWrite,
+  toEstimateV3LineProjections, toEstimateV3VersionTotals, V3_ITEM_INPUT_KEYS,
+} from "@/lib/estimates/v3-persistence";
+import {
+  calculateEstimateSnapshotForItems, calculateEstimateV3SnapshotForItems, type CalculatedEstimateTotals,
+  type EstimateCalculationDependencies,
 } from "@/lib/estimates/version-totals";
 import type { Database } from "@/types/database";
 
 type Item = Database["public"]["Tables"]["estimate_items"]["Row"];
 type Version = Database["public"]["Tables"]["estimate_versions"]["Row"];
-type ItemProjection = { id: string; pu_ht_cents: number; line_total_ht_cents: number;
+/** `pu_ht_cents` nul pour une ligne v3 non chiffrée (décision 3 du sous-lot 2.5). */
+type ItemProjection = { id: string; pu_ht_cents: number | null; line_total_ht_cents: number;
   line_tax_cents: number; line_total_ttc_cents: number };
 export type EstimateBatchAidPolicy = { id: string; enabled: boolean; value: string | null } | null;
 export type PreparedEstimateBatch = {
   createdIds: Array<{ index: number; id: string }>;
   itemUpdates: ItemProjection[];
-  versionPatch: CalculatedEstimateTotals;
+  /** v1/v2 : trois totaux ; v3 : les six totaux de `EstimateV3VersionTotals`. */
+  versionPatch: CalculatedEstimateTotals | EstimateV3VersionTotals;
   calculationContext: EstimateCalculationDependencies;
   expectedAidPolicy: EstimateBatchAidPolicy;
 };
@@ -62,7 +69,7 @@ const LINE_FIELDS = new Set([
   "h_mo", "h_mo_majoration", "k_mo", "h_mo_atelier", "k_mo_atelier", "labor_role_atelier_id",
   "h_mo_chantier", "k_mo_chantier", "labor_role_chantier_id", "pu_ht_cents", "labor_role_id",
   "category_id", "supply_type_id", "product_id", "selected_supplier_price_id",
-  "line_total_ht_cents", "line_tax_cents", "line_total_ttc_cents",
+  "line_total_ht_cents", "line_tax_cents", "line_total_ttc_cents", ...V3_ITEM_INPUT_KEYS,
 ]);
 const DERIVED_FIELDS = ["pu_ht_cents", "line_total_ht_cents", "line_tax_cents", "line_total_ttc_cents"] as const;
 
@@ -83,6 +90,13 @@ export async function prepareEstimateBatch(input: {
   if (versionError) throw unavailable();
   if (!versionData) throw notFound("Version de chiffrage introuvable.");
   const version: Version = versionData;
+  // Lot 2, sous-lot 2.5 : une v3 reçoit ses colonnes de saisie (D4, D9) ; une v1/v2 aucune.
+  const perUnitLabor = usesPerUnitLabor(resolveEstimateEngineVersion(version));
+  const engineItemWrite = <T extends Record<string, unknown>>(data: T, itemType: "section" | "line"): T => {
+    if (perUnitLabor) return normalizeV3ItemWrite(data, itemType);
+    assertHistoricalItemHasNoV3Columns(data);
+    return data;
+  };
   if (!sameEstimateBatchTimestamp(version.updated_at, input.expectedUpdatedAt)) {
     throw conflict("Le devis a changé. Rechargez avant de réessayer.", undefined, "VERSION_CONFLICT");
   }
@@ -198,6 +212,13 @@ export async function prepareEstimateBatch(input: {
       other.position === item.position)) throw conflict("Cette position est déjà occupée.");
   }
 
+  async function assertBatchVersionUnchanged() {
+    const { data: latest, error: latestError } = await supabase.from("estimate_versions")
+      .select("updated_at").eq("tenant_id", tenantId).eq("id", versionId).single();
+    if (latestError || !latest) throw unavailable();
+    if (!sameEstimateBatchTimestamp(latest.updated_at, input.expectedUpdatedAt)) throw conflict("Le devis a changé.", undefined, "VERSION_CONFLICT");
+  }
+
   function validateAid(data: { aid?: string | null }) {
     if (data.aid && !aidRegex.test(data.aid)) {
       throw badRequest(`AID invalide. Format attendu: ${DEFAULT_ESTIMATE_ITEM_AID_REGEX_PATTERN}.`);
@@ -208,7 +229,7 @@ export async function prepareEstimateBatch(input: {
     const operation = input.operations[index];
     try {
       if (operation.op === "create") {
-        const data = normalizeStoredItemNumerics(operation.data);
+        const data = engineItemWrite(normalizeStoredItemNumerics(operation.data), operation.data.item_type);
         const parentId = data.parent_id ?? null;
         const siblings = [...items.values()].filter((item) => item.parent_id === parentId);
         const position = data.position ?? siblings.reduce((max, item) => Math.max(max, item.position), 0) + 1;
@@ -236,7 +257,7 @@ export async function prepareEstimateBatch(input: {
           source_provider: item.source_provider, description: data.description ?? null,
           quantity: data.quantity ?? 1, unit_price_ht_cents: data.unit_price_ht_cents ?? 0,
           tax_rate_bp: data.tax_rate_bp ?? version.tax_rate_bp, k_fo: data.k_fo ?? 1,
-          h_mo: data.h_mo ?? 0, h_mo_majoration: data.h_mo_majoration ?? 1, k_mo: data.k_mo ?? 1,
+          h_mo: perUnitLabor ? null : data.h_mo ?? 0, h_mo_majoration: data.h_mo_majoration ?? 1, k_mo: data.k_mo ?? 1,
           pu_ht_cents: 0, line_total_ht_cents: 0, line_tax_cents: 0, line_total_ttc_cents: 0,
           line_nature: data.line_nature ?? resolveEstimateLineNature(data),
         });
@@ -249,10 +270,11 @@ export async function prepareEstimateBatch(input: {
       } else if (operation.op === "update") {
         const current = items.get(operation.id);
         if (!current) throw notFound("Élément de chiffrage introuvable.");
-        const patch = normalizeStoredItemNumerics(operation.data);
-        if (current.item_type === "section" && Object.keys(patch).some((key) => LINE_FIELDS.has(key))) {
+        const rawPatch = normalizeStoredItemNumerics(operation.data);
+        if (current.item_type === "section" && Object.keys(rawPatch).some((key) => LINE_FIELDS.has(key))) {
           throw badRequest("Les champs de ligne ne sont pas applicables à une section.");
         }
+        const patch = engineItemWrite(rawPatch, current.item_type);
         validateAid(patch);
         await references(patch);
         const next = { ...current, ...patch };
@@ -291,6 +313,19 @@ export async function prepareEstimateBatch(input: {
   }
   const lines: EstimateItemRecord[] = [...items.values()].filter((item) => item.item_type === "line")
     .sort((a, b) => a.position - b.position || a.id.localeCompare(b.id));
+  if (perUnitLabor) {
+    // v3 : remise et TVA par taux touchent toutes les lignes, donc toutes sont projetées.
+    const v3Lines = [...items.values()].filter((item) => item.item_type === "line")
+      .sort((a, b) => a.position - b.position || a.id.localeCompare(b.id));
+    const calculated = await calculateEstimateV3SnapshotForItems({
+      supabase, tenantId, projectUserId: input.projectUserId, version, lineItems: v3Lines, captureDependencies: true,
+    });
+    if (!calculated.dependencies) throw internalError("Contexte de calcul indisponible.");
+    await assertBatchVersionUnchanged();
+    return { createdIds, itemUpdates: toEstimateV3LineProjections(calculated.breakdown),
+      calculationContext: calculated.dependencies, expectedAidPolicy,
+      versionPatch: toEstimateV3VersionTotals(calculated.breakdown) };
+  }
   const { breakdown, dependencies } = await calculateEstimateSnapshotForItems({
     supabase, tenantId, projectUserId: input.projectUserId, version,
     lineItems: lines, captureDependencies: true,
@@ -311,10 +346,7 @@ export async function prepareEstimateBatch(input: {
         line_tax_cents: line.taxCents, line_total_ttc_cents: line.saleGrossCents + line.taxCents };
     });
   }
-  const { data: latest, error: latestError } = await supabase.from("estimate_versions")
-    .select("updated_at").eq("tenant_id", tenantId).eq("id", versionId).single();
-  if (latestError || !latest) throw unavailable();
-  if (!sameEstimateBatchTimestamp(latest.updated_at, input.expectedUpdatedAt)) throw conflict("Le devis a changé.", undefined, "VERSION_CONFLICT");
+  await assertBatchVersionUnchanged();
   return { createdIds, itemUpdates, calculationContext: dependencies, expectedAidPolicy,
     versionPatch: { total_ht_cents: breakdown.totals.saleTotalCents,
       total_tax_cents: breakdown.totals.adjustedTaxCents, total_ttc_cents: breakdown.totals.roundedTtcCents } };

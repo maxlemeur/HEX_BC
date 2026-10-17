@@ -8,7 +8,7 @@ import {
   isLegacyEngine,
   isUnifiedEngine,
   requireEstimateEngineVersion,
-  requireHistoricalEngine,
+  usesSaleCoefficients,
 } from "@/lib/estimates/engine/capabilities";
 import { conflict, mapSupabaseError, notFound } from "@/lib/estimates/errors";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
@@ -68,7 +68,10 @@ export async function loadCanonicalFixedDiscountEvidence(input: {
   if (error) throw mapSupabaseError(error, "Impossible de charger la preuve de remise.");
   if (!data) throw notFound("Version de chiffrage introuvable.");
   const version = data as Version;
-  const calcEngineVersion = requireHistoricalEngine(requireEstimateEngineVersion(version));
+  const calcEngineVersion = requireEstimateEngineVersion(version);
+  // Lot 2, sous-lot 2.5 : la remise exacte v3 se lit sur son gel (effective-discount.ts, D6) ; cette
+  // preuve reconstruit une remise v1/v2 et n'est jamais calculée pour une v3.
+  if (usesSaleCoefficients(calcEngineVersion)) return null;
   if (version.tenant_id !== input.tenantId || ["id", "project_id", "status", "updated_at", "content_revision", "discount_amount_cents", "total_ht_cents"].some((key) => {
     const name = key as keyof AuthorizedVersion;
     return input.authorizedVersion[name] !== version[name as keyof Version];
