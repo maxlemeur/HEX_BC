@@ -252,7 +252,7 @@ async function runPhase(input: CalcV3CampaignInput, phase: CalcV3Phase, runStamp
         E2E_OFFER_APP_ORIGIN: environment.E2E_ARMY_BASE_URL, E2E_OFFER_BACKEND_ORIGIN: input.backend,
         E2E_OFFER_COLLECTOR_ORIGIN: collector.origin, E2E_OFFER_RUN_DIRECTORY: runDirectory,
         E2E_OFFER_COLLECTOR_DIRECTORY: collector.directory, E2E_OFFER_SECRET_POINTER: path.join(runDirectory, "private", "portal-pointer.json"),
-        E2E_OFFER_NETWORK_LOG: networkLog, E2E_OFFER_SERVER_MODE: "dev",
+        E2E_OFFER_NETWORK_LOG: networkLog, E2E_OFFER_SERVER_MODE: definition.serverMode === "production" ? "production" : "dev",
         RESEND_BASE_URL: collector.origin, RESEND_API_KEY: COLLECTOR_SENTINEL, EMAIL_FROM: CALC_V3_EMAIL_FROM,
       });
       summary.collector = { origin: collector.origin, delivery: "local-collection-only" };

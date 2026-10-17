@@ -12,7 +12,10 @@ export const CALC_V3_FORBIDDEN_PORTS: ReadonlySet<string> = new Set(["45585", "3
 export const CALC_V3_EMAIL_FROM = "ARMY Local <offer@army.invalid>";
 
 export type CalcV3PhaseDefinition = {
-  /** production: owned build + next start; development: next dev (sandbox terms, emission phases only). */
+  /**
+   * production: owned build + next start (every phase since 2.7; the emission phases get the sandbox terms of
+   * the owned calc-v3 production profile, src/lib/estimates/pdf-terms-server.ts); development: next dev.
+   */
   serverMode: "production" | "development";
   /**
    * The phase sends real offers: the campaign starts the sentinel collector, the profile loads the
@@ -110,7 +113,7 @@ export const CALC_V3_PHASE_DEFINITIONS: Readonly<Record<CalcV3Phase, CalcV3Phase
     maxDuration: 1_200_000,
   },
   emission: {
-    serverMode: "development",
+    serverMode: "production",
     sentinelCollector: true,
     tests: ["e2e/army/local/offer-emission-auth.setup.e2e.ts", "e2e/army/local/offer-emission.e2e.ts"],
     setupTitle: "ordinary native ARMY login for local offer profile",
@@ -130,12 +133,12 @@ export const CALC_V3_PHASE_DEFINITIONS: Readonly<Record<CalcV3Phase, CalcV3Phase
   },
   // Sub-lot 2.7 (D14, D15, M5): a v3 issued under client contract 2 and calculation payload 6, on a
   // dedicated owner whose tenant policy is at engine 3, plus a v2 witness issued first under
-  // contract 1 (docs/testing/estimate-engine-v3-2.7.md). Same next dev server, collector and offer
-  // guard as `emission`. The phase sends the v2 witness and the v3 S2 and S5 offers (S5 twice):
+  // contract 1 (docs/testing/estimate-engine-v3-2.7.md). Same owned production build, collector and
+  // offer guard as `emission`. The phase sends the v2 witness and the v3 S2 and S5 offers (S5 twice):
   // their PDFs differ by design, so the content is asserted per PDF by the journey (V3M01), not by a
   // pattern shared by every collected PDF.
   "emission-v3": {
-    serverMode: "development",
+    serverMode: "production",
     sentinelCollector: true,
     tests: ["e2e/army/local/offer-emission-auth.setup.e2e.ts", "e2e/army/local/engine-v3-emission.e2e.ts"],
     setupTitle: "ordinary native ARMY login for local offer profile",
