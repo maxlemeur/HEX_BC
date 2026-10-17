@@ -43,11 +43,12 @@ import {
 import {
   buildEstimateItemUpdatePayload,
   buildVersionTotalsPatch,
-  getEstimateEditorItemClientKey,
+  withStableEditorClientKeys,
   type EditorEstimateItem,
   type EstimateItem,
   type EstimateItemUpdatePayload,
 } from "@/lib/estimates/editor-items";
+import { isDraftLockRequiredError, isVersionConflictError } from "@/lib/estimates/editor-sync-errors";
 
 import {
   AUTOSAVE_IMMEDIATE_FLUSH_UPDATES,
@@ -62,18 +63,6 @@ export type {
   EstimateEditorConflictState,
   EstimateEditorSyncController,
 };
-
-function isVersionConflictError(error: unknown) {
-  return (
-    isEstimateApiError(error) &&
-    error.status === 409 &&
-    ["VERSION_CONFLICT", "ESTIMATE_BATCH_STALE", "ESTIMATE_BATCH_CONTEXT_CHANGED"].includes(error.code ?? "")
-  );
-}
-
-function isDraftLockRequiredError(error: unknown) {
-  return isEstimateApiError(error) && ["LOCK_REQUIRED", "ESTIMATE_BATCH_LOCK_REQUIRED"].includes(error.code ?? "");
-}
 
 export function useEstimateEditorSyncController({
   routeVersionId,
@@ -326,22 +315,27 @@ export function useEstimateEditorSyncController({
   }, [persistBufferedItemUpdatesToLocal]);
 
   /**
+   * Lignes qu'une ecriture hors file d'attente (action en lot, son annulation
+   * ou son retablissement) vient de faire accepter par le serveur. Sans cette
+   * reference, une saisie qui revient a l'etat precedent serait jugee deja
+   * synchronisee et ignoree.
+   */
+  const markItemsSynced = useCallback(
+    (entries: ReadonlyArray<{ id: string; updates: EstimateItemUpdatePayload }>) => {
+      entries.forEach((entry) => {
+        mergeSyncedItemPayload(entry.id, entry.updates);
+      });
+      pruneSyncedBufferedUpdates();
+    },
+    [mergeSyncedItemPayload, pruneSyncedBufferedUpdates]
+  );
+
+  /**
    * Les lignes recues ici sortent du serveur : elles constituent la reference
    * a partir de laquelle une modification locale est reconnue comme telle.
    */
   const overlayPendingUpdates = useCallback((sourceItems: EditorEstimateItem[]) => {
-    const existingClientKeyByItemId = new Map(
-      itemsRef.current.map((item) => [
-        item.id,
-        getEstimateEditorItemClientKey(item),
-      ])
-    );
-    const sourceItemsWithStableClientKeys = sourceItems.map((item) => ({
-      ...item,
-      _clientKey:
-        existingClientKeyByItemId.get(item.id) ??
-        getEstimateEditorItemClientKey(item),
-    }));
+    const sourceItemsWithStableClientKeys = withStableEditorClientKeys(sourceItems, itemsRef.current);
 
     syncedItemPayloadsRef.current = new Map(
       sourceItemsWithStableClientKeys.map((item) => [
@@ -1220,6 +1214,7 @@ export function useEstimateEditorSyncController({
     () => ({
       overlayPendingUpdates,
       enqueueItemUpdate,
+      markItemsSynced,
       setAutoSaveEnabled,
       saveNow,
       flushBeforeExternalAction: saveBeforeNavigation,
@@ -1252,6 +1247,7 @@ export function useEstimateEditorSyncController({
       handleVersionConflict,
       hasPendingUpdatesNow,
       isFlushInProgress,
+      markItemsSynced,
       markVersionReloadFinished,
       overlayPendingUpdates,
       registerVersionConflict,

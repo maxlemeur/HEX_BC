@@ -11,6 +11,7 @@ import {
   buildEstimateItemUpdatePayload,
   type EditorEstimateItem,
   type EstimateItem,
+  type EstimateItemUpdatePayload,
   type EstimateVersionRow,
 } from "@/lib/estimates/editor-items";
 import { toFiniteNumber } from "@/lib/estimates/editor-values";
@@ -20,6 +21,15 @@ type RecreatedItems = {
   idMap: Map<string, string>;
   createdItems: EstimateItem[];
 };
+
+// A move is only saved with its placement; the line payload alone omits it.
+function buildPlacedLineUpdatePayload(line: EstimateItem): EstimateItemUpdatePayload {
+  return {
+    ...buildEstimateItemUpdatePayload(line),
+    parent_id: line.parent_id ?? null,
+    position: line.position,
+  };
+}
 
 type EstimateEditorBulkControllerInput = {
   isMutationBlocked: boolean;
@@ -33,6 +43,9 @@ type EstimateEditorBulkControllerInput = {
   resolveErrorMessage: (message: string) => string;
   normalizeLine: (item: EditorEstimateItem) => EditorEstimateItem;
   applyVersionToken: (updatedAt: string) => void;
+  markItemsSynced: (
+    entries: ReadonlyArray<{ id: string; updates: EstimateItemUpdatePayload }>
+  ) => void;
   ensureGroupedActionCanProceed: (actionLabel: string) => Promise<boolean>;
   handleVersionConflict: (
     error: unknown,
@@ -65,6 +78,7 @@ export function useEstimateEditorBulkController({
   resolveErrorMessage,
   normalizeLine,
   applyVersionToken,
+  markItemsSynced,
   ensureGroupedActionCanProceed,
   handleVersionConflict,
   triggerVersionReload,
@@ -77,7 +91,8 @@ export function useEstimateEditorBulkController({
     async (
       targetLines: EstimateItem[],
       failureMessage: string,
-      isCurrentScope: () => boolean = () => true
+      isCurrentScope: () => boolean = () => true,
+      buildUpdate: (line: EstimateItem) => EstimateItemUpdatePayload = buildEstimateItemUpdatePayload
     ) => {
       const snapshot = getItemsSnapshot();
       const versionSnapshot = getVersionSnapshot();
@@ -92,15 +107,16 @@ export function useEstimateEditorBulkController({
       setItems((previous) =>
         previous.map((item) => updatedById.get(item.id) ?? item)
       );
+      const updates = targetLines.map((line) => ({
+        id: line.id,
+        updates: buildUpdate(line),
+      }));
 
       try {
         const bulkResult = await bulkUpdateEstimateItems(
           targetVersionId,
           versionSnapshot.updated_at,
-          targetLines.map((line) => ({
-            id: line.id,
-            updates: buildEstimateItemUpdatePayload(line),
-          }))
+          updates
         );
         if (
           getVersionSnapshot()?.id !== targetVersionId ||
@@ -109,6 +125,8 @@ export function useEstimateEditorBulkController({
           return false;
         }
         applyVersionToken(bulkResult.versionToken.updated_at);
+        // Without a fresh baseline, an edit back to the previous value is dropped.
+        markItemsSynced(updates);
         setTotalsOutOfSync(false);
         return true;
       } catch (error) {
@@ -134,6 +152,7 @@ export function useEstimateEditorBulkController({
       getItemsSnapshot,
       getVersionSnapshot,
       handleVersionConflict,
+      markItemsSynced,
       reportError,
       resolveErrorMessage,
       setItems,
@@ -408,7 +427,9 @@ export function useEstimateEditorBulkController({
         if (
           !(await applyBulkLineState(
             movedLines,
-            "Impossible de déplacer les lignes sélectionnées."
+            "Impossible de déplacer les lignes sélectionnées.",
+            undefined,
+            buildPlacedLineUpdatePayload
           ))
         ) {
           return;
@@ -419,14 +440,16 @@ export function useEstimateEditorBulkController({
             await applyBulkLineState(
               selectedLines,
               "Impossible d'annuler le déplacement des lignes.",
-              context?.isCurrentScope
+              context?.isCurrentScope,
+              buildPlacedLineUpdatePayload
             );
           },
           redo: async (context) => {
             await applyBulkLineState(
               movedLines,
               "Impossible de réappliquer le déplacement des lignes.",
-              context?.isCurrentScope
+              context?.isCurrentScope,
+              buildPlacedLineUpdatePayload
             );
           },
         });

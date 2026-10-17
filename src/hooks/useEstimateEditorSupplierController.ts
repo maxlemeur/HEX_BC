@@ -15,6 +15,7 @@ import {
   buildEstimateItemUpdatePayload,
   type EditorEstimateItem,
   type EstimateItem,
+  type EstimateItemUpdatePayload,
   type EstimateVersionRow,
 } from "@/lib/estimates/editor-items";
 import { isRecord, toFiniteNumber, toNonEmptyString } from "@/lib/estimates/editor-values";
@@ -297,6 +298,9 @@ type EstimateEditorSupplierControllerInput = {
   reportError: (message: string | null) => void;
   resolveErrorMessage: (message: string) => string;
   applyVersionToken: (updatedAt: string) => void;
+  markItemsSynced: (
+    entries: ReadonlyArray<{ id: string; updates: EstimateItemUpdatePayload }>
+  ) => void;
   ensureGroupedActionCanProceed: (actionLabel: string) => Promise<boolean>;
   handleVersionConflict: (
     error: unknown,
@@ -317,6 +321,7 @@ export function useEstimateEditorSupplierController({
   reportError,
   resolveErrorMessage,
   applyVersionToken,
+  markItemsSynced,
   ensureGroupedActionCanProceed,
   handleVersionConflict,
 }: EstimateEditorSupplierControllerInput) {
@@ -631,14 +636,15 @@ export function useEstimateEditorSupplierController({
     setItems((previous) =>
       previous.map((item) => updatedById.get(item.id) ?? item)
     );
+    const updates = updatedLines.map((item) => ({
+      id: item.id,
+      updates: buildEstimateItemUpdatePayload(item),
+    }));
     try {
       const result = await bulkUpdateEstimateItems(
         targetVersionId,
         versionSnapshot.updated_at,
-        updatedLines.map((item) => ({
-          id: item.id,
-          updates: buildEstimateItemUpdatePayload(item),
-        }))
+        updates
       );
       if (
         !isCurrentRoute(targetVersionId) ||
@@ -647,6 +653,8 @@ export function useEstimateEditorSupplierController({
         return;
       }
       applyVersionToken(result.versionToken.updated_at);
+      // Without a fresh baseline, an edit back to the previous value is dropped.
+      markItemsSynced(updates);
       setTotalsOutOfSync(false);
       setScopedDialogState((previous) =>
         previous.routeVersionId === targetVersionId
@@ -715,6 +723,7 @@ export function useEstimateEditorSupplierController({
     handleVersionConflict,
     isCurrentRoute,
     isMutationBlocked,
+    markItemsSynced,
     mutationBlockedMessage,
     normalizeLine,
     resolveErrorMessage,

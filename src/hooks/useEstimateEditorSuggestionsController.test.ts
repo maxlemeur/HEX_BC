@@ -262,6 +262,7 @@ function createHarness(input?: {
         resolveErrorMessage,
         ensureGroupedActionCanProceed,
         applyVersionToken,
+        markItemsSynced: vi.fn(),
         handleVersionConflict,
       }),
     {
