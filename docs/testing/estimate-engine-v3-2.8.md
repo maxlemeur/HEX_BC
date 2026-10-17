@@ -1,6 +1,6 @@
 # Chemins d'entrée v3 (sous-lot 2.8)
 
-Statut : **contrat écrit avant implémentation**, branche `lot2/2.8-chemins-entree-v3` (base `main` `fc2ba2dc`).
+Statut : **phase rouge**, branche `lot2/2.8-chemins-entree-v3` (base `main` `78ca0855`, 2.9 compris).
 Source : [conception du lot 2](../audit-independant-2026-10-14/lot2/conception-lot2-moteur-v3.md), §14 « 2.8 »,
 D16, D11, §5.4, §6.1 M6, §7 ; décisions P-12 et P-14 (validées le 16/10/2026). Dépendances livrées : 2.3
 (profil OPTIMA, parseurs), 2.5 (persistance v3, M4). Le collage dans la grille v3 dépend du 2.6, en cours ;
@@ -109,6 +109,27 @@ Le refus nommé du métré reste prouvé par V3P-17 (`engine-v3-persistence.e2e.
 
 Rejouer aussi : corpus figé, empreintes documentaires, montée de version (M6 neutre), I9 (`dpgf-import`).
 
-## Exécution rouge
+## Exécution rouge (18/10/2026, macOS, Node 24.19.0, base `78ca0855`, tests `7b7fb9cb`)
 
-À compléter.
+Journaux : `.e2e/lot2-2.8/red/` (copie de travail, non versionnée).
+
+- **pgTAP** `estimate-engine-v3-entry-paths.test.sql` : rouge sur ses assertions, sans interruption du
+  fichier. Issues relevées : T1, T2 (modèle dans la v3), A1, A2, A3 (ouvrage dans la v3) →
+  `0A000 ESTIMATE_V3_WRITER_NOT_SUPPORTED` ; G (ligne d'ouvrage généré) → `22023
+  GENERATED_OUVRAGE_INVALID_INPUT` (h/u et `unit_code` hors liste blanche) ; T3 : modèle créé depuis la v3
+  sans colonnes v3 ; colonnes v3 des modèles absentes. Garde verte : un modèle entre dans une v2 comme avant.
+- **Vitest** : 5 rouges sur 97. Import vers une v3 : PU d'O1 134,30 € au lieu de 174,59 € (moteur ignoré,
+  pas de coefficients de vente), ni `unitCode` ni statut, écart de contrôle sur la mauvaise base ; collage :
+  ni cible h/u, ni colonne de contrôle.
+- **TesterArmy** `e2e:army:local -- --grep '^IO0[1-6]\s'` (fichier pgTAP rouge tenu hors du worktree) :
+  - IO01, IO03 : l'aperçu reste celui d'une v1/v2 (« Heures MO : h/u × Q = heures totales de la ligne »,
+    contrôle au moteur v1/v2) ; aucun coefficient du classeur proposé (E2, E4, E5) ;
+  - IO04 : l'éditeur affiche « Ce devis utilise le moteur de calcul 3, pas encore disponible pour cette
+    action. » (collage v3, dépend aussi du 2.6) ;
+  - IO05, IO06 : insertion refusée, 400 `0A000` (E7, E9). Un premier passage échouait par un 409 de verrou :
+    les routes d'insertion ne portent pas la version dans leur chemin et l'aide de la campagne n'y joignait pas
+    la session de bail ; le parcours la transmet désormais lui-même.
+
+Point d'attention pour l'implémentation : sur le classeur hydraulique complet, l'aperçu actuel annonce
+« 1 ligne vérifiée » au contrôle « Prix unitaire de vente » (110 sur le plomberie) : la lecture de
+« Prix Unitaire » sur les classeurs réels est à vérifier avant le vert.
