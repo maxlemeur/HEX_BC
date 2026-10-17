@@ -98,7 +98,7 @@ const app = {
 
 export default {
   projectId: coverage ? "miaouffrage-source-coverage" : critical ? "miaouffrage-critical-journeys" : performance ? "miaouffrage-performance" : "miaouffrage-anonymous-pilot",
-  tests: polish ? ["e2e/army/critical/auth.setup.e2e.ts", "e2e/army/polish/**/*.e2e.ts"] : development ? ["e2e/army/critical/auth.setup.e2e.ts", "e2e/army/development/**/*.e2e.ts"] : full ? ["e2e/army/critical/**/*.e2e.ts", "e2e/army/extended/**/*.e2e.ts", "e2e/army/takeoff/**/*.e2e.ts", "e2e/army/local/tech-debt-lock-boundaries.e2e.ts", "e2e/army/local/estimate-create-calculation-gate.e2e.ts", "e2e/army/local/engine-v3-*.e2e.ts"] : army021 ? ["e2e/army/critical/**/*.e2e.ts", "e2e/army/local/tech-debt-lock-boundaries.e2e.ts", "e2e/army/local/estimate-create-calculation-gate.e2e.ts"] : techDebt ? [
+  tests: polish ? ["e2e/army/critical/auth.setup.e2e.ts", "e2e/army/polish/**/*.e2e.ts"] : development ? ["e2e/army/critical/auth.setup.e2e.ts", "e2e/army/development/**/*.e2e.ts"] : full ? ["e2e/army/critical/**/*.e2e.ts", "e2e/army/extended/**/*.e2e.ts", "e2e/army/takeoff/**/*.e2e.ts", "e2e/army/local/tech-debt-lock-boundaries.e2e.ts", "e2e/army/local/estimate-create-calculation-gate.e2e.ts", "e2e/army/local/engine-v3-*.e2e.ts", "e2e/army/local/supplier-preselection-v1-totals.e2e.ts"] : army021 ? ["e2e/army/critical/**/*.e2e.ts", "e2e/army/local/tech-debt-lock-boundaries.e2e.ts", "e2e/army/local/estimate-create-calculation-gate.e2e.ts"] : techDebt ? [
     "e2e/army/critical/auth.setup.e2e.ts",
     "e2e/army/critical/numeric-entry.e2e.ts",
     "e2e/army/critical/dpgf-import.e2e.ts",

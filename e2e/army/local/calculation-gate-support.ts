@@ -33,7 +33,8 @@ function openSql(timeoutMs: number) {
   return { write: (sql: string) => child.stdin.write(sql), end: (sql: string) => child.stdin.end(sql), kill: () => child.kill(), done };
 }
 
-async function querySql(sql: string) {
+/** One statement batch as the native owner (postgres) of the owned stack; stdout lines. */
+export async function querySql(sql: string) {
   const session = openSql(30_000);
   session.end(sql);
   const outcome = await session.done;
