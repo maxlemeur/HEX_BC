@@ -469,6 +469,86 @@ async function accessFixtures(context: CalcV3FixtureContext, campaign: string): 
   };
 }
 
+// Sub-lot 2.2 (A7, P-08). P1 has an unmarked 0 € offer, more recent than its 12,40 € offer,
+// so that before the fix it heads the suggestions and wins the best price; P2 has only an
+// unmarked 0 € offer; P3 has a 0 € offer that OZ02 marks "Inclus". All offers are in "ml";
+// the estimate lines use "ML", "ml", "m" or "ens". No transport mode: only a tenant admin may
+// set freight conditions, and the native owner is not one.
+async function offersFixtures(context: CalcV3FixtureContext, campaign: string): Promise<CalcV3PhaseFixtures> {
+  const { owner } = context;
+  const common = { tenant_id: owner.tenantId };
+  const prefix = `ARMY-OZ-calc-v3-${campaign}`;
+  const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+  const suppliers = { zero: randomUUID(), priced: randomUUID(), included: randomUUID() };
+  const products = {
+    p1: { id: randomUUID(), designation: `${prefix} tube cuivre` },
+    p2: { id: randomUUID(), designation: `${prefix} gaine nue` },
+    p3: { id: randomUUID(), designation: `${prefix} collier fourni` },
+  };
+  const offers = {
+    p1Zero: { id: randomUUID(), catalogItemId: randomUUID(), supplierId: suppliers.zero, productId: products.p1.id, cents: 0,
+      updatedAt: new Date().toISOString() },
+    p1Priced: { id: randomUUID(), catalogItemId: randomUUID(), supplierId: suppliers.priced, productId: products.p1.id, cents: 1240,
+      updatedAt: new Date(Date.now() - 3_600_000).toISOString() },
+    p2Zero: { id: randomUUID(), catalogItemId: randomUUID(), supplierId: suppliers.zero, productId: products.p2.id, cents: 0,
+      updatedAt: new Date().toISOString() },
+    p3Zero: { id: randomUUID(), catalogItemId: randomUUID(), supplierId: suppliers.included, productId: products.p3.id, cents: 0,
+      updatedAt: new Date().toISOString() },
+  };
+  const deliverySite = { id: randomUUID(), updatedAt: new Date(Date.now() - 1_000).toISOString() };
+  const estimate = { projectId: randomUUID(), versionId: randomUUID(), sectionId: randomUUID() };
+  type LineExtra = { quantity: number; unit_price_ht_cents?: number; product_id?: string; selected_supplier_price_id?: string };
+  const line = (key: string, title: string, unit: string, extra: LineExtra) => ({ key, id: randomUUID(), title, unit, ...extra });
+  const lines = {
+    compareP1: line("compareP1", products.p1.designation, "ML", { quantity: 2 }),
+    compareP2: line("compareP2", products.p2.designation, "ml", { quantity: 1 }),
+    popover: line("popover", `${prefix} ligne popover`, "ML", { quantity: 3 }),
+    sheet: line("sheet", `${prefix} ligne fiche`, "ens", { quantity: 1 }),
+    compareP3: line("compareP3", products.p3.designation, "ml", { quantity: 1 }),
+    sheetIncluded: line("sheetIncluded", `${prefix} ligne incluse`, "ml", { quantity: 1 }),
+    purchaseMl: line("purchaseMl", `${prefix} achat ML`, "ML",
+      { quantity: 2, unit_price_ht_cents: 1240, product_id: products.p1.id, selected_supplier_price_id: offers.p1Priced.id }),
+    purchaseZero: line("purchaseZero", `${prefix} achat zéro`, "ml",
+      { quantity: 1, unit_price_ht_cents: 500, product_id: products.p2.id, selected_supplier_price_id: offers.p2Zero.id }),
+  };
+  const records: PlanRecord[] = [
+    ...Object.entries(suppliers).map(([key, id]) => ({ table: "suppliers", row: { ...common, id, name: `${prefix} fournisseur ${key}`, is_active: true } })),
+    ...Object.values(products).map((product, index) => ({ table: "products", row: { ...common, id: product.id,
+      reference: `${prefix}-P${index + 1}`, designation: product.designation, unit: "ml", unit_price_cents: 0, is_active: true } })),
+    ...Object.values(offers).map((offer) => ({ table: "supplier_catalog_items", row: { ...common, id: offer.catalogItemId,
+      supplier_id: offer.supplierId, product_id: offer.productId, supplier_sku: `${prefix}-${offer.id.slice(0, 8)}`, is_active: true } })),
+    ...Object.values(offers).map((offer) => ({ table: "supplier_pricebook", row: { ...common, id: offer.id,
+      supplier_catalog_item_id: offer.catalogItemId, supplier_id: offer.supplierId, product_id: offer.productId,
+      supplier_sku: `${prefix}-${offer.id.slice(0, 8)}`, unit: "ml", min_quantity: 1, unit_price_cents: offer.cents, currency: "EUR",
+      valid_from: day(0), valid_to: day(30), is_active: true, created_at: offer.updatedAt, updated_at: offer.updatedAt } })),
+    { table: "delivery_sites", row: { ...common, id: deliverySite.id, name: `${prefix} chantier`, is_active: true, updated_at: deliverySite.updatedAt } },
+    { table: "estimate_projects", row: { ...common, id: estimate.projectId, user_id: owner.userId, name: prefix } },
+    { table: "estimate_versions", row: { ...common, ...versionDefaults, id: estimate.versionId, project_id: estimate.projectId, title: prefix,
+      calc_engine_version: 2, max_section_depth: 1, discount_bp: 0 } },
+    { table: "estimate_items", row: { ...common, id: estimate.sectionId, version_id: estimate.versionId, parent_id: null, item_type: "section",
+      position: 0, title: `${prefix} lot` } },
+    ...Object.values(lines).map((entry, index) => {
+      const price = Number(entry.unit_price_ht_cents ?? 0);
+      const quantity = Number(entry.quantity);
+      const ht = price * quantity;
+      const tax = Math.round(ht * 0.2);
+      return { table: "estimate_items", row: { ...common, id: entry.id, version_id: estimate.versionId, parent_id: estimate.sectionId,
+        item_type: "line", line_nature: "supply_only", position: index + 1, title: entry.title, description: entry.unit,
+        quantity, unit_price_ht_cents: price, tax_rate_bp: 2000, k_fo: 1, h_mo: 0, h_mo_majoration: 1, k_mo: 1,
+        ...(entry.product_id ? { product_id: entry.product_id } : {}),
+        ...(entry.selected_supplier_price_id ? { selected_supplier_price_id: entry.selected_supplier_price_id } : {}),
+        pu_ht_cents: price, line_total_ht_cents: ht, line_tax_cents: tax, line_total_ttc_cents: ht + tax } };
+    }),
+  ];
+  await executePlan(context, "offers", records);
+  const fixture = await writeFixture(context, "supplier-offers", { schemaVersion: "calc-v3-supplier-offers-1", status: "ready",
+    campaign, apiUrl: context.backend, createdAt: new Date().toISOString(), prefix, owner: { userId: owner.userId, tenantId: owner.tenantId },
+    suppliers, products, offers, deliverySite, estimate,
+    lines: Object.fromEntries(Object.entries(lines).map(([key, entry]) => [key, { id: entry.id, title: entry.title, unit: entry.unit }])),
+    boundary: "Catalogue records and one draft V2 estimate of the runner's ARMY tenant, seeded for this phase only." });
+  return { env: { E2E_SUPPLIER_OFFERS_FIXTURE_PATH: fixture }, secretEnv: {}, identities: { prefix, suppliers, products, offers, estimate } };
+}
+
 /** Prepares the explicit fixtures of one calc-v3 phase on the owned stack. */
 export async function prepareCalcV3Fixtures(phase: CalcV3Phase, context: CalcV3FixtureContext): Promise<CalcV3PhaseFixtures> {
   const campaign = randomUUID().slice(0, 8);
@@ -478,6 +558,7 @@ export async function prepareCalcV3Fixtures(phase: CalcV3Phase, context: CalcV3F
     case "numeric": return componentsFixtures(context, campaign, "numeric-all");
     case "resume": return resumeFixtures(context, campaign);
     case "access": return accessFixtures(context, campaign);
+    case "offers": return offersFixtures(context, campaign);
     case "emission": return { env: {}, secretEnv: {}, identities: { note: "OF journeys create their own ARMY-OFFER estimates through the UI." } };
   }
 }

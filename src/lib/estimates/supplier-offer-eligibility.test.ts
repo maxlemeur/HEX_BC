@@ -3,27 +3,69 @@ import { supplierOfferIneligibility } from "@/lib/estimates/supplier-offer-eligi
 
 // Isolation exception: value/quantity safety must remain verifiable while the
 // authenticated E2E setup is unavailable; browser contract is catalogue-demo.spec.
+// Sub-lot 2.2: this predicate is shared by six price paths (eligibility, best
+// price, preselection, suggestion popover, article sheet, purchase preparation);
+// its edge cases (zero price with or without marking, unit spellings) are cheaper
+// to pin here than in E2E. Journeys: docs/testing/estimate-engine-v3-2.2.md.
 const context = { currency: "EUR", quantity: 30, unit: "m", today: "2026-10-02" };
+const priced = { unit_price_cents: 1240 };
+const zero = { unit_price_cents: 0 };
+const oneCent = { unit_price_cents: 1 };
+const nullKind = { ...zero, zero_price_kind: null };
+const included = { ...zero, zero_price_kind: "included" };
+const free = { ...zero, zero_price_kind: "free" };
 
 describe("supplier offer applicability", () => {
   it("refuses a quantity below the supplier minimum and permits the boundary", () => {
-    const offer = { currency: "EUR", unit: "m", min_quantity: 100 };
+    const offer = { ...priced, currency: "EUR", unit: "m", min_quantity: 100 };
     expect(supplierOfferIneligibility(offer, context)).toBe("Minimum 100 m");
     expect(supplierOfferIneligibility(offer, { ...context, quantity: 100 })).toBeNull();
     expect(supplierOfferIneligibility(offer, { ...context, quantity: null })).toBe("Quantité du devis à préciser");
   });
   it("permits metre aliases but never invents a conversion from kilograms", () => {
-    expect(supplierOfferIneligibility({ unit: "ml" }, context)).toBeNull();
-    expect(supplierOfferIneligibility({ unit: "kg" }, context)).toBe("Unité différente du devis");
+    expect(supplierOfferIneligibility({ ...priced, unit: "ml" }, context)).toBeNull();
+    expect(supplierOfferIneligibility({ ...priced, unit: "kg" }, context)).toBe("Unité différente du devis");
   });
   it("refuses inactive, future and expired offers, with inclusive validity dates", () => {
-    expect(supplierOfferIneligibility({ is_active: false }, context)).toBe("Offre archivée");
-    expect(supplierOfferIneligibility({ valid_from: "2026-10-03" }, context)).toBe("Offre pas encore valable");
-    expect(supplierOfferIneligibility({ valid_to: "2026-10-01" }, context)).toBe("Offre expirée");
-    expect(supplierOfferIneligibility({ valid_from: context.today, valid_to: context.today }, context)).toBeNull();
+    expect(supplierOfferIneligibility({ ...priced, is_active: false }, context)).toBe("Offre archivée");
+    expect(supplierOfferIneligibility({ ...priced, valid_from: "2026-10-03" }, context)).toBe("Offre pas encore valable");
+    expect(supplierOfferIneligibility({ ...priced, valid_to: "2026-10-01" }, context)).toBe("Offre expirée");
+    expect(supplierOfferIneligibility({ ...priced, valid_from: context.today, valid_to: context.today }, context)).toBeNull();
   });
   it("keeps the currency fence consistent with manual selection", () => {
-    expect(supplierOfferIneligibility({ currency: "USD" }, context)).toBe("Conversion de devise requise");
-    expect(supplierOfferIneligibility({ currency: "EUR" }, context)).toBeNull();
+    expect(supplierOfferIneligibility({ ...priced, currency: "USD" }, context)).toBe("Conversion de devise requise");
+    expect(supplierOfferIneligibility({ ...priced, currency: "EUR" }, context)).toBeNull();
+  });
+});
+
+describe("zero-priced supplier offers (A7, T-Z)", () => {
+  // Transposes docs/audit-independant-2026-10-14/reproductions/rules.audit.test.ts:98.
+  it("refuses an unmarked offer at 0 €", () => {
+    expect(supplierOfferIneligibility({ ...zero, unit: "m" }, context)).toBe("Offre à 0 € non marquée");
+    expect(supplierOfferIneligibility({ ...nullKind, unit: "m" }, context))
+      .toBe("Offre à 0 € non marquée");
+  });
+  it("accepts an offer at 0 € marked included or free", () => {
+    expect(supplierOfferIneligibility({ ...included, unit: "m" }, context)).toBeNull();
+    expect(supplierOfferIneligibility({ ...free, unit: "m" }, context)).toBeNull();
+  });
+  it("accepts the smallest positive price", () => {
+    expect(supplierOfferIneligibility({ ...oneCent, unit: "m" }, context)).toBeNull();
+  });
+  it("still reports an archived zero-priced offer as archived", () => {
+    expect(supplierOfferIneligibility({ ...zero, is_active: false }, context)).toBe("Offre archivée");
+  });
+});
+
+describe("linear metre spellings (P-08, T-UNIT2)", () => {
+  // Transposes docs/audit-independant-2026-10-14/reproductions/rules.audit.test.ts:101.
+  it.each([
+    ["ML", "ml"], ["mL", "ml"], ["Ml", "ml"], [" ML ", "m"], ["m", "ML"], ["ml", "M"],
+  ])("treats line unit %j and offer unit %j as the same metre", (lineUnit, offerUnit) => {
+    expect(supplierOfferIneligibility({ ...priced, unit: offerUnit }, { ...context, unit: lineUnit })).toBeNull();
+  });
+  it("keeps refusing units that are not metres", () => {
+    expect(supplierOfferIneligibility({ ...priced, unit: "m2" }, { ...context, unit: "ML" })).toBe("Unité différente du devis");
+    expect(supplierOfferIneligibility({ ...priced, unit: "u" }, { ...context, unit: "ml" })).toBe("Unité différente du devis");
   });
 });
