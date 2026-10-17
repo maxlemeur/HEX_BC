@@ -3141,14 +3141,41 @@ begin
     );
   end if;
 
-  select coalesce(
-    jsonb_object_agg(item.id::text, gen_random_uuid()::text),
-    '{}'::jsonb
-  )
-    into item_id_map
-  from public.estimate_items as item
-  where item.version_id = duplicate_estimate_version_without_product_id.source_version_id
-    and item.tenant_id = source_version.tenant_id;
+  if source_is_v3 then
+    -- D13 : les répartitions exactes v3 (remise, TVA) départagent leurs ex aequo par identifiant de ligne
+    -- croissant. Les identifiants neufs suivent donc l'ordre des identifiants source (le k-ième plus petit
+    -- source reçoit le k-ième plus petit neuf) : les montants copiés restent ceux que le moteur calcule
+    -- sur la copie, et ni son gel ni son lot suivant ne déplacent un centime d'une ligne non touchée.
+    select coalesce(
+      jsonb_object_agg(source_ids.id::text, fresh_ids.id::text),
+      '{}'::jsonb
+    )
+      into item_id_map
+    from (
+      select item.id, row_number() over (order by item.id) as id_rank
+      from public.estimate_items as item
+      where item.version_id = duplicate_estimate_version_without_product_id.source_version_id
+        and item.tenant_id = source_version.tenant_id
+    ) as source_ids
+    join (
+      select fresh.id, row_number() over (order by fresh.id) as id_rank
+      from (
+        select gen_random_uuid() as id
+        from public.estimate_items as item
+        where item.version_id = duplicate_estimate_version_without_product_id.source_version_id
+          and item.tenant_id = source_version.tenant_id
+      ) as fresh
+    ) as fresh_ids on fresh_ids.id_rank = source_ids.id_rank;
+  else
+    select coalesce(
+      jsonb_object_agg(item.id::text, gen_random_uuid()::text),
+      '{}'::jsonb
+    )
+      into item_id_map
+    from public.estimate_items as item
+    where item.version_id = duplicate_estimate_version_without_product_id.source_version_id
+      and item.tenant_id = source_version.tenant_id;
+  end if;
 
   with recursive source_item_hierarchy as (
     select
