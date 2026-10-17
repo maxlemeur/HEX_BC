@@ -1,13 +1,14 @@
 # Moteur v3 pur, jumeau SQL et référentiel d'unités (sous-lot 2.4)
 
 Statut : **implémenté, intégré et prouvé en local** (17/10/2026). Branche `lot2/2.4-moteur-v3-pur`, partie de
-`e30560f4` (`main` + 2.1). Deux pistes, puis une intégration :
+`e30560f4` (`main` + 2.1). Deux pistes, une intégration, puis la reprise de la revue :
 
 | Piste | Commits | Contenu |
 |---|---|---|
 | A, moteur TS | `de2c86db` (`test`, rouge), `e175f9eb` (`feat`) | `src/lib/estimates/engine-v3/*`, branche v3 de la façade `engine/compute.ts` |
 | B, jumeau SQL et unités | `bccdd971` (`test`, rouge), `b2c3eb09` (`feat`), `384e8cb1` (`docs`) ; fusion `c16e8703` | M3, `src/lib/units/*`, `scripts/units/generate-units-sql.ts`, deux suites pgTAP, `src/types/database.ts` |
-| Intégration | `63727954` (`test`, rouge), `a0f26a90` (`fix`), `c0b450e7` et `36b3fa8b` (`feat`), `a0f5cac9` et ce document (`docs`) | règles communes I-01 à I-06, `scripts/engine-v3/parity.ts`, `optima-lot-check.ts`, `performance.ts` |
+| Intégration | `63727954` (`test`, rouge), `a0f26a90` (`fix`), `c0b450e7` et `36b3fa8b` (`feat`), `a0f5cac9` et `b1eae40d` (`docs`) | règles communes I-01 à I-06, `scripts/engine-v3/parity.ts`, `optima-lot-check.ts`, `performance.ts` |
+| Revue | `888ae6ff` (`test`, rouge), `24f1e906` (`fix`), ce document (`docs`) | constats R-01 à R-08 : chemin canonique strict, autoliquidation figée, contrôles OPTIMA, traçabilité des rapports, vecteurs d'unités, campagne `calc-v3`, D9, contrainte de 2.5 |
 
 Source : [conception du lot 2](../audit-independant-2026-10-14/lot2/conception-lot2-moteur-v3.md), §0, §2, D1,
 D4 à D9, D12, D13, D18, §4, §5, §6.1 (M3), §6.2, §6.5, §7, §8.1, §10.1 et §14 « 2.4 » ; décisions P-01 à P-19
@@ -120,12 +121,30 @@ règle unique, écrite rouge d'abord dans les deux langages (`63727954`), puis a
 | I-01 | Sans ventilation : TS rendait atelier = chantier = 0, SQL chantier = MO | **Toute la MO est « chantier »**, en brut et en net ; atelier + chantier = MO sur chaque ligne. Conception §4 (« atelier/chantier : répartition de la MO brute », sans condition) et convention v2 (`estimate-calculations.ts:875-877`, `:769`, `estimate-v2-snapshot.ts:242-245`). Le lecteur figé refuse désormais atelier + chantier ≠ MO net | TS (`line.ts`, `breakdown.ts`, `stored.ts`) | `requirements.test.ts` I-01 (2 tests) ; l'attendu du test TS « ignores the split payload when the version flag is off » passe de 0 à 3 000 c en chantier ; invariant moteur ajouté |
 | I-02 | Sections : TS ne les validait pas, SQL valide id, parent et unicité des identifiants sur tous les éléments | **Validation SQL** : uuid, `parent_id` nul ou uuid, identifiants uniques sections comprises | TS (`input.ts`) | I-02 ; cas limites de la parité |
 | I-03 | `params` : TS acceptait l'absence de `discount_amount_cents`, SQL exige les huit clés | **Les huit clés exigées** (contrat canonique) | TS (`input.ts`) | I-03 ; cas limites de la parité |
-| I-04 | h/u nul : TS rendait des heures nulles, SQL « 0.000 » | **Heures de ligne nulles si la colonne par unité est nulle** : dérivation naturelle `round(Q × h/u, 3)` du déclencheur de 2.5, colonnes par unité nulles par défaut (D4) ; ligne non chiffrée : « 0.000 » si h/u est renseigné, nul sinon ; h/u nul vaut 0 dans la MO | SQL (M3) | pgTAP I-04 ; attendus T-HMO, T-STAT et F5 révisés (heures nulles là où h/u est nul) |
+| I-04 | h/u nul : TS rendait des heures nulles, SQL « 0.000 » | **Heures de ligne nulles si la colonne par unité est nulle** : dérivation naturelle `round(Q × h/u, 3)` du déclencheur de 2.5, colonnes par unité nulles par défaut (D4) ; ligne non chiffrée : « 0.000 » si h/u est renseigné, nul sinon (contrainte pour le déclencheur de 2.5 : interprétation 31) ; h/u nul vaut 0 dans la MO | SQL (M3) | pgTAP I-04 ; attendus T-HMO, T-STAT et F5 révisés (heures nulles là où h/u est nul) |
 | I-05 | Pas d'arrondi 0 en mode `none` : TS refusait, SQL acceptait | **Pas ≥ 1 c dans tout mode** : la colonne porte `CHECK (rounding_step_cents >= 1)` (`001_add_job_title_to_profiles.sql:244`) | SQL (M3) | pgTAP (25ᵉ entrée invalide) ; TS I-05 |
 | I-06 | Heures dérivées au-delà de `numeric(12,3)` : TS levait le dépassement, SQL non | **`ESTIMATE_AMOUNT_OVERFLOW` (22003)**, jamais d'écrêtage, même à coût nul | SQL (M3) | pgTAP I-06 ; TS I-06 |
 
 M3 n'est pas publiée : elle a été modifiée à l'intégration et son empreinte du manifeste mise à jour à la main
 (`a0f26a90` pour le code, `a0f5cac9` pour le commentaire d'en-tête qui pointe vers ce document).
+
+### Revue (constats R-01 à R-08, tous revérifiés avant correction)
+
+Deux revues indépendantes de `e30560f4..b1eae40d` n'ont trouvé aucune erreur d'arithmétique ni d'écart TS/SQL
+(recalcul indépendant et 3 011 cas adverses : 0 écart). Chaque constat a été reproduit avant d'être traité ; les
+défauts de comportement sont écrits rouges d'abord (`888ae6ff`), puis corrigés (`24f1e906`). M3 et les suites
+pgTAP ne changent pas.
+
+| Id | Constat (vérifié) | Décision | Preuve |
+|---|---|---|---|
+| R-01 | L'adaptateur canonique acceptait ce que le jumeau SQL refuse : `JSON.parse` arrondit un littéral plus précis qu'un double (`1.00000000000000000001` lu 1) et une chaîne décimale (`"1.30"`) passait | **Chemin canonique strict** : le texte est lu littéral par littéral à sa source (`JSON.parse` avec accès à la source, exposant développé en entier exact, « -0 » = 0 comme `numeric`) ; un champ numérique n'admet qu'un nombre JSON, objet ou texte ; l'éditeur (entrée typée, `computeEstimateV3Breakdown`) garde les chaînes décimales | `requirements.test.ts` (2 tests) ; parité : les deux côtés lisent le même texte, 9 cas limites en texte brut |
+| R-02 | Le lecteur figé déduisait l'autoliquidation de « toute la TVA est nulle » : une v3 non autoliquidée à TVA nulle passait | **Autoliquidation lue sur `contractor_role` figé** de la version (`subcontractor`, convention v2 `useEstimateEditorCalculation.ts:77`) ; rôle inconnu refusé ; jamais déduite des montants (interprétation 29) | `requirements.test.ts` (2 tests) |
+| R-03 | `controlCents` repassait par un double (`toFixed(12)`) : 17 459,995 donnait 1 745 999 c au lieu de 1 746 000 (ARRONDI d'Excel) | **Demi supérieur sur la chaîne exacte à 15 chiffres** (`decimalFromLiteral`), module pur `scripts/engine-v3/optima-control.ts` ; les lots §5.4 n'étaient pas touchés (mêmes nombres avant et après) | `src/test/engine-v3-optima-control.test.ts` (7 vecteurs) |
+| R-04 | La campagne `calc-v3` (parcours de 2.0) n'était pas rejouée, et aucune CI ne la lance | **Rejouée** sur la pile possédée : 37/37 (détail aux résultats) | archive `army/ci/2026-10-17T15-08-33-064Z-calc-v3/` |
+| R-05 | Les rapports OPTIMA et performance ne portaient ni révision, ni empreinte du diff local, ni commande, ni empreinte des classeurs ; un classeur sans lot du §5.4 était ignoré puis « conforme » | **Traçabilité** (`buildSourceEvidence`, commande, sha256 de chaque classeur) ; le contrôle OPTIMA échoue si un fichier ne nomme aucun lot ou si les deux lots ne sont pas contrôlés une fois chacun | un seul classeur : sortie 1, « lot PLOMBERIE contrôlé 0 fois » |
+| R-06 | Les 40 vecteurs TS et pgTAP n'étaient comparés qu'à l'œil | **Comparaison automatique** : `normalize.test.ts` relit le bloc `insert into unit_vectors` de la suite pgTAP (littéraux SQL et `U&'…'` décodés) et l'égale à la liste TS | test « identiques octet pour octet » |
+| R-07 | D9 demande de trancher aussi `normalizedUnit` des offres ; 2.4 ne parlait que du métré | **Tranché** (interprétation 30) ; commentaires de `supplier-offer-eligibility.ts` et `normalize.ts` mis à jour, sans changement de comportement | revue du diff |
+| R-08 | Ligne non chiffrée : M3 et le TS rendent `h_mo` « 0.000 » ; le déclencheur de 2.5 dérivant `round(Q × h/u, 3)` sans condition de statut figerait une autre valeur | **Contrainte explicite pour 2.5** (interprétation 31) ; le moteur reste conforme à D9 « contribue 0 partout » | — |
 
 ## Pourquoi ces tests sont en isolation
 
@@ -141,8 +160,11 @@ version 3 ne peut être créée, aucun écran, aucune RPC, aucun écrivain ne le
   que sur des volumes impossibles à parcourir en E2E ;
 - **intégrité SQL** : contraintes, RLS d'une table qu'aucun écran ne lit encore, privilèges des fonctions,
   refus nommés (U2, U5, U6, U8, F11, F12, F15) ;
-- **cas limites d'analyse** des entrées (décimales en trop, valeurs non finies, exposants) et des graphies
-  d'unités issues des DPGF et des classeurs OPTIMA (U1, U7, U9, F-V3-12).
+- **cas limites d'analyse** des entrées (décimales en trop, valeurs non finies, exposants, littéraux JSON plus
+  précis qu'un double, chaînes sur le chemin canonique : R-01) et des graphies d'unités issues des DPGF et des
+  classeurs OPTIMA (U1, U7, U9, F-V3-12) ; lecture des cellules de contrôle OPTIMA à 15 chiffres sur des
+  demi-centimes au-delà de 10 000 € qu'aucun classeur versionné ne contient (R-03) ;
+- **cohérence d'une v3 figée** (R-02) : aucune v3 ne peut être figée avant 2.5, seul le lecteur pur l'établit.
 
 Les parcours E2E v3 arrivent avec les écrivains (2.5) et l'éditeur (2.6). Les suites pgTAP s'exécutent sur la
 pile native jetable de `npm run db:ci:local` (WSL, clone Linux), avec toutes les autres suites et la matrice RLS.
@@ -154,9 +176,9 @@ API publique TS (`@/lib/estimates/engine-v3`) :
 | Export | Signature |
 |---|---|
 | `computeEstimateV3Breakdown` | `(input: EstimateV3Input) => EstimateV3Breakdown` |
-| `computeEstimateV3Canonical` | `(input: unknown) => EstimateV3CanonicalOutput` (objet ou texte JSON) |
+| `computeEstimateV3Canonical` | `(input: unknown) => EstimateV3CanonicalOutput` (objet ou texte JSON ; nombres JSON seulement, texte lu à la source de chaque littéral : R-01) |
 | `projectEstimateV3Snapshot` | `(breakdown, { laborRoles? }) => { items, version, context }` (colonnes figées et contexte §6.5) |
-| `readStoredEstimateV3` | `({ version, items }) => StoredEstimateV3View` (aucun recalcul) |
+| `readStoredEstimateV3` | `({ version, items }) => StoredEstimateV3View` (aucun recalcul ; autoliquidation lue sur `version.contractor_role` : R-02) |
 | `computeEstimateV3NetMarginBp` | `({ total_ht_cents, cost_subtotal_cents }) => number \| null` |
 | `allocateExact` | `(amount: bigint, entries: { key: string; weight: bigint }[]) => bigint[]` |
 | `EstimateV3Error` | `code` ∈ `ESTIMATE_V3_INPUT_INVALID` (22023), `ESTIMATE_AMOUNT_OVERFLOW` (22003), `ESTIMATE_V3_STORED_INCOHERENT` ; `sqlstate`, `field` |
@@ -227,9 +249,14 @@ I-06 ci-dessus en font partie ; elles remplacent les choix contraires des pistes
    heures par unité `numeric(12,4)` ; coefficients de vente `numeric(8,4)` dans ]0 ; 10] ; centimes, taux
    horaires, `tax_rate_bp` et `discount_bp` (0 à 10 000), pas d'arrondi (≥ 1, I-05) entiers ≤ 2 147 483 647.
    Les zéros de queue ne comptent pas.
-6. **Nombres** : le contrat canonique ne porte que des nombres JSON. Le TS lit un nombre JS par sa chaîne la plus
-   courte (`String(n)`, exposant refusé) et accepte aussi une chaîne décimale (saisie de l'éditeur) ; le SQL
-   refuse une chaîne. Cette asymétrie est voulue et hors du contrat de parité.
+6. **Nombres** (révisé par R-01) : le contrat canonique ne porte que des nombres JSON, des deux côtés.
+   `computeEstimateV3Canonical` refuse une chaîne dans un champ numérique, que l'entrée soit un objet ou un
+   texte ; un texte est lu littéral par littéral à sa source (accès à la source de `JSON.parse`, Node ≥ 21 ;
+   sans lui, refus nommé plutôt qu'une lecture approchée), exposant développé en entier exact, zéros de tête et
+   de queue ignorés (`min_scale`), « -0 » = 0 comme `numeric`. Un nombre JS d'un objet est lu par sa chaîne la
+   plus courte (`String(n)`), exposant compris. Seule l'entrée typée de l'éditeur
+   (`computeEstimateV3Breakdown`) accepte aussi une chaîne décimale exacte, sans signe ni exposant : elle est
+   hors du contrat canonique et le SQL ne la voit jamais.
 7. **Ordre des erreurs** : toutes les entrées sont validées avant tout calcul ; une entrée invalide l'emporte
    sur un dépassement.
 8. **Remise** : `discount_amount_cents` non nul (0 compris) = intention en montant ; avec un `discount_bp` non
@@ -283,9 +310,10 @@ I-06 ci-dessus en font partie ; elles remplacent les choix contraires des pistes
 ### Preuves (intégration)
 
 25. **« 10 000 lignes et 300 devis »** (§5.5, §14) : 10 000 lignes tirées au hasard, chacune chiffrée seule
-    (un devis d'une ligne), **et** 300 devis tirés au hasard (12 244 lignes), plus 48 cas limites nommés qui
-    doivent être refusés ou calculés à l'identique ; comparaison du JSON canonique complet, ou du même code et
-    du même SQLSTATE.
+    (un devis d'une ligne), **et** 300 devis tirés au hasard (12 244 lignes), plus 57 cas limites nommés qui
+    doivent être refusés ou calculés à l'identique (48, puis 9 en texte brut après R-01) ; les deux côtés
+    lisent le même texte JSON canonique ; comparaison du JSON canonique complet, ou du même code et du même
+    SQLSTATE.
 26. **Harnais de parité** : `owned-native-stack.ts` reprend le modèle de `upgrade-check.ts` (projet isolé, ports
     libres hors plage éphémère et jamais 45585/33485/3107, runtime natif, `stop` puis `stack destroy` en
     `finally`) ; `upgrade-check.ts`, preuve de 2.0 rejouée à l'identique, n'est pas refactorisé (doublon
@@ -295,11 +323,41 @@ I-06 ci-dessus en font partie ; elles remplacent les choix contraires des pistes
     hors « Sous-total » / « Total ») ; ligne à statut = « Uté » normalisée en statut, entrée comme ligne non
     chiffrée avec ses nombres ; PR FO arrondi au centime par le demi supérieur (P-10) ; « Prix Unitaire » et
     « Prix Total » (cellules flottantes) lus à 15 chiffres significatifs (précision d'Excel), puis au centime
-    par le demi supérieur ; aucune entrée moteur n'est arrondie (une valeur hors échelle arrête le script).
+    par le demi supérieur appliqué à cette chaîne décimale exacte, sans repasser par un double (R-03) ; aucune
+    entrée moteur n'est arrondie (une valeur hors échelle arrête le script). Le contrôle n'atteste le §5.4 que
+    si chaque classeur nomme un lot (HYDRAULIQUE, PLOMBERIE) et si les deux lots sont contrôlés une fois (R-05).
 28. **Performance** : « entrée comparable » = les mêmes lignes tirées au hasard (sections de 25 lignes, quantité
     à 3 décimales, PR, heures à un taux de rôle, remise fixe de 10 €, TVA 20 %), en heures par unité pour la v3
     et en heures de ligne Q × h/u pour la v2 (moteur 2, marge fixe 1,25) ; exécutions entrelacées après 20 tours
     de chauffe ; 200 échantillons par série.
+
+### Revue (R-01 à R-08)
+
+29. **Autoliquidation d'une v3 figée** (R-02) : le lecteur la lit sur la colonne figée
+    `estimate_versions.contractor_role` (`text not null`, `CHECK in ('principal', 'subcontractor')`,
+    `20260726090000…sql:30-39`), `subcontractor` = autoliquidation, comme le calcul v2 de l'éditeur
+    (`useEstimateEditorCalculation.ts:77`). `StoredEstimateV3Version` gagne `contractor_role` ; un rôle absent ou
+    inconnu est une incohérence. Écarté : un drapeau `reverse_charge` ajouté à `calc_snapshot_context`, qui
+    aurait rompu l'exemple exact du §6.5 (test EU01) sans rien apporter, le rôle étant déjà figé sur la version
+    et gardé par le déclencheur d'écrivain v3 (§6.4, point 2). Contrainte pour 2.5 : l'écrivain du gel v3 passe
+    au moteur `reverse_charge = (contractor_role = 'subcontractor')`, et la relecture lit la même colonne.
+30. **Normaliseur d'unités des offres** (R-07, D9) : `normalizedUnit` (`supplier-offer-eligibility.ts:7-10`) et
+    son jumeau SQL `private.purchase_unit_token` (`20261017093407…sql:55-62`, règle « ml » = « m » de 2.2) **ne
+    sont pas remplacés en 2.4**. Ils servent tous les moteurs (v1/v2 compris) : les remplacer par le normaliseur
+    partagé rendrait compatibles des graphies aujourd'hui distinctes (« m.l. », « mètre linéaire », « Pce » = `u`,
+    « forfait » = `fft`) et changerait l'éligibilité des offres et la garde de préparation des commandes, hors du
+    code inerte de 2.4. Le remplacement, TS et SQL ensemble, revient au **sous-lot 2.9** (unité d'achat portée
+    par l'offre, D9, P-18), qui compare `unit_code` d'une ligne v3 à l'unité de l'offre ; les normaliseurs du
+    métré restent propres au métré.
+31. **Heures d'une ligne non chiffrée** (R-08) : M3 et le TS rendent `h_mo` = « 0.000 » (nul si h/u est nul) sur
+    une ligne non chiffrée, lecture de D9 « contribue 0 partout » (les 45 lecteurs de `h_mo` — qualité, nature,
+    exports, couverture — ne doivent pas compter ses heures) ; ses saisies (Q, h/u) restent conservées. D4 et
+    §6.4 décrivent le déclencheur de 2.5 par `round(quantity × h/u, 3)` sans condition de statut, et D12 exige
+    l'égalité exacte colonne par colonne au gel. **Contrainte pour 2.5** : sur une ligne v3 non chiffrée, le
+    déclencheur stocke `h_mo* = 0.000` (nul si la colonne par unité est nulle), de préférence en appelant la
+    même fonction de M3 (`private.estimate_v3_line_values`), et un test de 2.5 couvre ce cas. Point ouvert pour
+    le porteur de la conception : confirmer cette lecture de D9 ; l'autre lecture (`round(Q × h/u, 3)` aussi sur
+    une ligne non chiffrée) exigerait de changer M3 avant sa publication.
 
 ## Preuves rouges
 
@@ -379,46 +437,85 @@ Après `a0f26a90` : 59/59 en TS, 198/198 sur la même boucle SQL (la preuve d'au
 ci-dessous). Seule retouche des tests après le rouge : le test I-03 retire la clé sans variable inutilisée
 (lint) ; son assertion est inchangée.
 
+### Revue (`888ae6ff`, tests seuls, sur `b1eae40d`)
+
+`npx vitest run --project=node src/lib/estimates/engine-v3/requirements.test.ts src/lib/units/normalize.test.ts src/test/engine-v3-optima-control.test.ts` :
+
+```text
+     × 17459.995 € gives 1746000 c
+     × 12345.675 € gives 1234568 c
+     × refuses decimal strings on the canonical path, text or object, like the SQL twin (JSON numbers only)
+     × reads JSON number literals at their source, never through a double
+     × refuses zeroed VAT without reverse charge, VAT under reverse charge and an unknown contractor role
+AssertionError: expected 1745999 to be 1746000 // Object.is equality
+AssertionError: expected undefined to match object { …(2) }
+ Test Files  2 failed | 1 passed (3)
+      Tests  5 failed | 153 passed (158)
+```
+
+Le test des 40 vecteurs relus dans la suite pgTAP (R-06) passe dès le rouge : c'est une garde, les deux listes
+étaient identiques. Les tests canoniques existants dont la fixture écrit des décimaux en chaîne (`"1.30"`,
+`"0.5"`) passent désormais par un texte JSON aux nombres exacts (`canonicalJson`) : mêmes attendus, entrée au
+format du contrat. Les lecteurs figés des tests S5 et I-01 portent `contractor_role: "principal"` (colonne
+désormais lue). Le premier jet de ce rouge figeait un drapeau `reverse_charge` dans le contexte ; il a été
+remplacé avant toute publication par la lecture de `contractor_role` (interprétation 29) parce qu'il rompait le
+test EU01 « contexte exactement l'exemple du §6.5 ». Après `24f1e906` : 158/158 sur ces trois fichiers.
+
 ## Résultats (17/10/2026)
 
 Windows : Node 24.19.0, worktree `miaouffrage-l2-24`. WSL : Ubuntu 24.04, Node 24.14.0, clone
-`~/miaouffrage-lot2-24` remis à `a0f5cac9` (arbre propre ; le commit de ce document ne touche que lui), une
-exécution native possédée à la fois, sous le verrou partagé.
+`~/miaouffrage-lot2-24` remis au commit indiqué (arbre propre), au plus une exécution native possédée à la fois,
+sous le verrou partagé. Après la revue, M3, les suites pgTAP et tout le SQL sont inchangés
+(`git diff b1eae40d -- supabase/` vide) : les preuves SQL de `a0f5cac9` et de la campagne à `b1eae40d` valent
+pour la tête ; le moteur TS ayant changé (R-01, R-02), la parité, les lots OPTIMA et la performance sont rejoués
+à `24f1e906`.
 
 | Preuve | Commande | Résultat |
 |---|---|---|
-| Moteur TS, unités, corpus figé, règle de lint | `npx vitest run --project=node src/lib/estimates/engine-v3 src/lib/estimates/engine src/lib/units src/lib/estimates/engine-frozen-corpus.test.ts src/test/engine-version-lint.test.ts` | 9 fichiers, 209 tests verts |
-| Corpus figé v1/v2 | `npx vitest run src/lib/estimates/engine-frozen-corpus.test.ts` | 2/2, identique |
-| Parité TS/SQL (WSL, pile jetable possédée) | `npm run engine:v3:parity` | **0 écart** sur 10 348 cas (détail ci-dessous) |
-| Lots OPTIMA (Windows, local, hors CI) | `npm run engine:v3:optima-lot-check -- "<docs/prd_file/exemple chiffrage OPTIMA>/BEING - DPGF HYDRAULIQUE.xlsx" "<…>/BEING - DPGF PLOMBERIE.xlsx"` | « Lots OPTIMA conformes au §5.4 » (tableau ci-dessous) |
-| Performance (Windows) | `npm run engine:v3:performance` | 1 000 lignes : p95 8,26 ms (≤ 50) ; 3 000 lignes : v3/v2 = 0,385 en p50 (≤ 2) |
-| Montée de version (WSL) | `npm run db:upgrade-check -- lot2-2-4` | 244 migrations de base, 3 ultérieures appliquées (dont M3) ; « comparison found 0 difference(s) » ; contre-épreuve détectée ; `passed` |
-| Empreintes documentaires (WSL) | `npm run engine:document-fingerprints -- check` | 14 familles v1/v2 ; « Document fingerprints identical » |
-| SQL et RLS (WSL) | `npm run db:ci:local` | pile jetable, base réinitialisée, inventaire conforme ; pgTAP `Files=17, Tests=1714, Result: PASS` (1 711 de la piste B + I-04, I-06 et la 25ᵉ entrée invalide) ; « Behavioral RLS matrix passed. » ; garde F-SQL-14 : « Entrées de la liste blanche sans comparaison littérale : aucune » |
+| Moteur TS, unités, corpus figé, règle de lint, contrôles OPTIMA (à `24f1e906`) | `npx vitest run --project=node src/lib/estimates/engine-v3 src/lib/estimates/engine src/lib/units src/lib/estimates/engine-frozen-corpus.test.ts src/test/engine-version-lint.test.ts src/test/engine-v3-optima-control.test.ts` | 10 fichiers, 220 tests verts (corpus figé v1/v2 compris : identique) |
+| Parité TS/SQL (WSL, pile jetable possédée, à `24f1e906`) | `npm run engine:v3:parity` | **0 écart** sur 10 357 cas (détail ci-dessous) |
+| Lots OPTIMA (Windows, local, hors CI, à `24f1e906`) | `npm run engine:v3:optima-lot-check -- "docs/prd_file/exemple chiffrage OPTIMA/BEING - DPGF HYDRAULIQUE.xlsx" "docs/prd_file/exemple chiffrage OPTIMA/BEING - DPGF PLOMBERIE.xlsx"` | « Lots OPTIMA conformes au §5.4 » (tableau ci-dessous) ; avec le seul classeur hydraulique : sortie 1, « lot PLOMBERIE contrôlé 0 fois » |
+| Performance (Windows, à `24f1e906`) | `npm run engine:v3:performance` | 1 000 lignes : p95 5,12 ms (≤ 50) ; 3 000 lignes : v3/v2 = 0,458 en p50, 0,489 en p95 (≤ 2) |
+| Parcours de 2.0 rejoués (WSL, pile possédée, à `b1eae40d`) | `npm run e2e:army:calc-v3` | **37/37** : journeys 11, components 5, numeric 4, resume 5, access 2, offers 4, emission 6 ; pgTAP `Files=17, Tests=1714, Result: PASS`, matrice RLS passée, 247 migrations, validation de l'application passée ; sources identiques avant et après ; 11 min 31 s ; archive `.e2e/army/ci/2026-10-17T15-08-33-064Z-calc-v3/` du clone |
+| Montée de version (WSL, à `a0f5cac9`) | `npm run db:upgrade-check -- lot2-2-4` | 244 migrations de base, 3 ultérieures appliquées (dont M3) ; « comparison found 0 difference(s) » ; contre-épreuve détectée ; `passed` |
+| Empreintes documentaires (WSL, à `a0f5cac9`) | `npm run engine:document-fingerprints -- check` | 14 familles v1/v2 ; « Document fingerprints identical » |
+| SQL et RLS (WSL, à `a0f5cac9`) | `npm run db:ci:local` | pile jetable, base réinitialisée, inventaire conforme ; pgTAP `Files=17, Tests=1714, Result: PASS` (1 711 de la piste B + I-04, I-06 et la 25ᵉ entrée invalide) ; « Behavioral RLS matrix passed. » ; garde F-SQL-14 : « Entrées de la liste blanche sans comparaison littérale : aucune » |
 | Types | `npm run typecheck` | sortie 0 |
-| Lint | `npx eslint <les 29 fichiers .ts et .mjs touchés depuis e30560f4> --max-warnings=0` | sortie 0 |
+| Lint | `npx eslint <fichiers .ts et .mjs touchés> --max-warnings=0` | sortie 0 |
 | Architecture | `npm run check:architecture` | « Architecture budgets passed (1116 modules, 0 allowed runtime cycles) » |
 | Migrations | `npm run supabase:validate` ; `npm run supabase:migrations:git-guard` ; `npm run units:sql -- --check` | 247 fichiers, 247 versions ; garde passée (2 changements) ; blocs alignés |
 | Fichiers moteur v1/v2 | `git diff --stat e30560f4 -- src/lib/estimate-calculations.ts src/lib/estimate-v2-snapshot.ts` (et contre `origin/main`) | vide |
-| Espaces et fins de ligne | `git -c core.whitespace=cr-at-eol diff --check origin/main...HEAD` ; `git ls-files --eol src/types/database.ts` | propre ; `i/crlf w/crlf` |
+| Espaces et fins de ligne | `git -c core.whitespace=cr-at-eol diff --check origin/main...HEAD` ; `git ls-files --eol src/types/database.ts src/lib/money.ts` | propre ; `i/crlf w/crlf` |
 
 ### Parité TS/SQL
 
-`npm run engine:v3:parity` (graine 20261017) à `a0f5cac9` : 10 348 cas = 10 000 lignes seules, 300 devis
-(12 244 lignes) et 48 cas limites ; TS 884 ms, SQL 12 071 ms (`private.estimate_v3_compute_items`, en `postgres`,
-psql 17.11) ; **0 écart** ; contre-épreuve détectée (un centime ajouté au HT d'une sortie SQL) ; pile arrêtée,
-détruite, répertoire retiré. Mêmes résultats au premier passage à `c0b450e7`. Rapport :
+`npm run engine:v3:parity` (graine 20261017) à `24f1e906` : 10 357 cas = 10 000 lignes seules, 300 devis
+(12 244 lignes) et 57 cas limites ; les deux côtés lisent le même texte JSON canonique ; TS 429 ms, SQL
+4 014 ms (`private.estimate_v3_compute_items`, en `postgres`) ; **0 écart** ; contre-épreuve détectée (un
+centime ajouté au HT d'une sortie SQL) ; pile arrêtée, détruite, répertoire retiré. Cas limites : 15 calculés,
+36 refusés `ESTIMATE_V3_INPUT_INVALID` (22023), 6 `ESTIMATE_AMOUNT_OVERFLOW` (22003), identiques des deux
+côtés ; parmi les 9 cas en texte brut, littéraux plus précis qu'un double, chaînes décimales et littéral de
+1e-30 refusés, exposants (`15e-1`, `1E2`), « -0 » et zéros de queue calculés à l'identique. Rapport :
+`~/miaouffrage-lot2-24/.e2e/engine-v3/parity/2026-10-17T15-23-23-047Z-seed-20261017/report.json` (révision
+`24f1e906`, diff local vide, empreinte des cas `d28f3bf0…`).
+
+Passage précédent, avant la revue, à `a0f5cac9` : 10 348 cas = 10 000 lignes seules, 300 devis
+(12 244 lignes) et 48 cas limites ; TS 884 ms, SQL 12 071 ms (psql 17.11) ; **0 écart** ; contre-épreuve
+détectée ; mêmes résultats au premier passage à `c0b450e7`. Rapport :
 `~/miaouffrage-lot2-24/.e2e/engine-v3/parity/2026-10-17T14-45-45-006Z-seed-20261017/report.json` (cas et sorties
 SQL archivés en gzip à côté, empreinte des cas `3ef1f24b…`).
 
-Couverture : 989 sections ; 18 976 lignes chiffrées et 3 314 non chiffrées (652 `included`, 692 `for_memory`,
-611 `not_priced`, 692 `out_of_scope`, 667 `not_applicable`) ; 19 190 quantités à 3 décimales ; 14 008 heures
-par unité à 4 décimales ; 301 lignes dont le montant de vente unitaire exact tombe sur un demi-centime ;
-883 lignes ventilées ; 1 030 cas en autoliquidation ; 290 devis multi-taux ; remise en montant (80) et en
-taux (92), dont 20 plafonnées au brut ; arrondi `down` sur 108 devis, appliqué sur 89 ; 254 devis avec des bruts
-égaux (ex aequo de répartition) ; 387 identifiants en majuscules. Cas limites : 11 calculés, 31 refusés
-`ESTIMATE_V3_INPUT_INVALID` (22023), 6 `ESTIMATE_AMOUNT_OVERFLOW` (22003), identiques des deux côtés. Sur la
-boucle PostgreSQL de mise au point, une sortie SQL altérée à la main donnait bien 1 écart sur 10 348.
+Cas limites de ce passage : 11 calculés, 31 refusés `ESTIMATE_V3_INPUT_INVALID` (22023), 6
+`ESTIMATE_AMOUNT_OVERFLOW` (22003), identiques des deux côtés. Sur la boucle PostgreSQL de mise au point, une
+sortie SQL altérée à la main donnait bien 1 écart sur 10 348.
+
+Couverture du passage à `24f1e906` (les 10 300 cas tirés sont les mêmes aux deux passages, même graine) :
+989 sections ; 18 985 lignes chiffrées (18 976 avant les 9 cas en texte brut) et 3 314 non chiffrées
+(652 `included`, 692 `for_memory`, 611 `not_priced`, 692 `out_of_scope`, 667 `not_applicable`) ; 19 190
+quantités à 3 décimales ; 14 008 heures par unité à 4 décimales ; 301 lignes dont le montant de vente unitaire
+exact tombe sur un demi-centime ; 883 lignes ventilées ; 1 030 cas en autoliquidation ; 290 devis multi-taux ;
+remise en montant (80) et en taux (92), dont 20 plafonnées au brut ; arrondi `down` sur 108 devis, appliqué
+sur 89 ; 254 devis avec des bruts égaux (ex aequo de répartition) ; 387 identifiants en majuscules.
 
 ### Lots OPTIMA (§5.4, tolérance 0 c)
 
@@ -427,29 +524,37 @@ boucle PostgreSQL de mise au point, une sortie SQL altérée à la main donnait 
 | Hydraulique | **785/785** | 392/785 ; 7,94 € | **1 644 207,61 €** (1 644 173,89 €) | **1 572 320,99 €** | 1 264 749,07 € | **1,243188** | 61 HL, 9 inc, 7 NC, 1 PM, 1 CP | 0 c |
 | Plomberie | **656/656** | 310/656 ; 2,03 € | **1 027 655,61 €** (1 027 637,33 €) | **981 887,92 €** | 790 490,05 € | **1,242126** | 74 HL, 4 NC, 3 SO, 1 PM | 0 c |
 
-Tous les nombres du §5.4 sont reproduits sans retouche. Le premier passage a échoué sur un seul point : la
-comparaison des statuts dépendait de l'ordre des clés (défaut du script, corrigé par une égalité profonde) ; les
-nombres étaient déjà identiques. Rapport : `.e2e/engine-v3/optima-lot-check/2026-10-17T14-43-05-035Z/report.json`
-du worktree Windows (nombres et numéros de ligne seulement, aucune désignation).
+Tous les nombres du §5.4 sont reproduits sans retouche, avant comme après la revue (R-03 ne change aucun
+nombre de ces deux lots). Le premier passage, à l'intégration, a échoué sur un seul point : la comparaison des
+statuts dépendait de l'ordre des clés (défaut du script, corrigé par une égalité profonde) ; les nombres étaient
+déjà identiques. Rapport à `24f1e906` : `.e2e/engine-v3/optima-lot-check/2026-10-17T15-24-11-981Z/report.json`
+du worktree Windows (révision, diff local vide, commande, sha256 des deux classeurs `4a6eea77…` et `586c7d23…` ;
+nombres et numéros de ligne seulement, aucune désignation).
 
 ### Performance (Windows, Node 24.19.0, 200 échantillons entrelacés, 20 tours de chauffe)
 
-| Série | p50 | p95 | max | moyenne |
-|---|---|---|---|---|
-| v3, 1 000 lignes | 6,72 ms | **8,26 ms** (≤ 50 ms) | 12,58 ms | 6,67 ms |
-| v3, 3 000 lignes | 20,56 ms | 23,68 ms | 33,01 ms | 20,39 ms |
-| v2 (`computeEstimateBreakdown`), 3 000 lignes | 53,47 ms | 58,75 ms | 62,57 ms | 52,65 ms |
+| Série (à `24f1e906`) | p50 | p95 |
+|---|---|---|
+| v3, 1 000 lignes | 3,79 ms | **5,12 ms** (≤ 50 ms) |
+| v3, 3 000 lignes | 12,09 ms | 14,00 ms |
+| v2 (`computeEstimateBreakdown`), 3 000 lignes | 26,38 ms | 28,65 ms |
 
-Rapport v3/v2 à 3 000 lignes : **0,385** en p50, 0,403 en p95 (≤ 2). Mesure prise pendant qu'une pile native
-tournait dans WSL : les valeurs absolues sont plus hautes que la mesure ponctuelle de la piste A (p95 4,3 ms à
-1 000 lignes) ; les critères tiennent. Échantillons bruts :
-`.e2e/engine-v3/performance/2026-10-17T14-41-48-573Z/report.json` du worktree Windows.
+Rapport v3/v2 à 3 000 lignes : **0,458** en p50, 0,489 en p95 (≤ 2). Échantillons bruts, révision et commande :
+`.e2e/engine-v3/performance/2026-10-17T15-24-13-044Z/report.json` du worktree Windows. Mesure de l'intégration
+(`a0f5cac9`, prise pendant qu'une pile native tournait dans WSL) : p95 8,26 ms à 1 000 lignes, rapport 0,385 en
+p50 ; les critères tiennent aux deux mesures.
 
 ## Restes et points ouverts
 
-- Suites complètes Vitest et E2E : CI GitHub de la PR (non lancées ici, à dessein).
+- Suites complètes Vitest et E2E `critical` : CI GitHub de la PR (non lancées ici, à dessein). La campagne
+  `calc-v3`, qu'aucune CI ne lance, est rejouée ici (37/37 à `b1eae40d`) ; les commits suivants ne touchent ni
+  le SQL ni un chemin v1/v2 (moteur v3 inerte, scripts, tests, commentaires, ce document).
 - Point ouvert : valeurs négatives (ristournes, moins-values) refusées faute de règle d'arrondi (D13).
-- Asymétrie voulue : chaînes décimales acceptées par le TS, refusées par le SQL (hors contrat canonique).
+- Point ouvert pour le porteur de la conception (R-08, interprétation 31) : heures « 0.000 » d'une ligne v3 non
+  chiffrée ; contrainte à tenir par le déclencheur de 2.5 (branche `lot2/2.5-persistance-v3` en cours).
+- Contrainte pour 2.5 (interprétation 29) : l'autoliquidation du gel v3 vient de `contractor_role`.
+- Chemin canonique : il exige l'accès à la source de `JSON.parse` (Node ≥ 21, navigateurs récents) ; sans lui,
+  refus nommé plutôt que lecture approchée.
 - `owned-native-stack.ts` double une partie de `upgrade-check.ts` (preuve de 2.0 laissée intacte) : à factoriser
   dans un sous-lot ultérieur.
 - M3 a été modifiée après les commits de la piste B (non publiée) ; une fois publiée, toute évolution, référentiel
