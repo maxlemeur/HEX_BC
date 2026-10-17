@@ -65,6 +65,7 @@ Chaque phase est une invocation TesterArmy distincte de `e2e.calc-v3.config.ts` 
 | `access` | idem | setup, `generated-ouvrage-access` GR07 : 2 | propriétaire et observateur administrateurs dédiés ; le parcours archive et rétrograde ce seul propriétaire |
 | `offers` | build possédé, `next start` | setup, `supplier-offer-zero-price` OZ01–OZ03 : 4 (sous-lot 2.2, [estimate-engine-v3-2.2.md](estimate-engine-v3-2.2.md)) | propriétaire dédié en mode Expert, trois fournisseurs, trois articles et quatre offres en « ml » (dont trois à 0 €), un brouillon v2 par parcours, un chantier |
 | `emission` | `next dev` | setup d'offre, `offer-emission` OF00, OF01, OF02, OF04, OF0L : 6 (OF03 rouge à la base, hors sélection) | aucune : les parcours créent leurs devis `ARMY-OFFER-` par l'interface |
+| `emission-v3` | `next dev` | setup d'offre, `engine-v3-emission` V3E01 : 2 (sous-lot 2.7, [estimate-engine-v3-2.7.md](estimate-engine-v3-2.7.md) ; rouge tant que M5 et le TS de 2.7 manquent) | propriétaire dédié en politique 3 (1,30 / 1,20) avec un seul rôle à 4 000 c, un brouillon v2 témoin ; les v3 sont créées par l'API |
 
 Une phase sans `--grep` applique sa sélection par défaut (`defaultGrep`) et exige exactement ces
 nombres. Les parcours rouges sur la base non modifiée sont nommés dans `knownRedAtBase`
@@ -78,6 +79,10 @@ Expert, où la présélection fournisseurs est visible. Les fixtures `resume` et
 reprennent la forme des graines qualifiées non versionnées (`.e2e/source-coverage/seed-generated.cjs`,
 `.e2e/source-coverage/access-staged/seed-generated-access.cjs`, 11/10/2026) ; elles sont
 réexécutées sur le schéma courant par cette campagne, pas encore qualifiées.
+
+Les deux phases d'émission (`sentinelCollector` dans `calc-v3-phases.ts`) démarrent le collecteur, chargent
+le garde réseau d'offre et relisent les PDF reçus ; seule `emission` impose un motif commun à chaque PDF
+(`collectedPdfMustContain`), `emission-v3` assertant le contenu de chaque PDF dans son parcours.
 
 Le mode `next dev` de l'émission découle de `canUseDevelopmentEstimateTerms`
 (`src/lib/estimates/pdf-terms-server.ts`) : les conditions bac à sable n'y dépendent d'aucune origine.
