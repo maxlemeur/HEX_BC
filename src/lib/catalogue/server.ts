@@ -7,6 +7,7 @@ import {
 } from "@/lib/catalogue/price-validity";
 
 import { getAuthenticatedTenantContext, readAuthenticatedUser } from "@/lib/auth/tenant-context";
+import { SUPPLIER_OFFER_ZERO_PRICE_KIND_ERROR } from "@/lib/estimates/supplier-offer-price";
 import { toErrorResponse as toSharedErrorResponse } from "@/lib/http/errors";
 
 import type {
@@ -246,6 +247,10 @@ function mapSupabaseError(
 ): CatalogueApiError {
   const normalizedMessage =
     `${error.message ?? ""} ${error.details ?? ""}`.toLowerCase();
+
+  if (normalizedMessage.includes("supplier_pricebook_zero_price_kind_check")) {
+    return badRequest(SUPPLIER_OFFER_ZERO_PRICE_KIND_ERROR, error, "BAD_REQUEST");
+  }
 
   if (
     normalizedMessage.includes("supplier_pricebook_validity") ||

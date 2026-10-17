@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SUPPLIER_OFFER_ZERO_PRICE_KIND_ERROR } from "@/lib/estimates/supplier-offer-price";
 
 import { isValidDateOnly } from "@/lib/date-only";
 import { resolvePriceValidity } from "@/lib/catalogue/price-validity";
@@ -405,8 +406,7 @@ export const updateSupplierOfferSchema = z.object({
     .superRefine((payload, ctx) => {
       if (payload.valid_from && payload.valid_to) ensurePriceValidity(payload, ctx);
       if (payload.zero_price_kind && typeof payload.unit_price_cents === "number" && payload.unit_price_cents > 0) {
-        ctx.addIssue({ code: "custom", path: ["zero_price_kind"],
-          message: "Le marquage « Inclus » ou « Gratuit » exige un prix à 0 €." });
+        ctx.addIssue({ code: "custom", path: ["zero_price_kind"], message: SUPPLIER_OFFER_ZERO_PRICE_KIND_ERROR });
       }
       if (Object.keys(payload).length === 0) {
         ctx.addIssue({ code: "custom", message: "Aucun champ de mise à jour fourni." });

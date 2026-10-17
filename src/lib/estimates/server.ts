@@ -1166,9 +1166,12 @@ async function findSelectedSupplierComparisonCandidate(input: {
     return null;
   }
 
+  // A7: an ineligible selected offer stays the candidate (shown as the current choice) but never
+  // ranks as best price, most recent or preferred supplier against eligible peers.
   const productCandidates = candidates.filter((candidate) => {
     const row = selectedAndPeerRowsById.get(candidate.supplier_price_id);
-    return candidate.product_id === selectedCandidate.product_id && row?.is_active === true;
+    return candidate.product_id === selectedCandidate.product_id && row?.is_active === true &&
+      isSupplierOfferPriceEligible(candidate);
   });
 
   return {
