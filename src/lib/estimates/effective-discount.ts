@@ -1,5 +1,5 @@
-import { resolveCalcEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
-import { isLegacyEngine, isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
+import { resolveEstimateEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
+import { isLegacyEngine, isUnifiedEngine, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 
 const MAX_CENTS = 2_147_483_647;
 
@@ -15,6 +15,9 @@ export type FixedDiscountVersion = {
   project_id?: string;
   status?: string;
   updated_at?: string;
+  /** Moteur 3 : brut et remise appliquée stockés (§6.2), comparés au gel. */
+  gross_ht_cents?: number | null;
+  discount_applied_cents?: number | null;
 };
 
 export type CanonicalFixedDiscountEvidence = Readonly<{
@@ -37,7 +40,7 @@ export type CanonicalFixedDiscountEvidence = Readonly<{
 
 export type ReadyFixedDiscountSignal = {
   state: "ready";
-  source: "snapshot_v2" | CanonicalFixedDiscountEvidence["source"];
+  source: "snapshot_v2" | "snapshot_v3" | CanonicalFixedDiscountEvidence["source"];
   requestedCents: number;
   baseCents: number;
   appliedCents: number;
@@ -85,14 +88,43 @@ function readSignal(
   };
 }
 
+/**
+ * Lot 2, sous-lot 2.5 - remise exacte v3 (D6, §6.5). Une intention en pourcentage est exacte dans
+ * `discount_bp` (aucun montant dérivé) : signal « historique » sur ce taux. Une intention en montant
+ * n'est prouvée que par un gel v3 frais dont la clé `discount` retrouve le montant demandé, le brut
+ * et la remise appliquée stockés ; sinon elle est indisponible, jamais un taux inventé.
+ */
+function resolveV3FixedDiscountSignal(version: FixedDiscountVersion): FixedDiscountSignal {
+  if (version.discount_amount_cents == null) return { state: "legacy" };
+  if (!cents(version.discount_amount_cents)) return { state: "unavailable" };
+  const currentRevision = revision(version.content_revision);
+  if (currentRevision === null || revision(version.calc_snapshot_content_revision) !== currentRevision) {
+    return { state: "unavailable" };
+  }
+  const context = record(version.calc_snapshot_context);
+  const discount = record(context?.discount);
+  if (!context || context.engine !== 3 || !discount || discount.kind !== "amount" ||
+    !cents(discount.requested_cents) || !cents(discount.base_cents) || !cents(discount.applied_cents) ||
+    discount.requested_cents !== version.discount_amount_cents ||
+    discount.applied_cents !== Math.min(discount.requested_cents, discount.base_cents) ||
+    discount.base_cents !== version.gross_ht_cents || discount.applied_cents !== version.discount_applied_cents) {
+    return { state: "unavailable" };
+  }
+  return {
+    state: "ready", source: "snapshot_v3", requestedCents: discount.requested_cents,
+    baseCents: discount.base_cents, appliedCents: discount.applied_cents,
+    netCents: discount.base_cents - discount.applied_cents,
+  };
+}
+
 /** A missing fixed proof is unavailable, never an invented zero or inverse net. */
 export function resolveFixedDiscountSignal(
   version: FixedDiscountVersion,
   evidence?: CanonicalFixedDiscountEvidence | null,
 ): FixedDiscountSignal {
-  // Lot 2, sous-lot 2.1 : l'intention de remise exacte v3 arrive en 2.5 ; d'ici là, indisponible.
-  const calcEngineVersion = resolveCalcEngineVersionForDisplay(version);
+  const calcEngineVersion = resolveEstimateEngineVersionForDisplay(version);
   if (calcEngineVersion === null) return { state: "unavailable" };
+  if (usesSaleCoefficients(calcEngineVersion)) return resolveV3FixedDiscountSignal(version);
   if (version.discount_amount_cents == null) return { state: "legacy" };
   if (!cents(version.discount_amount_cents)) return { state: "unavailable" };
   if (evidence) {

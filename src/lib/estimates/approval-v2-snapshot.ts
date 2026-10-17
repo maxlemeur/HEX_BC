@@ -1,14 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
-  isUnifiedEngine,
+  assertNever,
   requireEstimateEngineVersion,
-  requireHistoricalEngine,
 } from "@/lib/estimates/engine/capabilities";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { Database } from "@/types/database";
 
 import { freezeEstimateV2Snapshot } from "./v2-snapshot-server";
+import { freezeEstimateV3Snapshot } from "./v3-snapshot-server";
 
 type ApprovalSnapshotContext = {
   supabase: unknown;
@@ -22,27 +22,36 @@ type ApprovalSnapshotVersion = Pick<
 >;
 
 /**
- * Fige un brouillon v2 avant toute capture d'approbation. La valeur de retour
+ * Fige un brouillon v2 ou v3 avant toute capture d'approbation. La valeur de retour
  * indique au workflow qu'il doit relire la version apres le CAS serveur.
  */
 export async function freezeApprovalV2DraftIfRequired(
   context: ApprovalSnapshotContext,
   version: ApprovalSnapshotVersion
 ) {
-  // Lot 2, sous-lot 2.1 : une v3 ne part jamais en approbation sans gel, comme une v1.
-  const calcEngineVersion = requireHistoricalEngine(requireEstimateEngineVersion(version));
-  if (version.status !== "draft" || !isUnifiedEngine(calcEngineVersion)) return false;
-
-  const supabase = context.supabase as SupabaseClient<Database>;
-  await freezeEstimateV2Snapshot({
-    supabase,
+  // Lot 2, sous-lot 2.5 : une v3 est figee par son propre gel (D15), jamais par celui de la v2.
+  const engine = requireEstimateEngineVersion(version);
+  if (version.status !== "draft") return false;
+  const freezeInput = () => ({
+    supabase: context.supabase as SupabaseClient<Database>,
     rpcClient: createServiceRoleClient(),
     tenantId: context.tenantId,
     versionId: version.id,
     expectedUpdatedAt: version.updated_at,
     expectedContentRevision: version.content_revision,
     actorUserId: context.userId,
-    purpose: "approval",
+    purpose: "approval" as const,
   });
-  return true;
+  switch (engine) {
+    case 1:
+      return false;
+    case 2:
+      await freezeEstimateV2Snapshot(freezeInput());
+      return true;
+    case 3:
+      await freezeEstimateV3Snapshot(freezeInput());
+      return true;
+    default:
+      return assertNever(engine);
+  }
 }

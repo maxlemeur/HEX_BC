@@ -120,3 +120,24 @@ export function isLegacyEngine(engine: HistoricalEngineVersion): engine is 1 {
 export function isUnifiedEngine(engine: HistoricalEngineVersion): engine is 2 {
   return engine === 2;
 }
+
+/**
+ * Lot 2, sous-lot 2.5 (D5) : coefficients de vente FO/MO par version, marge fixe a 1, contexte
+ * fige v3 et marque nette (`cost_subtotal_cents`) au lieu du multiplicateur v2.
+ */
+export function usesSaleCoefficients(engine: EstimateEngineVersion): engine is 3 {
+  switch (engine) {
+    case 1:
+    case 2:
+      return false;
+    case 3:
+      return true;
+    default:
+      return assertNever(engine);
+  }
+}
+
+/** Lot 2, sous-lot 2.5 (D4, D9) : heures par unite, unite et statut de ligne en colonnes. */
+export function usesPerUnitLabor(engine: EstimateEngineVersion): engine is 3 {
+  return usesSaleCoefficients(engine);
+}

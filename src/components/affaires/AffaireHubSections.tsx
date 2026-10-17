@@ -72,15 +72,18 @@ export function FinancialSummaryCard({
 
   const hasAccepted = !!acceptedVersion;
 
+  // Lot 2, sous-lot 2.5 : marge `null` = indisponible (v3 sans gel frais), jamais lue comme 0 %.
   const marginPct = currentVersion.marginPercent;
   const marginColorClass =
-    marginPct >= 25
-      ? "text-success"
-      : marginPct >= 15
-        ? "text-foreground"
-        : lineCount > 0
-          ? "text-danger"
-          : "text-muted-foreground";
+    marginPct === null
+      ? "text-muted-foreground"
+      : marginPct >= 25
+        ? "text-success"
+        : marginPct >= 15
+          ? "text-foreground"
+          : lineCount > 0
+            ? "text-danger"
+            : "text-muted-foreground";
   const isEmptyEstimate = currentVersion.totalHtCents === 0 && lineCount === 0;
 
   return (
@@ -112,13 +115,15 @@ export function FinancialSummaryCard({
 
           <div>
             <KpiLabel dotClass="bg-brand-orange">Marge appliquée</KpiLabel>
-            <p className={cn("mt-1 font-bold", isEmptyEstimate ? "text-lg" : "text-2xl", marginColorClass)}>
-              {currentVersion.marginPercent.toFixed(1)} %
+            <p className={cn("mt-1 font-bold", isEmptyEstimate || marginPct === null ? "text-lg" : "text-2xl", marginColorClass)}>
+              {marginPct === null ? "Indisponible" : `${marginPct.toFixed(1)} %`}
             </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Coeff. {currentVersion.marginMultiplier.toFixed(3)}
-            </p>
-            {canEditMargin ? (
+            {currentVersion.marginMultiplier === null ? null : (
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Coeff. {currentVersion.marginMultiplier.toFixed(3)}
+              </p>
+            )}
+            {canEditMargin && currentVersion.marginMultiplier !== null ? (
               <Link
                 href={getEstimateMarginSettingsHref(currentVersion.id)}
                 className={cn(buttonVariants({ variant: "ghost", size: "xs" }), "mt-2 min-h-9 text-primary hover:text-primary")}

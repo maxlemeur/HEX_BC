@@ -46,8 +46,9 @@ export type V3Fixture = {
 
 /**
  * Inserts ARMY-L2-V3-FIXTURE-<run>: one v3 draft in a project owned by the logged-in ARMY
- * account, one section and one line. The line inputs (2 × 15,00 €, margin ×1.5) would read
- * as 45,00 € HT / 54,00 € TTC through the v1 engine; the stored amounts are all zero.
+ * account, one section and one line. The line inputs (2 × 22,50 €) would read as 45,00 € HT /
+ * 54,00 € TTC through the v1 engine; the stored amounts are all zero. Since M4 (2.5) the v3
+ * shape CHECK requires margin ×1, sale coefficients (1,30 / 1,20) and the three v3 amounts.
  */
 export async function insertV3Fixture(army: ArmyState, owner: { projectId: string; tenantId: string; userId: string }): Promise<V3Fixture> {
   const fixture: V3Fixture = {
@@ -71,10 +72,11 @@ BEGIN
     JOIN public.tenants t ON t.id = p.tenant_id AND t.is_active AND t.name ~ '^ARMY\\y'
     WHERE p.id = (ctx->>'projectId')::uuid AND p.tenant_id = (ctx->>'tenantId')::uuid AND p.user_id = (ctx->>'userId')::uuid)
   THEN RAISE EXCEPTION 'The owned ARMY project identity differs'; END IF;
-  INSERT INTO public.estimate_versions (id, tenant_id, project_id, version_number, status, calc_engine_version, title, margin_multiplier, tax_rate_bp)
+  INSERT INTO public.estimate_versions (id, tenant_id, project_id, version_number, status, calc_engine_version, title, margin_multiplier, tax_rate_bp,
+    sale_coefficient_fo, sale_coefficient_mo, gross_ht_cents, discount_applied_cents, commercial_rounding_cents)
   SELECT (ctx->>'versionId')::uuid, p.tenant_id, p.id,
     coalesce((SELECT max(v.version_number) FROM public.estimate_versions v WHERE v.project_id = p.id), 0) + 1,
-    'draft', 3, ctx->>'title', 1.5, 2000
+    'draft', 3, ctx->>'title', 1, 2000, 1.3, 1.2, 0, 0, 0
   FROM public.estimate_projects p WHERE p.id = (ctx->>'projectId')::uuid;
   PERFORM set_config('miaouffrage.estimate_v3_writer', ctx->>'versionId', true);
   INSERT INTO public.estimate_items (id, tenant_id, version_id, item_type, position, title)
@@ -86,7 +88,7 @@ BEGIN
     pu_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents
   )
   SELECT (ctx->>'lineId')::uuid, v.tenant_id, v.id, (ctx->>'sectionId')::uuid, 'line', 1, 'Ligne ' || (ctx->>'title'), 'u',
-    2, 1500, 2000, 1, 0, 1, 1, 0, 0, 0, 0
+    2, 2250, 2000, 1, 0, 1, 1, 0, 0, 0, 0
   FROM public.estimate_versions v WHERE v.id = (ctx->>'versionId')::uuid;
   PERFORM set_config('miaouffrage.estimate_v3_writer', '', true);
 END ${delimiter};

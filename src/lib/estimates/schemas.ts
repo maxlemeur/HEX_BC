@@ -2,10 +2,15 @@ import { z } from "zod";
 import { SUPPORTED_ESTIMATE_CURRENCIES } from "@/lib/money";
 import { ESTIMATE_LINE_NATURES } from "@/lib/estimates/line-nature";
 import {
-  DEFAULT_MAX_SECTION_DEPTH,
   MAX_SECTION_DEPTH,
   MIN_SECTION_DEPTH,
 } from "@/lib/estimates/hierarchy";
+import {
+  expectedCalcEngineVersionSchema,
+  v3LineItemFields,
+  v3SaleCoefficientFields,
+  v3VersionSettingsFields,
+} from "@/lib/estimates/v3-schemas";
 
 const UUID_ERROR_MESSAGE = "Identifiant invalide.";
 const AID_TOO_LONG_ERROR_MESSAGE = "AID trop long.";
@@ -189,7 +194,11 @@ const createEstimateVersionSchema = z
     contractor_role: estimateContractorRoleSchema.optional(),
     rounding_mode: estimateRoundingModeSchema.optional(),
     rounding_step_cents: positiveIntegerSchema.optional(),
-    max_section_depth: sectionDepthSchema.optional().default(DEFAULT_MAX_SECTION_DEPTH),
+    // Revue Codex de la PR #33 (F4) : sans défaut injecté ; omise, la profondeur vient de la dernière version
+    // de l'affaire, ou du défaut de la création canonique (DEFAULT_VERSION_SETTINGS) pour une affaire neuve.
+    max_section_depth: sectionDepthSchema.optional(),
+    expected_calc_engine_version: expectedCalcEngineVersionSchema.optional(),
+    ...v3SaleCoefficientFields,
   })
   .superRefine((payload, ctx) => {
     const mode = payload.discount_mode ?? "simple";
@@ -306,6 +315,7 @@ export const patchEstimateVersionSchema = z
     rounding_mode: estimateRoundingModeSchema.optional(),
     rounding_step_cents: positiveIntegerSchema.optional(),
     max_section_depth: sectionDepthSchema.optional(),
+    ...v3VersionSettingsFields,
     total_ht_cents: nonNegativeIntegerSchema.optional(),
     total_tax_cents: nonNegativeIntegerSchema.optional(),
     total_ttc_cents: nonNegativeIntegerSchema.optional(),
@@ -422,6 +432,7 @@ const createLineItemSchema = z.object({
   h_mo_majoration: nonNegativeNumberSchema.optional(),
   k_mo: nonNegativeNumberSchema.optional(),
   ...laborSplitItemFields,
+  ...v3LineItemFields,
   labor_role_id: nullableUuidSchema.optional(),
   category_id: nullableUuidSchema.optional(),
   supply_type_id: nullableUuidSchema.optional(),
@@ -450,6 +461,7 @@ const updateEstimateItemFields = {
   h_mo_majoration: nonNegativeNumberSchema.optional(),
   k_mo: nonNegativeNumberSchema.optional(),
   ...laborSplitItemFields,
+  ...v3LineItemFields,
   pu_ht_cents: nonNegativeIntegerSchema.optional(),
   line_total_ht_cents: nonNegativeIntegerSchema.optional(),
   line_tax_cents: nonNegativeIntegerSchema.optional(),

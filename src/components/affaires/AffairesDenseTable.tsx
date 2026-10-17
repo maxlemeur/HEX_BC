@@ -574,7 +574,9 @@ function ExpandedContent({
             </p>
             <p>
               <span className="text-muted-foreground">Marge : </span>
-              <span className="font-medium">{cv.marginPercent.toFixed(1)} %</span>
+              <span className="font-medium">
+                {cv.marginPercent === null ? "indisponible" : `${cv.marginPercent.toFixed(1)} %`}
+              </span>
             </p>
             <p>
               <span className="text-muted-foreground">Nb lignes : </span>

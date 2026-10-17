@@ -1,5 +1,7 @@
-import { resolveCalcEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
-import { isLegacyEngine } from "@/lib/estimates/engine/capabilities";
+import { resolveEstimateEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
+import { isLegacyEngine, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
+import { computeEstimateV3NetMarginBp } from "@/lib/estimates/engine-v3";
+import type { V3MarginEvidence } from "@/lib/estimates/v3-margin-evidence-server";
 
 export type EffectiveMarginVersion = {
   calc_engine_version?: number | null;
@@ -9,7 +11,53 @@ export type EffectiveMarginVersion = {
   content_revision?: number | string | null;
   calc_snapshot_content_revision?: number | string | null;
   calc_snapshot_context?: unknown;
+  /** Moteur 3 : HT net et identité, comparés à la preuve vivante (D5). */
+  total_ht_cents?: number | null;
+  id?: string;
+  tenant_id?: string;
+  project_id?: string;
+  status?: string;
+  updated_at?: string;
 };
+
+const MAX_CENTS = 2_147_483_647;
+
+function isCents(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= MAX_CENTS;
+}
+
+function evidenceMatches(version: EffectiveMarginVersion, evidence: V3MarginEvidence): boolean {
+  const currentRevision = Number(version.content_revision);
+  return evidence.source === "authenticated_live" && version.status === "draft" &&
+    Number.isSafeInteger(currentRevision) && evidence.version.content_revision === currentRevision &&
+    (["id", "tenant_id", "project_id", "status", "updated_at"] as const).every((key) =>
+      typeof version[key] === "string" && version[key] === evidence.version[key]) &&
+    evidence.net_ht_cents === version.total_ht_cents && isCents(evidence.cost_subtotal_cents);
+}
+
+/**
+ * Lot 2, sous-lot 2.5 - marque nette v3 (D5, F20) : ⌈(HT − Σ D) × 10 000 / HT⌋ depuis une preuve
+ * vivante liée à la révision courante, sinon depuis un gel v3 frais (`cost_subtotal_cents` du
+ * contexte, jamais `effective_margin_multiplier`). Sans l'une ni l'autre, ou HT nul : `null`
+ * (« indisponible »), jamais 0.
+ */
+export function resolveV3NetMarginBp(
+  version: EffectiveMarginVersion,
+  evidence?: V3MarginEvidence | null
+): number | null {
+  const netHtCents = version.total_ht_cents;
+  if (!isCents(netHtCents)) return null;
+  if (evidence && evidenceMatches(version, evidence)) {
+    return computeEstimateV3NetMarginBp({ total_ht_cents: netHtCents, cost_subtotal_cents: evidence.cost_subtotal_cents });
+  }
+  if (!hasFreshSnapshot(version)) return null;
+  const context = version.calc_snapshot_context;
+  if (!context || typeof context !== "object" || Array.isArray(context)) return null;
+  const frozen = context as Record<string, unknown>;
+  const costSubtotalCents = frozen.cost_subtotal_cents;
+  if (frozen.engine !== 3 || !isCents(costSubtotalCents)) return null;
+  return computeEstimateV3NetMarginBp({ total_ht_cents: netHtCents, cost_subtotal_cents: costSubtotalCents });
+}
 
 function toPositiveMultiplier(value: unknown): number | null {
   return typeof value === "number" &&
@@ -64,9 +112,10 @@ export function resolveEffectiveMarginBp(
       : null;
   const configuredMultiplier = toPositiveMultiplier(version.margin_multiplier);
 
-  // Lot 2, sous-lot 2.1 : la marque nette v3 arrive en 2.5 ; d'ici là elle est indisponible.
-  const calcEngineVersion = resolveCalcEngineVersionForDisplay(version);
+  // Lot 2, sous-lot 2.5 : une v3 rend sa marque nette depuis un gel frais, jamais un multiplicateur.
+  const calcEngineVersion = resolveEstimateEngineVersionForDisplay(version);
   if (calcEngineVersion === null) return null;
+  if (usesSaleCoefficients(calcEngineVersion)) return resolveV3NetMarginBp(version);
   if (isLegacyEngine(calcEngineVersion)) {
     if (storedMarginBp !== null) return storedMarginBp;
     return configuredMultiplier === null

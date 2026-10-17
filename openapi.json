@@ -2237,7 +2237,7 @@
             }
           },
           "400": {
-            "description": "Requete invalide ou payload non conforme.",
+            "description": "Requete invalide ou payload non conforme. ESTIMATE_ENGINE_COLUMN_NOT_SUPPORTED : version.sale_coefficient_fo ou version.sale_coefficient_mo fourni pour une version en moteur 2 ; rien n'est cree. ESTIMATE_SECTION_DEPTH_TOO_SHALLOW : version.max_section_depth fourni plus faible que la profondeur des sections importees (creation_mode=linked_dpgf_source) ; omis, il reprend celui de la derniere version de l'affaire, releve au besoin des sections importees ; rien n'est cree.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2277,7 +2277,7 @@
             }
           },
           "409": {
-            "description": "CONTEXT_CHANGED : un calcul du tenant detient son verrou pendant la creation des roles MO par defaut manquants ; rien n'est cree, la requete peut etre reessayee.",
+            "description": "CONTEXT_CHANGED : un calcul du tenant detient son verrou pendant la creation des roles MO par defaut manquants, ou version.expected_calc_engine_version (absent = 2) differe du moteur des nouvelles versions de l'entreprise ; rien n'est cree. ESTIMATE_ENGINE_UNAVAILABLE : creation depuis un modele ou un import quand l'entreprise cree en moteur 3, quelle que soit l'attente (sous-lot 2.8).",
             "content": {
               "application/json": {
                 "schema": {
@@ -4539,7 +4539,7 @@
           "Estimate Items"
         ],
         "summary": "Supprimer un item",
-        "description": "Supprime une ligne ou section de la version.",
+        "description": "Supprime une ligne ou section de la version. Moteur 3 : 409 ESTIMATE_ENGINE_UNAVAILABLE, la suppression passe par le lot (op delete), qui recalcule les montants stockés.",
         "parameters": [
           {
             "name": "versionId",
@@ -21160,7 +21160,8 @@
               "TAKEOFF_LEVEL_C_BUDGET_EXCEEDED",
               "TAKEOFF_JOB_NOT_RETRIABLE",
               "TAKEOFF_JOB_NOT_CANCELABLE",
-              "TAKEOFF_APPLY_GUARD_FAILED"
+              "TAKEOFF_APPLY_GUARD_FAILED",
+              "TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED"
             ]
           },
           "message": {
@@ -21233,7 +21234,8 @@
                   "TAKEOFF_LEVEL_C_BUDGET_EXCEEDED",
                   "TAKEOFF_JOB_NOT_RETRIABLE",
                   "TAKEOFF_JOB_NOT_CANCELABLE",
-                  "TAKEOFF_APPLY_GUARD_FAILED"
+                  "TAKEOFF_APPLY_GUARD_FAILED",
+                  "TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED"
                 ]
               },
               "message": {
@@ -24011,10 +24013,36 @@
                     "maximum": 9007199254740991
                   },
                   "max_section_depth": {
-                    "default": 3,
                     "type": "integer",
                     "minimum": 1,
                     "maximum": 4
+                  },
+                  "expected_calc_engine_version": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "const": 1
+                      },
+                      {
+                        "type": "number",
+                        "const": 2
+                      },
+                      {
+                        "type": "number",
+                        "const": 3
+                      }
+                    ],
+                    "description": "Moteur de calcul attendu par le client (absent = 2). S'il diffère de la politique de l'entreprise, la création est refusée en 409 CONTEXT_CHANGED sans rien écrire."
+                  },
+                  "sale_coefficient_fo": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 10
+                  },
+                  "sale_coefficient_mo": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 10
                   }
                 }
               },
@@ -24305,8 +24333,111 @@
                       {
                         "type": "number",
                         "const": 2
+                      },
+                      {
+                        "type": "number",
+                        "const": 3
                       }
                     ]
+                  },
+                  "sale_coefficient_fo": {
+                    "description": "Moteur 3 : coefficient de vente fourniture ; nul en v1/v2.",
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "sale_coefficient_mo": {
+                    "description": "Moteur 3 : coefficient de vente main-d'oeuvre ; nul en v1/v2.",
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "gross_ht_cents": {
+                    "description": "Moteur 3 : HT brut G = Σ Q × PU ; nul en v1/v2.",
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "discount_applied_cents": {
+                    "description": "Moteur 3 : remise appliquée R ; nulle en v1/v2.",
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "commercial_rounding_cents": {
+                    "description": "Moteur 3 : arrondi commercial A (remise HT) ; nul en v1/v2.",
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "rounding_adjustment_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "content_revision": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "calc_snapshot_content_revision": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "calc_snapshot_context": {
+                    "description": "Contexte de calcul figé. Moteur 3 : engine, labor_split_enabled, labor_roles, sale_coefficients, discount, commercial_rounding, cost_subtotal_cents, realized_sale_coefficient, tax_breakdown."
+                  },
+                  "approval_status": {
+                    "type": "string"
+                  },
+                  "contractor_role": {
+                    "type": "string"
                   },
                   "total_ht_cents": {
                     "anyOf": [
@@ -24717,8 +24848,111 @@
                       {
                         "type": "number",
                         "const": 2
+                      },
+                      {
+                        "type": "number",
+                        "const": 3
                       }
                     ]
+                  },
+                  "sale_coefficient_fo": {
+                    "description": "Moteur 3 : coefficient de vente fourniture ; nul en v1/v2.",
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "sale_coefficient_mo": {
+                    "description": "Moteur 3 : coefficient de vente main-d'oeuvre ; nul en v1/v2.",
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "gross_ht_cents": {
+                    "description": "Moteur 3 : HT brut G = Σ Q × PU ; nul en v1/v2.",
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "discount_applied_cents": {
+                    "description": "Moteur 3 : remise appliquée R ; nulle en v1/v2.",
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "commercial_rounding_cents": {
+                    "description": "Moteur 3 : arrondi commercial A (remise HT) ; nul en v1/v2.",
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "rounding_adjustment_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "content_revision": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "calc_snapshot_content_revision": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "calc_snapshot_context": {
+                    "description": "Contexte de calcul figé. Moteur 3 : engine, labor_split_enabled, labor_roles, sale_coefficients, discount, commercial_rounding, cost_subtotal_cents, realized_sale_coefficient, tax_breakdown."
+                  },
+                  "approval_status": {
+                    "type": "string"
+                  },
+                  "contractor_role": {
+                    "type": "string"
                   },
                   "total_ht_cents": {
                     "anyOf": [
@@ -25306,6 +25540,121 @@
                           "type": "null"
                         }
                       ]
+                    },
+                    "unit_code": {
+                      "description": "Moteur 3 : code d'unité du référentiel ; nul en v1/v2.",
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "pricing_status": {
+                      "type": "string",
+                      "enum": [
+                        "priced",
+                        "included",
+                        "for_memory",
+                        "not_priced",
+                        "out_of_scope",
+                        "not_applicable"
+                      ]
+                    },
+                    "h_mo_per_unit": {
+                      "description": "Moteur 3 : heures par unité ; h_mo en est le total dérivé.",
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "h_mo_atelier_per_unit": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "h_mo_chantier_per_unit": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "snapshot_pu_ht_cents": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "snapshot_gross_ht_cents": {
+                      "description": "Moteur 3 : brut de ligne figé au gel.",
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "snapshot_gross_fo_ht_cents": {
+                      "description": "Moteur 3 : brut fourniture de ligne figé au gel.",
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "snapshot_fo_ht_cents": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "snapshot_mo_ht_cents": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -25706,6 +26055,20 @@
             "minimum": 1,
             "maximum": 4
           },
+          "sale_coefficient_fo": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 10
+          },
+          "sale_coefficient_mo": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 10
+          },
+          "apply_tax_rate_to_lines": {
+            "description": "Moteur 3 : applique le taux de TVA de la version à toutes les lignes, dans la même sauvegarde.",
+            "type": "boolean"
+          },
           "total_ht_cents": {
             "type": "integer",
             "minimum": 0,
@@ -25866,8 +26229,104 @@
                       {
                         "type": "number",
                         "const": 2
+                      },
+                      {
+                        "type": "number",
+                        "const": 3
                       }
                     ]
+                  },
+                  "sale_coefficient_fo": {
+                    "description": "Moteur 3 : coefficient de vente fourniture ; nul en v1/v2.",
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "sale_coefficient_mo": {
+                    "description": "Moteur 3 : coefficient de vente main-d'oeuvre ; nul en v1/v2.",
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "gross_ht_cents": {
+                    "description": "Moteur 3 : HT brut G = Σ Q × PU ; nul en v1/v2.",
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "discount_applied_cents": {
+                    "description": "Moteur 3 : remise appliquée R ; nulle en v1/v2.",
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "commercial_rounding_cents": {
+                    "description": "Moteur 3 : arrondi commercial A (remise HT) ; nul en v1/v2.",
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "rounding_adjustment_cents": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "content_revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "calc_snapshot_content_revision": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "calc_snapshot_context": {
+                    "description": "Contexte de calcul figé. Moteur 3 : engine, labor_split_enabled, labor_roles, sale_coefficients, discount, commercial_rounding, cost_subtotal_cents, realized_sale_coefficient, tax_breakdown."
+                  },
+                  "approval_status": {
+                    "type": "string"
+                  },
+                  "contractor_role": {
+                    "type": "string"
                   },
                   "total_ht_cents": {
                     "type": "integer",
@@ -26091,16 +26550,6 @@
                         "type": "null"
                       }
                     ]
-                  },
-                  "content_revision": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 9007199254740991
-                  },
-                  "rounding_adjustment_cents": {
-                    "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
                   }
                 },
                 "required": [
@@ -26109,12 +26558,12 @@
                   "version_number",
                   "status",
                   "calc_engine_version",
+                  "rounding_adjustment_cents",
+                  "content_revision",
                   "total_ht_cents",
                   "total_tax_cents",
                   "total_ttc_cents",
-                  "updated_at",
-                  "content_revision",
-                  "rounding_adjustment_cents"
+                  "updated_at"
                 ],
                 "additionalProperties": {}
               },
@@ -26445,6 +26894,121 @@
                       "anyOf": [
                         {
                           "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "unit_code": {
+                      "description": "Moteur 3 : code d'unité du référentiel ; nul en v1/v2.",
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "pricing_status": {
+                      "type": "string",
+                      "enum": [
+                        "priced",
+                        "included",
+                        "for_memory",
+                        "not_priced",
+                        "out_of_scope",
+                        "not_applicable"
+                      ]
+                    },
+                    "h_mo_per_unit": {
+                      "description": "Moteur 3 : heures par unité ; h_mo en est le total dérivé.",
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "h_mo_atelier_per_unit": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "h_mo_chantier_per_unit": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "snapshot_pu_ht_cents": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "snapshot_gross_ht_cents": {
+                      "description": "Moteur 3 : brut de ligne figé au gel.",
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "snapshot_gross_fo_ht_cents": {
+                      "description": "Moteur 3 : brut fourniture de ligne figé au gel.",
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "snapshot_fo_ht_cents": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "snapshot_mo_ht_cents": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
                         },
                         {
                           "type": "null"
@@ -27048,6 +27612,64 @@
                                 }
                               ]
                             },
+                            "unit_code": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "maxLength": 64
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "pricing_status": {
+                              "type": "string",
+                              "enum": [
+                                "priced",
+                                "included",
+                                "for_memory",
+                                "not_priced",
+                                "out_of_scope",
+                                "not_applicable"
+                              ]
+                            },
+                            "h_mo_per_unit": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "minimum": 0,
+                                  "maximum": 99999999.9999
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "h_mo_atelier_per_unit": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "minimum": 0,
+                                  "maximum": 99999999.9999
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "h_mo_chantier_per_unit": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "minimum": 0,
+                                  "maximum": 99999999.9999
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
                             "labor_role_id": {
                               "anyOf": [
                                 {
@@ -27323,6 +27945,64 @@
                               "type": "string",
                               "format": "uuid",
                               "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "unit_code": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 64
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "pricing_status": {
+                          "type": "string",
+                          "enum": [
+                            "priced",
+                            "included",
+                            "for_memory",
+                            "not_priced",
+                            "out_of_scope",
+                            "not_applicable"
+                          ]
+                        },
+                        "h_mo_per_unit": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 99999999.9999
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "h_mo_atelier_per_unit": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 99999999.9999
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "h_mo_chantier_per_unit": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 99999999.9999
                             },
                             {
                               "type": "null"
@@ -27860,6 +28540,64 @@
                                             }
                                           ]
                                         },
+                                        "unit_code": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "maxLength": 64
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "pricing_status": {
+                                          "type": "string",
+                                          "enum": [
+                                            "priced",
+                                            "included",
+                                            "for_memory",
+                                            "not_priced",
+                                            "out_of_scope",
+                                            "not_applicable"
+                                          ]
+                                        },
+                                        "h_mo_per_unit": {
+                                          "anyOf": [
+                                            {
+                                              "type": "number",
+                                              "minimum": 0,
+                                              "maximum": 99999999.9999
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "h_mo_atelier_per_unit": {
+                                          "anyOf": [
+                                            {
+                                              "type": "number",
+                                              "minimum": 0,
+                                              "maximum": 99999999.9999
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "h_mo_chantier_per_unit": {
+                                          "anyOf": [
+                                            {
+                                              "type": "number",
+                                              "minimum": 0,
+                                              "maximum": 99999999.9999
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
                                         "labor_role_id": {
                                           "anyOf": [
                                             {
@@ -28100,6 +28838,64 @@
                                           "type": "string",
                                           "format": "uuid",
                                           "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "unit_code": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "maxLength": 64
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "pricing_status": {
+                                      "type": "string",
+                                      "enum": [
+                                        "priced",
+                                        "included",
+                                        "for_memory",
+                                        "not_priced",
+                                        "out_of_scope",
+                                        "not_applicable"
+                                      ]
+                                    },
+                                    "h_mo_per_unit": {
+                                      "anyOf": [
+                                        {
+                                          "type": "number",
+                                          "minimum": 0,
+                                          "maximum": 99999999.9999
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "h_mo_atelier_per_unit": {
+                                      "anyOf": [
+                                        {
+                                          "type": "number",
+                                          "minimum": 0,
+                                          "maximum": 99999999.9999
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "h_mo_chantier_per_unit": {
+                                      "anyOf": [
+                                        {
+                                          "type": "number",
+                                          "minimum": 0,
+                                          "maximum": 99999999.9999
                                         },
                                         {
                                           "type": "null"
@@ -28815,6 +29611,64 @@
                                             }
                                           ]
                                         },
+                                        "unit_code": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "maxLength": 64
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "pricing_status": {
+                                          "type": "string",
+                                          "enum": [
+                                            "priced",
+                                            "included",
+                                            "for_memory",
+                                            "not_priced",
+                                            "out_of_scope",
+                                            "not_applicable"
+                                          ]
+                                        },
+                                        "h_mo_per_unit": {
+                                          "anyOf": [
+                                            {
+                                              "type": "number",
+                                              "minimum": 0,
+                                              "maximum": 99999999.9999
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "h_mo_atelier_per_unit": {
+                                          "anyOf": [
+                                            {
+                                              "type": "number",
+                                              "minimum": 0,
+                                              "maximum": 99999999.9999
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "h_mo_chantier_per_unit": {
+                                          "anyOf": [
+                                            {
+                                              "type": "number",
+                                              "minimum": 0,
+                                              "maximum": 99999999.9999
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
                                         "labor_role_id": {
                                           "anyOf": [
                                             {
@@ -29055,6 +29909,64 @@
                                           "type": "string",
                                           "format": "uuid",
                                           "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "unit_code": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "maxLength": 64
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "pricing_status": {
+                                      "type": "string",
+                                      "enum": [
+                                        "priced",
+                                        "included",
+                                        "for_memory",
+                                        "not_priced",
+                                        "out_of_scope",
+                                        "not_applicable"
+                                      ]
+                                    },
+                                    "h_mo_per_unit": {
+                                      "anyOf": [
+                                        {
+                                          "type": "number",
+                                          "minimum": 0,
+                                          "maximum": 99999999.9999
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "h_mo_atelier_per_unit": {
+                                      "anyOf": [
+                                        {
+                                          "type": "number",
+                                          "minimum": 0,
+                                          "maximum": 99999999.9999
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "h_mo_chantier_per_unit": {
+                                      "anyOf": [
+                                        {
+                                          "type": "number",
+                                          "minimum": 0,
+                                          "maximum": 99999999.9999
                                         },
                                         {
                                           "type": "null"
@@ -30810,6 +31722,121 @@
                           "type": "null"
                         }
                       ]
+                    },
+                    "unit_code": {
+                      "description": "Moteur 3 : code d'unité du référentiel ; nul en v1/v2.",
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "pricing_status": {
+                      "type": "string",
+                      "enum": [
+                        "priced",
+                        "included",
+                        "for_memory",
+                        "not_priced",
+                        "out_of_scope",
+                        "not_applicable"
+                      ]
+                    },
+                    "h_mo_per_unit": {
+                      "description": "Moteur 3 : heures par unité ; h_mo en est le total dérivé.",
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "h_mo_atelier_per_unit": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "h_mo_chantier_per_unit": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "snapshot_pu_ht_cents": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "snapshot_gross_ht_cents": {
+                      "description": "Moteur 3 : brut de ligne figé au gel.",
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "snapshot_gross_fo_ht_cents": {
+                      "description": "Moteur 3 : brut fourniture de ligne figé au gel.",
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "snapshot_fo_ht_cents": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "snapshot_mo_ht_cents": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -31076,6 +32103,64 @@
                     "type": "string",
                     "format": "uuid",
                     "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "unit_code": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 64
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "pricing_status": {
+                "type": "string",
+                "enum": [
+                  "priced",
+                  "included",
+                  "for_memory",
+                  "not_priced",
+                  "out_of_scope",
+                  "not_applicable"
+                ]
+              },
+              "h_mo_per_unit": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 99999999.9999
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "h_mo_atelier_per_unit": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 99999999.9999
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "h_mo_chantier_per_unit": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 99999999.9999
                   },
                   {
                     "type": "null"
@@ -31551,6 +32636,121 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "unit_code": {
+                    "description": "Moteur 3 : code d'unité du référentiel ; nul en v1/v2.",
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "pricing_status": {
+                    "type": "string",
+                    "enum": [
+                      "priced",
+                      "included",
+                      "for_memory",
+                      "not_priced",
+                      "out_of_scope",
+                      "not_applicable"
+                    ]
+                  },
+                  "h_mo_per_unit": {
+                    "description": "Moteur 3 : heures par unité ; h_mo en est le total dérivé.",
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "h_mo_atelier_per_unit": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "h_mo_chantier_per_unit": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "snapshot_pu_ht_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "snapshot_gross_ht_cents": {
+                    "description": "Moteur 3 : brut de ligne figé au gel.",
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "snapshot_gross_fo_ht_cents": {
+                    "description": "Moteur 3 : brut fourniture de ligne figé au gel.",
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "snapshot_fo_ht_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "snapshot_mo_ht_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": [
@@ -31727,6 +32927,64 @@
                 "type": "string",
                 "format": "uuid",
                 "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unit_code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pricing_status": {
+            "type": "string",
+            "enum": [
+              "priced",
+              "included",
+              "for_memory",
+              "not_priced",
+              "out_of_scope",
+              "not_applicable"
+            ]
+          },
+          "h_mo_per_unit": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 99999999.9999
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "h_mo_atelier_per_unit": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 99999999.9999
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "h_mo_chantier_per_unit": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 99999999.9999
               },
               {
                 "type": "null"
@@ -32183,6 +33441,121 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "unit_code": {
+                    "description": "Moteur 3 : code d'unité du référentiel ; nul en v1/v2.",
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "pricing_status": {
+                    "type": "string",
+                    "enum": [
+                      "priced",
+                      "included",
+                      "for_memory",
+                      "not_priced",
+                      "out_of_scope",
+                      "not_applicable"
+                    ]
+                  },
+                  "h_mo_per_unit": {
+                    "description": "Moteur 3 : heures par unité ; h_mo en est le total dérivé.",
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "h_mo_atelier_per_unit": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "h_mo_chantier_per_unit": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "snapshot_pu_ht_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "snapshot_gross_ht_cents": {
+                    "description": "Moteur 3 : brut de ligne figé au gel.",
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "snapshot_gross_fo_ht_cents": {
+                    "description": "Moteur 3 : brut fourniture de ligne figé au gel.",
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "snapshot_fo_ht_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "snapshot_mo_ht_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": [
@@ -32437,6 +33810,64 @@
                       "type": "string",
                       "format": "uuid",
                       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "unit_code": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 64
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "pricing_status": {
+                  "type": "string",
+                  "enum": [
+                    "priced",
+                    "included",
+                    "for_memory",
+                    "not_priced",
+                    "out_of_scope",
+                    "not_applicable"
+                  ]
+                },
+                "h_mo_per_unit": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 99999999.9999
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "h_mo_atelier_per_unit": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 99999999.9999
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "h_mo_chantier_per_unit": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 99999999.9999
                     },
                     {
                       "type": "null"
@@ -46007,8 +47438,111 @@
                       {
                         "type": "number",
                         "const": 2
+                      },
+                      {
+                        "type": "number",
+                        "const": 3
                       }
                     ]
+                  },
+                  "sale_coefficient_fo": {
+                    "description": "Moteur 3 : coefficient de vente fourniture ; nul en v1/v2.",
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "sale_coefficient_mo": {
+                    "description": "Moteur 3 : coefficient de vente main-d'oeuvre ; nul en v1/v2.",
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "gross_ht_cents": {
+                    "description": "Moteur 3 : HT brut G = Σ Q × PU ; nul en v1/v2.",
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "discount_applied_cents": {
+                    "description": "Moteur 3 : remise appliquée R ; nulle en v1/v2.",
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "commercial_rounding_cents": {
+                    "description": "Moteur 3 : arrondi commercial A (remise HT) ; nul en v1/v2.",
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "rounding_adjustment_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "content_revision": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "calc_snapshot_content_revision": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "calc_snapshot_context": {
+                    "description": "Contexte de calcul figé. Moteur 3 : engine, labor_split_enabled, labor_roles, sale_coefficients, discount, commercial_rounding, cost_subtotal_cents, realized_sale_coefficient, tax_breakdown."
+                  },
+                  "approval_status": {
+                    "type": "string"
+                  },
+                  "contractor_role": {
+                    "type": "string"
                   },
                   "total_ht_cents": {
                     "anyOf": [
@@ -51586,6 +53120,121 @@
                       "anyOf": [
                         {
                           "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "unit_code": {
+                      "description": "Moteur 3 : code d'unité du référentiel ; nul en v1/v2.",
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "pricing_status": {
+                      "type": "string",
+                      "enum": [
+                        "priced",
+                        "included",
+                        "for_memory",
+                        "not_priced",
+                        "out_of_scope",
+                        "not_applicable"
+                      ]
+                    },
+                    "h_mo_per_unit": {
+                      "description": "Moteur 3 : heures par unité ; h_mo en est le total dérivé.",
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "h_mo_atelier_per_unit": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "h_mo_chantier_per_unit": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "snapshot_pu_ht_cents": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "snapshot_gross_ht_cents": {
+                      "description": "Moteur 3 : brut de ligne figé au gel.",
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "snapshot_gross_fo_ht_cents": {
+                      "description": "Moteur 3 : brut fourniture de ligne figé au gel.",
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "snapshot_fo_ht_cents": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "snapshot_mo_ht_cents": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
                         },
                         {
                           "type": "null"
