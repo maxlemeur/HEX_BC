@@ -1,5 +1,5 @@
 -- Lot 2, sous-lot 2.4 (piste B) : référentiel d'unités (migration M3, D9, D18, P-08, P-09).
--- Défaillances visées : docs/testing/estimate-engine-v3-2.4-sql-units.md (U1 à U9).
+-- Défaillances visées : docs/testing/estimate-engine-v3-2.4.md (U1 à U9).
 --
 -- Écrite rouge avant M3 : sans la migration, les tables, l'enum et les fonctions de normalisation
 -- manquent. L'attendu de la table est généré depuis src/lib/units/units.json (bloc balisé

@@ -1,7 +1,7 @@
 -- Lot 2, sous-lot 2.4 (piste B) : jumeau SQL pur du moteur de calcul 3 (migration M3).
 -- Conception : docs/audit-independant-2026-10-14/lot2/conception-lot2-moteur-v3.md, §4 (contrat),
 -- §5 (oracle, scénarios, cas d'exigence ; tolérance 0 c), D7, D8, D12, D13.
--- Défaillances visées : docs/testing/estimate-engine-v3-2.4-sql-units.md (F1 à F16).
+-- Défaillances visées : docs/testing/estimate-engine-v3-2.4.md (F1 à F16).
 --
 -- Écrite rouge avant M3 : les fonctions private.estimate_round_half_up, estimate_allocate_exact,
 -- estimate_v3_line et estimate_v3_compute_items n'existent pas encore.

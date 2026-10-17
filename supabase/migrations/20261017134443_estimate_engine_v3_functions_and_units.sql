@@ -1,6 +1,6 @@
 -- Lot 2, sous-lot 2.4 (M3) : référentiel d'unités et jumeau SQL pur du moteur de calcul 3.
 -- Conception : docs/audit-independant-2026-10-14/lot2/conception-lot2-moteur-v3.md (§4, D7 à D9,
--- D12, D13, §6.1 « M3 », §14 « 2.4 ») ; preuves : docs/testing/estimate-engine-v3-2.4-sql-units.md,
+-- D12, D13, §6.1 « M3 », §14 « 2.4 ») ; preuves : docs/testing/estimate-engine-v3-2.4.md,
 -- supabase/tests/database/measurement-units.test.sql et estimate-engine-v3-functions.test.sql.
 --
 -- Code inerte : aucune RPC, aucun déclencheur, aucun écrivain n'appelle ces fonctions, et aucune v3

@@ -1,5 +1,5 @@
 // Lot 2, sous-lot 2.4 (piste B) : normaliseur d'unités partagé TS/SQL (D9, P-08, P-09).
-// Défaillances visées : docs/testing/estimate-engine-v3-2.4-sql-units.md (U1 à U9).
+// Défaillances visées : docs/testing/estimate-engine-v3-2.4.md (U1 à U9).
 // Les 40 vecteurs sont repris à l'identique dans supabase/tests/database/measurement-units.test.sql :
 // le même jeton et la même cible doivent sortir des deux langages.
 import { describe, expect, it } from "vitest";
