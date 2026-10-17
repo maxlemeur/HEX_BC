@@ -836,8 +836,9 @@ describe("estimate server coverage additions", () => {
     vi.mocked(getStalePriceDaysForTenant).mockResolvedValue(90);
 
     supplierPricebookBuilders.push(chainResult({
-      data: ["price-legacy", "price-best", "price-recent"].map((id) => ({
+      data: ([["price-legacy", 1150], ["price-best", 900], ["price-recent", 1300]] as const).map(([id, cents]) => ({
         id, unit: "u", min_quantity: 1, valid_from: null, valid_to: null, is_active: true,
+        unit_price_cents: cents, zero_price_kind: null,
       })),
       error: null,
     }));

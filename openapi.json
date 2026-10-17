@@ -33904,6 +33904,34 @@
                                 "is_active": {
                                   "type": "boolean"
                                 },
+                                "unit_price_cents": {
+                                  "description": "Prix brut de l'offre en centimes, lu avec ses conditions ; absent, l'offre n'est pas éligible.",
+                                  "anyOf": [
+                                    {
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "zero_price_kind": {
+                                  "description": "A7 : marquage d'une offre à 0 € (« Inclus » ou « Gratuit ») ; une offre à 0 € non marquée ne chiffre rien.",
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "included",
+                                        "free"
+                                      ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "kind": {
                                   "type": "string",
                                   "enum": [
@@ -34038,6 +34066,34 @@
                               },
                               "is_active": {
                                 "type": "boolean"
+                              },
+                              "unit_price_cents": {
+                                "description": "Prix brut de l'offre en centimes, lu avec ses conditions ; absent, l'offre n'est pas éligible.",
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "zero_price_kind": {
+                                "description": "A7 : marquage d'une offre à 0 € (« Inclus » ou « Gratuit ») ; une offre à 0 € non marquée ne chiffre rien.",
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "included",
+                                      "free"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
                               },
                               "kind": {
                                 "type": "string",
@@ -46442,6 +46498,21 @@
                         }
                       ]
                     },
+                    "zero_price_kind": {
+                      "description": "A7 : marquage d'une offre à 0 € (« Inclus » ou « Gratuit ») ; une offre à 0 € non marquée ne chiffre rien.",
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "included",
+                            "free"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "supplier_offer_count": {
                       "type": "integer",
                       "minimum": -9007199254740991,
@@ -46530,6 +46601,21 @@
                             "anyOf": [
                               {
                                 "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "zero_price_kind": {
+                            "description": "A7 : marquage d'une offre à 0 € (« Inclus » ou « Gratuit ») ; une offre à 0 € non marquée ne chiffre rien.",
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "included",
+                                  "free"
+                                ]
                               },
                               {
                                 "type": "null"
@@ -48090,6 +48176,34 @@
                             "is_active": {
                               "type": "boolean"
                             },
+                            "unit_price_cents": {
+                              "description": "Prix brut de l'offre en centimes, lu avec ses conditions ; absent, l'offre n'est pas éligible.",
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "zero_price_kind": {
+                              "description": "A7 : marquage d'une offre à 0 € (« Inclus » ou « Gratuit ») ; une offre à 0 € non marquée ne chiffre rien.",
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "included",
+                                    "free"
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
                             "kind": {
                               "type": "string",
                               "enum": [
@@ -48224,6 +48338,34 @@
                           },
                           "is_active": {
                             "type": "boolean"
+                          },
+                          "unit_price_cents": {
+                            "description": "Prix brut de l'offre en centimes, lu avec ses conditions ; absent, l'offre n'est pas éligible.",
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "zero_price_kind": {
+                            "description": "A7 : marquage d'une offre à 0 € (« Inclus » ou « Gratuit ») ; une offre à 0 € non marquée ne chiffre rien.",
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "included",
+                                  "free"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           },
                           "kind": {
                             "type": "string",
@@ -48441,6 +48583,34 @@
                                 "is_active": {
                                   "type": "boolean"
                                 },
+                                "unit_price_cents": {
+                                  "description": "Prix brut de l'offre en centimes, lu avec ses conditions ; absent, l'offre n'est pas éligible.",
+                                  "anyOf": [
+                                    {
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "zero_price_kind": {
+                                  "description": "A7 : marquage d'une offre à 0 € (« Inclus » ou « Gratuit ») ; une offre à 0 € non marquée ne chiffre rien.",
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "included",
+                                        "free"
+                                      ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "kind": {
                                   "type": "string",
                                   "enum": [
@@ -48573,6 +48743,34 @@
                             },
                             "is_active": {
                               "type": "boolean"
+                            },
+                            "unit_price_cents": {
+                              "description": "Prix brut de l'offre en centimes, lu avec ses conditions ; absent, l'offre n'est pas éligible.",
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "zero_price_kind": {
+                              "description": "A7 : marquage d'une offre à 0 € (« Inclus » ou « Gratuit ») ; une offre à 0 € non marquée ne chiffre rien.",
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "included",
+                                    "free"
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
                             },
                             "kind": {
                               "type": "string",
@@ -48794,6 +48992,34 @@
                                 "is_active": {
                                   "type": "boolean"
                                 },
+                                "unit_price_cents": {
+                                  "description": "Prix brut de l'offre en centimes, lu avec ses conditions ; absent, l'offre n'est pas éligible.",
+                                  "anyOf": [
+                                    {
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "zero_price_kind": {
+                                  "description": "A7 : marquage d'une offre à 0 € (« Inclus » ou « Gratuit ») ; une offre à 0 € non marquée ne chiffre rien.",
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "included",
+                                        "free"
+                                      ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "kind": {
                                   "type": "string",
                                   "enum": [
@@ -48928,6 +49154,34 @@
                               },
                               "is_active": {
                                 "type": "boolean"
+                              },
+                              "unit_price_cents": {
+                                "description": "Prix brut de l'offre en centimes, lu avec ses conditions ; absent, l'offre n'est pas éligible.",
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "zero_price_kind": {
+                                "description": "A7 : marquage d'une offre à 0 € (« Inclus » ou « Gratuit ») ; une offre à 0 € non marquée ne chiffre rien.",
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "included",
+                                      "free"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
                               },
                               "kind": {
                                 "type": "string",

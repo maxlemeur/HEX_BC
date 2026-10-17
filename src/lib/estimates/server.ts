@@ -1450,7 +1450,12 @@ function computeEstimateSupplierComparisonCoverageStatus(input: {
     return "stale" satisfies EstimateSupplierComparisonCoverageStatus;
   }
 
-  if (input.riskFlags.includes("selection_missing")) {
+  // A7: a retained offer that prices nothing (unmarked 0 €, or price unknown) covers nothing.
+  // Needs the offer price and marking merged by readSupplierOfferConditions.
+  if (
+    input.riskFlags.includes("selection_missing") ||
+    (input.selectedAlternative !== null && !isSupplierOfferPriceEligible(input.selectedAlternative))
+  ) {
     return "ambiguous" satisfies EstimateSupplierComparisonCoverageStatus;
   }
 
@@ -5235,7 +5240,7 @@ export async function getEstimateSupplierComparisons(
   );
   const suggestionsByNormalizedQuery = new Map(suggestionsEntries);
 
-  const comparisons = await Promise.all(resolvedItemIds.map(async (itemId) => {
+  const comparisons = await Promise.all(resolvedItemIds.map(async (itemId): Promise<EstimateSupplierComparison> => {
     const item = itemById.get(itemId);
     if (!item) {
       return {
@@ -5317,17 +5322,13 @@ export async function getEstimateSupplierComparisons(
       bestSupplierPriceId: bestAlternative?.supplier_price_id ?? null,
       selectedAlternative,
     });
-    const coverageStatus = computeEstimateSupplierComparisonCoverageStatus({
-      alternatives,
-      selectedAlternative,
-      riskFlags,
-    });
 
     return {
       item_id: item.id,
       selected_supplier_price_id: selectedSupplierPriceId,
       best_supplier_price_id: bestAlternative?.supplier_price_id ?? null,
-      coverage_status: coverageStatus,
+      // Computed below, once each offer's price and marking are merged.
+      coverage_status: "no_price",
       risk_flags: riskFlags,
       selected_alternative: selectedAlternative,
       alternatives,
@@ -5341,6 +5342,11 @@ export async function getEstimateSupplierComparisons(
     Object.assign(comparison, { quantity: item?.quantity, unit: item?.description });
     comparison.alternatives.forEach((alternative) => {
       Object.assign(alternative, conditions.get(alternative.supplier_price_id) ?? { is_active: false });
+    });
+    comparison.coverage_status = computeEstimateSupplierComparisonCoverageStatus({
+      alternatives: comparison.alternatives,
+      selectedAlternative: comparison.selected_alternative,
+      riskFlags: comparison.risk_flags,
     });
   });
 
