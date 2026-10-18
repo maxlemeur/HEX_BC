@@ -24,6 +24,7 @@
       "e2e/army/critical/prehydration-auth.e2e.ts",
       "e2e/army/critical/stale-save.e2e.ts",
       "e2e/army/critical/team-a-hub.e2e.ts",
+      "e2e/army/local/engine-v3-creators.e2e.ts",
       "e2e/army/local/engine-v3-editor-actions.e2e.ts",
       "e2e/army/local/engine-v3-editor.e2e.ts",
       "e2e/army/local/engine-v3-fail-closed.e2e.ts",
@@ -161,7 +162,8 @@
       "e2e/army/critical/numeric-entry-v3.e2e.ts",
       "e2e/army/critical/numeric-entry.e2e.ts",
       "e2e/army/critical/plan-center.e2e.ts",
-      "e2e/army/critical/stale-save.e2e.ts"
+      "e2e/army/critical/stale-save.e2e.ts",
+      "e2e/army/local/engine-v3-creators.e2e.ts"
     ],
     "editor": [
       "@wizard",
@@ -176,6 +178,7 @@
     "affaires-list": [
       "e2e/army/critical/dashboard-ux.e2e.ts",
       "e2e/army/critical/team-a-hub.e2e.ts",
+      "e2e/army/local/engine-v3-creators.e2e.ts",
       "e2e/army/local/engine-v3-editor-actions.e2e.ts",
       "e2e/army/local/engine-v3-editor.e2e.ts",
       "e2e/army/local/engine-v3-fail-closed.e2e.ts",
@@ -190,6 +193,7 @@
       "e2e/army/critical/hub-takeoff-auto-propose.e2e.ts",
       "e2e/army/critical/import-optima-v2.e2e.ts",
       "e2e/army/critical/team-a-hub.e2e.ts",
+      "e2e/army/local/engine-v3-creators.e2e.ts",
       "e2e/army/local/engine-v3-import-optima.e2e.ts",
       "e2e/army/local/engine-v3-persistence.e2e.ts"
     ],
@@ -197,7 +201,8 @@
       "e2e/army/critical/hub-launch-metre.e2e.ts",
       "e2e/army/critical/hub-plans-card.e2e.ts",
       "e2e/army/critical/hub-takeoff-auto-propose.e2e.ts",
-      "e2e/army/critical/plan-center.e2e.ts"
+      "e2e/army/critical/plan-center.e2e.ts",
+      "e2e/army/local/engine-v3-creators.e2e.ts"
     ],
     "affaire-takeoff": [
       "e2e/army/critical/hub-launch-metre.e2e.ts",
