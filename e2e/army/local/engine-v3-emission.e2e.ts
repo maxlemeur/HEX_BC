@@ -61,6 +61,10 @@ import { admitCollectedResendDecision, allowOfferLifecycleTransition, offerTest,
 //  V3M-16 Le pied du portail d'une copie au contrat 2 avec remise met en bandeau « Total HT brut » au lieu de
 //         « Total HT net », ou ne fait pas ressortir « Total TTC », contrairement à l'emphase que porte
 //         buildEstimateV3FooterRows (HT net en bandeau, TTC en gras) et que suivent le PDF et l'impression.
+// Ajouté à la revue de 8dd28c91 (docs/testing/estimate-engine-v3-2.7.md §13.9) :
+//  V3M-17 L'impression d'une v3 émise ne reprend pas les CGV de sa copie scellée : la case « Joindre les CGV »
+//         (`terms=1`) ou la politique courante du tenant ajoute les CGV du modèle vivant à une copie émise sans CGV, et
+//         une mise en page qui ne les demande pas retire celles qu'une copie a scellées.
 // V3M01, V3M03, V3M04, V3M05 et V3M06 s'exécutent dans la phase calc-v3 `emission-v3` (collecteur sentinelle, build
 // de production possédé, `next start`) ; V3M02, sans courriel, dans la campagne critique locale sur le
 // build de production. Chacun n'est défini que dans sa campagne : la phase calc-v3 exige son résultat
@@ -77,6 +81,16 @@ const oneLineDocument = (text: string) => ({
   ttc: /TTC(?: [^€]{0,30})? 15,60 ?€/u.test(text),
 });
 const ONE_LINE_DOCUMENT = { line: true, tax: true, ttc: true };
+/**
+ * CGV bac à sable du profil calc-v3 (`createDevelopmentEstimateTermsTemplate`, politique « default ») dans un texte
+ * normalisé : titre et mention de version, imprimés par le PDF, l'impression et le portail (V3M-17).
+ */
+const termsIn = (text: string) => ({
+  title: /Projet de CGV [-–] Travaux B2B/u.test(text),
+  review: /Maquette CGV [-–] version 3 [-–] à valider, non contractuelle\./u.test(text),
+});
+const SANDBOX_TERMS = { title: true, review: true };
+const NO_TERMS = { title: false, review: false };
 type Presence = { count(): Promise<number>; isEnabled(): Promise<boolean> };
 const presence = async (control: Presence) =>
   (await control.count()) === 1 ? { present: true, enabled: await control.isEnabled() } : { present: false, enabled: false };
@@ -272,6 +286,13 @@ async function printIdentity(ui: Ui, versionId: string, emails: Record<string, s
   const mask = (line: string) => Object.entries(emails).find(([, email]) => line === email)?.[0]
     ?? (line.includes("@") ? "<autre adresse>" : line);
   return { ...read, issuer: read.issuer.map(mask) };
+}
+
+/** CGV de l'aperçu d'impression sous la mise en page demandée (`query`), relevées sur toute la page (V3M-17). */
+async function printedTerms(ui: Ui, versionId: string, query: string) {
+  await ui.app.open(`/dashboard/estimates/${versionId}/print${query}`);
+  await expect(ui.screen.getByRole("heading", "Devis", { exact: true })).toBeVisible({ timeout: 30_000 });
+  return termsIn(normalizeQuotes(await ui.browser.evaluate(() => document.body.innerText)));
 }
 
 /**
@@ -511,7 +532,7 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
     });
 
   // V3M-12 à V3M-14 : par l'écran, dans cette phase (le garde de la campagne critique refuse toute écriture …/status).
-  offerTest("V3M05 a v3 draft prepares its client PDF from its detail page and is issued from the editor; its issued detail page shows the valid seal, the original PDF and the status actions, and keeps the template closed by name",
+  offerTest("V3M05 a v3 draft prepares its client PDF from its detail page and is issued from the editor; its issued detail page shows the valid seal, the original PDF and the status actions, keeps the template closed by name, and its printout keeps the CGV its copy sealed",
     { session: "army", trace: "off", tags: ["engine-v3", "offer-emission"], timeout: 600_000 }, async (ui) => {
       const { app, screen, browser, army } = ui;
       emissionFixture();
@@ -642,12 +663,21 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
       expect(acceptedView).toEqual(expectedAccepted);
       expect(acceptedSeal).toMatchObject({ status: 200, ok: true, data: { valid: true, stored_hash: sent.version.seal_hash,
         seal_payload_version: 5, client_contract_version: 2, calc_payload_version: 6 } });
+
+      // V3M-17 : la fenêtre de la fiche propose les CGV de politique « default » du profil, que la copie scelle à
+      // l'émission ; l'impression ouverte sans mise en page (`terms` absent, CGV non demandées) les garde.
+      const sealedPdf = await pdfText(await storedPdfBytes(browser, ids.versionId));
+      const terms = { sealed: termsIn(sealedPdf.text), printed: await printedTerms(ui, ids.versionId, "") };
+      const expectedTerms = { sealed: SANDBOX_TERMS, printed: SANDBOX_TERMS };
+      await record("issued-terms", { versionId: ids.versionId, sha256: sealedPdf.sha256, query: "", expected: expectedTerms, actual: terms });
+      expect(terms).toEqual(expectedTerms);
     });
 
   // V3M-15 : l'identité imprimée d'une v3 émise est celle de sa copie au contrat 2, relevée trois fois : par le
   // propriétaire à l'émission, après la modification de l'affaire, puis par le second administrateur du tenant.
-  // V3M-16 : le pied de son portail porte l'emphase du pied v3, comme l'impression.
-  offerTest("V3M06 a sent v3 prints the identity of its issued copy, not the affaire changed after emission nor the profile of a second admin who opens it, with its valid seal, and its portal footer emphasises the net HT and the TTC as the print does",
+  // V3M-16 : le pied de son portail porte l'emphase du pied v3, comme l'impression. V3M-17 : ses CGV sont celles de sa
+  // copie scellée (aucune), quelle que soit la mise en page demandée.
+  offerTest("V3M06 a sent v3 prints the identity of its issued copy, not the affaire changed after emission nor the profile of a second admin who opens it, with its valid seal, its portal footer emphasises the net HT and the TTC as the print does, and its printout adds no CGV to a copy sealed without them",
     { session: "army", trace: "off", tags: ["engine-v3", "offer-emission"], timeout: 600_000 }, async (ui) => {
       const { app, screen, browser, army } = ui;
       const fixture = emissionFixture();
@@ -715,12 +745,19 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
       ];
       await printIdentity(ui, ids.versionId, emails);
       const printFooter = await footerRows(ui, { root: ".estimate-document", rows: "[data-testid=\"estimate-v3-document-totals\"] > div" });
-      await openCollectedPortal(ui, sent.portalUrl);
+      // V3M-17 : la copie de V3M06 est scellée sans CGV (PDF préparé par l'API sous la mise en page par défaut). Son
+      // impression qui demande « Joindre les CGV » (`terms=1`, comme la case de la fenêtre) n'en ajoute aucune.
+      const printTerms = await printedTerms(ui, ids.versionId, "?terms=1");
+      const portalText = await openCollectedPortal(ui, sent.portalUrl);
       const portalFooter = await footerRows(ui, { root: "[role=\"region\"][aria-label=\"Document du devis\"]", rows: "dl > div" });
       const footers = { print: printFooter, portal: portalFooter };
       const expectedFooters = { print: footer.map((row) => ({ ...row, emphasis: null })), portal: footer };
       await record("footer-emphasis", { versionId: ids.versionId, portalUrlSha256: digest(sent.portalUrl), expected: expectedFooters, actual: footers });
       expect(footers).toEqual(expectedFooters);
+      const terms = { sealed: termsIn((await pdfText(sent.pdf)).text), printed: printTerms, portal: termsIn(normalizeQuotes(portalText)) };
+      const expectedTerms = { sealed: NO_TERMS, printed: NO_TERMS, portal: NO_TERMS };
+      await record("issued-terms", { versionId: ids.versionId, sha256: digest(sent.pdf), query: "?terms=1", expected: expectedTerms, actual: terms });
+      expect(terms).toEqual(expectedTerms);
     });
 }
 
