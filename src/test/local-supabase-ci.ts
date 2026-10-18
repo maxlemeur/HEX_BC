@@ -1112,8 +1112,9 @@ export async function runLocalSupabaseCi(
     validatePgTapReport(pgTapOutput, expectedTestFiles);
     dependencies.log(pgTapOutput.trim());
     dependencies.log("Database pgTAP tests passed.");
-    // Wall-clock budgets are opt-in and never run in CI: they hold only on the
-    // machine they were calibrated on (docs/testing/large-estimate-statement-budget.md).
+    // Wall-clock budgets are opt-in and never run in CI: they are calibrated in
+    // WSL, and a single-run CI timing depends on the runner class drawn
+    // (docs/testing/large-estimate-statement-budget.md).
     if (dependencies.environment.DB_CI_STATEMENT_BUDGET === "enforce") {
       activePhase = "run statement budgets";
       const budgetOutput = dependencies.supabase(withWorkdir([

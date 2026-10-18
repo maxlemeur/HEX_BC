@@ -3,8 +3,9 @@
  *
  * Une v3 porte ses montants stockés sous D12 : toute ligne qui y entre passe par l'écrivain de lot de 2.5
  * (`executeEstimateBatch` puis `commit_estimate_batch`), jamais par une insertion directe, refusée par le garde SQL
- * (M4). Un seul lot atomique : au-delà de 1 000 opérations (une instruction, 3,5 s localement au plus pour 1 000 lignes,
- * décision du propriétaire du 18/10/2026 ; docs/testing/large-estimate-statement-budget.md, L7), de 1 Mio d'opérations
+ * (M4). Un seul lot atomique : au-delà de 1 000 opérations (une instruction : médiane WSL au plus 875 ms pour
+ * 1 000 opérations, au plus 3,5 s en CI/production, option A du propriétaire du 18/10/2026 ;
+ * docs/testing/large-estimate-statement-budget.md, L7), de 1 Mio d'opérations
  * ou de provenance, ou d'un reçu de l'écrivain au-delà de 2 Mio (refusé par la base dans la transaction), refus nommé
  * qui renvoie vers l'import de l'affaire (nouvelle version, atomique), jamais une écriture en plusieurs lots. Les
  * `source_metadata` des éléments copiés (provenance d'import) suivent par les identités de création, côté serveur ; le
@@ -46,9 +47,9 @@ export const ESTIMATE_V3_SECTION_COPY_TO_HISTORICAL_MESSAGE =
   "chiffrées (HL, PM, inclus…) y deviendraient chiffrées.";
 
 /**
- * Une copie vers une v3 est une instruction `commit_estimate_batch`, jusqu'à 1 000 opérations : le propriétaire accepte
- * jusqu'à 3,5 s localement pour 1 000 lignes (18/10/2026, exception à la règle des 330 ms), sous le délai de 8 s des
- * rôles de l'API en CI (mesure L7, IO13).
+ * Une copie vers une v3 est une instruction `commit_estimate_batch`, jusqu'à 1 000 opérations : médiane WSL au plus
+ * 875 ms, au plus 3,5 s en CI/production (option A du propriétaire du 18/10/2026), sous le délai de 8 s des rôles
+ * de l'API (mesure L7, IO13). La mesure SQL locale ne qualifie pas la durée HTTP complète.
  */
 export const ESTIMATE_V3_COPY_MAX_OPERATIONS = 1000;
 
