@@ -32,6 +32,7 @@ commandes et les chemins tels qu'exécutés (`--grep '^V3E02\s'`, `v3e02-*`).
 | `scripts/tester-army/army-impact-map.json` | Parcours inscrits (la liste critique locale de `e2e.config.ts` prend `engine-v3-*.e2e.ts`) : `engine-v3-emission.e2e.ts` au groupe `print`, `engine-v3-exports.e2e.ts` au groupe `affaire-hub` (§13.8) |
 | `.github/workflows/e2e-army-calc-v3.yml` | `emission` et `emission-v3` dans la sélection nocturne (`CALC_V3_NIGHTLY_PHASES`), `emission-v3` dans les options de `phase`, comme l'exige la garde de la PR #42 (§13.10) |
 | `supabase/migrations/20261018102840_estimate_offer_client_contract_v2.sql` | M5 (§8), réhorodatée à la fusion de `main` du 18/10/2026, ex-`20261017213500` (§13.10) |
+| `src/hooks/useEstimateEditorStatusController.ts` | L'alerte d'envoi bloqué lit le dernier contrôle abouti du brouillon pendant un nouveau contrôle : la grille ne saute plus après chaque écriture (V3E05, §13.13) |
 
 ## 2. Défaillances observables et preuves
 
@@ -1661,7 +1662,9 @@ Limites :
   ci-dessus, pas par un parcours : ajouter à V3X01 un réimport du même DPGF dans une v3 (montants exacts, D11 au
   centime) reste une suite, hors de cette intégration.
 - La sélection `nightly` de la PR, déclenchée par l'édition du workflow, ne tourne que sur le runner après la
-  poussée ; les huit invocations ci-dessus la reproduisent en local, phase par phase.
+  poussée ; les huit invocations ci-dessus la reproduisent en local, phase par phase. De même, le job
+  `army-takeoff` (les huit parcours du métré, `fullOnly` `all`) n'est prouvé sur la tête poussée que par la CI de
+  la PR (joué en local ensuite sur des têtes antérieures : §13.11, §13.12).
 - `AGENTS.md` (budget CI) chiffre la nuit calc-v3 à six piles et environ 28 minutes de runner ; elle en compte
   huit désormais. Non modifié ici (corrigé au §13.11, avec `tester-army-ci.md` et le commentaire du garde).
 - M5 n'est pas appliquée au Supabase partagé ; le coordinateur l'y applique après la fusion, sous son nouveau nom.
@@ -1736,3 +1739,115 @@ Toutes les sélections sont exécutées en entier (sélectionnés = exécutés =
 
 Limites : celles du §13.11. Si `origin/main` avance encore avant la poussée, refusionner ; réhorodater M5 seulement
 si `main` gagne une migration plus récente.
+
+### 13.13 Fusions de `main` `c4c1e854` (#52, #54, #55, #56), `6260621c` (#58) et `59b3b6bf` (#57), correction de V3E05 et preuves rejouées (18/10/2026)
+
+**Fusion `58b1c93f`** (`git merge --no-ff origin/main`, sans rebase ni poussée). `origin/main` avait avancé à
+`c4c1e854` et la PR était en conflit. Cinq conflits, chacun résolu en gardant les deux intentions :
+
+| Fichier | Résolution |
+|---|---|
+| `.github/workflows/e2e-army-calc-v3.yml` | Structure de #52 gardée : job de plan, un job par phase, agrégat `army-calc-v3`. `CALC_V3_NIGHTLY_PHASES` (étape du plan) gagne `emission` et `emission-v3`, l'en-tête dit que toutes les phases tournent la nuit, l'option `emission-v3` de `phase` reste |
+| `src/test/ci-guardrails.test.ts` | #52 lit la liste nocturne dans l'étape du plan ; le commentaire de 2.7 sur les huit phases de production reste |
+| `docs/testing/tester-army-calc-v3.md`, `docs/testing/tester-army-ci.md` | Rédaction de #52 (jobs parallèles) avec l'état d'émission de 2.7 ; le coût garde les mesures de #52 pour six phases, huit ne sont pas mesurées |
+| `supabase/migrations.manifest.json` | Les deux entrées. `20261018093005` (#54) est plus ancienne que M5 `20261018102840` : M5 garde son horodatage (sha256 `d0a799c0…c84f` inchangé) |
+
+#54 ne redéfinit que `assign_draft_lock_tenant_id` (prise du verrou de brouillon sérialisée) ; M5 lit `draft_locks`
+dans ses gardes (`ESTIMATE_DRAFT_LOCK_REQUIRED`) sans redéfinir d'objet de #54. #55 (V3E05 : `writesEditorTotals`,
+une v3 n'a aucun pied à réenregistrer) et #56 (import CSV fournisseur) fusionnent sans conflit. Contrôles
+(Windows) : garde Git `pull_request` contre `c4c1e854` passée (2 changements dans sa portée), `supabase:validate`
+254 fichiers et 254 versions, `ci-guardrails` et `army-impact-map` 40/40, `git merge-tree --write-tree HEAD
+origin/main` propre, `git diff --check origin/main...HEAD` propre (fins de ligne CR tolérées).
+
+**Constats du §13.11, état.** La nuit calc-v3 à huit phases est décrite depuis `536817f7` (sélection ; coût mesuré
+pour six phases seulement), et le tableau d'estimation des jobs parallèles de #52 le précise désormais
+(`tester-army-ci.md`). Le job `army-takeoff` n'est prouvé sur la tête poussée que par la CI de la PR (§13.10,
+limites). Captures : ci-dessous.
+
+**Captures.** Le schéma de 2.10a (parcours sans la session de campagne restaurée, propriétaire dédié qui pose
+lui-même ses cookies, `captureScreen`) suppose un parcours qui crée son propriétaire. Les écrans de 2.7
+(impression d'une v3 émise, fiche et actions de l'éditeur v3) ne sont atteints que par des parcours liés à la
+session `army` : V3M01 et V3M03 à V3M06 par le setup d'offre de la phase `emission-v3` (CGV bac à sable du profil
+calc-v3), V3E11, V3E15 et V3M02 par la critique locale. Il faudrait un nouveau parcours qui inscrive son
+propriétaire et émette une v3 hors de cette session : au-delà des 20 minutes accordées, et du code de test non
+relu ajouté après la qualification. Non fait : la limite du §13.11 reste (le SDK `e2e` 0.21.0 refuse
+`app.screenshot()` après la saisie d'un secret, `POLICY_DENIED`) ; les captures sont à prendre à la main dans une
+session connectée.
+
+**Preuves** (WSL Ubuntu 24.04, clone `~/miaouffrage-lot2-27`, Node 24.19.0, `E2E_ARMY_WORKERS=2`,
+`NODE_OPTIONS=--max-old-space-size=4096`, aucun changement local, `diffSha256` `e3b0c442…`, 254 migrations, M5 en
+dernier ; en série, chaque run mis en attente par la limite native de trois, `NATIVE_STACK_WAIT_SECONDS=10800`, la
+durée murale comprend donc l'attente ; journaux `~/l27-r6-logs/` : tête, état local, commande, sortie, durée) :
+
+| Tête | Commande | Résultat |
+|---|---|---|
+| `58b1c93f` | `npm run e2e:army:calc-v3 -- --phase emission-v3 --app-port 3161` | **sortie 0** en 924 s (attente comprise) : 6/6 (V3M01, V3M03 à V3M06), 6 PDF reçus par le collecteur. `.e2e/army/ci/2026-10-18T14-46-42-580Z-calc-v3` (`manifest.json` `1ceac01e…`) |
+| `58b1c93f` | idem `--phase emission` | **sortie 0** en 209 s : 6/6 (OF00 à OF0L), 4 PDF reçus. `…/2026-10-18T15-02-07-937Z-calc-v3` (`d271b0fe…`) |
+| `58b1c93f` | `npm run e2e:army:local -- --grep "V3M\|V3FC\|V3E\|V3P01\|V3X\|IO0" --app-port 3161` | **sortie 1** en 638 s : `filtered-critical`, 30 sélectionnés, 29 passés, **V3E05 rouge**, aucun `flaky` ni `skipped`. `…/2026-10-18T15-05-37-875Z-critical` (`d6998b10…`) |
+| `7fa27468` | la même sélection locale | **sortie 0** en 394 s : 30/30 (V3E01 à V3E15, V3M02, V3X01, V3X02, V3FC01, V3FC02, IO01, IO03 à IO09, V3P01 et la connexion), aucun `flaky` ni `skipped` ; V3E05 mesure 450 px avant, pendant et après l'annulation. `…/2026-10-18T15-22-48-590Z-critical` (`83feeb9c…`) |
+| `7fa27468` | `--phase emission-v3` | **sortie 0** en 427 s (attente comprise) : 6/6, 6 PDF reçus. `…/2026-10-18T15-29-24-043Z-calc-v3` (`f0445bc9…`) |
+| `7fa27468` | `--phase emission` | **sortie 0** en 456 s (attente comprise) : 6/6, 4 PDF reçus. `…/2026-10-18T15-36-32-349Z-calc-v3` (`7c7f3102…`) |
+| `58b1c93f` | `npm run verify:pr` (contrôle anticipé) | **sortie 0** en 102 s : Vitest node 3 281 (2 ignorés), jsdom 831, couverture critique 12 |
+| `95da9994` | la même sélection locale, après la fusion de `6260621c` (ci-dessous) | **sortie 0** en 344 s : 30/30, aucun `flaky` ni `skipped`, 114 tests découverts (les parcours V1 de #58 en plus) ; V3E05 à 450 px avant, pendant et après. `…/2026-10-18T15-46-48-305Z-critical` (`96f4e1b1…`) |
+
+**Seconde fusion `95da9994`** (`origin/main` `6260621c` : #58, parcours V1 des totaux dans la sélection critique
+de la PR, et les règles de livraison du 18/10 à 17 h 40). `git merge-tree` signalait un conflit, dans
+`scripts/tester-army/army-impact-map.json` seulement : le groupe `affaire-hub` garde `bulk-actions-v1-totals.e2e.ts`
+(#58) et `engine-v3-exports.e2e.ts` (2.7), dans l'ordre des chemins. Aucune migration ni aucun code de production
+ne vient de `main` (diff vide hors `src/test/`) : M5 reste la plus récente. Garde Git `pull_request` contre
+`6260621c` passée, `supabase:validate` 254/254, `ci-guardrails` et `army-impact-map` 40/40 (Windows). #58 change la
+liste critique locale de `e2e.config.ts` : la sélection locale est rejouée (ligne ci-dessus) ; les phases
+d'émission, servies par leur propre configuration et sans code changé, gardent leurs preuves sur `7fa27468`.
+`select-journeys.ts --event pull_request --base 6260621c` rend `mode` `full`, `fullOnly` `all` (neuf fichiers,
+connexion comprise) : la CI de la PR joue toute la suite critique et `army-takeoff`.
+
+**Troisième fusion `ccb4b577`** (`origin/main` `59b3b6bf` : #57, créateurs prêts pour le moteur 3, 2.10a), arrivée
+avant la poussée ; `git merge-tree` signalait un conflit, encore dans `army-impact-map.json` seulement : le groupe
+`affaire-hub` garde `engine-v3-creators.e2e.ts` (2.10a) et `engine-v3-exports.e2e.ts` (2.7), dans l'ordre des
+chemins. Les fichiers que #57 modifie aussi (`useEstimateEditorState.impl.tsx`, `src/lib/estimates/server.ts`,
+registre OpenAPI, `openapi.json`) fusionnent sans conflit ; `generate-openapi` laisse `openapi.json` inchangé et
+`validate-openapi` passe (144 routes, 192 opérations). #57 n'apporte aucune migration : M5 reste la plus récente.
+Garde Git `pull_request` contre `59b3b6bf` passée, `supabase:validate` 254/254, `ci-guardrails` et
+`army-impact-map` 40/40 (Windows). Du code de production change : tout est rejoué sur `ccb4b577`, la sélection
+locale étendue aux parcours V3C de 2.10a :
+
+| Tête | Commande | Résultat |
+|---|---|---|
+| `ccb4b577` | `npm run verify:pr` | **sortie 0** en 102 s : audit et signatures (762 paquets), architecture (1 152 modules, 0 cycle), OpenAPI (144 routes, 192 opérations), typecheck, lint, Vitest node 3 281 (2 ignorés) et jsdom 831, couverture critique 12 |
+| `ccb4b577` | `npm run e2e:army:local -- --grep "V3M\|V3FC\|V3E\|V3P01\|V3X\|IO0\|V3C" --app-port 3161` | **sortie 0** en 504 s : `filtered-critical`, 43/43 (V3C01 à V3C13 en plus des 30), aucun `flaky` ni `skipped`, 127 tests découverts ; V3E05 à 450 px avant, pendant et après. `…/2026-10-18T15-58-09-995Z-critical` (`94662c66…`) |
+| `ccb4b577` | `npm run e2e:army:calc-v3 -- --phase emission-v3 --app-port 3161` | **sortie 0** en 183 s : 6/6, 6 PDF reçus. `…/2026-10-18T16-06-35-587Z-calc-v3` (`77008844…`) |
+| `ccb4b577` | idem `--phase emission` | **sortie 0** en 158 s : 6/6, 4 PDF reçus. `…/2026-10-18T16-09-40-010Z-calc-v3` (`cce285f0…`) |
+
+Les captures restent absentes : les aides de capture de 2.10a (`captureScreen`, propriétaire dédié) sont désormais
+sur la branche, mais les écrans de 2.7 demandent toujours un parcours d'émission v3 hors session, à faire en suite.
+
+**V3E05 rouge sur `58b1c93f` : alerte d'envoi bloqué et assertion de #55.** #55 ajoute à V3E05 une assertion :
+pendant qu'une suppression v3 annulée attend sa remise en ordre, ni l'alerte des totaux ni la grille ne bougent.
+Mesuré : titre de la section à 450 px avant l'annulation et après, **380 px pendant** (alerte des totaux absente ;
+preuve `v3e05-undo-in-flight`). Cause : 2.7 ouvre l'envoi d'un brouillon v3, si bien qu'un non-administrateur y voit
+l'alerte « Des anomalies bloquantes sont détectées » (`no_pdf_generated` bloque tout brouillon sans PDF ; seule
+alerte présente à l'écran de l'échec). Chaque écriture change le jeton de la version, ce qui masque le contrôle
+d'envoi préchargé jusqu'à la réponse du nouveau contrôle : l'alerte, haute de 70 px, disparaissait le temps de
+chaque contrôle et la grille remontait sous le pointeur, l'interception que #55 combat. Sur `main`, une v3 n'a pas
+d'envoi, donc pas d'alerte ; un brouillon v1/v2 passe par le même code. Ce n'est ni l'arrondi commercial ni
+`bulk-edit-sync-sources`, que d'autres sessions corrigent.
+
+**Correction `7fa27468`** (`useEstimateEditorStatusController.ts`) : l'alerte lit le dernier contrôle abouti du même
+brouillon pendant qu'un jeton plus récent est contrôlé. `state.sendGating` reste masqué : le contrat isolé « masks
+stale gating while a new version token is being checked » est inchangé et rien n'agit sur un contrôle périmé
+(l'envoi relit son propre contrôle). Un contrôle en échec ou un statut autre que brouillon masque toujours l'alerte.
+Aucun test isolé ajouté : V3E05 est la régression. `useEstimateEditorStatusController.test.ts` et
+`EstimateEditorAlerts.test.tsx` 27/27, `eslint` propre (Windows). Correction faite après la relecture du §13.11 :
+pas de relecture indépendante, la revue de la PR la couvre.
+
+`npm run verify:pr` est rejoué sur la tête finale, ce relevé compris (description de la PR).
+
+Non rejoués sur la tête finale (`ccb4b577` plus ce relevé) : `db:ci:local`, la suite critique complète, les
+parcours du métré, les six autres phases calc-v3, `db:upgrade-check` et les empreintes de documents. La CI de la
+PR rejoue sur la tête poussée la suite critique (sélection par impact), `army-takeoff`, la sélection `nightly`
+calc-v3 (huit phases : le workflow est modifié), la matrice RLS et le Quality Gate. Seule la première fusion
+apporte une migration, celle de #54 (verrou de brouillon), qui ne touche aucun montant ; #52 est de l'outillage CI,
+#55 et `7fa27468` touchent l'éditeur, #56 le catalogue, #57 les créateurs (qualifiés sur `main` par sa PR).
+Dernière qualification complète : §13.12, sur `039ca113`.
+
+Limites : celles du §13.11 ; correction de V3E05 sans relecture indépendante (ci-dessus).

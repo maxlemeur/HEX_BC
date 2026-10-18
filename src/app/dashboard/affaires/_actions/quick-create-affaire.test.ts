@@ -167,6 +167,13 @@ function createLatestMappingBuilder(mappingId: string | null) {
   return builder;
 }
 
+function createAbsentCalcPolicyBuilder() {
+  const builder = { select: vi.fn(), eq: vi.fn(), maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }) };
+  builder.select.mockReturnValue(builder);
+  builder.eq.mockReturnValue(builder);
+  return builder;
+}
+
 function createSupabaseStub(input: {
   role: "engineer" | "admin" | "viewer";
   importProjectId?: string | null;
@@ -218,6 +225,8 @@ function createSupabaseStub(input: {
       }),
     },
     from: vi.fn((table: string) => {
+      // Sous-lot 2.10a : politique de calcul absente (moteur 2), relue par chaque action de création.
+      if (table === "tenant_calc_policies") return createAbsentCalcPolicyBuilder();
       const queue = tableQueues[table] ?? [];
       const builder = queue.shift();
       if (!builder) {
@@ -288,6 +297,7 @@ describe("quickCreateAffaire", () => {
         reference: null,
       },
       creation_mode: "blank",
+      version: { expected_calc_engine_version: 2 },
     });
     expect(revalidatePath).toHaveBeenCalledWith("/dashboard/affaires");
     expect(revalidatePath).toHaveBeenCalledWith(
@@ -348,6 +358,7 @@ describe("quickCreateAffaire", () => {
         reference: null,
       },
       creation_mode: "blank",
+      version: { expected_calc_engine_version: 2 },
       linked_import_id: IMPORT_ID,
     });
     expect(importUpdateBuilder?.update).not.toHaveBeenCalled();
@@ -543,6 +554,7 @@ describe("quickCreateAffaire", () => {
         reference: null,
       },
       creation_mode: "blank",
+      version: { expected_calc_engine_version: 2 },
       linked_import_id: IMPORT_ID,
     });
     expect(importUpdateBuilder?.update).not.toHaveBeenCalled();
@@ -624,7 +636,7 @@ describe("quickCreateAffaire", () => {
     expect(createEstimate).toHaveBeenCalledWith({
       project_id: CREATED_PROJECT_ID,
       creation_mode: "blank",
-      version: { title: "Base manuelle" },
+      version: { title: "Base manuelle", expected_calc_engine_version: 2 },
     });
   });
 

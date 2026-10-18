@@ -18,7 +18,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 type Supabase = SupabaseClient<Database>;
 type EstimateTemplateRow = Database["public"]["Tables"]["estimate_templates"]["Row"];
+import { EstimateEngineUnavailableError } from "@/lib/estimates/engine/capabilities";
 import {
+  ApiError,
   badRequest,
   internalError,
   mapSupabaseError,
@@ -368,8 +370,11 @@ export async function instantiateEstimateFromTemplate(
       versionTitle: toNullableText(input.version_title),
       dateDevis: input.date_devis ?? null,
       validiteJours: input.validite_jours ?? null,
+      expectedCalcEngineVersion: input.expected_calc_engine_version,
     });
   } catch (error) {
+    // Sous-lot 2.10a : un refus nommé (attente de moteur, réglage, heures sans quantité, rôle MO) garde sa cause.
+    if (error instanceof ApiError || error instanceof EstimateEngineUnavailableError) throw error;
     if (
       error instanceof Error &&
       error.message === "ESTIMATE_CANONICAL_V2_TEMPLATE_NOT_FOUND"
@@ -411,5 +416,7 @@ export async function instantiateEstimateFromTemplate(
     projectId,
     versionId,
     redirectTo: `/dashboard/estimates/${versionId}/edit`,
+    // Moteur 3 (2.10a, P-12, D-h) : lignes converties et réglages du modèle non repris, affichés à l'utilisateur.
+    ...(created.templateConversion ?? {}),
   };
 }

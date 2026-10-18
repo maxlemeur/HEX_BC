@@ -5,7 +5,10 @@ import { z } from "zod";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { duplicateEstimateVersion } from "@/lib/estimates/server";
 import { persistTakeoffDispatchOutcome } from "@/lib/takeoff/dispatch-state";
-import { createTakeoffJobFromPlanSet } from "@/lib/takeoff/server";
+import {
+  assertTakeoffSourceVersionSupported,
+  createTakeoffJobFromPlanSet,
+} from "@/lib/takeoff/server";
 import { triggerTakeoffJobProcessing } from "@/lib/takeoff/edge-trigger";
 
 const launchTakeoffFromPlanSetSchema = z.object({
@@ -100,6 +103,8 @@ export async function launchTakeoffFromSourceVersionPlanSet(
   input: LaunchTakeoffFromSourceVersionPlanSetInput,
 ) {
   const parsed = launchTakeoffFromSourceVersionPlanSetSchema.parse(input);
+  // Sous-lot 2.10a (revue) : une source v3 est refusée avant d'être copiée (sa copie resterait une v3, P-15).
+  await assertTakeoffSourceVersionSupported(parsed.sourceVersionId);
   let duplicatedVersionId: string | null = null;
 
   try {
