@@ -32,6 +32,10 @@ import { EstimatePrintLayoutButton } from "./EstimatePrintLayoutButton";
  * client 2, relue et vérifiée comme au portail (`loadVerifiedOfferDocument`), jamais le profil du
  * lecteur ni l'affaire vivante. Une copie qui ne se vérifie pas n'est pas imprimée. Le brouillon
  * garde l'aperçu vivant.
+ *
+ * Revue de 8dd28c91 : ses CGV sont aussi celles de la copie scellée (mise en page et instantané que
+ * couvre le sceau, comme au portail). Ni le modèle vivant, ni la politique courante du tenant, ni la
+ * case « Joindre les CGV » ne les ajoutent ou ne les retirent.
  */
 
 type PrintProject = {
@@ -52,6 +56,9 @@ type EstimateV3PrintPageProps = {
   autoPrint: boolean;
   portalUrl: string | null;
 };
+
+/** Copie émise au contrat 2 et CGV de son document scellé (nulles s'il n'en joint pas). */
+type IssuedCopy = { contract: ClientContract2; terms: EstimateTermsSnapshot | null };
 
 type PrintIdentity = Pick<EstimateDocumentProps, "projectName" | "projectSiteAddress" | "projectClient" | "projectReference"
   | "estimateReference" | "issuedEstimateReference" | "versionNumber" | "dateDevis" | "validiteJours" | "exclusions"
@@ -103,10 +110,13 @@ async function sealStateOf(version: EstimateV3DocumentSource["version"]): Promis
 }
 
 /** Copie émise au contrat 2, relue et vérifiée comme au portail ; nulle si elle ne se vérifie pas. */
-async function issuedCopyOf(input: { supabase: SupabaseClient<Database>; tenantId: string; versionId: string }): Promise<ClientContract2 | null> {
+async function issuedCopyOf(input: { supabase: SupabaseClient<Database>; tenantId: string; versionId: string }): Promise<IssuedCopy | null> {
   try {
-    const contract = (await loadVerifiedOfferDocument(input)).proof.clientContractSnapshot;
-    return contract?.schemaVersion === 2 ? contract : null;
+    const { proof } = await loadVerifiedOfferDocument(input);
+    const contract = proof.clientContractSnapshot;
+    return contract?.schemaVersion === 2
+      ? { contract, terms: proof.layoutOptions.includeTerms ? proof.termsSnapshot : null }
+      : null;
   } catch (error) {
     // Refus de la relecture (ApiError) ou copie stockée que l'analyseur strict rejette (OfferContractError).
     if (!(error instanceof ApiError) && !(error instanceof OfferContractError)) throw error;
@@ -153,11 +163,15 @@ export async function EstimateV3PrintPage({
       </Alert>
     );
   }
-  const identity = issuedCopy ? capturedIdentityOf(issuedCopy) : liveIdentityOf(version, project, issuer);
-  const title = issuedCopy
-    ? printTitleOf(issuedCopy.project.estimateReference, issuedCopy.project.name, issuedCopy.version.number, issuedCopy.version.dateDevis)
+  const identity = issuedCopy ? capturedIdentityOf(issuedCopy.contract) : liveIdentityOf(version, project, issuer);
+  const captured = issuedCopy?.contract;
+  const title = captured
+    ? printTitleOf(captured.project.estimateReference, captured.project.name, captured.version.number, captured.version.dateDevis)
     : printTitleOf(formatEstimateReference(project?.estimate_reference, version.version_number), project?.name,
       version.version_number, version.date_devis);
+  // Copie émise : ses CGV scellées, jointes si et seulement si son document les joint ; brouillon : l'aperçu demandé.
+  const terms = issuedCopy ? issuedCopy.terms : previewLayout.terms;
+  const layout = issuedCopy ? { ...previewLayout.layout, includeTerms: terms !== null } : previewLayout.layout;
   const currency = normalizeEstimateCurrency(version.currency) ?? "EUR";
   return (
     <div className="min-h-screen print:bg-surface">
@@ -178,10 +192,10 @@ export async function EstimateV3PrintPage({
             <>
               <span className="font-medium text-foreground-secondary">Devis V{version.version_number}</span>
               <SealIntegrityBadge state={seal.state} hashPrefix={seal.prefix} />
-              <span className="text-muted-foreground">Configuration : {describeEstimatePdfLayout(previewLayout.layout)}</span>
+              <span className="text-muted-foreground">Configuration : {describeEstimatePdfLayout(layout)}</span>
             </>
           }
-          actions={<EstimatePrintLayoutButton versionId={versionId} initialLayout={previewLayout.layout} autoPrint={autoPrint} />}
+          actions={<EstimatePrintLayoutButton versionId={versionId} initialLayout={layout} autoPrint={autoPrint} />}
         />
       </div>
 
@@ -201,8 +215,8 @@ export async function EstimateV3PrintPage({
           totalTtcCents={version.total_ttc_cents}
           vatReverseCharge={version.contractor_role === "subcontractor"}
           items={items}
-          layout={previewLayout.layout}
-          terms={previewLayout.terms}
+          layout={layout}
+          terms={terms}
         />
       </div>
       <div className="print-page-footer" aria-hidden>
