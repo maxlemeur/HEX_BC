@@ -90,8 +90,11 @@ toutes les lignes pour tous les moteurs (v3 par `readAllItemsForV3Copy`, v1/v2 p
 | 6 | `main` `6260621c` + parcours final, durées d'amorçage enregistrées (`sha256` `82cafe5b…`), sans correctif | idem | Rouge, 5/5 échecs, mêmes valeurs que le run 4. Amorçages : 1 135 à 1 196 ms par grande version, 44 à 45 ms par DPGF | `.e2e/army/ci/2026-10-18T16-26-43-731Z-critical` ; `ARMY-1792340902167-86908eef-*`, `ARMY-1792340907268-868cd16d-*`, `ARMY-1792340909790-0023d686-*`, `ARMY-1792340912029-7d813094-*`, `ARMY-1792340913006-4f2ac6d5-*` |
 | 7 | idem run 6 + correctif (`server.ts` `sha256` `c5200b9d…`) | idem | **Vert, 5/5**, mêmes valeurs exactes que le run 5. Durées : RL1 amorçage 1 068 ms, duplication 1 489 ms ; RL2 1 398 / 509 (liste) / 552 ms (import) ; RL3 1 268 / 914 ms ; RL4 53 / 526 ms ; RL5 47 / 761 ms | `.e2e/army/ci/2026-10-18T16-29-04-657Z-critical` ; `ARMY-1792341052141-88f7bfc3-*`, `ARMY-1792341056532-e7c06f08-*`, `ARMY-1792341060180-413eefe9-*`, `ARMY-1792341063318-ee9e4656-*`, `ARMY-1792341064659-fb7e21c1-*` |
 
-Les runs 6 (rouge) et 7 (vert) portent sur les sources finales et font foi ; les runs 1 à 5 tracent la
-reprise du parcours. `npm run verify:pr` sur la source du run 7 (`6260621c` + correctif, clone WSL) :
+Les runs 6 (rouge) et 7 (vert) portent sur les sources finales avant la fusion de `main` et font foi ;
+les runs 1 à 5 tracent la reprise du parcours. Après la fusion (`4d21582c`, 2.8b et `33c7031b`),
+`npm run verify:pr` réussit sur cette tête (node 307 fichiers / 3 289 tests, 2 ignorés ; jsdom 165 / 831 ;
+frontières 3 / 12) ; les parcours RL01 à RL05 et les copies v3 (IO10 à IO13) sur la tête fusionnée
+relèvent de la CI de la PR, les exécutions natives locales étant suspendues. `npm run verify:pr` sur la source du run 7 (`6260621c` + correctif, clone WSL) :
 succès (node 303 fichiers / 2 939 tests, 2 ignorés ; jsdom 165 / 831 ; couverture des frontières
 critiques 3 / 12).
 
