@@ -81,6 +81,10 @@ const RPC_ERRORS: Record<string, [ApiError["status"], string]> = {
   ESTIMATE_BATCH_LOCK_REQUIRED: [409, "Un verrou actif de cette page est requis."],
   ESTIMATE_BATCH_IDEMPOTENCY_CONFLICT: [409, "Cette clé correspond à une autre demande."],
   ESTIMATE_BATCH_PROJECTION_MISMATCH: [400, "La projection du batch ne correspond pas à ses lignes."],
+  // 2.8b, revue Codex de la PR #59 (G2) : provenance (import, mapping, ligne mappée, document) d'une autre entreprise.
+  ESTIMATE_BATCH_SOURCE_METADATA_FOREIGN: [400, "La provenance d’un élément désigne un import ou un document d’une autre entreprise. Rien n’a été écrit."],
+  // 2.8b : reçu au-delà de 2 Mio, refusé par son nom dans la transaction (rien n’est écrit), plus en 400 générique.
+  ESTIMATE_BATCH_RECEIPT_TOO_LARGE: [413, "Le reçu de ce lot dépasserait 2 Mio. Rien n’a été écrit : découpez-le en lots plus petits."],
 };
 
 function rpcError(error: SupabaseErrorLike, mutation: boolean) {

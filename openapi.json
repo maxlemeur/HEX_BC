@@ -2845,7 +2845,7 @@
           "Estimate Items"
         ],
         "summary": "Executer un batch d'operations",
-        "description": "Applique create/update/delete/reorder, allocations, totaux, audit et reçu dans une transaction unique. Un refus métier confirmé retourne committed:false sans effet, avec rolled_back:true pour les opérations précédentes. dry_run valide sans écriture ni réservation. If-Match prime sur concurrency_token ; query dry_run prime sur le corps. Une nouvelle écriture exige un brouillon, un bail de page actif et le token exact. Même acteur/clé/contenu/token original : reçu historique, avant CAS et sans ancien bail requis, sous droits writer actuels. version/totals/results sont ceux du commit ; current_version décrit l'état actuel. Un reçu est limité à 2 Mio. Une issue transport inconnue ne retourne jamais committed:false : conserver la demande et sa clé pour vérifier ou reprendre explicitement. Un collage composé de plusieurs batchs peut rester partiellement enregistré. Une création ou modification supprimée ensuite par cascade dans le même lot retourne item:null, deleted_in_batch:true et deleted_item_id ; elle ne représente pas une ligne encore persistée.",
+        "description": "Applique create/update/delete/reorder, allocations, totaux, audit et reçu dans une transaction unique. Un refus métier confirmé retourne committed:false sans effet, avec rolled_back:true pour les opérations précédentes. dry_run valide sans écriture ni réservation. If-Match prime sur concurrency_token ; query dry_run prime sur le corps. Une nouvelle écriture exige un brouillon, un bail de page actif et le token exact. Même acteur/clé/contenu/token original : reçu historique, avant CAS et sans ancien bail requis, sous droits writer actuels. version/totals/results sont ceux du commit ; current_version décrit l'état actuel. Un reçu est limité à 2 Mio : au-delà, 413 ESTIMATE_BATCH_RECEIPT_TOO_LARGE, aucune écriture. Une issue transport inconnue ne retourne jamais committed:false : conserver la demande et sa clé pour vérifier ou reprendre explicitement. Un collage composé de plusieurs batchs peut rester partiellement enregistré. Une création ou modification supprimée ensuite par cascade dans le même lot retourne item:null, deleted_in_batch:true et deleted_item_id ; elle ne représente pas une ligne encore persistée.",
         "parameters": [
           {
             "name": "versionId",
@@ -4023,7 +4023,7 @@
           "Estimates"
         ],
         "summary": "Importer la source DPGF liee",
-        "description": "Importe la source DPGF canonique rattachee a l'affaire dans la version cible. Moteur 3 (2.8b) : lignes normalisees pour le moteur 3 (unite du referentiel, statut a 0 EUR) aux coefficients de vente du brouillon, ecrites par l'ecrivain de lot v3 en un seul lot atomique, provenance de la ligne mappee gardee (source_metadata) ; au-dela de 100 elements, 413 ESTIMATE_V3_COPY_TOO_LARGE ; element hors des bornes de l'ecrivain (titre de plus de 500 caracteres...), 400 ESTIMATE_V3_COPY_ITEM_INVALID qui le nomme.",
+        "description": "Importe la source DPGF canonique rattachee a l'affaire dans la version cible. Moteur 3 (2.8b) : lignes normalisees pour le moteur 3 (unite du referentiel, statut a 0 EUR) aux coefficients de vente du brouillon, ecrites par l'ecrivain de lot v3 en un seul lot atomique, provenance de la ligne mappee gardee (source_metadata) ; au-dela de 1 000 elements ou d'un recu de l'ecrivain de plus de 2 Mio (libelles longs), 413 ESTIMATE_V3_COPY_TOO_LARGE, rien n'est ecrit ; element hors des bornes de l'ecrivain (titre de plus de 500 caracteres...), 400 ESTIMATE_V3_COPY_ITEM_INVALID qui le nomme.",
         "parameters": [
           {
             "name": "versionId",
@@ -4126,7 +4126,7 @@
           "Estimates"
         ],
         "summary": "Importer des sections d'une autre version",
-        "description": "Copie une selection de sections dans la version cible en mode append ou merge. Cible moteur 3 (2.8b) : saisies v3 copiees depuis une v3, ou converties depuis une v1/v2 par la regle P-12 (h/u = h / Q au demi superieur, liste converted_lines) ; ecriture par l'ecrivain de lot v3 en un seul lot, source_metadata des elements gardee (413 ESTIMATE_V3_COPY_TOO_LARGE au-dela de 100 elements ; 400 ESTIMATE_V3_COPY_ITEM_INVALID pour un element hors des bornes de l'ecrivain, nomme). Source v3 vers une cible v1/v2 : 409 ESTIMATE_V3_SECTION_COPY_TO_HISTORICAL, rien n'est ecrit.",
+        "description": "Copie une selection de sections dans la version cible en mode append ou merge. Cible moteur 3 (2.8b) : saisies v3 copiees depuis une v3, ou converties depuis une v1/v2 par la regle P-12 (h/u = h / Q au demi superieur, liste converted_lines) ; ecriture par l'ecrivain de lot v3 en un seul lot, source_metadata des elements gardee (413 ESTIMATE_V3_COPY_TOO_LARGE au-dela de 1 000 elements ou d'un recu de l'ecrivain de plus de 2 Mio, rien n'est ecrit ; 400 ESTIMATE_V3_COPY_ITEM_INVALID pour un element hors des bornes de l'ecrivain, nomme). Source v3 vers une cible v1/v2 : 409 ESTIMATE_V3_SECTION_COPY_TO_HISTORICAL, rien n'est ecrit.",
         "parameters": [
           {
             "name": "versionId",

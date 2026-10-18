@@ -3,10 +3,12 @@
  *
  * Une v3 porte ses montants stockés sous D12 : toute ligne qui y entre passe par l'écrivain de lot de 2.5
  * (`executeEstimateBatch` puis `commit_estimate_batch`), jamais par une insertion directe, refusée par le garde SQL
- * (M4). Un seul lot atomique : au-delà de 100 opérations (une instruction dans le budget de
- * docs/testing/large-estimate-statement-budget.md, L7), de 1 Mio ou d'un reçu estimé au-delà de 2 Mio, refus nommé qui
- * renvoie vers l'import de l'affaire (nouvelle version, atomique), jamais une écriture en plusieurs lots. Les
- * `source_metadata` des éléments copiés (provenance d'import) suivent par les identités de création, côté serveur.
+ * (M4). Un seul lot atomique : au-delà de 1 000 opérations (une instruction, 3,5 s localement au plus pour 1 000 lignes,
+ * décision du propriétaire du 18/10/2026 ; docs/testing/large-estimate-statement-budget.md, L7), de 1 Mio d'opérations
+ * ou de provenance, ou d'un reçu de l'écrivain au-delà de 2 Mio (refusé par la base dans la transaction), refus nommé
+ * qui renvoie vers l'import de l'affaire (nouvelle version, atomique), jamais une écriture en plusieurs lots. Les
+ * `source_metadata` des éléments copiés (provenance d'import) suivent par les identités de création, côté serveur ; le
+ * reçu de l'écrivain ne les renvoie pas.
  *
  * - v3 → v3 (même version ou une autre) : les saisies v3 sont copiées (unité du référentiel, statut, heures par
  *   unité) ; l'écrivain recalcule les montants aux coefficients de la cible.
@@ -21,7 +23,6 @@ import type { ValidImportFlowLine } from "@/lib/affaires/import-flow";
 
 import {
   ESTIMATE_BATCH_MAX_BODY_BYTES,
-  ESTIMATE_BATCH_MAX_RECEIPT_BYTES,
   executeEstimateBatch,
   type EstimateBatchCommittedResult,
 } from "@/lib/estimates/batch";
@@ -45,17 +46,14 @@ export const ESTIMATE_V3_SECTION_COPY_TO_HISTORICAL_MESSAGE =
   "chiffrées (HL, PM, inclus…) y deviendraient chiffrées.";
 
 /**
- * Une copie vers une v3 est une instruction `commit_estimate_batch` : 100 opérations, la taille des lots de l'éditeur,
- * restent dans le budget local de 330 ms (mesure L7) ; 1 000 dépassaient le délai de 8 s des rôles de l'API en CI.
+ * Une copie vers une v3 est une instruction `commit_estimate_batch`, jusqu'à 1 000 opérations : le propriétaire accepte
+ * jusqu'à 3,5 s localement pour 1 000 lignes (18/10/2026, exception à la règle des 330 ms), sous le délai de 8 s des
+ * rôles de l'API en CI (mesure L7, IO13).
  */
-export const ESTIMATE_V3_COPY_MAX_OPERATIONS = 100;
-/** Marge du reçu de l'écrivain (2 Mio) : au-delà, la base refuse le lot par un code générique. */
-const RECEIPT_MARGIN_BYTES = 128 * 1024;
-/** Ligne stockée renvoyée par le reçu pour chaque création (colonnes et espaces du texte jsonb), hors saisies. */
-const RECEIPT_ROW_BYTES = 1800;
+export const ESTIMATE_V3_COPY_MAX_OPERATIONS = 1000;
 
 export const ESTIMATE_V3_COPY_TOO_LARGE_MESSAGE =
-  "Cette copie dépasse la limite d’une écriture atomique dans un devis au moteur de calcul 3 (100 éléments). " +
+  "Cette copie dépasse la limite d’une écriture atomique dans un devis au moteur de calcul 3 (1 000 éléments). " +
   "Plusieurs sections : copiez-les en plusieurs fois. Au-delà pour une seule section ou un DPGF : importez ces " +
   "lignes depuis l’affaire (« Importer la DPGF »), qui crée une nouvelle version en une fois. Rien n’a été copié.";
 
@@ -183,11 +181,10 @@ export async function commitV3Copy(input: {
 }): Promise<EstimateBatchCommittedResult> {
   const { operations, createdIds, titles } = input.plan;
   const operationBytes = Buffer.byteLength(JSON.stringify({ operations }), "utf8");
+  // La provenance voyage dans la requête de l'écrivain (identités de création), bornée comme un corps de lot (1 Mio).
   const metadataBytes = Buffer.byteLength(JSON.stringify(createdIds.map((entry) => entry.source_metadata ?? null)), "utf8");
-  // Reçu : chaque opération y figure deux fois (requête et ligne stockée, texte jsonb espacé), avec sa provenance.
-  const receiptBytes = Math.ceil(1.2 * (2 * operationBytes + metadataBytes)) + operations.length * RECEIPT_ROW_BYTES;
   if (operations.length > ESTIMATE_V3_COPY_MAX_OPERATIONS || operationBytes > ESTIMATE_BATCH_MAX_BODY_BYTES - 4096 ||
-    receiptBytes > ESTIMATE_BATCH_MAX_RECEIPT_BYTES - RECEIPT_MARGIN_BYTES) {
+    metadataBytes > ESTIMATE_BATCH_MAX_BODY_BYTES) {
     throw tooLarge(operations.length);
   }
   operations.forEach((operation, index) => {
@@ -202,8 +199,13 @@ export async function commitV3Copy(input: {
       "ESTIMATE_V3_COPY_ITEM_INVALID"
     );
   });
+  // Le reçu (2 Mio, sans la provenance) n'est connu qu'à l'écriture : 1 000 lignes y tiennent avec des libellés
+  // d'environ 85 caractères au plus. Au-delà, la base refuse le lot par son nom, rien n'est écrit : même refus nommé.
   const result = await executeEstimateBatch(input.versionId, operations, {
     concurrencyToken: input.updatedAt, operationKey: randomUUID(), maxOperations: ESTIMATE_V3_COPY_MAX_OPERATIONS, createdIds,
+  }).catch((error: unknown) => {
+    if (error instanceof ApiError && error.code === "ESTIMATE_BATCH_RECEIPT_TOO_LARGE") throw tooLarge(operations.length);
+    throw error;
   });
   if (result.committed) return result;
   const failed = result.results.at(-1);
@@ -247,7 +249,9 @@ export function planV3LinkedDpgfImport(input: {
       tax_rate_bp: line.taxRateBp, k_fo: line.kFo, h_mo_majoration: line.hMoMajoration, k_mo: line.kMo,
       labor_role_id: line.laborRoleId, unit_code: line.unitCode, pricing_status: line.pricingStatus ?? "priced",
       h_mo_per_unit: line.hoursPerUnit, source_provider: "dpgf", source_file_name: input.filename,
-      source_page: line.rowIndex > 0 ? line.rowIndex : null,
+      // Revue Codex de la PR #59 (G1) : la page du document source, comme le sérialiseur commun de l'import
+      // (import-flow-server.ts) ; le numéro de ligne du classeur reste dans source_metadata.row_index.
+      source_page: line.sourcePage,
     }) } as BatchOperationInput);
   });
   return { operations, createdIds, titles };

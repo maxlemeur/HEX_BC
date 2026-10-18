@@ -16,20 +16,121 @@
 -- 3. An entry of p_created_ids may carry source_metadata (a JSON object), written on the created item. Only the
 --    server-side copies set p_created_ids (executeEstimateBatch never takes it from the HTTP batch API), and the
 --    replayed receipt is unchanged: source_metadata is not part of the canonical request.
--- The function is copied from its latest definition (20261017162000) with only these lines changed. CREATE OR
--- REPLACE keeps its owner and ACLs. No existing row is rewritten.
+-- Owner decision of 18/10/2026 (« on accepte jusqu'à 3,5 s pour 1 000 lignes »): a copy into a v3 goes up to 1 000
+-- operations again, under the 8 s statement_timeout of the API roles in CI (IO13). What remained was linear in the
+-- operations (per-line triggers, the batch loop) plus two quadratic accumulations:
+-- 4. A batch of creations only (the server-side copies, a paste) leaves the per-line effects of its inserts (content
+--    revision, audit, source coverage, hierarchy depth) to public.estimate_creation_replay_item_effects_for_writer,
+--    the one-pass replay of the atomic creation (M6b, 20261018013249), under its contract bound to this version: the
+--    same rows, revisions and audit. Known difference: a depth refusal, already refused by the batch preparation
+--    before any write, surfaces after the operations as a generic ESTIMATE_BATCH_INVALID_INPUT, not on an operation.
+--    A batch with an update, delete or reorder keeps the per-line triggers.
+-- 5. A create that names its position and title skips the sibling max(position) scan and the ancestor walk, which
+--    only feed those defaults; results and the canonical operations are accumulated in arrays instead of being
+--    copied at each append (private.canonical_estimate_batch_operations: same output).
+-- 6. The receipt does not echo the source_metadata a created item received from p_created_ids: with the provenance
+--    of 1 000 lines it went over its 2 Mio; the limits are not raised (owner decision). A receipt still over 2 Mio
+--    (1 000 lines with titles of about 85 characters or more) is refused by name, ESTIMATE_BATCH_RECEIPT_TOO_LARGE
+--    (22023), instead of the generic ESTIMATE_BATCH_INVALID_INPUT; nothing is written, as before. The copies turn it
+--    into their named 413 that points to the affaire import.
+-- 7. Second Codex review of #59 (G2): public.commit_estimate_batch is granted to authenticated, so a member holding
+--    the draft lease can call it with a forged p_created_ids. A provenance naming an import (import_id), a mapping
+--    (mapping_id), a mapped row (mapped_row_id) or a source document (_timax_provenance.source_document_id or
+--    sourceDocumentId) of another tenant than the target version is refused by name
+--    (ESTIMATE_BATCH_SOURCE_METADATA_FOREIGN), nothing written. A reference found nowhere (deleted since) is kept;
+--    another affaire of the same tenant is kept too, since a section copied from another affaire keeps its own
+--    provenance. Accepted limitation: a member can still label lines with references of their own tenant.
+-- The functions are copied from their latest definition (20261017162000) with only these lines changed: no later
+-- migration redefines them (20261018170351, complete receipts on main, only adds insert_estimate_template_with_receipt
+-- and insert_estimate_assembly_with_receipt). CREATE OR REPLACE keeps their owner and ACLs. No existing row is
+-- rewritten.
 begin;
 
 do $preflight$
 begin
   if to_regprocedure('public.commit_estimate_batch(uuid,uuid,timestamptz,uuid,jsonb,jsonb,jsonb,jsonb,jsonb,jsonb)') is null
     or to_regprocedure('private.estimate_v3_assert_draft(uuid)') is null
+    or to_regprocedure('private.canonical_estimate_batch_operations(jsonb)') is null
+    or to_regprocedure('public.estimate_creation_replay_item_effects_for_writer(uuid,uuid[])') is null
+    or to_regclass('public.affaire_intake_documents') is null or to_regclass('public.dpgf_mappings') is null
     or not exists (select 1 from information_schema.columns where table_schema = 'public'
       and table_name = 'estimate_items' and column_name = 'source_metadata') then
     raise exception 'LOT2_2_8B_PREREQUISITE_MISSING';
   end if;
 end;
 $preflight$;
+
+-- 5. Same output, built in an array: appending to a jsonb array copied it whole at each of 1 000 operations.
+CREATE OR REPLACE FUNCTION private.canonical_estimate_batch_operations(operations jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ IMMUTABLE
+ SET search_path TO ''
+AS $function$
+declare op jsonb; result jsonb[]:='{}'; data jsonb; pair record; key text; value jsonb; name text;
+  common_keys text[]:=array['parent_id','position','title','aid'];
+  line_keys text[]:=array['line_nature','description','quantity','unit_price_ht_cents','tax_rate_bp','k_fo','h_mo','h_mo_majoration','k_mo','h_mo_atelier','k_mo_atelier','labor_role_atelier_id','h_mo_chantier','k_mo_chantier','labor_role_chantier_id','labor_role_id','category_id','supply_type_id','product_id','selected_supplier_price_id','unit_code','pricing_status','h_mo_per_unit','h_mo_atelier_per_unit','h_mo_chantier_per_unit'];
+  source_keys text[]:=array['source_provider','source_job_id','source_file_name','source_page'];
+  money_keys text[]:=array['pu_ht_cents','line_total_ht_cents','line_tax_cents','line_total_ttc_cents'];
+  allowed text[];
+begin
+  if jsonb_typeof(operations) is distinct from 'array' or jsonb_array_length(operations) not between 1 and 1000 or octet_length(operations::text)>1048576 then perform private.estimate_batch_error('INVALID_INPUT'); end if;
+  for op in select * from jsonb_array_elements(operations) loop
+    name:=op->>'op';
+    if jsonb_typeof(op) is distinct from 'object' or name not in('create','update','delete','reorder') or name is null then perform private.estimate_batch_error('INVALID_INPUT'); end if;
+    if op - (case name when 'create' then array['op','data'] when 'update' then array['op','id','data'] when 'delete' then array['op','id'] else array['op','data'] end) <> '{}'::jsonb then perform private.estimate_batch_error('INVALID_INPUT'); end if;
+    if name in('update','delete') then
+      if jsonb_typeof(op->'id') is distinct from 'string' then perform private.estimate_batch_error('INVALID_INPUT'); end if;
+      op:=jsonb_set(op,'{id}',to_jsonb((op->>'id')::uuid));
+    end if;
+    if name='delete' then result:=array_append(result,op); continue; end if;
+    data:=op->'data';
+    if jsonb_typeof(data) is distinct from 'object' then perform private.estimate_batch_error('INVALID_INPUT'); end if;
+    if name='reorder' then
+      if data-array['parent_id','ordered_ids']<>'{}'::jsonb or jsonb_typeof(data->'ordered_ids') is distinct from 'array' or jsonb_array_length(data->'ordered_ids')<1 then perform private.estimate_batch_error('INVALID_INPUT'); end if;
+      if exists(select 1 from jsonb_array_elements(data->'ordered_ids') x where jsonb_typeof(x)<>'string') then perform private.estimate_batch_error('INVALID_INPUT'); end if;
+      select jsonb_agg(to_jsonb((x.value#>>'{}')::uuid) order by x.ordinality) into value from jsonb_array_elements(data->'ordered_ids') with ordinality x;
+      data:=jsonb_set(data,'{ordered_ids}',value);
+      if data ? 'parent_id' and data->'parent_id'<>'null'::jsonb then data:=jsonb_set(data,'{parent_id}',to_jsonb((data->>'parent_id')::uuid)); end if;
+      result:=array_append(result,jsonb_set(op,'{data}',data)); continue;
+    end if;
+    if name='create' then
+      if data->>'item_type' not in('line','section') or data->>'item_type' is null then perform private.estimate_batch_error('INVALID_INPUT'); end if;
+      allowed:=common_keys||source_keys||array['item_type']||case when data->>'item_type'='line' then line_keys else '{}'::text[] end;
+    else allowed:=common_keys||line_keys||money_keys; end if;
+    if data-allowed<>'{}'::jsonb or data='{}'::jsonb then perform private.estimate_batch_error('INVALID_INPUT'); end if;
+    for pair in select * from jsonb_each(data) loop
+      key:=pair.key; value:=pair.value;
+      if key in('parent_id','labor_role_id','labor_role_atelier_id','labor_role_chantier_id','category_id','supply_type_id','product_id','selected_supplier_price_id','source_job_id') then
+        if value<>'null'::jsonb then
+          if jsonb_typeof(value)<>'string' then perform private.estimate_batch_error('INVALID_INPUT'); end if;
+          data:=jsonb_set(data,array[key],to_jsonb((data->>key)::uuid));
+        end if;
+      elsif key='unit_code' then
+        if value<>'null'::jsonb and jsonb_typeof(value)<>'string' then perform private.estimate_batch_error('INVALID_INPUT'); end if;
+        data:=jsonb_set(data,array[key],coalesce(to_jsonb(nullif(btrim(data->>key),'')),'null'));
+      elsif key='pricing_status' then
+        if jsonb_typeof(value)<>'string' or data->>key not in('priced','included','for_memory','not_priced','out_of_scope','not_applicable') then perform private.estimate_batch_error('INVALID_INPUT'); end if;
+      elsif key in('title','aid','description','source_provider','source_file_name') then
+        if value<>'null'::jsonb and jsonb_typeof(value)<>'string' or key='title' and (value='null'::jsonb or btrim(data->>key)='') then perform private.estimate_batch_error('INVALID_INPUT'); end if;
+        data:=jsonb_set(data,array[key],coalesce(to_jsonb(case when key='aid' then upper(nullif(btrim(data->>key),'')) when key='title' then btrim(data->>key) else nullif(btrim(data->>key),'') end),'null'));
+      elsif key in('item_type','line_nature') then
+        if jsonb_typeof(value)<>'string' or key='line_nature' and data->>key not in('supply_only','supply_and_labor','labor_only') then perform private.estimate_batch_error('INVALID_INPUT'); end if;
+      else
+        if value='null'::jsonb and key in('h_mo_atelier','k_mo_atelier','h_mo_chantier','k_mo_chantier','source_page','h_mo_per_unit','h_mo_atelier_per_unit','h_mo_chantier_per_unit') then continue; end if;
+        if jsonb_typeof(value)<>'number' or (data->>key)::numeric<0 then perform private.estimate_batch_error('INVALID_INPUT'); end if;
+        if key in('position','source_page','unit_price_ht_cents','tax_rate_bp') or key=any(money_keys) then
+          if (data->>key)::numeric<>trunc((data->>key)::numeric) or (data->>key)::numeric>2147483647 then perform private.estimate_batch_error('INVALID_INPUT'); end if;
+        end if;
+        if key in('position','source_page') and (data->>key)::numeric<1 or key='tax_rate_bp' and (data->>key)::numeric>10000 then perform private.estimate_batch_error('INVALID_INPUT'); end if;
+        if key in('h_mo_per_unit','h_mo_atelier_per_unit','h_mo_chantier_per_unit') and (min_scale((data->>key)::numeric)>4 or (data->>key)::numeric>99999999.9999) then perform private.estimate_batch_error('INVALID_INPUT'); end if;
+      end if;
+    end loop;
+    result:=array_append(result,jsonb_set(op,'{data}',data));
+  end loop;
+  return to_jsonb(result);
+exception when invalid_text_representation or numeric_value_out_of_range then perform private.estimate_batch_error('INVALID_INPUT'); return null;
+end $function$;
 
 CREATE OR REPLACE FUNCTION public.commit_estimate_batch(p_version_id uuid, p_operation_key uuid, p_expected_updated_at timestamp with time zone, p_draft_lock_session_id uuid, p_operations jsonb, p_created_ids jsonb, p_item_updates jsonb, p_version_patch jsonb, p_calculation_context jsonb, p_expected_aid_policy jsonb)
  RETURNS jsonb
@@ -47,6 +148,7 @@ declare
   has_supply boolean; has_labor boolean; failure_code text; failure_message text; operation_stage boolean:=true;
   is_v3 boolean; previous_v3_writer text;
   created_by_index jsonb; projection_by_id jsonb; created_entry jsonb;
+  result_list jsonb[]:='{}'; create_only boolean; previous_creation_contract text;
 begin
   ctx:=private.estimate_batch_context(p_version_id,true);
   actor:=(ctx->>'actor_id')::uuid; target_tenant:=(ctx->>'tenant_id')::uuid; project_owner:=(ctx->>'user_id')::uuid;
@@ -90,6 +192,20 @@ begin
   -- 2.8b: one lookup per operation instead of a scan of both arrays (quadratic over a 1 000-operation copy).
   select coalesce(jsonb_object_agg(((x->>'index')::integer)::text,x),'{}') into created_by_index from jsonb_array_elements(p_created_ids) x;
   select coalesce(jsonb_object_agg(((x->>'id')::uuid)::text,x),'{}') into projection_by_id from jsonb_array_elements(p_item_updates) x;
+  -- 7. (G2) No reference of another tenant in the provenance carried by p_created_ids.
+  if exists(
+    with refs as (
+      select r.kind,lower(r.ref)::uuid as id from jsonb_array_elements(p_created_ids) x
+      cross join lateral (values ('import',x->'source_metadata'->>'import_id'),('mapping',x->'source_metadata'->>'mapping_id'),
+        ('row',x->'source_metadata'->>'mapped_row_id'),('document',x->'source_metadata'->'_timax_provenance'->>'source_document_id'),
+        ('document',x->'source_metadata'->'_timax_provenance'->>'sourceDocumentId')) r(kind,ref)
+      where jsonb_typeof(x->'source_metadata')='object' and r.ref ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+    select 1 from refs join public.dpgf_imports t on refs.kind='import' and t.id=refs.id where t.tenant_id is distinct from target_tenant
+    union all select 1 from refs join public.dpgf_mappings t on refs.kind='mapping' and t.id=refs.id where t.tenant_id is distinct from target_tenant
+    union all select 1 from refs join public.dpgf_rows_mapped t on refs.kind='row' and t.id=refs.id where t.tenant_id is distinct from target_tenant
+    union all select 1 from refs join public.affaire_intake_documents t on refs.kind='document' and t.id=refs.id where t.tenant_id is distinct from target_tenant)
+  then perform private.estimate_batch_error('SOURCE_METADATA_FOREIGN'); end if;
+  create_only:=not exists(select 1 from jsonb_array_elements(operations) x where x->>'op'<>'create');
   select jsonb_build_object('id',id,'enabled',enabled,'value',value) into aid_policy from public.feature_flags where tenant_id=target_tenant and flag_key='ESTIMATE_ITEM_AID_REGEX';
   if coalesce(aid_policy,'null'::jsonb) is distinct from coalesce(p_expected_aid_policy,'null'::jsonb) then perform private.estimate_batch_error('CONTEXT_CHANGED'); end if;
 
@@ -98,14 +214,21 @@ begin
   begin
     previous_v3_writer:=coalesce(pg_catalog.current_setting('miaouffrage.estimate_v3_writer',true),'');
     if is_v3 then perform pg_catalog.set_config('miaouffrage.estimate_v3_writer',p_version_id::text,true); end if;
+    -- 4. Creations only: the per-line effects of the inserts are replayed in one pass after the loop (M6b contract).
+    if create_only then
+      previous_creation_contract:=coalesce(pg_catalog.current_setting('miaouffrage.estimate_creation_atomic',true),'');
+      perform pg_catalog.set_config('miaouffrage.estimate_creation_atomic',p_version_id::text,true);
+    end if;
     for op in select * from jsonb_array_elements(operations) loop
       operation_index:=operation_index+1; data:=op->'data'; item_id:=null;
       if op->>'op'='create' then
         created_entry:=created_by_index->(operation_index::text); item_id:=(created_entry->>'id')::uuid;
         target_parent:=(data->>'parent_id')::uuid;
-        select coalesce(max(position),0)+1 into position_value from public.estimate_items where version_id=p_version_id and parent_id is not distinct from target_parent;
+        -- 5. The sibling scan and the ancestor walk only feed the default position and title.
+        position_value:=null;
+        if not(data?'position') then select coalesce(max(position),0)+1 into position_value from public.estimate_items where version_id=p_version_id and parent_id is not distinct from target_parent; end if;
         depth:=1;
-        if target_parent is not null then
+        if target_parent is not null and not(data?'title') then
           with recursive ancestors as(select id,parent_id,1 as d from public.estimate_items where id=target_parent and version_id=p_version_id union all select i.id,i.parent_id,a.d+1 from public.estimate_items i join ancestors a on i.id=a.parent_id where a.d<5) select coalesce(max(d),0)+1 into depth from ancestors;
         end if;
         normalized:=jsonb_build_object('id',item_id,'tenant_id',target_tenant,'version_id',p_version_id,'parent_id',target_parent,'position',coalesce((data->>'position')::integer,position_value),'title',coalesce(data->>'title',case when data->>'item_type'='line' then 'Nouvelle ligne' else 'Nouveau '||case depth when 1 then 'lot' when 2 then 'chapitre' when 3 then 'sous-chapitre' else 'ouvrage' end end),'source_provider',coalesce(data->>'source_provider','manual'))||data;
@@ -132,7 +255,7 @@ begin
         if not exists(select 1 from public.estimate_items where id=item_id and version_id=p_version_id and tenant_id=target_tenant) then perform private.estimate_batch_error('NOT_FOUND'); end if;
         with recursive closure as(select id from public.estimate_items where id=item_id and version_id=p_version_id union select i.id from public.estimate_items i join closure c on i.parent_id=c.id where i.version_id=p_version_id) select array_agg(id order by id) into deleted_ids from closure;
         delete from public.estimate_items where id=item_id and version_id=p_version_id;
-        results:=results||jsonb_build_array(jsonb_build_object('index',operation_index,'op','delete','status','ok','data',jsonb_build_object('deleted_id',item_id,'deleted_ids',deleted_ids)));
+        result_list:=array_append(result_list,jsonb_build_object('index',operation_index,'op','delete','status','ok','data',jsonb_build_object('deleted_id',item_id,'deleted_ids',deleted_ids)));
         continue;
       else
         target_parent:=(data->>'parent_id')::uuid;
@@ -145,7 +268,7 @@ begin
         with ordered as(select (x.value#>>'{}')::uuid as id,x.ordinality::integer as pos from jsonb_array_elements(data->'ordered_ids') with ordinality x)
           update public.estimate_items i set position=o.pos from ordered o where i.id=o.id and i.version_id=p_version_id;
         get diagnostics changed=row_count;
-        results:=results||jsonb_build_array(jsonb_build_object('index',operation_index,'op','reorder','status','ok','data',jsonb_build_object('parent_id',target_parent,'ordered_ids',data->'ordered_ids','updated_count',changed)));
+        result_list:=array_append(result_list,jsonb_build_object('index',operation_index,'op','reorder','status','ok','data',jsonb_build_object('parent_id',target_parent,'ordered_ids',data->'ordered_ids','updated_count',changed)));
         continue;
       end if;
 
@@ -213,9 +336,15 @@ begin
       else
         update public.estimate_items set parent_id=item.parent_id,position=item.position,title=item.title,description=item.description,aid=item.aid,quantity=item.quantity,unit_price_ht_cents=item.unit_price_ht_cents,tax_rate_bp=item.tax_rate_bp,k_fo=item.k_fo,h_mo=item.h_mo,h_mo_majoration=item.h_mo_majoration,k_mo=item.k_mo,h_mo_atelier=item.h_mo_atelier,k_mo_atelier=item.k_mo_atelier,labor_role_atelier_id=item.labor_role_atelier_id,h_mo_chantier=item.h_mo_chantier,k_mo_chantier=item.k_mo_chantier,labor_role_chantier_id=item.labor_role_chantier_id,labor_role_id=item.labor_role_id,category_id=item.category_id,supply_type_id=item.supply_type_id,product_id=item.product_id,selected_supplier_price_id=item.selected_supplier_price_id,line_nature=item.line_nature,unit_code=item.unit_code,pricing_status=item.pricing_status,h_mo_per_unit=item.h_mo_per_unit,h_mo_atelier_per_unit=item.h_mo_atelier_per_unit,h_mo_chantier_per_unit=item.h_mo_chantier_per_unit where id=item.id and version_id=p_version_id;
       end if;
-      results:=results||jsonb_build_array(jsonb_build_object('index',operation_index,'op',op->>'op','status','ok','data',jsonb_build_object('item_id',item.id)));
+      result_list:=array_append(result_list,jsonb_build_object('index',operation_index,'op',op->>'op','status','ok','data',jsonb_build_object('item_id',item.id)));
     end loop;
+    results:=to_jsonb(result_list);
     operation_stage:=false;
+    if create_only then
+      perform public.estimate_creation_replay_item_effects_for_writer(p_version_id,
+        array(select (x->>'id')::uuid from jsonb_array_elements(p_created_ids) x order by (x->>'index')::integer));
+      perform pg_catalog.set_config('miaouffrage.estimate_creation_atomic',previous_creation_contract,true);
+    end if;
     select coalesce(array_agg(id order by id),'{}') into actual_ids from public.estimate_items where version_id=p_version_id and item_type='line' and (private.calc_engine_freezes_snapshot(v.calc_engine_version) or id=any(affected_ids));
     if supplied_ids is distinct from actual_ids then perform private.estimate_batch_error('PROJECTION_MISMATCH'); end if;
     select coalesce(array_agg(distinct r.id order by r.id),'{}') into role_ids from public.estimate_items i cross join lateral unnest(array[i.labor_role_id,i.labor_role_atelier_id,i.labor_role_chantier_id]) r(id) where i.version_id=p_version_id and i.item_type='line' and r.id is not null;
@@ -241,19 +370,21 @@ begin
       perform pg_catalog.set_config('miaouffrage.estimate_v3_writer',previous_v3_writer,true);
     end if;
     select * into v from public.estimate_versions where id=p_version_id;
-    select coalesce(jsonb_agg(case when x->>'op' in('create','update') then jsonb_set(x,'{data}',case when i.id is null then jsonb_build_object('item',null,'deleted_in_batch',true,'deleted_item_id',x->'data'->'item_id') else jsonb_build_object('item',to_jsonb(i)) end) else x end order by (x->>'index')::integer),'[]') into results
+    select coalesce(jsonb_agg(case when x->>'op' in('create','update') then jsonb_set(x,'{data}',case when i.id is null then jsonb_build_object('item',null,'deleted_in_batch',true,'deleted_item_id',x->'data'->'item_id') else jsonb_build_object('item',case when created_by_index->(x->>'index') ? 'source_metadata' then to_jsonb(i)-'source_metadata' else to_jsonb(i) end) end) else x end order by (x->>'index')::integer),'[]') into results
     from jsonb_array_elements(results) x left join public.estimate_items i on i.id=(x->'data'->>'item_id')::uuid and i.version_id=p_version_id;
     perform public.log_estimate_batch_audit(p_version_id,operations);
     event_time:=clock_timestamp();
     response:=jsonb_build_object('committed',true,'results',results,'version',jsonb_build_object('id',v.id,'updated_at',v.updated_at),'totals',jsonb_build_object('total_ht_cents',v.total_ht_cents,'total_tax_cents',v.total_tax_cents,'total_ttc_cents',v.total_ttc_cents),
       'receipt',jsonb_build_object('operation_key',p_operation_key,'actor_id',actor,'version_id',p_version_id,'expected_updated_at',p_expected_updated_at,'operations',operations,'committed_at',event_time));
-    if octet_length(response::text)>2097152 then perform private.estimate_batch_error('INVALID_INPUT'); end if;
+    -- 6. A receipt over 2 Mio is refused by name (nothing written), no longer as a generic invalid input.
+    if octet_length(response::text)>2097152 then perform private.estimate_batch_error('RECEIPT_TOO_LARGE'); end if;
     insert into private.estimate_batch_receipts(version_id,operation_key,tenant_id,project_id,actor_id,canonical_request,response,committed_at) values(p_version_id,p_operation_key,target_tenant,v.project_id,actor,canonical,response,event_time);
     return response||jsonb_build_object('replayed',false,'current_version',jsonb_build_object('id',v.id,'updated_at',v.updated_at,'status',v.status));
   exception when others then
     get stacked diagnostics failure_code=returned_sqlstate,failure_message=message_text;
+    results:=to_jsonb(result_list);
     if failure_message='ESTIMATE_V3_PROJECTION_MISMATCH' then failure_message:='ESTIMATE_BATCH_PROJECTION_MISMATCH'; end if;
-    if failure_message not in('ESTIMATE_BATCH_INVALID_INPUT','ESTIMATE_BATCH_NOT_FOUND','ESTIMATE_BATCH_PROJECTION_MISMATCH','ESTIMATE_BATCH_CONTEXT_CHANGED','ESTIMATE_BATCH_STALE','ESTIMATE_BATCH_FORBIDDEN','ESTIMATE_BATCH_LOCK_REQUIRED') then
+    if failure_message not in('ESTIMATE_BATCH_INVALID_INPUT','ESTIMATE_BATCH_RECEIPT_TOO_LARGE','ESTIMATE_BATCH_NOT_FOUND','ESTIMATE_BATCH_PROJECTION_MISMATCH','ESTIMATE_BATCH_CONTEXT_CHANGED','ESTIMATE_BATCH_STALE','ESTIMATE_BATCH_FORBIDDEN','ESTIMATE_BATCH_LOCK_REQUIRED') then
       failure_message:=case when failure_code in('40001','40P01','55P03') then 'ESTIMATE_BATCH_STALE' else 'ESTIMATE_BATCH_INVALID_INPUT' end;
     end if;
     -- Context/projection/finalization failures have no invented operation index.

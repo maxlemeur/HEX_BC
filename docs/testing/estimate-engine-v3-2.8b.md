@@ -3,7 +3,7 @@
 Statut : **vert** (18/10/2026). Branche `lot2/2.8b-copies-into-v3`, empilée sur `lot2/2.10a-createurs-v3`
 (`216ac4d0`, outil commun de normalisation des imports dans `src/lib/affaires/`). Source : plan vers 2.10 (§3
 « 2.8b », décisions D-b et D-e du 18/10/2026), inventaire des écarts v3 (A5 à A8). Une migration depuis la revue
-(`20261018160000`, §6) ; `src/lib/estimate-calculations.ts` et `src/lib/estimate-v2-snapshot.ts` inchangés.
+(`20261018172303`, §6) ; `src/lib/estimate-calculations.ts` et `src/lib/estimate-v2-snapshot.ts` inchangés.
 
 ## 1. Défaillances observables (écrites avant le code)
 
@@ -16,12 +16,16 @@ Statut : **vert** (18/10/2026). Branche `lot2/2.8b-copies-into-v3`, empilée sur
 | C5 | Section v1/v2 entrée dans une v3 sans la règle P-12 ni rapport ; section v3 entrée dans une v1/v2 (D-e) | IO07 |
 | C6 | Conversion ligne ↔ section proposée sur une v3, puis message générique (D-b) | IO12 |
 | C7 | Copie v1/v2 → v1/v2 dont les montants changent | IO11 (garde) |
-| C8 | Copie au-delà de la limite écrite en partie, en plusieurs lots, ou hors du délai de 8 s (revue : 100 opérations) | IO13 |
+| C8 | Copie au-delà de la limite écrite en partie, en plusieurs lots, ou hors du délai de 8 s (1 000 opérations, §7) | IO13 |
 | C9 | Élément hors des bornes de l'écrivain (titre de plus de 500 caractères) : 400 générique « Payload invalide. » (revue) | IO13 |
 | C10 | Conversion P-12 d'une copie v1/v2 → v3 rendue par l'API mais jamais montrée (revue) | IO07 |
 | C11 | `source_metadata` des éléments copiés perdue (`_timax_provenance`, `sourceDocumentId`, import) (revue) | IO10, IO11 |
 | C12 | Motif de la conversion désactivée invisible : l'entrée désactivée du menu ne reçoit pas le survol (revue) | IO12 |
 | C13 | v3 créée depuis le DPGF lié : source lue sans pages, 1 000 premières lignes gardées en silence (revue Codex, code du 2.10a) | IO14 |
+| C14 | Ligne du DPGF lié importée dans une v3 avec le numéro de ligne du classeur pour page source (seconde revue Codex, G1) | IO10 |
+| C15 | Provenance forgée d'une autre entreprise écrite par un appel direct de `commit_estimate_batch` (G2) | pgTAP (appel direct) |
+| C16 | Source de plus de 500 éléments modifiée entre deux pages de lecture : copie mêlant deux états (G3) | aucun parcours (course) |
+| C17 | Reçu de l'écrivain au-delà de 2 Mio : 400 générique, ou copie de 1 000 lignes refusée à tort par une estimation (§7) | IO13 |
 
 ## 2. Rouges conservés
 
@@ -39,11 +43,13 @@ Statut : **vert** (18/10/2026). Branche `lot2/2.8b-copies-into-v3`, empilée sur
 - **Écriture.** Une copie vers une v3 passe par l'écrivain de lot v3. `v3-section-copy.ts` construit les
   opérations, puis `executeEstimateBatch` / `commit_estimate_batch` les écrit en un seul lot, avec le jeton lu
   au départ et le verrou de la page. Les identités créées sont passées par `createdIds`, déjà acceptées par la
-  préparation. Au-delà de 100 opérations (revue, §6), de 1 Mio ou d'un reçu estimé au-delà de 2 Mio : refus 413
-  `ESTIMATE_V3_COPY_TOO_LARGE` avant toute écriture, qui renvoie vers l'import de l'affaire. Une opération refusée par l'écrivain est rendue avec son
+  préparation. Au-delà de 1 000 opérations ou de 1 Mio (§7) : refus 413 `ESTIMATE_V3_COPY_TOO_LARGE` avant toute
+  écriture, qui renvoie vers l'import de l'affaire ; reçu de l'écrivain au-delà de 2 Mio : même 413, refusé par la base
+  dans la transaction, rien d'écrit. Une opération refusée par l'écrivain est rendue avec son
   code et l'élément nommé (rôle MO d'un autre propriétaire, unité inconnue, profondeur, position).
 - **Lecture complète.** Vers une v3, les lignes de la source et de la cible (`readAllEstimateItems`) et les lignes
-  du DPGF lié sont lues par pages. Les lectures v1/v2 sont inchangées (§5).
+  du DPGF lié sont lues par pages ; depuis la lecture complète de `main` (`33c7031b`), le DPGF lié l'est pour toutes
+  les politiques. La source d'une copie est relue après la dernière page (§7, G3).
 - **A5.** Lignes normalisées par `normalizeMappedRowsForEstimateCreation` avec `engine: 3` et les coefficients du
   brouillon : unité du référentiel, statut à 0 €. Les paramètres du classeur imposent l'aperçu de l'affaire, refus
   nommé existant. La provenance est gardée : `source_provider = dpgf`, `source_file_name`, `source_page`.
@@ -71,29 +77,31 @@ Statut : **vert** (18/10/2026). Branche `lot2/2.8b-copies-into-v3`, empilée sur
 
 ## 5. Limites
 
-- Les lectures v1/v2 non paginées restent telles quelles (comportement v1/v2 identique). Une copie v1/v2 → v1/v2
-  ou un DPGF lié importé dans une v2 tronquent en silence au-delà de 1 000 lignes. Ce défaut existait avant ce
-  lot et sort de son périmètre.
+- La copie v1/v2 → v1/v2 lit toujours ses lignes sans pages et tronque en silence au-delà de 1 000 lignes : ce
+  défaut existait avant ce lot et sort de son périmètre. Le DPGF lié, lui, est lu en entier pour toutes les politiques
+  depuis `33c7031b` (`main`). Le DPGF lié importé dans une v1/v2 existante prend encore le numéro de ligne du classeur
+  pour page source (`server.ts`, chemin v1/v2 de l'import, `28ccc857`) : même défaut que G1, antérieur, hors périmètre.
 - La copie vers une autre version est prouvée par l'API ; son avis de conversion (toast avant la redirection) n'est
   piloté par aucun parcours. L'import de sections est piloté par l'éditeur dans IO07.
-- Une copie vers une v3 est bornée à 100 opérations (§6). Au-delà, refus nommé : copier les sous-sections une à une,
-  ou importer depuis l'affaire.
+- Une copie vers une v3 est bornée à 1 000 opérations et par le reçu de l'écrivain (2 Mio, sans la provenance) :
+  1 000 lignes y tiennent avec des libellés d'environ 85 caractères au plus (§7). Au-delà, refus nommé : copier les
+  sous-sections une à une, ou importer depuis l'affaire.
 - Le DPGF lié importé dans une v2 ne garde pas non plus la `source_metadata` de ses lignes : comportement v1/v2
   inchangé, hors périmètre.
 - Ne sont pas couverts par un parcours : rôle MO d'un autre propriétaire, profondeur dépassée, jeton périmé et
   cible verrouillée par un autre utilisateur. Ces refus nommés viennent de la préparation du lot et du verrou,
   déjà prouvés au 2.5.
 - La conversion ligne ↔ section par l'écrivain de lot reste à faire (D-b).
-- Reçu de l'écrivain borné à 2 Mio : la base refuse un reçu plus gros avant la fin de la transaction
-  (`commit_estimate_batch`, `octet_length(response::text) > 2097152`), donc rien n'est écrit ; la copie estime ce
-  reçu et refuse par son nom avant d'écrire (§6).
+- Reçu de l'écrivain borné à 2 Mio : la base refuse un reçu plus gros avant la fin de la transaction, rien n'est
+  écrit, désormais par son nom (`ESTIMATE_BATCH_RECEIPT_TOO_LARGE`, 413 sur la route de lot) ; la copie le rend par
+  son 413 nommé (§7). L'estimation du reçu avant écriture (§6) est retirée : elle refusait 1 000 lignes qui tiennent.
 
 ## 6. Revue (18/10/2026)
 
 | Constat | Disposition |
 |---|---|
 | CI rouge, shard 3 | Parcours IO13 identifié (preuve `2026-10-18T15-07-22-063Z-critical` du run 39138950745) : copie de 1 000 opérations en 503 `BATCH_OUTCOME_UNKNOWN` après 9,7 s, délai de 8 s des rôles de l'API. Corrigé par les deux lignes suivantes |
-| 1 000 opérations hors budget | Mesuré (L7, [budget](large-estimate-statement-budget.md#copy-into-a-v3-28b-l7)) : 10–15 s ; 100 opérations dans une v3 de 1 021 éléments : 4,1 s, la projection v3 réécrivait chaque ligne. `20261018160000` ne réécrit que les montants qui changent (282 ms) ; limite ramenée à 100 opérations, taille des lots de l'éditeur. Écart au plan (1 000) : le délai de la CI l'impose |
+| 1 000 opérations hors budget | Mesuré (L7, [budget](large-estimate-statement-budget.md#copy-into-a-v3-28b-l7)) : 10–15 s ; 100 opérations dans une v3 de 1 021 éléments : 4,1 s, la projection v3 réécrivait chaque ligne. `20261018172303` ne réécrit que les montants qui changent (282 ms) ; limite ramenée à 100 opérations, taille des lots de l'éditeur. Écart au plan (1 000) : le délai de la CI l'impose |
 | Rapport P-12 non montré | `converted_lines` lu par le client ; résumé de l'import de sections et avis de la copie vers une autre version |
 | `source_metadata` perdue | `p_created_ids` porte la `source_metadata` de l'élément copié (côté serveur seulement, hors requête canonique et reçu rejoué) ; A5 : métadonnées de la ligne mappée et `import_id` |
 | Reçu > 2 Mio « écrit puis inconnu » | Infirmé : la base refuse le reçu avant validation, rien n'est écrit (mesure : 1 000 opérations avec provenance → `ESTIMATE_BATCH_INVALID_INPUT`). Réel : un refus générique. Corrigé par l'estimation du reçu avant écriture (413 nommé) |
@@ -110,3 +118,40 @@ Statut : **vert** (18/10/2026). Branche `lot2/2.8b-copies-into-v3`, empilée sur
   vert à l'itération 2 (1 001 lignes, 1 301,30 €, API = SQL).
 - **IO13 révisé** : 101 opérations → 413 ; titre de 501 caractères → 400 nommé ; à la limite (1 section + 99 lignes
   de 400 caractères) → 201, 99 lignes, total 12 870 (API = SQL).
+
+## 7. Seconde revue Codex et décision du propriétaire (18/10/2026, soir)
+
+**Décision du propriétaire (18 h 55)** : « on accepte jusqu'à 3,5 s pour 1 000 lignes ». Exception à la règle des
+330 ms d'AGENTS.md pour cette seule instruction : une copie vers une v3 remonte à **1 000 opérations**, médiane locale
+au plus 3,5 s pour 1 000 lignes, sous le délai de 8 s des rôles de l'API en CI (IO13), sans délai relevé ni reprise.
+
+| Constat | Disposition |
+|---|---|
+| G1 (`v3-section-copy.ts:250`) : page source = numéro de ligne du classeur | Réel. `source_page: line.sourcePage`, comme le sérialiseur commun (`import-flow-server.ts:348`). Le chemin v1/v2 de l'import (`server.ts`, `28ccc857`) garde le défaut : antérieur, hors périmètre (§5) |
+| G2 (migration, `commit_estimate_batch` ouverte à `authenticated`) : provenance forgée | Réel. La base refuse par son nom (`ESTIMATE_BATCH_SOURCE_METADATA_FOREIGN`, 400, rien d'écrit) une provenance qui désigne un import, un mapping, une ligne mappée ou un document source d'une autre entreprise que la version cible. Limite acceptée (propriétaire : sécurité dépriorisée sur cette base de développement) : un membre peut étiqueter ses propres lignes avec des références de sa propre entreprise ; une autre affaire de la même entreprise est admise, puisque l'import de sections copie depuis toute version de l'entreprise |
+| G3 (`server.ts:4094`) : source de plus de 500 éléments lue en plusieurs pages sans revérifier son jeton | Réel. `readAllItemsForV3Copy` relit la version (`assertEstimateVersionUnchanged` : jeton et révision de contenu) après la dernière page, source comme cible ; changée : 409 `VERSION_CONFLICT`, rien n'est copié. Aucun parcours ne force une écriture entre deux pages : course non reproduite, assistant existant réutilisé |
+| Limite de 100 opérations | Remontée à 1 000 (décision ci-dessus). La migration rejoue en une passe les effets par ligne d'un lot de créations seules (rejeu M6b), saute les recherches de position et de titre par défaut quand l'opération les nomme, accumule résultats et opérations canoniques dans des tableaux et ne renvoie plus dans le reçu la `source_metadata` reçue par `p_created_ids` |
+| Reçu de l'écrivain au-delà de 2 Mio | L'estimation avant écriture (§6) refusait à tort 1 000 lignes qui tiennent (≈ 2,04 Mo réels) ; retirée. La base refuse désormais un reçu trop gros par son nom (`ESTIMATE_BATCH_RECEIPT_TOO_LARGE`, 413 sur la route de lot), la copie le rend par son 413 nommé ; rien n'est écrit dans les deux cas |
+| `main` a bougé (`33c7031b`, lecture complète) | Fusionné (`25cd083b`) : conflits `server.ts` (lecture du DPGF lié : `readAllRows` de `main` pour toutes les politiques, l'option `paginate` du 2.8b retirée) et manifeste. `20261018170351` ne redéfinit pas `commit_estimate_batch` (seuls `20261012030743` et `20261017162000` le définissent sur `main`) : il ajoute `insert_estimate_template_with_receipt` et `insert_estimate_assembly_with_receipt`, que cette migration ne touche pas. Migration réhorodatée `20261018160000` → `20261018172303` (`supabase:migrations:restamp`, garde Git et manifeste passés) |
+
+Preuves (clone WSL `~/miaouffrage-l2-28b`, hôte partagé chargé, `E2E_ARMY_WORKERS=2`) :
+
+- **Rouges pgTAP**, `25cd083b` (fusion, ancienne migration) :
+  `node --import tsx scripts/run-local-supabase-ci.ts --files estimate-calc-engine-v3-guards.test.sql,estimate-large-v3-scale.test.sql --skip-rls`,
+  2 + 2 échecs attendus : provenance étrangère écrite (`ok:true`, ×5) et renvoyée par le reçu ; 1 000 opérations avec
+  provenance refusées (`22023 ESTIMATE_BATCH_INVALID_INPUT`, reçu > 2 Mio). Journal
+  `~/l2-28b-evidence/pgtap-red-25cd083b-20261018T172109Z.log`.
+- **Verts pgTAP et budget**, même commande avec `DB_CI_STATEMENT_BUDGET=enforce` et la nouvelle migration : 70/70 ;
+  copie de 1 000 opérations avec provenance dans la v3 de 1 021 éléments, **médiane 730,2 ms** sur 7 (697,9–831,6),
+  dans la v3 de 8 éléments 665,1 ms, 0 ligne réécrite, reçu 2 040 397 octets ; seul L2 (création, 388,8 ms contre
+  330 ms) échoue sur cet hôte non calibré. Journal `~/l2-28b-evidence/pgtap-green-budget-25cd083b-20261018T172328Z.log`.
+- **pgTAP complet et matrice RLS** : verts au démarrage de la boucle `.e2e/army/ci/2026-10-18T17-28-49-050Z-dev-loop`.
+- **Rouges des parcours**, itération 1 de cette boucle (nouvelle migration, ancien code applicatif) : IO10 pages
+  `[1, 2, 3, 4]` au lieu de `[null, 7, null, null]` ; IO13 à la limite (999 lignes) en 413 au lieu de 201.
+- **Verts**, itération 2 : IO10 et IO13 (3/3 avec le setup). IO13 : 1 001 opérations → 413 ; titre de 501
+  caractères → 400 nommé ; 999 lignes de 200 caractères → 413 nommé par la base, rien d'écrit ; à la limite (1 section
+  + 999 lignes avec provenance) → 201, 999 lignes, provenance gardée sur les 999, total 129 870 (API = SQL), route
+  entière en 1 121 ms.
+- **Consommateurs de l'écrivain de lot**, itération 3 (`--files` : `large-row-completeness` du propriétaire,
+  `engine-v3-import-optima`, `engine-v3-editor-actions`, `engine-v3-persistence`, `numeric-entry-v3`, `numeric-entry`,
+  `engine-v3-creators`) : 44/44 verts en 343,5 s.

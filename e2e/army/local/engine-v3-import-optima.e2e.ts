@@ -1082,7 +1082,7 @@ SELECT count(*) FROM public.estimate_items WHERE parent_id = '${sectionId}'::uui
 
 // C8 (2.8b) : une copie vers une v3 est un seul lot atomique de l'écrivain v3, jusqu'à 1 000 opérations (décision du
 // propriétaire du 18/10 : jusqu'à 3,5 s localement pour 1 000 lignes ; en CI, sous le délai de 8 s des rôles de l'API,
-// run 39138950745 rouge avant 20261018160000) ; au-delà, refus nommé qui renvoie vers l'import de l'affaire, jamais une
+// run 39138950745 rouge avant 20261018172303) ; au-delà, refus nommé qui renvoie vers l'import de l'affaire, jamais une
 // écriture en plusieurs lots. C9 (revue) : un titre au-delà de 500 caractères est refusé par son nom, rien n'est écrit.
 armyTest("IO13 a section copy into a v3 is one atomic batch up to 1 000 operations and refused by name beyond it, pointing to the affaire import, nothing written", options,
   async ({ app, screen, browser, army }) => {
@@ -1094,6 +1094,8 @@ armyTest("IO13 a section copy into a v3 is one atomic batch up to 1 000 operatio
       // writer does not echo it (owner decision of 18/10: no limit is raised for it).
       const boundarySectionId = await seedLargeV2Section(owner, anchorId, 999, 901, 55, true);
       const longTitleSectionId = await seedLargeV2Section(owner, anchorId, 1, 902, 501);
+      // 1 000 operations whose receipt (the stored rows, 200-character titles) goes over the writer's 2 Mio.
+      const heavyReceiptSectionId = await seedLargeV2Section(owner, anchorId, 999, 903, 200);
       const versionId = await blankV3(ui, army, projectId, "limite");
       await retakeLease(browser, versionId);
       const before = await readEstimate(browser, versionId);
@@ -1119,6 +1121,19 @@ armyTest("IO13 a section copy into a v3 is one atomic batch up to 1 000 operatio
       };
       await recordEvidence(army, "io-copy-long-title", { versionId, longTitleSectionId, message: longTitle.body.error?.message, named });
       expect(named).toEqual({ response: [400, false, "ESTIMATE_V3_COPY_ITEM_INVALID"], namesTheLine: true, unchanged: true });
+
+      // Within 1 000 operations but over the 2 Mio receipt (known only at the write): the database refuses it by name
+      // inside the transaction, the copy answers its named 413, nothing written (never the generic 400).
+      const heavy = await apiRequest<Envelope<unknown>>(browser, "POST", `/api/estimates/${versionId}/import-sections`,
+        { source_version_id: anchorId, section_ids: [heavyReceiptSectionId] });
+      const afterHeavy = await readEstimate(browser, versionId);
+      const heavyObserved = {
+        response: [heavy.status, heavy.body.ok, heavy.body.error?.code ?? null],
+        pointsToAffaireImport: (heavy.body.error?.message ?? "").includes("depuis l’affaire"),
+        unchanged: afterHeavy.items.length === before.items.length && afterHeavy.version.updated_at === before.version.updated_at,
+      };
+      await recordEvidence(army, "io-copy-heavy-receipt", { versionId, heavyReceiptSectionId, message: heavy.body.error?.message, heavyObserved });
+      expect(heavyObserved).toEqual({ response: [413, false, "ESTIMATE_V3_COPY_TOO_LARGE"], pointsToAffaireImport: true, unchanged: true });
 
       // At the limit (1 section + 999 lines = 1 000 operations): one atomic batch, every line, amounts of the writer.
       type Imported = { created_section_ids: string[]; created_line_ids: string[] };

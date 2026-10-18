@@ -4070,9 +4070,15 @@ export async function duplicateEstimateVersion(
   };
 }
 
-/** Sous-lot 2.8b (C8) : toutes les lignes d'une version, par pages, au format d'une réponse de lecture. */
-async function readAllItemsForV3Copy(supabase: Supabase, tenantId: string, versionId: string) {
-  const data = await readAllEstimateItems({ supabase, tenantId, versionId });
+/**
+ * Sous-lot 2.8b (C8) : toutes les lignes d'une version, par pages, au format d'une réponse de lecture. Revue Codex de
+ * la PR #59 (G3) : au-delà de 500 éléments, la lecture prend plusieurs pages ; la version est relue après la dernière
+ * (jeton et révision de contenu lus avec l'accès), sinon une modification concurrente de la source entre deux pages
+ * donnerait une copie mêlant deux états. Version changée : 409 VERSION_CONFLICT, rien n'est copié.
+ */
+async function readAllItemsForV3Copy(supabase: Supabase, tenantId: string, version: VersionAccessRow) {
+  const data = await readAllEstimateItems({ supabase, tenantId, versionId: version.id });
+  await assertEstimateVersionUnchanged({ supabase, version });
   return { data, error: null };
 }
 
@@ -4136,7 +4142,7 @@ async function duplicateSectionInternal(input: {
 
   // 2.8b (C8) : vers une v3, lecture complète par pages (voir importSectionsFromVersion).
   const { data: sourceItemsData, error: sourceItemsError } = targetIsV3
-    ? await readAllItemsForV3Copy(supabase, tenantId, sourceVersion.id)
+    ? await readAllItemsForV3Copy(supabase, tenantId, sourceVersion)
     : await supabase
       .from("estimate_items")
       .select("*")
@@ -4304,8 +4310,8 @@ export async function importSectionsFromVersion(
   // Sous-lot 2.8b (C8) : une copie vers une v3 lit toutes les lignes par pages ; la lecture historique s'arrête à la
   // limite de lignes de l'API (1 000) et tronquerait la copie en silence au lieu du refus nommé de la limite du lot.
   const [{ data: sourceItemsData, error: sourceItemsError }, { data: targetItemsData, error: targetItemsError }] =
-    targetIsV3 ? await Promise.all([readAllItemsForV3Copy(supabase, tenantId, sourceVersion.id),
-      readAllItemsForV3Copy(supabase, tenantId, targetVersion.id)]) : await Promise.all([
+    targetIsV3 ? await Promise.all([readAllItemsForV3Copy(supabase, tenantId, sourceVersion),
+      readAllItemsForV3Copy(supabase, tenantId, targetVersion)]) : await Promise.all([
       supabase
         .from("estimate_items")
         .select("*")
