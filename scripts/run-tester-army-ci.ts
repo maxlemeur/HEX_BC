@@ -452,8 +452,9 @@ function writeRetainedManifest(context: RunContext) {
   return retained;
 }
 
-// One loop per checkout: claimed before anything else starts. The digest
-// covers the modules this process just loaded, whose checks every iteration applies.
+// One loop per checkout: claimed before anything else starts (only the
+// application port check precedes it). The digest covers the modules this
+// process just loaded, whose checks every iteration applies.
 function claimLoopState() {
   const now = new Date().toISOString();
   loopState = LoopStateStore.claim(path.join(root, DEV_LOOP_STATE_FILE), {
@@ -467,8 +468,8 @@ function claimLoopState() {
 }
 
 // After runLocalSupabaseCi, which removes the workdir even when `stack destroy`
-// failed: the state goes only once workdir, native registry entry, stack
-// ports and the application port are gone.
+// failed: the state goes only once workdir, native registry entry and stack
+// ports are gone, and the application port too while journeys were running.
 async function releaseLoopState() {
   if (!loopState) return;
   const stack = loopState.current.stack;
@@ -501,8 +502,9 @@ async function main() {
     if (fs.readdirSync(root).some((name) => /^\.env(?:\.(?:local|production|development|test)(?:\.local)?)?$/.test(name))) {
       throw new Error("CI refuses ambient .env files; use a clean checkout without shared backend credentials.");
     }
-    if (suite === "dev-loop") claimLoopState();
+    // It holds nothing once it returns, so it precedes the claim: a loop refused for a busy port leaves no state and keeps that cause.
     await assertLocalAppPortAvailable(appPort);
+    if (suite === "dev-loop") claimLoopState();
     manifest.source = await buildSourceEvidence();
     manifest.database = {
       migrations: await sqlInventory(path.join(root, "supabase/migrations")),

@@ -58,6 +58,12 @@ export interface LoopState {
   build?: LoopBuild;
   iterations: number;
   lastIteration?: { index: number; status: string; evidence: string; seconds: number; rebuilt: boolean };
+  /**
+   * Set right before an iteration's journeys, cleared once they returned and
+   * the application port is closed again. Only meanwhile can a listener on
+   * that port be this loop's (its journey process or `next start`).
+   */
+  journeysStartedAt?: string;
   error?: string;
 }
 
@@ -214,13 +220,23 @@ export function classifyLoopState(state: LoopState | null, probe: SupervisorProb
 /**
  * Why `state` is not this checkout's own, or null when it is. A state copied
  * or restored from another checkout names that checkout's supervisor, socket
- * and stack: its recorded checkout must resolve to `root` itself.
+ * and stack: its recorded checkout must resolve to `root` itself. A recorded
+ * checkout that no longer exists was moved or renamed with its .e2e/: no
+ * copy, its stack may remain, so the reason says how to recover it.
  */
 export function foreignCheckoutReason(state: LoopState, root: string) {
   const real = (directory: string) => { try { return fs.realpathSync.native(directory); } catch { return null; } };
-  const recorded = path.isAbsolute(state.checkout) ? real(state.checkout) : null;
-  return recorded !== null && recorded === real(root) ? null
-    : `the dev-loop state records checkout ${state.checkout}, not this checkout (${root}); it was copied or restored from another checkout`;
+  if (!path.isAbsolute(state.checkout)) {
+    return `the dev-loop state records a relative checkout (${state.checkout}), not this checkout (${root}): inspect it by hand`;
+  }
+  const recorded = real(state.checkout);
+  if (recorded === null) {
+    return `the dev-loop state records checkout ${state.checkout}, which no longer exists (moved or renamed?), not this checkout (${root}): ` +
+      "its native stack may remain; recover it by hand as docs/testing/tester-army-local-development.md describes (recorded checkout no longer exists), then remove this file";
+  }
+  return recorded === real(root) ? null
+    : `the dev-loop state records checkout ${state.checkout}, not this checkout (${root}); it was copied or restored from another checkout: ` +
+      "manage that loop from its own checkout, and remove this file by hand once you have checked it is a copy";
 }
 
 /** The classification `start`, `run`, `stop` and `status` act on: nothing of a foreign state is probed. */
@@ -451,7 +467,8 @@ export async function proveStackDestroyed(stack: LoopState["stack"], registry = 
   return { projectDirectoryRemoved, registryEntryRemoved: !registered && unreadable.length === 0, portsClosed: listening.length === 0, problems };
 }
 
-export interface LoopClosureProof extends StackProof { appPortClosed: boolean }
+/** `appPortClosed` is null when the loop owned no listener on its application port, which was then not probed. */
+export interface LoopClosureProof extends StackProof { appPortClosed: boolean | null }
 
 /** The `next start` port of the loop, from its recorded origin; null when unreadable. */
 export function loopAppPort(appOrigin: unknown) {
@@ -462,18 +479,25 @@ export function loopAppPort(appOrigin: unknown) {
   } catch { return null; }
 }
 
+/** The application port closed on both loopbacks, after the usual retries. */
+export async function appPortClosedOnLoopbacks(appPort: number) {
+  return (await waitForClosedPorts([appPort], ["127.0.0.1", "::1"])).length === 0;
+}
+
 /**
- * A loop is closed once its stack is destroyed and its application port is
- * closed on both loopbacks: after a SIGKILL during an iteration, the journey
- * process and its `next start` can outlive the supervisor there.
+ * A loop is closed once its stack is destroyed and, when it stopped during an
+ * iteration's journeys (`journeysStartedAt`), its application port is closed
+ * on both loopbacks: after a SIGKILL there, the journey process and its
+ * `next start` can outlive the supervisor. Otherwise the loop owns no
+ * listener on that port, which another process may use: it is not probed.
  */
-export async function proveLoopClosed(state: Pick<LoopState, "stack" | "appOrigin">, registry = SUPABASE_STACK_REGISTRY): Promise<LoopClosureProof> {
+export async function proveLoopClosed(state: Pick<LoopState, "stack" | "appOrigin" | "journeysStartedAt">, registry = SUPABASE_STACK_REGISTRY): Promise<LoopClosureProof> {
+  if (state.journeysStartedAt === undefined) return { ...await proveStackDestroyed(state.stack, registry), appPortClosed: null };
   const appPort = loopAppPort(state.appOrigin);
-  const [stack, appListening] = await Promise.all([
+  const [stack, appPortClosed] = await Promise.all([
     proveStackDestroyed(state.stack, registry),
-    appPort === null ? Promise.resolve(null) : waitForClosedPorts([appPort], ["127.0.0.1", "::1"]),
+    appPort === null ? Promise.resolve(false) : appPortClosedOnLoopbacks(appPort),
   ]);
-  const appPortClosed = appListening !== null && appListening.length === 0;
   const problem = appPort === null
     ? `application port unknown (appOrigin ${String(state.appOrigin).slice(0, 64)}): its closure is unproven`
     : `application port ${appPort} still listening: a journey or the \`next start\` of an interrupted iteration may survive; stop again once it has closed`;

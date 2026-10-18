@@ -39,9 +39,12 @@
 // 14. a state copied or restored into another checkout while its loop runs
 //    is taken for this checkout's: stop signals the other checkout's
 //    supervisor, run drives its socket, cleanup removes its socket or stack;
-// 15. a migration or config.toml edit made after an iteration's preflight,
-//    around its rebuild (build-local.mjs only refuses one made while it
-//    builds), reaches the journeys, which run against the schema of the start;
+// 15. a migration or config.toml edit made after an iteration's preflight
+//    reaches the journeys, which run against the schema of the start. While
+//    it builds, build-local.mjs refuses only an edit to a tracked file,
+//    through `git diff HEAD`; supabase/ is outside its untracked scopes, so a
+//    migration added during the build, like any edit before its first or
+//    after its last snapshot, is refused only by the pre-journey recheck;
 // 16. after a SIGKILL during an iteration, the journey process and its
 //    `next start` survive on the application port while stop reports the
 //    loop closed and deletes its state;
@@ -49,7 +52,16 @@
 //    inputs only the in-memory session summary held, lost with a killed
 //    supervisor;
 // 18. an unreadable, malformed or unpermitted registry entry is skipped, so
-//    the proof reports the registry clear and deletes the only recovery state.
+//    the proof reports the registry clear and deletes the only recovery state;
+// 19. the closure proof requires the application port closed while the loop
+//    owns no listener there: a `start` on a port another process holds, or an
+//    idle loop next to an unrelated listener, then leaves a cleanup-failed
+//    state that blocks every Army suite of the checkout and hides the real
+//    cause, while a loop killed during its journeys must still keep its state
+//    until the port closes;
+// 20. a state whose recorded checkout no longer exists (moved or renamed) is
+//    called a copy, which steers the operator into deleting the only record
+//    of a native stack instead of recovering it.
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -168,12 +180,15 @@ const sha256 = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex
  * one migration, a build stub and journeys that only record their call.
  * The stub records `buildInputs` (none by default, so every iteration
  * rebuilds) and calls `afterBuild` with its call count, 1 being the start.
+ * `onJourneys` sees the state as the journeys run; the application port is
+ * closed when the session opens.
  */
 async function openSession(options: {
   ttlMinutes?: number;
   failUpdate?: (patch: Partial<LoopState>, current: LoopState) => boolean;
   buildInputs?: unknown[];
   afterBuild?: (count: number, checkout: string) => void;
+  onJourneys?: (current: LoopState) => void | Promise<void>;
 } = {}) {
   const checkout = temporaryDirectory("army-dev-loop-session-");
   fs.mkdirSync(path.join(checkout, "supabase/migrations"), { recursive: true });
@@ -184,8 +199,9 @@ async function openSession(options: {
   fs.writeFileSync(path.join(checkout, "scripts/tester-army/dev-loop.ts"), "export const session = 1;\n");
   fs.mkdirSync(path.join(checkout, ".e2e/army/next"), { recursive: true });
   fs.writeFileSync(path.join(checkout, ".e2e/army/next/BUILD_ID"), "build-unit\n");
+  const appOrigin = `http://localhost:${await closedPort()}`;
   let current = loopState({
-    checkout, status: "starting", expiresAt: null,
+    checkout, status: "starting", expiresAt: null, appOrigin,
     stackInputsSha256: await stackInputsDigest(checkout), supervisorModulesSha256: supervisorModulesDigest(checkout),
   });
   const store = {
@@ -202,7 +218,7 @@ async function openSession(options: {
   const session = runDevLoopSession({
     root: checkout, store, signal: controller.signal, ttlMinutes: options.ttlMinutes ?? 60,
     sessionEvidence: temporaryDirectory(),
-    sessionManifest: { command: ["unit"], startedAt: new Date().toISOString(), appOrigin: "http://localhost:3118", workers: 1, fixtures: {}, database: {} },
+    sessionManifest: { command: ["unit"], startedAt: new Date().toISOString(), appOrigin, workers: 1, fixtures: {}, database: {} },
     redact: (value) => value,
     build: async () => {
       const builds = path.join(checkout, ".e2e/army/recipes/builds/unit");
@@ -213,7 +229,10 @@ async function openSession(options: {
       buildCount += 1;
       options.afterBuild?.(buildCount, checkout);
     },
-    journeys: async (context) => { journeys.push(context.grep ?? context.files.join(",")); },
+    journeys: async (context) => {
+      journeys.push(context.grep ?? context.files.join(","));
+      await options.onJourneys?.(current);
+    },
     finalize: (context) => { fs.writeFileSync(path.join(context.evidence, "manifest.json"), JSON.stringify(context.manifest)); },
   });
   session.catch(() => { /* asserted by the caller */ });
@@ -221,7 +240,7 @@ async function openSession(options: {
   expect(current).toMatchObject({ status: "ready", socket: expect.any(String) });
   const results = async (grep: string) =>
     (await request(current.socket!, { action: "run", loopId: current.loopId, grep })).filter((message) => message.type === "result");
-  return { checkout, controller, session, journeys, results };
+  return { checkout, controller, session, journeys, results, state: () => current };
 }
 
 /** The current environment without any inherited backend, CI output or secret. */
@@ -513,9 +532,11 @@ describe("TesterArmy dev loop", () => {
     expect(fs.existsSync(foreign)).toBe(true);
   });
 
-  it("keeps an abandoned loop's state while its application port still listens", async () => {
-    // A SIGKILL during an iteration leaves the journey process and its
-    // `next start` running on the loop's application port (16).
+  it("keeps the state of a loop killed during its journeys while its application port still listens, and only then", async () => {
+    // A SIGKILL during an iteration's journeys leaves the journey process and
+    // its `next start` running on the loop's application port (16). Outside
+    // the journeys the loop owns no listener there: another process may use
+    // that port, and the loop is still closed (19).
     const application = net.createServer();
     await new Promise<void>((resolve) => application.listen(0, "127.0.0.1", resolve));
     const appPort = (application.address() as net.AddressInfo).port;
@@ -525,14 +546,27 @@ describe("TesterArmy dev loop", () => {
       projectId: "miaouffrage-ci-4242-abcd1234", ports: [await closedPort()],
       rootDirectory: path.join(os.tmpdir(), `miaouffrage-supabase-ci-gone-${process.pid}`),
     };
-    const state = loopState({ status: "running", expiresAt: null, supervisor: { pid: 4242 }, appOrigin: `http://localhost:${appPort}`, stack });
-    writeLoopState(statePath, state);
     const supabase = () => { throw new Error("no CLI call expected: the stack is already gone"); };
+    const killedDuringJourneys = loopState({
+      status: "running", expiresAt: null, supervisor: { pid: 4242 }, appOrigin: `http://localhost:${appPort}`, stack,
+      journeysStartedAt: new Date().toISOString(),
+    });
+    const idle = loopState({ supervisor: { pid: 4242 }, appOrigin: `http://localhost:${appPort}`, stack });
     try {
-      const kept = await cleanUpAbandonedLoop(statePath, state, { supabase, registry });
+      writeLoopState(statePath, killedDuringJourneys);
+      const kept = await cleanUpAbandonedLoop(statePath, killedDuringJourneys, { supabase, registry });
       expect(kept.proof).toMatchObject({ projectDirectoryRemoved: true, registryEntryRemoved: true, portsClosed: true, appPortClosed: false });
       expect(kept.errors.join("; ")).toMatch(new RegExp(`application port ${appPort} still listening`));
       expect(readLoopState(statePath)).toMatchObject({ status: "cleanup-failed", error: expect.stringMatching(/application port/) });
+
+      // The same unrelated listener next to an idle (or never iterated) loop.
+      const elsewhere = path.join(temporaryDirectory(), "state.json");
+      writeLoopState(elsewhere, idle);
+      const released = await cleanUpAbandonedLoop(elsewhere, idle, { supabase, registry });
+      expect(released.errors).toEqual([]);
+      expect(released.proof).toMatchObject({ portsClosed: true, appPortClosed: null, problems: [] });
+      expect(readLoopState(elsewhere)).toBeNull();
+      expect(await proveLoopClosed(idle, registry)).toMatchObject({ appPortClosed: null, problems: [] });
     } finally {
       await new Promise<void>((resolve) => application.close(() => resolve()));
     }
@@ -540,10 +574,45 @@ describe("TesterArmy dev loop", () => {
     expect(done.errors).toEqual([]);
     expect(done.proof).toMatchObject({ portsClosed: true, appPortClosed: true });
     expect(readLoopState(statePath)).toBeNull();
-    // An origin whose port cannot be read is never proven closed.
-    expect(await proveLoopClosed({ stack: undefined, appOrigin: "http://localhost" }, registry))
+    // During the journeys, an origin whose port cannot be read is never proven closed.
+    expect(await proveLoopClosed({ stack: undefined, appOrigin: "http://localhost", journeysStartedAt: new Date().toISOString() }, registry))
       .toMatchObject({ appPortClosed: false, problems: [expect.stringMatching(/application port/)] });
-  }, 40_000);
+    expect(await proveLoopClosed({ stack: undefined, appOrigin: "http://localhost" }, registry))
+      .toMatchObject({ appPortClosed: null, problems: [] });
+  }, 60_000);
+
+  it("refuses a busy application port before claiming the checkout, and keeps that cause (19)", async () => {
+    // claimLoopState digests the supervisor's own modules: the checkout holds
+    // copies of them. It has no supabase/ directory, so should the refusal
+    // regress, the run still stops at the stack-input digest, before any stack.
+    const checkout = temporaryDirectory();
+    for (const file of supervisorModules(root)) {
+      fs.mkdirSync(path.dirname(path.join(checkout, file)), { recursive: true });
+      fs.copyFileSync(path.join(root, file), path.join(checkout, file));
+    }
+    const holder = net.createServer();
+    let port = 0;
+    while (!port || [45585, 33485].includes(port)) {
+      if (port) await new Promise<void>((resolve) => holder.close(() => resolve()));
+      await new Promise<void>((resolve) => holder.listen(0, "127.0.0.1", resolve));
+      port = (holder.address() as net.AddressInfo).port;
+    }
+    try {
+      const result = runSupervisorEntry(checkout, ["dev-loop", "--app-port", String(port)]);
+      const output = `${result.stdout}${result.stderr}`;
+      const sessions = fs.readdirSync(path.join(checkout, ".e2e/army/ci")).filter((name) => name.endsWith("-dev-loop"));
+      const manifest = JSON.parse(fs.readFileSync(path.join(checkout, ".e2e/army/ci", sessions[0], "manifest.json"), "utf8")) as Record<string, unknown>;
+      expect({
+        status: result.status, sessions: sessions.length, stateWritten: fs.existsSync(path.join(checkout, DEV_LOOP_STATE_FILE)),
+        error: manifest.error, devLoopCleanup: manifest.devLoopCleanup,
+      }, output.slice(-800)).toEqual({
+        status: 1, sessions: 1, stateWritten: false,
+        error: expect.stringMatching(new RegExp(`Local application port ${port} is unavailable`)), devLoopCleanup: undefined,
+      });
+    } finally {
+      await new Promise<void>((resolve) => holder.close(() => resolve()));
+    }
+  }, 120_000);
 
   it("treats an unreadable, malformed or unpermitted registry entry as unproven cleanup", async () => {
     // Such an entry may be this loop's stack: skipping it would report the
@@ -603,6 +672,12 @@ describe("TesterArmy dev loop", () => {
         kind: "foreign-checkout", reason: expect.stringContaining(checkout),
       });
     }
+    expect(inspectLoopState(loopState({ checkout: original }), copy, now))
+      .toMatchObject({ reason: expect.stringMatching(/copied or restored from another checkout/) });
+    // A checkout moved or renamed with its .e2e/ is no copy: its stack may still exist (20).
+    const moved = inspectLoopState(loopState({ checkout: path.join(original, "missing") }), copy, now);
+    expect(moved).toMatchObject({ kind: "foreign-checkout", reason: expect.stringMatching(/no longer exists \(moved or renamed\?\)/) });
+    expect(moved.kind === "foreign-checkout" && moved.reason).not.toMatch(/copied or restored|is a copy/);
     expect(inspectLoopState(null, copy, now)).toEqual({ kind: "absent" });
     if (process.platform !== "win32") {
       // The same checkout spelled through a symbolic link is this checkout:
@@ -656,6 +731,19 @@ describe("TesterArmy dev loop", () => {
         run: { code: 1, refused: true }, start: { code: 1, refused: true }, status: "foreign-checkout", stop: { code: 1, refused: true },
         requestsReceived: 0, supervisor: "owned", socketDirectoryKept: true, stateUnchanged: true,
       });
+
+      // A recorded checkout that no longer exists (moved or renamed) is refused
+      // too, with the recovery of its stack instead of the removal of a copy (20).
+      writeLoopState(statePath, loopState({
+        checkout: path.join(original, "moved-away"), supervisor: { pid: supervisor.pid! }, socket: socketPath, stack: undefined,
+      }));
+      const movedBefore = fs.readFileSync(statePath, "utf8");
+      const moved = await runDevLoopCli(copy, ["stop"]);
+      expect({
+        code: moved.code, noLongerExists: /no longer exists \(moved or renamed\?\)/.test(moved.output),
+        nothingDone: /Nothing was signalled, stopped or removed/.test(moved.output), copyAdvice: /is a copy/.test(moved.output),
+        stateUnchanged: fs.readFileSync(statePath, "utf8") === movedBefore, supervisor: probeSupervisor(supervisor.pid!, original),
+      }, moved.output.slice(-400)).toEqual({ code: 1, noLongerExists: true, nothingDone: true, copyAdvice: false, stateUnchanged: true, supervisor: "owned" });
     } finally {
       supervisor.kill("SIGKILL");
       await waitForExit(supervisor);
@@ -756,7 +844,9 @@ describe("TesterArmy dev loop", () => {
     }, 30_000);
 
     it("rechecks migrations and config.toml after a rebuild, immediately before the journeys", async () => {
-      // The stub's empty inputs make the iteration rebuild; a migration lands as it returns (15).
+      // The stub's empty inputs make the iteration rebuild; a new migration
+      // lands as it returns. build-local.mjs would not see that untracked file
+      // either (supabase/ is outside its scopes): only the recheck refuses it (15).
       const loop = await openSession({
         afterBuild: (count, checkout) => {
           if (count === 2) fs.writeFileSync(path.join(checkout, "supabase/migrations/002_during_build.sql"), "create table b ();\n");
@@ -796,6 +886,46 @@ describe("TesterArmy dev loop", () => {
       } finally {
         loop.controller.abort("SIGTERM");
         await within(loop.session, 5_000, "the session returns after SIGTERM");
+      }
+    }, 90_000);
+
+    it("records in the state that its journeys run, and clears it only once the application port is closed again", async () => {
+      // A supervisor killed meanwhile leaves the mark for `stop`, which then
+      // proves the application port closed too; outside it, the port is not
+      // the loop's (16, 19).
+      const seen: Array<string | undefined> = [];
+      const registry = temporaryDirectory("army-dev-loop-registry-");
+      let leftOpen: net.Server | undefined;
+      const loop = await openSession({
+        buildInputs: (await buildSourceEvidence()).inputs,
+        onJourneys: async (current) => {
+          seen.push(current.journeysStartedAt);
+          if (seen.length === 2) {
+            // The second iteration's `next start` outlives its journeys.
+            leftOpen = net.createServer();
+            const port = Number(new URL(current.appOrigin).port);
+            await new Promise<void>((resolve) => leftOpen!.listen(port, "127.0.0.1", resolve));
+          }
+        },
+      });
+      try {
+        expect(loop.state().journeysStartedAt).toBeUndefined();
+        const [first] = await loop.results("HUB03");
+        expect(first).toMatchObject({ status: "passed" });
+        expect(seen[0]).toEqual(expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/));
+        expect(loop.state().journeysStartedAt).toBeUndefined();
+        expect(await proveLoopClosed({ ...loop.state(), stack: undefined }, registry)).toMatchObject({ appPortClosed: null });
+
+        const [second] = await loop.results("HUB03");
+        expect(second).toMatchObject({ status: "passed" });
+        expect(JSON.parse(fs.readFileSync(path.join(loop.checkout, String(second.evidence)), "utf8")))
+          .toMatchObject({ appPortAfterJourneys: expect.stringMatching(/still listening/) });
+        expect(loop.state().journeysStartedAt).toEqual(expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/));
+        expect(await proveLoopClosed({ ...loop.state(), stack: undefined }, registry)).toMatchObject({ appPortClosed: false });
+      } finally {
+        loop.controller.abort("SIGTERM");
+        await within(loop.session, 5_000, "the session returns after SIGTERM");
+        if (leftOpen) await new Promise<void>((resolve) => leftOpen!.close(() => resolve()));
       }
     }, 90_000);
   });

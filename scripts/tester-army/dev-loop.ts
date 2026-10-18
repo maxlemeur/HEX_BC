@@ -7,12 +7,12 @@ import { fileURLToPath } from "node:url";
 
 import { runSupabaseCli } from "../../src/test/supabase-cli";
 import {
-  applicationSourceDigest, assertJourneySelection, decideRebuild, DEV_LOOP_ITERATION_SCOPE, DEV_LOOP_SOCKET_PREFIX,
-  DEV_LOOP_STATE_FILE, DEV_LOOP_SUPERVISOR_ENTRY, type DevLoopCommand, findRegisteredStack, foreignCheckoutReason,
-  inspectLoopState, type LoopBuild, type LoopState, type LoopStateStore, markIterationArchive, ownsRecordedProject,
-  ownsRegisteredStack, parseDevLoopArguments, probeSupervisor, proveLoopClosed, readBuildId, readBuildManifest,
-  readLoopState, removeOwnedTemporaryDirectory, sha256, stackInputsDigest, SUPABASE_PROJECT_PREFIX,
-  SUPABASE_STACK_REGISTRY, supervisorModulesDigest, writeLoopState,
+  appPortClosedOnLoopbacks, applicationSourceDigest, assertJourneySelection, decideRebuild, DEV_LOOP_ITERATION_SCOPE,
+  DEV_LOOP_SOCKET_PREFIX, DEV_LOOP_STATE_FILE, DEV_LOOP_SUPERVISOR_ENTRY, type DevLoopCommand, findRegisteredStack,
+  foreignCheckoutReason, inspectLoopState, type LoopBuild, loopAppPort, type LoopState, type LoopStateStore,
+  markIterationArchive, ownsRecordedProject, ownsRegisteredStack, parseDevLoopArguments, probeSupervisor,
+  proveLoopClosed, readBuildId, readBuildManifest, readLoopState, removeOwnedTemporaryDirectory, sha256,
+  stackInputsDigest, SUPABASE_PROJECT_PREFIX, SUPABASE_STACK_REGISTRY, supervisorModulesDigest, writeLoopState,
 } from "./dev-loop-state";
 import { buildSourceEvidence } from "./local-recipe-common.mjs";
 
@@ -207,10 +207,24 @@ export async function runDevLoopSession(input: DevLoopSessionInput) {
       retainBuildManifest(input.root, build, evidence);
       await assertStartInputs();
       notify(`Iteration ${index}: running the selected critical journeys (${selection.grep ? `--grep ${selection.grep}` : `--files ${selection.files.join(",")}`}).`);
+      // Persisted before the journeys bind the application port: a supervisor
+      // killed meanwhile leaves it, and `stop` then proves that port closed too.
+      input.store.update({ journeysStartedAt: new Date().toISOString() });
       const journeysStarted = Date.now();
       let journeyError: unknown;
       try { await input.journeys(context); } catch (error) { journeyError = error; }
       timings.journeysSeconds = secondsSince(journeysStarted);
+      // Cleared only once the port is closed again; a failed write keeps the mark.
+      const appPort = loopAppPort(input.store.current.appOrigin);
+      if (appPort !== null && await appPortClosedOnLoopbacks(appPort)) {
+        try { input.store.update({ journeysStartedAt: undefined }); }
+        catch (error) {
+          console.error(`Dev loop: could not clear its journeys mark (${input.redact(error instanceof Error ? error.message : String(error))}); stop then proves the application port closed.`);
+        }
+      } else {
+        manifest.appPortAfterJourneys = appPort === null ? "unreadable" : `${appPort} still listening`;
+        notify(`Iteration ${index}: application port ${appPort === null ? "unreadable" : `${appPort} still listening`} after the journeys; the journeys mark stays, so stop proves that port closed.`);
+      }
       // The SDK archive of this run sits next to qualifying ones: mark it.
       try {
         manifest.sdkArchiveMarker = markIterationArchive(input.root, {
@@ -440,7 +454,7 @@ async function main() {
     console.log(JSON.stringify({ classification, state }, null, 2));
     return 0;
   }
-  const refuseForeign = (reason: string) => new Error(`${DEV_LOOP_STATE_FILE}: ${reason}. Nothing was signalled, stopped or removed: manage that loop from its own checkout, and remove this file by hand once you have checked it is a copy.`);
+  const refuseForeign = (reason: string) => new Error(`${DEV_LOOP_STATE_FILE}: ${reason}. Nothing was signalled, stopped or removed.`);
   if (classification.kind === "foreign-checkout") throw refuseForeign(classification.reason);
 
   if (command.action === "start") {
