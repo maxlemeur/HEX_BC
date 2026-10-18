@@ -231,7 +231,7 @@ async function previewCounts(ui: Ui) {
   const text = normalized(await preview.textContent());
   const ready = /(\d+) lignes? prêtes?/u.exec(text);
   const refused = /(\d+) refusées?/u.exec(text);
-  const controls = /Contrôle .Prix unitaire de vente. : (\d+) lignes? vérifiées?, (\d+) écarts?/u.exec(text);
+  const controls = /Contrôle « ?Prix unitaire de vente ?» : (\d+) lignes? vérifiées?, (\d+) écarts?/u.exec(text);
   return { shown: true, ready: ready ? Number(ready[1]) : null, refused: refused ? Number(refused[1]) : 0,
     controls: controls ? { checked: Number(controls[1]), gaps: Number(controls[2]) } : null, text };
 }
