@@ -30,7 +30,8 @@ export function assertOwnedLocalBackend() {
 }
 
 export async function createdData<T>(response: { status: number; body: Envelope<T> }) {
-  expect([200, 201]).toContain(response.status);
+  // A refusal names its code (409 alone: LOCK_REQUIRED, CONFLICT, CONTEXT_CHANGED…).
+  expect([200, 201], `HTTP ${response.status} ${response.body.error?.code ?? "without error code"}`).toContain(response.status);
   expect(response.body.ok).toBe(true);
   return response.body.data;
 }

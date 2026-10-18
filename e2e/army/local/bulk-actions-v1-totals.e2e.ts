@@ -76,9 +76,15 @@ async function expectSeededLine({ browser }: Ui, army: ArmyState, seeded: Seeded
   return lineOf;
 }
 
+// The grid renders before the editor holds its draft lease. Until then the editor is read-only
+// and its sync status reads « Connexion… » (« Verrouillé » while an unloaded page still holds
+// it); the user can write only once it reads « À jour ». The API writes of these journeys share
+// that lease (apiRequest sends the page's lock session), so they wait for the same state.
 async function openEditor({ app, screen }: Ui, versionId: string) {
   await app.open(`/dashboard/estimates/${versionId}/edit`);
   await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible();
+  await expect(screen.getByTestId("estimate-page-toolbar-autosave-status"))
+    .toHaveText(/^(À jour|Sauvegardé)$/, { timeout: 30_000 });
 }
 
 // The bulk bar of the selected line, as in bulk-edit-sync (D1).
@@ -230,8 +236,9 @@ armyTest("V1BT03 suggestions on a legacy V1 draft store their totals and a margi
     const initialMode = await setUiMode(owner.userId, "expert");
     let ruleId: string | null = null;
     try {
-      // Rule writes require the editor's draft lock: the rule is created with the editor open. The
-      // exact title as keyword keeps this tenant-wide rule away from other ARMY lines.
+      // Rule writes require the editor's draft lease: the rule is created once the open editor
+      // holds it (openEditor). The exact title as keyword keeps this tenant-wide rule away from
+      // other ARMY lines.
       await openEditor(ui, draft.versionId);
       const created = await createdData(await apiRequest<Envelope<Record<string, { id: string }>>>(
         browser, "POST", `/api/estimates/${draft.versionId}/suggestion-rules`,
@@ -273,11 +280,11 @@ armyTest("V1BT03 suggestions on a legacy V1 draft store their totals and a margi
       });
     } finally {
       if (ruleId) {
-        // Rule writes require the editor's draft lock: retry until the reopened editor holds it.
+        // Once, with the lease of the reopened editor (openEditor).
         await openEditor(ui, draft.versionId);
-        await expect.poll(async () => (await apiRequest(browser, "PATCH",
-          `/api/estimates/${draft.versionId}/suggestion-rules/${ruleId}`, { is_active: false })).status,
-        { timeout: 30_000, interval: 1_000 }).toBe(200);
+        const deactivated = await apiRequest<Envelope<unknown>>(browser, "PATCH",
+          `/api/estimates/${draft.versionId}/suggestion-rules/${ruleId}`, { is_active: false });
+        expect(deactivated.status, deactivated.body.error?.code ?? "without error code").toBe(200);
       }
       const restoredFrom = await setUiMode(owner.userId, initialMode);
       await recordEvidence(army, "v1-suggestions-restored", { initialMode, restoredFrom, ruleDeactivated: ruleId });
