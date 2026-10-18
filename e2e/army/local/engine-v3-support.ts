@@ -11,7 +11,7 @@ import { localSqlTransport } from "../takeoff/generated-prerequisites";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const literal = (value: unknown) => `'${JSON.stringify(value).replaceAll("'", "''")}'::jsonb`;
 
-async function querySql(sql: string) {
+export async function querySql(sql: string) {
   const transport = localSqlTransport();
   return new Promise<string[]>((resolve, reject) => {
     const child = spawn(transport.executable, transport.args, { env: transport.environment, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
