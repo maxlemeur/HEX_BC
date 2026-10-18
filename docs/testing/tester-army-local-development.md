@@ -148,8 +148,10 @@ npm run e2e:army:dev-loop -- stop
 superviseur passe par la même préparation que `critical` : refus d'un `.env` ou
 d'une cible Supabase héritée, pile native possédée et jetable, ports Supabase
 alloués hors de la plage éphémère et des ports interdits au navigateur.
-`--app-port` refuse en plus `45585` et `33485`, ports de la pile de recette
-locale des développeurs (API et base). Il exécute une seule fois migrations,
+`--app-port` refuse en plus `45585` et `33485` (y compris écrits `045585`),
+ports de la pile de recette locale des développeurs (API et base) : le client
+`start` comme le superviseur lui-même (`e2e:army:ci -- dev-loop`) les refusent
+avant toute étape. Il exécute une seule fois migrations,
 pgTAP et matrice RLS, crée le compte, le tenant et les fixtures ARMY, puis
 construit l'application en production avec `build-local.mjs`. Pour chaque `run`, il exécute les parcours
 critical sélectionnés sur cette pile et ce build, avec tous les contrôles de
@@ -170,7 +172,14 @@ lue dans son propre manifeste, ou si `.e2e/army/next/BUILD_ID` a disparu ou
 changé, par exemple après un autre build dans ce checkout. Une modification
 limitée à `e2e/**` ne reconstruit pas. Une modification de
 `supabase/migrations` ou de `supabase/config.toml` depuis le démarrage fait
-échouer le `run` : arrêter puis redémarrer la boucle.
+échouer le `run` : arrêter puis redémarrer la boucle. Il en va de même pour les
+modules du superviseur : `scripts/run-tester-army-ci.ts` et ses imports locaux,
+transitivement, hors imports de type (`scripts/tester-army/dev-loop*.ts`,
+`local-recipe-common.mjs`, `local-development.ts`, `src/test/local-supabase-ci.ts`,
+etc.). Le superviseur les a chargés au démarrage et leurs contrôles sont ceux de
+ce moment : leur empreinte est relevée dans l'état et chaque `run` la compare
+avant tout build ou parcours. Durcir un garde Army se vérifie donc après un
+redémarrage de la boucle.
 
 Vérification de types : le build Army type-checke `.e2e/army/tsconfig.json`,
 qui n'inclut que `src/**`, `next-env.d.ts` et les types générés par Next. Les
@@ -199,21 +208,40 @@ socket `0600`). Un seul superviseur par checkout : l'état est créé en exclusi
 
 Arrêt, expiration et état abandonné :
 
+- une pile n'est tenue pour détruite que si trois conditions sont réunies : son
+  répertoire de travail a disparu, son entrée du registre natif
+  (`~/.supabase/stacks/<id>/`, qui garde `data/` et `state.json` jusqu'au
+  `stack destroy`) a disparu, et ses huit ports sont fermés. Le superviseur
+  comme `stop` appliquent cette preuve avant de retirer l'état ; sinon l'état
+  passe en `cleanup-failed` avec la cause. `runLocalSupabaseCi` supprime le
+  répertoire même quand `stack destroy` échoue : seule l'entrée du registre
+  révèle alors la pile restante ;
 - `stop` vérifie que le pid enregistré est bien ce superviseur (ligne de
   commande et répertoire courant, pas un pid recyclé), lui envoie `SIGTERM` et
   attend sa fin. Le superviseur interrompt le run en cours, sort de
   `runLocalSupabaseCi`, qui exécute `stop` puis `stack destroy` et supprime le
-  répertoire du projet, puis il retire son état. `stop` vérifie ensuite le
-  répertoire supprimé, les huit ports fermés et l'état retiré, sinon il échoue ;
+  répertoire du projet, puis il retire son état. `stop` refait ensuite la
+  preuve ci-dessus et vérifie l'état retiré, sinon il échoue ;
 - sans `run` pendant le TTL (60 min par défaut, de 5 à 720), le superviseur
-  s'arrête seul, avec le même nettoyage ;
-- si le superviseur est mort (`kill -9`, redémarrage WSL) ou si son pid a été
-  recyclé, `start` et `run` refusent l'état abandonné. `stop` détruit alors
-  lui-même la pile enregistrée (`stop`, `stack destroy`, suppression du
-  répertoire temporaire possédé), seulement si son `config.toml` porte le
-  `project_id` enregistré, qui nomme ce superviseur. Il retire la socket, vérifie les ports et ne
-  supprime l'état qu'après succès ; sinon l'état passe en `cleanup-failed` avec
-  la cause.
+  s'arrête seul, avec le même nettoyage. Le TTL est réarmé avant toute écriture
+  de l'état : un échec d'écriture (disque plein, droits) ne bloque ni
+  l'expiration ni `stop`, et chaque `run` reçoit un seul résultat ;
+- si le superviseur est mort (`kill -9`) ou si son pid a été recyclé, `start`
+  et `run` refusent l'état abandonné. `stop` détruit alors lui-même la pile
+  enregistrée (`stop`, `stack destroy`, suppression du répertoire temporaire
+  possédé), seulement si son `config.toml` porte le `project_id` enregistré,
+  qui nomme ce superviseur ;
+- si le répertoire de travail a aussi disparu (un redémarrage WSL vide `/tmp`),
+  `stop` retrouve la pile dans le registre natif : `identity.projectRoot` est
+  égal au répertoire enregistré et le port `api` déclaré fait partie des ports
+  enregistrés. Seules ces deux valeurs sont lues, jamais les `credentials` de
+  l'entrée. La CLI 2.120 refuse un `--workdir` absent : `stop` recrée donc le
+  répertoire temporaire possédé, vide hormis un `supabase/config.toml` qui porte
+  le `project_id` enregistré et `[experimental] stack = true`, comme la reprise
+  manuelle du 16/10. Il exécute ensuite `stop` et `stack destroy`, puis
+  supprime ce répertoire. Une entrée dont le port `api` n'a pas été alloué par
+  la boucle est refusée. Dans tous les cas, `stop` retire la socket et refait
+  la preuve de destruction avant de supprimer l'état.
 
 Preuves : la session écrit `.e2e/army/ci/<horodatage>-dev-loop/manifest.json`
 (`scope: "dev-loop session (reused stack, not a qualification run)"`,
@@ -225,16 +253,23 @@ diff et l'empreinte applicative, la décision de build et sa raison, les
 identités de fixtures, la provenance de la base, les durées, les phases et le
 rapport, ainsi que l'inventaire des fichiers après contrôle de
 confidentialité. Un superviseur tué n'écrit pas le manifeste final de sa
-session.
+session. Le run SDK d'une itération archive aussi, comme tout run critical, sa
+copie brute sous `.e2e/army/critical/runs/<horodatage>/`, à côté des archives
+qualifiantes. La boucle y dépose `dev-loop-iteration.json` (`scope` de
+l'itération, `qualification: false`, boucle, numéro et manifeste de
+l'itération) et en enregistre le chemin dans `sdkArchiveMarker` du manifeste
+d'itération : une archive qui porte ce fichier n'est jamais une preuve.
 
 Limites : les itérations partagent le compte et le tenant, et les données
 s'accumulent (chaque parcours garde son préfixe `ARMY-…` unique). Un parcours
 qui suppose un tenant vierge demande donc un run neuf. pgTAP et la matrice RLS ne
 tournent qu'au démarrage ; une modification de `supabase/tests` n'est pas
-rejouée. Ne pas lancer `e2e:army:local`, `e2e:army:ci` ni `e2e:army:calc-v3`
-dans le même checkout pendant qu'une boucle est ouverte : ils partagent
-`.e2e/army/next` et `.e2e/army/critical`. La boucle détecterait le build
-remplacé, mais le run qualifiant serait perturbé : arrêter la boucle d'abord.
+rejouée. Tant qu'un état de boucle existe dans le checkout, même abandonné,
+`e2e:army:local`, `e2e:army:ci` et `e2e:army:calc-v3` refusent de démarrer :
+ils partagent `.e2e/army/next` et `.e2e/army/critical` avec elle. Il faut
+arrêter la boucle d'abord. Les commandes SDK directes (`e2e:army:critical`,
+`e2e:army:full`, etc.) et un run qualifiant déjà en cours au moment du `start`
+ne sont pas détectés : ne pas les mêler à une boucle ouverte.
 Windows n'est pas pris en charge (WSL, comme le runtime natif). La boucle
 occupe une pile native tant qu'elle est ouverte et compte donc dans la limite
 de piles simultanées : l'arrêter dès la fin de la mise au point.
@@ -267,6 +302,25 @@ ou à côté d'une pile orpheline.
    premier cycle WSL, avec son propre RED.
 8. La ligne de commande accepte une sélection ambiguë ou absente, un motif
    invalide, une option répétée, un TTL hors bornes ou un port interdit.
+
+La revue indépendante du 18/10 a ajouté cinq échecs, écrits dans le même
+en-tête avec leur RED avant le correctif :
+
+9. Le répertoire de travail d'un superviseur mort a disparu alors que son
+   entrée du registre natif et ses données restent : `stop` annonce la pile
+   détruite et efface le seul lien vers elle, ou le superviseur retire son état
+   malgré l'échec de `stack destroy`.
+10. Un échec d'écriture de l'état pendant un `run` laisse le superviseur
+    occupé pour toujours, désarme le TTL ou remplace le résultat de
+    l'itération.
+11. L'archive SDK brute d'une itération passe pour un run critical qualifiant,
+    ou un run qualifiant démarre dans un checkout dont la boucle partage la
+    sortie `.e2e/army`.
+12. Le superviseur lancé par `e2e:army:ci -- dev-loop` accepte un port de la
+    pile partagée, que seul le client `start` refusait.
+13. Les modules du superviseur changent sous une boucle ouverte : l'itération
+    enregistre alors le checkout courant, mais applique les contrôles chargés
+    au démarrage.
 
 `src/test/local-supabase-ci.test.ts` vérifie en plus le nouveau rappel
 `onProjectPrepared` : identité et ports du projet isolé transmis avant le
@@ -328,9 +382,49 @@ Windows 55 réussis, 1 sauté (le test du superviseur lit `/proc` ou `ps`) ; WSL
 manifestes de session et d'itération, `timings.txt` et `SHA256SUMS` :
 `.codex-tmp/e2e-dev-loop-20261018/` du worktree `miaouffrage-e2e-loop`.
 
-Non exécutés : macOS ; un `stop` pendant le démarrage, qui n'a été testé
-qu'après « ready » ; l'état `cleanup-failed` de bout en bout, dont seul le refus
-d'un projet étranger est couvert, par test d'isolation.
+#### Correctifs après revue (18/10/2026)
+
+Tests d'isolation écrits d'abord contre des exports bouchons qui gardent le
+comportement antérieur : RED sous Windows, 5 échecs, 6 réussis, 4 sautés (les
+tests de session ouvrent une socket Unix) ; RED sous WSL, 8 échecs, 7 réussis.
+Chacun échoue pour sa raison : registre ignoré, aucun marqueur, aucune
+empreinte de modules, refus absents, superviseur bloqué après un échec
+d'écriture, double résultat, itération passée malgré un module modifié. Puis
+GREEN : Windows 11 réussis et 4 sautés, WSL 15/15. Le cas « répertoire
+recréé pour la CLI » a été ajouté après le run natif ci-dessous, avec son
+propre RED (`destroy failed`) avant le correctif. Les tests de lancement du
+superviseur s'exécutent dans un checkout temporaire contenant un `.env` :
+si un refus régressait, le run s'arrêterait encore au contrôle `.env`, avant
+tout port, état ou pile.
+
+Runs natifs dans le clone WSL, port applicatif 3187, sélection `--grep HUB03`.
+Le cycle principal tourne sur `d21e50f9` ; la reprise après échec, le
+redémarrage simulé et le `kill -9` tournent sur `4e5e4927`.
+
+| Étape | Durée murale | Résultat |
+| --- | --- | --- |
+| `start` (cache webpack chaud) | 68,3 s | prêt |
+| `run --grep HUB03` | 5,4 s | 2/2, sans build ; `dev-loop-iteration.json` déposé dans `.e2e/army/critical/runs/2026-10-18T01-57-30-189Z/` |
+| `e2e:army:local -- --grep HUB03 --app-port 3188`, boucle ouverte | < 1 s | code 1 : « A dev loop is open in this checkout », aucune pile démarrée |
+| `e2e:army:ci -- dev-loop --app-port 45585` | < 1 s | code 1 dès la lecture des options, avant toute preuve ou tout état |
+| commentaire ajouté à `scripts/tester-army/dev-loop-state.ts` | < 1 s | itération 2 en échec avant build et parcours : modules du superviseur modifiés |
+| fichier restauré, `run --grep HUB03` | 5,2 s | 2/2, sans build |
+| `stop` | 2,2 s | répertoire, entrée du registre, ports et état retirés |
+| redémarrage simulé (`kill -9`, `supabase stop --workdir`, suppression du répertoire), `stop` sur `d21e50f9` | 0,7 s | code 1 : la CLI refuse le `--workdir` absent, l'état reste en `cleanup-failed`, l'entrée et ses données restent |
+| même état, `stop` sur `4e5e4927` | 1,1 s | code 0 : répertoire recréé, pile détruite, entrée du registre retirée, état retiré |
+| redémarrage simulé de bout en bout sur `4e5e4927` | 69,3 s + 1,1 s | `start`, puis un seul `stop` : code 0, plus d'entrée, aucun port ouvert |
+| `kill -9` avec répertoire présent sur `4e5e4927` | 66,3 s + 1,8 s | 6 ports ouverts avant ; `stop` code 0, tout est retiré |
+
+Les quatre manifestes de session et leurs itérations enregistrent
+`qualification: false` et `privacy: passed` ; `devLoopCleanup` porte
+`registryEntryRemoved: true`. Journaux, états, manifestes, scripts et
+`SHA256SUMS` : `.codex-tmp/e2e-dev-loop-20261018/ship-prep/` du worktree
+`miaouffrage-e2e-loop`.
+
+Non exécutés : macOS ; un vrai redémarrage WSL, simulé par l'arrêt des
+services et la suppression du répertoire ; un `stop` pendant le démarrage,
+testé seulement après « ready » ; un échec réel d'écriture de l'état dans le
+superviseur, couvert seulement par test d'isolation.
 
 ### Build de production et limite de heap
 
