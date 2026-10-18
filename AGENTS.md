@@ -38,10 +38,12 @@ Use current code, `package.json`, configuration, migrations, and focused documen
 - Before implementing a change, define its observable failures and the E2E scenarios that expose them. Isolation is an exception: document the concrete failure that existing E2E assertions miss and why an E2E scenario cannot adequately reproduce it, then write the isolated regression before the implementation.
 - Keep isolation tests only when they detect a real uncovered failure, such as an authorization bypass, race, recovery failure, parser edge case, or data-integrity error. Do not add tests for trivial getters, static source text, mocked forwarding, or behavior already asserted by E2E.
 - E2E artifacts must record the command, source revision and local changes, environment, fixture identities, expected and actual results, and report or evidence paths sufficient to repeat and verify the run. Never include credentials or session tokens. A skipped test or failed setup is missing proof, not a pass.
+- Red tests read the real inputs the feature consumes (repository workbooks and files, clipboard text as Excel or the grid copies it) before synthetic cases. For operations on large estimates (about 1 000 items), measure the realistic volume locally and keep it far below the API roles' 8 s `statement_timeout`: CI runners are several times slower than a developer machine.
 
 ## Review and validation scope
 
 - Before implementation, name the intended behavior, affected journey and concrete failure to prevent. Batch related fixes into one coherent PR. Keep the Testing Policy above, including its isolated-test exceptions.
+- Split a lot by dependency: a part that needs unmerged work goes into its own follow-up PR, so that a finished, independent part is published without waiting for it. Push when a change is ready for CI; each push starts every PR workflow.
 - Review substantial changes with an independent, read-only reviewer on a stable diff. Give it the intent, applicable contracts, immediate consumers and current validation evidence; do not rely only on the author's summary. These rules apply to every agent's local review.
 - Scale the review to effects: documentation needs consistency and diff checks; an ordinary feature needs its affected journey; calculation versions/rounding, authorization/RLS, persistence, migrations, exports and validation/publication tooling need the relevant specialist checks. Existing validation and publication requirements still apply.
 - Report actionable defects with a trigger, impact, file/line and evidence or a reproducer. Group instances of the same defect. Separate pre-existing issues and optional polish; do not expand a lot to fix unrelated findings or repeat a resolved finding without new evidence.
@@ -107,6 +109,8 @@ When routes or schemas change, update the OpenAPI generator, regenerate `openapi
 ## Supabase Changes
 
 Create a new timestamped migration; never rewrite a migration that may have run. Inspect schema, migration history, RLS, and server authorization first; document failure modes and define the relevant E2E/RLS regressions before implementation, using isolation only for a documented E2E gap; validate locally or in isolated PostgreSQL/Supabase; run relevant app and RLS tests; document limitations. Apply to shared or remote Supabase only when explicitly authorized. `supabase/schema.sql` is a non-executable comment pointer, not a dump; schema truth is `supabase/migrations/`. Do not publish a migration count or latest filename as a frozen contract.
+
+Parallel PRs that add migrations merge in timestamp order: the migration Git guard refuses an added migration that is not newer than the newest on the base branch. Agree the merge order when opening such PRs, or re-stamp the unpublished migration before merging; never rename a migration that may have run.
 
 Do not assume `supabase db reset` works: verify the CLI and baseline because legacy `001_add_job_title_to_profiles.sql` ordering has blocked canonical resets. If full local execution is unavailable, focused SQL regression or an isolated fixture is acceptable only with the limitation stated.
 
