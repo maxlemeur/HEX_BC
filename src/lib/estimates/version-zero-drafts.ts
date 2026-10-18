@@ -16,6 +16,7 @@ import {
 } from "@/lib/estimates/errors";
 import { getAuthenticatedTenantContext as getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
+import { selectInChunks } from "@/lib/supabase/in-chunks";
 import { assertDraftLockOwnedByCurrentUser } from "@/lib/estimates/server-context";
 import {
   assignVersionZeroLotKeys,
@@ -1867,11 +1868,13 @@ export async function enrichEstimateItemsWithVersionZeroProvenance(input: {
   }
 
   const itemIds = targetItems.map((item) => item.id);
-  const { data: applicationsData, error } = await input.supabase
-    .from("estimate_version_zero_applications")
-    .select("*")
-    .eq("tenant_id", input.tenantId)
-    .in("estimate_item_id", itemIds);
+  const { data: applicationsData, error } = await selectInChunks(itemIds, (chunk) =>
+    input.supabase
+      .from("estimate_version_zero_applications")
+      .select("*")
+      .eq("tenant_id", input.tenantId)
+      .in("estimate_item_id", chunk)
+  );
 
   if (error) {
     throw mapSupabaseError(
@@ -1893,26 +1896,20 @@ export async function enrichEstimateItemsWithVersionZeroProvenance(input: {
         "id",
         Array.from(new Set(applications.map((application) => application.draft_id)))
       ),
-    input.supabase
-      .from("estimate_version_zero_lots")
-      .select("*")
-      .in(
-        "id",
-        Array.from(
-          new Set(
-            applications
-              .map((application) => application.lot_id)
-              .filter((value): value is string => typeof value === "string")
-          )
+    selectInChunks(
+      Array.from(
+        new Set(
+          applications
+            .map((application) => application.lot_id)
+            .filter((value): value is string => typeof value === "string")
         )
       ),
-    input.supabase
-      .from("estimate_version_zero_lines")
-      .select("*")
-      .in(
-        "id",
-        Array.from(new Set(applications.map((application) => application.line_id)))
-      ),
+      (chunk) => input.supabase.from("estimate_version_zero_lots").select("*").in("id", chunk)
+    ),
+    selectInChunks(
+      Array.from(new Set(applications.map((application) => application.line_id))),
+      (chunk) => input.supabase.from("estimate_version_zero_lines").select("*").in("id", chunk)
+    ),
   ]);
 
   if (draftsResponse.error) {

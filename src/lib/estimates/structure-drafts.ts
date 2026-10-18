@@ -9,6 +9,7 @@ import {
   type ValidImportFlowLine,
 } from "@/lib/affaires/import-flow";
 import { fetchMappedRowsForImport } from "@/lib/affaires/import-flow-server";
+import { selectInChunks } from "@/lib/supabase/in-chunks";
 import {
   normalizeAffaireIntakeExtractedMetadata,
   resolveAffairePreliminaryStructureCapability,
@@ -3095,13 +3096,15 @@ export async function enrichEstimateItemsWithAiStructureProvenance(input: {
     return input.items;
   }
 
-  const { data: applicationData, error: applicationError } = await input.supabase
-    .from("estimate_structure_draft_applications")
-    .select(
-      "draft_id, draft_node_id, estimate_item_id, applied_action, created_at"
-    )
-    .eq("tenant_id", input.tenantId)
-    .in("estimate_item_id", itemIds);
+  const { data: applicationData, error: applicationError } = await selectInChunks(itemIds, (chunk) =>
+    input.supabase
+      .from("estimate_structure_draft_applications")
+      .select(
+        "draft_id, draft_node_id, estimate_item_id, applied_action, created_at"
+      )
+      .eq("tenant_id", input.tenantId)
+      .in("estimate_item_id", chunk)
+  );
 
   if (applicationError || !applicationData || applicationData.length === 0) {
     return input.items;
@@ -3113,11 +3116,13 @@ export async function enrichEstimateItemsWithAiStructureProvenance(input: {
   const draftIds = Array.from(new Set(applicationData.map((row) => row.draft_id)));
 
   const [draftNodeResult, draftResult] = await Promise.all([
-    input.supabase
-      .from("estimate_structure_draft_nodes")
-      .select("*")
-      .eq("tenant_id", input.tenantId)
-      .in("id", draftNodeIds),
+    selectInChunks(draftNodeIds, (chunk) =>
+      input.supabase
+        .from("estimate_structure_draft_nodes")
+        .select("*")
+        .eq("tenant_id", input.tenantId)
+        .in("id", chunk)
+    ),
     input.supabase
       .from("estimate_structure_drafts")
       .select("id, created_at, generation_metadata")
