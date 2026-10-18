@@ -159,10 +159,11 @@ export function PricesManager({
     productOptions,
     isSupplierLoading,
     isProductLoading,
-    isImportLookupsLoading,
+    importLookupsStatus,
     searchSuppliers,
     searchProducts,
     reloadLookups,
+    retryImportLookups,
   } = usePriceLookups({
     formOpen: (isFormOpen && editingItem === null) || (!isFormOpen && Boolean(productId)),
     importOpen: isCsvOpen,
@@ -320,12 +321,13 @@ export function PricesManager({
 
         {isCsvOpen ? (
           <div id="price-csv-import-panel" className="border-t border-border">
-            {/* Stays mounted while lookups (re)load: unmounting would drop the chosen file and the import in progress. */}
+            {/* Stays mounted while lookups (re)load or fail: unmounting would drop the chosen file and the import in progress. */}
             <PriceBookCsvImport
               onImported={handleImported}
               onLookupsUpdated={reloadLookups}
               lookups={lookups}
-              isLookupsLoading={isImportLookupsLoading}
+              lookupsStatus={importLookupsStatus}
+              onRetryLookups={retryImportLookups}
             />
           </div>
         ) : null}

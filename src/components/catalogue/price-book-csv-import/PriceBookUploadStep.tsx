@@ -4,6 +4,7 @@ import type { RefObject } from "react";
 
 import { LoadingState } from "@/components/layout/loading-state";
 import { ColumnMapper } from "@/components/mappings/ColumnMapper";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FieldLabel } from "@/components/ui/field";
@@ -12,6 +13,7 @@ import { cn } from "@/lib/utils";
 import type { PriceBookColumnMapping, PriceBookProfile } from "@/lib/catalogue/csv-import";
 import type { PriceBookValidationProgress } from "@/lib/catalogue/csv-import";
 
+import type { PriceBookLookupsStatus } from "@/components/catalogue/price-book-csv-import/types";
 import {
   ACCEPTED_FILE_TYPES,
   getProfileLabel,
@@ -39,7 +41,8 @@ type PriceBookUploadStepProps = {
   isBusy: boolean;
   isParsing: boolean;
   isValidating: boolean;
-  isLookupsLoading: boolean;
+  lookupsStatus: PriceBookLookupsStatus;
+  onRetryLookups?: () => void;
   onFileChange: (file: File | null) => void;
   onAnalyzeFile: () => Promise<void>;
   onClearSelection: () => void;
@@ -66,7 +69,8 @@ export function PriceBookUploadStep({
   isBusy,
   isParsing,
   isValidating,
-  isLookupsLoading,
+  lookupsStatus,
+  onRetryLookups,
   onFileChange,
   onAnalyzeFile,
   onClearSelection,
@@ -130,7 +134,7 @@ export function PriceBookUploadStep({
           <Button
             size="lg"
             onClick={() => void onAnalyzeFile()}
-            disabled={!selectedFile || isBusy || isLookupsLoading}
+            disabled={!selectedFile || isBusy || lookupsStatus !== "ready"}
             loading={isParsing}
           >
             Analyser
@@ -146,11 +150,27 @@ export function PriceBookUploadStep({
           </Button>
         </div>
 
-        {isLookupsLoading ? (
+        {lookupsStatus === "loading" ? (
           <LoadingState
             label="Chargement des référentiels pour l’import…"
             className="mt-2 justify-start py-0 text-xs"
           />
+        ) : null}
+
+        {lookupsStatus === "error" ? (
+          <Alert variant="danger" className="mt-3">
+            <AlertDescription className="flex flex-wrap items-center justify-between gap-2 text-danger">
+              <span>
+                Impossible de charger les fournisseurs et produits existants. L’analyse attend leur
+                chargement pour ne pas les signaler comme inconnus.
+              </span>
+              {onRetryLookups ? (
+                <Button variant="link" size="sm" className="text-danger" onClick={onRetryLookups}>
+                  Réessayer
+                </Button>
+              ) : null}
+            </AlertDescription>
+          </Alert>
         ) : null}
 
         <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
@@ -220,7 +240,7 @@ export function PriceBookUploadStep({
               variant="outline"
               size="lg"
               onClick={() => void onRefreshPreview()}
-              disabled={!canValidate || isBusy || isLookupsLoading}
+              disabled={!canValidate || isBusy || lookupsStatus !== "ready"}
               loading={isValidating}
             >
               Mettre à jour l’aperçu

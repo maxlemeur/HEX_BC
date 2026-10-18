@@ -20,7 +20,11 @@ vi.mock("@/lib/supabase/client", () => ({
   createSupabaseBrowserClient: () => ({
     from: (table: string) => ({
       select: () => ({
-        order: () => ({ range: table === "suppliers" ? supplierRangeMock : productRangeMock }),
+        order: () => ({
+          range: (from: number, to: number) => ({
+            abortSignal: () => (table === "suppliers" ? supplierRangeMock : productRangeMock)(from, to),
+          }),
+        }),
       }),
     }),
   }),

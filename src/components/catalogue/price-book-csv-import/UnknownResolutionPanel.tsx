@@ -9,7 +9,7 @@ type UnknownResolutionPanelProps = {
   isResolving: boolean;
   isCreatingMissing: boolean;
   isSubmitting: boolean;
-  isLookupsLoading: boolean;
+  areLookupsReady: boolean;
   onResolveAutomatically: () => Promise<void>;
   onCreateMissing: () => Promise<void>;
   onDownloadCorrectionsCsv: () => void;
@@ -22,7 +22,7 @@ export function UnknownResolutionPanel({
   isResolving,
   isCreatingMissing,
   isSubmitting,
-  isLookupsLoading,
+  areLookupsReady,
   onResolveAutomatically,
   onCreateMissing,
   onDownloadCorrectionsCsv,
@@ -42,7 +42,7 @@ export function UnknownResolutionPanel({
           variant="outline"
           size="lg"
           onClick={() => void onResolveAutomatically()}
-          disabled={isCreatingMissing || isSubmitting || isLookupsLoading || !hasUnknowns}
+          disabled={isCreatingMissing || isSubmitting || !areLookupsReady || !hasUnknowns}
           loading={isResolving}
         >
           Résoudre automatiquement
@@ -51,7 +51,7 @@ export function UnknownResolutionPanel({
           variant="outline"
           size="lg"
           onClick={() => void onCreateMissing()}
-          disabled={isResolving || isSubmitting || isLookupsLoading || !hasUnknowns}
+          disabled={isResolving || isSubmitting || !areLookupsReady || !hasUnknowns}
           loading={isCreatingMissing}
         >
           Créer les inconnus
