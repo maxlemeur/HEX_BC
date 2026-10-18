@@ -56,8 +56,12 @@ type EmissionFixture = {
   schemaVersion: "calc-v3-emission-v3-2";
   owner: { userId: string; tenantId: string; laborRoleId: string };
   v2Witness: { projectId: string; versionId: string; lineTitle: string; expected: { ht: number; tax: number; ttc: number } };
-  /** Affaire de V3M03 portant sa propre règle d'approbation active à 5 000 € HT (portée « client »). */
-  approvalProject: { projectId: string; ruleId: string; thresholdCents: number };
+  /**
+   * Affaire de V3M03 : sa propre règle d'approbation active à 5 000 € HT (portée « client ») et un brouillon
+   * v3 vide aux coefficients de la politique (le garde de navigateur des offres n'admet une nouvelle version
+   * que dans une nouvelle affaire) ; le parcours le remplit par l'application.
+   */
+  approvalProject: { projectId: string; versionId: string; ruleId: string; thresholdCents: number };
 };
 
 function emissionFixture(): EmissionFixture {
@@ -66,7 +70,8 @@ function emissionFixture(): EmissionFixture {
   const value = JSON.parse(readFileSync(file, "utf8")) as EmissionFixture;
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
   if (value.schemaVersion !== "calc-v3-emission-v3-2" || ![value.owner.userId, value.owner.tenantId, value.owner.laborRoleId,
-    value.v2Witness.projectId, value.v2Witness.versionId, value.approvalProject.projectId, value.approvalProject.ruleId]
+    value.v2Witness.projectId, value.v2Witness.versionId, value.approvalProject.projectId, value.approvalProject.versionId,
+    value.approvalProject.ruleId]
     .every((id) => uuid.test(id)) || value.approvalProject.thresholdCents !== 500000) {
     throw new Error("The emission-v3 fixture shape differs.");
   }
@@ -321,11 +326,15 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
     { session: "army", trace: "off", tags: ["engine-v3", "offer-emission"], timeout: 600_000 }, async (ui) => {
       const { app, browser, army } = ui;
       const fixture = emissionFixture();
-      const { projectId, ruleId } = fixture.approvalProject;
+      const { projectId, versionId, ruleId } = fixture.approvalProject;
       const record: Evidence = (label, data) => recordOfferEvidence(army, `v3m03-${label}`, data);
       await app.open("/dashboard/affaires");
       await expectOfferGuardInstalled(record);
-      const ids = await createV3(browser, army, record, "V3M-approval", projectId);
+      const ids = { projectId, versionId };
+      ownEstimate(army, ids);
+      const seeded = await readEstimate(browser, versionId);
+      await record("seeded", { versionId, actual: { engine: seeded.version.calc_engine_version, status: seeded.version.status, items: seeded.items.length } });
+      expect([seeded.version.calc_engine_version, seeded.version.status, seeded.items.length]).toEqual([3, "draft", 0]);
       await settleV3(browser, army, record, "V3M-approval", ids, S2, fixture.owner.laborRoleId);
 
       const required = await readApproval(browser, ids.versionId);

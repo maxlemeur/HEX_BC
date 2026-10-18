@@ -623,7 +623,9 @@ async function offersFixtures(context: CalcV3FixtureContext, campaign: string): 
 // 20,00 € HT, 20 % VAT, no snapshot) is seeded in the same tenant so that the journey issues a
 // contract 1 offer before any v3 and re-verifies it after the v3 emissions. One more affaire
 // (V3M03, review of 2.7) carries its own active approval rule at 5,000 EUR HT (scope "client",
-// scope_id = that affaire): the journey creates its v3 there, gets it approved, then issues it.
+// scope_id = that affaire) and one empty v3 draft at the policy coefficients, seeded here because
+// the offer browser guard admits a new version only in a new affaire: the journey fills it through
+// the application (lines, discount), gets it approved, then issues it.
 async function emissionV3Fixtures(context: CalcV3FixtureContext, campaign: string): Promise<CalcV3PhaseFixtures> {
   const actor = await createActor(context, campaign, "emission-v3", { rmo4000: true });
   const reason = `ARMY calc-v3 ${campaign} sous-lot 2.7 émission v3`;
@@ -658,11 +660,16 @@ async function emissionV3Fixtures(context: CalcV3FixtureContext, campaign: strin
   const prefix = `ARMY-V3M-calc-v3-${campaign}`;
   const witness = { projectId: randomUUID(), versionId: randomUUID(), sectionId: randomUUID(), lineId: randomUUID(),
     title: `${prefix} témoin v2`, lineTitle: `${prefix} témoin v2 prestation` };
-  const approvalProject = { projectId: randomUUID(), ruleId: randomUUID(), title: `${prefix} approbation v3`, thresholdCents: 500000 };
+  const approvalProject = { projectId: randomUUID(), versionId: randomUUID(), ruleId: randomUUID(), title: `${prefix} approbation v3`,
+    thresholdCents: 500000 };
   const today = new Date().toISOString().slice(0, 10);
   const records: PlanRecord[] = [
     { table: "estimate_projects", row: { ...common, id: witness.projectId, user_id: owner.userId, name: witness.title } },
     { table: "estimate_projects", row: { ...common, id: approvalProject.projectId, user_id: owner.userId, name: approvalProject.title } },
+    { table: "estimate_versions", row: { ...common, ...versionDefaults, id: approvalProject.versionId, project_id: approvalProject.projectId,
+      title: approvalProject.title, calc_engine_version: 3, sale_coefficient_fo: 1.3, sale_coefficient_mo: 1.2, gross_ht_cents: 0,
+      discount_applied_cents: 0, commercial_rounding_cents: 0, max_section_depth: 1, discount_bp: 0, discount_mode: "simple",
+      discount_steps: [], contractor_role: "principal", date_devis: today, validite_jours: 30 } },
     { table: "estimate_rules", row: { ...common, id: approvalProject.ruleId, rule_type: "require_approval", scope_type: "client",
       scope_id: approvalProject.projectId, threshold_value: approvalProject.thresholdCents, action: "require_approval", is_active: true } },
     { table: "estimate_versions", row: { ...common, ...versionDefaults, id: witness.versionId, project_id: witness.projectId,
@@ -685,8 +692,9 @@ async function emissionV3Fixtures(context: CalcV3FixtureContext, campaign: strin
     policy: { engine: 3, saleCoefficientFo: 1.3, saleCoefficientMo: 1.2, allowedTaxRatesBp: [2000, 1000, 550, 210] },
     v2Witness: { ...witness, expected: { ht: 2000, tax: 400, ttc: 2400 } },
     approvalRule: { id: deactivated[0].id, thresholdCents: 500000, isActive: false },
-    approvalProject: { projectId: approvalProject.projectId, ruleId: approvalProject.ruleId, thresholdCents: approvalProject.thresholdCents },
-    boundary: "A new owner, its bootstrap tenant at policy 3 without its default global approval rule, one v2 draft witness and one empty affaire with its own active approval rule at 5,000 EUR HT; every v3 is created by the journey through the application." });
+    approvalProject: { projectId: approvalProject.projectId, versionId: approvalProject.versionId, ruleId: approvalProject.ruleId,
+      thresholdCents: approvalProject.thresholdCents },
+    boundary: "A new owner, its bootstrap tenant at policy 3 without its default global approval rule, one v2 draft witness, and one affaire with its own active approval rule at 5,000 EUR HT and one empty v3 draft; the other v3 are created, and every v3 is filled, by the journeys through the application." });
   return { env: { E2E_V3_EMISSION_FIXTURE_PATH: file }, secretEnv: {},
     login: { email: actor.email, password: actor.password },
     identities: { owner: publicActor(actor), prefix, v2Witness: witness, policy: "engine 3, 1,30 / 1,20",

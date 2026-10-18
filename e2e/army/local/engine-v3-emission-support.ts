@@ -124,19 +124,17 @@ export async function retakeLease(browser: Browser, versionId: string) {
   expect(lease.status).toBe(200);
 }
 
-/**
- * Une affaire et une v3 attendue (moteur 3 de la politique) par l'API de création de 2.5 ; avec
- * `projectId`, la v3 naît dans une affaire existante (affaire de la fixture, par exemple).
- */
-export async function createV3(browser: Browser, army: ArmyState, record: Evidence, label: string, projectId?: string) {
+/** Une affaire et une v3 attendue (moteur 3 de la politique) par l'API de création de 2.5. */
+export async function createV3(browser: Browser, army: ArmyState, record: Evidence, label: string) {
   const today = new Date().toISOString().slice(0, 10);
-  const version = { ...NEUTRAL_V3_VERSION, title: `${army.runPrefix} ${label}`, date_devis: today, expected_calc_engine_version: 3 };
-  const created = await apiRequest<Envelope<Created>>(browser, "POST", "/api/estimates",
-    projectId ? { project_id: projectId, version } : { project: { name: `${army.runPrefix}-${label}` }, version });
+  const created = await apiRequest<Envelope<Created>>(browser, "POST", "/api/estimates", {
+    project: { name: `${army.runPrefix}-${label}` },
+    version: { ...NEUTRAL_V3_VERSION, title: `${army.runPrefix} ${label}`, date_devis: today, expected_calc_engine_version: 3 },
+  });
   await record(`${label}-created`, { status: created.status, ok: created.body.ok, error: created.body.error ?? null,
     engine: created.body.data?.version?.calc_engine_version ?? null });
   expect([created.status, created.body.ok, created.body.data?.version?.calc_engine_version]).toEqual([201, true, 3]);
-  const ids = { projectId: projectId ?? created.body.data.project.id, versionId: created.body.data.version.id };
+  const ids = { projectId: created.body.data.project.id, versionId: created.body.data.version.id };
   ownEstimate(army, ids);
   return ids;
 }
