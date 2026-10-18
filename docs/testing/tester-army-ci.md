@@ -561,7 +561,7 @@ public, mais au plus 20 jobs simultanés pour tout le dépôt).
 | --- | --- | --- | --- | --- |
 | Critical, suite complète | 10 à 15 min | environ 8 min (fixe 3 min 15 + 317 s simulées) | 1 → 3 shards (+ `army-takeoff` sur une PR) | 19 → 25 (`army-takeoff` compris des deux côtés) |
 | Full, nuit | 21 à 34 min | environ 10 min (fixe 4 min + 313 s simulées) | 1 → 5 shards + développement | 28 → 52 |
-| calc-v3, nuit | 19 à 28 min | environ 9 min (`offers`, 474 s, plus installation) | 1 → 6 phases | 25 → 25 |
+| calc-v3, nuit | 19 à 28 min | environ 9 min (`offers`, 474 s, plus installation) | 1 → 6 phases (8 depuis le 2.7, non mesurées) | 25 → 25 (six phases) |
 
 Simulation (`army-shards.json`, ordre des fichiers du scheduler, 2 workers par
 shard critical) : 550 s de parcours en un shard (mesuré 578 s), 404 s en deux,
