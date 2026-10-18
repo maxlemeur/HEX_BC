@@ -1663,6 +1663,34 @@ Limites :
 - La sélection `nightly` de la PR, déclenchée par l'édition du workflow, ne tourne que sur le runner après la
   poussée ; les huit invocations ci-dessus la reproduisent en local, phase par phase.
 - `AGENTS.md` (budget CI) chiffre la nuit calc-v3 à six piles et environ 28 minutes de runner ; elle en compte
-  huit désormais. Non modifié ici.
+  huit désormais. Non modifié ici (corrigé au §13.11, avec `tester-army-ci.md` et le commentaire du garde).
 - M5 n'est pas appliquée au Supabase partagé ; le coordinateur l'y applique après la fusion, sous son nouveau nom.
-- Aucune relecture indépendante de cette intégration.
+- Aucune relecture indépendante de cette intégration (faite ensuite : §13.11).
+
+### 13.11 Relecture de l'intégration `ad37aea9` (18/10/2026)
+
+Relecture indépendante, en lecture seule, de `ad37aea9` : prête à pousser, rien de bloquant (fusions, réhorodatage
+de M5, workflow, profil `dpgf_export_v3` et preuves relus). Trois constats mineurs, sans effet sur le code ni sur la
+migration, tous corrigés :
+
+| Constat | Correction |
+|---|---|
+| La description de la PR renvoyait les « preuves d'écran » aux artefacts TesterArmy cités, qui ne contiennent aucune image (relevé par `find` dans les répertoires critique et `emission-v3`) | Phrase remplacée : aucune capture d'écran n'existe pour cette PR. Le SDK `e2e` 0.21.0 refuse `app.screenshot()` après la saisie d'un secret (`POLICY_DENIED`, `node_modules/e2e/dist/run/fixtures.js`), session restaurée comprise ([audit polish](tester-army-polish.md#captures-et-limites)) ; tous les écrans changés par 2.7 (fiche, éditeur, impression émise d'une v3) sont authentifiés. Les PDF reçus par le collecteur restent sous `private/`, que le lanceur exclut des preuves. Les captures qu'exige `AGENTS.md` pour une PR restent à prendre dans une session connectée à la main (`npm run dev:army`) : décision du coordinateur |
+| `tester-army-ci.md` (§ calc-v3), `AGENTS.md` (budget CI) et le commentaire de `src/test/ci-guardrails.test.ts` décrivaient encore une nuit à six phases, émission exclue | `536817f7` : les trois décrivent les huit phases. Le coût reste celui mesuré pour six phases sur la PR #42 ; huit ne sont pas encore mesurées (premier run : celui de cette PR). Le code du garde est inchangé ; `ci-guardrails` et `army-impact-map` 33/33 (Windows) |
+| La sélection par impact de la PR lance aussi les huit parcours du métré (`army-takeoff`, `fullOnly` `all` : 28 chemins exigent la suite full, dont M5, `server.ts` et `optima-profile.ts`), que la qualification locale n'avait pas joués | Joués en local, ci-dessous |
+
+`npm run e2e:army:ci -- full --files 'e2e/army/critical/auth.setup.e2e.ts,<les huit fichiers de e2e/army/takeoff/>' --app-port 3161`,
+la liste exacte que `select-journeys.ts --event pull_request --base d7e672b4 --head HEAD` renvoie, comme le job
+`army-takeoff` (1 worker, `E2E_ARMY_WORKERS` non défini ; `db reset` complet, sans l'instantané de base que la CI
+restaure) : **sortie 0** en 210 s sur `ad37aea9` (arbre de code de `7127c4e1`), aucun changement local
+(`diffSha256` `e3b0c442…`), M5 `20261018102840` en dernier. Portée `filtered-full` : 39 sélectionnés, 39 exécutés,
+39 passés (setup de connexion, puis 5, 2, 3, 8, 3, 1, 5 et 11 parcours), aucun échec, `flaky` ni `skipped` ; les 134
+autres tests découverts sont hors sélection. Contrôle de confidentialité passé. `.e2e/army/ci/2026-10-18T12-06-04-527Z-full`
+(`manifest.json` `ddc058aa…`), journal `~/l27-r5-logs/takeoff-full.log`.
+
+Par rapport à `7127c4e1`, la tête qui suit ne change que la documentation et ce commentaire du garde : les preuves
+E2E, SQL et de montée de version du §13.10 et ci-dessus restent celles de l'arbre de code. `npm run verify:pr` est
+rejoué sur la tête finale (description de la PR).
+
+Limites : pas de capture d'écran (ci-dessus) ; coût d'une nuit à huit phases non mesuré ; la sélection `nightly`
+et le job `army-takeoff` de la PR ne tournent que sur le runner après la poussée.

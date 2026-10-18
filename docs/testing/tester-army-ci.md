@@ -437,8 +437,9 @@ confidentialité du runner.
   seule phase, `emission` et `emission-v3` comprises. Le nom passe par `env`,
   et le runner refuse toute valeur qui n'est pas une phase. GitHub ne planifie
   et ne déclenche que les workflows présents sur la branche par défaut : ni la
-  nuit ni le déclenchement manuel n'existent avant la fusion de ce workflow sur `main` ;
-  ensuite, un déclenchement sur une branche exécute la version de cette branche.
+  nuit ni le déclenchement manuel n'existent avant la fusion de ce workflow sur
+  `main` ; ensuite, un déclenchement sur une branche exécute la version de cette
+  branche.
 - Pull request : une PR vers `main` qui modifie
   `.github/workflows/e2e-army-calc-v3.yml` lance la sélection nocturne (filtre
   `paths`), si bien que le workflow est prouvé avant sa fusion ; aucune autre PR
