@@ -20,7 +20,7 @@ commandes et les chemins tels qu'exécutés (`--grep '^V3E02\s'`, `v3e02-*`).
 | Fichier | Rôle |
 |---|---|
 | `supabase/tests/database/estimate-offer-contract-v2.test.sql` | pgTAP, F27-01 à F27-19 (§4) |
-| `e2e/army/local/engine-v3-emission.e2e.ts`, `engine-v3-emission-support.ts` | Parcours V3M01 (calc-v3) et V3M02 (critique locale), §3 |
+| `e2e/army/local/engine-v3-emission.e2e.ts`, `engine-v3-emission-support.ts` | Parcours V3M01, V3M03 et V3M04 (calc-v3) et V3M02 (critique locale), §3 et §12 |
 | `scripts/tester-army/calc-v3-phases.ts` | Nouvelle phase `emission-v3` (collecteur sentinelle ; next dev au rouge, build de production possédé depuis l'intégration, §10.4) |
 | `scripts/tester-army/calc-v3-fixtures.ts` | Fixture de la phase : propriétaire dédié en politique 3, témoin v2 brouillon |
 | `scripts/tester-army/calc-v3-campaign.ts`, `e2e/army/local/calc-v3.config.ts` | Collecteur, garde réseau d'offre et lecture des PDF reçus pilotés par `sentinelCollector` (et non plus par le nom `emission`) |
@@ -45,6 +45,12 @@ commandes et les chemins tels qu'exécutés (`--grep '^V3E02\s'`, `v3e02-*`).
 | Sceau d'une v3 sans marqueur 5, contrat 2 ou charge 6, ou vérification négative | V3M01 (`/verify`, §6.2) ; pgTAP F27-19 ; Vitest F27-S08 |
 | Acceptation au portail d'une v3 qui échoue ou change son sceau | V3M01 |
 | Conditions de développement hors du profil calc-v3 possédé | `src/lib/estimates/pdf-terms-server.test.ts`, écrit rouge avec l'extension (`7154c1ce`, puis vert, §9) : refus avec un marqueur d'hébergement, hors profil `calc-v3` ou sur la pile des développeurs, cas `offer` sur 45585 inchangé. V3M02 tourne sans CGV (`includeTerms: false`) ; V3M01, servi en next dev jusqu'à l'intégration, en dépend depuis le passage des phases d'émission au build possédé (§10.4) |
+| Conditions de développement servies par un build calc-v3 hors de la pile possédée (sans marqueur du lanceur ni répertoire de campagne) | `pdf-terms-server.test.ts`, cas ajoutés à la revue, rouges puis verts (§12) |
+| Aperçu d'impression ou export XLSX standard/DPGF d'un brouillon v3 qui ne peut pas être figé : page d'erreur ou 500 anonyme | V3FC02, étendu à la revue (§12) |
+| Résumé d'approbation d'une version émise illisible (écriture refusée par `guard_estimate_versions_readonly`) | V3M01, V3M-09 (revue, rouge sans `e4fc30cf`, §12) |
+| v3 au-dessus du seuil d'approbation non émissible une fois approuvée, ou approbation perdue au gel du document | V3M03 (revue, §12) |
+| Envoi, avec un fournisseur, d'une v3 non figeable : réussi, refus anonyme, ou document, reçu, statut ou version modifiés | V3M04 (revue, §12) |
+| En-tête « TVA : » vide d'un contrat 2 sans ligne chiffrée | V3M02, scénario ajouté à la revue (rouge sans `3a8e576a`, §12) |
 
 ## 3. Parcours `engine-v3-emission.e2e.ts`
 
@@ -316,9 +322,10 @@ sur les fichiers du parcours et du harnais sortie 0 ;
 - La régression « v2 émise avant M5 » est rejouée dans la même exécution (témoin émis avant les v3, puis
   revérifié) : l'antériorité réelle à la migration relève de la montée de version et des empreintes
   documentaires (§10.2, §10.3 de la conception), rejouées à l'intégration (§10.5).
-- V3M01 est servi en next dev (comme la phase `emission`) ; V3M02 qualifie le build de production sans
-  courriel. Le passage de la phase `emission-v3` au build possédé dépend de l'extension du garde des
-  conditions, non couverte ici (§2).
+- À l'écriture des tests, V3M01 était servi en next dev (comme la phase `emission`). Limite levée à
+  l'intégration (`2299b4a4`, §10.4) : les phases `emission` et `emission-v3` servent le build de production
+  possédé (`next start`) avec les conditions bac à sable du profil calc-v3 possédé ; V3M02 qualifie ce build
+  sans courriel.
 - La campagne complète `npm run e2e:army:calc-v3` est rouge tant que 2.7 n'est pas implémenté (phase
   `emission-v3`), comme la campagne critique locale (V3M02).
 - La phase `emission-v3` ne pose aucun motif commun à tous les PDF reçus (`collectedPdfMustContain`) : le
@@ -512,7 +519,7 @@ V3M), `3a8e576a` (en-tête d'un contrat 2 sans ligne chiffrée), `ff084a1f` et `
 | portail | `CommercialEstimateDocument` rend le contrat 2 (HT net, taux du récapitulatif) ; acceptation inchangée |
 | exports `standard` et `dpgf` | `v3-export.ts` : unité, statut, taux, h/u (en-têtes « h MO / unité »), PU et PT bruts, « Remise commerciale », arrondi, HT net, TVA par taux, TTC ; accès contrôlé d'abord par `getEstimateVersionDetails` |
 
-Conservés fermés (refus nommé `ESTIMATE_ENGINE_UNAVAILABLE`, résiduel) : l'export `bdc` (coûts d'achat :
+Conservés fermés (refus nommé `ESTIMATE_ENGINE_UNAVAILABLE`, résiduel ; écart consigné dans la conception, P-20, décision du porteur requise, §12) : l'export `bdc` (coûts d'achat :
 relève de l'unité d'achat de 2.9) et l'export de l'éditeur (`editor-export.ts`, côté client, atteignable par
 l'éditeur v3 de 2.6) ; la fiche du devis (`[versionId]/page.tsx`) garde le bandeau de 2.1, que 2.6 remplace par
 sa vue de lecture v3 : le document émis s'ouvre par l'impression, le PDF et le portail.
@@ -560,7 +567,7 @@ est répété jusqu'à la fenêtre, comme pour la bascule du mot de passe de la 
 |---|---|---|
 | `npm run e2e:army:local -- --grep '^V3M02\s' --app-port 3227` | `f2b70f87` | sortie 0 en 2 min 08 s (17/10/2026 22:34 UTC) : pgTAP et matrice RLS passés, build possédé, `Tests 2 passed (2)` (setup critique et V3M02) ; preuves `.e2e/army/ci/2026-10-17T22-34-41-594Z-critical/`, preuves métier `v3m02-*` (S2 puis S5 : PDF, deux générations au même texte, impression, XLSX, DPGF, toutes vraies) |
 | `npm run e2e:army:calc-v3 -- --phase emission-v3 --app-port 3127` | `3a8e576a` | sortie 1 (22:39 UTC) : envoi de S2 refusé `400 ESTIMATE_GATING_BLOCKED` (règle d'approbation par défaut, nature de ligne d'O3) ; sondes corrigées `ff084a1f` (§9.3). `.e2e/army/ci/2026-10-17T22-39-06-638Z-calc-v3/` |
-| idem | `ff084a1f` | sortie 1 (22:46 UTC) : S2 et S5 émis, scellés (marqueur 5, contrat 2, charge 6), imprimés et exportés ; la fiche du devis émis tentait de réécrire le résumé d'approbation (« Estimate version is read-only » ; la requête de l'overlay de `next dev` est bloquée par le garde d'offre). Défaut d'application, corrigé par `e4fc30cf` (`rules-engine.ts` : une version émise n'est plus réécrite, son résumé est calculé pour l'affichage) ; ce parcours en est la régression. `…/2026-10-17T22-46-15-379Z-calc-v3/` |
+| idem | `ff084a1f` | sortie 1 (22:46 UTC) : S2 et S5 émis, scellés (marqueur 5, contrat 2, charge 6), imprimés et exportés ; la fiche du devis émis tentait de réécrire le résumé d'approbation (« Estimate version is read-only » ; la requête de l'overlay de `next dev` est bloquée par le garde d'offre). Défaut d'application, corrigé par `e4fc30cf` (`rules-engine.ts` : une version émise n'est plus réécrite, son résumé est calculé pour l'affichage). Sous `next start`, sans overlay, ce parcours ne le détectait plus : la régression est assertée depuis la revue (V3M-09, rouge sans `e4fc30cf`, §12). `…/2026-10-17T22-46-15-379Z-calc-v3/` |
 | idem | `e4fc30cf` | sortie 1 (22:53 UTC) : renvoi au même document et texte du portail exacts ; clic d'acceptation avant l'hydratation, sonde corrigée `dad77e83` (§9.3). `…/2026-10-17T22-53-37-829Z-calc-v3/` |
 | idem | `dad77e83` | **sortie 0** en 1 min 31 s (22:57 UTC) : pgTAP (`Files=20`) et RLS passés, `Tests 2 passed (2)` (setup d'offre et V3M01), garde réseau d'offre installé (`collectorCalls: 15`), 4 PDF reçus (témoin v2, S2, S5, renvoi de S5 au même SHA-256) ; `/verify` de S2 et S5 : `valid`, marqueur 5, contrat 2, charge 6 ; acceptation au portail, même sceau ; témoin v2 revérifié (contrat 1, charge 4, même PDF). `…/2026-10-17T22-57-50-321Z-calc-v3/` |
 | `npm run e2e:army:local -- --grep '^V3M02\s' --app-port 3227` | `dad77e83` | **sortie 0** en 1 min 35 s (23:00 UTC) : `Tests 2 passed (2)`. `.e2e/army/ci/2026-10-17T23-00-06-764Z-critical/` |
@@ -710,7 +717,7 @@ V3M02 n'ont reçu que le renommage V3M et la sonde d'hydratation du §9.3, sans 
 - **Revue indépendante non faite.** AGENTS.md exige une revue en lecture seule, par un relecteur indépendant, d'un
   changement de cette taille (migration, contrat, sceau, émission, harnais) ; l'intégrateur n'a pas d'agent
   relecteur. Le rapprochement du §10.1 et les changements des §10.3 et §10.4 ne sont relus que par leur auteur :
-  à faire avant la PR, sur ce diff stable.
+  à faire avant la PR, sur ce diff stable. Faite ensuite par deux relecteurs : constats et corrections au §12.
 - **Fusion du 2.6** (`lot2/2.6-editeur-v3` à `ae9b375d`, essai `git merge-tree`) : conflits dans
   `scripts/tester-army/army-impact-map.json`, `src/app/dashboard/estimates/[versionId]/print/page.tsx` et
   `supabase/migrations.manifest.json` ; `engine-v3-fail-closed.e2e.ts` fusionne sans conflit (2.6 réécrit V3FC01,
@@ -985,3 +992,96 @@ Sur la tête fusionnée, sans modification des attendus, des empreintes ni des c
 291 tests sur 291 (`1d43528b`), puis la suite Node complète de `check:quality` à `e9855ed1` (299 fichiers,
 3 136 tests, 3 ignorés hors 2.7) ; `pdf-terms-server.test.ts` 81 sur 81 ; empreintes figées F27-S06 et F27-S07
 égales à celles de `c14b243d`. Détail au §10.5.
+
+## 12. Revue 2.7 (18/10/2026) : corrections et qualification complète
+
+Deux revues indépendantes en lecture seule ont relu le diff intégré (`94fcc5dd`). Chaque constat a été revérifié
+dans le code avant correction ; chaque défaut de comportement a reçu son test rouge d'abord. `main` (`89627add`,
+correctif d'import CSV fournisseur, aucun fichier du 2.7) a été fusionné avant les corrections (`4e99e5ef`) ;
+M5 reste après toute migration de `main`, sans réhorodatage. Aucune assertion d'un test d'exigence n'est
+modifiée ; V3FC02 (réaligné au §10.3) est étendu.
+
+Commits : `4e99e5ef` (fusion), `f563cc1c` (tests rouges), `3f390d8e` (garde des conditions), `329a46c2` (sonde
+V3FC02), `5e750c37` (aperçu d'une v3 sans unité), `fdddc458` (commentaires), `5f0fecd3` (brouillon de V3M03),
+puis ce document et la conception (documentation seule).
+
+### 12.1 Constats et suites
+
+| Constat (revue) | Vérification | Suite |
+|---|---|---|
+| Aperçu d'impression et exports XLSX/DPGF d'un brouillon v3 dont une ligne chiffrée n'a pas d'unité : `ESTIMATE_V3_STORED_INCOHERENT` levé au rendu (majeur) | confirmé | V3FC02 étendu, rouge (`…/2026-10-18T01-21-08-114Z-critical` : impression sur la limite d'erreur « Ce chiffrage n’a pas pu être chargé », exports `500 INTERNAL_ERROR`) ; `5e750c37` : `loadEstimateV3DocumentSource` applique le refus nommé du gel, `400 ESTIMATE_V3_UNIT_REQUIRED` ; l'impression l'affiche, les exports le rendent |
+| Garde des conditions bac à sable étendu sans preuve de pile possédée (mineur) | confirmé : tout backend `127.0.0.1` hors 45585/33485 admis, 54321 compris | 13 cas ajoutés à `pdf-terms-server.test.ts`, rouges (13 en échec sur 94), puis `3f390d8e` : marqueur `E2E_CALC_V3_OWNED_STACK=1` transmis à l'application par `calc-v3.config.ts` et répertoire `<racine>/.e2e/army/offer/runs/<horodatage>-calc-v3-<uuid>` exigés ; 94/94. Cas `offer` sur 45585 inchangé |
+| Exports de l'éditeur et BDC fermés à la v3 sans décision consignée (mineur) | confirmé | écart consigné dans la conception (§8.2, §14 « 2.7 », point **P-20**) : éditeur avec 2.6 (seul chemin qui l'atteint), BDC avant 2.10 ; **décision du porteur requise**. Refus nommé `ESTIMATE_ENGINE_UNAVAILABLE` d'ici là |
+| Moitié « envoi » de V3FC02 sans lien avec le moteur 3 (deux revues) | confirmé : `getRequiredEnvVar("RESEND_API_KEY")` refuse avant toute étape du moteur | V3FC02 la décrit comme un contrôle de configuration ; V3M04 (nouveau, phase `emission-v3`, collecteur) prouve le refus nommé avec un fournisseur : `400 ESTIMATE_V3_UNIT_REQUIRED`, ni document (`404 PDF_NOT_READY`), ni reçu, ni changement de statut, de `updated_at` ou de révision |
+| Commentaires et message obsolètes (deux revues) | confirmé | `fdddc458` (et en-tête des V3M dans `f563cc1c`) ; §7 et §9.4 de ce document corrigés |
+| Aucune qualification complète sur l'arbre 2.7 (majeur) | confirmé (sélecteur d'impact : `full`) | §12.3 : `e2e:army:local` non filtré et `e2e:army:ci -- full` verts sur l'arbre final |
+| `e4fc30cf` sans régression exécutée depuis `next start` (majeur) | confirmé : sans overlay, V3M01 ne lisait rien d'assertable | V3M-09 : V3M01 relit `GET …/approval` de S2 et S5 émis (`200`, `not_required`) ; rouge sans `e4fc30cf` (`…/2026-10-18T01-22-22-198Z-calc-v3` : `403 READ_ONLY`), vert ensuite. La fiche d'une v3 garde le bandeau de 2.1 jusqu'au 2.6 : la route est celle que lisent la fiche et l'affaire |
+| `3a8e576a` sans test rouge (mineur) | confirmé | V3M02 ajoute une v3 sans ligne chiffrée (une ligne « included ») : en-tête « Validité : 30 jours — TVA : 20 % » ; rouge sans `3a8e576a` (`…/2026-10-18T01-17-41-514Z-critical` : « TVA : » vide), vert ensuite |
+| Chemin approbation → émission d'une v3 non prouvé (mineur) | confirmé : aucun parcours n'approuvait puis n'émettait une v3 | V3M03 (nouveau) : affaire de la fixture à règle propre (5 000 € HT, portée « client ») et brouillon v3 vide semé ; S2 rempli par l'API, approbation requise, soumission (`201`), décision « approved » (`200`) ; gel du document, PDF et envoi : `approved` et la révision survivent, sceau marqueur 5, contrat 2, charge 6, texte du PDF au §5. Vert au premier passage (`…/2026-10-18T01-26-43-060Z-calc-v3`). Le commentaire de la fixture est corrigé |
+
+Sondes corrigées, sans assertion modifiée : la sonde d'impression de V3FC02 attendait la limite d'erreur du
+tableau de bord au lieu de celle des chiffrages (`329a46c2`) ; V3M03 ne pouvait pas créer sa v3 dans l'affaire
+de la fixture, le garde de navigateur des offres n'admettant une nouvelle version que dans une nouvelle affaire
+(`5f0fecd3` : brouillon semé par la fixture, comme pour la phase `offers`).
+
+### 12.2 Preuves rouges (WSL, clone `~/miaouffrage-lot2-27`)
+
+| Commande | Arbre | Résultat |
+|---|---|---|
+| `npm run e2e:army:local -- --grep "V3FC02\|V3M02" --app-port 3227` | `f563cc1c` + `3a8e576a` défait localement (1 fichier) | sortie 1 : V3M02 rouge (`versionRate: false`, extrait « Validité : 30 jours — TVA : CLIENT… ») ; V3FC02 rouge sur la sonde du §12.1. `.e2e/army/ci/2026-10-18T01-17-41-514Z-critical` |
+| `npm run e2e:army:local -- --grep "V3FC02" --app-port 3227` | `329a46c2`, aucun changement local | sortie 1 : V3FC02 rouge, publication `400 ESTIMATE_V3_UNIT_REQUIRED`, impression sur la limite d'erreur, exports standard et DPGF `500 INTERNAL_ERROR` ; état inchangé (brouillon, 0 document, 0 envoi). `…/2026-10-18T01-21-08-114Z-critical` |
+| `npm run e2e:army:calc-v3 -- --phase emission-v3 --app-port 3127` | `329a46c2` + `e4fc30cf` défait localement (1 fichier) | sortie 1 : V3M01 rouge (`GET …/approval` de S2 émis : `403 READ_ONLY`), V3M04 vert, V3M03 non démarré (§12.1). `…/2026-10-18T01-22-22-198Z-calc-v3` |
+| `npm run e2e:army:calc-v3 -- --phase emission-v3 --grep "^V3M03\s" --app-port 3127` | `5f0fecd3`, aucun changement local | sortie 0 : V3M03 vert. `…/2026-10-18T01-26-43-060Z-calc-v3` |
+| `npx vitest run --project=node src/lib/estimates/pdf-terms-server.test.ts` (Windows) | `4e99e5ef` + cas ajoutés | 13 en échec, 81 réussis (94) |
+
+### 12.3 Qualification de l'arbre final (`5f0fecd3`, aucun changement local)
+
+WSL, Node 24.19.0, chaque exécution native après la garde de concurrence (au plus une autre exécution native
+active au départ). Journaux : `~/miaouffrage-lot2-27/.e2e/lot2-2.7/fin-g-*.log`.
+
+| Commande | Résultat |
+|---|---|
+| `npm run e2e:army:local -- --app-port 3227` (sélection critique locale non filtrée) | **sortie 0** en 429 s : pgTAP et matrice RLS passés, build possédé, 83/83 (V3FC01, V3FC02, V3M02, V3P01 compris). `.e2e/army/ci/2026-10-18T01-29-01-625Z-critical` (`manifest.json` `63e9c830…`) |
+| `npm run e2e:army:calc-v3 -- --app-port 3127` (campagne complète) | **sortie 0** en 761 s, toutes phases en build de production : journeys 11, components 5, numeric 4, resume 5, access 2, offers 10, emission 6 (4 PDF reçus), emission-v3 4 (V3M01, V3M03, V3M04 ; 5 PDF reçus) ; sources inchangées. `…/2026-10-18T01-36-11-598Z-calc-v3` (`manifest.json` `9ec0cbc4…`) |
+| `npm run e2e:army:ci -- full --app-port 3243` | **sortie 0** en 840 s : pgTAP et RLS passés, phase `full` 144/144, phase `development` 4/4. `…/2026-10-18T01-49-54-281Z-full` (`manifest.json` `d7803842…`) |
+| `npm run engine:document-fingerprints -- check` | **sortie 0** en 48 s : familles v1/v2 identiques, agrégat `2b9715519d99…391b78e4` égal à la référence, aucune différence ni avertissement d'environnement. `.e2e/engine-v3/document-fingerprints/2026-10-18T02-15-41-713Z-check` |
+| `npm run db:upgrade-check -- lot2-2-7` | **sortie 0** en 19 s : base ramenée aux 244 migrations de référence, 6 migrations postérieures appliquées (dont M7 et M5), 0 différence ; contrôle négatif détecté |
+| `npm run db:upgrade-check -- lot2-2-7 --negative-control` | sortie 1 en 20 s, comme exigé : exactement 1 différence (`pu_ht_cents 1481 -> 1482`) |
+| `npm run engine:v3:parity` | **sortie 0** en 28 s : 10 357 cas (graine 20261017), 0 différence TS/SQL. `.e2e/engine-v3/parity/2026-10-18T02-17-13-909Z-seed-20261017` |
+| `npm run db:ci:local` | **sortie 0** en 29 s : `Files=21, Tests=1904`, `Result: PASS` (dont `estimate-offer-contract-v2`, 50 assertions inchangées), matrice RLS passée |
+
+Valeurs de V3M01 (phase `emission-v3` de la campagne complète) : S2 et S5 envoyés, `/verify` `valid`, marqueur 5,
+contrat 2, charge 6 ; texte des PDF reçus (S2 `cb7a02f1…`, S5 `55f655b0…`, une page chacun) : les 7 lignes
+« Q unité PU PT » (O1 20 ml 166,63 / 3 332,60 ; O4 1 139 ml 13,53 / 15 410,67…), brut 69 054,56, « Remise
+commerciale −1,01 € », « Total HT net 69 053,55 », TVA par taux (S2 : 20 % 69 053,55 / 13 810,71 ; S5 : 10 %
+5 554,53 / 555,45 et 20 % 63 499,02 / 12 699,80), TTC 82 864,26 puis 82 308,80, tous vrais ; impression, XLSX et
+DPGF identiques ; renvoi de S5 au même PDF et au même texte ; acceptation au portail `200 accepted`, même sceau ;
+résumé d'approbation des versions émises `200 not_required`. Témoin v2 : envoyé avant les v3 (contrat 1,
+charge 4, marqueur 5, `[2000, 400, 2400]`), revérifié après elles, même SHA-256 de PDF `75036194…4c25`.
+V3M02 (campagne critique) : S2 puis S5 sur le même brouillon, deux générations au même texte, impression, XLSX
+et DPGF aux mêmes valeurs ; v3 sans ligne chiffrée : « Validité : 30 jours — TVA : 20 % ».
+
+Windows (`miaouffrage-l2-27`, `5f0fecd3`, changements locaux : documentation seule) :
+
+- `npm run verify:pr` : `audit:dependencies` passé ; `audit:signatures` en échec sur le cache npm partagé corrompu
+  (ENOENT, comme au §10.5), passé avec un cache privé (`npm audit signatures --cache <scratchpad>` : 593
+  signatures, 158 attestations) ; le reste de `check:quality`, relancé tel quel : sortie 0 en 73 s
+  (`check:architecture` 1 135 modules, 0 cycle ; OpenAPI valide et synchronisée, 144 routes, 192 opérations ;
+  `typecheck` ; `lint` ; Node 299 fichiers passés / 1 ignoré, 3 149 tests passés / 3 ignorés ; jsdom 164 / 823 ;
+  couverture critique 3 / 12).
+- Vitest ciblé (fichiers touchés, voisins colocalisés, `army-impact-map`, `ci-guardrails`,
+  `engine-frozen-corpus`, budgets, garde de migration) : 28 fichiers, 813 tests passés.
+- `npm run supabase:validate` : 250 fichiers, 250 versions uniques ; `npm run supabase:migrations:git-guard --
+  --mode pull_request --base 89627add…` : passé (2 changements cadrés, manifeste et M5).
+- `git diff origin/main...HEAD -- src/lib/estimate-calculations.ts src/lib/estimate-v2-snapshot.ts` : vide ;
+  `git -c core.whitespace=cr-at-eol diff --check origin/main...HEAD` : sortie 0.
+
+### 12.4 Limites
+
+- **P-20 à arbitrer** : exports de l'éditeur et BDC d'une v3 restés fermés (refus nommé) ; la conception les
+  propose pour 2.6 et avant 2.10. Sans décision, le 2.7 n'est pas conforme à son périmètre initial sur ce point.
+- La fiche d'une v3 (`[versionId]/page.tsx`) garde le bandeau de 2.1 : V3M-09 prouve la route qu'elle et l'affaire
+  lisent, pas le panneau d'approbation, que la vue de lecture v3 du 2.6 affichera.
+- La fusion du 2.6 reste à faire (§10.6) ; elle exige de rejouer `db:ci:local`, V3M01 à V3M04, V3FC et la
+  campagne complète.
+- Le Supabase partagé n'est pas touché ; M5 n'y est pas appliquée.

@@ -65,7 +65,7 @@ Chaque phase est une invocation TesterArmy distincte de `e2e.calc-v3.config.ts` 
 | `access` | idem | setup, `generated-ouvrage-access` GR07 : 2 | propriétaire et observateur administrateurs dédiés ; le parcours archive et rétrograde ce seul propriétaire |
 | `offers` | build possédé, `next start` | setup, `supplier-offer-zero-price` OZ01–OZ04 : 5 (sous-lot 2.2, [estimate-engine-v3-2.2.md](estimate-engine-v3-2.2.md) ; OZ04 : [version-totals-after-preselection.md](version-totals-after-preselection.md)) | propriétaire dédié en mode Expert, trois fournisseurs, trois articles et quatre offres en « ml » (dont trois à 0 €), un brouillon par parcours (v2 pour OZ01–OZ03, v1 historique pour OZ04), un chantier |
 | `emission` | build possédé, `next start` | setup d'offre, `offer-emission` OF00, OF01, OF02, OF04, OF0L : 6 (OF03 rouge à la base, hors sélection) | aucune : les parcours créent leurs devis `ARMY-OFFER-` par l'interface |
-| `emission-v3` | build possédé, `next start` | setup d'offre, `engine-v3-emission` V3M01 : 2 (sous-lot 2.7, [estimate-engine-v3-2.7.md](estimate-engine-v3-2.7.md) ; identifiant V3E01 jusqu’au 18/10/2026 ; vert depuis M5 et la piste TypeScript, §10) | propriétaire dédié en politique 3 (1,30 / 1,20) avec un seul rôle à 4 000 c, un brouillon v2 témoin ; les v3 sont créées par l'API |
+| `emission-v3` | build possédé, `next start` | setup d'offre, `engine-v3-emission` V3M01, V3M03, V3M04 : 4 (sous-lot 2.7, [estimate-engine-v3-2.7.md](estimate-engine-v3-2.7.md) ; identifiant V3E01 jusqu’au 18/10/2026 ; vert depuis M5 et la piste TypeScript, §10 ; V3M03 et V3M04 ajoutés à la revue, §12) | propriétaire dédié en politique 3 (1,30 / 1,20) avec un seul rôle à 4 000 c, règle d'approbation globale par défaut désactivée, un brouillon v2 témoin, une affaire à règle d'approbation propre (5 000 € HT, portée « client ») avec son brouillon v3 vide (V3M03) ; les autres v3 sont créées par l'API, toutes sont remplies par l'API |
 
 Une phase sans `--grep` applique sa sélection par défaut (`defaultGrep`) et exige exactement ces
 nombres. Les parcours rouges sur la base non modifiée sont nommés dans `knownRedAtBase`
@@ -87,8 +87,10 @@ le garde réseau d'offre et relisent les PDF reçus ; seule `emission` impose un
 Les phases d'émission servent le build de production possédé depuis l'intégration du 2.7 : le 2.7 étend
 `canUseDevelopmentEstimateTerms` (`src/lib/estimates/pdf-terms-server.ts`) au seul profil calc-v3 possédé
 (`E2E_ARMY_SUITE=calc-v3`, `E2E_OFFER_SERVER_MODE=production`, `E2E_OFFER_SANDBOX_TERMS=1`, garde serveur
-d'offre, backend `127.0.0.1` hors 45585/33485 égal à `E2E_OFFER_BACKEND_ORIGIN`), avec son test de garde-fou,
-et le profil pose ces valeurs pour une phase de production. Une phase déclarée `development` resterait servie par
+d'offre, backend `127.0.0.1` hors 45585/33485 égal à `E2E_OFFER_BACKEND_ORIGIN`, et, depuis la revue du 2.7,
+marqueur du lanceur possédé `E2E_CALC_V3_OWNED_STACK=1` transmis à l'application et répertoire de campagne
+`<racine>/.e2e/army/offer/runs/<horodatage>-calc-v3-<uuid>`), avec son test de garde-fou, et le profil pose
+ces valeurs pour une phase de production. Une phase déclarée `development` resterait servie par
 `next dev`. Le passage lève l'artefact OF00 de `next dev` relevé par le 2.9
 ([estimate-engine-v3-2.9.md](estimate-engine-v3-2.9.md), « OF00 en mode développement »).
 `offer-emission.config.ts` reste inchangé.
