@@ -142,6 +142,48 @@ lançait que `dashboard-ux` et devait attendre ou déclencher la suite full de
   `964775bc`), contre 12 min 15 s et 12 min 39 s pour `army-critical` dans les
   mêmes runs, donc sans durée murale ajoutée.
 
+### Parcours V1 des totaux dans la sélection des PR
+
+Levier 3 de la [rétrospective CI du 18/10/2026](ci-retro-2026-10-18.md) :
+V1BT01 à V1BT03 (`e2e/army/local/bulk-actions-v1-totals.e2e.ts`) et V1PT01
+(`e2e/army/local/supplier-preselection-v1-totals.e2e.ts`) ne tournaient que
+dans la suite full, à 1 worker, parce qu'ils basculaient en SQL le compte de
+campagne partagé en mode Expert puis le rétablissaient. Une PR sur l'éditeur ou
+les totaux demandait donc une suite full déclenchée à la main. Depuis le
+18/10/2026, ils sont dans la liste critical `localBusiness` d'`e2e.config.ts`,
+dans `suite.journeys` et dans le groupe `editor` de la carte : une PR qui
+atteint l'éditeur (règles `estimate-editor`, `estimates-boundaries`) ou une
+route API qu'ils appellent (graphe `/api/...`) les lance dans les shards
+critical, à 2 workers.
+
+- **Collision avant correction (rouge).** `main` `8eaee26b` sans modification
+  locale, clone WSL `~/miaouffrage-v1-selection` :
+  `E2E_ARMY_WORKERS=2 npm run e2e:army:ci -- full --app-port 3171 --grep 'V1BT0[1-3] |V1PT01 |numeric entry persists grouped settings'`.
+  Exit 1, 5/6, 153 s. `numeric-entry` « persists grouped settings » échoue sur
+  sa précondition (« the shared campaign account must be in Simplifié mode; a
+  journey switched profiles.ui_mode: expected 1 to be 0 »), et V1PT01 enregistre
+  `initialMode: "expert"` : il a démarré pendant que V1BT tenait le compte
+  partagé en Expert. Preuve : `.e2e/army/ci/2026-10-18T12-22-07-884Z-full/`
+  (`manifest.json` SHA-256 `bda8ad20…231e`, `full/report.json` `48e3bb7a…a0e7`).
+- **Correction (`e2e/` seulement).** Chaque test s'inscrit comme son propre
+  propriétaire jetable (`signUpDedicatedOwner`, étiquettes `V1BT01`, `V1BT02`,
+  `V1BT03` et `V1PT01`), né en Expert, avec son tenant `ARMY <étiquette> <run>`,
+  comme `bulk-edit-sync-sources` et V3P01. Son devis, sa règle de suggestion
+  (V1BT03), son catalogue (V1PT01) et son rôle MO de base à 40 €/h y naissent.
+  Les rôles par défaut d'un tenant neuf sont à 0 €/h : ce rôle est créé par
+  `POST /api/estimates/<ancre>/labor-roles` sous le bail de la v2 d'ancrage,
+  rendu ensuite. Le parcours vérifie en SQL que le devis appartient à ce compte
+  et à ce tenant. `setUiMode`, les rétablissements et la désactivation finale
+  de la règle sont retirés : le compte partagé n'est plus modifié. Valeurs
+  métier et oracles inchangés.
+- **Garde.** `src/test/army-impact-map.test.ts` exige que les contrôleurs
+  `Bulk`, `Suggestions` et `Supplier` de l'éditeur sélectionnent les deux
+  fichiers : rouge sur la carte et la liste de `main`, vert ensuite.
+- **Durées des shards.** V1PT01 garde ses 7 s mesurées ;
+  `bulk-actions-v1-totals.e2e.ts` n'a pas de durée mesurée en CI dans
+  `army-shards.json` et compte `defaultSeconds` (20 s ; 19 à 25 s en local).
+  Suite complète : toujours 3 shards (1 073 s mesurées au lieu de 1 046 s).
+
 ### Exécution full ciblée (`workflow_dispatch`, `grep`)
 
 Prouver quelques parcours de la sélection full (métré, extended, `local`) sans
