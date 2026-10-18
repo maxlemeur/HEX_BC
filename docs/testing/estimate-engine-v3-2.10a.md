@@ -1,8 +1,9 @@
 # Créateurs prêts pour le moteur 3 (sous-lot 2.10a)
 
-Statut : **phase rouge exécutée** (18/10/2026, §5). Défaillances écrites avant les parcours, parcours écrits
-avant le code ; aucune ligne de production n'est modifiée à ce stade. Branche `lot2/2.10a-createurs-v3`, base `origin/main`
-`5cfd4a94` (2.8 fusionné ; #45 / 2.7 non fusionné, M5 non réhorodatée). Source : plan vers 2.10 (§1.2 N1, N3 ;
+Statut : **vert** (18/10/2026). Défaillances écrites avant les parcours, parcours écrits avant le code, rouges
+conservés (§5), correction (§6), preuves qualifiantes (§7), décisions et limites (§8). Branche
+`lot2/2.10a-createurs-v3`, base `origin/main` `5cfd4a94` (2.8 fusionné), puis fusion de `origin/main` `d7e672b4`
+(#45 / 2.7 non fusionné à cette date, M5 non réhorodatée). Non poussée. Source : plan vers 2.10 (§1.2 N1, N3 ;
 §3 « 2.10a » ; décisions du 18/10/2026 D-d, D-f, D-g, D-h), inventaire des écarts v3 (A1 à A4, A16), cahier de
 la bascule (§2), conception du lot 2 §14 « 2.10 », P-12, P-14, P-19, D3, D16.
 
@@ -55,9 +56,10 @@ coefficients, réglages de version, nombre de versions de l'affaire +1, et polit
 
 1. **Attente partout (N1).** La page de l'assistant lit `readTenantCalcPolicy` côté serveur et transmet le
    moteur et les coefficients par défaut. Toute requête de création de l'assistant porte
-   `version.expected_calc_engine_version` (vierge, « Créer directement », DPGF lié) ou
-   `expected_calc_engine_version` (modèle) égal au moteur de la politique. L'accueil déclare le moteur de la
-   politique qu'il lit, comme `import-flow.ts:582`. Sous une politique absente, l'attente vaut 2.
+   `version.expected_calc_engine_version` (vierge, « Créer directement », DPGF lié) ou, au premier niveau,
+   `expectedCalcEngineVersion` (modèle, corps camelCase du client, normalisé en `expected_calc_engine_version` par
+   le schéma) égal au moteur de la politique. L'accueil déclare le moteur de la politique qu'il lit, comme
+   `import-flow.ts:582`. Sous une politique absente, l'attente vaut 2.
 2. **Étape de prix v3 (A4).** Sous moteur 3 : « Coefficient de vente FO » et « Coefficient de vente MO »
    (champs saisissables, initialisés à la politique : « 1,30 », « 1,20 ») ; ni « Marge fixe », ni « Marge par
    tranche », ni « Marge (%) » ; « Arrondi » limité à « Aucun » et aux paliers inférieurs. La requête porte
@@ -88,10 +90,12 @@ coefficients, réglages de version, nombre de versions de l'affaire +1, et polit
    automatique ») et la boîte « Analyser les plans » affichent chacune « Le métré ne s'applique pas à un devis
    en moteur de calcul 3. » et leur « Analyser maintenant » est désactivé ; `POST
    /api/takeoff/jobs` répond `409 TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED` avant tout dépôt ; aucune tâche
-   n'est écrite.
+   n'est écrite. Même refus pour la proposition de l'étape des plans après un import qui crée une v3, et pour
+   les actions serveur du hub (`createTakeoffJobFromPlanSet`).
 6. **Structure IA (N3, D-g).** Sur une v3, « Proposer une structure avec l'IA » est désactivé, avec pour
    description accessible « Ce devis utilise le moteur de calcul 3, pas encore disponible pour cette
-   action. » ; `?openStructureDraft=1` n'ouvre pas l'assistant « Structure IA ».
+   action. » ; `?openStructureDraft=1` n'ouvre pas l'assistant « Structure IA » ; le hub ne propose plus
+   « Ouvrir la structure préliminaire » pour un brouillon v3.
 7. **Évolution de la marge (A16, D-d).** Les points v1/v2 restent ; la section « Analyse de marge » affiche
    « Évolution de la marge indisponible pour le moteur de calcul 3 : V3. » (versions v3 nommées).
 
@@ -130,16 +134,17 @@ Carte d'impact : le fichier rejoint `suite.journeys` et les groupes `wizard`, `a
 
 - **F10, F11** (création rapide depuis un import, démarrage manuel) : aucun écran ne les atteint (§1). Aucun
   parcours d'interface ne peut les exposer ; un test isolé de ces actions serveur ne vérifierait que des
-  simulations (`quick-create-affaire.test.ts` simule `persistCanonicalEstimateV2`). **Décision à prendre** par
-  le coordinateur : soit les retirer (code mort, hors de ce sous-lot), soit les corriger avec l'outil commun du
-  point 4 du §2 sans preuve d'interface. Le partage de `createProjectWithBlankEstimate` avec l'accueil est
-  prouvé par V3C07.
+  simulations (`quick-create-affaire.test.ts` simule `persistCanonicalEstimateV2`). **Décision du vert** (§8) :
+  corrigés avec l'outil commun du point 4 du §2, sans preuve d'interface ; leur retrait reste hors du sous-lot.
+  Le partage de `createProjectWithBlankEstimate` avec l'accueil est prouvé par V3C07, celui de la
+  normalisation d'import v3 avec la source DPGF liée par V3C06.
 - **Version zéro** : aucune entrée d'interface (§1) ; refus d'API prouvé par IO08.
 - **Isolation** : aucune au rouge. La parité TS/SQL de la conversion d'un modèle est prouvée par l'oracle M6
   de V3C04 (même pile, mêmes données).
-- Repli « aperçu requis » d'un DPGF lié qui porte des h/u : code inchangé (`importRequiresPreview` avant toute
-  normalisation) ; le vert doit le garder avant la branche v3. Un parcours dédié demanderait un import avec
-  rôle MO choisi à l'aperçu ; il n'est pas écrit au rouge.
+- Repli « aperçu requis » d'un DPGF lié qui porte des h/u : `importRequiresPreview` reste évalué avant toute
+  création, sur les lignes normalisées pour le moteur de la politique ; en v3 il couvre aussi une colonne
+  d'heures par ligne (§6). Un parcours dédié demanderait un import avec rôle MO choisi à l'aperçu ; il n'est
+  pas écrit (limite, §8).
 
 ## 5. Exécution rouge (18/10/2026, WSL Ubuntu 24.04, Node 24.19.0, Supabase CLI 2.120.0 natif)
 
@@ -190,3 +195,100 @@ et l'archive SDK `.e2e/army/critical/runs/2026-10-18T09-42-14-016Z/` du clone WS
 copiées avec les trois itérations, les journaux et les enregistrements métier `ARMY-*-v3c*.json` dans
 `.e2e/lot2-2.10a/red/` de la copie de travail (120 fichiers, `SHA256SUMS`). Le vert devra être prouvé par un
 run qualifiant (`e2e:army:local`), pas par cette boucle.
+
+## 6. Correction (vert)
+
+Code : `661e257e`, puis fusion de `origin/main` `d7e672b4` (`3c9dd453`, sans conflit). Aucune migration, aucune
+ligne de politique écrite hors des fixtures, aucune version existante modifiée. `src/lib/estimate-calculations.ts`
+et `src/lib/estimate-v2-snapshot.ts` inchangés.
+
+| Défaillance | Correction | Fichiers |
+|---|---|---|
+| F1, F2, F9, F11 (N1) | La page de l'assistant devient une enveloppe serveur : elle lit `readTenantCalcPolicy` pour l'entreprise active et transmet le moteur et les coefficients par défaut à `NewEstimatePage` (client). Toute création de l'assistant (vierge, « Créer directement », modèle, DPGF lié) envoie ce moteur comme attente, 2 compris. Les actions de l'accueil et de la création rapide déclarent le moteur de la politique qu'elles lisent (`readExpectedCreationEngine`). La RPC relit la politique sous verrou : une politique changée après le rendu donne `CONTEXT_CHANGED`, et recharger la page lit la nouvelle | `estimates/new/page.tsx`, `NewEstimatePage.tsx`, `EstimateCreationWizard.tsx`, `submitEstimateCreation.ts`, `client.ts`, `quick-create-affaire.ts` |
+| F3 (A4) | Sous moteur 3, l'étape de prix remplace « Mode de marge » par « Coefficients de vente » (« Coefficient de vente FO » / « MO », texte saisi initialisé à la politique, `]0 ; 10]`, 4 décimales, mêmes bornes que l'éditeur v3). L'arrondi garde « Aucun » et les paliers inférieurs ; un mode v2 restauré d'un brouillon vaut « Aucun ». La requête porte `sale_coefficient_fo/mo`, `rounding_mode`, `rounding_step_cents` (palier inférieur seulement), jamais `margin_*`, `global_coefficient` ni `discount_steps` | `PricingStep.tsx`, `shared.ts`, `useEstimateCreationDraft.ts`, `submitEstimateCreation.ts` |
+| F4 à F7 (A1, D-h) | `persistCanonicalEstimateV2` admet un modèle en moteur 3, dans la même transaction. Lignes : miroir de M6 (`toV3TemplateLine`) : Q absente 1, PR 0, K 1, heures par unité du modèle issu d'une v3, sinon h / Q au demi supérieur à 4 décimales atelier et chantier compris (`templateLineHoursPerUnitForV3`), unité du modèle, sinon référentiel sur `description` pour une ligne chiffrée (`normalizeMeasurementUnit`, identique à `private.normalize_unit`), TVA absente = celle de la version ; refus nommés de M6 (`ESTIMATE_V3_TEMPLATE_HOURS_WITHOUT_QUANTITY`, `ESTIMATE_TEMPLATE_LABOR_ROLE_REQUIRED`, partagés avec l'insertion). Réglages : `resolveTemplateV3VersionSettings` reprend devise, TVA, remise simple (montant prioritaire, comme en v2) et palier inférieur ; marge ≠ 1, marge par tranche, coefficient global ≠ 1, remise en cascade, arrondi au plus proche ou supérieur ne sont pas repris et sont listés avec leur libellé. Coefficients : ceux du modèle issu d'une v3, sinon ceux de la politique. Réponse `201` : `converted_lines` (même rapport que l'insertion) et `dropped_settings`, en v3 seulement ; la route garde la cause nommée au lieu du 500 ; l'assistant montre l'avertissement « Modèle converti au moteur de calcul 3 » (15 s) | `canonical-v2-creation.ts`, `template-v3-hours.ts`, `template-v3-settings.ts`, `estimate-template-helpers.ts`, `assemblies-server.ts`, `templates-server.ts`, `schemas.ts`, `NewEstimatePage.tsx` |
+| F8, F10 (A2, A3) | `resolveImportSaleCoefficients` et `v3LineContext` passent dans `src/lib/affaires/import-engine-server.ts`, réutilisés par l'import de l'affaire, la source DPGF liée de l'assistant (coefficients saisis dans l'assistant, sinon la politique) et la création rapide depuis un import. Sous moteur 3, `importRequiresPreview` couvre aussi une colonne d'heures par ligne (`line_hours_require_hours_per_unit`) : sans aperçu, ces lignes seraient perdues ou leurs heures à 0 €/h. La création rapide garde la cause nommée dans son message | `import-engine-server.ts`, `_actions/import-flow.ts`, `lib/affaires/import-flow.ts`, `estimates/server.ts`, `quick-create-affaire.ts` |
+| F12 (N3, D-f) | La création d'une tâche de métré refuse une cible v3 par `TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED` (même code et message que l'application) avant tout dépôt (`assertEstimateVersionAccessibleAsDraft`, API et actions du hub). La proposition d'analyse du hub, celle de l'étape des plans après un import v3 et la boîte « Analyser les plans » (cible courante ou copie d'une v3) affichent le motif et désactivent le lancement ; le moteur des versions vient du résumé du hub et de `fetchProjectVersionList` | `takeoff/server.ts`, `takeoff/engine-support.ts`, `TakeoffLaunchPrompt.tsx`, `LaunchMetreDialog.tsx`, `PlansStep.tsx`, `UnifiedImportFlow.tsx`, `AffaireHub.tsx`, `affaires/server.ts`, `launch-context.ts`, pages du hub et du métré |
+| F13 (N3, D-g) | « Proposer une structure avec l'IA » est désactivé sur une v3, le motif `ESTIMATE_ENGINE_UNAVAILABLE_MESSAGE` affiché sous le bouton et lié par `aria-describedby` ; `?openStructureDraft=1` n'ouvre rien ; le hub ne propose plus « Ouvrir la structure préliminaire » pour un brouillon v3. Version zéro : aucune entrée d'interface (TI-582), refus d'API inchangé (IO08) | `EstimateEditorCommandBar.tsx`, `EstimateEditorToolbar.tsx`, `EstimateEditorTable.tsx`, `useEstimateEditorState.impl.tsx`, `cockpit/suggestions.ts` |
+| F14 (A16, D-d) | L'analyse de marge rend `versionEvolutionUnavailableV3` (numéros des v3) ; le hub affiche « Évolution de la marge indisponible pour le moteur de calcul 3 : V3. » sous le graphique, qui garde les points v1/v2 | `affaires/server.ts`, `MarginAnalysisWidget.tsx` |
+| Constante v2 | La préparation v2 utilise `CANONICAL_V2_CALC_ENGINE_VERSION` (2), atteinte seulement quand la politique vaut 2 ; `NEW_ESTIMATE_CALC_ENGINE_VERSION` n'est plus lue par la création | `canonical-v2-creation.ts` |
+| OpenAPI | `expected_calc_engine_version` de l'instanciation, `converted_lines` et `dropped_settings`, 400 et 409 de l'instanciation, 409 de `POST /api/takeoff/jobs`, création : retrait du refus `ESTIMATE_ENGINE_UNAVAILABLE` des modèles et imports | `registry.ts`, `openapi.json` |
+
+Sous une politique absente : même v2 qu'avant (V3C11, V3C12). La seule différence observable dans la requête est
+l'attente explicite 2, équivalente à son absence (D3). Les fins de ligne d'origine sont gardées, fichiers mixtes
+compris (`git -c core.whitespace=cr-at-eol diff --check` propre).
+
+Test isolé touché : `quick-create-affaire.test.ts` simule la politique absente (le stub refusait toute table non
+prévue) et attend l'attente 2 dans les appels à `createEstimate`. Aucun test isolé ajouté.
+
+## 7. Preuves vertes (18/10/2026, WSL Ubuntu 24.04, Node 24.19.0, Supabase CLI 2.120.0 natif, `E2E_ARMY_WORKERS=2`)
+
+Runs qualifiants sur la tête de code `3c9dd453` (fusion de `origin/main` `d7e672b4` comprise), clone WSL propre
+(`git diff HEAD` vide), chacun sur sa pile possédée et jetable, migrations, pgTAP et matrice RLS verts avant les
+parcours, pile et ports libérés à la fin. Le commit suivant ne touche que cette fiche.
+
+| Preuve | Commande | Résultat | Preuves (copie de travail, `.e2e/lot2-2.10a/green/`) |
+|---|---|---|---|
+| Parcours 2.10a et parcours de création | `npm run e2e:army:local -- --grep '^V3C(0[1-9]\|1[0-2]) \|[Ww]izard\|[Cc]réation\|[Cc]reation\|[Tt]emplate\|[Mm]odèle\|[Ii]mport\|[Oo]nboarding\|[Qq]uick\|^V3P01 \|^V3E0[1-4] \|^IO0' --app-port 3171` | **34/34** (`filtered-critical`) : V3C01 à V3C12 ; IO01, IO03 à IO09 ; V3E01 à V3E04, V3E11 (remise 0 %, palier, fiche v3) ; V3P01 ; GATE02 (créations concurrentes) ; « creation persists final French » (`estimate-integrity`) ; les trois parcours de `import-optima-v2` ; `commercial-rounding` ; accès anonyme et connexion ; 7 min 13 s de parcours | `local-grep/` (manifeste `2026-10-18T11-19-40-395Z-critical`, journaux, archive SDK, `ARMY-*-v3c*.json`, `SHA256SUMS`, 590 fichiers) |
+| Suite critique, une fois | `npm run e2e:army:ci -- critical --app-port 3172` | **117/117**, 0 instable, 0 ignoré ; 7 min 50 s de parcours | `critical/` (manifeste `2026-10-18T11-29-46-751Z-critical`, 1 454 fichiers) |
+| Qualité | `npm run verify:pr` (audit, architecture, `validate-openapi`, typecheck, lint, Vitest node 301 fichiers dont 1 ignoré, jsdom 165, couverture critique) | vert | `verify-pr-3c9dd453.log` ; l'en-tête de ce journal porte une révision fausse (substitution du shell Windows) : le clone WSL était à `3c9dd453`, propre, pendant tout le run |
+| OpenAPI | `npm run generate-openapi`, `npm run validate-openapi` | spec valide et synchronisée ; diff relu (instanciation, takeoff, création) | `openapi.json` |
+| Diff | `git -c core.whitespace=cr-at-eol diff --check origin/main...HEAD` ; `git diff --stat origin/main...HEAD -- src/lib/estimate-calculations.ts src/lib/estimate-v2-snapshot.ts supabase/migrations` | propre ; vide | — |
+
+Valeurs exactes relues en SQL et par l'API (attendus du §3, inchangés) : V3C01 v3 à 1,30 / 1,20, réglages neutres,
+totaux 0 ; V3C02 requête `[1,25, 1,15, down, 10 000]` sans clé v2, v3 à 1,25 / 1,15 ; V3C04 T1 et T2 égales à
+l'oracle M6, tube 3 700 / 37 000, `converted_lines` collier 1 h → 0,9 h, `dropped_settings` T1
+`[margin_multiplier « Marge 15 % », global_coefficient « Coefficient global 1,02 », rounding_mode « Arrondi au
+palier supérieur de 10,00 € »]`, T2 `[margin_mode, discount_mode]`, avertissement affiché ; V3C05 v3 à
+1,10 / 1,05, lignes égales à la source (3 200 / 32 000), rapports vides ; V3C06 HT 11 700, TVA 2 340, TTC 14 040,
+`ml` / `u` ; V3C07 v3 vierge à 1,30 / 1,20 ; V3C08 motif et lancement désactivé dans les deux entrées, API 409,
+aucune tâche ; V3C09 bouton désactivé avec le motif, aucune ouverture ; V3C10 graphique V1, V2 et avis V3 ; gardes
+V3C11 et V3C12 aux valeurs v2 d'avant le code, aucune politique écrite.
+
+Itérations (boucle `e2e:army:dev-loop`, non qualifiantes, `devloop/`) sur `d83223b4` plus les changements non
+commis, puis arrêt avant la fusion : 1. V3C01 à V3C12 **13/13** au premier essai ; 2. parcours de création
+**29/30**, V3E01 rouge (« expected false to be true » dans `waitForAutoSave`, ligne O1 sans son rôle MO) ;
+3. V3E01 seul **2/2**. Ce défaut de saisie de la grille, sans lien avec 2.10a, est celui que corrige #53
+(`docs/testing/v3e01-labour-role-lost.md`), fusionné avant les runs qualifiants, où V3E01 est vert deux fois.
+
+## 8. Décisions appliquées, limites
+
+Décisions du 18/10/2026 (plan vers 2.10) appliquées :
+
+- **D-d** (A16) : avis « indisponible pour le moteur 3 » qui nomme les v3, au lieu d'un retrait silencieux ; la
+  série v3 tirée des gels frais reste pour plus tard.
+- **D-f** (P-19, N3) : plus de métré sur une v3 ; le refus nommé de l'application est dit dès la création de la
+  tâche et dans chaque entrée du hub. Une politique 2 explicite garde le métré (la cible est alors une v2).
+- **D-g** (P-14, N3) : structure IA désactivée avec son motif, sans ouverture automatique ni suggestion du hub ;
+  version zéro sans entrée d'interface, refus d'API inchangé.
+- **D-h** (A1) : réglages v2 non représentables non repris et listés (`dropped_settings` et avertissement), comme
+  `converted_lines`.
+
+Décisions du vert :
+
+- F10, F11 (`QuickCreateAffaireDialog`, `startAffaireManualEstimate`, sans écran) : corrigés avec l'outil
+  partagé (attente déclarée, normalisation d'import v3, cause nommée) plutôt que retirés ; aucune preuve
+  d'interface possible, aucun test isolé ajouté (il ne vérifierait que des simulations).
+- Remise d'un modèle v2 : une remise fixe est reprise (elle prime en v2 sur le taux et les paliers), un taux
+  simple aussi ; une remise en cascade n'est pas reprise et elle est listée.
+- Les coefficients saisis dans l'assistant ne s'appliquent pas à « Depuis un modèle » (ceux du modèle v3, sinon
+  de la politique), comme les réglages de prix v2 qui ne s'appliquaient pas non plus à un modèle.
+- Une colonne d'heures par ligne d'un DPGF lié ou d'un import de création rapide demande l'aperçu de l'import
+  de l'affaire en moteur 3 (`importRequiresPreview`), sans changement en v2 où ce motif n'existe pas.
+
+Limites (non couvertes par ce sous-lot) :
+
+- Repli « aperçu requis » d'un DPGF lié à h/u ou à heures par ligne : code relu, aucun parcours.
+- `converted_lines` compare les heures MO totales seulement, comme l'insertion M6 (B7, P-12).
+- Une nouvelle v3 reçoit, comme toute nouvelle version, le report des tâches de métré de la version
+  précédente (`tryCarryOverTakeoffJobsToNewVersion`) : elles restent visibles et leur application est refusée
+  (P-19).
+- Modèle + « DPGF source à importer » : l'import dans la v3 créée passe par l'éditeur (A5, sous-lot 2.8b) et
+  reste refusé, avec l'avertissement existant « Le chiffrage a été créé, mais le DPGF source n'a pas pu être
+  importé ».
+- Les erreurs d'une action serveur restent masquées en production (« Minified React error », vu au rouge de
+  V3C07) ; l'accueil réussit désormais sous politique 3, mais une autre erreur n'y est pas plus lisible.
+- Les parcours du métré (`e2e/army/takeoff/*`, hors `critical`) n'ont pas été rejoués localement : sous une
+  politique absente, le contrôle ajouté ne refuse rien ; la sélection d'une pull request les lance (carte
+  d'impact modifiée).
+- Revue indépendante : non faite par cet agent.
