@@ -368,6 +368,11 @@ autre version, à une autre opération ou à un appel direct du pont ; C4 une v3
   (785/785) ; sa durée (196 s puis 135 s) vient de lectures bloquées ~60 s (constat ci-dessus), pas de la
   création.
 
+**Garde locale** : gros devis v3 (création et enregistrement des paramètres sur 1 021 éléments) : invariance
+d'échelle à chaque `db:ci:local`, médiane de création ≤ 330 ms sur demande (`DB_CI_STATEMENT_BUDGET=enforce`) ;
+l'enregistrement des paramètres dépasse déjà ce budget (≈ 546 ms). Voir
+[large-estimate-statement-budget.md](large-estimate-statement-budget.md).
+
 **Écart assumé** : quand un payload porte deux refus différents (un refus de profondeur et le refus d'une
 ligne plus loin par un autre déclencheur ou une contrainte), le refus remonté peut différer. Une création
 acceptée écrit les mêmes lignes, révisions, lignes d'audit et révisions de couverture.
