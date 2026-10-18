@@ -1,3 +1,4 @@
+import { readAllRows } from "@/lib/supabase/read-all";
 import { cache } from "react";
 
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
@@ -2212,14 +2213,15 @@ async function fetchAffaireHubMarginAnalysisWithContext(
   project: AffaireHubProjectRow
 ): Promise<AffaireHubMarginCardData> {
   // 1. Fetch all versions
-  const { data: versionsData, error: versionsError } = await context.supabase
+  const { data: versionsData, error: versionsError } = await readAllRows(() => context.supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, version_number, status, total_ht_cents, margin_multiplier, margin_mode, tax_rate_bp, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, updated_at, calc_engine_version, rounding_mode, rounding_step_cents, contractor_role, sale_coefficient_fo, sale_coefficient_mo"
+      "id, project_id, version_number, status, total_ht_cents, margin_multiplier, margin_mode, tax_rate_bp, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, updated_at, calc_engine_version, rounding_mode, rounding_step_cents, contractor_role, sale_coefficient_fo, sale_coefficient_mo",
+      { count: "exact" }
     )
     .eq("tenant_id", context.tenantId)
     .eq("project_id", project.id)
-    .order("version_number", { ascending: true });
+    .order("version_number", { ascending: true }));
 
   if (versionsError) {
     throw mapSupabaseError(versionsError, "Impossible de charger les versions pour l'analyse de marge.");
@@ -2232,13 +2234,14 @@ async function fetchAffaireHubMarginAnalysisWithContext(
   const currentVersion = versions[versions.length - 1];
 
   // 3. Fetch all items for current version
-  const { data: itemsData, error: itemsError } = await context.supabase
+  const { data: itemsData, error: itemsError } = await readAllRows(() => context.supabase
     .from("estimate_items")
     .select(
-      "id, parent_id, item_type, position, title, description, quantity, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, h_mo_majoration, k_mo, h_mo_atelier, k_mo_atelier, labor_role_atelier_id, h_mo_chantier, k_mo_chantier, labor_role_chantier_id, pu_ht_cents, labor_role_id, category_id, supply_type_id, line_total_ht_cents, line_tax_cents, line_total_ttc_cents, unit_code, pricing_status, h_mo_per_unit, h_mo_atelier_per_unit, h_mo_chantier_per_unit"
+      "id, parent_id, item_type, position, title, description, quantity, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, h_mo_majoration, k_mo, h_mo_atelier, k_mo_atelier, labor_role_atelier_id, h_mo_chantier, k_mo_chantier, labor_role_chantier_id, pu_ht_cents, labor_role_id, category_id, supply_type_id, line_total_ht_cents, line_tax_cents, line_total_ttc_cents, unit_code, pricing_status, h_mo_per_unit, h_mo_atelier_per_unit, h_mo_chantier_per_unit",
+      { count: "exact" }
     )
     .eq("tenant_id", context.tenantId)
-    .eq("version_id", currentVersion.id);
+    .eq("version_id", currentVersion.id));
 
   if (itemsError) {
     throw mapSupabaseError(itemsError, "Impossible de charger les lignes pour l'analyse de marge.");

@@ -1,3 +1,4 @@
+import { readAllRows } from "@/lib/supabase/read-all";
 import type { PostgrestError } from "@supabase/supabase-js";
 
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
@@ -85,7 +86,8 @@ export async function GET(request: Request) {
     let jobsQuery = supabase
       .from("takeoff_jobs" as never)
       .select(
-        "id, status, level, model, duration_ms, cost_cents, retry_count, error_code, created_at"
+        "id, status, level, model, duration_ms, cost_cents, retry_count, error_code, created_at",
+        { count: "exact" }
       )
       .eq("tenant_id" as never, tenantId as never)
       .gte("created_at" as never, cutoff as never);
@@ -97,7 +99,8 @@ export async function GET(request: Request) {
     let runMetricsQuery = supabase
       .from("takeoff_run_metrics" as never)
       .select(
-        "job_id, input_tokens, reasoning_tokens, output_tokens, timed_out, budget_exceeded"
+        "job_id, input_tokens, reasoning_tokens, output_tokens, timed_out, budget_exceeded, id",
+        { count: "exact" }
       )
       .eq("tenant_id" as never, tenantId as never)
       .gte("created_at" as never, cutoff as never);
@@ -108,19 +111,19 @@ export async function GET(request: Request) {
 
     const [jobsResult, runMetricsResult, resultsResult, itemsResult] =
       await Promise.all([
-        jobsQuery,
-        runMetricsQuery,
-        supabase
+        readAllRows(() => jobsQuery),
+        readAllRows(() => runMetricsQuery),
+        readAllRows(() => supabase
           .from("takeoff_results" as never)
-          .select("job_id, confidence")
+          .select("job_id, confidence, id", { count: "exact" })
           .eq("tenant_id" as never, tenantId as never)
           .gte("created_at" as never, cutoff as never)
-          .not("confidence" as never, "is" as never, null as never),
-        supabase
+          .not("confidence" as never, "is" as never, null as never)),
+        readAllRows(() => supabase
           .from("takeoff_items" as never)
-          .select("id, job_id, confidence, evidence, source_page, is_excluded")
+          .select("id, job_id, confidence, evidence, source_page, is_excluded", { count: "exact" })
           .eq("tenant_id" as never, tenantId as never)
-          .gte("created_at" as never, cutoff as never),
+          .gte("created_at" as never, cutoff as never)),
       ]);
 
     if (jobsResult.error) {
@@ -146,9 +149,9 @@ export async function GET(request: Request) {
       jobIds,
       errorMessage: "Impossible de charger les événements de correction takeoff.",
       fetchBatch: async (batch) =>
-        (await supabase
+        (await readAllRows(() => supabase
           .from("audit_logs" as never)
-          .select("record_id, action, created_at, after_data")
+          .select("record_id, action, created_at, after_data, id", { count: "exact" })
           .eq("tenant_id" as never, tenantId as never)
           .gte("created_at" as never, cutoff as never)
           .in("record_id" as never, batch as never)
@@ -159,7 +162,7 @@ export async function GET(request: Request) {
               "takeoff.item.modified",
               "takeoff.dpgf.review_decision",
             ] as never
-          )) as {
+          ))) as {
           data: TakeoffMetricsAuditLogRow[] | null;
           error: SupabaseQueryError | null;
         },

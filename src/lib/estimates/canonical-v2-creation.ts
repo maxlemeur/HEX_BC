@@ -1,3 +1,4 @@
+import { readAllRows } from "@/lib/supabase/read-all";
 import { randomUUID } from "node:crypto";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -1153,13 +1154,13 @@ export async function instantiateCanonicalEstimateV2FromTemplate(
   }
   const template = templateData as EstimateTemplateRow;
 
-  const { data: itemData, error: itemError } = await input.supabase
+  const { data: itemData, error: itemError } = await readAllRows(() => input.supabase
     .from("estimate_template_items")
-    .select("*")
+    .select("*", { count: "exact" })
     .eq("tenant_id", input.tenantId)
     .eq("template_id", input.templateId)
     .order("position", { ascending: true })
-    .order("id", { ascending: true });
+    .order("id", { ascending: true }));
   if (itemError) {
     throw new Error("ESTIMATE_CANONICAL_V2_TEMPLATE_ITEMS_UNAVAILABLE", {
       cause: itemError,

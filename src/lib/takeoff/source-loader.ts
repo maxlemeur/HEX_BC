@@ -1,3 +1,4 @@
+import { readAllRows } from "@/lib/supabase/read-all";
 import { PDFDocument } from "pdf-lib";
 
 import type { getAuthenticatedContext } from "@/lib/auth/tenant-context";
@@ -123,14 +124,15 @@ export async function loadTakeoffSource(input: {
 }): Promise<DownloadedTakeoffFile> {
   const planSetId = normalizeNullableText(input.job.plan_set_id);
   if (planSetId) {
-    const { data: planFilesData, error: planFilesError } = await input.supabase
+    const { data: planFilesData, error: planFilesError } = await readAllRows(() => input.supabase
       .from("plan_files" as never)
       .select(
-        "file_path, file_name, file_type, file_size_bytes, page_count" as never
+        "file_path, file_name, file_type, file_size_bytes, page_count, id" as never,
+        { count: "exact" }
       )
       .eq("tenant_id" as never, input.job.tenant_id as never)
       .eq("plan_set_id" as never, planSetId as never)
-      .order("created_at" as never, { ascending: true });
+      .order("created_at" as never, { ascending: true }));
 
     if (planFilesError) {
       throw toTakeoffError(

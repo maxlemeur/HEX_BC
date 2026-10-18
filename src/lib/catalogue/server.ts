@@ -1,3 +1,4 @@
+import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
@@ -1088,12 +1089,12 @@ function matchCatalogueItem(
 export async function linkMappedRowsToCatalogue(input: LinkMappedRowsInput) {
   const { supabase } = await getAuthenticatedContext();
 
-  const { data: mappedRows, error: mappedRowsError } = await supabase
+  const { data: mappedRows, error: mappedRowsError } = await readAllRows(() => supabase
     .from("dpgf_rows_mapped")
-    .select("id, payload")
+    .select("id, payload", { count: "exact" })
     .eq("import_id", input.import_id)
     .order("created_at", { ascending: true })
-    .limit(input.limit);
+    .limit(input.limit), { limit: input.limit });
 
   if (mappedRowsError) {
     throw mapSupabaseError(
@@ -1128,16 +1129,16 @@ export async function linkMappedRowsToCatalogue(input: LinkMappedRowsInput) {
 
   const [catalogueByReference, catalogueByDesignation] = await Promise.all([
     uniqueReferences.length > 0
-      ? supabase
+      ? readAllRowsInChunks(uniqueReferences, (pageIds) => supabase
           .from(CATALOGUE_TABLE)
-          .select("*")
-          .in("reference_normalized", uniqueReferences)
+          .select("*", { count: "exact" })
+          .in("reference_normalized", pageIds))
       : Promise.resolve({ data: [], error: null }),
     uniqueDesignations.length > 0
-      ? supabase
+      ? readAllRowsInChunks(uniqueDesignations, (pageIds) => supabase
           .from(CATALOGUE_TABLE)
-          .select("*")
-          .in("designation_normalized", uniqueDesignations)
+          .select("*", { count: "exact" })
+          .in("designation_normalized", pageIds))
       : Promise.resolve({ data: [], error: null }),
   ]);
 

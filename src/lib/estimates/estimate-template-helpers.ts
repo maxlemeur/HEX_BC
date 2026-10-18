@@ -1,3 +1,4 @@
+import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 
 import { loadValidLaborRoleIdsForOwner } from "@/lib/estimates/estimate-assembly-helpers";
@@ -153,13 +154,13 @@ export async function loadEstimateTemplateItems(input: {
   tenantId: string;
   templateId: string;
 }) {
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("estimate_template_items")
-    .select("*")
+    .select("*", { count: "exact" })
     .eq("tenant_id", input.tenantId)
     .eq("template_id", input.templateId)
     .order("position", { ascending: true })
-    .order("id", { ascending: true });
+    .order("id", { ascending: true }));
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger les lignes du template.");
@@ -179,12 +180,12 @@ export async function loadTemplateLineCountByTemplateId(input: {
     return counts;
   }
 
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRowsInChunks(input.templateIds, (pageIds) => input.supabase
     .from("estimate_template_items")
-    .select("template_id")
+    .select("template_id, id", { count: "exact" })
     .eq("tenant_id", input.tenantId)
     .eq("item_type", "line")
-    .in("template_id", input.templateIds);
+    .in("template_id", pageIds));
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger le comptage des templates.");

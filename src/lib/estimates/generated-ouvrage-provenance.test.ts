@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
+// The HTTP pagination contract is exercised with the real SDK in read-all.test.ts.
+// These retained domain tests supply complete query results at the reader boundary.
+vi.mock("@/lib/supabase/read-all", () => import("@/test/complete-reads-fixture"));
+
+
 import { enrichEstimateItemsWithGeneratedOuvrageProvenance } from "@/lib/estimates/generated-ouvrage-provenance";
 
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";

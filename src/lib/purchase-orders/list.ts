@@ -1,3 +1,4 @@
+import { readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { readAuthenticatedUser } from "@/lib/auth/tenant-context";
 import { ApiError, badRequest, internalError, unauthorized } from "@/lib/estimates/errors";
 
@@ -106,10 +107,10 @@ export async function listOrdersPage(): Promise<OrdersListResponse> {
   const devisCountMap: Record<string, number> = {};
 
   if (orderIds.length > 0) {
-    const { data: devisData, error: devisError } = await supabase
+    const { data: devisData, error: devisError } = await readAllRowsInChunks(orderIds, (pageIds) => supabase
       .from("purchase_order_devis")
-      .select("purchase_order_id")
-      .in("purchase_order_id", orderIds);
+      .select("purchase_order_id, id", { count: "exact" })
+      .in("purchase_order_id", pageIds));
 
     if (devisError) {
       throw badRequest(devisError.message);

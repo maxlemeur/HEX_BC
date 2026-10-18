@@ -35,6 +35,7 @@
       "e2e/army/local/engine-v3-persistence.e2e.ts",
       "e2e/army/local/estimate-create-calculation-gate.e2e.ts",
       "e2e/army/local/supplier-preselection-v1-totals.e2e.ts",
+      "e2e/army/local/large-row-completeness.e2e.ts",
       "e2e/army/local/tech-debt-lock-boundaries.e2e.ts"
     ],
     "setup": "e2e/army/critical/auth.setup.e2e.ts",
@@ -261,6 +262,11 @@
     ]
   },
   "rules": [
+    {
+      "id": "large-row-completeness",
+      "paths": ["src/lib/supabase/read-all.ts", "e2e/army/local/large-row-completeness.e2e.ts"],
+      "journeys": ["e2e/army/local/large-row-completeness.e2e.ts"]
+    },
     {
       "id": "app-shell",
       "note": "Racine applicative et coquille du tableau de bord : toutes les pages des parcours.",

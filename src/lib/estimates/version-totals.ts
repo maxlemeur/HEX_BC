@@ -1,3 +1,4 @@
+import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
@@ -199,12 +200,12 @@ async function resolveEstimateCalculationContext(input: {
   const laborRatesById = new Map<string, number>();
   const uniqueRoleIds = Array.from(laborRoleIds);
   if (uniqueRoleIds.length > 0) {
-    const { data, error } = await input.supabase
+    const { data, error } = await readAllRowsInChunks(uniqueRoleIds, (pageIds) => input.supabase
       .from("labor_roles")
-      .select("id, tenant_id, user_id, hourly_rate_cents")
+      .select("id, tenant_id, user_id, hourly_rate_cents", { count: "exact" })
       .eq("tenant_id", input.tenantId)
       .eq("user_id", input.projectUserId)
-      .in("id", uniqueRoleIds);
+      .in("id", pageIds));
 
     if (error) {
       throw mapSupabaseError(
@@ -240,13 +241,13 @@ async function resolveEstimateCalculationContext(input: {
   let loadedMarginTiers: ResolvedEstimateCalculationContext["marginTiers"] = [];
   if (input.version.margin_mode === "tiered") {
     if (dependencies) {
-      const { data, error } = await input.supabase
+      const { data, error } = await readAllRows(() => input.supabase
         .from("margin_tiers")
-        .select("id, threshold_cents, multiplier, position")
+        .select("id, threshold_cents, multiplier, position", { count: "exact" })
         .eq("tenant_id", input.tenantId)
         .order("threshold_cents", { ascending: true })
         .order("position", { ascending: true })
-        .order("id", { ascending: true });
+        .order("id", { ascending: true }));
       if (error) {
         throw mapSupabaseError(error, "Impossible de charger les tranches de marge.");
       }
