@@ -83,10 +83,11 @@ const oneLineDocument = (text: string) => ({
 const ONE_LINE_DOCUMENT = { line: true, tax: true, ttc: true };
 /**
  * CGV bac à sable du profil calc-v3 (`createDevelopmentEstimateTermsTemplate`, politique « default ») dans un texte
- * normalisé : titre et mention de version, imprimés par le PDF, l'impression et le portail (V3M-17).
+ * normalisé : titre et mention de version, imprimés par le PDF, l'impression et le portail (V3M-17). Le titre est lu
+ * sans casse : l'en-tête de page de l'impression le met en capitales (`uppercase`, repris par `innerText`).
  */
 const termsIn = (text: string) => ({
-  title: /Projet de CGV [-–] Travaux B2B/u.test(text),
+  title: /Projet de CGV [-–] Travaux B2B/iu.test(text),
   review: /Maquette CGV [-–] version 3 [-–] à valider, non contractuelle\./u.test(text),
 });
 const SANDBOX_TERMS = { title: true, review: true };
