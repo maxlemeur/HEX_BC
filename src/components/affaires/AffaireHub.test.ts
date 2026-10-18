@@ -263,6 +263,7 @@ describe("linked DPGF import preference", () => {
           acceptedVersion: null,
           versionsCount: 1,
           lineCount: 0,
+          affaireHasLines: false,
           structureMode: {
             mode: "not_started",
             lineCount: 0,
@@ -313,6 +314,7 @@ describe("linked DPGF import preference", () => {
           acceptedVersion: null,
           versionsCount: 1,
           lineCount: 0,
+          affaireHasLines: false,
           structureMode: {
             mode: "not_started",
             lineCount: 0,

@@ -154,15 +154,19 @@ export function shouldShowAffaireCreatedOnboardingBanner(input: {
   );
 }
 
+/**
+ * Démarrage du hub : ni document, ni DPGF lié, ni ligne dans aucune version de l'affaire (décision du 18/10/2026).
+ * Une V2 vierge après une V1 chiffrée garde le hub complet, V1 comprise.
+ */
 export function isAffaireFreshStartState(input: {
   intakeWorkspace: Pick<AffaireIntakeWorkspace, "documents"> | null | undefined;
   dpgfSource: AffaireHubDpgfSourceResult;
-  lineCount: number;
+  affaireHasLines: boolean;
 }) {
   return (
     (input.intakeWorkspace?.documents?.length ?? 0) === 0 &&
     !input.dpgfSource &&
-    input.lineCount === 0
+    !input.affaireHasLines
   );
 }
 
@@ -615,7 +619,7 @@ export function AffaireHub({
   const isFreshStartState = isAffaireFreshStartState({
     intakeWorkspace,
     dpgfSource,
-    lineCount: summary.lineCount,
+    affaireHasLines: summary.affaireHasLines,
   });
 
   useEffect(() => {

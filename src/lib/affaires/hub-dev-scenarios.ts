@@ -439,6 +439,7 @@ function ensureCurrentVersion(
     return {
       ...summary,
       lineCount: 0,
+      affaireHasLines: false,
     };
   }
 
@@ -456,6 +457,7 @@ function ensureCurrentVersion(
     },
     versionsCount: Math.max(summary.versionsCount, 1),
     lineCount: 0,
+    affaireHasLines: false,
   };
 }
 
