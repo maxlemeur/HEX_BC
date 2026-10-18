@@ -1,7 +1,7 @@
 # Créateurs prêts pour le moteur 3 (sous-lot 2.10a)
 
-Statut : **phase rouge** (18/10/2026). Défaillances écrites avant les parcours, parcours écrits avant le code ;
-aucune ligne de production n'est modifiée à ce stade. Branche `lot2/2.10a-createurs-v3`, base `origin/main`
+Statut : **phase rouge exécutée** (18/10/2026, §5). Défaillances écrites avant les parcours, parcours écrits
+avant le code ; aucune ligne de production n'est modifiée à ce stade. Branche `lot2/2.10a-createurs-v3`, base `origin/main`
 `5cfd4a94` (2.8 fusionné ; #45 / 2.7 non fusionné, M5 non réhorodatée). Source : plan vers 2.10 (§1.2 N1, N3 ;
 §3 « 2.10a » ; décisions du 18/10/2026 D-d, D-f, D-g, D-h), inventaire des écarts v3 (A1 à A4, A16), cahier de
 la bascule (§2), conception du lot 2 §14 « 2.10 », P-12, P-14, P-19, D3, D16.
@@ -141,6 +141,52 @@ Carte d'impact : le fichier rejoint `suite.journeys` et les groupes `wizard`, `a
   normalisation) ; le vert doit le garder avant la branche v3. Un parcours dédié demanderait un import avec
   rôle MO choisi à l'aperçu ; il n'est pas écrit au rouge.
 
-## 5. Exécution rouge
+## 5. Exécution rouge (18/10/2026, WSL Ubuntu 24.04, Node 24.19.0, Supabase CLI 2.120.0 natif)
 
-À compléter par l'exécution (commande, révision, manifeste, attendu et observé par parcours).
+Boucle d'itération sur une pile possédée et jetable (`miaouffrage-ci-373826-85124bb1`), **pas un run
+qualifiant** : `npm run e2e:army:dev-loop -- start --app-port 3171 --ttl-minutes 180`, puis
+`run --grep '^V3C(0[1-9]|1[0-2]) '`, puis `stop` (pile, registre et ports libérés). `E2E_ARMY_WORKERS=2`.
+Migrations, pgTAP (1 886 assertions) et matrice RLS verts au démarrage. Build `DHL0UDEmXr-hw26Z-QmEF`
+(empreinte applicative `89a59de2…`, sources de `5cfd4a94` : aucun code de production modifié), jamais
+reconstruit pendant la boucle.
+
+| Itération | Révision | Sélection | Résultat |
+|---|---|---|---|
+| 1 | `1d26c1c8` | V3C01 à V3C12 | 8 rouges métier ; V3C08 et V3C09 arrêtés dans leurs préalables (preuve manquante, pas un rouge) ; V3C11, V3C12 verts |
+| 2 | `bb4772f3` | V3C08, V3C09 | 2 rouges métier, après correction des préalables (ci-dessous) |
+| 3 | `bb4772f3`, diff vide | V3C01 à V3C12 | **10 rouges métier, 2 gardes vertes**, connexion verte ; parcours 67 s |
+
+Correction entre 1 et 2 : une v3 sans ligne laisse le hub en « affaire neuve », qui montre la proposition
+d'analyse au lieu de la section « Plans, preuves & exceptions » ; V3C08 lit désormais cette proposition
+(troisième entrée du métré, F12), puis ajoute une ligne et ouvre « Analyser les plans ». V3C09 ouvre l'onglet
+« Insérer » du ruban avant le panneau.
+
+Rouges de l'itération 3 (attendu au §3) :
+
+| Id | Observé |
+|---|---|
+| V3C01 | `409 CONTEXT_CHANGED`, aucune attente envoyée, aucune affaire écrite, politique inchangée |
+| V3C02 | étape de prix v2 : « Marge fixe », « Marge par tranche », « Marge (%) » ; aucun champ de coefficient ; arrondi déjà limité à « Aucun » et aux paliers inférieurs |
+| V3C03 | `409 CONTEXT_CHANGED`, aucune attente, l'affaire garde sa seule ancre v2 (identique en SQL) |
+| V3C04 | T1 et T2 : `500 ESTIMATE_TEMPLATE_INSTANTIATE_FAILED`, aucune attente, aucune version ; l'oracle M6 (même T1 inséré dans une v3 vierge) rend bien `converted_lines` = collier 1 h → 0,9 h |
+| V3C05 | `500 ESTIMATE_TEMPLATE_INSTANTIATE_FAILED`, aucune version ; la v3 source rend bien 32,00 € / 320,00 € pour le tube à 1,10 / 1,05 |
+| V3C06 | « DPGF source à importer » choisi par défaut, `creation_mode=linked_dpgf_source`, puis `409 ESTIMATE_ENGINE_UNAVAILABLE`, aucune version |
+| V3C07 | l'accueil affiche « Minified React error #441… » à la place d'une cause, aucune affaire écrite |
+| V3C08 | proposition et « Analyser les plans » ciblent la v3, sans motif, « Analyser maintenant » actif ; l'API rend `201` et écrit une tâche `pending` (annulée par le parcours) |
+| V3C09 | « Proposer une structure avec l'IA » actif, sans description ; `?openStructureDraft=1` ouvre « Structure IA » ; aucune entrée de version zéro (attendu) |
+| V3C10 | graphique V1, V2 ; aucun avis pour la V3 |
+
+Gardes vertes avant le code (politique absente, aucune ligne de politique écrite) :
+
+- **V3C11** : assistant à 15 % et palier inférieur 100 € → v2 `fixed` 1,15 / 1 500 bp, `down` 10 000 ;
+  « Marge par tranche » → v2 `tiered` (marge et pas d'arrondi hérités de V1) ; « Créer directement » → v2 aux
+  réglages de V2 ; accueil → v2 `fixed` 1 / 0, `none` ; aucune attente envoyée (vaut 2).
+- **V3C12** : modèle v2 sur une nouvelle affaire → v2 aux réglages de sa source (1,15, coefficient global
+  1,02, `up` 1 000), lignes et totaux identiques, heures 5 h et 1 h gardées, aucun rapport ; DPGF lié → v2,
+  description `m` / `u`, PU 12,50 / 65,00 €, HT 90,00 €, TVA 18,00 €, TTC 108,00 €.
+
+Preuves (non versionnées) : `.e2e/army/ci/2026-10-18T09-31-47-425Z-dev-loop/iterations/003-2026-10-18T09-42-13-524Z/manifest.json`
+et l'archive SDK `.e2e/army/critical/runs/2026-10-18T09-42-14-016Z/` du clone WSL `~/miaouffrage-l2-210a`,
+copiées avec les trois itérations, les journaux et les enregistrements métier `ARMY-*-v3c*.json` dans
+`.e2e/lot2-2.10a/red/` de la copie de travail (120 fichiers, `SHA256SUMS`). Le vert devra être prouvé par un
+run qualifiant (`e2e:army:local`), pas par cette boucle.
