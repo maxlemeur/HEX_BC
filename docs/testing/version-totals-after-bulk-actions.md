@@ -674,6 +674,9 @@ parcours, et le graphe d'imports suit `dedicated-owner.ts`. Sur le seul diff `f4
 `full` à cause d'`e2e.config.ts`. V1PT01 et V1BT01 à V1BT03 basculent
 toujours le compte partagé en SQL, mais sous un seul worker, dans la sélection `full`.
 
+Mise à jour du 18/10/2026 : V1PT01 et V1BT01 à V1BT03 passent à leur tour en propriétaires dédiés et
+entrent dans la sélection critical à 2 workers ([TesterArmy CI](tester-army-ci.md#parcours-v1-des-totaux-dans-la-sélection-des-pr)).
+
 ### Preuves
 
 Clone WSL `~/miaouffrage-totals-bulk`, Ubuntu 24.04, Node 24.19.0, `NODE_OPTIONS=--max-old-space-size=4096`,

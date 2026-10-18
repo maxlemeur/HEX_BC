@@ -195,9 +195,12 @@ ou ne correspond plus à son empreinte : sans lui, l'itération ne pourrait pas
 prouver les entrées de son build.
 
 Vérification de types : le build Army type-checke `.e2e/army/tsconfig.json`,
-qui n'inclut que `src/**`, `next-env.d.ts` et les types générés par Next. Les
-parcours `e2e/**` ne sont donc vérifiés par aucun run Army actuel, qualifiant
-ou non ; `npm run typecheck` (dans `verify:pr`) les couvre. Ne pas reconstruire
+qui n'inclut que `src/**`, `next-env.d.ts` et les types générés par Next, sans
+les fichiers Vitest `src/**/*.test.ts(x)` : un test rouge d'abord, qui importe
+un module pas encore écrit, ne casse plus le build de chaque run Army. Les
+parcours `e2e/**` et ces fichiers Vitest ne sont donc vérifiés par aucun run
+Army actuel, qualifiant ou non ; `npm run typecheck` (dans `verify:pr`) les
+couvre. Ne pas reconstruire
 pour une modification de parcours ne retire aucun contrôle, et la boucle ne
 lance pas de `tsc` supplémentaire. `src/test/army-dev-loop.test.ts` échoue si ce
 tsconfig inclut un jour une source hors de l'empreinte.
@@ -935,25 +938,39 @@ sans entrer dans les dix contrôles réussis du reçu corrigé.
 
 ## Capacité locale et redémarrages WSL (18/10/2026)
 
-**Où est la limite.** Aucun code du dépôt ne borne le nombre d'exécutions
-natives possédées simultanées. Les trois points d'entrée qui créent une pile
-possédée, `runLocalSupabaseCi` (`src/test/local-supabase-ci.ts`),
+**Où est la limite.** Les trois points d'entrée qui créent une pile possédée,
+`runLocalSupabaseCi` (`src/test/local-supabase-ci.ts`),
 `withOwnedNativeStack` (`scripts/engine-v3/owned-native-stack.ts`) et
-`scripts/engine-v3/upgrade-check.ts`, comme les commandes qui les appellent
-(`db:ci:local`, `e2e:army:local`, `e2e:army:ci`, `e2e:army:calc-v3`,
+`scripts/engine-v3/upgrade-check.ts`, donc toutes les commandes qui les
+appellent (`db:ci:local`, `e2e:army:local`, `e2e:army:ci`, `e2e:army:calc-v3`,
 `e2e:army:dev-loop`, `dev:army`, `db:upgrade-check`,
-`engine:document-fingerprints`, `engine:v3:parity`), démarrent leur pile sans
-regarder celles des autres sessions ; aucune variable d'environnement ne les
-limite. La limite est une consigne donnée aux agents : **trois** depuis le 18/10
-vers 12:00 (décision du porteur, à cause de la charge engagée de l'hôte Windows
-décrite plus bas), quatre le matin du 18/10, deux avant. Attendre, en sondant
-toutes les 30 s, tant que la limite est atteinte. Ce sondage n'est pas un verrou : deux agents qui attendent voient la
-même place libre et démarrent ensemble, et une pile n'apparaît que quelques
-secondes après le lancement de sa commande. Un verrou atomique, par exemple
-`flock` sur N fichiers de place pris par ces trois points d'entrée avant
-`supabase start`, supprimerait cette course ; la PR #49 l'introduit (trois
-places par défaut, réglables par `NATIVE_STACK_MAX_RUNS`) : jusqu'à sa fusion,
-seule la consigne s'applique.
+`engine:document-fingerprints`, `engine:v3:parity`), réservent une place avant
+de préparer leur projet (`src/test/native-stack-guard.ts`, un fichier
+`~/.supabase/native-runs/<pid>-<uuid>.json` par exécution). Cette section est
+la seule référence de la limite : **trois** places par défaut, sur le Mac
+comme sur le PC (décision du porteur du 18/10 vers 12:00, à cause de la charge
+engagée de l'hôte Windows décrite plus bas ; quatre le matin du 18/10, deux
+avant), réglables par `NATIVE_STACK_MAX_RUNS=<1-32>`. Prennent une place :
+chaque exécution gardée ; chaque hôte de pile (`supabase
+__supabase_stack_host__`) dont aucune place vivante n'enregistre le
+`projectRoot` (exécution plantée ou antérieure au verrou, pile ouverte à la
+main) ; chaque build `node scripts/next-build.mjs` ; chaque `next build`
+qu'aucune place ni aucun lanceur ne couvre (build survivant à son lanceur
+tué). Au-delà, l'exécution est
+refusée par `NativeStackLimitError`, qui nomme les détenteurs ;
+`NATIVE_STACK_WAIT_SECONDS=<n>` attend jusqu'à `n` secondes, et Ctrl+C annule
+cette attente. Entre exécutions gardées, il n'y a pas de course : chacune crée
+son fichier avant de compter. Les hôtes et les builds sont comptés au mieux,
+depuis la liste des processus. Un build local (`scripts/next-build.mjs`, donc
+`npm run build` et `check:release`) réserve aussi une place, avec le même
+refus, et la libère à sa fin, signal compris. Jamais en CI (`CI` défini, sauf
+`false`/`0`), sur Vercel (`VERCEL` défini) ni pour `--help`. Si le verrou est
+indisponible (pas de `ps`, dossier de verrou inutilisable, réglage invalide),
+le build avertit et tourne quand même : seule la limite atteinte l'arrête. Le
+build TesterArmy passe par `build-local.mjs`, sous la place de son exécution,
+et n'en prend pas une seconde.
+Détails et preuves :
+[`local-native-stack-tooling.md`](local-native-stack-tooling.md).
 
 **Comment compter.** Chaque exécution possède exactement une pile, donc un
 processus `__supabase_stack_host__`, de `supabase start` jusqu'à `stop` ; une
@@ -974,7 +991,8 @@ echo $((hosts + builds))
 ```
 
 `pgrep -c` affiche `0` mais sort en code 1 quand rien ne correspond, d'où
-`|| true` sous `set -e`. `verify:pr` n'a pas de processus propre à compter et
+`|| true` sous `set -e`. Le `pgrep` de macOS n'a pas `-c` : y remplacer
+`-c` par `| wc -l`. `verify:pr` n'a pas de processus propre à compter et
 n'entre pas dans la marge mesurée ci-dessous (`tsc` vers 3 Go de RSS, Vitest à
 quatre workers) : le compter comme une exécution, ou ne pas le lancer pendant
 que trois builds tournent.

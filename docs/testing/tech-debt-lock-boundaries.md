@@ -49,6 +49,10 @@ pas le contrôle de bail de la route applicative. Ce lot ne qualifie pas
 une exclusion transactionnelle contre une reprise concurrente du bail,
 ni une interdiction de toute écriture directe par Data API.
 
+La course entre une acquisition du bail et une reprise forcée est traitée à
+part depuis le 18/10/2026 : scénario `LOCK02` du même fichier,
+[V3E03 : reprise forcée du bail](v3e03-draft-lock-takeover.md).
+
 ## Isolation et vérification
 
 Aucune nouvelle régression isolée n'est nécessaire : les erreurs de
