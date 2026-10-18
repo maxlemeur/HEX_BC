@@ -19,9 +19,12 @@ import {
 //  V3E05 — suppression d'une ligne, d'une ligne ajoutée (annulation) et d'une section, annulation d'une suppression ;
 //          unité inconnue ou statut refusés par la cellule « U » (F26-10) ;
 //  V3E06 — majoration, déplacement et suppression en lot, et leur annulation ;
-//  V3E07 — taux horaire d'un rôle changé dans le tiroir : totaux stockés recalculés, fiche = éditeur ;
+//  V3E07 — taux horaire d'un rôle changé dans le tiroir : totaux stockés recalculés, fiche = éditeur ; totaux d'en-tête
+//          de la fiche dans la devise de la version (revue Codex de la PR #44, F2) ;
 //  V3E08 — colonnes « Deboursé sec », « Marge € », « Marque % » lues dans le moteur ; contrôle « Temps MO manquant » ;
-//  V3E09 — « Associer ou remplacer l’article » juge l'offre dans unit_code et n'écrit jamais description ;
+//  V3E09 — « Associer ou remplacer l’article » juge l'offre dans unit_code et n'écrit jamais description ; un prix de
+//          référence (sans offre) dans une autre unité est refusé par la fiche et par la suggestion de la désignation
+//          (revue Codex de la PR #44, F1) ;
 //  V3E10 — question de propagation de la TVA ouverte par Ctrl+S et par l'enregistrement à la fermeture du tiroir ;
 //  V3E11 — remise de 0 % enregistrée sans état « en attente » ; palier d'arrondi hors liste affiché tel qu'appliqué ;
 //          actions PDF et modèle de la fiche fermées par leur nom ;
@@ -391,6 +394,29 @@ armyTest("V3E07 a labour rate changed in the v3 editor recomputes and stores the
     });
     await expect.poll(readDetail, { timeout: 30_000 }).toBe(eur(at50[0]));
     await recordEvidence(army, "v3e07-end", { versionId: draft.versionId, detailHt: await readDetail(), nativeDialogs: dialogs });
+
+    // Revue Codex de la PR #44 (F2) : un brouillon v3 en dollars US affiche ses totaux d'en-tête dans la devise de la
+    // version, comme son résumé (montants inchangés), jamais en euros.
+    await patchSettingsByApi(ui, army, draft, "v3e07-currency", { currency: "USD" });
+    await app.open(`/dashboard/estimates/${draft.versionId}`);
+    const readCurrencies = () => browser.evaluate(() => {
+      const clean = (text: string | null | undefined) => (text ?? "").replace(/[\s  ]+/g, " ").trim();
+      const headline = (label: string) => {
+        const term = Array.from(document.querySelectorAll("dt")).find(node => clean(node.textContent) === label);
+        return term?.nextElementSibling ? clean(term.nextElementSibling.textContent) : null;
+      };
+      const summary = (label: string) => {
+        const rows = Array.from(document.querySelectorAll("[data-testid=\"estimate-v3-draft-totals\"] > div"));
+        const row = rows.find(node => clean(node.firstElementChild?.textContent) === label);
+        return row?.lastElementChild ? clean(row.lastElementChild.textContent) : null;
+      };
+      return { headlineHt: headline("Total HT"), headlineTtc: headline("Total TTC"), summaryHt: summary("HT net"), summaryTtc: summary("TTC à payer") };
+    });
+    const expectedCurrencies = { headlineHt: "$560.00", headlineTtc: "$672.00", summaryHt: "$560.00", summaryTtc: "$672.00" };
+    await becomes(async () => JSON.stringify(await readCurrencies()) === JSON.stringify(expectedCurrencies), 30_000);
+    const currencies = await readCurrencies();
+    await recordEvidence(army, "v3e07-currency", { versionId: draft.versionId, expected: expectedCurrencies, actual: currencies, nativeDialogs: dialogs });
+    expect(currencies, "the v3 headline totals are formatted in the version currency, as the summary").toEqual(expectedCurrencies);
   });
 
 armyTest("V3E08 the cost, margin and markup columns of a v3 line read the engine, and the missing labour time check reads the engine hours",
@@ -480,6 +506,10 @@ armyTest("V3E09 associating an article to a v3 line judges its offer in unit_cod
     };
     const inMl = await article("ml", `${army.runPrefix} tube cuivre ml`, "ML", 1240);
     const inBar = await article("barre", `${army.runPrefix} tube cuivre barre`, "barre", 5000);
+    // Revue Codex de la PR #44 (F1) : un article sans offre, prix seulement par son prix de référence, à la pièce.
+    const piece = await created<{ id: string }>("product-piece", "/api/products", {
+      action: "create", item: { designation: `${army.runPrefix} tube cuivre piece`, reference: `${army.runPrefix}-piece`, unit: "u", unit_price_cents: 800 } });
+    const inPiece = { designation: `${army.runPrefix} tube cuivre piece`, productId: piece.id };
     await switchToExpertMode(ui);
     await openV3Editor(ui, army, draft, "v3e09");
     await waitForDraftLease(ui);
@@ -491,13 +521,15 @@ armyTest("V3E09 associating an article to a v3 line judges its offer in unit_cod
     await expect(search).toBeVisible({ timeout: 30_000 });
     await search.fill(`${army.runPrefix} tube cuivre`);
     const suggestion = (designation: string) => browser.locator("[role=\"dialog\"] button").filter({ hasText: designation });
-    await expect.poll(async () => (await suggestion(inMl.designation).count()) + (await suggestion(inBar.designation).count()), { timeout: 30_000 }).toBe(2);
+    await expect.poll(async () => (await suggestion(inMl.designation).count()) + (await suggestion(inBar.designation).count()) +
+      (await suggestion(inPiece.designation).count()), { timeout: 30_000 }).toBe(3);
     const suggestionView = async (designation: string) => ({
       enabled: await suggestion(designation).isEnabled(),
       unitRefused: normalized(await suggestion(designation).textContent()).includes(UNIT_REFUSED),
     });
-    const sheet = { ml: await suggestionView(inMl.designation), bar: await suggestionView(inBar.designation) };
-    const expectedSheet = { ml: { enabled: true, unitRefused: false }, bar: { enabled: false, unitRefused: true } };
+    const sheet = { ml: await suggestionView(inMl.designation), bar: await suggestionView(inBar.designation), piece: await suggestionView(inPiece.designation) };
+    // Le prix de référence à la pièce (sans offre) est refusé comme l'offre à la barre (F26-26, 1c16ad40).
+    const expectedSheet = { ml: { enabled: true, unitRefused: false }, bar: { enabled: false, unitRefused: true }, piece: { enabled: false, unitRefused: true } };
     await recordEvidence(army, "v3e09-sheet", { versionId: draft.versionId, lineId: line.id, expected: expectedSheet, actual: sheet });
     expect.soft(sheet, "an article in another unit than the v3 line is refused by name").toEqual(expectedSheet);
 
@@ -519,9 +551,43 @@ armyTest("V3E09 associating an article to a v3 line judges its offer in unit_cod
       api: { version: { totals: [3224, 645, 3869] }, lines: { [line.id]: { unit: "ml", prFo: 1240, pu: 1612, net: 3224 } } },
       screen: { chips: chips([3224, 645, 3869]), rows: [{ id: line.id, title: inMl.designation, unit: "ml — mètre linéaire", pu: "16,12", pt: eur(3224) }] },
     });
+
+    // Revue Codex de la PR #44 (F1) : la suggestion de la désignation juge aussi un prix de référence (sans offre) dans
+    // unit_code. L'article à la pièce ne prix jamais la ligne en ml (8,00 € la pièce comme 8,00 € le mètre) : refus nommé,
+    // l'article, le PR FO et l'offre de la ligne restent ; la désignation saisie reste le titre, comme toute saisie.
+    await waitForDraftLease(ui);
+    await browser.locator(`[data-estimate-item-id="${line.id}"] [data-testid="estimate-line-title-input"]`).fill(inPiece.designation);
+    const listbox = screen.getByRole("listbox").first();
+    await expect(listbox.getByText(inPiece.designation, { exact: true }).first()).toBeVisible({ timeout: 30_000 });
+    await browser.keyboard.press("Enter");
+    const referenceRefusal = `${UNIT_REFUSED} : offre en u, ligne en ml.`;
+    const popoverRefused = await becomes(async () => (await listbox.count()) > 0 && normalized(await listbox.textContent()).includes(referenceRefusal), 10_000);
+    const popoverText = (await listbox.count()) > 0 ? normalized(await listbox.textContent()) : null;
+    await browser.keyboard.press("Tab");
+    await saveLineEditsWithShortcut(ui, draft.versionId, inPiece.designation, army);
+    const afterReference = await waitForAutoSave(ui, draft.versionId,
+      (snapshot) => snapshot.items.find(item => item.id === line.id)?.title === inPiece.designation, army);
+    const keptLine = afterReference.items.find(item => item.id === line.id)!;
+    const kept = {
+      popoverRefused, unitCode: keptLine.unit_code ?? null, description: keptLine.description ?? null, title: keptLine.title,
+      productId: keptLine.product_id ?? null, prFo: Number(keptLine.unit_price_ht_cents), offerId: keptLine.selected_supplier_price_id ?? null,
+      totals: totalsOf(afterReference),
+    };
+    const expectedKept = {
+      popoverRefused: true, unitCode: "ml", description: null, title: inPiece.designation,
+      productId: inMl.productId, prFo: 1240, offerId: inMl.offer.id, totals: [3224, 645, 3869],
+    };
+    await recordEvidence(army, "v3e09-reference-price", {
+      versionId: draft.versionId, lineId: line.id, referenceProductId: inPiece.productId, expected: expectedKept, actual: kept, popoverText, nativeDialogs: dialogs,
+    });
+    expect(kept, "a reference price in another unit never prices the v3 line: refused by name, nothing but the typed title written").toEqual(expectedKept);
+    await checkpoint(ui, army, "v3e09-reference-refused", draft.versionId, {
+      api: { version: { totals: [3224, 645, 3869] }, lines: { [line.id]: { unit: "ml", productId: inMl.productId, offerId: inMl.offer.id, prFo: 1240, pu: 1612, net: 3224 } } },
+      screen: { chips: chips([3224, 645, 3869]), rows: [{ id: line.id, title: inPiece.designation, unit: "ml — mètre linéaire", pu: "16,12", pt: eur(3224) }] },
+    });
   });
 
-armyTest("V3E10 the VAT propagation question opens from every save path of the v3 settings: Ctrl+S and saving on close",
+armyTest("V3E10the VAT propagation question opens from every save path of the v3 settings: Ctrl+S and saving on close",
   options(420_000), async ({ app, screen, browser, army }) => {
     const ui: Ui = { app, screen, browser };
     const dialogs = await recordDialogs(ui);
