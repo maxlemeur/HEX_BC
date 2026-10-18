@@ -4589,7 +4589,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     path: "/api/estimates/{versionId}/export",
     summary: "Exporter un devis en streaming",
     description:
-      "Genere un fichier XLSX en streaming pour telechargement direct.",
+      "Genere un fichier XLSX en streaming pour telechargement direct, ou le CSV de l'editeur d'une version du moteur de calcul 3 (format=csv), ecrit depuis son document.",
     tags: ["Estimate Output"],
     parameters: [
       versionIdPathParameter,
@@ -4598,13 +4598,14 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     ],
     responses: {
       "200": {
-        description: "Flux binaire XLSX retourne.",
+        description: "Flux binaire XLSX, ou CSV (separateur point-virgule, BOM UTF-8) d'une v3, retourne.",
         headers: [exportContentDispositionHeader, exportProgressHeader],
         contents: [
           {
             contentType:
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
           },
+          { contentType: "text/csv" },
         ],
       },
     },

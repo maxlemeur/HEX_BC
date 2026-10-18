@@ -55,7 +55,7 @@ export type EstimateV3ExportIdentity = {
 };
 
 /** Format Excel des montants par devise : symbole et place de `formatCurrency` (money.ts) ; EUR inchangé. */
-const CURRENCY_FORMATS: Readonly<Record<SupportedEstimateCurrency, string>> = {
+export const ESTIMATE_V3_CURRENCY_FORMATS: Readonly<Record<SupportedEstimateCurrency, string>> = {
   EUR: "#,##0.00 \"€\"",
   USD: "\"$\"#,##0.00",
   GBP: "\"£\"#,##0.00",
@@ -71,11 +71,11 @@ export async function loadEstimateV3ExportDocument(versionId: string): Promise<E
   return { version: source.version, items: source.items, prepared, frozen: source.frozen };
 }
 
-function euros(cents: number | null | undefined): number | null {
+export function euros(cents: number | null | undefined): number | null {
   return Number.isFinite(cents ?? NaN) ? (cents as number) / 100 : null;
 }
 
-function rate(bp: number | null | undefined): number | null {
+export function rate(bp: number | null | undefined): number | null {
   return Number.isFinite(bp ?? NaN) ? (bp as number) / 100 : null;
 }
 
@@ -91,7 +91,7 @@ function styleHeader(sheet: Worksheet) {
 }
 
 /** Devise de la version (repli EUR, comme le document). */
-function currencyOf(document: EstimateV3ExportDocument): SupportedEstimateCurrency {
+export function currencyOf(document: EstimateV3ExportDocument): SupportedEstimateCurrency {
   return normalizeEstimateCurrency(document.version.currency) ?? "EUR";
 }
 
@@ -102,19 +102,24 @@ function rowWriter(sheet: Worksheet, currency: SupportedEstimateCurrency) {
     if (options.bold) row.font = { bold: true };
     for (const index of options.currency ?? []) {
       const cell = row.getCell?.(index);
-      if (cell) cell.numFmt = CURRENCY_FORMATS[currency];
+      if (cell) cell.numFmt = ESTIMATE_V3_CURRENCY_FORMATS[currency];
     }
     row.commit();
   };
 }
 
+/** Source des montants exportés : gel du devis, ou aperçu d'un brouillon modifié depuis son gel (jamais présenté figé). */
+export function amountsSourceLabel(document: EstimateV3ExportDocument): string {
+  return document.frozen ? "Gel du devis" : "Aperçu du brouillon (non figé)";
+}
+
 /** Lignes du pied v3 (libellé, montant signé dans la devise de la version) : mêmes libellés que le document. */
-function footerEntries(document: EstimateV3ExportDocument): Array<[string, number]> {
+export function footerEntries(document: EstimateV3ExportDocument): Array<[string, number]> {
   return buildEstimateV3FooterRows(footerFromStoredV3Document(document.prepared.v3.totals), currencyOf(document))
     .map((row) => [row.label, (row.deduction ? -row.cents : row.cents) / 100]);
 }
 
-function depthsOf(items: EstimateItem[]): Map<string, number> {
+export function depthsOf(items: EstimateItem[]): Map<string, number> {
   const byId = new Map(items.map((item) => [item.id, item]));
   const depths = new Map<string, number>();
   for (const item of items) {
@@ -130,7 +135,7 @@ function depthsOf(items: EstimateItem[]): Map<string, number> {
 }
 
 /** Ordre du document : arbre par position (même parcours que le préparateur). */
-function documentOrder(items: EstimateItem[]): EstimateItem[] {
+export function documentOrder(items: EstimateItem[]): EstimateItem[] {
   const children = new Map<string | null, EstimateItem[]>();
   for (const item of items) {
     const siblings = children.get(item.parent_id) ?? [];
@@ -207,7 +212,7 @@ export async function writeEstimateV3Workbook(input: {
     ["Titre", input.identity.versionTitle ?? ""],
     ["Statut", input.identity.versionStatus],
     ["Moteur de calcul", 3],
-    ["Montants", input.document.frozen ? "Gel du devis" : "Aperçu du brouillon (non figé)"],
+    ["Montants", amountsSourceLabel(input.document)],
     ["Coefficient de vente FO", Number(version.sale_coefficient_fo ?? 0)],
     ["Coefficient de vente MO", Number(version.sale_coefficient_mo ?? 0)],
     ...footerEntries(input.document),

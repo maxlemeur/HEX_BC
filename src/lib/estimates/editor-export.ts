@@ -308,7 +308,7 @@ export function normalizeSupplierComparisonsByItemId(
   return map;
 }
 
-function formatSupplierAlternativeCompact(
+export function formatSupplierAlternativeCompact(
   alternative: SupplierComparisonAlternative | undefined,
   estimateCurrency: SupportedEstimateCurrency,
   lineUnit: string | null | undefined
