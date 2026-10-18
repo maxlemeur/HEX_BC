@@ -4,11 +4,10 @@ Rouge écrit **avant M5 et avant tout code de production de 2.7**, le 17/10/2026
 `lot2/2.7-document-emission-v3`, base `c14b243d` (pointe de 2.5, PR #33). Source :
 [conception du lot 2](../audit-independant-2026-10-14/lot2/conception-lot2-moteur-v3.md), F1 à F3, D2, D7,
 D8, D14, D15, §4, §5 (S2, S5), §6.1 (M5), §7 (fonctions d'offre), §8.1, §8.2, §10.4, §14 « 2.7 ».
-Ce document couvre la suite SQL et le parcours ; les tests isolés TypeScript (parseur strict du contrat 2,
-charge 6, préparateur du document) sont décrits dans
-[estimate-engine-v3-2.7-vitest.md](estimate-engine-v3-2.7-vitest.md), dont ce document reprend le contrat
-(mêmes clés, mêmes invariants). Là où ce document **choisit** (signalé « Choix »), il fixe ce que le rouge
-exige ; ailleurs, la conception fait foi.
+Ce document couvre la suite SQL, le parcours, les deux pistes d'implémentation (§8, §9), l'intégration (§10)
+et les tests isolés TypeScript (parseur strict du contrat 2, charge 6, préparateur du document, §11 : ancien
+`estimate-engine-v3-2.7-vitest.md`, fondu ici le 18/10/2026 avec ses mesures). Là où ce document **choisit**
+(signalé « Choix »), il fixe ce que le rouge exige ; ailleurs, la conception fait foi.
 
 **Identifiants renommés le 18/10/2026** : V3E01 et V3E02 deviennent V3M01 et V3M02, et les défaillances V3E-01
 à V3E-08 deviennent V3M-01 à V3M-08 (préfixe d'affaire `ARMY-V3M-calc-v3-`, preuves `v3m01-*`, `v3m02-*`) :
@@ -22,7 +21,7 @@ commandes et les chemins tels qu'exécutés (`--grep '^V3E02\s'`, `v3e02-*`).
 |---|---|
 | `supabase/tests/database/estimate-offer-contract-v2.test.sql` | pgTAP, F27-01 à F27-19 (§4) |
 | `e2e/army/local/engine-v3-emission.e2e.ts`, `engine-v3-emission-support.ts` | Parcours V3M01 (calc-v3) et V3M02 (critique locale), §3 |
-| `scripts/tester-army/calc-v3-phases.ts` | Nouvelle phase `emission-v3` (next dev, collecteur sentinelle) |
+| `scripts/tester-army/calc-v3-phases.ts` | Nouvelle phase `emission-v3` (collecteur sentinelle ; next dev au rouge, build de production possédé depuis l'intégration, §10.4) |
 | `scripts/tester-army/calc-v3-fixtures.ts` | Fixture de la phase : propriétaire dédié en politique 3, témoin v2 brouillon |
 | `scripts/tester-army/calc-v3-campaign.ts`, `e2e/army/local/calc-v3.config.ts` | Collecteur, garde réseau d'offre et lecture des PDF reçus pilotés par `sentinelCollector` (et non plus par le nom `emission`) |
 | `scripts/tester-army/army-impact-map.json` | Parcours inscrit (la liste critique locale de `e2e.config.ts` prend `engine-v3-*.e2e.ts`), groupe `print` |
@@ -37,7 +36,7 @@ commandes et les chemins tels qu'exécutés (`--grep '^V3E02\s'`, `v3e02-*`).
 | Contrat 2 altéré d'une clé, d'une unité ou d'un statut accepté | pgTAP F27-06, F27-07, F27-10, F27-13 ; Vitest F27-V02 à F27-V04 |
 | Publication sans gel document v3 frais | pgTAP F27-14 (jamais figé ; passage à `sending`), F27-15 (gel périmé par le taux d'un rôle cité) |
 | Deux générations d'un même devis figé, ou deux envois d'une même version scellée, au texte différent | V3M02 (deux générations, même texte), V3M01 (renvoi : même SHA-256 et même texte) ; Vitest F27-S04 |
-| Empreintes v1/v2 qui changent | Vitest F27-S06, F27-S07 (charges 1 à 4 sur le corpus figé) ; V3M01 témoin v2 (V3M-08) ; `scripts/engine-v3/document-fingerprints.ts` et la montée de version (§10.2, §10.3), à rejouer à l'implémentation |
+| Empreintes v1/v2 qui changent | Vitest F27-S06, F27-S07 (charges 1 à 4 sur le corpus figé) ; V3M01 témoin v2 (V3M-08) ; `scripts/engine-v3/document-fingerprints.ts` et la montée de version (§10.2, §10.3 de la conception), rejoués à l'intégration (§10.5) |
 | Charge 6 sans un champ v3 | Vitest F27-S02, F27-S03 |
 | PDF : PT ≠ ⌈Q × PU⌋ | V3M01 et V3M02 (7 lignes, §3.3) ; pgTAP F27-03 ; Vitest F27-V06, F27-D01 |
 | PDF : Σ lignes ≠ brut | V3M01, V3M02 (7 lignes brutes et brut 69 054,56 €) ; pgTAP F27-03, F27-04 ; Vitest F27-V05, F27-D03 |
@@ -45,7 +44,7 @@ commandes et les chemins tels qu'exécutés (`--grep '^V3E02\s'`, `v3e02-*`).
 | Portail, impression ou exports avec d'autres montants | V3M01 (impression, portail, XLSX, DPGF), V3M02 (impression, XLSX, DPGF) |
 | Sceau d'une v3 sans marqueur 5, contrat 2 ou charge 6, ou vérification négative | V3M01 (`/verify`, §6.2) ; pgTAP F27-19 ; Vitest F27-S08 |
 | Acceptation au portail d'une v3 qui échoue ou change son sceau | V3M01 |
-| Conditions de développement hors du profil calc-v3 possédé | `src/lib/estimates/pdf-terms-server.test.ts`, écrit rouge avec l'extension (`7154c1ce`, puis vert, §9) : refus avec un marqueur d'hébergement, hors profil `calc-v3` ou sur la pile des développeurs, cas `offer` sur 45585 inchangé. V3M01 tourne en next dev et V3M02 sans CGV (`includeTerms: false`) : aucun des deux n'en dépend |
+| Conditions de développement hors du profil calc-v3 possédé | `src/lib/estimates/pdf-terms-server.test.ts`, écrit rouge avec l'extension (`7154c1ce`, puis vert, §9) : refus avec un marqueur d'hébergement, hors profil `calc-v3` ou sur la pile des développeurs, cas `offer` sur 45585 inchangé. V3M02 tourne sans CGV (`includeTerms: false`) ; V3M01, servi en next dev jusqu'à l'intégration, en dépend depuis le passage des phases d'émission au build possédé (§10.4) |
 
 ## 3. Parcours `engine-v3-emission.e2e.ts`
 
@@ -316,7 +315,7 @@ sur les fichiers du parcours et du harnais sortie 0 ;
 
 - La régression « v2 émise avant M5 » est rejouée dans la même exécution (témoin émis avant les v3, puis
   revérifié) : l'antériorité réelle à la migration relève de la montée de version et des empreintes
-  documentaires (§10.2, §10.3), à rejouer à l'implémentation.
+  documentaires (§10.2, §10.3 de la conception), rejouées à l'intégration (§10.5).
 - V3M01 est servi en next dev (comme la phase `emission`) ; V3M02 qualifie le build de production sans
   courriel. Le passage de la phase `emission-v3` au build possédé dépend de l'extension du garde des
   conditions, non couverte ici (§2).
@@ -498,8 +497,7 @@ Itération (clone privé `~/miaouffrage-l27-m5`, mêmes fichiers, journaux `~/l2
 
 Commits `7154c1ce` (garde des conditions, rouge d'abord), `71d04e03` (implémentation), `f2b70f87` (renommage
 V3M), `3a8e576a` (en-tête d'un contrat 2 sans ligne chiffrée), `ff084a1f` et `dad77e83` (sondes, §9.3),
-`e4fc30cf` (résumé d'approbation d'une version émise, §9.4). Tests isolés et contrôles :
-[estimate-engine-v3-2.7-vitest.md](estimate-engine-v3-2.7-vitest.md), section « Vert ».
+`e4fc30cf` (résumé d'approbation d'une version émise, §9.4). Tests isolés et contrôles : §11.7 (« Vert »).
 
 ### 9.1 Chemins ouverts à la v3
 
@@ -582,4 +580,408 @@ Supabase partagé n'est pas touché.
   V3M02.
 - Exports `bdc` et de l'éditeur fermés à la v3 (§9.1).
 - La phase `emission-v3` reste en `next dev` ; l'extension du garde des conditions permet son passage au build
-  possédé (évolution du harnais, non faite ici).
+  possédé (évolution du harnais, non faite ici ; faite à l'intégration, §10.4).
+
+## 10. Intégration (18/10/2026)
+
+Intégration des deux pistes (SQL `af708134`, `f8cc1dc8` ; TypeScript `7154c1ce` à `e7dcbdf4`) sur
+`lot2/2.7-document-emission-v3`, sans rebase ni poussée. Commits d'intégration : `8a2c4b9e` (fusion de
+`main`), `1d43528b` (V3FC02, §10.3), `f342398f` (fusion de `main`, PR #38), `2299b4a4` (phases d'émission en
+build de production, §10.4), `e9855ed1` (commentaires pointant vers ce document), puis ce document (documentation seule).
+
+### 10.1 Interfaces rapprochées
+
+Aucun écart entre l'interface publiée par la piste SQL (§8.1) et celle appelée par la piste TypeScript (§9.2) ;
+la preuve exécutée est V3M01 et V3M02 (une copie construite par le TypeScript que le validateur ou
+l'appariement SQL refuserait ferait échouer la publication en `22023` ou `23514`).
+
+| Interface | Rapprochement |
+|---|---|
+| `freeze_estimate_v3_document_snapshot` | neuf arguments de mêmes noms et types (`p_expected_content_revision` `bigint` ↔ `number`, `p_draft_lock_session_id` `uuid` ↔ `string`) ; retour `estimate_versions` ; entrée de `src/types/database.ts` (CRLF conservé) identique à la signature SQL. Les aides `estimate_offer_engine_client_contract`, `estimate_offer_client_valid_v2` et `estimate_offer_client_items_match_v2` ne sont pas appelées par le TypeScript et restent hors des types, comme leurs jumelles du contrat 1 |
+| Forme du contrat 2 | mêmes clés exactes des deux côtés (`estimate_offer_client_valid_v2` / `parseContract2`) : 8 à la racine, 11 dans `version`, 8 par section et 13 par ligne (plus `foSaleHtCents`/`moSaleHtCents` si et seulement si `fo_mo_and_total`), 9 dans `totals`, 3 par taux ; profondeur ≤ 3 pour une section, ≤ 4 pour une ligne ; `buildClientContract2` suit la correspondance de colonnes du §8.1 |
+| Invariants | ⌈Q × PU⌋ en décimal exact (`round(numeric)` en SQL, `bigint` en TypeScript) ; remise au taux min(⌈G × bp⌋, G) ; TVA d'un taux ⌈base × taux⌋ (0 en autoliquidation) ; taux du récapitulatif = taux distincts des lignes chiffrées, ce que produit le moteur (`computeTaxByRate` crée un groupe par taux chiffré, même à base nulle : une ligne chiffrée à 0 € ne casse pas l'appariement) |
+| Codes d'erreur | `ESTIMATE_DRAFT_LOCK_REQUIRED` → 409 `LOCK_REQUIRED` ; `ESTIMATE_V3_LABOR_ROLE_REQUIRED`, `_UNIT_REQUIRED`, `_TAX_RATE_NOT_ALLOWED`, `_PROJECTION_MISMATCH` → 400 nommés ; `ESTIMATE_V3_CALCULATION_CONTEXT_CONFLICT` → 409 `CONTEXT_CHANGED` ; autre `40001`/`40P01` ou `ESTIMATE_VERSION_CONFLICT` → 409 `VERSION_CONFLICT` ; `ESTIMATE_V3_DOCUMENT_SNAPSHOT_INPUT_INVALID`, `ESTIMATE_V3_SNAPSHOT_NOT_WRITABLE`, `ESTIMATE_EMAIL_DISPATCH_FORBIDDEN` et `ESTIMATE_V3_SNAPSHOT_REQUIRES_DRAFT` par `mapSupabaseError` |
+| Marqueurs | marqueur de sceau 5 pour les deux contrats ; preuve `clientContractVersion: 2` ⇔ copie `schemaVersion: 2` ⇔ moteur 3 ; charge 4 ⇔ contrat 1, charge 6 ⇔ contrat 2 |
+
+### 10.2 Fusion de `main`
+
+- `8a2c4b9e` : `origin/main` à `78ca0855` (PR #34 = 2.9 avec M7 `20261017172127`, #36, #37). Un seul conflit,
+  `supabase/migrations.manifest.json` : les deux entrées gardées dans l'ordre des horodatages. M5
+  (`20261017213500`) reste après M7 : **aucun réhorodatage**. M7 et M5 redéfinissent des objets disjoints
+  (M7 : `supplier_pricebook`, `private.purchase_*`, `create_estimate_purchase_order_drafts`,
+  `update_supplier_offer`, `catalogue_products_page` ; M5 : fonctions d'offre, §8.2). Les autres fichiers
+  communs (`server.ts`, `registry.ts`, `openapi.json`, `database.ts`, `calc-v3-phases.ts`,
+  `calc-v3-fixtures.ts`, `tester-army-calc-v3.md`) fusionnent sans conflit.
+- `f342398f` : `origin/main` à `91068850` (PR #38, documentation seule : relevé de M7 sur le Supabase partagé).
+- `npm run supabase:validate` : « 250 files, 250 unique versions » ; `npm run supabase:migrations:git-guard` :
+  passé (« 2 scoped changes »). Avant le commit de fusion, le garde comptait M7 comme nouvelle migration
+  (base de fusion antérieure) : artefact d'une fusion non validée, disparu au commit.
+
+### 10.3 V3FC02 réaligné (défaut d'intégration)
+
+La campagne critique locale sur la tête fusionnée (`8a2c4b9e`, `--grep "V3M02|V3P01|V3FC"`) a échoué sur
+V3FC02 seul (`.e2e/army/ci/2026-10-17T23-29-55-461Z-critical`, `Tests 1 failed | 4 passed (5)`) :
+`expected {"status":409,"ok":false,"code":"LOCK_REQUIRED",…} to equal {"status":409,"ok":false,"code":"ESTIMATE_ENGINE_UNAVAILABLE",…}`.
+V3FC02 (2.1, E2E-03) figeait le refus général de l'émission v3 que le contrat 2.7 lève (§5.2) ; la piste
+TypeScript n'avait rejoué que `^V3M02\s`. La sonde teste donc une exigence révolue, comme F-SQL-08/09 (§8.3) et
+les tests Vitest du §11.4 : elle est réalignée (`1d43528b`), V3FC01 et l'en-tête du fichier restant intacts
+(2.6 réécrit V3FC01).
+
+E2E-03 porte désormais sur une v3 que le moteur 3 ne peut pas figer : la ligne chiffrée de la fixture n'a pas
+d'unité (D9) et ses montants stockés sont périmés (0). Sous le bail de la page (`POST …/lock` 201, pour qu'un
+refus ne soit pas un artefact de verrou), la publication est refusée par son nom avant toute réclamation
+(400 `ESTIMATE_V3_UNIT_REQUIRED`, « Une unité est requise sur chaque ligne chiffrée avant le gel. ») ; l'envoi,
+porté par la même session de bail, est refusé dans la campagne critique par la configuration sans fournisseur
+(500 `INTERNAL_ERROR`, « Configuration email manquante: RESEND_API_KEY. », `run-tester-army-ci.ts` laisse la clé
+vide) avant toute relecture, gel ou réservation ; aucun document, envoi ni changement d'état dans les deux cas.
+Valeurs attendues déduites du code avant l'exécution (`prepareEstimateV3FreezeArguments`, `getRequiredEnvVar`).
+L'envoi d'une v3 figée reste prouvé par V3M01 (collecteur), le refus SQL d'une v3 non figée par F-SQL-08 et
+F27-14.
+
+Vert : `.e2e/army/ci/2026-10-17T23-36-09-342Z-critical` (`1d43528b`), `Tests 5 passed (5)` ; preuve métier
+`ARMY-1792280251709-a5cb4b7c-engine-v3-emission.json` : bail 201, publication et envoi exactement comme
+attendus, état `{documents: 0, emails: 0, status: "draft", totals: [0, 0, 0]}` inchangé.
+
+### 10.4 Phases d'émission en build de production
+
+Sur la tête fusionnée avec le 2.9, la phase `emission` servie par `next dev` échouait sur OF00
+(`.e2e/army/ci/2026-10-17T23-41-19-095Z-calc-v3`, `5 passed | 1 failed`) : « Générer et télécharger » jamais
+activé, le `PATCH …/lock` du dialogue PDF répondant 409 (journal applicatif). C'est l'artefact de
+rechargement à chaud relevé par le 2.9 ([estimate-engine-v3-2.9.md](estimate-engine-v3-2.9.md),
+« OF00 en mode développement » : 7 échecs sur 7 en développement, 6/6 en build de production), dont la
+décision partagée confie au 2.7 le passage des phases d'émission en build de production ; la même phase était
+verte à `dad77e83`, avant la fusion du 2.9 (§9.4). L'extension de `canUseDevelopmentEstimateTerms` au profil
+calc-v3 possédé (`7154c1ce`, `71d04e03`) existe pour cela.
+
+`2299b4a4` : `emission` et `emission-v3` servent `next start` sur le build possédé, avec
+`E2E_OFFER_SERVER_MODE=production` et `E2E_OFFER_SANDBOX_TERMS=1` pour l'application et le processus des
+parcours (`calc-v3-phases.ts`, `calc-v3.config.ts`, `calc-v3-campaign.ts`) ; collecteur, garde réseau d'offre,
+fixtures et parcours inchangés. La limite « V3M01 en next dev » des §7 et §9.5 est levée.
+
+### 10.5 Preuves retenues
+
+WSL Ubuntu-24.04, Node 24.19.0 (`nvm use`), clone `~/miaouffrage-lot2-27` amené à chaque arbre par
+`git fetch` du dépôt Windows puis `reset --hard`, **aucun changement local** ; chaque exécution native a
+attendu la garde de concurrence (moins de deux exécutions natives actives au départ ; journaux
+`~/miaouffrage-lot2-27/.e2e/lot2-2.7/int-*.log`, avec révision, commande, garde et durée).
+
+| Commande | Arbre | Résultat (UTC) |
+|---|---|---|
+| `npm run db:ci:local` | `8a2c4b9e` | sortie 0 en 27 s (17/10 23:28) : `Files=21, Tests=1904`, `Result: PASS`, matrice RLS passée ; `estimate-offer-contract-v2` ok (50 assertions, `no_plan`, aucune modifiée), `estimate-calc-engine-v3-guards`, `estimate-email-outbox`, `portal-security-definer` et `supplier-offer-purchase-unit` (M7) ok. `supabase/` est identique à `e9855ed1` (diff vide) ; chaque campagne ci-dessous rejoue pgTAP et la matrice RLS à `e9855ed1` (`Files=21, Tests=1904`, PASS) |
+| `npm run e2e:army:local -- --grep "V3M02\|V3P01\|V3FC" --app-port 3227` | `8a2c4b9e` | sortie 1 (rouge du §10.3) : V3FC02 en échec, V3FC01, V3M02 et V3P01 verts. `.e2e/army/ci/2026-10-17T23-29-55-461Z-critical` |
+| idem | `1d43528b` | sortie 0 en 97 s : `Tests 5 passed (5)`. `…/2026-10-17T23-36-09-342Z-critical` |
+| idem | `e9855ed1` | **sortie 0** en 112 s (23:52) : build possédé, `Test Files 4 passed (4)`, `Tests 5 passed (5)` (setup critique, V3M02, V3FC01, V3FC02, V3P01). `…/2026-10-17T23-52-16-513Z-critical` |
+| `npm run e2e:army:calc-v3 -- --phase emission-v3 --app-port 3127` | `1d43528b` (`next dev`) | sortie 0 en 97 s : V3M01 vert sur la tête fusionnée. `…/2026-10-17T23-39-41-160Z-calc-v3` |
+| `npm run e2e:army:calc-v3 -- --phase emission --app-port 3127` | `1d43528b` (`next dev`) | sortie 1 en 194 s (rouge du §10.4) : OF00 en échec, OF01, OF02, OF04, OF0L verts. `…/2026-10-17T23-41-19-095Z-calc-v3` |
+| `npm run e2e:army:calc-v3 -- --phase emission-v3 --app-port 3127` | `e9855ed1` (production) | **sortie 0** en 101 s (23:54) : `Tests 2 passed (2)` (setup d'offre, V3M01), build inchangé pendant la phase, garde réseau d'offre installé (`collectorCalls: 11`), 4 PDF reçus (témoin v2, S2, S5, renvoi de S5 au même SHA-256 `3fb811b4…`). `/verify` de S2 et S5 : `valid`, `stored_hash = computed_hash`, `seal_payload_version: 5`, `client_contract_version: 2`, `calc_payload_version: 6`. Texte du PDF et impression : 7 lignes, brut, remise, net, TVA par taux (S2 : 20 % ; S5 : 10 % et 20 %), TTC ; XLSX et DPGF : 7 lignes et remise. Renvoi : reçu et portail distincts, même PDF, même texte. Portail : 200 `accepted`. Témoin v2 : `valid`, contrat 1, charge 4, document stocké au SHA-256 de sa pièce jointe (`6488f9cc…`). `…/2026-10-17T23-54-10-064Z-calc-v3` |
+| `npm run e2e:army:calc-v3 -- --phase emission --app-port 3127` | `e9855ed1` (production) | **sortie 0** en 126 s (23:55) : setup, OF00, OF01, OF02, OF04, OF0L, 6/6 (OF03 rouge à la base, hors sélection) ; 4 PDF reçus de 2 pages et 4 534 caractères, motifs communs vérifiés. `…/2026-10-17T23-55-51-607Z-calc-v3` |
+| `npm run e2e:army:calc-v3 -- --app-port 3127` (campagne complète) | `e9855ed1` | **sortie 0** en 12 min 14 s (23:57–00:10) : pgTAP et RLS passés ; toutes les phases en build de production : journeys 11/11, components 5/5, numeric 4/4, resume 5/5 (GR02, GR04, GR06, GR08 ; GR01, GR03, GR05, GR07, GR09 rouges à la base, hors sélection), access 2/2, offers 10/10, emission 6/6, emission-v3 2/2. `…/2026-10-17T23-57-58-418Z-calc-v3` |
+| `npm run engine:document-fingerprints -- check` | `e9855ed1` | sortie 0 en 46 s (18/10 00:10) : 14 familles v1/v2, agrégat `2b9715519d99…391b78e4` égal à la référence, aucune différence, aucun avertissement d'environnement (Node 24.19.0, ICU 78.3). `.e2e/engine-v3/document-fingerprints/2026-10-18T00-10-14-119Z-check` |
+| `npm run db:upgrade-check -- lot2-2-7` | `e9855ed1` | sortie 0 en 20 s : 244 migrations de base, 6 postérieures appliquées sur la base peuplée (M2, M1, M3, M4, M7, M5), **0 différence**. `.e2e/engine-v3/upgrade-check/2026-10-18T00-11-00-533Z-lot2-2-7` |
+| `npm run db:upgrade-check -- lot2-2-7 --negative-control` | `e9855ed1` | sortie 1 en 19 s, échec exigé : exactement 1 différence, `estimate_items b2000000-…-000000000112 pu_ht_cents 1481 → 1482`. `…/2026-10-18T00-11-22-121Z-lot2-2-7-negative-control` |
+| `npm run engine:v3:parity` | `e9855ed1` | sortie 0 en 25 s : 10 357 cas (graine 20261017), **0 différence** entre le moteur TypeScript et `private.estimate_v3_compute`. `.e2e/engine-v3/parity/2026-10-18T00-11-42-336Z-seed-20261017` |
+
+Les exécutions à `1d43528b` des empreintes, de la montée de version (et de son contrôle négatif) et de la
+parité, toutes vertes, ne sont pas retenues : l'arbre a changé depuis. Deux exécutions ont été interrompues par
+l'intégrateur et ne prouvent rien : `emission-v3` à `1d43528b` (au stade pgTAP, pour détacher la chaîne du délai
+de l'outil ; sa pile orpheline `b977f6a8…` a été arrêtée puis détruite par `supabase stop` et
+`supabase stack destroy` sur son seul répertoire de travail) et la campagne complète à `1d43528b` (après le
+diagnostic d'OF00, nettoyée par le lanceur).
+
+Windows, worktree `miaouffrage-l2-27` :
+
+| Commande | Arbre | Résultat |
+|---|---|---|
+| `npm run supabase:validate` ; `npm run supabase:migrations:git-guard` | `8a2c4b9e` | « 250 files, 250 unique versions » ; passé |
+| `npx vitest run <24 fichiers>` : tests des modules touchés (portail, document, envoi, exports, sceau, contrats 1 et 2, PDF, publication, conditions, moteur de règles, serveur), `army-impact-map`, `ci-guardrails`, `engine-frozen-corpus` | `8a2c4b9e` | `Test Files 24 passed (24)`, `Tests 773 passed (773)` |
+| `npx vitest run --project=node` des trois fichiers 2.7 ; `pdf-terms-server.test.ts` | `1d43528b` | 291 / 291 (177 + 104 + 10), aucun ignoré ; 81 / 81 |
+| `npx eslint --max-warnings=0 <45 fichiers TS/TSX touchés depuis origin/main>` ; `node scripts/typecheck.mjs` | `8a2c4b9e` | sortie 0 ; sortie 0 (relancés sur les fichiers de chaque commit d'intégration) |
+| `npm run verify:pr` | `e9855ed1` | `audit:dependencies` passé (0 avis bloquant) ; `audit:signatures` en échec d'environnement : le cache npm partagé du poste référence des contenus absents (`ENOENT` sous `npm-cache/_cacache`, deux fois) ; passé avec un cache isolé (`npm audit signatures --cache <dossier temporaire>` : 593 signatures et 158 attestations vérifiées) |
+| suite de `check:quality` relancée telle quelle : `check:architecture`, `validate-openapi`, `typecheck`, `lint`, `test:ci:node`, `test:ci:jsdom`, `test:critical-coverage` | `e9855ed1` | sortie 0 en 116 s : 1 135 modules, 0 cycle ; « spec valide et synchronisée » (144 routes, 192 opérations) ; Node `299 passed / 1 skipped` fichiers, `3136 passed / 3 skipped` tests ; jsdom 164 / 823 ; couverture critique 3 / 12 |
+| `git diff --stat origin/main...HEAD -- src/lib/estimate-calculations.ts src/lib/estimate-v2-snapshot.ts` | final | vide |
+| `git -c core.whitespace=cr-at-eol diff --check origin/main...HEAD` | final | sortie 0 |
+
+Les trois tests Vitest du 2.7 et la suite pgTAP `estimate-offer-contract-v2.test.sql` sont inchangés depuis leur
+rouge, hors une ligne de commentaire par fichier Vitest pointant vers le §11 (`e9855ed1`) ; les parcours V3M01 et
+V3M02 n'ont reçu que le renommage V3M et la sonde d'hydratation du §9.3, sans aucune ligne `expect` modifiée.
+
+### 10.6 Limites et suites
+
+- **Revue indépendante non faite.** AGENTS.md exige une revue en lecture seule, par un relecteur indépendant, d'un
+  changement de cette taille (migration, contrat, sceau, émission, harnais) ; l'intégrateur n'a pas d'agent
+  relecteur. Le rapprochement du §10.1 et les changements des §10.3 et §10.4 ne sont relus que par leur auteur :
+  à faire avant la PR, sur ce diff stable.
+- **Fusion du 2.6** (`lot2/2.6-editeur-v3` à `ae9b375d`, essai `git merge-tree`) : conflits dans
+  `scripts/tester-army/army-impact-map.json`, `src/app/dashboard/estimates/[versionId]/print/page.tsx` et
+  `supabase/migrations.manifest.json` ; `engine-v3-fail-closed.e2e.ts` fusionne sans conflit (2.6 réécrit V3FC01,
+  le 2.7 V3FC02). L'impression d'une v3 émise doit rester `EstimateV3PrintPage` (§9.5). La migration du 2.6
+  `20261017205000_estimate_engine_v3_line_repricing.sql` (déclencheur `ac_provision_estimate_item_v3_repriced_pu`,
+  objets disjoints de M5) est antérieure à M5 : si le 2.7 arrive le premier sur `main`, le 2.6 la réhorodate
+  (`supabase:migrations:restamp`). Après la fusion : `db:ci:local`, V3M01, V3M02, V3FC et la campagne complète.
+- `audit:signatures` dépend d'un cache npm local réparable par son propriétaire (`npm cache verify`) ; le cache
+  partagé n'a pas été modifié.
+- Restent fermés à la v3 par leur nom (§9.1) : l'export `bdc` et l'export de l'éditeur ; la fiche d'une v3 garde
+  le bandeau de 2.1 jusqu'au 2.6.
+- Le Supabase partagé n'est pas touché ; M5 n'y est pas appliquée (opération distante à autoriser à part).
+  Rien n'est poussé, aucune PR n'est ouverte.
+
+## 11. Tests isolés TypeScript (Vitest)
+
+Ancien `estimate-engine-v3-2.7-vitest.md`, fondu ici à l'intégration (18/10/2026) sans changer son contenu : rouge
+écrit **avant tout code de production** le 17/10/2026, base `c14b243d` (pointe de 2.5) ; sources de la
+conception : F1 à F3, D7, D8, D14, D15, §4, §5, §8.1, §8.2, §14 « 2.7 ». Là où il **choisit** (« Choix »), il fixe
+le contrat que le rouge exige ; ailleurs, la conception fait foi. Les commentaires des tests et des modules
+renvoient à cette section (§11.4 pour les tests réalignés).
+
+### 11.1 Justification de l'isolation
+
+Le parcours `engine-v3-emission.e2e.ts` prouve l'émission de bout en bout sur S2 et S5 (texte du PDF, sceau,
+portail, exports). Il ne peut pas :
+
+- fabriquer une copie commerciale v3 altérée d'un centime, d'une clé ou d'un type : l'application n'écrit que
+  des copies cohérentes, seul le parseur strict les refuse avant le sceau ;
+- énumérer chaque champ de la charge 6 : un champ oublié rend un devis émis modifiable sans que son sceau change ;
+- rejouer 3 600 charges historiques (600 devis du corpus figé × charges 1 à 4) pour prouver qu'aucun octet ne
+  bouge, ce dont dépend la vérification des documents déjà émis ;
+- prouver que le tableau de TVA imprimé vient du contexte figé et non d'un recalcul, ni qu'un gel incohérent
+  est refusé au lieu d'être imprimé.
+
+### 11.2 Fichiers
+
+| Fichier | Cible (absente ou incomplète à `c14b243d`) |
+|---|---|
+| `src/lib/estimates/offer-contract-v2.test.ts` | `offer-contract-v2.ts` (nouveau), `parseOfferDocumentProof` (`offer-contract.ts`) |
+| `src/lib/estimates/estimate-seal.v3.test.ts` | `estimate-seal.ts` (charge 6), `offer-contract-v2.ts` (sceau d'offre au marqueur 5) |
+| `src/lib/estimates/prepare-estimate-document-data.v3.test.ts` | branche v3 de `prepareEstimateDocumentData` |
+
+Les modules absents sont chargés par une variable (`import(/* @vite-ignore */ MODULE)`) et leurs types sont
+recopiés dans le test : le build de production, qui vérifie aussi les tests, reste vert, et chaque cas échoue
+seul (`beforeEach`, jamais « ignoré ») sur le contrat absent. L'implémentation remplace les copies de types par
+les imports réels.
+
+### 11.3 Défaillances visées
+
+| Id | Défaillance | Cas |
+|---|---|---|
+| F27-V01 | Copie valide refusée, réparée ou mutée | S1 à S5, autoliquidation, parts FO/MO, T-HALF3, ½↑ de TVA, Q = 0, CAP, remise de 100 % : rendu égal, copie neuve, entrée intacte |
+| F27-V02 | Clé absente tolérée | 36 chemins, `rateBp` d'un taux de remise, part MO sans part FO |
+| F27-V03 | Clé en trop tolérée (contrat 1, donnée privée, champ inventé) | 25 chemins (`totals.saleHtCents`, `rows.n.unit`, `h_mo_per_unit`, `costSubtotalCents`, `discountIntent.requestedCents`…) |
+| F27-V04 | Type ou domaine faux accepté | 55 valeurs (dont moteur ≠ 3, quantité à 4 décimales, unité hors format, statut inconnu) et 4 taux de remise (0, 10 001, 1,5, chaîne) |
+| F27-V05 | Σ lignes ≠ brut, sous-total de section faux, FO + MO ≠ brut, dépassement int32 | chaque altération d'1 c isolée par l'oracle du test (le reste du pied réaligné) |
+| F27-V06 | PT ≠ ⌈Q × PU⌋ (A4), y compris T-HALF3 calculé en flottant (100 c au lieu de 101) ; ligne non chiffrée avec un montant ou un PU ; ligne chiffrée sans PU ni unité | |
+| F27-V07 | net ≠ brut − remise − arrondi ; remise contraire à l'intention (aucune, taux ⌈G × bp⌋, montant ≤ G) | |
+| F27-V08 | TVA : Σ par taux ≠ TVA, ⌈base × taux⌋ faux (troncature, arrondi au pair), TTC ≠ net + TVA, Σ bases ≠ net, base d'un taux > brut chiffré du taux, taux ≠ taux des lignes chiffrées (manquant, en trop, doublé, non trié, taux d'une ligne non chiffrée), TVA en autoliquidation, indicateur contraire au rôle | |
+| F27-V09 | Arbre et JSON : doublon, orphelin, parent ligne, profondeur, cycle, tableau creux, accesseur, prototype hérité, entrée hostile dont la valeur serait recopiée dans le message | |
+| F27-V10 | Appariement : le parseur 2 accepte un contrat 1, ou le parseur 1 un contrat 2 | |
+| F27-V11 | Preuve au marqueur de contrat 2 refusée | `clientContractVersion: 2` |
+| F27-V12 | Appariement croisé ou ancre fausse accepté au marqueur 2 | contrat 1 sous marqueur 2, contrat 2 sous marqueur 1, copie altérée, version, révision, auteur, mode de prix, `legacy` |
+| F27-S01 | Une v3 n'est pas scellée en charge 6, ou la v2 change de charge par défaut | |
+| F27-S02 | Clé de la charge 6 absente ou en trop | 31 clés de version, 39 clés de ligne (sections comprises) |
+| F27-S03 | Un champ v3 (ou de charge 4) ne change pas l'empreinte | 44 mutations de version (contexte figé compris), 39 de ligne, 3 de section |
+| F27-S04 | Empreinte instable (ordre des lignes, ordre des clés, horodatages, `seal_hash`) | |
+| F27-S05 | v3 scellée par une charge 1 à 5 ou inconnue ; v1/v2 scellée par la charge 6 | |
+| F27-S06 | Un octet change dans les charges 1 à 4 | 7 variantes × 600 devis du corpus figé, empreintes relevées sur `c14b243d` |
+| F27-S07 | L'enveloppe du marqueur 5 du contrat 1 change, ou accepte un contrat 2 | empreinte relevée sur `c14b243d` |
+| F27-S08 | Enveloppe v3 fausse : autre marqueur, calcul hors charge 6, copie non liée | enveloppe exacte, chaîne charge 6 → sceau, liaison titre/unité/PDF, refus croisés |
+| F27-D01 | PT imprimé ≠ ⌈Q × PU⌋, PU ou parts FO/MO lus ailleurs que sur le brut figé | 7 lignes chiffrées ; O1 166,63 € / 3 332,60 € ; O4 13,53 € / 15 410,67 € |
+| F27-D02 | Unité non issue du référentiel (« m² » pour `m2`) ; ligne non chiffrée avec PU ou montant | |
+| F27-D03 | Σ sous-totaux de premier niveau + lignes racine ≠ brut ; sections en net | A 5 554,61 € ; B 62 908,91 € ; O7 591,04 € ; Σ 69 054,56 € |
+| F27-D04 | Pied S2/S5 faux ; récapitulatif ≠ contexte figé | S2 : remise 1,01 €, net 69 053,55 €, TVA 13 810,71 € ; S5 : 555,45 € + 12 699,80 €, TTC 82 308,80 € |
+| F27-D05 | Intention de remise ou arrondi mal lus ; autoliquidation avec TVA | S1, S3, S4, sous-traitance |
+| F27-D06 | Gel incohérent imprimé ou recalculé | TVA du contexte +1 c ; PU +1 c ; contexte absent ; brut de ligne +1 c, Σ cohérente |
+
+### 11.4 Contrat attendu
+
+#### `src/lib/estimates/offer-contract-v2.ts` (nouveau)
+
+```ts
+export type CommercialRow2 =
+  | { kind: "section"; id; parentId; position; depth; number; title; saleHtCents; foSaleHtCents?; moSaleHtCents? }
+  | { kind: "line"; id; parentId; position; depth; title; quantity; unitCode: string | null; unitLabel: string | null;
+      pricingStatus: EstimateV3PricingStatus; taxRateBp; unitSaleHtCents: number | null; saleHtCents;
+      foSaleHtCents?; moSaleHtCents? };
+export type ClientContract2 = {
+  schemaVersion: 2;
+  version: ClientContract1["version"] & { calcEngineVersion: 3 };
+  project: ClientContract1["project"]; issuer: ClientContract1["issuer"]; company: ClientContract1["company"];
+  rows: CommercialRow2[];
+  totals: { grossHtCents; commercialDiscountCents; discountIntent: { kind: "none" | "amount" } | { kind: "rate"; rateBp };
+    commercialRoundingCents; netHtCents; taxByRate: Array<{ rateBp; baseHtCents; taxCents }>; taxCents;
+    payableTtcCents; reverseCharge: boolean };
+  exclusions: string | null;
+};
+export function parseClientContract2Snapshot(value: unknown): ClientContract2;   // OFFER_CLIENT_CONTRACT_INVALID
+export function computeOfferSealHashV2(input: { calculationHash: string; snapshot: unknown; documentProof: unknown },
+  options?: OfferProofParseOptions): string;                                       // OFFER_SEAL_INPUT_INVALID
+```
+
+Erreurs : `OfferContractError` de `offer-contract.ts` (même classe, mêmes codes, message sans valeur d'entrée).
+Blocs `project`, `issuer`, `company` et validateurs de `version` : ceux du contrat 1 (D14).
+
+Invariants (tous refusés au centime) : Σ bruts des lignes = `grossHtCents` (aucune exception de moteur) ;
+section = Σ de ses lignes descendantes (brut, FO, MO) ; FO + MO = brut sur chaque ligne, parts uniformes ;
+ligne `priced` : `unitCode` et `unitLabel` non nuls, `unitSaleHtCents` entier, `saleHtCents` = ⌈Q × PU⌋ en
+décimal exact ; ligne non chiffrée : PU nul, brut, FO et MO à 0 ; `unitCode` nul ⇔ `unitLabel` nul ;
+net = brut − remise − arrondi ≥ 0 ; `none` ⇒ remise 0, `rate` ⇒ remise = min(⌈G × bp / 10 000⌋, G) avec
+bp ∈ [1 ; 10 000], `amount` ⇒ 0 ≤ remise ≤ G ; `taxByRate` strictement croissant, taux = taux distincts des
+lignes `priced`, Σ bases = net, base d'un taux ≤ Σ bruts des lignes chiffrées de ce taux, TVA du taux =
+⌈base × taux / 10 000⌋ (0 en autoliquidation) ; `taxCents` = Σ ; TTC = net + TVA ; `reverseCharge` ⇔
+`contractorRole = "subcontractor"`.
+
+**Choix** : clés de premier niveau identiques au contrat 1 (`rows`, `exclusions`) ; `quantity` nombre de 0 à
+999 999 999,999 avec au plus 3 décimales (`numeric(12,3)`) ; `unitCode` au format du référentiel
+(`^[a-z][a-z0-9]*$`, 16 caractères au plus), sans consultation du référentiel vivant ; `unitLabel` texte libre
+(le préparateur y met le symbole) ; aucune clé `requestedCents` ni `rateBp` hors intention `rate`.
+
+`computeOfferSealHashV2` : SHA-256 du JSON canonique (clés triées) de
+`{ meta: { payloadVersion: 5, versionId, tenantId, projectId, contentRevision, calcEngineVersion: 3 },
+calculation: { payloadVersion: 6, sha256 }, clientContract, document: { sha256Hash, layoutOptions, termsSnapshot } }`,
+copie égale à celle de la preuve, preuve au marqueur 2.
+
+#### `src/lib/estimates/offer-contract.ts`
+
+`parseOfferDocumentProof` accepte `clientContractVersion: 2` avec une copie analysée par
+`parseClientContract2Snapshot`, mêmes ancres et mêmes règles qu'au marqueur 1 (publication non `legacy`,
+chemin canonique, version, entreprise, affaire, révision, auteur = `issuer.userId`, envoi ⇔ `publishedDispatchId`,
+`fo_mo_and_total` ⇔ parts FO/MO). Contrat 1 sous marqueur 2 et contrat 2 sous marqueur 1 : refusés.
+`parseClientContractSnapshot` et `computeOfferSealHash` (contrat 1) ne changent pas.
+
+#### `src/lib/estimates/estimate-seal.ts`
+
+- `export const ENGINE_V3_ESTIMATE_SEAL_PAYLOAD_VERSION = 6` ; `CURRENT_ESTIMATE_SEAL_PAYLOAD_VERSION` reste 4.
+- v3 sans option ou avec `payloadVersion: 6` → charge 6 ; v3 avec 1 à 4 → `ESTIMATE_ENGINE_UNAVAILABLE` (2.1,
+  conservé) ; v3 avec 5 ou une valeur inconnue, et v1/v2 avec 6 → erreur de code
+  `ESTIMATE_SEAL_PAYLOAD_UNSUPPORTED`.
+- Charge 6 = clés de la charge 4, `discount_amount_cents` et `contractor_role` **toujours présents**, plus
+  `sale_coefficient_fo`, `sale_coefficient_mo`, `gross_ht_cents`, `discount_applied_cents`,
+  `commercial_rounding_cents`, `tax_breakdown` (= `calc_snapshot_context.tax_breakdown`, **choix**) ; lignes et
+  sections : clés de la charge 4 plus `unit_code`, `pricing_status`, `h_mo_per_unit`, `h_mo_atelier_per_unit`,
+  `h_mo_chantier_per_unit`, `snapshot_gross_ht_cents`, `snapshot_gross_fo_ht_cents` (nulles sur une section).
+- Charges 1 à 4 : octet pour octet (empreintes figées du test).
+
+#### `prepareEstimateDocumentData` (branche v3)
+
+Entrée `{ calcEngineVersion: 3, items, version, currency, validiteJours, portalUrl?, maxVisibleSectionLevel?,
+layout? }`, où `version` porte les colonnes de `StoredEstimateV3Version` (brut, remise et arrondi appliqués,
+totaux, rôle d'entreprise, `calc_snapshot_context`) et l'intention (`discount_bp`, `discount_amount_cents`).
+Aucun `breakdown` : le document relit le gel (`readStoredEstimateV3`) et refuse toute incohérence par
+`EstimateV3Error` `ESTIMATE_V3_STORED_INCOHERENT`, y compris PT ≠ ⌈Q × PU⌋ sur une ligne chiffrée. Sortie :
+`EstimateDocumentPreparedData` (lignes et sections **en brut** : `lineUnitPriceHtById` = PU publié,
+`lineSplitsById` = brut et parts FO/MO brutes, `sectionTotalsById` = Σ bruts ; `taxEnabled` = hors
+autoliquidation) plus `v3: { linesById: Record<id, { unitCode, unitLabel, pricingStatus, taxRateBp,
+unitSaleHtCents, saleHtCents, foSaleHtCents, moSaleHtCents }>, totals: { grossHtCents, discount: { kind, rateBp,
+appliedCents }, commercialRoundingCents, netHtCents, taxByRate, taxCents, payableTtcCents, reverseCharge } }`.
+`unitLabel` = symbole de `MEASUREMENT_UNITS` ; intention lue sur `calc_snapshot_context.discount` ;
+`taxByRate` = `calc_snapshot_context.tax_breakdown`, renommé, jamais recalculé.
+
+#### Tests existants à réaligner à l'implémentation
+
+Ils figent le refus de 2.1, que 2.7 lève volontairement : `estimate-seal.test.ts` (« refuses to seal a v3 until
+the v3 seal payload exists » : sans option, une v3 donne désormais la charge 6 ; le refus en charge 4 reste),
+`pdf-generator.test.ts:1035-1040` et `send-estimate.test.ts:269-273` (`ESTIMATE_ENGINE_UNAVAILABLE` sur une v3).
+
+### 11.5 Valeurs figées (`c14b243d`)
+
+| Variante | SHA-256 des 600 lignes `<cas>:<sha de la charge>` |
+|---|---|
+| charge 1 sans moteur | `82c18e5dfcdf71a1d01320973a649c8e94a74036109084b4edae0e6f9ed624b3` |
+| charge 1 sans moteur ni ventilation | `3fd2804dc41b3be8e9d5f344494938421dc74ff057cfed89f52275ec0f590695` |
+| charge 1 avec moteur | `ccb1056c3719bf849f3495d3e37cad674d48ceff52912061b969558c9f7e0495` |
+| charge 2 | `6c2384d83daa5230d9280b72f9062225ed18d0c54a99d4848ffeb1c35cab1d16` |
+| charge 3 | `bd8339b1da8a0ab96acc23de05f4079aafacf977739b8b91c5e71f511835491e` |
+| charge 4 | `60d36fb8eceb95983050fef5e4de62fcea7857d7b84c9c00e7bc1414224c037b` |
+| par défaut (v1 → 2, v2 → 4) | `d8a3de5c8c998e4d773e8e3065f2833ce5f89df07940da10d710f7ae91bbfa88` |
+| marqueur 5, contrat 1 du test | `2b4ae8ab17ef9cd78af29293e61bff0875109d2751998365b03980e23c8a107e` |
+
+Chaque variante produit 600 charges distinctes (harnais non dégénéré). Ces cas sont verts par construction :
+ils ne doivent jamais être régénérés pour absorber un changement.
+
+### 11.6 Preuve rouge (17/10/2026)
+
+Windows, worktree `miaouffrage-l2-27`, base `c14b243d`, seuls changements locaux : les trois tests et l'ancien `estimate-engine-v3-2.7-vitest.md`.
+
+```bash
+npx vitest run --project=node src/lib/estimates/offer-contract-v2.test.ts \
+  src/lib/estimates/estimate-seal.v3.test.ts src/lib/estimates/prepare-estimate-document-data.v3.test.ts
+```
+
+Sortie 1 : `Test Files 3 failed (3)`, `Tests 279 failed | 12 passed (291)`, aucun cas ignoré.
+
+| Fichier | Résultat | Motif |
+|---|---|---|
+| `offer-contract-v2.test.ts` | 176 rouges / 177 | 175 : `MISSING_PRECONDITION: src/lib/estimates/offer-contract-v2.ts absent` ; F27-V11 : `OfferContractError: Invalid offer contract at documentProof.clientContractVersion.` (marqueur 2 refusé) |
+| `estimate-seal.v3.test.ts` | 93 rouges / 104 | F27-S01 : `expected undefined to be 6` (constante absente) ; F27-S02 à S04 et S08 (chaîne) : `EstimateEngineUnavailableError` levée par `resolveCalcEngineVersion` dans `buildCanonicalEstimateSealPayload` ; F27-S05 (5, 7) : `ESTIMATE_ENGINE_UNAVAILABLE` au lieu de `ESTIMATE_SEAL_PAYLOAD_UNSUPPORTED` ; F27-S05 (v1/v2 en charge 6) : `expected undefined to match object { code: "ESTIMATE_SEAL_PAYLOAD_UNSUPPORTED" }` (charge construite en silence) ; F27-S08 : `MISSING_PRECONDITION` |
+| `prepare-estimate-document-data.v3.test.ts` | 10 rouges / 10 | `TypeError: Cannot read properties of undefined (reading 'totals')` (`prepare-estimate-document-data.ts:461`, aucune branche v3 : le préparateur lit le `breakdown` v1/v2) ; F27-D06 : même erreur au lieu d'`EstimateV3Error` |
+
+Verts (gardes, vrais avant et après 2.7) : F27-S05 (v3 en charges 1 à 4), F27-S06 (8 cas), F27-S07 (2 cas),
+F27-V12. `npm run typecheck` : sortie 0 ; `npx eslint --max-warnings=0` sur les trois tests : sortie 0. Voisins
+inchangés et verts : `ci-guardrails`, `army-impact-map`, `estimate-seal`, `offer-contract`,
+`engine-frozen-corpus` (5 fichiers, 187 tests).
+
+Au vert attendu : les trois fichiers entièrement verts sans modifier les attendus ni les empreintes, après
+`offer-contract-v2.ts`, la charge 6 et la branche v3 du préparateur, et les trois tests de 2.1 du §11.4 réalignés.
+
+### 11.7 Vert (18/10/2026, piste TypeScript)
+
+Windows, worktree `miaouffrage-l2-27`, base `f8cc1dc8` (M5 et sa documentation, piste SQL) ; implémentation
+`71d04e03`, renommage des parcours `f2b70f87`. Les trois fichiers sont inchangés : aucun attendu, aucune
+empreinte ni aucune copie de type n'a été modifié (les modules sont toujours chargés par une variable).
+
+```bash
+npx vitest run --project=node src/lib/estimates/offer-contract-v2.test.ts \
+  src/lib/estimates/estimate-seal.v3.test.ts src/lib/estimates/prepare-estimate-document-data.v3.test.ts
+```
+
+Sortie 0 : `Test Files 3 passed (3)`, `Tests 291 passed (291)` (177 + 104 + 10), aucun cas ignoré ; F27-S06 et
+F27-S07 rendent les empreintes figées sur `c14b243d`.
+
+#### Modules
+
+| Module | Rôle |
+|---|---|
+| `offer-contract-core.ts` (nouveau) | primitives strictes déplacées telles quelles d'`offer-contract.ts` (`object`, `text`, `cents`, `uuid`, `date`, `instant`, adresse, mise en page, conditions, `run`, `canonicalJson`, `OfferContractError`), communes aux deux contrats sans cycle d'exécution |
+| `offer-contract-v2-parser.ts` (nouveau) | analyse stricte de `ClientContract2` (clés exactes, domaines, arbre, PT = ⌈Q × PU⌋ en décimal exact, pied, TVA par taux) ; module bas, lu par `offer-contract.ts` |
+| `offer-contract-v2.ts` (nouveau) | interface publique : types, `parseClientContract2Snapshot`, `buildClientContract2` (copie construite depuis le document relu), `computeOfferSealHashV2` (marqueur 5, charge 6) |
+| `offer-contract.ts` | primitives importées du cœur ; la preuve accepte le marqueur 2 avec le contrat 2 seulement (et inversement), mêmes ancres ; la présentation aiguille sur `schemaVersion` ; `parseClientContractSnapshot` et `computeOfferSealHash` inchangés |
+| `estimate-seal.ts` | `ENGINE_V3_ESTIMATE_SEAL_PAYLOAD_VERSION = 6`, constructeur séparé de la charge 6 (ordre des clés fixe, JSON imbriqué trié) ; `ESTIMATE_SEAL_PAYLOAD_UNSUPPORTED` (v3 hors 6, v1/v2 hors 1 à 4) ; charges 1 à 4 inchangées |
+| `prepare-estimate-document-data.ts` | `prepareEstimateV3DocumentData` (entrée typée) ; `prepareEstimateDocumentData` aiguille une entrée v3 à l'exécution, sa signature v1/v2 reste celle des goldens |
+
+#### Tests réalignés (refus de 2.1 levé volontairement)
+
+| Test | Avant | Après |
+|---|---|---|
+| `estimate-seal.test.ts` | v3 sans option : `ESTIMATE_ENGINE_UNAVAILABLE` | v3 sans option : charge 6 ; charge 4 toujours refusée par son nom |
+| `pdf-generator.test.ts` (F-TS-04) | v3 refusée avant réclamation, gel, rendu, dépôt | moteur hors domaine (4) refusé (`ESTIMATE_CALC_ENGINE_UNSUPPORTED`) avant tout effet ; la v3 est émise (V3M01, V3M02) |
+| `send-estimate.test.ts` (F-TS-05) | v3 refusée avant configuration et réservation | moteur hors domaine (4) refusé avant tout effet ; la v3 s'envoie (V3M01) |
+| `server.seal.test.ts` (deux `toEqual`) | `{ valid, computed_hash, stored_hash }` | plus `seal_payload_version`, `client_contract_version`, `calc_payload_version` (« Choix » du §5.2) |
+
+#### Garde des conditions bac à sable (`pdf-terms-server.test.ts`)
+
+Défaillance que le parcours ne peut pas produire (un marqueur d'hébergement, ou une pile sur 45585 interdite à
+la campagne) : écrit rouge avant l'extension (`7154c1ce` : `Tests 1 failed | 80 passed (81)`, le cas d'admission),
+vert après (`Tests 81 passed (81)`). Le profil admis est le build de production de la pile possédée calc-v3
+(`E2E_ARMY_SUITE=calc-v3`, `E2E_OFFER_SERVER_MODE=production`, `E2E_OFFER_SANDBOX_TERMS=1`, garde serveur
+d'offre, backend `http://127.0.0.1:<port>` hors 45585/33485 égal à `E2E_OFFER_BACKEND_ORIGIN`, application en
+boucle locale sur un autre port) ; tout marqueur d'hébergement, tout autre profil, la pile des développeurs et
+un environnement de test sont refusés ; le cas `offer` sur 45585 est inchangé. La phase `emission-v3` reste
+servie en `next dev` : son passage au build possédé est une évolution du harnais, hors de ce sous-lot.
+
+#### Contrôles (Windows, arbre final `dad77e83`, aucun changement local hors documentation)
+
+| Commande | Résultat |
+|---|---|
+| `npx vitest run --project=node` | `Test Files 298 passed / 1 skipped`, `Tests 3111 passed / 3 skipped` (dont `engine-frozen-corpus`, seal, offre, PDF, document, exports, goldens) ; 2 exécutions sur 7 ont signalé un « Worker exited unexpectedly » de Vitest sans aucun test en échec (poste chargé par les piles natives d'autres sessions), puis 3 exécutions consécutives au rapporteur JSON sans erreur (299 fichiers, 0 suite en échec) |
+| `npx vitest run --project=jsdom` | `Test Files 162 passed`, `Tests 821 passed` |
+| `npm run test:critical-coverage` | `3 passed`, `12 passed` |
+| `node scripts/typecheck.mjs` | sortie 0 |
+| `npx eslint --max-warnings=0 <fichiers touchés>` | sortie 0 |
+| `npm run validate-openapi` | « spec valide et synchronisée » (144 routes, 192 opérations) |
+| `npm run check:architecture` | passé (1 133 modules, 0 cycle) ; `pdf-generator.tsx` 2 220 / 2 300 lignes non vides |
+| `git diff --stat -- src/lib/estimate-calculations.ts src/lib/estimate-v2-snapshot.ts` | vide |
+
+### 11.8 Mesures à l'intégration
+
+Sur la tête fusionnée, sans modification des attendus, des empreintes ni des copies de type des trois fichiers :
+291 tests sur 291 (`1d43528b`), puis la suite Node complète de `check:quality` à `e9855ed1` (299 fichiers,
+3 136 tests, 3 ignorés hors 2.7) ; `pdf-terms-server.test.ts` 81 sur 81 ; empreintes figées F27-S06 et F27-S07
+égales à celles de `c14b243d`. Détail au §10.5.
