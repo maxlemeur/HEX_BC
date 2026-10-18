@@ -1740,7 +1740,7 @@ Toutes les sélections sont exécutées en entier (sélectionnés = exécutés =
 Limites : celles du §13.11. Si `origin/main` avance encore avant la poussée, refusionner ; réhorodater M5 seulement
 si `main` gagne une migration plus récente.
 
-### 13.13 Fusions de `main` `c4c1e854` (#52, #54, #55, #56) et `6260621c` (#58), correction de V3E05 et preuves rejouées (18/10/2026)
+### 13.13 Fusions de `main` `c4c1e854` (#52, #54, #55, #56), `6260621c` (#58) et `59b3b6bf` (#57), correction de V3E05 et preuves rejouées (18/10/2026)
 
 **Fusion `58b1c93f`** (`git merge --no-ff origin/main`, sans rebase ni poussée). `origin/main` avait avancé à
 `c4c1e854` et la PR était en conflit. Cinq conflits, chacun résolu en gardant les deux intentions :
@@ -1801,6 +1801,26 @@ d'émission, servies par leur propre configuration et sans code changé, gardent
 `select-journeys.ts --event pull_request --base 6260621c` rend `mode` `full`, `fullOnly` `all` (neuf fichiers,
 connexion comprise) : la CI de la PR joue toute la suite critique et `army-takeoff`.
 
+**Troisième fusion `ccb4b577`** (`origin/main` `59b3b6bf` : #57, créateurs prêts pour le moteur 3, 2.10a), arrivée
+avant la poussée ; `git merge-tree` signalait un conflit, encore dans `army-impact-map.json` seulement : le groupe
+`affaire-hub` garde `engine-v3-creators.e2e.ts` (2.10a) et `engine-v3-exports.e2e.ts` (2.7), dans l'ordre des
+chemins. Les fichiers que #57 modifie aussi (`useEstimateEditorState.impl.tsx`, `src/lib/estimates/server.ts`,
+registre OpenAPI, `openapi.json`) fusionnent sans conflit ; `generate-openapi` laisse `openapi.json` inchangé et
+`validate-openapi` passe (144 routes, 192 opérations). #57 n'apporte aucune migration : M5 reste la plus récente.
+Garde Git `pull_request` contre `59b3b6bf` passée, `supabase:validate` 254/254, `ci-guardrails` et
+`army-impact-map` 40/40 (Windows). Du code de production change : tout est rejoué sur `ccb4b577`, la sélection
+locale étendue aux parcours V3C de 2.10a :
+
+| Tête | Commande | Résultat |
+|---|---|---|
+| `ccb4b577` | `npm run verify:pr` | **sortie 0** en 102 s : audit et signatures (762 paquets), architecture (1 152 modules, 0 cycle), OpenAPI (144 routes, 192 opérations), typecheck, lint, Vitest node 3 281 (2 ignorés) et jsdom 831, couverture critique 12 |
+| `ccb4b577` | `npm run e2e:army:local -- --grep "V3M\|V3FC\|V3E\|V3P01\|V3X\|IO0\|V3C" --app-port 3161` | **sortie 0** en 504 s : `filtered-critical`, 43/43 (V3C01 à V3C13 en plus des 30), aucun `flaky` ni `skipped`, 127 tests découverts ; V3E05 à 450 px avant, pendant et après. `…/2026-10-18T15-58-09-995Z-critical` (`94662c66…`) |
+| `ccb4b577` | `npm run e2e:army:calc-v3 -- --phase emission-v3 --app-port 3161` | **sortie 0** en 183 s : 6/6, 6 PDF reçus. `…/2026-10-18T16-06-35-587Z-calc-v3` (`77008844…`) |
+| `ccb4b577` | idem `--phase emission` | **sortie 0** en 158 s : 6/6, 4 PDF reçus. `…/2026-10-18T16-09-40-010Z-calc-v3` (`cce285f0…`) |
+
+Les captures restent absentes : les aides de capture de 2.10a (`captureScreen`, propriétaire dédié) sont désormais
+sur la branche, mais les écrans de 2.7 demandent toujours un parcours d'émission v3 hors session, à faire en suite.
+
 **V3E05 rouge sur `58b1c93f` : alerte d'envoi bloqué et assertion de #55.** #55 ajoute à V3E05 une assertion :
 pendant qu'une suppression v3 annulée attend sa remise en ordre, ni l'alerte des totaux ni la grille ne bougent.
 Mesuré : titre de la section à 450 px avant l'annulation et après, **380 px pendant** (alerte des totaux absente ;
@@ -1822,11 +1842,12 @@ pas de relecture indépendante, la revue de la PR la couvre.
 
 `npm run verify:pr` est rejoué sur la tête finale, ce relevé compris (description de la PR).
 
-Non rejoués sur cette tête : `db:ci:local`, la suite critique complète, les parcours du métré, les six autres
-phases calc-v3, `db:upgrade-check` et les empreintes de documents. La CI de la PR rejoue sur la tête poussée la
-suite critique (sélection par impact), `army-takeoff`, la sélection `nightly` calc-v3 (huit phases : le workflow
-est modifié), la matrice RLS et le Quality Gate. Les montées de version et les empreintes ne dépendent ni de #52
-(outillage CI), ni de #55 et de `7fa27468` (éditeur), ni de #56 (catalogue), et la migration de #54 ne touche
-aucun montant. Dernière qualification complète : §13.12, sur `039ca113`.
+Non rejoués sur la tête finale (`ccb4b577` plus ce relevé) : `db:ci:local`, la suite critique complète, les
+parcours du métré, les six autres phases calc-v3, `db:upgrade-check` et les empreintes de documents. La CI de la
+PR rejoue sur la tête poussée la suite critique (sélection par impact), `army-takeoff`, la sélection `nightly`
+calc-v3 (huit phases : le workflow est modifié), la matrice RLS et le Quality Gate. Seule la première fusion
+apporte une migration, celle de #54 (verrou de brouillon), qui ne touche aucun montant ; #52 est de l'outillage CI,
+#55 et `7fa27468` touchent l'éditeur, #56 le catalogue, #57 les créateurs (qualifiés sur `main` par sa PR).
+Dernière qualification complète : §13.12, sur `039ca113`.
 
 Limites : celles du §13.11 ; correction de V3E05 sans relecture indépendante (ci-dessus).
