@@ -19,13 +19,14 @@ commandes et les chemins tels qu'exécutés (`--grep '^V3E02\s'`, `v3e02-*`).
 
 | Fichier | Rôle |
 |---|---|
-| `supabase/tests/database/estimate-offer-contract-v2.test.sql` | pgTAP, F27-01 à F27-19 (§4) |
+| `supabase/tests/database/estimate-offer-contract-v2.test.sql` | pgTAP, F27-01 à F27-21 (§4, §13.14) |
+| `supabase/migrations/20261018164500_estimate_offer_client_contract_v2_order.sql` | Suite de M5 (M5 inchangée) : l'appariement du contrat 2 exige l'ordre préfixe de l'arbre stocké et les numéros de section qui en découlent (§13.14) |
 | `e2e/army/local/engine-v3-emission.e2e.ts`, `engine-v3-emission-support.ts` | Parcours V3M01, V3M03, V3M04, V3M05 et V3M06 (calc-v3) et V3M02 (critique locale), §3, §12 et §13 |
 | `e2e/army/local/engine-v3-editor-actions.e2e.ts` (fichier de 2.6) | V3E11 réécrit et V3E15 (critique locale) à la fusion du 2.6, §13 |
 | `e2e/army/local/engine-v3-exports.e2e.ts` | Parcours V3X01 (réimport du DPGF v3) et V3X02 (devise des montants), critique locale, §13.8 et §13.9 |
 | `src/lib/estimates/v3-export.ts` | Exports XLSX standard et DPGF d'une v3 : libellé de statut des lignes non chiffrées, devise de la version (§13.8) |
 | `src/lib/imports/optima-profile.ts` | Profil d'import déclaré `dpgf_export_v3` du DPGF v3 (§13.9) |
-| `src/app/dashboard/estimates/[versionId]/print/EstimateV3PrintPage.tsx` | Impression d'une v3 : identité et CGV de la copie émise vérifiée hors brouillon (§13.8, §13.9) |
+| `src/app/dashboard/estimates/[versionId]/print/EstimateV3PrintPage.tsx`, `EstimatePrintLayoutButton.tsx` | Impression d'une v3 : identité, CGV et mise en page de la copie émise vérifiée hors brouillon ; copie émise : simple bouton « Imprimer » (§13.8, §13.9, §13.14) |
 | `scripts/tester-army/calc-v3-phases.ts` | Nouvelle phase `emission-v3` (collecteur sentinelle ; next dev au rouge, build de production possédé depuis l'intégration, §10.4) |
 | `scripts/tester-army/calc-v3-fixtures.ts` | Fixture de la phase : propriétaire dédié en politique 3, témoin v2 brouillon, second administrateur du tenant (V3M06, §13.8) |
 | `scripts/tester-army/calc-v3-campaign.ts`, `e2e/army/local/calc-v3.config.ts` | Collecteur, garde réseau d'offre et lecture des PDF reçus pilotés par `sentinelCollector` (et non plus par le nom `emission`) |
@@ -61,6 +62,8 @@ commandes et les chemins tels qu'exécutés (`--grep '^V3E02\s'`, `v3e02-*`).
 | En-tête « TVA : » vide d'un contrat 2 sans ligne chiffrée | V3M02, scénario ajouté à la revue (rouge sans `3a8e576a`, §12) |
 | Impression d'une v3 émise avec le profil du lecteur ou l'affaire modifiée après l'émission ; pied du portail du contrat 2 sans l'emphase du pied v3 | V3M06, V3M-15 et V3M-16 (§13.8) |
 | Impression d'une v3 émise avec d'autres CGV que sa copie scellée (ajoutées par la case ou la politique courante, retirées par la mise en page) | V3M05 et V3M06, V3M-17 (§13.9) |
+| Impression d'une v3 émise sous une autre mise en page que sa copie scellée (défaut sans paramètre, ou paramètres de « Mise en page / imprimer ») | V3M06, V3M-18 (§13.14) |
+| Contrat 2 publié et scellé dans un autre ordre que l'arbre stocké ou avec d'autres numéros de section | pgTAP F27-20, F27-21 (§13.14) |
 | Classeurs v3 en USD ou GBP au format « € » ; ligne non chiffrée recréée facturable au réimport du DPGF | V3X02 ; V3X01, V3X-01 et V3X-02 (§13.8) |
 | Ligne chiffrée avec main-d'oeuvre réimportée avec ses heures comptées deux fois (PT / Q lu en prix de fourniture, h/u en heures de ligne) | V3X01, V3X-07 (§13.9) |
 
@@ -171,6 +174,8 @@ renvoient « exacte | altérée » (`pg_temp.c2_pair`) et attendent `ok | <refus
 | F27-17 | témoin v1 : contrat 1 publié, document prêt et valide (vert avant M5) |
 | F27-18 | S2 publié sous contrat 2 : prêt, `client_contract_version = 2`, net 6 905 355, document d'offre valide |
 | F27-19 | émission manuelle de S2 (`transition_estimate_draft_to_sent`, marqueur 5) : `sent`, sceau, montants S2, gel frais, document valide ; contrat 2 non réécrivable (`42501 OFFER_DOCUMENT_IMMUTABLE`) |
+| F27-20 | appariement : O1 et O2 permutées, section après ses lignes : faux ; publication de la permutation : `23514 OFFER_CLIENT_CONTRACT_ANCHOR_MISMATCH` (§13.14) |
+| F27-21 | appariement : section de S2 numérotée « 02 » ou « 1 » : faux, publication refusée par son nom ; arbre imbriqué (01, 01.2, 01.2.2, 01.12, 02) exact : vrai ; « 01.012 », rang parmi les sections seules, bloc de frères ou de racines déplacé : faux (§13.14) |
 
 ### Justification de l'isolation
 
@@ -203,7 +208,9 @@ exacte doit passer dans la même sonde, pour qu'un refus général ne passe pas 
   `pricingStatus`, `taxRateBp`, `unitSaleHtCents = snapshot_pu_ht_cents`, `saleHtCents =
   snapshot_gross_ht_cents`) ; pied ⇔ version (`gross_ht_cents`, `discount_applied_cents`,
   `commercial_rounding_cents`, totaux) et contexte figé (intention, `tax_breakdown`) ; gel frais
-  (`calc_snapshot_content_revision = content_revision`, contexte moteur 3).
+  (`calc_snapshot_content_revision = content_revision`, contexte moteur 3). Depuis la migration de suite
+  `20261018164500_…_order.sql` (§13.14) : lignes dans l'ordre préfixe de l'arbre stocké (frères par position, puis
+  identifiant) et numéro de chaque section dérivé de cet arbre comme `computeEstimateItemNumbering`.
 - `publish_estimate_pdf_generation` : signature inchangée (11 arguments), aiguillage sur `schemaVersion` ;
   contrat invalide → `22023 ESTIMATE_PDF_PUBLICATION_INVALID` ; contrat valide mais différent du devis figé, ou
   gel périmé → `23514 OFFER_CLIENT_CONTRACT_ANCHOR_MISMATCH` ; écrit `client_contract_version = 2`.
@@ -447,7 +454,7 @@ appariée au moteur, `is distinct from 1` devient « contrat du moteur »).
 | `estimate_offer_document_valid` | contrat attendu = contrat du moteur ; validateur selon le contrat ; aucun document historique sans contrat pour une v3 |
 | `guard_estimate_document_engine_v3` | refus M1 remplacé par l'appariement (`OFFER_CLIENT_CONTRACT_ENGINE_MISMATCH`) |
 | `guard_estimate_offer_document` | `ready` exige le contrat du moteur ; immuabilité et réclamation pour les contrats 1 et 2 |
-| `publish_estimate_pdf_generation` | validateur selon `schemaVersion` ; contrat présenté = contrat du moteur ; ancres du contrat 1 inchangées ou `estimate_offer_client_items_match_v2` ; écrit le contrat présenté |
+| `publish_estimate_pdf_generation` | validateur selon `schemaVersion` ; contrat présenté = contrat du moteur ; ancres du contrat 1 inchangées ou `estimate_offer_client_items_match_v2` (ordre et numéros de section depuis §13.14) ; écrit le contrat présenté |
 | `reserve_estimate_email_dispatch`, `prepare_estimate_email_dispatch`, `transition_estimate_version_status`, `claim_portal_estimate_decision`, `assert_estimate_offer_dispatch_proof` | branche du contrat 1 étendue au contrat 2 (identité relue sur la copie, marqueur 5) |
 | `guard_estimate_offer_seal` | marqueur 5 avec le contrat de son moteur |
 | `require_fresh_v2_snapshot_for_publication` | refus M1 retiré ; v3 sous la gouvernance v2 (`in (2, 3)`) ; ligne non chiffrée sans PU figé admise (seulement possible en v3) ; v3 : bruts figés présents et Σ bruts = `gross_ht_cents` |
@@ -1851,3 +1858,55 @@ apporte une migration, celle de #54 (verrou de brouillon), qui ne touche aucun m
 Dernière qualification complète : §13.12, sur `039ca113`.
 
 Limites : celles du §13.11 ; correction de V3E05 sans relecture indépendante (ci-dessus).
+
+### 13.14 Suite de #45 : mise en page scellée à l'impression, ordre et numéros du contrat 2 (18/10/2026)
+
+#45 a été fusionnée (`b905ca26`) sans sa deuxième ronde de revue (décision du porteur : un P2 ne retient pas une
+PR verte). Cette ronde suit sur `fix/lot2-2.7-sealed-print-and-contract-order`, ouverte depuis `b905ca26` :
+les trois commits de la ronde préparés sur `lot2/2.7-document-emission-v3` sont repris par `cherry-pick -x`
+(`2c0d1dce`, `60daee99`, `bc95746f` → `f3f47729`, `bed15133`, `35a00bf7`), la correction SQL devient une
+migration nouvelle et M5 reste intacte (sha256 `d0a799c0…c84f`, en cours d'application à la base partagée).
+
+| Constat (revue Codex) | Défaillance | Correction |
+|---|---|---|
+| C3, #45 commentaire 4307760714 et #60 commentaire 4307583962 : une v3 émise s'imprime sous la mise en page de l'adresse (défaut sans paramètre), pas sous celle de sa copie scellée | V3M-18 (V3M06 scellé sous le préréglage « décision », impression sans paramètre et avec des paramètres contraires) | `bed15133` : `EstimateV3PrintPage` prend `proof.layoutOptions` entière ; `EstimatePrintLayoutButton` `locked` : simple « Imprimer » pour une copie émise, `auto_print` conservé |
+| C4, #60 commentaire 4307583969 : l'appariement exact du contrat 2 joint les lignes par identifiant seul, sans ordre ni numéro de section | F27-20, F27-21 (pgTAP, isolation justifiée en tête du bloc : seule la publication `service_role` reçoit un contrat présenté) | `238a5e40` : `20261018164500_estimate_offer_client_contract_v2_order.sql` redéfinit `estimate_offer_client_items_match_v2` (même signature, `security invoker`, `search_path` vide, exécution `service_role` seul, préliminaire sur ces propriétés) : parcours préfixe de l'arbre stocké (frères par position, puis identifiant) et numéros de `computeEstimateItemNumbering` ; refus inchangé `23514 OFFER_CLIENT_CONTRACT_ANCHOR_MISMATCH` |
+
+Le test rouge `35a00bf7` ne s'exécutait pas : `contract -> 'rows' - 0` se lit `contract -> ('rows' - 0)` (`-` lie
+plus fort que `->`) et un paramètre `DEFAULT` ne peut contenir de sous-requête. Corrigé par `591285f5` et
+`e33a443d` (tests seuls) ; les rouges ci-dessous portent sur ces tests corrigés.
+
+**Preuves rouges** (WSL, clone `~/miaouffrage-lot2-27` et son arbre de travail `~/l27-fu-wt`, aucun changement
+local, Node 24.14.0, journaux `~/l27-fu-logs/`) :
+
+| Tête | Commande | Résultat |
+|---|---|---|
+| `f3f47729` (V3M-18 sans correction) | `npm run e2e:army:calc-v3 -- --phase emission-v3 --grep '^V3M06\s' --app-port 3193` | échec de la validation (preuve `.e2e/army/ci/2026-10-18T17-15-40-590Z-calc-v3`, `print-layout`) : sans paramètre « lignes détaillées, prix unitaire et total HT, densité standard », 5 colonnes, 8 lignes, fenêtre de mise en page présente ; avec paramètres « lignes détaillées, FO, MO et total HT, densité aérée » ; attendu « chapitres jusqu'au niveau 2, total HT, densité compacte », 4 colonnes, la section 01 seule. Code de sortie non consigné : le script de relevé a été modifié pendant l'exécution, le journal s'arrête sur « TesterArmy CI failed » |
+| `ad25e8ab` (= `35a00bf7` + `591285f5` + `e33a443d`, sans la migration) | `npm run db:ci:local -- --files estimate-offer-contract-v2.test.sql --skip-rls` | exit 1, 3/53 en échec, tous pour la bonne raison : F27-20 `{ok:true,ok:true,ok:true,"ok \| ok"}`, F27-21 `{ok:true,ok:true,"ok \| ok"}`, arbre imbriqué `{ok:true ×5}` ; les contrats exacts sont `ok:true` (pas de faux refus) |
+
+**Vert** sur `e33a443d` (code final ; ce relevé n'ajoute que de la documentation), même clone, aucun changement local :
+
+| Commande | Résultat |
+|---|---|
+| `npm run db:ci:local` | exit 0, 90 s : pgTAP 24 fichiers, 1 944 tests (F27-01 à F27-21 compris), matrice RLS comportementale passée |
+| `npm run e2e:army:calc-v3 -- --phase emission-v3 --grep '^V3M06\s' --app-port 3193` | exit 0, 118 s (preuve `.e2e/army/ci/2026-10-18T17-22-54-078Z-calc-v3`) : V3M-15 à V3M-18 ; la copie se publie sous la nouvelle fonction d'appariement |
+| `E2E_ARMY_WORKERS=2 npm run e2e:army:local -- --grep V3M --app-port 3193` | exit 0, 108 s (preuve `.e2e/army/ci/2026-10-18T17-24-51-672Z-critical`) : V3M02 (S2 puis S5, sans courriel), publication sous la nouvelle fonction |
+| `npm run supabase:migrations:git-guard -- --base 51bce775 --mode pull_request` (`origin/main`, #63 compris, sans migration) | passé, 2 changements dans sa portée ; `supabase:validate` 255 fichiers, 255 versions ; `git merge-tree --write-tree HEAD 51bce775` propre |
+| `npm run verify:pr` | exit 0 sur `238a5e40` (145 s) ; rejoué sur la tête finale (description de la PR) |
+
+Revue interne (lecture seule, sur le diff stable `b905ca26...e33a443d`) : aucun défaut bloquant. Retenus comme
+limites : le sous-total attendu de V3M-18 est lu sur la page même (le HT brut, contrôlé par la forme seulement) ;
+une v3 émise dont la copie ne se vérifie pas retombe, comme avant, sur la mise en page demandée (comportement de
+`issuedCopyOf` antérieur à cette ronde) ; le préliminaire de la migration vérifie les propriétés de la fonction,
+pas son corps. La profondeur (`depth`) n'a pas besoin d'appariement : le validateur l'impose depuis `parentId`
+(racine 0, parent + 1), que l'appariement compare déjà à l'arbre stocké.
+
+Non exécutés localement (la CI de la PR les rejoue) : la suite critique complète, `army-takeoff`, les autres phases
+calc-v3 (V3M01 et V3M05 impriment une copie scellée sous la mise en page par défaut, texte inchangé attendu), et
+une mesure de la publication sur le volume IO01 (1 021 éléments) : l'ajout est une passe récursive et deux tris
+sur les éléments de la version, non chronométrés. Parité TypeScript ↔ SQL des numéros exécutée sur S2 (une section)
+et l'arbre imbriqué de F27-21 (profondeur 3, 12 frères, deux racines, identifiants contraires aux positions), pas
+sur des racines ≥ 10.
+
+Base partagée : la migration s'applique après M5 et après la fusion de cette PR (autorisation du porteur pour le
+lot 2) ; un document déjà publié garde sa copie (aucune ligne réécrite).
