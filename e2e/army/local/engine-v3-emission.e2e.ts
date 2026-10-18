@@ -52,6 +52,8 @@ import { admitCollectedResendDecision, allowOfferLifecycleTransition, offerTest,
 //         contrat 2, charge 6).
 //  V3M-14 La fiche d'une v3 émise dit « Non scellé », ne propose ni le PDF original ni « Marquer accepté »,
 //         l'acceptation par la fiche change le sceau, ou le modèle (2.8) y est proposé sans sa raison.
+//  Sur les deux fiches, la carte de lecture v3 de 2.6 dit encore le document client et l'émission « pas encore
+//  disponibles », ou titre « Brouillon » une v3 émise.
 // V3M01, V3M03, V3M04 et V3M05 s'exécutent dans la phase calc-v3 `emission-v3` (collecteur sentinelle, build
 // de production possédé, `next start`) ; V3M02, sans courriel, dans la campagne critique locale sur le
 // build de production. Chacun n'est défini que dans sa campagne : la phase calc-v3 exige son résultat
@@ -474,14 +476,20 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
         await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible({ timeout: 60_000 });
         await waitForDraftLease({ app, screen, browser });
       };
+      // The v3 reading card of the detail page (2.6) must not claim that the client document and emission are closed.
+      const summaryCard = () => browser.evaluate(() => {
+        const card = document.querySelector("[data-testid=\"estimate-v3-draft-summary\"]");
+        return { heading: (card?.querySelector("h2")?.textContent ?? "").trim(), closedClaim: /pas encore disponibles/u.test(card?.textContent ?? "") };
+      });
 
       // Observées d'abord, pour que le rouge les enregistre toutes deux : « Préparer le PDF » de la fiche (V3M-12) et
       // « Envoyer » de l'éditeur (V3M-13) d'un brouillon v3.
       await app.open(`/dashboard/estimates/${ids.versionId}`);
       const draftActions = await detailActions();
       const draftMenu = { prepare: await presence(draftActions.getByRole("button", "Préparer le PDF", { exact: true })),
-        ...await templateClosed(draftActions) };
-      const expectedDraftMenu = { prepare: { present: true, enabled: true }, template: { present: true, enabled: false }, reason: true };
+        ...await templateClosed(draftActions), summary: await summaryCard() };
+      const expectedDraftMenu = { prepare: { present: true, enabled: true }, template: { present: true, enabled: false }, reason: true,
+        summary: { heading: "Brouillon au moteur de calcul 3", closedClaim: false } };
       await record("draft-detail-actions", { versionId: ids.versionId, expected: expectedDraftMenu, actual: draftMenu });
       expect.soft(draftMenu, "the v3 draft detail page opens the PDF and closes the template by name").toEqual(expectedDraftMenu);
       await editorReady();
@@ -545,9 +553,10 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
       const accept = screen.getByRole("button", "Marquer accepté", { exact: true });
       const acceptBefore = await presence(accept);
       const issuedActions = await detailActions();
-      const issuedDetail = { seal: await sealOf(), status: await statusOf(), accept: acceptBefore,
+      const issuedDetail = { seal: await sealOf(), status: await statusOf(), accept: acceptBefore, summary: await summaryCard(),
         download: await presence(issuedActions.getByRole("button", "Télécharger le PDF", { exact: true })), ...await templateClosed(issuedActions) };
       const expectedIssuedDetail = { seal: ["valid"], status: "Envoyé", accept: { present: true, enabled: true },
+        summary: { heading: "Devis émis au moteur de calcul 3", closedClaim: false },
         download: { present: true, enabled: true }, template: { present: true, enabled: false }, reason: true };
       await record("issued-detail", { versionId: ids.versionId, expected: expectedIssuedDetail, actual: issuedDetail });
       expect(issuedDetail).toEqual(expectedIssuedDetail);
