@@ -387,7 +387,17 @@ export function apiProjection(state: ArmyEstimate, expected: ApiExpectation) {
   };
 }
 
-const sameJson = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
+// Same values whatever the key order, as the final toEqual of checkpoint judges them: a read
+// whose keys come in another order than its expectation (rowB: status before pt) is settled.
+// Compared in insertion order, it never matched, and each such wait spent its whole 30 s
+// timeout before a passing toEqual (V3E02: 4 × 30 s, run 39147767943).
+const canonical = (value: unknown): unknown => Array.isArray(value)
+  ? value.map(canonical)
+  : value !== null && typeof value === "object"
+    ? Object.fromEntries(Object.entries(value).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(([key, entry]) => [key, canonical(entry)]))
+    : value;
+const sameJson = (left: unknown, right: unknown) => JSON.stringify(canonical(left)) === JSON.stringify(canonical(right));
 export const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**

@@ -165,6 +165,13 @@ interface LocalSupabaseCiDependencies {
    * that dies afterwards leaves enough to stop and destroy that exact stack.
    */
   onProjectPrepared?: (project: Readonly<IsolatedSupabaseProject>) => void;
+  /**
+   * Called with the started stack's status, before its database is reset or
+   * restored: work that needs only its URL and keys (the Army production
+   * build) can run while the database checks run. The application itself
+   * still starts only after pgTAP and the RLS matrix pass.
+   */
+  onStackStarted?: (status: Readonly<LocalSupabaseStatus>) => void;
   prepareProject: (reservedPorts: ReadonlySet<number>) => Promise<IsolatedSupabaseProject>;
   provisionUsers: (
     status: LocalSupabaseStatus
@@ -980,6 +987,12 @@ export async function runLocalSupabaseCi(
     // Postgres starts eagerly; Auth and the Data API start on their first request.
     dependencies.supabase(withWorkdir(["start", "--runtime", "native"]), true);
     dependencies.log("Local Supabase stack started.");
+    if (dependencies.onStackStarted) {
+      checkpoint("read local status");
+      dependencies.onStackStarted({ ...parseLocalSupabaseStatus(
+        dependencies.supabase(withWorkdir(["status", "--env"]), true)
+      ) });
+    }
 
     let snapshotContext: {
       databaseUrl: string;
