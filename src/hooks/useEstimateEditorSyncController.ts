@@ -48,9 +48,9 @@ import {
   type EstimateItem,
   type EstimateItemUpdatePayload,
 } from "@/lib/estimates/editor-items";
-import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
+import { reconcilesEditorTotals, toEngineItemWrite } from "@/lib/estimates/editor-engine";
 import { isDraftLockRequiredError, isVersionConflictError } from "@/lib/estimates/editor-sync-errors";
-import { isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
+import { buildEditorItemSyncBaseline } from "@/lib/estimates/v3-editor";
 
 import {
   AUTOSAVE_IMMEDIATE_FLUSH_UPDATES,
@@ -342,7 +342,7 @@ export function useEstimateEditorSyncController({
     syncedItemPayloadsRef.current = new Map(
       sourceItemsWithStableClientKeys.map((item) => [
         item.id,
-        buildEstimateItemUpdatePayload(item),
+        buildEditorItemSyncBaseline(item),
       ])
     );
     pruneSyncedBufferedUpdates();
@@ -726,7 +726,7 @@ export function useEstimateEditorSyncController({
       pendingItemUpdatesRef.current
     );
     const versionTotalsPatch = buildVersionTotalsPatch(getPersistedTotals());
-    const forceV2Totals = forceTotals && isUnifiedEngine(resolveCalcEngineVersion(versionSnapshot));
+    const forceV2Totals = forceTotals && reconcilesEditorTotals(versionSnapshot);
     if (forceV2Totals && !versionTotalsPatch) return "blocked";
     const reconcileTotals = forceV2Totals && versionTotalsPatch && (
       versionTotalsPatch.total_ht_cents !== versionSnapshot.total_ht_cents ||
@@ -755,7 +755,7 @@ export function useEstimateEditorSyncController({
     const batchOperations = bufferedEntries.map((entry) => ({
       op: "update" as const,
       id: entry.id,
-      data: entry.updates,
+      data: toEngineItemWrite(entry.updates, versionSnapshot),
     }));
     let lineBatchCommitted = false;
     let committedLineVersionToken: string | null = null;

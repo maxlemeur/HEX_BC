@@ -13,6 +13,7 @@ import {
 
 import { EstimateEditorBody } from "@/components/estimates/components/EstimateEditorBody";
 import { EstimateColumnsHelpPanel } from "@/components/estimates/components/EstimateColumnsHelpPanel";
+import { useEstimateV3Grid } from "@/components/estimates/v3/V3LineCells";
 import { ProductionRibbon } from "@/components/dashboard/ProductionRibbon";
 import { formatCurrency, type SupportedEstimateCurrency } from "@/lib/money";
 import { type ColumnKey } from "@/hooks/useColumnVisibility";
@@ -198,6 +199,8 @@ export function EstimateEditorTableChrome({
   grandTotals,
   currency = "EUR",
 }: EstimateEditorTableChromeProps) {
+  // Lot 2, sous-lot 2.6 : en v3, les heures se saisissent par unité (D4).
+  const hoursSuffix = useEstimateV3Grid() ? " / u" : "";
   const columnResizeHandlers = {
     onColumnResizeStart,
     onColumnResizeKeyDown,
@@ -418,7 +421,7 @@ export function EstimateEditorTableChrome({
                   />
                   <ResizableColumnHeader
                     columnId="labor_hours_workshop"
-                    label="h MO atelier"
+                    label={`h MO atelier${hoursSuffix}`}
                     allowWrap
                     className="estimate-col--mo"
                     {...columnResizeHandlers}
@@ -439,7 +442,7 @@ export function EstimateEditorTableChrome({
                   />
                   <ResizableColumnHeader
                     columnId="labor_hours_site"
-                    label="h MO chantier"
+                    label={`h MO chantier${hoursSuffix}`}
                     allowWrap
                     className="estimate-col--mo"
                     {...columnResizeHandlers}
@@ -479,7 +482,7 @@ export function EstimateEditorTableChrome({
                   ) : null}
                   <ResizableColumnHeader
                     columnId="labor_hours"
-                    label="h MO"
+                    label={`h MO${hoursSuffix}`}
                     className="estimate-col--mo"
                     {...columnResizeHandlers}
                   />

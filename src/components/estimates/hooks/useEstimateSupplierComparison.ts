@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { SupplierComparisonAlternative } from "@/components/estimates/SupplierComparisonPanel";
+import { useEstimateV3Grid } from "@/components/estimates/v3/V3LineCells";
 import type { Database } from "@/types/database";
 import { supplierOfferIneligibility } from "@/lib/estimates/supplier-offer-eligibility";
 import { alternativePriceForLineUnit } from "@/lib/estimates/supplier-offer-purchase-unit";
@@ -16,7 +17,8 @@ type SupplierComparisonContextMenuState = {
 };
 
 type SupplierComparisonPatch = {
-  description: string | null;
+  /** v1/v2 only: the unit of a v3 line is its referential unit_code (sub-lot 2.6, F26-20). */
+  description?: string | null;
   unit_price_ht_cents: number;
   selected_supplier_price_id: string | null;
 };
@@ -172,6 +174,12 @@ export function useEstimateSupplierComparison({
     const item = itemById.get(supplierComparisonPanelItemId);
     return item && item.item_type === "line" ? item : null;
   }, [itemById, supplierComparisonPanelItemId]);
+  // Lot 2, sub-lot 2.6 (F26-20): the unit of a v3 line is its referential unit_code, never description
+  // (empty on a v3 line); v1/v2 keep description. Every offer is judged and priced in that unit.
+  const isV3 = useEstimateV3Grid() !== null;
+  const activeSupplierComparisonUnit = activeSupplierComparisonItem
+    ? (isV3 ? activeSupplierComparisonItem.unit_code : activeSupplierComparisonItem.description)
+    : null;
 
   const activeSupplierComparison = useMemo(() => {
     if (!supplierComparisonPanelItemId) return null;
@@ -188,19 +196,20 @@ export function useEstimateSupplierComparison({
       if (supplierOfferIneligibility(alternative, {
         currency: estimateCurrency,
         quantity: activeSupplierComparisonItem.quantity,
-        unit: activeSupplierComparisonItem.description,
+        unit: activeSupplierComparisonUnit,
       })) {
         return;
       }
 
       // 2.9: a converted offer serves the line in the unit it is written in: per metre through the
       // conversion, per bar for a line already in bars; the line never takes the other unit by surprise.
-      const linePrice = alternativePriceForLineUnit(alternative, activeSupplierComparisonItem.description);
-      const selectedUnit = linePrice.unit?.trim() || activeSupplierComparisonItem.description;
+      const linePrice = alternativePriceForLineUnit(alternative, activeSupplierComparisonUnit);
+      const selectedUnit = linePrice.unit?.trim() || activeSupplierComparisonUnit;
       onPatchItemWithSuggestionTracking(
         activeSupplierComparisonItem.id,
         {
-          description: selectedUnit || null,
+          // A v3 line keeps its unit_code; only its PR FO and the offer change.
+          ...(isV3 ? {} : { description: selectedUnit || null }),
           unit_price_ht_cents: linePrice.priceCents,
           selected_supplier_price_id: alternative.supplier_price_id,
         },
@@ -210,8 +219,10 @@ export function useEstimateSupplierComparison({
     },
     [
       activeSupplierComparisonItem,
+      activeSupplierComparisonUnit,
       estimateCurrency,
       isReadOnly,
+      isV3,
       onPatchItemWithSuggestionTracking,
     ]
   );
@@ -271,6 +282,7 @@ export function useEstimateSupplierComparison({
     openSupplierComparisonPanel,
     handleCloseSupplierComparisonPanel,
     activeSupplierComparisonItem,
+    activeSupplierComparisonUnit,
     activeSupplierComparison,
     supplierComparisonByItemId,
     bestSupplierPriceIdByItemId,

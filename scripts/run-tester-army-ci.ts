@@ -11,23 +11,29 @@ import {
 import { createLocalCiEnvironment, type SupabaseEnvironment } from "../src/test/supabase-cli";
 import type { Database } from "../src/types/database";
 import { runCalcV3Campaign } from "./tester-army/calc-v3-campaign";
-import { isCalcV3Phase, type CalcV3Phase } from "./tester-army/calc-v3-phases";
+import { CALC_V3_FORBIDDEN_PORTS, isCalcV3Phase, type CalcV3Phase } from "./tester-army/calc-v3-phases";
+import { runDevLoopSession } from "./tester-army/dev-loop";
+import {
+  DEFAULT_DEV_LOOP_TTL_MINUTES, DEV_LOOP_SESSION_SCOPE, DEV_LOOP_STATE_FILE, DEV_LOOP_STATE_SCHEMA, DEV_LOOP_TTL_RANGE,
+  LoopStateStore, proveLoopClosed, stackInputsDigest, supervisorModulesDigest,
+} from "./tester-army/dev-loop-state";
 import { buildSourceEvidence, redactOutput, sqlInventory } from "./tester-army/local-recipe-common.mjs";
 import { assertLocalAppPortAvailable, runLocalDevelopmentSession } from "./tester-army/local-development";
 
 const suite = process.argv[2];
-if (!["critical", "full", "dev", "calc-v3"].includes(suite)) {
-  throw new Error("Usage: run-tester-army-ci.ts critical|full|dev|calc-v3 [--app-port PORT] [critical only: --grep PATTERN | --files A.e2e.ts,B.e2e.ts] [calc-v3 only: --phase NAME [--grep PATTERN]]");
+if (!["critical", "full", "dev", "dev-loop", "calc-v3"].includes(suite)) {
+  throw new Error("Usage: run-tester-army-ci.ts critical|full|dev|dev-loop|calc-v3 [--app-port PORT] [critical only: --grep PATTERN | --files A.e2e.ts,B.e2e.ts] [calc-v3 only: --phase NAME [--grep PATTERN]] [dev-loop only: --ttl-minutes N]");
 }
 let grep: string | undefined;
 let files: string[] = [];
 let calcV3Phase: CalcV3Phase | undefined;
 let appPort = 3107;
+let ttlMinutes = DEFAULT_DEV_LOOP_TTL_MINUTES;
 const suppliedOptions = new Set<string>();
 for (let index = 3; index < process.argv.length; index += 2) {
   const option = process.argv[index];
   const value = process.argv[index + 1];
-  if (!["--grep", "--files", "--app-port", "--phase"].includes(option) || suppliedOptions.has(option) || !value?.trim()) {
+  if (!["--grep", "--files", "--app-port", "--phase", "--ttl-minutes"].includes(option) || suppliedOptions.has(option) || !value?.trim()) {
     throw new Error("Only one --app-port, one --grep or --files and one calc-v3 --phase with explicit values are allowed.");
   }
   suppliedOptions.add(option);
@@ -49,12 +55,21 @@ for (let index = 3; index < process.argv.length; index += 2) {
   } else if (option === "--phase") {
     if (suite !== "calc-v3" || !isCalcV3Phase(value)) throw new Error("--phase names one calc-v3 phase: journeys|components|numeric|resume|access|offers|emission|emission-v3.");
     calcV3Phase = value;
+  } else if (option === "--ttl-minutes") {
+    if (suite !== "dev-loop" || !/^[0-9]+$/.test(value) || Number(value) < DEV_LOOP_TTL_RANGE[0] || Number(value) > DEV_LOOP_TTL_RANGE[1]) {
+      throw new Error(`--ttl-minutes is restricted to dev-loop: an integer from ${DEV_LOOP_TTL_RANGE[0]} to ${DEV_LOOP_TTL_RANGE[1]}.`);
+    }
+    ttlMinutes = Number(value);
   } else {
     if (!/^[0-9]+$/.test(value) || Number(value) < 1024 || Number(value) > 65535) {
       throw new Error("--app-port must be an integer from 1024 to 65535; the host is always loopback.");
     }
     if (BROWSER_RESTRICTED_LOCAL_PORTS.has(Number(value))) {
       throw new Error("--app-port is blocked by the browser for HTTP; choose an unrestricted local port.");
+    }
+    // The loop binds `next start` on this port for hours: never the developers' local stack.
+    if (suite === "dev-loop" && CALC_V3_FORBIDDEN_PORTS.has(String(Number(value)))) {
+      throw new Error("dev-loop --app-port refuses 45585 and 33485, the ports of the developers' local acceptance stack.");
     }
     appPort = Number(value);
   }
@@ -70,6 +85,8 @@ const root = process.cwd();
 const evidence = path.join(root, ".e2e/army/ci", `${new Date().toISOString().replace(/[:.]/g, "-")}-${suite}`);
 fs.mkdirSync(evidence, { recursive: true });
 const knownSecrets: string[] = [];
+// dev and dev-loop keep the owned stack until Ctrl+C, SIGTERM or (dev-loop) their idle TTL.
+const interactive = suite === "dev" || suite === "dev-loop";
 const developmentStop = new AbortController();
 const interruptDevelopment = () => developmentStop.abort("SIGINT");
 const terminateDevelopment = () => developmentStop.abort("SIGTERM");
@@ -82,7 +99,9 @@ const manifest: Record<string, unknown> = {
   node: process.version,
   platform: process.platform,
   appOrigin: `http://localhost:${appPort}`,
-  scope: suite === "dev" ? "interactive-development" : grep || files.length ? `filtered-${suite}` : calcV3Phase ? `calc-v3-${calcV3Phase}` : suite,
+  scope: suite === "dev" ? "interactive-development" : suite === "dev-loop" ? DEV_LOOP_SESSION_SCOPE
+    : grep || files.length ? `filtered-${suite}` : calcV3Phase ? `calc-v3-${calcV3Phase}` : suite,
+  ...(suite === "dev-loop" ? { qualification: false, ttlMinutes } : {}),
   ...(grep ? { grep } : {}),
   // Not `files`: retainEvidence writes the evidence inventory under that key.
   ...(files.length ? { journeyFiles: files } : {}),
@@ -91,12 +110,18 @@ const manifest: Record<string, unknown> = {
   status: "preparing",
   steps: [],
 };
+// Where a step, a journey phase and their checks record evidence. Every suite
+// uses this run's own; a dev-loop iteration passes its own directory and
+// manifest, so each iteration keeps the checks and the evidence of a critical run.
+interface RunContext { evidence: string; manifest: Record<string, unknown>; grep?: string; files: string[] }
+const mainContext: RunContext = { evidence, manifest, grep, files };
+let loopState: LoopStateStore | undefined;
 
 function redact(value: string) {
   return redactOutput(value, { NODE_ENV: "test", ...Object.fromEntries(knownSecrets.map((secret, index) => [`SECRET_${index}`, secret])) });
 }
 
-async function runNode(args: string[], environment: NodeJS.ProcessEnv, name: string) {
+async function runNode(args: string[], environment: NodeJS.ProcessEnv, name: string, context = mainContext) {
   console.log(`TesterArmy CI: ${name}`);
   const chunks: Buffer[] = [];
   const exitCode = await new Promise<number>((resolve, reject) => {
@@ -117,13 +142,13 @@ async function runNode(args: string[], environment: NodeJS.ProcessEnv, name: str
     child.once("error", (error) => { removeHandlers(); reject(error); });
     child.once("close", (code, signal) => { removeHandlers(); resolve(code ?? (signal ? 130 : 3)); });
   });
-  fs.writeFileSync(path.join(evidence, `${name}.log`), redact(Buffer.concat(chunks).toString("utf8")));
-  (manifest.steps as unknown[]).push({ name, command: [process.execPath, ...args], exitCode });
+  fs.writeFileSync(path.join(context.evidence, `${name}.log`), redact(Buffer.concat(chunks).toString("utf8")));
+  (context.manifest.steps as unknown[]).push({ name, command: [process.execPath, ...args], exitCode });
   if (exitCode !== 0) throw new Error(`${name} failed with exit code ${exitCode}; see its retained log.`);
 }
 
 async function runApplication(local: SupabaseEnvironment) {
-  if (suite === "dev" && developmentStop.signal.aborted) return;
+  if (interactive && developmentStop.signal.aborted) return;
   if (local.RLS_E2E_EPHEMERAL !== "1" || local.RLS_E2E_LOCAL !== "1") throw new Error("An owned ephemeral stack is required.");
   const backend = new URL(local.NEXT_PUBLIC_SUPABASE_URL!);
   assertLoopbackSupabaseUrl(backend.href);
@@ -167,7 +192,7 @@ async function runApplication(local: SupabaseEnvironment) {
   const { data: user, error: userError } = await admin.auth.admin.createUser({ email, password, email_confirm: true });
   if (userError || !user.user) throw provisioningFailure("create account", "Could not create the local ARMY account.", userError);
   provisioning.completed.push("create account");
-  if (suite === "dev" && developmentStop.signal.aborted) return;
+  if (interactive && developmentStop.signal.aborted) return;
   const { data: memberships, error: membershipError, status: membershipStatus } = await admin.from("tenant_memberships")
     .select("tenant_id, role, is_default").eq("user_id", user.user.id);
   if (membershipError || memberships?.length !== 1 || memberships[0].role !== "admin" || !memberships[0].is_default) {
@@ -178,7 +203,7 @@ async function runApplication(local: SupabaseEnvironment) {
   }
   provisioning.completed.push("verify personal tenant");
   const tenantId = memberships[0].tenant_id;
-  if (suite === "dev" && developmentStop.signal.aborted) return;
+  if (interactive && developmentStop.signal.aborted) return;
   const { data: tenant, error: tenantError, status: tenantStatus } = await admin.from("tenants")
     .update({ name: `ARMY CI ${suite}` }).eq("id", tenantId).eq("created_by", user.user.id)
     .eq("is_active", true).select("id").single();
@@ -186,7 +211,7 @@ async function runApplication(local: SupabaseEnvironment) {
     throw provisioningFailure("verify owned tenant", "Could not verify the newly owned ARMY tenant.", tenantError, tenantStatus);
   }
   provisioning.completed.push("verify owned tenant");
-  if (suite === "dev" && developmentStop.signal.aborted) return;
+  if (interactive && developmentStop.signal.aborted) return;
   // GEN's reviewed one-hour component costs exactly 4,000 cents. Create its
   // basis only for this newly provisioned CI owner, never alter existing roles.
   const { data: laborRole, error: laborRoleError, status: laborRoleStatus } = await admin.from("labor_roles").insert({
@@ -197,7 +222,7 @@ async function runApplication(local: SupabaseEnvironment) {
     throw provisioningFailure("create labor basis", "Could not create the owned GEN labor-rate basis.", laborRoleError, laborRoleStatus);
   }
   provisioning.completed.push("create labor basis");
-  if (suite === "dev" && developmentStop.signal.aborted) return;
+  if (interactive && developmentStop.signal.aborted) return;
   const { data: preferredRole, error: preferredRoleError, status: preferredRoleStatus } = await admin.from("labor_roles")
     .select("id, hourly_rate_cents, position").eq("tenant_id", tenantId).eq("user_id", user.user.id)
     .eq("is_active", true).order("position", { ascending: true }).order("id", { ascending: true }).limit(1).single();
@@ -206,7 +231,7 @@ async function runApplication(local: SupabaseEnvironment) {
       preferredRoleError, preferredRoleStatus);
   }
   provisioning.completed.push("verify labor basis");
-  if (suite === "dev" && developmentStop.signal.aborted) return;
+  if (interactive && developmentStop.signal.aborted) return;
   const { data: article, error: articleError, status: articleStatus } = await admin.from("products").insert({
     tenant_id: tenantId, reference: "ARMY-CU22-ML", designation: "ARMY cuivre plomberie 22 mm",
     unit: "ml", unit_price_cents: 1234, is_active: true,
@@ -251,7 +276,6 @@ async function runApplication(local: SupabaseEnvironment) {
     });
     return;
   }
-  await runNode(["scripts/tester-army/build-local.mjs", "--execute"], environment, "build");
   // Only the Node journey process receives this transport. The app uses the
   // e2e.config.ts inheritEnv allowlist; the production build never receives it.
   const journeyEnvironment = {
@@ -260,6 +284,29 @@ async function runApplication(local: SupabaseEnvironment) {
     E2E_ARMY_LOCAL_PSQL: local.E2E_ARMY_LOCAL_PSQL,
     ...(workers === "" ? {} : { E2E_ARMY_WORKERS: workers }),
   };
+  if (suite === "dev-loop") {
+    // docs/testing/tester-army-local-development.md: this stack, account and
+    // build serve every iteration until stop or the idle TTL; returning hands
+    // the stack back to runLocalSupabaseCi, which destroys it.
+    manifest.devLoop = await runDevLoopSession({
+      root, store: loopState!, signal: developmentStop.signal, ttlMinutes,
+      sessionEvidence: evidence, sessionManifest: manifest, redact,
+      build: (context) => runNode(["scripts/tester-army/build-local.mjs", "--execute"], environment, "build", context),
+      journeys: async (context) => {
+        try {
+          await runJourneys("critical", journeyEnvironment, context);
+        } catch (error) {
+          retainCurrentJourney(true, context);
+          const phases = (context.manifest.phases ??= []) as unknown[];
+          phases.push({ phase: "critical", status: "failed", error: redact(error instanceof Error ? error.message : String(error)) });
+          throw error;
+        }
+      },
+      finalize: (context) => { writeRetainedManifest(context); },
+    });
+    return;
+  }
+  await runNode(["scripts/tester-army/build-local.mjs", "--execute"], environment, "build");
   const failures: string[] = [];
   for (const phase of suite === "full" ? ["full", "development"] : [suite!]) {
     try {
@@ -277,11 +324,12 @@ async function runApplication(local: SupabaseEnvironment) {
   if (failures.length) throw new Error(failures.join("; "));
 }
 
-async function runJourneys(phase: string, environment: NodeJS.ProcessEnv) {
+async function runJourneys(phase: string, environment: NodeJS.ProcessEnv, context = mainContext) {
+  const { manifest, grep, files } = context;
   await assertLocalAppPortAvailable(appPort);
   manifest.phase = phase;
   manifest.campaignStartedAt = new Date().toISOString();
-  await runNode(["scripts/run-tester-army.mjs", phase, ...(grep ? ["--grep", grep] : []), ...files], environment, `journeys-${phase}`);
+  await runNode(["scripts/run-tester-army.mjs", phase, ...(grep ? ["--grep", grep] : []), ...files], environment, `journeys-${phase}`, context);
   const report = JSON.parse(fs.readFileSync(path.join(root, ".e2e/army/critical/report.json"), "utf8"));
   const run = report.run;
   type JourneyResult = { selected: boolean; status: string; kind: string; file: string;
@@ -317,10 +365,11 @@ async function runJourneys(phase: string, environment: NodeJS.ProcessEnv) {
   }
   const phases = (manifest.phases ??= []) as unknown[];
   phases.push({ phase, status: "passed", result: run.summary });
-  retainCurrentJourney(true);
+  retainCurrentJourney(true, context);
 }
 
-function retainCurrentJourney(required = false) {
+function retainCurrentJourney(required = false, context = mainContext) {
+  const { evidence, manifest } = context;
   const source = path.join(root, ".e2e/army/critical");
   const currentManifest = path.join(source, "manifest.json");
   if (!manifest.campaignStartedAt || !fs.existsSync(currentManifest) ||
@@ -355,8 +404,9 @@ function failsPrivacyCheck(text: string) {
     /Bearer\s+[A-Za-z0-9._~+/-]+=*/i.test(text);
 }
 
-function retainEvidence() {
-  retainCurrentJourney();
+function retainEvidence(context = mainContext) {
+  const { evidence, manifest } = context;
+  retainCurrentJourney(false, context);
   const builds = path.join(root, ".e2e/army/recipes/builds");
   if (fs.existsSync(builds)) for (const build of fs.readdirSync(builds)) {
     const input = path.join(builds, build, "manifest.json");
@@ -383,25 +433,92 @@ function retainEvidence() {
   manifest.privacy = "passed";
 }
 
+/** Retains the context's evidence and writes its manifest; false when retention failed. */
+function writeRetainedManifest(context: RunContext) {
+  const { evidence, manifest } = context;
+  let retained = true;
+  try { retainEvidence(context); } catch (error) {
+    manifest.privacy = "failed";
+    manifest.status = "failed";
+    manifest.error = redact(error instanceof Error ? error.message : String(error));
+    retained = false;
+  }
+  // The failure reason reaches the manifest and the public job log only
+  // through the same privacy check as the uploaded evidence.
+  if (manifest.status === "failed" && failsPrivacyCheck(String(manifest.error ?? ""))) {
+    manifest.error = "The failure detail failed the privacy check and was withheld.";
+  }
+  fs.writeFileSync(path.join(evidence, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  return retained;
+}
+
+// One loop per checkout: claimed before anything else starts (only the
+// application port check precedes it). The digest covers the modules this
+// process just loaded, whose checks every iteration applies.
+function claimLoopState() {
+  const now = new Date().toISOString();
+  loopState = LoopStateStore.claim(path.join(root, DEV_LOOP_STATE_FILE), {
+    schemaVersion: DEV_LOOP_STATE_SCHEMA, loopId: randomUUID(), status: "starting", checkout: root,
+    supervisor: { pid: process.pid }, appOrigin: `http://localhost:${appPort}`, ttlMinutes,
+    startedAt: String(manifest.startedAt), lastActivityAt: now, expiresAt: null,
+    evidence: path.relative(root, evidence).replaceAll("\\", "/"), iterations: 0,
+    supervisorModulesSha256: supervisorModulesDigest(root),
+  });
+  manifest.devLoopState = { loopId: loopState.current.loopId, file: DEV_LOOP_STATE_FILE };
+}
+
+// After runLocalSupabaseCi, which removes the workdir even when `stack destroy`
+// failed: the state goes only once workdir, native registry entry and stack
+// ports are gone, and the application port too while journeys were running.
+async function releaseLoopState() {
+  if (!loopState) return;
+  const stack = loopState.current.stack;
+  const proof = await proveLoopClosed(loopState.current);
+  manifest.devLoopCleanup = {
+    project: stack?.projectId ?? null, projectDirectoryRemoved: proof.projectDirectoryRemoved,
+    registryEntryRemoved: proof.registryEntryRemoved, portsClosed: proof.portsClosed, appPortClosed: proof.appPortClosed,
+  };
+  if (proof.problems.length === 0) {
+    loopState.release();
+    return;
+  }
+  loopState.update({ status: "cleanup-failed", expiresAt: null, error: proof.problems.join("; ") });
+  manifest.status = "failed";
+  manifest.error = "The dev loop was not provably closed (stack, native registry or application port); run `npm run e2e:army:dev-loop -- stop`.";
+  process.exitCode = 1;
+}
+
 async function main() {
-  if (suite === "dev") {
+  if (interactive) {
     process.on("SIGINT", interruptDevelopment);
     process.on("SIGTERM", terminateDevelopment);
   }
   try {
     createLocalCiEnvironment(process.env);
+    // An open (or stale) loop shares .e2e/army/next and .e2e/army/critical with every run of this checkout.
+    if (suite !== "dev-loop" && fs.existsSync(path.join(root, DEV_LOOP_STATE_FILE))) {
+      throw new Error(`A dev loop is open in this checkout (${DEV_LOOP_STATE_FILE}) and shares its .e2e/army build and journey output: stop it first with \`npm run e2e:army:dev-loop -- stop\`.`);
+    }
     if (fs.readdirSync(root).some((name) => /^\.env(?:\.(?:local|production|development|test)(?:\.local)?)?$/.test(name))) {
       throw new Error("CI refuses ambient .env files; use a clean checkout without shared backend credentials.");
     }
+    // It holds nothing once it returns, so it precedes the claim: a loop refused for a busy port leaves no state and keeps that cause.
     await assertLocalAppPortAvailable(appPort);
+    if (suite === "dev-loop") claimLoopState();
     manifest.source = await buildSourceEvidence();
     manifest.database = {
       migrations: await sqlInventory(path.join(root, "supabase/migrations")),
       tests: await sqlInventory(path.join(root, "supabase/tests/database")),
     };
+    loopState?.update({ stackInputsSha256: await stackInputsDigest(root) });
     await runLocalSupabaseCi({
       reservedPorts: new Set([appPort]),
       runApplication,
+      // Only the dev loop keeps a state file: it needs this exact stack to
+      // destroy it after an abnormal supervisor exit.
+      onProjectPrepared: (project) => {
+        loopState?.update({ stack: { projectId: project.projectId, rootDirectory: project.rootDirectory, ports: [...(project.ports ?? [])] } });
+      },
       // db reset or a verified pre-migrated snapshot (ARMY_DB_SNAPSHOT_DIR),
       // reported before pgTAP and the journeys: a failed run records it too.
       onDatabaseProvenance: (provenance) => {
@@ -410,18 +527,26 @@ async function main() {
       log: (message) => {
         const line = redact(suite === "dev" && message === "Application validation passed."
           ? "Development session stopped; no E2E validation was run."
-          : message);
+          : suite === "dev-loop" && message === "Application validation passed."
+            ? "Dev loop stopped; its iterations are not qualification runs."
+            : message);
         fs.appendFileSync(path.join(evidence, "database.log"), `${line}\n`);
         console.log(line);
       },
     });
-    manifest.status = suite === "dev" ? "stopped" : "passed";
+    manifest.status = interactive ? "stopped" : "passed";
   } catch (error) {
     manifest.status = "failed";
     manifest.error = redact(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   } finally {
     manifest.finishedAt = new Date().toISOString();
+    if (suite === "dev-loop") {
+      process.off("SIGINT", interruptDevelopment);
+      process.off("SIGTERM", terminateDevelopment);
+      manifest.stopRequested = developmentStop.signal.aborted ? developmentStop.signal.reason : null;
+      await releaseLoopState();
+    }
     if (suite === "dev") {
       process.off("SIGINT", interruptDevelopment);
       process.off("SIGTERM", terminateDevelopment);
@@ -439,18 +564,7 @@ async function main() {
         process.exitCode = 1;
       }
     }
-    try { retainEvidence(); } catch (error) {
-      manifest.privacy = "failed";
-      manifest.status = "failed";
-      manifest.error = redact(error instanceof Error ? error.message : String(error));
-      process.exitCode = 1;
-    }
-    // The failure reason reaches the manifest and the public job log only
-    // through the same privacy check as the uploaded evidence.
-    if (manifest.status === "failed" && failsPrivacyCheck(String(manifest.error ?? ""))) {
-      manifest.error = "The failure detail failed the privacy check and was withheld.";
-    }
-    fs.writeFileSync(path.join(evidence, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+    if (!writeRetainedManifest(mainContext)) process.exitCode = 1;
     if (process.env.GITHUB_OUTPUT && manifest.privacy === "passed") fs.appendFileSync(process.env.GITHUB_OUTPUT, `evidence=${path.relative(root, evidence)}\n`);
     if (manifest.status === "failed") console.log(`TesterArmy CI error: ${manifest.error ?? "unknown"}`);
     console.log(`TesterArmy CI ${manifest.status}; evidence: ${path.relative(root, evidence)}`);

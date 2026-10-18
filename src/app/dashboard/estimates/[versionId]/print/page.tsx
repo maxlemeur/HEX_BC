@@ -17,11 +17,10 @@ import {
 } from "@/lib/estimate-calculations";
 import { EstimateEngineUnavailableNotice } from "@/components/estimates/EstimateEngineUnavailableNotice";
 import {
-  resolveCalcEngineVersionForDisplay,
   resolveEstimateEngineVersionForDisplay,
   shouldPreserveStoredEstimateV2Snapshot,
 } from "@/lib/estimates/calc-engine-version";
-import { isLegacyEngine, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
+import { isLegacyEngine, requireHistoricalEngine, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import {
   loadMarginTiersForTotals,
   resolveRenderMarginMode,
@@ -170,10 +169,21 @@ export default async function PrintEstimatePage({
   if (!userContext.tenantId || userContext.tenantId !== version.tenant_id) {
     notFound();
   }
-  // Lot 2, sous-lot 2.7 : le document client d'une v3 relit son gel (contrat client 2), sans le
-  // moteur historique ; vue séparée (EstimateV3PrintPage).
+  // Lot 2 : un moteur inconnu garde le bandeau (2.1). Une v3, brouillon (2.6) ou émise, s'imprime
+  // depuis 2.7 en document client : gel stocké (contrat client 2) ou aperçu du moteur pur, sans le
+  // moteur historique, dans une vue séparée (EstimateV3PrintPage) qui dit par son nom un aperçu
+  // impossible. Le résumé de lecture du brouillon (EstimateV3DraftSummary) reste celui de la fiche.
   const estimateEngine = resolveEstimateEngineVersionForDisplay(version);
-  if (estimateEngine !== null && usesSaleCoefficients(estimateEngine)) {
+  if (estimateEngine === null) {
+    return (
+      <EstimateEngineUnavailableNotice
+        versionNumber={version.version_number}
+        projectId={version.project_id}
+        projectName={resolveProject(version.estimate_projects)?.name}
+      />
+    );
+  }
+  if (usesSaleCoefficients(estimateEngine)) {
     return (
       <EstimateV3PrintPage
         supabase={supabase}
@@ -188,17 +198,7 @@ export default async function PrintEstimatePage({
       />
     );
   }
-  // Lot 2, sous-lot 2.1 : aucun document imprimable d'une v3 avant le contrat client 2.
-  const calcEngineVersion = resolveCalcEngineVersionForDisplay(version);
-  if (calcEngineVersion === null) {
-    return (
-      <EstimateEngineUnavailableNotice
-        versionNumber={version.version_number}
-        projectId={version.project_id}
-        projectName={resolveProject(version.estimate_projects)?.name}
-      />
-    );
-  }
+  const calcEngineVersion = requireHistoricalEngine(estimateEngine);
   const items = await readAllEstimateItems({
     supabase,
     tenantId: version.tenant_id,
