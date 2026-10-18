@@ -368,7 +368,8 @@ DPGF. Une v3 vierge créée comme version courante d'une affaire sans document n
 démarrage : ni carte ni avis, même quand des versions v1/v2 antérieures sont chiffrées. C'est vrai pour tous les
 moteurs (une v2 vierge masque aussi la carte), et aucun graphique n'est alors affiché, donc aucune v3 n'en est
 retirée sans le dire. Afficher la carte au démarrage est une décision de produit, à suivre à part. Aucun test
-isolé ajouté ni modifié.
+isolé ajouté ni modifié. **Suite (18/10/2026)** : le propriétaire a retenu le démarrage seulement sans ligne dans
+aucune version (option A) ; règle, preuves et parcours HFS01 à HFS03 dans `affaire-hub-fresh-start-decision.md`.
 
 Zone `e2e/army/local/engine-v3-*` : #45, #59 et #62 y sont ouvertes ; cette PR de suivi est celle que prévoit la
 règle du propriétaire, et sa tête fusionne sans conflit avec `main` et avec chacune de leurs têtes.
