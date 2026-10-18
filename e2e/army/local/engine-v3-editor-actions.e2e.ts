@@ -1208,6 +1208,8 @@ armyTest("V3E18 restoring a conflicting local draft on a v3 writes its v3 inputs
     const [line] = await seedLines(ui, army, draft, "v3e18", [withLabor(`${army.runPrefix} brouillon`, 2, 1000, 1, draft.tuyauteurId)]);
     const initial: Totals = [12200, 2440, 14640];
     const restored: Totals = [17000, 3400, 20400];
+    // Mode Expert : le pied affiche les jetons TVA et TTC que le point de contrôle relit (comme V3E17 et V3E19).
+    await switchToExpertMode(ui);
     await openV3Editor(ui, army, draft, "v3e18");
     await waitForDraftLease(ui);
     const before = await readConsistent(ui, draft.versionId);
