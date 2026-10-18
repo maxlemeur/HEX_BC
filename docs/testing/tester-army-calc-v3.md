@@ -135,6 +135,40 @@ exécution concurrente change les temps de réponse : avant d'interpréter un ro
 autre pile, build ou navigateur ne tournait (les exécutions de la ligne de base ci-dessous ont
 échantillonné ces processus toutes les 20 s ; aucun chevauchement pour les exécutions retenues).
 
+## CI nocturne (`e2e-army-calc-v3.yml`)
+
+Demande du 18/10/2026 : la campagne tourne aussi en CI, chaque nuit à 04:45 UTC et à la demande
+(Actions → TesterArmy calc-v3 → Run workflow, ou `gh workflow run e2e-army-calc-v3.yml --ref
+<branche> -f phase=<choix>`), dès que ce workflow est sur `main` : GitHub ne planifie et ne déclenche
+que les workflows de la branche par défaut, puis exécute la version du fichier de la branche
+demandée. Inutile ensuite de la relancer en local pour une branche poussée : la déclencher sur la
+branche et lire l'artefact `army-calc-v3-evidence` (un répertoire `.e2e/army/ci/<horodatage>-calc-v3/`
+par invocation, mêmes preuves qu'en local). Une PR vers `main` qui modifie
+`.github/workflows/e2e-army-calc-v3.yml` lance d'elle-même la sélection `nightly` : c'est ainsi que
+le workflow est prouvé avant sa fusion, et que la PR de 2.7 prouve l'émission en production. Aucune
+autre PR ne le lance.
+
+| Entrée `phase` | Exécution |
+|---|---|
+| `nightly` (défaut, la planification et une PR qui modifie le workflow) | `journeys`, `components`, `numeric`, `resume`, `access`, `offers` : une invocation `--phase` et une pile possédée par phase, dans un seul job ; une phase rouge n'arrête pas les suivantes |
+| `all` | `npm run e2e:army:calc-v3` à l'identique : toutes les phases sur une pile, émission comprise, en dernier |
+| une phase | `--phase <phase>`, `emission` comprise |
+
+**Émission exclue de la nuit.** Elle est servie par `next dev` (section « Phases » ci-dessus), où OF00
+échoue 7/7 depuis la PR #34 (le rechargement à chaud remonte l'éditeur ; 6/6 en production avec un
+garde local). La lancer chaque nuit ne produirait qu'un rouge connu. Le sous-lot 2.7
+(`lot2/2.7-document-emission-v3`) étend `canUseDevelopmentEstimateTerms` au profil de production
+possédé et passe l'émission en `serverMode: "production"`. Réactivation, dans la même PR que 2.7 :
+ajouter `emission` à `CALC_V3_NIGHTLY_PHASES` dans `.github/workflows/e2e-army-calc-v3.yml`, rien
+d'autre. Le garde `src/test/ci-guardrails.test.ts` impose que cette liste soit exactement les phases
+de production de `scripts/tester-army/calc-v3-phases.ts` et n'interdit l'émission que tant qu'elle
+n'est pas servie en production : il échoue tant que l'émission basculée n'y est pas ajoutée, et cet
+ajout suffit à le remettre au vert.
+
+La nuit ne fixe ni `--grep` ni instantané de base : chaque phase applique sa sélection par défaut et
+ses nombres attendus, sur une base issue d'un `db reset` complet. Les rouges à la base (`knownRedAtBase`)
+restent hors sélection et se rejouent en local par `--phase <phase> --grep <motif>`.
+
 ## Preuves
 
 - `.e2e/army/ci/<horodatage>-calc-v3/` : manifeste du lanceur (commande, révision et empreinte des
@@ -184,8 +218,88 @@ rejouent tels quels.
 | GR07 | `--phase resume --grep '^GR07\s'` | `refused.result.ok` vrai | Le rejet forgé n'envoie que `draftId` et `candidateId` ; `generatedOuvrageRejectInputSchema` exige aussi `versionId` et `draftLockSessionId` (`28ccc857`). Le parcours ne vérifie que le statut HTTP 200 de l'action : le brouillon n'est pas rejeté et la relecture réussit (déduit du code, le corps de la réponse de rejet n'est pas enregistré) |
 | GR09 | `--phase resume --grep '^GR09\s'` | scénario `cost_yield` : `[h_mo, k_mo, labor_role_id]` vaut `[5, 0.8, <rôle RMO 4 000>]` au lieu de `[5, 0.8, null]` | `commit_generated_ouvrages` écrit le rôle préféré sur chaque composant MO de l'ouvrage canonique (`supabase/migrations/20261012215942_generated_ouvrage_component_decisions.sql`, insertion de `estimate_assembly_items`). `cost_base` (40 000 / 8 000 / 48 000) et `cost_loss` (8 400 / 1 680 / 10 080) passent avant ; `cost_canonical_inexact`, `cost_parent_inexact` et `cost_batch` ne sont pas atteints |
 
+## GR06 en CI
+
+**Observé.** Run 39089316912 (sélection `nightly` de la PR #42), deux tentatives : la phase `resume`
+échoue sur GR06 seul, ligne 569 (`const flight = await response.text()`), avec
+`waitForResponse: response body could not be read: net::ERR_ABORTED`. GR02, GR04 et GR08 passent ;
+les cinq `skipped` du rapport sont les rouges à la base, hors sélection.
+
+**Hypothèse écartée par les preuves.** L'attente `browser.waitForResponse(<URL de l'éditeur>)` ne
+filtre que l'URL (motif chaîne compilé en expression ancrée sur l'URL complète par le SDK) : toute
+requête vers l'éditeur pouvait répondre. Mais dans les deux tentatives, la réponse capturée est bien
+celle de la reprise retenue puis relâchée :
+
+- le registre d'actions de GR06 (`generated-action-ledger-*`) ne contient qu'un
+  `listResumableGeneratedOuvrageDrafts` et un `fetchResumableGeneratedOuvrageDraft` ;
+- le journal réseau du serveur (`server-network.jsonl`) ne montre, après le relâchement, que les
+  lectures de la reprise : tentative 1, attente armée à 02:30:40.165, lectures 40.174–40.355,
+  correspondance à 40.396 (231 ms) ; tentative 2, 03:01:16.403, 16.412–16.558, 202 ms. Une requête
+  RSC (rafraîchissement, préchargement) porte `?_rsc=` et ne peut pas correspondre au motif exact ;
+  aucune n'a atteint le serveur dans cette fenêtre.
+
+Les en-têtes de la vraie réponse sont donc arrivés, puis Chromium a signalé le chargement de cette
+même requête annulé (`Network.loadingFailed`, `net::ERR_ABORTED`, relu par `request.failure()` dans
+`readResponseBody` du SDK), moins de 90 ms après les en-têtes. Sous Chromium, Playwright ne pose ce
+texte d'échec que sur un `loadingFailed` du vrai chargement réseau : rien ne prouve qu'il ne s'agisse
+que de la copie DevTools du corps, et aucun artefact CI ne montre que la page a reçu le corps. La
+question reste ouverte. L'application n'annule rien : `handleResume`
+(`src/components/estimates/GeneratedOuvrageDialog.tsx`) appelle l'action sans signal,
+`fetchServerAction` de Next 16.4 n'utilise aucun `AbortController`, le client Flight
+(`react-server-dom-webpack`) lit le flux jusqu'au bout sans jamais l'annuler ; la fermeture du dialogue
+fait seulement ignorer le résultat. L'annulation n'a pas été reproduite (clone WSL, 18/10) : trois
+exécutions de diagnostic (dont `taskset` sur 2 CPU avec 3 boucles actives, et la liste retenue 500 ms
+pour reproduire le clic CI qui attendait 343 ms la liste) ont toutes reçu en page un 200
+`text/x-component` dont le corps complet contient le brouillon, et la copie DevTools était lisible ;
+deux expériences Playwright 1.64 autonomes (Échap pendant la retenue, document chargé ou en cours de
+chargement ; GC forcé entre en-têtes et fin du corps) n'annulent rien. La cause de l'annulation sur le
+runner reste donc inconnue.
+
+**Correctif (parcours seul, assertions inchangées sur le fond).** Comme GR09 (insertion) et GO01
+([reprise après réponse perdue](generated-ouvrage-recovery-e2e.md)), GR06 observe dans la page le
+`fetch` de l'application pour la seule action exacte : POST vers le chemin de l'éditeur portant
+l'identifiant `next-action` de `fetchResumableGeneratedOuvrageDraft` lu dans le manifeste du build.
+Requête et réponse sont transmises inchangées ; le corps est lu jusqu'au bout sur un clone, dont seuls
+la longueur et la présence du brouillon sont gardées. Le parcours exige une seule requête retenue par
+la route et une seule livraison en page, au même corps que la requête retenue, statut 200,
+`text/x-component`, corps lu en entier contenant l'identifiant du brouillon, sans erreur ; puis,
+inchangés, le dialogue fermé après la livraison, aucune carte candidate, l'autre version, aucune
+insertion et la reprise réelle ensuite. Une requête annulée fait rejeter le `fetch` ou la lecture du
+clone : l'erreur est enregistrée et le parcours échoue. Ni retry ni pause : les attentes sont des
+sondages d'un état observé (30 s, comme l'ancienne attente). La preuve `late-resume-delivery`
+(horodatages, statut, longueur, erreur) est écrite avant les assertions, pour qu'un rouge en CI nomme
+la cause vue par la page. GR05, rouge à la base et hors sélection, garde son attente par URL.
+Si le runner annule vraiment la requête, ce correctif ne rendra pas GR06 vert : la lecture du clone sera
+annulée elle aussi, et `late-resume-delivery` montrera l'erreur vue par la page. C'est alors un défaut du
+navigateur ou de l'application à traiter comme tel, pas un parcours à assouplir.
+
+**Preuve (clone WSL `~/miaouffrage-ci-proofs`, 18/10/2026).** Révision `9467ba95` plus ce seul fichier
+(`diffSha256` `8bf160c9…1902`, fichier `db538d65…9120`), Node 24.19.0, port applicatif 3147, aucune
+autre exécution native possédée au départ ; `npm run e2e:army:calc-v3 -- --phase resume` :
+
+| Archive `.e2e/army/ci/` | Charge | Résultat | GR06 | Livraison observée |
+|---|---|---|---|---|
+| `2026-10-18T03-51-30-402Z-calc-v3` | aucune | 5/5 | 3,96 s | 200, `text/x-component`, 1 209 caractères, brouillon présent |
+| `2026-10-18T03-53-05-632Z-calc-v3` | `taskset -c 0-3`, 4 boucles actives sur ces CPU | 5/5 | 7,55 s | idem |
+| `2026-10-18T03-55-32-228Z-calc-v3` | `taskset -c 0-1`, 3 boucles actives sur ces CPU | 5/5 | 9,21 s | idem |
+
+GR06 durait 4,27 s et 3,90 s sur le runner. Contre-épreuve (clone seul, non commitée) : la requête
+retenue est avortée au lieu d'être relâchée (`--grep '^GR06\s'`, archive
+`2026-10-18T03-59-07-185Z-calc-v3`) ; GR06 échoue sur `expected "TypeError: Failed to fetch" to be
+null`. Windows : `npm run typecheck`, `npx eslint e2e/army/local/generated-ouvrage-resume.e2e.ts
+--max-warnings=0` et `npx vitest run --project=node src/test/ci-guardrails.test.ts` (18/18) passent.
+
+**Sur le runner.** Run 39096480257 (PR #42, tête `964775bc`, sélection `nightly`, 18/10 04:15–04:43 UTC) :
+les six phases passent, dont `resume` (GR02, GR04, GR06, GR08). Cette tête précède la fusion de
+`origin/main` `488382d5` (éditeur v3 de 2.6, PR #44) : seul le run calc-v3 de la PR sur la tête fusionnée
+poussée vaut pour l'arbre fusionné. Si le runner annulait réellement la requête, et pas seulement la copie
+DevTools, GR06 serait rouge avec l'erreur vue par la page dans `late-resume-delivery` : ce serait alors un
+constat sur le navigateur ou l'application, plus une course du parcours.
+
 ## Limites
 
+- La CI nocturne ne lance pas l'émission tant que le sous-lot 2.7 ne l'a pas passée en production
+  (section « CI nocturne ») ; seul un déclenchement manuel (`all` ou `emission`) la lance.
 - L'émission en `next dev` ne qualifie pas le build de production ; la sonde
   `check-offer-network-guard.mjs` de la recette d'offre n'est pas rejouée, seul le reçu
   `guard-installed` du serveur est exigé. Le garde refuse trois requêtes sortantes du serveur de
