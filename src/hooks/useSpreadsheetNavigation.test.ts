@@ -5,7 +5,7 @@ renderHook,
 screen,
 waitFor,
 } from "@testing-library/react";
-import { createElement } from "react";
+import { createElement, type FocusEvent } from "react";
 import { describe,expect,it } from "vitest";
 
 import { EstimateLineNatureSelect } from "@/components/estimates/components/estimate-editor-row/EstimateLineNatureSelect";
@@ -48,6 +48,43 @@ function NavigationHarness({
           onFocus: editorProps.onFocus,
           onBlur: editorProps.onBlur,
           onKeyDown: editorProps.onKeyDown,
+        })
+      );
+    })
+  );
+}
+
+// V3E01 (docs/testing/v3e01-labour-role-lost.md). A deferred render can commit
+// a new navigation model whose focus effect runs while the active cell's editor
+// already has focus but its editing state has not rendered yet. This editor is
+// registered as the cell's editor and does not report its focus, which holds
+// that state long enough to rebuild the rows.
+function PendingEditorFocusHarness({
+  rows,
+}: {
+  rows: Array<{ rowId: string; columnKeys: string[] }>;
+}) {
+  const navigation = useSpreadsheetNavigation({ rows });
+
+  return createElement(
+    "div",
+    null,
+    ...rows.map((row) => {
+      const cell = { rowId: row.rowId, columnKey: row.columnKeys[0] ?? "labor_role" };
+      const editorProps = navigation.getEditorProps<HTMLInputElement>(cell);
+
+      return createElement(
+        "div",
+        {
+          key: row.rowId,
+          ...navigation.getCellProps(cell),
+          "data-testid": `cell-${row.rowId}`,
+        },
+        createElement("input", {
+          "data-testid": `editor-${row.rowId}`,
+          ref: editorProps.ref,
+          tabIndex: editorProps.tabIndex,
+          onFocus: (event: FocusEvent<HTMLInputElement>) => event.stopPropagation(),
         })
       );
     })
@@ -174,6 +211,24 @@ describe("useSpreadsheetNavigation helpers", () => {
     await waitFor(() => {
       expect(outsideEditor).toHaveFocus();
     });
+  });
+
+  it("keeps focus on the active cell's editor when a pending render rebuilds the rows (V3E01)", async () => {
+    const rows = [{ rowId: "row-1", columnKeys: ["labor_role"] }];
+    const { rerender } = render(createElement(PendingEditorFocusHarness, { rows }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("cell-row-1")).toHaveFocus();
+    });
+
+    const editor = screen.getByTestId("editor-row-1");
+    editor.focus();
+    expect(editor).toHaveFocus();
+
+    // Same rows, new array: the deferred quality render rebuilds the model.
+    rerender(createElement(PendingEditorFocusHarness, { rows: [...rows] }));
+
+    expect(editor).toHaveFocus();
   });
 
   it("keeps F2 bound to the free-text designation after using line nature", async () => {
