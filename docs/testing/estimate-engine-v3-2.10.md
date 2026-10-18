@@ -2,7 +2,7 @@
 
 Statut : **bascule écrite, prouvée en local, fusionnée avec `main` et réhorodatée ; en attente de la revue
 interne, de D-l et de la fusion en dernier** (18/10/2026). Branche `lot2/2.10b-bascule-m8`, partie de `c4c1e854`,
-`origin/main` `51bce775` fusionné (§9). Elle fusionne **en dernier** du lot 2, après #45 (2.7), #57 (2.10a), 2.6b,
+`origin/main` fusionné deux fois, `51bce775` puis `f1a5a74b` (§9). Elle fusionne **en dernier** du lot 2, après #45 (2.7), #57 (2.10a), 2.6b,
 2.7b, 2.8b et #58 (parcours V1 des totaux sur propriétaires dédiés) ; sa M8 est réhorodatée à chaque fusion de
 `main` qui ajoute une migration (§8). Sources : cahier de la bascule
 (`brief-2-10`, §0 à §10), plan vers 2.10 (§3 « 2.10b » et décisions du 18/10/2026), conception du lot 2 §6.1 (M8),
@@ -23,7 +23,7 @@ v3 n'est jamais relue comme une v1 (`CalcEngineVersion` reste `1 | 2`).
 | Duplication | moteur de la source | inchangé (`duplicate_source` / `duplicate_source_v3`, ne lit pas la politique) |
 | Versions et lignes existantes | — | inchangées (aucune `UPDATE`, D17, P-15) |
 
-**M8** (`supabase/migrations/20261018164448_estimate_engine_v3_default.sql`) remplace
+**M8** (`supabase/migrations/20261018171616_estimate_engine_v3_default.sql`) remplace
 `persist_estimate_creation_atomic` par sa **définition vivante** (M6b, `20261018013249`), à **trois lignes près** :
 moteur d'une politique absente `coalesce(policy_row.new_estimate_calc_engine, 3)` ; replis `1.3000` et `1.2000`
 des coefficients FO et MO d'une v3 (sans eux, une v3 sous politique absente violerait
@@ -197,10 +197,10 @@ changement (`git diff --stat` vide) ; le corpus figé v1/v2 est rejoué par `ver
 ## 8. Fusion, application et limites
 
 - **Fusion en dernier, réhorodatage obligatoire.** M8 a été réhorodatée le 18/10/2026 après la fusion de
-  `origin/main` `51bce775` (dernière migration : la M5 réhorodatée de #45, `20261018102840`) :
-  `20261018130000` → `20261018164448` (§9). À la fusion, si `main` a reçu une migration entre-temps :
+  `origin/main` `51bce775` (`20261018130000` → `20261018164448`), puis après celle de `f1a5a74b` (dernière
+  migration de `main` : `20261018170351`, reçus d'insertion complets) : `20261018164448` → `20261018171616` (§9). À la fusion, si `main` a reçu une migration entre-temps :
   `git fetch origin`, `git merge origin/main`, `npm run supabase:migrations:restamp --
-  supabase/migrations/20261018164448_estimate_engine_v3_default.sql --dry-run` puis sans `--dry-run`
+  supabase/migrations/20261018171616_estimate_engine_v3_default.sql --dry-run` puis sans `--dry-run`
   (`supabase/README.md` §3), `supabase:validate`, `supabase:migrations:git-guard`.
 - **Préalable de M8.** Si une migration fusionnée avant redéfinit `persist_estimate_creation_atomic`, le préalable
   de M8 échoue (`LOT2_2_10_M8_PREREQUISITE_MISSING`) : M8 se reconstruit alors depuis la nouvelle définition
@@ -238,11 +238,18 @@ et V1 des totaux, sans toucher leurs propriétaires) et manifeste des migrations
   `estimate-editor-settings-button` « outside of the viewport » dans un devis v2 de l'entreprise de recette en
   politique 2 : chemin de création et de calcul inchangé par M8. Non relancé ; à trier par son propriétaire.
 
+**Seconde fusion** (`eb4bc10d`, `origin/main` `f1a5a74b` : lectures complètes PostgREST, migration
+`20261018170351_complete_estimate_insertion_receipts`, qui ne redéfinit pas `persist_estimate_creation_atomic`) :
+seul conflit, le manifeste (les deux entrées gardées) ; M8 réhorodatée `20261018164448` → `20261018171616`
+contre `f1a5a74b` (garde Git et validation du manifeste vertes). Les preuves ci-dessous sont rejouées sur la
+tête de la seconde fusion quand elle les invalide (dernière ligne).
+
 | Preuve sur la tête fusionnée | Commande | Résultat |
 |---|---|---|
 | Garde Git des migrations | `supabase:migrations:git-guard -- --base 51bce775 --mode pull_request` (`e9c0ac6c`) | vert |
 | Historique des migrations | `supabase:validate` (`e9c0ac6c`) | vert |
 | SQL, RLS et parcours touchés | `e2e:army:ci -- critical --grep "V3S0\|V3C11\|V3C12"` (`8995bc12`, `diffSha256` du vide, 2 workers, 379 s) | pgTAP **25 fichiers, 1 964 tests verts** (dont `estimate-offer-contract-v2` de #45) ; matrice RLS verte ; V3S01, V3S02, V3C11, V3C12 verts (5 / 5 avec l'authentification) ; preuve `.e2e/army/ci/2026-10-18T17-06-39-916Z-critical` |
+| Seconde fusion : garde Git, historique, SQL, RLS et parcours touchés | `git-guard -- --base f1a5a74b`, `supabase:validate`, même `--grep` (`b03d5798`, `diffSha256` du vide, 204 s) | verts ; pgTAP **26 fichiers, 1 974 tests** (dont `complete-estimate-receipts`) ; matrice RLS verte ; 5 / 5 ; preuve `.e2e/army/ci/2026-10-18T17-16-53-959Z-critical` |
 
 Seule la tête fusionnée et ce qu'elle change sont rejoués localement (consigne de vitesse du porteur, 18/10) : la
 sélection critique non filtrée, les parcours takeoff et calc-v3 tournent dans la CI de la PR, qui fait foi.
