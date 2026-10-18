@@ -695,3 +695,52 @@ Contrôles du worktree Windows sur `7d1f9687` : `npm run typecheck` ;
 `npx eslint --max-warnings=0` sur les trois fichiers `e2e` touchés ;
 `npx vitest run --project=node src/test/army-impact-map.test.ts src/test/ci-guardrails.test.ts`
 (2 fichiers, 23 tests) ; `git diff --check`. Tous en exit 0.
+
+### Revue de la correction (18/10/2026)
+
+Relecture de `7d1f9687` et `285d7188` : quatre constats mineurs, vérifiés dans le code, tous confirmés.
+
+1. **Pile hébergée.** `npm run e2e:army:critical` contre le Supabase hébergé reste un mode documenté.
+   Sa sélection (`e2e/army/critical/**`) contient `bulk-edit-sync-sources` : S1 et S2, qui y passaient
+   à un worker, y échouent désormais fermés, et le runbook ne le disait pas. Correction : un
+   paragraphe dans [tester-army-critical.md](tester-army-critical.md) (« Execution and evidence »),
+   et le message d'échec de `signUpDedicatedOwner` nomme les commandes de la pile possédée. Retirer
+   le fichier de la sélection hébergée n'a pas été retenu : un parcours absent ne laisse aucune trace,
+   alors qu'un échec fermé reste visible comme preuve manquante.
+2. **Précondition implicite.** `numeric-entry` « paramétrage » et `numeric-entry-v3` supposaient le
+   mode Simplifié sans le vérifier : une nouvelle fuite du mode Expert aurait de nouveau donné 30 s de
+   « outside of the viewport » sur le bouton. Correction (`82277799`) : une fois le menu d'affichage
+   ouvert, chaque parcours compte les régions « Contrôles avancés » et échoue sur le message
+   « Precondition: the shared campaign account must be in Simplifié mode… ». C'est une lecture seule,
+   sans requête, sans SQL (le parcours reste exécutable sur la pile hébergée) et sans
+   redimensionnement de la fenêtre. Pas de garde statique dans `ci-guardrails.test.ts` : la politique
+   de tests exclut les tests sur le texte des sources, et la précondition détecte la fuite à
+   l'exécution.
+3. **Document périmé.** [version-totals-after-preselection.md](version-totals-after-preselection.md)
+   disait encore que `bulk-edit-sync-sources` bascule le compte partagé. Le paragraphe est corrigé.
+4. **Défaut produit, hors de cette PR.** `useUiMode` affiche le nouveau mode avant la confirmation du
+   serveur et ignore l'échec de `updateProfileUiMode` (`.catch(() => {})`). C'est ce qui a perdu le
+   rétablissement de S2 dans la CI 39084774584. La PR reste limitée à `e2e/` : le défaut fait l'objet
+   d'une tâche séparée (afficher le mode enregistré, ou annuler le mode optimiste avec un retour à
+   l'utilisateur).
+
+Preuves, même clone WSL et mêmes réglages que ci-dessus (2 workers, pgTAP et matrice RLS verts à
+chaque run, aucune modification locale) :
+
+| Run | Révision | Filtre | Résultat | Preuves (`manifest.json` sha256) |
+| --- | --- | --- | --- | --- |
+| P0, rouge | `8a58eb18`, commit local jetable : `f4ed8c3e` (anciens rétablissements) plus les deux fichiers `numeric-entry` de `82277799` | filtre d'E2 | exit 1, 5/7. `numeric-entry-v3` (1,5–6,2 s, pendant S1) et `numeric-entry` « paramétrage » (13,3–18,2 s, pendant S2) échouent en 5 s sur la précondition (`expected 1 to be 0`). Leurs écrans portent « Contrôles avancés ». Les trois `*-restored.json` sont corrects : la fuite vient de la seule concurrence. | `2026-10-18T02-14-33-261Z-critical` (`19dbd0be…8286`) |
+| R1 | `82277799` | `bulk edit sync\|numeric entry` | exit 0, 11/11 | `2026-10-18T02-17-14-030Z-critical` (`b52d960d…743d`) |
+| R2 | `82277799` | idem | exit 0, 11/11 | `2026-10-18T02-19-08-565Z-critical` (`55fd5dcd…a4c5`) |
+| R3 | `82277799` | idem | exit 0, 11/11 | `2026-10-18T02-20-58-203Z-critical` (`c7c8b7f8…06d5`) |
+| R4 | `82277799` | filtre d'E2 | exit 0, 7/7. `numeric-entry-v3` (1,3–17,4 s) recouvre S1 et S2, `numeric-entry` « paramétrage » (23,4–30,6 s) recouvre P1. | `2026-10-18T02-22-48-651Z-critical` (`e6e4ad94…753a`) |
+| R5 | `82277799` | `^V3P01` | exit 0, 2/2 | `2026-10-18T02-24-24-998Z-critical` (`8ea05582…bc5d`) |
+| R6 | `82277799` | aucun (sélection critical complète) | exit 0, 83/83 | `2026-10-18T02-25-42-040Z-critical` (`552931be…2d9c`) |
+
+De R1 à R4 et en R6, chaque `bulk-sync-<s1|s2|p1>-owner.json` relève un compte et un tenant
+distincts, avec `storedMode: "expert"` et `uiMode: "Expert"`. Le commit local P0 n'a jamais quitté
+le clone WSL, et il a été supprimé après le run. Sur `285d7188..82277799`, `select-journeys.ts` retient
+la connexion, `bulk-edit-sync-sources`, `numeric-entry`, `numeric-entry-v3` et V3P01. Contrôles du
+worktree Windows : `npm run typecheck`, `npx eslint --max-warnings=0` sur les trois fichiers `e2e`
+touchés, les tests `army-impact-map` et `ci-guardrails` (23 tests) et `git diff --check`, tous en
+exit 0.
