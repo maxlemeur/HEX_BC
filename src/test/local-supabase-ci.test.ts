@@ -17,6 +17,7 @@ import {
   describeSafeFailure,
   enableNativeStack,
   findAvailablePort,
+  parseLocalSupabaseCiArguments,
   parseLocalSupabaseStatus,
   runChildProcess,
   runLocalSupabaseCi,
@@ -24,6 +25,7 @@ import {
   validatePgTapReport,
   validateRlsMatrixReport,
 } from "@/test/local-supabase-ci";
+import { NativeStackLimitError } from "@/test/native-stack-guard";
 import {
   assertLocalOnlySupabaseArgs,
   assertNoRemoteSupabaseEnvironment,
@@ -72,7 +74,8 @@ function createDependencies(options: {
       return options.migrationOutput ?? "migration-output";
     }
     if (command.startsWith("test db --local")) {
-      const fileCount = fs.readdirSync(path.join(process.cwd(), "supabase", "tests", "database"))
+      const selected = args.filter((arg) => arg.endsWith(".sql")).length;
+      const fileCount = selected || fs.readdirSync(path.join(process.cwd(), "supabase", "tests", "database"))
         .filter((file) => file.endsWith(".sql")).length;
       return options.pgTapOutput ?? `Files=${fileCount}, Tests=205,  1 wallclock secs\nResult: PASS\n`;
     }
@@ -87,9 +90,12 @@ function createDependencies(options: {
     return "";
   });
 
+  const release = vi.fn();
   return {
     calls,
+    release,
     dependencies: {
+      acquireStackSlot: vi.fn(async () => ({ recordStack: vi.fn(), release })),
       ensureRuntime: vi.fn(),
       environment: {},
       log,
@@ -347,6 +353,152 @@ describe("local Supabase CI", () => {
     expect(logs).not.toContain("postgresql://");
   });
 
+  it("parses --files into validated pgTAP files and refuses anything outside the database tests", () => {
+    const databaseTests = path.join(process.cwd(), "supabase", "tests", "database");
+    const [first, second] = fs.readdirSync(databaseTests).filter((file) => file.endsWith(".sql")).sort();
+    expect(parseLocalSupabaseCiArguments([])).toEqual({});
+    expect(parseLocalSupabaseCiArguments(["--files", `${first}, supabase/tests/database/${second}`])).toEqual({
+      pgTapFiles: [first, second],
+    });
+    expect(parseLocalSupabaseCiArguments([`--files=${first}`, "--skip-rls"])).toEqual({
+      pgTapFiles: [first], skipRlsMatrix: true,
+    });
+    for (const [argv, message] of [
+      [["--files"], "--files requires"],
+      [["--files", ""], "--files requires"],
+      [["--files", `${first},${first}`], "listed twice"],
+      [["--files", "../migrations/x.sql"], "not a pgTAP file"],
+      [["--files", `${databaseTests}/${first}`], "not a pgTAP file"],
+      [["--files", "supabase/tests/other.test.sql"], "not a pgTAP file"],
+      [["--files", "README.md"], "not a pgTAP file"],
+      [["--files", "missing.test.sql"], "does not exist"],
+      [["--files", first, "--files", second], "only once"],
+      [["--rls-only"], "Unknown argument"],
+    ] as const) {
+      expect(() => parseLocalSupabaseCiArguments([...argv]), argv.join(" ")).toThrow(message);
+    }
+  });
+
+  it("refuses a symlinked pgTAP file and a second name for the same file", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pgtap-selection-"));
+    const tests = path.join(root, "supabase", "tests", "database");
+    fs.mkdirSync(tests, { recursive: true });
+    fs.writeFileSync(path.join(tests, "a.test.sql"), "select 1;\n");
+    fs.writeFileSync(path.join(root, "outside.sql"), "select 1;\n");
+    fs.symlinkSync(path.join(root, "outside.sql"), path.join(tests, "link.test.sql"));
+    // A hard link stands for any alias of one file, such as FOO/foo on a case-insensitive filesystem.
+    fs.linkSync(path.join(tests, "a.test.sql"), path.join(tests, "alias.test.sql"));
+    expect(() => parseLocalSupabaseCiArguments(["--files", "link.test.sql"], root)).toThrow("symbolic link");
+    expect(() => parseLocalSupabaseCiArguments(["--files", "a.test.sql,alias.test.sql"], root)).toThrow("listed twice");
+    expect(parseLocalSupabaseCiArguments(["--files", "a.test.sql"], root)).toEqual({ pgTapFiles: ["a.test.sql"] });
+  });
+
+  it("runs only the selected pgTAP files, counts them, keeps RLS unless skipped and says the run is partial", async () => {
+    const projectRoot = "C:/temp/miaouffrage-supabase-ci-test";
+    const databaseTests = path.join(projectRoot, "supabase", "tests", "database");
+    const filtered = createDependencies();
+    await runLocalSupabaseCi({ ...filtered.dependencies, pgTapFiles: ["a.test.sql", "b.test.sql"] });
+    expect(filtered.calls).toContain(
+      `test db --local ${path.join(databaseTests, "a.test.sql")} ${path.join(databaseTests, "b.test.sql")} --workdir ${projectRoot}`
+    );
+    expect(filtered.dependencies.runRls).toHaveBeenCalledOnce();
+    expect(filtered.dependencies.log.mock.calls.flat().join("\n")).toContain("Partial run");
+
+    const skipped = createDependencies();
+    await runLocalSupabaseCi({ ...skipped.dependencies, pgTapFiles: ["a.test.sql"], skipRlsMatrix: true });
+    expect(skipped.dependencies.provisionUsers).not.toHaveBeenCalled();
+    expect(skipped.dependencies.runRls).not.toHaveBeenCalled();
+    expect(skipped.calls.slice(-2)).toEqual([`stop --workdir ${projectRoot}`, `stack destroy --yes --workdir ${projectRoot}`]);
+
+    const miscounted = createDependencies({ pgTapOutput: "Files=22, Tests=205,  1 wallclock secs\nResult: PASS\n" });
+    await expect(runLocalSupabaseCi({ ...miscounted.dependencies, pgTapFiles: ["a.test.sql"] }))
+      .rejects.toThrow("did not execute all 1 SQL files");
+  });
+
+  it("destroys the stack once when a termination signal arrives during a phase", async () => {
+    const projectRoot = "C:/temp/miaouffrage-supabase-ci-test";
+    const run = createDependencies();
+    // The re-raised signal would end the test process: it is only recorded.
+    const raise = vi.spyOn(process, "kill").mockImplementation(() => true);
+    try {
+      run.dependencies.runRls = vi.fn(async () => {
+        process.emit("SIGTERM", "SIGTERM");
+        expect(run.calls.slice(-2)).toEqual([`stop --workdir ${projectRoot}`, `stack destroy --yes --workdir ${projectRoot}`]);
+        expect(run.release).toHaveBeenCalledOnce();
+        expect(run.dependencies.removeProject).toHaveBeenCalledOnce();
+      });
+      await expect(runLocalSupabaseCi(run.dependencies)).rejects.toThrow("Interrupted by SIGTERM");
+      expect(raise).toHaveBeenCalledExactlyOnceWith(process.pid, "SIGTERM");
+    } finally {
+      raise.mockRestore();
+    }
+    expect(run.calls.filter((command) => command.startsWith("stop "))).toHaveLength(1);
+    expect(run.calls.filter((command) => command.startsWith("stack destroy "))).toHaveLength(1);
+    expect(run.dependencies.removeProject).toHaveBeenCalledOnce();
+    expect(run.release).toHaveBeenCalledOnce();
+    expect(process.listenerCount("SIGTERM")).toBe(0);
+    expect(process.listenerCount("SIGINT")).toBe(0);
+  });
+
+  it("reports a cleanup failure on the signal path before the process ends", async () => {
+    const run = createDependencies({ failDestroy: true });
+    const raise = vi.spyOn(process, "kill").mockImplementation(() => true);
+    try {
+      run.dependencies.runRls = vi.fn(async () => {
+        process.emit("SIGINT", "SIGINT");
+        expect(run.dependencies.log).toHaveBeenCalledWith("Cleanup failed after SIGINT: destroy failed");
+      });
+      await expect(runLocalSupabaseCi(run.dependencies)).rejects.toThrow("Interrupted by SIGINT");
+      expect(run.dependencies.runRls).toHaveBeenCalledOnce();
+    } finally {
+      raise.mockRestore();
+    }
+  });
+
+  it("stops at the next phase when a caller that owns the signal is interrupted before its application", async () => {
+    const projectRoot = "C:/temp/miaouffrage-supabase-ci-test";
+    // The Army dev modes: their handler only aborts the application phase.
+    const caller = vi.fn();
+    process.on("SIGINT", caller);
+    try {
+      const early = createDependencies();
+      const provision = early.dependencies.provisionUsers.getMockImplementation()!;
+      early.dependencies.provisionUsers.mockImplementation(async () => {
+        process.emit("SIGINT", "SIGINT");
+        return provision();
+      });
+      const runApplication = vi.fn(async () => {});
+      await expect(runLocalSupabaseCi({ ...early.dependencies, runApplication }))
+        .rejects.toThrow("Interrupted by SIGINT before run behavioral RLS matrix");
+      expect(early.dependencies.runRls).not.toHaveBeenCalled();
+      expect(runApplication).not.toHaveBeenCalled();
+      expect(early.calls.slice(-2)).toEqual([`stop --workdir ${projectRoot}`, `stack destroy --yes --workdir ${projectRoot}`]);
+
+      // During the application the caller's own graceful stop stays a success.
+      const late = createDependencies();
+      await expect(runLocalSupabaseCi({
+        ...late.dependencies,
+        runApplication: vi.fn(async () => { process.emit("SIGINT", "SIGINT"); }),
+      })).resolves.toEqual({ database: { source: "reset", snapshot: "disabled" } });
+    } finally {
+      process.off("SIGINT", caller);
+    }
+    expect(caller).toHaveBeenCalledTimes(2);
+    expect(process.listenerCount("SIGINT")).toBe(0);
+  });
+
+  it("refuses to start a fifth native run before preparing anything", async () => {
+    const run = createDependencies();
+    run.dependencies.acquireStackSlot = vi.fn(async () => {
+      throw new NativeStackLimitError("Native Supabase run limit reached: 4 of 4 slots are held");
+    });
+    await expect(runLocalSupabaseCi(run.dependencies)).rejects.toThrow(
+      "Phase failed: reserve native stack slot: Native Supabase run limit reached"
+    );
+    expect(run.calls).toEqual(["--version"]);
+    expect(run.dependencies.prepareProject).not.toHaveBeenCalled();
+  });
+
   it("stops after a reset failure and treats cleanup failure as fatal", async () => {
     const versionFailure = createDependencies({ cliVersionOutput: "2.121.0\nupdate notification" });
     await expect(runLocalSupabaseCi(versionFailure.dependencies)).rejects.toThrow("must be exactly 2.120.0");
@@ -562,6 +714,17 @@ describe("local Supabase CI", () => {
         "C:/temp/miaouffrage-supabase-ci-test",
       ])
     ).toThrow("not allowlisted");
+    // --files: several pgTAP paths, every one inside the isolated workdir.
+    const tests = path.join(os.tmpdir(), "miaouffrage-supabase-ci-test", "supabase", "tests", "database");
+    const workdir = path.join(os.tmpdir(), "miaouffrage-supabase-ci-test");
+    expect(() => assertLocalOnlySupabaseArgs([
+      "test", "db", "--local", path.join(tests, "a.test.sql"), path.join(tests, "b.test.sql"), "--workdir", workdir,
+    ])).not.toThrow();
+    for (const outside of ["/outside/b.test.sql", "--linked", ""]) {
+      expect(() => assertLocalOnlySupabaseArgs([
+        "test", "db", "--local", path.join(tests, "a.test.sql"), outside, "--workdir", workdir,
+      ])).toThrow("not allowlisted");
+    }
     expect(() =>
       parseLocalSupabaseStatus(
         [

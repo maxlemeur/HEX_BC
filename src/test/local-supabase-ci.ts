@@ -19,6 +19,12 @@ import {
   resolveDatabaseSnapshotDirectory,
 } from "@/test/database-snapshot";
 import {
+  acquireNativeStackSlot,
+  cleanUpOnTerminationSignals,
+  type NativeStackSlot,
+  nativeStackWaitMs,
+} from "@/test/native-stack-guard";
+import {
   assertNoRemoteSupabaseEnvironment,
   createLocalCiEnvironment,
   PINNED_SUPABASE_CLI_VERSION,
@@ -141,6 +147,8 @@ interface IsolatedSupabaseProject {
 }
 
 interface LocalSupabaseCiDependencies {
+  /** Reserves one of the user's native-run slots before the project exists. */
+  acquireStackSlot: () => Promise<NativeStackSlot>;
   /** Snapshot steps, used only when ARMY_DB_SNAPSHOT_DIR is set. */
   databaseSnapshot?: DatabaseSnapshotOperations;
   ensureRuntime: () => void;
@@ -168,6 +176,53 @@ interface LocalSupabaseCiDependencies {
   supabase: (args: string[], capture?: boolean) => string;
   validateProject: () => string[];
   verifyMigrations: (output: string) => string[];
+  /** File names under supabase/tests/database; the whole folder when absent. */
+  pgTapFiles?: readonly string[];
+  skipRlsMatrix?: boolean;
+}
+
+const PGTAP_DIRECTORY = path.join("supabase", "tests", "database");
+
+/**
+ * `db:ci:local [--files a.test.sql,b.test.sql] [--skip-rls]`. Each file is
+ * named directly in supabase/tests/database (bare or with that prefix) and
+ * must exist there: nothing else reaches `supabase test db`.
+ */
+export function parseLocalSupabaseCiArguments(argv: readonly string[], rootDirectory = process.cwd()) {
+  const options: { pgTapFiles?: string[]; skipRlsMatrix?: boolean } = {};
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === "--skip-rls") {
+      options.skipRlsMatrix = true;
+      continue;
+    }
+    if (argument !== "--files" && !argument.startsWith("--files=")) {
+      throw new Error(`Unknown argument ${argument}: use --files a.test.sql,b.test.sql and --skip-rls`);
+    }
+    if (options.pgTapFiles) throw new Error("--files may be given only once");
+    const value = argument === "--files" ? argv[++index] : argument.slice("--files=".length);
+    const names = (value ?? "").split(",").map((name) => name.trim()).filter(Boolean);
+    if (names.length === 0) throw new Error("--files requires a comma-separated list of pgTAP files");
+    options.pgTapFiles = names.map((name) => {
+      const file = name.startsWith("supabase/tests/database/") ? name.slice("supabase/tests/database/".length) : name;
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.sql$/.test(file)) {
+        throw new Error(`${name} is not a pgTAP file directly under supabase/tests/database`);
+      }
+      // lstat: a symlink could point outside the folder; the copied tree keeps it.
+      const entry = fs.lstatSync(path.join(rootDirectory, PGTAP_DIRECTORY, file), { throwIfNoEntry: false });
+      if (entry?.isSymbolicLink()) throw new Error(`${name} is a symbolic link, not a pgTAP file`);
+      if (!entry?.isFile()) throw new Error(`${name} does not exist under supabase/tests/database`);
+      return { file, identity: `${entry.dev}:${entry.ino}` };
+    }).map(({ file, identity }, index, selected) => {
+      // By file identity: FOO.test.sql and foo.test.sql are one file on a
+      // case-insensitive filesystem (macOS default).
+      if (selected.findIndex((other) => other.identity === identity) !== index) {
+        throw new Error("A pgTAP file is listed twice in --files");
+      }
+      return file;
+    });
+  }
+  return options;
 }
 
 function hostEphemeralPortRanges(): number[][] {
@@ -667,6 +722,10 @@ function formatSafeRlsFailure(
 
 function defaultDependencies(): LocalSupabaseCiDependencies {
   return {
+    acquireStackSlot: () => acquireNativeStackSlot({
+      label: `local Supabase CI (${path.basename(process.argv[1] ?? "node")})`,
+      waitMs: nativeStackWaitMs(),
+    }),
     ensureRuntime: () => assertNativeRuntimeHost(currentNativeRuntimeHost()),
     environment: process.env,
     reservedPorts: new Set(),
@@ -698,6 +757,7 @@ function asError(error: unknown) {
 }
 
 const SAFE_DIAGNOSTIC_PHASES = new Set([
+  "reserve native stack slot",
   "prepare isolated project",
   "start local stack",
   "restore database snapshot",
@@ -796,6 +856,9 @@ export async function runLocalSupabaseCi(
 ): Promise<{ database: LocalDatabaseProvenance }> {
   const dependencies = { ...defaultDependencies(), ...overrides };
   assertNoRemoteSupabaseEnvironment(dependencies.environment);
+  if (dependencies.skipRlsMatrix && dependencies.runApplication) {
+    throw new Error("--skip-rls applies to db:ci:local only, never to an application validation");
+  }
 
   const projectErrors = dependencies.validateProject();
   if (projectErrors.length > 0) {
@@ -814,12 +877,21 @@ export async function runLocalSupabaseCi(
   }
 
   let primaryError: Error | undefined;
+  let slot: NativeStackSlot | undefined;
+  let interrupted: NodeJS.Signals | undefined;
+  let cleanedUp = false;
   let startAttempted = false;
   let project: IsolatedSupabaseProject | undefined;
   let status: LocalSupabaseStatus | undefined;
   let provisioned: ProvisionedUsers | undefined;
   const cleanupErrors: Error[] = [];
   let activePhase = "preflight";
+  // A signal the caller owns (Army dev modes) stops the run at the next phase.
+  let cancelRequested: NodeJS.Signals | undefined;
+  const checkpoint = (phase: string) => {
+    if (cancelRequested) throw new SafeDiagnosticError(`Interrupted by ${cancelRequested} before ${phase}`);
+    activePhase = phase;
+  };
   const provenance: LocalDatabaseProvenance = { source: "reset", snapshot: "disabled" };
   const withWorkdir = (args: string[]) => [
     ...args,
@@ -852,12 +924,59 @@ export async function runLocalSupabaseCi(
     return appliedMigrationVersions(migrationOutput);
   };
 
+  // Auth users and domain rows live only in this disposable stack. Deleting
+  // users through Auth first can invoke application cascades and immutable
+  // audit guards; destroying the stack is the authoritative cleanup boundary.
+  // A native `stop` keeps the stack's data, so the destroy always follows,
+  // even when the stop failed. Runs once: from `finally` or from a signal.
+  const destroyStack = () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    if (startAttempted && project) {
+      for (const cleanupArgs of [["stop"], ["stack", "destroy", "--yes"]]) {
+        try {
+          dependencies.supabase(withWorkdir(cleanupArgs), true);
+        } catch (error) {
+          cleanupErrors.push(asError(error));
+        }
+      }
+    }
+    if (project) {
+      try {
+        dependencies.removeProject(project);
+      } catch (error) {
+        cleanupErrors.push(asError(error));
+      }
+    }
+    slot?.release();
+  };
+  const removeSignalHandlers = cleanUpOnTerminationSignals((signal) => {
+    interrupted = signal;
+    dependencies.log(`${signal} received: destroying the local Supabase stack.`);
+    destroyStack();
+    // The process ends right after: report what could not be cleaned now.
+    for (const error of cleanupErrors) dependencies.log(`Cleanup failed after ${signal}: ${error.message}`);
+  }, process, (signal) => {
+    cancelRequested ??= signal;
+  });
+  const pgTapFiles = dependencies.pgTapFiles;
+  if (pgTapFiles || dependencies.skipRlsMatrix) {
+    dependencies.log(
+      `Partial run (${pgTapFiles ? `pgTAP: ${pgTapFiles.join(", ")}` : "every pgTAP file"}; ` +
+      `RLS matrix ${dependencies.skipRlsMatrix ? "skipped" : "kept"}): not a full db:ci:local proof.`
+    );
+  }
+
   try {
-    activePhase = "prepare isolated project";
+    checkpoint("reserve native stack slot");
+    slot = await dependencies.acquireStackSlot();
+    checkpoint("prepare isolated project");
     project = await dependencies.prepareProject(dependencies.reservedPorts);
+    slot.recordStack(project.rootDirectory);
     dependencies.onProjectPrepared?.({ ...project });
+    if (interrupted) throw new Error(`Interrupted by ${interrupted} before the stack started`);
     startAttempted = true;
-    activePhase = "start local stack";
+    checkpoint("start local stack");
     // Postgres starts eagerly; Auth and the Data API start on their first request.
     dependencies.supabase(withWorkdir(["start", "--runtime", "native"]), true);
     dependencies.log("Local Supabase stack started.");
@@ -872,7 +991,7 @@ export async function runLocalSupabaseCi(
     let restored: DatabaseSnapshot | undefined;
     let stackBeforeRestore: DatabaseFingerprint | undefined;
     if (snapshotDirectory) {
-      activePhase = "restore database snapshot";
+      checkpoint("restore database snapshot");
       const operations = dependencies.databaseSnapshot ?? createDatabaseSnapshotOperations({
         configTemplate: () => readIsolatedConfigTemplate(),
         environment: dependencies.environment,
@@ -966,15 +1085,16 @@ export async function runLocalSupabaseCi(
     }
     dependencies.onDatabaseProvenance?.({ ...provenance });
 
-    activePhase = "run pgTAP";
+    checkpoint("run pgTAP");
+    const pgTapDirectory = path.join(project.rootDirectory, PGTAP_DIRECTORY);
     const pgTapOutput = dependencies.supabase(withWorkdir([
       "test",
       "db",
       "--local",
-      path.join(project.rootDirectory, "supabase", "tests", "database"),
+      ...(pgTapFiles ? pgTapFiles.map((file) => path.join(pgTapDirectory, file)) : [pgTapDirectory]),
     ]), true);
-    const expectedTestFiles = fs.readdirSync(
-      path.join(process.cwd(), "supabase", "tests", "database")
+    const expectedTestFiles = pgTapFiles?.length ?? fs.readdirSync(
+      path.join(process.cwd(), PGTAP_DIRECTORY)
     ).filter((file) => file.endsWith(".sql")).length;
     validatePgTapReport(pgTapOutput, expectedTestFiles);
     dependencies.log(pgTapOutput.trim());
@@ -996,61 +1116,47 @@ export async function runLocalSupabaseCi(
       dependencies.log("Statement budgets passed.");
     }
 
-    activePhase = "read local status";
-    status = parseLocalSupabaseStatus(
-      dependencies.supabase(withWorkdir(["status", "--env"]), true)
-    );
-    activePhase = "provision local Auth users";
-    provisioned = await dependencies.provisionUsers(status);
-    activePhase = "run behavioral RLS matrix";
-    const localEnvironment = {
-      ...createLocalCiEnvironment(dependencies.environment),
-      ...provisioned.environment,
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: status.anonKey,
-      NEXT_PUBLIC_SUPABASE_URL: status.url,
-      RLS_E2E: "1",
-      RLS_E2E_EPHEMERAL: "1",
-      RLS_E2E_LOCAL: "1",
-      SUPABASE_SERVICE_ROLE_KEY: status.serviceRoleKey,
-    };
-    await dependencies.runRls(localEnvironment);
-    dependencies.log("Behavioral RLS matrix passed.");
-    if (dependencies.runApplication) {
-      activePhase = "run application validation";
-      if (!status.databaseUrl) throw new Error("Local PostgreSQL status is missing for the application fixtures");
-      await dependencies.runApplication({
-        ...localEnvironment,
-        E2E_ARMY_LOCAL_DB_URL: status.databaseUrl,
-        E2E_ARMY_LOCAL_PSQL: dependencies.resolvePsql(),
-      });
-      dependencies.log("Application validation passed.");
+    if (dependencies.skipRlsMatrix) {
+      dependencies.log("Behavioral RLS matrix skipped (--skip-rls).");
+    } else {
+      checkpoint("read local status");
+      status = parseLocalSupabaseStatus(
+        dependencies.supabase(withWorkdir(["status", "--env"]), true)
+      );
+      checkpoint("provision local Auth users");
+      provisioned = await dependencies.provisionUsers(status);
+      checkpoint("run behavioral RLS matrix");
+      const localEnvironment = {
+        ...createLocalCiEnvironment(dependencies.environment),
+        ...provisioned.environment,
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: status.anonKey,
+        NEXT_PUBLIC_SUPABASE_URL: status.url,
+        RLS_E2E: "1",
+        RLS_E2E_EPHEMERAL: "1",
+        RLS_E2E_LOCAL: "1",
+        SUPABASE_SERVICE_ROLE_KEY: status.serviceRoleKey,
+      };
+      await dependencies.runRls(localEnvironment);
+      dependencies.log("Behavioral RLS matrix passed.");
+      if (dependencies.runApplication) {
+        checkpoint("run application validation");
+        if (!status.databaseUrl) throw new Error("Local PostgreSQL status is missing for the application fixtures");
+        await dependencies.runApplication({
+          ...localEnvironment,
+          E2E_ARMY_LOCAL_DB_URL: status.databaseUrl,
+          E2E_ARMY_LOCAL_PSQL: dependencies.resolvePsql(),
+        });
+        dependencies.log("Application validation passed.");
+      }
     }
   } catch (error) {
     primaryError = createPhaseError(activePhase, error);
   } finally {
-    // Auth users and domain rows live only in this disposable stack. Deleting
-    // users through Auth first can invoke application cascades and immutable
-    // audit guards; destroying the stack is the authoritative cleanup boundary.
-    // A native `stop` keeps the stack's data, so the destroy always follows,
-    // even when the stop failed.
-    if (startAttempted && project) {
-      for (const cleanupArgs of [["stop"], ["stack", "destroy", "--yes"]]) {
-        try {
-          dependencies.supabase(withWorkdir(cleanupArgs), true);
-        } catch (error) {
-          cleanupErrors.push(asError(error));
-        }
-      }
-    }
-    if (project) {
-      try {
-        dependencies.removeProject(project);
-      } catch (error) {
-        cleanupErrors.push(asError(error));
-      }
-    }
+    destroyStack();
+    removeSignalHandlers();
   }
 
+  if (interrupted && !primaryError) primaryError = new Error(`Interrupted by ${interrupted}; the local stack was destroyed`);
   if (primaryError || cleanupErrors.length > 0) {
     throw new AggregateError(
       [primaryError, ...cleanupErrors].filter(Boolean),

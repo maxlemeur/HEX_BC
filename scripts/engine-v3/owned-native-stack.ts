@@ -23,6 +23,12 @@ import {
   type NativeRuntimeHost,
 } from "../../src/test/local-supabase-ci";
 import {
+  acquireNativeStackSlot,
+  cleanUpOnTerminationSignals,
+  type NativeStackSlot,
+  nativeStackWaitMs,
+} from "../../src/test/native-stack-guard";
+import {
   assertNoRemoteSupabaseEnvironment,
   createLocalCiEnvironment,
   PINNED_SUPABASE_CLI_VERSION,
@@ -179,8 +185,44 @@ export async function withOwnedNativeStack<T>(
   const withWorkdir = (args: string[]) => [...args, "--workdir", project?.rootDirectory ?? ""];
   let result: T | undefined;
   let primaryError: unknown;
+  let slot: NativeStackSlot | undefined;
+  let cleanedUp = false;
+  // Runs once: from `finally` or from SIGINT/SIGTERM (see native-stack-guard).
+  const destroyStack = () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    if (startAttempted && project) {
+      // A native `stop` keeps the stack's data: the destroy always follows.
+      for (const [key, args] of [["stop", ["stop"]], ["destroy", ["stack", "destroy", "--yes"]]] as const) {
+        try {
+          supabase(withWorkdir([...args]));
+          cleanup[key] = "ok";
+        } catch (error) {
+          cleanup[key] = "failed";
+          cleanupErrors.push(`${key}: ${redact(describeFailure(error))}`);
+        }
+      }
+    }
+    if (project) {
+      try {
+        removeOwnedProject(project.rootDirectory, options.prefix);
+        cleanup.workdirRemoved = true;
+      } catch (error) {
+        cleanupErrors.push(`workdir: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    slot?.release();
+  };
+  const removeSignalHandlers = cleanUpOnTerminationSignals((signal) => {
+    options.log(`${signal} received: destroying the disposable native stack.`);
+    destroyStack();
+    // The process ends right after: report what could not be cleaned now.
+    for (const error of cleanupErrors) options.log(`Cleanup failed after ${signal}: ${error}`);
+  });
   try {
+    slot = await acquireNativeStackSlot({ label: `engine-v3 owned stack (${options.prefix})`, waitMs: nativeStackWaitMs() });
     project = await prepareOwnedProject(options.prefix);
+    slot.recordStack(project.rootDirectory);
     startAttempted = true;
     supabase(withWorkdir(["start", "--runtime", "native"]));
     options.log("disposable native stack started.");
@@ -242,26 +284,8 @@ export async function withOwnedNativeStack<T>(
   } catch (error) {
     primaryError = error;
   } finally {
-    if (startAttempted && project) {
-      // A native `stop` keeps the stack's data: the destroy always follows.
-      for (const [key, args] of [["stop", ["stop"]], ["destroy", ["stack", "destroy", "--yes"]]] as const) {
-        try {
-          supabase(withWorkdir([...args]));
-          cleanup[key] = "ok";
-        } catch (error) {
-          cleanup[key] = "failed";
-          cleanupErrors.push(`${key}: ${redact(describeFailure(error))}`);
-        }
-      }
-    }
-    if (project) {
-      try {
-        removeOwnedProject(project.rootDirectory, options.prefix);
-        cleanup.workdirRemoved = true;
-      } catch (error) {
-        cleanupErrors.push(`workdir: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
+    destroyStack();
+    removeSignalHandlers();
   }
   return {
     result,

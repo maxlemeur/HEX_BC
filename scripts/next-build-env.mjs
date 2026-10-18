@@ -68,3 +68,15 @@ export function withNextBuildHeap(env = process.env) {
   }
   return result;
 }
+
+/**
+ * True when a launcher build should take one of the user's native places
+ * (src/test/native-stack-guard.ts): a local build only. CI (`CI` set, other
+ * than `false`/`0`), Vercel (`VERCEL` set) and `--help` never touch the lock.
+ */
+export function isLocalProductionBuild(env = process.env, args = []) {
+  if (args.includes("--help") || args.includes("-h")) return false;
+  const ci = env.CI?.trim().toLowerCase();
+  if (ci && ci !== "false" && ci !== "0") return false;
+  return !env.VERCEL?.trim();
+}

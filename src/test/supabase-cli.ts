@@ -141,15 +141,16 @@ export function assertLocalOnlySupabaseArgs(args: string[]) {
     return;
   }
 
+  // One or more pgTAP paths (db:ci:local --files), each inside the workdir.
   if (
-    args.length === 6 &&
+    args.length >= 6 &&
     args[0] === "test" &&
     args[1] === "db" &&
     args[2] === "--local" &&
-    hasNonEmptyValue(args, 3) &&
-    args[4] === "--workdir" &&
-    hasIsolatedWorkdir(args, 5) &&
-    isPathInsideWorkdir(args[3], args[5])
+    args.at(-2) === "--workdir" &&
+    hasIsolatedWorkdir(args, args.length - 1) &&
+    args.slice(3, -2).every((_, index) =>
+      hasNonEmptyValue(args, index + 3) && isPathInsideWorkdir(args[index + 3], args[args.length - 1]))
   ) {
     return;
   }
