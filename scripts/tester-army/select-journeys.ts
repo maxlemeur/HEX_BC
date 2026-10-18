@@ -31,6 +31,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { FULL_ONLY_JOURNEY_FILE } from "./journey-files.mjs";
+
 export type ImpactRule = { id: string; note?: string; paths: string[]; journeys: string[] };
 export type ImpactMap = {
   schemaVersion: number;
@@ -377,7 +379,10 @@ export function validateImpactMap(map: ImpactMap, exists: (file: string) => bool
   for (const journey of map.fullOnly.journeys) {
     if (!runFullOnly.has(journey)) problems.push(`The map lists ${journey} as full-only, which the full selection does not run.`);
     if (suite.has(journey)) problems.push(`${journey} is both a critical and a full-only journey.`);
+    // The army-takeoff job hands these paths to the runner's full --files.
+    if (!FULL_ONLY_JOURNEY_FILE.test(journey)) problems.push(`The runner's full --files refuses the full-only journey ${journey}.`);
   }
+  if (!FULL_ONLY_JOURNEY_FILE.test(map.suite.setup)) problems.push(`The runner's full --files refuses the login setup ${map.suite.setup}.`);
   for (const file of [...map.suite.journeys, ...map.fullOnly.journeys, map.suite.setup, map.suite.anchor, ...map.suite.anonymous, ...map.runnerEntries]) {
     if (!exists(file)) problems.push(`Map points to a missing file: ${file}.`);
   }
@@ -532,18 +537,20 @@ export function selectJourneys(input: {
 /**
  * Fail-safe full-only selection: every journey the map's globs match in the
  * working tree, so one the map omits still runs. Nothing listable (unreadable
- * map): empty "all", which the army-takeoff job runs as the whole full selection.
+ * map), or a path the runner's full --files would refuse: empty "all", which
+ * the army-takeoff job runs as the whole full selection.
  */
 function fullOnlyFailSafe(event: string, map: ImpactMap | undefined, repositoryFiles: readonly string[] | undefined): FullOnlySelection {
   if (event === "push") return PUSH_FULL_ONLY;
   try {
     const journeys = repositoryFiles!.filter((file) => matchesAny(file, map!.fullOnly.globs));
-    if (journeys.length) {
-      const setup = repositoryFiles!.includes(map!.suite.setup) ? [map!.suite.setup] : [];
-      return { mode: "all", reason: "fail-safe: every full-only journey of the working tree", files: [...setup, ...journeys].sort() };
+    const setup = repositoryFiles!.includes(map!.suite.setup) ? [map!.suite.setup] : [];
+    const listed = [...setup, ...journeys].sort();
+    if (journeys.length && listed.every((file) => FULL_ONLY_JOURNEY_FILE.test(file))) {
+      return { mode: "all", reason: "fail-safe: every full-only journey of the working tree", files: listed };
     }
   } catch { /* nothing listable */ }
-  return { mode: "all", reason: "fail-safe: the full-only journeys cannot be listed; the whole full selection runs", files: [] };
+  return { mode: "all", reason: "fail-safe: the full-only journeys cannot be listed for the runner; the whole full selection runs", files: [] };
 }
 
 export function loadImpactMap(root: string): { map: ImpactMap; sha256: string } {

@@ -7,6 +7,7 @@ import nextEnv from "@next/env";
 import { loadCoverageProfile } from "./tester-army/coverage-profile.mjs";
 import { sanitizeCoverageEvidence } from "./tester-army/coverage-evidence.mjs";
 import { archiveSetupFailure, assertSetupPath, readSetupLogBaseline, readSetupLogDelta, redactSetupError } from "./tester-army/setup-failure-archive.mjs";
+import { FULL_ONLY_JOURNEY_FILE } from "./tester-army/journey-files.mjs";
 import { prepareArmyTypeScriptConfig } from "./tester-army/local-recipe-common.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -49,7 +50,7 @@ for (let index = 0; index < extraArgs.length; index += 1) {
     if (!value) throw new Error("--grep requires a test-title pattern.");
   } else if (requestedMode === "critical" && /^e2e\/army\/(?:critical|local)\/[A-Za-z0-9][A-Za-z0-9._-]*\.e2e\.ts$/.test(arg)) {
     // Impact selection: the e2e CLI narrows the config tests glob to these files.
-  } else if (requestedMode === "full" && /^e2e\/army\/(?:critical\/auth\.setup|takeoff\/[A-Za-z0-9][A-Za-z0-9._-]*)\.e2e\.ts$/.test(arg)) {
+  } else if (requestedMode === "full" && FULL_ONLY_JOURNEY_FILE.test(arg)) {
     // Full-only (takeoff) journeys a pull request reaches, and their login setup.
   } else if (!discoveryOnly && (arg === "--max-duration" || arg.startsWith("--max-duration="))) {
     const value = arg === "--max-duration" ? extraArgs[++index] : arg.slice("--max-duration=".length);

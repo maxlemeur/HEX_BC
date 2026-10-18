@@ -654,10 +654,24 @@ describe("CI and local quality guardrails", () => {
     // A schedule has no inputs: the expression keeps it explicit and empty.
     expect(run).toMatch(/^\s+ARMY_GREP: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.grep \|\| '' \}\}$/mu);
     expect(run).toContain('run: node --import tsx scripts/run-tester-army-ci.ts full ${ARMY_GREP:+--grep "$ARMY_GREP"}');
-    expect(workflow.split("inputs.grep").length - 1).toBe(2);
+
+    // A filtered run proves a few tests only: its title, its check on the commit
+    // and its artifact say so, while the nightly and an unfiltered dispatch keep
+    // the names that qualify the full suite.
+    const filtered = "github.event_name == 'workflow_dispatch' && inputs.grep != ''";
+    const named = (whenFiltered: string, otherwise: string) => `\${{ ${filtered} && '${whenFiltered}' || '${otherwise}' }}`;
+    expect(trigger).toMatch(/^run-name: /mu);
+    expect(trigger).toContain(`\nrun-name: ${named("TesterArmy Full (filtré --grep, non qualifiant)", "TesterArmy Full")}\n`);
+    expect(workflowJobs(workflow)["army-full"]).toMatch(/^\n {4}name: /u);
+    expect(workflowJobs(workflow)["army-full"]).toContain(`\n    name: ${named("army-full (filtré --grep, non qualifiant)", "army-full")}\n`);
+    expect(stepNamed(workflow, "Retain sanitized business evidence"))
+      .toContain(`\n          name: ${named("army-full-filtered-evidence", "army-full-evidence")}\n`);
+    expect(stepNamed(workflow, "Announce a filtered full run")).toContain(`\n        if: ${filtered}\n`);
+    // inputs.grep is read only by ARMY_GREP and by that predicate.
+    expect(workflow.split("inputs.grep").length - 1).toBe(1 + workflow.split(filtered).length - 1);
   });
 
-  it("runs every production-served calc-v3 phase nightly and any phase on dispatch", async () => {
+  it("runs every production-served calc-v3 phase nightly and on the pull requests that edit it, any phase on dispatch", async () => {
     const { CALC_V3_PHASES, CALC_V3_PHASE_DEFINITIONS } = await import("../../scripts/tester-army/calc-v3-phases");
     const workflow = read(".github/workflows/e2e-army-calc-v3.yml");
     const trigger = workflow.slice(0, workflow.search(/^permissions:/mu));
@@ -670,6 +684,15 @@ describe("CI and local quality guardrails", () => {
     expect(options?.split("\n").filter(Boolean).map((line) => line.trim().replace(/^- /u, ""))).toEqual(["nightly", "all", ...CALC_V3_PHASES]);
     expect(trigger).toMatch(/^ {6}phase:\n(?: {8}.*\n)*? {8}type: choice\n/mu);
     expect(trigger).toMatch(/^ {6}phase:\n(?: {8}.*\n)*? {8}default: nightly\n/mu);
+    // GitHub schedules and dispatches only a workflow already on the default
+    // branch: a pull request that edits this one runs its nightly selection, so
+    // the change is proven before it merges; no other pull request runs it.
+    expect(trigger).toMatch(/^ {2}pull_request:\n {4}branches: \[main\]\n {4}paths:\n {6}- \.github\/workflows\/e2e-army-calc-v3\.yml\n(?! {6}- )/mu);
+    expect(trigger.match(/^ {2}[a-z_]+:/gmu)).toEqual(["  workflow_dispatch:", "  pull_request:", "  schedule:"]);
+    // Each push to that pull request replaces its previous run; a nightly or a
+    // dispatch is never cancelled.
+    expect(workflow).toContain("\n  group: army-calc-v3-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}\n");
+    expect(workflow).toContain("\n  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n");
 
     // The nightly selection is exactly the phases the owned production build
     // serves. Emission runs under next dev until sub-lot 2.7 moves it to the

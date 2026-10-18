@@ -22,8 +22,9 @@
 // 8. a takeoff journey (e2e/army/takeoff/**, run only by the full selection of
 //    e2e.config.ts) that a pull request reaches is not run by its CI: missing
 //    from the map's fullOnly list, reached by no rule, dropped when the
-//    selector is unsure, or skipped by the takeoff job for anything but an
-//    explicit "none".
+//    selector is unsure, skipped by the takeoff job for anything but an
+//    explicit "none", or listed in a form (a subfolder, for example) the
+//    runner's full --files refuses before running anything.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -47,6 +48,7 @@ import {
   type ImpactMap,
   type SourceGraph,
 } from "../../scripts/tester-army/select-journeys";
+import { FULL_ONLY_JOURNEY_FILE } from "../../scripts/tester-army/journey-files.mjs";
 
 const root = process.cwd();
 const SELECTOR = "scripts/tester-army/select-journeys.ts";
@@ -342,6 +344,47 @@ describe("TesterArmy critical impact map", () => {
 
     const push = selectFromRepository(root, { event: "push", paths: editor, repositoryFiles: [...files, added] });
     expect(push).toMatchObject({ mode: "full", fullOnly: { mode: "none", files: [] } });
+  });
+
+  it("hands the takeoff job only paths the runner's full --files accepts, subfolders included", () => {
+    const refusedBy = (selection: { fullOnly: { files: string[] } }) =>
+      selection.fullOnly.files.filter((file) => !FULL_ONLY_JOURNEY_FILE.test(file));
+    const editor = ["src/app/dashboard/estimates/[versionId]/edit/page.tsx"];
+    for (const selection of [select(editor), select(["e2e/army/takeoff/native-ui.ts"]), select(["scripts/run-tester-army-ci.ts"])]) {
+      expect(selection.fullOnly.files.length).toBeGreaterThan(0);
+      expect(refusedBy(selection)).toEqual([]);
+    }
+
+    // e2e.config.ts globs e2e/army/takeoff/**: a journey in a subfolder runs,
+    // unlisted (fail-safe) as listed (its own change selects it).
+    const nested = "e2e/army/takeoff/metre/new-journey.e2e.ts";
+    const unlisted = selectFromRepository(root, { event: "pull_request", paths: editor, repositoryFiles: [...files, nested] });
+    expect(unlisted.fullOnly.mode).toBe("all");
+    expect(unlisted.fullOnly.files).toContain(nested);
+    expect(refusedBy(unlisted)).toEqual([]);
+    const listedMap: ImpactMap = { ...map, fullOnly: { ...map.fullOnly, journeys: [...map.fullOnly.journeys, nested] } };
+    expect(validateImpactMap(listedMap, (file) => file === nested || fileSet.has(file), criticalSuiteFromConfig(),
+      [...fullOnlySuiteFromConfig(), nested].sort())).toEqual([]);
+    const listed = selectJourneys({ map: listedMap, graph, event: "pull_request", paths: [nested] });
+    expect(listed.fullOnly).toEqual({ mode: "files", reason: expect.any(String), files: [map.suite.setup, nested].sort() });
+    expect(refusedBy(listed)).toEqual([]);
+
+    // A takeoff file the runner refuses (folder starting with "_", a space)
+    // invalidates the map, and the fail-safe runs the whole full selection.
+    for (const refused of ["e2e/army/takeoff/_draft/new-journey.e2e.ts", "e2e/army/takeoff/US 4.1.e2e.ts"]) {
+      expect(FULL_ONLY_JOURNEY_FILE.test(refused), refused).toBe(false);
+      const oddMap: ImpactMap = { ...map, fullOnly: { ...map.fullOnly, journeys: [...map.fullOnly.journeys, refused] } };
+      expect(validateImpactMap(oddMap, (file) => file === refused || fileSet.has(file), criticalSuiteFromConfig(),
+        [...fullOnlySuiteFromConfig(), refused].sort())).toContain(`The runner's full --files refuses the full-only journey ${refused}.`);
+      const selection = selectFromRepository(root, { event: "pull_request", paths: editor, repositoryFiles: [...files, refused] });
+      expect(selection.mode).toBe("full");
+      expect(selection.fullOnly).toMatchObject({ mode: "all", files: [] });
+    }
+    // Traversal, hidden entries, other folders and line suffixes stay refused.
+    for (const outside of ["e2e/army/takeoff/../critical/smoke.e2e.ts", "e2e/army/takeoff/.cache/x.e2e.ts",
+      "e2e/army/extended/x.e2e.ts", "e2e/army/takeoff/x.e2e.ts:12", "e2e/army/takeoff//x.e2e.ts", "e2e/army/critical/fixtures.e2e.ts"]) {
+      expect(FULL_ONLY_JOURNEY_FILE.test(outside), outside).toBe(false);
+    }
   });
 
   it("routes every fixture a journey reads by path to that journey", () => {

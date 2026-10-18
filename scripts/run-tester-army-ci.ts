@@ -12,6 +12,7 @@ import { createLocalCiEnvironment, type SupabaseEnvironment } from "../src/test/
 import type { Database } from "../src/types/database";
 import { runCalcV3Campaign } from "./tester-army/calc-v3-campaign";
 import { isCalcV3Phase, type CalcV3Phase } from "./tester-army/calc-v3-phases";
+import { FULL_ONLY_JOURNEY_FILE } from "./tester-army/journey-files.mjs";
 import { buildSourceEvidence, redactOutput, sqlInventory } from "./tester-army/local-recipe-common.mjs";
 import { assertLocalAppPortAvailable, runLocalDevelopmentSession } from "./tester-army/local-development";
 
@@ -22,7 +23,7 @@ if (!["critical", "full", "dev", "calc-v3"].includes(suite)) {
 // Journey files a --files run may name: critical and local journeys of the
 // critical suite; for full, the full-only takeoff journeys and their login setup.
 const FILES_PATTERN = suite === "full"
-  ? /^e2e\/army\/(?:critical\/auth\.setup|takeoff\/[A-Za-z0-9][A-Za-z0-9._-]*)\.e2e\.ts$/
+  ? FULL_ONLY_JOURNEY_FILE
   : /^e2e\/army\/(?:critical|local)\/[A-Za-z0-9][A-Za-z0-9._-]*\.e2e\.ts$/;
 let grep: string | undefined;
 let files: string[] = [];
@@ -46,7 +47,7 @@ for (let index = 3; index < process.argv.length; index += 2) {
     files = value.split(",");
     if (new Set(files).size !== files.length || files.some((file) => !FILES_PATTERN.test(file) || !fs.existsSync(file))) {
       throw new Error(suite === "full"
-        ? "full --files lists distinct existing e2e/army/takeoff *.e2e.ts paths (and the critical login setup), comma-separated."
+        ? "full --files lists distinct existing e2e/army/takeoff/**/*.e2e.ts paths (and the critical login setup), comma-separated."
         : "--files lists distinct existing e2e/army/critical or e2e/army/local *.e2e.ts paths, comma-separated.");
     }
   } else if (option === "--grep") {

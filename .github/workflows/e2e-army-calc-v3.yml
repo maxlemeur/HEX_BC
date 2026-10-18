@@ -16,6 +16,11 @@ name: TesterArmy calc-v3
 # CALC_V3_NIGHTLY_PHASES below, which re-enables it. A dispatch runs the
 # nightly selection, the whole campaign ("all", emission included, exactly
 # npm run e2e:army:calc-v3) or one phase.
+#
+# GitHub schedules and dispatches only a workflow already on the default
+# branch: a pull request that edits this file runs the nightly selection, so
+# the workflow change itself is proven before it merges (sub-lot 2.7 included).
+# No other pull request runs it.
 on:
   workflow_dispatch:
     inputs:
@@ -34,6 +39,10 @@ on:
           - access
           - offers
           - emission
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/e2e-army-calc-v3.yml
   schedule:
     # After the nightly full suite (03:15 UTC), on its own runner.
     - cron: '45 4 * * *'
@@ -42,8 +51,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: army-calc-v3-${{ github.run_id }}
-  cancel-in-progress: false
+  group: army-calc-v3-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   army-calc-v3:

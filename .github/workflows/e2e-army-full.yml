@@ -13,7 +13,9 @@ name: TesterArmy Full
 # A dispatch may filter the full selection by test title (input grep): the
 # run is recorded "filtered-full" with its pattern, proves only the selected
 # journeys of the production full phase and skips the development phase. It
-# never qualifies the full suite. The schedule has no inputs: always unfiltered.
+# never qualifies the full suite, and its run title, its check on the commit
+# and its artifact say so. The schedule has no inputs: always unfiltered.
+run-name: ${{ github.event_name == 'workflow_dispatch' && inputs.grep != '' && 'TesterArmy Full (filtré --grep, non qualifiant)' || 'TesterArmy Full' }}
 on:
   workflow_dispatch:
     inputs:
@@ -34,6 +36,7 @@ concurrency:
 
 jobs:
   army-full:
+    name: ${{ github.event_name == 'workflow_dispatch' && inputs.grep != '' && 'army-full (filtré --grep, non qualifiant)' || 'army-full' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 100
     env:
@@ -131,7 +134,7 @@ jobs:
         if: always() && steps.journeys.outputs.evidence != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: army-full-evidence
+          name: ${{ github.event_name == 'workflow_dispatch' && inputs.grep != '' && 'army-full-filtered-evidence' || 'army-full-evidence' }}
           include-hidden-files: true
           path: ${{ steps.journeys.outputs.evidence }}
           if-no-files-found: error
