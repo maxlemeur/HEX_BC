@@ -34,6 +34,8 @@ import { grid, releaseVersion, switchToExpertMode, waitForDraftLease } from "./e
 // Revue (§9) :
 //  R1      Le métré lancé depuis une source v3 copie d'abord cette source (P-15), puis la copie est refusée.
 //  R2      Les refus nommés de M6 et les heures atelier / chantier n'ont aucune preuve sur le chemin de création.
+// Revue Codex (PR #57) :
+//  C1      Une v3 sans section (vierge) rend l'analyse vide : la carte disparaît, l'avis A16 avec elle.
 // Chaque parcours a son propriétaire dédié ; la politique 3 (1,30 / 1,20) est refermée à 2 en fin de parcours.
 const options = { session: "army", tags: ["critical", "local", "engine-v3", "creators"], timeout: 600_000 } as const;
 // Parcours qui capturent un état visible pour la pull request : sans la session de campagne restaurée, dont la saisie
@@ -551,6 +553,60 @@ armyTest("V3C10 the hub margin evolution keeps its v2 points and says the v3 is 
       expect(observed).toEqual({ chartVersions: ["V1", "V2"], notice: true, policyUnchanged: true });
     } finally {
       await closePolicy(owner, army, "V3C10");
+    }
+  });
+
+/** The hub's « Analyse de marge » card, read once the hub is out of its fresh start ; `null` when it is absent. */
+async function readMarginCard(ui: Ui, projectId: string) {
+  await ui.app.open(`/dashboard/affaires/${projectId}`);
+  // Same server render as the margin card (the Expert mode is the profile's) : the card is decided once this shows.
+  await expect(ui.screen.getByRole("heading", "Résumé financier", { exact: true })).toBeVisible({ timeout: 60_000 });
+  return ui.browser.evaluate(() => {
+    const heading = Array.from(document.querySelectorAll("h2")).find((node) => (node.textContent ?? "").trim() === "Analyse de marge");
+    const section = heading?.closest("section");
+    if (!section) return null;
+    const notice = section.querySelector("[data-testid=\"margin-evolution-v3-notice\"]");
+    return {
+      notice: notice ? (notice.textContent ?? "").replace(/\s+/g, " ").trim() : null,
+      kpis: (section.textContent ?? "").includes("Marge globale"),
+      chart: section.querySelector("svg[role=\"img\"]") !== null,
+    };
+  });
+}
+
+armyTest("V3C14 the hub margin card names a blank v3 without a section as unavailable for engine 3; a blank v2 still shows no card", capturing,
+  async ({ app, screen, browser, army }) => {
+    const ui: Ui = { app, screen, browser };
+    const owner = await signUpCreatorOwner(ui, army);
+    const anchor = await createV2Affaire(ui, army, `ARMY-L2-V3C14-${army.runPrefix}`);
+    // A linked DPGF keeps the hub out of its fresh start, where no analysis card is shown whatever the engine.
+    const linked = await linkDpgfThroughHub(ui, army, anchor.projectId);
+    await switchToExpertMode(ui);
+    // Guard: a v1/v2 affaire without a section keeps today's hub, no card.
+    const v2Only = await readMarginCard(ui, anchor.projectId);
+    const policy = await openPolicy3(owner, army, "V3C14");
+    try {
+      const v3Id = await createV3Version(ui, army, anchor.projectId, `${army.runPrefix} v3 vierge`);
+      const versions = await storedVersions(owner, anchor.projectId);
+      const v3Items = (await readEstimate(browser, v3Id)).items.length;
+      const withV3 = await readMarginCard(ui, anchor.projectId);
+      await browser.evaluate(() => {
+        document.querySelector("[data-testid=\"margin-evolution-v3-notice\"]")?.scrollIntoView({ block: "center" });
+        return true;
+      });
+      await captureScreen(ui, army, "v3c14-margin-notice-blank-v3");
+      const observed = {
+        versions: versions.map((version) => [version.versionNumber, version.engine]), v3Items, v2Only, withV3,
+        policyUnchanged: samePolicy(await policySnapshot(owner), policy),
+      };
+      await recordEvidence(army, "v3c14", { owner, linked, versions, observed });
+      expect(observed).toEqual({
+        versions: [[1, 2], [2, 3]], v3Items: 0, v2Only: null,
+        withV3: { notice: "Évolution de la marge indisponible pour le moteur de calcul 3 : V2.", kpis: false, chart: false },
+        policyUnchanged: true,
+      });
+    } finally {
+      await closePolicy(owner, army, "V3C14");
     }
   });
 
