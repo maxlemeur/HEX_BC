@@ -179,7 +179,7 @@ Commandes dans WSL, clone Linux, pile possédée, Node 24.19.0 ; journaux sous `
 | Montée de version | `db:upgrade-check -- lot2-2-10` | 0 différence ; contrôle négatif détecté (`.e2e/engine-v3/upgrade-check/2026-10-18T15-33-34-225Z-lot2-2-10`) ; `--negative-control` échoue exactement sur la migration synthétique (attendu) |
 | Empreintes documentaires | `engine:document-fingerprints -- check` | identiques, 14 familles (`.e2e/engine-v3/document-fingerprints/2026-10-18T15-44-59-887Z-check`) |
 | Campagne complète | `e2e:army:ci -- full` | 173 / 174 + development 4 / 4 (`.e2e/army/ci/2026-10-18T15-46-59-989Z-full`) ; seul rouge : SET02 (§9, hors bascule) |
-| calc-v3 | `e2e:army:calc-v3 -- --phase journeys` | vert (264 s, `.e2e/army/ci/2026-10-18T16-00-36-133Z-calc-v3`), avant la fusion de #45 (émission). Phase `components` interrompue à 18:07 par l'arrêt de la campagne (préparation `exit=2`, pile arrêtée) : **non prouvée** ; numeric, resume, access, offers, emission et emission-v3 non lancées. La CI de la PR **ne les exécute pas** (`e2e-army-calc-v3.yml` ne tourne sur une PR que si elle modifie ce fichier) : **préalable de fusion**, après le push, `gh workflow run e2e-army-calc-v3.yml --ref lot2/2.10b-bascule-m8 -f phase=all`, preuve consignée ici |
+| calc-v3 | `e2e:army:calc-v3 -- --phase journeys` | toutes les phases vertes en CI sur `0cd19f9f` (§9, run 39152484822). Avant : vert (264 s, `.e2e/army/ci/2026-10-18T16-00-36-133Z-calc-v3`), avant la fusion de #45 (émission). Phase `components` interrompue à 18:07 par l'arrêt de la campagne (préparation `exit=2`, pile arrêtée) : **non prouvée** ; numeric, resume, access, offers, emission et emission-v3 non lancées. La CI de la PR **ne les exécute pas** (`e2e-army-calc-v3.yml` ne tourne sur une PR que si elle modifie ce fichier) : **préalable de fusion**, après le push, `gh workflow run e2e-army-calc-v3.yml --ref lot2/2.10b-bascule-m8 -f phase=all`, preuve consignée ici |
 | Qualité | `verify:pr` (arbre de `6aa1ed31`, avant commit) | vert (167 s) |
 
 **M8 isolée** (`~/l210b-m8proof/m8-proof.json`, sha256 `36745c20…`) :
@@ -280,10 +280,13 @@ politique 2 explicite) sont rejoués avec M8 :
 | Preuve sur la tête fusionnée | Commande | Résultat |
 |---|---|---|
 | Troisième fusion : garde Git, historique, SQL, RLS et parcours touchés | `git-guard -- --base ab1e0ca3`, `supabase:validate`, `critical --grep "V3S0\|V3C11\|V3C12\|V3X01\|V3X06"` (`25d26721`, clone propre, 2 workers, 121 s) | verts ; pgTAP **26 fichiers, 1 977 tests** (dont `estimate-offer-contract-v2` de #65) ; matrice RLS verte ; V3S01, V3S01b, V3S02, V3C11, V3C12, V3X01, V3X06 verts (8 / 8 avec l'authentification) ; preuve `.e2e/army/ci/2026-10-18T18-01-44-274Z-critical` (clone WSL) |
+| calc-v3, toutes les phases (CI, `workflow_dispatch` sur la branche) | `gh workflow run e2e-army-calc-v3.yml --ref lot2/2.10b-bascule-m8 -f phase=all`, run [39152484822](https://github.com/maxlemeur/HEX_BC/actions/runs/39152484822) (`0cd19f9f`, `diffSha256` du vide) | vert : pgTAP 26 fichiers, 1 977 tests ; matrice RLS ; journeys, components, numeric, resume, access, offers, emission et emission-v3 `passed` (`calc-v3.json`, artefact `army-calc-v3-evidence`) |
+| Critique non filtrée et takeoff (CI, `workflow_dispatch` sur la branche) | `gh workflow run e2e-army-critical.yml --ref lot2/2.10b-bascule-m8`, run [39152486473](https://github.com/maxlemeur/HEX_BC/actions/runs/39152486473) (`0cd19f9f`) | vert : sélection, 4 shards critiques et `army-takeoff` |
 
 Seule la tête fusionnée et ce qu'elle change sont rejoués localement (consigne de vitesse du porteur, 18/10) : la
 sélection critique non filtrée et les parcours takeoff tournent dans la CI de la PR, qui fait foi. calc-v3 n'y
-tourne pas : son dispatch manuel (§7) est un préalable de fusion.
+tourne pas : son dispatch manuel (§7) est un préalable de fusion ; il est vert sur `0cd19f9f` (ligne ci-dessus), et
+les phases qu'invalide la fusion de #59 sont rejouées sur la tête finale.
 `verify:pr` est lancé une fois sur la tête finale (résultat dans le corps de la PR).
 
 ## 10. Revue interne avant le premier push (18/10/2026)
