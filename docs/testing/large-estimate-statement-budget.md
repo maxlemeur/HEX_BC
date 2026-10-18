@@ -32,6 +32,7 @@ Derivation, sources and limits below.
 | L3 | The v3 settings save (`save_estimate_settings_atomic`, every line's projection checked and written in one statement) slows down on 1 021 items | Every run: the save rewrites all 900 lines (so the measurement is a real repricing). Opt-in, bulk tier: median of 7 saves **reported, not asserted**. It is over its 500 ms pro rata (see « Settings save ») |
 | L4 | The v3 batch writer (`commit_estimate_batch`, paste and undo in batches of 100) slows down | pgTAP, **opt-in**, interactive tier: median of 7 batches of 100 creates (the copy probe at 100 operations) into the 1 021-item v3 ≤ **400 ms**. The assumption « ≤ 100 items, far from the timeout » was wrong on a large v3 until `20261018180306` (see « Copy into a v3 ») |
 | L7 | A copy into a v3 (2.8b: sections, linked DPGF; one `commit_estimate_batch` of at most 1 000 operations) rewrites the stored lines again, slows down or its receipt goes over 2 Mio | pgTAP, **every run**: a 1 000-operation copy with provenance into the 8-item and the 1 021-item v3 commits and updates **0** stored lines. **Opt-in**, option A: median of 7 such copies into the 1 021-item v3 ≤ **875 ms**, derived from the 3,5 s CI/production maximum |
+| L8 | Reorder and move of ~1 000 siblings in a v1/v2 draft (`reorder_estimate_items`, `move_estimate_item`) take the per-row content revision bump and audit back, or slow down ([reorder-move-large-v2.md](reorder-move-large-v2.md)) | pgTAP, **every run**: the RPCs update their version once per operation where the per-row path updates it once per written row (4 against 52), with the same audit rows. **Opt-in**, interactive tier: median of 7 reversals of a section of 1 000 lines and of 7 moves of its first line into a section of 3 lines ≤ **400 ms** each; the move between sections of 1 000 and 999 lines is reported |
 | L5 | The route, serialization or UI around the RPC is slow (time to « Devis créé », settings PATCH) | TesterArmy: IO01 step durations in `report.json` and the `io-settings-*` business artifacts (`elapsedMs.save`); reported, no threshold |
 | L6 | The 8 s timeout of the API roles or the CI/WSL factor F changes | Reported by the probes (`diag` of `pg_roles.rolconfig`, and every CI job's creation and settings durations); the tiers must then be derived again |
 | — | Reading a large estimate (`GET /api/estimates`, the ~60 s stall) | Out of scope: a separate investigation covers it |
@@ -293,8 +294,9 @@ and 7 settings saves). The `diag` line gives the real duration in each CI job lo
   rows), then drop the pro rata.
 - **Coverage**: the probes measure the database statements only. They do not cover the route, the network,
   PostgREST or the read path (L5). L4 and L7 measure the batch writer for creates only: single-line updates,
-  reorder, delete and duplication have no probe. Reorder is reported second-hand at about 2 s, which would fail
-  the interactive tier, and the 13-item v2 insert, estimated at 0,35–0,5 s locally
+  delete and duplication have no probe. Reorder and move have one since L8 (about 350 ms for 1 000 siblings, 0,7 s
+  for a move between two sections of ~1 000 lines, over the interactive tier), and the 13-item v2 insert, estimated
+  at 0,35–0,5 s locally
   ([copy-row-limit-v2.md](copy-row-limit-v2.md)), is borderline. L1 sees only the per-line revision bump.
 - **Routes**: `statement_timeout` does not bound a route, and the tiers guard statements, not routes. IO01's wait
   from « Confirmer l'import » to « Devis créé » grew from 4,2 s to 10–18 s since `59b3b6bf`, not yet investigated;
