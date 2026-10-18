@@ -24,7 +24,6 @@ import { ProductPriceTemplateImport } from "@/components/products/ProductPriceTe
 import { ProductReferencePricePanel } from "@/components/products/ProductReferencePricePanel";
 import { PageHeader } from "@/components/layout/page-header";
 import { StatCard, StatGrid } from "@/components/layout/stat-card";
-import { LoadingState } from "@/components/layout/loading-state";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { TEMPLATE_FILE_URL } from "@/lib/catalogue/product-price-template-client";
 import { ChevronDownIcon, DownloadIcon, FileSpreadsheetIcon, PlusIcon, UploadIcon } from "lucide-react";
@@ -321,15 +320,13 @@ export function PricesManager({
 
         {isCsvOpen ? (
           <div id="price-csv-import-panel" className="border-t border-border">
-            {isImportLookupsLoading ? (
-              <LoadingState label="Chargement des référentiels pour l’import…" />
-            ) : (
-              <PriceBookCsvImport
-                onImported={handleImported}
-                onLookupsUpdated={reloadLookups}
-                lookups={lookups}
-              />
-            )}
+            {/* Stays mounted while lookups (re)load: unmounting would drop the chosen file and the import in progress. */}
+            <PriceBookCsvImport
+              onImported={handleImported}
+              onLookupsUpdated={reloadLookups}
+              lookups={lookups}
+              isLookupsLoading={isImportLookupsLoading}
+            />
           </div>
         ) : null}
       </section>
