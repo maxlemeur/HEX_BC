@@ -220,8 +220,9 @@ changement (`git diff --stat` vide) ; le corpus figé v1/v2 est rejoué par `ver
   `409 CONTEXT_CHANGED` (sans écriture) tant que le code déployé ne la suit pas. Les deux sens échouent : un
   commit qui contient 2.10a sans `6aa1ed31` (défaut TS « absente = 2 ») contre une base avec M8, et un commit
   qui contient `6aa1ed31` (défaut TS « absente = 3 ») contre une base sans M8.
-- **État et ordre.** Déjà appliquées au Supabase partagé : M6, M6b, M5, M7 et `20261018170351` ; M8 est la
-  suivante. Deux ordres sûrs, chacun sur autorisation distincte :
+- **État et ordre.** Déjà appliquées au Supabase partagé : M6, M6b, M5, M7 et `20261018170351` ;
+  `20261018172935` (#65, ordre du contrat 2) relève de l'autorisation permanente et précède M8, qui vient
+  ensuite. Deux ordres sûrs, chacun sur autorisation distincte :
   1. écrire d'abord une politique 2 explicite pour chaque entreprise du Supabase partagé, dont l'entreprise de la
      campagne `e2e:army:critical` partagée (écriture de politique, R12), puis M8 et le déploiement dans
      n'importe quel ordre : rien ne change pour elles tant que l'équipe ne les passe pas à 3 ;
@@ -267,6 +268,18 @@ tête de la seconde fusion quand elle les invalide (dernière ligne).
 | Historique des migrations | `supabase:validate` (`e9c0ac6c`) | vert |
 | SQL, RLS et parcours touchés | `e2e:army:ci -- critical --grep "V3S0\|V3C11\|V3C12"` (`8995bc12`, `diffSha256` du vide, 2 workers, 379 s) | pgTAP **25 fichiers, 1 964 tests verts** (dont `estimate-offer-contract-v2` de #45) ; matrice RLS verte ; V3S01, V3S02, V3C11, V3C12 verts (5 / 5 avec l'authentification) ; preuve `.e2e/army/ci/2026-10-18T17-06-39-916Z-critical` |
 | Seconde fusion : garde Git, historique, SQL, RLS et parcours touchés | `git-guard -- --base f1a5a74b`, `supabase:validate`, même `--grep` (`b03d5798`, `diffSha256` du vide, 204 s) | verts ; pgTAP **26 fichiers, 1 974 tests** (dont `complete-estimate-receipts`) ; matrice RLS verte ; 5 / 5 ; preuve `.e2e/army/ci/2026-10-18T17-16-53-959Z-critical` |
+
+**Troisième fusion** (`3df9bc1a`, `origin/main` `ab1e0ca3` : #60 exports CSV et BDC v3, #62 limites de l'éditeur
+v3, #65 impression scellée et migration `20261018172935_estimate_offer_client_contract_v2_order`, qui ne redéfinit
+pas `persist_estimate_creation_atomic`) : seul conflit, le manifeste (les deux entrées gardées) ; `openapi.json`
+fusionné sans conflit et validé (`validate-openapi` vert). M8 réhorodatée `20261018171616` → `20261018180027`
+(`25d26721`, garde Git et validation du manifeste vertes, sha256 `0fdaba7c…` inchangé). Les parcours de #60 qui
+créent une v2 sans attente (V3X01 cible d'import après `prepareV3Draft`, V3X06 dans l'entreprise de recette en
+politique 2 explicite) sont rejoués avec M8 :
+
+| Preuve sur la tête fusionnée | Commande | Résultat |
+|---|---|---|
+| Troisième fusion : garde Git, historique, SQL, RLS et parcours touchés | `git-guard -- --base ab1e0ca3`, `supabase:validate`, `critical --grep "V3S0\|V3C11\|V3C12\|V3X01\|V3X06"` (`25d26721`, clone propre, 2 workers, 121 s) | verts ; pgTAP **26 fichiers, 1 977 tests** (dont `estimate-offer-contract-v2` de #65) ; matrice RLS verte ; V3S01, V3S01b, V3S02, V3C11, V3C12, V3X01, V3X06 verts (8 / 8 avec l'authentification) ; preuve `.e2e/army/ci/2026-10-18T18-01-44-274Z-critical` (clone WSL) |
 
 Seule la tête fusionnée et ce qu'elle change sont rejoués localement (consigne de vitesse du porteur, 18/10) : la
 sélection critique non filtrée et les parcours takeoff tournent dans la CI de la PR, qui fait foi. calc-v3 n'y
