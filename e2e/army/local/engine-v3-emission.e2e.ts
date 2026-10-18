@@ -12,8 +12,9 @@ import {
   generatePdf, moveToS5, pdfText, printText, readApproval, retakeLease, S2, S5, settleOneLineV3, settleV3, storedPdfBytes,
   storedPdfState, verifySeal, type Envelope, type Evidence, type Scenario,
 } from "./engine-v3-emission-support";
+import { waitForDraftLease } from "./engine-v3-editor-support";
 import { setTenantCalcPolicy, useDedicatedV3Owner } from "./engine-v3-persistence-support";
-import { admitCollectedResendDecision, offerTest, recordOfferEvidence } from "./resend-portal-fixtures";
+import { admitCollectedResendDecision, allowOfferLifecycleTransition, offerTest, recordOfferEvidence } from "./resend-portal-fixtures";
 
 // Lot 2, sous-lot 2.7 — document client, contrat client 2, charge de calcul 6, émission v3
 // (docs/testing/estimate-engine-v3-2.7.md §3 ; conception §14 2.7). Défaillances observables,
@@ -43,12 +44,33 @@ import { admitCollectedResendDecision, offerTest, recordOfferEvidence } from "./
 //  V3M-11 L'envoi d'une v3 que le moteur 3 ne peut pas figer (ligne chiffrée sans unité), avec un
 //         fournisseur configuré, réussit, échoue sans son nom, ou laisse un document, un reçu, un
 //         changement de statut ou de version.
-// V3M01, V3M03 et V3M04 s'exécutent dans la phase calc-v3 `emission-v3` (collecteur sentinelle, build
+// Ajoutés à la fusion de 2.6 (docs/testing/estimate-engine-v3-2.7.md §13), la fiche et l'éditeur v3 de 2.6
+// ayant fermé jusqu'en 2.7 ce que 2.7 ouvre :
+//  V3M-12 La fiche d'un brouillon v3 garde « Préparer le PDF » désactivé (raison de 2.6), ou le PDF préparé par
+//         sa fenêtre n'est pas le document client v3 (« 1 u 13,00 € 13,00 € », TVA 20 % 13,00 / 2,60, TTC 15,60).
+//  V3M-13 L'éditeur d'une v3 n'offre pas « Envoyer », ou son émission manuelle ne scelle pas la v3 (marqueur 5,
+//         contrat 2, charge 6).
+//  V3M-14 La fiche d'une v3 émise dit « Non scellé », ne propose ni le PDF original ni « Marquer accepté »,
+//         l'acceptation par la fiche change le sceau, ou le modèle (2.8) y est proposé sans sa raison.
+// V3M01, V3M03, V3M04 et V3M05 s'exécutent dans la phase calc-v3 `emission-v3` (collecteur sentinelle, build
 // de production possédé, `next start`) ; V3M02, sans courriel, dans la campagne critique locale sur le
 // build de production. Chacun n'est défini que dans sa campagne : la phase calc-v3 exige son résultat
 // exact par fichier.
 const digest = (value: Buffer | string) => createHash("sha256").update(value).digest("hex");
 const UNIT_REQUIRED = "Une unité est requise sur chaque ligne chiffrée avant le gel.";
+// Raison de la fiche d'une v3 depuis la fusion de 2.6 et 2.7 : seul l'enregistrement comme modèle reste fermé (2.8).
+const TEMPLATE_REASON = "Moteur de calcul 3 : l’enregistrement comme modèle n’est pas encore disponible pour ce devis.";
+const normalizeQuotes = (text: string | null | undefined) => (text ?? "").replace(/[\s  ]+/g, " ").replace(/[’']/g, "'").trim();
+/** La ligne unique de V3M05 dans un texte de document normalisé : « 1 u PU PT », TVA 20 % (base, montant), TTC. */
+const oneLineDocument = (text: string) => ({
+  line: /(?:^| )1 u (?:[^€]{0,40} )?13,00 ?€(?: [^€]{0,40})? 13,00 ?€/u.test(text),
+  tax: /TVA 20 ?%(?: [^€]{0,60})? (?:13,00 ?€(?: [^€]{0,40})? 2,60 ?€|2,60 ?€(?: [^€]{0,40})? 13,00 ?€)/u.test(text),
+  ttc: /TTC(?: [^€]{0,30})? 15,60 ?€/u.test(text),
+});
+const ONE_LINE_DOCUMENT = { line: true, tax: true, ttc: true };
+type Presence = { count(): Promise<number>; isEnabled(): Promise<boolean> };
+const presence = async (control: Presence) =>
+  (await control.count()) === 1 ? { present: true, enabled: await control.isEnabled() } : { present: false, enabled: false };
 type Ui ={ app: App; screen: Screen; browser: Browser; army: ArmyState };
 type Receipt = { id: string; pdf: { sha256: string; bytes: number }; delivery: string };
 type Packet = { id: string; payload: { html: string; attachments: { filename: string; content: string }[] } };
@@ -421,6 +443,129 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
       };
       await record("send-refused", { versionId: ids.versionId, expected, actual });
       expect(actual).toEqual(expected);
+    });
+
+  // V3M-12 à V3M-14 : par l'écran, dans cette phase (le garde de la campagne critique refuse toute écriture …/status).
+  offerTest("V3M05 a v3 draft prepares its client PDF from its detail page and is issued from the editor; its issued detail page shows the valid seal, the original PDF and the status actions, and keeps the template closed by name",
+    { session: "army", trace: "off", tags: ["engine-v3", "offer-emission"], timeout: 600_000 }, async (ui) => {
+      const { app, screen, browser, army } = ui;
+      emissionFixture();
+      const record: Evidence = (label, data) => recordOfferEvidence(army, `v3m05-${label}`, data);
+      await app.open("/dashboard/affaires");
+      await expectOfferGuardInstalled(record);
+      const ids = await createV3(browser, army, record, "V3M05");
+      // 1 u, PR FO 10,00 €, c_FO 1,30 : PU 13,00 €, HT 13,00 €, TVA 20 % 2,60 €, TTC 15,60 € (sous toute règle d'approbation).
+      const settled = await settleOneLineV3(browser, army, record, "V3M05", ids, { unitCode: "u", pricingStatus: "priced" });
+      expect([settled.version.total_ht_cents, settled.version.total_tax_cents, settled.version.total_ttc_cents]).toEqual([1300, 260, 1560]);
+      // The API lease of this document goes back: the PDF dialog of the detail page and the editor take their own.
+      expect((await apiRequest(browser, "DELETE", `/api/estimates/${ids.versionId}/lock`)).status).toBe(200);
+      const detailActions = async () => {
+        await screen.getByTestId("estimate-detail-more-actions").tap();
+        const actions = browser.locator("[aria-label=\"Autres actions sur la version\"]");
+        await expect(actions).toBeVisible({ timeout: 30_000 });
+        return actions;
+      };
+      const templateClosed = async (actions: Awaited<ReturnType<typeof detailActions>>) => ({
+        template: await presence(actions.getByRole("button", "Sauvegarder comme modèle", { exact: true })),
+        reason: normalizeQuotes(await actions.textContent()).includes(normalizeQuotes(TEMPLATE_REASON)),
+      });
+      const editorReady = async () => {
+        await app.open(`/dashboard/estimates/${ids.versionId}/edit`);
+        await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible({ timeout: 60_000 });
+        await waitForDraftLease({ app, screen, browser });
+      };
+
+      // Observées d'abord, pour que le rouge les enregistre toutes deux : « Préparer le PDF » de la fiche (V3M-12) et
+      // « Envoyer » de l'éditeur (V3M-13) d'un brouillon v3.
+      await app.open(`/dashboard/estimates/${ids.versionId}`);
+      const draftActions = await detailActions();
+      const draftMenu = { prepare: await presence(draftActions.getByRole("button", "Préparer le PDF", { exact: true })),
+        ...await templateClosed(draftActions) };
+      const expectedDraftMenu = { prepare: { present: true, enabled: true }, template: { present: true, enabled: false }, reason: true };
+      await record("draft-detail-actions", { versionId: ids.versionId, expected: expectedDraftMenu, actual: draftMenu });
+      expect.soft(draftMenu, "the v3 draft detail page opens the PDF and closes the template by name").toEqual(expectedDraftMenu);
+      await editorReady();
+      const editorSend = await presence(screen.getByTestId("estimate-page-toolbar-send-button"));
+      await record("editor-send-action", { versionId: ids.versionId, expected: { present: true, enabled: true }, actual: editorSend });
+      expect.soft(editorSend, "the v3 editor offers « Envoyer »").toEqual({ present: true, enabled: true });
+
+      // V3M-12 : la fenêtre de la fiche prépare le document client v3 ; le brouillon reste un brouillon.
+      await app.open(`/dashboard/estimates/${ids.versionId}`);
+      const prepare = (await detailActions()).getByRole("button", "Préparer le PDF", { exact: true });
+      await expect(prepare).toBeEnabled({ timeout: 30_000 });
+      await prepare.click();
+      const layout = screen.getByRole("dialog", "Préparer le devis PDF", { exact: true });
+      await expect(layout).toBeVisible({ timeout: 30_000 });
+      const generate = layout.getByRole("button", "Générer et télécharger", { exact: true });
+      await expect(generate).toBeEnabled({ timeout: 60_000 });
+      const pdfEndpoint = new URL(`/api/estimates/${ids.versionId}/pdf?force=1`, app.baseUrl!).href;
+      const [generation] = await Promise.all([browser.waitForResponse(pdfEndpoint, { timeout: 120_000 }), generate.click()]);
+      await expect.poll(async () => (await storedPdfState(browser, ids.versionId)).documentStatus, { timeout: 120_000 }).toBe("ready");
+      await expect(layout).toBeHidden({ timeout: 30_000 });
+      const draftPdf = await pdfText(await storedPdfBytes(browser, ids.versionId));
+      const draft = await readEstimate(browser, ids.versionId);
+      const prepared = { generation: [200, 202].includes(generation.status), status: draft.version.status, document: oneLineDocument(draftPdf.text) };
+      const expectedPrepared = { generation: true, status: "draft", document: ONE_LINE_DOCUMENT };
+      await record("detail-pdf", { versionId: ids.versionId, sha256: draftPdf.sha256, pages: draftPdf.pageCount,
+        generationStatus: generation.status, expected: expectedPrepared, actual: prepared });
+      expect(prepared).toEqual(expectedPrepared);
+
+      // V3M-13 : « Envoyer » de l'éditeur émet la v3 (émission manuelle sous le bail de la page).
+      await editorReady();
+      const send = screen.getByTestId("estimate-page-toolbar-send-button");
+      await expect(send).toBeEnabled({ timeout: 30_000 });
+      await send.click();
+      const gating = screen.getByRole("dialog", "Vérification avant envoi", { exact: true });
+      await expect(gating).toBeVisible({ timeout: 30_000 });
+      const confirm = gating.getByRole("button", "Envoyer", { exact: true });
+      await expect(confirm).toBeEnabled({ timeout: 30_000 });
+      const statusEndpoint = new URL(`/api/estimates/${ids.versionId}/status`, app.baseUrl!).href;
+      const [emission] = await Promise.all([browser.waitForResponse(statusEndpoint, { timeout: 120_000 }), confirm.click()]);
+      const sent = await readEstimate(browser, ids.versionId);
+      const sentSeal = await verifySeal(browser, ids.versionId);
+      const issued = { response: emission.status, version: [sent.version.status, sent.version.seal_payload_version,
+        sent.version.total_ht_cents, sent.version.total_tax_cents, sent.version.total_ttc_cents] };
+      const expectedIssued = { response: 200, version: ["sent", 5, 1300, 260, 1560] };
+      await record("editor-issued", { versionId: ids.versionId, expected: expectedIssued, actual: issued, verified: sentSeal });
+      expect(issued).toEqual(expectedIssued);
+      expect(sentSeal).toMatchObject({ status: 200, ok: true, data: { valid: true, stored_hash: sent.version.seal_hash,
+        computed_hash: sent.version.seal_hash, seal_payload_version: 5, client_contract_version: 2, calc_payload_version: 6 } });
+
+      // V3M-14 : la fiche de la v3 émise dit son sceau, propose le PDF original et ses actions de statut ; « Marquer
+      // accepté » garde le sceau ; le modèle reste fermé par son nom.
+      const sealOf = () => browser.evaluate(() => Array.from(document.querySelectorAll("[data-seal-state]"))
+        .map((node) => node.getAttribute("data-seal-state")));
+      const statusOf = () => browser.evaluate(() => {
+        const term = Array.from(document.querySelectorAll("dt")).find((node) => (node.textContent ?? "").trim() === "Statut");
+        // The status badge is the first span of the « Statut » value (as in offer-emission's expectEstimateSummaryStatus).
+        return (term?.parentElement?.querySelector(":scope > dd > span")?.textContent ?? "").replace(/[\s  ]+/g, " ").trim();
+      });
+      await app.open(`/dashboard/estimates/${ids.versionId}`);
+      await expect(browser.locator("[data-seal-state]")).toHaveCount(1, { timeout: 30_000 });
+      const accept = screen.getByRole("button", "Marquer accepté", { exact: true });
+      const acceptBefore = await presence(accept);
+      const issuedActions = await detailActions();
+      const issuedDetail = { seal: await sealOf(), status: await statusOf(), accept: acceptBefore,
+        download: await presence(issuedActions.getByRole("button", "Télécharger le PDF", { exact: true })), ...await templateClosed(issuedActions) };
+      const expectedIssuedDetail = { seal: ["valid"], status: "Envoyé", accept: { present: true, enabled: true },
+        download: { present: true, enabled: true }, template: { present: true, enabled: false }, reason: true };
+      await record("issued-detail", { versionId: ids.versionId, expected: expectedIssuedDetail, actual: issuedDetail });
+      expect(issuedDetail).toEqual(expectedIssuedDetail);
+      await browser.keyboard.press("Escape");
+      await expect(issuedActions).toBeHidden({ timeout: 30_000 });
+      allowOfferLifecycleTransition(army, ids.versionId, "accepted");
+      const [acceptance] = await Promise.all([browser.waitForResponse(statusEndpoint, { timeout: 120_000 }), accept.click()]);
+      const acceptedState = await readEstimate(browser, ids.versionId);
+      const acceptedSeal = await verifySeal(browser, ids.versionId);
+      await browser.reload();
+      await expect(browser.locator("[data-seal-state]")).toHaveCount(1, { timeout: 30_000 });
+      const acceptedView = { response: acceptance.status, version: [acceptedState.version.status, acceptedState.version.seal_hash,
+        acceptedState.version.seal_payload_version], seal: await sealOf(), status: await statusOf() };
+      const expectedAccepted = { response: 200, version: ["accepted", sent.version.seal_hash, 5], seal: ["valid"], status: "Accepté" };
+      await record("detail-accepted", { versionId: ids.versionId, expected: expectedAccepted, actual: acceptedView, verified: acceptedSeal });
+      expect(acceptedView).toEqual(expectedAccepted);
+      expect(acceptedSeal).toMatchObject({ status: 200, ok: true, data: { valid: true, stored_hash: sent.version.seal_hash,
+        seal_payload_version: 5, client_contract_version: 2, calc_payload_version: 6 } });
     });
 }
 

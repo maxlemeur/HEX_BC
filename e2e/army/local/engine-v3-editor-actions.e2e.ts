@@ -27,7 +27,8 @@ import {
 //          (revue Codex de la PR #44, F1) ;
 //  V3E10 — question de propagation de la TVA ouverte par Ctrl+S et par l'enregistrement à la fermeture du tiroir ;
 //  V3E11 — remise de 0 % enregistrée sans état « en attente » ; palier d'arrondi hors liste affiché tel qu'appliqué ;
-//          actions PDF et modèle de la fiche fermées par leur nom ;
+//          action modèle de la fiche fermée par son nom ; depuis la fusion de 2.7 (émission v3), le PDF y est ouvert
+//          (doc 2.7 §13 ; sa génération par la fiche est prouvée par V3M05) ;
 //  V3E12 — suggestions en lot appliquées et annulées par l'écrivain v3 ;
 //  V3E13 — collage de lignes refusé par son nom avant toute écriture.
 // Le refus générique du moteur 3 (bandeau de 2.1) n'est jamais une issue admise d'une action de la grille v3.
@@ -40,7 +41,9 @@ const chips = (totals: Totals, rate = "20", extra: string[] = []) => [
 const apostrophes = (text: string) => text.replace(/[’']/g, "'");
 // Messages nommés retenus par la revue (doc 2.6 §11.2).
 const PASTE_REFUSAL = "Le collage de lignes n’est pas encore disponible pour un devis au moteur de calcul 3";
-const DETAIL_ACTIONS_REASON = "Moteur de calcul 3 : le PDF et l’enregistrement comme modèle ne sont pas encore disponibles";
+// Fusion de 2.7 : seul l'enregistrement comme modèle reste fermé (2.8) ; l'ancienne raison, qui nommait le PDF, disparaît.
+const DETAIL_TEMPLATE_REASON = "Moteur de calcul 3 : l’enregistrement comme modèle n’est pas encore disponible pour ce devis.";
+const DETAIL_ACTIONS_REASON_2_6 = "Moteur de calcul 3 : le PDF et l’enregistrement comme modèle ne sont pas encore disponibles";
 const UNIT_REFUSED = "Unité différente du devis";
 
 const supply = (title: string, quantity: number, prCents: number, extra: Record<string, unknown> = {}) => ({
@@ -666,7 +669,7 @@ armyTest("V3E10 the VAT propagation question opens from every save path of the v
     await recordEvidence(army, "v3e10-end", { versionId: draft.versionId, nativeDialogs: dialogs });
   });
 
-armyTest("V3E11 a 0 % discount saves without a pending state, a stored rounding step outside the list shows as applied, and the detail page closes PDF and template by name",
+armyTest("V3E11 a 0 % discount saves without a pending state, a stored rounding step outside the list shows as applied, and the detail page opens the PDF and closes the template by name",
   options(420_000), async ({ app, screen, browser, army }) => {
     const ui: Ui = { app, screen, browser };
     const dialogs = await recordDialogs(ui);
@@ -718,7 +721,8 @@ armyTest("V3E11 a 0 % discount saves without a pending state, a stored rounding 
     await recordEvidence(army, "v3e11-rounding-none", { versionId: draft.versionId, saved: afterNone, actual: await settingsOf() });
     expect(afterNone, "choosing « Aucun » after a stored 2,50 € step is saved").toBe(true);
 
-    // F26-30 : la fiche d'un brouillon v3 ne propose ni PDF ni modèle (émission en 2.7, modèles en 2.8) ; elle le dit.
+    // F26-30, revu à la fusion de 2.7 : la fiche d'un brouillon v3 propose le PDF (émission v3 de 2.7), pas le modèle
+    // (2.8) ; elle dit pourquoi le seul modèle reste fermé, sans plus nommer le PDF.
     await app.open(`/dashboard/estimates/${draft.versionId}`);
     await screen.getByTestId("estimate-detail-more-actions").tap();
     const actions = browser.locator("[aria-label=\"Autres actions sur la version\"]");
@@ -730,11 +734,13 @@ armyTest("V3E11 a 0 % discount saves without a pending state, a stored rounding 
     const detail = {
       pdf: await actionView("Préparer le PDF"), template: await actionView("Sauvegarder comme modèle"),
       duplicate: await actionView("Dupliquer"),
-      reason: apostrophes(normalized(await actions.textContent())).includes(apostrophes(DETAIL_ACTIONS_REASON)),
+      reason: apostrophes(normalized(await actions.textContent())).includes(apostrophes(DETAIL_TEMPLATE_REASON)),
+      pdfNamedClosed: apostrophes(normalized(await actions.textContent())).includes(apostrophes(DETAIL_ACTIONS_REASON_2_6)),
     };
-    const expectedDetail = { pdf: { present: true, enabled: false }, template: { present: true, enabled: false }, duplicate: { present: true, enabled: true }, reason: true };
+    const expectedDetail = { pdf: { present: true, enabled: true }, template: { present: true, enabled: false },
+      duplicate: { present: true, enabled: true }, reason: true, pdfNamedClosed: false };
     await recordEvidence(army, "v3e11-detail-actions", { versionId: draft.versionId, expected: expectedDetail, actual: detail, nativeDialogs: dialogs });
-    expect(detail, "the v3 draft detail page closes PDF and template by name").toEqual(expectedDetail);
+    expect(detail, "the v3 draft detail page opens the PDF and closes the template by name").toEqual(expectedDetail);
   });
 
 armyTest("V3E12 bulk suggestions are applied to v3 lines and undone through the v3 writer, with recomputed totals",

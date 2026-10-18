@@ -143,7 +143,7 @@ export const CALC_V3_PHASE_DEFINITIONS: Readonly<Record<CalcV3Phase, CalcV3Phase
     sentinelCollector: true,
     tests: ["e2e/army/local/offer-emission-auth.setup.e2e.ts", "e2e/army/local/engine-v3-emission.e2e.ts"],
     setupTitle: "ordinary native ARMY login for local offer profile",
-    expected: { "e2e/army/local/offer-emission-auth.setup.e2e.ts": 1, "e2e/army/local/engine-v3-emission.e2e.ts": 3 },
+    expected: { "e2e/army/local/offer-emission-auth.setup.e2e.ts": 1, "e2e/army/local/engine-v3-emission.e2e.ts": 4 },
     maxDuration: 3_600_000,
   },
 };
