@@ -12,10 +12,10 @@ dans la carte et sont lancés par la PR qui les atteint (job `army-takeoff`,
 | Événement | Parcours critical (`army-critical`) | Parcours du métré (`army-takeoff`) | Build Army |
 | --- | --- | --- | --- |
 | Pull request, documentation seule ou chemins hors suite | aucun (`none`) | aucun (`none`) | non |
-| Pull request, autres chemins | fichiers sélectionnés (`files`) ou suite complète (`full`) | fichiers atteints (`files`), aucun, ou tous (`all`) si la décision critical est `full` | oui, par job lancé |
+| Pull request, autres chemins | fichiers sélectionnés (`files`) ou suite complète (`full`), répartis en shards ([jobs parallèles](#jobs-parallèles)) | fichiers atteints (`files`), aucun, ou tous (`all`) si la décision critical est `full` | oui, par job lancé |
 | Push sur `main` | suite complète, sauf push de documentation seule (aucun) | aucun : la nuit les lance | oui, sauf documentation |
 | `workflow_dispatch`, label `army-full` | suite complète | tous (`all`) | oui |
-| Nuit, 03:15 UTC (`e2e-army-full.yml`) | phase `full` : tous les parcours critical, plus extended et takeoff, puis phase développement | (compris dans la phase `full`) | oui |
+| Nuit, 03:15 UTC (`e2e-army-full.yml`) | phase `full` en shards : tous les parcours critical, plus extended et takeoff ; phase développement dans son propre job | (compris dans la phase `full`) | oui, par shard |
 
 ### Décision
 
@@ -73,10 +73,11 @@ le setup de connexion restent appliqués). Le manifeste enregistre
 `scope: filtered-critical` et `journeyFiles` (la clé `files` y reste
 l'inventaire SHA-256 des preuves). Le run échoue si un fichier demandé n'a
 pas tous ses tests exécutés et réussis, ou si un autre fichier que ceux-là et le
-setup s'exécute. L'artefact `army-critical-selection` (`selection.json` :
-événement, révisions, SHA-256 de la carte, décision par chemin) et le résumé de
-l'étape gardent le motif, y compris pour `none`. Une exécution filtrée ne prouve
-que ses fichiers ; elle ne qualifie pas la suite complète.
+setup s'exécute. L'artefact `army-critical-selection` (`selection.json`, schéma
+`army-impact-selection-3` : événement, révisions, SHA-256 de la carte, décision
+par chemin, plan des shards) et le résumé de l'étape gardent le motif, y compris
+pour `none`. Une exécution filtrée ne prouve que ses fichiers ; elle ne qualifie
+pas la suite complète.
 
 ### Parcours du métré (`fullOnly`)
 
@@ -97,7 +98,7 @@ lançait que `dashboard-ux` et devait attendre ou déclencher la suite full de
   les atteint aussi ; un fichier du métré, ou un module qu'il importe ou dont il
   nomme la route `/api/...`, se sélectionne lui-même par le graphe.
 - Décision (`selection.json`, champ `fullOnly`, schéma
-  `army-impact-selection-2`) : sur une PR, les fichiers atteints plus le setup
+  `army-impact-selection-3`) : sur une PR, les fichiers atteints plus le setup
   de connexion (`files`), ou `none`. Dès que la décision critical est `full`
   (chemin partagé ou non cartographié, diff vide, label `army-full`,
   `workflow_dispatch`, erreur, ou changements qui atteignent tous les parcours
@@ -108,18 +109,20 @@ lançait que `dashboard-ux` et devait attendre ou déclencher la suite full de
   même (et la carte, invalide, impose la suite critical complète) ; une liste
   impossible à établir (carte illisible) donne un `all` vide, que le job lance
   comme la sélection full entière.
-- Chemins transmis au runner : le motif partagé
-  `scripts/tester-army/journey-files.mjs` (lu par les deux runners et par le
-  sélecteur) accepte, comme le glob `e2e/army/takeoff/**`, un parcours dans un
-  sous-dossier (`e2e/army/takeoff/metre/x.e2e.ts`) et refuse `..`, les entrées
-  commençant par `.` ou `_`, les espaces et tout autre dossier. Un parcours du
-  métré que ce motif refuserait rend la carte invalide, et le repli donne alors
-  un `all` vide (sélection full entière) plutôt qu'une liste que le runner
-  rejetterait avant de rien lancer.
-- Job `army-takeoff` de `e2e-army-critical.yml`, en parallèle d'`army-critical`
-  (pas de `needs`, donc pas d'allongement du chemin critique tant qu'il est
-  plus court) : même garde de cible, même étape de sélection à l'octet près (le
-  garde l'exige), puis, sauf sortie explicite `none`, installation, caches
+- Chemins transmis au runner : le motif `FULL_ONLY_JOURNEY_FILE` de
+  `scripts/tester-army/journey-files.mjs` (lu par le sélecteur) accepte, comme
+  le glob `e2e/army/takeoff/**`, un parcours dans un sous-dossier
+  (`e2e/army/takeoff/metre/x.e2e.ts`) et refuse `..`, les entrées commençant
+  par `.` ou `_`, les espaces et tout autre dossier. Un parcours du métré que ce
+  motif refuserait rend la carte invalide, et le repli donne alors un `all` vide
+  (sélection full entière) plutôt qu'une liste que le runner rejetterait avant
+  de rien lancer. Les deux runners acceptent `FULL_JOURNEY_FILE`, qui le
+  contient et ajoute les autres dossiers de la sélection full pour ses
+  [shards](#jobs-parallèles).
+- Job `army-takeoff` de `e2e-army-critical.yml`, en parallèle des shards
+  critical (son seul `needs` est le job de sélection `army-select`, dont il lit
+  les sorties : une seule décision pour les deux, le garde l'exige) : même garde
+  de cible, puis, sauf sortie explicite `none`, installation, caches
   restaurés seulement (build et instantané de base) et
   `run-tester-army-ci.ts full --files <setup,parcours>`, à 1 worker comme la
   suite full où ces parcours sont qualifiés. Le manifeste enregistre
@@ -198,9 +201,9 @@ déplace `E2E_ARMY_WORKERS` ou l'enregistrement du cache. Pour le métré, il
 liste full de `e2e.config.ts`, ou ce glob n'y figure plus ; un parcours du métré
 n'est atteint par aucune règle ; une décision incertaine ne les lance pas tous ;
 la sélection transmet un chemin que `full --files` refuse (sous-dossier
-compris) ; le job `army-takeoff` saute pour autre chose que `none`, diffère de
-l'étape de sélection d'`army-critical`, fixe un nombre de workers ou enregistre
-un cache.
+compris) ; le job `army-takeoff` saute pour autre chose que `none`, ne lit pas
+la décision du job `army-select`, fixe un nombre de workers ou enregistre
+un cache. Les shards ont leurs propres gardes ([jobs parallèles](#jobs-parallèles)).
 Sans protection de branche (plan Free), un Quality Gate rouge n'empêche pas une
 fusion : le contrôle de complétude des parcours est donc aussi fait par le
 sélecteur à chaque exécution (repli sûr ci-dessus).
@@ -221,13 +224,17 @@ node scripts/tester-army/select-journeys.ts --event pull_request --base origin/m
 ### Caches et parallélisme
 
 - Cache webpack du build Army `.e2e/army/next/cache`, hors empreinte du build
-  (`build-local.mjs`) : restauré à chaque run critical et full depuis le dernier
-  enregistré par `main` (clé
-  `army-next-<OS>-<hash package-lock.json et next.config.ts>-<sha>`) ; seul un
-  push sur `main` enregistre le sien.
+  (`build-local.mjs`) : restauré par chaque shard critical et full, `army-takeoff`
+  et chaque phase calc-v3, depuis le dernier enregistré par `main` (clé
+  `army-next-<OS>-<hash package-lock.json et next.config.ts>-<sha>`) ; seul le
+  shard 1 d'un push sur `main` enregistre le sien (tous les shards construisent
+  la même source).
 - `E2E_ARMY_WORKERS: "2"` dans l'environnement de la seule étape des parcours
-  critical ([qualification](tester-army-local-development.md)). La suite full,
-  le job `army-takeoff` et la campagne calc-v3 restent à 1.
+  critical, donc de chaque shard critical
+  ([qualification](tester-army-local-development.md)). Les shards de la suite
+  full, le job `army-takeoff` et les phases calc-v3 restent à 1 ; le parallélisme
+  ajouté passe par les shards, chacun sur sa pile et son compte
+  ([jobs parallèles](#jobs-parallèles)).
 - Ctrl+S au lieu de l'autosave à 60 s dans les parcours qui ne qualifient pas
   l'autosave : seul « creation persists … after reload »
   (`estimate-integrity.e2e.ts`) garde l'attente réelle du cycle automatique
@@ -250,9 +257,9 @@ node scripts/tester-army/select-journeys.ts --event pull_request --base origin/m
   prête, avant pgTAP : un run qui échoue ensuite (pgTAP, matrice RLS,
   parcours) la garde. Un échec antérieur (démarrage de la pile, `db reset`) ne
   la laisse que dans `database.log`, qui journalise chaque décision. Cache
-  GitHub : restauré à chaque run critical (et par `army-takeoff`) sur la clé
+  GitHub : restauré par chaque shard critical (et par `army-takeoff`) sur la clé
   exacte `army-db-snapshot-v1-<OS>-<arch>-<hash des entrées>`, enregistré
-  seulement par un push sur `main` quand la clé exacte est absente du cache
+  seulement par le shard 1 d'un push sur `main` quand la clé exacte est absente du cache
   (miss). Une clé GitHub est immuable : si une restauration y est rejetée, chaque
   run retombe sur `db reset` sans pouvoir la remplacer ; incrémenter alors
   `army-db-snapshot-v1` dans le workflow. `e2e-army-full.yml`,
@@ -398,6 +405,175 @@ sur `main`, qui enregistre ces caches.
 - Un `all` sans liste (carte illisible) lance la sélection full entière dans
   `army-takeoff` (environ 30 min) : coûteux, mais jamais moins de parcours.
 
+## Jobs parallèles
+
+Demande du 18/10/2026 (levier L2, accélérer la CI) : raccourcir la durée murale
+des trois workflows TesterArmy sans affaiblir aucune preuve. Les parcours
+sélectionnés sont répartis en shards, chacun dans son job, sur sa propre pile
+native possédée, avec sa base et son compte ARMY ; un job d'agrégation est le
+contrôle et vérifie que les shards ont, ensemble, exécuté exactement la
+sélection.
+
+### Point de départ (runs relevés le 18/10/2026)
+
+| Workflow | Runs relevés | Durée murale | Chemin critique |
+| --- | --- | --- | --- |
+| TesterArmy Critical | 10 derniers runs avec parcours (39089874956 à 39109681611) | 12 min 25 s à 19 min 40 s, médiane 16 min | `army-critical` ; `army-takeoff` (6 à 8 min) en parallèle |
+| TesterArmy Full | 9 derniers runs non filtrés (38810364369 à 39110052211) | 21 min 11 s à 33 min 47 s, médiane 25 min 26 s | un job : phase full puis développement |
+| TesterArmy calc-v3 | les 4 runs existants (PR #42) | 19 min 55 s à 28 min 30 s | un job : six phases en série |
+
+Décomposition, run 39109681611 (PR #42, suite critical complète à 2 workers,
+tête `fef02223`) : installation et Chromium 50 s, pile 20 s, `db reset`, pgTAP
+et RLS 21 s, build 1 min 43 s, parcours 9 min 44 s (103 tests, 1 130 s
+cumulées, soit 1,95 worker occupé en moyenne). Suite full : 1 257 à 1 660 s de
+parcours à 1 worker, phase développement 50 à 91 s. calc-v3, run 39109681565 :
+`journeys` 205 s, `components` 130 s, `numeric` 150 s, `resume` 104 s,
+`access` 78 s, `offers` 474 s (pile, base, build et parcours compris).
+
+### Workers : pas de hausse
+
+- Qualifiés : 2 pour les parcours critical de la pile possédée ; 3 reste
+  exploratoire (une seule suite verte, avant la correction de HUB02) ; full,
+  métré et calc-v3 à 1 ([qualification](tester-army-local-development.md)).
+- Plancher : `e2e/army/local/engine-v3-editor.e2e.ts`, quatre tests d'un même
+  fichier, 246 à 302 s. Le scheduler du SDK distribue des unités fichier ×
+  cible : un worker de plus ne coupe pas ce fichier, il ajoute seulement de la
+  concurrence sur le même compte et le même tenant, sur un runner public de
+  4 vCPU que se partagent déjà Next, la pile Supabase et Chromium.
+- État partagé : les rapports des runs relevés ont `serialGroups: []`, aucun
+  parcours n'a de `beforeAll` ni d'`afterAll`, chaque fichier crée ses propres
+  brouillons ARMY et n'écrit que dans le répertoire de preuves de son checkout.
+  Aucune dépendance entre fichiers : le fichier est l'unité de partage, et un
+  groupe serial du SDK, qui vit dans un fichier, reste entier.
+- Le parallélisme ajouté passe donc par les shards : pile, base et compte
+  propres à chacun, aucune concurrence nouvelle sur un tenant. Chaque shard
+  critical reste à 2 workers, chaque shard full à 1.
+
+### Plan des shards
+
+- `scripts/tester-army/army-shards.json` : secondes mesurées par fichier
+  (somme de ses tests, moyenne des runs `measured`), `defaultSeconds` (20) pour
+  un fichier non mesuré, et par suite `maxShards`, `secondsPerShard`, `workers`
+  (critical : 4, 360 s, 2 ; full : 6, 320 s, 1). Sous `scripts/tester-army/**`,
+  tout changement lance la suite critical complète.
+- `planShards` (`select-journeys.ts`) : nombre de shards = min(`maxShards`,
+  parcours authentifiés, ⌈secondes ÷ `secondsPerShard`⌉) ; le fichier le plus
+  long d'abord, vers le shard le moins chargé (égalité : chemin, puis premier
+  shard), les parcours authentifiés avant les anonymes, si bien que chaque shard
+  a un parcours métier authentifié (le runner refuse sinon) ; le setup de
+  connexion dans chaque shard. Même liste, même plan, quel que soit l'ordre.
+- Un seul shard : si les secondes tiennent dans un shard (une sélection garde
+  alors ses fichiers) ; si la liste est la suite entière, ou ne peut pas servir
+  de `--files` (chemin que le runner refuse, setup absent, durées illisibles,
+  repli sûr de la carte), ce shard lance la sélection du runner lui-même, comme
+  avant les shards.
+- Critical (`e2e-army-critical.yml`) : le job `army-select` décide une fois
+  (`selection.json`, champ `shards`, sortie `critical_shards`) ; liste = les
+  fichiers de la sélection, ou pour `full` la liste `localBusiness` de
+  `e2e.config.ts` appliquée à l'arbre de travail (celle que la validation de la
+  carte compare). Shards `army-critical shard <n>/<total>` :
+  `run-tester-army-ci.ts critical --shard <n>/<total> --files <fichiers>`.
+  `army-takeoff` lit les sorties du même job.
+- Full (`e2e-army-full.yml`) : `select-journeys.ts --plan full` liste les globs
+  de la sélection full de `e2e.config.ts` dans l'arbre de travail (un parcours
+  non inscrit dans la carte est listé) ; shards
+  `run-tester-army-ci.ts full --shard <n>/<total> --files <fichiers>` à 1 worker ;
+  phase développement dans le job `army-full development`
+  (`full --phase development`, `next dev`, sans build de production, manifeste
+  `scope: full-development`). `--grep` : un shard sans développement ; liste
+  impossible : un shard qui lance les deux phases sur sa pile.
+- calc-v3 (`e2e-army-calc-v3.yml`) : un job par phase planifiée
+  (`CALC_V3_NIGHTLY_PHASES`, ou la phase ou `all` d'un déclenchement).
+- Au 18/10/2026 : suite critical complète en 3 shards de 348, 350 et 348 s
+  mesurées ; suite full en 5 shards de 302 à 303 s.
+
+### Contrôle d'agrégation
+
+- Jobs `army-critical`, `army-full` (et son nom filtré inchangé) et
+  `army-calc-v3` : les noms de contrôle d'avant, que lisent les outils de suivi.
+  Ils dépendent (`needs`) du plan, de la matrice et du job développement, et
+  tournent après un échec (`if: ${{ !cancelled() }}`), jamais après une
+  annulation ; la matrice n'a pas de `fail-fast`.
+- `scripts/tester-army/aggregate-shards.ts` (Node seul) échoue sauf si : chaque
+  job attendu a réussi (ou est ignoré quand le plan ne le prévoit pas) ; chaque
+  unité prévue a laissé son manifeste (`status` et `privacy` `passed`, `suite`,
+  `scope`, `shard`, `workers` et `journeyFiles` conformes au plan) ; chaque
+  fichier téléchargé correspond à l'inventaire SHA-256 de ce manifeste et aucun
+  n'y manque ; chaque rapport de phase a tous ses résultats sélectionnés
+  exécutés et réussis, sans skip, interruption ni écart de compte ; toutes les
+  unités ont testé la même révision (`GITHUB_SHA`), le même diff et les mêmes
+  entrées ; chaque shard a exécuté exactement ses fichiers, et ensemble
+  exactement ceux du plan, aucun deux fois ; pour une sélection `files`, le plan
+  couvre exactement la sélection. calc-v3 : chaque phase prévue a sa preuve et
+  son `calc-v3.json` vert pour cette phase.
+- Preuves : chaque unité garde son artefact et son manifeste
+  (`army-critical-shard-<n>-evidence`, `army-full-shard-<n>-evidence`,
+  `army-full-development-evidence`, `army-calc-v3-<phase>-evidence`).
+  L'artefact d'agrégation, sous le nom d'avant (`army-critical-evidence`,
+  `army-full-evidence` ou `army-full-filtered-evidence`,
+  `army-calc-v3-evidence`), contient `manifest.json` (schéma
+  `army-ci-aggregate-1` : résultats des jobs, plan, chaque unité avec le
+  SHA-256 de son manifeste et de ses rapports, union attendue et exécutée,
+  problèmes) et une copie de chaque unité sous `units/<artefact>/` ; une
+  agrégation en échec les garde aussi.
+- Portée : chaque shard garde la sienne (`filtered-critical`, `filtered-full`,
+  `full-development`) et `shard: {index, total}` ; l'agrégation porte celle du
+  run (`critical` pour la suite complète, `filtered-critical`, `full`,
+  `filtered-full`). Seule l'agrégation qualifie une suite.
+- `none` : aucun shard ; `army-critical` vert avec une annonce, aucune preuve
+  revendiquée.
+- Isolation justifiée : `src/test/army-shard-aggregate.test.ts` reproduit les
+  échecs qu'un run CI ne produit pas à la demande (shard sans preuve, job rouge,
+  ignoré ou annulé, fichier manquant, en trop ou en double, preuve altérée ou
+  hors inventaire, révisions mélangées, shard échangé, développement absent,
+  `--grep` présenté comme la suite, phase calc-v3 rouge ou d'une autre phase) ;
+  `src/test/army-impact-map.test.ts` vérifie le plan (partition exacte, setup et
+  parcours authentifié par shard, ordre indifférent, replis) et les sorties de
+  matrice ; `src/test/ci-guardrails.test.ts` le câblage des trois workflows et
+  le script de plan calc-v3, exécuté.
+
+### Coût et durée murale
+
+Durée murale ≈ plan (environ 20 s) + le shard le plus long + agrégation
+(environ 30 s). Un shard coûte un fixe (installation et Chromium environ 50 s,
+pile 20 s, base 10 à 30 s, build 1 min 30 à 2 min) plus ses parcours : le fixe
+est payé par shard, c'est le prix en minutes de runner (gratuites pour un dépôt
+public, mais au plus 20 jobs simultanés pour tout le dépôt).
+
+| Workflow | Avant | Après, estimé | Jobs lourds | Minutes de runner, avant → estimé |
+| --- | --- | --- | --- | --- |
+| Critical, suite complète | 13 à 16 min | environ 8 min (fixe 3 min 15 + 317 s simulées) | 1 → 3 shards (+ `army-takeoff`) | 13 → 25 |
+| Full, nuit | 21 à 34 min | environ 10 min (fixe 4 min + 313 s simulées) | 1 → 5 shards + développement | 28 → 52 |
+| calc-v3, nuit | 20 à 28 min | environ 9 min (`offers`, 474 s, plus installation) | 1 → 6 phases | 25 → 25 |
+
+Simulation (`army-shards.json`, ordre des fichiers du scheduler, 2 workers par
+shard critical) : 550 s de parcours en un shard (mesuré 578 s), 404 s en deux,
+317 s en trois, 289 s en quatre. Le quatrième shard ne gagnerait que 28 s pour
+un job de plus sur les 20 du dépôt : une PR complète en occupe déjà environ
+dix (trois shards, `army-takeoff`, Quality Gate, smoke, RLS). Les durées
+mesurées en CI après le changement sont relevées ci-dessous.
+
+### Mesures des jobs parallèles
+
+À relever sur les runs de la PR qui introduit ces jobs (suite critical complète
+et calc-v3 `nightly`, puisqu'elle modifie leurs workflows) et sur un
+déclenchement d'`e2e-army-full.yml` sans motif sur sa branche.
+
+### Limites
+
+- Les secondes dérivent avec les parcours : un fichier qui s'allonge
+  déséquilibre les shards (durée murale, jamais couverture). Les remettre à
+  jour depuis les `report.json` d'un run récent (somme des tests par fichier).
+- La liste de la suite entière est la lecture des globs d'`e2e.config.ts` par
+  `globToRegExp`, celle qui valide déjà la carte ; le runner refuse toujours un
+  fichier demandé qui ne tourne pas, mais un parcours que le CLI trouverait en
+  dehors de cette lecture ne serait pas listé.
+- Relancer un seul shard rouge relance aussi l'agrégation, qui relit les
+  preuves de tous les shards du run.
+- Aucun contrôle requis par la protection de branche (le ruleset
+  `main-protection` n'interdit que la suppression) : les noms stables servent
+  les outils de suivi et la lecture des PR.
+
 ## Campagne calc-v3 nocturne (`e2e-army-calc-v3.yml`)
 
 Demande du 18/10/2026 : la campagne du lot 2 (`npm run e2e:army:calc-v3`,
@@ -413,10 +589,14 @@ confidentialité du runner.
 - Sélection nocturne : les phases servies par le build de production
   (`journeys`, `components`, `numeric`, `resume`, `access`, `offers`), une
   invocation `run-tester-army-ci.ts calc-v3 --phase <phase>` par phase, chacune
-  sur sa propre pile, dans un seul job ; une phase rouge n'arrête pas les
-  suivantes, le job échoue en nommant les phases sans preuve. Le répertoire de
-  preuves de chaque phase n'est téléversé que si le runner l'a publié (sortie
-  `evidence`, écrite seulement après le contrôle de confidentialité).
+  sur sa propre pile et dans son propre job (`army-calc-v3 <phase>`, matrice
+  sans `fail-fast`) ; une phase rouge n'arrête pas les autres, et le job
+  `army-calc-v3` échoue en nommant les phases sans preuve
+  ([jobs parallèles](#jobs-parallèles)). Le répertoire de preuves de chaque
+  phase n'est téléversé (`army-calc-v3-<phase>-evidence`) que si le runner l'a
+  publié (sortie `evidence`, écrite seulement après le contrôle de
+  confidentialité) ; `army-calc-v3-evidence` les réunit avec le manifeste
+  d'agrégation.
 - Émission exclue : servie par `next dev` (`canUseDevelopmentEstimateTerms`
   n'accepte les conditions bac à sable qu'en développement), OF00 y échoue 7/7
   depuis la PR #34 (rechargement à chaud qui remonte l'éditeur ; 6/6 en
@@ -444,14 +624,13 @@ confidentialité du runner.
   ne le lance. Un nouveau push sur la PR annule et remplace son run en cours ;
   un run nocturne ou déclenché n'est jamais annulé (groupe de concurrence par
   run).
-- Coût : six piles et six builds par nuit dans un job (le premier build sur le
-  cache webpack restauré depuis `main`, les suivants sur celui du premier) ;
-  délai maximal du job 120 min. Mesuré sur la PR #42, cache webpack restauré
-  par préfixe de clé depuis `main` : job de 28 min 04 s (run 39096480257, tête
-  `964775bc`, six phases vertes) et de 28 min 30 s (run 39089316912, tête
-  `9467ba95`, six phases exécutées, `resume` rouge), soit environ 28 min de
-  runner par PR qui modifie le workflow ; la nuit, qui n'existe qu'après la
-  fusion sur `main`, n'est pas encore mesurée.
+- Coût : six piles et six builds par nuit, chacun dans son job sur le cache
+  webpack restauré depuis `main` ; délai maximal d'un job de phase 80 min.
+  Avant les jobs parallèles, mesuré sur la PR #42 (un seul job, phases en
+  série) : 28 min 04 s (run 39096480257, tête `964775bc`, six phases vertes),
+  28 min 30 s (run 39089316912, tête `9467ba95`, `resume` rouge), 25 min 01 s
+  (run 39107622162) et 19 min 55 s (run 39109681565, tête `fef02223`). Durée
+  murale et coût en runner après : section [Jobs parallèles](#jobs-parallèles).
 
 ## Contrat défini avant migration
 
@@ -487,6 +666,11 @@ Défaillances à exposer avant implémentation :
    remplacement des sorties courantes et doivent toutes deux réussir. Un succès
    production seul ne qualifie pas le profil full. L'identité du build est
    vérifiée en production ; les sources restent figées dans les deux phases.
+   Depuis les [jobs parallèles](#jobs-parallèles) (18/10/2026), la nuit lance
+   les deux phases sur des piles distinctes (shards de la phase full,
+   `full --phase development`) ; c'est le job `army-full` qui exige alors que
+   toutes réussissent, et un `run-tester-army-ci.ts full` sans option garde ce
+   contrat sur une seule pile.
 
 Défaillance d'agrégation relevée avant correction : le premier rejet de la
 phase production interrompait le hook et supprimait la pile avant les trois
