@@ -10,7 +10,7 @@ import {
   normalizeMappedRowsForEstimateCreation,
   type ValidImportFlowLine,
 } from "@/lib/affaires/import-flow";
-import { toRpcImportItems } from "@/lib/affaires/import-flow-server";
+import { fetchMappedRowsForImport, toRpcImportItems } from "@/lib/affaires/import-flow-server";
 import {
   computeEstimateLineValues,
   hasActiveLaborSplitPayload,
@@ -518,11 +518,6 @@ type AffaireDpgfImportRow = Pick<
 type AffaireDpgfMappingRow = Pick<
   DpgfMappingRow,
   "id" | "status" | "updated_at" | "created_at"
->;
-
-type DpgfMappedRowForEstimateImport = Pick<
-  Database["public"]["Tables"]["dpgf_rows_mapped"]["Row"],
-  "id" | "payload" | "created_at"
 >;
 
 export type AffaireLinkedDpgfSourceResult = {
@@ -2458,26 +2453,6 @@ async function countMappedRowsForImport(input: {
   return count ?? 0;
 }
 
-async function loadMappedRowsForImport(input: {
-  supabase: Supabase;
-  tenantId: string;
-  importId: string;
-}) {
-  const { data, error } = await input.supabase
-    .from("dpgf_rows_mapped")
-    .select("id, payload, created_at")
-    .eq("tenant_id", input.tenantId)
-    .eq("import_id", input.importId)
-    .order("created_at", { ascending: true })
-    .order("id", { ascending: true });
-
-  if (error) {
-    throw mapSupabaseError(error, "Impossible de charger les lignes DPGF mappées.");
-  }
-
-  return (data ?? []) as DpgfMappedRowForEstimateImport[];
-}
-
 function sleep(delayMs: number) {
   return new Promise<void>((resolve) => {
     setTimeout(resolve, delayMs);
@@ -2493,10 +2468,11 @@ async function loadMappedRowsForImportWithRetry(input: {
 }) {
   const maxAttempts = Math.max(1, input.maxAttempts ?? 8);
   const retryDelayMs = Math.max(0, input.retryDelayMs ?? 300);
-  let lastRows: DpgfMappedRowForEstimateImport[] = [];
+  let lastRows: Awaited<ReturnType<typeof fetchMappedRowsForImport>> = [];
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    lastRows = await loadMappedRowsForImport({
+    // Every mapped row, by pages checked against their count: the API returns 1 000 rows at most.
+    lastRows = await fetchMappedRowsForImport({
       supabase: input.supabase,
       tenantId: input.tenantId,
       importId: input.importId,
@@ -3543,22 +3519,8 @@ export async function listEstimateImportSections(
   const { supabase, tenantId } = context;
   await getVersionAccessOrThrow(supabase, sourceVersionId, context);
 
-  const { data: sourceItemsData, error: sourceItemsError } = await supabase
-    .from("estimate_items")
-    .select("*")
-    .eq("tenant_id", tenantId)
-    .eq("version_id", sourceVersionId)
-    .order("position", { ascending: true })
-    .order("created_at", { ascending: true });
-
-  if (sourceItemsError) {
-    throw mapSupabaseError(
-      sourceItemsError,
-      "Impossible de charger les sections source."
-    );
-  }
-
-  const sourceItems = (sourceItemsData ?? []) as EstimateItemRow[];
+  // Every item, by pages: the API returns 1 000 rows at most, and a partial read would miscount the sections.
+  const sourceItems = await readAllEstimateItems({ supabase, tenantId, versionId: sourceVersionId });
   const rootSections = sourceItems.filter(
     (item) => item.item_type === "section" && item.parent_id === null
   );
@@ -4080,22 +4042,8 @@ async function duplicateSectionInternal(input: {
     userId,
   });
 
-  const { data: sourceItemsData, error: sourceItemsError } = await supabase
-    .from("estimate_items")
-    .select("*")
-    .eq("tenant_id", tenantId)
-    .eq("version_id", sourceVersion.id)
-    .order("position", { ascending: true })
-    .order("created_at", { ascending: true });
-
-  if (sourceItemsError) {
-    throw mapSupabaseError(
-      sourceItemsError,
-      "Impossible de charger la section source."
-    );
-  }
-
-  const sourceItems = (sourceItemsData ?? []) as EstimateItemRow[];
+  // Every item, by pages: the API returns 1 000 rows at most, and a partial read would copy part of the section.
+  const sourceItems = await readAllEstimateItems({ supabase, tenantId, versionId: sourceVersion.id });
   const subtree = collectSectionSubtreeItems(input.sectionId, sourceItems);
 
   if (!subtree) {
@@ -4223,39 +4171,12 @@ export async function importSectionsFromVersion(
   // Règle 6 (suite) : une section d'une v3 ne se copie pas non plus vers une v1/v2 (lignes non chiffrées).
   if (usesPerUnitLabor(resolveEstimateEngineVersion(sourceVersion))) throw new EstimateEngineUnavailableError();
 
-  const [{ data: sourceItemsData, error: sourceItemsError }, { data: targetItemsData, error: targetItemsError }] =
-    await Promise.all([
-      supabase
-        .from("estimate_items")
-        .select("*")
-        .eq("tenant_id", tenantId)
-        .eq("version_id", sourceVersion.id)
-        .order("position", { ascending: true })
-        .order("created_at", { ascending: true }),
-      supabase
-        .from("estimate_items")
-        .select("*")
-        .eq("tenant_id", tenantId)
-        .eq("version_id", targetVersion.id)
-        .order("position", { ascending: true })
-        .order("created_at", { ascending: true }),
-    ]);
-
-  if (sourceItemsError) {
-    throw mapSupabaseError(
-      sourceItemsError,
-      "Impossible de charger les sections source."
-    );
-  }
-  if (targetItemsError) {
-    throw mapSupabaseError(
-      targetItemsError,
-      "Impossible de charger les sections cibles."
-    );
-  }
-
-  const sourceItems = (sourceItemsData ?? []) as EstimateItemRow[];
-  const targetItems = (targetItemsData ?? []) as EstimateItemRow[];
+  // Every item of both versions, by pages: the API returns 1 000 rows at most. A partial source read would
+  // import part of a section; a partial target read would reuse its titles and child positions.
+  const [sourceItems, targetItems] = await Promise.all([
+    readAllEstimateItems({ supabase, tenantId, versionId: sourceVersion.id }),
+    readAllEstimateItems({ supabase, tenantId, versionId: targetVersion.id }),
+  ]);
   const sourceItemById = new Map(sourceItems.map((item) => [item.id, item]));
 
   const selectedSectionIds = input.section_ids;
