@@ -37,6 +37,7 @@ import {
   type EstimateVersionRow,
   type EstimateVersionTotalsPatch,
 } from "@/lib/estimates/editor-items";
+import { resolveEstimateV3UnitInput } from "@/lib/estimates/v3-editor";
 import type { EstimateV3EditorWriter } from "@/lib/estimates/v3-editor-writer";
 import type { Database } from "@/types/database";
 
@@ -378,8 +379,10 @@ export function useEstimateEditorSuggestionsController({
         items: previewItems,
         suggestionRules: rules,
         categories,
+        // Sous-lot 2.6b (A15) : sur une v3, l'unité d'une règle va dans unit_code, jamais dans description.
+        unitTarget: v3Writer ? "unit_code" : "description",
       }),
-    [categories, previewItems, rules]
+    [categories, previewItems, rules, v3Writer]
   );
 
   const previewItemIds = useMemo(
@@ -965,13 +968,33 @@ export function useEstimateEditorSuggestionsController({
         return;
       }
 
-      const updatedLines = selectedLines.map((item) => {
-        const suggestion = previewByItemId.get(item.id);
-        return normalizeLine({
+      // Sous-lot 2.6b (A15) : sur une v3, l'unité de la règle est résolue dans le référentiel ; une unité inconnue
+      // est refusée par son nom et rien n'est écrit (aucune ligne de la sélection).
+      const unitRefusals: string[] = [];
+      const resolvedPatchById = new Map(selectedLines.map((item) => {
+        const patch = previewByItemId.get(item.id)?.patch ?? {};
+        if (!v3Writer || !("unit_code" in patch)) return [item.id, patch] as const;
+        const resolution = resolveEstimateV3UnitInput(patch.unit_code ?? "", null);
+        if (resolution.kind === "invalid") {
+          if (!unitRefusals.includes(resolution.message)) unitRefusals.push(resolution.message);
+          return [item.id, patch] as const;
+        }
+        return [item.id, { ...patch, unit_code: resolution.kind === "unit" ? resolution.unitCode : null }] as const;
+      }));
+      if (unitRefusals.length > 0) {
+        setInteractiveState((previous) =>
+          previous.routeVersionId === targetVersionId
+            ? { ...previous, dialogError: unitRefusals.join(" ") }
+            : previous
+        );
+        return;
+      }
+      const updatedLines = selectedLines.map((item) =>
+        normalizeLine({
           ...item,
-          ...(suggestion?.patch ?? {}),
-        });
-      });
+          ...(resolvedPatchById.get(item.id) ?? {}),
+        })
+      );
       const updatesPayload = updatedLines.map((item) => ({
         id: item.id,
         updates: buildLineUpdate(item),

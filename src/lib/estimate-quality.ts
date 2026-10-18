@@ -167,14 +167,17 @@ export function computeEstimateQualityFlagsForItem(
   const effectiveLaborHours = splitEnabled
     ? laborHoursAtelier + laborHoursChantier
     : laborHours;
+  // Lot 2, sous-lot 2.6b (G1) : une ligne v3 non chiffrée (incluse, pour mémoire, hors lot…) est à 0 € par son
+  // statut (P-09) ; ni prix ni temps n'y manquent. Une ligne v1/v2 est toujours « priced » (déclencheur M4).
+  const isPriced = (item.pricing_status ?? "priced") === "priced";
 
-  if (expectsSupply && unitPriceHtCents <= 0) {
+  if (isPriced && expectsSupply && unitPriceHtCents <= 0) {
     flags.push("missing_price");
   }
   if (quantity <= 0) {
     flags.push("missing_quantity");
   }
-  if (expectsLabor && effectiveLaborHours <= 0) {
+  if (isPriced && expectsLabor && effectiveLaborHours <= 0) {
     flags.push("missing_labor_time");
   }
   if (expectsLabor && !splitEnabled && laborHours > 0 && !laborRoleId) {

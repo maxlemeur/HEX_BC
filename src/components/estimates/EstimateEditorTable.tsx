@@ -40,7 +40,11 @@ import { useConfirm } from "@/components/feedback/confirm-provider";
 import type { SupplierComparisonAlternative } from "@/components/estimates/SupplierComparisonPanel";
 import type { CataloguePriceSuggestion } from "@/lib/estimates/catalogue-suggestions";
 import { alternativePriceForLineUnit } from "@/lib/estimates/supplier-offer-purchase-unit";
-import { resolveEstimateV3ArticleAssociation, resolveEstimateV3SuggestionUnitRefusal } from "@/lib/estimates/v3-editor";
+import {
+  resolveEstimateV3ArticleAssociation,
+  resolveEstimateV3SuggestionUnitRefusal,
+  resolveEstimateV3UnitInput,
+} from "@/lib/estimates/v3-editor";
 import { useEstimateV3Grid, useEstimateV3UnitDrafts } from "@/components/estimates/v3/V3LineCells";
 import { EstimateEditorProvider } from "@/components/estimates/context/EstimateEditorContext";
 import {
@@ -1819,7 +1823,16 @@ export function EstimateEditorTable({
 
       const patch: ItemPatch = {};
       const unitValue = suggestion.rule.unit?.trim();
-      if (unitValue) {
+      if (unitValue && v3Grid) {
+        // Sous-lot 2.6b (A15) : sur une v3, l’unité de la règle va dans unit_code (référentiel) ; une unité inconnue
+        // est refusée par son nom et rien de la règle n’est écrit.
+        const resolution = resolveEstimateV3UnitInput(unitValue, null);
+        if (resolution.kind === "invalid") {
+          toast.error({ title: "Suggestion non appliquée", description: resolution.message });
+          return;
+        }
+        if (resolution.kind === "unit" && resolution.unitCode) patch.unit_code = resolution.unitCode;
+      } else if (unitValue) {
         patch.description = unitValue;
       }
       const explicitSupplyTypeId = toNonEmptyString(
@@ -1871,6 +1884,8 @@ export function EstimateEditorTable({
       patchItemWithSuggestionTracking,
       sendSuggestionFeedback,
       supplyTypeByLowerName,
+      toast,
+      v3Grid,
     ]
   );
 
@@ -2368,7 +2383,8 @@ export function EstimateEditorTable({
           item,
           depth,
           itemNumber: itemNumberById[item.id] ?? null,
-          unitValue: mergedUnitDrafts[item.id] ?? "",
+          // Sous-lot 2.6b (A13) : sur une v3, l’unité du référentiel (unit_code) ; v1/v2 : les brouillons d’unité.
+          unitValue: clipboardUnitDrafts[item.id] ?? "",
           qualityFlags: qualityFlagsByItemId[item.id] ?? EMPTY_QUALITY_FLAGS,
           sectionTotalCents:
             item.item_type === "section"
@@ -2390,11 +2406,11 @@ export function EstimateEditorTable({
         };
       }),
     [
+      clipboardUnitDrafts,
       collapsedSectionIds,
       depthMap,
       getSectionTotals,
       itemNumberById,
-      mergedUnitDrafts,
       qualityFlagsByItemId,
       resolvedMaxSectionDepth,
       sectionLevelById,

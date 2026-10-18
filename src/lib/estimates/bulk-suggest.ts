@@ -26,7 +26,14 @@ type SuggestionUpdatePayload = Pick<
 
 type RankedSuggestion = SuggestionScore<SuggestionRuleRow>;
 
-export type BulkSuggestPatch = SuggestionUpdatePayload;
+/**
+ * Lot 2, sous-lot 2.6b (A15) : champ qui porte l'unité d'une ligne. v1/v2 : `description` (historique, inchangé) ;
+ * v3 : `unit_code`, lu pour juger la ligne neutre et proposé par le correctif avec le texte de la règle, que
+ * l'appelant résout dans le référentiel (une unité inconnue y est refusée par son nom, sans écriture).
+ */
+export type BulkSuggestUnitTarget = "description" | "unit_code";
+
+export type BulkSuggestPatch = SuggestionUpdatePayload & Pick<EstimateItemUpdate, "unit_code">;
 type BulkSuggestPreviewField = BulkSuggestionField;
 
 export type BulkSuggestPreviewChange = {
@@ -216,18 +223,32 @@ function buildPreviewChanges(
     .filter((entry): entry is BulkSuggestPreviewChange => entry !== null);
 }
 
+/** v3 : la ligne vue par les règles porte son unité du référentiel là où v1/v2 la portent (`description`). */
+function toUnitCodeView(item: EstimateItemRow): EstimateItemRow {
+  return item.item_type === "line" ? { ...item, description: item.unit_code ?? null } : item;
+}
+
+/** v3 : l'unité proposée va dans `unit_code`, jamais dans `description`. */
+function toUnitCodePatch(patch: SuggestionUpdatePayload): BulkSuggestPatch {
+  if (!("description" in patch)) return patch;
+  const { description, ...rest } = patch;
+  return { ...rest, unit_code: description ?? null };
+}
+
 export function buildBulkSuggestPreview(input: {
   items: EstimateItemRow[];
   suggestionRules: SuggestionRuleRow[];
   categories: EstimateCategoryRow[];
   limit?: number;
+  unitTarget?: BulkSuggestUnitTarget;
 }): BulkSuggestPreviewItem[] {
   const categoryById = new Map<string, EstimateCategoryRow>(
     input.categories.map((category) => [category.id, category])
   );
+  const unitCodeTarget = input.unitTarget === "unit_code";
 
   const { suggestions } = computeBulkSuggestions({
-    items: input.items,
+    items: unitCodeTarget ? input.items.map(toUnitCodeView) : input.items,
     rules: input.suggestionRules,
     suggestionLimit: input.limit,
   });
@@ -238,7 +259,7 @@ export function buildBulkSuggestPreview(input: {
     ruleId: suggestion.rule.id,
     ruleName: suggestion.rule.name,
     score: suggestion.score,
-    patch: suggestion.updates,
+    patch: unitCodeTarget ? toUnitCodePatch(suggestion.updates) : suggestion.updates,
     changes: buildPreviewChanges(suggestion, categoryById),
   }));
 }

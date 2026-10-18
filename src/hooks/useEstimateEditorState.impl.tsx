@@ -540,7 +540,9 @@ export function useEstimateEditorState({
   const getPersistedTotals = useCallback(() => persistedTotalsRef.current, []);
   const applyRestoredDraft = useCallback(
     (draft: EstimateEditorConflictDraft) => {
-      if (draft.settings) {
+      // Lot 2, sous-lot 2.6b (A14) : les réglages d'un brouillon local ont la forme v2 (marge, mode, paliers) ; une v3
+      // ne les reprend jamais (sa marge vient des coefficients de vente, réglés et enregistrés par le tiroir v3).
+      if (draft.settings && !resolveEditorEngineContext(versionRef.current).isV3) {
         setSettings({
           ...draft.settings,
           currency: resolveEstimateCurrency(

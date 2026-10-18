@@ -1191,10 +1191,8 @@ migrations passée ; `git -c core.whitespace=cr-at-eol diff --check origin/main.
 
 ### 11.6 Limites restantes (après la revue)
 
-- **Éditeur mobile d'une ligne** (largeur téléphone) et **restauration d'un brouillon en conflit** : restent v2 sur une
-  v3. Dans l'éditeur mobile, une heure totale est ignorée sans message (la charge v3 retire `h_mo`) et l'unité saisie
-  s'écrit dans `description`, sans effet sur `unit_code` ; l'unité et les heures par unité se saisissent dans la
-  grille.
+- ~~**Éditeur mobile d'une ligne** (largeur téléphone) et **restauration d'un brouillon en conflit** : restent v2 sur
+  une v3~~ : corrigés par le sous-lot 2.6b (A13, A14 ; `estimate-engine-v3-2.6b.md`, V3E17, V3E18).
 - **Conversion et duplication de section** : « Convertir en section », « Convertir en ligne » (`PATCH /items`),
   « Dupliquer la section » et « Dupliquer vers un autre devis » (insertion directe, hors contrat d'écrivain de M4)
   sont refusés sur une v3 par le serveur, sans rien écrire ; le refus n'est pas nommé pour la v3 (avis « Conversion
@@ -1202,8 +1200,8 @@ migrations passée ; `git -c core.whitespace=cr-at-eol diff --check origin/main.
   contrat des modèles et des ouvrages (2.8) ou par un refus nommé.
 - **Collage** : refusé sur une v3 tant que son contrat n'est pas fixé (unité du référentiel, heures par unité ou
   totales, statut).
-- **Règles de suggestion qui proposent une unité** (`description`) : appliquées en lot sur une v3, elles l'écrivent dans
-  `description`, sans effet sur `unit_code`.
+- ~~**Règles de suggestion qui proposent une unité** (`description`) : appliquées en lot sur une v3, elles l'écrivent
+  dans `description`~~ : corrigé par le sous-lot 2.6b (A15, V3E19).
 - **Taux horaire d'un rôle** : seul le brouillon ouvert est recalculé ; un autre brouillon v3 du même propriétaire
   garde ses montants stockés jusqu'à sa prochaine écriture (contrat de 2.5 : chaque écrivain recalcule et vérifie).
 - **Sous-détail de ligne** : « Marge € » d'une v3 est brute (avant la remise et l'arrondi commercial du pied), comme
