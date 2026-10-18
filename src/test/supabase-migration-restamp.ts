@@ -275,6 +275,14 @@ function assertManifestEntry(
   }
 }
 
+// Every refusal precedes the first write; this one means the tree may be half
+// restamped.
+class MigrationRestampWriteError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause));
+  }
+}
+
 function listErrors(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   const items = message
@@ -478,37 +486,41 @@ export function runSupabaseMigrationRestamp(
     return result;
   }
 
-  for (const entry of renames) {
-    requireGitSuccess(
-      executeGit([
-        "mv",
-        "--",
-        `${MIGRATIONS_DIRECTORY}/${entry.from}`,
-        `${MIGRATIONS_DIRECTORY}/${entry.to}`,
-      ]),
-      `Cannot rename ${entry.from}`
+  try {
+    for (const entry of renames) {
+      requireGitSuccess(
+        executeGit([
+          "mv",
+          "--",
+          `${MIGRATIONS_DIRECTORY}/${entry.from}`,
+          `${MIGRATIONS_DIRECTORY}/${entry.to}`,
+        ]),
+        `Cannot rename ${entry.from}`
+      );
+    }
+    for (const rewrite of rewrites) {
+      fs.writeFileSync(path.join(rootDirectory, ...rewrite.path.split("/")), rewrite.contents);
+    }
+    // Same entries and serialization as `npm run supabase:manifest:add`.
+    const hashes = computeSupabaseMigrationHashes(rootDirectory);
+    for (const entry of renames) {
+      delete manifest[entry.from];
+      manifest[entry.to] = hashes[entry.to];
+    }
+    for (const entry of rehashed) {
+      manifest[entry.name] = hashes[entry.name];
+    }
+    const migrations = Object.fromEntries(
+      Object.entries(manifest).sort(([left], [right]) => left.localeCompare(right))
     );
+    fs.writeFileSync(
+      path.join(rootDirectory, MANIFEST_PATH),
+      `${JSON.stringify({ algorithm: "sha256", migrations }, null, 2)}\n`,
+      "utf8"
+    );
+  } catch (error) {
+    throw new MigrationRestampWriteError(error);
   }
-  for (const rewrite of rewrites) {
-    fs.writeFileSync(path.join(rootDirectory, ...rewrite.path.split("/")), rewrite.contents);
-  }
-  // Same entries and serialization as `npm run supabase:manifest:add`.
-  const hashes = computeSupabaseMigrationHashes(rootDirectory);
-  for (const entry of renames) {
-    delete manifest[entry.from];
-    manifest[entry.to] = hashes[entry.to];
-  }
-  for (const entry of rehashed) {
-    manifest[entry.name] = hashes[entry.name];
-  }
-  const migrations = Object.fromEntries(
-    Object.entries(manifest).sort(([left], [right]) => left.localeCompare(right))
-  );
-  fs.writeFileSync(
-    path.join(rootDirectory, MANIFEST_PATH),
-    `${JSON.stringify({ algorithm: "sha256", migrations }, null, 2)}\n`,
-    "utf8"
-  );
 
   const guard: string[] = [];
   try {
@@ -519,7 +531,12 @@ export function runSupabaseMigrationRestamp(
   } catch (error) {
     guard.push(...listErrors(error));
   }
-  const manifestErrors = inspectSupabaseMigrations(rootDirectory).errors;
+  let manifestErrors: string[];
+  try {
+    manifestErrors = inspectSupabaseMigrations(rootDirectory).errors;
+  } catch (error) {
+    manifestErrors = listErrors(error);
+  }
   result.checks = { guard, manifest: manifestErrors };
   result.ok = guard.length === 0 && manifestErrors.length === 0;
   return result;
@@ -550,7 +567,12 @@ export function runSupabaseMigrationRestampCli(
   try {
     result = runSupabaseMigrationRestamp(argv, dependencies);
   } catch (caught) {
-    error(`Restamp refused, nothing changed: ${caught instanceof Error ? caught.message : caught}`);
+    const message = caught instanceof Error ? caught.message : String(caught);
+    error(
+      caught instanceof MigrationRestampWriteError
+        ? `Restamp interrupted after it started writing; inspect git status: ${message}`
+        : `Restamp refused, nothing changed: ${message}`
+    );
     return 1;
   }
 
