@@ -40,7 +40,10 @@ export type EstimateEditorExportController = {
     exportBdc: () => Promise<void>;
   };
   meta: {
-    isDisabled: boolean;
+    /** Excel, DPGF et BDC (GET /api/estimates/{id}/export). */
+    isStreamingDisabled: boolean;
+    /** CSV construit par le client (editor-export.ts) : exige les réglages et les totaux. */
+    isCsvDisabled: boolean;
     loadingLabel: string;
   };
 };
@@ -297,10 +300,13 @@ export function useEstimateEditorExportController(input: {
     loadingLabel = "Export CSV...";
   }
 
+  // Excel, DPGF et BDC sont produits par GET /api/estimates/{id}/export : ils
+  // n'ont pas besoin des totaux du client (nuls sur une v3). Le CSV, construit
+  // ici (editor-export.ts), les exige.
   const meta = useMemo(
     () => ({
-      isDisabled:
-        isExporting || !version || !settings || !totals,
+      isStreamingDisabled: isExporting || !version,
+      isCsvDisabled: isExporting || !version || !settings || !totals,
       loadingLabel,
     }),
     [isExporting, loadingLabel, settings, totals, version]

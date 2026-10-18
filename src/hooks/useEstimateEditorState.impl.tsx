@@ -1285,7 +1285,8 @@ export function useEstimateEditorState({
     exportBdc: handleExportBdc,
   } = exportController.actions;
   const {
-    isDisabled: isExportDisabled,
+    isStreamingDisabled: isStreamingExportDisabled,
+    isCsvDisabled: isCsvExportDisabled,
     loadingLabel: exportLoadingLabel,
   } = exportController.meta;
 
@@ -2769,8 +2770,12 @@ export function useEstimateEditorState({
         onOpenVersionZeroDialog: handleOpenVersionZeroDialog,
         versionZeroActionLabel,
         isVersionZeroActionDisabled,
-        // Exports de l'éditeur (editor-export.ts) d'une v3 : restés fermés par 2.7 (P-20, décision du porteur requise).
-        isExportDisabled: isExportDisabled || isV3,
+        // Excel et DPGF : GET …/export, ouvert à une v3 par 2.7 (v3-export.ts). Sur une v3 restent fermés le CSV,
+        // construit par le client (editor-export.ts), et le BDC (P-20, décision du porteur requise).
+        isExcelExportDisabled: isStreamingExportDisabled,
+        isDpgfExportDisabled: isStreamingExportDisabled,
+        isCsvExportDisabled: isCsvExportDisabled || isV3,
+        isBdcExportDisabled: isStreamingExportDisabled || isV3,
         isExporting,
         exportLoadingLabel,
         activeExportMode,
