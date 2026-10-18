@@ -138,7 +138,7 @@
     "postcss": "8.5.23",
     "supabase": "2.120.0",
     "tailwindcss": "^4",
-    "tsx": "^4.20.6",
+    "tsx": "^4.23.15",
     "typescript": "^6.0.3",
     "vitest": "4.1.11"
   },
