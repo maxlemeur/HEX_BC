@@ -3,16 +3,18 @@ import { randomUUID } from "node:crypto";
 import { expect } from "e2e";
 
 import {
-  apiRequest, armyTest, ownEstimate, readEstimate, recordEvidence, type ArmyItem,
+  apiRequest, armyTest, ownEstimate, readEstimate, recordEvidence, type ArmyEstimate, type ArmyItem,
 } from "../critical/fixtures";
 import { createPlanSet, ownedTakeoffJobs, requireLocalPlansBackend, uploadSamplePlan } from "../critical/plans-support";
 import {
   ENGINE_UNAVAILABLE, TAKEOFF_V3_REASON,
-  chooseRounding, chooseTemplate, chooseV2FixedMargin, closePolicy, createAffaireFromOnboarding, createTuyauteur,
-  createV2Affaire, createV2Version, createV3Version, estimateFacts, fillLabelled, fillProjectStep, insertTemplateOracle,
-  linkDpgfThroughHub, nextStep, openPolicy3, openWizard, ownedProjectIdsNamed, pause, policySnapshot, readPricingStep,
-  saveTemplate, seedV2TemplateLines, seedV3TemplateLines, sentExpectation, sentVersion, signUpCreatorOwner, storedVersions,
-  submitWizard, takeLease, templateLines, v3Settings, waitPageText,
+  callServerAction, captureScreen, chooseRounding, chooseTemplate, chooseV2FixedMargin, closePolicy,
+  createAffaireFromOnboarding, createLaborRole, createTuyauteur, createV2Affaire, createV2Version, createV3Version,
+  estimateFacts, fillLabelled, fillProjectStep, insertTemplateOracle, instantiateTemplate, linkDpgfThroughHub, nextStep,
+  openPolicy3, openWizard, ownedProjectIdsNamed, pause, policySnapshot, readPricingStep, saveTemplate, seedV2Lines,
+  seedV2TemplateLines, seedV3TemplateLines, sentExpectation, sentVersion, serverActionId, signUpCreatorOwner,
+  signUpTenantAdmin, storedVersions, submitWizard, takeLease, templateLines, tenantEstimateCounts, v3Settings,
+  versionInsertsLogged, waitPageText,
   type Envelope, type StoredVersion, type Ui, type WizardOutcome,
 } from "./engine-v3-creators-support";
 import { grid, releaseVersion, switchToExpertMode, waitForDraftLease } from "./engine-v3-editor-support";
@@ -29,8 +31,14 @@ import { grid, releaseVersion, switchToExpertMode, waitForDraftLease } from "./e
 //  F13     La structure IA d'une v3 s'ouvre, puis est refusée à la génération.
 //  F14     L'évolution de la marge retire les v3 sans le dire.
 //  F15     Gardes : sous une politique absente, chaque créateur rend la même v2 qu'aujourd'hui.
+// Revue (§9) :
+//  R1      Le métré lancé depuis une source v3 copie d'abord cette source (P-15), puis la copie est refusée.
+//  R2      Les refus nommés de M6 et les heures atelier / chantier n'ont aucune preuve sur le chemin de création.
 // Chaque parcours a son propriétaire dédié ; la politique 3 (1,30 / 1,20) est refermée à 2 en fin de parcours.
 const options = { session: "army", tags: ["critical", "local", "engine-v3", "creators"], timeout: 600_000 } as const;
+// Parcours qui capturent un état visible pour la pull request : sans la session de campagne restaurée, dont la saisie
+// du mot de passe retient toute capture ; le propriétaire dédié remplace de toute façon ses cookies.
+const capturing = { tags: options.tags, timeout: options.timeout } as const;
 const V2_ONLY_KEYS = ["margin_mode", "margin_bp", "margin_multiplier", "global_coefficient", "discount_steps"] as const;
 const V3_BLANK = { engine: 3, coefficients: [1.3, 1.2], neutral: ["fixed", 1, 1, "simple", []], rounding: ["none"] };
 const field = (item: object, key: string) => (item as Record<string, unknown>)[key];
@@ -84,7 +92,7 @@ armyTest("V3C01 the wizard creates a blank v3 under policy 3, stating its expect
     }
   });
 
-armyTest("V3C02 the wizard pricing step offers the v3 sale coefficients only and creates a v3 at 1,25 / 1,15 rounded down", options,
+armyTest("V3C02 the wizard pricing step offers the v3 sale coefficients only and creates a v3 at 1,25 / 1,15 rounded down", capturing,
   async ({ app, screen, browser, army }) => {
     const ui: Ui = { app, screen, browser };
     const owner = await signUpCreatorOwner(ui, army);
@@ -96,6 +104,7 @@ armyTest("V3C02 the wizard pricing step offers the v3 sale coefficients only and
       await nextStep(ui);
       // A4 : coefficients de la politique, aucune marge ni tranche, arrondi « Aucun » ou palier inférieur seulement.
       const offered = await readPricingStep(ui);
+      await captureScreen(ui, army, "v3c02-pricing-step");
       await recordEvidence(army, "v3c02-offered", { offered });
       expect(offered).toEqual({ saleCoefficientFo: "1,30", saleCoefficientMo: "1,20", marginControls: [], roundingOutsideV3: [] });
       await fillLabelled(ui, "Coefficient de vente FO", "1,25");
@@ -151,7 +160,7 @@ armyTest("V3C03 « Créer directement » adds a v3 to an affaire with a v2 ancho
 
 /* ---------- A1 : modèles ---------- */
 
-armyTest("V3C04 the wizard instantiates two v2 templates as v3s equal to their M6 insertion, listing converted lines and dropped settings", options,
+armyTest("V3C04 the wizard instantiates two v2 templates as v3s equal to their M6 insertion, listing converted lines and dropped settings", capturing,
   async ({ app, screen, browser, army }) => {
     const ui: Ui = { app, screen, browser };
     const owner = await signUpCreatorOwner(ui, army);
@@ -198,6 +207,7 @@ armyTest("V3C04 the wizard instantiates two v2 templates as v3s equal to their M
           ? await waitPageText(ui, ["Modèle converti au moteur de calcul 3", "Réglages du modèle non repris :", ...entry.labels,
             "Lignes converties :", `${titles.collier} : 1 h → 0,9 h`])
           : null;
+        if (report?.missing.length === 0) await captureScreen(ui, army, `v3c04-template-warning-${entry.label}`);
         const after = await storedVersions(owner, source.projectId);
         const created = createdOf(after, outcome);
         const facts = created ? estimateFacts(await readEstimate(browser, created.id)) : null;
@@ -346,7 +356,7 @@ armyTest("V3C07 « Créer l'affaire » from the onboarding creates the affaire a
 
 /* ---------- N3 : métré, structure IA, version zéro ---------- */
 
-armyTest("V3C08 a takeoff targeting a v3 is refused by name before any analysis starts, nothing written", options,
+armyTest("V3C08 a takeoff targeting a v3 is refused by name before any analysis starts, nothing written", capturing,
   async ({ app, screen, browser, army }) => {
     requireLocalPlansBackend();
     if (process.env.E2E_ARMY_BLOCK_WORKERS !== "1") throw new Error("V3C08 requires the campaign's worker-blocking server guard.");
@@ -371,6 +381,8 @@ armyTest("V3C08 a takeoff targeting a v3 is refused by name before any analysis 
         reasonShown: (await prompt.getByText(TAKEOFF_V3_REASON, { exact: true }).count()) > 0,
         launchEnabled: await prompt.getByRole("button", "Analyser maintenant", { exact: true }).isEnabled(),
       };
+      await prompt.scrollIntoView();
+      await captureScreen(ui, army, "v3c08-takeoff-proposal");
       // Une ligne dans la v3 : le hub quitte l'état d'affaire neuve et montre « Analyser les plans » (HUB01).
       await seedSupplyLine(ui, versionId, `${army.runPrefix} ligne metre`, 3);
       await app.open(`/dashboard/affaires/${anchor.projectId}`);
@@ -382,6 +394,7 @@ armyTest("V3C08 a takeoff targeting a v3 is refused by name before any analysis 
       const target = await dialog.getByLabel("Version cible", { exact: true }).inputValue();
       const reasonShown = (await dialog.getByText(TAKEOFF_V3_REASON, { exact: true }).count()) > 0;
       const launchEnabled = await dialog.getByRole("button", "Analyser maintenant", { exact: true }).isEnabled();
+      await captureScreen(ui, army, "v3c08-takeoff-dialog");
       // Entrée de l'API (fichier de métré niveau A) : refus nommé avant tout dépôt.
       const api = await browser.evaluate(async (input) => {
         const form = new FormData();
@@ -393,14 +406,27 @@ armyTest("V3C08 a takeoff targeting a v3 is refused by name before any analysis 
         try { body = await response.json(); } catch { body = null; }
         return { status: response.status, code: body?.error?.code ?? null, message: body?.error?.message ?? null };
       }, { csv: "designation;quantity;unit\nBloc beton;12;u", name: `${army.runPrefix}-metre.csv`, versionId });
+      // R1 : action serveur « Créer un brouillon depuis V… » du hub, appelée sur la v3 hors du bouton désactivé. Sa
+      // copie garderait le moteur 3 (P-15) : la source est refusée avant la copie, aucune version n'est insérée,
+      // même retirée ensuite (journal d'audit).
+      const before = { versions: (await storedVersions(owner, anchor.projectId)).length,
+        inserts: await versionInsertsLogged(owner, anchor.projectId) };
+      const action = await callServerAction(browser, await serverActionId("launchTakeoffFromSourceVersionPlanSet"),
+        { projectId: anchor.projectId, planSetId: planSet.id, sourceVersionId: versionId, level: "B" });
+      const fromSource = { status: action.status, masked: action.digest !== null,
+        versionsAdded: (await storedVersions(owner, anchor.projectId)).length - before.versions,
+        versionsInserted: (await versionInsertsLogged(owner, anchor.projectId)) - before.inserts };
       const written = await jobs.list();
       const observed = { proposal, dialog: { targetIsV3: target === versionId, reasonShown, launchEnabled },
-        api: [api.status, api.code], jobs: written.length, policyUnchanged: samePolicy(await policySnapshot(owner), policy) };
-      await recordEvidence(army, "v3c08", { owner, estimate, planSetId: planSet.id, api, written, observed });
+        api: [api.status, api.code], fromSource, jobs: written.length,
+        policyUnchanged: samePolicy(await policySnapshot(owner), policy) };
+      await recordEvidence(army, "v3c08", { owner, estimate, planSetId: planSet.id, api, action, written, observed });
       expect(observed).toEqual({
         proposal: { targetsV3: true, reasonShown: true, launchEnabled: false },
         dialog: { targetIsV3: true, reasonShown: true, launchEnabled: false },
-        api: [409, "TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED"], jobs: 0, policyUnchanged: true,
+        api: [409, "TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED"],
+        fromSource: { status: 500, masked: true, versionsAdded: 0, versionsInserted: 0 },
+        jobs: 0, policyUnchanged: true,
       });
     } finally {
       try {
@@ -411,7 +437,7 @@ armyTest("V3C08 a takeoff targeting a v3 is refused by name before any analysis 
     }
   });
 
-armyTest("V3C09 the AI structure is disabled with its reason on a v3 and its auto-open does nothing; no version-zero entry", options,
+armyTest("V3C09 the AI structure is disabled with its reason on a v3 and its auto-open does nothing; no version-zero entry", capturing,
   async ({ app, screen, browser, army }) => {
     const ui: Ui = { app, screen, browser };
     const owner = await signUpCreatorOwner(ui, army);
@@ -439,6 +465,7 @@ armyTest("V3C09 the AI structure is disabled with its reason on a v3 and its aut
         const description = ids.map((id) => document.getElementById(id)?.textContent ?? "").join(" ").replace(/\s+/g, " ").trim();
         return { disabled: node instanceof HTMLButtonElement ? node.disabled : null, description: description || null };
       });
+      await captureScreen(ui, army, "v3c09-structure-disabled");
       await browser.keyboard.press("Escape");
       // Suggestion du hub (cockpit) : l'éditeur ouvert par ?openStructureDraft=1 ne doit pas ouvrir l'assistant.
       await app.open(`/dashboard/estimates/${versionId}/edit?openStructureDraft=1`);
@@ -481,7 +508,7 @@ async function seedSupplyLine(ui: Ui, versionId: string, title: string, engine: 
   await releaseVersion(ui.browser, versionId);
 }
 
-armyTest("V3C10 the hub margin evolution keeps its v2 points and says the v3 is unavailable for engine 3", options,
+armyTest("V3C10 the hub margin evolution keeps its v2 points and says the v3 is unavailable for engine 3", capturing,
   async ({ app, screen, browser, army }) => {
     const ui: Ui = { app, screen, browser };
     const owner = await signUpCreatorOwner(ui, army);
@@ -508,6 +535,8 @@ armyTest("V3C10 the hub margin evolution keeps its v2 points and says the v3 is 
             .filter((label) => /^V\d+$/.test(label)) : null,
         };
       });
+      await screen.getByRole("heading", "Analyse de marge", { exact: true }).scrollIntoView();
+      await captureScreen(ui, army, "v3c10-margin-notice");
       const observed = {
         chartVersions: read.chartVersions,
         notice: read.text.includes("Évolution de la marge indisponible pour le moteur de calcul 3 : V3."),
@@ -647,4 +676,101 @@ armyTest("V3C12 guard: under an absent policy the wizard from a v2 template and 
       dpgfTotals: [9000, 1800, 10800],
       policyAfter: null,
     });
+  });
+
+/* ---------- R2 : refus nommés et heures atelier / chantier à la création depuis un modèle ---------- */
+
+/** Lines of a version with their workshop and site hours per unit and roles, and its totals. */
+function splitFacts(state: ArmyEstimate) {
+  const number = (value: unknown) => (value === null || value === undefined ? null : Number(value));
+  return {
+    lines: state.items.filter((item) => item.item_type === "line").map((item) => [
+      item.title, field(item, "unit_code") ?? null, number(item.quantity), number(field(item, "h_mo_per_unit")),
+      number(field(item, "h_mo_atelier_per_unit")), number(field(item, "h_mo_chantier_per_unit")),
+      field(item, "labor_role_atelier_id") ?? null, field(item, "labor_role_chantier_id") ?? null,
+      number(field(item, "pu_ht_cents")), number(item.line_total_ht_cents),
+    ]),
+    totals: [state.version.total_ht_cents, state.version.total_tax_cents, state.version.total_ttc_cents],
+  };
+}
+
+armyTest("V3C13 creating from a template refuses by name hours without quantity and a foreign labour role, nothing written, and converts workshop and site hours like its M6 insertion", options,
+  async ({ app, screen, browser, army }) => {
+    const ui: Ui = { app, screen, browser };
+    const owner = await signUpCreatorOwner(ui, army);
+    const anchor = await createV2Affaire(ui, army, `ARMY-L2-V3C13-${army.runPrefix}`);
+    const tuyauteur = await createTuyauteur(ui, army, anchor.versionId);
+    const soudeur = await createLaborRole(ui, army, anchor.versionId, "Soudeur", 5000, "v3c13-labor-role-soudeur");
+    // Main-d'œuvre éclatée (EST_031) : les moteurs valorisent alors les heures atelier et chantier par leurs rôles.
+    const flag = await apiRequest<Envelope<{ flag: { flag_key: string; enabled: boolean } }>>(browser, "PATCH", "/api/feature-flags",
+      { tenant_id: owner.tenantId, flag_key: "EST_031_LABOR_SPLIT", enabled: true });
+    await recordEvidence(army, "v3c13-split-flag", flag);
+    expect([flag.status, flag.body.ok, flag.body.data?.flag?.enabled]).toEqual([200, true, true]);
+    const titles = { q0: `${army.runPrefix} sans quantite`, split: `${army.runPrefix} atelier chantier` };
+    const q0Source = await createV2Version(ui, army, anchor.projectId, `${army.runPrefix} source sans quantite`);
+    await seedV2Lines(ui, q0Source, [
+      { title: titles.q0, description: "u", quantity: 0, h_mo: 2, unit_price_ht_cents: 1000, labor_role_id: tuyauteur },
+    ]);
+    const q0Template = await saveTemplate(ui, army, q0Source, `${army.runPrefix} modele sans quantite`);
+    // 3 u, 3 h dont 1 h d'atelier (Tuyauteur, 40 €/h) et 2 h de chantier (Soudeur, 50 €/h).
+    const splitSource = await createV2Version(ui, army, anchor.projectId, `${army.runPrefix} source eclatee`);
+    await seedV2Lines(ui, splitSource, [{
+      title: titles.split, description: "u", quantity: 3, h_mo: 3, unit_price_ht_cents: 1000, labor_role_id: tuyauteur,
+      h_mo_atelier: 1, k_mo_atelier: 1, labor_role_atelier_id: tuyauteur, h_mo_chantier: 2, k_mo_chantier: 1, labor_role_chantier_id: soudeur,
+    }]);
+    const splitTemplate = await saveTemplate(ui, army, splitSource, `${army.runPrefix} modele eclate`);
+
+    const policy = await openPolicy3(owner, army, "V3C13");
+    try {
+      // Heures sans quantité : refus nommé de M6, la ligne nommée ; ni affaire ni version.
+      const q0Name = `ARMY-L2-V3C13-q0-${army.runPrefix}`;
+      const q0Before = await tenantEstimateCounts(owner);
+      const q0 = await instantiateTemplate(ui, army, q0Template,
+        { project_name: q0Name, version_title: `${army.runPrefix} q0`, expected_calc_engine_version: 3 }, "v3c13-q0");
+      const q0Written = { named: (await ownedProjectIdsNamed(owner, q0Name)).length, counts: await tenantEstimateCounts(owner) };
+
+      // Heures atelier et chantier : la v3 créée égale l'insertion M6 du même modèle dans une v3 vierge.
+      const oracle = await insertTemplateOracle(ui, army, anchor.projectId, splitTemplate, "v3c13-split");
+      const oracleFacts = splitFacts(await readEstimate(browser, oracle.versionId));
+      const splitName = `ARMY-L2-V3C13-split-${army.runPrefix}`;
+      const split = await instantiateTemplate(ui, army, splitTemplate,
+        { project_name: splitName, version_title: `${army.runPrefix} eclatee`, expected_calc_engine_version: 3 }, "v3c13-split");
+      const splitVersionId = split.body.data?.versionId ?? null;
+      const splitCreated = splitVersionId ? splitFacts(await readEstimate(browser, splitVersionId)) : null;
+      const [splitProjectId] = await ownedProjectIdsNamed(owner, splitName);
+      const splitStored = splitProjectId ? await storedVersions(owner, splitProjectId) : [];
+
+      // Rôle MO d'un autre compte : un second administrateur de l'entreprise crée une affaire depuis le modèle du
+      // propriétaire, dont les lignes portent les rôles de ce dernier.
+      const roleName = `ARMY-L2-V3C13-role-${army.runPrefix}`;
+      const roleBefore = await tenantEstimateCounts(owner);
+      const member = await signUpTenantAdmin(ui, army, owner);
+      const role = await instantiateTemplate(ui, army, splitTemplate,
+        { project_name: roleName, version_title: `${army.runPrefix} role`, expected_calc_engine_version: 3 }, "v3c13-role");
+      const roleWritten = { named: (await ownedProjectIdsNamed(owner, roleName)).length, counts: await tenantEstimateCounts(owner) };
+
+      const refusal = (response: typeof q0, title?: string) => [response.status, response.body.ok, response.body.error?.code ?? null,
+        title === undefined ? null : (response.body.error?.message ?? "").includes(title)];
+      const data = split.body.data ?? {};
+      const observed = {
+        q0: refusal(q0, titles.q0), q0Written,
+        split: [split.status, split.body.ok, field(data, "converted_lines") ?? null, field(data, "dropped_settings") ?? null],
+        splitSettings: splitStored.map(v3Settings), splitLines: splitCreated?.lines ?? null,
+        sameAsOracle: splitCreated !== null && samePolicy(splitCreated, oracleFacts), oracleConverted: oracle.convertedLines,
+        role: refusal(role), roleWritten, policyUnchanged: samePolicy(await policySnapshot(owner), policy),
+      };
+      await recordEvidence(army, "v3c13", { owner, member, anchor, q0Template, splitTemplate, oracle, oracleFacts, splitCreated, splitStored, observed });
+      expect(observed).toEqual({
+        q0: [400, false, "ESTIMATE_V3_TEMPLATE_HOURS_WITHOUT_QUANTITY", true], q0Written: { named: 0, counts: q0Before },
+        split: [201, true, [], []], splitSettings: [V3_BLANK],
+        // h/u = arrondi(h / 3, 4) : 1 ; atelier 0,3333 ; chantier 0,6667. PU = 10,00 € × FO 1,30
+        // + (0,3333 h × 40 € + 0,6667 h × 50 €) × MO 1,20 = 13,00 + 56,0004 → 69,00 € ; 3 u → 207,00 €.
+        splitLines: [[titles.split, "u", 3, 1, 0.3333, 0.6667, tuyauteur, soudeur, 6900, 20700]],
+        sameAsOracle: true, oracleConverted: [],
+        role: [400, false, "ESTIMATE_TEMPLATE_LABOR_ROLE_REQUIRED", null], roleWritten: { named: 0, counts: roleBefore },
+        policyUnchanged: true,
+      });
+    } finally {
+      await closePolicy(owner, army, "V3C13");
+    }
   });

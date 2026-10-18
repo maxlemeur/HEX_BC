@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { Browser } from "@e2e-dev/web";
@@ -10,6 +10,7 @@ import {
   type ArmyEstimate, type ArmyItem, type ArmyState,
 } from "../critical/fixtures";
 import { querySql } from "./calculation-gate-support";
+import { signUpDedicatedOwner } from "./dedicated-owner";
 import { releaseVersion } from "./engine-v3-editor-support";
 // Aliased: the sign-up helper is not a React hook, whatever its name.
 import {
@@ -118,6 +119,62 @@ WHERE p.tenant_id = '${owner.tenantId}' AND p.name = '${name}' AND current_user 
   return JSON.parse(row ?? "[]") as string[];
 }
 
+/** Affaires and versions of the owned tenant: a refused creation writes neither. */
+export async function tenantEstimateCounts(owner: V3Owner): Promise<[number, number]> {
+  if (!UUID.test(owner.tenantId)) throw new Error("Invalid owned tenant read.");
+  const [row] = await querySql(`SELECT jsonb_build_array(
+  (SELECT count(*) FROM public.estimate_projects p WHERE p.tenant_id = '${owner.tenantId}'),
+  (SELECT count(*) FROM public.estimate_versions v WHERE v.tenant_id = '${owner.tenantId}'))
+WHERE current_user = 'postgres';
+`);
+  return (JSON.parse(row ?? "[]") as number[]).map(Number) as [number, number];
+}
+
+/**
+ * Versions ever inserted into an owned affaire, read in the audit trail (010): a copy deleted afterwards still
+ * counts, so « nothing copied » is told apart from « copied, then rolled back ».
+ */
+export async function versionInsertsLogged(owner: V3Owner, projectId: string) {
+  if (!UUID.test(owner.tenantId) || !UUID.test(projectId)) throw new Error("Invalid audit read.");
+  const [row] = await querySql(`SELECT count(*) FROM public.audit_logs a
+WHERE a.table_name = 'estimate_versions' AND a.action = 'INSERT' AND a.after_data->>'project_id' = '${projectId}'
+  AND a.after_data->>'tenant_id' = '${owner.tenantId}' AND current_user = 'postgres';
+`);
+  return Number(row);
+}
+
+/**
+ * A second administrator of the owner's ARMY tenant (tag V3CA), with that tenant as its default: the browser context
+ * now acts as it (dedicated-owner.ts). It sees the owner's templates (RLS: creator or admin); its labour roles are
+ * its own, never the owner's.
+ */
+export async function signUpTenantAdmin(ui: Ui, army: ArmyState, owner: V3Owner): Promise<V3Owner> {
+  const member = await signUpDedicatedOwner(ui.browser, ui.app.baseUrl!, army.runPrefix, { tag: "V3CA" });
+  if (!UUID.test(owner.tenantId) || !UUID.test(owner.userId) || !UUID.test(member.userId) || !UUID.test(member.tenantId)) {
+    throw new Error("Invalid tenant member identity.");
+  }
+  const tag = `$army_${randomUUID().replaceAll("-", "")}$`;
+  const output = await querySql(`BEGIN;
+DO ${tag}
+BEGIN
+  IF current_user <> 'postgres' THEN RAISE EXCEPTION 'Native owner identity differs'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.tenants t
+    JOIN public.tenant_memberships m ON m.tenant_id = t.id AND m.user_id = '${owner.userId}' AND m.role = 'admin'
+    WHERE t.id = '${owner.tenantId}' AND t.is_active AND t.name ~ '^ARMY\\y')
+  THEN RAISE EXCEPTION 'The owned ARMY tenant identity differs'; END IF;
+  UPDATE public.tenant_memberships SET is_default = false
+  WHERE user_id = '${member.userId}' AND tenant_id = '${member.tenantId}' AND is_default;
+  IF NOT FOUND THEN RAISE EXCEPTION 'The member must leave its personal default tenant'; END IF;
+  INSERT INTO public.tenant_memberships (tenant_id, user_id, role, is_default)
+  VALUES ('${owner.tenantId}', '${member.userId}', 'admin', true);
+END ${tag};
+COMMIT;
+SELECT m.tenant_id || ' ' || m.role FROM public.tenant_memberships m WHERE m.user_id = '${member.userId}' AND m.is_default;
+`);
+  if (output.at(-1) !== `${owner.tenantId} admin`) throw new Error("The member did not join the owned tenant as an administrator.");
+  return { tenantId: owner.tenantId, userId: member.userId };
+}
+
 /** The v3 projection of a stored version (§2) : moteur 3, réglages de version neutres. */
 export function v3Settings(version: StoredVersion) {
   return {
@@ -169,11 +226,16 @@ export async function createV3Version(ui: Ui, army: ArmyState, projectId: string
 
 /** The « Tuyauteur » role at 4 000 c/h of the owner, created through the anchor. */
 export async function createTuyauteur(ui: Ui, army: ArmyState, anchorId: string) {
+  return createLaborRole(ui, army, anchorId, "Tuyauteur", 4000, "v3c-labor-role");
+}
+
+/** A labour role of the owner at `rate` c/h, created through the anchor. */
+export async function createLaborRole(ui: Ui, army: ArmyState, anchorId: string, name: string, rate: number, label: string) {
   await takeLease(ui.browser, anchorId);
   const created = await apiRequest<Envelope<{ labor_role: { id: string; hourly_rate_cents: number } }>>(
-    ui.browser, "POST", `/api/estimates/${anchorId}/labor-roles`, { name: "Tuyauteur", hourly_rate_cents: 4000 });
-  await recordEvidence(army, "v3c-labor-role", { anchorId, response: created });
-  expect([created.status, created.body.ok, created.body.data.labor_role.hourly_rate_cents]).toEqual([201, true, 4000]);
+    ui.browser, "POST", `/api/estimates/${anchorId}/labor-roles`, { name, hourly_rate_cents: rate });
+  await recordEvidence(army, label, { anchorId, response: created });
+  expect([created.status, created.body.ok, created.body.data.labor_role.hourly_rate_cents]).toEqual([201, true, rate]);
   await releaseVersion(ui.browser, anchorId);
   return created.body.data.labor_role.id;
 }
@@ -186,18 +248,23 @@ export function templateLines(army: ArmyState) {
 /** One section and the two IO06 lines in a v2 by the items API (v2 line hours are totals). */
 export async function seedV2TemplateLines(ui: Ui, army: ArmyState, versionId: string, roleId: string) {
   const titles = templateLines(army);
+  await seedV2Lines(ui, versionId, [
+    { title: titles.tube, description: "ml", quantity: 10, h_mo: 5, unit_price_ht_cents: 1000, labor_role_id: roleId },
+    { title: titles.collier, description: "u", quantity: 3000, h_mo: 1, unit_price_ht_cents: 1000, labor_role_id: roleId },
+  ]);
+}
+
+/** One section « Modèle lot » and these lines in a v2, by the items API. */
+export async function seedV2Lines(ui: Ui, versionId: string, lines: ReadonlyArray<Record<string, unknown>>) {
   await takeLease(ui.browser, versionId);
   const empty = await readEstimate(ui.browser, versionId);
   const section = await apiRequest<Envelope<{ item: ArmyItem }>>(ui.browser, "POST", `/api/estimates/${versionId}/items`,
     { item_type: "section", position: 1, title: "Modèle lot" }, { "if-match": empty.version.updated_at });
   expect([section.status, section.body.ok]).toEqual([201, true]);
-  for (const [index, line] of [
-    { title: titles.tube, description: "ml", quantity: 10, h_mo: 5 },
-    { title: titles.collier, description: "u", quantity: 3000, h_mo: 1 },
-  ].entries()) {
+  for (const [index, line] of lines.entries()) {
     const current = await readEstimate(ui.browser, versionId);
     const created = await apiRequest<Envelope<{ item: ArmyItem }>>(ui.browser, "POST", `/api/estimates/${versionId}/items`,
-      { item_type: "line", parent_id: section.body.data.item.id, position: index + 1, unit_price_ht_cents: 1000, labor_role_id: roleId, ...line },
+      { item_type: "line", parent_id: section.body.data.item.id, position: index + 1, ...line },
       { "if-match": current.version.updated_at });
     expect([created.status, created.body.ok]).toEqual([201, true]);
   }
@@ -256,6 +323,66 @@ export async function insertTemplateOracle(ui: Ui, army: ArmyState, projectId: s
   expect([inserted.status, inserted.body.ok]).toEqual([200, true]);
   await releaseVersion(ui.browser, versionId);
   return { versionId, convertedLines: inserted.body.data.converted_lines ?? null };
+}
+
+/** POST /api/estimates/templates/{id}/instantiate, the wizard's « Depuis un modèle » request. */
+export async function instantiateTemplate(ui: Ui, army: ArmyState, templateId: string, body: Record<string, unknown>, label: string) {
+  const response = await apiRequest<Envelope<{ projectId?: string; versionId?: string } & Record<string, unknown>>>(
+    ui.browser, "POST", `/api/estimates/templates/${templateId}/instantiate`, body);
+  await recordEvidence(army, `v3c-instantiate-${label}`, { templateId, body, response });
+  const { projectId, versionId } = response.body.data ?? {};
+  if (projectId && versionId) ownEstimate(army, { projectId, versionId });
+  return response;
+}
+
+/* ---------- Actions serveur ---------- */
+
+/** Built id of a server action by its exported name, in the build the runner serves (`.e2e/army/next`). */
+export async function serverActionId(name: string) {
+  const reference = JSON.parse(await readFile(".e2e/army/next/server/server-reference-manifest.json", "utf8")) as
+    { node: Record<string, { exportedName?: string }> };
+  const found = Object.entries(reference.node).filter(([, entry]) => entry.exportedName === name);
+  if (found.length !== 1) throw new Error(`Built server action ${name} is missing or ambiguous.`);
+  return found[0]![0];
+}
+
+/**
+ * Calls a server action of the current page as its client does (one argument of plain strings). Status and error
+ * digest only: production masks a thrown error.
+ */
+export async function callServerAction(browser: Browser, id: string, argument: Record<string, string>) {
+  return browser.evaluate(async (input) => {
+    const response = await fetch(location.href, {
+      method: "POST", credentials: "same-origin",
+      headers: { "content-type": "text/plain;charset=UTF-8", "next-action": input.id }, body: JSON.stringify([input.argument]),
+    });
+    const text = await response.text();
+    return { status: response.status, digest: /"digest":"([^"]+)"/.exec(text)?.[1] ?? null };
+  }, { id, argument });
+}
+
+/* ---------- Captures ---------- */
+
+/**
+ * A capture of a visible state for the pull request. Only a journey without the restored campaign session can
+ * take one (the SDK withholds pixels after the sign-in fill); a refusal is recorded, never a failure.
+ */
+export async function captureScreen(ui: Ui, army: ArmyState, label: string) {
+  // Finite animations (dialog opening, menu closing) end first, within 3 s.
+  await ui.browser.evaluate(async () => {
+    const finite = document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity);
+    await Promise.race([Promise.all(finite.map((animation) => animation.finished.catch(() => null))),
+      new Promise((resolve) => setTimeout(resolve, 3_000))]);
+    return true;
+  });
+  let pixels: { status: string; file?: string; code?: string };
+  try {
+    pixels = { status: "captured", file: await ui.app.screenshot(label) };
+  } catch (error) {
+    pixels = { status: "unavailable", code: error && typeof error === "object" && "code" in error ? String(error.code) : "SCREENSHOT_UNAVAILABLE" };
+  }
+  await recordEvidence(army, `${label}-capture`, pixels);
+  return pixels;
 }
 
 /* ---------- Projections de lignes ---------- */
