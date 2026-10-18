@@ -308,8 +308,12 @@ describe("TesterArmy critical impact map", () => {
       .toEqual({ mode: "none", reason: expect.any(String), files: [] });
     expect(select(["src/components/catalogue/PriceBookCsvImport.test.ts"]).fullOnly.mode).toBe("none");
 
-    // Unsure (shared core, unmapped path, empty diff, other event, forced): all of them.
+    // Unsure (shared core, unmapped path, empty diff, other event, forced, or
+    // changes that reach every critical journey): all of them.
+    const everyCriticalJourney = select(map.suite.journeys.filter((journey) => journey !== map.suite.setup));
+    expect(everyCriticalJourney.mode).toBe("full");
     for (const unsure of [
+      everyCriticalJourney,
       select(["scripts/run-tester-army-ci.ts"]),
       select(["src/feature-without-rule/new-module.ts"]),
       select([]),
