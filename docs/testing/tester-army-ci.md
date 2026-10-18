@@ -184,6 +184,30 @@ critical, à 2 workers.
   `army-shards.json` et compte `defaultSeconds` (20 s ; 19 à 25 s en local).
   Suite complète : toujours 3 shards (1 073 s mesurées au lieu de 1 046 s).
 
+Validation locale du 18/10/2026 (WSL Ubuntu 24.04, 24 cœurs, Node 24.14.0,
+pile native possédée, 2 workers ; d'autres sessions faisaient tourner leurs
+piles en même temps) :
+
+| Run | Révision | Résultat | Preuve |
+| --- | --- | --- | --- |
+| Boucle, 10 itérations, `--files` des deux fichiers V1, `numeric-entry`, `numeric-entry-v3` et `bulk-edit-sync-sources` (témoins du mode partagé) | `8eaee26b` + ce changement | 10/10, 11/11 tests chacune, 48 à 58 s | `.e2e/army/ci/2026-10-18T12-31-05-763Z-dev-loop/` du clone `~/miaouffrage-v1-selection` |
+| Même boucle, 10 itérations | `ef0b8289` (rebasé sur `c4c1e854`), sans modification locale | 10/10, 11/11 tests chacune | `.e2e/army/ci/2026-10-18T12-42-26-122Z-dev-loop/` du même clone |
+| `npm run e2e:army:ci -- critical`, avant | `main` `c4c1e854`, sans modification locale | vert, 106/106, 28 fichiers ; parcours 417 s, run 671 s | `.e2e/army/ci/2026-10-18T12-38-15-716Z-critical/` du clone `~/miaouffrage-v1-selection-base` (`manifest.json` `1fde5ca3…8cc1`) |
+| `npm run e2e:army:ci -- critical`, après | `ef0b8289`, sans modification locale | **rouge**, 108/110, 30 fichiers ; les quatre parcours V1 verts ; parcours 560 s, run 705 s | `.e2e/army/ci/2026-10-18T12-49-48-645Z-critical/` du clone `~/miaouffrage-v1-selection-verify` (`manifest.json` `c944761e…355b`, `critical/report.json` `cb68401b…a9d`) |
+
+Les deux échecs du run « après » touchent des parcours que ce changement ne
+modifie pas et qui ne partagent aucun état avec les parcours V1 (tenants
+dédiés) : S2 de `bulk-edit-sync-sources` (le clic « Annuler » des suggestions,
+4 ms après le statut « À jour » du Ctrl+S, n'écrit rien ; K FO relu à 1,3
+pendant 30 s, total 13,00 € à l'écran) et `commercial-rounding` « historical
+modes » (`PATCH /api/estimates/<id>` en 409, émis 0,5 s après le chargement de
+l'éditeur, pendant la prise de son bail). Ce sont des courses de bail et de
+sauvegarde, signalées pour correction séparée ; le run n'a pas été relancé
+jusqu'au vert. Hôte plus chargé pendant ce run : `engine-v3-editor.e2e.ts`,
+plancher de la suite, y prend 350 s contre 231 s dans le run « avant » ; les
+durées locales ne mesurent donc pas le coût des quatre parcours, lu plutôt
+dans la boucle (V1BT 19 à 25 s, V1PT01 5 à 7 s, à 2 workers).
+
 ### Exécution full ciblée (`workflow_dispatch`, `grep`)
 
 Prouver quelques parcours de la sélection full (métré, extended, `local`) sans
