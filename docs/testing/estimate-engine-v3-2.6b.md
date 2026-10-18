@@ -60,6 +60,15 @@ ligne K, déjà en « u », propose l'unité « M2 » de sa règle (`chosenUnitP
 (ronde précédente : H de « u » à `m2`, `3eda1215`). Le reste est conforme : lot G, T, H refusé par « boite », puis G
 en `ml` ; T refusé sur sa ligne ; H, sans unité, écrit `m2` sur sa ligne ; totaux 3 250 / 650 / 3 900 c.
 
+Revue de `0a67dadf` : ce vert ne prouvait que l'affichage. La règle de K ne portait que son unité ; sa suggestion,
+réduite à rien, n'était plus affichée ni appliquée, et la garde d'écriture de `resolveEstimateRuleUnitPatch` (une
+ligne v3 qui a son unité n'en reçoit pas) pouvait disparaître sans faire échouer V3E19. `17b9ad47` donne aussi à la
+règle de K un K FO (1,25), forme courante d'une règle : en lot, K ne propose que son K FO et est décoché ; sur sa
+ligne, sa suggestion est affichée sans « Unité », appliquée puis enregistrée. Rouge par mutation (garde retirée,
+`.e2e/army/ci/2026-10-18T17-42-07-832Z-critical`) : le serveur relit K en `m2`, tout le reste conforme
+(`chosenUnitProposed: false`, `kFoProposed: true`, `k_fo` 1,25, totaux inchangés). Vert sur `17b9ad47`, arbre
+propre : K reste en `u` avec `k_fo` 1,25.
+
 ## 3. Correction
 
 - G1 : `computeEstimateQualityFlagsForItem` ne lève aucun drapeau sur une ligne non `priced` : première ronde, prix et
@@ -127,7 +136,9 @@ la PR qualifie le reste) :
 | Preuve | Commande | Révision | Résultat | Trace |
 |---|---|---|---|---|
 | Rouge | `E2E_ARMY_WORKERS=2 npm run e2e:army:local -- --app-port 3182 --grep V3E19` | `caa51eca` (parcours sur le code de `76daf992`) | sortie 1 : V3E19 rouge, `chosenUnitProposed: true` (§2) | `.e2e/army/ci/2026-10-18T16-47-15-046Z-critical`, manifeste `17a074c8…99cc8e` |
-| Vert | idem, `--grep 'V3E03\|V3E09\|V3E16\|V3E19\|local article association'` | `706cc62f`, arbre propre | sortie 0 ; pgTAP `Files=24, Tests=1941`, matrice RLS passée ; 5/5 (configuration, V3E03, V3E09, V3E16 relancé après la fusion de #45, V3E19 avec `chosenUnitProposed: false` et K en `u`) | `.e2e/army/ci/2026-10-18T17-16-31-453Z-critical`, manifeste `1be729e0…6c89` |
+| Vert | idem, `--grep 'V3E03\|V3E09\|V3E16\|V3E19\|local article association'` | `706cc62f`, arbre propre | sortie 0 ; pgTAP `Files=24, Tests=1941`, matrice RLS passée ; 5/5 (configuration, V3E03, V3E09, V3E16 relancé après la fusion de #45, V3E19 avec `chosenUnitProposed: false` ; la suggestion de K n'y était pas appliquée, voir les deux lignes suivantes) | `.e2e/army/ci/2026-10-18T17-16-31-453Z-critical`, manifeste `1be729e0…6c89` |
+| Rouge (revue de `0a67dadf`, garde d'écriture) | `E2E_ARMY_WORKERS=2 npm run e2e:army:local -- --app-port 3182 --grep V3E19` | `17b9ad47` + mutation (ligne `if (line.unit_code) return …` de `resolveEstimateRuleUnitPatch` retirée, diff `0dea8604…f5f`) | sortie 1 : V3E19 rouge, K relu en `m2` au lieu de `u`, le reste conforme ; pgTAP `Files=24, Tests=1941` | `.e2e/army/ci/2026-10-18T17-42-07-832Z-critical`, manifeste `398c7ff4…f7a9` |
+| Vert (revue de `0a67dadf`) | idem | `17b9ad47`, arbre propre | sortie 0 ; 2/2 (configuration, V3E19 : K en `u`, `k_fo` 1,25, totaux 3 250 / 650 / 3 900 c) | `.e2e/army/ci/2026-10-18T17-44-00-709Z-critical`, manifeste `7885c1d9…b651` |
 | Garde v2 de la fiche article | `E2E_ARMY_WORKERS=2 npm run e2e:army:ci -- calc-v3 --phase offers --grep PU0 --app-port 3182` | `706cc62f`, arbre propre | sortie 0 ; 6/6 (configuration, PU01-PU05 : PU04 associe un article sur une ligne v2 en barres, PU05 sur une v3) | `.e2e/army/ci/2026-10-18T17-24-42-209Z-calc-v3`, manifeste `78bc5619…02e06e3` |
 | Qualité | `npm run verify:pr` | `706cc62f`, arbre propre | sortie 0 en 1 min 45 s ; Vitest node 3 281 tests (2 ignorés), jsdom 831, couverture critique 12 | journal local du clone WSL |
 
