@@ -8,7 +8,8 @@
 // 1. two supervisors claim one checkout and share its .e2e/army build;
 // 2. a dead supervisor, or a recycled pid now running something else, is
 //    taken for a live loop (stop then skips the orphaned stack), or a live
-//    loop is taken for a stale one (stop destroys a stack in use);
+//    loop is taken for a stale one (stop destroys a stack in use), also when
+//    the checkout is reached through a symbolic link;
 // 3. a key, a database URL or the account address reaches the state file;
 // 4. a journey-only change triggers a rebuild, or an application change, a
 //    deleted source or a build replaced by another run in this checkout does
@@ -25,8 +26,9 @@
 //    port;
 // 9. a dead supervisor's workdir is gone (a WSL restart empties /tmp) while
 //    its native registry entry and data remain: stop reports the stack
-//    destroyed and deletes the only record of it, or a supervisor releases
-//    its state although `stack destroy` failed;
+//    destroyed and deletes the only record of it (also when the registry
+//    holds the resolved path, as macOS /private/var), or a supervisor
+//    releases its state although `stack destroy` failed;
 // 10. a failed state write during a run leaves the supervisor busy forever,
 //    disarms its idle TTL or replaces the iteration's result;
 // 11. an iteration's raw SDK archive under .e2e/army/critical/runs/ reads as
@@ -333,6 +335,23 @@ describe("TesterArmy dev loop", () => {
     }
   });
 
+  it.skipIf(process.platform === "win32")("takes its own supervisor when the checkout is reached through a symbolic link", async () => {
+    // The OS reports the supervisor's resolved cwd; macOS's os.tmpdir() (/var -> /private/var) is one such link.
+    const checkout = temporaryDirectory("army-dev-loop-real-");
+    const linkParent = temporaryDirectory("army-dev-loop-link-");
+    const link = path.join(linkParent, "checkout");
+    fs.symlinkSync(checkout, link);
+    const supervisor = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", DEV_LOOP_SUPERVISOR_ENTRY, "dev-loop"], { cwd: link, stdio: "ignore" });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect({ throughLink: probeSupervisor(supervisor.pid!, link), real: probeSupervisor(supervisor.pid!, checkout) })
+        .toEqual({ throughLink: "owned", real: "owned" });
+    } finally {
+      supervisor.kill("SIGKILL");
+      await waitForExit(supervisor);
+    }
+  });
+
   it("rebuilds for application changes and a replaced build, never for journey-only changes", async () => {
     const source = await buildSourceEvidence();
     const paths = source.inputs.map((input: { path: string }) => input.path);
@@ -457,6 +476,30 @@ describe("TesterArmy dev loop", () => {
     ]) {
       expect(() => parseDevLoopArguments(argv, exists), argv.join(" ")).toThrow();
     }
+  });
+
+  it.skipIf(process.platform === "win32")("finds the registry entry the CLI recorded under the resolved workdir, whether it exists or is gone", () => {
+    // macOS: the loop creates /var/folders/…/miaouffrage-supabase-ci-* but the CLI records /private/var/folders/… (18/10).
+    const registry = temporaryDirectory("army-dev-loop-registry-");
+    const realParent = temporaryDirectory("army-dev-loop-real-");
+    const link = path.join(temporaryDirectory("army-dev-loop-link-"), "tmp");
+    fs.symlinkSync(realParent, link);
+    const record = (id: string, name: string) => {
+      const entry = path.join(registry, id.repeat(64 / id.length));
+      fs.mkdirSync(entry, { recursive: true });
+      fs.writeFileSync(path.join(entry, "state.json"), JSON.stringify({
+        identity: { projectRoot: path.join(fs.realpathSync(realParent), name), stackName: "default" }, ports: [{ key: "api", host: "127.0.0.1", port: 54321 }],
+      }));
+      return path.basename(entry);
+    };
+    fs.mkdirSync(path.join(realParent, "miaouffrage-supabase-ci-live"));
+    const live = record("ab", "miaouffrage-supabase-ci-live");
+    const gone = record("cd", "miaouffrage-supabase-ci-gone");
+    expect({
+      live: findRegisteredStack(path.join(link, "miaouffrage-supabase-ci-live"), registry)?.id ?? null,
+      gone: findRegisteredStack(path.join(link, "miaouffrage-supabase-ci-gone"), registry)?.id ?? null,
+      other: findRegisteredStack(path.join(link, "miaouffrage-supabase-ci-other"), registry),
+    }).toEqual({ live, gone, other: null });
   });
 
   it("finds an abandoned stack through the native registry once its workdir is gone, and keeps the state until it is destroyed", async () => {

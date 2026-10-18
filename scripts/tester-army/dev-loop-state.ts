@@ -164,6 +164,25 @@ export class LoopStateStore {
 export type SupervisorProbe = "owned" | "dead" | "foreign";
 
 /**
+ * `target` with its symbolic links resolved, as the OS reports a process cwd
+ * and the native CLI records a workdir (macOS: /var -> /private/var). A path
+ * that no longer exists resolves through its nearest existing ancestor.
+ */
+function canonicalPath(target: string) {
+  let existing = path.resolve(target);
+  const missing: string[] = [];
+  for (;;) {
+    try { return path.join(fs.realpathSync.native(existing), ...missing); }
+    catch {
+      const parent = path.dirname(existing);
+      if (parent === existing) return path.resolve(target);
+      missing.unshift(path.basename(existing));
+      existing = parent;
+    }
+  }
+}
+
+/**
  * Whether `pid` is this checkout's loop supervisor. A recycled pid, a zombie
  * or the same command in another checkout is not.
  */
@@ -192,7 +211,7 @@ export function probeSupervisor(pid: number, checkout: string): SupervisorProbe 
   }
   if (argv.length === 0) return "dead";
   const entry = argv.findIndex((word) => word === DEV_LOOP_SUPERVISOR_ENTRY || word.endsWith(`/${DEV_LOOP_SUPERVISOR_ENTRY}`));
-  const sameCheckout = cwd !== undefined && path.resolve(cwd) === path.resolve(checkout);
+  const sameCheckout = cwd !== undefined && canonicalPath(cwd) === canonicalPath(checkout);
   return entry >= 0 && argv[entry + 1] === "dev-loop" && sameCheckout ? "owned" : "foreign";
 }
 
@@ -388,7 +407,7 @@ export function inspectRegistry(rootDirectory: string, registry = SUPABASE_STACK
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return { registered: null, unreadable };
     return { registered: null, unreadable: [`${registry} (${errorCode(error)})`] };
   }
-  const wanted = path.resolve(rootDirectory);
+  const wanted = canonicalPath(rootDirectory);
   for (const name of names.sort()) {
     const directory = path.join(registry, name);
     let isDirectory: boolean;
@@ -412,7 +431,7 @@ export function inspectRegistry(rootDirectory: string, registry = SUPABASE_STACK
       unreadable.push(`${name} (state.json: no identity.projectRoot)`);
       continue;
     }
-    if (path.resolve(projectRoot) !== wanted) continue;
+    if (canonicalPath(projectRoot) !== wanted) continue;
     const api = Array.isArray(entry?.ports)
       ? (entry.ports as Array<{ key?: unknown; port?: unknown } | null>).find((port) => port?.key === "api")
       : undefined;
