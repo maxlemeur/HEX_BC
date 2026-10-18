@@ -9,8 +9,21 @@ name: TesterArmy Full
 # extended and takeoff ones, so the critical suite also runs in full each night
 # while pull requests run only the journeys their files reach
 # (e2e-army-critical.yml, docs/testing/tester-army-ci.md).
+#
+# A dispatch may filter the full selection by test title (input grep): the
+# run is recorded "filtered-full" with its pattern, proves only the selected
+# journeys of the production full phase and skips the development phase. It
+# never qualifies the full suite, and its run title, its check on the commit
+# and its artifact say so. The schedule has no inputs: always unfiltered.
+run-name: ${{ github.event_name == 'workflow_dispatch' && inputs.grep != '' && 'TesterArmy Full (filtré --grep, non qualifiant)' || 'TesterArmy Full' }}
 on:
   workflow_dispatch:
+    inputs:
+      grep:
+        description: "Optionnel : motif --grep des titres de tests (ex. ^VNEXT Team B.*US-4\\.1). Vide : suite full complète. Filtré : seuls les tests retenus de la phase full sont prouvés."
+        required: false
+        default: ""
+        type: string
   schedule:
     - cron: '15 3 * * *'
 
@@ -23,6 +36,7 @@ concurrency:
 
 jobs:
   army-full:
+    name: ${{ github.event_name == 'workflow_dispatch' && inputs.grep != '' && 'army-full (filtré --grep, non qualifiant)' || 'army-full' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 100
     env:
@@ -106,14 +120,21 @@ jobs:
           key: army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-${{ github.sha }}
           restore-keys: |
             army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-
+      - name: Announce a filtered full run
+        if: github.event_name == 'workflow_dispatch' && inputs.grep != ''
+        run: echo "::notice title=TesterArmy Full::Exécution filtrée par --grep (manifeste scope filtered-full et grep) ; seuls les tests retenus de la phase full sont prouvés, la phase développement n'est pas lancée ; ce run ne qualifie pas la suite full."
       - name: Run native database and TesterArmy full journeys
         id: journeys
-        run: node --import tsx scripts/run-tester-army-ci.ts full
+        env:
+          # Through env and a quoted expansion, never pasted into the script.
+          # Empty (schedule, or a dispatch without a pattern): the full suite.
+          ARMY_GREP: ${{ github.event_name == 'workflow_dispatch' && inputs.grep || '' }}
+        run: node --import tsx scripts/run-tester-army-ci.ts full ${ARMY_GREP:+--grep "$ARMY_GREP"}
       - name: Retain sanitized business evidence
         if: always() && steps.journeys.outputs.evidence != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: army-full-evidence
+          name: ${{ github.event_name == 'workflow_dispatch' && inputs.grep != '' && 'army-full-filtered-evidence' || 'army-full-evidence' }}
           include-hidden-files: true
           path: ${{ steps.journeys.outputs.evidence }}
           if-no-files-found: error

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "note": "Carte d'impact versionnée des parcours TesterArmy critical (docs/testing/tester-army-ci.md). Lue par select-journeys.ts. Glob : ** = zéro ou plusieurs dossiers, * = dans un segment, {a,b} = alternative ; les crochets des routes Next sont littéraux. Tout chemin modifié non couvert ici sélectionne la suite complète.",
+  "note": "Carte d'impact versionnée des parcours TesterArmy critical et du métré (docs/testing/tester-army-ci.md). Lue par select-journeys.ts. Glob : ** = zéro ou plusieurs dossiers, * = dans un segment, {a,b} = alternative ; les crochets des routes Next sont littéraux. Tout chemin modifié non couvert ici sélectionne la suite complète.",
   "suite": {
     "journeys": [
       "e2e/army/critical/access-boundaries.e2e.ts",
@@ -40,6 +40,20 @@
       "e2e/army/critical/prehydration-auth.e2e.ts"
     ]
   },
+  "fullOnly": {
+    "note": "Parcours du métré : seule la sélection full de e2e.config.ts les lance (nuit, déclenchement manuel). Une PR qui les atteint les lance dans le job army-takeoff de e2e-army-critical.yml, à 1 worker ; tous quand la décision critical est la suite complète, aucun sur un push. Le glob est repris tel quel de la liste full de e2e.config.ts ; journeys liste exactement ses fichiers.",
+    "globs": ["e2e/army/takeoff/**/*.e2e.ts"],
+    "journeys": [
+      "e2e/army/takeoff/affaire-pilotage-panel.e2e.ts",
+      "e2e/army/takeoff/affaire-recovery-flow.e2e.ts",
+      "e2e/army/takeoff/cockpit-command-bar.e2e.ts",
+      "e2e/army/takeoff/contracts.e2e.ts",
+      "e2e/army/takeoff/generated-review.e2e.ts",
+      "e2e/army/takeoff/import-flow-carry-over.e2e.ts",
+      "e2e/army/takeoff/takeoff-dpgf-review.e2e.ts",
+      "e2e/army/takeoff/team-b-user-stories.e2e.ts"
+    ]
+  },
   "docs": [
     "docs/**",
     "maquette/**",
@@ -65,7 +79,7 @@
     ".gitignore",
     "tools/next-eslint-root-glob/**",
     ".github/dependabot.yml",
-    ".github/workflows/{e2e-army-full,e2e-army-smoke,e2e-rls-matrix,quality-gate,recover-durable-fallback,release-please,supabase-backup}.yml",
+    ".github/workflows/{e2e-army-calc-v3,e2e-army-full,e2e-army-smoke,e2e-rls-matrix,quality-gate,recover-durable-fallback,release-please,supabase-backup}.yml",
     ".claude/**",
     ".env.example",
     ".release-please-manifest.json",
@@ -90,7 +104,6 @@
     "e2e/fixtures/{autosave-navigation,catalogue-offer,ui-polish}.tsx",
     "e2e/fixtures/source-coverage/**",
     "e2e/fixtures/sample.csv",
-    "e2e/fixtures/us22_live_tabular.pdf",
     "e2e/fixtures/.gitignore"
   ],
   "full": [
@@ -208,6 +221,26 @@
       "e2e/army/critical/commercial-rounding.e2e.ts",
       "e2e/army/critical/estimate-integrity.e2e.ts",
       "e2e/army/local/engine-v3-editor.e2e.ts"
+    ],
+    "takeoff-hub": [
+      "e2e/army/takeoff/affaire-pilotage-panel.e2e.ts",
+      "e2e/army/takeoff/affaire-recovery-flow.e2e.ts",
+      "e2e/army/takeoff/cockpit-command-bar.e2e.ts",
+      "e2e/army/takeoff/import-flow-carry-over.e2e.ts",
+      "e2e/army/takeoff/takeoff-dpgf-review.e2e.ts",
+      "e2e/army/takeoff/team-b-user-stories.e2e.ts"
+    ],
+    "takeoff-affaire-takeoff": [
+      "e2e/army/takeoff/affaire-pilotage-panel.e2e.ts",
+      "e2e/army/takeoff/affaire-recovery-flow.e2e.ts",
+      "e2e/army/takeoff/takeoff-dpgf-review.e2e.ts"
+    ],
+    "takeoff-wizard": [
+      "e2e/army/takeoff/cockpit-command-bar.e2e.ts",
+      "e2e/army/takeoff/contracts.e2e.ts",
+      "e2e/army/takeoff/generated-review.e2e.ts",
+      "e2e/army/takeoff/import-flow-carry-over.e2e.ts",
+      "e2e/army/takeoff/team-b-user-stories.e2e.ts"
     ]
   },
   "rules": [
@@ -248,8 +281,9 @@
     },
     {
       "id": "affaires-list",
+      "note": "Les parcours du métré s'y connectent (loginWithUi, e2e/army/takeoff/native-ui.ts).",
       "paths": ["src/app/dashboard/affaires/page.tsx"],
-      "journeys": ["@affaires-list"]
+      "journeys": ["@affaires-list", "@takeoff-hub"]
     },
     {
       "id": "affaires-boundaries",
@@ -259,13 +293,13 @@
         "src/app/dashboard/affaires/_actions/**",
         "src/app/dashboard/affaires/new/**"
       ],
-      "journeys": ["@affaires-list", "@affaire-hub", "@plans", "@affaire-takeoff"]
+      "journeys": ["@affaires-list", "@affaire-hub", "@plans", "@affaire-takeoff", "@takeoff-hub", "@takeoff-wizard"]
     },
     {
       "id": "affaire-hub",
       "note": "Le layout du hub enveloppe plans, métré et prix de l'affaire.",
       "paths": ["src/app/dashboard/affaires/[projectId]/*.tsx"],
-      "journeys": ["@affaire-hub", "@plans", "@affaire-takeoff"]
+      "journeys": ["@affaire-hub", "@plans", "@affaire-takeoff", "@takeoff-hub"]
     },
     {
       "id": "affaire-plans",
@@ -275,17 +309,30 @@
     {
       "id": "affaire-takeoff",
       "paths": ["src/app/dashboard/affaires/[projectId]/takeoff/**"],
-      "journeys": ["@affaire-takeoff"]
+      "journeys": ["@affaire-takeoff", "@takeoff-affaire-takeoff"]
+    },
+    {
+      "id": "affaire-prices",
+      "note": "Import CSV fournisseur de la page prix de l'affaire : US-4.1, US-4.1b et US-4.1c.",
+      "paths": ["src/app/dashboard/affaires/[projectId]/prices/**"],
+      "journeys": ["e2e/army/takeoff/team-b-user-stories.e2e.ts"]
     },
     {
       "id": "estimate-wizard",
+      "note": "createEstimateViaWizard (e2e/army/critical/fixtures.ts) ouvre l'assistant puis l'éditeur, aussi pour les parcours du métré.",
       "paths": ["src/app/dashboard/estimates/new/**"],
-      "journeys": ["@wizard"]
+      "journeys": ["@wizard", "@takeoff-wizard"]
     },
     {
       "id": "estimate-editor",
       "paths": ["src/app/dashboard/estimates/[versionId]/edit/**"],
-      "journeys": ["@editor"]
+      "journeys": ["@editor", "@takeoff-wizard"]
+    },
+    {
+      "id": "estimate-takeoff",
+      "note": "Revue d'un job de métré depuis la version (TKF, contracts.e2e.ts).",
+      "paths": ["src/app/dashboard/estimates/[versionId]/takeoff/**"],
+      "journeys": ["e2e/army/takeoff/contracts.e2e.ts"]
     },
     {
       "id": "estimate-print",
@@ -302,7 +349,7 @@
       "id": "estimates-boundaries",
       "note": "error/loading des devis enveloppent assistant, éditeur et impression.",
       "paths": ["src/app/dashboard/estimates/{error,loading}.tsx"],
-      "journeys": ["@editor", "e2e/army/critical/deslop-components.e2e.ts"]
+      "journeys": ["@editor", "e2e/army/critical/deslop-components.e2e.ts", "@takeoff-wizard"]
     },
     {
       "id": "estimate-list",
@@ -318,27 +365,32 @@
     },
     {
       "id": "dpgf-pages",
-      "note": "DPGF03 traverse historique d'import, mapping et catalogue.",
+      "note": "DPGF03 traverse historique d'import, mapping et catalogue ; US-2.1 et US-2.2 importent puis mappent.",
       "paths": [
         "src/app/dashboard/imports/**",
         "src/app/dashboard/mappings/**",
         "src/app/dashboard/catalogue/**"
       ],
-      "journeys": ["e2e/army/critical/dpgf-import.e2e.ts"]
+      "journeys": ["e2e/army/critical/dpgf-import.e2e.ts", "e2e/army/takeoff/team-b-user-stories.e2e.ts"]
+    },
+    {
+      "id": "purchase-orders",
+      "note": "US-4.4 rouvre le brouillon de bon de commande créé depuis l'affaire.",
+      "paths": ["src/app/dashboard/orders/**"],
+      "journeys": ["e2e/army/takeoff/team-b-user-stories.e2e.ts"]
     },
     {
       "id": "unexercised-routes",
-      "note": "Routes connues qu'aucun parcours critical n'ouvre ; leurs modules partagés restent suivis par le graphe d'imports.",
+      "note": "Routes connues qu'aucun parcours critical ou du métré n'ouvre ; leurs modules partagés restent suivis par le graphe d'imports.",
       "paths": [
         "src/app/page.tsx",
         "src/app/favicon.ico",
         "src/app/portal/**",
         "src/app/dashboard/_actions/**",
-        "src/app/dashboard/affaires/[projectId]/prices/**",
-        "src/app/dashboard/estimates/[versionId]/{diff,plans,source-review,takeoff}/**",
+        "src/app/dashboard/estimates/[versionId]/{diff,plans,source-review}/**",
         "src/app/dashboard/estimates/{assemblies,dashboard,templates}/**",
         "src/app/dashboard/admin/{currencies,procurement-reset,rules,suggestion-learning,takeoff}/**",
-        "src/app/dashboard/{analytics,direction,indices,memberships,orders,profile,referentiel,sites,suppliers,tarifs,tenants}/**"
+        "src/app/dashboard/{analytics,direction,indices,memberships,profile,referentiel,sites,suppliers,tarifs,tenants}/**"
       ],
       "journeys": []
     },
@@ -386,14 +438,21 @@
     },
     {
       "id": "dpgf-fixture",
+      "note": "import-flow-carry-over génère un dpgf-minimal.xlsx du même nom ; il est routé par prudence.",
       "paths": ["e2e/fixtures/dpgf-minimal.csv"],
-      "journeys": ["e2e/army/critical/dpgf-import.e2e.ts"]
+      "journeys": ["e2e/army/critical/dpgf-import.e2e.ts", "e2e/army/takeoff/import-flow-carry-over.e2e.ts"]
     },
     {
       "id": "plan-fixture",
       "note": "Lu par uploadSamplePlan (plans-support.ts).",
       "paths": ["e2e/fixtures/sample-plan.pdf"],
       "journeys": ["@plans"]
+    },
+    {
+      "id": "tabular-pdf-fixture",
+      "note": "PDF tabulaire importé par US-2.2.",
+      "paths": ["e2e/fixtures/us22_live_tabular.pdf"],
+      "journeys": ["e2e/army/takeoff/team-b-user-stories.e2e.ts"]
     },
     {
       "id": "pgtap",
