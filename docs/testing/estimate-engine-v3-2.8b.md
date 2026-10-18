@@ -3,7 +3,7 @@
 Statut : **vert** (18/10/2026). Branche `lot2/2.8b-copies-into-v3`, empilée sur `lot2/2.10a-createurs-v3`
 (`216ac4d0`, outil commun de normalisation des imports dans `src/lib/affaires/`). Source : plan vers 2.10 (§3
 « 2.8b », décisions D-b et D-e du 18/10/2026), inventaire des écarts v3 (A5 à A8). Une migration depuis la revue
-(`20261018172303`, §6) ; `src/lib/estimate-calculations.ts` et `src/lib/estimate-v2-snapshot.ts` inchangés.
+(`20261018180306`, §6) ; `src/lib/estimate-calculations.ts` et `src/lib/estimate-v2-snapshot.ts` inchangés.
 
 ## 1. Défaillances observables (écrites avant le code)
 
@@ -101,7 +101,7 @@ Statut : **vert** (18/10/2026). Branche `lot2/2.8b-copies-into-v3`, empilée sur
 | Constat | Disposition |
 |---|---|
 | CI rouge, shard 3 | Parcours IO13 identifié (preuve `2026-10-18T15-07-22-063Z-critical` du run 39138950745) : copie de 1 000 opérations en 503 `BATCH_OUTCOME_UNKNOWN` après 9,7 s, délai de 8 s des rôles de l'API. Corrigé par les deux lignes suivantes |
-| 1 000 opérations hors budget | Mesuré (L7, [budget](large-estimate-statement-budget.md#copy-into-a-v3-28b-l7)) : 10–15 s ; 100 opérations dans une v3 de 1 021 éléments : 4,1 s, la projection v3 réécrivait chaque ligne. `20261018172303` ne réécrit que les montants qui changent (282 ms) ; limite ramenée à 100 opérations, taille des lots de l'éditeur. Écart au plan (1 000) : le délai de la CI l'impose |
+| 1 000 opérations hors budget | Mesuré (L7, [budget](large-estimate-statement-budget.md#copy-into-a-v3-28b-l7)) : 10–15 s ; 100 opérations dans une v3 de 1 021 éléments : 4,1 s, la projection v3 réécrivait chaque ligne. `20261018180306` ne réécrit que les montants qui changent (282 ms) ; limite ramenée à 100 opérations, taille des lots de l'éditeur. Écart au plan (1 000) : le délai de la CI l'impose |
 | Rapport P-12 non montré | `converted_lines` lu par le client ; résumé de l'import de sections et avis de la copie vers une autre version |
 | `source_metadata` perdue | `p_created_ids` porte la `source_metadata` de l'élément copié (côté serveur seulement, hors requête canonique et reçu rejoué) ; A5 : métadonnées de la ligne mappée et `import_id` |
 | Reçu > 2 Mio « écrit puis inconnu » | Infirmé : la base refuse le reçu avant validation, rien n'est écrit (mesure : 1 000 opérations avec provenance → `ESTIMATE_BATCH_INVALID_INPUT`). Réel : un refus générique. Corrigé par l'estimation du reçu avant écriture (413 nommé) |
@@ -132,7 +132,7 @@ au plus 3,5 s pour 1 000 lignes, sous le délai de 8 s des rôles de l'API en CI
 | G3 (`server.ts:4094`) : source de plus de 500 éléments lue en plusieurs pages sans revérifier son jeton | Réel. `readAllItemsForV3Copy` relit la version (`assertEstimateVersionUnchanged` : jeton et révision de contenu) après la dernière page, source comme cible ; changée : 409 `VERSION_CONFLICT`, rien n'est copié. Aucun parcours ne force une écriture entre deux pages : course non reproduite, assistant existant réutilisé |
 | Limite de 100 opérations | Remontée à 1 000 (décision ci-dessus). La migration rejoue en une passe les effets par ligne d'un lot de créations seules (rejeu M6b), saute les recherches de position et de titre par défaut quand l'opération les nomme, accumule résultats et opérations canoniques dans des tableaux et ne renvoie plus dans le reçu la `source_metadata` reçue par `p_created_ids` |
 | Reçu de l'écrivain au-delà de 2 Mio | L'estimation avant écriture (§6) refusait à tort 1 000 lignes qui tiennent (≈ 2,04 Mo réels) ; retirée. La base refuse désormais un reçu trop gros par son nom (`ESTIMATE_BATCH_RECEIPT_TOO_LARGE`, 413 sur la route de lot), la copie le rend par son 413 nommé ; rien n'est écrit dans les deux cas |
-| `main` a bougé (`33c7031b`, lecture complète) | Fusionné (`25cd083b`) : conflits `server.ts` (lecture du DPGF lié : `readAllRows` de `main` pour toutes les politiques, l'option `paginate` du 2.8b retirée) et manifeste. `20261018170351` ne redéfinit pas `commit_estimate_batch` (seuls `20261012030743` et `20261017162000` le définissent sur `main`) : il ajoute `insert_estimate_template_with_receipt` et `insert_estimate_assembly_with_receipt`, que cette migration ne touche pas. Migration réhorodatée `20261018160000` → `20261018172303` (`supabase:migrations:restamp`, garde Git et manifeste passés) |
+| `main` a bougé (`33c7031b`, lecture complète) | Fusionné (`25cd083b`) : conflits `server.ts` (lecture du DPGF lié : `readAllRows` de `main` pour toutes les politiques, l'option `paginate` du 2.8b retirée) et manifeste. `20261018170351` ne redéfinit pas `commit_estimate_batch` (seuls `20261012030743` et `20261017162000` le définissent sur `main`) : il ajoute `insert_estimate_template_with_receipt` et `insert_estimate_assembly_with_receipt`, que cette migration ne touche pas. Migration réhorodatée `20261018160000` → `20261018180306` (`supabase:migrations:restamp`, garde Git et manifeste passés) |
 
 Preuves (clone WSL `~/miaouffrage-l2-28b`, hôte partagé chargé, `E2E_ARMY_WORKERS=2`) :
 

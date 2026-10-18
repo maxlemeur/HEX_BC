@@ -1135,7 +1135,7 @@ SELECT count(*) FROM public.estimate_items WHERE parent_id = '${sectionId}'::uui
 
 // C8 (2.8b) : une copie vers une v3 est un seul lot atomique de l'écrivain v3, jusqu'à 1 000 opérations (décision du
 // propriétaire du 18/10 : jusqu'à 3,5 s localement pour 1 000 lignes ; en CI, sous le délai de 8 s des rôles de l'API,
-// run 39138950745 rouge avant 20261018172303) ; au-delà, refus nommé qui renvoie vers l'import de l'affaire, jamais une
+// run 39138950745 rouge avant 20261018180306) ; au-delà, refus nommé qui renvoie vers l'import de l'affaire, jamais une
 // écriture en plusieurs lots. C9 (revue) : un titre au-delà de 500 caractères est refusé par son nom, rien n'est écrit.
 armyTest("IO13 a section copy into a v3 is one atomic batch up to 1 000 operations and refused by name beyond it, pointing to the affaire import, nothing written", options,
   async ({ app, screen, browser, army }) => {

@@ -256,7 +256,7 @@
     "20261018093005_serialize_estimate_draft_lock_acquisition.sql": "66451e191aa8f317c83f2d87aacd39587fa6a6286b68ece431f7ae4352421178",
     "20261018102840_estimate_offer_client_contract_v2.sql": "d0a799c095fdc5b9efef2ab13cf9d13e871877fe03b355f1337d7a27ed32c84f",
     "20261018170351_complete_estimate_insertion_receipts.sql": "249383335136dcc915d6f586c4f36e6f063da3385808e5ca08208378857e3c09",
-    "20261018172303_estimate_v3_batch_copy_effects.sql": "c75129c75a128f2771d8e180a3c4b6e5843e9d61a9a29b4e34169ec658930c6d",
-    "20261018172935_estimate_offer_client_contract_v2_order.sql": "3841e9ff3c679a4a16563c4a946b47c0ba6b3551d565982249d05c2bf1a30685"
+    "20261018172935_estimate_offer_client_contract_v2_order.sql": "3841e9ff3c679a4a16563c4a946b47c0ba6b3551d565982249d05c2bf1a30685",
+    "20261018180306_estimate_v3_batch_copy_effects.sql": "c75129c75a128f2771d8e180a3c4b6e5843e9d61a9a29b4e34169ec658930c6d"
   }
 }

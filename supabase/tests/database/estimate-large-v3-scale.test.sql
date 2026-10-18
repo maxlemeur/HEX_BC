@@ -9,7 +9,7 @@
 -- - the v3 settings save (c_FO 1,3 -> 2) rewrites all 900 priced lines, so the budget measures a real repricing;
 -- - sub-lot 2.8b (L7): a 1 000-operation copy (the cap of a copy into a v3, each line with its import provenance) into
 --   an 8-item and into the 1 021-item v3 (commit_estimate_batch) commits, its receipt (which does not echo the
---   provenance) under 2 Mio, and updates none of the lines already stored. Before 20261018172303 the v3
+--   provenance) under 2 Mio, and updates none of the lines already stored. Before 20261018180306 the v3
 --   projection rewrote every line of the version, each no-op update firing the per-line revision bump and audit
 --   (4,1 s for 100 operations locally, the IO13 timeout in CI), and the receipt went over 2 Mio with the provenance.
 begin;
