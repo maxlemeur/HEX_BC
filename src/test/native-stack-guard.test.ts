@@ -6,7 +6,9 @@ import path from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
+import { isLocalProductionBuild } from "../../scripts/next-build-env.mjs";
 import {
+  acquireBuildPlace,
   acquireNativeStackSlot,
   cleanUpOnTerminationSignals,
   MAX_ACTIVE_NATIVE_STACKS,
@@ -125,6 +127,57 @@ describe("native stack slots", () => {
     }
     expect(process.listenerCount("SIGINT") + process.listenerCount("SIGTERM")).toBe(0);
     expect(fs.readdirSync(directory).filter((name) => name.startsWith("2-"))).toEqual([]);
+  });
+
+  it("gives a local production build a place, never in CI, on Vercel or for --help, and never fails it otherwise", async () => {
+    expect(isLocalProductionBuild({} as NodeJS.ProcessEnv, ["--webpack"])).toBe(true);
+    for (const env of [{ CI: "false" }, { CI: "0" }, { CI: " " }]) {
+      expect(isLocalProductionBuild(env as never, []), JSON.stringify(env)).toBe(true);
+    }
+    for (const [env, args] of [[{ CI: "true" }, []], [{ CI: "1" }, []], [{ VERCEL: "1" }, []], [{}, ["--help"]]] as const) {
+      expect(isLocalProductionBuild(env as never, [...args]), JSON.stringify([env, args])).toBe(false);
+    }
+
+    const directory = slotDirectory();
+    const listProcesses = vi.fn(noProcesses);
+    for (const env of [{ CI: "true" }, { VERCEL: "1" }]) {
+      await expect(acquireBuildPlace(env, ["--webpack"], { directory, listProcesses })).resolves.toBeUndefined();
+    }
+    await expect(acquireBuildPlace({}, ["--help"], { directory, listProcesses })).resolves.toBeUndefined();
+    expect(listProcesses).not.toHaveBeenCalled();
+
+    // Fail-open: no process listing, an unusable lock folder or an invalid setting only warn.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await expect(acquireBuildPlace({}, [], { directory, listProcesses: () => { throw new Error("ps: not found"); } }))
+        .resolves.toBeUndefined();
+      const notADirectory = path.join(directory, "file");
+      fs.writeFileSync(notADirectory, "");
+      await expect(acquireBuildPlace({}, [], { directory: notADirectory, listProcesses })).resolves.toBeUndefined();
+      await expect(acquireBuildPlace({ NATIVE_STACK_MAX_RUNS: "many" }, [], { directory, listProcesses })).resolves.toBeUndefined();
+      expect(warn).toHaveBeenCalledTimes(3);
+      expect(warn.mock.calls.flat().join("\n")).toContain("building anyway");
+    } finally {
+      warn.mockRestore();
+    }
+    expect(fs.readdirSync(directory)).toEqual(["file"]);
+
+    // A full house stops it, naming the holders.
+    const held = await Promise.all([1, 2, 3].map((pid) =>
+      acquireNativeStackSlot({ label: `run ${pid}`, directory, pid, isAlive: () => true, listProcesses: noProcesses })));
+    await expect(acquireBuildPlace({}, [], { directory, pid: 9, isAlive: () => true, listProcesses }))
+      .rejects.toThrow(/3 of 3 places[\s\S]*run PID 3: run 3/);
+
+    // A build's own process line is not counted next to its slot.
+    held[2].release();
+    const own = await acquireBuildPlace({}, ["--webpack"], {
+      directory, pid: 9, isAlive: () => true, listProcesses: () => ["    9 node scripts/next-build.mjs --webpack"],
+    });
+    expect(own).toBeDefined();
+    held[1].release();
+    await expect(acquireNativeStackSlot({
+      label: "next", directory, pid: 10, isAlive: () => true, listProcesses: () => ["9 node scripts/next-build.mjs --webpack"],
+    })).resolves.toHaveProperty("release");
   });
 
   it("never admits more than the limit among racing processes", async () => {

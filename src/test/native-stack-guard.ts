@@ -8,6 +8,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { isLocalProductionBuild } from "../../scripts/next-build-env.mjs";
+
 /**
  * Native runs one user may own at once on one host, by default: a native
  * stack and a production build each take one. `NATIVE_STACK_MAX_RUNS`
@@ -35,7 +37,7 @@ export interface AcquireNativeStackSlotOptions {
   pollMs?: number;
   pid?: number;
   isAlive?: (pid: number) => boolean;
-  /** Command lines of this user's processes. */
+  /** This user's processes, one `<pid> <command line>` per line. */
   listProcesses?: () => string[];
   sleep?: (ms: number) => Promise<void>;
 }
@@ -63,22 +65,31 @@ export function nativeStackLimit(environment: Readonly<Record<string, string | u
 }
 
 function listUserProcesses() {
-  const result = spawnSync("ps", ["-U", String(process.getuid?.() ?? os.userInfo().uid), "-o", "command="], {
+  const result = spawnSync("ps", ["-U", String(process.getuid?.() ?? os.userInfo().uid), "-o", "pid=,command="], {
     encoding: "utf8", maxBuffer: 16 * 1024 * 1024, timeout: 10_000,
   });
   if (result.error || result.status !== 0) throw new Error("Could not list this user's processes to count native runs");
   return result.stdout.split("\n").filter(Boolean);
 }
 
-/** Workdirs of running Supabase native stack hosts. */
-function stackHostRoots(commands: readonly string[]) {
-  return commands.filter((command) => /(?:^|\/)supabase __supabase_stack_host__ /.test(command)).map((command) =>
-    /"projectRoot":"((?:[^"\\]|\\.)*)"/.exec(command)?.[1] ?? command);
+function processEntries(lines: readonly string[]) {
+  return lines.map((line) => {
+    const match = /^\s*(\d+)\s+(.*)$/.exec(line);
+    return match ? { pid: Number(match[1]), command: match[2] } : { pid: undefined, command: line };
+  });
 }
 
-/** Production builds started without a stack (`npm run build`). */
-function productionBuilds(commands: readonly string[]) {
-  return commands.filter((command) => /^(?:\S*\/)?node\s+scripts\/next-build\.mjs(?:\s|$)/.test(command));
+/** Workdirs of running Supabase native stack hosts. */
+function stackHostRoots(entries: ReturnType<typeof processEntries>) {
+  return entries.map(({ command }) => command)
+    .filter((command) => /(?:^|\/)supabase __supabase_stack_host__ /.test(command))
+    .map((command) => /"projectRoot":"((?:[^"\\]|\\.)*)"/.exec(command)?.[1] ?? command);
+}
+
+/** Production builds (`npm run build`) that hold no slot of their own. */
+function productionBuilds(entries: ReturnType<typeof processEntries>, slotPids: ReadonlySet<number>) {
+  return entries.filter(({ pid, command }) => (pid === undefined || !slotPids.has(pid)) &&
+    /^(?:\S*\/)?node\s+scripts\/next-build\.mjs(?:\s|$)/.test(command)).map(({ command }) => command);
 }
 
 function canonical(directory: string) {
@@ -165,12 +176,13 @@ export async function acquireNativeStackSlot(options: AcquireNativeStackSlotOpti
       try {
         const slots = liveSlots(directory, isAlive);
         const owned = new Set(slots.flatMap((slot) => slot.stackRoot ? [canonical(slot.stackRoot)] : []));
-        const commands = listProcesses();
+        const commands = processEntries(listProcesses());
         holders = [
           ...slots.filter((slot) => slot.file !== file).map((slot) => `run PID ${slot.pid}: ${slot.detail}`),
           ...stackHostRoots(commands).filter((root) => !owned.has(canonical(root)))
             .map((root) => `native stack not owned by a guarded run: ${root}`),
-          ...productionBuilds(commands).map((command) => `production build: ${command.slice(0, 120)}`),
+          ...productionBuilds(commands, new Set(slots.map((slot) => slot.pid)))
+            .map((command) => `production build: ${command.slice(0, 120)}`),
         ];
       } catch (error) {
         fs.rmSync(file, { force: true });
@@ -223,7 +235,9 @@ type SignalTarget = Pick<NodeJS.Process, "on" | "off" | "listenerCount" | "kill"
  */
 export function cleanUpOnTerminationSignals(
   cleanup: (signal: NodeJS.Signals) => void,
-  target: SignalTarget = process
+  target: SignalTarget = process,
+  /** Told when the caller owns the shutdown, so its run can stop at a safe point. */
+  onCallerOwned?: (signal: NodeJS.Signals) => void
 ) {
   const signals = ["SIGINT", "SIGTERM"] as const;
   const remove = () => {
@@ -235,7 +249,10 @@ export function cleanUpOnTerminationSignals(
     if (cleaning) return;
     // Assumes no library registers a passive SIGINT/SIGTERM listener: any
     // other listener is taken to own the shutdown.
-    if (target.listenerCount(signal) > 1) return;
+    if (target.listenerCount(signal) > 1) {
+      onCallerOwned?.(signal);
+      return;
+    }
     cleaning = true;
     try {
       cleanup(signal);
@@ -247,4 +264,30 @@ export function cleanUpOnTerminationSignals(
   };
   for (const signal of signals) target.on(signal, handler);
   return remove;
+}
+
+/**
+ * The place of a local production build (scripts/next-build.mjs), or none.
+ * CI, Vercel and `--help` never take one. Fail-open: only a full house
+ * (NativeStackLimitError) stops the build; any other failure (no `ps`, an
+ * unwritable lock folder, an invalid setting) warns and lets it run.
+ */
+export async function acquireBuildPlace(
+  environment: Readonly<Record<string, string | undefined>>,
+  args: readonly string[],
+  overrides: Partial<AcquireNativeStackSlotOptions> = {}
+): Promise<NativeStackSlot | undefined> {
+  if (!isLocalProductionBuild(environment as NodeJS.ProcessEnv, [...args])) return undefined;
+  try {
+    return await acquireNativeStackSlot({
+      label: "production build (next-build.mjs)",
+      limit: nativeStackLimit(environment),
+      waitMs: nativeStackWaitMs(environment),
+      ...overrides,
+    });
+  } catch (error) {
+    if (error instanceof NativeStackLimitError) throw error;
+    console.warn(`[next-build] native place not reserved (${error instanceof Error ? error.message : String(error)}); building anyway`);
+    return undefined;
+  }
 }

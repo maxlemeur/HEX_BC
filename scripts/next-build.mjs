@@ -13,7 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { NEXT_BUILD_HEAP_MB, oldSpaceLimitMib, withNextBuildHeap } from "./next-build-env.mjs";
+import { isLocalProductionBuild, NEXT_BUILD_HEAP_MB, oldSpaceLimitMib, withNextBuildHeap } from "./next-build-env.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const relayedSignals = ["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"];
@@ -27,6 +27,23 @@ if (callerLimit !== undefined && !(callerLimit >= NEXT_BUILD_HEAP_MB)) {
 }
 const limit = environment.NODE_OPTIONS.split(" ").filter((word) => /^"?--max[-_]old[-_]space[-_]size/u.test(word));
 console.log(`[next-build] next build ${args.join(" ")} with NODE_OPTIONS ${limit.join(" ")}`.replace(/\s+/gu, " "));
+
+// A local build takes one of the user's native places (CI, Vercel and --help
+// never do; docs/testing/local-native-stack-tooling.md). Only a full house
+// stops it; a guard that cannot load lets the build run.
+let place;
+if (isLocalProductionBuild(process.env, args)) {
+  try {
+    const { acquireBuildPlace } = await import("../src/test/native-stack-guard.ts");
+    place = await acquireBuildPlace(process.env, args);
+  } catch (error) {
+    if (error?.name === "NativeStackLimitError") {
+      console.error(`[next-build] ${error.message}`);
+      process.exit(1);
+    }
+    console.warn(`[next-build] native place not reserved (${error?.message ?? error}); building anyway`);
+  }
+}
 
 const child = spawn(process.execPath, [nextCli, "build", ...args], {
   cwd: repositoryRoot,
@@ -42,6 +59,7 @@ const relay = (signal) => {
 };
 const release = () => {
   for (const signal of relayedSignals) process.off(signal, relay);
+  place?.release();
 };
 for (const signal of relayedSignals) process.on(signal, relay);
 child.on("error", (error) => {

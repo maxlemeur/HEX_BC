@@ -885,6 +885,12 @@ export async function runLocalSupabaseCi(
   let provisioned: ProvisionedUsers | undefined;
   const cleanupErrors: Error[] = [];
   let activePhase = "preflight";
+  // A signal the caller owns (Army dev modes) stops the run at the next phase.
+  let cancelRequested: NodeJS.Signals | undefined;
+  const checkpoint = (phase: string) => {
+    if (cancelRequested) throw new SafeDiagnosticError(`Interrupted by ${cancelRequested} before ${phase}`);
+    activePhase = phase;
+  };
   const provenance: LocalDatabaseProvenance = { source: "reset", snapshot: "disabled" };
   const withWorkdir = (args: string[]) => [
     ...args,
@@ -949,6 +955,8 @@ export async function runLocalSupabaseCi(
     destroyStack();
     // The process ends right after: report what could not be cleaned now.
     for (const error of cleanupErrors) dependencies.log(`Cleanup failed after ${signal}: ${error.message}`);
+  }, process, (signal) => {
+    cancelRequested ??= signal;
   });
   const pgTapFiles = dependencies.pgTapFiles;
   if (pgTapFiles || dependencies.skipRlsMatrix) {
@@ -959,15 +967,15 @@ export async function runLocalSupabaseCi(
   }
 
   try {
-    activePhase = "reserve native stack slot";
+    checkpoint("reserve native stack slot");
     slot = await dependencies.acquireStackSlot();
-    activePhase = "prepare isolated project";
+    checkpoint("prepare isolated project");
     project = await dependencies.prepareProject(dependencies.reservedPorts);
     slot.recordStack(project.rootDirectory);
     dependencies.onProjectPrepared?.({ ...project });
     if (interrupted) throw new Error(`Interrupted by ${interrupted} before the stack started`);
     startAttempted = true;
-    activePhase = "start local stack";
+    checkpoint("start local stack");
     // Postgres starts eagerly; Auth and the Data API start on their first request.
     dependencies.supabase(withWorkdir(["start", "--runtime", "native"]), true);
     dependencies.log("Local Supabase stack started.");
@@ -982,7 +990,7 @@ export async function runLocalSupabaseCi(
     let restored: DatabaseSnapshot | undefined;
     let stackBeforeRestore: DatabaseFingerprint | undefined;
     if (snapshotDirectory) {
-      activePhase = "restore database snapshot";
+      checkpoint("restore database snapshot");
       const operations = dependencies.databaseSnapshot ?? createDatabaseSnapshotOperations({
         configTemplate: () => readIsolatedConfigTemplate(),
         environment: dependencies.environment,
@@ -1076,7 +1084,7 @@ export async function runLocalSupabaseCi(
     }
     dependencies.onDatabaseProvenance?.({ ...provenance });
 
-    activePhase = "run pgTAP";
+    checkpoint("run pgTAP");
     const pgTapDirectory = path.join(project.rootDirectory, PGTAP_DIRECTORY);
     const pgTapOutput = dependencies.supabase(withWorkdir([
       "test",
@@ -1094,13 +1102,13 @@ export async function runLocalSupabaseCi(
     if (dependencies.skipRlsMatrix) {
       dependencies.log("Behavioral RLS matrix skipped (--skip-rls).");
     } else {
-      activePhase = "read local status";
+      checkpoint("read local status");
       status = parseLocalSupabaseStatus(
         dependencies.supabase(withWorkdir(["status", "--env"]), true)
       );
-      activePhase = "provision local Auth users";
+      checkpoint("provision local Auth users");
       provisioned = await dependencies.provisionUsers(status);
-      activePhase = "run behavioral RLS matrix";
+      checkpoint("run behavioral RLS matrix");
       const localEnvironment = {
         ...createLocalCiEnvironment(dependencies.environment),
         ...provisioned.environment,
@@ -1114,7 +1122,7 @@ export async function runLocalSupabaseCi(
       await dependencies.runRls(localEnvironment);
       dependencies.log("Behavioral RLS matrix passed.");
       if (dependencies.runApplication) {
-        activePhase = "run application validation";
+        checkpoint("run application validation");
         if (!status.databaseUrl) throw new Error("Local PostgreSQL status is missing for the application fixtures");
         await dependencies.runApplication({
           ...localEnvironment,

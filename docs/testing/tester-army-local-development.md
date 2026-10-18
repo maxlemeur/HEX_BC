@@ -959,9 +959,14 @@ refusée par `NativeStackLimitError`, qui nomme les détenteurs ;
 `NATIVE_STACK_WAIT_SECONDS=<n>` attend jusqu'à `n` secondes, et Ctrl+C annule
 cette attente. Entre exécutions gardées, il n'y a pas de course : chacune crée
 son fichier avant de compter. Les hôtes et les builds sont comptés au mieux,
-depuis la liste des processus. Un build ne réserve pas de place lui-même,
-parce que `npm run build` sert aussi à Vercel et au Quality Gate : lancé
-quand tout est pris, il tourne quand même, et l'exécution suivante l'attend.
+depuis la liste des processus. Un build local (`scripts/next-build.mjs`, donc
+`npm run build` et `check:release`) réserve aussi une place, avec le même
+refus, et la libère à sa fin, signal compris. Jamais en CI (`CI` défini, sauf
+`false`/`0`), sur Vercel (`VERCEL` défini) ni pour `--help`. Si le verrou est
+indisponible (pas de `ps`, dossier de verrou inutilisable, réglage invalide),
+le build avertit et tourne quand même : seule la limite atteinte l'arrête. Le
+build TesterArmy passe par `build-local.mjs`, sous la place de son exécution,
+et n'en prend pas une seconde.
 Détails et preuves :
 [`local-native-stack-tooling.md`](local-native-stack-tooling.md).
 

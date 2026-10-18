@@ -455,6 +455,38 @@ describe("local Supabase CI", () => {
     }
   });
 
+  it("stops at the next phase when a caller that owns the signal is interrupted before its application", async () => {
+    const projectRoot = "C:/temp/miaouffrage-supabase-ci-test";
+    // The Army dev modes: their handler only aborts the application phase.
+    const caller = vi.fn();
+    process.on("SIGINT", caller);
+    try {
+      const early = createDependencies();
+      const provision = early.dependencies.provisionUsers.getMockImplementation()!;
+      early.dependencies.provisionUsers.mockImplementation(async () => {
+        process.emit("SIGINT", "SIGINT");
+        return provision();
+      });
+      const runApplication = vi.fn(async () => {});
+      await expect(runLocalSupabaseCi({ ...early.dependencies, runApplication }))
+        .rejects.toThrow("Interrupted by SIGINT before run behavioral RLS matrix");
+      expect(early.dependencies.runRls).not.toHaveBeenCalled();
+      expect(runApplication).not.toHaveBeenCalled();
+      expect(early.calls.slice(-2)).toEqual([`stop --workdir ${projectRoot}`, `stack destroy --yes --workdir ${projectRoot}`]);
+
+      // During the application the caller's own graceful stop stays a success.
+      const late = createDependencies();
+      await expect(runLocalSupabaseCi({
+        ...late.dependencies,
+        runApplication: vi.fn(async () => { process.emit("SIGINT", "SIGINT"); }),
+      })).resolves.toEqual({ database: { source: "reset", snapshot: "disabled" } });
+    } finally {
+      process.off("SIGINT", caller);
+    }
+    expect(caller).toHaveBeenCalledTimes(2);
+    expect(process.listenerCount("SIGINT")).toBe(0);
+  });
+
   it("refuses to start a fifth native run before preparing anything", async () => {
     const run = createDependencies();
     run.dependencies.acquireStackSlot = vi.fn(async () => {
