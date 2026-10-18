@@ -12,13 +12,14 @@ import {
   footerFromStoredV3Document,
 } from "@/lib/estimates/v3-document-presentation";
 import { loadEstimateV3DocumentSource, type EstimateV3DocumentSource } from "@/lib/estimates/v3-document-server";
-import { normalizeEstimateCurrency } from "@/lib/money";
+import { normalizeEstimateCurrency, type SupportedEstimateCurrency } from "@/lib/money";
 
 /**
  * Lot 2, sous-lot 2.7 - exports XLSX d'une v3 (conception §14 « 2.7 » ; export standard et DPGF) :
  * unité du référentiel, statut, taux de TVA, heures par unité (base des heures dans l'en-tête),
  * PU et PT BRUTS publiés, ligne « Remise commerciale », arrondi commercial, HT net, TVA par taux
- * sur la base nette et TTC. Mêmes montants que le document (`prepareEstimateV3DocumentData` sur
+ * sur la base nette et TTC, au format de la devise de la version (en-têtes de montant du DPGF compris).
+ * Mêmes montants que le document (`prepareEstimateV3DocumentData` sur
  * `loadEstimateV3DocumentSource`) : aucun montant n'est calculé ici. L'accès à la version reste
  * contrôlé par l'appelant (`getEstimateVersionDetails`) avant ce chargement.
  */
@@ -53,7 +54,12 @@ export type EstimateV3ExportIdentity = {
   dateDevis: string;
 };
 
-const CURRENCY_FORMAT = "#,##0.00 \"€\"";
+/** Format Excel des montants par devise : symbole et place de `formatCurrency` (money.ts) ; EUR inchangé. */
+const CURRENCY_FORMATS: Readonly<Record<SupportedEstimateCurrency, string>> = {
+  EUR: "#,##0.00 \"€\"",
+  USD: "\"$\"#,##0.00",
+  GBP: "\"£\"#,##0.00",
+};
 
 export async function loadEstimateV3ExportDocument(versionId: string): Promise<EstimateV3ExportDocument> {
   const context = await getAuthenticatedTenantContext();
@@ -84,20 +90,27 @@ function styleHeader(sheet: Worksheet) {
   header.commit();
 }
 
-function addRow(sheet: Worksheet, values: CellValue[], options: { currency?: number[]; bold?: boolean } = {}) {
-  const row = sheet.addRow(values);
-  if (options.bold) row.font = { bold: true };
-  for (const index of options.currency ?? []) {
-    const cell = row.getCell?.(index);
-    if (cell) cell.numFmt = CURRENCY_FORMAT;
-  }
-  row.commit();
+/** Devise de la version (repli EUR, comme le document). */
+function currencyOf(document: EstimateV3ExportDocument): SupportedEstimateCurrency {
+  return normalizeEstimateCurrency(document.version.currency) ?? "EUR";
 }
 
-/** Lignes du pied v3 (libellé, montant signé en euros) : mêmes libellés que le document. */
+/** Ajout de lignes à une feuille ; `currency` liste les colonnes (base 1) au format monétaire de la version. */
+function rowWriter(sheet: Worksheet, currency: SupportedEstimateCurrency) {
+  return (values: CellValue[], options: { currency?: number[]; bold?: boolean } = {}) => {
+    const row = sheet.addRow(values);
+    if (options.bold) row.font = { bold: true };
+    for (const index of options.currency ?? []) {
+      const cell = row.getCell?.(index);
+      if (cell) cell.numFmt = CURRENCY_FORMATS[currency];
+    }
+    row.commit();
+  };
+}
+
+/** Lignes du pied v3 (libellé, montant signé dans la devise de la version) : mêmes libellés que le document. */
 function footerEntries(document: EstimateV3ExportDocument): Array<[string, number]> {
-  const currency = normalizeEstimateCurrency(document.version.currency) ?? "EUR";
-  return buildEstimateV3FooterRows(footerFromStoredV3Document(document.prepared.v3.totals), currency)
+  return buildEstimateV3FooterRows(footerFromStoredV3Document(document.prepared.v3.totals), currencyOf(document))
     .map((row) => [row.label, (row.deduction ? -row.cents : row.cents) / 100]);
 }
 
@@ -146,7 +159,9 @@ export async function writeEstimateV3Workbook(input: {
   const workbook = (await input.workbookWriterFactory(input.stream)) as WorkbookWriter;
   const { prepared, version } = input.document;
   const reverseCharge = prepared.v3.totals.reverseCharge;
+  const currency = currencyOf(input.document);
   const sheet = workbook.addWorksheet("Devis");
+  const addRow = rowWriter(sheet, currency);
   sheet.columns = [
     { header: "Poste", key: "poste", width: 12 },
     { header: "Désignation", key: "designation", width: 44 },
@@ -161,24 +176,25 @@ export async function writeEstimateV3Workbook(input: {
   for (const item of documentOrder(input.document.items)) {
     const poste = prepared.numberingById[item.id] ?? `${item.position}`;
     if (item.item_type === "section") {
-      addRow(sheet, [poste, item.title, null, null, null, null, null, euros(prepared.sectionTotalsById[item.id]?.totalHtCents)],
+      addRow([poste, item.title, null, null, null, null, null, euros(prepared.sectionTotalsById[item.id]?.totalHtCents)],
         { bold: true, currency: [8] });
       continue;
     }
     const line = prepared.v3.linesById[item.id];
     const priced = line.pricingStatus === "priced";
-    addRow(sheet, [poste, item.title, line.unitLabel ?? "", item.quantity ?? 0, ESTIMATE_V3_STATUS_DOCUMENT_LABELS[line.pricingStatus],
+    addRow([poste, item.title, line.unitLabel ?? "", item.quantity ?? 0, ESTIMATE_V3_STATUS_DOCUMENT_LABELS[line.pricingStatus],
       rate(line.taxRateBp), priced ? euros(line.unitSaleHtCents) : null, euros(line.saleHtCents)], { currency: [7, 8] });
   }
-  addRow(sheet, []);
+  addRow([]);
   for (const [label, amount] of footerEntries(input.document)) {
-    addRow(sheet, [null, label, null, null, null, null, null, amount], { bold: label === "Total HT net", currency: [8] });
+    addRow([null, label, null, null, null, null, null, amount], { bold: label === "Total HT net", currency: [8] });
   }
   sheet.commit();
 
   const summary = workbook.addWorksheet("Resume");
   summary.columns = [{ header: "Champ", key: "field", width: 40 }, { header: "Valeur", key: "value", width: 32 }];
   styleHeader(summary);
+  const addSummaryRow = rowWriter(summary, currency);
   const rows: Array<[string, string | number]> = [
     ["Version ID", input.identity.versionId],
     ["Projet", input.identity.projectName],
@@ -194,7 +210,7 @@ export async function writeEstimateV3Workbook(input: {
     ...(reverseCharge ? [["Régime de TVA", ESTIMATE_VAT_REVERSE_CHARGE_NOTICE] as [string, string]] : []),
   ];
   const currencyFields = new Set(footerEntries(input.document).map(([label]) => label));
-  for (const [field, value] of rows) addRow(summary, [field, value], { currency: currencyFields.has(field) ? [2] : [] });
+  for (const [field, value] of rows) addSummaryRow([field, value], { currency: currencyFields.has(field) ? [2] : [] });
   summary.commit();
   await workbook.commit();
 }
@@ -212,7 +228,9 @@ export async function writeEstimateV3DpgfWorkbook(input: {
   const workbook = (await input.workbookWriterFactory(input.stream)) as WorkbookWriter;
   const { prepared, version } = input.document;
   const role = (id: string | null | undefined) => (id ? (input.laborRoleNameById.get(id) ?? "") : "");
+  const currency = currencyOf(input.document);
   const sheet = workbook.addWorksheet("Données");
+  const addRow = rowWriter(sheet, currency);
   sheet.columns = [
     { header: "Type", key: "type", width: 12 },
     { header: "AID", key: "aid", width: 22 },
@@ -221,7 +239,7 @@ export async function writeEstimateV3DpgfWorkbook(input: {
     { header: "Unité", key: "unite", width: 10 },
     { header: "Statut", key: "statut", width: 16 },
     { header: "TVA (%)", key: "tva", width: 10 },
-    { header: "Prix unitaire HT EUR", key: "prix_unitaire_ht_eur", width: 22 },
+    { header: `Prix unitaire HT ${currency}`, key: "prix_unitaire_ht_eur", width: 22 },
     { header: "Type FO", key: "type_fo", width: 18 },
     { header: "K FO", key: "k_fo", width: 10 },
     { header: "h MO / unité", key: "h_mo_per_unit", width: 14 },
@@ -235,8 +253,8 @@ export async function writeEstimateV3DpgfWorkbook(input: {
     { header: "h MO Chantier / unité", key: "h_mo_chantier_per_unit", width: 21 },
     { header: "K MO Chantier", key: "k_mo_chantier", width: 15 },
     { header: "Rôle MO Chantier", key: "role_mo_chantier", width: 24 },
-    { header: "PU vente HT EUR", key: "pu_vente_ht_eur", width: 18 },
-    { header: "Total HT brut EUR", key: "total_ht_brut_eur", width: 18 },
+    { header: `PU vente HT ${currency}`, key: "pu_vente_ht_eur", width: 18 },
+    { header: `Total HT brut ${currency}`, key: "total_ht_brut_eur", width: 18 },
   ];
   styleHeader(sheet);
   const depths = depthsOf(input.document.items);
@@ -244,12 +262,12 @@ export async function writeEstimateV3DpgfWorkbook(input: {
     const designation = `${"  ".repeat(depths.get(item.id) ?? 0)}${item.title}`;
     const aid = (item as EstimateItem & { aid?: string | null }).aid?.trim() || item.id;
     if (item.item_type === "section") {
-      addRow(sheet, ["section", aid, designation], { bold: true });
+      addRow(["section", aid, designation], { bold: true });
       continue;
     }
     const line = prepared.v3.linesById[item.id];
     const priced = line.pricingStatus === "priced";
-    addRow(sheet, [
+    addRow([
       "line", aid, designation, item.quantity ?? null, line.unitCode ?? "", ESTIMATE_V3_STATUS_DOCUMENT_LABELS[line.pricingStatus],
       rate(line.taxRateBp), euros(item.unit_price_ht_cents),
       item.supply_type_id ? (input.supplyTypeById.get(item.supply_type_id) ?? "") : "", item.k_fo ?? 1,
@@ -265,6 +283,7 @@ export async function writeEstimateV3DpgfWorkbook(input: {
   const metadata = workbook.addWorksheet("Metadata");
   metadata.columns = [{ header: "Champ", key: "champ", width: 40 }, { header: "Valeur", key: "valeur", width: 42 }];
   styleHeader(metadata);
+  const addMetadataRow = rowWriter(metadata, currency);
   const totals = footerEntries(input.document);
   const rows: Array<[string, string | number]> = [
     ["Référence", input.identity.projectReference ?? ""],
@@ -280,7 +299,7 @@ export async function writeEstimateV3DpgfWorkbook(input: {
     ...(prepared.v3.totals.reverseCharge ? [["Régime de TVA", ESTIMATE_VAT_REVERSE_CHARGE_NOTICE] as [string, string]] : []),
   ];
   const currencyFields = new Set(totals.map(([label]) => label));
-  for (const [field, value] of rows) addRow(metadata, [field, value], { currency: currencyFields.has(field) ? [2] : [] });
+  for (const [field, value] of rows) addMetadataRow([field, value], { currency: currencyFields.has(field) ? [2] : [] });
   metadata.commit();
   await workbook.commit();
 }
