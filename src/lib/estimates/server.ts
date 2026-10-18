@@ -3593,22 +3593,8 @@ export async function listEstimateImportSections(
   const { supabase, tenantId } = context;
   await getVersionAccessOrThrow(supabase, sourceVersionId, context);
 
-  const { data: sourceItemsData, error: sourceItemsError } = await supabase
-    .from("estimate_items")
-    .select("*")
-    .eq("tenant_id", tenantId)
-    .eq("version_id", sourceVersionId)
-    .order("position", { ascending: true })
-    .order("created_at", { ascending: true });
-
-  if (sourceItemsError) {
-    throw mapSupabaseError(
-      sourceItemsError,
-      "Impossible de charger les sections source."
-    );
-  }
-
-  const sourceItems = (sourceItemsData ?? []) as EstimateItemRow[];
+  // Every item, by pages: the API returns 1 000 rows at most, and a partial read would miscount the sections.
+  const sourceItems = await readAllEstimateItems({ supabase, tenantId, versionId: sourceVersionId });
   const rootSections = sourceItems.filter(
     (item) => item.item_type === "section" && item.parent_id === null
   );
@@ -4071,15 +4057,16 @@ export async function duplicateEstimateVersion(
 }
 
 /**
- * Sous-lot 2.8b (C8) : toutes les lignes d'une version, par pages, au format d'une réponse de lecture. Revue Codex de
- * la PR #59 (G3) : au-delà de 500 éléments, la lecture prend plusieurs pages ; la version est relue après la dernière
- * (jeton et révision de contenu lus avec l'accès), sinon une modification concurrente de la source entre deux pages
- * donnerait une copie mêlant deux états. Version changée : 409 VERSION_CONFLICT, rien n'est copié.
+ * Toutes les lignes d'une version copiée, par pages (l'API rend 1 000 lignes au plus), quel que soit le moteur.
+ * Sous-lot 2.8b (C8, revue Codex de la PR #59, G3 ; PR #70 pour les v1/v2) : au-delà de 500 éléments, la lecture
+ * prend plusieurs pages ; la version est relue après la dernière (jeton et révision de contenu lus avec l'accès),
+ * sinon une modification concurrente entre deux pages donnerait une copie mêlant deux états. Version changée :
+ * 409 VERSION_CONFLICT, rien n'est copié.
  */
-async function readAllItemsForV3Copy(supabase: Supabase, tenantId: string, version: VersionAccessRow) {
-  const data = await readAllEstimateItems({ supabase, tenantId, versionId: version.id });
+async function readAllItemsForCopy(supabase: Supabase, tenantId: string, version: VersionAccessRow) {
+  const items = await readAllEstimateItems({ supabase, tenantId, versionId: version.id });
   await assertEstimateVersionUnchanged({ supabase, version });
-  return { data, error: null };
+  return items;
 }
 
 async function duplicateSectionInternal(input: {
@@ -4140,25 +4127,9 @@ async function duplicateSectionInternal(input: {
     userId,
   });
 
-  // 2.8b (C8) : vers une v3, lecture complète par pages (voir importSectionsFromVersion).
-  const { data: sourceItemsData, error: sourceItemsError } = targetIsV3
-    ? await readAllItemsForV3Copy(supabase, tenantId, sourceVersion)
-    : await supabase
-      .from("estimate_items")
-      .select("*")
-      .eq("tenant_id", tenantId)
-      .eq("version_id", sourceVersion.id)
-      .order("position", { ascending: true })
-      .order("created_at", { ascending: true });
-
-  if (sourceItemsError) {
-    throw mapSupabaseError(
-      sourceItemsError,
-      "Impossible de charger la section source."
-    );
-  }
-
-  const sourceItems = (sourceItemsData ?? []) as EstimateItemRow[];
+  // Every item, by pages, pinned to the version read with its access: a partial or mixed read would copy part of
+  // the section, or two states of it.
+  const sourceItems = await readAllItemsForCopy(supabase, tenantId, sourceVersion);
   const subtree = collectSectionSubtreeItems(input.sectionId, sourceItems);
 
   if (!subtree) {
@@ -4307,42 +4278,12 @@ export async function importSectionsFromVersion(
   const sourceIsV3 = usesPerUnitLabor(resolveEstimateEngineVersion(sourceVersion));
   if (sourceIsV3 && !targetIsV3) throw estimateV3SectionCopyToHistoricalError();
 
-  // Sous-lot 2.8b (C8) : une copie vers une v3 lit toutes les lignes par pages ; la lecture historique s'arrête à la
-  // limite de lignes de l'API (1 000) et tronquerait la copie en silence au lieu du refus nommé de la limite du lot.
-  const [{ data: sourceItemsData, error: sourceItemsError }, { data: targetItemsData, error: targetItemsError }] =
-    targetIsV3 ? await Promise.all([readAllItemsForV3Copy(supabase, tenantId, sourceVersion),
-      readAllItemsForV3Copy(supabase, tenantId, targetVersion)]) : await Promise.all([
-      supabase
-        .from("estimate_items")
-        .select("*")
-        .eq("tenant_id", tenantId)
-        .eq("version_id", sourceVersion.id)
-        .order("position", { ascending: true })
-        .order("created_at", { ascending: true }),
-      supabase
-        .from("estimate_items")
-        .select("*")
-        .eq("tenant_id", tenantId)
-        .eq("version_id", targetVersion.id)
-        .order("position", { ascending: true })
-        .order("created_at", { ascending: true }),
-    ]);
-
-  if (sourceItemsError) {
-    throw mapSupabaseError(
-      sourceItemsError,
-      "Impossible de charger les sections source."
-    );
-  }
-  if (targetItemsError) {
-    throw mapSupabaseError(
-      targetItemsError,
-      "Impossible de charger les sections cibles."
-    );
-  }
-
-  const sourceItems = (sourceItemsData ?? []) as EstimateItemRow[];
-  const targetItems = (targetItemsData ?? []) as EstimateItemRow[];
+  // Every item of both versions, by pages, each pinned to the version read with its access. A partial or mixed
+  // source read would import part of a section; a target one would reuse its titles and child positions.
+  const [sourceItems, targetItems] = await Promise.all([
+    readAllItemsForCopy(supabase, tenantId, sourceVersion),
+    readAllItemsForCopy(supabase, tenantId, targetVersion),
+  ]);
   const sourceItemById = new Map(sourceItems.map((item) => [item.id, item]));
 
   const selectedSectionIds = input.section_ids;

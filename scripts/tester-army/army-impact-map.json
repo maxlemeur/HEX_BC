@@ -34,6 +34,7 @@
       "e2e/army/local/engine-v3-fail-closed.e2e.ts",
       "e2e/army/local/engine-v3-import-optima.e2e.ts",
       "e2e/army/local/engine-v3-persistence.e2e.ts",
+      "e2e/army/local/estimate-copy-row-limit.e2e.ts",
       "e2e/army/local/estimate-create-calculation-gate.e2e.ts",
       "e2e/army/local/supplier-preselection-v1-totals.e2e.ts",
       "e2e/army/local/large-row-completeness.e2e.ts",
@@ -207,6 +208,7 @@
       "e2e/army/local/engine-v3-editor.e2e.ts",
       "e2e/army/local/engine-v3-fail-closed.e2e.ts",
       "e2e/army/local/engine-v3-persistence.e2e.ts",
+      "e2e/army/local/estimate-copy-row-limit.e2e.ts",
       "e2e/army/local/estimate-create-calculation-gate.e2e.ts",
       "e2e/army/local/supplier-preselection-v1-totals.e2e.ts",
       "e2e/army/local/tech-debt-lock-boundaries.e2e.ts"
