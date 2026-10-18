@@ -233,7 +233,8 @@ async function renderEstimateV3Detail(input: {
           {input.approvalJournal ? (
             <EstimateApprovalDecisionJournalCard versionId={versionId} initialJournal={input.approvalJournal} />
           ) : null}
-          <EstimateTimeline currentVersionId={versionId} versions={versionTimeline.items} pagination={versionTimeline.pagination} />
+          {/* Chaque version dans sa devise, comme l'en-tête et le résumé (revue Codex de la PR #44, F2). */}
+          <EstimateTimeline currentVersionId={versionId} versions={versionTimeline.items} pagination={versionTimeline.pagination} inVersionCurrency />
         </div>
         <div className="min-w-0">
           <EstimateV3DraftSummary summary={summary} items={items} currency={currency} />

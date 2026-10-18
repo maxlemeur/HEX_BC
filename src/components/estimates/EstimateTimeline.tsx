@@ -4,7 +4,11 @@ import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { formatEUR } from "@/lib/money";
+import {
+  formatCurrency,
+  normalizeEstimateCurrency,
+  type SupportedEstimateCurrency,
+} from "@/lib/money";
 import type {
   EstimateProjectVersionTimelineItem,
   ListEstimateProjectVersionsResult,
@@ -16,7 +20,19 @@ type EstimateTimelineProps = {
   currentVersionId: string;
   versions: EstimateProjectVersionTimelineItem[];
   pagination: ListEstimateProjectVersionsResult["pagination"];
+  /**
+   * Lot 2, sous-lot 2.6 (revue Codex de la PR #44, F2) : la fiche v3 affiche chaque version dans
+   * sa devise et aucun écart entre deux devises. Absent (fiche v1/v2) : tout en euros, comme avant.
+   */
+  inVersionCurrency?: boolean;
 };
+
+function timelineCurrency(
+  version: EstimateProjectVersionTimelineItem,
+  inVersionCurrency: boolean
+): SupportedEstimateCurrency {
+  return inVersionCurrency ? (normalizeEstimateCurrency(version.currency) ?? "EUR") : "EUR";
+}
 
 const TIMELINE_DATE_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
   day: "2-digit",
@@ -78,6 +94,7 @@ export function EstimateTimeline({
   currentVersionId,
   versions,
   pagination,
+  inVersionCurrency = false,
 }: Readonly<EstimateTimelineProps>) {
   const versionNumberById = new Map(
     versions.map((version) => [version.id, version.version_number])
@@ -130,9 +147,14 @@ export function EstimateTimeline({
                   ? (versionNumberById.get(parentVersionId) ?? null)
                   : null;
                 const previousVersion = versions[index + 1];
-                const delta = previousVersion
-                  ? version.total_ht_cents - previousVersion.total_ht_cents
-                  : 0;
+                const currency = timelineCurrency(version, inVersionCurrency);
+                const money = (cents: number) => formatCurrency(cents, currency);
+                // Aucun écart entre deux devises : la différence de leurs centimes n'a pas de sens.
+                const delta =
+                  previousVersion &&
+                  timelineCurrency(previousVersion, inVersionCurrency) === currency
+                    ? version.total_ht_cents - previousVersion.total_ht_cents
+                    : 0;
 
                 return (
                   <li
@@ -208,7 +230,7 @@ export function EstimateTimeline({
                           <p className="text-xs text-muted-foreground">Total HT</p>
                           <div className="flex items-center gap-1.5 sm:justify-end">
                             <p className="text-sm font-semibold tabular-nums text-foreground">
-                              {formatEUR(version.total_ht_cents)}
+                              {money(version.total_ht_cents)}
                             </p>
                             {delta !== 0 ? (
                               <span
@@ -218,13 +240,13 @@ export function EstimateTimeline({
                                 )}
                               >
                                 {delta > 0 ? "+" : ""}
-                                {formatEUR(delta)}
+                                {money(delta)}
                               </span>
                             ) : null}
                           </div>
                           <p className="mt-0.5 text-xs text-muted-foreground">Total TTC</p>
                           <p className="text-sm font-semibold tabular-nums text-foreground">
-                            {formatEUR(version.total_ttc_cents)}
+                            {money(version.total_ttc_cents)}
                           </p>
                         </div>
                       </div>
