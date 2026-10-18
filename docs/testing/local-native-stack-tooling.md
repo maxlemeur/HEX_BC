@@ -11,7 +11,7 @@ workflows, `scripts/run-tester-army-ci.ts` phases/selection and
 | 1 | `npm run db:ci:local -- --files a.test.sql,b.test.sql` | a path outside `supabase/tests/database` (`../`, absolute, another folder, non-`.sql`) reaches `supabase test db`; a typo silently runs zero or every file; a duplicate counts twice; the pgTAP file count check still expects the whole suite; a filtered run is mistaken for a full proof; the RLS matrix is silently dropped | isolation: argument parser (exact refusals) and the phase list of a filtered run; real run below |
 | 2 | Army Next build skips Vitest `*.test.ts(x)` | a red-first Vitest file importing a module that does not exist yet fails `next build` and therefore every TesterArmy run; `npm run typecheck`/`verify:pr` stop reporting that file | real: `build-local.mjs --execute` and `npm run typecheck` on a deliberately red file |
 | 3 | SIGINT/SIGTERM destroys the stack | Node's default signal action kills the runner during a synchronous CLI call and the `finally` never runs: the native stack keeps running (5 h observed); a second cleanup runs after the handler; the slot or workdir survives; the process no longer dies by the signal | isolation: real child process killed by SIGTERM; `runLocalSupabaseCi` cleans once on a signal during the RLS phase |
-| 4 | At most 3 native places per user (`NATIVE_STACK_MAX_RUNS`), stacks and production builds | two runs racing past the count; a crashed run (SIGKILL, power loss) holding a slot forever; a released run still counted; a refusal without saying who holds the slots; a guarded run's own stack host counted twice; an unguarded or orphan stack, or a `node scripts/next-build.mjs` build, ignored | isolation: contention with live and dead PIDs, release, wait; real refusal below |
+| 4 | A bounded number of native places per user, stacks and production builds | two runs racing past the count; a crashed run (SIGKILL, power loss) holding a slot forever; a released run still counted; a refusal without saying who holds the slots; a guarded run's own stack host counted twice; an unguarded or orphan stack, or a `node scripts/next-build.mjs` build, ignored | isolation: contention with live and dead PIDs, release, wait; real refusal below |
 
 E2E cannot reproduce these: they concern the local runners themselves (argument
 parsing, process signals, cross-process races), not a product journey.
@@ -50,9 +50,10 @@ parsing, process signals, cross-process races), not a product journey.
   `projectRoot` no live slot records (a crashed or unguarded run, a manual
   stack) and every production build started as `node scripts/next-build.mjs`
   (`npm run build`). The TesterArmy build goes through `build-local.mjs`, inside
-  a run that already holds a place. Owner decision of 18/10/2026 (memory at
-  97-98 % under WSL): the limit is 3 places by default on every host,
-  `NATIVE_STACK_MAX_RUNS=<1-32>` overrides it. Beyond it the run is refused
+  a run that already holds a place. The limit, its default and
+  `NATIVE_STACK_MAX_RUNS` are defined only in
+  [Capacité locale](tester-army-local-development.md#capacité-locale-et-redémarrages-wsl-18102026).
+  Beyond it the run is refused
   with `NativeStackLimitError` naming each holder (run PID, entry point,
   folder, start; orphan stack workdir; build command);
   `NATIVE_STACK_WAIT_SECONDS=<n>` waits up to `n` seconds instead. Processes

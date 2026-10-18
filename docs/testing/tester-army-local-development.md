@@ -938,25 +938,32 @@ sans entrer dans les dix contrôles réussis du reçu corrigé.
 
 ## Capacité locale et redémarrages WSL (18/10/2026)
 
-**Où est la limite.** Aucun code du dépôt ne borne le nombre d'exécutions
-natives possédées simultanées. Les trois points d'entrée qui créent une pile
-possédée, `runLocalSupabaseCi` (`src/test/local-supabase-ci.ts`),
+**Où est la limite.** Les trois points d'entrée qui créent une pile possédée,
+`runLocalSupabaseCi` (`src/test/local-supabase-ci.ts`),
 `withOwnedNativeStack` (`scripts/engine-v3/owned-native-stack.ts`) et
-`scripts/engine-v3/upgrade-check.ts`, comme les commandes qui les appellent
-(`db:ci:local`, `e2e:army:local`, `e2e:army:ci`, `e2e:army:calc-v3`,
+`scripts/engine-v3/upgrade-check.ts`, donc toutes les commandes qui les
+appellent (`db:ci:local`, `e2e:army:local`, `e2e:army:ci`, `e2e:army:calc-v3`,
 `e2e:army:dev-loop`, `dev:army`, `db:upgrade-check`,
-`engine:document-fingerprints`, `engine:v3:parity`), démarrent leur pile sans
-regarder celles des autres sessions ; aucune variable d'environnement ne les
-limite. La limite est une consigne donnée aux agents : **trois** depuis le 18/10
-vers 12:00 (décision du porteur, à cause de la charge engagée de l'hôte Windows
-décrite plus bas), quatre le matin du 18/10, deux avant. Attendre, en sondant
-toutes les 30 s, tant que la limite est atteinte. Ce sondage n'est pas un verrou : deux agents qui attendent voient la
-même place libre et démarrent ensemble, et une pile n'apparaît que quelques
-secondes après le lancement de sa commande. Un verrou atomique, par exemple
-`flock` sur N fichiers de place pris par ces trois points d'entrée avant
-`supabase start`, supprimerait cette course ; la PR #49 l'introduit (trois
-places par défaut, réglables par `NATIVE_STACK_MAX_RUNS`) : jusqu'à sa fusion,
-seule la consigne s'applique.
+`engine:document-fingerprints`, `engine:v3:parity`), réservent une place avant
+de préparer leur projet (`src/test/native-stack-guard.ts`, un fichier
+`~/.supabase/native-runs/<pid>-<uuid>.json` par exécution). Cette section est
+la seule référence de la limite : **trois** places par défaut, sur le Mac
+comme sur le PC (décision du porteur du 18/10 vers 12:00, à cause de la charge
+engagée de l'hôte Windows décrite plus bas ; quatre le matin du 18/10, deux
+avant), réglables par `NATIVE_STACK_MAX_RUNS=<1-32>`. Prennent une place :
+chaque exécution gardée ; chaque hôte de pile (`supabase
+__supabase_stack_host__`) dont aucune place vivante n'enregistre le
+`projectRoot` (exécution plantée ou antérieure au verrou, pile ouverte à la
+main) ; chaque build `node scripts/next-build.mjs`. Au-delà, l'exécution est
+refusée par `NativeStackLimitError`, qui nomme les détenteurs ;
+`NATIVE_STACK_WAIT_SECONDS=<n>` attend jusqu'à `n` secondes, et Ctrl+C annule
+cette attente. Entre exécutions gardées, il n'y a pas de course : chacune crée
+son fichier avant de compter. Les hôtes et les builds sont comptés au mieux,
+depuis la liste des processus. Un build ne réserve pas de place lui-même,
+parce que `npm run build` sert aussi à Vercel et au Quality Gate : lancé
+quand tout est pris, il tourne quand même, et l'exécution suivante l'attend.
+Détails et preuves :
+[`local-native-stack-tooling.md`](local-native-stack-tooling.md).
 
 **Comment compter.** Chaque exécution possède exactement une pile, donc un
 processus `__supabase_stack_host__`, de `supabase start` jusqu'à `stop` ; une
@@ -977,7 +984,8 @@ echo $((hosts + builds))
 ```
 
 `pgrep -c` affiche `0` mais sort en code 1 quand rien ne correspond, d'où
-`|| true` sous `set -e`. `verify:pr` n'a pas de processus propre à compter et
+`|| true` sous `set -e`. Le `pgrep` de macOS n'a pas `-c` : y remplacer
+`-c` par `| wc -l`. `verify:pr` n'a pas de processus propre à compter et
 n'entre pas dans la marge mesurée ci-dessous (`tsc` vers 3 Go de RSS, Vitest à
 quatre workers) : le compter comme une exécution, ou ne pas le lancer pendant
 que trois builds tournent.

@@ -157,12 +157,14 @@ Scripts spécialisés disponibles ; leur présence ne qualifie pas leur exécuti
   preuve complète `db:ci:local`.
 - Ctrl+C (SIGINT) ou SIGTERM pendant un run détruit la pile (`stop` puis
   `stack destroy --yes`), retire le répertoire isolé et libère le créneau.
-- Au plus 3 places natives simultanées par utilisateur
-  (`NATIVE_STACK_MAX_RUNS` pour changer) : runs `db:ci:local`, runner Army,
-  `engine-v3` parity et upgrade-check, plus toute pile native qu'aucun run
-  gardé ne possède et tout build `node scripts/next-build.mjs`. Au-delà, le run
-  est refusé (`NativeStackLimitError`, qui nomme les détenteurs) ;
-  `NATIVE_STACK_WAIT_SECONDS=<n>` attend `n` secondes. Détails :
+- Le nombre de places natives simultanées est borné : runs `db:ci:local`,
+  runner Army, `engine-v3` parity et upgrade-check, plus toute pile native
+  qu'aucun run gardé ne possède et tout build `node scripts/next-build.mjs`.
+  Au-delà, le run est refusé (`NativeStackLimitError`, qui nomme les
+  détenteurs) ; `NATIVE_STACK_WAIT_SECONDS=<n>` attend `n` secondes. La limite
+  et son réglage sont définis dans la section « Capacité locale » de
+  [`tester-army-local-development.md`](../docs/testing/tester-army-local-development.md#capacité-locale-et-redémarrages-wsl-18102026).
+  Détails :
   [`local-native-stack-tooling.md`](../docs/testing/local-native-stack-tooling.md).
 - Fail-closed CI workflow: `.github/workflows/e2e-rls-matrix.yml`. It blocks merges
   only when repository branch protection requires this check.
