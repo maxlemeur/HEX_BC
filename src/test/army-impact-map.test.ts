@@ -69,6 +69,9 @@ import { CRITICAL_JOURNEY_FILE, FULL_JOURNEY_FILE, FULL_ONLY_JOURNEY_FILE } from
 
 const root = process.cwd();
 const SELECTOR = "scripts/tester-army/select-journeys.ts";
+// Tests that start the selector as a process four times: 1.3 s on a developer machine, 5.4 s on a loaded
+// Quality Gate runner (run 39177586442), past the default 5 s.
+const SELECTOR_RUNS_TIMEOUT_MS = 30_000;
 
 // Owner decision of 17/10/2026: these paths always run the full suite.
 const REQUIRED_FULL = [
@@ -460,7 +463,7 @@ describe("TesterArmy critical impact map", () => {
     expect(found).toBeGreaterThanOrEqual(4);
   });
 
-  it("falls back to the full suite from the command line when git cannot answer", () => {
+  it("falls back to the full suite from the command line when git cannot answer", { timeout: SELECTOR_RUNS_TIMEOUT_MS }, () => {
     const environment = { ...process.env };
     delete environment.GITHUB_OUTPUT;
     delete environment.GITHUB_STEP_SUMMARY;
@@ -621,7 +624,7 @@ describe("TesterArmy shard plans", () => {
       .toEqual(["army-shards.json suite full needs maxShards from 1 to 8, secondsPerShard above 0 and workers from 1 to 4."]);
   });
 
-  it("hands the workflow one matrix entry per shard, its files comma-joined", () => {
+  it("hands the workflow one matrix entry per shard, its files comma-joined", { timeout: SELECTOR_RUNS_TIMEOUT_MS }, () => {
     const environment = { ...process.env };
     delete environment.GITHUB_STEP_SUMMARY;
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), "army-shards-"));
