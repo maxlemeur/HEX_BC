@@ -551,6 +551,10 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
       await app.open(`/dashboard/estimates/${ids.versionId}`);
       await expect(browser.locator("[data-seal-state]")).toHaveCount(1, { timeout: 30_000 });
       const accept = screen.getByRole("button", "Marquer accepté", { exact: true });
+      // The status actions are a client island of the page: the first green run read them absent although the page,
+      // read again at the failure, rendered them. Wait (bounded, no assertion) before recording what is shown.
+      const acceptDeadline = Date.now() + 30_000;
+      while (!(await presence(accept)).present && Date.now() < acceptDeadline) await new Promise((resolve) => setTimeout(resolve, 500));
       const acceptBefore = await presence(accept);
       const issuedActions = await detailActions();
       const issuedDetail = { seal: await sealOf(), status: await statusOf(), accept: acceptBefore, summary: await summaryCard(),
