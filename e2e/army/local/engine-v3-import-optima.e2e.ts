@@ -26,6 +26,8 @@ import { setTenantCalcPolicy, useDedicatedV3Owner as signUpDedicatedV3Owner, typ
 //  E6  Un collage OPTIMA avec heures est refusé sur une v3 ; aucune cible h/u.
 //  E7  Un ouvrage de bibliothèque est refusé dans une v3.
 //  E9  Un modèle est refusé dans une v3.
+//  E10 La lecture d'un lot complet bloque ~60 s une fois sur trois : les enrichissements de provenance filtrent
+//      `.in()` sur tous les éléments, URL au-delà de la limite d'en-têtes de la passerelle (431).
 // Chiffres d'acceptation : conception §5.4 (lots OPTIMA complets, P-03), aussi contrôlés hors navigateur par
 // scripts/engine-v3/optima-lot-check.ts. Les classeurs sont déjà versionnés (docs/prd_file, S-01) : le parcours
 // en copie un dans ses artefacts et n'ajoute rien au dépôt.
@@ -109,9 +111,12 @@ async function leaseSession(browser: Browser, versionId: string) {
   return { "x-estimate-draft-lock-session-id": sessionId };
 }
 
+/** E10: well above a normal read of a full lot (~0,2 to 1,2 s locally), well below the ~60 s stall. */
+const READ_BUDGET_MS = 10_000;
+
 /**
- * GET /api/estimates/{id} started in the page and awaited by polling: the read of a v3 of ~880 enriched
- * lines can outlast one browser.evaluate budget right after a settings save; its duration is recorded.
+ * GET /api/estimates/{id} started in the page and awaited by polling, so that a stalled read is measured
+ * instead of failing on one browser.evaluate budget; its duration is recorded and bounded (E10).
  */
 async function readEstimatePatiently(browser: Browser, versionId: string) {
   type Pending = { started: number; done: { status: number; ms: number; text: string } | null };
@@ -128,6 +133,7 @@ async function readEstimatePatiently(browser: Browser, versionId: string) {
     (globalThis as typeof globalThis & { __ioRead?: Pending }).__ioRead?.done !== null), { timeout: 180_000 }).toBe(true);
   const done = await browser.evaluate(() => (globalThis as typeof globalThis & { __ioRead?: Pending }).__ioRead!.done!);
   expect(done.status).toBe(200);
+  expect(done.ms).toBeLessThan(READ_BUDGET_MS);
   const body = JSON.parse(done.text) as Envelope<{ version: ArmyEstimate["version"]; items: ArmyItem[] }>;
   return { state: { project: body.data.version.estimate_projects, version: body.data.version, items: body.data.items } as ArmyEstimate,
     ms: done.ms };
@@ -264,6 +270,17 @@ async function expectOfferAndCost(browser: Browser, army: ArmyState, versionId: 
     .toEqual([lot.sumAtOfferCoefficientsCents, lot.costCents, lot.realizedSaleCoefficient]);
 }
 
+/** E10: consecutive reads of the same lot stay within budget and return the same items and totals. */
+async function expectConsecutiveReads(browser: Browser, army: ArmyState, versionId: string, label: string) {
+  const reads: Array<{ ms: number; items: number; totalHtCents: unknown }> = [];
+  for (let index = 0; index < 6; index += 1) {
+    const { state, ms } = await readEstimatePatiently(browser, versionId);
+    reads.push({ ms, items: state.items.length, totalHtCents: state.version.total_ht_cents });
+  }
+  await recordEvidence(army, `io-${label}-consecutive-reads`, { versionId, budgetMs: READ_BUDGET_MS, reads });
+  expect(new Set(reads.map((read) => `${read.items}:${read.totalHtCents}`)).size).toBe(1);
+}
+
 armyTest("IO01 the hydraulic OPTIMA lot imports into a v3 at its workbook prices (785/785), then IO02 at 1,30 / 1,20 and at cost", options,
   async ({ app, screen, browser, army }) => {
     const ui = { app, screen, browser };
@@ -272,6 +289,7 @@ armyTest("IO01 the hydraulic OPTIMA lot imports into a v3 at its workbook prices
       const versionId = await importWorkbook(ui, army, projectId, LOTS.HYDRAULIQUE);
       await expectImportedLot(browser, army, versionId, LOTS.HYDRAULIQUE, "hydraulique");
       await expectOfferAndCost(browser, army, versionId, LOTS.HYDRAULIQUE, "hydraulique");
+      await expectConsecutiveReads(browser, army, versionId, "hydraulique");
     } finally {
       await closePolicy(owner, army, "hydraulique");
     }
@@ -285,6 +303,7 @@ armyTest("IO03 the plumbing OPTIMA lot imports into a v3 at its workbook prices 
       const versionId = await importWorkbook(ui, army, projectId, LOTS.PLOMBERIE);
       await expectImportedLot(browser, army, versionId, LOTS.PLOMBERIE, "plomberie");
       await expectOfferAndCost(browser, army, versionId, LOTS.PLOMBERIE, "plomberie");
+      await expectConsecutiveReads(browser, army, versionId, "plomberie");
     } finally {
       await closePolicy(owner, army, "plomberie");
     }
