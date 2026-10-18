@@ -69,9 +69,6 @@ import { CRITICAL_JOURNEY_FILE, FULL_JOURNEY_FILE, FULL_ONLY_JOURNEY_FILE } from
 
 const root = process.cwd();
 const SELECTOR = "scripts/tester-army/select-journeys.ts";
-// Tests that start the selector as a process four times: 1.3 s on a developer machine, 5.4 s on a loaded
-// Quality Gate runner (run 39177586442), past the default 5 s.
-const SELECTOR_RUNS_TIMEOUT_MS = 30_000;
 
 // Owner decision of 17/10/2026: these paths always run the full suite.
 const REQUIRED_FULL = [
@@ -463,7 +460,7 @@ describe("TesterArmy critical impact map", () => {
     expect(found).toBeGreaterThanOrEqual(4);
   });
 
-  it("falls back to the full suite from the command line when git cannot answer", { timeout: SELECTOR_RUNS_TIMEOUT_MS }, () => {
+  it("falls back to the full suite from the command line when git cannot answer", () => {
     const environment = { ...process.env };
     delete environment.GITHUB_OUTPUT;
     delete environment.GITHUB_STEP_SUMMARY;
@@ -488,7 +485,8 @@ describe("TesterArmy critical impact map", () => {
 
     expect(run(["--event", "pull_request", "--force-full"]).status).toBe(2);
     expect(run(["--event", "pull_request", "--unknown", "x"]).status).toBe(2);
-  });
+    // Four selector processes: the 5 s default does not hold on a loaded runner (PR #75, run 39176050241).
+  }, 30_000);
 });
 
 describe("TesterArmy shard plans", () => {
@@ -624,7 +622,7 @@ describe("TesterArmy shard plans", () => {
       .toEqual(["army-shards.json suite full needs maxShards from 1 to 8, secondsPerShard above 0 and workers from 1 to 4."]);
   });
 
-  it("hands the workflow one matrix entry per shard, its files comma-joined", { timeout: SELECTOR_RUNS_TIMEOUT_MS }, () => {
+  it("hands the workflow one matrix entry per shard, its files comma-joined", () => {
     const environment = { ...process.env };
     delete environment.GITHUB_STEP_SUMMARY;
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), "army-shards-"));
@@ -662,7 +660,8 @@ describe("TesterArmy shard plans", () => {
     } finally {
       fs.rmSync(directory, { recursive: true, force: true });
     }
-  });
+    // Four selector processes and two in-process plans: timed out at 5,3 s on a loaded runner (PR #75, run 39176050241).
+  }, 30_000);
 });
 
 /** Journey files the e2e.config.ts full selection runs in this working tree. */

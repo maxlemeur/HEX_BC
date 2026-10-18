@@ -41,6 +41,7 @@
       "e2e/army/local/estimate-row-limit-reads.e2e.ts",
       "e2e/army/local/supplier-preselection-v1-totals.e2e.ts",
       "e2e/army/local/large-row-completeness.e2e.ts",
+      "e2e/army/local/estimate-reorder-move-large-v2.e2e.ts",
       "e2e/army/local/tech-debt-lock-boundaries.e2e.ts"
     ],
     "setup": "e2e/army/critical/auth.setup.e2e.ts",
@@ -277,6 +278,11 @@
       "id": "large-row-completeness",
       "paths": ["src/lib/supabase/read-all.ts", "e2e/army/local/large-row-completeness.e2e.ts"],
       "journeys": ["e2e/army/local/large-row-completeness.e2e.ts"]
+    },
+    {
+      "id": "reorder-move-large",
+      "paths": ["e2e/army/local/estimate-reorder-move-large-v2.e2e.ts"],
+      "journeys": ["e2e/army/local/estimate-reorder-move-large-v2.e2e.ts"]
     },
     {
       "id": "affaire-hub-fresh-start",

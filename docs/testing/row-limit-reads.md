@@ -117,9 +117,9 @@ un propriétaire dédié avec 1 001 versions, amorçages par lots de 250 lignes 
   contenu de la version à chaque ligne réécrite (Mesures). Au facteur de charge CI de 12 à 19
   ([large-estimate-statement-budget.md](large-estimate-statement-budget.md)), elle dépasse le
   `statement_timeout` de 8 s : ce chemin n'est donc pas un parcours CI, LR02 et LR03 prouvent la lecture complète
-  par le refus d'une liste incomplète. Le coût existe déjà sur `main` pour un parent de 999 frères : ce sont les
-  effets par ligne, que la création atomique rejoue en bloc depuis M6b mais pas le réordonnancement ni le
-  déplacement ; non corrigé ici.
+  par le refus d'une liste incomplète. Ce coût, celui des effets par ligne, est corrigé depuis par #75
+  ([reorder-move-large-v2.md](reorder-move-large-v2.md)), dont les parcours RM01 à RM04 font en CI le chemin
+  complet à 1 000 frères ; le chemin complet au-delà de 1 000 frères pourrait désormais rejoindre LR02 et LR03.
 - **Création d'une ligne dans une v2 de 1 001 lignes** : 3 803 ms par requête (itération 4), parce que la
   création reprojette toutes les lignes de la version et les réécrit, chacune avec ses effets par ligne.
   Antérieur, non corrigé ; LR04 l'évite avec des sections vides.
