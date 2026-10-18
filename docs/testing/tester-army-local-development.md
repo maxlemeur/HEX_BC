@@ -65,7 +65,10 @@ régulière JavaScript appliquée aux titres des tests : la placer entre
 apostrophes, `|` sépare plusieurs titres. Une valeur absente ou une expression
 invalide est refusée avant toute étape. SQL/RLS/build et le setup de connexion
 restent exécutés à chaque run ; un motif qui ne retient aucun scénario métier
-authentifié reste un échec.
+authentifié reste un échec. Pour rejouer plusieurs fois les mêmes parcours sans
+recréer la pile ni reconstruire l'application, utiliser la
+[boucle d'itération](#boucle-ditération-réutilisable-e2earmydev-loop) ; elle ne
+remplace pas ce run qualifiant.
 
 `--files` remplace `--grep` par une liste de fichiers de parcours, séparés par
 des virgules, sous `e2e/army/critical/` ou `e2e/army/local/` : c'est l'option
@@ -124,6 +127,210 @@ la suite full nocturne (`e2e-army-full.yml`), dont les parcours étendus et
 takeoff ne sont pas qualifiés à 2, reste à 1. 3 ou 4 workers restent
 exploratoires : une seule suite complète verte est prouvée à workers=3, avant la
 correction de HUB02.
+
+### Boucle d'itération réutilisable (`e2e:army:dev-loop`)
+
+Chaque `e2e:army:local` recrée une pile, rejoue migrations, pgTAP et matrice RLS,
+provisionne un compte et reconstruit l'application avant le premier parcours.
+Pour rejouer plusieurs fois les mêmes parcours pendant une mise au point, la
+boucle, en opt-in, garde ces étapes ouvertes entre deux essais :
+
+```sh
+npm run e2e:army:dev-loop -- start --app-port 3118 [--ttl-minutes 60]
+npm run e2e:army:dev-loop -- run --grep '<motif>'
+npm run e2e:army:dev-loop -- run --files 'e2e/army/critical/a.e2e.ts,e2e/army/local/b.e2e.ts'
+npm run e2e:army:dev-loop -- status
+npm run e2e:army:dev-loop -- stop
+```
+
+`start` lance en arrière-plan un superviseur
+`run-tester-army-ci.ts dev-loop`, puis rend la main quand il est prêt. Le
+superviseur passe par la même préparation que `critical` : refus d'un `.env` ou
+d'une cible Supabase héritée, pile native possédée et jetable, ports Supabase
+alloués hors de la plage éphémère et des ports interdits au navigateur.
+`--app-port` refuse en plus `45585` et `33485`, ports de la pile de recette
+locale des développeurs (API et base). Il exécute une seule fois migrations,
+pgTAP et matrice RLS, crée le compte, le tenant et les fixtures ARMY, puis
+construit l'application en production avec `build-local.mjs`. Pour chaque `run`, il exécute les parcours
+critical sélectionnés sur cette pile et ce build, avec tous les contrôles de
+`critical` : setup de connexion exact et parcours métier authentifié, ni skip,
+ni succès après retry, ni interruption, `--files` exact, sources et build
+inchangés pendant le run. `--grep` ou `--files` est obligatoire, avec les mêmes
+règles que `e2e:army:local`. Seule la phase `critical` est disponible : full,
+development et les phases calc-v3 gardent leurs commandes. Deux `run`
+simultanés sont refusés (`busy`, code 2).
+
+Reconstruction : avant chaque `run`, la boucle calcule l'empreinte des entrées
+enregistrées par `build-local.mjs` (`buildSourceEvidence().inputs` : `src`,
+`public`, `scripts`, `tools`, `next.config.ts`, `postcss.config.mjs`,
+`package.json`, `package-lock.json`, `tsconfig.json`, `openapi.json`, fichiers
+non suivis compris). L'empreinte porte sur le contenu, pas sur la révision ni
+le diff. Elle reconstruit si cette empreinte diffère de celle du dernier build,
+lue dans son propre manifeste, ou si `.e2e/army/next/BUILD_ID` a disparu ou
+changé, par exemple après un autre build dans ce checkout. Une modification
+limitée à `e2e/**` ne reconstruit pas. Une modification de
+`supabase/migrations` ou de `supabase/config.toml` depuis le démarrage fait
+échouer le `run` : arrêter puis redémarrer la boucle.
+
+Vérification de types : le build Army type-checke `.e2e/army/tsconfig.json`,
+qui n'inclut que `src/**`, `next-env.d.ts` et les types générés par Next. Les
+parcours `e2e/**` ne sont donc vérifiés par aucun run Army actuel, qualifiant
+ou non ; `npm run typecheck` (dans `verify:pr`) les couvre. Ne pas reconstruire
+pour une modification de parcours ne retire aucun contrôle, et la boucle ne
+lance pas de `tsc` supplémentaire. `src/test/army-dev-loop.test.ts` échoue si ce
+tsconfig inclut un jour une source hors de l'empreinte.
+
+Serveur Next : le SDK démarre toujours `next start` sur le build existant à
+chaque `run`, comme dans `critical`. `run-tester-army.mjs` exige un reçu du
+garde réseau serveur propre à chaque run et le journal de l'application
+possédée ; un serveur partagé entre les runs perdrait ces deux preuves. Mesuré
+le 18/10 : `next start` annonce « Ready in » en 56 à 75 ms, et le run SDK
+complet de HUB03 (démarrage, setup de connexion, parcours) dure 3,8 s.
+
+État et secrets : `.e2e/army/dev-loop/state.json` (mode `0600`) contient
+l'identité de la boucle, le pid du superviseur, le projet, le répertoire et les
+huit ports de la pile, l'empreinte des entrées SQL et du build, l'identifiant de
+build et les dates (démarrage, dernière activité, expiration). Son écriture
+refuse toute clé ou valeur ressemblant à un secret : JWT, clé `sb_`, URL
+PostgreSQL, adresse électronique, champ `password` ou `token`. Le compte,
+les clés et l'URL PostgreSQL ne quittent pas la mémoire du superviseur : `run`
+lui parle par une socket Unix dans un répertoire temporaire privé (`0700`,
+socket `0600`). Un seul superviseur par checkout : l'état est créé en exclusif.
+
+Arrêt, expiration et état abandonné :
+
+- `stop` vérifie que le pid enregistré est bien ce superviseur (ligne de
+  commande et répertoire courant, pas un pid recyclé), lui envoie `SIGTERM` et
+  attend sa fin. Le superviseur interrompt le run en cours, sort de
+  `runLocalSupabaseCi`, qui exécute `stop` puis `stack destroy` et supprime le
+  répertoire du projet, puis il retire son état. `stop` vérifie ensuite le
+  répertoire supprimé, les huit ports fermés et l'état retiré, sinon il échoue ;
+- sans `run` pendant le TTL (60 min par défaut, de 5 à 720), le superviseur
+  s'arrête seul, avec le même nettoyage ;
+- si le superviseur est mort (`kill -9`, redémarrage WSL) ou si son pid a été
+  recyclé, `start` et `run` refusent l'état abandonné. `stop` détruit alors
+  lui-même la pile enregistrée (`stop`, `stack destroy`, suppression du
+  répertoire temporaire possédé), seulement si son `config.toml` porte le
+  `project_id` enregistré, qui nomme ce superviseur. Il retire la socket, vérifie les ports et ne
+  supprime l'état qu'après succès ; sinon l'état passe en `cleanup-failed` avec
+  la cause.
+
+Preuves : la session écrit `.e2e/army/ci/<horodatage>-dev-loop/manifest.json`
+(`scope: "dev-loop session (reused stack, not a qualification run)"`,
+`qualification: false`, SQL/RLS, provisionnement, builds, liste des itérations,
+nettoyage). Chaque `run` écrit `iterations/<NNN>-<horodatage>/manifest.json`
+dans ce dossier, avec `scope: "iteration (reused stack, not a qualification run)"`
+et `qualification: false`. Ce manifeste contient la commande, la révision, le
+diff et l'empreinte applicative, la décision de build et sa raison, les
+identités de fixtures, la provenance de la base, les durées, les phases et le
+rapport, ainsi que l'inventaire des fichiers après contrôle de
+confidentialité. Un superviseur tué n'écrit pas le manifeste final de sa
+session.
+
+Limites : les itérations partagent le compte et le tenant, et les données
+s'accumulent (chaque parcours garde son préfixe `ARMY-…` unique). Un parcours
+qui suppose un tenant vierge demande donc un run neuf. pgTAP et la matrice RLS ne
+tournent qu'au démarrage ; une modification de `supabase/tests` n'est pas
+rejouée. Ne pas lancer `e2e:army:local`, `e2e:army:ci` ni `e2e:army:calc-v3`
+dans le même checkout pendant qu'une boucle est ouverte : ils partagent
+`.e2e/army/next` et `.e2e/army/critical`. La boucle détecterait le build
+remplacé, mais le run qualifiant serait perturbé : arrêter la boucle d'abord.
+Windows n'est pas pris en charge (WSL, comme le runtime natif). La boucle
+occupe une pile native tant qu'elle est ouverte et compte donc dans la limite
+de piles simultanées : l'arrêter dès la fin de la mise au point.
+
+Un run qualifiant neuf reste exigé pour toute preuve de lot ou de pull request
+(`e2e:army:local` sur la sélection, `e2e:army:ci -- full` à la validation du
+lot), après une modification de migration ou de `config.toml`, et chaque fois
+qu'un parcours dépend d'une base vierge. Une itération ne remplace jamais une
+qualification, même verte, et ne réutilise pas la preuve d'entrées différentes.
+
+#### Contrat défini avant implémentation
+
+Les échecs suivants ont été écrits avant le code, dans l'en-tête de
+`src/test/army-dev-loop.test.ts`, puis épinglés par ses tests. Leur RED précède
+l'implémentation. Une isolation est justifiée : aucun parcours ne voit la
+comptabilité de la boucle, et un parcours passe aussi bien sur un build périmé
+ou à côté d'une pile orpheline.
+
+1. Deux superviseurs revendiquent le même checkout et partagent son build.
+2. Un superviseur mort ou un pid recyclé passe pour une boucle vivante, ou une
+   boucle vivante pour un état abandonné.
+3. Une clé, une URL PostgreSQL ou l'adresse du compte atteint l'état.
+4. Une modification limitée aux parcours reconstruit, ou une modification
+   applicative, une source supprimée ou un build remplacé ne reconstruit pas.
+5. Le build type-checke un fichier hors de l'empreinte.
+6. Migrations ou `config.toml` changent sous une boucle qui continue.
+7. `stop` supprime un répertoire ou détruit une pile qui ne lui appartient pas
+   (état corrompu ou étranger), ou annonce une pile détruite alors qu'un de
+   ses ports écoute encore. Le refus d'une pile étrangère a été ajouté après le
+   premier cycle WSL, avec son propre RED.
+8. La ligne de commande accepte une sélection ambiguë ou absente, un motif
+   invalide, une option répétée, un TTL hors bornes ou un port interdit.
+
+`src/test/local-supabase-ci.test.ts` vérifie en plus le nouveau rappel
+`onProjectPrepared` : identité et ports du projet isolé transmis avant le
+démarrage de la pile, puis nettoyage si l'enregistrement échoue.
+
+#### Validation exécutée (18/10/2026)
+
+Les preuves viennent du clone Linux `~/miaouffrage-e2e-loop` (WSL Ubuntu 24.04,
+24 cœurs, 31 Go, Node 24.19, Army 0.21), sur le port applicatif 3187, sans
+modification locale hors des éditions de preuve citées. Le cycle principal, les
+refus, le TTL et le premier abandon tournent sur `f3db5d7a`. La reprise de
+l'abandon et le run de comparaison tournent sur `7702d800`, qui ne change que
+le nettoyage d'un état abandonné (garde du `project_id`). Sélection :
+`--grep HUB03`, soit le setup de connexion et HUB03 (`hub-plans-card.e2e.ts`)
+sur chromium-desktop.
+
+| Étape | Durée murale | Résultat |
+| --- | --- | --- |
+| `start` : pile, `db reset`, pgTAP, RLS, compte, build à froid de 80,7 s | 107,5 s | prêt |
+| 1er `run --grep HUB03` | 7,0 s | 2/2, sans build |
+| 2e `run --grep HUB03` | 5,3 s | 2/2, sans build |
+| parcours seul modifié (commentaire dans `hub-plans-card.e2e.ts`) | 5,4 s | 2/2, sans build |
+| source modifiée (commentaire dans `src/lib/money.ts`) | 63,9 s | build 57,4 s, puis 2/2 en 6,0 s |
+| après ce build, `run --files e2e/army/critical/hub-plans-card.e2e.ts` | 15,7 s | 4/4, sans build : l'empreinte relue dans le manifeste du build est juste |
+| `stop` | 2,2 s | répertoire supprimé, 8 ports et port applicatif fermés, état et socket retirés |
+| comparaison : `e2e:army:local -- --grep HUB03 --app-port 3187` | 69,5 s | 2/2 : pile, SQL, RLS et compte 24 s, build 37,8 s, cache webpack déjà chaud, parcours 6,5 s |
+
+Sur cet hôte, une itération coûte donc 5 à 7 s, contre 69,5 s pour le run
+qualifiant de la même sélection avec un cache webpack chaud, et environ 107 s à
+froid, comme le `start`. L'écart croît avec la durée de build de l'hôte. Les
+deux manifestes de session terminés et les huit itérations enregistrent
+`qualification: false` et `privacy: passed`.
+
+Chemins de sécurité exécutés :
+
+- deux `run` simultanés : le second reçoit `busy` (code 2), le premier passe ;
+- une ligne ajoutée à la dernière migration du clone fait échouer le `run`
+  avant tout build ou parcours : « Migrations or supabase/config.toml changed
+  since the loop started ». Le fichier a ensuite été restauré ;
+- `kill -9` du superviseur après `start` : six ports de la pile restent
+  ouverts. `run` et `start` refusent l'état abandonné ; `stop` détruit la pile
+  en 1,6 s, puis en 1,9 s sur `7702d800`. Répertoire, socket et état sont
+  retirés et plus aucun port n'est ouvert ;
+- TTL de 5 min sans `run` : arrêt seul à l'échéance (`stopReason: ttl-expired`),
+  état retiré, répertoire supprimé, plus aucun port ouvert, manifeste `stopped` ;
+- l'état est en `0600`, le répertoire de la socket en `0700` et la socket en
+  `0600`. Ni l'état ni les preuves copiées ne contiennent de JWT, de clé `sb_`,
+  d'URL PostgreSQL avec mot de passe ni d'adresse de compte ;
+- sous Windows, `e2e:army:dev-loop` refuse avant toute étape et renvoie vers WSL.
+
+Tests d'isolation : `src/test/army-dev-loop.test.ts` échoue d'abord contre un
+module bouchon : sous Windows, 5 échecs et 1 test sauté ; sous WSL, 6 échecs.
+Le test de garde du type-check passe dès le RED, car il épingle un invariant
+déjà vrai. Le test de propriété du `project_id` est RED
+(`ownsRecordedProject is not a function`) avant sa garde. Résultat final sur
+`7702d800` avec `ci-guardrails`, `local-supabase-ci` et `army-impact-map` :
+Windows 55 réussis, 1 sauté (le test du superviseur lit `/proc` ou `ps`) ; WSL
+56/56. Typecheck et ESLint ciblé passent. Journaux RED/GREEN, journaux WSL,
+manifestes de session et d'itération, `timings.txt` et `SHA256SUMS` :
+`.codex-tmp/e2e-dev-loop-20261018/` du worktree `miaouffrage-e2e-loop`.
+
+Non exécutés : macOS ; un `stop` pendant le démarrage, qui n'a été testé
+qu'après « ready » ; l'état `cleanup-failed` de bout en bout, dont seul le refus
+d'un projet étranger est couvert, par test d'isolation.
 
 ### Build de production et limite de heap
 
