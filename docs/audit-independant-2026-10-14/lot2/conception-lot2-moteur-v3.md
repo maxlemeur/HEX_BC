@@ -477,6 +477,9 @@ une erreur compensée).
     payableTtcCents, reverseCharge}`.
   - Invariants : Σ lignes = brut ; net = brut − remise − arrondi ; Σ `taxByRate` = TVA ; pour chaque taux,
     TVA = arrondi½↑(base × taux) ; TTC = net + TVA.
+  - Ordre et numéros (revue Codex de #60, C4 ; migration de suite `20261018172935_…_order.sql`) : à la
+    publication, les lignes suivent le parcours préfixe de l'arbre figé (frères par position) et chaque section
+    porte le numéro qui en découle (`computeEstimateItemNumbering`) ; sinon `23514 OFFER_CLIENT_CONTRACT_ANCHOR_MISMATCH`.
 - Règle d'appariement : v3 ⇔ contrat 2 ; v1/v2 ⇔ contrat 1 ou historique.
   - `offer-document.ts:99-133` : branche contrat 2 avec la charge 6.
   - `server.ts:5666-5669` : le marqueur 5 continue de passer par `loadVerifiedOfferDocument`.
@@ -904,7 +907,7 @@ et `coalesce(…, 1) = 2`. Toute nouvelle comparaison exige donc une revue expli
 | `prepare-estimate-document-data.ts:148-260`, `:452-547`, `EstimateDocument.tsx:350-505`, `EstimateDocumentTableRows.tsx:104-214`, `pdf-generator.tsx:1465`, `:1619-1761`, `[versionId]/page.tsx:179`, `:285`, `print/page.tsx:176`, `:241` | v3 : lignes brutes, unité, statut, pied v3 | 2.7 |
 | `estimate-seal.ts:10-13`, `:125-286`, `offer-document.ts:99-133`, `offer-contract.ts:330`, `server.ts:5666-5727` | charge 6 ; contrat 2 ; vérification | 2.7 |
 | `export-stream.ts:420-485`, `dpgf-export.ts:344`, `:358-360` | v3 : unité, h/u, PU et PT bruts, remise, TVA par taux ; base des heures dans l'en-tête | 2.7 |
-| `editor-export.ts:382`, `:398-438`, `bdc-export.ts` | mêmes colonnes v3 ; refus nommé `ESTIMATE_ENGINE_UNAVAILABLE` d'ici là | écart du 2.7 (18/10/2026) : éditeur avec 2.6, BDC avant 2.10 — **P-20, décision du porteur requise** |
+| `editor-export.ts:382`, `:398-438`, `bdc-export.ts` | CSV de l'éditeur d'une v3 écrit par le serveur depuis le document (`v3-csv-export.ts`, `format=csv`) ; BDC V1.1 d'une v3 : en-tête V1.1 intact, colonnes v3 à la fin, valeurs du document | 2.7b (P-20, D-a du 18/10/2026 ; `docs/testing/estimate-engine-v3-2.7b.md`) |
 | `affaires/import-flow.ts:342-426`, `clipboard.ts`, `server.ts:2218-2264`, `generated-ouvrages.ts:1674-1728`, `generated-ouvrage-labor-hours.ts:11-40`, `assemblies-server.ts`, `templates-server.ts`, `src/lib/takeoff/server.ts:3419`, `:3839` | chemins d'entrée v3 ; refus nommé du métré | 2.8 |
 | `docs/metier/regles-de-calcul.md`, `cycle-de-vie.md`, `glossaire.md`, `CONTEXT.md:10-18`, `AGENTS.md` (invariants de calcul) | section moteur 3, sur décision du porteur | 2.10 |
 
@@ -1119,7 +1122,7 @@ Supabase partagé ni un déploiement (autorisations distinctes, §10 du cahier 2
 | P-17 | Qui marque une offre « inclus / gratuit » | Administrateur du catalogue | 2.2 | Validé le 16/10/2026 (proposition retenue) |
 | P-18 | Unité d'achat et conditionnement dans le lot 2 | Option 2.9 | 2.9 | Validé le 16/10/2026 : 2.9 est planifié dans le lot 2, puisque l'arbitrage 6 validé comprend la conversion vers l'unité d'achat ; il ne conditionne pas 2.10 (lecture de l'auditeur, à confirmer par le porteur s'il préfère reporter 2.9 hors du lot 2) |
 | P-19 | Métré sur une v3 | Refusé (arbitrage 13) | — | Validé le 16/10/2026 (proposition retenue) |
-| P-20 | Exports de l'éditeur et BDC d'une v3, prévus au 2.7 (§8.2, §14) | Éditeur (`editor-export.ts`, côté client) : livré avec l'éditeur v3 de 2.6, seul chemin qui l'atteint et le teste ; BDC (`bdc-export.ts`, coûts d'achat et unités d'achat de 2.9) : avant la bascule (2.10). D'ici là, refus nommé `ESTIMATE_ENGINE_UNAVAILABLE` (409), sans montant | 2.6 ; 2.10 | Proposé par le 2.7 le 18/10/2026 ; **décision du porteur requise** (sinon, le 2.7 les livre) |
+| P-20 | Exports de l'éditeur et BDC d'une v3, prévus au 2.7 (§8.2, §14) | Éditeur (`editor-export.ts`, côté client) : livré avec l'éditeur v3 de 2.6, seul chemin qui l'atteint et le teste ; BDC (`bdc-export.ts`, coûts d'achat et unités d'achat de 2.9) : avant la bascule (2.10). D'ici là, refus nommé `ESTIMATE_ENGINE_UNAVAILABLE` (409), sans montant | 2.7b | Proposé par le 2.7 le 18/10/2026 ; décidé le même jour (D-a) : CSV et BDC d'une v3 livrés avant M8 par le sous-lot 2.7b (`docs/testing/estimate-engine-v3-2.7b.md`) |
 
 ---
 
@@ -1503,8 +1506,9 @@ migration distante sans autorisation explicite.
   - portail ;
   - exports (`export-stream.ts`, `dpgf-export.ts`, `editor-export.ts`, `bdc-export.ts`) ; écart du 18/10/2026 :
     `editor-export.ts` (côté client, atteint par le seul éditeur v3 de 2.6) et `bdc-export.ts` (coûts d'achat)
-    restent fermés à la v3 par leur refus nommé ; proposés pour 2.6 et avant 2.10 (P-20, **décision du porteur
-    requise** ; `docs/testing/estimate-engine-v3-2.7.md` §12) ;
+    restent fermés à la v3 par leur refus nommé ; proposés pour 2.6 et avant 2.10 (P-20 ;
+    `docs/testing/estimate-engine-v3-2.7.md` §12), puis livrés avant M8 par le sous-lot 2.7b (décision D-a du
+    18/10/2026 ; `docs/testing/estimate-engine-v3-2.7b.md`) ;
   - extension de `canUseDevelopmentEstimateTerms` (`src/lib/estimates/pdf-terms-server.ts:21-34`) au build
     de production de la pile possédée, pour le profil `calc-v3` seulement, avec son test de garde-fou :
     refus avec un marqueur d'hébergement ou hors de ce profil ; cas `offer` sur 45585 inchangé (§10.4).

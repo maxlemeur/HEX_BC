@@ -266,11 +266,16 @@ export async function settleV3(browser: Browser, army: ArmyState, record: Eviden
 /**
  * Génération manuelle du PDF par la route de l'interface (POST …/pdf?force=1, bail de cette page),
  * puis attente de l'état « ready ». Le premier refus d'une v3 avant M5 est relevé ici, par son code.
+ * `layout` : mise en page envoyée comme par la fenêtre « Préparer le PDF » (V3M-18) ; sans elle, celle du
+ * document stocké ou la mise en page par défaut.
  */
-export async function generatePdf(browser: Browser, record: Evidence, label: string, versionId: string) {
+export async function generatePdf(browser: Browser, record: Evidence, label: string, versionId: string,
+  layout?: Readonly<Record<string, string | number | boolean>>) {
   await retakeLease(browser, versionId);
-  const started = await apiRequest<Envelope<{ status: string }>>(browser, "POST", `/api/estimates/${versionId}/pdf?force=1`, {});
-  await record(`${label}-pdf-start`, { versionId, status: started.status, ok: started.body.ok, error: started.body.error ?? null });
+  const started = await apiRequest<Envelope<{ status: string }>>(browser, "POST", `/api/estimates/${versionId}/pdf?force=1`,
+    layout ? { layout } : {});
+  await record(`${label}-pdf-start`, { versionId, layout: layout ?? null, status: started.status, ok: started.body.ok,
+    error: started.body.error ?? null });
   expect({ status: started.status, code: started.body.error?.code ?? null }).toEqual({ status: 202, code: null });
   type PdfState = { status: number; body: Envelope<{ status: string; sha256_hash?: string; file_size_bytes?: number }> };
   const observed: { last: PdfState | null } = { last: null };
