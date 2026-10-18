@@ -351,14 +351,31 @@ export async function cleanUpAbandonedLoop(statePath: string, state: LoopState, 
   } else if (stack && !present && registered && !ownsRegisteredStack(state, registered)) {
     errors.push(`refusing to destroy native stack ${registered.id}: its registration does not match the recorded project ${stack.projectId}`);
   } else if (stack && (present || registered)) {
-    if (!present) notes.push(`workdir already gone; native stack ${registered!.id} found by its registered project root and API port`);
-    try { supabase(["stop", "--workdir", stack.rootDirectory]); }
-    catch { notes.push("supabase stop failed (a stack that never started has nothing to stop)"); }
-    try {
-      supabase(["stack", "destroy", "--yes", "--workdir", stack.rootDirectory]);
-      removeOwnedTemporaryDirectory(stack.rootDirectory, SUPABASE_PROJECT_PREFIX);
-    } catch (error) {
-      errors.push(`destroy failed: ${error instanceof Error ? error.message : String(error)}`);
+    let workdir = present;
+    if (!present) {
+      notes.push(`workdir already gone; native stack ${registered!.id} found by its registered project root and API port, workdir recreated for the CLI`);
+      // CLI 2.120 rejects a --workdir that does not exist: recreate the owned
+      // temporary project, empty but for its recorded identity, as the 16/10
+      // recovery did. A failed destroy leaves it for the next stop to retry.
+      try {
+        fs.mkdirSync(stack.rootDirectory, { mode: 0o700 });
+        fs.mkdirSync(path.join(stack.rootDirectory, "supabase"));
+        fs.writeFileSync(path.join(stack.rootDirectory, "supabase", "config.toml"),
+          `project_id = "${stack.projectId}"\n[experimental]\nstack = true\n`, { flag: "wx" });
+        workdir = true;
+      } catch (error) {
+        errors.push(`could not recreate the workdir: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    if (workdir) {
+      try { supabase(["stop", "--workdir", stack.rootDirectory]); }
+      catch { notes.push("supabase stop failed (a stack that never started has nothing to stop)"); }
+      try {
+        supabase(["stack", "destroy", "--yes", "--workdir", stack.rootDirectory]);
+        removeOwnedTemporaryDirectory(stack.rootDirectory, SUPABASE_PROJECT_PREFIX);
+      } catch (error) {
+        errors.push(`destroy failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   }
   if (state.socket && fs.existsSync(path.dirname(state.socket))) {

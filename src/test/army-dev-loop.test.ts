@@ -421,8 +421,12 @@ describe("TesterArmy dev loop", () => {
     writeLoopState(statePath, state);
     const calls: string[] = [];
     let destroyRemovesEntry = false;
+    // Like CLI 2.120, which rejects a --workdir that does not exist (18/10 WSL run).
     const supabase = (args: string[]) => {
       calls.push(args.join(" "));
+      const config = path.join(args[args.indexOf("--workdir") + 1], "supabase/config.toml");
+      if (!fs.existsSync(config)) throw new Error("--workdir must be an existing directory");
+      expect(fs.readFileSync(config, "utf8")).toMatch(new RegExp(`^project_id = "${projectId}"\\n\\[experimental\\]\\nstack = true\\n`));
       if (destroyRemovesEntry && args[0] === "stack") fs.rmSync(entry, { recursive: true, force: true });
     };
     const expectedCalls = [`stop --workdir ${workdir}`, `stack destroy --yes --workdir ${workdir}`];
@@ -437,7 +441,9 @@ describe("TesterArmy dev loop", () => {
     const done = await cleanUpAbandonedLoop(statePath, readLoopState(statePath)!, { supabase, registry });
     expect(calls).toEqual(expectedCalls);
     expect(done.errors).toEqual([]);
+    // The workdir recreated for the CLI is removed again.
     expect(done.proof).toMatchObject({ projectDirectoryRemoved: true, registryEntryRemoved: true, portsClosed: true });
+    expect(fs.existsSync(workdir)).toBe(false);
     expect(readLoopState(statePath)).toBeNull();
     expect(fs.existsSync(path.join(registry, "ab".repeat(32)))).toBe(true);
 
