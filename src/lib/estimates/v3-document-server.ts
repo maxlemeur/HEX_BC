@@ -95,6 +95,17 @@ export async function loadEstimateV3DocumentSource(input: {
       "ESTIMATE_LABOR_ROLE_REQUIRED"
     );
   }
+  // Même refus nommé que le gel (D9, `prepareEstimateV3FreezeArguments`) : une ligne chiffrée sans
+  // unité ne peut pas être figée, donc pas présentée (revue 2.7 : le préparateur levait sinon
+  // ESTIMATE_V3_STORED_INCOHERENT pendant le rendu de l'aperçu et des exports).
+  const unitById = new Map(items.map((item) => [item.id, item.unit_code ?? null]));
+  const missingUnits = breakdown.lines
+    .filter((line) => line.pricing_status === "priced" && !unitById.get(line.id))
+    .map((line) => line.id);
+  if (missingUnits.length > 0) {
+    throw badRequest("Une unité est requise sur chaque ligne chiffrée avant le gel.", { item_ids: missingUnits },
+      "ESTIMATE_V3_UNIT_REQUIRED");
+  }
   const projected = new Map(projection.items.map((entry) => [entry.id, entry]));
   const previewItems = items.map((item) => {
     const line = item.item_type === "line" ? projected.get(item.id) : undefined;
