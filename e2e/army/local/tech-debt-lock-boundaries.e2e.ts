@@ -8,6 +8,7 @@ import { apiRequest, armyTest, ownEstimate, readEstimate, recordEvidence, type A
 import { localSqlTransport } from "../takeoff/generated-prerequisites";
 // Aliased: the sign-up helper is not a React hook, whatever its name.
 import { useDedicatedV3Owner as signUpDedicatedOwner } from "./engine-v3-persistence-support";
+import { pause } from "./engine-v3-editor-support";
 import { querySql } from "./engine-v3-support";
 
 type SessionMode = "missing" | "different" | "current";
@@ -218,7 +219,6 @@ type LockEnvelope = {
 type HeldTransaction = ReturnType<typeof openTransaction>;
 
 const LEASE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const pause = (milliseconds: number) => new Promise(resolve => setTimeout(resolve, milliseconds));
 
 /**
  * A PostgreSQL session of the owned local stack left open inside its transaction. psql runs each
@@ -378,7 +378,8 @@ VALUES ('${ids.versionId}'::uuid, '${owner.userId}'::uuid, '${pageSession}'::uui
   try {
     await waitUntilHeld(forced);
     const acquire = sendLeaseRequest(browser, "POST", `/api/estimates/${ids.versionId}/lock`);
-    const blocked = await waitUntilBlocked(forced, "draft_locks", acquire.request);
+    // The acquisition's INSERT itself, not the expired-lease cleanup acquireLock runs before it.
+    const blocked = await waitUntilBlocked(forced, "INSERT INTO%draft_locks", acquire.request);
     await forced.commit();
     const response = await acquire.response;
     const lease = await readLease(ids.versionId, owner.userId, takeoverSession);
