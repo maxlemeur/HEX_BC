@@ -354,8 +354,9 @@ arrêter la boucle d'abord. Les commandes SDK directes (`e2e:army:critical`,
 `e2e:army:full`, etc.) et un run qualifiant déjà en cours au moment du `start`
 ne sont pas détectés : ne pas les mêler à une boucle ouverte.
 Windows n'est pas pris en charge (WSL, comme le runtime natif). La boucle
-occupe une pile native tant qu'elle est ouverte et compte donc dans la limite
-de piles simultanées : l'arrêter dès la fin de la mise au point.
+occupe une pile native tant qu'elle est ouverte et compte donc dans la
+[limite de piles simultanées](#capacité-locale-et-redémarrages-wsl-18102026) :
+l'arrêter dès la fin de la mise au point.
 
 Un run qualifiant neuf reste exigé pour toute preuve de lot ou de pull request
 (`e2e:army:local` sur la sélection, `e2e:army:ci -- full` à la validation du
@@ -927,3 +928,122 @@ précédent sont sauvegardés dans ce même dossier. Une première génération 
 reçu a échoué sur une conversion de date PowerShell : son statut erroné est
 explicitement invalidé et conservé dans `invalid-attempt-disposition.json`,
 sans entrer dans les dix contrôles réussis du reçu corrigé.
+
+### Capacité locale et redémarrages WSL (18/10/2026)
+
+**Où est la limite.** Aucun code du dépôt ne borne le nombre d'exécutions
+natives possédées simultanées. `runLocalSupabaseCi`
+(`src/test/local-supabase-ci.ts`), `scripts/engine-v3/owned-native-stack.ts` et
+les commandes qui les appellent (`db:ci:local`, `e2e:army:local`,
+`e2e:army:ci`, `e2e:army:calc-v3`, `e2e:army:dev-loop`, `dev:army`,
+`db:upgrade-check`, `engine:document-fingerprints`) démarrent leur pile sans
+regarder celles des autres sessions ; aucune variable d'environnement ne les
+limite. La limite est une consigne donnée aux agents (quatre depuis le 18/10,
+deux avant) : attendre, en sondant toutes les 30 s, tant que la limite est
+atteinte. Ce sondage n'est pas un verrou : deux agents qui attendent voient la
+même place libre et démarrent ensemble, et une pile n'apparaît que quelques
+secondes après le lancement de sa commande. Un verrou atomique, par exemple
+`flock` sur N fichiers de place pris par `runLocalSupabaseCi` et
+`owned-native-stack.ts` avant `supabase start`, supprimerait cette course ; il
+n'est pas implémenté.
+
+**Comment compter.** Chaque exécution possède exactement une pile, donc un
+processus `__supabase_stack_host__`, de `supabase start` jusqu'à `stop` ; une
+boucle `dev-loop` ouverte garde la sienne entre les itérations. Compter ce
+processus, pas les noms des commandes :
+
+```sh
+pgrep -u "$USER" -c -f '[_]_supabase_stack_host__'
+```
+
+Avec quatre piles actives, compter par nom de commande donnait d'autres
+nombres : `run-tester-army-ci` apparaît deux fois pour une exécution lancée par
+npm (`sh -c`, puis `node`), et `pgrep -f '<motif>'` lancé depuis `bash -c`
+compte aussi ce shell (une correspondance pour `upgrade-check`,
+`document-fingerprints` et `parity`, alors qu'aucune de ces commandes ne
+tournait). Le crochet du motif ci-dessus évite cette auto-correspondance.
+
+**Mémoire mesurée.** PC de 61,6 Gio. `.wslconfig` : `memory=32GB`,
+`processors=24`, `swap=8GB` (Linux : `MemTotal` 31,3 Gio, 24 processeurs).
+Lecture seule de `/proc/<pid>/smaps_rollup` toutes les 5 s, de 08:06 à
+08:22Z (193 échantillons), sur les exécutions d'autres sessions : jusqu'à
+quatre piles et deux builds simultanés. PSS (pages partagées réparties entre
+processus) et, entre parenthèses, RSS :
+
+| Phase d'une exécution | Médiane | Maximum |
+|---|---|---|
+| Pile seule : PostgreSQL, PostgREST, auth, mailpit, hôte de pile, runner | 0,4 Gio (0,5) | 1,4 Gio (2,3) |
+| Parcours : `next start`, Chromium, `E2E_ARMY_WORKERS=2` | 2,2 Gio (3,5) | 3,4 Gio (5,3) |
+| Build de production (`build-local.mjs`, pic pendant `tsc`), pile comprise | pic de chaque build : 4,2 à 4,6 Gio | 4,6 Gio (6,6) |
+| Hors exécutions miaouffrage : système, autres commandes WSL | 1,3 Gio | 2,8 Gio hors pointes |
+
+Pic agrégé avec quatre piles, dont une en build : 11,6 Gio utilisés
+(`MemTotal - MemAvailable`). Swap inutilisé pendant toute la mesure. Les
+builds observés réutilisaient le cache du clone (45 s) ; le build à froid du
+16/10 mesurait `tsc` à 3,0 Go de RSS, ce que couvre la marge ci-dessous. La VM
+sert aussi d'autres projets : à 08:20Z, les workers `jest` d'un autre dépôt
+ont porté la charge hors exécutions à 13,6 Gio pendant une vingtaine de
+secondes (19,5 Gio utilisés au total, trois piles actives).
+
+**Limite retenue : quatre.** Budget à 20 % de marge : 80 % de 31,3 Gio, soit
+25,1 Gio. Pire cas d'une exécution : son build au pic mesuré (4,6 Gio) plus la
+marge du plafond de heap, `tsc` pouvant monter à 4096 Mio de heap (environ
+4,3 Gio de RSS au lieu de 3,0) : 5,9 Gio. Avec 2,8 Gio hors exécutions :
+
+| Exécutions | Toutes en build au pic mesuré | Toutes en build au plafond de heap |
+|---|---|---|
+| 3 | 16,6 Gio (53 %) | 20,5 Gio (65 %) |
+| 4 | 21,2 Gio (68 %) | 26,4 Gio (84 %) |
+| 5 | 25,8 Gio (82 %) | 32,3 Gio (103 %) |
+
+Quatre est le plus grand nombre qui garde 20 % de marge aux pics mesurés,
+même avec quatre builds simultanés ; le mélange observé (une ou deux
+exécutions en build) reste sous 12 Gio, hors pointe d'un autre projet. Au
+plafond de heap, quatre builds simultanés dépassent la marge de 1,3 Gio
+(84 %) sans atteindre la RAM ni le swap ; ce cas suppose un `tsc` 40 % plus
+gros qu'aujourd'hui, qui impose déjà de remesurer (voir le
+[build de production](#build-de-production-et-limite-de-heap)). Cinq
+exécutions sont exclues : 82 % aux pics mesurés, plus que la RAM au plafond.
+La marge absorbe une pointe d'un autre projet comme celle de 08:20Z, mais pas
+pendant quatre builds simultanés : limiter les workers de ses tests
+(`--maxWorkers`) protège les exécutions. Relever la limite demande de réduire
+le pic par exécution (builds non simultanés) ou d'augmenter `memory`, ce que
+l'hôte Windows ne permet pas aujourd'hui.
+
+**Hôte Windows : le risque principal.** De 08:13 à 08:23Z (38 relevés de
+`Win32_OperatingSystem`), la charge engagée Windows atteint 88,96 Gio sur une
+limite de 90,56 Gio (98,2 %, à 08:20Z), la RAM physique libre descend à
+0,1 Gio. `vmmemWSL` occupe jusqu'à 32,1 Gio : la VM est pleine
+(cgroup Linux `anon` 9 Gio, `file` 19 Gio de cache) quelle que soit la charge,
+donc le nombre d'exécutions ne change pas ce poste. Le reste vient des
+applications Windows (sessions d'agents, navigateurs, applications de bureau :
+environ 44 Gio de mémoire privée hors VM). Le fichier d'échange en gestion
+automatique grandit pendant la
+mesure (de 28 672 à 29 702 Mio), alors que `C:` n'a plus que 27,7 Go libres et
+porte aussi le disque de la distribution (`ext4.vhdx`, 202 Go). L'arrêt du
+16/10 venait de cette saturation ([ci-dessus](#cause-des-arrêts-wsl-et-correction-de-lenvironnement)) ;
+aucun événement `Resource-Exhaustion-Detector` n'apparaît sur les 48 dernières
+heures. Recommandations au propriétaire, non appliquées : fermer les
+applications Windows inutiles, ajouter un fichier d'échange sur `D:` (203 Go
+libres ; redémarrage Windows), libérer `C:` en supprimant les anciens clones
+WSL. Réduire `memory` à 28 Go rendrait 4 Gio à l'hôte : quatre exécutions y
+resteraient sous 80 % aux pics mesurés (77 %), plus au plafond de heap (96 %).
+
+**Redémarrage de 07:44Z.** Ce n'est pas un plantage, mais le cycle de vie
+normal de WSL. Depuis 04:10Z (début du journal conservé), le journal systemd
+compte une cinquantaine d'arrêts de la distribution, tous propres
+(`systemd-logind: The system will power off now!`, sessions
+« Deactivated successfully », aucun processus tué par `SIGKILL`), et aucune
+ligne `Out of memory`, `oom-kill` ou `Killed process`. Windows enregistre
+27 arrêts de VM en cinq heures (suppression du port `Hyper-V-VmSwitch`) et aucun
+événement d'épuisement de ressources. Séquence de 07:42 : courte commande,
+extinction de la distribution à 07:42:39Z, port de la VM supprimé à 07:43:40Z,
+nouvelle VM à 07:43:46Z (création de `vmmemWSL`). Ces délais correspondent aux
+valeurs par défaut : `instanceIdleTimeout` (15 s sans processus) puis
+`vmIdleTimeout` (60 s) de la
+[configuration WSL](https://learn.microsoft.com/en-us/windows/wsl/wsl-config).
+Aucune exécution n'a été interrompue par ces arrêts : chaque archive
+`.e2e/army/ci/` créée depuis 04:10Z porte son manifeste final, sauf les
+exécutions encore en cours et un `critical` vide de 04:58Z, créé pendant une
+période où WSL est resté démarré 40 minutes ; les entrées du registre natif
+sans pile (`~/.supabase/stacks/`) datent des 10 au 15/10.
