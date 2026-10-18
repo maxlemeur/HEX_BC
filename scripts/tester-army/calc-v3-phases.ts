@@ -137,14 +137,16 @@ export const CALC_V3_PHASE_DEFINITIONS: Readonly<Record<CalcV3Phase, CalcV3Phase
   // offer guard as `emission`. The phase sends the v2 witness and the v3 S2 and S5 offers (S5 twice,
   // V3M01), then an approved S2 (V3M03), and refuses by name the send of a v3 without a unit (V3M04).
   // V3M05 (2.6 merge, 2.7 doc §13) prepares a v3 PDF from the detail page, issues the v3 from the
-  // editor and reads the issued detail page (seal, PDF, status actions). The PDFs differ by design,
-  // so the content is asserted per PDF by the journeys, not by a pattern shared by every collected PDF.
+  // editor and reads the issued detail page (seal, PDF, status actions). V3M06 (Codex review of 3d78d662,
+  // 2.7 doc §13.8) prints an issued v3 after its affaire changes and as the second admin of the fixture
+  // tenant. The PDFs differ by design, so the content is asserted per PDF by the journeys, not by a
+  // pattern shared by every collected PDF.
   "emission-v3": {
     serverMode: "production",
     sentinelCollector: true,
     tests: ["e2e/army/local/offer-emission-auth.setup.e2e.ts", "e2e/army/local/engine-v3-emission.e2e.ts"],
     setupTitle: "ordinary native ARMY login for local offer profile",
-    expected: { "e2e/army/local/offer-emission-auth.setup.e2e.ts": 1, "e2e/army/local/engine-v3-emission.e2e.ts": 4 },
+    expected: { "e2e/army/local/offer-emission-auth.setup.e2e.ts": 1, "e2e/army/local/engine-v3-emission.e2e.ts": 5 },
     maxDuration: 3_600_000,
   },
 };

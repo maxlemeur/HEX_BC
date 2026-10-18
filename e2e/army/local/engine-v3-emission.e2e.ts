@@ -54,7 +54,11 @@ import { admitCollectedResendDecision, allowOfferLifecycleTransition, offerTest,
 //         l'acceptation par la fiche change le sceau, ou le modèle (2.8) y est proposé sans sa raison.
 //  Sur les deux fiches, la carte de lecture v3 de 2.6 dit encore le document client et l'émission « pas encore
 //  disponibles », ou titre « Brouillon » une v3 émise.
-// V3M01, V3M03, V3M04 et V3M05 s'exécutent dans la phase calc-v3 `emission-v3` (collecteur sentinelle, build
+// Ajouté à la revue Codex de 3d78d662, voie A (docs/testing/estimate-engine-v3-2.7.md §13.8) :
+//  V3M-15 L'impression d'une v3 émise imprime l'identité vivante au lieu de la copie émise que couvre son sceau
+//         valide : « Émis par » est le profil du lecteur (un second administrateur du tenant), et le client, la
+//         référence, l'affaire et l'adresse du chantier sont ceux modifiés après l'émission.
+// V3M01, V3M03, V3M04, V3M05 et V3M06 s'exécutent dans la phase calc-v3 `emission-v3` (collecteur sentinelle, build
 // de production possédé, `next start`) ; V3M02, sans courriel, dans la campagne critique locale sur le
 // build de production. Chacun n'est défini que dans sa campagne : la phase calc-v3 exige son résultat
 // exact par fichier.
@@ -77,8 +81,10 @@ type Ui ={ app: App; screen: Screen; browser: Browser; army: ArmyState };
 type Receipt = { id: string; pdf: { sha256: string; bytes: number }; delivery: string };
 type Packet = { id: string; payload: { html: string; attachments: { filename: string; content: string }[] } };
 type EmissionFixture = {
-  schemaVersion: "calc-v3-emission-v3-2";
-  owner: { userId: string; tenantId: string; laborRoleId: string };
+  schemaVersion: "calc-v3-emission-v3-3";
+  owner: { userId: string; tenantId: string; laborRoleId: string; displayName: string };
+  /** Second administrateur du tenant dédié (V3M06), connecté par l'identifiant `viewer` du profil calc-v3. */
+  viewer: { userId: string; tenantId: string; membershipId: string; displayName: string };
   v2Witness: { projectId: string; versionId: string; lineTitle: string; expected: { ht: number; tax: number; ttc: number } };
   /**
    * Affaire de V3M03 : sa propre règle d'approbation active à 5 000 € HT (portée « client ») et un brouillon
@@ -93,10 +99,12 @@ function emissionFixture(): EmissionFixture {
   if (!file) throw new Error("The emission-v3 journeys require the calc-v3 emission-v3 fixture path.");
   const value = JSON.parse(readFileSync(file, "utf8")) as EmissionFixture;
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-  if (value.schemaVersion !== "calc-v3-emission-v3-2" || ![value.owner.userId, value.owner.tenantId, value.owner.laborRoleId,
-    value.v2Witness.projectId, value.v2Witness.versionId, value.approvalProject.projectId, value.approvalProject.versionId,
-    value.approvalProject.ruleId]
-    .every((id) => uuid.test(id)) || value.approvalProject.thresholdCents !== 500000) {
+  if (value.schemaVersion !== "calc-v3-emission-v3-3" || ![value.owner.userId, value.owner.tenantId, value.owner.laborRoleId,
+    value.viewer.userId, value.viewer.membershipId, value.v2Witness.projectId, value.v2Witness.versionId,
+    value.approvalProject.projectId, value.approvalProject.versionId, value.approvalProject.ruleId]
+    .every((id) => uuid.test(id)) || value.approvalProject.thresholdCents !== 500000 || value.viewer.tenantId !== value.owner.tenantId
+    || value.viewer.userId === value.owner.userId || !value.owner.displayName || !value.viewer.displayName
+    || value.owner.displayName.includes(value.viewer.displayName) || value.viewer.displayName.includes(value.owner.displayName)) {
     throw new Error("The emission-v3 fixture shape differs.");
   }
   return value;
@@ -173,7 +181,8 @@ async function sendOffer(ui: Ui, record: Evidence, label: string, versionId: str
   return result;
 }
 
-async function ownerLogin(ui: Ui) {
+/** Connexion ordinaire par l'écran : le propriétaire dédié (`army`) ou le second administrateur du tenant (`viewer`). */
+async function accountLogin(ui: Ui, name: "army" | "viewer" = "army") {
   await ui.app.clearState();
   await ui.app.open("/login");
   const show = ui.screen.getByRole("button", "Afficher le mot de passe", { exact: true });
@@ -184,7 +193,7 @@ async function ownerLogin(ui: Ui) {
     return await hide.isVisible();
   }, { timeout: 30_000 }).toBe(true);
   await hide.tap();
-  const account = credentials.user("army");
+  const account = credentials.user(name);
   await ui.screen.getByLabel("Email", { exact: true }).fill(account.username);
   await ui.screen.getByLabel(/Mot de passe/).fill(account.password);
   await ui.screen.getByRole("button", "Se connecter", { exact: true }).tap();
@@ -231,6 +240,35 @@ async function expectIssuedDocument(ui: Ui, record: Evidence, label: string, ver
     expect(checks).toEqual(expectedExportChecks());
   }
   return text;
+}
+
+/**
+ * Identité imprimée par l'aperçu d'impression (V3M-15) : bloc « Émis par », bloc « Devis » (référence, date,
+ * version), cartes « Client » et « Chantier » du document visible, état du sceau de l'en-tête. Une adresse
+ * électronique est relevée par le nom de son compte (`emails`), jamais en clair.
+ */
+async function printIdentity(ui: Ui, versionId: string, emails: Record<string, string>) {
+  await ui.app.open(`/dashboard/estimates/${versionId}/print`);
+  await expect(ui.screen.getByRole("heading", "Devis", { exact: true })).toBeVisible({ timeout: 30_000 });
+  const read = await ui.browser.evaluate(() => {
+    const visible = Array.from(document.querySelectorAll(".estimate-document")).find((node) => node.getClientRects().length > 0);
+    const text = (node: Element) => (node.textContent ?? "").replace(/[\s  ]+/g, " ").trim();
+    const lines = (root: Element | null | undefined) => Array.from(root?.querySelectorAll("p") ?? []).map(text).filter(Boolean);
+    const issuerLabel = Array.from(visible?.querySelectorAll("p") ?? []).find((node) => text(node) === "Émis par");
+    const heading = Array.from(visible?.querySelectorAll("h2") ?? []).find((node) => text(node) === "Devis");
+    const card = (title: string) => Array.from(visible?.querySelectorAll("section") ?? [])
+      .find((node) => node.querySelector("h3") && text(node.querySelector("h3")!) === title);
+    return {
+      issuer: lines(issuerLabel?.parentElement).filter((line) => line !== "Émis par"),
+      devis: lines(heading?.parentElement),
+      client: lines(card("Client")),
+      site: lines(card("Chantier")),
+      seal: Array.from(document.querySelectorAll("[data-seal-state]")).map((node) => node.getAttribute("data-seal-state")),
+    };
+  });
+  const mask = (line: string) => Object.entries(emails).find(([, email]) => line === email)?.[0]
+    ?? (line.includes("@") ? "<autre adresse>" : line);
+  return { ...read, issuer: read.issuer.map(mask) };
 }
 
 if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE === "emission-v3") {
@@ -313,7 +351,7 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
       await record("s5-portal", { versionId: s5.versionId, portalUrlSha256: digest(s5Resent.portalUrl), expected: expectedDocumentChecks(S5), actual: portal });
       expect(portal).toEqual(expectedDocumentChecks(S5));
       // The portal actions are a client island: under next dev a click that lands before hydration
-      // opens nothing, so click again until the modal shows (as ownerLogin does for its toggle).
+      // opens nothing, so click again until the modal shows (as accountLogin does for its toggle).
       const accept = ui.screen.getByRole("button", "Accepter le devis", { exact: true });
       const modal = ui.screen.getByRole("dialog", "Accepter le devis", { exact: true });
       await expect.poll(async () => {
@@ -329,7 +367,7 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
       const decided = await decision.json<{ status?: string }>();
       await record("s5-portal-decision", { versionId: s5.versionId, status: decision.status, decision: decided.status ?? null });
       expect([decision.status, decided.status]).toEqual([200, "accepted"]);
-      await ownerLogin(ui);
+      await accountLogin(ui);
       const accepted = await readEstimate(browser, s5.versionId);
       expect([accepted.version.status, accepted.version.seal_hash, accepted.version.seal_payload_version, accepted.version.total_ttc_cents])
         .toEqual(["accepted", s5State.version.seal_hash, 5, S5.totals[2]]);
@@ -579,6 +617,66 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
       expect(acceptedView).toEqual(expectedAccepted);
       expect(acceptedSeal).toMatchObject({ status: 200, ok: true, data: { valid: true, stored_hash: sent.version.seal_hash,
         seal_payload_version: 5, client_contract_version: 2, calc_payload_version: 6 } });
+    });
+
+  // V3M-15 : l'identité imprimée d'une v3 émise est celle de sa copie au contrat 2, relevée trois fois : par le
+  // propriétaire à l'émission, après la modification de l'affaire, puis par le second administrateur du tenant.
+  offerTest("V3M06 a sent v3 prints the identity of its issued copy, not the affaire changed after emission nor the profile of a second admin who opens it, with its valid seal",
+    { session: "army", trace: "off", tags: ["engine-v3", "offer-emission"], timeout: 600_000 }, async (ui) => {
+      const { app, screen, browser, army } = ui;
+      const fixture = emissionFixture();
+      const record: Evidence = (label, data) => recordOfferEvidence(army, `v3m06-${label}`, data);
+      await app.open("/dashboard/affaires");
+      await expectOfferGuardInstalled(record);
+      const emails = { "<adresse du propriétaire>": credentials.user("army").username, "<adresse du lecteur>": credentials.user("viewer").username };
+      // S2 : remise de 1,01 €, le pied porte brut, remise, HT net, TVA et TTC.
+      const ids = await createV3(browser, army, record, "V3M06");
+      await settleV3(browser, army, record, "V3M06", ids, S2, fixture.owner.laborRoleId);
+      await generatePdf(browser, record, "pdf", ids.versionId);
+      await sendOffer(ui, record, "send", ids.versionId);
+      const issued = await readEstimate(browser, ids.versionId);
+      const verified = await verifySeal(browser, ids.versionId);
+      await record("issued", { versionId: ids.versionId, status: issued.version.status, marker: issued.version.seal_payload_version, verified });
+      expect([issued.version.status, issued.version.seal_payload_version, issued.project.name]).toEqual(["sent", 5, `${army.runPrefix}-V3M06`]);
+      expect(verified).toMatchObject({ status: 200, ok: true, data: { valid: true, stored_hash: issued.version.seal_hash,
+        seal_payload_version: 5, client_contract_version: 2, calc_payload_version: 6 } });
+      const atEmission = await printIdentity(ui, ids.versionId, emails);
+
+      // Après l'émission, l'affaire change par sa fiche (comme OF02) : nom, client, référence et adresse du chantier.
+      const changed = { name: `RENOMMÉE ${army.runPrefix}`, client: "ARMY client modifié V3M06", reference: "ARMY-REF-V3M06",
+        site: "ARMY chantier modifié V3M06" };
+      await app.open(`/dashboard/affaires/${ids.projectId}`);
+      await screen.getByRole("button", "Modifier la fiche", { exact: true }).click();
+      await screen.getByLabel(/Nom du projet/).fill(changed.name);
+      await screen.getByLabel("Client", { exact: true }).fill(changed.client);
+      await screen.getByLabel("Référence", { exact: true }).fill(changed.reference);
+      await screen.getByLabel("Adresse du chantier", { exact: true }).fill(changed.site);
+      await screen.getByRole("button", "Enregistrer", { exact: true }).click();
+      await expect(screen.getByLabel(/Nom du projet/)).toHaveCount(0);
+      const current = await readEstimate(browser, ids.versionId);
+      await record("affaire-changed", { projectId: ids.projectId, expected: changed.name, actual: current.project.name });
+      expect(current.project.name).toBe(changed.name);
+      const afterChange = await printIdentity(ui, ids.versionId, emails);
+
+      // Le second administrateur du tenant ouvre la même impression ; le propriétaire se reconnecte ensuite.
+      await accountLogin(ui, "viewer");
+      const asViewer = await printIdentity(ui, ids.versionId, emails);
+      await accountLogin(ui, "army");
+
+      // La copie émise : l'émetteur et son adresse du profil au moment de l'envoi, l'affaire sans client, référence
+      // ni adresse, et le bloc « Devis » relevé à l'émission ; sceau valide à chaque lecture.
+      const captured = {
+        issuer: [fixture.owner.displayName, "<adresse du propriétaire>"],
+        devis: atEmission.devis,
+        client: ["Client à renseigner"],
+        site: [`${army.runPrefix}-V3M06`, "Adresse du chantier non renseignée"],
+        seal: ["valid"],
+      };
+      const prints = { atEmission, afterChange, asViewer };
+      const expectedPrints = { atEmission: captured, afterChange: captured, asViewer: captured };
+      await record("print-identity", { versionId: ids.versionId, changed, viewer: fixture.viewer.displayName, expected: expectedPrints, actual: prints });
+      expect(atEmission.devis).toContain("Version : V1");
+      expect(prints).toEqual(expectedPrints);
     });
 }
 

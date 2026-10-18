@@ -189,6 +189,17 @@ export default {
         return password;
       },
     },
+    // emission-v3 only (V3M06): the second admin of the dedicated tenant, created by the phase fixture.
+    ...(process.env.E2E_V3M_VIEWER_EMAIL ? {
+      viewer: {
+        username: process.env.E2E_V3M_VIEWER_EMAIL,
+        password: () => {
+          const password = process.env.E2E_V3M_VIEWER_PASSWORD;
+          if (!password) throw new Error("E2E_V3M_VIEWER_PASSWORD is required for the emission-v3 viewer.");
+          return password;
+        },
+      },
+    } : {}),
   },
   ...(secrets ? { secrets } : {}),
 } satisfies E2EConfig;

@@ -655,6 +655,31 @@ async function emissionV3Fixtures(context: CalcV3FixtureContext, campaign: strin
   if (deactivated.length !== 1 || Number(deactivated[0].threshold_value) !== 500000 || deactivated[0].is_active !== false) {
     throw new Error("calc-v3 fixture emission-v3: the dedicated tenant must hold exactly its default approval rule at 5,000 EUR.");
   }
+  // Codex review of 3d78d662 (lane A, V3M06): a second new admin of this tenant reads the printout of a v3 the
+  // owner issued. It switches its own active tenant through the ordinary RPC, as the observer of the access phase.
+  const viewer = await createActor(context, campaign, "v3m-viewer");
+  const viewerMembership = await checked("emission-v3:second new admin in owner tenant", context.admin.from("tenant_memberships")
+    .insert({ tenant_id: actor.tenantId, user_id: viewer.userId, role: "admin", is_default: false }).select("id, tenant_id, role").single());
+  const viewerClient = createClient<Database>(context.backend, context.anonKey, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
+  try {
+    const signedIn = await viewerClient.auth.signInWithPassword({ email: viewer.email, password: viewer.password });
+    if (signedIn.error || signedIn.data.user?.id !== viewer.userId) throw new Error("calc-v3 fixture emission-v3: viewer ordinary authentication failed.");
+    await checked("emission-v3:viewer ordinary active-tenant switch", viewerClient.rpc("set_active_tenant_membership_default", { p_membership_id: viewerMembership.id }));
+    const active = await checked("emission-v3:viewer active tenant", viewerClient.from("tenant_memberships").select("id, tenant_id, role")
+      .eq("user_id", viewer.userId).eq("is_default", true).single());
+    if (active.id !== viewerMembership.id || active.tenant_id !== actor.tenantId || active.role !== "admin") {
+      throw new Error("calc-v3 fixture emission-v3: viewer active tenant mismatch.");
+    }
+  } finally {
+    await viewerClient.auth.signOut({ scope: "local" });
+  }
+  // Profile names written by the sign-up trigger from createActor's metadata (`ARMY calc-v3 <label>`).
+  const displayNames = await checked("emission-v3:owner and viewer profile names", context.admin.from("profiles")
+    .select("id, full_name").in("id", [actor.userId, viewer.userId]));
+  const nameOf = (userId: string) => displayNames.find((row) => row.id === userId)?.full_name ?? null;
+  if (nameOf(actor.userId) !== "ARMY calc-v3 emission-v3" || nameOf(viewer.userId) !== "ARMY calc-v3 v3m-viewer") {
+    throw new Error("calc-v3 fixture emission-v3: owner and viewer profile names differ.");
+  }
   const owner = { userId: actor.userId, tenantId: actor.tenantId };
   const common = { tenant_id: owner.tenantId };
   const prefix = `ARMY-V3M-calc-v3-${campaign}`;
@@ -687,17 +712,21 @@ async function emissionV3Fixtures(context: CalcV3FixtureContext, campaign: strin
   const engine = await checked("emission-v3:witness engine", context.admin.from("estimate_versions")
     .select("calc_engine_version, status").eq("id", witness.versionId).single());
   if (engine.calc_engine_version !== 2 || engine.status !== "draft") throw new Error("calc-v3 fixture emission-v3: the witness must be a v2 draft.");
-  const file = await writeFixture(context, "emission-v3", { schemaVersion: "calc-v3-emission-v3-2", status: "ready", campaign,
-    apiUrl: context.backend, createdAt: new Date().toISOString(), prefix, owner: { ...owner, laborRoleId: actor.laborRoleId },
+  const viewerValue = { userId: viewer.userId, tenantId: actor.tenantId, membershipId: viewerMembership.id,
+    bootstrapTenantId: viewer.bootstrapTenantId, displayName: "ARMY calc-v3 v3m-viewer" };
+  const file = await writeFixture(context, "emission-v3", { schemaVersion: "calc-v3-emission-v3-3", status: "ready", campaign,
+    apiUrl: context.backend, createdAt: new Date().toISOString(), prefix,
+    owner: { ...owner, laborRoleId: actor.laborRoleId, displayName: "ARMY calc-v3 emission-v3" }, viewer: viewerValue,
     policy: { engine: 3, saleCoefficientFo: 1.3, saleCoefficientMo: 1.2, allowedTaxRatesBp: [2000, 1000, 550, 210] },
     v2Witness: { ...witness, expected: { ht: 2000, tax: 400, ttc: 2400 } },
     approvalRule: { id: deactivated[0].id, thresholdCents: 500000, isActive: false },
     approvalProject: { projectId: approvalProject.projectId, versionId: approvalProject.versionId, ruleId: approvalProject.ruleId,
       thresholdCents: approvalProject.thresholdCents },
-    boundary: "A new owner, its bootstrap tenant at policy 3 without its default global approval rule, one v2 draft witness, and one affaire with its own active approval rule at 5,000 EUR HT and one empty v3 draft; the other v3 are created, and every v3 is filled, by the journeys through the application." });
-  return { env: { E2E_V3_EMISSION_FIXTURE_PATH: file }, secretEnv: {},
+    boundary: "A new owner, its bootstrap tenant at policy 3 without its default global approval rule, one second new admin of that tenant (viewer), one v2 draft witness, and one affaire with its own active approval rule at 5,000 EUR HT and one empty v3 draft; the other v3 are created, and every v3 is filled, by the journeys through the application." });
+  return { env: { E2E_V3_EMISSION_FIXTURE_PATH: file },
+    secretEnv: { E2E_V3M_VIEWER_EMAIL: viewer.email, E2E_V3M_VIEWER_PASSWORD: viewer.password },
     login: { email: actor.email, password: actor.password },
-    identities: { owner: publicActor(actor), prefix, v2Witness: witness, policy: "engine 3, 1,30 / 1,20",
+    identities: { owner: publicActor(actor), viewer: viewerValue, prefix, v2Witness: witness, policy: "engine 3, 1,30 / 1,20",
       approvalRule: "default 5,000 EUR global rule deactivated for this tenant",
       approvalProject: { ...approvalProject, rule: "require_approval, scope client, 5,000 EUR HT, active" } } };
 }
