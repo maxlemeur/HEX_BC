@@ -500,17 +500,20 @@ const ROUND_TRIP_SPLIT: Record<(typeof ROUND_TRIP)[number]["ref"], { fo: number;
   P1: { fo: 2600, mo: 0 }, P2: { fo: 1950, mo: 0 }, P3: { fo: 3900, mo: 9600 }, N1: { fo: 0, mo: 0 }, N2: { fo: 0, mo: 0 }, N3: { fo: 0, mo: 0 },
 };
 
-/** Cellules BDC attendues d'une ligne v3 (V1.1 puis colonnes v3) ; fournisseur 1 éventuel. */
+/**
+ * Cellules BDC attendues d'une ligne v3 (V1.1 puis colonnes v3) ; fournisseur 1 éventuel. Comme le BDC V1.1 d'une v1/v2
+ * (V3X06), une cellule texte vide est écrite "" et relue "" ; une cellule numérique absente est relue null.
+ */
 function expectedBdcLine(line: (typeof ROUND_TRIP)[number], supplier: { name: string; price: number; ref: string } | null) {
   const priced = line.status === "priced";
   const label = STATUS_LABELS[line.status];
   const split = ROUND_TRIP_SPLIT[line.ref];
   return {
-    "Type": "line", "Unité": line.unit, "Quantité": line.quantity, "Type FO": null, "PU FO HT EUR": priced ? line.prFo / 100 : null,
+    "Type": "line", "Unité": line.unit, "Quantité": line.quantity, "Type FO": "", "PU FO HT EUR": priced ? line.prFo / 100 : null,
     "PR FO HT EUR": priced ? line.prFo / 100 : null, "K FO": 1, "h MO": null, "K MO": 1, "Taux horaire MO EUR": null,
-    "Rôle MO": line.hPerUnit > 0 ? "Tuyauteur" : null, "Catégorie": null, "Total FO HT EUR": split.fo / 100, "Total MO HT EUR": split.mo / 100,
-    "Total HT EUR": line.gross / 100, "Fournisseur 1 Nom": supplier?.name ?? null, "Fournisseur 1 Prix EUR": supplier?.price ?? null,
-    "Fournisseur 1 Ref": supplier?.ref ?? null, "Statut": label, "h MO / unité": priced ? line.hPerUnit : null,
+    "Rôle MO": line.hPerUnit > 0 ? "Tuyauteur" : "", "Catégorie": "", "Total FO HT EUR": split.fo / 100, "Total MO HT EUR": split.mo / 100,
+    "Total HT EUR": line.gross / 100, "Fournisseur 1 Nom": supplier?.name ?? "", "Fournisseur 1 Prix EUR": supplier?.price ?? null,
+    "Fournisseur 1 Ref": supplier?.ref ?? "", "Statut": label, "h MO / unité": priced ? line.hPerUnit : null,
     "PU vente HT EUR": priced ? line.pu! / 100 : null,
   };
 }
@@ -760,12 +763,14 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
           "Fournisseur 1", "Fournisseur 2", "Fournisseur 3", "K FO", "h MO", "Majoration MO (%)", "Rôle MO", "K MO", "PU HT (EUR)",
           "Total HT (EUR)", "TVA (%)", "Total TTC (EUR)"],
           line: ["ARMY section 1", "ml", "2", "15", "1.2", "0", "18", "36", "20", "43.2"] },
+        // Valeurs relues du BDC V1.1 actuel (avant 2.7b) : désignation indentée de deux espaces sous sa section, texte vide
+        // écrit "" (relu ""), prix fournisseur absent relu null.
         bdc: { sheets: ["BDC_V1_1"], header: BDC_V11_HEADER,
-          line: { "Type": "line", "Désignation": lineTitle, "Unité": "ml", "Quantité": 2, "Type FO": null, "PU FO HT EUR": 15, "PR FO HT EUR": 18,
-            "K FO": 1.2, "h MO": 0, "K MO": 1, "Taux horaire MO EUR": 0, "Rôle MO": null, "Catégorie": null, "Total FO HT EUR": 36,
-            "Total MO HT EUR": 0, "Total HT EUR": 36, "Fournisseur 1 Nom": null, "Fournisseur 1 Prix EUR": null, "Fournisseur 1 Ref": null,
-            "Fournisseur 1 URL": null, "Fournisseur 2 Nom": null, "Fournisseur 2 Prix EUR": null, "Fournisseur 2 Ref": null, "Fournisseur 2 URL": null,
-            "Fournisseur 3 Nom": null, "Fournisseur 3 Prix EUR": null, "Fournisseur 3 Ref": null, "Fournisseur 3 URL": null },
+          line: { "Type": "line", "Désignation": `  ${lineTitle}`, "Unité": "ml", "Quantité": 2, "Type FO": "", "PU FO HT EUR": 15, "PR FO HT EUR": 18,
+            "K FO": 1.2, "h MO": 0, "K MO": 1, "Taux horaire MO EUR": 0, "Rôle MO": "", "Catégorie": "", "Total FO HT EUR": 36,
+            "Total MO HT EUR": 0, "Total HT EUR": 36, "Fournisseur 1 Nom": "", "Fournisseur 1 Prix EUR": null, "Fournisseur 1 Ref": "",
+            "Fournisseur 1 URL": "", "Fournisseur 2 Nom": "", "Fournisseur 2 Prix EUR": null, "Fournisseur 2 Ref": "", "Fournisseur 2 URL": "",
+            "Fournisseur 3 Nom": "", "Fournisseur 3 Prix EUR": null, "Fournisseur 3 Ref": "", "Fournisseur 3 URL": "" },
           formats: Array.from({ length: 4 }, () => CURRENCY_FORMATS.EUR) },
       };
       await record("v2-exports", { versionId, csv: { filename: csvFile.suggestedFilename, path: csvPath, bytes: csvBytes.length, sha256: digest(csvBytes), rows: csvRows },
