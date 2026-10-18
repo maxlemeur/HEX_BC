@@ -1362,3 +1362,74 @@ Limites :
 - Comme V3M05, V3M06 n'est atteint que par la phase calc-v3 `emission-v3`, pas par la sélection d'impact des PR.
 - Les commentaires du parcours et de `calc-v3-phases.ts` renvoient à ce §13.8 : à renuméroter si la voie B prend ce
   numéro.
+
+### 13.8 Revue Codex de 3d78d662 — voie B (18/10/2026)
+
+Exports XLSX v3 (`src/lib/estimates/v3-export.ts`), deux constats de la revue Codex de `3d78d662`, traités selon la
+décision du coordinateur. Parcours `e2e/army/local/engine-v3-exports.e2e.ts` (campagne critique locale, nouveau fichier
+inscrit dans la carte d'impact), défaillances V3X-01 à V3X-06 écrites en tête du fichier avant le code.
+
+| Constat | Traitement |
+|---|---|
+| P2 (`v3-export.ts:56`) : une v3 en USD ou GBP, devises acceptées par les schémas du devis et du contrat, reçoit le format « € » sur chaque montant de ses classeurs standard et DPGF, dont les en-têtes de montant disent « EUR » | `5b0bd907` : format et en-têtes suivent `version.currency` (repli EUR, comme le pied) : EUR `#,##0.00 "€"` inchangé, USD `"$"#,##0.00`, GBP `"£"#,##0.00` (symbole et place de `formatCurrency`) ; « Prix unitaire HT », « PU vente HT » et « Total HT brut » suivis du code de la devise. Rouge puis vert : V3X02 |
+| P1 (`v3-export.ts:254`) : sur une ligne non chiffrée, le statut n'est écrit que dans « Statut », sans cible d'import ; le PR FO, les heures et la majoration restent, et le réimport recrée une ligne facturable | `5d3f6c65` : une ligne non chiffrée n'écrit plus aucun nombre dans une colonne que l'import lit comme prix, déboursé ou main-d'oeuvre. DPGF : « Prix unitaire HT » et « Total HT brut » portent le libellé du statut du document (« Inclus », « Pour mémoire », « Hors lot »…), « PU vente HT » reste vide (le document imprime « - »), « h MO / unité », ses jumeaux atelier et chantier et « Majoration MO (%) » sont vides. Standard : « Total HT » porte le libellé au lieu de 0, « PU HT » reste vide. Quantité, unité, « Statut », TVA, Type FO, K, rôles et catégorie restent ; lignes chiffrées inchangées ; chemin d'import inchangé (décision : la PR #40 travaille sur les imports). Rouge puis vert : V3X01 |
+
+Colonnes lues par l'import (`MAPPING_TARGET_FIELDS`, profil `dpgf_export` d'`optima-profile.ts`, heuristique de
+`mappings/server.ts`). Le DPGF v3 ne porte pas « h MO » (il écrit « h MO / unité ») : la signature du profil
+`dpgf_export` (« AID », « Prix unitaire HT EUR », « h MO », « Rôle MO ») ne le reconnaît pas. Correspondance proposée
+sur un tenant neuf, relevée par V3X01 : Désignation, Quantité, Unité, Type FO, Catégorie ; « h MO / unité » →
+`labor_hours` (heures de ligne) ; « Majoration MO (%) » → `h_mo_majoration_percent` ; « PU vente HT EUR » →
+`control_unit_price` (contrôle) ; « Total HT brut EUR » → `total_ht`, d'où PU = PT / Q. « Prix unitaire HT EUR » reste
+sans cible : `control_unit_price` va au PU de vente. Le profil, une mémoire de correspondance ou un choix de
+l'utilisateur le lisent en `unit_price_ht`. Statut, TVA, K FO, K MO, AID, Type et rôles n'ont aucune cible.
+
+Inspection demandée : oui, le DPGF v3 écrit des déboursés et des saisies de main-d'oeuvre, pour chaque ligne :
+« Prix unitaire HT » = PR FO, Type FO, K FO, h/u, K MO, majoration, rôles, catégorie et jumeaux atelier et chantier. Ce
+sont les « saisies réimportables » qu'écrit aussi le DPGF v1/v2 (`dpgf-export.ts`). Hors du constat, ces colonnes ne
+sont pas reconçues pour les lignes chiffrées : rapporté au coordinateur. Constat préexistant, non corrigé (chemin
+d'import inchangé) : réimportée avec la correspondance proposée, une ligne chiffrée reprend PT / Q comme prix de
+fourniture et ses heures par unité comme heures de ligne. V3X01 le neutralise par deux lignes chiffrées « fourniture
+seule ».
+
+V3X01 : brouillon v3 (propriétaire dédié, politique 3 le temps de la création, puis 2) de P1 (2 u, PR 10,00 € → PU
+13,00, PT 26,00), P2 (3 ml, PR 5,00 € → 6,50 / 19,50) et de trois lignes non chiffrées avec déboursé et heures au rôle
+« Tuyauteur » 40 €/h : N1 incluse (3 u, 50,00 €, 2 h/u), N2 hors lot (4 ml, 25,00 €, 0,5 h/u), N3 pour mémoire (1 u,
+99,00 €, 1 h/u). Totaux v3 45,50 / 9,10 / 54,60 €. Les deux exports passent par la route de l'interface et sont relus
+par ExcelJS, cellule par en-tête. Le DPGF est importé par « Importer la DPGF » dans une nouvelle affaire v2, avec la
+correspondance proposée inchangée et le rôle que l'aperçu demande pour les heures importées (« Sans rôle, ces heures
+sont valorisées à 0 €/h »). Le devis créé est relu. V3X02 : brouillon v3 d'une ligne X (2 ml, 15,00 € + 1 h/u →
+67,50 / 135,00 €), remise 10 % ; exports en EUR, puis après passage des réglages en USD, puis en GBP. Pour chaque
+devise : en-tête exact du DPGF et format de chaque cellule numérique de montant (Devis 8, Resume 5, Données 3,
+Metadata 5), aucun autre format dans le classeur.
+
+| Commande (WSL, `~/miaouffrage-l27-codex-b`, Node 24.19.0, `E2E_ARMY_WORKERS=2`, `NODE_OPTIONS=--max-old-space-size=4096`, aucun changement local) | Tête | Résultat |
+|---|---|---|
+| `npm run e2e:army:dev-loop -- run --grep "^V3X0[12] "` (boucle `--app-port 3164`, itération 5, build `alDdP-KMCHHXygC_SPM4P` de `3d78d662`) | `38570e42` | rouge attendu : manifeste `failed` (`0e30deaf…`), `journeys-critical` exitCode 1, V3X01 et V3X02 en échec. V3X01 : devis importé 185,50 / 37,10 / 222,60 € au lieu de 45,50 / 9,10 / 54,60 ; N1, N2, N3 reviennent à PU 0 avec 2 h, 0,5 h et 1 h au rôle, soit 80,00, 20,00 et 40,00 € ; cellules DPGF de N1 : « Prix unitaire HT EUR » 50, « h MO / unité » 2, « Majoration MO (%) » 100, « Total HT brut EUR » 0 ; standard « Total HT » 0 ; aperçu « 5 lignes prêtes », aucune refusée. V3X02 : en USD et en GBP, chaque montant `#,##0.00 "€"` et en-têtes « … EUR » ; EUR conforme. Fixtures `ARMY-1792311615878-19555dbb`, `ARMY-1792311627028-cd71d0c7`. `.e2e/army/ci/2026-10-18T08-01-51-982Z-dev-loop/iterations/005-2026-10-18T08-19-57-346Z` |
+| idem, itération 6 (reconstruite) | `5b0bd907` | V3X02 vert, V3X01 encore rouge (attendu) ; manifeste `4fb0632f…` |
+| idem, itération 7 (reconstruite) | `5d3f6c65` | 3/3 (setup, V3X01, V3X02) ; manifeste `b22ef450…` |
+| `npm run e2e:army:local -- --grep "dpgf\|DPGF\|import\|^V3M02 \|^V3FC02 \|commercial rounding uses lower steps" --app-port 3164` (boucle arrêtée, pile possédée neuve : pgTAP, matrice RLS, build de production) | `5d3f6c65` | **sortie 0** en 126 s : 17/17 : setup ; access-boundaries ; CSV DPGF (en-têtes métier et opaques), DPGF03 ; trois imports OPTIMA ; HUB02 ; « downloaded XLSX and DPGF cells… » et association catalogue (estimate-integrity) ; arrondi commercial (exports v1/v2) ; V3E15 ; V3M02 ; V3FC02 ; V3X01 (aperçu « 2 lignes prêtes · 3 refusées », devis importé P1 et P2 seuls, 45,50 / 9,10 / 54,60 €) ; V3X02. Fixtures `ARMY-1792312643112-8af165ff`, `ARMY-1792312649345-a052b418`. `.e2e/army/ci/2026-10-18T08-35-31-681Z-critical` (`manifest.json` `1ac60faa…`) |
+| `npm run typecheck` ; `npx eslint --max-warnings=0 src/lib/estimates/v3-export.ts e2e/army/local/engine-v3-exports.e2e.ts` ; `npx vitest run --project=node src/test/army-impact-map.test.ts src/test/ci-guardrails.test.ts` ; `git diff --check 3d78d662...HEAD` | `5d3f6c65` | sortie 0 ; 23/23 ; `git diff 3d78d662...HEAD -- src/lib/estimate-calculations.ts src/lib/estimate-v2-snapshot.ts supabase/` vide |
+
+Journaux : `~/l27-codex-b-logs/*.log` (tête, état local, commande, sortie, durée). Identité EUR octet pour octet : un
+document v3 factice (section, ligne chiffrée avec MO et remise 10 % ; puis la même avec une ligne incluse) est écrit
+par les écrivains standard et DPGF de `3d78d662`, de `5b0bd907` et de `5d3f6c65`, avec le même `WorkbookWriter` en flux d'ExcelJS que
+`createWorkbookWriterFactory`. Les parties des classeurs EUR sont comparées une à une, `docProps/core.xml` (horodatage)
+exclu. Sans ligne non chiffrée, elles sont identiques aux trois têtes. Avec la ligne incluse, seule
+`xl/worksheets/sheet1.xml` de chaque classeur change à `5d3f6c65`, ce qui est le changement voulu ; en USD,
+`styles.xml` et `sharedStrings.xml` changent dès `5b0bd907`. Ce différentiel reste hors dépôt (script local, pas de test
+isolé).
+
+Limites :
+
+- Le statut n'est pas réimporté : le contrat d'import n'a pas de cible de statut. Une ligne non chiffrée n'est pas
+  recréée à 0 €. Quand une colonne de prix est lue (`total_ht` dans la correspondance proposée, `unit_price_ht` pour le
+  profil ou une mémoire), le libellé n'est pas un nombre et l'import la refuse sous sa raison générique « prix invalide
+  (deux décimales au plus) », qui ne nomme pas le statut. Une correspondance qui ne lit aucune colonne de prix
+  l'importerait à 0 € sans heure. Seule la correspondance proposée est rejouée ; les autres sont couvertes par
+  l'assertion des cellules exportées, pas par un réimport.
+- Rouge et vert intermédiaires dans la boucle d'itération (`e2e:army:dev-loop`, qui ne qualifie pas) ; la
+  qualification est le run `e2e:army:local` de `5d3f6c65`.
+- Ajouter le parcours à la carte d'impact (`army-impact-map.json`, glob `full`) fait sélectionner la suite complète par
+  la CI de la PR.
+- Numérotation : si la voie A prend aussi le §13.8, renuméroter et mettre à jour les trois renvois « §13.8 »
+  d'`engine-v3-exports.e2e.ts`.
