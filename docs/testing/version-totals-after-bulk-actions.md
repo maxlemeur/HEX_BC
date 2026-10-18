@@ -1127,7 +1127,7 @@ la même écriture pour un utilisateur. Elle ne rejoue aucune requête métier. 
 jamais, elle échoue au bout de 30 s, sur « Connexion… » ou « Verrouillé ». Le produit n'est pas
 modifié, puisqu'il refuse déjà l'écriture tant que le bail manque.
 
-### Fusion avec la PR #42
+### Fusions avec la PR #42 et les leviers d'outillage
 
 `origin/main` est passé de `5cfd4a94` à `f37d7bbb`. Il apporte la PR #42 (preuves ciblées de la CI
 et run nocturne calc-v3) et le relevé de M6 et M6b sur le Supabase partagé. La fusion `9f89b7bd`
@@ -1138,6 +1138,18 @@ cause d'`e2e.config.ts`, et elle inclut désormais tous les parcours takeoff (`f
 Tests de garde du worktree Windows sur le résultat de la fusion
 (`src/test/army-impact-map.test.ts`, `ci-guardrails.test.ts`, `army-dev-loop.test.ts`) :
 3 fichiers, 49 tests passés et 10 ignorés.
+
+Avant la poussée, `origin/main` est passé à `76b71c9e`, avec trois leviers d'outillage demandés par
+le propriétaire :
+
+- le renommage de l'horodatage des migrations (`supabase-migration-restamp`) ;
+- des règles de travail dans `AGENTS.md` ;
+- la capacité native de la boucle (documentation).
+
+La fusion `493157d9` est faite sans conflit. Elle ne touche ni l'application, ni les migrations,
+ni les parcours : Q1 et Q2 restent valables. Seul l'outillage change. Sur la tête fusionnée, les
+tests de garde et `src/test/supabase-migration-restamp.test.ts` passent : 4 fichiers, 67 tests
+passés et 10 ignorés. La suite `full` de la CI tourne sur cette tête.
 
 ### Preuves
 
