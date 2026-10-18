@@ -36,6 +36,13 @@ export type EstimateEditorConflictDraft = EditorConflictDraft<
 export type RestoredDraftApplication = {
   restoredItems: EstimateItem[];
   skippedItemCount: number;
+  /**
+   * Lot 2, sous-lot 2.6b (A14) : charge mise en file pour une ligne restaurée, selon le moteur de la version (v3 :
+   * ses saisies seulement, que l'écrivain v3 recalcule) ; absente, la charge historique v1/v2.
+   */
+  buildItemPayload?: (item: EstimateItem) => EstimateItemUpdatePayload;
+  /** Faux quand les réglages du brouillon ne sont pas repris (v3 : forme v2, jamais appliquée). */
+  settingsRestored?: boolean;
 };
 
 export type EstimateEditorSyncControllerInput = {

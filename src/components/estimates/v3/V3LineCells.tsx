@@ -180,7 +180,70 @@ export function V3UnitCell({
   );
 }
 
+/**
+ * Lot 2, sous-lot 2.6b (A13, D-c) : unité d'une ligne v3 hors de la grille (éditeur mobile). Même règle que la
+ * cellule « U » : un alias du référentiel résolu à la sortie du champ et écrit dans `unit_code`, une saisie inconnue
+ * refusée par son message, visible, sans écriture ; jamais `description`.
+ */
+export function V3UnitField({
+  item,
+  className,
+  isReadOnly,
+  onPatchItem,
+}: {
+  item: EstimateItem;
+  className: string;
+  isReadOnly: boolean;
+  onPatchItem: PatchItem;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const value = draft ?? formatEstimateV3UnitLabel(item.unit_code);
+  const errorId = `${item.id}-v3-unit-field-error`;
+  return (
+    <>
+      <input
+        className={className}
+        list={UNIT_OPTIONS_ID}
+        value={value}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? errorId : undefined}
+        onChange={(event) => {
+          setDraft(event.target.value);
+          setError(null);
+        }}
+        onBlur={() => {
+          if (draft === null) return;
+          const resolution = resolveEstimateV3UnitInput(draft, item.unit_code);
+          if (resolution.kind === "invalid") {
+            setError(resolution.message);
+            return;
+          }
+          setDraft(null);
+          if (resolution.kind === "unit" && resolution.unitCode !== (item.unit_code ?? null)) {
+            onPatchItem(item.id, { unit_code: resolution.unitCode }, { persist: true });
+          }
+        }}
+        placeholder="Obligatoire"
+        aria-label={`Unité pour ${lineLabel(item)}`}
+        disabled={isReadOnly}
+      />
+      {error ? <span id={errorId} role="alert" className="mt-1 block text-xs text-red-700">{error}</span> : null}
+    </>
+  );
+}
+
 const HOURS_FORMAT = { minDecimals: 0, maxDecimals: 3 } as const;
+
+/** Heures totales d'une ligne v3 telles que le moteur les dérive (Q × h/u), sinon celles de la ligne relue. */
+export function useEstimateV3LineTotalHours(item: Pick<EstimateItem, "id" | "h_mo">): number | null {
+  const line = useEstimateV3Line(item.id);
+  return line ? (line.h_mo === null ? null : Number(line.h_mo)) : item.h_mo;
+}
+
+export function formatEstimateV3Hours(hours: number | null) {
+  return formatNumberDisplay(hours ?? 0, HOURS_FORMAT);
+}
 
 /**
  * Contenu de la cellule « h MO » d'une v3 : heures **par unité** saisies (D4, 4 décimales,
@@ -198,8 +261,7 @@ export function V3LaborHoursCellContent({
   isReadOnly: boolean;
   onPatchItem: PatchItem;
 }) {
-  const line = useEstimateV3Line(item.id);
-  const totalHours = line ? (line.h_mo === null ? null : Number(line.h_mo)) : item.h_mo;
+  const totalHours = useEstimateV3LineTotalHours(item);
   return (
     <div className="flex min-w-0 flex-col items-stretch gap-0.5">
       <DecimalDraftInput
@@ -222,7 +284,7 @@ export function V3LaborHoursCellContent({
       <span className="flex items-baseline justify-end gap-0.5 text-micro text-muted-foreground" title="Total d'heures de la ligne : Qté × h MO / u">
         <span aria-hidden="true">Σ</span>
         <output aria-label={`Heures de main-d’œuvre totales pour ${lineLabel(item)}`} className="tabular-nums">
-          {formatNumberDisplay(totalHours ?? 0, HOURS_FORMAT)}
+          {formatEstimateV3Hours(totalHours)}
         </output>
       </span>
     </div>

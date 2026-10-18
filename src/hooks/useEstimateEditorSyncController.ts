@@ -1060,11 +1060,11 @@ export function useEstimateEditorSyncController({
     if (!restorableDraft) return;
     restoredConflictDraftRef.current = true;
 
-    const { restoredItems, skippedItemCount } =
+    const { restoredItems, skippedItemCount, buildItemPayload, settingsRestored } =
       applyRestoredDraft(restorableDraft);
     restoredItems.forEach((item) => {
       enqueueItemUpdate(item.id, {
-        ...buildEstimateItemUpdatePayload(item),
+        ...(buildItemPayload ?? buildEstimateItemUpdatePayload)(item), // 2.6b (A14) : charge v3 sur une v3
         parent_id: item.parent_id ?? null,
         position: item.position,
       });
@@ -1078,7 +1078,7 @@ export function useEstimateEditorSyncController({
     reportNotice(
       skippedItemCount > 0
         ? "Les modifications des lignes encore présentes ont été restaurées. Certaines différences de structure n’ont pas été réappliquées afin de préserver les données serveur."
-        : "Modifications locales restaurées. Les lignes restent en attente de synchronisation ; enregistrez le paramétrage pour confirmer les réglages."
+        : `Modifications locales restaurées. Les lignes restent en attente de synchronisation${settingsRestored === false ? "" : " ; enregistrez le paramétrage pour confirmer les réglages"}.`
     );
   }, [
     applyRestoredDraft,
