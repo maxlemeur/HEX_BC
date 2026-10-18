@@ -1,8 +1,10 @@
 # Pilote puis bascule du moteur 3 (sous-lot 2.10b, M8)
 
-Statut : **rouges écrits, bascule en cours** (18/10/2026). Branche `lot2/2.10b-bascule-m8`, base `origin/main`
-`c4c1e854`. Elle fusionne **en dernier** du lot 2, après #45 (2.7), #57 (2.10a), 2.6b, 2.7b, 2.8b et #58 (parcours
-V1 des totaux sur propriétaires dédiés) ; sa M8 sera réhorodatée à la fusion (§8). Sources : cahier de la bascule
+Statut : **bascule écrite, prouvée en local, fusionnée avec `main` et réhorodatée ; en attente de la revue
+interne, de D-l et de la fusion en dernier** (18/10/2026). Branche `lot2/2.10b-bascule-m8`, partie de `c4c1e854`,
+`origin/main` `51bce775` fusionné (§9). Elle fusionne **en dernier** du lot 2, après #45 (2.7), #57 (2.10a), 2.6b,
+2.7b, 2.8b et #58 (parcours V1 des totaux sur propriétaires dédiés) ; sa M8 est réhorodatée à chaque fusion de
+`main` qui ajoute une migration (§8). Sources : cahier de la bascule
 (`brief-2-10`, §0 à §10), plan vers 2.10 (§3 « 2.10b » et décisions du 18/10/2026), conception du lot 2 §6.1 (M8),
 §14 « 2.10 », D3, D17, P-02, P-07, P-13, P-15, R2, R12.
 
@@ -21,7 +23,7 @@ v3 n'est jamais relue comme une v1 (`CalcEngineVersion` reste `1 | 2`).
 | Duplication | moteur de la source | inchangé (`duplicate_source` / `duplicate_source_v3`, ne lit pas la politique) |
 | Versions et lignes existantes | — | inchangées (aucune `UPDATE`, D17, P-15) |
 
-**M8** (`supabase/migrations/20261018130000_estimate_engine_v3_default.sql`) remplace
+**M8** (`supabase/migrations/20261018164448_estimate_engine_v3_default.sql`) remplace
 `persist_estimate_creation_atomic` par sa **définition vivante** (M6b, `20261018013249`), à **trois lignes près** :
 moteur d'une politique absente `coalesce(policy_row.new_estimate_calc_engine, 3)` ; replis `1.3000` et `1.2000`
 des coefficients FO et MO d'une v3 (sans eux, une v3 sous politique absente violerait
@@ -142,34 +144,106 @@ Le détail par parcours (statut et première erreur) est conservé avec la preuv
 
 ## 6. Rouges conservés
 
-- **pgTAP, M8 appliquée, phase 1 en place** : `db:ci:local -- --files <7 suites> --skip-rls` sur
-  `254d1342` + phase 1 + suite nouvelle + M8 : **452 tests, tous verts** (log `~/l210b-logs/db-p1-switch.log`).
-  Sans la phase 1, la même M8 faisait échouer `transactional-workflows` (tests 19 à 24, `CONTEXT_CHANGED` au lieu
-  de la création v2) et les autres suites à sujet v2 (journal tronqué du premier passage, `db-switch-applied.log`).
-- Les rouges de M8 (suite nouvelle et V3S01 sans M8) et les preuves de la phase 2 sont ajoutés au §7 par le commit
-  de la bascule.
+Commandes dans WSL, clone Linux, pile possédée, Node 24.19.0 ; journaux sous `~/l210b-logs/` du clone WSL.
 
-## 7. Preuves de la bascule
+- **pgTAP, phase 1 sans M8** (`db:ci:local -- --files <7 suites> --skip-rls`, `a036851f` + suite nouvelle,
+  `db-p1-noswitch.log`) : seule `estimate-engine-v3-default` échoue, **5 sur 23**, chacun sur son motif :
+  F210-01 (création attente 3 refusée, puis aucune v3 à 1,30 / 1,20), F210-02 et F210-03 (l'ancien client et
+  l'attente 2 créent une v2), décompte des versions (2 au lieu de 1). Les six autres suites, épinglées, sont
+  vertes sans M8 : la phase 1 ne change rien.
+- **pgTAP, phase 1 avec M8** (mêmes fichiers + M8, `db-p1-switch.log`) : **452 / 452 verts**. Sans la phase 1,
+  la même M8 faisait échouer `transactional-workflows` (tests 19 à 24) et les suites à sujet v2
+  (`db-switch-applied.log`, premier passage, journal tronqué).
+- **Campagne pgTAP complète au commit rouge** (`c585e74a`, gate de `e2e:army:ci -- critical`) : 24 fichiers,
+  1 914 tests, seuls les 5 rouges ci-dessus (preuve `.e2e/army/ci/2026-10-18T15-08-52-772Z-critical`).
+- **E2E rouge** : `npm run e2e:army:ci -- critical --grep "V3S0|V3P01|V3FC0|LOCK01"` sur `c585e74a`, la suite
+  pgTAP rouge mise de côté pour franchir le gate (seule modification locale, `diffSha256` `885b884b…`), 2 workers,
+  407 s, preuve `.e2e/army/ci/2026-10-18T15-14-13-652Z-critical`. Entreprise de recette en **politique 2
+  explicite** (`manifest.fixtures.tenantCalcPolicy`). **V3S01 rouge** sur son motif : `[409, false,
+  "CONTEXT_CHANGED"]` au lieu de `[201, true, null]` (politique absente = 2) ; **V3S02 vert** (garde) ; V3FC01,
+  V3FC02, V3P01 et LOCK01 verts avec les propriétaires dédiés et l'entreprise de recette en politique 2.
 
-À compléter par le commit de la bascule.
+## 7. Preuves de la bascule (`6aa1ed31`, clone propre, `diffSha256` du vide)
+
+| Preuve | Commande | Résultat |
+|---|---|---|
+| Garde Git des migrations | `supabase:migrations:git-guard -- --base c4c1e854 --mode pull_request` | vert, 2 changements |
+| Historique des migrations | `supabase:validate` | 254 fichiers, 254 versions |
+| SQL et RLS | `db:ci:local` | 24 fichiers, 1 914 tests verts ; matrice RLS verte (190 s) |
+| M8 isolée sur base peuplée | script de preuve (pile possédée sans M8, fixture `lot2-fixture.sql` chargée, v2 et v3 créées par la RPC, M8 appliquée par psql) | voir ci-dessous |
+| Critique | `e2e:army:ci -- critical` | vert : 29 fichiers, 108 / 108 (639 s, `.e2e/army/ci/2026-10-18T15-22-53-638Z-critical`) |
+| Montée de version | `db:upgrade-check -- lot2-2-10` | 0 différence ; contrôle négatif détecté (`.e2e/engine-v3/upgrade-check/2026-10-18T15-33-34-225Z-lot2-2-10`) ; `--negative-control` échoue exactement sur la migration synthétique (attendu) |
+| Empreintes documentaires | `engine:document-fingerprints -- check` | identiques, 14 familles (`.e2e/engine-v3/document-fingerprints/2026-10-18T15-44-59-887Z-check`) |
+| Campagne complète | `e2e:army:ci -- full` | 173 / 174 + development 4 / 4 (`.e2e/army/ci/2026-10-18T15-46-59-989Z-full`) ; seul rouge : SET02 (§9, hors bascule) |
+| calc-v3 | `e2e:army:calc-v3 -- --phase journeys` | vert (264 s, `.e2e/army/ci/2026-10-18T16-00-36-133Z-calc-v3`) ; phase `components` interrompue à 18:07 par l'arrêt de la campagne (préparation `exit=2`, pile arrêtée) : **non prouvée**, les autres phases non lancées ; la CI de la PR les exécute |
+| Qualité | `verify:pr` (arbre de `6aa1ed31`, avant commit) | vert (167 s) |
+
+**M8 isolée** (`~/l210b-m8proof/m8-proof.json`, sha256 `36745c20…`) :
+
+- empreintes avant et après M8 **identiques** pour tout sauf le corps de la fonction : versions v1 : 2, v2 : 5,
+  v3 : 1 (dont 2 non brouillons, scellées), lignes 5 / 12 / 2, 2 documents, 2 lignes de politique, 2 événements ;
+  `md5` des lignes complètes (`to_jsonb`) et des colonnes de montant égaux par moteur ; défaut de colonne `2`,
+  ACL `{postgres=X, service_role=X}` et propriétaire inchangés ;
+- `prosrc` `6243492d…` (M6b) → `7167bf9a…` ; `diff` de `pg_get_functiondef` : exactement les trois lignes du
+  §1 (l. 108, 574, 578) ;
+- après M8 (transaction annulée) : politique absente + attente 3 → v3 à `1.3000` / `1.2000` ; politique absente
+  sans attente → `40001 ESTIMATE_CALC_POLICY_CONTEXT_CHANGED` ; politique 2 explicite → v2.
+
+Appels stricts de `resolveCalcEngineVersion` (15, dans 10 fichiers) : ils lèvent `EstimateEngineUnavailableError`
+sur une v3 (refus nommé), jamais une relecture en v1 ; les chemins ouverts aux v3 passent par leur branche v3
+(2.5 à 2.8). Ce sous-lot n'en ouvre aucun. `estimate-calculations.ts` et `estimate-v2-snapshot.ts` : aucun
+changement (`git diff --stat` vide) ; le corpus figé v1/v2 est rejoué par `verify:pr`.
 
 ## 8. Fusion, application et limites
 
-- **Fusion en dernier, réhorodatage obligatoire.** `20261018130000` est postérieur à toute migration de `main`
-  (dernière : `20261018093005`) et à la M5 réhorodatée de #45 (`20261018102840`). À la fusion :
+- **Fusion en dernier, réhorodatage obligatoire.** M8 a été réhorodatée le 18/10/2026 après la fusion de
+  `origin/main` `51bce775` (dernière migration : la M5 réhorodatée de #45, `20261018102840`) :
+  `20261018130000` → `20261018164448` (§9). À la fusion, si `main` a reçu une migration entre-temps :
   `git fetch origin`, `git merge origin/main`, `npm run supabase:migrations:restamp --
-  supabase/migrations/20261018130000_estimate_engine_v3_default.sql --dry-run` puis sans `--dry-run`
+  supabase/migrations/20261018164448_estimate_engine_v3_default.sql --dry-run` puis sans `--dry-run`
   (`supabase/README.md` §3), `supabase:validate`, `supabase:migrations:git-guard`.
 - **Préalable de M8.** Si une migration fusionnée avant redéfinit `persist_estimate_creation_atomic`, le préalable
   de M8 échoue (`LOT2_2_10_M8_PREREQUISITE_MISSING`) : M8 se reconstruit alors depuis la nouvelle définition
   vivante, toujours à trois lignes près. Aucune PR ouverte du lot ne la redéfinit au 18/10/2026.
-- **Gardes de #57 à mettre à jour à la fusion.** V3C11 et V3C12 (« sous une politique absente, … v2 ») attendent
-  `policyBefore = null` ; depuis la phase 1, un propriétaire dédié part d'une politique 2 explicite, et depuis M8
-  une politique absente vaut 3. Elles deviennent « sous une politique 2 explicite ». Le commentaire
-  `signUpCreatorOwner` (« absent policy ») aussi.
+- **Gardes de #57** : V3C11 et V3C12 tournent désormais « sous une politique 2 explicite » (§9).
 - **Supabase partagé** : non appliqué, sans autorisation. Ordre : M6, M6b, M5 réhorodatée, M8 en dernier. Avant
   M8, une politique 2 explicite pour toute entreprise réelle (R12) et pour l'entreprise de la campagne
   `e2e:army:critical` partagée ; vérifier que le commit déployé sur Vercel contient le code 2.10 (sinon ses
   créations échouent fermées en `CONTEXT_CHANGED` jusqu'au déploiement manuel).
 - **Usage client réel** : Q01 (trois dossiers et leurs résultats attendus), avis de l'expert-comptable sur P-06 et
   P-07, phase 0 de l'audit, et D-f/D-g (métré, structure IA en v3).
+
+## 9. Fusion de `main` (18/10/2026)
+
+`git merge origin/main` (`51bce775` : #45 2.7, #57 2.10a, #58 V1 des totaux, #63), commit `601ddbee`. Conflits
+gardant les deux intentions : carte d'impact (`engine-v3-default` à côté des parcours créateurs, émission, exports
+et V1 des totaux, sans toucher leurs propriétaires) et manifeste des migrations (M5 puis M8). Aucune migration de
+`main` ne redéfinit `persist_estimate_creation_atomic` : le préalable `md5` de M8 (M6b) tient.
+
+- **Réhorodatage** (`1e3a822a`) : `supabase:migrations:restamp` contre `51bce775`, `20261018130000` →
+  `20261018164448`, clé du manifeste renommée, sha256 inchangé ; garde Git et validation du manifeste vertes.
+- **Hypothèses de test de #57 mises à jour** (`e9c0ac6c`), rouges sur la tête fusionnée avant correction :
+  - Vitest `quick-create-affaire.test.ts` : **5 / 5 rouges** (les créations v2 bouchonnées sans ligne de
+    politique envoyaient l'attente 3) ; bouchon en politique 2 explicite, comme `canonical-v2-creation.test.ts`
+    (phase 1) ;
+  - V3C11 et V3C12 : `policyBefore` attendu `null` alors que le propriétaire dédié porte la politique 2
+    explicite depuis la phase 1 ; ils attendent cette ligne avant et inchangée après. Aucune assertion de
+    montant ni de moteur n'est modifiée ;
+  - commentaires « politique absente = 2 » corrigés (`HISTORICAL_CREATION_ENGINE`, conception §6.3).
+- **OpenAPI** (`8995bc12`) : la fusion réutilise le schéma de l'attente de moteur sur une opération de plus ; le
+  contrôle OpenAPI du build de production a refusé l'artefact périmé (premier passage critique ciblé
+  `.e2e/army/ci/2026-10-18T16-47-37-170Z-critical`, phase build, après pgTAP et matrice RLS verts sur `e9c0ac6c`).
+  Régénéré par `scripts/validate-openapi.ts --write` : une ligne de description.
+- **Observation hors bascule** : SET02 (`extended/settings-contracts`, campagne complète du §7) échoue sur
+  `estimate-editor-settings-button` « outside of the viewport » dans un devis v2 de l'entreprise de recette en
+  politique 2 : chemin de création et de calcul inchangé par M8. Non relancé ; à trier par son propriétaire.
+
+| Preuve sur la tête fusionnée | Commande | Résultat |
+|---|---|---|
+| Garde Git des migrations | `supabase:migrations:git-guard -- --base 51bce775 --mode pull_request` (`e9c0ac6c`) | vert |
+| Historique des migrations | `supabase:validate` (`e9c0ac6c`) | vert |
+| SQL, RLS et parcours touchés | `e2e:army:ci -- critical --grep "V3S0\|V3C11\|V3C12"` (`8995bc12`, `diffSha256` du vide, 2 workers, 379 s) | pgTAP **25 fichiers, 1 964 tests verts** (dont `estimate-offer-contract-v2` de #45) ; matrice RLS verte ; V3S01, V3S02, V3C11, V3C12 verts (5 / 5 avec l'authentification) ; preuve `.e2e/army/ci/2026-10-18T17-06-39-916Z-critical` |
+
+Seule la tête fusionnée et ce qu'elle change sont rejoués localement (consigne de vitesse du porteur, 18/10) : la
+sélection critique non filtrée, les parcours takeoff et calc-v3 tournent dans la CI de la PR, qui fait foi.
+`verify:pr` est lancé une fois sur la tête finale (résultat dans le corps de la PR).

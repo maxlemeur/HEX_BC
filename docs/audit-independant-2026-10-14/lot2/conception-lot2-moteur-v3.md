@@ -195,7 +195,7 @@ refus. Le premier ne prouve pas la protection ; le second fait copier de très g
 
 ### D3 — Activation par une politique d'entreprise typée
 
-- Table `public.tenant_calc_policies`, décrite au §6.3. Une ligne absente vaut moteur 2 jusqu'à la bascule.
+- Table `public.tenant_calc_policies`, décrite au §6.3. Une ligne absente vaut moteur 2 jusqu'à la bascule, moteur 3 (1,30 / 1,20) depuis M8 (2.10b) ; une ligne 2 explicite garde le moteur 2.
   La table contient le moteur des nouvelles versions, les coefficients de vente par défaut, les taux de TVA
   autorisés, le motif, l'auteur et la date. Un journal `tenant_calc_policy_events` l'accompagne.
 - Écriture uniquement par `public.set_tenant_calc_policy` (`security definer`), **exécutable par
