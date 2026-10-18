@@ -108,7 +108,7 @@ structure sans totaux n'exige un réenregistrement du pied que si l'éditeur
 attente seulement pour des saisies de ligne ou un paramétrage en attente, comme
 avant. Aucune migration, aucune route, aucun changement OpenAPI.
 
-## Preuves
+## Preuves avant fusion
 
 Checkout Linux `~/miaouffrage-v3e05` (WSL Ubuntu 24.04, Node 24.19.0), pile
 native possédée, preuves sous `.e2e/army/ci/` de ce checkout.
@@ -128,6 +128,24 @@ native possédée, preuves sous `.e2e/army/ci/` de ce checkout.
   src/hooks/useEstimateEditorSyncController.test.ts` (35/35) et `git diff --check 5cfd4a94 HEAD` : verts
   (aucun test unitaire ajouté : la régression E2E couvre le défaut).
 
+## Preuves sur la tête fusionnée
+
+`origin/main` `80d90011` fusionnée par `c2330507`, puis `28db9172` (commentaire
+de `writesEditorTotals` seul). Même checkout, piles natives possédées, jamais le
+Supabase partagé. Chaque preuve : commit `28db9172`, diff vide (`e3b0c442…`).
+Après `28db9172`, seuls ce dossier et la fusion d'`origin/main` `d4b6ff73`
+(`AGENTS.md` seul, hors des entrées du build) changent.
+
+| Contrôle | Commande | Résultat | Preuve |
+| --- | --- | --- | --- |
+| Boucle V3E05 | `npm run e2e:army:dev-loop -- start --app-port 3177`, 6 × `run --grep V3E05`, `stop` | 6/6 vertes (2/2 chacune, 15 à 63 s, build `v2_hABo10gm7deM6LJ187` reconstruit à la 1re), chaque fois `{"topBeforeUndo":380,"inFlight":{"alert":false,"top":380},"settled":{"alert":false,"top":380,"status":"À jour"}}` ; `stop` : pile détruite, ports fermés | `.e2e/army/ci/2026-10-18T10-19-56-939Z-dev-loop` |
+| Qualification v3 | `E2E_ARMY_WORKERS=2 npm run e2e:army:local -- --grep "V3E\|V3P01\|V3FC" --app-port 3177` | pile neuve (migrations, pgTAP, matrice RLS, build) : 17 sélectionnés sur 103, 17 verts, 0 échec, 0 instable, 0 skip, 5 min 03 s ; V3E05 au même `actual` | `.e2e/army/ci/2026-10-18T10-25-50-450Z-critical` |
+| Types | `npm run typecheck` | exit 0 | `~/v3e05-logs/typecheck-merged.log` |
+| Vitest | `npx vitest run --project=jsdom src/hooks/useEstimateEditorSyncController.test.ts` | 35/35 | `~/v3e05-logs/vitest-merged.log` |
+| Lint, espaces | `npx eslint` des trois fichiers de code ; `git diff --check 80d90011 HEAD` | exit 0 ; propre | `~/v3e05-logs/eslint-merged.log` |
+
+`npm run verify:pr` n'a pas été lancé localement : la CI de la PR le couvre.
+
 ## Limites
 
 - v1/v2 inchangés : leur annulation de suppression passe par le même
@@ -140,10 +158,14 @@ native possédée, preuves sous `.e2e/army/ci/` de ce checkout.
 - Le survol puis le tap d'`addGridLine` restent sensibles à tout décalage de la
   grille entre les deux actions ; la régression ne tient ouverte que la fenêtre
   de la cause connue.
-- Branche partie d'`origin/main` 5cfd4a94 ; `origin/main` a depuis avancé (CI,
-  boucle dev-loop, documentation, règles de livraison) sans toucher ces quatre
-  fichiers ; réconciliation par fusion avant le push (voir « Preuves sur la tête
-  fusionnée »).
+- Branche partie d'`origin/main` 5cfd4a94, fusionnée avec `origin/main`
+  `80d90011` (`c2330507`) ; entre les deux, `origin/main` n'avait touché aucun
+  des quatre fichiers de la branche.
+- Zone partagée (AGENTS.md, au plus une PR ouverte par zone) : la PR #41 touche
+  aussi `src/hooks/*EstimateEditor*` et `e2e/army/local/engine-v3-*`, d'où une
+  ouverture et une fusion de cette PR après la sienne. La PR #45 touche les mêmes
+  zones. `git merge-tree` : aucun conflit avec #41 ; avec #45, seuls les conflits
+  qu'elle a déjà avec `origin/main` (dont `DETAIL_ACTIONS_REASON`), à l'identique.
 
 ## Revue
 
@@ -153,7 +175,8 @@ native possédée, preuves sous `.e2e/army/ci/` de ce checkout.
 - Tour 2, revue indépendante en lecture seule (18/10/2026) : prête, ni bloquant
   ni majeur ; cause, correction, rouge et preuves vérifiés contre le code et les
   empreintes des itérations. Trois points mineurs, corrigés : « En attente »
-  durait jusqu'à l'autosauvegarde de 60 s et non indéfiniment ; un décompte de
+  durait jusqu'à l'autosauvegarde de 60 s et non indéfiniment (dossier et
+  commentaire de `writesEditorTotals`) ; un décompte de
   commits d'avance périmé ; la description de PR sans tableau de validation, sans
   lien vers la PR #42 et le run CI, ni ordre de fusion après la PR #41 (même
   zone partagée des hooks de l'éditeur et des parcours engine-v3).
