@@ -179,7 +179,16 @@ transitivement, hors imports de type (`scripts/tester-army/dev-loop*.ts`,
 etc.). Le superviseur les a chargés au démarrage et leurs contrôles sont ceux de
 ce moment : leur empreinte est relevée dans l'état et chaque `run` la compare
 avant tout build ou parcours. Durcir un garde Army se vérifie donc après un
-redémarrage de la boucle.
+redémarrage de la boucle. Ces deux contrôles (entrées de la pile et modules du
+superviseur) sont refaits juste avant les parcours. Une migration modifiée
+pendant le build lui-même le fait déjà échouer (`build-local.mjs` compare son
+empreinte de sources, diff du dépôt compris, avant et après :
+`sourceChangedDuringBuild`) ; le second contrôle couvre les instants qui
+restent, entre le premier contrôle et le relevé de `build-local.mjs`, puis
+entre la fin du build et les parcours. L'itération reconstruit aussi quand le manifeste
+du build courant (`.e2e/army/recipes/builds/<id>/manifest.json`) a disparu
+ou ne correspond plus à son empreinte : sans lui, l'itération ne pourrait pas
+prouver les entrées de son build.
 
 Vérification de types : le build Army type-checke `.e2e/army/tsconfig.json`,
 qui n'inclut que `src/**`, `next-env.d.ts` et les types générés par Next. Les
@@ -208,14 +217,39 @@ socket `0600`). Un seul superviseur par checkout : l'état est créé en exclusi
 
 Arrêt, expiration et état abandonné :
 
-- une pile n'est tenue pour détruite que si trois conditions sont réunies : son
-  répertoire de travail a disparu, son entrée du registre natif
+- une boucle n'est tenue pour fermée que si quatre conditions sont réunies :
+  le répertoire de travail de sa pile a disparu, son entrée du registre natif
   (`~/.supabase/stacks/<id>/`, qui garde `data/` et `state.json` jusqu'au
-  `stack destroy`) a disparu, et ses huit ports sont fermés. Le superviseur
-  comme `stop` appliquent cette preuve avant de retirer l'état ; sinon l'état
-  passe en `cleanup-failed` avec la cause. `runLocalSupabaseCi` supprime le
+  `stack destroy`) a disparu, ses huit ports sont fermés, et son port
+  applicatif est fermé sur `127.0.0.1` comme sur `::1`. Le superviseur comme
+  `stop` appliquent cette preuve avant de retirer l'état ; sinon l'état passe
+  en `cleanup-failed` avec la cause. `runLocalSupabaseCi` supprime le
   répertoire même quand `stack destroy` échoue : seule l'entrée du registre
   révèle alors la pile restante ;
+- une entrée du registre dont `state.json` manque, est illisible (droits),
+  n'est pas du JSON ou ne porte pas `identity.projectRoot` peut être la pile de
+  la boucle : elle n'est jamais ignorée. Elle est relue une fois après une
+  seconde (une autre session peut être en train de l'écrire), puis laisse la
+  preuve non faite, avec son nom dans l'erreur. Une telle entrée laissée par
+  une autre session bloque donc la libération de l'état tant qu'elle n'a pas
+  été inspectée à la main ;
+- le port applicatif fait partie de la preuve parce qu'un `kill -9` du
+  superviseur pendant une itération laisse vivre ses enfants : le processus
+  des parcours et son `next start` continuent sur ce port. `stop` détruit
+  quand même la pile, mais garde l'état en `cleanup-failed` (« application
+  port … still listening ») jusqu'à la fermeture du port ; un nouveau `stop`
+  retire alors l'état. `stop` ne termine pas ces processus : le run natif du
+  18/10 a vu `next-server` rester orphelin plus de trois minutes, et il faut
+  l'arrêter à la main (voir « Correctifs après la seconde revue »). Une
+  origine dont le port est illisible ne prouve rien ;
+- un état copié ou restauré dans un autre checkout (copie du dépôt, sauvegarde
+  restaurée) nomme le superviseur, la socket et la pile de son checkout
+  d'origine. `start`, `run` et `stop` refusent donc tout état dont le champ
+  `checkout`, résolu (`realpath`), n'est pas le checkout courant, avant de
+  lire son pid, sa socket ou ses métadonnées de nettoyage : rien n'est
+  signalé, arrêté ni supprimé, et le message renvoie vers le checkout
+  d'origine. `status` le classe `foreign-checkout` sans sonder le pid. Le
+  fichier copié se retire à la main, une fois vérifié que c'est une copie ;
 - `stop` vérifie que le pid enregistré est bien ce superviseur (ligne de
   commande et répertoire courant, pas un pid recyclé), lui envoie `SIGTERM` et
   attend sa fin. Le superviseur interrompt le run en cours, sort de
@@ -253,7 +287,11 @@ diff et l'empreinte applicative, la décision de build et sa raison, les
 identités de fixtures, la provenance de la base, les durées, les phases et le
 rapport, ainsi que l'inventaire des fichiers après contrôle de
 confidentialité. Un superviseur tué n'écrit pas le manifeste final de sa
-session. Le run SDK d'une itération archive aussi, comme tout run critical, sa
+session : chaque itération, reconstruite ou non, porte donc elle-même le
+build sur lequel elle tourne (`build.buildManifest`, `build.buildManifestSha256`)
+et en garde une copie vérifiée, avec son journal, sous
+`builds/<id>/` de son dossier ; l'état porte aussi ce chemin et cette
+empreinte depuis le build. Le run SDK d'une itération archive aussi, comme tout run critical, sa
 copie brute sous `.e2e/army/critical/runs/<horodatage>/`, à côté des archives
 qualifiantes. La boucle y dépose `dev-loop-iteration.json` (`scope` de
 l'itération, `qualification: false`, boucle, numéro et manifeste de
@@ -321,6 +359,27 @@ en-tête avec leur RED avant le correctif :
 13. Les modules du superviseur changent sous une boucle ouverte : l'itération
     enregistre alors le checkout courant, mais applique les contrôles chargés
     au démarrage.
+
+La seconde revue du 18/10 (Codex, PR #43) en a ajouté cinq, avec le même
+ordre :
+
+14. Un état copié ou restauré dans un autre checkout pendant que sa boucle
+    tourne passe pour celui du checkout courant : `stop` envoie `SIGTERM` au
+    superviseur de l'autre checkout, `run` pilote sa socket, le nettoyage
+    retire sa socket ou sa pile.
+15. Une migration ou `config.toml` modifiés après le premier contrôle d'une
+    itération, autour de sa reconstruction (`build-local.mjs` ne refuse que
+    ceux faits pendant qu'il construit), atteignent les parcours, qui tournent
+    alors sur le schéma du démarrage.
+16. Après un `kill -9` pendant une itération, le processus des parcours et son
+    `next start` survivent sur le port applicatif, tandis que `stop` annonce
+    la boucle fermée et retire son état.
+17. Les preuves d'une itération sans reconstruction nomment un build dont seul
+    le résumé de session, en mémoire, gardait le manifeste et les entrées :
+    ils disparaissent avec un superviseur tué.
+18. Une entrée du registre illisible, malformée ou sans droit de lecture est
+    ignorée : la preuve annonce le registre vide et supprime le seul état de
+    reprise.
 
 `src/test/local-supabase-ci.test.ts` vérifie en plus le nouveau rappel
 `onProjectPrepared` : identité et ports du projet isolé transmis avant le
@@ -425,6 +484,56 @@ Non exécutés : macOS ; un vrai redémarrage WSL, simulé par l'arrêt des
 services et la suppression du répertoire ; un `stop` pendant le démarrage,
 testé seulement après « ready » ; un échec réel d'écriture de l'état dans le
 superviseur, couvert seulement par test d'isolation.
+
+#### Correctifs après la seconde revue (18/10/2026)
+
+Les cinq constats de Codex ont été vérifiés dans le code avant correction.
+Échecs 14 à 18 de `src/test/army-dev-loop.test.ts`, écrits d'abord contre des
+exports bouchons gardant le comportement antérieur : RED sous Windows, 4
+échecs, 10 réussis, 7 sautés (socket Unix, `/proc`) ; RED sous WSL, 7 échecs,
+14 réussis. Chacun échoue pour sa raison : `run` de la copie atteint la socket
+de l'original, `stop` de la copie envoie `SIGTERM` à son superviseur et retire
+l'état ; parcours lancés malgré une migration arrivée en fin de build ; état
+retiré malgré le port applicatif ouvert ; entrée tronquée ignorée ; aucune
+référence au build dans une itération sans reconstruction. Puis GREEN :
+Windows 14 réussis et 7 sautés, WSL 21/21. Avec `ci-guardrails` et
+`local-supabase-ci` : Windows 52 réussis et 7 sautés, WSL 59/59. Typecheck et
+ESLint ciblé passent.
+
+Runs natifs dans le clone WSL sur `8b8462f4`, port applicatif 3187, sélection
+`--grep HUB03` :
+
+| Étape | Durée murale | Résultat |
+| --- | --- | --- |
+| `start` | 67,3 s | prêt ; `state.build` porte le chemin et l'empreinte du manifeste du build |
+| `run`, sans build | 5,9 s | 2/2 ; l'itération nomme et garde une copie vérifiée du manifeste de son build (1771 entrées), inventoriée |
+| état copié dans un autre checkout (`git worktree` du clone, même révision) : `status`, `run`, `start`, `stop` depuis la copie | < 0,3 s chacun | `status` : `foreign-checkout` ; les trois autres, code 1, « Nothing was signalled, stopped or removed » ; superviseur vivant, socket et ports intacts, deux états inchangés |
+| `run` depuis le clone, ensuite | 5,4 s | 2/2, la boucle est intacte |
+| source modifiée, migration modifiée 8 s après le début du build | 42,2 s | refus par `build-local.mjs` (`sourceChangedDuringBuild`), garde déjà présent ; aucun parcours |
+| sources restaurées, `run` | 45,8 s | build (le précédent avait remplacé `BUILD_ID`), puis 2/2 |
+| `stop` | 2,2 s | pile, registre, 8 ports et port applicatif fermés (IPv4, IPv6), état retiré |
+| 2e boucle : source modifiée, migration modifiée juste après la décision de build, avant le relevé de `build-local.mjs` | 40,8 s | build réussi (`sourceChangedDuringBuild: false`), puis échec « Migrations or supabase/config.toml changed » avant tout parcours |
+| `kill -9` du superviseur pendant les parcours d'une itération | — | survivent : le processus SDK `e2e`, `next-server` sur 3187 et les hôtes Supabase ; le dossier de l'itération tuée garde déjà le manifeste et le journal de son build |
+| `stop` juste après | 11,9 s | code 1 : pile détruite (répertoire, registre, ports), `appPortClosed: false`, état en `cleanup-failed` |
+| attente de 180 s | — | le processus SDK a fini, `next-server` (orphelin) écoute toujours sur 3187 ; arrêté à la main (`SIGTERM`, identifié par son répertoire courant dans le clone) |
+| `stop` ensuite | 0,2 s | code 0, état retiré |
+
+Le manifeste de la première session porte `appPortClosed: true` ; celui de la
+seconde n'existe pas (superviseur tué), mais chacune de ses itérations porte
+son build. Toutes enregistrent `qualification: false` et `privacy: passed`.
+Journaux, états, manifestes, scripts et `SHA256SUMS` :
+`.codex-tmp/e2e-dev-loop-20261018/review-f1-f5/` du worktree
+`miaouffrage-e2e-loop`.
+
+Constat du run natif : après un `kill -9`, `next-server` reste orphelin au
+moins trois minutes. `stop` ne le termine pas (il ne connaît pas son pid) ; il
+le signale et garde l'état. L'identifier (`ss -ltnp 'sport = :<port>'`),
+vérifier que son répertoire courant est ce checkout, l'arrêter, puis relancer
+`stop`.
+
+Non exécutés : une entrée du registre natif illisible, couverte seulement par
+test d'isolation sur un registre jetable (le registre réel est partagé avec
+les autres sessions) ; macOS.
 
 ### Build de production et limite de heap
 
