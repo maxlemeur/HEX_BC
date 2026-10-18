@@ -1695,6 +1695,8 @@ export const importEstimateSectionsResultSchema = z.object({
   createdSectionIds: z.array(uuidSchema),
   createdLineIds: z.array(uuidSchema),
   versionToken: estimateVersionTokenDtoSchema.nullable(),
+  /** Sous-lot 2.8b (A7, P-12) : lignes v1/v2 entrées dans une v3 dont les heures changent (`converted_lines`). */
+  convertedLines: z.array(z.object({ title: z.string(), templateHours: z.number(), convertedHours: z.number() })).optional(),
 });
 export type ImportEstimateSectionsResult = z.infer<
   typeof importEstimateSectionsResultSchema

@@ -1,0 +1,132 @@
+{
+  "schemaVersion": "shared-supabase-m5b-1",
+  "dateEuropeParis": "2026-10-18",
+  "project": "ijropnynpwjbllievrip",
+  "authorization": "Owner, 18/10/2026: apply lot 2 migrations to the shared Supabase after their PR merges (same frame as M5); no calc policy, no data write, no deployment, never supabase db push.",
+  "source": {
+    "originMain": "ab1e0ca33d4fac2fe543033a73393de6aacdcbfa",
+    "mergeCommit": "953c26f7a76396f1f4cdbf77ee5e9f91b6026dd2",
+    "pr": 65,
+    "lastFileCommit": "f2031747c72f585df5027eb839f4524bc9483983 (chore(lot2-2.7): restamp the contract 2 order migration after origin/main)",
+    "file": "supabase/migrations/20261018172935_estimate_offer_client_contract_v2_order.sql",
+    "gitBlob": "d82835fb2f1855447dcc2bf45d64f7c6148b6092",
+    "bytes": 8974,
+    "lines": 128,
+    "lineEndings": "LF",
+    "nonAscii": ["é", "è", "ê", "à", "§", "«", "»"],
+    "sha256": "3841e9ff3c679a4a16563c4a946b47c0ba6b3551d565982249d05c2bf1a30685",
+    "manifestSha256": "3841e9ff3c679a4a16563c4a946b47c0ba6b3551d565982249d05c2bf1a30685",
+    "sha256MatchesManifest": true,
+    "md5": "16a5ed8bfae04ed5ed4997d19d4472fe",
+    "content": {
+      "replaces": ["public.estimate_offer_client_items_match_v2(jsonb,public.estimate_versions)"],
+      "previousDefinition": "M5 20261018102840_estimate_offer_client_contract_v2 (no later redefinition on origin/main)",
+      "fileBody": { "md5": "29d3c1e00b89d3754e1c165c816d6aa9", "bytes": 5313 },
+      "fileComment": { "md5": "2b09349523b47c0c780488fa3148f543", "bytes": 447 },
+      "m5Body": { "md5": "f6bf942f7dcfb7b16fd55003956c90b7", "bytes": 4090 },
+      "m5Comment": { "md5": "b9e521e9c8ab69074b0e7236f5bbc7f9" },
+      "grants": "revoke all from public, anon, authenticated; grant execute to service_role",
+      "noTableColumnConstraintTriggerOrData": true
+    }
+  },
+  "preconditions": {
+    "capturedAt": ["2026-10-18 17:57:22.379194+00", "2026-10-18 17:57:44.721063+00"],
+    "history": {
+      "total": 305,
+      "last": { "name": "20261018170351_complete_estimate_insertion_receipts", "version": "20261018172141" },
+      "m5": { "name": "20261018102840_estimate_offer_client_contract_v2", "version": "20261018165014", "md5": "33f299d0262eddbbda9324a376c1f10d", "bytes": 79790 },
+      "target": []
+    },
+    "target": {
+      "identity": "public.estimate_offer_client_items_match_v2(snapshot jsonb, version estimate_versions)",
+      "overloads": 1,
+      "src": "f6bf942f7dcfb7b16fd55003956c90b7",
+      "srcBytes": 4090,
+      "srcEqualsM5FileBody": true,
+      "cmt": "b9e521e9c8ab69074b0e7236f5bbc7f9",
+      "args": "e2851d858d41f4573d09b2ed67829972",
+      "ret": "boolean",
+      "lang": "plpgsql",
+      "vol": "s",
+      "strict": false,
+      "par": "u",
+      "leak": false,
+      "owner": "postgres",
+      "securityDefiner": false,
+      "proconfig": ["search_path=\"\""],
+      "acl": ["postgres:EXECUTE", "service_role:EXECUTE"]
+    },
+    "callers": [
+      { "identity": "public.publish_estimate_pdf_generation(uuid, uuid, uuid, uuid, text, text, bigint, timestamp with time zone, jsonb, jsonb, jsonb)", "src": "a1cf05f1ec31a64a9cf6113834398932", "line": "72af398a002123ef2ba49a697ce0f4d1" }
+    ],
+    "catalogOutsideScope": {
+      "functionsOther": { "count": 416, "md5": "f87082f9e87ff93613caad719fffb795" },
+      "relations": { "count": 122, "md5": "1f9bc0f5a8417bf351a0a45509af223a" },
+      "enums": { "count": 23, "md5": "5e343bfeed6aa2ef80b2bd41c6f78eaa" }
+    },
+    "context": { "versionsTotal": 1238, "versionsEngine3": 0, "documentsTotal": 51, "documentsContract2": 0 },
+    "data": {
+      "reader": "postgres",
+      "bypassRls": true,
+      "tables": 122,
+      "rows": 39683,
+      "totalMd5": "555cb5b6b5d53885c1e986b2581b029f",
+      "tablesMd5": "c43d8444764984b351da9b434bcd393d",
+      "forceRlsTables": { "count": 50, "md5": "eda471ed4dccd8448166979ab18ffd25" }
+    }
+  },
+  "apply": {
+    "tool": "mcp supabase_miaouffrage apply_migration",
+    "name": "20261018172935_estimate_offer_client_contract_v2_order",
+    "query": "exact file content",
+    "attempts": 1,
+    "result": "success",
+    "remoteVersion": "20261018175846",
+    "appliedAtUtc": "2026-10-18T17:58:46Z"
+  },
+  "postconditions": {
+    "capturedAt": ["2026-10-18 17:59:21.514312+00", "2026-10-18 17:59:37.859315+00"],
+    "history": {
+      "total": 306,
+      "last": { "name": "20261018172935_estimate_offer_client_contract_v2_order", "version": "20261018175846" },
+      "target": [{ "name": "20261018172935_estimate_offer_client_contract_v2_order", "version": "20261018175846", "statements": 1, "md5": "16a5ed8bfae04ed5ed4997d19d4472fe", "bytes": 8974 }],
+      "statementEqualsFile": true
+    },
+    "target": {
+      "overloads": 1,
+      "src": "29d3c1e00b89d3754e1c165c816d6aa9",
+      "srcBytes": 5313,
+      "srcEqualsFileBody": true,
+      "srcEqualsStoredStatementBody": true,
+      "cmt": "2b09349523b47c0c780488fa3148f543",
+      "cmtEqualsFile": true,
+      "args": "e2851d858d41f4573d09b2ed67829972",
+      "ret": "boolean",
+      "lang": "plpgsql",
+      "vol": "s",
+      "strict": false,
+      "par": "u",
+      "leak": false,
+      "owner": "postgres",
+      "securityDefiner": false,
+      "proconfig": ["search_path=\"\""],
+      "acl": ["postgres:EXECUTE", "service_role:EXECUTE"],
+      "nullVersionReturns": false
+    },
+    "callersUnchanged": true,
+    "catalogOutsideScopeUnchanged": true,
+    "data": {
+      "tables": 122,
+      "rows": 39683,
+      "totalMd5": "555cb5b6b5d53885c1e986b2581b029f",
+      "tablesMd5": "c43d8444764984b351da9b434bcd393d",
+      "forceRlsTables": { "count": 50, "md5": "eda471ed4dccd8448166979ab18ffd25" },
+      "unchanged": true
+    }
+  },
+  "limits": [
+    "The order and section-number behaviour was not executed on the shared base: it has no engine 3 version and no contract 2 document. It rests on supabase/tests/database/estimate-offer-contract-v2.test.sql (F27-20, F27-21), db:ci:local and PR #65 CI including calc-v3 run 39150833547 (emission-v3), not rerun here.",
+    "Data fingerprints compare two instants (17:57:44 and 17:59:37 UTC); they prove equality of the observed state, not the absence of writes in between.",
+    "No UI, API or TesterArmy journey ran on the shared base; nothing was deployed; no other migration, calc policy or deployment operation was run."
+  ]
+}
