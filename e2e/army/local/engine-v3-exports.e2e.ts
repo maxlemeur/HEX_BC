@@ -20,11 +20,19 @@ import { lockVersion, prepareV3Draft, releaseVersion, seedLines, type Envelope, 
 //         correspondance proposée et le rôle MO que l'aperçu demande pour les heures importées, ce classeur recrée
 //         ses lignes non chiffrées facturables : le devis importé dépasse ses seules lignes chiffrées.
 //  V3X-03 Le statut n'est plus lisible : colonne « Statut » absente, cellule de prix sans le libellé du document.
-//  V3X-04 Régression : les cellules d'une ligne chiffrée changent, ou son réimport ne rend plus son montant.
+//  V3X-04 Régression : les cellules d'une ligne chiffrée changent, ou son réimport ne reprend plus exactement ses
+//         saisies (PR FO, h/u × Q, majoration). Jusqu'à la revue de 8dd28c91 (§13.9), il lisait PU = PT / Q.
 //  V3X-05 Une v3 en USD ou GBP reçoit le format « € » sur chacun de ses montants, et les colonnes de montant de
 //         son DPGF disent « EUR ».
 //  V3X-06 Régression : une v3 en EUR change de format de montant ou d'en-tête.
 // Le statut lui-même n'est pas réimporté : le contrat d'import n'a pas de cible de statut (limite, §13.8).
+// Ajouté à la revue de 8dd28c91 (docs/testing/estimate-engine-v3-2.7.md §13.9) :
+//  V3X-07 Réimportée avec la correspondance proposée, une ligne chiffrée avec main-d'oeuvre compte deux fois ses
+//         heures : « Total HT brut » lu en total_ht donne PU = PT / Q, main-d'oeuvre comprise, comme prix de fourniture,
+//         et « h MO / unité » lu en heures de ligne y ajoute la main-d'oeuvre au rôle choisi (2 ml à 135,00 € reviennent
+//         à 175,00 € avec 1 h au lieu de 2). Attendu : le DPGF v3 est reconnu comme tel ; ses saisies sont lues (PR FO
+//         en prix de fourniture, h/u en heures par unité, majoration), ses PU et PT de vente en contrôles, jamais en
+//         montant. Sur une cible v2, qui n'a pas les coefficients de vente, l'aperçu signale l'écart de PU de chaque ligne.
 
 const digest = (value: Buffer | string) => createHash("sha256").update(value).digest("hex");
 const normalized = (text: unknown) => String(text ?? "").replace(/[\s  ]+/g, " ").trim();
@@ -98,17 +106,29 @@ async function patchSettings(ui: Ui, label: string, draft: V3Draft, patch: Recor
   await releaseVersion(ui.browser, draft.versionId);
 }
 
-// V3X01 — lignes du brouillon : deux lignes chiffrées « fourniture seule » (leur réimport rend PT / Q exactement)
-// et trois lignes non chiffrées avec déboursé et heures, valorisables par le rôle « Tuyauteur » (40 €/h).
-// Politique 3 : c_FO 1,30, c_MO 1,20. Brut 26,00 + 19,50 = 45,50 € ; TVA 20 % 9,10 ; TTC 54,60.
+// V3X01 — lignes du brouillon : deux lignes chiffrées « fourniture seule », une ligne chiffrée avec main-d'oeuvre
+// (P3, V3X-07 : la ligne X de V3X02) et trois lignes non chiffrées avec déboursé et heures, valorisables par le rôle
+// « Tuyauteur » (40 €/h). Politique 3 : c_FO 1,30, c_MO 1,20. Brut 26,00 + 19,50 + 135,00 = 180,50 € ; TVA 20 % 36,10 ;
+// TTC 216,60.
 const ROUND_TRIP = [
   { ref: "P1", status: "priced", unit: "u", quantity: 2, prFo: 1000, hPerUnit: 0, pu: 1300, gross: 2600 },
   { ref: "P2", status: "priced", unit: "ml", quantity: 3, prFo: 500, hPerUnit: 0, pu: 650, gross: 1950 },
+  { ref: "P3", status: "priced", unit: "ml", quantity: 2, prFo: 1500, hPerUnit: 1, pu: 6750, gross: 13500 },
   { ref: "N1", status: "included", unit: "u", quantity: 3, prFo: 5000, hPerUnit: 2, pu: null, gross: 0 },
   { ref: "N2", status: "out_of_scope", unit: "ml", quantity: 4, prFo: 2500, hPerUnit: 0.5, pu: null, gross: 0 },
   { ref: "N3", status: "for_memory", unit: "u", quantity: 1, prFo: 9900, hPerUnit: 1, pu: null, gross: 0 },
 ] as const;
-const ROUND_TRIP_TOTALS = [4550, 910, 5460];
+const ROUND_TRIP_TOTALS = [18050, 3610, 21660];
+// Réimport dans la v2 neutre (marge 1, K 1, rôle choisi 40 €/h) : PR FO × Q + h/u × Q × 40 € par ligne chiffrée,
+// soit 20,00 + 15,00 + (30,00 + 2 h × 40,00) = 145,00 € ; TVA 20 % 29,00 ; TTC 174,00.
+const IMPORTED_TOTALS = [14500, 2900, 17400];
+// Taux du rôle « Tuyauteur » de prepareV3Draft (engine-v3-editor-support.ts).
+const TUYAUTEUR_RATE_CENTS = 4000;
+// Colonnes de saisie et de contrôle du DPGF v3 et leur cible attendue dans la correspondance proposée (V3X-07).
+const EXPECTED_DPGF_MAPPING = {
+  "Prix unitaire HT EUR": "unit_price_ht", "h MO / unité": "labor_hours_per_unit", "PU vente HT EUR": "control_unit_price",
+  "Total HT brut EUR": "control_total_price",
+} as const;
 // Libellés du document v3 (ESTIMATE_V3_STATUS_DOCUMENT_LABELS).
 const STATUS_LABELS: Record<(typeof ROUND_TRIP)[number]["status"], string> = {
   priced: "Chiffrée", included: "Inclus", out_of_scope: "Hors lot", for_memory: "Pour mémoire",
@@ -125,7 +145,7 @@ function lineCells(sheet: SheetView | undefined, title: string, columns: readonl
 
 function expectedDpgfCells(line: (typeof ROUND_TRIP)[number]) {
   if (line.status === "priced") {
-    return { "Quantité": line.quantity, "Statut": STATUS_LABELS.priced, "Prix unitaire HT EUR": line.prFo / 100, "h MO / unité": 0,
+    return { "Quantité": line.quantity, "Statut": STATUS_LABELS.priced, "Prix unitaire HT EUR": line.prFo / 100, "h MO / unité": line.hPerUnit,
       "Majoration MO (%)": 100, "h MO Atelier / unité": null, "h MO Chantier / unité": null, "PU vente HT EUR": line.pu! / 100,
       "Total HT brut EUR": line.gross / 100 };
   }
@@ -201,18 +221,27 @@ async function openImportFlow(ui: Ui, fixturePath: string) {
   await launch.tap();
 }
 
-/** Compte « N lignes prêtes · M refusées » de l'aperçu des lignes (absent : aucune ligne à signaler). */
+/**
+ * Compte « N lignes prêtes · M refusées » de l'aperçu des lignes (absent : aucune ligne à signaler), et son contrôle
+ * « Prix unitaire de vente » : lignes vérifiées et écarts hors tolérance (V3X-07).
+ */
 async function previewCounts(ui: Ui) {
   const preview = ui.screen.getByTestId("import-lines-preview");
-  if ((await preview.count()) === 0) return { shown: false, ready: null, refused: 0, text: null };
+  if ((await preview.count()) === 0) return { shown: false, ready: null, refused: 0, controls: null, text: null };
   const text = normalized(await preview.textContent());
   const ready = /(\d+) lignes? prêtes?/u.exec(text);
   const refused = /(\d+) refusées?/u.exec(text);
-  return { shown: true, ready: ready ? Number(ready[1]) : null, refused: refused ? Number(refused[1]) : 0, text };
+  const controls = /Contrôle .Prix unitaire de vente. : (\d+) lignes? vérifiées?, (\d+) écarts?/u.exec(text);
+  return { shown: true, ready: ready ? Number(ready[1]) : null, refused: refused ? Number(refused[1]) : 0,
+    controls: controls ? { checked: Number(controls[1]), gaps: Number(controls[2]) } : null, text };
 }
 
+/** Clé d'en-tête comparable entre l'en-tête du classeur et la colonne d'import stockée (accents, casse, ponctuation). */
+const headerKey = (value: string) => value.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase()
+  .replace(/[^a-z0-9]+/gu, " ").trim();
+
 if (process.env.E2E_ARMY_SUITE === "critical") {
-  armyTest("V3X01 a v3 DPGF export re-imported through the DPGF import flow with its proposed mapping brings back only its priced lines; its included, out-of-scope and for-memory lines carry no amount and keep their status label",
+  armyTest("V3X01 a v3 DPGF export re-imported through the DPGF import flow with its proposed mapping brings back only its priced lines, from their supply cost and hours per unit with their sale prices as controls; its included, out-of-scope and for-memory lines carry no amount and keep their status label",
     { session: "army", tags: ["critical", "local", "engine-v3", "dpgf"], timeout: 600_000 }, async ({ app, screen, browser, army }) => {
       const ui: Ui = { app, screen, browser };
       const record = (label: string, data: unknown) => recordEvidence(army, `v3x01-${label}`, data);
@@ -276,6 +305,17 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
         expect(suggested.status).toBe(200);
         await record("import-mapping", { importId: ids.importId, raw: imports.body.data[0], suggestions: suggested.body.data?.suggestions ?? null,
           sourceColumns: suggested.body.data?.source_columns ?? null, autoAdvanced: await editMapping.isVisible() });
+        // V3X-07 : cible proposée des colonnes de saisie et de contrôle, et colonnes lues en heures de ligne ou en montant.
+        const suggestions = suggested.body.data?.suggestions ?? {};
+        const targetOf = (header: string) => {
+          const column = Object.keys(suggestions).find((source) => headerKey(source) === headerKey(header));
+          return column ? suggestions[column] : null;
+        };
+        const proposed = {
+          columns: Object.fromEntries(Object.keys(EXPECTED_DPGF_MAPPING).map((header) => [header, targetOf(header)])),
+          lineHoursOrAmount: Object.entries(suggestions).filter(([, target]) => target === "labor_hours" || target === "total_ht")
+            .map(([source]) => source).sort(),
+        };
         // La correspondance proposée est gardée telle quelle.
         if (await nextMapping.isVisible()) await nextMapping.tap();
 
@@ -333,22 +373,26 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
         const importedLines = imported.items.filter((item) => item.item_type === "line").sort((a, b) => a.position - b.position);
         const actual = {
           exported,
-          preview: { refused: preview.refused, ready: preview.ready },
+          proposed,
+          preview: { refused: preview.refused, ready: preview.ready, controls: preview.controls },
           imported: { engine: imported.version.calc_engine_version, totals: totalsOf(imported), lines: importedLines.map(importedLine) },
         };
-        // Après réimport, seules les lignes chiffrées portent un montant : PU = PT / Q (« Total HT brut » lu en
-        // total_ht, la proposition laissant « Prix unitaire HT » de côté), sans heure ; chaque ligne non chiffrée est
-        // refusée par l'import, son prix portant le libellé de son statut (§13.8).
+        // Après réimport, seules les lignes chiffrées portent un montant, calculé par la v2 cible depuis leurs saisies :
+        // PR FO en prix de fourniture, h/u × Q en heures de ligne au rôle choisi, majoration 100 % (V3X-07, §13.9). Leur PU
+        // de vente v3 (« PU vente HT », contrôle) diffère du PU v2 recalculé, sans coefficient de vente : trois écarts
+        // signalés. Chaque ligne non chiffrée est refusée par l'import, son prix portant le libellé de son statut (§13.8).
         const expected = {
           exported: {
             dpgfHeader: dpgfHeader("EUR"),
             dpgf: Object.fromEntries(ROUND_TRIP.map((line) => [line.ref, expectedDpgfCells(line)])),
             standard: Object.fromEntries(ROUND_TRIP.map((line) => [line.ref, expectedStandardCells(line)])),
           },
-          preview: { refused: 3, ready: 2 },
-          imported: { engine: 2, totals: ROUND_TRIP_TOTALS, lines: ROUND_TRIP.filter((line) => line.status === "priced").map((line) => ({
-            title: title(line.ref), description: line.unit, quantity: line.quantity, unit_price_ht_cents: line.pu, h_mo: 0,
-            labor_role_id: null, line_total_ht_cents: line.gross })) },
+          proposed: { columns: EXPECTED_DPGF_MAPPING, lineHoursOrAmount: [] },
+          preview: { refused: 3, ready: 3, controls: { checked: 3, gaps: 3 } },
+          imported: { engine: 2, totals: IMPORTED_TOTALS, lines: ROUND_TRIP.filter((line) => line.status === "priced").map((line) => ({
+            title: title(line.ref), description: line.unit, quantity: line.quantity, unit_price_ht_cents: line.prFo,
+            h_mo: line.hPerUnit * line.quantity, labor_role_id: line.hPerUnit > 0 ? draft.tuyauteurId : null,
+            line_total_ht_cents: line.quantity * (line.prFo + line.hPerUnit * TUYAUTEUR_RATE_CENTS) })) },
         };
         await record("round-trip", { ...ids, expected, actual, importedItems: imported.items });
         expect(actual).toEqual(expected);
