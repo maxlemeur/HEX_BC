@@ -160,7 +160,7 @@ jobs:
       # none, ran, and where. The army-critical job reads its plan from here.
       - name: Retain the journey selection
         if: always() && steps.select.outputs.mode != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: army-critical-selection
           include-hidden-files: true
@@ -312,7 +312,7 @@ jobs:
           key: army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-${{ github.sha }}
       - name: Retain sanitized business evidence
         if: always() && steps.journeys.outputs.evidence != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: army-critical-shard-${{ matrix.shard }}-evidence
           include-hidden-files: true
@@ -441,7 +441,7 @@ jobs:
         run: node --import tsx scripts/run-tester-army-ci.ts full --shard "$ARMY_SHARD" ${ARMY_FILES:+--files "$ARMY_FILES"}
       - name: Retain sanitized business evidence
         if: always() && steps.journeys.outputs.evidence != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: army-takeoff-shard-${{ matrix.shard }}-evidence
           include-hidden-files: true
@@ -554,7 +554,7 @@ jobs:
           --results "army-select=$SELECT_RESULT,army-critical-shard=$SHARDS_RESULT" --revision "$GITHUB_SHA"
       - name: Retain sanitized business evidence
         if: always() && steps.aggregate.outputs.evidence != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: army-critical-evidence
           include-hidden-files: true
@@ -665,7 +665,7 @@ jobs:
           --results "army-select=$SELECT_RESULT,army-takeoff-shard=$SHARDS_RESULT" --revision "$GITHUB_SHA"
       - name: Retain sanitized business evidence
         if: always() && steps.aggregate.outputs.evidence != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: army-takeoff-evidence
           include-hidden-files: true
