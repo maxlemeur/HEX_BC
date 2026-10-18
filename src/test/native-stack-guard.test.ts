@@ -122,6 +122,8 @@ describe("native stack slots", () => {
       await new Promise((resolve) => setImmediate(resolve));
       process.emit("SIGINT", "SIGINT");
       await expect(waiting).rejects.toThrow("Waiting for a native place was cancelled by SIGINT");
+      // The build launcher raises it again, so `npm run build` ends by the signal.
+      await expect(waiting).rejects.toMatchObject({ name: "NativeStackLimitError", signal: "SIGINT" });
     } finally {
       process.off("SIGINT", caller);
     }
@@ -216,6 +218,10 @@ describe("native stack slots", () => {
       "  650     1 node scripts/next-build.mjs --webpack",
       "  651   650 /usr/bin/node /r/node_modules/next/dist/bin/next build --webpack",
       "  700     1 node /r/node_modules/next/dist/bin/next dev",
+      // Lines that only mention a build, and a shell wrapper around the orphan 500.
+      "  710     1 bash -c pgrep -f /r/node_modules/next/dist/bin/next build",
+      "  720     1 sh -c node /r/node_modules/next/dist/bin/next build --webpack",
+      "  730     1 /usr/bin/grep next/dist/bin/next build",
     ];
     // Taken: the Army run, the orphan build 500 and the launcher 650 (its child 651 once).
     await expect(acquireNativeStackSlot({ label: "next", directory, pid: 2, limit: 3, isAlive: () => true, listProcesses }))

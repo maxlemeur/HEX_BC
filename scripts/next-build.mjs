@@ -39,7 +39,10 @@ if (isLocalProductionBuild(process.env, args)) {
   } catch (error) {
     if (error?.name === "NativeStackLimitError") {
       console.error(`[next-build] ${error.message}`);
-      process.exit(1);
+      // A wait cancelled by Ctrl+C or SIGTERM ends by that signal, like a build would.
+      // The exit right after keeps the build from starting if delivery lags.
+      if (error.signal && process.platform !== "win32") process.kill(process.pid, error.signal);
+      process.exit(error.signal ? 128 + (os.constants.signals[error.signal] ?? 0) : 1);
     }
     console.warn(`[next-build] native place not reserved (${error?.message ?? error}); building anyway`);
   }

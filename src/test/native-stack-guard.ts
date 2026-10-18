@@ -19,6 +19,14 @@ export const MAX_ACTIVE_NATIVE_STACKS = 3;
 
 export class NativeStackLimitError extends Error {
   override name = "NativeStackLimitError";
+
+  /** Set when a signal cancelled the wait: the caller raises it again. */
+  readonly signal?: NodeJS.Signals;
+
+  constructor(message: string, signal?: NodeJS.Signals) {
+    super(message);
+    this.signal = signal;
+  }
 }
 
 export interface NativeStackSlot {
@@ -82,7 +90,10 @@ function processEntries(lines: readonly string[]) {
 }
 
 const LAUNCHER = /^(?:\S*\/)?node\s+scripts\/next-build\.mjs(?:\s|$)/;
-const NEXT_BUILD = /(?:^|[\s/])next[\\/]dist[\\/]bin[\\/]next\s+build(?:\s|$)/;
+// The Next CLI's build as the executable: `node [node flags] …/next/dist/bin/next
+// build`, or the CLI file run directly. A shell or pgrep line that only names
+// it does not match, so a wrapper and its Node child count once.
+const NEXT_BUILD = /^(?:(?:\S*\/)?node(?:\s+-\S+)*\s+)?\S*next[\\/]dist[\\/]bin[\\/]next\s+build(?:\s|$)/;
 
 /**
  * `next build` processes no place accounts for: neither a slot holder (an
@@ -243,7 +254,7 @@ export async function acquireNativeStackSlot(options: AcquireNativeStackSlotOpti
         sleep((options.pollMs ?? 2_000) + Math.floor(Math.random() * 250)),
         new Promise<void>((resolve) => { wake = resolve; }),
       ]);
-      if (cancelled) throw new NativeStackLimitError(`Waiting for a native place was cancelled by ${cancelled}`);
+      if (cancelled) throw new NativeStackLimitError(`Waiting for a native place was cancelled by ${cancelled}`, cancelled);
     }
   } finally {
     process.off("SIGINT", onSignal);
