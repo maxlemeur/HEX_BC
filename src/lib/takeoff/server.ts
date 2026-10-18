@@ -29,6 +29,7 @@ import { resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-versio
 import { usesPerUnitLabor } from "@/lib/estimates/engine/capabilities";
 import { getStalePriceDaysForTenant } from "@/lib/feature-flags";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { TAKEOFF_ENGINE_V3_UNSUPPORTED_MESSAGE } from "@/lib/takeoff/engine-support";
 import {
   TakeoffError,
   TakeoffErrorCode,
@@ -6891,15 +6892,20 @@ async function assertTakeoffTargetEngineSupported(input: {
     });
   }
   if (data && usesPerUnitLabor(resolveEstimateEngineVersion(data))) {
-    throw new TakeoffError({
-      status: 409,
-      code: TakeoffErrorCode.TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED,
-      message: "Le métré ne s'applique pas à un devis en moteur de calcul 3.",
-      details: { estimate_version_id: input.versionId, calc_engine_version: 3 },
-      retryable: false,
-      jobId: input.jobId,
-    });
+    throw takeoffEngineV3Unsupported(input.versionId, input.jobId);
   }
+}
+
+/** Refus nommé du métré sur une v3 (P-19), à l'application comme à la création d'une tâche (2.10a). */
+function takeoffEngineV3Unsupported(versionId: string, jobId?: string) {
+  return new TakeoffError({
+    status: 409,
+    code: TakeoffErrorCode.TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED,
+    message: TAKEOFF_ENGINE_V3_UNSUPPORTED_MESSAGE,
+    details: { estimate_version_id: versionId, calc_engine_version: 3 },
+    retryable: false,
+    jobId,
+  });
 }
 
 export async function applyTakeoffJob(
@@ -7259,7 +7265,7 @@ async function assertEstimateVersionAccessibleAsDraft(input: {
 }) {
   const { data, error } = await input.supabase
     .from("estimate_versions")
-    .select("id, status, estimate_projects!inner(tenant_id, user_id)")
+    .select("id, status, calc_engine_version, estimate_projects!inner(tenant_id, user_id)")
     .eq("id", input.estimateVersionId)
     .eq("tenant_id", input.tenantId)
     .single();
@@ -7299,6 +7305,11 @@ async function assertEstimateVersionAccessibleAsDraft(input: {
       message: "Accès interdit aux ressources de ce tenant.",
       retryable: false,
     });
+  }
+
+  // Sous-lot 2.10a (N3, D-f) : le refus de l'application (P-19) dit avant tout dépôt ni analyse.
+  if (usesPerUnitLabor(resolveEstimateEngineVersion(data))) {
+    throw takeoffEngineV3Unsupported(input.estimateVersionId);
   }
 
   assertDraftStatus(data.status);

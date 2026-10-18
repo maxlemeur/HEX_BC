@@ -78,6 +78,7 @@ export default async function AffaireTakeoffPage({ params }: Props) {
           id: hubSummary.currentVersion.id,
           status: hubSummary.currentVersion.status,
           versionNumber: hubSummary.currentVersion.versionNumber,
+          calcEngineVersion: hubSummary.currentVersion.calcEngineVersion ?? null,
         }
       : null,
     versions,

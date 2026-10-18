@@ -1239,6 +1239,22 @@ const estimateInstantiateTemplateDataSchema = z.object({
   projectId: uuidSchema,
   versionId: uuidSchema,
   redirectTo: z.string(),
+  // Sous-lot 2.10a (P-12, D-h) : version créée en moteur 3 seulement.
+  converted_lines: z
+    .array(z.object({ title: z.string(), template_hours: z.number(), converted_hours: z.number() }))
+    .optional()
+    .describe(
+      "Moteur 3 : lignes dont les heures MO totales changent par la conversion h / Q au demi supérieur à 4 décimales (même rapport que l'insertion du modèle dans une v3). Absent hors moteur 3."
+    ),
+  dropped_settings: z
+    .array(z.object({
+      setting: z.enum(["margin_mode", "margin_multiplier", "global_coefficient", "discount_mode", "rounding_mode"]),
+      label: z.string(),
+    }))
+    .optional()
+    .describe(
+      "Moteur 3 : réglages du modèle non repris par la v3 (marge par tranche ou ≠ 1, coefficient global ≠ 1, remise en cascade, arrondi au plus proche ou supérieur), avec leur libellé. Absent hors moteur 3."
+    ),
 });
 
 const estimateAssembliesDataSchema = z.object({
@@ -3711,7 +3727,8 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
         ],
       },
       "409": {
-        description: "Conflit metier ou de concurrence.",
+        description:
+          "Conflit metier ou de concurrence. TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED : la version cible est en moteur de calcul 3, qui ne recoit pas de metre (P-19) ; refuse avant tout depot, aucun job n'est cree (sous-lot 2.10a).",
         contents: [
           {
             contentType: "application/json",
@@ -4291,11 +4308,11 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
         apiEstimateCreatedSchemaDefinition
       ),
       "400": jsonResponse(
-        "Requete invalide ou payload non conforme. ESTIMATE_ENGINE_COLUMN_NOT_SUPPORTED : version.sale_coefficient_fo ou version.sale_coefficient_mo fourni pour une version en moteur 2 ; rien n'est cree. ESTIMATE_SECTION_DEPTH_TOO_SHALLOW : version.max_section_depth fourni plus faible que la profondeur des sections importees (creation_mode=linked_dpgf_source) ; omis, il reprend celui de la derniere version de l'affaire, releve au besoin des sections importees ; rien n'est cree.",
+        "Requete invalide ou payload non conforme. ESTIMATE_ENGINE_COLUMN_NOT_SUPPORTED : version.sale_coefficient_fo ou version.sale_coefficient_mo fourni pour une version en moteur 2 ; rien n'est cree. ESTIMATE_SECTION_DEPTH_TOO_SHALLOW : version.max_section_depth fourni plus faible que la profondeur des sections importees (creation_mode=linked_dpgf_source) ; omis, il reprend celui de la derniere version de l'affaire, releve au besoin des sections importees ; rien n'est cree. creation_mode=linked_dpgf_source en moteur 3 (sous-lot 2.10a) : lignes normalisees pour le moteur 3 (unite du referentiel, PU aux coefficients de vente fournis, sinon ceux de la politique) ; une colonne d'heures par ligne demande l'apercu de l'import de l'affaire, comme les heures par unite ; rien n'est cree.",
         openApiSharedSchemaDefinitions.apiFailureResponse
       ),
       "409": jsonResponse(
-        "CONTEXT_CHANGED : un calcul du tenant detient son verrou pendant la creation des roles MO par defaut manquants, ou version.expected_calc_engine_version (absent = 2) differe du moteur des nouvelles versions de l'entreprise ; rien n'est cree. ESTIMATE_ENGINE_UNAVAILABLE : creation depuis un modele ou un import quand l'entreprise cree en moteur 3, quelle que soit l'attente (sous-lot 2.8).",
+        "CONTEXT_CHANGED : un calcul du tenant detient son verrou pendant la creation des roles MO par defaut manquants, ou version.expected_calc_engine_version (absent = 2) differe du moteur des nouvelles versions de l'entreprise ; rien n'est cree.",
         openApiSharedSchemaDefinitions.apiFailureResponse
       ),
     },
@@ -5166,7 +5183,8 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     method: "post",
     path: "/api/estimates/templates/{templateId}/instantiate",
     summary: "Instancier un template",
-    description: "Cree un nouveau chiffrage depuis un template existant.",
+    description:
+      "Cree un nouveau chiffrage depuis un template existant, dans le moteur des nouvelles versions de l'entreprise (expected_calc_engine_version, absent = 2). Moteur 3 (sous-lot 2.10a) : lignes converties comme a l'insertion du modele dans une v3 (heures par unite du modele issu d'une v3, sinon h / Q ; unite du modele, sinon du referentiel), coefficients du modele issu d'une v3, sinon ceux de la politique ; reglages non representables non repris et listes (dropped_settings).",
     tags: ["Estimate Templates"],
     parameters: [templateIdPathParameter],
     requestBody: instantiateTemplateBody,
@@ -5174,6 +5192,14 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
       "201": jsonResponse(
         "Chiffrage instancie depuis le template.",
         apiEstimateInstantiateTemplateSchemaDefinition
+      ),
+      "400": jsonResponse(
+        "Requete invalide. Moteur 3 : ESTIMATE_V3_TEMPLATE_HOURS_WITHOUT_QUANTITY (ligne du modele avec des heures sans quantite, nommee), ESTIMATE_TEMPLATE_LABOR_ROLE_REQUIRED (role MO du modele hors des roles du proprietaire) ; rien n'est cree.",
+        openApiSharedSchemaDefinitions.apiFailureResponse
+      ),
+      "409": jsonResponse(
+        "CONTEXT_CHANGED : expected_calc_engine_version (absent = 2) differe du moteur des nouvelles versions de l'entreprise ; rien n'est cree.",
+        openApiSharedSchemaDefinitions.apiFailureResponse
       ),
     },
   },
