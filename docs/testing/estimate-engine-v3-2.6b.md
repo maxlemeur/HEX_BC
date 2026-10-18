@@ -42,24 +42,33 @@ qui tient le bail de l'ancre (`e573f71e`) ; V3E18 passe en mode Expert pour lire
   (`V3LineStateControls`), unité du référentiel (`V3UnitField`, même résolution que la cellule « U », refus visible
   par son nom, jamais `description`), heures par unité (`h_mo_per_unit`, ou atelier/chantier par unité) et heures
   totales du moteur en lecture seule. La liste mobile affiche `unit_code` sur une v3.
-- A14 : `restoreConflictDraft` met en file la charge v3 (`buildEstimateV3ItemUpdatePayload`, saisies seulement)
-  sur une v3 ; `applyRestoredDraft` n'y reprend pas les réglages du brouillon (forme v2).
+- A14 : sur une v3, `applyRestoredDraft` ne reprend pas les réglages du brouillon (forme v2) et donne à
+  `restoreConflictDraft` la charge v3 (`buildEstimateV3ItemUpdatePayload`, saisies seulement) des lignes restaurées.
 - A15 : en lot, `buildBulkSuggestPreview({ unitTarget: "unit_code" })` garde les lignes éligibles de 2.6 et propose
   l'unité dans `unit_code`, seulement sur une ligne qui n'en a pas ; le contrôleur la résout dans le référentiel
   avant toute écriture et refuse la sélection entière, par le nom de l'unité, si l'une est inconnue. Sur une ligne,
   même résolution ; refus nommé par un avis, rien de la règle n'est écrit.
 - Régression vue à la première qualification (`.e2e/army/ci/2026-10-18T15-03-53-439Z-critical`, `b1769c1a`) :
   la première version d'A15 jugeait l'éligibilité sur `unit_code` ; une ligne v3 qui a déjà son unité n'était plus
-  proposée (V3E12, V3E14 : « Examiner 1 suggestion » attendu). Corrigé par `__FIX2__` : éligibilité inchangée,
+  proposée (V3E12, V3E14 : « Examiner 1 suggestion » attendu). Corrigé par `f7d5fde5` : éligibilité inchangée,
   l'unité d'une règle ne remplace jamais une unité choisie.
+- `verify:pr` a ensuite refusé la taille de `EstimateEditorTable.tsx` (2 612 > 2 600) et de
+  `useEstimateEditorSyncController.ts` (1 212 > 1 200) : `366dfebd` déplace la résolution de l'unité d'une règle dans
+  `resolveEstimateV3RuleUnit` (`v3-editor.ts`) et le choix de la charge restaurée dans `applyRestoredDraft`, sans
+  changer le comportement.
 
 ## 4. Preuves
 
 | Preuve | Commande | Révision | Résultat | Trace |
 |---|---|---|---|---|
 | Verts en itération | `npm run e2e:army:dev-loop -- run --grep 'V3E1[6-9]'` puis `'V3E18'` | `41533b62`, `b1769c1a` | V3E16, V3E17, V3E19 verts ; V3E18 vert après `b1769c1a` | itérations `005-2026-10-18T14-58-04-291Z`, `006-2026-10-18T15-01-12-344Z` |
-| Qualification ciblée | __QUALIFY__ | | | |
-| Qualité | `npm run verify:pr` | __VERIFY__ | | |
+| Qualification ciblée | `E2E_ARMY_WORKERS=2 npm run e2e:army:local -- --app-port 3182 --grep 'V3E\|V3P01\|V3FC\|bulk edit sync'` | `366dfebd`, arbre propre | sortie 0 ; inventaire des migrations conforme, pgTAP `Files=23, Tests=1891`, matrice RLS passée ; 29/29 (configuration + V3E01-V3E14, V3E16-V3E19, V3P01, V3FC01-02, sept parcours v2 « bulk edit sync »), parcours 4 min 41 s | `.e2e/army/ci/2026-10-18T15-27-28-694Z-critical`, manifeste `38f23372…1e18b` |
+| Garde v1 | `E2E_ARMY_WORKERS=2 npm run e2e:army:ci -- full --app-port 3182 --files e2e/army/critical/auth.setup.e2e.ts,e2e/army/local/bulk-actions-v1-totals.e2e.ts` | `366dfebd` | sortie 0 ; V1BT01-V1BT03 (majoration en lot et suggestions d'une v1 historique) 3/3 + configuration | `.e2e/army/ci/2026-10-18T15-36-11-514Z-full`, manifeste `b43f073b…ad777` |
+| Qualité | `npm run verify:pr` | `366dfebd`, arbre propre | sortie 0 en 2 min 42 s : budgets d'architecture, OpenAPI, types, lint ; Vitest node 2 939 tests, jsdom 831 tests | journal local du clone WSL |
+
+La qualification précédente sur `b1769c1a` (`.e2e/army/ci/2026-10-18T15-03-53-439Z-critical`) avait 27/29 : V3E12 et
+V3E14 rouges, la régression du §3 ; celle de `f7d5fde5` (`2026-10-18T15-12-54-594Z`) était verte avant le
+refactor de `366dfebd`, qui a donc été requalifié.
 
 ## 5. Limites
 
