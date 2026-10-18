@@ -56,7 +56,12 @@ parsing, process signals, cross-process races), not a product journey.
   with `NativeStackLimitError` naming each holder (run PID, entry point,
   folder, start; orphan stack workdir; build command);
   `NATIVE_STACK_WAIT_SECONDS=<n>` waits up to `n` seconds instead. Processes
-  are counted best effort: only the guarded runs are race-free. A reused PID
+  are counted best effort: only the guarded runs are race-free. A build does
+  not reserve a place itself: `scripts/next-build.mjs` is also Vercel's and
+  the Quality Gate's build (`npm run build`), where a refusal or an
+  unavailable process listing must not fail a deployment. A build started
+  while every place is taken therefore still runs; the next native run waits
+  for it. A reused PID
   keeps a stale slot until that process ends; delete the named file by hand if
   `ps -p <pid>` shows an unrelated process.
 
