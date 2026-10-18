@@ -226,8 +226,20 @@ function checkReport(unitDirectory: string, phase: string, where: string, proble
 }
 
 /** Checks one unit's evidence and returns what the aggregate manifest records of it. */
-function checkUnit(input: AggregateInput, unit: Unit, plan: Plan | undefined, problems: string[]): UnitRecord {
-  const directory = path.join(input.evidence, unit.artifact);
+/**
+ * Where each unit's artifact was downloaded: <evidence>/<artifact>/, except
+ * that actions/download-artifact extracts the only artifact a pattern matches
+ * into <evidence> itself. That flat directory is read as the single planned
+ * unit, whose manifest identity (shard, phase, scope) is then checked as any
+ * other's; flat beside several planned units, none can be told apart.
+ */
+function unitDirectories(input: AggregateInput, units: Unit[], problems: string[]): Map<Unit, string> {
+  const flat = fs.existsSync(path.join(input.evidence, "manifest.json"));
+  if (flat && units.length > 1) problems.push(`The evidence holds one artifact, extracted flat, for ${units.length} planned units.`);
+  return new Map(units.map((unit) => [unit, flat && units.length === 1 ? input.evidence : path.join(input.evidence, unit.artifact)]));
+}
+
+function checkUnit(input: AggregateInput, unit: Unit, directory: string, plan: Plan | undefined, problems: string[]): UnitRecord {
   const where = unit.kind === "shard" ? unit.id : `${unit.id} (${unit.artifact})`;
   const manifestFile = path.join(directory, "manifest.json");
   if (!fs.existsSync(manifestFile)) {
@@ -362,11 +374,12 @@ export function aggregateEvidence(input: AggregateInput): AggregateResult {
     // An explicit none: nothing ran, nothing is claimed.
     return { status: problems.length ? "failed" : "not-run", problems, evidence: null };
   }
-  const records = units.map((unit) => checkUnit(input, unit, plan, problems));
+  const directories = unitDirectories(input, units, problems);
+  const records = units.map((unit) => checkUnit(input, unit, directories.get(unit)!, plan, problems));
   const union = checkAcrossUnits(input, plan, records, problems, wholeSuite);
   fs.rmSync(input.out, { recursive: true, force: true });
   for (const unit of units) {
-    const source = path.join(input.evidence, unit.artifact);
+    const source = directories.get(unit)!;
     if (fs.existsSync(source)) fs.cpSync(source, path.join(input.out, "units", unit.artifact), { recursive: true });
   }
   const status = problems.length ? "failed" : "passed";

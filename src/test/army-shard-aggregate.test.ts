@@ -26,7 +26,10 @@
 //    skipped as outside its positional files);
 // 8. the full suite qualified without its development phase, or a filtered
 //    (--grep) dispatch recorded as the full suite;
-// 9. a calc-v3 phase red, missing, or recorded under another phase.
+// 9. a calc-v3 phase red, missing, or recorded under another phase;
+// 10. a single unit read as missing because actions/download-artifact puts the
+//    only artifact a pattern matches directly in its path (no subdirectory;
+//    run 39120187109), or a flat download taken for one of several units.
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -291,6 +294,26 @@ describe("TesterArmy shard aggregation", () => {
     writeCriticalShards(undefined, () => ({ discovered: [SETUP, A, B] }));
     expect(problems(critical(whole))).toMatchObject({ status: "failed",
       problems: expect.stringContaining(`lists journeys the e2e CLI does not discover: ${C}`) });
+  });
+
+  it("reads the flat download of a single planned unit, and only as that unit", () => {
+    // One shard: download-artifact extracts the only matching artifact into the path itself.
+    const single = criticalSelection({}, [[SETUP, A, C]]);
+    writeUnit({ suite: "critical", artifact: "", scope: "filtered-critical", phases: ["critical"], ran: { critical: [SETUP, A, C] },
+      journeyFiles: [SETUP, A, C].sort(), shard: { index: 1, total: 1 } });
+    const result = aggregateEvidence(critical(single));
+    expect(result.problems).toEqual([]);
+    expect(fs.existsSync(path.join(out, "units", "army-critical-shard-1-evidence", "manifest.json"))).toBe(true);
+
+    // A flat manifest of another shard is refused by its own identity.
+    fs.rmSync(evidence, { recursive: true, force: true });
+    writeUnit({ suite: "critical", artifact: "", scope: "filtered-critical", phases: ["critical"], ran: { critical: [SETUP, A, C] },
+      journeyFiles: [SETUP, A, C].sort(), shard: { index: 2, total: 2 } });
+    expect(problems(critical(single))).toMatchObject({ status: "failed", problems: expect.stringContaining("records shard 2/2") });
+
+    // Two planned shards, one flat artifact: a shard is missing, whichever it is.
+    expect(problems(critical(criticalSelection()))).toMatchObject({ status: "failed",
+      problems: expect.stringContaining("one artifact, extracted flat, for 2 planned units") });
   });
 
   it("accepts an unsharded whole-suite plan only from a shard that ran the runner's own selection", () => {

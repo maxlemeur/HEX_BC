@@ -509,7 +509,9 @@ parcours à 1 worker, phase développement 50 à 91 s. calc-v3, run 39109681565 
   `report.json` d'un shard liste tous les tests découverts, ceux hors de ses
   fichiers ignorés avec le motif « file not selected by a positional
   argument »). calc-v3 : chaque phase prévue a sa preuve et
-  son `calc-v3.json` vert pour cette phase.
+  son `calc-v3.json` vert pour cette phase. Chaque unité est lue sous
+  `<chemin>/<artefact>/` ; un artefact unique, que `download-artifact` extrait
+  à plat, se lit comme la seule unité prévue, identité contrôlée.
 - Preuves : chaque unité garde son artefact et son manifeste
   (`army-critical-shard-<n>-evidence`, `army-full-shard-<n>-evidence`,
   `army-full-development-evidence`, `army-calc-v3-<phase>-evidence`).
@@ -582,8 +584,27 @@ phase développement (4/4, `scope: full-development`), artefact
 `army-calc-v3-evidence`. Le contrôle de découverte du CLI, ajouté ensuite à
 l'agrégation, a été rejoué en local sur les preuves téléchargées des runs
 39118155443 et 39118690328 : vert (28 et 45 fichiers découverts, égaux au
-plan). Les runs de la tête suivante, qui n'ajoute que ce contrôle et cette
-documentation, sont relevés dans la PR.
+plan).
+
+Tête `96513413` (ce contrôle, plus la fusion d'`origin/main` `d4b6ff73`) :
+critical 7 min 56 s (39119649612, shards 6 min 39 s à 6 min 56 s, vert) ;
+calc-v3 10 min 42 s (39119649587, `offers` 10 min 05 s, vert) ; full 8 min 26 s
+(39120185323) **rouge** : V3E01 (`e2e/army/local/engine-v3-editor.e2e.ts`)
+échoue dans le shard 1/5, la sauvegarde observée ne rejoint pas l'oracle avant
+l'échéance (`fixtures.ts:355`, preuve `save-observed-9df79726…` de l'artefact
+`army-full-shard-1-evidence`, `predicateMatched: false`, HT 5 554,61 €) ; le
+même parcours passe dans le shard critical 1/3 de la même arborescence et sur
+`main` (39118858643), et dans le shard full 1/5 de `cde9f237`. L'agrégation est
+rouge comme attendu. Parcours intermittent signalé à son lot, non corrigé ici.
+Le déclenchement filtré par `--grep` (39120187109, 3 min 33 s) a révélé un
+défaut de l'agrégation : `actions/download-artifact` extrait le seul artefact
+qu'un motif retient directement dans son chemin, sans sous-dossier, et le shard
+unique paraissait sans preuve. Corrigé : un téléchargement à plat se lit comme
+l'unité unique prévue, dont l'identité (shard, phase, portée) est contrôlée
+comme les autres ; à plat face à plusieurs unités, l'agrégation échoue. Ce cas
+touche chaque sélection critical d'un seul shard (petites PR) et chaque phase
+calc-v3 déclenchée seule ; rejoué en local sur les preuves du run 39120187109 :
+vert, `scope: filtered-full`.
 
 Écarts au modèle : l'étape des parcours d'un shard critical (5 à 6 min) dépasse
 les 317 s simulées, et la phase `offers` (8 min 41 s d'étape) les 474 s mesurées
