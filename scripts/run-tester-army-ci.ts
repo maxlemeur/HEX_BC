@@ -11,11 +11,11 @@ import {
 import { createLocalCiEnvironment, type SupabaseEnvironment } from "../src/test/supabase-cli";
 import type { Database } from "../src/types/database";
 import { runCalcV3Campaign } from "./tester-army/calc-v3-campaign";
-import { isCalcV3Phase, type CalcV3Phase } from "./tester-army/calc-v3-phases";
+import { CALC_V3_FORBIDDEN_PORTS, isCalcV3Phase, type CalcV3Phase } from "./tester-army/calc-v3-phases";
 import { runDevLoopSession } from "./tester-army/dev-loop";
 import {
   DEFAULT_DEV_LOOP_TTL_MINUTES, DEV_LOOP_SESSION_SCOPE, DEV_LOOP_STATE_FILE, DEV_LOOP_STATE_SCHEMA, DEV_LOOP_TTL_RANGE,
-  listeningPorts, LoopStateStore, stackInputsDigest,
+  LoopStateStore, proveStackDestroyed, stackInputsDigest, supervisorModulesDigest,
 } from "./tester-army/dev-loop-state";
 import { buildSourceEvidence, redactOutput, sqlInventory } from "./tester-army/local-recipe-common.mjs";
 import { assertLocalAppPortAvailable, runLocalDevelopmentSession } from "./tester-army/local-development";
@@ -66,6 +66,10 @@ for (let index = 3; index < process.argv.length; index += 2) {
     }
     if (BROWSER_RESTRICTED_LOCAL_PORTS.has(Number(value))) {
       throw new Error("--app-port is blocked by the browser for HTTP; choose an unrestricted local port.");
+    }
+    // The loop binds `next start` on this port for hours: never the developers' local stack.
+    if (suite === "dev-loop" && CALC_V3_FORBIDDEN_PORTS.has(String(Number(value)))) {
+      throw new Error("dev-loop --app-port refuses 45585 and 33485, the ports of the developers' local acceptance stack.");
     }
     appPort = Number(value);
   }
@@ -448,7 +452,8 @@ function writeRetainedManifest(context: RunContext) {
   return retained;
 }
 
-// One loop per checkout: claimed before anything else starts.
+// One loop per checkout: claimed before anything else starts. The digest
+// covers the modules this process just loaded, whose checks every iteration applies.
 function claimLoopState() {
   const now = new Date().toISOString();
   loopState = LoopStateStore.claim(path.join(root, DEV_LOOP_STATE_FILE), {
@@ -456,29 +461,26 @@ function claimLoopState() {
     supervisor: { pid: process.pid }, appOrigin: `http://localhost:${appPort}`, ttlMinutes,
     startedAt: String(manifest.startedAt), lastActivityAt: now, expiresAt: null,
     evidence: path.relative(root, evidence).replaceAll("\\", "/"), iterations: 0,
+    supervisorModulesSha256: supervisorModulesDigest(root),
   });
   manifest.devLoopState = { loopId: loopState.current.loopId, file: DEV_LOOP_STATE_FILE };
 }
 
-// After runLocalSupabaseCi: the state goes only once the stack is provably gone.
+// After runLocalSupabaseCi, which removes the workdir even when `stack destroy`
+// failed: the state goes only once workdir, native registry entry and ports are gone.
 async function releaseLoopState() {
   if (!loopState) return;
   const stack = loopState.current.stack;
-  let listening = stack ? await listeningPorts(stack.ports) : [];
-  for (let attempt = 0; listening.length && attempt < 10; attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-    listening = await listeningPorts(stack!.ports);
-  }
-  const projectDirectoryRemoved = !stack || !fs.existsSync(stack.rootDirectory);
-  manifest.devLoopCleanup = { project: stack?.projectId ?? null, projectDirectoryRemoved, portsClosed: listening.length === 0 };
-  if (projectDirectoryRemoved && listening.length === 0) {
+  const proof = await proveStackDestroyed(stack);
+  manifest.devLoopCleanup = {
+    project: stack?.projectId ?? null, projectDirectoryRemoved: proof.projectDirectoryRemoved,
+    registryEntryRemoved: proof.registryEntryRemoved, portsClosed: proof.portsClosed,
+  };
+  if (proof.problems.length === 0) {
     loopState.release();
     return;
   }
-  loopState.update({
-    status: "cleanup-failed", expiresAt: null,
-    error: `${projectDirectoryRemoved ? "" : "project directory remains; "}${listening.length ? `ports still listening: ${listening.join(", ")}` : ""}`,
-  });
+  loopState.update({ status: "cleanup-failed", expiresAt: null, error: proof.problems.join("; ") });
   manifest.status = "failed";
   manifest.error = "The dev-loop stack was not provably destroyed; run `npm run e2e:army:dev-loop -- stop`.";
   process.exitCode = 1;
@@ -491,6 +493,10 @@ async function main() {
   }
   try {
     createLocalCiEnvironment(process.env);
+    // An open (or stale) loop shares .e2e/army/next and .e2e/army/critical with every run of this checkout.
+    if (suite !== "dev-loop" && fs.existsSync(path.join(root, DEV_LOOP_STATE_FILE))) {
+      throw new Error(`A dev loop is open in this checkout (${DEV_LOOP_STATE_FILE}) and shares its .e2e/army build and journey output: stop it first with \`npm run e2e:army:dev-loop -- stop\`.`);
+    }
     if (fs.readdirSync(root).some((name) => /^\.env(?:\.(?:local|production|development|test)(?:\.local)?)?$/.test(name))) {
       throw new Error("CI refuses ambient .env files; use a clean checkout without shared backend credentials.");
     }

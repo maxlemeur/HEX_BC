@@ -49,6 +49,7 @@ export interface LoopState {
   evidence: string;
   stack?: { projectId: string; rootDirectory: string; ports: number[] };
   stackInputsSha256?: string;
+  supervisorModulesSha256?: string;
   socket?: string;
   readyAt?: string;
   build?: LoopBuild;
@@ -286,6 +287,151 @@ export async function listeningPorts(ports: readonly number[]) {
   return results.filter((port): port is number => port !== null);
 }
 
+/** Ports still listening after up to ten one-second retries. */
+export async function waitForClosedPorts(ports: readonly number[]) {
+  let listening = await listeningPorts(ports);
+  for (let attempt = 0; listening.length && attempt < 10; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    listening = await listeningPorts(ports);
+  }
+  return listening;
+}
+
+/** Where the native runtime registers its stacks (`__supabase_stack_host__ ~/.supabase/stacks`). */
+export const SUPABASE_STACK_REGISTRY = path.join(os.homedir(), ".supabase", "stacks");
+
+export interface RegisteredStack {
+  /** The registry directory name, which is the native stack id. */
+  id: string;
+  directory: string;
+  /** The API port the stack registered, or null when it registered none. */
+  apiPort: number | null;
+}
+
+/**
+ * The native registry entry of the stack started with `--workdir rootDirectory`.
+ * The entry outlives its workdir (a WSL restart empties /tmp) and holds the
+ * stack's data. Only `identity.projectRoot` and the `api` port are read; the
+ * entry's credentials never leave its state.json.
+ */
+export function findRegisteredStack(rootDirectory: string, registry = SUPABASE_STACK_REGISTRY): RegisteredStack | null {
+  let names: string[];
+  try { names = fs.readdirSync(registry); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
+  const wanted = path.resolve(rootDirectory);
+  for (const name of names.sort()) {
+    const directory = path.join(registry, name);
+    let entry: { identity?: { projectRoot?: unknown }; ports?: unknown } | null;
+    // The registry lock file, or an entry without a readable state, is not a registered stack.
+    try { entry = JSON.parse(fs.readFileSync(path.join(directory, "state.json"), "utf8")); } catch { continue; }
+    const projectRoot = entry?.identity?.projectRoot;
+    if (typeof projectRoot !== "string" || path.resolve(projectRoot) !== wanted) continue;
+    const api = Array.isArray(entry?.ports)
+      ? (entry.ports as Array<{ key?: unknown; port?: unknown } | null>).find((port) => port?.key === "api")
+      : undefined;
+    return { id: name, directory, apiPort: Number.isSafeInteger(api?.port) ? api!.port as number : null };
+  }
+  return null;
+}
+
+/**
+ * Whether a registry entry is the stack this loop recorded once its workdir
+ * is gone: the recorded workdir is an owned temporary project named for the
+ * recorded supervisor, and the API port the stack registered is one of the
+ * ports this loop allocated to it. Anything else is never destroyed.
+ */
+export function ownsRegisteredStack(state: LoopState, registered: RegisteredStack) {
+  const stack = state.stack;
+  if (!stack || !stack.projectId.startsWith(`miaouffrage-ci-${state.supervisor.pid}-`)) return false;
+  const resolved = path.resolve(stack.rootDirectory);
+  const name = path.basename(resolved);
+  return path.dirname(resolved) === path.resolve(os.tmpdir()) && name.startsWith(SUPABASE_PROJECT_PREFIX) &&
+    name !== SUPABASE_PROJECT_PREFIX && registered.apiPort !== null && stack.ports.includes(registered.apiPort);
+}
+
+export interface StackProof { projectDirectoryRemoved: boolean; registryEntryRemoved: boolean; portsClosed: boolean; problems: string[] }
+
+/** A stack is destroyed only once its workdir, its native registry entry and every recorded port are gone. */
+export async function proveStackDestroyed(stack: LoopState["stack"], registry = SUPABASE_STACK_REGISTRY): Promise<StackProof> {
+  const listening = await waitForClosedPorts(stack?.ports ?? []);
+  const projectDirectoryRemoved = !stack || !fs.existsSync(stack.rootDirectory);
+  const registered = stack ? findRegisteredStack(stack.rootDirectory, registry) : null;
+  const problems = [
+    ...(projectDirectoryRemoved ? [] : ["project directory remains"]),
+    ...(registered ? [`native registry entry ${registered.id} remains (stack data kept)`] : []),
+    ...(listening.length ? [`ports still listening: ${listening.join(", ")}`] : []),
+  ];
+  return { projectDirectoryRemoved, registryEntryRemoved: !registered, portsClosed: listening.length === 0, problems };
+}
+
+export const DEV_LOOP_ARCHIVE_MARKER = "dev-loop-iteration.json";
+
+/**
+ * Marks the raw SDK archive of an iteration's critical run
+ * (.e2e/army/critical/runs/<stamp>/, shared with qualifying runs) as a
+ * non-qualification run. Null when no fresh SDK run exists since the
+ * iteration's campaign started; returns the marker path relative to `root`.
+ */
+export function markIterationArchive(root: string, iteration: { campaignStartedAt: unknown; loopId: string; index: number; manifest: string }) {
+  const output = path.join(root, ".e2e/army/critical");
+  const current = path.join(output, "manifest.json");
+  const started = Date.parse(String(iteration.campaignStartedAt));
+  if (!Number.isFinite(started) || !fs.existsSync(current) || fs.statSync(current).mtimeMs < started) return null;
+  const sdk = JSON.parse(fs.readFileSync(current, "utf8")) as { archive?: { path?: unknown }; failureArchive?: { status?: unknown; path?: unknown } };
+  const archive = sdk.failureArchive?.status === "retained" ? sdk.failureArchive : sdk.archive;
+  if (typeof archive?.path !== "string") return null;
+  const directory = path.resolve(root, archive.path);
+  const relative = path.relative(output, directory);
+  if (!relative.startsWith(`runs${path.sep}`) || relative.split(path.sep).includes("..") || !fs.statSync(directory).isDirectory()) {
+    throw new Error("An iteration's SDK archive must remain inside .e2e/army/critical/runs.");
+  }
+  const marker = path.join(directory, DEV_LOOP_ARCHIVE_MARKER);
+  fs.writeFileSync(marker, `${JSON.stringify({
+    schemaVersion: "army-dev-loop-iteration-marker-1", scope: DEV_LOOP_ITERATION_SCOPE, qualification: false,
+    loopId: iteration.loopId, iteration: iteration.index, iterationManifest: iteration.manifest,
+  }, null, 2)}\n`, { flag: "wx" });
+  return path.relative(root, marker).replaceAll("\\", "/");
+}
+
+// Static and dynamic module references; group 1 marks a type-only import, erased at run time.
+const MODULE_REFERENCE = /(?:^|[\n;])\s*(?:import|export)\s+(type\s+)?(?:[^;"'`]*?\sfrom\s*)?["']([^"']+)["']|\bimport\(\s*["']([^"']+)["']\s*\)/g;
+
+/**
+ * The supervisor's entry and every local module it imports, transitively, as
+ * checkout-relative paths: the code whose checks an iteration applies, loaded
+ * once when the supervisor started. Package imports are not followed.
+ */
+export function supervisorModules(root: string) {
+  const seen = new Set<string>();
+  const pending = [DEV_LOOP_SUPERVISOR_ENTRY];
+  while (pending.length) {
+    const file = pending.pop()!;
+    if (seen.has(file)) continue;
+    seen.add(file);
+    for (const match of fs.readFileSync(path.join(root, file), "utf8").matchAll(MODULE_REFERENCE)) {
+      if (match[1]) continue;
+      const specifier = match[2] ?? match[3];
+      const base = specifier.startsWith("@/") ? `src/${specifier.slice(2)}`
+        : specifier.startsWith(".") ? path.posix.join(path.posix.dirname(file), specifier) : null;
+      if (base === null) continue;
+      const resolved = ["", ".ts", ".tsx", ".mts", ".mjs", ".js", "/index.ts"].map((suffix) => path.posix.normalize(`${base}${suffix}`))
+        .find((candidate) => fs.statSync(path.join(root, candidate), { throwIfNoEntry: false })?.isFile());
+      if (!resolved) throw new Error(`The dev-loop supervisor's ${file} imports ${specifier}, which does not resolve.`);
+      pending.push(resolved);
+    }
+  }
+  return [...seen].sort();
+}
+
+/** Content digest of supervisorModules(root). */
+export function supervisorModulesDigest(root: string) {
+  const hash = createHash("sha256");
+  for (const file of supervisorModules(root)) {
+    hash.update(`${file}\0`).update(fs.readFileSync(path.join(root, file))).update("\0");
+  }
+  return hash.digest("hex");
+}
+
 export type DevLoopCommand =
   | { action: "start"; appPort: number; ttlMinutes: number }
   | { action: "run"; grep?: string; files: string[] }
@@ -335,7 +481,7 @@ export function parseDevLoopArguments(argv: readonly string[], fileExists: (file
   const port = options.get("--app-port") ?? "3107";
   const ttl = options.get("--ttl-minutes") ?? String(DEFAULT_DEV_LOOP_TTL_MINUTES);
   if (!/^[0-9]+$/.test(port) || Number(port) < 1024 || Number(port) > 65535 ||
-    BROWSER_RESTRICTED_LOCAL_PORTS.has(Number(port)) || CALC_V3_FORBIDDEN_PORTS.has(port)) {
+    BROWSER_RESTRICTED_LOCAL_PORTS.has(Number(port)) || CALC_V3_FORBIDDEN_PORTS.has(String(Number(port)))) {
     throw new Error("--app-port must be an unrestricted local port from 1024 to 65535, never a shared-stack port.");
   }
   if (!/^[0-9]+$/.test(ttl) || Number(ttl) < DEV_LOOP_TTL_RANGE[0] || Number(ttl) > DEV_LOOP_TTL_RANGE[1]) {

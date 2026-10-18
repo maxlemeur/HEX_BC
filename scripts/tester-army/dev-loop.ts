@@ -8,9 +8,10 @@ import { fileURLToPath } from "node:url";
 import { runSupabaseCli } from "../../src/test/supabase-cli";
 import {
   applicationSourceDigest, assertJourneySelection, classifyLoopState, decideRebuild, DEV_LOOP_ITERATION_SCOPE,
-  DEV_LOOP_SOCKET_PREFIX, DEV_LOOP_STATE_FILE, DEV_LOOP_SUPERVISOR_ENTRY, type DevLoopCommand, listeningPorts,
-  type LoopBuild, type LoopState, type LoopStateStore, ownsRecordedProject, parseDevLoopArguments, probeSupervisor, readBuildId,
-  readLoopState, removeOwnedTemporaryDirectory, stackInputsDigest, SUPABASE_PROJECT_PREFIX, writeLoopState,
+  DEV_LOOP_SOCKET_PREFIX, DEV_LOOP_STATE_FILE, DEV_LOOP_SUPERVISOR_ENTRY, type DevLoopCommand, findRegisteredStack,
+  type LoopBuild, type LoopState, type LoopStateStore, markIterationArchive, ownsRecordedProject, ownsRegisteredStack,
+  parseDevLoopArguments, probeSupervisor, proveStackDestroyed, readBuildId, readLoopState, removeOwnedTemporaryDirectory,
+  stackInputsDigest, SUPABASE_PROJECT_PREFIX, SUPABASE_STACK_REGISTRY, supervisorModulesDigest, writeLoopState,
 } from "./dev-loop-state";
 import { buildSourceEvidence } from "./local-recipe-common.mjs";
 
@@ -91,14 +92,26 @@ export async function runDevLoopSession(input: DevLoopSessionInput) {
   input.signal.addEventListener("abort", onSignal, { once: true });
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
   let busy = false;
-  const ready = () => {
+  const readyPatch = (): Partial<LoopState> => {
     const now = Date.now();
-    input.store.update({
+    return {
       status: "ready", lastActivityAt: new Date(now).toISOString(),
       expiresAt: new Date(now + input.ttlMinutes * 60_000).toISOString(),
-    });
+    };
+  };
+  const armIdleTimer = () => {
     clearTimeout(idleTimer);
     idleTimer = setTimeout(() => stop.abort("ttl-expired"), input.ttlMinutes * 60_000);
+  };
+  // After a run: the TTL is armed before the bookkeeping write, which never
+  // throws from here, so a failed write cannot disarm the TTL or replace the
+  // iteration's result.
+  const ready = () => {
+    armIdleTimer();
+    try { input.store.update(readyPatch()); }
+    catch (error) {
+      console.error(`Dev loop: could not record its ready state (${input.redact(error instanceof Error ? error.message : String(error))}); the idle TTL still applies.`);
+    }
   };
 
   async function iterate(selection: { grep?: string; files: string[] }, command: string[] | null, notify: (line: string) => void) {
@@ -124,6 +137,7 @@ export async function runDevLoopSession(input: DevLoopSessionInput) {
       loop: {
         loopId: input.store.current.loopId, iteration: index, session: relativeTo(input.root, input.sessionEvidence),
         stackStartedAt: session.startedAt, readyAt: input.store.current.readyAt, project: input.store.current.stack?.projectId,
+        supervisorModulesSha256: input.store.current.supervisorModulesSha256,
       },
       fixtures: session.fixtures,
       database: {
@@ -140,6 +154,10 @@ export async function runDevLoopSession(input: DevLoopSessionInput) {
     try {
       if (await stackInputsDigest(input.root) !== input.store.current.stackInputsSha256) {
         throw new Error("Migrations or supabase/config.toml changed since the loop started: stop the loop and start it again.");
+      }
+      // The checks below are the modules this supervisor loaded at start.
+      if (supervisorModulesDigest(input.root) !== input.store.current.supervisorModulesSha256) {
+        throw new Error(`The dev-loop supervisor's own modules (${DEV_LOOP_SUPERVISOR_ENTRY} and its local imports) changed since the loop started, so its checks are those of the start: stop the loop and start it again.`);
       }
       const source = await buildSourceEvidence();
       const appSourceSha256 = applicationSourceDigest(source.inputs);
@@ -160,7 +178,20 @@ export async function runDevLoopSession(input: DevLoopSessionInput) {
       Object.assign(manifest.build as Record<string, unknown>, { buildId: build.buildId, appSourceSha256: build.appSourceSha256 });
       notify(`Iteration ${index}: running the selected critical journeys (${selection.grep ? `--grep ${selection.grep}` : `--files ${selection.files.join(",")}`}).`);
       const journeysStarted = Date.now();
-      try { await input.journeys(context); } finally { timings.journeysSeconds = secondsSince(journeysStarted); }
+      let journeyError: unknown;
+      try { await input.journeys(context); } catch (error) { journeyError = error; }
+      timings.journeysSeconds = secondsSince(journeysStarted);
+      // The SDK archive of this run sits next to qualifying ones: mark it.
+      try {
+        manifest.sdkArchiveMarker = markIterationArchive(input.root, {
+          campaignStartedAt: manifest.campaignStartedAt, loopId: input.store.current.loopId, index,
+          manifest: relativeTo(input.root, path.join(evidence, "manifest.json")),
+        });
+      } catch (error) {
+        if (!journeyError) throw error;
+        manifest.sdkArchiveMarkerError = input.redact(error instanceof Error ? error.message : String(error));
+      }
+      if (journeyError) throw journeyError;
       manifest.status = "passed";
     } catch (error) {
       manifest.status = "failed";
@@ -187,8 +218,10 @@ export async function runDevLoopSession(input: DevLoopSessionInput) {
     };
   }
 
+  // Exactly one result per request; busy is reset and the TTL re-armed on every path.
   async function respond(socket: net.Socket, line: string) {
     const send = (message: Message) => { if (!socket.destroyed && socket.writable) socket.write(`${JSON.stringify(message)}\n`); };
+    let result: Record<string, unknown>;
     try {
       let request: { action?: unknown; loopId?: unknown; grep?: unknown; files?: unknown; command?: unknown };
       try { request = JSON.parse(line); } catch { throw new Error("Malformed dev-loop request."); }
@@ -199,22 +232,24 @@ export async function runDevLoopSession(input: DevLoopSessionInput) {
         (file) => fs.existsSync(path.join(input.root, file)));
       const command = Array.isArray(request.command) && request.command.length <= 64 &&
         request.command.every((word) => typeof word === "string" && word.length <= 4_096) ? request.command as string[] : null;
-      if (stop.signal.aborted) { send({ type: "result", status: "stopping" }); return; }
-      if (busy) { send({ type: "result", status: "busy", iteration: input.store.current.iterations + 1 }); return; }
-      busy = true;
-      clearTimeout(idleTimer);
-      input.store.update({ status: "running", expiresAt: null, lastActivityAt: new Date().toISOString() });
-      try {
-        send({ type: "result", ...await iterate(selection, command, (text) => { console.log(text); send({ type: "log", line: text }); }) });
-      } finally {
-        busy = false;
-        if (!stop.signal.aborted) ready();
+      if (stop.signal.aborted) result = { status: "stopping" };
+      else if (busy) result = { status: "busy", iteration: input.store.current.iterations + 1 };
+      else {
+        busy = true;
+        clearTimeout(idleTimer);
+        try {
+          input.store.update({ status: "running", expiresAt: null, lastActivityAt: new Date().toISOString() });
+          result = await iterate(selection, command, (text) => { console.log(text); send({ type: "log", line: text }); });
+        } finally {
+          busy = false;
+          if (!stop.signal.aborted) ready();
+        }
       }
     } catch (error) {
-      send({ type: "result", status: "refused", error: input.redact(error instanceof Error ? error.message : String(error)) });
-    } finally {
-      socket.end();
+      result = { status: "refused", error: input.redact(error instanceof Error ? error.message : String(error)) };
     }
+    send({ type: "result", ...result });
+    socket.end();
   }
 
   const server = net.createServer((socket) => {
@@ -242,8 +277,9 @@ export async function runDevLoopSession(input: DevLoopSessionInput) {
       server.listen(socketPath, () => { server.off("error", reject); resolve(); });
     });
     fs.chmodSync(socketPath, 0o600);
-    input.store.update({ socket: socketPath, readyAt: new Date().toISOString() });
-    ready();
+    // At start a failed write fails the session, and its caller destroys the stack.
+    armIdleTimer();
+    input.store.update({ socket: socketPath, readyAt: new Date().toISOString(), ...readyPatch() });
     summary.readyAt = input.store.current.readyAt;
     console.log(`Dev loop ready: ${input.store.current.appOrigin}, build ${build.buildId}, idle TTL ${input.ttlMinutes} min. Iterations are not qualification runs.`);
     await new Promise<void>((resolve) => {
@@ -288,28 +324,39 @@ function sendRequest(socketPath: string, request: Record<string, unknown>, onLog
   });
 }
 
-async function waitForClosedPorts(ports: readonly number[]) {
-  let listening = await listeningPorts(ports);
-  for (let attempt = 0; listening.length && attempt < 10; attempt += 1) {
-    await sleep(1_000);
-    listening = await listeningPorts(ports);
-  }
-  return listening;
+export interface CleanupDependencies {
+  /** A local Supabase CLI call; throws on failure. */
+  supabase?: (args: string[]) => void;
+  /** The native runtime's stack registry. */
+  registry?: string;
 }
 
-/** Destroys the exact stack a dead supervisor recorded, then releases its state. */
-async function cleanUpAbandonedLoop(statePath: string, state: LoopState) {
+/**
+ * Destroys the exact stack a dead supervisor recorded, then releases its
+ * state. The stack is found through its workdir or, once that is gone (a WSL
+ * restart empties /tmp), through its native registry entry, which keeps the
+ * stack's data until `stack destroy`. The state goes only once workdir,
+ * registry entry and ports are all gone.
+ */
+export async function cleanUpAbandonedLoop(statePath: string, state: LoopState, dependencies: CleanupDependencies = {}) {
+  const supabase = dependencies.supabase ?? ((args: string[]) => { runSupabaseCli(args, { capture: true }); });
+  const registry = dependencies.registry ?? SUPABASE_STACK_REGISTRY;
   const errors: string[] = [];
   const notes: string[] = [];
-  const directory = state.stack?.rootDirectory;
-  if (directory && fs.existsSync(directory) && !ownsRecordedProject(state)) {
-    errors.push(`refusing to destroy ${directory}: its configuration does not carry the recorded project ${state.stack?.projectId}`);
-  } else if (directory && fs.existsSync(directory)) {
-    try { runSupabaseCli(["stop", "--workdir", directory], { capture: true }); }
+  const stack = state.stack;
+  const present = Boolean(stack && fs.existsSync(stack.rootDirectory));
+  const registered = stack ? findRegisteredStack(stack.rootDirectory, registry) : null;
+  if (stack && present && !ownsRecordedProject(state)) {
+    errors.push(`refusing to destroy ${stack.rootDirectory}: its configuration does not carry the recorded project ${stack.projectId}`);
+  } else if (stack && !present && registered && !ownsRegisteredStack(state, registered)) {
+    errors.push(`refusing to destroy native stack ${registered.id}: its registration does not match the recorded project ${stack.projectId}`);
+  } else if (stack && (present || registered)) {
+    if (!present) notes.push(`workdir already gone; native stack ${registered!.id} found by its registered project root and API port`);
+    try { supabase(["stop", "--workdir", stack.rootDirectory]); }
     catch { notes.push("supabase stop failed (a stack that never started has nothing to stop)"); }
     try {
-      runSupabaseCli(["stack", "destroy", "--yes", "--workdir", directory], { capture: true });
-      removeOwnedTemporaryDirectory(directory, SUPABASE_PROJECT_PREFIX);
+      supabase(["stack", "destroy", "--yes", "--workdir", stack.rootDirectory]);
+      removeOwnedTemporaryDirectory(stack.rootDirectory, SUPABASE_PROJECT_PREFIX);
     } catch (error) {
       errors.push(`destroy failed: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -318,11 +365,11 @@ async function cleanUpAbandonedLoop(statePath: string, state: LoopState) {
     try { removeOwnedTemporaryDirectory(path.dirname(state.socket), DEV_LOOP_SOCKET_PREFIX); }
     catch (error) { errors.push(error instanceof Error ? error.message : String(error)); }
   }
-  const listening = await waitForClosedPorts(state.stack?.ports ?? []);
-  if (listening.length) errors.push(`ports still listening: ${listening.join(", ")}`);
+  const proof = await proveStackDestroyed(stack, registry);
+  errors.push(...proof.problems);
   if (errors.length) writeLoopState(statePath, { ...state, status: "cleanup-failed", expiresAt: null, error: errors.join("; ") });
   else fs.rmSync(statePath, { force: true });
-  return { errors, notes };
+  return { errors, notes, proof };
 }
 
 /** The state is replaced atomically; an unreadable read is retried by the caller. */
@@ -425,21 +472,25 @@ async function main() {
     }
   }
   const leftover = readLoopState(statePath);
-  const cleanup = leftover ? await cleanUpAbandonedLoop(statePath, leftover) : { errors: [], notes: [] };
   const stack = (leftover ?? state).stack;
-  const listening = await waitForClosedPorts(stack?.ports ?? []);
+  const cleanup = leftover
+    ? await cleanUpAbandonedLoop(statePath, leftover)
+    : { errors: [] as string[], notes: [] as string[], proof: await proveStackDestroyed(stack) };
+  const stateRemoved = !fs.existsSync(statePath);
   const report = {
-    stopped: true,
+    stopped: stateRemoved && cleanup.errors.length === 0 && cleanup.proof.problems.length === 0,
     cleanedBy: leftover ? `this command (${classification.kind === "stale" ? classification.reason : `supervisor left ${leftover.status}`})` : "the supervisor",
     project: stack?.projectId ?? null,
-    projectDirectoryRemoved: !stack || !fs.existsSync(stack.rootDirectory),
-    portsClosed: listening.length === 0,
-    stateRemoved: !fs.existsSync(statePath),
+    projectDirectoryRemoved: cleanup.proof.projectDirectoryRemoved,
+    registryEntryRemoved: cleanup.proof.registryEntryRemoved,
+    portsClosed: cleanup.proof.portsClosed,
+    stateRemoved,
     evidence: state.evidence,
-    ...cleanup,
+    errors: cleanup.errors,
+    notes: cleanup.notes,
   };
   console.log(JSON.stringify(report, null, 2));
-  return report.projectDirectoryRemoved && report.portsClosed && report.stateRemoved && cleanup.errors.length === 0 ? 0 : 1;
+  return report.stopped ? 0 : 1;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
