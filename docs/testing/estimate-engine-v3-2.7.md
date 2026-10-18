@@ -22,10 +22,14 @@ commandes et les chemins tels qu'exécutés (`--grep '^V3E02\s'`, `v3e02-*`).
 | `supabase/tests/database/estimate-offer-contract-v2.test.sql` | pgTAP, F27-01 à F27-19 (§4) |
 | `e2e/army/local/engine-v3-emission.e2e.ts`, `engine-v3-emission-support.ts` | Parcours V3M01, V3M03, V3M04, V3M05 et V3M06 (calc-v3) et V3M02 (critique locale), §3, §12 et §13 |
 | `e2e/army/local/engine-v3-editor-actions.e2e.ts` (fichier de 2.6) | V3E11 réécrit et V3E15 (critique locale) à la fusion du 2.6, §13 |
+| `e2e/army/local/engine-v3-exports.e2e.ts` | Parcours V3X01 (réimport du DPGF v3) et V3X02 (devise des montants), critique locale, §13.8 et §13.9 |
+| `src/lib/estimates/v3-export.ts` | Exports XLSX standard et DPGF d'une v3 : libellé de statut des lignes non chiffrées, devise de la version (§13.8) |
+| `src/lib/imports/optima-profile.ts` | Profil d'import déclaré `dpgf_export_v3` du DPGF v3 (§13.9) |
+| `src/app/dashboard/estimates/[versionId]/print/EstimateV3PrintPage.tsx` | Impression d'une v3 : identité et CGV de la copie émise vérifiée hors brouillon (§13.8, §13.9) |
 | `scripts/tester-army/calc-v3-phases.ts` | Nouvelle phase `emission-v3` (collecteur sentinelle ; next dev au rouge, build de production possédé depuis l'intégration, §10.4) |
 | `scripts/tester-army/calc-v3-fixtures.ts` | Fixture de la phase : propriétaire dédié en politique 3, témoin v2 brouillon, second administrateur du tenant (V3M06, §13.8) |
 | `scripts/tester-army/calc-v3-campaign.ts`, `e2e/army/local/calc-v3.config.ts` | Collecteur, garde réseau d'offre et lecture des PDF reçus pilotés par `sentinelCollector` (et non plus par le nom `emission`) |
-| `scripts/tester-army/army-impact-map.json` | Parcours inscrit (la liste critique locale de `e2e.config.ts` prend `engine-v3-*.e2e.ts`), groupe `print` |
+| `scripts/tester-army/army-impact-map.json` | Parcours inscrits (la liste critique locale de `e2e.config.ts` prend `engine-v3-*.e2e.ts`) : `engine-v3-emission.e2e.ts` au groupe `print`, `engine-v3-exports.e2e.ts` au groupe `affaire-hub` (§13.8) |
 
 ## 2. Défaillances observables et preuves
 
@@ -52,6 +56,10 @@ commandes et les chemins tels qu'exécutés (`--grep '^V3E02\s'`, `v3e02-*`).
 | v3 au-dessus du seuil d'approbation non émissible une fois approuvée, ou approbation perdue au gel du document | V3M03 (revue, §12) |
 | Envoi, avec un fournisseur, d'une v3 non figeable : réussi, refus anonyme, ou document, reçu, statut ou version modifiés | V3M04 (revue, §12) |
 | En-tête « TVA : » vide d'un contrat 2 sans ligne chiffrée | V3M02, scénario ajouté à la revue (rouge sans `3a8e576a`, §12) |
+| Impression d'une v3 émise avec le profil du lecteur ou l'affaire modifiée après l'émission ; pied du portail du contrat 2 sans l'emphase du pied v3 | V3M06, V3M-15 et V3M-16 (§13.8) |
+| Impression d'une v3 émise avec d'autres CGV que sa copie scellée (ajoutées par la case ou la politique courante, retirées par la mise en page) | V3M05 et V3M06, V3M-17 (§13.9) |
+| Classeurs v3 en USD ou GBP au format « € » ; ligne non chiffrée recréée facturable au réimport du DPGF | V3X02 ; V3X01, V3X-01 et V3X-02 (§13.8) |
+| Ligne chiffrée avec main-d'oeuvre réimportée avec ses heures comptées deux fois (PT / Q lu en prix de fourniture, h/u en heures de ligne) | V3X01, V3X-07 (§13.9) |
 
 ## 3. Parcours `engine-v3-emission.e2e.ts`
 
@@ -1304,11 +1312,33 @@ Conflits avec les PR ouvertes, par essai `git merge-tree` de leurs têtes pouss�
 La PR fusionnée en second résout ses conflits et rejoue ce qu'ils invalident. Ce traitement n'a pas de troisième
 relecture.
 
-### 13.8 Revue Codex de 3d78d662 — voie A (18/10/2026)
+### 13.8 Revue Codex de 3d78d662 (18/10/2026)
 
-Deux constats P2 de Codex sur `3d78d662`, traités selon les décisions du coordinateur, sur la branche locale
-`tmp/l2-27-codex-a` (à reporter sur la branche de la PR). Aucune migration, aucun test SQL, ni
-`src/lib/estimate-calculations.ts` ni `src/lib/estimate-v2-snapshot.ts` ne changent.
+Quatre constats de Codex sur `3d78d662`, traités selon les décisions du coordinateur en deux voies indépendantes :
+voie A (impression et pied du portail), voie B (exports XLSX). Chaque voie a travaillé sur sa branche locale et son
+clone WSL (`tmp/l2-27-codex-a`, `~/miaouffrage-l27-codex-a` ; `tmp/l2-27-codex-b`, `~/miaouffrage-l27-codex-b`). Ses
+commits ont ensuite été reportés sur la branche de la PR par `cherry-pick`, voie A puis voie B. Aucune migration,
+aucun test SQL, ni `src/lib/estimate-calculations.ts` ni `src/lib/estimate-v2-snapshot.ts` ne changent.
+
+Les runs ci-dessous citent la tête de voie qu'ils ont exécutée, inscrite dans leur manifeste. Les branches `tmp/` sont
+supprimées depuis le report, mais chaque commit reporté garde le correctif de sa tête de voie : même `git patch-id`
+pour neuf des dix commits ; seul le relevé de la voie B diffère, par la résolution du conflit de ce document. Hors documentation, l'arbre reporté moins la voie B est exactement le diff de la voie A
+(même `patch-id`, `8a1bed60559a`).
+
+| Voie | Tête de voie (runs) | Commit de la PR | Objet |
+|---|---|---|---|
+| A | `ec3a8e26` | `a630d19b` | V3M06 rouge (identité) |
+| A | `0ca15e51` | `427e714e` | impression depuis la copie au contrat 2 |
+| A | `63b07056` | `fd5099c5` | V3M06 rouge (pied du portail) |
+| A | `22825bbb` | `88ebd56e` | emphase du pied du contrat 2 |
+| A | `d8186244` | `b8246319` | avis nommé d'une copie que l'analyseur strict refuse |
+| A | `3f5d4e1a` | `7a118a24` | relevé de la voie A |
+| B | `38570e42` | `bfa0b7a1` | V3X01 et V3X02 rouges |
+| B | `5b0bd907` | `f8c12cde` | format et en-têtes de montant dans la devise de la version |
+| B | `5d3f6c65` | `48c39cef` | lignes non chiffrées non facturables au réimport |
+| B | `4204efc3` | `8dd28c91` | relevé de la voie B (conflit de ce document résolu en gardant les deux relevés) |
+
+#### Voie A : impression d'une v3 émise et pied du portail
 
 | Constat | Traitement |
 |---|---|
@@ -1360,10 +1390,8 @@ Limites :
 - L'avis d'une copie invérifiable n'a pas de parcours : il faudrait altérer la copie stockée. Aucun repli vivant n'existe
   dans `issuedCopyOf`.
 - Comme V3M05, V3M06 n'est atteint que par la phase calc-v3 `emission-v3`, pas par la sélection d'impact des PR.
-- Les commentaires du parcours et de `calc-v3-phases.ts` renvoient à ce §13.8 : à renuméroter si la voie B prend ce
-  numéro.
 
-### 13.8 Revue Codex de 3d78d662 — voie B (18/10/2026)
+#### Voie B : exports XLSX d'une v3
 
 Exports XLSX v3 (`src/lib/estimates/v3-export.ts`), deux constats de la revue Codex de `3d78d662`, traités selon la
 décision du coordinateur. Parcours `e2e/army/local/engine-v3-exports.e2e.ts` (campagne critique locale, nouveau fichier
@@ -1389,7 +1417,7 @@ sont les « saisies réimportables » qu'écrit aussi le DPGF v1/v2 (`dpgf-expor
 sont pas reconçues pour les lignes chiffrées : rapporté au coordinateur. Constat préexistant, non corrigé (chemin
 d'import inchangé) : réimportée avec la correspondance proposée, une ligne chiffrée reprend PT / Q comme prix de
 fourniture et ses heures par unité comme heures de ligne. V3X01 le neutralise par deux lignes chiffrées « fourniture
-seule ».
+seule ». Ce constat est corrigé à la revue de `8dd28c91` (§13.9) par un profil d'import déclaré du DPGF v3.
 
 V3X01 : brouillon v3 (propriétaire dédié, politique 3 le temps de la création, puis 2) de P1 (2 u, PR 10,00 € → PU
 13,00, PT 26,00), P2 (3 ml, PR 5,00 € → 6,50 / 19,50) et de trois lignes non chiffrées avec déboursé et heures au rôle
@@ -1402,8 +1430,10 @@ sont valorisées à 0 €/h »). Le devis créé est relu. V3X02 : brouillon v3 
 devise : en-tête exact du DPGF et format de chaque cellule numérique de montant (Devis 8, Resume 5, Données 3,
 Metadata 5), aucun autre format dans le classeur.
 
-| Commande (WSL, `~/miaouffrage-l27-codex-b`, Node 24.19.0, `E2E_ARMY_WORKERS=2`, `NODE_OPTIONS=--max-old-space-size=4096`, aucun changement local) | Tête | Résultat |
+| Commande (WSL, `~/miaouffrage-l27-codex-b`, Node 24.19.0, `E2E_ARMY_WORKERS=2`, `NODE_OPTIONS=--max-old-space-size=4096`, aucun changement local sauf mention) | Tête | Résultat |
 |---|---|---|
+| `npm run e2e:army:dev-loop -- run --grep "^V3X0[12] "` (boucle `--app-port 3164`, itérations 1 à 4, mise au point du parcours avant le rouge retenu) | `d6fc1bf9`, puis `de9a00c3` | échecs du parcours en cours d'écriture, sans valeur de preuve : 1 (`9afd2bf8…`) `toBeEnabled` de l'étape d'import ; 2 (`1438f918…`) attente de 60 s de l'avancée de l'aperçu ; 3 (`79a89cfc…`, changement local `diffSha256` `6a4c7cc1…`) et 4 (`2deff713…`, changement local `ce53ff40…`) comparaison finale de V3X01. `.e2e/army/ci/2026-10-18T08-01-51-982Z-dev-loop/iterations/001` à `004` |
+| `npm run e2e:army:local -- --grep "^V3X0[12] " --app-port 3174` (pendant la boucle) | `de9a00c3` | refus de préparation, aucune étape : une boucle d'itération ouverte partage la sortie `.e2e/army`. `.e2e/army/ci/2026-10-18T08-12-56-717Z-critical` (`manifest.json` `c426e039…`) |
 | `npm run e2e:army:dev-loop -- run --grep "^V3X0[12] "` (boucle `--app-port 3164`, itération 5, build `alDdP-KMCHHXygC_SPM4P` de `3d78d662`) | `38570e42` | rouge attendu : manifeste `failed` (`0e30deaf…`), `journeys-critical` exitCode 1, V3X01 et V3X02 en échec. V3X01 : devis importé 185,50 / 37,10 / 222,60 € au lieu de 45,50 / 9,10 / 54,60 ; N1, N2, N3 reviennent à PU 0 avec 2 h, 0,5 h et 1 h au rôle, soit 80,00, 20,00 et 40,00 € ; cellules DPGF de N1 : « Prix unitaire HT EUR » 50, « h MO / unité » 2, « Majoration MO (%) » 100, « Total HT brut EUR » 0 ; standard « Total HT » 0 ; aperçu « 5 lignes prêtes », aucune refusée. V3X02 : en USD et en GBP, chaque montant `#,##0.00 "€"` et en-têtes « … EUR » ; EUR conforme. Fixtures `ARMY-1792311615878-19555dbb`, `ARMY-1792311627028-cd71d0c7`. `.e2e/army/ci/2026-10-18T08-01-51-982Z-dev-loop/iterations/005-2026-10-18T08-19-57-346Z` |
 | idem, itération 6 (reconstruite) | `5b0bd907` | V3X02 vert, V3X01 encore rouge (attendu) ; manifeste `4fb0632f…` |
 | idem, itération 7 (reconstruite) | `5d3f6c65` | 3/3 (setup, V3X01, V3X02) ; manifeste `b22ef450…` |
@@ -1431,5 +1461,102 @@ Limites :
   qualification est le run `e2e:army:local` de `5d3f6c65`.
 - Ajouter le parcours à la carte d'impact (`army-impact-map.json`, glob `full`) fait sélectionner la suite complète par
   la CI de la PR.
-- Numérotation : si la voie A prend aussi le §13.8, renuméroter et mettre à jour les trois renvois « §13.8 »
-  d'`engine-v3-exports.e2e.ts`.
+
+### 13.9 Revue de 8dd28c91 : CGV de la copie émise, réimport d'une ligne chiffrée avec MO, fusion de `main` (18/10/2026)
+
+Relecture indépendante en lecture seule de la tête intégrée `8dd28c91` (arbre `ab908f44`, aucun changement local). Les
+quatre traitements du §13.8 tiennent, sauf les CGV de l'impression. Quatre constats, traités sur la branche de la PR
+(worktree `miaouffrage-l2-27`, clone WSL `~/miaouffrage-lot2-27`), sans nouvelle relecture. Aucune migration, aucun test
+SQL, ni `supabase/migrations.manifest.json`, ni les deux moteurs historiques, ni `dpgf-export.ts`, ni le chemin
+d'import, de correspondance et d'affaire (`src/lib/affaires/`, `src/lib/mappings/`), ni `print/page.tsx`,
+`offer-document.ts` ou `pdf-generator.tsx` ne changent (`git diff 8dd28c91` vide sur ces chemins).
+
+| Constat | Traitement |
+|---|---|
+| Majeur : le plan de fusion de `main` date de `5cfd4a94`. `origin/main` est à `3af6804c` (PR #42) : un quatrième fichier entre en conflit (`docs/testing/tester-army-calc-v3.md`), et une garde de #42 échoue sur l'arbre fusionné. `ci-guardrails.test.ts:684` exige que les options de phase d'`e2e-army-calc-v3.yml` soient `["nightly", "all", ...CALC_V3_PHASES]`, et `:703` que `CALC_V3_NIGHTLY_PHASES` liste chaque phase servie en production ; cette branche ajoute `emission-v3` et sert `emission` en production, absents des deux | fusion **non faite** : elle reste suspendue à la décision d'ordre de M5 face à M6 et M6b de #40 (garde `supabase-migration-git-guard.ts:196`), et elle réécrit `supabase/migrations.manifest.json`, hors du périmètre de ce traitement. La recette de résolution est fixée ci-dessous et prouvée sur un arbre jetable ; l'inventaire des conflits est celui de `3af6804c` |
+| Majeur, préexistant : réimporté par « Importer la DPGF » avec la correspondance proposée, un DPGF v3 rend plus chère une ligne chiffrée avec main-d'oeuvre. « Total HT brut » est lu en `total_ht` (PU = PT / Q, MO comprise, pris pour le PR FO) et « h MO / unité » en heures de ligne, que le rôle choisi valorise une seconde fois | `a2423777` : profil d'import déclaré `dpgf_export_v3` (`src/lib/imports/optima-profile.ts`). Il est reconnu par « AID », « Statut », « h MO / unité » et « Rôle MO », jamais réunis dans le DPGF v1/v2, l'export de l'éditeur ou un classeur OPTIMA. Il lit les saisies : « Prix unitaire HT » (PR FO) en `unit_price_ht`, « h MO / unité » en `labor_hours_per_unit`, « Majoration MO (%) », Type FO et catégorie. « PU vente HT » et « Total HT brut » deviennent des contrôles (`control_unit_price`, `control_total_price`), pour EUR, USD et GBP. Statut, TVA, K, rôles, AID, Type et heures atelier ou chantier n'ont pas de cible, comme au profil v1/v2. Choix : l'option 1 de la revue. L'export reste inchangé, et ces saisies sont celles qu'un import v3 de #40 recalcule au moteur 3 aux coefficients de la cible, avec le contrôle D11 au centime : le retour exact des montants v3 se prouve après la fusion (limites). L'option 2 (en-têtes réécrits pour que l'heuristique tombe juste) aurait plié les classeurs à l'heuristique au lieu de déclarer leur sens |
+| Mineur, préexistant : les CGV d'une v3 émise imprimée ne viennent pas de la copie vérifiée. La page relit sans vérification la ligne du document, se replie sur le modèle vivant, et laisse la politique courante ou la mise en page demandée forcer `includeTerms` | `91299adf` : hors brouillon, `EstimateV3PrintPage` imprime l'instantané des CGV de la copie vérifiée (`proof.termsSnapshot`, couvert par le sceau), joint si et seulement si la mise en page scellée (`proof.layoutOptions`) les joint, comme le portail. Ni le modèle vivant, ni la politique, ni la case « Joindre les CGV » ne les ajoutent ou ne les retirent. Le brouillon garde l'aperçu demandé ; la branche v1/v2 de `print/page.tsx` est inchangée |
+| Mineur : relevé (deux « 13.8 », « à reporter », SHA de voie seuls, §1 incomplet) et description de PR vide | §13.8 fondu en une section, avec la table des têtes de voie et des commits de la PR et les runs en échec de la voie B rendus visibles ; §1 et §2 complétés ; description de PR écrite |
+
+Défaillances écrites avant le code : V3M-17 (en-tête d'`engine-v3-emission.e2e.ts`) et V3X-07 (en-tête
+d'`engine-v3-exports.e2e.ts`). V3X-04 est reformulée : le réimport d'une ligne chiffrée doit reprendre exactement ses
+saisies, et non plus PU = PT / Q. Parcours :
+
+- **V3M05** : la fenêtre de la fiche propose les CGV de politique « default » du profil calc-v3 (« Projet de CGV -
+  Travaux B2B », version 3), que la copie scelle à l'émission. L'impression ouverte sans mise en page (`terms` absent,
+  CGV non demandées) doit les garder, comme le PDF stocké.
+- **V3M06** : la copie est scellée sans CGV (PDF préparé par l'API sous la mise en page par défaut). L'impression qui
+  demande « Joindre les CGV » (`terms=1`) ne doit en ajouter aucune, comme le PDF collecté et le portail.
+- **V3X01** gagne P3, la ligne X de V3X02 (2 ml, PR 15,00 €, 1 h/u au rôle « Tuyauteur » 40 €/h → PU 67,50, PT
+  135,00 €). Totaux v3 180,50 / 36,10 / 216,60 €. Attendus : correspondance proposée sur les saisies et les contrôles,
+  aucune colonne lue en heures de ligne ou en `total_ht`, aperçu « 3 lignes prêtes · 3 refusées », contrôle « Prix
+  unitaire de vente » sur 3 lignes avec 3 écarts. Le devis v2 importé (marge 1, K 1) porte P1 20,00, P2 15,00 et P3
+  30,00 + 2 h × 40,00 = 110,00 €, soit 145,00 / 29,00 / 174,00 €.
+
+| Commande (WSL, `~/miaouffrage-lot2-27`, Node 24.19.0, `E2E_ARMY_WORKERS=2`, `NODE_OPTIONS=--max-old-space-size=4096`, aucun changement local) | Tête | Résultat |
+|---|---|---|
+| `npm run e2e:army:calc-v3 -- --phase emission-v3 --grep "^V3M0[56]\s" --app-port 3161` | `484e654f` | rouge, sortie 1. V3M05 : PDF scellé avec CGV (titre et mention), impression sans CGV. V3M06 : PDF et portail sans CGV, impression avec la mention de version des CGV ; son titre n'est pas lu, car l'en-tête de page de l'impression le met en capitales. `.e2e/army/ci/2026-10-18T09-31-31-669Z-calc-v3` (`manifest.json` `f1c1d118…`) ; lecture corrigée en `16dfd6d0` |
+| idem | `16dfd6d0` | rouge attendu (V3M-17), sortie 1 : V3M05 `printed` `{ title: false, review: false }` pour `sealed` vrai ; V3M06 `printed` `{ title: true, review: true }` pour `sealed` et `portal` faux. `…/2026-10-18T09-36-01-168Z-calc-v3` (`ebd059d1…`) |
+| `npm run e2e:army:local -- --grep "^V3X01 " --app-port 3161` | `16dfd6d0` | rouge (V3X-07), sortie 1. Correspondance proposée : « Prix unitaire HT EUR » sans cible, « h MO / unité » → `labor_hours`, « Total HT brut EUR » → `total_ht`. P3 importée à PU 67,50 € avec 1 h au rôle, soit 175,00 € ; devis 220,50 / 44,10 / 264,60 €. Le contrôle de l'aperçu n'est pas lu : le motif ne laissait qu'un caractère autour du libellé entre guillemets. `.e2e/army/ci/2026-10-18T09-38-18-560Z-critical` (`8d46a15c…`) ; lecture corrigée en `84f9fc8e` |
+| idem | `84f9fc8e` | rouge attendu, sortie 1 : même correspondance et mêmes montants, contrôle sur 3 lignes avec 1 écart (P3). `…/2026-10-18T09-45-10-829Z-critical` (`4b09974e…`) |
+| `npm run e2e:army:calc-v3 -- --phase emission-v3 --grep "^V3M0[56]\s" --app-port 3161` | `a2423777` | **sortie 0** : 3/3 (setup, V3M05, V3M06). V3M05 : impression et PDF avec les CGV ; V3M06 (`terms=1`) : impression, PDF et portail sans CGV. `…/2026-10-18T09-47-49-331Z-calc-v3` (`1314e5ba…`) |
+| `npm run e2e:army:local -- --grep "^V3X01 " --app-port 3161` | `a2423777` | **sortie 0** : 2/2. Correspondance du profil ; aperçu « 3 lignes prêtes · 3 refusées », heures « h/u × Q » (2 h sur P3), contrôle sur 3 lignes avec 3 écarts ; devis importé 145,00 / 29,00 / 174,00 €, P3 à PR 15,00 € et 2 h au rôle. `…/2026-10-18T09-50-19-139Z-critical` (`d1cbd009…`) |
+
+Qualification de la tête de code `a2423777`, la tête suivante n'ajoutant que ce relevé, en série après la garde de
+concurrence ; journaux `~/l27-r2-logs/*.log` (tête, état local, commande, sortie, durée murale) :
+
+| Commande | Résultat |
+|---|---|
+| `npm run e2e:army:local -- --app-port 3161` (sélection critique locale non filtrée) | **sortie 0** en 511 s : 99/99 (les 97 du §13.7 plus V3X01 et V3X02, dont les imports DPGF v1/v2, OPTIMA et CSV, l'impression v1/v2, V3M02, V3FC01, V3FC02 et V3E01 à V3E13 et V3E15). `.e2e/army/ci/2026-10-18T09-52-49-036Z-critical` (`manifest.json` `0fc75aac…`) |
+| `npm run e2e:army:calc-v3 -- --app-port 3161` (campagne complète) | **sortie 0** en 807 s, toutes phases en build de production, sources inchangées pendant le run : journeys 11, components 5, numeric 4, resume 5, access 2, offers 10, emission 6 (contrat 1, OF00 à OF0L, 4 PDF reçus), emission-v3 6 (V3M01, V3M03, V3M04, V3M05, V3M06, 6 PDF reçus). `…/2026-10-18T10-01-21-373Z-calc-v3` (`fc7120a2…`) |
+
+Windows, même tête, aucun changement local hors ce relevé : `npm run typecheck`, `npx eslint --max-warnings=0` des
+quatre fichiers touchés et `npx vitest run` de `army-impact-map`, `ci-guardrails`, `dpgf-export`, `mappings/server`,
+`mappings/schemas`, `imports/server`, `affaires/import-flow`, `_actions/import-flow`, `EstimateDocument` et
+`offer-commercial-render` (10 fichiers, 189 passés) : sortie 0. `git -c core.whitespace=cr-at-eol diff --check
+8dd28c91...HEAD` : sortie 0.
+
+**Recette de la fusion de `main` (`3af6804c`)**, à appliquer une fois l'ordre de M5 décidé.
+`git merge-tree --write-tree --name-only HEAD origin/main` liste quatre conflits :
+
+- `supabase/migrations.manifest.json` : l'entrée de M5 face à celles de M6 (`20261017225906`) et M6b
+  (`20261018013249`). C'est la décision d'ordre en attente, hors de cette recette.
+- `scripts/tester-army/army-impact-map.json` : union. `engine-v3-exports.e2e.ts` (cette branche) et
+  `engine-v3-import-optima.e2e.ts` (#40) vont dans `affaire-hub`. `engine-v3-emission.e2e.ts` reste au groupe `print`,
+  à côté des nouveaux groupes de #42 (`takeoff-hub`, `takeoff-affaire-takeoff`, `takeoff-wizard`).
+- `e2e/army/local/engine-v3-editor-actions.e2e.ts` : garder `DETAIL_TEMPLATE_REASON` et `DETAIL_ACTIONS_REASON_2_6`
+  (lus par V3E11). Retirer `PASTE_REFUSAL`, que #40 n'emploie plus, et le `DETAIL_ACTIONS_REASON` de `main`, qui n'est
+  plus lu.
+- `docs/testing/tester-army-calc-v3.md` : garder la section « CI nocturne » de #42 à côté de la ligne V3M06. Réécrire sa
+  limite « La CI nocturne ne lance pas l'émission tant que le sous-lot 2.7… » : l'émission tourne désormais chaque
+  nuit. Garder le texte de cette branche sur la sonde du garde réseau.
+
+À la même fusion, dans `.github/workflows/e2e-army-calc-v3.yml` : ajouter `emission-v3` aux options de `phase`,
+ajouter `emission emission-v3` à `CALC_V3_NIGHTLY_PHASES`, et réécrire le commentaire d'en-tête qui exclut l'émission.
+Preuve sur un arbre jetable (worktree détaché de `16dfd6d0` dans le répertoire de la session, fusion de `3af6804c` sans
+commit, conflits résolus comme ci-dessus, manifeste des migrations laissé hors de l'essai ; worktree supprimé ensuite) :
+`npx vitest run --project=node src/test/ci-guardrails.test.ts src/test/army-impact-map.test.ts`. Avant l'édition du
+workflow : sortie 1, `ci-guardrails.test.ts:684` reçoit les options sans `emission-v3`. Après : sortie 0, 33/33. Le
+diff exact est gardé avec les journaux de la session. Modifier ce workflow fait jouer à la PR sa sélection `nightly`
+calc-v3, qui couvre alors V3M05 et V3M06 en CI : ce run entre dans la qualification d'après fusion. Celle-ci rejoue
+tout, car #40 change l'éditeur, les chemins d'entrée et le flux d'import dont dépend V3X01 : campagne critique locale
+non filtrée, campagne calc-v3 complète, `db:ci:local` et `db:upgrade-check` (M5 après M6 et M6b ou non, selon la
+décision).
+
+Limites :
+
+- Vers une cible v2, seule cible d'import sur cette branche (les imports v3 relèvent de 2.8, #40), le réimport reprend
+  les saisies et la v2 les recalcule sans coefficients de vente : 145,00 € au lieu des 180,50 € de la v3. L'aperçu
+  signale l'écart de PU de chaque ligne chiffrée. Le retour exact des montants v3 suppose une cible v3 aux mêmes
+  coefficients. Après la fusion de #40, V3X01 doit l'ajouter : même DPGF réimporté dans une v3, montants exacts,
+  contrôle D11 au centime.
+- Les heures atelier et chantier, K FO et K MO ne sont pas réimportés, comme au profil v1/v2.
+- Un modèle ou une mémoire de correspondance qui contredit le profil n'est pas appliqué d'office : c'est la règle de 2.3,
+  inchangée.
+- La case « Joindre les CGV » de la fenêtre de mise en page reste proposée sur l'impression d'une v3 émise, sans effet.
+- Le retrait des CGV scellées est prouvé avec les CGV bac à sable. Le cas « modèle supprimé » ne se reproduit pas dans le
+  profil calc-v3, où le modèle bac à sable remplace une ligne absente ; une copie émise ne lit plus aucun modèle.
+- Les limites du §13.8 restent : impression v1/v2 émise avec le profil du lecteur, PDF relu et haché deux fois, avis
+  d'une v3 en `sending`, avis d'une copie invérifiable sans parcours, V3M05 et V3M06 hors de la sélection d'impact des
+  PR (jusqu'à l'édition du workflow à la fusion).
+- Aucune relecture indépendante de ce traitement.
