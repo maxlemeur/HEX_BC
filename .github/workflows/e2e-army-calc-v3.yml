@@ -1,0 +1,186 @@
+name: TesterArmy calc-v3
+
+# Lot 2 calc-v3 campaign (docs/testing/tester-army-calc-v3.md), as
+# e2e-army-full.yml: the audited target guard is retained and no shared
+# Supabase secret is loaded; run-tester-army-ci creates and destroys its own
+# native loopback stack and runs the phase journeys only after migrations,
+# pgTAP and RLS pass.
+#
+# Nightly: every phase the owned production build serves, one runner
+# invocation (`--phase`) and one owned stack per phase, in a single job; a red
+# phase never stops the next one. The emission phase is excluded: it runs under
+# next dev (canUseDevelopmentEstimateTerms accepts the sandbox terms only in
+# development), where OF00 fails since PR #34 (dev hot reload remounts the
+# editor). Sub-lot 2.7 serves it from the production build; the guardrail
+# (src/test/ci-guardrails.test.ts) then requires "emission" in
+# CALC_V3_NIGHTLY_PHASES below, which re-enables it. A dispatch runs the
+# nightly selection, the whole campaign ("all", emission included, exactly
+# npm run e2e:army:calc-v3) or one phase.
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: "nightly : phases servies par le build de production ; all : campagne complète, émission comprise ; sinon une seule phase."
+        required: false
+        default: nightly
+        type: choice
+        options:
+          - nightly
+          - all
+          - journeys
+          - components
+          - numeric
+          - resume
+          - access
+          - offers
+          - emission
+  schedule:
+    # After the nightly full suite (03:15 UTC), on its own runner.
+    - cron: '45 4 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: army-calc-v3-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  army-calc-v3:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      CI: "1"
+      DO_NOT_TRACK: "1"
+      NEXT_TELEMETRY_DISABLED: "1"
+      E2E_TELEMETRY_DISABLED: "1"
+      SUPABASE_TELEMETRY_DISABLED: "1"
+    steps:
+      - name: Refuse any Supabase target other than loopback or the distinct staging host
+        id: target_guard
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+        run: |
+          set -euo pipefail
+          normalize() {
+            local value="$1"
+            value="${value#"${value%%[![:space:]]*}"}"
+            value="${value%"${value##*[![:space:]]}"}"
+            printf '%s' "${value,,}"
+          }
+          refuse() {
+            echo "::error::$1"
+            exit 1
+          }
+
+          url="$(normalize "${NEXT_PUBLIC_SUPABASE_URL:-}")"
+          url="${url%/}"
+          staging="$(normalize "${E2E_STAGING_SUPABASE_HOST:-}")"
+          production="$(normalize "${PRODUCTION_SUPABASE_HOST:-}")"
+
+          loopback_pattern='^http://(localhost|127\.0\.0\.1|\[::1\])(:[0-9]{1,5})?$'
+          if [[ "$url" =~ $loopback_pattern ]]; then
+            echo "Cible Supabase : boucle locale du runner."
+            exit 0
+          fi
+
+          label='[a-z0-9]([a-z0-9-]*[a-z0-9])?'
+          host_pattern="^${label}(\.${label})+$"
+          remote_pattern="^https://(${label}(\.${label})+)$"
+          [[ "$url" =~ $remote_pattern ]] \
+            || refuse "NEXT_PUBLIC_SUPABASE_URL doit être une origine https nue (sans identifiants, port, chemin ni paramètre) ou une adresse de boucle locale."
+          host="${BASH_REMATCH[1]}"
+
+          [[ -n "$staging" ]] \
+            || refuse "Variable E2E_STAGING_SUPABASE_HOST absente : aucun projet de recette distinct de la production n'est déclaré."
+          [[ -n "$production" ]] \
+            || refuse "Variable PRODUCTION_SUPABASE_HOST absente : impossible de prouver que la cible n'est pas la production."
+          # Hotes nus seulement : sous forme d'URL, avec port, point final ou
+          # joker, la comparaison avec la production serait toujours vraie et
+          # la garde laisserait passer la production.
+          [[ "$staging" =~ $host_pattern ]] \
+            || refuse "E2E_STAGING_SUPABASE_HOST doit être un nom d'hôte nu (sans schéma, port, chemin ni point final), par exemple <ref>.supabase.co."
+          [[ "$production" =~ $host_pattern ]] \
+            || refuse "PRODUCTION_SUPABASE_HOST doit être un nom d'hôte nu (sans schéma, port, chemin ni point final), par exemple <ref>.supabase.co."
+          [[ "$staging" != "$production" ]] \
+            || refuse "E2E_STAGING_SUPABASE_HOST désigne le projet de production."
+          [[ "$host" != "$production" ]] \
+            || refuse "NEXT_PUBLIC_SUPABASE_URL désigne le projet de production."
+          [[ "$host" == "$staging" ]] \
+            || refuse "NEXT_PUBLIC_SUPABASE_URL ne désigne pas l'hôte de recette E2E_STAGING_SUPABASE_HOST."
+          echo "Cible Supabase : hôte de recette distinct de la production."
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Install TesterArmy Chromium
+        run: npx @e2e-dev/web install chromium --with-deps
+      # Restore only: e2e-army-critical.yml saves this cache on a push to main.
+      # Each phase rebuilds; the later builds reuse the webpack cache of the first.
+      - name: Restore the Army Next build cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .e2e/army/next/cache
+          key: army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-${{ github.sha }}
+          restore-keys: |
+            army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-
+      # The runner reports its evidence directory only after the privacy check
+      # passed (GITHUB_OUTPUT evidence=...): one private output file per phase,
+      # gathered here, so a phase whose evidence failed that check is never
+      # uploaded. Phase names come from env, quoted; the runner refuses any
+      # name that is not a calc-v3 phase.
+      - name: Run native database and TesterArmy calc-v3 phases
+        id: journeys
+        env:
+          # The production-served phases (scripts/tester-army/calc-v3-phases.ts).
+          CALC_V3_NIGHTLY_PHASES: "journeys components numeric resume access offers"
+          CALC_V3_SELECTION: ${{ github.event_name == 'workflow_dispatch' && inputs.phase || 'nightly' }}
+        run: |
+          set -uo pipefail
+          case "$CALC_V3_SELECTION" in
+            nightly) read -r -a phases <<< "$CALC_V3_NIGHTLY_PHASES" ;;
+            *) phases=("$CALC_V3_SELECTION") ;;
+          esac
+          evidence=()
+          failed=()
+          for phase in "${phases[@]}"; do
+            phase_output="$(mktemp)"
+            echo "::group::calc-v3 $phase"
+            if [[ "$phase" == "all" ]]; then
+              GITHUB_OUTPUT="$phase_output" node --import tsx scripts/run-tester-army-ci.ts calc-v3 || failed+=("$phase")
+            else
+              GITHUB_OUTPUT="$phase_output" node --import tsx scripts/run-tester-army-ci.ts calc-v3 --phase "$phase" || failed+=("$phase")
+            fi
+            echo "::endgroup::"
+            directory="$(sed -n 's/^evidence=//p' "$phase_output")"
+            if [[ -n "$directory" ]]; then evidence+=("$directory"); fi
+            rm -f "$phase_output"
+          done
+          if (( ${#evidence[@]} )); then
+            {
+              echo "evidence<<ARMY_CALC_V3_EVIDENCE"
+              printf '%s\n' "${evidence[@]}"
+              echo "ARMY_CALC_V3_EVIDENCE"
+            } >> "$GITHUB_OUTPUT"
+          fi
+          if (( ${#failed[@]} )); then
+            echo "::error title=TesterArmy calc-v3::Phases sans preuve : ${failed[*]} (voir leur manifeste et leur journal)."
+            exit 1
+          fi
+          echo "TesterArmy calc-v3 : ${#phases[@]} exécution(s) réussie(s) : ${phases[*]}."
+      - name: Retain sanitized business evidence
+        if: always() && steps.journeys.outputs.evidence != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: army-calc-v3-evidence
+          include-hidden-files: true
+          path: ${{ steps.journeys.outputs.evidence }}
+          if-no-files-found: error
+          retention-days: 7

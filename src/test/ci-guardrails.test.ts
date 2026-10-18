@@ -20,6 +20,11 @@ const ARMY_WORKFLOWS = [
     runStep: "Run native database and TesterArmy full journeys",
     command: "run: node --import tsx scripts/run-tester-army-ci.ts full",
   },
+  {
+    file: ".github/workflows/e2e-army-calc-v3.yml",
+    runStep: "Run native database and TesterArmy calc-v3 phases",
+    command: "node --import tsx scripts/run-tester-army-ci.ts calc-v3",
+  },
 ] as const;
 
 function read(relativePath: string) {
@@ -52,6 +57,37 @@ function runScript(step: string): string {
     body.push(line.slice(indent));
   }
   return body.join("\n");
+}
+
+/** Job bodies of a workflow, by job id, in file order. */
+function workflowJobs(workflow: string): Record<string, string> {
+  const body = workflow.slice(workflow.search(/^jobs:\s*$/mu));
+  const parts = body.split(/^ {2}([A-Za-z0-9_-]+):\s*$/mu).slice(1);
+  const jobs: Record<string, string> = {};
+  for (let index = 0; index < parts.length; index += 2) jobs[parts[index]] = parts[index + 1];
+  return jobs;
+}
+
+/** Every `run:` value of a workflow, inline or block scalar, with its line number. */
+function runValues(workflow: string): { line: number; script: string }[] {
+  const lines = workflow.split(/\r?\n/u);
+  const values: { line: number; script: string }[] = [];
+  lines.forEach((line, index) => {
+    const match = /^(\s*)(?:-\s+)?run:\s*(.*)$/u.exec(line);
+    if (!match) return;
+    if (!/^[|>][+-]?\s*$/u.test(match[2])) {
+      values.push({ line: index + 1, script: match[2] });
+      return;
+    }
+    const indent = match[1].length;
+    const body: string[] = [];
+    for (const next of lines.slice(index + 1)) {
+      if (next.trim() !== "" && next.length - next.trimStart().length <= indent) break;
+      body.push(next);
+    }
+    values.push({ line: index + 1, script: body.join("\n") });
+  });
+  return values;
 }
 
 function expectInstallStepsToHaveNoSecrets(workflow: string) {
@@ -551,6 +587,86 @@ describe("CI and local quality guardrails", () => {
       expectInstallStepsToHaveNoSecrets(workflow);
     }
     expect(guards.size).toBe(1);
+  });
+
+  it("starts every job of an Army business workflow with the same target guard", () => {
+    const guards = new Set<string>();
+    let jobs = 0;
+    for (const { file } of ARMY_WORKFLOWS) {
+      for (const [id, job] of Object.entries(workflowJobs(read(file)))) {
+        jobs += 1;
+        const first = workflowSteps(job)[0] ?? "";
+        expect(first, `${file} job ${id}`).toMatch(/^\s+id: target_guard$/mu);
+        expect(first, `${file} job ${id}`).toContain("NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321");
+        guards.add(runScript(first));
+      }
+    }
+    expect(jobs).toBeGreaterThan(ARMY_WORKFLOWS.length);
+    expect(guards.size).toBe(1);
+  });
+
+  // A `${{ }}` expression is pasted into the script text before the shell runs
+  // it: a dispatch input (grep pattern, phase), a selector output listing a pull
+  // request's file names, or a matrix value can then inject shell code. These
+  // values reach a script only through `env:` and quoted expansion; only a
+  // needed job's result, a fixed word, stays inline.
+  it("never interpolates workflow inputs, step outputs or event text into a shell script", () => {
+    const workflowDirectory = path.join(root, ".github", "workflows");
+    const offenders: string[] = [];
+    for (const name of fs.readdirSync(workflowDirectory).filter((entry) => /\.ya?ml$/u.test(entry)).sort()) {
+      for (const { line, script } of runValues(read(`.github/workflows/${name}`))) {
+        for (const expression of script.match(/\$\{\{[^}]*\}\}/gu) ?? []) {
+          if (!/^\$\{\{\s*needs\.[A-Za-z0-9_-]+\.result\s*\}\}$/u.test(expression)) offenders.push(`${name}:${line}: ${expression}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("filters a dispatched full run by --grep only, while the nightly schedule stays the whole full suite", () => {
+    const workflow = read(".github/workflows/e2e-army-full.yml");
+    const trigger = workflow.slice(0, workflow.search(/^permissions:/mu));
+    expect(trigger).toMatch(/^ {2}schedule:\n {4}- cron: '15 3 \* \* \*'$/mu);
+    expect(trigger).toMatch(/^ {4}inputs:\n {6}grep:\n(?: {8}.*\n)*? {8}required: false\n/mu);
+    expect(trigger).toMatch(/^ {6}grep:\n(?: {8}.*\n)*? {8}type: string\n/mu);
+    expect(trigger).toMatch(/^ {6}grep:\n(?: {8}.*\n)*? {8}default: ""\n/mu);
+    const run = stepNamed(workflow, "Run native database and TesterArmy full journeys");
+    // A schedule has no inputs: the expression keeps it explicit and empty.
+    expect(run).toMatch(/^\s+ARMY_GREP: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.grep \|\| '' \}\}$/mu);
+    expect(run).toContain('run: node --import tsx scripts/run-tester-army-ci.ts full ${ARMY_GREP:+--grep "$ARMY_GREP"}');
+    expect(workflow.split("inputs.grep").length - 1).toBe(2);
+  });
+
+  it("runs every production-served calc-v3 phase nightly and any phase on dispatch", async () => {
+    const { CALC_V3_PHASES, CALC_V3_PHASE_DEFINITIONS } = await import("../../scripts/tester-army/calc-v3-phases");
+    const workflow = read(".github/workflows/e2e-army-calc-v3.yml");
+    const trigger = workflow.slice(0, workflow.search(/^permissions:/mu));
+    const cron = /^ {2}schedule:\n(?: {4}#.*\n)* {4}- cron: '([^']+)'$/mu.exec(trigger)?.[1];
+    expect(cron).toBeDefined();
+    // Offset from the nightly full suite (03:15 UTC) and the backup (02:25 UTC).
+    expect(cron).not.toBe("15 3 * * *");
+    expect(cron).toMatch(/^\d{1,2} \d{1,2} \* \* \*$/u);
+    const options = /^ {6}phase:\n(?: {8}(?!options:).*\n)*? {8}options:\n((?: {10}- .*\n)+)/mu.exec(trigger)?.[1];
+    expect(options?.split("\n").filter(Boolean).map((line) => line.trim().replace(/^- /u, ""))).toEqual(["nightly", "all", ...CALC_V3_PHASES]);
+    expect(trigger).toMatch(/^ {6}phase:\n(?: {8}.*\n)*? {8}type: choice\n/mu);
+    expect(trigger).toMatch(/^ {6}phase:\n(?: {8}.*\n)*? {8}default: nightly\n/mu);
+
+    // The nightly selection is exactly the phases the owned production build
+    // serves. Emission runs under next dev until sub-lot 2.7 moves it to the
+    // production build: this guard then requires it in the nightly list.
+    const run = stepNamed(workflow, "Run native database and TesterArmy calc-v3 phases");
+    const nightly = /^\s+CALC_V3_NIGHTLY_PHASES: "([a-z0-9 -]+)"$/mu.exec(run)?.[1].split(" ");
+    expect(nightly).toEqual(CALC_V3_PHASES.filter((phase) => CALC_V3_PHASE_DEFINITIONS[phase].serverMode === "production"));
+    expect(nightly).not.toContain("emission");
+    expect(run).toMatch(/^\s+CALC_V3_SELECTION: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.phase \|\| 'nightly' \}\}$/mu);
+    const script = runScript(run);
+    expect(script).toContain('node --import tsx scripts/run-tester-army-ci.ts calc-v3 --phase "$phase"');
+    expect(script).toMatch(/^set -uo pipefail$/mu);
+    // One owned stack per phase: a red phase never stops the next one, and only
+    // evidence that passed the runner's privacy check is uploaded.
+    expect(script).toContain('GITHUB_OUTPUT="$phase_output"');
+    expect(script).not.toMatch(/\|\|\s*true/u);
+    expect(workflow).not.toContain("E2E_ARMY_WORKERS");
   });
 
   it.skipIf(!canRunGuard && !process.env.CI)(

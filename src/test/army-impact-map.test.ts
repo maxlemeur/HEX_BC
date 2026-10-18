@@ -18,7 +18,12 @@
 //    journey fixtures) is treated as a local change;
 // 6. a journey reads a fixture by path that the map does not route to it;
 // 7. the workflow skips the journeys for anything but an explicit "none", or
-//    leaks the worker count or the build-cache save outside their scope.
+//    leaks the worker count or the build-cache save outside their scope;
+// 8. a takeoff journey (e2e/army/takeoff/**, run only by the full selection of
+//    e2e.config.ts) that a pull request reaches is not run by its CI: missing
+//    from the map's fullOnly list, reached by no rule, dropped when the
+//    selector is unsure, or skipped by the takeoff job for anything but an
+//    explicit "none".
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -31,6 +36,7 @@ import {
   classifyPath,
   criticalSuiteJourneys,
   expandJourneys,
+  fullOnlySuiteJourneys,
   globToRegExp,
   listRepositoryFiles,
   loadImpactMap,
@@ -99,6 +105,7 @@ function mapGlobs(): Array<{ where: string; glob: string }> {
     ...map.docs.map((glob) => ({ where: "docs", glob })),
     ...map.nonRuntime.map((glob) => ({ where: "nonRuntime", glob })),
     ...map.full.map((glob) => ({ where: "full", glob })),
+    ...map.fullOnly.globs.map((glob) => ({ where: "fullOnly", glob })),
     ...map.rules.flatMap((rule) => rule.paths.map((glob) => ({ where: `rule ${rule.id}`, glob }))),
   ];
 }
@@ -107,9 +114,17 @@ function criticalSuiteFromConfig(): string[] {
   return criticalSuiteJourneys(fs.readFileSync(path.join(root, "e2e.config.ts"), "utf8"), files);
 }
 
+// Owner request of 18/10/2026: the takeoff (métré) journeys join the map.
+const TAKEOFF_GLOB = "e2e/army/takeoff/**/*.e2e.ts";
+const TEAM_B = "e2e/army/takeoff/team-b-user-stories.e2e.ts";
+
+function fullOnlySuiteFromConfig(): string[] {
+  return fullOnlySuiteJourneys(fs.readFileSync(path.join(root, "e2e.config.ts"), "utf8"), map.fullOnly.globs, files);
+}
+
 describe("TesterArmy critical impact map", () => {
   it("is structurally valid and names only existing paths", () => {
-    expect(validateImpactMap(map, (file) => fileSet.has(file), criticalSuiteFromConfig())).toEqual([]);
+    expect(validateImpactMap(map, (file) => fileSet.has(file), criticalSuiteFromConfig(), fullOnlySuiteFromConfig())).toEqual([]);
     const stale: string[] = [];
     for (const { where, glob } of mapGlobs()) {
       const alternatives = expandBraces(glob);
@@ -136,6 +151,28 @@ describe("TesterArmy critical impact map", () => {
       .flatMap((rule) => expandJourneys(map, rule.journeys)));
     const unreachable = map.suite.journeys.filter((journey) => journey !== map.suite.setup && !reached.has(journey));
     expect(unreachable).toEqual([]);
+  });
+
+  it("lists exactly the takeoff journeys only the full selection runs, each reachable from a rule", () => {
+    expect(map.fullOnly.globs).toEqual([TAKEOFF_GLOB]);
+    const fullOnly = fullOnlySuiteFromConfig();
+    expect(fullOnly).toContain(TEAM_B);
+    expect([...map.fullOnly.journeys].sort()).toEqual(fullOnly);
+    expect(fullOnly.filter((journey) => map.suite.journeys.includes(journey))).toEqual([]);
+    const reached = new Set(map.rules
+      .filter((rule) => !rule.journeys.includes("*"))
+      .flatMap((rule) => expandJourneys(map, rule.journeys)));
+    expect(fullOnly.filter((journey) => !reached.has(journey))).toEqual([]);
+    // "*" (the application shell) reaches them too.
+    expect(expandJourneys(map, ["*"])).toEqual(expect.arrayContaining([...map.suite.journeys, ...fullOnly]));
+
+    // A glob the full selection no longer runs, or an unreadable list, invalidates the map.
+    const config = fs.readFileSync(path.join(root, "e2e.config.ts"), "utf8");
+    expect(() => fullOnlySuiteJourneys(config, ["e2e/army/zz-gone/**/*.e2e.ts"], files)).toThrow(/zz-gone/u);
+    expect(() => fullOnlySuiteJourneys("export default {};", map.fullOnly.globs, files)).toThrow(/full/u);
+    expect(validateImpactMap(map, (file) => fileSet.has(file), criticalSuiteFromConfig(), [])).toContain(
+      `The map lists ${TEAM_B} as full-only, which the full selection does not run.`,
+    );
   });
 
   it("keeps the owner's shared-core paths on the full suite", () => {
@@ -193,7 +230,7 @@ describe("TesterArmy critical impact map", () => {
     expect(removed.reason).toContain(removedJourney);
 
     // An e2e.config.ts list the selector cannot read leaves every journey unproven.
-    expect(validateImpactMap(map, (file) => fileSet.has(file), [])).toContain(
+    expect(validateImpactMap(map, (file) => fileSet.has(file), [], fullOnlySuiteFromConfig())).toContain(
       `The map lists ${map.suite.setup}, which the critical suite does not run.`,
     );
     expect(() => criticalSuiteJourneys("export default {};", files)).toThrow(/localBusiness/u);
@@ -235,6 +272,78 @@ describe("TesterArmy critical impact map", () => {
       .toEqual([map.suite.setup, map.suite.anchor, "e2e/army/critical/auth-rejection.e2e.ts"].sort());
   });
 
+  it("runs every takeoff journey a pull request reaches, and all of them when unsure", () => {
+    const all = [map.suite.setup, ...map.fullOnly.journeys].sort();
+
+    // PR #39: the supplier CSV import of the affaire prices page (US-4.1, -b, -c)
+    // reached only dashboard-ux, so its three journeys needed the 30-minute nightly.
+    const catalogue = select([
+      "e2e/army/takeoff/team-b-user-stories.e2e.ts",
+      "src/components/catalogue/PricesManager.tsx",
+      "src/components/catalogue/price-book-csv-import/usePriceBookCsvWorkflow.ts",
+      "src/components/catalogue/prices-manager/usePriceLookups.ts",
+    ]);
+    expect(catalogue.mode).toBe("files");
+    expect(catalogue.files).not.toContain(TEAM_B);
+    expect(catalogue.fullOnly.mode).toBe("files");
+    expect(catalogue.fullOnly.files).toContain(TEAM_B);
+    expect(catalogue.fullOnly.files).toContain(map.suite.setup);
+    expect(catalogue.fullOnly.files.length).toBeLessThan(all.length);
+    expect(select(["src/app/dashboard/affaires/[projectId]/prices/page.tsx"]).fullOnly.files).toContain(TEAM_B);
+
+    // A journey or helper edit runs the journeys that load it, not the critical suite.
+    const contracts = "e2e/army/takeoff/contracts.e2e.ts";
+    expect(select([contracts])).toMatchObject({ mode: "none", files: [], fullOnly: { mode: "files", files: [map.suite.setup, contracts].sort() } });
+    expect(select(["e2e/army/takeoff/native-ui.ts"]).fullOnly.files)
+      .toEqual(expect.arrayContaining([TEAM_B, "e2e/army/takeoff/takeoff-dpgf-review.e2e.ts"]));
+    // Shared pages: the editor, which the estimate wizard opens, reaches the wizard's takeoff journeys.
+    expect(select(["src/app/dashboard/estimates/[versionId]/edit/page.tsx"]).fullOnly.files)
+      .toEqual(expect.arrayContaining([contracts, TEAM_B, "e2e/army/takeoff/generated-review.e2e.ts"]));
+    expect(select(["src/app/dashboard/estimates/[versionId]/takeoff/[jobId]/page.tsx"]).fullOnly.files).toContain(contracts);
+
+    // Documentation and tests reach nothing.
+    expect(select(["docs/testing/tester-army-ci.md", "e2e/army/takeoff/team-b-fixture-contract.md"]).fullOnly)
+      .toEqual({ mode: "none", reason: expect.any(String), files: [] });
+    expect(select(["src/components/catalogue/PriceBookCsvImport.test.ts"]).fullOnly.mode).toBe("none");
+
+    // Unsure (shared core, unmapped path, empty diff, other event, forced): all of them.
+    for (const unsure of [
+      select(["scripts/run-tester-army-ci.ts"]),
+      select(["src/feature-without-rule/new-module.ts"]),
+      select([]),
+      select(["docs/README.md"], "workflow_dispatch"),
+      selectJourneys({ map, graph, event: "pull_request", paths: ["docs/README.md"], forceFull: "label army-full" }),
+    ]) {
+      expect(unsure.fullOnly).toMatchObject({ mode: "all", files: all });
+    }
+    // A push to main keeps its critical suite; takeoff journeys stay with the nightly full suite.
+    expect(select(["src/components/catalogue/PricesManager.tsx"], "push")).toMatchObject({ mode: "full", fullOnly: { mode: "none", files: [] } });
+    expect(select(["docs/README.md"], "push").fullOnly.mode).toBe("none");
+  });
+
+  it("runs a takeoff journey the map does not list, never one the checkout lacks", () => {
+    const editor = ["src/app/dashboard/estimates/[versionId]/edit/page.tsx"];
+    const added = "e2e/army/takeoff/zz-unmapped-journey.e2e.ts";
+    const unlisted = selectFromRepository(root, { event: "pull_request", paths: editor, repositoryFiles: [...files, added] });
+    expect(unlisted.mode).toBe("full");
+    expect(unlisted.reason).toContain(added);
+    expect(unlisted.fullOnly.mode).toBe("all");
+    expect(unlisted.fullOnly.files).toEqual([map.suite.setup, ...map.fullOnly.journeys, added].sort());
+
+    const removed = "e2e/army/takeoff/contracts.e2e.ts";
+    const missing = selectFromRepository(root, {
+      event: "pull_request", paths: editor, repositoryFiles: files.filter((file) => file !== removed),
+    });
+    expect(missing.mode).toBe("full");
+    expect(missing.reason).toContain(removed);
+    expect(missing.fullOnly).toMatchObject({ mode: "all" });
+    expect(missing.fullOnly.files).not.toContain(removed);
+    expect(missing.fullOnly.files).toContain(TEAM_B);
+
+    const push = selectFromRepository(root, { event: "push", paths: editor, repositoryFiles: [...files, added] });
+    expect(push).toMatchObject({ mode: "full", fullOnly: { mode: "none", files: [] } });
+  });
+
   it("routes every fixture a journey reads by path to that journey", () => {
     const forward = new Map<string, Set<string>>();
     for (const [target, importers] of graph.importers) {
@@ -243,15 +352,17 @@ describe("TesterArmy critical impact map", () => {
     const fixtures = files.filter((file) => file.startsWith("e2e/fixtures/") && !file.endsWith("/.gitignore"));
     const misrouted: string[] = [];
     let found = 0;
-    for (const journey of map.suite.journeys) {
-      // The journey and the critical helpers it imports name the fixtures they
-      // read; shared multi-entry harnesses (extended/component-fixture.ts) list
-      // every entry, so the journey's own argument is what counts there.
+    for (const journey of [...map.suite.journeys, ...map.fullOnly.journeys]) {
+      // The journey and the critical or same-directory helpers it imports name
+      // the fixtures they read; shared multi-entry harnesses
+      // (extended/component-fixture.ts) list every entry, so the journey's own
+      // argument is what counts there.
+      const helpers = journey.startsWith("e2e/army/takeoff/") ? ["e2e/army/critical/", "e2e/army/takeoff/"] : ["e2e/army/critical/"];
       const reach = new Set<string>();
       const pending = [journey];
       while (pending.length) {
         const file = pending.pop()!;
-        if (reach.has(file) || (!file.startsWith("e2e/army/critical/") && file !== journey)) continue;
+        if (reach.has(file) || (!helpers.some((helper) => file.startsWith(helper)) && file !== journey)) continue;
         reach.add(file);
         forward.get(file)?.forEach((next) => pending.push(next));
       }
@@ -331,4 +442,45 @@ describe("TesterArmy critical workflow wiring", () => {
     }
     expect(workflow).not.toMatch(/uses: actions\/cache@/u);
   });
+
+  it("runs the takeoff journeys a change reaches in a parallel job, at one worker, skipping only an explicit none", () => {
+    const workflow = read(".github/workflows/e2e-army-critical.yml");
+    const jobs = jobBlocks(workflow);
+    expect(Object.keys(jobs)).toEqual(["army-critical", "army-takeoff"]);
+    const critical = steps(jobs["army-critical"]);
+    const takeoff = steps(jobs["army-takeoff"]);
+    expect(jobs["army-takeoff"]).not.toMatch(/^\s+needs:/mu);
+
+    // Same decision in both jobs: the selector step is byte-identical below its name.
+    const selectStep = (job: string[]) => job.find((step) => /scripts\/tester-army\/select-journeys\.ts /u.test(step));
+    const withoutName = (step: string | undefined) => step?.split("\n").slice(1).join("\n");
+    expect(selectStep(takeoff)).toBeDefined();
+    expect(withoutName(selectStep(takeoff))).toBe(withoutName(selectStep(critical)));
+    const selectIndex = takeoff.indexOf(selectStep(takeoff)!);
+
+    const gated = takeoff.slice(selectIndex + 1).filter((step) => !step.trimStart().startsWith("No takeoff journey"));
+    expect(gated.length).toBeGreaterThan(0);
+    for (const step of gated) {
+      // An empty or missing output runs the journeys (fail-safe).
+      expect(step).toMatch(/^\s+if: .*steps\.select\.outputs\.full_only_mode != 'none'/mu);
+      expect(step).not.toMatch(/full_only_mode == /u);
+      expect(step).not.toMatch(/uses: actions\/cache\/save@/u);
+    }
+    const run = takeoff.find((step) => step.trimStart().startsWith("Run native database and TesterArmy takeoff journeys"));
+    expect(run).toBeDefined();
+    expect(run).toMatch(/^\s+ARMY_FILES: \$\{\{ steps\.select\.outputs\.full_only_files \}\}$/mu);
+    expect(run).toContain('run: node --import tsx scripts/run-tester-army-ci.ts full ${ARMY_FILES:+--files "$ARMY_FILES"}');
+    // One worker, as in the nightly full suite where these journeys are qualified.
+    expect(jobs["army-takeoff"]).not.toContain("E2E_ARMY_WORKERS");
+    expect(takeoff.findIndex((step) => /^\s+run: npm ci\b/mu.test(step))).toBeGreaterThan(selectIndex);
+  });
 });
+
+/** Job bodies of a workflow, by job id, in file order. */
+function jobBlocks(workflow: string): Record<string, string> {
+  const body = workflow.slice(workflow.search(/^jobs:\s*$/mu));
+  const parts = body.split(/^ {2}([A-Za-z0-9_-]+):\s*$/mu).slice(1);
+  const jobs: Record<string, string> = {};
+  for (let index = 0; index < parts.length; index += 2) jobs[parts[index]] = parts[index + 1];
+  return jobs;
+}

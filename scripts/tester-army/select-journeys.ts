@@ -17,6 +17,14 @@
 // Any git or map error, an empty diff or an unknown event also gives "full",
 // and so does a map whose journeys differ from those the CI critical suite
 // runs (e2e.config.ts): a journey the map omits would never be selected.
+//
+// Full-only journeys (map "fullOnly": the takeoff journeys, which only the
+// e2e.config.ts full selection runs) are a second set, run by the army-takeoff
+// job of e2e-army-critical.yml: on a pull request, those its paths reach; all
+// of them whenever the critical decision is "full" (unsure, forced, other
+// event), listed from the working tree so an unlisted one still runs; none on
+// a push, whose post-merge check stays the critical suite (the nightly full
+// suite runs them).
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -27,6 +35,8 @@ export type ImpactRule = { id: string; note?: string; paths: string[]; journeys:
 export type ImpactMap = {
   schemaVersion: number;
   suite: { journeys: string[]; setup: string; anchor: string; anonymous: string[] };
+  /** Journeys only the full selection of e2e.config.ts runs; globs taken verbatim from that list. */
+  fullOnly: { note?: string; globs: string[]; journeys: string[] };
   docs: string[];
   nonRuntime: string[];
   full: string[];
@@ -45,15 +55,24 @@ export type ImpactMap = {
 };
 export type PathClass = "docs" | "full" | "journeys" | "known-unexercised" | "non-runtime" | "unmapped";
 export type PathDecision = { path: string; class: PathClass; reason: string; journeys?: string[]; rules?: string[] };
+export type FullOnlySelection = {
+  /** "all" and "files" both list their files explicitly, login setup included. */
+  mode: "none" | "all" | "files";
+  reason: string;
+  files: string[];
+};
 export type Selection = {
-  schemaVersion: "army-impact-selection-1";
+  schemaVersion: "army-impact-selection-2";
   event: string;
   base: string | null;
   head: string | null;
   mapSha256: string | null;
+  /** Critical journeys (army-critical job). */
   mode: "none" | "full" | "files";
   reason: string;
   files: string[];
+  /** Full-only journeys (army-takeoff job). */
+  fullOnly: FullOnlySelection;
   changedPaths: PathDecision[];
 };
 export type SourceGraph = {
@@ -293,11 +312,11 @@ export function reverseClosure(graph: SourceGraph, file: string): Set<string> {
   return closure;
 }
 
-/** Group, anchor and wildcard references expanded to journey files. */
+/** Group, anchor and wildcard references expanded to journey files; "*" is every critical and full-only journey. */
 export function expandJourneys(map: ImpactMap, references: readonly string[], seen = new Set<string>()): string[] {
   const journeys = new Set<string>();
   for (const reference of references) {
-    if (reference === "*") map.suite.journeys.forEach((journey) => journeys.add(journey));
+    if (reference === "*") [...map.suite.journeys, ...map.fullOnly.journeys].forEach((journey) => journeys.add(journey));
     else if (reference === "@anchor") journeys.add(map.suite.anchor);
     else if (reference.startsWith("@")) {
       const name = reference.slice(1);
@@ -321,25 +340,52 @@ export function criticalSuiteJourneys(config: string, repositoryFiles: readonly 
   return repositoryFiles.filter((file) => globs.some((glob) => globToRegExp(glob).test(file))).sort();
 }
 
+/** Test globs of the e2e.config.ts full selection (nightly and dispatched full suite). */
+export function fullSelectionGlobs(config: string): string[] {
+  const branch = /: full \? \[([^\]]*)\]/u.exec(config);
+  if (!branch) throw new Error("The full test list of e2e.config.ts cannot be read.");
+  return [...branch[1].matchAll(/"([^"]+)"/gu)].map((match) => match[1]);
+}
+
+/**
+ * Journey files the map's fullOnly globs select in the working tree. Each glob
+ * must be in the full selection of e2e.config.ts, else its journeys may not run.
+ */
+export function fullOnlySuiteJourneys(config: string, globs: readonly string[], repositoryFiles: readonly string[]): string[] {
+  const full = new Set(fullSelectionGlobs(config));
+  for (const glob of globs) if (!full.has(glob)) throw new Error(`The full selection of e2e.config.ts does not run ${glob}.`);
+  return repositoryFiles.filter((file) => globs.some((glob) => globToRegExp(glob).test(file))).sort();
+}
+
 /**
  * Problems that make the map unusable, including any difference between its
- * journeys and those the CI critical suite runs; the guardrail test also runs this.
+ * journeys and those the CI critical suite, or the full selection's fullOnly
+ * globs, run; the guardrail test also runs this.
  */
-export function validateImpactMap(map: ImpactMap, exists: (file: string) => boolean, suiteJourneys: readonly string[]): string[] {
+export function validateImpactMap(map: ImpactMap, exists: (file: string) => boolean, suiteJourneys: readonly string[],
+  fullOnlyJourneys: readonly string[]): string[] {
   const problems: string[] = [];
   const suite = new Set(map.suite.journeys);
+  const fullOnly = new Set(map.fullOnly.journeys);
+  const known = new Set([...suite, ...fullOnly]);
   if (map.schemaVersion !== 1) problems.push(`Unsupported map schemaVersion ${map.schemaVersion}.`);
   const run = new Set(suiteJourneys);
   for (const journey of suiteJourneys) if (!suite.has(journey)) problems.push(`The critical suite runs ${journey}, which the map does not list.`);
   for (const journey of map.suite.journeys) if (!run.has(journey)) problems.push(`The map lists ${journey}, which the critical suite does not run.`);
-  for (const file of [...map.suite.journeys, map.suite.setup, map.suite.anchor, ...map.suite.anonymous, ...map.runnerEntries]) {
+  const runFullOnly = new Set(fullOnlyJourneys);
+  for (const journey of fullOnlyJourneys) if (!fullOnly.has(journey)) problems.push(`The full selection runs ${journey}, which the map does not list as full-only.`);
+  for (const journey of map.fullOnly.journeys) {
+    if (!runFullOnly.has(journey)) problems.push(`The map lists ${journey} as full-only, which the full selection does not run.`);
+    if (suite.has(journey)) problems.push(`${journey} is both a critical and a full-only journey.`);
+  }
+  for (const file of [...map.suite.journeys, ...map.fullOnly.journeys, map.suite.setup, map.suite.anchor, ...map.suite.anonymous, ...map.runnerEntries]) {
     if (!exists(file)) problems.push(`Map points to a missing file: ${file}.`);
   }
   for (const file of [map.suite.setup, map.suite.anchor, ...map.suite.anonymous]) {
     if (!suite.has(file)) problems.push(`${file} is not a suite journey.`);
   }
   if (map.suite.anonymous.includes(map.suite.anchor)) problems.push("The anchor journey must be authenticated.");
-  const globs = [...map.docs, ...map.nonRuntime, ...map.full, ...map.rules.flatMap((rule) => rule.paths),
+  const globs = [...map.docs, ...map.nonRuntime, ...map.full, ...map.fullOnly.globs, ...map.rules.flatMap((rule) => rule.paths),
     ...map.graph.apiCallers, ...map.graph.apiCallersExcluded, ...map.graph.importersExcluded, ...map.graph.escalationExcluded];
   for (const glob of globs) {
     try { globToRegExp(glob); } catch (error) { problems.push((error as Error).message); }
@@ -350,13 +396,13 @@ export function validateImpactMap(map: ImpactMap, exists: (file: string) => bool
     ids.add(rule.id);
     try {
       for (const journey of expandJourneys(map, rule.journeys)) {
-        if (!suite.has(journey)) problems.push(`Rule ${rule.id} points to ${journey}, which is not a suite journey.`);
+        if (!known.has(journey)) problems.push(`Rule ${rule.id} points to ${journey}, which is not a suite journey.`);
       }
     } catch (error) { problems.push(`Rule ${rule.id}: ${(error as Error).message}`); }
   }
   for (const [name, members] of Object.entries(map.groups)) {
     try { expandJourneys(map, [`@${name}`]); } catch (error) { problems.push((error as Error).message); }
-    for (const member of members) if (!member.startsWith("@") && !suite.has(member)) problems.push(`Group ${name} lists ${member}, which is not a suite journey.`);
+    for (const member of members) if (!member.startsWith("@") && !known.has(member)) problems.push(`Group ${name} lists ${member}, which is not a suite journey.`);
   }
   return problems;
 }
@@ -364,14 +410,15 @@ export function validateImpactMap(map: ImpactMap, exists: (file: string) => bool
 type FileImpact = { rules: string[]; journeys: string[] };
 
 /**
- * Rules a single file matches, and their journeys; a suite journey file selects
- * itself. A nonRuntime file (a colocated test under a mapped route folder, for
- * example) matches no rule: the app never loads it, its importers still count.
+ * Rules a single file matches, and their journeys; a critical or full-only
+ * journey file selects itself. A nonRuntime file (a colocated test under a
+ * mapped route folder, for example) matches no rule: the app never loads it,
+ * its importers still count.
  */
 function fileImpact(map: ImpactMap, file: string, cache: Map<string, FileImpact>): FileImpact {
   let impact = cache.get(file);
   if (!impact) {
-    const self = map.suite.journeys.includes(file);
+    const self = map.suite.journeys.includes(file) || map.fullOnly.journeys.includes(file);
     const rules = self || !matchesAny(file, map.nonRuntime) ? map.rules.filter((rule) => matchesAny(file, rule.paths)) : [];
     impact = {
       rules: [...(self ? ["journey-file"] : []), ...rules.map((rule) => rule.id)],
@@ -419,13 +466,17 @@ export function classifyPath(map: ImpactMap, graph: SourceGraph, file: string, e
   const sorted = [...journeys].sort();
   return sorted.length
     ? { path: file, class: "journeys", reason: `${closure.size} file(s) in its impact closure`, journeys: sorted, rules: [...rules].sort() }
-    : { path: file, class: "known-unexercised", reason: "no critical journey reaches it", rules: [...rules].sort() };
+    : { path: file, class: "known-unexercised", reason: "no critical or full-only journey reaches it", rules: [...rules].sort() };
 }
 
 function unmappedReason(unmappedEntries: string[], file: string, graph: SourceGraph): string {
   if (unmappedEntries[0] === file) return graph.files.has(file) ? "no map rule covers this entry point" : "deleted or unknown path without a map rule";
   return `reaches the unmapped entry point ${unmappedEntries[0]}${unmappedEntries.length > 1 ? ` (+${unmappedEntries.length - 1})` : ""}`;
 }
+
+const PUSH_FULL_ONLY: FullOnlySelection = {
+  mode: "none", reason: "push: the post-merge check is the critical suite; the nightly full suite runs the full-only journeys", files: [],
+};
 
 export function selectJourneys(input: {
   map: ImpactMap;
@@ -439,26 +490,60 @@ export function selectJourneys(input: {
   mapSha256?: string | null;
 }): Selection {
   const { map, graph, event } = input;
-  const selection = (mode: Selection["mode"], reason: string, files: string[] = [], changedPaths: PathDecision[] = []): Selection => ({
-    schemaVersion: "army-impact-selection-1", event, base: input.base ?? null, head: input.head ?? null,
-    mapSha256: input.mapSha256 ?? null, mode, reason, files, changedPaths,
+  // When the critical decision is unsure, every full-only journey runs too.
+  const everyFullOnly = (why: string): FullOnlySelection => event === "push"
+    ? PUSH_FULL_ONLY
+    : { mode: "all", reason: `every full-only journey: ${why}`, files: [map.suite.setup, ...map.fullOnly.journeys].sort() };
+  const selection = (mode: Selection["mode"], reason: string, files: string[], changedPaths: PathDecision[],
+    fullOnly: FullOnlySelection = everyFullOnly(reason)): Selection => ({
+    schemaVersion: "army-impact-selection-2", event, base: input.base ?? null, head: input.head ?? null,
+    mapSha256: input.mapSha256 ?? null, mode, reason, files, fullOnly, changedPaths,
   });
-  if (input.forceFull) return selection("full", `full suite forced: ${input.forceFull}`);
-  if (event !== "pull_request" && event !== "push") return selection("full", `event ${event || "unknown"} always runs the full suite`);
+  if (input.forceFull) return selection("full", `full suite forced: ${input.forceFull}`, [], []);
+  if (event !== "pull_request" && event !== "push") return selection("full", `event ${event || "unknown"} always runs the full suite`, [], []);
   const paths = [...new Set(input.paths)].sort();
-  if (paths.length === 0) return selection("full", "no changed path could be determined");
+  if (paths.length === 0) return selection("full", "no changed path could be determined", [], []);
   const cache = new Map<string, FileImpact>();
   const decisions = paths.map((file) => classifyPath(map, graph, file, event, cache));
   const blocking = decisions.filter((decision) => decision.class === "full" || decision.class === "unmapped");
   if (blocking.length) return selection("full", `${blocking.length} path(s) require the full suite, first: ${blocking[0].path} (${blocking[0].reason})`, [], decisions);
-  const journeys = new Set(decisions.flatMap((decision) => decision.journeys ?? []));
-  if (journeys.size === 0) return selection("none", "no critical journey is affected", [], decisions);
+  const reached = new Set(decisions.flatMap((decision) => decision.journeys ?? []));
+  const fullOnlyJourneys = new Set(map.fullOnly.journeys);
+  const fullOnlyReached = [...reached].filter((journey) => fullOnlyJourneys.has(journey));
+  const fullOnly: FullOnlySelection = event === "push"
+    ? PUSH_FULL_ONLY
+    : fullOnlyReached.length === 0
+      ? { mode: "none", reason: "no full-only journey is affected", files: [] }
+      : {
+        mode: fullOnlyReached.length === fullOnlyJourneys.size ? "all" : "files",
+        reason: `${fullOnlyReached.length} of ${fullOnlyJourneys.size} full-only journey files selected`,
+        files: [map.suite.setup, ...fullOnlyReached].sort(),
+      };
+  const journeys = new Set([...reached].filter((journey) => !fullOnlyJourneys.has(journey)));
+  if (journeys.size === 0) return selection("none", "no critical journey is affected", [], decisions, fullOnly);
   const anonymous = new Set(map.suite.anonymous);
   journeys.add(map.suite.setup);
   // The runner refuses a run without an authenticated business journey.
   if (![...journeys].some((journey) => journey !== map.suite.setup && !anonymous.has(journey))) journeys.add(map.suite.anchor);
-  if (map.suite.journeys.every((journey) => journeys.has(journey))) return selection("full", "every critical journey is affected", [], decisions);
-  return selection("files", `${journeys.size} of ${map.suite.journeys.length} journey files selected`, [...journeys].sort(), decisions);
+  if (map.suite.journeys.every((journey) => journeys.has(journey))) return selection("full", "every critical journey is affected", [], decisions, fullOnly);
+  return selection("files", `${journeys.size} of ${map.suite.journeys.length} journey files selected`, [...journeys].sort(), decisions, fullOnly);
+}
+
+/**
+ * Fail-safe full-only selection: every journey the map's globs match in the
+ * working tree, so one the map omits still runs. Nothing listable (unreadable
+ * map): empty "all", which the army-takeoff job runs as the whole full selection.
+ */
+function fullOnlyFailSafe(event: string, map: ImpactMap | undefined, repositoryFiles: readonly string[] | undefined): FullOnlySelection {
+  if (event === "push") return PUSH_FULL_ONLY;
+  try {
+    const journeys = repositoryFiles!.filter((file) => matchesAny(file, map!.fullOnly.globs));
+    if (journeys.length) {
+      const setup = repositoryFiles!.includes(map!.suite.setup) ? [map!.suite.setup] : [];
+      return { mode: "all", reason: "fail-safe: every full-only journey of the working tree", files: [...setup, ...journeys].sort() };
+    }
+  } catch { /* nothing listable */ }
+  return { mode: "all", reason: "fail-safe: the full-only journeys cannot be listed; the whole full selection runs", files: [] };
 }
 
 export function loadImpactMap(root: string): { map: ImpactMap; sha256: string } {
@@ -495,12 +580,17 @@ export function selectFromRepository(root: string, request: SelectionRequest): S
   const base = request.base ?? null;
   const head = request.head ?? "HEAD";
   const givenPaths = request.paths !== undefined || request.pathsFile !== undefined;
+  let loadedMap: ImpactMap | undefined;
+  let repositoryFiles = request.repositoryFiles;
   try {
     const { map, sha256 } = loadImpactMap(root);
-    const repositoryFiles = request.repositoryFiles ?? listRepositoryFiles(root);
+    loadedMap = map;
+    repositoryFiles ??= listRepositoryFiles(root);
     const present = new Set(repositoryFiles);
-    const suiteJourneys = criticalSuiteJourneys(fs.readFileSync(path.join(root, "e2e.config.ts"), "utf8"), repositoryFiles);
-    const problems = validateImpactMap(map, (file) => present.has(file), suiteJourneys);
+    const config = fs.readFileSync(path.join(root, "e2e.config.ts"), "utf8");
+    const suiteJourneys = criticalSuiteJourneys(config, repositoryFiles);
+    const fullOnlyJourneys = fullOnlySuiteJourneys(config, map.fullOnly.globs, repositoryFiles);
+    const problems = validateImpactMap(map, (file) => present.has(file), suiteJourneys, fullOnlyJourneys);
     if (problems.length) {
       throw new Error(`Invalid impact map: ${problems[0]}${problems.length > 1 ? ` (+${problems.length - 1} more)` : ""}`);
     }
@@ -513,8 +603,9 @@ export function selectFromRepository(root: string, request: SelectionRequest): S
     return selectJourneys({ map, graph: buildSourceGraph(root, map, repositoryFiles), event, paths,
       forceFull, base, head: givenPaths ? null : head, mapSha256: sha256 });
   } catch (error) {
-    return { schemaVersion: "army-impact-selection-1", event, base, head, mapSha256: null, mode: "full",
-      reason: `fail-safe: ${(error as Error).message}`, files: [], changedPaths: [] };
+    return { schemaVersion: "army-impact-selection-2", event, base, head, mapSha256: null, mode: "full",
+      reason: `fail-safe: ${(error as Error).message}`, files: [],
+      fullOnly: fullOnlyFailSafe(event, loadedMap, repositoryFiles), changedPaths: [] };
   }
 }
 
@@ -526,6 +617,13 @@ function summary(selection: Selection): string {
       : `Parcours TesterArmy critical sélectionnés par impact (exécution enregistrée « filtered-critical ») : ${selection.files.length} fichiers.`;
   const lines = [`### Sélection TesterArmy critical`, "", title, "", `Motif : ${selection.reason}.`, ""];
   if (selection.files.length) lines.push(...selection.files.map((file) => `- \`${file}\``), "");
+  const fullOnly = selection.fullOnly;
+  lines.push("#### Parcours du métré (job army-takeoff)", "", fullOnly.mode === "none"
+    ? "Aucun parcours du métré concerné : job ignoré (succès explicite)."
+    : fullOnly.files.length
+      ? `Exécution enregistrée « filtered-full » : ${fullOnly.files.length} fichiers (${fullOnly.mode === "all" ? "tous" : "sélection par impact"}).`
+      : "Liste indisponible : sélection full complète.", "", `Motif : ${fullOnly.reason}.`, "");
+  if (fullOnly.files.length) lines.push(...fullOnly.files.map((file) => `- \`${file}\``), "");
   if (selection.changedPaths.length) {
     lines.push("<details><summary>Chemins modifiés</summary>", "", "| Chemin | Classe | Parcours |", "| --- | --- | --- |");
     for (const decision of selection.changedPaths.slice(0, 300)) {
@@ -563,6 +661,10 @@ function main() {
     pathsFile: option(args, "--paths-file"),
     forceFull: option(args, "--force-full") ?? null,
   });
+  // GitHub outputs are comma-joined lines: a path that could split or inject one is refused.
+  if ([...result.files, ...result.fullOnly.files].some((file) => /[\r\n,]/u.test(file))) {
+    throw new Error("A selected journey path contains a comma or a line break.");
+  }
   const json = `${JSON.stringify(result, null, 2)}\n`;
   const report = option(args, "--report");
   if (report) {
@@ -570,7 +672,8 @@ function main() {
     fs.writeFileSync(report, json);
   }
   if (process.env.GITHUB_OUTPUT) {
-    fs.appendFileSync(process.env.GITHUB_OUTPUT, `mode=${result.mode}\nfiles=${result.files.join(",")}\n`);
+    fs.appendFileSync(process.env.GITHUB_OUTPUT, `mode=${result.mode}\nfiles=${result.files.join(",")}\n` +
+      `full_only_mode=${result.fullOnly.mode}\nfull_only_files=${result.fullOnly.files.join(",")}\n`);
   }
   if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary(result));
   process.stdout.write(json);
