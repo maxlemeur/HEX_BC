@@ -37,7 +37,7 @@ import {
   type EstimateVersionRow,
   type EstimateVersionTotalsPatch,
 } from "@/lib/estimates/editor-items";
-import { resolveEstimateV3UnitInput } from "@/lib/estimates/v3-editor";
+import { resolveEstimateV3RuleUnit } from "@/lib/estimates/v3-editor";
 import type { EstimateV3EditorWriter } from "@/lib/estimates/v3-editor-writer";
 import type { Database } from "@/types/database";
 
@@ -974,12 +974,9 @@ export function useEstimateEditorSuggestionsController({
       const resolvedPatchById = new Map(selectedLines.map((item) => {
         const patch = previewByItemId.get(item.id)?.patch ?? {};
         if (!v3Writer || !("unit_code" in patch)) return [item.id, patch] as const;
-        const resolution = resolveEstimateV3UnitInput(patch.unit_code ?? "", null);
-        if (resolution.kind === "invalid") {
-          if (!unitRefusals.includes(resolution.message)) unitRefusals.push(resolution.message);
-          return [item.id, patch] as const;
-        }
-        return [item.id, { ...patch, unit_code: resolution.kind === "unit" ? resolution.unitCode : null }] as const;
+        const unit = resolveEstimateV3RuleUnit(patch.unit_code ?? "");
+        if (!unit.ok && !unitRefusals.includes(unit.message)) unitRefusals.push(unit.message);
+        return [item.id, unit.ok ? { ...patch, unit_code: unit.unitCode } : patch] as const;
       }));
       if (unitRefusals.length > 0) {
         setInteractiveState((previous) =>

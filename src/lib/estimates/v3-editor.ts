@@ -289,6 +289,16 @@ export function resolveEstimateV3UnitInput(raw: string, currentUnitCode: string 
   return { kind: "invalid", message: `Unité inconnue du référentiel : « ${text} ».` };
 }
 
+/**
+ * Lot 2, sous-lot 2.6b (A15) : unité proposée par une règle de suggestion sur une v3, résolue dans le référentiel
+ * (`unit_code`, jamais `description`) ; une unité inconnue ou un statut est refusé par son message.
+ */
+export function resolveEstimateV3RuleUnit(raw: string): { ok: true; unitCode: string | null } | { ok: false; message: string } {
+  const resolution = resolveEstimateV3UnitInput(raw, null);
+  if (resolution.kind === "invalid") return { ok: false, message: resolution.message };
+  return { ok: true, unitCode: resolution.kind === "unit" ? resolution.unitCode : null };
+}
+
 /* ---------- TVA (D8) ---------- */
 
 /** « 20 », « 5,5 », « 2,1 » : taux de TVA en pourcentage fr-FR. */

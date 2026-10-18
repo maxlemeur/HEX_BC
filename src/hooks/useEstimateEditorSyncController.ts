@@ -48,14 +48,9 @@ import {
   type EstimateItem,
   type EstimateItemUpdatePayload,
 } from "@/lib/estimates/editor-items";
-import {
-  reconcilesEditorTotals,
-  resolveEditorEngineContext,
-  toEngineItemWrite,
-  writesEditorTotals,
-} from "@/lib/estimates/editor-engine";
+import { reconcilesEditorTotals, toEngineItemWrite, writesEditorTotals } from "@/lib/estimates/editor-engine";
 import { isDraftLockRequiredError, isVersionConflictError } from "@/lib/estimates/editor-sync-errors";
-import { buildEditorItemSyncBaseline, buildEstimateV3ItemUpdatePayload } from "@/lib/estimates/v3-editor";
+import { buildEditorItemSyncBaseline } from "@/lib/estimates/v3-editor";
 
 import {
   AUTOSAVE_IMMEDIATE_FLUSH_UPDATES,
@@ -1065,15 +1060,11 @@ export function useEstimateEditorSyncController({
     if (!restorableDraft) return;
     restoredConflictDraftRef.current = true;
 
-    const { restoredItems, skippedItemCount } =
+    const { restoredItems, skippedItemCount, buildItemPayload, settingsRestored } =
       applyRestoredDraft(restorableDraft);
-    // Lot 2, sous-lot 2.6b (A14) : une ligne v3 restaurée repart par ses saisies (unité du référentiel, statut,
-    // heures par unité), que l'écrivain v3 recalcule ; v1/v2 : la charge historique, inchangée.
-    const isV3 = resolveEditorEngineContext(getVersionSnapshot()).isV3;
-    const buildRestoredItemPayload = isV3 ? buildEstimateV3ItemUpdatePayload : buildEstimateItemUpdatePayload;
     restoredItems.forEach((item) => {
       enqueueItemUpdate(item.id, {
-        ...buildRestoredItemPayload(item),
+        ...(buildItemPayload ?? buildEstimateItemUpdatePayload)(item), // 2.6b (A14) : charge v3 sur une v3
         parent_id: item.parent_id ?? null,
         position: item.position,
       });
@@ -1087,14 +1078,11 @@ export function useEstimateEditorSyncController({
     reportNotice(
       skippedItemCount > 0
         ? "Les modifications des lignes encore présentes ont été restaurées. Certaines différences de structure n’ont pas été réappliquées afin de préserver les données serveur."
-        : isV3
-          ? "Modifications locales des lignes restaurées. Elles restent en attente de synchronisation ; les réglages du devis ne sont pas repris."
-          : "Modifications locales restaurées. Les lignes restent en attente de synchronisation ; enregistrez le paramétrage pour confirmer les réglages."
+        : `Modifications locales restaurées. Les lignes restent en attente de synchronisation${settingsRestored === false ? "" : " ; enregistrez le paramétrage pour confirmer les réglages"}.`
     );
   }, [
     applyRestoredDraft,
     enqueueItemUpdate,
-    getVersionSnapshot,
     reportError,
     reportNotice,
     restorableDraft,
