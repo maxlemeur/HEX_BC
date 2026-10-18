@@ -129,7 +129,9 @@ Même forme que la PR #36, par le calcul existant, sans changement serveur :
   leur en-tête.
 - `useEstimateEditorState.impl.tsx` : 4 lignes, le câblage des deux contrôleurs sur
   `computeVersionTotalsPatch` et `applyVersionTokenAndTotals`. Ce fichier est réécrit par le
-  sous-lot 2.6 : le conflit attendu se limite à ces lignes. `useEstimateEditorCalculation.ts` et
+  sous-lot 2.6 : le conflit attendu se limitait à ces lignes. C'était une prévision, faite avant la
+  fusion `7b821fd3`. En fait, ce fichier fusionne sans conflit, et les conflits portent sur les deux
+  contrôleurs (voir « Fusion avec la PR #44 … »). `useEstimateEditorCalculation.ts` et
   `useEstimateEditorSupplierController.ts` : aucun diff.
 - Serveur inchangé. En v2, la présence du patch fait passer par `projectDraftMutation`
   (`server.ts:6678-6679`) : le serveur recalcule tout le brouillon depuis les lignes enregistrées
@@ -843,7 +845,8 @@ réécrit. Attendu : aucune n'est offerte, lignes et version restent à 10 %, ma
 ### Preuves
 
 Clone WSL `~/miaouffrage-totals-bulk`, remis à la branche (`git -c safe.directory='*' fetch` du
-dépôt Windows, puis `git reset --hard FETCH_HEAD`), Ubuntu 24.04, Node 24.14.0,
+dépôt Windows, puis `git reset --hard FETCH_HEAD`), Ubuntu 24.04, Node 24.14.0 pour L1, L2, C1,
+C2 et F4, Node 24.19.0 pour L3, L4 et C3 (champ `node` des manifestes),
 `NODE_OPTIONS=--max-old-space-size=4096`. Preuves sous `~/miaouffrage-totals-bulk/.e2e/army/ci/`,
 journaux sous `~/totals-bulk-logs/` et `~/totals-bulk-devloop-*.log`.
 
@@ -856,6 +859,7 @@ journaux sous `~/totals-bulk-logs/` et `~/totals-bulk-devloop-*.log`.
 | C1 | `a91fc411`, sans modification locale | `E2E_ARMY_WORKERS=2 npm run e2e:army:local -- --grep "bulk edit sync\|bulk move\|numeric entry\|V3E\|V3P01\|V3FC" --app-port 3173` | exit 1, 28/29. Seul V3E01 est rouge, à la saisie de la ligne O4 : la liste « Rôle de main-d'œuvre » est restée vide (écran à l'échec), donc la sauvegarde attendue (h/u 0,2, PU 13,53 €) n'arrive pas, et `waitForAutoSave` échoue (`fixtures.ts:355`). C'est l'instabilité de V3E01 déjà relevée par 2.6 (doc 2.6 §8.5 : rôle « Tuyauteur » perdu dans la grille, cause non établie), sur un chemin que la fusion ne touche pas. | `2026-10-18T04-50-33-362Z-critical` (`fcf4debf…6601`) |
 | C2 | idem | même commande | exit 0, 29/29, chacun en une tentative (4 min 25 s de parcours) : connexion, `bulk-edit-sync` 4/4, `bulk-edit-sync-sources` 3/3, `bulk-move`, `numeric-entry` 2/2, `numeric-entry-v3`, V3E01 à V3E14, V3P01, V3FC01, V3FC02. pgTAP `Files=20, Tests=1854, Result: PASS`, matrice RLS verte | `2026-10-18T05-00-07-973Z-critical` (`8789bb8b…41f0`) |
 | F4 | idem | `npm run e2e:army:ci -- full --app-port 3173` | exit 1 ; phase `full` 160/161, 1 worker (17 min 11 s de parcours) : seul V3E01 est rouge, même instabilité qu'en C1 (rôle de O2 vide à l'écran). Verts : V1BT01 à V1BT03 (`bulk-actions-v1-totals` 3/3), V1PT01, V3E02 à V3E14, V3P01, V3FC01, V3FC02, `bulk-edit-sync` 4/4, `bulk-edit-sync-sources` 3/3, `bulk-move`, `commercial-rounding` 2/2, `estimate-integrity` 5/5, `numeric-entry` 2/2, `numeric-entry-v3`, `settings-contracts` 2/2. Phase `development` 4/4 | `2026-10-18T05-06-23-931Z-full` (`58b631fd…73a3`) |
+| C3 | `210dba4c` (après la fusion d'`origin/main` `78533fe5`), sans modification locale (`diffSha256` `e3b0c442…b855`) | même commande que C1 | exit 0, portée `filtered-critical`, 2 workers : 97 parcours découverts, 29 sélectionnés, 29/29 verts, 0 instable, 0 ignoré (4 min 29 s de parcours). Mêmes parcours qu'en C2. pgTAP `Files=20, Tests=1854, Result: PASS`, matrice RLS verte. V3E14 : aucune annulation offerte, `[50150, 5015, 55165]`, lignes et version à 1 000 pb, majoration 1,5, K FO 1,3. Les fichiers `bulk-sync-<s1\|s2\|p1>-owner.json` relèvent trois comptes et trois tenants distincts, en Expert | `2026-10-18T06-20-19-835Z-critical` (`9e4427e8…080e`), `report.json` `8797496f…30a5` ; `…-efb0a890-v3e14-after-save.json` (`6bd164f1…4f20`) |
 
 Entre C1 et C2, un lancement par `nohup` dans une session WSL détachée a reçu SIGHUP au bout de
 2 s (exit 129, `2026-10-18T04-58-36-192Z-critical`, sans parcours). Ce n'est pas un résultat. Sa
@@ -921,8 +925,8 @@ Limites :
   que celui des lots l'applique. C'est le comportement de 2.6 sur `main`, laissé tel quel. V3E12
   enchaîne application et annulation, V3E14 application et enregistrement du paramétrage, sans
   erreur ;
-- une revue indépendante en lecture seule a porté sur `55ce0c0a` (section suivante). Aucune n'a
-  porté sur les corrections qui la suivent ;
+- deux revues indépendantes en lecture seule ont porté sur `55ce0c0a`, puis sur `210dba4c`
+  (section suivante). Aucune n'a porté sur le commit de documentation qui suit la seconde ;
 - F4 n'est pas un run `full` entièrement vert : son seul rouge est V3E01 (ci-dessus).
 
 ### Revue de la fusion et rapprochement avec `78533fe5`
@@ -940,7 +944,29 @@ fusion :
 `origin/main` est ensuite passé à `78533fe5`. Il apporte la PR #46 (relevé de la migration 2.6 sur
 le Supabase partagé, dont une ligne de `estimate-engine-v3-2.6.md`, autre que la ligne d'inventaire
 modifiée ici) et la PR #47 (chemins résolus de la boucle : `scripts/tester-army/dev-loop-state.ts`,
-`src/test/army-dev-loop.test.ts`, `tester-army-local-development.md`). La fusion `28a7d25e` est sans
-conflit : la branche ne modifiait alors aucun de ces fichiers. Elle n'invalide que la boucle, et L3 et L4 tournent
-déjà avec. La sélection qualifiante est rejouée sur la tête finale ; son manifeste et les contrôles
-du worktree Windows figurent dans la description de la PR #41.
+`src/test/army-dev-loop.test.ts`, `tester-army-local-development.md`). La fusion `28a7d25e` est
+sans conflit : la branche ne modifiait alors aucun de ces fichiers. Elle n'invalide que la boucle,
+et L3 et L4 tournent déjà avec. La sélection qualifiante est rejouée sur `210dba4c` : C3, verte
+(tableau « Preuves »).
+
+Contrôles du worktree Windows, sur `210dba4c` :
+
+- `npm run typecheck` : exit 0 ;
+- `npx eslint --max-warnings=0` sur les 17 fichiers de code touchés (`e2e.config.ts`, 11 fichiers
+  `e2e/army`, 5 fichiers `src/hooks`) : exit 0 ;
+- `npx vitest run` sur les quatre fichiers listés pour `a91fc411` : 4 fichiers, 44 tests ;
+- `git diff origin/main...HEAD` sur `src/lib/estimate-calculations.ts` et
+  `src/lib/estimate-v2-snapshot.ts` : vide ;
+- `git -c core.whitespace=cr-at-eol diff --check origin/main...HEAD` : propre.
+
+La revue en lecture seule de `210dba4c` confirme la correction des deux constats. Elle en relève un
+troisième, mineur, de même nature que le deuxième : dans la section « Correction », la phrase qui
+annonçait un conflit limité à `useEstimateEditorState.impl.tsx` était une prévision d'avant la
+fusion, sans date, que « Rapprochement » contredit. `git merge-tree --write-tree --name-only
+32cfcc69 488382d5` ne signale de conflit que dans les deux contrôleurs ; `impl.tsx` fusionne sans
+conflit. La phrase est maintenant datée d'avant `7b821fd3` et renvoie à « Fusion avec la PR #44 … ».
+
+Le commit qui la corrige ne change que ce document. Il ajoute aussi C3 au tableau et la version de
+Node de chaque run. C3 reste la preuve du code à la tête : aucun chemin relevé par ses manifestes
+n'est sous `docs/` (1 781 entrées de construction ; seul fichier `.md` :
+`scripts/tester-army/README.md`). Rien n'est rejoué pour ce commit, hors `git diff --check`.
