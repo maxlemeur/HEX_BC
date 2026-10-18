@@ -58,7 +58,10 @@ for (let index = 3; index < process.argv.length; index += 2) {
     }
   } else if (option === "--grep") {
     if (files.length) throw new Error("--grep excludes --files.");
-    if (suite === "dev") throw new Error("--grep is restricted to critical, full and one calc-v3 phase; dev cannot be filtered.");
+    // A dev-loop session selects its journeys per `run`, never at start.
+    if (suite === "dev" || suite === "dev-loop") {
+      throw new Error("--grep is restricted to critical, full and one calc-v3 phase; dev and dev-loop cannot be filtered.");
+    }
     // Forwarded to two command lines: a leading dash would read as their next flag.
     if (suite === "full" && value.startsWith("-")) throw new Error("A full --grep pattern cannot start with a dash.");
     new RegExp(value);
