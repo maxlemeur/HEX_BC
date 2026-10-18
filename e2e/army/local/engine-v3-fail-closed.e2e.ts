@@ -5,6 +5,7 @@ import { expect, type App } from "e2e";
 
 import { apiRequest, armyTest, ownEstimate, recordEvidence, type ArmyState } from "../critical/fixtures";
 import { ownedEstimateContext } from "./calculation-gate-support";
+import { waitForDraftLease } from "./engine-v3-editor-support";
 import { insertV3Fixture, readV3State, type V3Fixture } from "./engine-v3-support";
 
 // Lot 2, sous-lot 2.1 — socle fermé par défaut (docs/testing/estimate-engine-v3-2.1.md, E2E-01
@@ -107,9 +108,10 @@ armyTest("V3FC01 a v3 draft opens in the v3 editor and on its detail page withou
   await expect.poll(async () => (await summaryChips()).includes(V3_PREVIEW_HT_CHIP), { timeout: 30_000 }).toBe(true);
   const editorChips = await summaryChips();
   // Mode Simplifié : le détail (TVA, TTC) s'ouvre au clavier, sans le survol qui l'ouvre aussi. La grille (re)donne le
-  // focus à sa cellule active quand son modèle de navigation change (useSpreadsheetNavigation), parfois après l'aperçu :
-  // on attend ce focus, puis Entrée part sur le déclencheur lui-même (doc 2.6 §10.4, passage du 18/10/2026).
-  await expect.poll(() => browser.evaluate(() => Boolean(document.activeElement?.closest("[role=\"grid\"]"))), { timeout: 30_000 }).toBe(true);
+  // focus à sa cellule active quand son modèle de navigation change (useSpreadsheetNavigation), dont le passage en
+  // édition à la prise du bail : on attend un éditeur posé (bail pris), sans rien supposer du focus, puis Entrée part
+  // sur le déclencheur lui-même (doc 2.6 §10.4 et §11.4, revue du 18/10/2026).
+  await waitForDraftLease({ app, screen, browser });
   await screen.getByRole("button", "Voir les détails de TVA, remise et TTC", { exact: true }).press("Enter");
   await expect.poll(async () => V3_PREVIEW_TTC.test(await visibleText(browser)), { timeout: 30_000 }).toBe(true);
   const editorText = await visibleText(browser);
