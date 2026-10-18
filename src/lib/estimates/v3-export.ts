@@ -182,8 +182,12 @@ export async function writeEstimateV3Workbook(input: {
     }
     const line = prepared.v3.linesById[item.id];
     const priced = line.pricingStatus === "priced";
-    addRow([poste, item.title, line.unitLabel ?? "", item.quantity ?? 0, ESTIMATE_V3_STATUS_DOCUMENT_LABELS[line.pricingStatus],
-      rate(line.taxRateBp), priced ? euros(line.unitSaleHtCents) : null, euros(line.saleHtCents)], { currency: [7, 8] });
+    const status = ESTIMATE_V3_STATUS_DOCUMENT_LABELS[line.pricingStatus];
+    // Comme le document : une ligne non chiffrée porte son statut au lieu d'un montant (aucun « Total HT » 0 que
+    // l'import DPGF lirait comme total_ht).
+    addRow([poste, item.title, line.unitLabel ?? "", item.quantity ?? 0, status,
+      rate(line.taxRateBp), priced ? euros(line.unitSaleHtCents) : null, priced ? euros(line.saleHtCents) : status],
+      { currency: priced ? [7, 8] : [] });
   }
   addRow([]);
   for (const [label, amount] of footerEntries(input.document)) {
@@ -215,7 +219,12 @@ export async function writeEstimateV3Workbook(input: {
   await workbook.commit();
 }
 
-/** Export DPGF (« Données » et « Metadata ») d'une v3 : saisies réimportables, plus PU et PT bruts. */
+/**
+ * Export DPGF (« Données » et « Metadata ») d'une v3 : saisies réimportables, plus PU et PT bruts. Une ligne non
+ * chiffrée (incluse, pour mémoire, hors lot…) n'écrit aucun nombre que l'import DPGF lit comme prix, déboursé ou
+ * main-d'oeuvre (profil `dpgf_export` et heuristique de correspondance : PR FO, total, heures, majoration) : réimportée,
+ * elle ne peut pas redevenir facturable. Ses cellules de prix portent le libellé de son statut, comme le document.
+ */
 export async function writeEstimateV3DpgfWorkbook(input: {
   identity: EstimateV3ExportIdentity;
   document: EstimateV3ExportDocument;
@@ -267,16 +276,18 @@ export async function writeEstimateV3DpgfWorkbook(input: {
     }
     const line = prepared.v3.linesById[item.id];
     const priced = line.pricingStatus === "priced";
+    const status = ESTIMATE_V3_STATUS_DOCUMENT_LABELS[line.pricingStatus];
+    const hours = (value: number | null | undefined) => (priced ? (value ?? null) : null);
     addRow([
-      "line", aid, designation, item.quantity ?? null, line.unitCode ?? "", ESTIMATE_V3_STATUS_DOCUMENT_LABELS[line.pricingStatus],
-      rate(line.taxRateBp), euros(item.unit_price_ht_cents),
+      "line", aid, designation, item.quantity ?? null, line.unitCode ?? "", status,
+      rate(line.taxRateBp), priced ? euros(item.unit_price_ht_cents) : status,
       item.supply_type_id ? (input.supplyTypeById.get(item.supply_type_id) ?? "") : "", item.k_fo ?? 1,
-      item.h_mo_per_unit ?? null, item.k_mo ?? 1, majorationCoefficientToPercent(item.h_mo_majoration ?? 1), role(item.labor_role_id),
-      item.category_id ? (input.categoryById.get(item.category_id) ?? "") : "",
-      item.h_mo_atelier_per_unit ?? null, item.k_mo_atelier ?? null, role(item.labor_role_atelier_id),
-      item.h_mo_chantier_per_unit ?? null, item.k_mo_chantier ?? null, role(item.labor_role_chantier_id),
-      priced ? euros(line.unitSaleHtCents) : null, euros(line.saleHtCents),
-    ], { currency: [8, 22, 23] });
+      hours(item.h_mo_per_unit), item.k_mo ?? 1, priced ? majorationCoefficientToPercent(item.h_mo_majoration ?? 1) : null,
+      role(item.labor_role_id), item.category_id ? (input.categoryById.get(item.category_id) ?? "") : "",
+      hours(item.h_mo_atelier_per_unit), item.k_mo_atelier ?? null, role(item.labor_role_atelier_id),
+      hours(item.h_mo_chantier_per_unit), item.k_mo_chantier ?? null, role(item.labor_role_chantier_id),
+      priced ? euros(line.unitSaleHtCents) : null, priced ? euros(line.saleHtCents) : status,
+    ], { currency: priced ? [8, 22, 23] : [] });
   }
   sheet.commit();
 
