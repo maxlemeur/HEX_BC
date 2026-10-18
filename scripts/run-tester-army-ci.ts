@@ -23,7 +23,7 @@ import { assertLocalAppPortAvailable, runLocalDevelopmentSession } from "./teste
 
 const suite = process.argv[2];
 if (!["critical", "full", "dev", "dev-loop", "calc-v3"].includes(suite)) {
-  throw new Error("Usage: run-tester-army-ci.ts critical|full|dev|dev-loop|calc-v3 [--app-port PORT] [critical or full: --grep PATTERN | --files A.e2e.ts,B.e2e.ts] [critical or full: --shard I/N] [critical or full: --tenant-calc-engine 3] [full only: --phase development] [calc-v3 only: --phase NAME [--grep PATTERN]] [dev-loop only: --ttl-minutes N]");
+  throw new Error("Usage: run-tester-army-ci.ts critical|full|dev|dev-loop|calc-v3 [--app-port PORT] [critical or full: --grep PATTERN | --files A.e2e.ts,B.e2e.ts] [critical or full: --shard I/N] [critical or full: --tenant-calc-engine 3|absent] [full only: --phase development] [calc-v3 only: --phase NAME [--grep PATTERN]] [dev-loop only: --ttl-minutes N]");
 }
 // Journey files a --files run may name: critical and local journeys of the
 // critical suite; for full, any journey folder of its selection (its shards,
@@ -38,9 +38,11 @@ let fullPhase: "development" | undefined;
 let shard: { index: number; total: number } | undefined;
 let appPort = 3107;
 let ttlMinutes = DEFAULT_DEV_LOOP_TTL_MINUTES;
-// Lot 2, sub-lot 2.10b pilot (docs/testing/estimate-engine-v3-2.10.md): the provisioned campaign tenant gets an
-// explicit engine-3 policy before any journey. Allowlisted value only; journeys with their own owner are unaffected.
-let tenantCalcEngine: 3 | undefined;
+// Lot 2, sub-lot 2.10b (docs/testing/estimate-engine-v3-2.10.md, D-i and D-l): since M8 a tenant without a
+// policy row creates engine 3, and the campaign journeys are v1/v2 journeys (pilot A). The provisioned campaign
+// tenant therefore gets the explicit policy 2 before any journey; a pilot asks for an explicit policy 3 or for
+// no policy row (the default of a new tenant). Allowlisted values only; journeys with their own owner are unaffected.
+let tenantCalcEngine: 3 | "absent" | undefined;
 const suppliedOptions = new Set<string>();
 for (let index = 3; index < process.argv.length; index += 2) {
   const option = process.argv[index];
@@ -79,10 +81,10 @@ for (let index = 3; index < process.argv.length; index += 2) {
     }
     shard = { index: Number(match[1]), total: Number(match[2]) };
   } else if (option === "--tenant-calc-engine") {
-    if ((suite !== "critical" && suite !== "full") || value !== "3") {
-      throw new Error("--tenant-calc-engine is restricted to critical and full and accepts only 3 (the 2.10b pilot policy).");
+    if ((suite !== "critical" && suite !== "full") || (value !== "3" && value !== "absent")) {
+      throw new Error("--tenant-calc-engine is restricted to critical and full and accepts only 3 or absent (the 2.10b pilots).");
     }
-    tenantCalcEngine = 3;
+    tenantCalcEngine = value === "3" ? 3 : "absent";
   } else if (option === "--phase" && suite === "full") {
     if (value !== "development") throw new Error("full --phase names its development phase only; --files or --grep narrow its full phase.");
     fullPhase = value;
@@ -287,34 +289,43 @@ async function runApplication(local: SupabaseEnvironment) {
     throw provisioningFailure("create catalogue article", "Could not create the local ARMY catalogue fixture.", articleError, articleStatus);
   }
   provisioning.completed.push("create catalogue article");
-  let tenantCalcPolicy: Record<string, unknown> | undefined;
-  if (tenantCalcEngine === 3) {
-    // The only writer of the policy (P-13: service_role), with the documented defaults (P-02, P-07).
-    const { data: before, error: beforeError, status: beforeStatus } = await admin.from("tenant_calc_policies")
-      .select("tenant_id").eq("tenant_id", tenantId);
-    if (beforeError || before?.length !== 0) {
-      throw provisioningFailure("verify absent calc policy", "The new ARMY tenant must start without a calc policy row.", beforeError, beforeStatus);
-    }
-    const reason = "ARMY 2.10b pilot: campaign tenant at engine 3 (--tenant-calc-engine 3)";
+  if (interactive && developmentStop.signal.aborted) return;
+  const { data: policyBefore, error: policyBeforeError, status: policyBeforeStatus } = await admin.from("tenant_calc_policies")
+    .select("tenant_id").eq("tenant_id", tenantId);
+  if (policyBeforeError || policyBefore?.length !== 0) {
+    throw provisioningFailure("verify absent calc policy", "The new ARMY tenant must start without a calc policy row.",
+      policyBeforeError, policyBeforeStatus);
+  }
+  provisioning.completed.push("verify absent calc policy");
+  let tenantCalcPolicy: Record<string, unknown> = { before: "absent", after: "absent", reason: "--tenant-calc-engine absent" };
+  if (tenantCalcEngine !== "absent") {
+    // The only writer of the policy (P-13: service_role); engine 3 takes the documented defaults (P-02, P-07).
+    const engine = tenantCalcEngine ?? 2;
+    const [fo, mo] = engine === 3 ? [1.3, 1.2] : [null, null];
+    const reason = engine === 3
+      ? "ARMY 2.10b pilot: campaign tenant at engine 3 (--tenant-calc-engine 3)"
+      : "ARMY 2.10b: campaign tenant at the explicit policy 2 (v1/v2 journeys, D-l)";
     const { data: policy, error: policyError, status: policyStatus } = await admin.rpc("set_tenant_calc_policy", {
-      p_tenant_id: tenantId, p_new_estimate_calc_engine: 3, p_default_sale_coefficient_fo: 1.3,
-      p_default_sale_coefficient_mo: 1.2, p_allowed_tax_rates_bp: [2000, 1000, 550, 210],
+      p_tenant_id: tenantId, p_new_estimate_calc_engine: engine, p_default_sale_coefficient_fo: fo,
+      p_default_sale_coefficient_mo: mo, p_allowed_tax_rates_bp: [2000, 1000, 550, 210],
       p_change_reason: reason, p_actor_user_id: user.user.id,
     });
-    if (policyError || policy?.tenant_id !== tenantId || policy.new_estimate_calc_engine !== 3 ||
-      Number(policy.default_sale_coefficient_fo) !== 1.3 || Number(policy.default_sale_coefficient_mo) !== 1.2 ||
+    if (policyError || policy?.tenant_id !== tenantId || policy.new_estimate_calc_engine !== engine ||
+      (policy.default_sale_coefficient_fo === null ? null : Number(policy.default_sale_coefficient_fo)) !== fo ||
+      (policy.default_sale_coefficient_mo === null ? null : Number(policy.default_sale_coefficient_mo)) !== mo ||
       JSON.stringify(policy.allowed_tax_rates_bp) !== "[2000,1000,550,210]") {
-      throw provisioningFailure("set calc policy 3", "Could not set the campaign tenant to engine 3.", policyError, policyStatus);
+      throw provisioningFailure(`set calc policy ${engine}`, `Could not set the campaign tenant to engine ${engine}.`, policyError, policyStatus);
     }
-    provisioning.completed.push("set calc policy 3");
+    provisioning.completed.push(`set calc policy ${engine}`);
     tenantCalcPolicy = {
-      before: "absent", after: { engine: 3, fo: "1.3000", mo: "1.2000", allowedTaxRatesBp: [2000, 1000, 550, 210] },
+      before: "absent",
+      after: { engine, fo: fo === null ? null : fo.toFixed(4), mo: mo === null ? null : mo.toFixed(4), allowedTaxRatesBp: [2000, 1000, 550, 210] },
       reason, writer: "public.set_tenant_calc_policy as service_role",
     };
   }
   manifest.fixtures = {
-    userId: user.user.id, tenantId, articleId: article.id, laborRole, backend: backend.origin,
-    ...(tenantCalcPolicy ? { tenantCalcPolicy } : {}), lifecycle: "destroyed with the owned stack",
+    userId: user.user.id, tenantId, articleId: article.id, laborRole, backend: backend.origin, tenantCalcPolicy,
+    lifecycle: "destroyed with the owned stack",
   };
 
   fs.mkdirSync(path.join(root, ".e2e/army/coverage"), { recursive: true });

@@ -175,6 +175,16 @@ async function createActor(context: CalcV3FixtureContext, campaign: string, labe
   const tenantId = memberships[0].tenant_id;
   await checked(`${label}:owned tenant name`, context.admin.from("tenants").update({ name: `ARMY calc-v3 ${campaign} ${label}` })
     .eq("id", tenantId).eq("created_by", userId).select("id").single());
+  // Lot 2, sub-lot 2.10b (D-i): since M8 a tenant without a policy row creates engine 3; a calc-v3 actor is a
+  // v1/v2 owner, so its tenant gets the explicit policy 2 from the policy's only writer (service_role, P-13).
+  const policy = await checked(`${label}:explicit calc policy 2`, context.admin.rpc("set_tenant_calc_policy", {
+    p_tenant_id: tenantId, p_new_estimate_calc_engine: 2, p_default_sale_coefficient_fo: null,
+    p_default_sale_coefficient_mo: null, p_allowed_tax_rates_bp: null,
+    p_change_reason: `ARMY calc-v3 ${campaign} ${label}: v2 actor (2.10b D-i)`, p_actor_user_id: userId,
+  }));
+  if (policy.tenant_id !== tenantId || policy.new_estimate_calc_engine !== 2) {
+    throw new Error(`calc-v3 fixture ${label}: the actor's tenant must hold the explicit policy 2.`);
+  }
   const actor: Actor = { userId, tenantId, membershipId: memberships[0].id, bootstrapTenantId: tenantId, email, password };
   if (options.rmo4000) {
     // The server prices labor with the first active role of the owner and tenant;

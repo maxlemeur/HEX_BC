@@ -289,9 +289,17 @@ select is(
   'F-SQL-02 the duplicate_source insertion contract cannot produce engine 3'
 );
 
+-- Sub-lot 2.10b (D-i): since M8 an absent policy means engine 3, so the policy 2 of this guard is explicit
+-- (written inside the probe, rolled back with it).
 select is(
   pg_temp.v3_probe(array[
     'set local role service_role',
+    $s$select public.set_tenant_calc_policy(
+         p_tenant_id => (select tenant_id from public.estimate_projects where id = 'a3210000-0000-4000-8000-000000000010'),
+         p_new_estimate_calc_engine => 2::smallint, p_default_sale_coefficient_fo => null,
+         p_default_sale_coefficient_mo => null, p_allowed_tax_rates_bp => null,
+         p_change_reason => 'Fixture: politique 2 explicite (2.10b)',
+         p_actor_user_id => 'a3210000-0000-4000-8000-000000000001')$s$,
     $s$select public.persist_estimate_creation_atomic(
          (select tenant_id from public.estimate_projects where id = 'a3210000-0000-4000-8000-000000000010'),
          'a3210000-0000-4000-8000-000000000001',
@@ -303,7 +311,7 @@ select is(
        )$s$
   ]),
   '40001 ESTIMATE_CALC_POLICY_CONTEXT_CHANGED',
-  'F-SQL-02 without a policy at engine 3, the canonical creation RPC refuses a client expecting engine 3 (M4)'
+  'F-SQL-02 under a policy at engine 2, the canonical creation RPC refuses a client expecting engine 3 (M4)'
 );
 
 select is(

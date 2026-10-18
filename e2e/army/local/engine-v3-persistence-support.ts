@@ -48,7 +48,8 @@ function assertOwner(owner: V3Owner) {
  * tenant and the critical campaign shares one ARMY tenant between its two workers: a policy-3 window there
  * makes every concurrent creation without an engine expectation fail with CONTEXT_CHANGED (observed on
  * V3FC02, 17/10/2026). V3P01 therefore runs as its own disposable account and tenant `ARMY V3P <run>`
- * (dedicated-owner.ts); the other contexts keep the campaign account.
+ * (dedicated-owner.ts); the other contexts keep the campaign account. Since 2.10b its tenant starts at the
+ * explicit policy 2 (D-i): the v2 anchor is created before the journey opens its policy-3 window.
  */
 export async function useDedicatedV3Owner(browser: Browser, appBaseUrl: string, runPrefix: string): Promise<V3Owner & { email: string }> {
   const { tenantId, userId, email } = await signUpDedicatedOwner(browser, appBaseUrl, runPrefix, { tag: "V3P" });

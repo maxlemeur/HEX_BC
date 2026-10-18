@@ -726,13 +726,20 @@ values (
 );
 
 -- ---------------------------------------------------------------------------
--- F25-01 : politique absente → moteur 2 ; attente 3 sans politique → CONTEXT_CHANGED.
+-- F25-01 : politique 2 → moteur 2 ; attente 3 sous une politique 2 → CONTEXT_CHANGED.
+-- Sous-lot 2.10b (D-i) : depuis M8, une politique absente vaut le moteur 3 (contrat de
+-- estimate-engine-v3-default.test.sql). Le témoin v2 naît donc sous une ligne de politique 2 explicite,
+-- écrite puis retirée par postgres (fixture, sans événement du journal) : l'entreprise A revient sans
+-- politique avant F25-03, qui journalise son premier changement.
 -- ---------------------------------------------------------------------------
+insert into public.tenant_calc_policies (tenant_id, new_estimate_calc_engine, change_reason)
+values (pg_temp.fx('tenant_a'), 2, 'Fixture 2.10b : témoin v2');
+
 select is(
   pg_temp.v3_try(array[
     'set local role service_role',
     pg_temp.v3_create_sql(
-      pg_temp.v3_v2_version('a3250000-0000-4000-8000-000000000100', 'Témoin v2 sans politique')
+      pg_temp.v3_v2_version('a3250000-0000-4000-8000-000000000100', 'Témoin v2 sous politique 2')
         || '{"total_ht_cents":100,"total_tax_cents":20,"total_ttc_cents":120}'::jsonb,
       '[
         {"id":"a3250000-0000-4000-8001-000000000100","parent_id":null,"item_type":"section","position":1,"title":"Lot v2"},
@@ -741,13 +748,13 @@ select is(
     )
   ]),
   'ok',
-  'F25-01 fixture: without a policy, a creation without engine expectation succeeds'
+  'F25-01 fixture: under an explicit policy 2, a creation without engine expectation succeeds'
 );
 
 select is(
   (select calc_engine_version from public.estimate_versions where id = 'a3250000-0000-4000-8000-000000000100'),
   2::smallint,
-  'F25-01 an absent policy means engine 2 for new versions'
+  'F25-01 an explicit policy 2 means engine 2 for new versions'
 );
 
 select is(
@@ -776,8 +783,10 @@ select is(
     )
   ]),
   '40001 ESTIMATE_CALC_POLICY_CONTEXT_CHANGED',
-  'F25-01 without a policy, a client expecting engine 3 gets CONTEXT_CHANGED and nothing is created'
+  'F25-01 under a policy 2, a client expecting engine 3 gets CONTEXT_CHANGED and nothing is created'
 );
+
+delete from public.tenant_calc_policies where tenant_id = pg_temp.fx('tenant_a');
 
 -- ---------------------------------------------------------------------------
 -- F25-03 : écriture de la politique (service_role seul, motif, coefficients pour 3, journal).

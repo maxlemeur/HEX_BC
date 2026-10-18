@@ -306,7 +306,8 @@ armyTest("V3P01 a v3 born behind the tenant policy persists the oracle, its sett
   const policyBefore = schema.policyTable ? await readTenantCalcPolicy(owner) : null;
   await recordEvidence(army, "v3p-schema", { projectId, owner, tuyauteur, expected: COMPLETE_SCHEMA, actual: schema, policyBefore });
   expect(schema).toEqual(COMPLETE_SCHEMA);
-  expect(policyBefore?.engine ?? 2).toBe(2);
+  // Sous-lot 2.10b (D-i) : le propriétaire dédié part d'une politique 2 explicite ; absente vaut 3 depuis M8.
+  expect(policyBefore?.engine).toBe(2);
 
   // V3P-02, V3P-03 : fenêtre de politique 3 aussi courte que possible (l'entreprise de recette est
   // partagée par les parcours concurrents) ; elle est refermée même si une création échoue.

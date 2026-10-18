@@ -696,6 +696,19 @@ select lives_ok(
 );
 
 reset role;
+
+-- Lot 2, sub-lot 2.10b (D-i): the creations below are engine 2. Since M8 a tenant without a policy row
+-- creates engine 3, so the writer's and the viewer's tenants get the explicit policy 2 (the per-tenant
+-- opt-out) through its only writer.
+select public.set_tenant_calc_policy(
+  p_tenant_id => membership.tenant_id, p_new_estimate_calc_engine => 2::smallint,
+  p_default_sale_coefficient_fo => null, p_default_sale_coefficient_mo => null, p_allowed_tax_rates_bp => null,
+  p_change_reason => 'Fixture: sujet v2 (2.10b)', p_actor_user_id => membership.user_id
+)
+from public.tenant_memberships as membership
+where membership.user_id in ('11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222')
+order by membership.user_id;
+
 set local role service_role;
 
 select throws_ok(
