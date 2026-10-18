@@ -187,3 +187,116 @@ fournisseurs 7, synchronisation 35) 62/62 avant et après, ESLint
 `--max-warnings=0` sur les fichiers TypeScript touchés, `npm run typecheck`
 (avec `NODE_OPTIONS`), `git diff --check`, fichiers de calcul sans diff.
 `npm run build` et la suite critique complète n'ont pas été rejoués.
+
+## Annulation perdue (S2 instable, 18/10/2026)
+
+### Symptôme et run d'origine
+
+S2 (« … to the suggested value after their undo ») a échoué une fois dans la
+suite critique à 2 workers : clone WSL `~/miaouffrage-v1-selection-verify`,
+`E2E_ARMY_WORKERS=2 npm run e2e:army:ci -- critical --app-port 3174`, révision
+`ef0b8289` (branche `ci/v1-totals-journeys-in-pr-selection`, qui ne touche pas
+ce parcours ; `main` `c4c1e854` était passé une fois). Preuves :
+`.e2e/army/ci/2026-10-18T12-49-48-645Z-critical/`, `critical/report.json`
+SHA-256 `cb68401b9b22e987af3613cd2217730cf51c2e2cb8345d684b157bda9a5eba9d`,
+écran `critical/results/bulk-edit-sync-sources-bulk-edit-sync-suggestions-save-75d51a29ca977c20/attempt-1/screen-at-failure.txt`.
+Après le Ctrl+S de `reconcileStoredTotals` (12:52:26.837) et le statut
+« Sauvegardé/À jour » (12:52:27.060), le clic sur « Annuler les suggestions »
+(12:52:27.064, 32 ms) n'a rien écrit : `expect.poll(persistedKFo).toBe(1)`
+expire à 30 s, `k_fo` reste 1,3. À l'écran : bouton toujours proposé et
+**focalisé**, alerte « Des anomalies bloquantes… » au-dessus, aucun message
+d'erreur, « À jour ». Le journal réseau serveur (partagé par les deux workers)
+ne montre aucune écriture de S2 après l'application.
+
+### Diagnostic
+
+L'hypothèse d'un Ctrl+S encore en vol est écartée : l'application enregistre
+déjà les totaux (BT4), donc ce Ctrl+S ne trouve rien à réconcilier. Une trace
+temporaire dans le clone `~/miaouffrage-bes-flake` (jamais commitée), sur 30
+répétitions de S2 à 2 workers (vertes), relève à chaque fois
+`executeSave:result noop`. (« Dernière sauvegarde » de l'écran vient de
+`updated_at`, pas d'une sauvegarde.) Le clic n'atteint pas `undoLastApply`.
+Deux fenêtres font perdre un clic sur un bouton proposé et actif, sans message :
+
+1. **Fin de l'application.** `applySelected` affiche l'annulation dès les
+   lignes écrites, puis attend le retour d'usage de la règle
+   (`POST …/suggestion-rules/<id>/feedback`) ; `undoLastApply` refuse en
+   silence tant que `isApplyingRef` est vrai. Le bouton ne dépendait que de
+   `isSaveBlocked`.
+2. **Rechargement des conditions d'envoi.** Chaque écriture change
+   `updated_at`, donc la clé de préchargement de `useEstimateEditorStatusController`.
+   Le résultat précédent était masqué jusqu'à la nouvelle réponse : l'alerte
+   « anomalies bloquantes » se démontait puis se remontait, et décalait de
+   70 px tout ce qui la suit (relevé : bouton à y 306 puis 376, 165 ms après
+   l'accusé de l'application hors charge). Sous charge, la réponse tombe pendant
+   le clic : mousedown sur le bouton (d'où le focus), mouseup sur la mise en page
+   déplacée, `click` sur l'ancêtre commun, `onClick` jamais appelé. C'est
+   exactement l'écran du run d'origine.
+
+### Défaillances observables et scénario
+
+| Défaillance observable | Scénario et oracle (S2 renforcé) |
+| --- | --- |
+| U1. « Annuler les suggestions » cliqué pendant la fin de l'application est ignoré | Le retour d'usage de la règle est retenu par le parcours ; le bouton doit être **désactivé** tant qu'il est retenu, puis actif une fois relâché. |
+| U2. Le rechargement des conditions d'envoi déplace l'annulation sous le pointeur | La lecture `GET …/gating` provoquée par le nouveau jeton de l'application est retenue ; l'alerte « anomalies bloquantes » reste visible, ne se démonte jamais (observateur dans la page) et le centre du bouton ne bouge pas. L'appui (`mouse.down`) précède la réponse, le relâchement (`mouse.up`) la suit ; l'annulation doit écrire `k_fo` 1. |
+
+Le parcours retient ces deux requêtes (`holdNextRequest`, puis `fallback()`
+vers la route de la campagne) : il force la pire chronologie au lieu d'attendre
+qu'elle survienne. Preuve : `bulk-sync-s2-undo-press.json` (centres à l'appui et
+au relâchement, démontage de l'alerte, `k_fo`).
+
+### Correction
+
+- `useEstimateEditorState.impl.tsx` : `isUndoBulkSuggestDisabled` vaut
+  `isSaveBlocked || isApplyingBulkSuggest`.
+- `useEstimateEditorStatusController.ts` : le dernier résultat préchargé pour
+  la même version reste affiché pendant la lecture du nouveau jeton (le
+  préchargement retient la version, plus la clé de requête). Un brouillon d'une
+  autre version, un statut non brouillon ou une lecture en échec n'affichent
+  toujours rien. L'envoi ne lit pas ce préchargement : `requestSend` relit les
+  conditions et le serveur les applique. `beginOperation` n'abandonne plus la
+  lecture en cours (relevé de la revue) : sa réponse reste vérifiée contre la
+  version et son jeton, et l'abandonner laissait affichée celle du jeton
+  précédent jusqu'à l'écriture suivante.
+- Contrat isolé modifié : « masks stale gating while a new version token is
+  being checked » devient « keeps the draft's last gating shown… » (même
+  scénario, l'ancien résultat reste affiché jusqu'au nouveau). Ce masquage
+  datait de l'extraction des contrôleurs (`ca4dfb60`), sans raison consignée ;
+  le cas d'une autre version reste couvert par « projects empty gating… V1 to
+  V2 ».
+
+### Preuves (clone `~/miaouffrage-bes-flake`, base `c4c1e854`, WSL Ubuntu 24.04, Node 24.14.0, e2e 0.21.0)
+
+Boucle `E2E_ARMY_WORKERS=2 npm run e2e:army:dev-loop -- run --grep …` (itérations
+non qualifiantes), sous `.e2e/army/ci/2026-10-18T14-51-41-428Z-dev-loop/iterations/` :
+
+| Itération | Sources | Résultat | Manifeste SHA-256 |
+| --- | --- | --- | --- |
+| `007` | parcours seul | **rouge U1** : bouton actif pendant le retour d'usage retenu | `7c6ded2f…4500d0d` |
+| `008` | + correction U1 | U1 vert, **rouge U2** : alerte absente pendant la lecture retenue | `ddf1239b…eca` |
+| `009` | idem, sans l'attente de l'alerte | **rouge du run d'origine** : centre y 324 → 394 pendant l'appui, `k_fo` 1,3, bouton focalisé | `feaddf6c…6115` |
+| `011` | U1 + U2 | S2 vert, centre (1149, 394) inchangé, alerte jamais démontée, `k_fo` 1 | `9b3c46ae…2809` |
+| `012`–`014` | U1 + U2 | `--grep 'bulk edit sync'` 8/8 trois fois | `4c03863b…dbdf`, `16531917…d102`, `a6ce785f…5ce6` |
+
+Suite critique complète, `E2E_ARMY_WORKERS=2 npm run e2e:army:ci -- critical --app-port 3190`
+(pgTAP et matrice RLS réussis à chaque run) :
+
+- avant la revue, `.e2e/army/ci/2026-10-18T15-20-40-638Z-critical` (manifeste
+  `e5c02c66…a684b`, `report.json` `c2cbe551…2f8e9`) : **106/106**, ni instable ni ignoré ;
+- sources finales (suites de la revue : lecture des conditions conservée par
+  `beginOperation`, mesure du centre après deux images, appui relâché en
+  `finally`), `.e2e/army/ci/2026-10-18T15-33-30-955Z-critical` (manifeste
+  `0995e711…a143`, `report.json` `4156fc08…f34c`) : **106/106**, ni instable ni
+  ignoré ; S2 : centre (1149, 394) inchangé, alerte jamais démontée, `k_fo` 1.
+
+Empreintes des fichiers finaux exécutés : parcours `e9d88fda…4332`, état de
+l'éditeur `2c905a18…4857`, contrôleur de statut `7da3f6ff…2979`, son test
+`344e5e47…a8e5`. Vitest des contrôleurs de statut et de suggestions 37/37 ;
+`tsc --noEmit`, ESLint `--max-warnings=0` des fichiers touchés et
+`git diff --check` sans erreur. `npm run verify:pr` complet n'a pas été lancé.
+
+Limites : la trace et la sonde de répétition (S2 ×6, horodatages des montages
+et des évènements pointeur) ne sont pas commitées. L'attribution des requêtes du
+run d'origine reste partielle, car son journal serveur mêle les deux workers ;
+la cause est établie par la reproduction déterministe de son écran, pas par ce
+journal.

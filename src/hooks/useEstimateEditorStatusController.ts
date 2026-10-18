@@ -35,7 +35,7 @@ type RouteScope = {
 type GatingScope = Omit<RouteScope, "operationGeneration">;
 
 type PreloadedGatingSnapshot = {
-  requestKey: string;
+  versionId: string;
   value: EstimateSendGatingResponse | null;
 };
 
@@ -206,9 +206,13 @@ export function useEstimateEditorStatusController({
     activeVersionId === routeVersionId && activeVersionStatus === "draft"
       ? `${activeVersionId}:${activeVersionUpdatedAt ?? ""}:${gatingReloadToken}`
       : null;
+  // Every write gives the draft a new token, hence a new gating read. Until it answers, the last
+  // answer for this draft stays shown: dropping it unmounted the send-blocked alert and moved every
+  // control below it, so a click on « Annuler les suggestions » could miss it. Sending never reads
+  // this preload: requestSend fetches its own gating.
   const preloadedSendGating =
     preloadRequestKey &&
-    preloadedGatingSnapshot?.requestKey === preloadRequestKey
+    preloadedGatingSnapshot?.versionId === activeVersionId
       ? preloadedGatingSnapshot.value
       : null;
   const sendGating = workflowSendGating ?? preloadedSendGating;
@@ -284,7 +288,8 @@ export function useEstimateEditorStatusController({
     }
 
     operationGenerationRef.current += 1;
-    preloadGenerationRef.current += 1;
+    // The gating read in flight is kept: its answer is still checked against the version and its
+    // token, and dropping it left the previous token's answer shown until the next write.
     isOperationInProgressRef.current = true;
     const scope = {
       versionId: routeVersionId,
@@ -320,7 +325,7 @@ export function useEstimateEditorStatusController({
         updateStateForScope(activeVersionId, (current) => ({
           ...current,
           preloadedGatingSnapshot: {
-            requestKey: preloadRequestKey,
+            versionId: activeVersionId,
             value: result,
           },
         }));
@@ -334,7 +339,7 @@ export function useEstimateEditorStatusController({
           updateStateForScope(activeVersionId, (current) => ({
             ...current,
             preloadedGatingSnapshot: {
-              requestKey: preloadRequestKey,
+              versionId: activeVersionId,
               value: null,
             },
           }));

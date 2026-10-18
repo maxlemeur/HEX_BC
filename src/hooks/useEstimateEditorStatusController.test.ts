@@ -551,7 +551,9 @@ describe("useEstimateEditorStatusController gating preload", () => {
     expect(harness.result.current.state.sendGating).toEqual(secondGating);
   });
 
-  it("masks stale gating while a new version token is being checked", async () => {
+  // Hiding it until the new answer unmounted the send-blocked alert after every write and moved the
+  // controls below it (docs/testing/bulk-edit-sync-baseline.md, « Annulation perdue »).
+  it("keeps the draft's last gating shown while a new version token is being checked", async () => {
     const initialGating = createGating(false);
     const refreshedGating = createGating(true);
     const refreshRequest = createDeferred<EstimateSendGatingResponse>();
@@ -571,7 +573,8 @@ describe("useEstimateEditorStatusController gating preload", () => {
       })
     );
 
-    expect(harness.result.current.state.sendGating).toBeNull();
+    expect(harness.result.current.state.sendGating).toEqual(initialGating);
+    expect(harness.result.current.meta.isSendBlockedForCurrentUser).toBe(true);
 
     await act(async () => {
       refreshRequest.resolve(refreshedGating);

@@ -2813,7 +2813,9 @@ export function useEstimateEditorState({
       bulkSuggestAppliedCount,
       onUndoBulkSuggest: handleUndoBulkSuggest,
       isUndoingBulkSuggest,
-      isUndoBulkSuggestDisabled: isSaveBlocked,
+      // The undo is shown once the lines are written, while the apply still sends its rule feedback;
+      // undoLastApply refuses to run during the apply, so the button waits for its end.
+      isUndoBulkSuggestDisabled: isSaveBlocked || isApplyingBulkSuggest,
       importSummaryMessage,
       actionNotice,
       actionError: displayedActionError,
@@ -2833,6 +2835,7 @@ export function useEstimateEditorState({
       handleUndoBulkSuggest,
       importSummaryMessage,
       isAdmin,
+      isApplyingBulkSuggest,
       isDraftLockedByOther,
       isForcingDraftUnlock,
       hasRestorableDraft,
