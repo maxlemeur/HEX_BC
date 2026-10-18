@@ -166,3 +166,18 @@ Preuves (clone WSL `~/miaouffrage-l2-28b`, hôte partagé chargé, `E2E_ARMY_WOR
 | Marge de taille de la copie (faible) | Réel. La copie mesurait ses opérations en JSON compact avec 4 Kio de marge ; la base mesure leur texte jsonb (`": "` et `", "`, environ 37 Ko de plus pour 1 000 lignes). Entre les deux : 400 générique. La copie mesure désormais comme la base (`jsonbTextBytes`), la marge de 4 Kio reste pour l'écriture des nombres : 413 `ESTIMATE_V3_COPY_TOO_LARGE` nommé, rien d'écrit |
 | Documentation réhorodatée mécaniquement (faible) | Les lignes historiques (§6, budget L7) nomment la première version de la migration (alors `20261018160000`) et renvoient à la décision du §7 |
 | `main` a bougé (#60, #62, #65) | Fusionné : conflits `engine-v3-import-optima.e2e.ts` (deux imports gardés) et manifeste. `20261018172935` (ordre du contrat client 2) ne touche ni l'écrivain de lot ni le rejeu ; migration réhorodatée `20261018172303` → `20261018180306` (`supabase:migrations:restamp --base origin/main`, garde Git et manifeste passés) |
+
+Preuves (clone WSL `~/miaouffrage-l2-28b`, `E2E_ARMY_WORKERS=2`) :
+
+- **Rouge pgTAP** (profondeur), `dc476df1` (ancienne migration) :
+  `node --import tsx scripts/run-local-supabase-ci.ts --files estimate-calc-engine-v3-guards.test.sql --skip-rls`,
+  test 50 en échec pour la bonne raison : section sous le niveau 3 et ligne sous un niveau 4 écrites (`ok:true 8` ×4).
+  Journal `~/l2-28b-evidence/pgtap-red-depth-dc476df1-20261018T180733Z.log`.
+- **pgTAP complet et matrice RLS** : verts au démarrage de la boucle `.e2e/army/ci/2026-10-18T18-09-17-723Z-dev-loop`
+  (`6913164c`, migration corrigée), test 50 compris.
+- **Rouge IO13** (taille jsonb), itération 1 (`6913164c`, ancien code de copie) : `[400, false,
+  "ESTIMATE_BATCH_INVALID_INPUT"]`, sans renvoi vers l'affaire, rien d'écrit.
+- **Verts**, itération 2 (`cc92f1e5`, `--files` `engine-v3-import-optima`, `large-row-completeness` du propriétaire,
+  `engine-v3-editor-actions`, `engine-v3-creators`) : 45/45 en 360 s. IO13 : bande jsonb → 413 nommé, rien d'écrit ;
+  à la limite → 201, 999 lignes avec provenance, total 129 870 (API = SQL), route entière 4 032 ms sous la charge de
+  deux travailleurs (non affirmé) ; IO14 : 1 001 lignes, 130 130 (API = SQL).
