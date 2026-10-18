@@ -5,11 +5,12 @@ import {
   recordEvidence, waitForAutoSave, type ArmyItem, type ArmyState, type OwnedEstimate,
 } from "./fixtures";
 import { expectStoredTotals, reconcileStoredTotals, type StoredTotals } from "./version-totals-support";
+import { ownedEstimateContext } from "../local/calculation-gate-support";
+import { signUpDedicatedOwner, type DedicatedOwner } from "../local/dedicated-owner";
 
 type Ui = Parameters<typeof createEstimateViaWizard>[0];
 type Envelope<T> = { ok: boolean; data: T; error?: { code: string; message: string } };
 type UiMode = "Expert" | "Simplifié";
-type Cleanup = () => Promise<void>;
 
 // Failure plan (S1, S2, P1; P2 is not reachable): docs/testing/bulk-edit-sync-baseline.md.
 const options = { session: "army", tags: ["critical", "bulk-edit-sync"], timeout: 300_000 };
@@ -49,38 +50,26 @@ const modeSwitch = (navigation: Locator, mode: UiMode) =>
 const currentUiMode = async (navigation: Locator): Promise<UiMode> =>
   (await modeSwitch(navigation, "Expert").isVisible()) ? "Expert" : "Simplifié";
 
-// The mode is stored on the shared account's profile: change it through the real
-// switch and wait until a reloaded page reads it back.
-async function setUiMode(ui: Ui, mode: UiMode) {
-  const initial = await withNavigationDrawer(ui, async (navigation) => {
-    const current = await currentUiMode(navigation);
-    if (current !== mode) await modeSwitch(navigation, current).click();
-    await expect(modeSwitch(navigation, mode)).toBeVisible();
-    return current;
+// Both actions sit in the Expert-only « Contrôles avancés ». The UI mode is stored on the account's
+// profile and suggestion rules are tenant-wide: switching the shared campaign account leaks into the
+// other worker's journeys, and a lost restore into the rest of the run
+// (docs/testing/version-totals-after-bulk-actions.md, « Mode Expert du compte partagé »). Each journey
+// therefore runs as its own disposable owner, born in Expert mode on the owned stack.
+async function withExpertOwner(ui: Ui, army: ArmyState, label: string, run: (owner: DedicatedOwner) => Promise<void>) {
+  const owner = await signUpDedicatedOwner(ui.browser, ui.app.baseUrl!, army.runPrefix, { tag: "BES", uiMode: "expert" });
+  await ui.app.open("/dashboard/affaires");
+  const uiMode = await withNavigationDrawer(ui, currentUiMode);
+  await recordEvidence(army, `bulk-sync-${label}-owner`, {
+    owner: { tenantId: owner.tenantId, userId: owner.userId }, storedMode: owner.uiMode, uiMode,
   });
-  await expect.poll(async () => {
-    await ui.browser.reload();
-    return withNavigationDrawer(ui, currentUiMode);
-  }, { timeout: 30_000, interval: 1_000 }).toBe(mode);
-  return initial;
+  expect(uiMode).toBe("Expert");
+  await run(owner);
 }
 
-// Expert mode and the tenant-wide rule are shared state: always restore them.
-async function withSharedState(ui: Ui, army: ArmyState, label: string, run: (cleanups: Cleanup[]) => Promise<void>) {
-  const cleanups: Cleanup[] = [];
-  let initialMode: UiMode | null = null;
-  try {
-    await ui.app.open("/dashboard/affaires");
-    initialMode = await setUiMode(ui, "Expert");
-    await run(cleanups);
-  } finally {
-    for (const cleanup of [...cleanups].reverse()) await cleanup();
-    await ui.app.open("/dashboard/affaires");
-    if (initialMode && initialMode !== "Expert") await setUiMode(ui, initialMode);
-    await recordEvidence(army, `bulk-sync-${label}-restored`, {
-      initialMode, restoredMode: await withNavigationDrawer(ui, currentUiMode), cleanups: cleanups.length,
-    });
-  }
+// The journey's estimate belongs to its dedicated owner and tenant, not to the shared account.
+async function expectOwnedBy(owner: DedicatedOwner, ids: OwnedEstimate) {
+  const context = await ownedEstimateContext(ids.projectId);
+  expect({ tenantId: context.tenantId, userId: context.userId }).toEqual({ tenantId: owner.tenantId, userId: owner.userId });
 }
 
 async function openEditor(ui: Ui, versionId: string) {
@@ -132,27 +121,21 @@ async function saveAndRecord(
   }
 }
 
-async function suggestionJourney(ui: Ui, army: ArmyState, label: string, cleanups: Cleanup[]) {
+async function suggestionJourney(ui: Ui, army: ArmyState, owner: DedicatedOwner, label: string) {
   const { browser, screen } = ui;
   const title = `${army.runPrefix} ${label} suggestion`;
   const ids = await createEstimateViaWizard(ui, { projectName: army.projectName, title }, army);
+  await expectOwnedBy(owner, ids);
   // Still on the editor page: the API calls below share its draft-lock session.
   const line = await createLineViaApi(browser, ids.versionId, title);
   expect([line.k_fo, line.k_mo, line.description ?? null, line.category_id ?? null]).toEqual([1, 1, null, null]);
-  // The exact title as keyword keeps this tenant-wide rule away from other ARMY lines.
+  // A tenant-wide rule, in the owner's own tenant; the exact title as keyword targets this line.
   const created = await createdData(await apiRequest<Envelope<Record<string, { id: string }>>>(
     browser, "POST", `/api/estimates/${ids.versionId}/suggestion-rules`,
     { name: `${army.runPrefix} ${label} K FO`, match_value: title, k_fo: 1.3, is_active: true },
   ));
   const rule = created.suggestion_rule ?? created.suggestionRule ?? created.rule ?? (created as unknown as { id: string });
   expect(rule.id).toMatch(/^[0-9a-f-]{36}$/i);
-  cleanups.push(async () => {
-    // Rule writes require the editor's draft lock: retry until the reopened editor holds it.
-    await openEditor(ui, ids.versionId);
-    await expect.poll(async () => (await apiRequest(browser, "PATCH",
-      `/api/estimates/${ids.versionId}/suggestion-rules/${rule.id}`, { is_active: false })).status,
-    { timeout: 30_000, interval: 1_000 }).toBe(200);
-  });
   await recordEvidence(army, `bulk-sync-${label.toLowerCase()}-rule`, {
     versionId: ids.versionId, itemId: line.id, ruleId: rule.id, keyword: title, kFo: 1.3,
   });
@@ -181,8 +164,8 @@ armyTest(
   options,
   async ({ app, screen, browser, army }) => {
     const ui = { app, screen, browser };
-    await withSharedState(ui, army, "s1", async (cleanups) => {
-      const { ids, line, cell, persistedKFo } = await suggestionJourney(ui, army, "S1", cleanups);
+    await withExpertOwner(ui, army, "s1", async (owner) => {
+      const { ids, line, cell, persistedKFo } = await suggestionJourney(ui, army, owner, "S1");
       // BT4: applying the suggestions stores the version totals of their lines, not a later save.
       await expectStoredTotals(browser, army, { estimate: ids, step: "bulk-sync-s1-apply", expected: AT_K_FO_1_3 });
       await cell.fill("1");
@@ -201,8 +184,8 @@ armyTest(
   options,
   async ({ app, screen, browser, army }) => {
     const ui = { app, screen, browser };
-    await withSharedState(ui, army, "s2", async (cleanups) => {
-      const { ids, line, cell, persistedKFo } = await suggestionJourney(ui, army, "S2", cleanups);
+    await withExpertOwner(ui, army, "s2", async (owner) => {
+      const { ids, line, cell, persistedKFo } = await suggestionJourney(ui, army, owner, "S2");
       // BT5: the undo stores its own totals. The manual save first brings the stored totals to the
       // lines, so that a stale apply (BT4) cannot hide a stale undo.
       await reconcileStoredTotals({ browser, screen }, army, { estimate: ids, step: "bulk-sync-s2-apply", expected: AT_K_FO_1_3 });
@@ -226,9 +209,10 @@ armyTest(
   options,
   async ({ app, screen, browser, army }) => {
     const ui = { app, screen, browser };
-    await withSharedState(ui, army, "p1", async () => {
+    await withExpertOwner(ui, army, "p1", async (owner) => {
       const designation = `${army.runPrefix} P1 article`;
       const ids = await createEstimateViaWizard(ui, { projectName: army.projectName, title: `${army.runPrefix} P1 devis` }, army);
+      await expectOwnedBy(owner, ids);
       // Only the two read-only catalogue lookups of this owned project are allowed.
       army.ownedPriceLookupProjects = [ids.projectId];
       const product = (await createdData(await apiRequest<Envelope<{ item: { id: string } }>>(browser, "POST", "/api/products", {
