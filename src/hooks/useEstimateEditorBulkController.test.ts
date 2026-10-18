@@ -94,11 +94,19 @@ function createLine(
   };
 }
 
-const TOTALS_PATCH = {
-  total_ht_cents: 750,
-  total_tax_cents: 150,
-  total_ttc_cents: 900,
-};
+// Stands for the editor's persisted-totals calculation: the sums of the rows it receives, so that
+// a call on the wrong rows sends wrong totals.
+function totalsOf(rows: EditorEstimateItem[]) {
+  const lines = rows.filter((row) => row.item_type === "line");
+  const sum = (
+    key: "line_total_ht_cents" | "line_tax_cents" | "line_total_ttc_cents"
+  ) => lines.reduce((total, row) => total + (row[key] ?? 0), 0);
+  return {
+    total_ht_cents: sum("line_total_ht_cents"),
+    total_tax_cents: sum("line_tax_cents"),
+    total_ttc_cents: sum("line_total_ttc_cents"),
+  };
+}
 
 function createBulkResult(updatedAt: string, updatedCount = 1) {
   return {
@@ -137,6 +145,7 @@ function createHarness(input: HarnessInput = {}) {
     (message: string) => `public:${message}`
   );
   const normalizeLine = vi.fn((item: EditorEstimateItem) => item);
+  const computeVersionTotalsPatch = vi.fn(totalsOf);
   const applyVersionToken = vi.fn((updatedAt: string) => {
     if (version) {
       version = { ...version, updated_at: updatedAt };
@@ -166,7 +175,7 @@ function createHarness(input: HarnessInput = {}) {
       reportError,
       resolveErrorMessage,
       normalizeLine,
-      computeVersionTotalsPatch: () => TOTALS_PATCH,
+      computeVersionTotalsPatch,
       applyVersionToken,
       markItemsSynced,
       ensureGroupedActionCanProceed,
@@ -188,6 +197,7 @@ function createHarness(input: HarnessInput = {}) {
     reportError,
     resolveErrorMessage,
     normalizeLine,
+    computeVersionTotalsPatch,
     applyVersionToken,
     ensureGroupedActionCanProceed,
     handleVersionConflict,
@@ -299,7 +309,7 @@ describe("useEstimateEditorBulkController", () => {
           }),
         }),
       ],
-      TOTALS_PATCH
+      { total_ht_cents: 1500, total_tax_cents: 200, total_ttc_cents: 1200 }
     );
     expect(harness.getItems()[0]).toMatchObject({
       h_mo_majoration: 1.5,
@@ -337,7 +347,7 @@ describe("useEstimateEditorBulkController", () => {
           }),
         }),
       ],
-      TOTALS_PATCH
+      { total_ht_cents: 2800, total_tax_cents: 200, total_ttc_cents: 1200 }
     );
     expect(harness.applyVersionToken.mock.calls.map(([token]) => token)).toEqual(
       ["token-majoration", "token-role"]
@@ -389,6 +399,90 @@ describe("useEstimateEditorBulkController", () => {
         "token-category-redo",
       ]
     );
+    expect(
+      harness.computeVersionTotalsPatch.mock.calls.map(([rows]) =>
+        rows.map((row) => row.category_id)
+      )
+    ).toEqual([["category-new"], ["category-old"], ["category-new"]]);
+  });
+
+  it("sends the totals of the rows after each write with the action, its undo and its redo", async () => {
+    const target = createLine("line-target");
+    const other = createLine("line-other", {
+      position: 2,
+      line_total_ht_cents: 300,
+      line_tax_cents: 60,
+      line_total_ttc_cents: 360,
+    });
+    const harness = createHarness({ items: [target, other] });
+    harness.normalizeLine.mockImplementation((item) => ({
+      ...item,
+      line_total_ht_cents: 1500,
+      line_tax_cents: 300,
+      line_total_ttc_cents: 1800,
+    }));
+    const recalculated = {
+      total_ht_cents: 1801,
+      total_tax_cents: 360,
+      total_ttc_cents: 2161,
+    };
+    clientMocks.bulkUpdateEstimateItems
+      .mockResolvedValueOnce(createBulkResult("token-apply"))
+      .mockResolvedValueOnce(createBulkResult("token-undo"))
+      .mockResolvedValueOnce({
+        ...createBulkResult("token-redo"),
+        totals: recalculated,
+      });
+
+    await act(async () => {
+      await harness.result.current.actions.applyBulkMajoration([target.id], 1.5);
+    });
+    const command = readHistoryCommand(harness.pushHistoryCommand);
+    await act(async () => {
+      await command.undo();
+    });
+    await act(async () => {
+      await command.redo();
+    });
+
+    // Every row of the editor, the target as each write leaves it.
+    expect(
+      harness.computeVersionTotalsPatch.mock.calls.map(([rows]) =>
+        rows.map((row) => [row.id, row.h_mo_majoration, row.line_total_ht_cents])
+      )
+    ).toEqual([
+      [
+        ["line-target", 1.5, 1500],
+        ["line-other", 1, 300],
+      ],
+      [
+        ["line-target", 1, 1000],
+        ["line-other", 1, 300],
+      ],
+      [
+        ["line-target", 1.5, 1500],
+        ["line-other", 1, 300],
+      ],
+    ]);
+    const applied = {
+      total_ht_cents: 1800,
+      total_tax_cents: 360,
+      total_ttc_cents: 2160,
+    };
+    const restored = {
+      total_ht_cents: 1300,
+      total_tax_cents: 260,
+      total_ttc_cents: 1560,
+    };
+    expect(
+      clientMocks.bulkUpdateEstimateItems.mock.calls.map((call) => call[3])
+    ).toEqual([applied, restored, applied]);
+    // A v1 draft stores the patch as sent; a v2 draft returns the totals it recalculated.
+    expect(harness.applyVersionToken.mock.calls).toEqual([
+      ["token-apply", applied],
+      ["token-undo", restored],
+      ["token-redo", recalculated],
+    ]);
   });
 
   it("applies, undoes and redoes a bulk move with stable selected order", async () => {
@@ -456,6 +550,11 @@ describe("useEstimateEditorBulkController", () => {
     expect(
       clientMocks.bulkUpdateEstimateItems.mock.calls.map((call) => call[1])
     ).toEqual(["token-initial", "token-move-apply", "token-move-undo"]);
+    // A move changes no amount: its write carries no version totals (see applyBulkLineState).
+    expect(harness.computeVersionTotalsPatch).not.toHaveBeenCalled();
+    expect(
+      clientMocks.bulkUpdateEstimateItems.mock.calls.map((call) => call[3])
+    ).toEqual([undefined, undefined, undefined]);
   });
 
   it.each([
