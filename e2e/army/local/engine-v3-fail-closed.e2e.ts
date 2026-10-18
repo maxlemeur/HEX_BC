@@ -128,16 +128,18 @@ armyTest("V3FC01 a v3 opens behind the engine banner, shows no v1 total and is n
 // tient plus. E2E-03 porte désormais sur une v3 que le moteur 3 ne peut pas figer : la ligne chiffrée de la
 // fixture n'a pas d'unité (D9) et ses montants stockés sont périmés (0). Sous le bail de la page (pour qu'un
 // refus ne soit pas un artefact de verrou), la publication est refusée par son nom avant toute réclamation.
-// Revue 2.7 (§10.6) : l'aperçu d'impression et les exports XLSX standard et DPGF de ce brouillon, qui le
-// présentent par le moteur pur sans le figer, le refusent par le même nom (rouge : page d'erreur et 500
-// INTERNAL_ERROR, le préparateur levant ESTIMATE_V3_STORED_INCOHERENT pendant le rendu).
+// Revue 2.7 (docs/testing/estimate-engine-v3-2.7.md §12) : l'aperçu d'impression et les exports XLSX
+// standard et DPGF de ce brouillon, qui le présentent par le moteur pur sans le figer, le refusent par le
+// même nom (rouge : page d'erreur et 500 INTERNAL_ERROR, le préparateur levant
+// ESTIMATE_V3_STORED_INCOHERENT pendant le rendu).
 // L'envoi n'est ici qu'un contrôle de configuration, pas une preuve du moteur 3 : la campagne critique n'a
 // pas de fournisseur et `getRequiredEnvVar("RESEND_API_KEY")` refuse avant toute relecture, tout gel et toute
 // réservation, quel que soit le moteur. Le refus nommé de l'envoi d'une v3 sans unité, avec un fournisseur,
-// est prouvé par V3M01 (phase calc-v3 emission-v3, collecteur sentinelle).
+// est prouvé par V3M04 (phase calc-v3 emission-v3, collecteur sentinelle).
 const UNIT_REQUIRED = "Une unité est requise sur chaque ligne chiffrée avant le gel.";
 const PRINT_REFUSAL = `Le document client de ce devis ne peut pas être préparé : ${UNIT_REQUIRED}`;
-const ROUTE_ERROR = "Cette page n’a pas pu être chargée";
+// Titre de la limite d'erreur des chiffrages (src/app/dashboard/estimates/error.tsx), qui couvre l'impression.
+const ROUTE_ERROR = "Ce chiffrage n’a pas pu être chargé";
 const NO_PROVIDER = "Configuration email manquante: RESEND_API_KEY.";
 
 armyTest("V3FC02 publishing, printing or exporting a v3 that engine 3 cannot freeze is refused by name, and no document, envelope or status change is left (send: configuration refusal)", options, async ({ app, browser, army }) => {
