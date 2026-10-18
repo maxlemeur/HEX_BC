@@ -138,6 +138,11 @@ export function computeEstimateQualityFlagsForItem(
   options?: EstimateQualityComputationOptions
 ): EstimateQualityFlagKey[] {
   if (item.item_type !== "line") return [];
+  // Lot 2, sous-lot 2.6b (G1) : une ligne v3 non chiffrée (incluse, pour mémoire, hors lot…) n'a aucun montant
+  // (P-09 : le moteur 3 l'exclut du HT et de la TVA) ; aucun contrôle de qualité ne s'y applique, pas même la
+  // quantité (46 des 79 lignes de statut du lot OPTIMA hydraulique n'en ont pas). Une ligne v1/v2 est toujours
+  // « priced » (déclencheur M4) : ses drapeaux ne changent pas.
+  if ((item.pricing_status ?? "priced") !== "priced") return [];
 
   const flags: EstimateQualityFlagKey[] = [];
   const quantity = parsePositiveNumber(item.quantity);

@@ -249,8 +249,16 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
+      # In the background: Chromium and its system libraries install while the
+      # stack, the database checks and the build run (about 20 s off the job).
+      # The runner waits for the exit-code file before the journeys and fails
+      # with install.log when the install failed (ARMY_BROWSER_INSTALL_DIR).
       - name: Install TesterArmy Chromium
-        run: npx @e2e-dev/web install chromium --with-deps
+        run: |
+          set -euo pipefail
+          directory="$RUNNER_TEMP/army-browser-install"
+          mkdir -p "$directory"
+          nohup bash -c 'npx @e2e-dev/web install chromium --with-deps > "$1/install.log" 2>&1; echo $? > "$1/exit-code.tmp"; mv "$1/exit-code.tmp" "$1/exit-code"' install "$directory" > /dev/null 2>&1 &
       # Next's webpack cache of the Army build (.e2e/army/next/cache, outside
       # the build fingerprint of build-local.mjs). Every shard restores the
       # latest one main saved; only shard 1 of a push to main saves its own.
@@ -283,6 +291,7 @@ jobs:
           ARMY_SHARD: ${{ matrix.shard }}/${{ matrix.total }}
           # Opt-in: unset, run-tester-army-ci keeps db reset.
           ARMY_DB_SNAPSHOT_DIR: ${{ runner.temp }}/army-db-snapshot
+          ARMY_BROWSER_INSTALL_DIR: ${{ runner.temp }}/army-browser-install
         run: node --import tsx scripts/run-tester-army-ci.ts critical --shard "$ARMY_SHARD" ${ARMY_FILES:+--files "$ARMY_FILES"}
       # Only shard 1 of a push to main saves, the snapshot only after a cache
       # miss; a failed recording leaves no directory (the save step then warns,
@@ -396,9 +405,14 @@ jobs:
       - name: Install dependencies
         if: needs.army-select.outputs.full_only_mode != 'none'
         run: npm ci
+      # In the background, as in the critical shards.
       - name: Install TesterArmy Chromium
         if: needs.army-select.outputs.full_only_mode != 'none'
-        run: npx @e2e-dev/web install chromium --with-deps
+        run: |
+          set -euo pipefail
+          directory="$RUNNER_TEMP/army-browser-install"
+          mkdir -p "$directory"
+          nohup bash -c 'npx @e2e-dev/web install chromium --with-deps > "$1/install.log" 2>&1; echo $? > "$1/exit-code.tmp"; mv "$1/exit-code.tmp" "$1/exit-code"' install "$directory" > /dev/null 2>&1 &
       # Restore only: shard 1 of army-critical saves both caches on a push to main.
       - name: Restore the Army Next build cache
         if: needs.army-select.outputs.full_only_mode != 'none'
@@ -421,6 +435,7 @@ jobs:
           ARMY_FILES: ${{ needs.army-select.outputs.full_only_files }}
           # Opt-in: unset, run-tester-army-ci keeps db reset.
           ARMY_DB_SNAPSHOT_DIR: ${{ runner.temp }}/army-db-snapshot
+          ARMY_BROWSER_INSTALL_DIR: ${{ runner.temp }}/army-browser-install
         run: node --import tsx scripts/run-tester-army-ci.ts full ${ARMY_FILES:+--files "$ARMY_FILES"}
       # The selection itself is retained by army-select (army-critical-selection).
       - name: Retain sanitized business evidence

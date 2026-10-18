@@ -26,7 +26,14 @@ type SuggestionUpdatePayload = Pick<
 
 type RankedSuggestion = SuggestionScore<SuggestionRuleRow>;
 
-export type BulkSuggestPatch = SuggestionUpdatePayload;
+/**
+ * Lot 2, sous-lot 2.6b (A15) : champ qui reçoit l'unité d'une règle. v1/v2 : `description` (historique, inchangé) ;
+ * v3 : `unit_code`, proposé avec le texte de la règle sur une ligne qui n'en a pas ; l'appelant le résout dans le
+ * référentiel (une unité inconnue y est refusée par son nom, sans écriture).
+ */
+export type BulkSuggestUnitTarget = "description" | "unit_code";
+
+export type BulkSuggestPatch = SuggestionUpdatePayload & Pick<EstimateItemUpdate, "unit_code">;
 type BulkSuggestPreviewField = BulkSuggestionField;
 
 export type BulkSuggestPreviewChange = {
@@ -216,15 +223,36 @@ function buildPreviewChanges(
     .filter((entry): entry is BulkSuggestPreviewChange => entry !== null);
 }
 
+/**
+ * v3 : l'unité proposée va dans `unit_code`, jamais dans `description`, et seulement sur une ligne sans unité du
+ * référentiel (une règle ne remplace pas une unité choisie, comme en v1/v2 où elle ne remplace pas `description`).
+ * Les lignes éligibles restent celles de v1/v2 (2.6) ; une suggestion réduite à rien est écartée.
+ */
+function toUnitCodeSuggestion(
+  suggestion: BulkSuggestion
+): { patch: BulkSuggestPatch; diff: BulkSuggestionDiffEntry[] } | null {
+  if (!("description" in suggestion.updates)) {
+    return { patch: suggestion.updates, diff: suggestion.diff };
+  }
+  const { description, ...rest } = suggestion.updates;
+  if (suggestion.line.unit_code) {
+    const diff = suggestion.diff.filter((entry) => entry.field !== "description");
+    return hasPatchValue(rest) && diff.length > 0 ? { patch: rest, diff } : null;
+  }
+  return { patch: { ...rest, unit_code: description ?? null }, diff: suggestion.diff };
+}
+
 export function buildBulkSuggestPreview(input: {
   items: EstimateItemRow[];
   suggestionRules: SuggestionRuleRow[];
   categories: EstimateCategoryRow[];
   limit?: number;
+  unitTarget?: BulkSuggestUnitTarget;
 }): BulkSuggestPreviewItem[] {
   const categoryById = new Map<string, EstimateCategoryRow>(
     input.categories.map((category) => [category.id, category])
   );
+  const unitCodeTarget = input.unitTarget === "unit_code";
 
   const { suggestions } = computeBulkSuggestions({
     items: input.items,
@@ -232,15 +260,21 @@ export function buildBulkSuggestPreview(input: {
     suggestionLimit: input.limit,
   });
 
-  return suggestions.map((suggestion) => ({
-    itemId: suggestion.lineId,
-    itemTitle: suggestion.line.title,
-    ruleId: suggestion.rule.id,
-    ruleName: suggestion.rule.name,
-    score: suggestion.score,
-    patch: suggestion.updates,
-    changes: buildPreviewChanges(suggestion, categoryById),
-  }));
+  return suggestions.flatMap((suggestion) => {
+    const target = unitCodeTarget
+      ? toUnitCodeSuggestion(suggestion)
+      : { patch: suggestion.updates, diff: suggestion.diff };
+    if (!target) return [];
+    return [{
+      itemId: suggestion.lineId,
+      itemTitle: suggestion.line.title,
+      ruleId: suggestion.rule.id,
+      ruleName: suggestion.rule.name,
+      score: suggestion.score,
+      patch: target.patch,
+      changes: buildPreviewChanges({ ...suggestion, diff: target.diff }, categoryById),
+    }];
+  });
 }
 
 function isNeutralCoefficient(value: number | null | undefined) {

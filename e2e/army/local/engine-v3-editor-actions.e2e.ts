@@ -13,6 +13,7 @@ import {
   openV3Editor, pause, prepareV3Draft, readConsistent, releaseVersion, seedLines, settingsDialog, switchToExpertMode,
   waitForDraftLease, type Envelope, type LineView, type Ui, type V3Draft,
 } from "./engine-v3-editor-support";
+import { insertProjectMarginRule } from "./engine-v3-persistence-support";
 
 // Lot 2, sous-lot 2.6 (revue du 18/10/2026) — actions de la grille et du tiroir d'une v3 autres que la saisie d'une
 // cellule, écrites rouges avant leurs corrections. Défaillances F26-10 (complément) et F26-21 à F26-32, contrat et
@@ -32,13 +33,19 @@ import {
 //          action modèle de la fiche fermée par son nom ; depuis la fusion de 2.7 (émission v3), le PDF y est ouvert
 //          (doc 2.7 §13 ; sa génération par la fiche est prouvée par V3M05) ;
 //  V3E15 — fusion de 2.7 : l'éditeur d'une v3 propose « Exporter Excel » et « Exporter DPGF » (routes serveur de 2.7,
-//          classeurs v3), et garde « Exporter CSV » et « Exporter BDC V1.1 » fermés (P-20 ; doc 2.7 §13) ;
+//          classeurs v3) ; « Exporter CSV » et « Exporter BDC V1.1 » y sont ouverts par 2.7b (D-a ; V3X03 à V3X05) ;
 //  V3E12 — suggestions en lot appliquées et annulées par l'écrivain v3 ;
 //  V3E13 — collage de lignes écrit par l'écrivain v3 (unité du référentiel, jamais description ni heures totales), et
 //          son annulation (sous-lot 2.8, qui lève le refus nommé de la revue du 2.6) ;
 //  V3E14 — un enregistrement des réglages v3 (« Oui » à la propagation de la TVA) ferme l'annulation d'une majoration
 //          en lot et celle des suggestions, qui réécriraient l'ancien taux (fusion de la PR #41 avec 2.6,
 //          docs/testing/version-totals-after-bulk-actions.md).
+// Sous-lot 2.6b (docs/testing/estimate-engine-v3-2.6b.md), écrits rouges avant leurs corrections :
+//  V3E16 — G1 : lignes inc / PM / HL d'une v3 à 0 € sans prix ni temps manquant (porte d'envoi, éditeur) ; garde v2 ;
+//  V3E17 — éditeur mobile (375 × 812) : unité du référentiel et heures par unité, gel v3 accepté ;
+//  V3E18 — restauration d'un brouillon en conflit par l'écrivain v3, jamais la marge v2 ;
+//  V3E19 — unité d'une règle de suggestion écrite dans unit_code en lot et sur une ligne ; unité inconnue refusée par
+//          son nom ; une unité choisie n'est jamais remplacée (revue de 2.6b, A15).
 // Le refus générique du moteur 3 (bandeau de 2.1) n'est jamais une issue admise d'une action de la grille v3.
 const options = (timeout: number) => ({ session: "army", tags: ["critical", "local", "engine-v3"], timeout }) as const;
 
@@ -787,7 +794,7 @@ armyTest("V3E11 a 0 % discount saves without a pending state, a stored rounding 
     expect(detail, "the v3 draft detail page opens the PDF and closes the template by name").toEqual(expectedDetail);
   });
 
-armyTest("V3E15 the v3 editor offers the Excel and DPGF exports, which stream the v3 workbooks, and keeps the CSV and BDC exports closed",
+armyTest("V3E15 the v3 editor offers the Excel, DPGF, CSV and BDC exports; Excel and DPGF stream the v3 workbooks",
   options(420_000), async ({ app, screen, browser, army }) => {
     const ui: Ui = { app, screen, browser };
     const dialogs = await recordDialogs(ui);
@@ -831,9 +838,10 @@ armyTest("V3E15 the v3 editor offers the Excel and DPGF exports, which stream th
       compact: compactEnabled, compactExcel: compactItems.excel, compactCsv: compactItems.csv,
       menuExcel: menu.excel?.enabled ?? null, menuCsv: menu.csv?.enabled ?? null, dpgf: menu.dpgf?.enabled ?? null, bdc: menu.bdc?.enabled ?? null,
     };
-    const expectedStates = { compact: true, compactExcel: true, compactCsv: false, menuExcel: true, menuCsv: false, dpgf: true, bdc: false };
+    // 2.7b (D-a, docs/testing/estimate-engine-v3-2.7b.md) ouvre le CSV et le BDC d'une v3 : V3X03 à V3X05 en prouvent le contenu.
+    const expectedStates = { compact: true, compactExcel: true, compactCsv: true, menuExcel: true, menuCsv: true, dpgf: true, bdc: true };
     await recordEvidence(army, "v3e15-export-actions", { versionId: draft.versionId, expected: expectedStates, actual: states, menu });
-    expect(states, "the v3 editor opens Excel and DPGF and keeps CSV and BDC closed (P-20)").toEqual(expectedStates);
+    expect(states, "the v3 editor opens Excel, DPGF, CSV and BDC (P-20, D-a)").toEqual(expectedStates);
 
     // Chaque export est la réponse 200 de sa route, téléchargée par l'éditeur et relue par ExcelJS.
     const exported = async (url: RegExp, trigger: () => Promise<void>) => {
@@ -1098,5 +1106,387 @@ armyTest("V3E14 a v3 settings save that applies its VAT rate to every line close
         },
       },
       screen: { chips: chips(atTenPercent, "10") },
+    });
+  });
+
+/* ---------- Lot 2, sous-lot 2.6b : G1 et limites restantes de l'éditeur v3 (docs/testing/estimate-engine-v3-2.6b.md) ---------- */
+
+type GatingFlag = { key: string; severity: string; item_ids: string[] };
+type Gating = { canSend: boolean; blockingFlags: GatingFlag[]; warningFlags: GatingFlag[] };
+const statusLine = (title: string, pricingStatus: string, nature = "supply_and_labor") => ({
+  ...supply(title, 1, 0), line_nature: nature, unit_code: null, pricing_status: pricingStatus,
+});
+
+async function readGating(ui: Ui, versionId: string) {
+  const response = await apiRequest<Envelope<{ gating: Gating }>>(ui.browser, "GET", `/api/estimates/${versionId}/gating`);
+  expect([response.status, response.body.ok]).toEqual([200, true]);
+  return response.body.data.gating;
+}
+
+/** Ids flagged by one quality check, whatever its severity, restricted to the given lines. */
+function flaggedIds(gating: Gating, key: string, ids: readonly string[]) {
+  return [...gating.blockingFlags, ...gating.warningFlags].filter(flag => flag.key === key)
+    .flatMap(flag => flag.item_ids).filter(id => ids.includes(id)).sort();
+}
+
+/** Quality dots of the editor rows (LineRow « estimate-quality-dot--<flag> »), per line id. */
+async function qualityDots(ui: Ui, ids: readonly string[]) {
+  return ui.browser.evaluate((lineIds) => Object.fromEntries(lineIds.map((id) => [id,
+    Array.from(document.querySelectorAll(`[data-estimate-item-id="${id}"] .estimate-quality-dot`))
+      .map(node => Array.from(node.classList).find(name => name.startsWith("estimate-quality-dot--"))?.slice("estimate-quality-dot--".length) ?? "")
+      .filter(flag => flag === "missing-price" || flag === "missing-labor-time").sort()])), ids);
+}
+
+armyTest("V3E16 included, for-memory and out-of-scope v3 lines at 0 € raise no missing price or labour time, in the send gating and the editor; a v2 line at 0 € still blocks",
+  options(300_000), async ({ app, screen, browser, army }) => {
+    const ui: Ui = { app, screen, browser };
+    const dialogs = await recordDialogs(ui);
+    const draft = await prepareV3Draft(ui, army, "V3E16");
+    const title = (ref: string) => `${army.runPrefix} ${ref}`;
+    // P : 2 ml, 15,00 € + 1 h/u (40 €/h) = 135,00 € HT (V3E08) ; inc, PM, HL : statuts à 0 € (P-09), comme l'import d'OPTIMA.
+    const [lineP, lineInc, linePm, lineHl] = await seedLines(ui, army, draft, "v3e16", [
+      withLabor(title("P"), 2, 1500, 1, draft.tuyauteurId, { unit_code: "ml" }),
+      statusLine(title("inc"), "included", "supply_only"), statusLine(title("PM"), "for_memory"), statusLine(title("HL"), "out_of_scope"),
+    ]);
+    const statusIds = [lineInc.id, linePm.id, lineHl.id];
+    const seeded = await readConsistent(ui, draft.versionId);
+    expect(totalsOf(seeded)).toEqual([13500, 2700, 16200]);
+
+    // G1 : la porte d'envoi (celle de POST /send, lue par la fenêtre d'envoi) ne lève ni prix ni temps manquant sur un statut.
+    // Sur main, l'émission v3 reste fermée jusqu'au 2.7 : seule l'absence de PDF bloque encore (no_pdf_generated).
+    const gating = await readGating(ui, draft.versionId);
+    const gatingView = {
+      blocking: gating.blockingFlags.map(flag => flag.key).sort(), canSend: gating.canSend,
+      missingPrice: flaggedIds(gating, "missing_price", [lineP.id, ...statusIds]),
+      missingLaborTime: flaggedIds(gating, "missing_labor_time", [lineP.id, ...statusIds]),
+    };
+    await recordEvidence(army, "v3e16-v3-gating", { versionId: draft.versionId, statusIds, gating, actual: gatingView });
+    expect(gatingView, "status lines of a v3 raise no missing price or labour time in the send gating").toEqual({
+      blocking: ["no_pdf_generated"], canSend: false, missingPrice: [], missingLaborTime: [],
+    });
+
+    // Garde v1/v2 : une ligne v2 « HL » à 0 € (mention dans description) reste un prix manquant qui bloque l'envoi.
+    // Avant toute navigation : le bail de l'ancre v2, pris par ensureTuyauteur, appartient à la session de ce document.
+    await lockVersion(browser, draft.anchorId);
+    const anchor = await readEstimate(browser, draft.anchorId);
+    const section = await apiRequest<Envelope<{ item: ArmyItem }>>(browser, "POST", `/api/estimates/${draft.anchorId}/items`,
+      { item_type: "section", position: 1, title: title("lot v2") }, { "if-match": anchor.version.updated_at });
+    expect([section.status, section.body.ok]).toEqual([201, true]);
+    const afterSection = await readEstimate(browser, draft.anchorId);
+    const v2Line = await apiRequest<Envelope<{ item: ArmyItem }>>(browser, "POST", `/api/estimates/${draft.anchorId}/items`,
+      { item_type: "line", parent_id: section.body.data.item.id, position: 1, title: title("HL v2"), description: "HL", quantity: 1,
+        unit_price_ht_cents: 0, line_nature: "supply_only" }, { "if-match": afterSection.version.updated_at });
+    expect([v2Line.status, v2Line.body.ok]).toEqual([201, true]);
+    await releaseVersion(browser, draft.anchorId);
+    const v2Gating = await readGating(ui, draft.anchorId);
+    const v2View = {
+      blocking: v2Gating.blockingFlags.map(flag => flag.key).includes("missing_price"), canSend: v2Gating.canSend,
+      missingPrice: flaggedIds(v2Gating, "missing_price", [v2Line.body.data.item.id]),
+      severity: v2Gating.blockingFlags.find(flag => flag.key === "missing_price")?.severity ?? null,
+    };
+    await recordEvidence(army, "v3e16-v2-gating", { versionId: draft.anchorId, lineId: v2Line.body.data.item.id, gating: v2Gating, actual: v2View });
+    expect(v2View, "a v2 line at 0 € still blocks the send by missing price").toEqual({
+      blocking: true, canSend: false, missingPrice: [v2Line.body.data.item.id], severity: "blocking",
+    });
+
+    // Même règle dans l'éditeur : aucune pastille « Prix manquant » ni « Temps MO manquant » sur les lignes de statut.
+    await openV3Editor(ui, army, draft, "v3e16");
+    await waitForDraftLease(ui);
+    const empty = Object.fromEntries([lineP.id, ...statusIds].map(id => [id, [] as string[]]));
+    let dots = await qualityDots(ui, [lineP.id, ...statusIds]);
+    const deadline = Date.now() + 15_000;
+    while (JSON.stringify(dots) !== JSON.stringify(empty) && Date.now() < deadline) {
+      await pause(750);
+      dots = await qualityDots(ui, [lineP.id, ...statusIds]);
+    }
+    await recordEvidence(army, "v3e16-editor-dots", { versionId: draft.versionId, actual: dots, nativeDialogs: dialogs });
+    expect(dots, "the v3 editor shows no missing price or labour time on status lines").toEqual(empty);
+  });
+
+/**
+ * The critical browser guard aborts every POST …/approve, by design (V3P01's probe): from the journey process to the
+ * owned app, for the owned v3 only, with the empty provider key of the owned runner. Submitting for review freezes the
+ * v3 by the same SQL freeze as the emission (ESTIMATE_V3_UNIT_REQUIRED on a priced line without unit), the only v3
+ * freeze open on main until 2.7.
+ */
+async function submitForReview(ui: Ui, versionId: string, ruleId: string, message: string) {
+  if (process.env.RESEND_API_KEY !== "") throw new Error("The v3 approval probe requires the empty provider key of the owned runner.");
+  const origin = new URL(ui.app.baseUrl!).origin;
+  if (!/^http:\/\/localhost:\d+$/.test(origin)) throw new Error("The v3 approval probe targets the owned loopback app only.");
+  const cookie = (await ui.browser.cookies())
+    .filter(entry => !entry.domain || entry.domain === "localhost" || entry.domain === ".localhost")
+    .map(entry => `${entry.name}=${entry.value}`).join("; ");
+  const response = await fetch(`${origin}/api/estimates/${versionId}/approve`, {
+    method: "POST", redirect: "manual",
+    headers: { cookie, origin, "content-type": "application/json", "x-estimate-draft-lock-session-id": randomUUID() },
+    body: JSON.stringify({ action: "submit_for_review", rule_ids: [ruleId], submission_message: message }),
+  });
+  let body: Envelope<unknown> | { invalidJson: true };
+  try { body = await response.json() as Envelope<unknown>; } catch { body = { invalidJson: true }; }
+  return { status: response.status, body };
+}
+
+armyTest("V3E17 at phone width the mobile line editor of a v3 writes unit_code from the referential and hours per unit, and the v3 freeze accepts the line",
+  options(360_000), async ({ app, screen, browser, army }) => {
+    const ui: Ui = { app, screen, browser };
+    const dialogs = await recordDialogs(ui);
+    const draft = await prepareV3Draft(ui, army, "V3E17");
+    // L : 2 × 10,00 € (FO × 1,30 = 26,00 €), sans unité ni heures ; « ml » et 1,5 h/u à 40 €/h × 1,20 → 2 × 85,00 = 170,00 € HT.
+    // HL : ligne de statut à 0 € (P-09), sans unité.
+    const [line, outOfScope] = await seedLines(ui, army, draft, "v3e17", [
+      { ...withLabor(`${army.runPrefix} mobile`, 2, 1000, 0, draft.tuyauteurId), unit_code: null },
+      statusLine(`${army.runPrefix} mobile HL`, "out_of_scope")]);
+    const typed: Totals = [17000, 3400, 20400];
+    await switchToExpertMode(ui);
+    await openV3Editor(ui, army, draft, "v3e17");
+    await waitForDraftLease(ui);
+    await browser.setViewport({ width: 375, height: 812 });
+    // À 375 px, la grille cède la place à la liste mobile (MobileEstimateList) : chaque ligne ouvre l'éditeur mobile.
+    const trigger = browser.locator(`[data-testid="estimate-mobile-line-${line.id}"]`);
+    await expect(trigger).toBeVisible({ timeout: 30_000 });
+    // Revue 2.6b : la liste ne prête pas l'unité « u » d'une v1/v2 à une ligne v3 sans unité (le gel la refuserait),
+    // ni à une ligne de statut, qui affiche son statut.
+    const listMetaOf = (id: string) => browser.evaluate((lineId) => document
+      .querySelector(`[data-testid="estimate-mobile-line-${lineId}"] .estimate-mobile-line__meta .tabular-nums`)?.textContent?.trim() ?? null, id);
+    const listBefore = { line: await listMetaOf(line.id), status: await listMetaOf(outOfScope.id) };
+    await trigger.click();
+    const editor = screen.getByTestId("estimate-mobile-line-editor");
+    await expect(editor).toBeVisible({ timeout: 30_000 });
+
+    await editor.getByLabel(`Unité pour ${line.title}`, { exact: true }).fill("ml");
+    await browser.keyboard.press("Tab");
+    const hoursPerUnit = editor.getByLabel(`Heures de main-d’œuvre par unité pour ${line.title}`, { exact: true });
+    const fields = {
+      hoursPerUnit: (await hoursPerUnit.count()) === 1,
+      lineHours: (await editor.getByLabel(`Heures de main-d’œuvre pour ${line.title}`, { exact: true }).count()) === 1,
+    };
+    if (fields.hoursPerUnit) {
+      await hoursPerUnit.fill("1,5");
+      await browser.keyboard.press("Tab");
+    }
+    await editor.getByRole("button", "Terminer", { exact: true }).tap();
+    await expect(editor).toBeHidden({ timeout: 30_000 });
+    // Sur téléphone, « Sauvegarder maintenant » du menu « Plus d'actions » (l'enregistrement automatique attend 60 s).
+    await screen.getByTestId("estimate-page-toolbar-more-actions-button", { visible: true }).tap();
+    await screen.getByTestId("estimate-page-toolbar-save-now-button", { visible: true }).tap();
+    const saved = await waitState(ui, draft.versionId, (state) => {
+      const item = lineByTitle(state, line.title);
+      return item?.unit_code === "ml" && Number(item?.h_mo_per_unit) === 1.5 && sameTotals(state, typed);
+    });
+    const savedLine = lineByTitle(saved, line.title);
+    // La liste mobile affiche l'unité du référentiel de la ligne v3 (« 2 × ml »), jamais description.
+    const listMeta = await listMetaOf(line.id);
+    const view = {
+      fields, line: pickLine(savedLine, ["unit", "status", "quantity", "hPerUnit", "hMo", "pu", "net"]),
+      description: savedLine?.description ?? null, listBefore, listMeta, totals: totalsOf(saved), genericRefusal: await genericRefusalShown(ui),
+    };
+    await recordEvidence(army, "v3e17-mobile", { versionId: draft.versionId, lineId: line.id, actual: view, nativeDialogs: dialogs });
+    expect(view, "the mobile line editor of a v3 writes unit_code and hours per unit through the v3 writer").toEqual({
+      fields: { hoursPerUnit: true, lineHours: false },
+      line: { unit: "ml", status: "priced", quantity: 2, hPerUnit: 1.5, hMo: 3, pu: 8500, net: 17000 },
+      description: null, listBefore: { line: "2 × sans unité", status: "Hors lot" }, listMeta: "2 × ml", totals: typed, genericRefusal: false,
+    });
+
+    // Le gel v3 (celui de l'émission, ouvert sur main par la demande d'approbation) accepte la ligne : elle a son unité.
+    await browser.setViewport({ width: 1280, height: 900 });
+    const ruleId = await insertProjectMarginRule(draft.owner, draft.projectId, 5000);
+    const submitted = await submitForReview(ui, draft.versionId, ruleId, `${army.runPrefix} gel mobile`);
+    const frozen = await readConsistent(ui, draft.versionId);
+    const freezeView = {
+      status: submitted.status, ok: (submitted.body as Envelope<unknown>).ok ?? null,
+      code: (submitted.body as Envelope<unknown>).error?.code ?? null, approvalStatus: frozen.version.approval_status,
+      frozenRevision: Number(frozen.version.calc_snapshot_content_revision) === Number(frozen.version.content_revision),
+      totals: totalsOf(frozen),
+    };
+    await recordEvidence(army, "v3e17-freeze", { versionId: draft.versionId, ruleId, submitted, actual: freezeView });
+    expect(freezeView, "the v3 freeze accepts the line edited on a phone").toEqual({
+      status: 201, ok: true, code: null, approvalStatus: "in_review", frozenRevision: true, totals: typed,
+    });
+  });
+
+armyTest("V3E18 restoring a conflicting local draft on a v3 writes its v3 inputs through the v3 writer, with engine-3 amounts",
+  options(300_000), async ({ app, screen, browser, army }) => {
+    const ui: Ui = { app, screen, browser };
+    const dialogs = await recordDialogs(ui);
+    const draft = await prepareV3Draft(ui, army, "V3E18");
+    // L : 2 u × (10,00 € × 1,30 + 1 h/u × 40 €/h × 1,20) = 122,00 € HT. Brouillon : « ml », 1,5 h/u → 2 × 85,00 = 170,00 €.
+    const [line] = await seedLines(ui, army, draft, "v3e18", [withLabor(`${army.runPrefix} brouillon`, 2, 1000, 1, draft.tuyauteurId)]);
+    const initial: Totals = [12200, 2440, 14640];
+    const restored: Totals = [17000, 3400, 20400];
+    // Mode Expert : le pied affiche les jetons TVA et TTC que le point de contrôle relit (comme V3E17 et V3E19).
+    await switchToExpertMode(ui);
+    await openV3Editor(ui, army, draft, "v3e18");
+    await waitForDraftLease(ui);
+    const before = await readConsistent(ui, draft.versionId);
+    expect(totalsOf(before)).toEqual(initial);
+
+    // Le brouillon que l'éditeur conserve en session après un conflit d'enregistrement (editor-drafts.ts,
+    // « estimate:edit:conflict-draft:<version> ») : les lignes telles que l'éditeur les tenait, saisies v3 comprises,
+    // et ses réglages (forme v2, ici une marge × 1,25 qu'une v3 ne porte pas).
+    const draftItems = before.items.map(item => item.id === line.id
+      ? { ...item, unit_code: "ml", h_mo_per_unit: 1.5 } : item);
+    const settings = { margin_mode: "fixed", margin_multiplier: 1.25, margin_bp: 2500, discount_bp: 0, tax_rate_bp: 2000, currency: "EUR" };
+    await browser.evaluate((entry) => {
+      const [key, value] = entry as [string, string];
+      sessionStorage.setItem(key, value);
+      return true;
+    }, [`estimate:edit:conflict-draft:${draft.versionId}`,
+      JSON.stringify({ settings, items: draftItems, saved_at: new Date().toISOString() })]);
+    await browser.reload();
+    await expect(grid(ui)).toBeVisible({ timeout: 60_000 });
+    await waitForDraftLease(ui);
+    const restore = screen.getByTestId("estimate-editor-alert-restore-draft-button");
+    await expect(restore).toBeVisible({ timeout: 30_000 });
+    await restore.tap();
+    // Les lignes restaurées restent en attente : Ctrl+S les enregistre (l'enregistrement automatique attend 60 s).
+    await expect(restore).toBeHidden({ timeout: 30_000 });
+    // Revue 2.6b (A14) : aucun réglage v2 n'est repris ; sinon l'état passerait à « Non sauvegardé » et Ctrl+S
+    // enregistrerait ce paramétrage (marge × 1,25) au lieu des lignes.
+    const textOf = (testId: string) => browser.evaluate((id) =>
+      document.querySelector(`[data-testid="${id}"]`)?.textContent?.replace(/\s+/g, " ").trim() ?? null, testId);
+    const afterRestore = {
+      notice: await textOf("estimate-editor-alert-action-notice"), saveStatus: await textOf("estimate-page-toolbar-autosave-status"),
+    };
+    await browser.keyboard.press("ControlOrMeta+s");
+    const after = await waitState(ui, draft.versionId, (state) => {
+      const item = lineByTitle(state, line.title);
+      return item?.unit_code === "ml" && Number(item?.h_mo_per_unit) === 1.5 && sameTotals(state, restored);
+    });
+    const restoredLine = lineByTitle(after, line.title);
+    const view = {
+      line: pickLine(restoredLine, ["unit", "status", "quantity", "hPerUnit", "hMo", "pu", "net"]),
+      description: restoredLine?.description ?? null, totals: totalsOf(after),
+      version: { marginMultiplier: Number(after.version.margin_multiplier), saleCoefficients: [Number(after.version.sale_coefficient_fo), Number(after.version.sale_coefficient_mo)] },
+      genericRefusal: await genericRefusalShown(ui), afterRestore,
+    };
+    await recordEvidence(army, "v3e18-restored", { versionId: draft.versionId, lineId: line.id, actual: view, nativeDialogs: dialogs });
+    expect(view, "a restored v3 draft writes its v3 inputs through the v3 writer, never the v2 margin").toEqual({
+      line: { unit: "ml", status: "priced", quantity: 2, hPerUnit: 1.5, hMo: 3, pu: 8500, net: 17000 },
+      description: null, totals: restored, version: { marginMultiplier: 1, saleCoefficients: [1.3, 1.2] }, genericRefusal: false,
+      afterRestore: { notice: "Modifications locales restaurées. Les lignes restent en attente de synchronisation.", saveStatus: "En attente" },
+    });
+    await checkpoint(ui, army, "v3e18-restored", draft.versionId, {
+      api: { version: { totals: restored }, lines: { [line.id]: { unit: "ml", hPerUnit: 1.5, net: 17000 } } },
+      screen: { chips: chips(restored) },
+    });
+  });
+
+armyTest("V3E19 a suggestion rule's unit is written to unit_code on a v3 in bulk and on one line, never over a chosen unit, and a unit unknown to the referential is refused by name in bulk and on one line",
+  options(420_000), async ({ app, screen, browser, army }) => {
+    const ui: Ui = { app, screen, browser };
+    const dialogs = await recordDialogs(ui);
+    const draft = await prepareV3Draft(ui, army, "V3E19");
+    const title = (ref: string) => `${army.runPrefix} ${ref}`;
+    // G, T et H sans unité (brouillon admis, D9) ; K, à 0 €, a déjà son unité (u) : une règle ne la remplace ni en lot
+    // ni sur sa ligne (A15). La règle de K porte aussi un K FO : sa suggestion reste affichée et appliquée sans l'unité
+    // (revue de 2.6b, A15-L). Chaque désignation porte seule le mot-clé de sa règle.
+    const [lineG, lineT, lineH, lineK] = await seedLines(ui, army, draft, "v3e19", [
+      { ...supply(title("gaine"), 2, 1000), unit_code: null }, { ...supply(title("fourreau"), 1, 500), unit_code: null },
+      { ...supply(title("chemin"), 1, 0), unit_code: null }, supply(title("corniere"), 1, 0)]);
+    const totals: Totals = [3250, 650, 3900];
+    await lockVersion(browser, draft.versionId);
+    const rules: unknown[] = [];
+    for (const [name, keyword, unit, extra] of [["G", "gaine", "ML", {}], ["T", "fourreau", "boite", {}], ["H", "chemin", "M2", {}],
+      ["K", "corniere", "M2", { k_fo: 1.25 }]] as const) {
+      const rule = await apiRequest<Envelope<Record<string, { id: string }>>>(browser, "POST", `/api/estimates/${draft.versionId}/suggestion-rules`,
+        { name: `${army.runPrefix} unite ${name}`, match_value: keyword, unit, is_active: true, ...extra });
+      rules.push(rule);
+      expect([200, 201]).toContain(rule.status);
+      expect(rule.body.ok).toBe(true);
+    }
+    await releaseVersion(browser, draft.versionId);
+    await recordEvidence(army, "v3e19-rules", { versionId: draft.versionId, rules });
+    await switchToExpertMode(ui);
+    await openV3Editor(ui, army, draft, "v3e19");
+    await waitForDraftLease(ui);
+    const unitOf = (state: ArmyEstimate, id: string) => {
+      const item = state.items.find(candidate => candidate.id === id);
+      return { unit: (item?.unit_code as string | null | undefined) ?? null, description: item?.description ?? null };
+    };
+    const kFoOf = (state: ArmyEstimate, id: string) => Number(state.items.find(candidate => candidate.id === id)?.k_fo);
+
+    // En lot : l'unité inconnue « boite » est refusée par son nom, sans rien écrire ; « ML » devient unit_code = ml. K n'y
+    // propose que son K FO ; il est décoché pour être appliqué sur sa ligne.
+    await screen.getByRole("tab", /^Affichage & contrôle(?: \d+)?$/).tap();
+    await screen.getByTestId("estimate-editor-display-button", { visible: true }).tap();
+    const review = screen.getByTestId("estimate-editor-bulk-suggestions-button");
+    await expect(review).toHaveText("Examiner 4 suggestions", { timeout: 30_000 });
+    await review.tap();
+    const suggestions = screen.getByRole("dialog", "Application en masse des suggestions", { exact: true });
+    await expect(suggestions).toBeVisible({ timeout: 30_000 });
+    const beforeApply = await readConsistent(ui, draft.versionId);
+    await suggestions.getByRole("button", "Appliquer", { exact: true }).tap();
+    const refusal = "Unité inconnue du référentiel : « boite ».";
+    const refused = await becomes(async () => apostrophes(normalized(await suggestions.textContent())).includes(refusal), 15_000);
+    const afterRefusal = await readConsistent(ui, draft.versionId);
+    const refusalView = {
+      refused, revision: afterRefusal.version.content_revision === beforeApply.version.content_revision,
+      lines: [unitOf(afterRefusal, lineG.id), unitOf(afterRefusal, lineT.id), unitOf(afterRefusal, lineH.id)],
+    };
+    await recordEvidence(army, "v3e19-bulk-refused", { versionId: draft.versionId, expected: refusal, actual: refusalView,
+      dialogText: (await suggestions.isVisible()) ? normalized(await suggestions.textContent()) : null });
+    expect(refusalView, "a rule unit unknown to the referential is refused by name, nothing written").toEqual({
+      refused: true, revision: true, lines: [{ unit: null, description: null }, { unit: null, description: null }, { unit: null, description: null }],
+    });
+    await suggestions.getByLabel(`Sélectionner la ligne ${lineT.title}`, { exact: true }).uncheck();
+    await suggestions.getByLabel(`Sélectionner la ligne ${lineH.title}`, { exact: true }).uncheck();
+    await suggestions.getByLabel(`Sélectionner la ligne ${lineK.title}`, { exact: true }).uncheck();
+    await suggestions.getByRole("button", "Appliquer", { exact: true }).tap();
+    const applied = await waitState(ui, draft.versionId, (state) => unitOf(state, lineG.id).unit === "ml");
+    const appliedView = { lines: [unitOf(applied, lineG.id), unitOf(applied, lineT.id), unitOf(applied, lineH.id)], totals: totalsOf(applied), genericRefusal: await genericRefusalShown(ui) };
+    await recordEvidence(army, "v3e19-bulk-applied", { versionId: draft.versionId, actual: appliedView, nativeDialogs: dialogs });
+    expect(appliedView, "a bulk rule unit is written to unit_code on a v3").toEqual({
+      lines: [{ unit: "ml", description: null }, { unit: null, description: null }, { unit: null, description: null }], totals, genericRefusal: false,
+    });
+
+    // Sur une ligne : la suggestion « boite » sous T est refusée par son nom, sans rien écrire.
+    if (await suggestions.isVisible()) await browser.keyboard.press("Escape");
+    await expect(suggestions).toBeHidden({ timeout: 30_000 });
+    await screen.getByRole("tab", "Chiffrage", { exact: true }).tap();
+    // The row suggestion of a rule names it (EstimateSuggestionRow « estimate-suggestion__rule »): it is marked, then applied.
+    const markRowSuggestion = (rule: string) => browser.evaluate((entry) => {
+      const [ruleName, target] = entry as [string, string];
+      const row = Array.from(document.querySelectorAll(".estimate-suggestion"))
+        .find(node => (node.querySelector(".estimate-suggestion__rule")?.textContent ?? "").trim().startsWith(ruleName));
+      row?.setAttribute("data-army-target", target);
+      return Boolean(row);
+    }, [`${army.runPrefix} unite ${rule}`, `v3e19-${rule}`]);
+    expect(await becomes(() => markRowSuggestion("T"), 30_000), "the row suggestion of T is shown").toBe(true);
+    const beforeOne = await readConsistent(ui, draft.versionId);
+    await browser.locator("[data-army-target=\"v3e19-T\"] .estimate-suggestion__actions .btn-primary").click();
+    const oneRefused = await becomes(async () => (await pageText(ui)).includes(apostrophes(refusal)), 15_000);
+    await pause(2_000);
+    const afterOne = await readConsistent(ui, draft.versionId);
+    const oneView = {
+      refused: oneRefused, revision: afterOne.version.content_revision === beforeOne.version.content_revision,
+      line: unitOf(afterOne, lineT.id),
+    };
+    await recordEvidence(army, "v3e19-one-line", { versionId: draft.versionId, actual: oneView, nativeDialogs: dialogs });
+    expect(oneView, "one line's rule unit unknown to the referential is refused by name, nothing written").toEqual({
+      refused: true, revision: true, line: { unit: null, description: null },
+    });
+
+    // Sur une ligne sans unité, une unité connue (« M2 ») va dans unit_code, jamais dans description. Sur K, déjà en
+    // « u », la même unité n'est ni proposée ni écrite : la suggestion n'y affiche et n'y applique que son K FO, une unité
+    // choisie est gardée, comme en lot (revue de 2.6b, A15-L).
+    expect(await becomes(() => markRowSuggestion("H"), 30_000), "the row suggestion of H is shown").toBe(true);
+    expect(await becomes(() => markRowSuggestion("K"), 30_000), "the row suggestion of K is shown for its K FO").toBe(true);
+    const kParts = normalized(await browser.evaluate(() =>
+      document.querySelector("[data-army-target=\"v3e19-K\"] .estimate-suggestion__list")?.textContent ?? ""));
+    await browser.locator("[data-army-target=\"v3e19-H\"] .estimate-suggestion__actions .btn-primary").click();
+    expect(await becomes(() => markRowSuggestion("K"), 30_000), "the row suggestion of K is still shown").toBe(true);
+    await browser.locator("[data-army-target=\"v3e19-K\"] .estimate-suggestion__actions .btn-primary").click();
+    await browser.keyboard.press("ControlOrMeta+s");
+    const oneApplied = await waitState(ui, draft.versionId, (state) => unitOf(state, lineH.id).unit !== null && kFoOf(state, lineK.id) === 1.25);
+    const oneAppliedView = {
+      chosenUnitProposed: kParts.includes("Unité"), kFoProposed: kParts.includes("K FO:"),
+      lines: [unitOf(oneApplied, lineG.id), unitOf(oneApplied, lineT.id), unitOf(oneApplied, lineH.id), unitOf(oneApplied, lineK.id)],
+      kFo: kFoOf(oneApplied, lineK.id), totals: totalsOf(oneApplied), genericRefusal: await genericRefusalShown(ui),
+    };
+    await recordEvidence(army, "v3e19-one-line-applied", { versionId: draft.versionId, kParts, actual: oneAppliedView, nativeDialogs: dialogs });
+    expect(oneAppliedView, "one line's known rule unit is written to unit_code on a v3, never over a chosen unit").toEqual({
+      chosenUnitProposed: false, kFoProposed: true,
+      lines: [{ unit: "ml", description: null }, { unit: null, description: null }, { unit: "m2", description: null }, { unit: "u", description: null }],
+      kFo: 1.25, totals, genericRefusal: false,
     });
   });
