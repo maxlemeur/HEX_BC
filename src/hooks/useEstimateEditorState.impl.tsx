@@ -543,7 +543,11 @@ export function useEstimateEditorState({
   const getPersistedTotals = useCallback(() => persistedTotalsRef.current, []);
   const applyRestoredDraft = useCallback(
     (draft: EstimateEditorConflictDraft) => {
-      if (draft.settings) {
+      // Lot 2, sous-lot 2.6b (A14) : les réglages d'un brouillon local ont la forme v2 (marge, mode, paliers) ; une v3
+      // ne les reprend jamais (sa marge vient des coefficients de vente, réglés et enregistrés par le tiroir v3) ; ses
+      // lignes restaurées partent par la charge v3 (saisies seulement).
+      const isV3Draft = resolveEditorEngineContext(versionRef.current).isV3;
+      if (draft.settings && !isV3Draft) {
         setSettings({
           ...draft.settings,
           currency: resolveEstimateCurrency(
@@ -573,6 +577,8 @@ export function useEstimateEditorState({
         restoredItems,
         skippedItemCount:
           draft.items.length - restoredItems.length + serverOnlyItems.length,
+        buildItemPayload: isV3Draft ? buildEstimateV3ItemUpdatePayload : buildEstimateItemUpdatePayload,
+        settingsRestored: Boolean(draft.settings) && !isV3Draft,
       };
     },
     []
@@ -1274,6 +1280,7 @@ export function useEstimateEditorState({
     qualityFlagsByItemId,
     qualityCounts,
     isLaborSplitEnabled,
+    isV3,
     reportError: setActionError,
     resolveErrorMessage: resolveEstimateActionError,
   });
@@ -2790,12 +2797,12 @@ export function useEstimateEditorState({
         onOpenVersionZeroDialog: handleOpenVersionZeroDialog,
         versionZeroActionLabel,
         isVersionZeroActionDisabled,
-        // Excel et DPGF : GET …/export, ouvert à une v3 par 2.7 (v3-export.ts). Sur une v3 restent fermés le CSV,
-        // construit par le client (editor-export.ts), et le BDC (P-20, décision du porteur requise).
+        // Excel et DPGF : GET …/export, ouvert à une v3 par 2.7 (v3-export.ts). CSV et BDC V1.1 d'une v3 : même route,
+        // ouverts par 2.7b (D-a ; v3-csv-export.ts, branche v3 de bdc-export.ts) ; le drapeau CSV suit alors le streaming.
         isExcelExportDisabled: isStreamingExportDisabled,
         isDpgfExportDisabled: isStreamingExportDisabled,
-        isCsvExportDisabled: isCsvExportDisabled || isV3,
-        isBdcExportDisabled: isStreamingExportDisabled || isV3,
+        isCsvExportDisabled,
+        isBdcExportDisabled: isStreamingExportDisabled,
         isExporting,
         exportLoadingLabel,
         activeExportMode,

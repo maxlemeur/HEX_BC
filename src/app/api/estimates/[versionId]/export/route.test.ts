@@ -80,7 +80,7 @@ describe("estimate export route", () => {
     vi.clearAllMocks();
   });
 
-  it("returns 400 when format is not xlsx", async () => {
+  it("returns 400 when format is neither xlsx nor csv", async () => {
     const response = await GET(
       new Request(`http://localhost/api/estimates/${VERSION_ID}/export?format=pdf`, {
         method: "GET",
@@ -97,7 +97,7 @@ describe("estimate export route", () => {
         ok: false,
         error: expect.objectContaining({
           code: "BAD_REQUEST",
-          message: "Seul le format xlsx est supporte.",
+          message: "Format d'export invalide. Valeurs supportees: xlsx, csv.",
         }),
       })
     );

@@ -4912,7 +4912,8 @@ export async function resumeEstimateBatchOperation(identity: EstimateBatchIdenti
 
 export async function exportEstimate(
   versionId: string,
-  format: "xlsx" = "xlsx",
+  /** csv : CSV d'une v3 écrit par le serveur (sous-lot 2.7b) ; celui d'une v1/v2 reste construit par l'éditeur. */
+  format: "xlsx" | "csv" = "xlsx",
   options: {
     mode?: EstimateExportMode;
   } = {}

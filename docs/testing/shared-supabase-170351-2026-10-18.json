@@ -1,0 +1,348 @@
+{
+  "schemaVersion": "shared-supabase-170351-1",
+  "dateEuropeParis": "2026-10-18",
+  "project": "ijropnynpwjbllievrip",
+  "authorization": "Owner in chat, 18/10/2026 ~19:20 Europe/Paris: « applique la migration » (20261018170351_complete_estimate_insertion_receipts). No other migration, no calc policy, no data write, no deployment, never supabase db push.",
+  "source": {
+    "originMain": "f1a5a74bd292bb1b6b7bce3afec8989a3f77948f",
+    "lastFileCommit": "33c7031be14a605ed0129ac1aa8f0dc6c7a22a27 (fix(supabase): prevent silent truncation of complete reads, 2026-10-18T17:04:22Z)",
+    "file": "supabase/migrations/20261018170351_complete_estimate_insertion_receipts.sql",
+    "gitBlob": "213b7dce699270540f80106d7b6dcec0adbaa274",
+    "bytes": 1597,
+    "lines": 33,
+    "lineEndings": "LF",
+    "nonAscii": false,
+    "sha256": "249383335136dcc915d6f586c4f36e6f063da3385808e5ca08208378857e3c09",
+    "manifestSha256": "249383335136dcc915d6f586c4f36e6f063da3385808e5ca08208378857e3c09",
+    "sha256MatchesManifest": true,
+    "md5": "d0d50c23266ffd969f50857f6a3ee20e",
+    "content": {
+      "creates": [
+        "public.insert_estimate_template_with_receipt(uuid,uuid,uuid) returns jsonb, language sql, volatile, SECURITY INVOKER, search_path=''",
+        "public.insert_estimate_assembly_with_receipt(uuid,uuid,uuid) returns jsonb, language sql, volatile, SECURITY INVOKER, search_path=''"
+      ],
+      "grants": "revoke all from public, anon; grant execute to authenticated (both functions)",
+      "doesNotTouch": "public.commit_estimate_batch, any table, column, trigger, policy or data",
+      "expectedBodyMd5": {
+        "public.insert_estimate_template_with_receipt": "1fa6ef008fd7b1bdbb9e5958af64fc51",
+        "public.insert_estimate_assembly_with_receipt": "973274c43655c01b9311e3f5fb54de7b"
+      }
+    }
+  },
+  "briefDiscrepancy": "The computed brief said the file CREATE OR REPLACEs three functions including public.commit_estimate_batch and asked to check SECURITY DEFINER. The file on origin/main creates only the two *_with_receipt functions, both SECURITY INVOKER. commit_estimate_batch was therefore captured as an unchanged control.",
+  "preconditions": {
+    "capturedAtUtc": "2026-10-18 17:17:15 - 17:21:27",
+    "reader": "postgres (bypasses RLS)",
+    "history": {
+      "migrationsTotal": 304,
+      "lastMigration": {
+        "version": "20261018165014",
+        "name": "20261018102840_estimate_offer_client_contract_v2"
+      },
+      "m5Present": true,
+      "targetRows": 0,
+      "repoMigrationsOnOriginMain": 255,
+      "repoMigrationsUnmatchedByNameOrVersion": [
+        "20260714120000_preserve_assembly_cost_details (historical; replaced replace_estimate_assembly_items and insert_estimate_assembly_into_version, both later redefined)",
+        "20260714134334_use_assembly_cost_coefficients (historical; replaced replace_estimate_assembly_items, later redefined)",
+        "20260718014058_protect_takeoff_replace_with_recovery (empty file, 0 bytes)",
+        "20261018170351_complete_estimate_insertion_receipts (the target)"
+      ],
+      "unmatchedAssessment": "The three historical gaps are pre-existing and were present for M5/M6 (303-304 remote rows). They are not dependencies of this migration; its only dependencies, insert_estimate_template_into_version and insert_estimate_assembly_into_version, have the latest repo bodies (M6 20261017225906) on the shared base."
+    },
+    "functions": {
+      "public.insert_estimate_template_with_receipt(uuid,uuid,uuid)": {
+        "present": false
+      },
+      "public.insert_estimate_assembly_with_receipt(uuid,uuid,uuid)": {
+        "present": false
+      },
+      "anyWithReceiptFunctionInPublicOrPrivate": 0,
+      "public.insert_estimate_template_into_version(uuid,uuid,uuid)": {
+        "role": "dependency",
+        "bodyMd5": "8bf2070fec1c8fbbdf6ad881ca9208a4",
+        "equalsLatestRepoBody(M6)": true,
+        "result": "SETOF estimate_items",
+        "language": "plpgsql",
+        "owner": "postgres",
+        "securityDefiner": false,
+        "proconfig": "search_path=public",
+        "acl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+        "functiondefMd5": "050ff839f79255b738efcbc684adf21c"
+      },
+      "public.insert_estimate_assembly_into_version(uuid,uuid,uuid)": {
+        "role": "dependency",
+        "bodyMd5": "e5ee6c9bca61a4687281ef75be94db98",
+        "equalsLatestRepoBody(M6)": true,
+        "result": "SETOF estimate_items",
+        "language": "plpgsql",
+        "owner": "postgres",
+        "securityDefiner": false,
+        "proconfig": "search_path=\"\"",
+        "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+        "functiondefMd5": "279f27b4e856051930b51501cf16f0d0"
+      },
+      "public.commit_estimate_batch(uuid,uuid,timestamptz,uuid,jsonb,jsonb,jsonb,jsonb,jsonb,jsonb)": {
+        "role": "control (not in the file)",
+        "bodyMd5": "dcd1bcc4240da7db06814ca3ff06bcfb",
+        "result": "jsonb",
+        "owner": "postgres",
+        "securityDefiner": true,
+        "proconfig": "search_path=\"\"",
+        "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+        "functiondefMd5": "78ea40c6346651f7efa7d188e2b08716"
+      },
+      "triggersUsingTheseFunctions": [],
+      "defaultFunctionAclPublicSchema": {
+        "postgres": "{postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+        "supabase_admin": "{postgres=X/supabase_admin,anon=X/supabase_admin,authenticated=X/supabase_admin,service_role=X/supabase_admin}"
+      }
+    },
+    "outOfScopeCatalog": {
+      "functionsPublicPrivateExcludingTargets": 415,
+      "functionsDigest": "3c04d763ee0ea1c9c2b14eef936d646d",
+      "relationsPublicPrivate": 122,
+      "relationsDigest": "6b50d55c7bbcceb848919c39153aa16f",
+      "method": "per function md5(body md5, result, owner, secdef, volatility, strict, proconfig, ACL, comment); per relation md5(kind, ACL, RLS flags, columns, constraints, triggers, policies); sorted and hashed"
+    },
+    "dataFingerprints": {
+      "takenAtUtc": "2026-10-18 17:20:28.451246+00",
+      "allTables": {
+        "tables": 122,
+        "rows": 39683,
+        "tablesDigest": "402ebc8b9468aede891357b1cb68743b",
+        "bypassRls": true,
+        "unprovenTables": 0
+      },
+      "fullRow": {
+        "public.estimate_versions": {
+          "rows": 1238,
+          "md5": "5cb3c78966a0d54b4dec2c9d8baf29ca"
+        },
+        "public.estimate_items": {
+          "rows": 1305,
+          "md5": "40d5061098dbd1a996b3bf0a91d6a6f9"
+        },
+        "public.estimate_templates": {
+          "rows": 0,
+          "md5": null
+        },
+        "public.estimate_template_items": {
+          "rows": 0,
+          "md5": null
+        }
+      },
+      "reduced": {
+        "estimate_versions": {
+          "rows": 1238,
+          "engine3": 0,
+          "idsAmountsMd5": "9a285eeae7c6632bef8549f6aea9e871"
+        },
+        "estimate_items": {
+          "rows": 1305,
+          "idsAmountsMd5": "d31166ec579c1c9e0959ccbd769a69d6"
+        },
+        "estimate_sections_as_items (item_type = section; no estimate_sections table exists)": {
+          "rows": 672,
+          "idsMd5": "540f6160afbd417c458ca3838d6a9cb8"
+        },
+        "estimate_templates": {
+          "rows": 0,
+          "idsAmountsMd5": "d41d8cd98f00b204e9800998ecf8427e"
+        }
+      },
+      "method": "all tables: md5(to_jsonb(row)) per row, sorted collate C, md5 per table, md5 of the table map (no excluded column). Reduced: ordered concat of ids, cents/bp amount columns, calc_engine_version and updated_at."
+    }
+  },
+  "apply": {
+    "tool": "mcp supabase_miaouffrage apply_migration",
+    "name": "20261018170351_complete_estimate_insertion_receipts",
+    "attempts": 1,
+    "result": "success",
+    "appliedAtUtc": "2026-10-18 17:21:41 (remote version)",
+    "remoteVersion": "20261018172141",
+    "supabaseDbPush": false,
+    "correctiveSql": false,
+    "dataWrites": false
+  },
+  "verification": {
+    "capturedAtUtc": "2026-10-18 17:21:56 - 17:22:43",
+    "history": {
+      "migrationsTotal": 305,
+      "targetRows": 1,
+      "row": {
+        "version": "20261018172141",
+        "name": "20261018170351_complete_estimate_insertion_receipts",
+        "statements": 1,
+        "statementBytes": 1597,
+        "statementMd5": "d0d50c23266ffd969f50857f6a3ee20e"
+      },
+      "statementMd5EqualsFile": true,
+      "isLastMigration": true
+    },
+    "functions": {
+      "public.insert_estimate_template_with_receipt(uuid,uuid,uuid)": {
+        "bodyMd5": "1fa6ef008fd7b1bdbb9e5958af64fc51",
+        "bodyEqualsFile": true,
+        "bodyBytes": 279,
+        "args": "p_version_id uuid, p_template_id uuid, p_after_item_id uuid DEFAULT NULL::uuid",
+        "result": "jsonb",
+        "retset": false,
+        "language": "sql",
+        "volatile": "v",
+        "owner": "postgres",
+        "securityDefiner": false,
+        "proconfig": "search_path=\"\"",
+        "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+        "execute": {
+          "anon": false,
+          "authenticated": true,
+          "service_role": true
+        },
+        "functiondefMd5": "9f1c4898405591c10944a17292c93581"
+      },
+      "public.insert_estimate_assembly_with_receipt(uuid,uuid,uuid)": {
+        "bodyMd5": "973274c43655c01b9311e3f5fb54de7b",
+        "bodyEqualsFile": true,
+        "bodyBytes": 279,
+        "args": "p_version_id uuid, p_assembly_id uuid, p_after_item_id uuid DEFAULT NULL::uuid",
+        "result": "jsonb",
+        "retset": false,
+        "language": "sql",
+        "volatile": "v",
+        "owner": "postgres",
+        "securityDefiner": false,
+        "proconfig": "search_path=\"\"",
+        "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+        "execute": {
+          "anon": false,
+          "authenticated": true,
+          "service_role": true
+        },
+        "functiondefMd5": "af4ad760bccc2fed0c14a8891f3c7f2d"
+      },
+      "aclAssessment": "Matches the file: PUBLIC and anon revoked, authenticated granted; postgres (owner) and service_role keep EXECUTE from the schema default privileges, which the file does not revoke.",
+      "dependenciesAndControlUnchanged": {
+        "public.insert_estimate_template_into_version(uuid,uuid,uuid)": {
+          "bodyMd5": "8bf2070fec1c8fbbdf6ad881ca9208a4",
+          "functiondefMd5": "050ff839f79255b738efcbc684adf21c",
+          "aclUnchanged": true
+        },
+        "public.insert_estimate_assembly_into_version(uuid,uuid,uuid)": {
+          "bodyMd5": "e5ee6c9bca61a4687281ef75be94db98",
+          "functiondefMd5": "279f27b4e856051930b51501cf16f0d0",
+          "aclUnchanged": true
+        },
+        "public.commit_estimate_batch(...)": {
+          "bodyMd5": "dcd1bcc4240da7db06814ca3ff06bcfb",
+          "functiondefMd5": "78ea40c6346651f7efa7d188e2b08716",
+          "aclUnchanged": true
+        }
+      },
+      "overloads": "exactly one signature per name (5 functions)",
+      "triggersUsingTheseFunctions": []
+    },
+    "outOfScopeCatalog": {
+      "functionsPublicPrivateExcludingTargets": 415,
+      "functionsDigest": "3c04d763ee0ea1c9c2b14eef936d646d",
+      "relationsPublicPrivate": 122,
+      "relationsDigest": "6b50d55c7bbcceb848919c39153aa16f",
+      "withReceiptFunctions": 2,
+      "unchanged": true
+    },
+    "dataFingerprints": {
+      "takenAtUtc": "2026-10-18 17:22:37.009347+00",
+      "allTables": {
+        "tables": 122,
+        "rows": 39683,
+        "tablesDigest": "402ebc8b9468aede891357b1cb68743b",
+        "unprovenTables": 0
+      },
+      "fullRow": {
+        "public.estimate_versions": {
+          "rows": 1238,
+          "md5": "5cb3c78966a0d54b4dec2c9d8baf29ca"
+        },
+        "public.estimate_items": {
+          "rows": 1305,
+          "md5": "40d5061098dbd1a996b3bf0a91d6a6f9"
+        },
+        "public.estimate_templates": {
+          "rows": 0,
+          "md5": null
+        },
+        "public.estimate_template_items": {
+          "rows": 0,
+          "md5": null
+        }
+      },
+      "reduced": {
+        "estimate_versions": {
+          "rows": 1238,
+          "engine3": 0,
+          "idsAmountsMd5": "9a285eeae7c6632bef8549f6aea9e871"
+        },
+        "estimate_items": {
+          "rows": 1305,
+          "idsAmountsMd5": "d31166ec579c1c9e0959ccbd769a69d6"
+        },
+        "estimate_sections_as_items": {
+          "rows": 672,
+          "idsMd5": "540f6160afbd417c458ca3838d6a9cb8"
+        },
+        "estimate_templates": {
+          "rows": 0,
+          "idsAmountsMd5": "d41d8cd98f00b204e9800998ecf8427e"
+        }
+      },
+      "unchanged": true
+    }
+  },
+  "observations": [
+    "Pre-existing, outside this migration: on the shared base public.insert_estimate_template_into_version(uuid,uuid,uuid) grants EXECUTE to PUBLIC and anon (ACL {=X/postgres,...,anon=X/postgres,...}). The new SECURITY INVOKER wrapper does not grant anon, so it adds no anonymous path. Not changed here.",
+    "The shared base has 0 estimate templates, so the template receipt cannot be exercised on it without creating data (not authorized here).",
+    "Pre-existing, unrelated: three older migration names appear twice in the remote history (20260222001500_est164_catalog_suggestions, est433_duplicate_version_source_metadata_fix, est436_affaire_intake_classification_source).",
+    "Pre-existing, unrelated: three repo migrations remain unmatched by name or version in the remote history (20260714120000_preserve_assembly_cost_details, 20260714134334_use_assembly_cost_coefficients, empty 20260718014058_protect_takeoff_replace_with_recovery); 252 of 255 repo migrations are recorded after this apply."
+  ],
+  "limits": [
+    "Remote checks cover history, catalog and data fingerprints. The receipt functions were not executed on the shared base (no data write authorized). Their behavior was validated locally by the owner's commit 33c7031b (SQL receipt coverage, canonical PG1000, SQL/RLS checks) per its message, not re-run here.",
+    "No UI, API or TesterArmy journey ran against the shared base. The app code that calls these RPCs is on main, but nothing was deployed.",
+    "No other migration, calc policy or deployment was executed."
+  ],
+  "independentVerification": {
+    "mode": "separate read-only agent: SELECT through execute_sql and list_migrations only; nothing applied or written",
+    "capturedAtUtc": "2026-10-18 17:26 (data fingerprints 17:26:37)",
+    "matches": true,
+    "mismatches": [],
+    "checks": [
+      "Source re-read from origin/main f1a5a74b (git show), last file commit 33c7031b: 1597 bytes, sha256 249383335136dcc915d6f586c4f36e6f063da3385808e5ca08208378857e3c09, md5 d0d50c23266ffd969f50857f6a3ee20e.",
+      "Bodies re-extracted between the $$ markers with an independent script: 279 bytes each, md5 1fa6ef008fd7b1bdbb9e5958af64fc51 (template) and 973274c43655c01b9311e3f5fb54de7b (assembly), equal to pg_proc.prosrc on the shared base.",
+      "Both *_with_receipt functions: one signature each, jsonb (not SETOF), sql, volatile, not strict, owner postgres, SECURITY INVOKER, search_path=\"\", ACL {postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}; anon cannot execute, authenticated and service_role can.",
+      "Control commit_estimate_batch: body md5 dcd1bcc4240da7db06814ca3ff06bcfb (28369 bytes) equals its latest repo definition in 20261017162000_estimate_engine_v3_persistence.sql; SECURITY DEFINER, search_path=\"\"; ACL {postgres=X/postgres,authenticated=X/postgres} as set by 20261012030743.",
+      "Dependencies insert_estimate_template_into_version (8bf2070f...) and insert_estimate_assembly_into_version (e5ee6c9b...) equal their latest repo definitions in 20261017225906 (M6); both SETOF estimate_items.",
+      "History: 305 rows, highest version 20261018172141; the target is recorded once (1 statement, 1597 bytes, md5 = file) and is the only row after M5 (20261018165014).",
+      "Out-of-scope catalog: 415 functions digest 3c04d763ee0ea1c9c2b14eef936d646d and 122 relations digest 6b50d55c7bbcceb848919c39153aa16f, equal to pre-apply (same query method).",
+      "No trigger uses any of the five functions; no object depends on the two new ones.",
+      "Data: 122 tables, 39683 rows, tables digest 402ebc8b9468aede891357b1cb68743b, no table unchecked; per-table fingerprints of estimate_versions, estimate_items, section items and estimate_templates equal to pre-apply."
+    ],
+    "aclNoteOnDependency": "insert_estimate_template_into_version keeps PUBLIC and anon EXECUTE: no migration on origin/main grants or revokes on it (git grep over all migrations), so it keeps the schema defaults. Pre-existing; not changed by this migration.",
+    "limits": [
+      "The new functions were not executed on the shared base (data write not authorized; 0 estimate templates).",
+      "No UI or TesterArmy journey ran.",
+      "Data fingerprints compare two moments (17:20:28 and 17:26:37 UTC)."
+    ]
+  },
+  "localEvidence": {
+    "dir": "scratchpad shared-170351, shared-170351-tools and verify-170351 (not committed)",
+    "sha256": {
+      "shared-170351/evidence.json": "3d83202e33110c1f91b79ff154effa07beba90193199762718fec0b0a874fe1a",
+      "shared-170351/migration.sql": "249383335136dcc915d6f586c4f36e6f063da3385808e5ca08208378857e3c09",
+      "shared-170351-tools/catalog.sql": "4a38876c3dd0009a48d1331f04769e0b38a71f8bcf75f3932a7e92b0f43118f9",
+      "shared-170351-tools/fingerprints.sql": "d91ce4fecc11c76b2f5634a7327cabd4b997a058ecd8584e3ba0c61d2ec33edc",
+      "shared-170351-tools/out-of-scope.sql": "53d9dccc7c8fb4d976c61459e0ec1a7f9e18467cd51bad3107d0df2b14fa27d1",
+      "shared-170351-tools/bodies.js": "77f66f8b131928fc617f926e28226a88a32889b9764f60f90f62ec4a3f375bce",
+      "verify-170351/m162000.sql": "3932bd156e2c1c02ff4f69cc71d395622412a3baa2baf90b32b64b11dcc4af1c",
+      "verify-170351/m225906.sql": "87f4a0452e9dba51b6ff4d180ad42f6aad6e8d4c52414013f793d25f34c2885a"
+    }
+  }
+}

@@ -13,9 +13,9 @@ import {
 // The 2.4 reading of the OPTIMA control cells (15 significant digits, half up), shared with optima-lot-check.
 import { controlCents } from "../../../src/lib/imports/optima-control";
 import { ownedEstimateContext, querySql } from "./calculation-gate-support";
-// Aliased: not a React hook, despite its name.
 import { switchToExpertMode, waitForDraftLease } from "./engine-v3-editor-support";
-import { setTenantCalcPolicy, useDedicatedV3Owner as signUpDedicatedV3Owner, type V3Owner } from "./engine-v3-persistence-support";
+// Aliased: not a React hook, despite its name.
+import { insertCompletedTakeoffJob, setTenantCalcPolicy, useDedicatedV3Owner as signUpDedicatedV3Owner, type V3Owner } from "./engine-v3-persistence-support";
 
 // Lot 2, sous-lot 2.8 — chemins d'entrée v3 (docs/testing/estimate-engine-v3-2.8.md). Défaillances
 // observables, écrites avant le code :
@@ -318,6 +318,59 @@ armyTest("IO03 the plumbing OPTIMA lot imports into a v3 at its workbook prices 
       await expectConsecutiveReads(browser, army, versionId, "plomberie");
     } finally {
       await closePolicy(owner, army, "plomberie");
+    }
+  });
+
+// Lot 2, sous-lot 2.6b, revue (docs/testing/estimate-engine-v3-2.6b.md, G1) : les lignes de statut du lot hydraulique
+// (HL, inc, NC, PM ; 46 sur 79 sans quantité dans le classeur) ne lèvent aucun drapeau de qualité, ni à la porte
+// d'envoi ni au radar de risque du métré (alerte « prix atypique », la seule qu'il tire des drapeaux de qualité ;
+// « preuve absente » ne dépend pas du statut). Les lignes chiffrées sans quantité du classeur restent hors de G1.
+type GatingFlag = { key: string; severity: string; count?: number; item_ids: string[] };
+type RiskAlert = { line_id: string | null; cause_code: string; reason_labels: string[] };
+armyTest("V3E20 the status lines of the hydraulic OPTIMA lot imported into a v3 raise no quality flag in the send gating or the takeoff risk radar", options,
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser };
+    const { owner, projectId } = await prepareV3Owner(ui, army, "v3e20");
+    try {
+      const versionId = await importWorkbook(ui, army, projectId, LOTS.HYDRAULIQUE);
+      const { state } = await readEstimatePatiently(browser, versionId);
+      const statusLines = lineItems(state).filter((line) => field(line, "pricing_status") !== "priced");
+      const statusIds = new Set(statusLines.map((line) => line.id));
+      const onStatusLines = (entries: Array<{ key: string; ids: Array<string | null> }>) => {
+        const counts: Record<string, number> = {};
+        for (const entry of entries) {
+          const hits = entry.ids.filter((id) => id !== null && statusIds.has(id)).length;
+          if (hits > 0) counts[entry.key] = (counts[entry.key] ?? 0) + hits;
+        }
+        return counts;
+      };
+      const gating = await apiRequest<Envelope<{ gating: { canSend: boolean; blockingFlags: GatingFlag[]; warningFlags: GatingFlag[] } }>>(
+        browser, "GET", `/api/estimates/${versionId}/gating`);
+      expect([gating.status, gating.body.ok]).toEqual([200, true]);
+      const flags = [...gating.body.data.gating.blockingFlags, ...gating.body.data.gating.warningFlags];
+      const takeoffJobId = await insertCompletedTakeoffJob(owner, versionId);
+      const radar = await apiRequest<Envelope<{ items: RiskAlert[] }>>(browser, "GET",
+        `/api/takeoff/jobs/${takeoffJobId}/risk-radar?version_id=${versionId}`);
+      const radarItems = radar.body.data?.items ?? [];
+      const observed = {
+        statusLines: statusLines.length,
+        statusLinesWithoutQuantity: statusLines.filter((line) => !(Number(line.quantity) > 0)).length,
+        gatingOnStatusLines: onStatusLines(flags.map((flag) => ({ key: `${flag.severity}:${flag.key}`, ids: flag.item_ids }))),
+        radar: [radar.status, radar.body.ok],
+        radarPriceAlertsOnStatusLines: onStatusLines(radarItems.filter((alert) => alert.cause_code === "atypical_price")
+          .map((alert) => ({ key: alert.cause_code, ids: [alert.line_id] }))),
+      };
+      await recordEvidence(army, "v3e20-status-lines", { versionId, takeoffJobId,
+        pricedLinesWithoutQuantity: lineItems(state).filter((line) => !statusIds.has(line.id) && !(Number(line.quantity) > 0)).length,
+        blocking: gating.body.data.gating.blockingFlags.map((flag) => [flag.key, flag.count ?? flag.item_ids.length]),
+        warnings: gating.body.data.gating.warningFlags.map((flag) => [flag.key, flag.count ?? flag.item_ids.length]),
+        radarAlerts: radarItems.filter((alert) => alert.line_id !== null && statusIds.has(alert.line_id) && alert.cause_code === "atypical_price").slice(0, 20),
+        radarError: radar.body.error ?? null, observed });
+      expect(observed, "status lines of an imported v3 raise no quality flag in the send gating or the risk radar").toEqual({
+        statusLines: 79, statusLinesWithoutQuantity: 46, gatingOnStatusLines: {}, radar: [200, true], radarPriceAlertsOnStatusLines: {},
+      });
+    } finally {
+      await closePolicy(owner, army, "v3e20");
     }
   });
 

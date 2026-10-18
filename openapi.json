@@ -3804,7 +3804,7 @@
           "Estimate Output"
         ],
         "summary": "Exporter un devis en streaming",
-        "description": "Genere un fichier XLSX en streaming pour telechargement direct.",
+        "description": "Genere un fichier XLSX en streaming pour telechargement direct, ou le CSV de l'editeur d'une version du moteur de calcul 3 (format=csv), ecrit depuis son document.",
         "parameters": [
           {
             "name": "versionId",
@@ -3818,7 +3818,7 @@
           {
             "name": "format",
             "in": "query",
-            "description": "Format d'export (xlsx uniquement en v1).",
+            "description": "Format d'export : xlsx (defaut) ou csv. Le csv est le CSV de l'editeur d'une version du moteur de calcul 3, ecrit depuis son document (mode standard uniquement) ; une version v1/v2 recoit 409 ESTIMATE_CSV_EXPORT_V3_ONLY.",
             "required": false,
             "schema": {
               "$ref": "#/components/schemas/ExportFormatQueryParameter"
@@ -3836,7 +3836,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Flux binaire XLSX retourne.",
+            "description": "Flux binaire XLSX, ou CSV (separateur point-virgule, BOM UTF-8) d'une v3, retourne.",
             "headers": {
               "Content-Disposition": {
                 "description": "Nom du fichier exporte.",
@@ -3859,7 +3859,8 @@
                   "type": "string",
                   "format": "binary"
                 }
-              }
+              },
+              "text/csv": {}
             }
           },
           "400": {
@@ -31151,7 +31152,8 @@
       "ExportFormatQueryParameter": {
         "type": "string",
         "enum": [
-          "xlsx"
+          "xlsx",
+          "csv"
         ]
       },
       "ExportModeQueryParameter": {
