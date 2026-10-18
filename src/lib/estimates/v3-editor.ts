@@ -211,15 +211,14 @@ export function readEstimateV3LineMargin(line: EstimateV3LineResult | null): Est
 export const ESTIMATE_V3_UNIT_MISMATCH_LABEL = "Unité différente du devis";
 
 /**
- * Une suggestion du catalogue juge son offre dans l'unité de la ligne v3 (`unit_code`), jamais dans
- * `description` (vide sur une ligne faite par la grille) : refus nommé quand l'offre prix une autre unité.
- * Sans unité de ligne, rien n'est refusé (même règle que la saisie de la désignation).
+ * Une suggestion du catalogue juge son prix (offre, ou prix de référence de l'article) dans l'unité de la ligne v3
+ * (`unit_code`), jamais dans `description` (vide sur une ligne faite par la grille) : refus nommé quand ce prix
+ * porte sur une autre unité. Sans unité de ligne, rien n'est refusé (même règle que la saisie de la désignation).
  */
 export function resolveEstimateV3SuggestionUnitRefusal(
   suggestion: CataloguePriceSuggestion,
   unitCode: string | null | undefined
 ): string | null {
-  if (!suggestion.supplier_price_id) return null;
   const linePrice = alternativePriceForLineUnit(suggestion, unitCode);
   if (areSupplierUnitsCompatible(unitCode, linePrice.unit)) return null;
   return `${ESTIMATE_V3_UNIT_MISMATCH_LABEL} : offre en ${linePrice.unit?.trim() ?? ""}, ligne en ${unitCode?.trim() ?? ""}.`;
