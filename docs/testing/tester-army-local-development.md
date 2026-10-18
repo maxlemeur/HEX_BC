@@ -932,25 +932,27 @@ sans entrer dans les dix contrôles réussis du reçu corrigé.
 ### Capacité locale et redémarrages WSL (18/10/2026)
 
 **Où est la limite.** Aucun code du dépôt ne borne le nombre d'exécutions
-natives possédées simultanées. `runLocalSupabaseCi`
-(`src/test/local-supabase-ci.ts`), `scripts/engine-v3/owned-native-stack.ts` et
-les commandes qui les appellent (`db:ci:local`, `e2e:army:local`,
-`e2e:army:ci`, `e2e:army:calc-v3`, `e2e:army:dev-loop`, `dev:army`,
-`db:upgrade-check`, `engine:document-fingerprints`) démarrent leur pile sans
+natives possédées simultanées. Les trois points d'entrée qui créent une pile
+possédée, `runLocalSupabaseCi` (`src/test/local-supabase-ci.ts`),
+`withOwnedNativeStack` (`scripts/engine-v3/owned-native-stack.ts`) et
+`scripts/engine-v3/upgrade-check.ts`, comme les commandes qui les appellent
+(`db:ci:local`, `e2e:army:local`, `e2e:army:ci`, `e2e:army:calc-v3`,
+`e2e:army:dev-loop`, `dev:army`, `db:upgrade-check`,
+`engine:document-fingerprints`, `engine:v3:parity`), démarrent leur pile sans
 regarder celles des autres sessions ; aucune variable d'environnement ne les
 limite. La limite est une consigne donnée aux agents (quatre depuis le 18/10,
 deux avant) : attendre, en sondant toutes les 30 s, tant que la limite est
 atteinte. Ce sondage n'est pas un verrou : deux agents qui attendent voient la
 même place libre et démarrent ensemble, et une pile n'apparaît que quelques
 secondes après le lancement de sa commande. Un verrou atomique, par exemple
-`flock` sur N fichiers de place pris par `runLocalSupabaseCi` et
-`owned-native-stack.ts` avant `supabase start`, supprimerait cette course ; il
-n'est pas implémenté.
+`flock` sur N fichiers de place pris par ces trois points d'entrée avant
+`supabase start`, supprimerait cette course ; il n'est pas implémenté.
 
 **Comment compter.** Chaque exécution possède exactement une pile, donc un
 processus `__supabase_stack_host__`, de `supabase start` jusqu'à `stop` ; une
 boucle `dev-loop` ouverte garde la sienne entre les itérations. Compter ce
-processus, pas les noms des commandes :
+processus, pas les noms des commandes ; une autre pile native ouverte à la
+main compte aussi, puisqu'elle occupe la même mémoire :
 
 ```sh
 pgrep -u "$USER" -c -f '[_]_supabase_stack_host__'
