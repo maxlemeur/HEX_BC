@@ -644,14 +644,16 @@ armyTest("V3E12 bulk suggestions are applied to v3 lines and undone through the 
     const dialogs = await recordDialogs(ui);
     const draft = await prepareV3Draft(ui, army, "V3E12");
     const title = (ref: string) => `${army.runPrefix} ${ref}`;
+    // B porte seule le mot-clé de la règle : la règle est floue (suggestion-scoring), les désignations « A », « B »
+    // et « C » d'un même préfixe se seraient toutes appariées (premier passage rouge : « Examiner 3 suggestions »).
     const [lineA, lineB, lineC] = await seedLines(ui, army, draft, "v3e12", [
-      withLabor(title("A"), 2, 10000, 1, draft.tuyauteurId), supply(title("B"), 1, 5000), supply(title("C"), 1, 1000)]);
+      withLabor(title("A"), 2, 10000, 1, draft.tuyauteurId), supply(title("robinetterie"), 1, 5000), supply(title("C"), 1, 1000)]);
     const initial: Totals = [43400, 8680, 52080];
-    // Règle K FO 1,3 sur la désignation exacte de B (tenant dédié) : B = 50,00 € × 1,3 × 1,3 = 84,50 €.
+    // Règle K FO 1,3 sur le mot-clé de B (tenant dédié) : B = 50,00 € × 1,3 × 1,3 = 84,50 €.
     const suggested: Totals = [45350, 9070, 54420];
     await lockVersion(browser, draft.versionId);
     const rule = await apiRequest<Envelope<Record<string, { id: string }>>>(browser, "POST", `/api/estimates/${draft.versionId}/suggestion-rules`,
-      { name: `${army.runPrefix} K FO B`, match_value: lineB.title, k_fo: 1.3, is_active: true });
+      { name: `${army.runPrefix} K FO B`, match_value: "robinetterie", k_fo: 1.3, is_active: true });
     await releaseVersion(browser, draft.versionId);
     await recordEvidence(army, "v3e12-rule", { versionId: draft.versionId, lineId: lineB.id, response: rule });
     expect([200, 201]).toContain(rule.status);
