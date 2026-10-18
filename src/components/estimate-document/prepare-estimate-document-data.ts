@@ -11,7 +11,28 @@ import {
 } from "@/lib/estimate-calculations";
 import { aggregateEstimateV2Sections } from "@/lib/estimate-v2-snapshot";
 import type { CalcEngineVersion } from "@/lib/estimates/calc-engine-version";
-import { isLegacyEngine, isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
+import {
+  isLegacyEngine,
+  isUnifiedEngine,
+  usesSaleCoefficients,
+  type EstimateEngineVersion,
+} from "@/lib/estimates/engine/capabilities";
+import {
+  ESTIMATE_V3_STORED_INCOHERENT,
+  EstimateV3Error,
+  readStoredEstimateV3,
+  type EstimateV3PricingStatus,
+  type StoredEstimateV3Item,
+  type StoredEstimateV3Version,
+} from "@/lib/estimates/engine-v3";
+import {
+  columnBounds,
+  decimalFromInteger,
+  multiply,
+  parseDecimal,
+  roundHalfUp,
+} from "@/lib/estimates/engine-v3/decimal";
+import { MEASUREMENT_UNITS } from "@/lib/units/normalize";
 import { COMPANY_INFO } from "@/lib/company-info";
 import { computeEstimateItemNumbering } from "@/lib/estimates/numbering";
 import {
@@ -69,6 +90,53 @@ type PrepareEstimateDocumentDataInput = {
   preserveStoredSnapshot?: boolean;
 };
 
+/**
+ * Lot 2, sous-lot 2.7 (D7, D8, D14) : entrée du document d'une v3 figée. Aucun `breakdown` : le
+ * document relit le gel (`readStoredEstimateV3`) et ne recalcule rien.
+ */
+export type PrepareEstimateDocumentV3Input = {
+  calcEngineVersion: 3;
+  items: EstimateItem[];
+  /** Colonnes figées v3, contexte figé et intention de remise de la version. */
+  version: StoredEstimateV3Version & {
+    discount_bp: number;
+    discount_amount_cents: number | null;
+    tax_rate_bp: number;
+  };
+  currency: string;
+  validiteJours: number;
+  portalUrl?: string | null;
+  maxVisibleSectionLevel?: number | null;
+  layout?: EstimatePdfLayoutOptions;
+};
+
+/** Ligne d'un document v3 : valeurs BRUTES publiées (PT = ⌈Q × PU⌋). */
+export type EstimateDocumentV3Line = {
+  unitCode: string | null;
+  /** Symbole du référentiel d'unités (`units.json`), nul sans unité. */
+  unitLabel: string | null;
+  pricingStatus: EstimateV3PricingStatus;
+  taxRateBp: number;
+  /** PU brut publié (`pu_ht_cents`), nul sur une ligne non chiffrée. */
+  unitSaleHtCents: number | null;
+  /** Brut de ligne figé (`snapshot_gross_ht_cents`). */
+  saleHtCents: number;
+  foSaleHtCents: number;
+  moSaleHtCents: number;
+};
+
+/** Pied d'un document v3 : brut, remise, arrondi commercial, HT net, TVA par taux (gel), TTC. */
+export type EstimateDocumentV3Totals = {
+  grossHtCents: number;
+  discount: { kind: "none" | "amount" | "rate"; rateBp: number | null; appliedCents: number };
+  commercialRoundingCents: number;
+  netHtCents: number;
+  taxByRate: Array<{ rateBp: number; baseHtCents: number; taxCents: number }>;
+  taxCents: number;
+  payableTtcCents: number;
+  reverseCharge: boolean;
+};
+
 export type EstimateDocumentPreparedData = {
   rows: EstimateDocumentRow[];
   numberingById: Record<string, string>;
@@ -83,6 +151,10 @@ export type EstimateDocumentPreparedData = {
   taxLabel: string;
   footerAddress: string;
   qrLikeCells: QrLikeCell[];
+};
+
+export type EstimateDocumentV3PreparedData = EstimateDocumentPreparedData & {
+  v3: { linesById: Record<string, EstimateDocumentV3Line>; totals: EstimateDocumentV3Totals };
 };
 
 const ROOT_KEY = "root";
@@ -429,7 +501,198 @@ export function summarizeEstimateDocumentStructure(items: EstimateItem[]) {
   };
 }
 
-export function prepareEstimateDocumentData({
+function resolveDocumentLayout(
+  layout: EstimatePdfLayoutOptions | undefined,
+  maxVisibleSectionLevel: number | null
+): EstimatePdfLayoutOptions {
+  return normalizeEstimatePdfLayoutOptions(
+    layout ?? {
+      ...DEFAULT_ESTIMATE_PDF_LAYOUT,
+      detailLevel: maxVisibleSectionLevel ?? "lines",
+    }
+  );
+}
+
+const UNIT_SYMBOL_BY_CODE = new Map(MEASUREMENT_UNITS.map((unit) => [unit.code, unit.symbol]));
+const STORED_QUANTITY_BOUNDS = columnBounds(12, 3);
+
+function incoherent(field: string, reason: string): EstimateV3Error {
+  return new EstimateV3Error(
+    ESTIMATE_V3_STORED_INCOHERENT,
+    `Version v3 figée incohérente (${field}) : ${reason}.`,
+    field
+  );
+}
+
+/** ⌈Q × PU⌋ en décimal exact (A4), sur la quantité stockée (`numeric(12,3)`). */
+function storedLineGross(item: EstimateItem, unitSaleHtCents: number): bigint {
+  try {
+    const quantity = parseDecimal(item.quantity, `items[${item.id}].quantity`, STORED_QUANTITY_BOUNDS);
+    return roundHalfUp(multiply(quantity, decimalFromInteger(BigInt(unitSaleHtCents))));
+  } catch {
+    throw incoherent(`items[${item.id}].quantity`, "quantité illisible");
+  }
+}
+
+/** Colonnes figées d'une ligne v3 (les colonnes de M4 sont optionnelles dans le type de ligne). */
+function toStoredV3Item(item: EstimateItem): StoredEstimateV3Item {
+  return {
+    id: item.id,
+    item_type: item.item_type,
+    pricing_status: item.pricing_status ?? null,
+    tax_rate_bp: item.tax_rate_bp,
+    pu_ht_cents: item.pu_ht_cents,
+    snapshot_gross_ht_cents: item.snapshot_gross_ht_cents ?? null,
+    snapshot_gross_fo_ht_cents: item.snapshot_gross_fo_ht_cents ?? null,
+    line_total_ht_cents: item.line_total_ht_cents,
+    line_tax_cents: item.line_tax_cents,
+    line_total_ttc_cents: item.line_total_ttc_cents,
+    snapshot_fo_ht_cents: item.snapshot_fo_ht_cents,
+    snapshot_mo_ht_cents: item.snapshot_mo_ht_cents,
+    snapshot_mo_atelier_ht_cents: item.snapshot_mo_atelier_ht_cents,
+    snapshot_mo_chantier_ht_cents: item.snapshot_mo_chantier_ht_cents,
+  };
+}
+
+type StoredDiscountSummary = { kind?: unknown; requested_cents?: unknown; rate_bp?: unknown; applied_cents?: unknown };
+type StoredRoundingSummary = { applied_cents?: unknown };
+
+/** Intention de remise lue sur le contexte figé, contrôlée contre la version (jamais dérivée). */
+function readStoredV3Discount(
+  version: PrepareEstimateDocumentV3Input["version"],
+  appliedCents: number,
+  commercialRoundingCents: number
+): EstimateDocumentV3Totals["discount"] {
+  const context = version.calc_snapshot_context as { discount?: StoredDiscountSummary; commercial_rounding?: StoredRoundingSummary };
+  const discount = context.discount ?? {};
+  const expectedKind = version.discount_amount_cents !== null ? "amount" : version.discount_bp > 0 ? "rate" : "none";
+  if (discount.kind !== expectedKind || discount.applied_cents !== appliedCents
+    || (expectedKind === "amount" && discount.requested_cents !== version.discount_amount_cents)
+    || (expectedKind === "rate" && discount.rate_bp !== version.discount_bp)) {
+    throw incoherent("calc_snapshot_context.discount", "intention ou remise appliquée ≠ version");
+  }
+  if (context.commercial_rounding?.applied_cents !== commercialRoundingCents) {
+    throw incoherent("calc_snapshot_context.commercial_rounding", "arrondi appliqué ≠ version");
+  }
+  return { kind: expectedKind, rateBp: expectedKind === "rate" ? version.discount_bp : null, appliedCents };
+}
+
+/**
+ * Document d'une v3 figée (D7, D8, D14) : lignes et sections en BRUT (PU publié, brut de ligne,
+ * parts FO/MO brutes), pied du gel (remise, arrondi commercial, HT net, TVA par taux du contexte,
+ * TTC). Toute incohérence du gel est refusée (`ESTIMATE_V3_STORED_INCOHERENT`), y compris un PT
+ * ≠ ⌈Q × PU⌋ sur une ligne chiffrée : le document n'imprime jamais un gel qu'il devrait réparer.
+ */
+export function prepareEstimateV3DocumentData(input: PrepareEstimateDocumentV3Input): EstimateDocumentV3PreparedData {
+  const { items, version } = input;
+  const resolvedCurrency: SupportedEstimateCurrency = normalizeEstimateCurrency(input.currency) ?? "EUR";
+  const resolvedLayout = resolveDocumentLayout(input.layout, input.maxVisibleSectionLevel ?? null);
+  const stored = readStoredEstimateV3({ version, items: items.map(toStoredV3Item) });
+  const storedById = new Map(stored.lines.map((line) => [line.id, line]));
+  const linesById: Record<string, EstimateDocumentV3Line> = {};
+  const lineSplitsById: Record<string, EstimateDocumentLineSplit> = {};
+  const lineUnitPriceHtById: Record<string, number> = {};
+  for (const item of items) {
+    if (item.item_type !== "line") continue;
+    const line = storedById.get(item.id)!;
+    const unitCode = item.unit_code ?? null;
+    const unitLabel = unitCode === null ? null : (UNIT_SYMBOL_BY_CODE.get(unitCode) ?? null);
+    if (unitCode !== null && unitLabel === null) throw incoherent(`items[${item.id}].unit_code`, "unité absente du référentiel");
+    const priced = line.pricing_status === "priced";
+    if (priced) {
+      if (unitCode === null) throw incoherent(`items[${item.id}].unit_code`, "unité absente sur une ligne chiffrée");
+      // Le PU publié est figé deux fois (D7) : le contrat 2 lit `snapshot_pu_ht_cents`, comme le SQL.
+      if (item.snapshot_pu_ht_cents !== line.pu_ht_cents) {
+        throw incoherent(`items[${item.id}].snapshot_pu_ht_cents`, "PU figé ≠ PU publié");
+      }
+      if (storedLineGross(item, line.pu_ht_cents!) !== BigInt(line.gross_ht_cents)) {
+        throw incoherent(`items[${item.id}].snapshot_gross_ht_cents`, "PT ≠ ⌈Q × PU⌋");
+      }
+      lineUnitPriceHtById[item.id] = line.pu_ht_cents!;
+    }
+    linesById[item.id] = {
+      unitCode,
+      unitLabel,
+      pricingStatus: line.pricing_status as EstimateV3PricingStatus,
+      taxRateBp: line.tax_rate_bp,
+      unitSaleHtCents: priced ? line.pu_ht_cents : null,
+      saleHtCents: line.gross_ht_cents,
+      foSaleHtCents: line.gross_fo_ht_cents,
+      moSaleHtCents: line.gross_mo_ht_cents,
+    };
+    lineSplitsById[item.id] = {
+      foTotalCents: line.gross_fo_ht_cents,
+      moTotalCents: line.gross_mo_ht_cents,
+      totalHtCents: line.gross_ht_cents,
+    };
+  }
+
+  // Sous-totaux de section : Σ des bruts des lignes descendantes (aucun net en v3, D7).
+  // Ni TTC ni ventilation atelier/chantier bruts ne sont figés par section : laissés à 0.
+  const itemById = new Map(items.map((item) => [item.id, item]));
+  const sectionTotalsById: Record<string, SectionTotals> = {};
+  for (const item of items) {
+    if (item.item_type === "section") sectionTotalsById[item.id] = { ...EMPTY_SECTION_TOTALS, supplyTypeFoTotalsCents: {} };
+  }
+  for (const item of items) {
+    if (item.item_type !== "line") continue;
+    const split = lineSplitsById[item.id];
+    let parentId = item.parent_id;
+    for (let guard = 0; parentId !== null && guard <= items.length; guard += 1) {
+      const totals = sectionTotalsById[parentId];
+      if (!totals) throw incoherent(`items[${item.id}].parent_id`, "section parente absente");
+      totals.totalHtCents += split.totalHtCents;
+      totals.foTotalCents += split.foTotalCents;
+      totals.moTotalCents += split.moTotalCents;
+      parentId = itemById.get(parentId)?.parent_id ?? null;
+    }
+  }
+
+  const reverseCharge = version.contractor_role === "subcontractor";
+  const totals: EstimateDocumentV3Totals = {
+    grossHtCents: stored.totals.gross_ht_cents,
+    discount: readStoredV3Discount(version, stored.totals.discount_applied_cents, stored.totals.commercial_rounding_cents),
+    commercialRoundingCents: stored.totals.commercial_rounding_cents,
+    netHtCents: stored.totals.total_ht_cents,
+    // Le récapitulatif imprimé est celui du gel validé (`tax_breakdown`), jamais recalculé.
+    taxByRate: stored.tax_breakdown.map((row) => ({ rateBp: row.rate_bp, baseHtCents: row.base_cents, taxCents: row.tax_cents })),
+    taxCents: stored.totals.total_tax_cents,
+    payableTtcCents: stored.totals.total_ttc_cents,
+    reverseCharge,
+  };
+  const discountCents = totals.discount.appliedCents;
+  const rates = totals.taxByRate.map((row) => `${formatPercent(row.rateBp)} %`);
+  return {
+    rows: buildRows(items, resolvedLayout.detailLevel),
+    numberingById: computeEstimateItemNumbering(items),
+    sectionTotalsById,
+    lineSplitsById,
+    lineUnitPriceHtById,
+    layout: resolvedLayout,
+    taxEnabled: !reverseCharge,
+    vatReverseCharge: reverseCharge,
+    discountLabel: discountCents > 0 ? `-${formatCurrency(discountCents, resolvedCurrency)}` : formatCurrency(0, resolvedCurrency),
+    validiteLabel: input.validiteJours > 0 ? `${input.validiteJours} jours` : "-",
+    taxLabel: reverseCharge ? "" : (rates.length > 0 ? rates.join(" · ") : `${formatPercent(version.tax_rate_bp)} %`),
+    footerAddress: `${COMPANY_INFO.registeredOffice.street} ${COMPANY_INFO.registeredOffice.postalCode} ${COMPANY_INFO.registeredOffice.city}`,
+    qrLikeCells: input.portalUrl ? buildQrLikeCells(input.portalUrl) : [],
+    v3: { linesById, totals },
+  };
+}
+
+/**
+ * Document d'une version. Moteurs 1 et 2 : dérivé du breakdown d'autorité (inchangé). Une entrée
+ * v3 (`calcEngineVersion: 3`, sous-lot 2.7) est aiguillée à l'exécution vers le document du gel v3
+ * (`prepareEstimateV3DocumentData`) : un moteur 3 n'est jamais relu par le moteur historique.
+ */
+export function prepareEstimateDocumentData(input: PrepareEstimateDocumentDataInput): EstimateDocumentPreparedData {
+  const engine = input.calcEngineVersion as EstimateEngineVersion;
+  return usesSaleCoefficients(engine)
+    ? prepareEstimateV3DocumentData(input as unknown as PrepareEstimateDocumentV3Input)
+    : prepareHistoricalEstimateDocumentData(input);
+}
+
+function prepareHistoricalEstimateDocumentData({
   items,
   breakdown,
   calcEngineVersion,

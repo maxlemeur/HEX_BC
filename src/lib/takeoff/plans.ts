@@ -1,3 +1,4 @@
+import { readAllRows } from "@/lib/supabase/read-all";
 import { randomUUID } from "node:crypto";
 
 import { cache } from "react";
@@ -622,11 +623,11 @@ async function listPlanFilesBySetId(input: {
   supabase: Supabase;
   setId: string;
 }): Promise<PlanFile[]> {
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("plan_files" as never)
-    .select(PLAN_FILE_SELECT as never)
+    .select(PLAN_FILE_SELECT as never, { count: "exact" })
     .eq("plan_set_id" as never, input.setId as never)
-    .order("created_at" as never, { ascending: false });
+    .order("created_at" as never, { ascending: false }));
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de lister les fichiers de plan.");

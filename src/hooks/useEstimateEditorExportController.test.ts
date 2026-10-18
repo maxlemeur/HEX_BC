@@ -202,7 +202,8 @@ describe("useEstimateEditorExportController streaming exports", () => {
       activeMode: "dpgf",
     });
     expect(result.current.meta).toMatchObject({
-      isDisabled: true,
+      isStreamingDisabled: true,
+      isCsvDisabled: true,
       loadingLabel: "Export DPGF...",
     });
 
@@ -243,7 +244,8 @@ describe("useEstimateEditorExportController streaming exports", () => {
       isExporting: false,
       activeMode: null,
     });
-    expect(result.current.meta.isDisabled).toBe(false);
+    expect(result.current.meta.isStreamingDisabled).toBe(false);
+    expect(result.current.meta.isCsvDisabled).toBe(false);
   });
 });
 
@@ -371,7 +373,7 @@ describe("useEstimateEditorExportController CSV export", () => {
       useEstimateEditorExportController(createInput({ totals: null }))
     );
 
-    expect(result.current.meta.isDisabled).toBe(true);
+    expect(result.current.meta.isCsvDisabled).toBe(true);
     await act(async () => {
       await result.current.actions.exportCsv();
     });

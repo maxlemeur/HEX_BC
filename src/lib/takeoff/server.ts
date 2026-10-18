@@ -1,3 +1,4 @@
+import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { createHash, randomUUID } from "node:crypto";
 import { listActiveTakeoffMappingRules } from "@/lib/takeoff/mapping-rules-server";
 import { parseWithSchema } from "@/lib/takeoff/server-helpers";
@@ -29,6 +30,7 @@ import { resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-versio
 import { usesPerUnitLabor } from "@/lib/estimates/engine/capabilities";
 import { getStalePriceDaysForTenant } from "@/lib/feature-flags";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { TAKEOFF_ENGINE_V3_UNSUPPORTED_MESSAGE } from "@/lib/takeoff/engine-support";
 import {
   TakeoffError,
   TakeoffErrorCode,
@@ -941,12 +943,12 @@ async function resolvePlanSetSourceFile(input: {
   jobId: string;
   maxPages: number;
 }) {
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("plan_files" as never)
-    .select("file_path, file_name, file_type, file_size_bytes, page_count" as never)
+    .select("file_path, file_name, file_type, file_size_bytes, page_count, id" as never, { count: "exact" })
     .eq("tenant_id" as never, input.tenantId as never)
     .eq("plan_set_id" as never, input.planSetId as never)
-    .order("created_at" as never, { ascending: true });
+    .order("created_at" as never, { ascending: true }));
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger les fichiers du jeu de plans.");
@@ -2966,15 +2968,15 @@ async function listTakeoffDpgfEstimateItems(input: {
   tenantId: string;
   versionId: string;
 }) {
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("estimate_items" as never)
-    .select(ESTIMATE_DPGF_COMPARE_SELECT as never)
+    .select(ESTIMATE_DPGF_COMPARE_SELECT as never, { count: "exact" })
     .eq("tenant_id" as never, input.tenantId as never)
     .eq("version_id" as never, input.versionId as never)
     .eq("item_type" as never, "line" as never)
     .order("position" as never, { ascending: true })
     .order("created_at" as never, { ascending: true })
-    .order("id" as never, { ascending: true });
+    .order("id" as never, { ascending: true }));
 
   if (error) {
     throw toTakeoffError(
@@ -3026,14 +3028,14 @@ async function listTakeoffDpgfManualLinks(input: {
   versionId: string;
   jobId: string;
 }) {
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("takeoff_dpgf_links" as never)
-    .select(TAKEOFF_DPGF_LINKS_SELECT as never)
+    .select(TAKEOFF_DPGF_LINKS_SELECT as never, { count: "exact" })
     .eq("tenant_id" as never, input.tenantId as never)
     .eq("version_id" as never, input.versionId as never)
     .eq("takeoff_job_id" as never, input.jobId as never)
     .order("created_at" as never, { ascending: true })
-    .order("id" as never, { ascending: true });
+    .order("id" as never, { ascending: true }));
 
   if (error) {
     throw toTakeoffError(
@@ -3055,14 +3057,14 @@ async function listTakeoffDpgfReviewDecisions(input: {
   versionId: string;
   jobId: string;
 }) {
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("takeoff_dpgf_review_decisions" as never)
-    .select(TAKEOFF_DPGF_REVIEW_DECISIONS_SELECT as never)
+    .select(TAKEOFF_DPGF_REVIEW_DECISIONS_SELECT as never, { count: "exact" })
     .eq("tenant_id" as never, input.tenantId as never)
     .eq("version_id" as never, input.versionId as never)
     .eq("takeoff_job_id" as never, input.jobId as never)
     .order("updated_at" as never, { ascending: false })
-    .order("id" as never, { ascending: false });
+    .order("id" as never, { ascending: false }));
 
   if (error) {
     throw toTakeoffError(
@@ -3227,13 +3229,13 @@ async function resolveDpgfUnitByRowIndex(input: {
     return new Map<number, string | null>();
   }
 
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("dpgf_rows_mapped" as never)
-    .select("id, payload" as never)
+    .select("id, payload" as never, { count: "exact" })
     .eq("tenant_id" as never, input.tenantId as never)
     .eq("import_id" as never, importRow.id as never)
     .order("created_at" as never, { ascending: true })
-    .order("id" as never, { ascending: true });
+    .order("id" as never, { ascending: true }));
 
   if (error) {
     throw toTakeoffError(
@@ -3345,14 +3347,14 @@ async function listEstimateRiskItems(input: {
   tenantId: string;
   versionId: string;
 }) {
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("estimate_items" as never)
-    .select(ESTIMATE_RISK_ITEMS_SELECT as never)
+    .select(ESTIMATE_RISK_ITEMS_SELECT as never, { count: "exact" })
     .eq("tenant_id" as never, input.tenantId as never)
     .eq("version_id" as never, input.versionId as never)
     .order("position" as never, { ascending: true })
     .order("created_at" as never, { ascending: true })
-    .order("id" as never, { ascending: true });
+    .order("id" as never, { ascending: true }));
 
   if (error) {
     throw toTakeoffError(
@@ -3458,12 +3460,12 @@ async function loadDismissedOutlierFlagsByItemId(input: {
   tenantId: string;
   versionId: string;
 }) {
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("estimate_item_outlier_dismissals" as never)
-    .select("item_id, flag_key" as never)
+    .select("item_id, flag_key, id" as never, { count: "exact" })
     .eq("tenant_id" as never, input.tenantId as never)
     .eq("version_id" as never, input.versionId as never)
-    .order("dismissed_at" as never, { ascending: true });
+    .order("dismissed_at" as never, { ascending: true }));
 
   if (error) {
     throw toTakeoffError(
@@ -3505,11 +3507,11 @@ async function loadStaleSupplierPriceItemIds(input: {
     return new Set<string>();
   }
 
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRowsInChunks(selectedSupplierPriceIds, (pageIds) => input.supabase
     .from("supplier_pricebook" as never)
-    .select("id, updated_at, created_at" as never)
+    .select("id, updated_at, created_at" as never, { count: "exact" })
     .eq("tenant_id" as never, input.tenantId as never)
-    .in("id" as never, selectedSupplierPriceIds as never);
+    .in("id" as never, pageIds as never));
 
   if (error) {
     throw toTakeoffError(
@@ -3552,12 +3554,12 @@ async function loadApplicableMinMarginThresholdBp(input: {
   projectId: string;
   categoryIds: Set<string>;
 }) {
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("estimate_rules" as never)
-    .select("scope_type, scope_id, threshold_value" as never)
+    .select("scope_type, scope_id, threshold_value, id" as never, { count: "exact" })
     .eq("tenant_id" as never, input.tenantId as never)
     .eq("is_active" as never, true as never)
-    .eq("rule_type" as never, "min_margin" as never);
+    .eq("rule_type" as never, "min_margin" as never));
 
   if (error) {
     throw toTakeoffError(
@@ -3674,15 +3676,15 @@ async function listActiveTakeoffRiskAlerts(input: {
   versionId: string;
   jobId: string;
 }) {
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("estimate_risk_alerts" as never)
-    .select(ESTIMATE_RISK_ALERTS_SELECT as never)
+    .select(ESTIMATE_RISK_ALERTS_SELECT as never, { count: "exact" })
     .eq("tenant_id" as never, input.tenantId as never)
     .eq("version_id" as never, input.versionId as never)
     .eq("takeoff_job_id" as never, input.jobId as never)
     .eq("is_active" as never, true as never)
     .order("updated_at" as never, { ascending: false })
-    .order("id" as never, { ascending: false });
+    .order("id" as never, { ascending: false }));
 
   if (error) {
     throw toTakeoffError(
@@ -3706,14 +3708,14 @@ async function listExistingRiskAlertRecords(input: {
   versionId: string;
   jobId: string;
 }) {
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("estimate_risk_alerts" as never)
-    .select(ESTIMATE_RISK_ALERTS_SELECT as never)
+    .select(ESTIMATE_RISK_ALERTS_SELECT as never, { count: "exact" })
     .eq("tenant_id" as never, input.tenantId as never)
     .eq("version_id" as never, input.versionId as never)
     .eq("takeoff_job_id" as never, input.jobId as never)
     .order("updated_at" as never, { ascending: false })
-    .order("id" as never, { ascending: false });
+    .order("id" as never, { ascending: false }));
 
   if (error) {
     throw toTakeoffError(
@@ -6891,15 +6893,20 @@ async function assertTakeoffTargetEngineSupported(input: {
     });
   }
   if (data && usesPerUnitLabor(resolveEstimateEngineVersion(data))) {
-    throw new TakeoffError({
-      status: 409,
-      code: TakeoffErrorCode.TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED,
-      message: "Le métré ne s'applique pas à un devis en moteur de calcul 3.",
-      details: { estimate_version_id: input.versionId, calc_engine_version: 3 },
-      retryable: false,
-      jobId: input.jobId,
-    });
+    throw takeoffEngineV3Unsupported(input.versionId, input.jobId);
   }
+}
+
+/** Refus nommé du métré sur une v3 (P-19), à l'application comme à la création d'une tâche (2.10a). */
+function takeoffEngineV3Unsupported(versionId: string, jobId?: string) {
+  return new TakeoffError({
+    status: 409,
+    code: TakeoffErrorCode.TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED,
+    message: TAKEOFF_ENGINE_V3_UNSUPPORTED_MESSAGE,
+    details: { estimate_version_id: versionId, calc_engine_version: 3 },
+    retryable: false,
+    jobId,
+  });
 }
 
 export async function applyTakeoffJob(
@@ -6995,13 +7002,14 @@ export async function applyTakeoffJob(
         tenantId,
         { supabase }
       );
-      const { data: guardItems, error: guardItemsError } = await supabase
+      const { data: guardItems, error: guardItemsError } = await readAllRows(() => supabase
         .from("takeoff_items" as never)
         .select(
-          "id, designation, confidence, evidence, source_page, is_verified, is_excluded" as never
+          "id, designation, confidence, evidence, source_page, is_verified, is_excluded" as never,
+          { count: "exact" }
         )
         .eq("tenant_id" as never, tenantId as never)
-        .eq("job_id" as never, normalizedJobId as never);
+        .eq("job_id" as never, normalizedJobId as never));
 
       if (guardItemsError) {
         throw toTakeoffError(
@@ -7250,16 +7258,39 @@ export async function applyTakeoffJob(
   }
 }
 
-async function assertEstimateVersionAccessibleAsDraft(input: {
+type TakeoffTargetVersionAccess = {
   supabase: Awaited<ReturnType<typeof getAuthenticatedContext>>["supabase"];
   estimateVersionId: string;
   tenantId: string;
   userId: string;
   tenantRole: string;
-}) {
+};
+
+async function assertEstimateVersionAccessibleAsDraft(input: TakeoffTargetVersionAccess) {
+  const version = await assertEstimateVersionAccessibleForTakeoff(input);
+  assertDraftStatus(version.status);
+}
+
+/**
+ * Sous-lot 2.10a (revue, N3, D-f) : « Créer un brouillon depuis V… » copie d'abord sa source, et la copie garde son
+ * moteur (P-15). Une source v3 est refusée avant la copie, avec le refus de la création d'une tâche ; sinon la copie
+ * v3 restait dans l'affaire. Mêmes contrôles d'accès que la cible ; le statut de la source est libre.
+ */
+export async function assertTakeoffSourceVersionSupported(sourceVersionId: string) {
+  const { supabase, tenantId, userId, tenantRole } = await getAuthenticatedContext();
+  await assertEstimateVersionAccessibleForTakeoff({
+    supabase,
+    tenantId,
+    userId,
+    tenantRole,
+    estimateVersionId: sourceVersionId,
+  });
+}
+
+async function assertEstimateVersionAccessibleForTakeoff(input: TakeoffTargetVersionAccess) {
   const { data, error } = await input.supabase
     .from("estimate_versions")
-    .select("id, status, estimate_projects!inner(tenant_id, user_id)")
+    .select("id, status, calc_engine_version, estimate_projects!inner(tenant_id, user_id)")
     .eq("id", input.estimateVersionId)
     .eq("tenant_id", input.tenantId)
     .single();
@@ -7301,7 +7332,12 @@ async function assertEstimateVersionAccessibleAsDraft(input: {
     });
   }
 
-  assertDraftStatus(data.status);
+  // Sous-lot 2.10a (N3, D-f) : le refus de l'application (P-19) dit avant tout dépôt ni analyse.
+  if (usesPerUnitLabor(resolveEstimateEngineVersion(data))) {
+    throw takeoffEngineV3Unsupported(input.estimateVersionId);
+  }
+
+  return data;
 }
 
 async function removeUploadedFileIfPresent(input: {

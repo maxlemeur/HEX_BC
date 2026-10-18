@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// The HTTP pagination contract is exercised with the real SDK in read-all.test.ts.
+// These retained domain tests supply complete query results at the reader boundary.
+vi.mock("@/lib/supabase/read-all", () => import("@/test/complete-reads-fixture"));
+
+
 // ---------------------------------------------------------------------------
 // We test getAnomalyTrend's internal flag-transition logic by mocking
 // the supabase layer and feeding controlled audit_logs data.
@@ -354,13 +359,13 @@ describe("getCurrentAnomalySummary", () => {
     });
 
     expect(supabase.__mocks.estimateItemSelect).toHaveBeenCalledWith(
-      expect.stringContaining("title")
+      expect.stringContaining("title"), { count: "exact" }
     );
     expect(supabase.__mocks.estimateItemSelect).toHaveBeenCalledWith(
-      expect.stringContaining("version_number")
+      expect.stringContaining("version_number"), { count: "exact" }
     );
     expect(supabase.__mocks.estimateItemSelect).not.toHaveBeenCalledWith(
-      expect.stringContaining("label")
+      expect.stringContaining("label"), { count: "exact" }
     );
     expect(result.currentAnomalies).toEqual([
       expect.objectContaining({

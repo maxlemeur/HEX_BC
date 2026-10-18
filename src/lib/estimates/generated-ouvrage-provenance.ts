@@ -1,3 +1,4 @@
+import { readAllRowsInChunks } from "@/lib/supabase/read-all";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database, Json } from "@/types/database";
@@ -189,11 +190,11 @@ export async function enrichEstimateItemsWithGeneratedOuvrageProvenance(input: {
         .eq("tenant_id", input.tenantId)
         .in("id", chunk)
     ),
-    input.supabase
+    readAllRowsInChunks(draftIds, (pageIds) => input.supabase
       .from("estimate_generated_ouvrage_drafts" as never)
-      .select("id, created_at, generation_metadata" as never)
+      .select("id, created_at, generation_metadata" as never, { count: "exact" })
       .eq("tenant_id", input.tenantId)
-      .in("id", draftIds),
+      .in("id", pageIds)),
     selectInChunks(candidateIds, (chunk) =>
       input.supabase
         .from("estimate_generated_ouvrage_candidate_sources" as never)
@@ -201,11 +202,11 @@ export async function enrichEstimateItemsWithGeneratedOuvrageProvenance(input: {
         .eq("tenant_id", input.tenantId)
         .in("candidate_id", chunk)
     ),
-    input.supabase
+    readAllRowsInChunks(draftIds, (pageIds) => input.supabase
       .from("estimate_generated_ouvrage_source_fragments" as never)
-      .select("*" as never)
+      .select("*" as never, { count: "exact" })
       .eq("tenant_id", input.tenantId)
-      .in("draft_id", draftIds),
+      .in("draft_id", pageIds)),
     selectInChunks(itemIds, (chunk) =>
       input.supabase
         .from("estimate_generated_ouvrage_work_snapshots" as never)

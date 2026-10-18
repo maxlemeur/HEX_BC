@@ -283,6 +283,18 @@ describe("TesterArmy critical impact map", () => {
     expect(editor.files).not.toContain("e2e/army/critical/dashboard-ux.e2e.ts");
     expect(editor.files.length).toBeLessThan(map.suite.journeys.length);
 
+    // Lever 3 of docs/testing/ci-retro-2026-10-18.md: the V1 totals journeys ran only in the full
+    // suite, so a PR on the editor's bulk, suggestion or supplier controllers needed a manual one.
+    const v1Totals = ["e2e/army/local/bulk-actions-v1-totals.e2e.ts", "e2e/army/local/supplier-preselection-v1-totals.e2e.ts"];
+    for (const controller of ["Bulk", "Suggestions", "Supplier"]) {
+      const hook = `src/hooks/useEstimateEditor${controller}Controller.ts`;
+      expect(select([hook]).files, hook).toEqual(expect.arrayContaining(v1Totals));
+    }
+    // Their stored-totals oracle reads the affaire hub and the affaires list (PR #58 review).
+    for (const page of ["src/app/dashboard/affaires/[projectId]/page.tsx", "src/app/dashboard/affaires/page.tsx"]) {
+      expect(select([page]).files, page).toEqual(expect.arrayContaining(v1Totals));
+    }
+
     // A journey edit runs that journey; an anonymous one also needs an
     // authenticated business journey for the runner's proof.
     expect(select(["e2e/army/critical/dpgf-import.e2e.ts"]).files)

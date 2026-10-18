@@ -41,8 +41,8 @@ Défaillances à exposer, et refus correspondants :
    24,00 €. Un PDF lisible mais faux fait échouer la phase.
 5. **Sources ou build modifiés pendant la campagne.** Les sources (`buildSourceEvidence` et
    `e2e/army/**`) sont comparées avant et après ; l'identité du build de production est comparée
-   avant et après chaque phase de production. La phase d'émission, servie par `next dev`, passe en
-   dernier car elle réécrit `.e2e/army/next`.
+   avant et après chaque phase de production. Les phases d'émission passent en dernier ; depuis
+   l'intégration du 2.7 (18/10/2026), elles servent le même build possédé que les autres phases.
 6. **Fuite dans les preuves.** Les textes copiés (rapport, résultats, journaux, preuves métier,
    texte des PDF) sont expurgés : identifiants, clés, mots de passe des comptes neufs, jetons et
    URL de portail, DSN. Les répertoires `sessions` et `private` ne sont jamais copiés ; le contrôle
@@ -64,7 +64,8 @@ Chaque phase est une invocation TesterArmy distincte de `e2e.calc-v3.config.ts` 
 | `resume` | idem | setup, `generated-ouvrage-resume` GR02, GR04, GR06, GR08 : 5 (GR01, GR03, GR05, GR07, GR09 rouges à la base, hors sélection) | propriétaire dédié (RMO 4 000 c unique), autre auteur, tenant étranger, 13 scénarios dont 21 brouillons paginés et la matrice de coûts |
 | `access` | idem | setup, `generated-ouvrage-access` GR07 : 2 | propriétaire et observateur administrateurs dédiés ; le parcours archive et rétrograde ce seul propriétaire |
 | `offers` | build possédé, `next start` | setup, `supplier-offer-zero-price` OZ01–OZ04 : 5 (sous-lot 2.2, [estimate-engine-v3-2.2.md](estimate-engine-v3-2.2.md) ; OZ04 : [version-totals-after-preselection.md](version-totals-after-preselection.md)) | propriétaire dédié en mode Expert, trois fournisseurs, trois articles et quatre offres en « ml » (dont trois à 0 €), un brouillon par parcours (v2 pour OZ01–OZ03, v1 historique pour OZ04), un chantier |
-| `emission` | `next dev` | setup d'offre, `offer-emission` OF00, OF01, OF02, OF04, OF0L : 6 (OF03 rouge à la base, hors sélection) | aucune : les parcours créent leurs devis `ARMY-OFFER-` par l'interface |
+| `emission` | build possédé, `next start` | setup d'offre, `offer-emission` OF00, OF01, OF02, OF04, OF0L : 6 (OF03 rouge à la base, hors sélection) | aucune : les parcours créent leurs devis `ARMY-OFFER-` par l'interface |
+| `emission-v3` | build possédé, `next start` | setup d'offre, `engine-v3-emission` V3M01, V3M03, V3M04, V3M05, V3M06 : 6 (sous-lot 2.7, [estimate-engine-v3-2.7.md](estimate-engine-v3-2.7.md) ; identifiant V3E01 jusqu’au 18/10/2026 ; vert depuis M5 et la piste TypeScript, §10 ; V3M03 et V3M04 ajoutés à la revue, §12 ; V3M05 à la fusion de 2.6, §13 ; V3M06 à la revue Codex de 3d78d662, §13.8 ; CGV de la copie scellée à l'impression de V3M05 et V3M06, revue de 8dd28c91, §13.9) | propriétaire dédié en politique 3 (1,30 / 1,20) avec un seul rôle à 4 000 c, règle d'approbation globale par défaut désactivée, un brouillon v2 témoin, une affaire à règle d'approbation propre (5 000 € HT, portée « client ») avec son brouillon v3 vide (V3M03), un second administrateur du tenant, identifiant `viewer` du profil (V3M06) ; les autres v3 sont créées par l'API, toutes sont remplies par l'API |
 
 Une phase sans `--grep` applique sa sélection par défaut (`defaultGrep`) et exige exactement ces
 nombres. Les parcours rouges sur la base non modifiée sont nommés dans `knownRedAtBase`
@@ -79,10 +80,20 @@ reprennent la forme des graines qualifiées non versionnées (`.e2e/source-cover
 `.e2e/source-coverage/access-staged/seed-generated-access.cjs`, 11/10/2026) ; elles sont
 réexécutées sur le schéma courant par cette campagne, pas encore qualifiées.
 
-Le mode `next dev` de l'émission découle de `canUseDevelopmentEstimateTerms`
-(`src/lib/estimates/pdf-terms-server.ts`) : les conditions bac à sable n'y dépendent d'aucune origine.
-L'extension de ce garde au build de production de la pile possédée change un comportement : elle
-relève du sous-lot 2.7. `offer-emission.config.ts` reste inchangé.
+Les deux phases d'émission (`sentinelCollector` dans `calc-v3-phases.ts`) démarrent le collecteur, chargent
+le garde réseau d'offre et relisent les PDF reçus ; seule `emission` impose un motif commun à chaque PDF
+(`collectedPdfMustContain`), `emission-v3` assertant le contenu de chaque PDF dans son parcours.
+
+Les phases d'émission servent le build de production possédé depuis l'intégration du 2.7 : le 2.7 étend
+`canUseDevelopmentEstimateTerms` (`src/lib/estimates/pdf-terms-server.ts`) au seul profil calc-v3 possédé
+(`E2E_ARMY_SUITE=calc-v3`, `E2E_OFFER_SERVER_MODE=production`, `E2E_OFFER_SANDBOX_TERMS=1`, garde serveur
+d'offre, backend `127.0.0.1` hors 45585/33485 égal à `E2E_OFFER_BACKEND_ORIGIN`, et, depuis la revue du 2.7,
+marqueur du lanceur possédé `E2E_CALC_V3_OWNED_STACK=1` transmis à l'application et répertoire de campagne
+`<racine>/.e2e/army/offer/runs/<horodatage>-calc-v3-<uuid>`), avec son test de garde-fou, et le profil pose
+ces valeurs pour une phase de production. Une phase déclarée `development` resterait servie par
+`next dev`. Le passage lève l'artefact OF00 de `next dev` relevé par le 2.9
+([estimate-engine-v3-2.9.md](estimate-engine-v3-2.9.md), « OF00 en mode développement »).
+`offer-emission.config.ts` reste inchangé.
 
 ## Préconditions des parcours semés
 
@@ -151,20 +162,19 @@ autre PR ne le lance.
 
 | Entrée `phase` | Exécution |
 |---|---|
-| `nightly` (défaut, la planification et une PR qui modifie le workflow) | `journeys`, `components`, `numeric`, `resume`, `access`, `offers` : une invocation `--phase` et une pile possédée par phase, chacune dans son job ([jobs parallèles](tester-army-ci.md#jobs-parallèles)) ; une phase rouge n'arrête pas les autres, le job `army-calc-v3` nomme les phases sans preuve |
+| `nightly` (défaut, la planification et une PR qui modifie le workflow) | `journeys`, `components`, `numeric`, `resume`, `access`, `offers`, `emission`, `emission-v3` : une invocation `--phase` et une pile possédée par phase, chacune dans son job ([jobs parallèles](tester-army-ci.md#jobs-parallèles)) ; une phase rouge n'arrête pas les autres, le job `army-calc-v3` nomme les phases sans preuve |
 | `all` | `npm run e2e:army:calc-v3` à l'identique, dans un seul job : toutes les phases sur une pile, émission comprise, en dernier |
-| une phase | `--phase <phase>`, `emission` comprise |
+| une phase | `--phase <phase>`, `emission` et `emission-v3` comprises |
 
-**Émission exclue de la nuit.** Elle est servie par `next dev` (section « Phases » ci-dessus), où OF00
-échoue 7/7 depuis la PR #34 (le rechargement à chaud remonte l'éditeur ; 6/6 en production avec un
-garde local). La lancer chaque nuit ne produirait qu'un rouge connu. Le sous-lot 2.7
-(`lot2/2.7-document-emission-v3`) étend `canUseDevelopmentEstimateTerms` au profil de production
-possédé et passe l'émission en `serverMode: "production"`. Réactivation, dans la même PR que 2.7 :
-ajouter `emission` à `CALC_V3_NIGHTLY_PHASES` dans `.github/workflows/e2e-army-calc-v3.yml`, rien
-d'autre. Le garde `src/test/ci-guardrails.test.ts` impose que cette liste soit exactement les phases
-de production de `scripts/tester-army/calc-v3-phases.ts` et n'interdit l'émission que tant qu'elle
-n'est pas servie en production : il échoue tant que l'émission basculée n'y est pas ajoutée, et cet
-ajout suffit à le remettre au vert.
+**Émission dans la nuit depuis 2.7.** Jusqu'au sous-lot 2.7, l'émission était servie par `next dev`, où
+OF00 échouait 7/7 depuis la PR #34 (le rechargement à chaud remonte l'éditeur ; 6/6 en production avec
+un garde local), et restait hors de la nuit. Le 2.7 (`lot2/2.7-document-emission-v3`, PR #45) étend
+`canUseDevelopmentEstimateTerms` au profil de production possédé, sert `emission` et la nouvelle phase
+`emission-v3` en `serverMode: "production"`, et les ajoute à `CALC_V3_NIGHTLY_PHASES` et aux options de
+`phase` de `.github/workflows/e2e-army-calc-v3.yml`, rien d'autre. Le garde
+`src/test/ci-guardrails.test.ts` impose que cette liste soit exactement les phases de production de
+`scripts/tester-army/calc-v3-phases.ts` et que les options soient `nightly`, `all` puis chaque phase :
+une phase ajoutée ou basculée sans le workflow le fait échouer.
 
 La nuit ne fixe ni `--grep` ni instantané de base : chaque phase applique sa sélection par défaut et
 ses nombres attendus, sur une base issue d'un `db reset` complet. Les rouges à la base (`knownRedAtBase`)
@@ -299,12 +309,13 @@ constat sur le navigateur ou l'application, plus une course du parcours.
 
 ## Limites
 
-- La CI nocturne ne lance pas l'émission tant que le sous-lot 2.7 ne l'a pas passée en production
-  (section « CI nocturne ») ; seul un déclenchement manuel (`all` ou `emission`) la lance.
-- L'émission en `next dev` ne qualifie pas le build de production ; la sonde
-  `check-offer-network-guard.mjs` de la recette d'offre n'est pas rejouée, seul le reçu
-  `guard-installed` du serveur est exigé. Le garde refuse trois requêtes sortantes du serveur de
-  développement (polices Google), sans effet sur les parcours.
+- Les deux phases d'émission (`emission`, `emission-v3`) n'entrent dans la nuit qu'avec la fusion du
+  sous-lot 2.7 (section « CI nocturne ») : avant elle, seule la sélection `nightly` de la PR qui modifie
+  le workflow les joue sur le runner.
+- La sonde `check-offer-network-guard.mjs` de la recette d'offre n'est pas rejouée, seul le reçu
+  `guard-installed` du serveur est exigé. En build de production, le garde refuse une requête sortante
+  par phase d'émission (destination non journalisée, 18/10/2026 ; trois polices Google sous `next dev`
+  auparavant), sans effet sur les parcours.
 - La sélection d'émission par défaut se limite à OF00–OF02, OF04 et OF0L.
 - Les rouges à la base restent à corriger par le porteur (parcours ou contrat) : tant qu'ils le
   sont, la phase `resume` ne prouve que GR02, GR04, GR06 et GR08, et l'émission ne prouve pas la

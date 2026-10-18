@@ -1,3 +1,4 @@
+import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
@@ -1513,20 +1514,20 @@ async function loadStructureDraftSourceBundle(input: {
     linkedImportSource,
   ] = await Promise.all([
     historyVersionIds.length > 0
-      ? supabase
+      ? readAllRowsInChunks(historyVersionIds, (pageIds) => supabase
           .from("estimate_items")
-          .select("id, version_id, parent_id, item_type, title, position")
+          .select("id, version_id, parent_id, item_type, title, position", { count: "exact" })
           .eq("tenant_id", tenantId)
           .eq("item_type", "section")
-          .in("version_id", historyVersionIds)
+          .in("version_id", pageIds))
       : Promise.resolve({ data: [], error: null }),
     templateIds.length > 0
-      ? supabase
+      ? readAllRowsInChunks(templateIds, (pageIds) => supabase
           .from("estimate_template_items")
-          .select("id, template_id, parent_id, item_type, title, position")
+          .select("id, template_id, parent_id, item_type, title, position", { count: "exact" })
           .eq("tenant_id", tenantId)
           .eq("item_type", "section")
-          .in("template_id", templateIds)
+          .in("template_id", pageIds))
       : Promise.resolve({ data: [], error: null }),
     latestLinkedImport
       ? fetchMappedRowsForImport({
@@ -1762,10 +1763,11 @@ async function loadStructureDraftSourceBundle(input: {
       .eq("project_id", project.id)
       .eq("status", "confirme")
       .maybeSingle(),
-    supabase
+    readAllRows(() => supabase
       .from("affaire_intake_documents" as never)
       .select(
-        "id, file_name, document_kind, upload_status, classification_status, document_priority, extracted_metadata" as never
+        "id, file_name, document_kind, upload_status, classification_status, document_priority, extracted_metadata" as never,
+        { count: "exact" }
       )
       .eq("tenant_id", tenantId)
       .eq("project_id", project.id)
@@ -1773,7 +1775,7 @@ async function loadStructureDraftSourceBundle(input: {
       .eq("upload_status", "uploaded")
       .eq("classification_status", "classified")
       .order("created_at", { ascending: true })
-      .order("id", { ascending: true }),
+      .order("id", { ascending: true })),
   ]);
 
   if (confirmedBriefResult.error) {
@@ -2227,13 +2229,13 @@ async function loadEstimateStructureDraftOrThrow(input: {
     throw notFound("Preview de structure introuvable.");
   }
 
-  const { data: nodeData, error: nodeError } = await input.supabase
+  const { data: nodeData, error: nodeError } = await readAllRows(() => input.supabase
     .from("estimate_structure_draft_nodes")
-    .select("*")
+    .select("*", { count: "exact" })
     .eq("tenant_id", input.tenantId)
     .eq("draft_id", input.draftId)
     .order("order_index", { ascending: true })
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: true }));
 
   if (nodeError) {
     throw mapSupabaseError(nodeError, "Impossible de charger les noeuds de structure.");
@@ -2294,13 +2296,13 @@ export async function generateEstimateStructureDraft(
     userId,
   });
 
-  const { data: existingItemsData, error: existingItemsError } = await supabase
+  const { data: existingItemsData, error: existingItemsError } = await readAllRows(() => supabase
     .from("estimate_items")
-    .select("*")
+    .select("*", { count: "exact" })
     .eq("tenant_id", tenantId)
     .eq("version_id", versionId)
     .order("position", { ascending: true })
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: true }));
 
   if (existingItemsError) {
     throw mapSupabaseError(existingItemsError, "Impossible de charger la structure existante.");
@@ -2743,13 +2745,13 @@ export async function applyEstimateStructureDraft(
     );
   }
 
-  const { data: existingItemsData, error: existingItemsError } = await supabase
+  const { data: existingItemsData, error: existingItemsError } = await readAllRows(() => supabase
     .from("estimate_items")
-    .select("*")
+    .select("*", { count: "exact" })
     .eq("tenant_id", tenantId)
     .eq("version_id", versionId)
     .order("position", { ascending: true })
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: true }));
 
   if (existingItemsError) {
     throw mapSupabaseError(existingItemsError, "Impossible de charger la structure cible.");
@@ -3097,13 +3099,14 @@ export async function enrichEstimateItemsWithAiStructureProvenance(input: {
   }
 
   const { data: applicationData, error: applicationError } = await selectInChunks(itemIds, (chunk) =>
-    input.supabase
+    readAllRows(() => input.supabase
       .from("estimate_structure_draft_applications")
       .select(
-        "draft_id, draft_node_id, estimate_item_id, applied_action, created_at"
+        "draft_id, draft_node_id, estimate_item_id, applied_action, created_at, id",
+        { count: "exact" }
       )
       .eq("tenant_id", input.tenantId)
-      .in("estimate_item_id", chunk)
+      .in("estimate_item_id", chunk))
   );
 
   if (applicationError || !applicationData || applicationData.length === 0) {
@@ -3123,11 +3126,11 @@ export async function enrichEstimateItemsWithAiStructureProvenance(input: {
         .eq("tenant_id", input.tenantId)
         .in("id", chunk)
     ),
-    input.supabase
+    readAllRowsInChunks(draftIds, (pageIds) => input.supabase
       .from("estimate_structure_drafts")
-      .select("id, created_at, generation_metadata")
+      .select("id, created_at, generation_metadata", { count: "exact" })
       .eq("tenant_id", input.tenantId)
-      .in("id", draftIds),
+      .in("id", pageIds)),
   ]);
 
   if (draftNodeResult.error || draftResult.error) {

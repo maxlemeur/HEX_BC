@@ -1,3 +1,4 @@
+import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -36,11 +37,11 @@ async function readDependencies(input: {
   ]).filter((id): id is string => typeof id === "string")));
   const [roles, tiers, flag] = await Promise.all([
     roleIds.length === 0 ? Promise.resolve({ data: [], error: null, count: 0 }) :
-      input.supabase.from("labor_roles").select("id, tenant_id, user_id, hourly_rate_cents", { count: "exact" })
-        .eq("tenant_id", input.tenantId).eq("user_id", input.projectUserId).in("id", roleIds),
+      readAllRowsInChunks(roleIds, (pageIds) => input.supabase.from("labor_roles").select("id, tenant_id, user_id, hourly_rate_cents", { count: "exact" })
+        .eq("tenant_id", input.tenantId).eq("user_id", input.projectUserId).in("id", pageIds)),
     input.version.margin_mode !== "tiered" ? Promise.resolve({ data: [], error: null, count: 0 }) :
-      input.supabase.from("margin_tiers").select("id, threshold_cents, multiplier, position", { count: "exact" })
-        .eq("tenant_id", input.tenantId).order("threshold_cents").order("position").order("id"),
+      readAllRows(() => input.supabase.from("margin_tiers").select("id, threshold_cents, multiplier, position", { count: "exact" })
+        .eq("tenant_id", input.tenantId).order("threshold_cents").order("position").order("id")),
     input.supabase.from("feature_flags").select("id, enabled").eq("tenant_id", input.tenantId)
       .eq("flag_key", "EST_031_LABOR_SPLIT").maybeSingle(),
   ]);

@@ -6,7 +6,6 @@ import { z } from "zod";
 import {
   buildImportFlowStats,
   normalizeMappedRowsForEstimateCreation,
-  readImportWorkbookParameters,
   resolveImportLaborRole,
   type ImportFlowLineValuesContext,
   type ImportFlowMappedRowInput,
@@ -32,9 +31,12 @@ import {
   normalizeNullableText,
   toRpcImportItems,
 } from "@/lib/affaires/import-flow-server";
-import { readTenantCalcPolicy } from "@/lib/estimates/calc-policy-server";
+import {
+  resolveImportSaleCoefficients,
+  v3LineContext,
+  type ImportSaleCoefficients,
+} from "@/lib/affaires/import-engine-server";
 import { persistCanonicalEstimateV2 } from "@/lib/estimates/canonical-v2-creation";
-import { usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import { IMPORT_CONTROL_TOLERANCE_CENTS, type ImportUnitPriceCheck } from "@/lib/imports/optima-profile";
 import {
   createMapping,
@@ -71,6 +73,8 @@ export type ConfirmUnifiedImportFlowResult = {
   redirectTo: string | null;
   takeoffCarryOver: TakeoffCarryOverStatus | null;
   totals: ImportFlowCreationTotals | null;
+  /** Sous-lot 2.10a (N3) : 3 quand la version créée est une v3, pour l'étape des plans qui suit ; absent sinon. */
+  calcEngineVersion?: 3;
   stats: {
     totalRows: number;
     validRows: number;
@@ -176,41 +180,8 @@ export type ImportFlowLinesPreview = {
   saleCoefficients: ImportSaleCoefficients | null;
 };
 
-/** Sale coefficients of the v3 an import creates (2.8, E4): the workbook's, the policy's, or a choice. */
-export type ImportSaleCoefficients = { fo: number; mo: number; source: "workbook" | "policy" | "choice" };
-
-function isSaleCoefficient(value: number | null | undefined): value is number {
-  return typeof value === "number" && value > 0 && value <= 10;
-}
-
-/**
- * Under a policy at engine 3, the import creates a v3: its sale coefficients are those chosen at the
- * preview, else the workbook parameter row's (FO and MO), else the policy's defaults. Null: v1/v2.
- */
-async function resolveImportSaleCoefficients(input: {
-  supabase: Supabase;
-  tenantId: string;
-  rows: ImportFlowMappedRowInput[];
-  requested: { fo: number; mo: number } | undefined;
-}): Promise<ImportSaleCoefficients | null> {
-  const policy = await readTenantCalcPolicy(input.supabase, input.tenantId);
-  if (!usesSaleCoefficients(policy.engine)) return null;
-  if (input.requested) return { ...input.requested, source: "choice" };
-  const workbook = readImportWorkbookParameters(input.rows);
-  if (isSaleCoefficient(workbook?.coeffFo) && isSaleCoefficient(workbook?.coeffMo)) {
-    return { fo: workbook.coeffFo, mo: workbook.coeffMo, source: "workbook" };
-  }
-  if (isSaleCoefficient(policy.defaultSaleCoefficientFo) && isSaleCoefficient(policy.defaultSaleCoefficientMo)) {
-    return { fo: policy.defaultSaleCoefficientFo, mo: policy.defaultSaleCoefficientMo, source: "policy" };
-  }
-  throw new Error("La politique de calcul de l’entreprise n’a pas de coefficients de vente par défaut.");
-}
-
-function v3LineContext(saleCoefficients: ImportSaleCoefficients | null) {
-  return saleCoefficients
-    ? { engine: 3, saleCoefficientFo: saleCoefficients.fo, saleCoefficientMo: saleCoefficients.mo }
-    : {};
-}
+// Sale coefficients of the v3 an import creates (2.8, E4): resolved by src/lib/affaires/import-engine-server.ts,
+// shared since 2.10a with the quick creation from an import and the wizard's linked DPGF source.
 
 function hasImportedLaborHours(normalized: NormalizeImportFlowRowsResult) {
   return normalized.validLines.some((line) => line.hMo > 0);
@@ -650,6 +621,7 @@ export async function confirmUnifiedImportFlow(
       totalTaxCents: createdVersion.version.total_tax_cents,
       totalTtcCents: createdVersion.version.total_ttc_cents,
     },
+    ...(saleCoefficients ? { calcEngineVersion: 3 as const } : {}),
     stats,
   };
 }

@@ -79,7 +79,7 @@ for (let index = 3; index < process.argv.length; index += 2) {
     if (value !== "development") throw new Error("full --phase names its development phase only; --files or --grep narrow its full phase.");
     fullPhase = value;
   } else if (option === "--phase") {
-    if (suite !== "calc-v3" || !isCalcV3Phase(value)) throw new Error("--phase names one calc-v3 phase: journeys|components|numeric|resume|access|emission.");
+    if (suite !== "calc-v3" || !isCalcV3Phase(value)) throw new Error("--phase names one calc-v3 phase: journeys|components|numeric|resume|access|offers|emission|emission-v3.");
     calcV3Phase = value;
   } else if (option === "--ttl-minutes") {
     if (suite !== "dev-loop" || !/^[0-9]+$/.test(value) || Number(value) < DEV_LOOP_TTL_RANGE[0] || Number(value) > DEV_LOOP_TTL_RANGE[1]) {

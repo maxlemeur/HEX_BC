@@ -255,23 +255,18 @@ réponse, bouton actif pendant la lecture, démontage de l'alerte, `k_fo`).
   après la revue Codex de #64).
 - `useEstimateEditorStatusController.ts` : `meta.isSendGatingRefreshing` est
   vrai tant que le préchargement d'un brouillon n'a pas répondu (succès ou
-  échec) pour sa clé courante, hors conditions déjà relues par l'envoi. Le
-  préchargement retient de nouveau sa clé à côté de la version.
-- `useEstimateEditorStatusController.ts` : le dernier résultat préchargé pour
-  la même version reste affiché pendant la lecture du nouveau jeton (le
-  préchargement retient la version, plus la clé de requête). Un brouillon d'une
-  autre version, un statut non brouillon ou une lecture en échec n'affichent
-  toujours rien. L'envoi ne lit pas ce préchargement : `requestSend` relit les
-  conditions et le serveur les applique. `beginOperation` n'abandonne plus la
-  lecture en cours (relevé de la revue) : sa réponse reste vérifiée contre la
-  version et son jeton, et l'abandonner laissait affichée celle du jeton
-  précédent jusqu'à l'écriture suivante.
-- Contrat isolé modifié : « masks stale gating while a new version token is
-  being checked » devient « keeps the draft's last gating shown… » (même
-  scénario, l'ancien résultat reste affiché jusqu'au nouveau). Ce masquage
-  datait de l'extraction des contrôleurs (`ca4dfb60`), sans raison consignée ;
-  le cas d'une autre version reste couvert par « projects empty gating… V1 to
-  V2 ».
+  échec) pour sa clé courante, hors conditions déjà relues par l'envoi.
+- U2 (alerte gardée pendant la lecture) : `main` l'a corrigé entre-temps par
+  `7fa27468` (V3E05, `displayedSendGating`) : l'alerte lit le dernier contrôle
+  abouti du brouillon, tandis que `state.sendGating` reste masqué jusqu'à la
+  réponse du nouveau jeton. La fusion de `main` dans cette branche garde cette
+  version et abandonne la nôtre (préchargement apparié par version, contrat
+  isolé « keeps the draft's last gating shown… ») ; « masks stale gating while a
+  new version token is being checked » reste tel que sur `main`.
+- `beginOperation` n'abandonne plus la lecture en cours (relevé de la revue) :
+  sa réponse reste vérifiée contre la version et son jeton. L'abandonner
+  laissait le jeton courant sans contrôle (conditions masquées, annulation
+  retenue) jusqu'à l'écriture suivante.
 
 ### Preuves (clone `~/miaouffrage-bes-flake`, base `c4c1e854`, WSL Ubuntu 24.04, Node 24.14.0, e2e 0.21.0)
 

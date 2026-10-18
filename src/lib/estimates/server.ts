@@ -1,3 +1,4 @@
+import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { randomUUID } from "node:crypto";
 import { persistAtomicEstimateItem } from "@/lib/estimates/atomic-item-creation";
 import { normalizeStoredItemNumerics } from "@/lib/estimates/stored-item-numeric";
@@ -11,6 +12,11 @@ import {
   type ValidImportFlowLine,
 } from "@/lib/affaires/import-flow";
 import { toRpcImportItems } from "@/lib/affaires/import-flow-server";
+import {
+  resolveImportSaleCoefficients,
+  v3LineContext,
+  type ImportSaleCoefficients,
+} from "@/lib/affaires/import-engine-server";
 import {
   computeEstimateLineValues,
   hasActiveLaborSplitPayload,
@@ -52,9 +58,12 @@ import {
   shouldPreserveStoredEstimateV2Snapshot,
 } from "@/lib/estimates/calc-engine-version";
 import {
+  engineFreezesSnapshot,
   EstimateEngineUnavailableError,
   isUnifiedEngine,
+  requireHistoricalEngine,
   usesPerUnitLabor,
+  usesSaleCoefficients,
 } from "@/lib/estimates/engine/capabilities";
 import { getTakeoffLinkedSourceVersionByJobId } from "@/lib/takeoff/version-links";
 import { isSupplierAlternativeCurrencyCompatible } from "@/lib/estimates/supplier-preselection";
@@ -920,11 +929,11 @@ async function hydrateSuggestedCatalogueCandidates(input: {
   >();
 
   if (supplierPriceIds.length > 0) {
-    const { data: linksData, error: linksError } = await input.supabase
+    const { data: linksData, error: linksError } = await readAllRowsInChunks(supplierPriceIds, (pageIds) => input.supabase
       .from("dpgf_catalogue_links")
-      .select("supplier_price_id, material_index_id")
+      .select("supplier_price_id, material_index_id, id", { count: "exact" })
       .eq("tenant_id", input.tenantId)
-      .in("supplier_price_id", supplierPriceIds);
+      .in("supplier_price_id", pageIds));
 
     if (linksError) {
       throw mapSupabaseError(
@@ -946,11 +955,11 @@ async function hydrateSuggestedCatalogueCandidates(input: {
     );
 
     if (materialIndexIds.length > 0) {
-      const { data: indicesData, error: indicesError } = await input.supabase
+      const { data: indicesData, error: indicesError } = await readAllRowsInChunks(materialIndexIds, (pageIds) => input.supabase
         .from("material_indices")
-        .select("id, index_code, index_value, updated_at, index_date")
+        .select("id, index_code, index_value, updated_at, index_date", { count: "exact" })
         .eq("tenant_id", input.tenantId)
-        .in("id", materialIndexIds);
+        .in("id", pageIds));
 
       if (indicesError) {
         throw mapSupabaseError(
@@ -2463,13 +2472,13 @@ async function loadMappedRowsForImport(input: {
   tenantId: string;
   importId: string;
 }) {
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("dpgf_rows_mapped")
-    .select("id, payload, created_at")
+    .select("id, payload, created_at", { count: "exact" })
     .eq("tenant_id", input.tenantId)
     .eq("import_id", input.importId)
     .order("created_at", { ascending: true })
-    .order("id", { ascending: true });
+    .order("id", { ascending: true }));
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger les lignes DPGF mappées.");
@@ -3762,12 +3771,12 @@ export async function listEstimateVersionVariants(
   const versionIds = rows.map((row) => row.id);
 
   if (versionIds.length > 0) {
-    const { data: lineItemsData, error: lineItemsError } = await supabase
+    const { data: lineItemsData, error: lineItemsError } = await readAllRowsInChunks(versionIds, (pageIds) => supabase
       .from("estimate_items")
-      .select("version_id")
+      .select("version_id, id", { count: "exact" })
       .eq("tenant_id", tenantId)
       .eq("item_type", "line")
-      .in("version_id", versionIds);
+      .in("version_id", pageIds));
 
     if (lineItemsError) {
       throw mapSupabaseError(
@@ -3856,7 +3865,8 @@ export async function listLatestEstimates() {
   let query = supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, version_number, status, title, updated_at, total_ht_cents, date_devis, currency, validite_jours, estimate_projects!inner(id, name, reference, client_name, is_archived)"
+      "id, project_id, version_number, status, title, updated_at, total_ht_cents, date_devis, currency, validite_jours, estimate_projects!inner(id, name, reference, client_name, is_archived)",
+      { count: "exact" }
     )
     .eq("tenant_id", tenantId)
     .eq("estimate_projects.tenant_id", tenantId)
@@ -3866,9 +3876,9 @@ export async function listLatestEstimates() {
     query = query.eq("estimate_projects.user_id", userId);
   }
 
-  const { data, error } = await query
+  const { data, error } = await readAllRows(() => query
     .order("version_number", { ascending: false })
-    .order("updated_at", { ascending: false });
+    .order("updated_at", { ascending: false }));
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger la liste des chiffrages.");
@@ -4674,6 +4684,7 @@ export async function createEstimate(
     kind: "blank",
     importId: input.linked_import_id ?? null,
   };
+  let linkedDpgfSaleCoefficients: ImportSaleCoefficients | null = null;
   if (creationMode === "linked_dpgf_source") {
     const projectId = targetProjectId!;
     const latestImport = await loadLatestLinkedDpgfImportForProject({
@@ -4696,6 +4707,17 @@ export async function createEstimate(
         "La source DPGF liée ne contient aucune ligne mappee exploitable."
       );
     }
+    // Sous-lot 2.10a (A3) : sous une politique 3, lignes normalisées pour le moteur 3 comme l'import de l'affaire
+    // (unité du référentiel, PU du moteur 3), aux coefficients choisis dans l'assistant, sinon ceux de la politique.
+    linkedDpgfSaleCoefficients = await resolveImportSaleCoefficients({
+      supabase,
+      tenantId,
+      rows: mappedRows,
+      requested: {
+        fo: input.version?.sale_coefficient_fo,
+        mo: input.version?.sale_coefficient_mo,
+      },
+    });
     const normalized = normalizeMappedRowsForEstimateCreation(mappedRows, {
       marginMultiplier:
         input.version?.margin_multiplier ??
@@ -4706,6 +4728,7 @@ export async function createEstimate(
         latestProjectVersionDefaults?.tax_rate_bp ??
         DEFAULT_TAX_RATE_BP,
       entry: "direct",
+      ...v3LineContext(linkedDpgfSaleCoefficients),
     });
     // No preview in the wizard's DPGF source mode (P-16, E17).
     if (importRequiresPreview(normalized)) {
@@ -4733,6 +4756,7 @@ export async function createEstimate(
         importId: latestImport.id,
         mappingId: latestMapping?.id ?? null,
       }),
+      ...(linkedDpgfSaleCoefficients ? { engine: 3 } : {}),
     };
   }
 
@@ -4762,6 +4786,13 @@ export async function createEstimate(
       ...(normalizedCurrency === undefined
         ? {}
         : { currency: normalizedCurrency }),
+      // The coefficients that priced the linked DPGF lines (2.10a, A3).
+      ...(linkedDpgfSaleCoefficients
+        ? {
+            sale_coefficient_fo: linkedDpgfSaleCoefficients.fo,
+            sale_coefficient_mo: linkedDpgfSaleCoefficients.mo,
+          }
+        : {}),
     },
     source,
   });
@@ -4814,8 +4845,11 @@ export async function getEstimateVersionDetails(
     throw notFound("Version de chiffrage introuvable.");
   }
 
+  // Lot 2, sous-lot 2.7 : une v3 n'a ni instantané v2 ni barème ; son export relit le gel v3
+  // (v3-export.ts) et ce contexte reste celui d'un brouillon (rôles, ventilation).
   const preserveStoredSnapshot =
     options?.includeExportCalculationContext === true &&
+    !usesSaleCoefficients(resolveEstimateEngineVersion(version)) &&
     shouldPreserveStoredEstimateV2Snapshot(version);
   const exportLaborSplitEnabled =
     options?.includeExportCalculationContext === true && !preserveStoredSnapshot
@@ -5593,7 +5627,8 @@ export async function freezeEstimateV2SnapshotForSend(
     }
     throw error;
   }
-  if (!isUnifiedEngine(resolveCalcEngineVersion(version))) {
+  // Lot 2, sous-lot 2.7 : la v3 fige aussi son document (freeze_estimate_v3_document_snapshot).
+  if (!engineFreezesSnapshot(resolveEstimateEngineVersion(version))) {
     return version;
   }
   return freezeEstimateV2Snapshot({
@@ -5684,7 +5719,8 @@ export async function patchEstimateStatus(
       );
     }
 
-    if (isUnifiedEngine(resolveCalcEngineVersion(version))) {
+    // Lot 2, sous-lot 2.7 : une v3 fige son document comme une v2 (gel v3, bail de la page).
+    if (engineFreezesSnapshot(resolveEstimateEngineVersion(version))) {
       const frozen = await freezeEstimateV2Snapshot({
         supabase,
         rpcClient: getServiceRoleSupabaseClient(),
@@ -5737,7 +5773,8 @@ export async function patchEstimateStatus(
       versionId,
       requireSealed: false,
     });
-    if (offer.proof.clientContractVersion !== 1) {
+    // Contrat 1 (v1/v2) ou contrat 2 (v3) : l'appariement au moteur est prouvé par la relecture.
+    if (offer.proof.clientContractVersion === null) {
       throw badRequest("La nouvelle émission exige une copie commerciale complète.", undefined, "OFFER_DOCUMENT_CONTRACT_INVALID");
     }
     sealHash = offer.sealHash;
@@ -5781,6 +5818,9 @@ export async function patchEstimateStatus(
   };
 }
 
+/** Charge de calcul de chaque schéma historique retrouvé par la vérification. */
+const SEAL_SCHEME_PAYLOAD_VERSIONS = { v4: 4, v3: 3, v2: 2, v1_split: 1, v1_pre_split: 1 } as const;
+
 export async function verifyEstimateSeal(versionId: string) {
   const context = await getAuthenticatedContext();
   const { supabase, tenantId, userId } = context;
@@ -5801,7 +5841,22 @@ export async function verifyEstimateSeal(versionId: string) {
       metadata: { valid: true, computed_hash: offer.sealHash, stored_hash: offer.sealHash, matched_seal_scheme: "v5" },
       occurredAt: new Date().toISOString(),
     });
-    return { valid: true, computed_hash: offer.sealHash, stored_hash: offer.sealHash };
+    // Lot 2, sous-lot 2.7 : le contrat (1 ou 2) et la charge de calcul (4 ou 6) du marqueur 5.
+    return { valid: true, computed_hash: offer.sealHash, stored_hash: offer.sealHash, seal_payload_version: 5,
+      client_contract_version: offer.proof.clientContractVersion, calc_payload_version: offer.calculationPayloadVersion };
+  }
+  // Lot 2, sous-lot 2.7 (D14) : une v3 n'a aucun candidat historique (marqueur 5 seulement) ;
+  // l'empreinte rendue est celle de sa charge 6, pour diagnostic.
+  if (usesSaleCoefficients(resolveEstimateEngineVersion(sealSource.version))) {
+    const computedV3Hash = computeEstimateSealHash(buildCanonicalEstimateSealPayload(sealSource));
+    const storedV3Hash = sealSource.version.seal_hash?.trim().toLowerCase() || null;
+    await logEstimateVersionEvent({
+      versionId, eventType: "seal_verified", actorUserId: userId,
+      metadata: { valid: false, computed_hash: computedV3Hash, stored_hash: storedV3Hash, matched_seal_scheme: null },
+      occurredAt: new Date().toISOString(),
+    });
+    return { valid: false, computed_hash: computedV3Hash, stored_hash: storedV3Hash,
+      seal_payload_version: sealSource.version.seal_payload_version ?? null, client_contract_version: null, calc_payload_version: null };
   }
   const currentSealCandidate = {
     scheme: "v4" as const,
@@ -5848,7 +5903,7 @@ export async function verifyEstimateSeal(versionId: string) {
   // l'arrondi commercial explicite en v4. Les candidats v3/v2 conservent la
   // compatibilite des sceaux emis avant ce contrat.
   const sealCandidates =
-    isUnifiedEngine(resolveCalcEngineVersion(sealSource.version))
+    isUnifiedEngine(requireHistoricalEngine(resolveEstimateEngineVersion(sealSource.version)))
       ? [currentSealCandidate, unifiedSealCandidate, previousSealCandidate]
       : [previousSealCandidate, ...legacySealCandidates];
   const storedHash = sealSource.version.seal_hash?.trim().toLowerCase() || null;
@@ -5879,6 +5934,9 @@ export async function verifyEstimateSeal(versionId: string) {
     valid: isValid,
     computed_hash: computedHash,
     stored_hash: storedHash,
+    seal_payload_version: sealSource.version.seal_payload_version ?? null,
+    client_contract_version: null,
+    calc_payload_version: matchedCandidate ? SEAL_SCHEME_PAYLOAD_VERSIONS[matchedCandidate.scheme] : null,
   };
 }
 
@@ -7017,7 +7075,7 @@ export async function reorderEstimateItems(
 
   let siblingsQuery = supabase
     .from("estimate_items")
-    .select("id")
+    .select("id", { count: "exact" })
     .eq("tenant_id", tenantId)
     .eq("version_id", versionId);
 
@@ -7025,7 +7083,7 @@ export async function reorderEstimateItems(
     ? siblingsQuery.is("parent_id", null)
     : siblingsQuery.eq("parent_id", parentId);
 
-  const { data: siblings, error: siblingsError } = await siblingsQuery;
+  const { data: siblings, error: siblingsError } = await readAllRows(() => siblingsQuery);
 
   if (siblingsError) {
     throw mapSupabaseError(siblingsError, "Impossible de charger les lignes à reordonner.");
@@ -7183,7 +7241,7 @@ export async function moveEstimateItem(
   const loadSiblingIds = async (parentId: string | null) => {
     let query = supabase
       .from("estimate_items")
-      .select("id")
+      .select("id", { count: "exact" })
       .eq("tenant_id", tenantId)
       .eq("version_id", versionId)
       .order("position", { ascending: true })
@@ -7193,7 +7251,7 @@ export async function moveEstimateItem(
       ? query.is("parent_id", null)
       : query.eq("parent_id", parentId);
 
-    const { data: siblings, error: siblingsError } = await query;
+    const { data: siblings, error: siblingsError } = await readAllRows(() => query);
 
     if (siblingsError) {
       throw mapSupabaseError(

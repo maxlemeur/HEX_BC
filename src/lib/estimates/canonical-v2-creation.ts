@@ -1,3 +1,4 @@
+import { readAllRows } from "@/lib/supabase/read-all";
 import { randomUUID } from "node:crypto";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -5,7 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { EstimateItemRecord } from "@/lib/estimate-calculations";
 import type { RpcImportItemPayload } from "@/lib/affaires/import-flow-server";
 import { buildEstimateV2SnapshotProjection } from "@/lib/estimate-v2-snapshot";
-import { NEW_ESTIMATE_CALC_ENGINE_VERSION } from "@/lib/estimates/calc-engine-version";
+import type { CalcEngineVersion } from "@/lib/estimates/calc-engine-version";
 import {
   calcPolicyContextChanged,
   isCalcPolicyContextChangedError,
@@ -17,15 +18,26 @@ import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
 import {
   assertNever,
   EstimateEngineUnavailableError,
+  usesPerUnitLabor,
   usesSaleCoefficients,
 } from "@/lib/estimates/engine/capabilities";
 import { badRequest, internalError } from "@/lib/estimates/errors";
+import {
+  assertTemplateLaborRolesOwnedForV3,
+  templateHoursWithoutQuantityMessage,
+} from "@/lib/estimates/estimate-template-helpers";
 import {
   buildHierarchyIndex,
   DEFAULT_MAX_SECTION_DEPTH,
   MAX_SECTION_DEPTH,
   resolveSectionLevel,
 } from "@/lib/estimates/hierarchy";
+import {
+  listTemplateLinesConvertedForV3,
+  templateLineHoursPerUnitForV3,
+  type TemplateV3ConvertedLine,
+} from "@/lib/estimates/template-v3-hours";
+import { resolveTemplateV3VersionSettings, type TemplateV3DroppedSetting } from "@/lib/estimates/template-v3-settings";
 import { assertEstimateV3VersionShape, toEstimateV3VersionTotals } from "@/lib/estimates/v3-persistence";
 import {
   calculateEstimateSnapshotForItems,
@@ -33,6 +45,7 @@ import {
   type EstimateTotalsVersionConfig,
 } from "@/lib/estimates/version-totals";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { normalizeMeasurementUnit } from "@/lib/units/normalize";
 import type { Database, Json } from "@/types/database";
 
 type Supabase = SupabaseClient<Database>;
@@ -112,7 +125,29 @@ export type CanonicalV2TemplateItem = Pick<
   h_mo_majoration: number | null;
   k_mo_atelier: number | null;
   k_mo_chantier: number | null;
-};
+} & Partial<Pick<
+  EstimateItemInsert,
+  "unit_code" | "pricing_status" | "h_mo_per_unit" | "h_mo_atelier_per_unit" | "h_mo_chantier_per_unit"
+>>;
+
+/** Réglages de version et coefficients de vente d'un modèle (M6 : coefficients nuls hors modèle issu d'une v3). */
+export type CanonicalTemplateSettings = Pick<
+  EstimateTemplateRow,
+  | "margin_multiplier"
+  | "margin_mode"
+  | "currency"
+  | "margin_bp"
+  | "discount_bp"
+  | "discount_amount_cents"
+  | "discount_mode"
+  | "discount_steps"
+  | "global_coefficient"
+  | "tax_rate_bp"
+  | "rounding_mode"
+  | "rounding_step_cents"
+  | "sale_coefficient_fo"
+  | "sale_coefficient_mo"
+>;
 
 type CanonicalV2CreationSource =
   | {
@@ -122,6 +157,12 @@ type CanonicalV2CreationSource =
   | {
       kind: "template";
       items: CanonicalV2TemplateItem[];
+      /**
+       * Sous-lot 2.10a (A1, D-h) : réglages du modèle. En v2, ceux de la version créée ; en v3, seuls ceux
+       * qu'elle sait représenter, les autres listés (`templateConversion`), et les coefficients du modèle
+       * issu d'une v3, sinon ceux de la politique.
+       */
+      settings?: CanonicalTemplateSettings;
     }
   | {
       kind: "import";
@@ -151,12 +192,20 @@ export type PersistCanonicalEstimateV2Input = {
   expectedCalcEngineVersion?: number | null;
 };
 
+/** Sous-lot 2.10a (P-12, D-h) : rapport d'un modèle entré dans une v3, même forme que son insertion (M6). */
+export type CanonicalTemplateV3Conversion = {
+  converted_lines: TemplateV3ConvertedLine[];
+  dropped_settings: TemplateV3DroppedSetting[];
+};
+
 export type PersistCanonicalEstimateV2Result = {
   project: EstimateProjectRow;
   version: EstimateVersionRow;
   insertedLineCount: number;
   insertedSectionCount: number;
   rootSectionId: string | null;
+  /** Création depuis un modèle en moteur 3 seulement. */
+  templateConversion?: CanonicalTemplateV3Conversion;
 };
 
 export type InstantiateCanonicalEstimateV2FromTemplateInput = {
@@ -168,7 +217,12 @@ export type InstantiateCanonicalEstimateV2FromTemplateInput = {
   versionTitle?: string | null;
   dateDevis?: string | null;
   validiteJours?: number | null;
+  /** Sous-lot 2.10a (D3) : moteur attendu par le client ; absent = 2. */
+  expectedCalcEngineVersion?: number | null;
 };
+
+/** Moteur historique de la préparation v2, atteinte seulement quand la politique vaut 2. */
+const CANONICAL_V2_CALC_ENGINE_VERSION: CalcEngineVersion = 2;
 
 type LatestVersionDefaults = Pick<
   EstimateVersionRow,
@@ -284,7 +338,9 @@ function createBaseItem(input: {
 }
 
 function cloneTemplateItems(
-  items: CanonicalV2TemplateItem[]
+  items: CanonicalV2TemplateItem[],
+  // Sous-lot 2.10a : conversion d'une ligne pour le moteur 3 (heures par unité, unité, défauts de M6).
+  mapLine?: (cloned: CanonicalEstimateCreationItem, source: CanonicalV2TemplateItem) => CanonicalEstimateCreationItem
 ): CanonicalEstimateCreationItem[] {
   const sourceById = new Map<string, CanonicalV2TemplateItem>();
   for (const item of items) {
@@ -365,11 +421,52 @@ function cloneTemplateItems(
     }
     visiting.delete(sourceId);
     visited.add(sourceId);
-    ordered.push(cloned);
+    ordered.push(mapLine && cloned.item_type === "line" ? mapLine(cloned, source) : cloned);
   };
 
   for (const item of items) visit(item.id!);
   return ordered;
+}
+
+/**
+ * Sous-lot 2.10a (A1, P-12) : une ligne de modèle entrant dans une v3 à sa création, miroir de son insertion dans
+ * une v3 (M6 `insert_estimate_template_into_version` puis `estimate_v3_complete_entry_for_writer`) : mêmes
+ * défauts (Q 1, PR 0, K 1), heures par unité du modèle issu d'une v3 ou h / Q, unité du modèle, sinon celle
+ * du référentiel lue sur `description` pour une ligne chiffrée. Montants : moteur 3, plus loin. Le déclencheur v3
+ * dérive les heures de la ligne et la TVA absente (celle de la version).
+ */
+function toV3TemplateLine(
+  cloned: CanonicalEstimateCreationItem,
+  source: CanonicalV2TemplateItem
+): CanonicalEstimateCreationItem {
+  const hours = templateLineHoursPerUnitForV3({
+    item_type: source.item_type,
+    title: source.title,
+    quantity: source.quantity ?? null,
+    h_mo: source.h_mo ?? null,
+    h_mo_atelier: source.h_mo_atelier ?? null,
+    h_mo_chantier: source.h_mo_chantier ?? null,
+    h_mo_per_unit: source.h_mo_per_unit,
+    h_mo_atelier_per_unit: source.h_mo_atelier_per_unit,
+    h_mo_chantier_per_unit: source.h_mo_chantier_per_unit,
+  });
+  if (!hours) {
+    throw badRequest(templateHoursWithoutQuantityMessage(source.title), { title: source.title },
+      "ESTIMATE_V3_TEMPLATE_HOURS_WITHOUT_QUANTITY");
+  }
+  const pricingStatus = source.pricing_status ?? "priced";
+  const unit = !source.unit_code && pricingStatus === "priced" ? normalizeMeasurementUnit(source.description) : null;
+  return {
+    ...cloned,
+    quantity: source.quantity ?? 1,
+    unit_price_ht_cents: source.unit_price_ht_cents ?? 0,
+    k_fo: source.k_fo ?? 1,
+    h_mo: source.h_mo ?? 0,
+    k_mo: source.k_mo ?? 1,
+    unit_code: source.unit_code ?? unit?.unitCode ?? null,
+    pricing_status: unit?.pricingStatus ?? pricingStatus,
+    ...hours,
+  };
 }
 
 function createImportItems(source: Extract<CanonicalV2CreationSource, { kind: "import" }>) {
@@ -603,7 +700,7 @@ function resolveVersionPayload(input: {
     rounding_step_cents: base.rounding_step_cents,
     max_section_depth: maxSectionDepth,
     contractor_role: base.contractor_role,
-    calc_engine_version: NEW_ESTIMATE_CALC_ENGINE_VERSION,
+    calc_engine_version: CANONICAL_V2_CALC_ENGINE_VERSION,
     total_ht_cents: 0,
     total_tax_cents: 0,
     total_ttc_cents: 0,
@@ -726,7 +823,7 @@ type CanonicalSourceResult = {
   rootSectionId: string | null;
 };
 
-function resolveCanonicalSource(source: CanonicalV2CreationSource): CanonicalSourceResult {
+function resolveCanonicalSource(source: CanonicalV2CreationSource, engine: 2 | 3): CanonicalSourceResult {
   return source.kind === "blank"
     ? {
         items: [],
@@ -736,7 +833,7 @@ function resolveCanonicalSource(source: CanonicalV2CreationSource): CanonicalSou
       }
     : source.kind === "template"
     ? {
-        items: cloneTemplateItems(source.items),
+        items: cloneTemplateItems(source.items, usesPerUnitLabor(engine) ? toV3TemplateLine : undefined),
         insertedLineCount: source.items.filter(
           (item) => item.item_type === "line"
         ).length,
@@ -748,15 +845,59 @@ function resolveCanonicalSource(source: CanonicalV2CreationSource): CanonicalSou
     : createImportItems(source);
 }
 
+/**
+ * Sous-lot 2.10a (A1, D-h) : réglages de la version créée depuis un modèle. En v2, ceux du modèle tels quels (comme
+ * avant 2.10a) ; en v3, ceux qu'elle sait représenter, les autres listés, et les coefficients du modèle issu
+ * d'une v3, sinon ceux de la politique (fournis : les montants des lignes en dépendent).
+ */
+function resolveCreationVersionOverrides(input: PersistCanonicalEstimateV2Input, engine: 2 | 3, policy: TenantCalcPolicy): {
+  overrides: CanonicalV2VersionOverrides | undefined;
+  droppedSettings: TemplateV3DroppedSetting[];
+} {
+  const template = input.source.kind === "template" ? input.source.settings : undefined;
+  if (!template) return { overrides: input.version, droppedSettings: [] };
+  if (!usesSaleCoefficients(engine)) {
+    return {
+      overrides: {
+        ...input.version,
+        margin_multiplier: template.margin_multiplier,
+        margin_mode: template.margin_mode,
+        currency: template.currency,
+        margin_bp: template.margin_bp,
+        discount_bp: template.discount_bp,
+        discount_amount_cents: template.discount_amount_cents,
+        discount_mode: template.discount_mode,
+        discount_steps: template.discount_steps,
+        global_coefficient: template.global_coefficient,
+        tax_rate_bp: template.tax_rate_bp,
+        rounding_mode: template.rounding_mode,
+        rounding_step_cents: template.rounding_step_cents,
+      },
+      droppedSettings: [],
+    };
+  }
+  const { settings, dropped } = resolveTemplateV3VersionSettings(template);
+  return {
+    overrides: {
+      ...input.version,
+      ...settings,
+      sale_coefficient_fo: template.sale_coefficient_fo == null ? policy.defaultSaleCoefficientFo : Number(template.sale_coefficient_fo),
+      sale_coefficient_mo: template.sale_coefficient_mo == null ? policy.defaultSaleCoefficientMo : Number(template.sale_coefficient_mo),
+    },
+    droppedSettings: dropped,
+  };
+}
+
 /** Préparation v2 inchangée : projection du moteur historique et charge canonique v2. */
 async function prepareCanonicalV2Creation(input: PersistCanonicalEstimateV2Input, context: {
   projectUserId: string;
   latestVersion: LatestVersionDefaults | null;
   sourceResult: CanonicalSourceResult;
+  overrides: CanonicalV2VersionOverrides | undefined;
 }) {
   const { projectUserId, sourceResult } = context;
   const versionPayload = resolveVersionPayload({
-    overrides: input.version,
+    overrides: context.overrides,
     latestVersion: context.latestVersion,
     requiredSectionDepth: requiredSectionDepthOf(sourceResult.items),
   });
@@ -773,7 +914,7 @@ async function prepareCanonicalV2Creation(input: PersistCanonicalEstimateV2Input
     rounding_mode: versionPayload.rounding_mode,
     rounding_step_cents: versionPayload.rounding_step_cents,
     contractor_role: versionPayload.contractor_role,
-    calc_engine_version: NEW_ESTIMATE_CALC_ENGINE_VERSION,
+    calc_engine_version: CANONICAL_V2_CALC_ENGINE_VERSION,
   };
   const calculated = await calculateEstimateSnapshotForItems({
     supabase: input.supabase,
@@ -827,14 +968,16 @@ export async function persistCanonicalEstimateV2(
       : null;
   const projectUserId = existingContext?.projectUserId ?? input.actorUserId;
   const policy = await readTenantCalcPolicy(input.supabase, input.tenantId);
-  // Sous-lot 2.8 (D16) : sous politique 3, seuls une v3 vierge et un import normalisé pour le moteur 3 entrent ;
-  // tout autre chemin (modèle, création rapide, assistant) reçoit un refus nommé et définitif avant la
-  // comparaison des attentes : un chemin sans attente ne doit pas recevoir le CONTEXT_CHANGED « rechargez la
-  // page », qui boucle (revue 2.5).
-  const entersV3 = input.source.kind === "blank" || (input.source.kind === "import" && input.source.engine === 3);
+  // Sous-lot 2.8 (D16) : sous politique 3, seuls une v3 vierge, un modèle (2.10a, converti ci-dessous) et un import
+  // normalisé pour le moteur 3 entrent ; tout autre chemin (import normalisé pour la v2) reçoit un refus nommé et
+  // définitif avant la comparaison des attentes : un chemin sans attente ne doit pas recevoir le CONTEXT_CHANGED
+  // « rechargez la page », qui boucle (revue 2.5).
+  const entersV3 = input.source.kind === "blank" || input.source.kind === "template" ||
+    (input.source.kind === "import" && input.source.engine === 3);
   if (!entersV3 && usesSaleCoefficients(policy.engine)) throw new EstimateEngineUnavailableError();
   const engine = resolveNewEstimateEngine({ policy, expectedEngine: input.expectedCalcEngineVersion });
-  const sourceResult = resolveCanonicalSource(input.source);
+  const sourceResult = resolveCanonicalSource(input.source, engine);
+  const { overrides, droppedSettings } = resolveCreationVersionOverrides(input, engine, policy);
   let prepared: { versionPayload: Record<string, unknown>; persistedItems: CanonicalEstimateCreationItem[] };
   switch (engine) {
     case 2: {
@@ -848,22 +991,34 @@ export async function persistCanonicalEstimateV2(
         projectUserId,
         latestVersion: existingContext?.latestVersion ?? null,
         sourceResult,
+        overrides,
       });
       break;
     }
     case 3: {
       const versionPayload = resolveV3VersionPayload({
-        overrides: input.version,
+        overrides,
         latestVersion: existingContext?.latestVersion ?? null,
         policy,
         requiredSectionDepth: requiredSectionDepthOf(sourceResult.items),
       });
-      // Sous-lot 2.8 : un import entre avec ses lignes v3 ; leurs montants sont ceux du moteur 3 aux
-      // coefficients fournis (la RPC les revérifie, estimate_v3_assert_draft_for_writer).
-      if (sourceResult.items.length > 0 && V3_CREATION_SETTINGS.some((key) => input.version?.[key] == null)) {
+      // Sous-lot 2.8 : un import (2.10a : ou un modèle) entre avec ses lignes v3 ; leurs montants sont ceux du
+      // moteur 3 aux coefficients fournis (la RPC les revérifie, estimate_v3_assert_draft_for_writer).
+      if (sourceResult.items.length > 0 && V3_CREATION_SETTINGS.some((key) => overrides?.[key] == null)) {
         throw internalError("Un import vers le moteur 3 fournit ses coefficients de vente.");
       }
-      const lineItems = sourceResult.items
+      if (input.source.kind === "template") {
+        await assertTemplateLaborRolesOwnedForV3({
+          supabase: input.supabase,
+          tenantId: input.tenantId,
+          projectUserId,
+          templateItems: input.source.items,
+        });
+      }
+      // Ligne sans TVA (modèle) : celle de la version, comme le déclencheur v3 et l'insertion M6.
+      const v3Items = sourceResult.items.map((item) =>
+        item.item_type === "line" && item.tax_rate_bp == null ? { ...item, tax_rate_bp: versionPayload.tax_rate_bp } : item);
+      const lineItems = v3Items
         .filter((item) => item.item_type === "line")
         .map((item) => ({
           ...toCalculationItem(item),
@@ -886,11 +1041,11 @@ export async function persistCanonicalEstimateV2(
       // n'importe quels coefficients : les totaux calculés restent exacts.
       const persistedPayload: Record<string, unknown> = { ...versionPayload };
       for (const key of V3_CREATION_SETTINGS) {
-        if (input.version?.[key] == null) delete persistedPayload[key];
+        if (overrides?.[key] == null) delete persistedPayload[key];
       }
       prepared = {
         versionPayload: { ...persistedPayload, ...toEstimateV3VersionTotals(calculated.breakdown) },
-        persistedItems: sourceResult.items.map((item) => {
+        persistedItems: v3Items.map((item) => {
           const line = item.item_type === "line" ? lineById.get(item.id!) : undefined;
           return line
             ? {
@@ -961,6 +1116,23 @@ export async function persistCanonicalEstimateV2(
     insertedLineCount: sourceResult.insertedLineCount,
     insertedSectionCount: sourceResult.insertedSectionCount,
     rootSectionId: sourceResult.rootSectionId,
+    ...(usesSaleCoefficients(engine) && input.source.kind === "template"
+      ? {
+          templateConversion: {
+            // Même rapport que l'insertion du modèle dans une v3 (M6) : heures MO totales changées par h / Q.
+            converted_lines: listTemplateLinesConvertedForV3(input.source.items.map((item) => ({
+              item_type: item.item_type,
+              title: item.title,
+              quantity: item.quantity ?? null,
+              h_mo: item.h_mo ?? null,
+              h_mo_per_unit: item.h_mo_per_unit,
+              h_mo_atelier_per_unit: item.h_mo_atelier_per_unit,
+              h_mo_chantier_per_unit: item.h_mo_chantier_per_unit,
+            }))),
+            dropped_settings: droppedSettings,
+          },
+        }
+      : {}),
   };
 }
 
@@ -982,13 +1154,13 @@ export async function instantiateCanonicalEstimateV2FromTemplate(
   }
   const template = templateData as EstimateTemplateRow;
 
-  const { data: itemData, error: itemError } = await input.supabase
+  const { data: itemData, error: itemError } = await readAllRows(() => input.supabase
     .from("estimate_template_items")
-    .select("*")
+    .select("*", { count: "exact" })
     .eq("tenant_id", input.tenantId)
     .eq("template_id", input.templateId)
     .order("position", { ascending: true })
-    .order("id", { ascending: true });
+    .order("id", { ascending: true }));
   if (itemError) {
     throw new Error("ESTIMATE_CANONICAL_V2_TEMPLATE_ITEMS_UNAVAILABLE", {
       cause: itemError,
@@ -1000,26 +1172,32 @@ export async function instantiateCanonicalEstimateV2FromTemplate(
     tenantId: input.tenantId,
     actorUserId: input.actorUserId,
     project: input.project,
+    expectedCalcEngineVersion: input.expectedCalcEngineVersion,
     version: {
       title: normalizeNullableText(input.versionTitle),
       date_devis: input.dateDevis ?? todayDateOnly(),
       validite_jours: input.validiteJours ?? template.validite_jours,
-      margin_multiplier: template.margin_multiplier,
-      margin_mode: template.margin_mode,
-      currency: template.currency,
-      margin_bp: template.margin_bp,
-      discount_bp: template.discount_bp,
-      discount_amount_cents: template.discount_amount_cents,
-      discount_mode: template.discount_mode,
-      discount_steps: template.discount_steps,
-      global_coefficient: template.global_coefficient,
-      tax_rate_bp: template.tax_rate_bp,
-      rounding_mode: template.rounding_mode,
-      rounding_step_cents: template.rounding_step_cents,
     },
     source: {
       kind: "template",
       items: (itemData ?? []) as EstimateTemplateItemRow[],
+      // Réglages repris selon le moteur de la politique, relue par la création (2.10a, D-h).
+      settings: {
+        margin_multiplier: template.margin_multiplier,
+        margin_mode: template.margin_mode,
+        currency: template.currency,
+        margin_bp: template.margin_bp,
+        discount_bp: template.discount_bp,
+        discount_amount_cents: template.discount_amount_cents,
+        discount_mode: template.discount_mode,
+        discount_steps: template.discount_steps,
+        global_coefficient: template.global_coefficient,
+        tax_rate_bp: template.tax_rate_bp,
+        rounding_mode: template.rounding_mode,
+        rounding_step_cents: template.rounding_step_cents,
+        sale_coefficient_fo: template.sale_coefficient_fo ?? null,
+        sale_coefficient_mo: template.sale_coefficient_mo ?? null,
+      },
     },
   });
 }
