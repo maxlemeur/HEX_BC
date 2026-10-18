@@ -1740,7 +1740,7 @@ Toutes les sélections sont exécutées en entier (sélectionnés = exécutés =
 Limites : celles du §13.11. Si `origin/main` avance encore avant la poussée, refusionner ; réhorodater M5 seulement
 si `main` gagne une migration plus récente.
 
-### 13.13 Fusion de `main` `c4c1e854` (#52, #54, #55, #56), correction de V3E05 et preuves rejouées (18/10/2026)
+### 13.13 Fusions de `main` `c4c1e854` (#52, #54, #55, #56) et `6260621c` (#58), correction de V3E05 et preuves rejouées (18/10/2026)
 
 **Fusion `58b1c93f`** (`git merge --no-ff origin/main`, sans rebase ni poussée). `origin/main` avait avancé à
 `c4c1e854` et la PR était en conflit. Cinq conflits, chacun résolu en gardant les deux intentions :
@@ -1788,6 +1788,18 @@ durée murale comprend donc l'attente ; journaux `~/l27-r6-logs/` : tête, état
 | `7fa27468` | `--phase emission-v3` | **sortie 0** en 427 s (attente comprise) : 6/6, 6 PDF reçus. `…/2026-10-18T15-29-24-043Z-calc-v3` (`f0445bc9…`) |
 | `7fa27468` | `--phase emission` | **sortie 0** en 456 s (attente comprise) : 6/6, 4 PDF reçus. `…/2026-10-18T15-36-32-349Z-calc-v3` (`7c7f3102…`) |
 | `58b1c93f` | `npm run verify:pr` (contrôle anticipé) | **sortie 0** en 102 s : Vitest node 3 281 (2 ignorés), jsdom 831, couverture critique 12 |
+| `95da9994` | la même sélection locale, après la fusion de `6260621c` (ci-dessous) | **sortie 0** en 344 s : 30/30, aucun `flaky` ni `skipped`, 114 tests découverts (les parcours V1 de #58 en plus) ; V3E05 à 450 px avant, pendant et après. `…/2026-10-18T15-46-48-305Z-critical` (`96f4e1b1…`) |
+
+**Seconde fusion `95da9994`** (`origin/main` `6260621c` : #58, parcours V1 des totaux dans la sélection critique
+de la PR, et les règles de livraison du 18/10 à 17 h 40). `git merge-tree` signalait un conflit, dans
+`scripts/tester-army/army-impact-map.json` seulement : le groupe `affaire-hub` garde `bulk-actions-v1-totals.e2e.ts`
+(#58) et `engine-v3-exports.e2e.ts` (2.7), dans l'ordre des chemins. Aucune migration ni aucun code de production
+ne vient de `main` (diff vide hors `src/test/`) : M5 reste la plus récente. Garde Git `pull_request` contre
+`6260621c` passée, `supabase:validate` 254/254, `ci-guardrails` et `army-impact-map` 40/40 (Windows). #58 change la
+liste critique locale de `e2e.config.ts` : la sélection locale est rejouée (ligne ci-dessus) ; les phases
+d'émission, servies par leur propre configuration et sans code changé, gardent leurs preuves sur `7fa27468`.
+`select-journeys.ts --event pull_request --base 6260621c` rend `mode` `full`, `fullOnly` `all` (neuf fichiers,
+connexion comprise) : la CI de la PR joue toute la suite critique et `army-takeoff`.
 
 **V3E05 rouge sur `58b1c93f` : alerte d'envoi bloqué et assertion de #55.** #55 ajoute à V3E05 une assertion :
 pendant qu'une suppression v3 annulée attend sa remise en ordre, ni l'alerte des totaux ni la grille ne bougent.
