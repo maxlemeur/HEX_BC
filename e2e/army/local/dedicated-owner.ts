@@ -27,7 +27,7 @@ export async function signUpDedicatedOwner(
   if (!["localhost", "127.0.0.1", "[::1]"].includes(backend.hostname) || backend.hostname !== process.env.E2E_ALLOWED_SUPABASE_HOST ||
     !anonKey || !/^http:\/\/localhost:\d+$/.test(app.origin) || !/^ARMY-[A-Za-z0-9-]{5,80}$/.test(runPrefix) ||
     !/^[A-Z0-9]{2,8}$/.test(role.tag)) {
-    throw new Error("A dedicated owner requires the owned loopback stack and app.");
+    throw new Error("A dedicated owner requires the owned loopback stack and app (npm run e2e:army:local or e2e:army:ci).");
   }
   const current = await browser.cookies();
   const written: Array<{ name: string; value: string; remove: boolean }> = [];
