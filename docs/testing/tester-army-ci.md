@@ -142,6 +142,74 @@ lançait que `dashboard-ux` et devait attendre ou déclencher la suite full de
   `964775bc`), contre 12 min 15 s et 12 min 39 s pour `army-critical` dans les
   mêmes runs, donc sans durée murale ajoutée.
 
+### Parcours V1 des totaux dans la sélection des PR
+
+Levier 3 de la [rétrospective CI du 18/10/2026](ci-retro-2026-10-18.md) :
+V1BT01 à V1BT03 (`e2e/army/local/bulk-actions-v1-totals.e2e.ts`) et V1PT01
+(`e2e/army/local/supplier-preselection-v1-totals.e2e.ts`) ne tournaient que
+dans la suite full, à 1 worker, parce qu'ils basculaient en SQL le compte de
+campagne partagé en mode Expert puis le rétablissaient. Une PR sur l'éditeur ou
+les totaux demandait donc une suite full déclenchée à la main. Depuis le
+18/10/2026, ils sont dans la liste critical `localBusiness` d'`e2e.config.ts`,
+dans `suite.journeys` et dans les groupes `editor`, `affaire-hub` et
+`affaires-list` de la carte : une PR qui atteint l'éditeur (règles
+`estimate-editor`, `estimates-boundaries`), le hub ou la liste des affaires,
+que lit leur oracle `expectStoredTotalsMatchLines` (revue Codex de la PR #58),
+ou une route API qu'ils appellent (graphe `/api/...`) les lance dans les
+shards critical, à 2 workers.
+
+- **Collision avant correction (rouge).** `main` `8eaee26b` sans modification
+  locale, clone WSL `~/miaouffrage-v1-selection` :
+  `E2E_ARMY_WORKERS=2 npm run e2e:army:ci -- full --app-port 3171 --grep 'V1BT0[1-3] |V1PT01 |numeric entry persists grouped settings'`.
+  Exit 1, 5/6, 153 s. `numeric-entry` « persists grouped settings » échoue sur
+  sa précondition (« the shared campaign account must be in Simplifié mode; a
+  journey switched profiles.ui_mode: expected 1 to be 0 »), et V1PT01 enregistre
+  `initialMode: "expert"` : il a démarré pendant que V1BT tenait le compte
+  partagé en Expert. Preuve : `.e2e/army/ci/2026-10-18T12-22-07-884Z-full/`
+  (`manifest.json` SHA-256 `bda8ad20…231e`, `full/report.json` `48e3bb7a…a0e7`).
+- **Correction (`e2e/` seulement).** Chaque test s'inscrit comme son propre
+  propriétaire jetable (`signUpDedicatedOwner`, étiquettes `V1BT01`, `V1BT02`,
+  `V1BT03` et `V1PT01`), né en Expert, avec son tenant `ARMY <étiquette> <run>`,
+  comme `bulk-edit-sync-sources` et V3P01. Son devis, sa règle de suggestion
+  (V1BT03), son catalogue (V1PT01) et son rôle MO de base à 40 €/h y naissent.
+  Les rôles par défaut d'un tenant neuf sont à 0 €/h : ce rôle est créé par
+  `POST /api/estimates/<ancre>/labor-roles` sous le bail de la v2 d'ancrage,
+  rendu ensuite. Le parcours vérifie en SQL que le devis appartient à ce compte
+  et à ce tenant. `setUiMode`, les rétablissements et la désactivation finale
+  de la règle sont retirés : le compte partagé n'est plus modifié. Valeurs
+  métier et oracles inchangés.
+- **Garde.** `src/test/army-impact-map.test.ts` exige que les contrôleurs
+  `Bulk`, `Suggestions` et `Supplier` de l'éditeur sélectionnent les deux
+  fichiers : rouge sur la carte et la liste de `main`, vert ensuite.
+- **Durées des shards.** V1PT01 garde ses 7 s mesurées ;
+  `bulk-actions-v1-totals.e2e.ts` n'a pas de durée mesurée en CI dans
+  `army-shards.json` et compte `defaultSeconds` (20 s ; 19 à 25 s en local).
+  Suite complète : toujours 3 shards (1 073 s mesurées au lieu de 1 046 s).
+
+Validation locale du 18/10/2026 (WSL Ubuntu 24.04, 24 cœurs, Node 24.14.0,
+pile native possédée, 2 workers ; d'autres sessions faisaient tourner leurs
+piles en même temps) :
+
+| Run | Révision | Résultat | Preuve |
+| --- | --- | --- | --- |
+| Boucle, 10 itérations, `--files` des deux fichiers V1, `numeric-entry`, `numeric-entry-v3` et `bulk-edit-sync-sources` (témoins du mode partagé) | `8eaee26b` + ce changement | 10/10, 11/11 tests chacune, 48 à 58 s | `.e2e/army/ci/2026-10-18T12-31-05-763Z-dev-loop/` du clone `~/miaouffrage-v1-selection` |
+| Même boucle, 10 itérations | `ef0b8289` (rebasé sur `c4c1e854`), sans modification locale | 10/10, 11/11 tests chacune | `.e2e/army/ci/2026-10-18T12-42-26-122Z-dev-loop/` du même clone |
+| `npm run e2e:army:ci -- critical`, avant | `main` `c4c1e854`, sans modification locale | vert, 106/106, 28 fichiers ; parcours 417 s, run 671 s | `.e2e/army/ci/2026-10-18T12-38-15-716Z-critical/` du clone `~/miaouffrage-v1-selection-base` (`manifest.json` `1fde5ca3…8cc1`) |
+| `npm run e2e:army:ci -- critical`, après | `ef0b8289`, sans modification locale | **rouge**, 108/110, 30 fichiers ; les quatre parcours V1 verts ; parcours 560 s, run 705 s | `.e2e/army/ci/2026-10-18T12-49-48-645Z-critical/` du clone `~/miaouffrage-v1-selection-verify` (`manifest.json` `c944761e…355b`, `critical/report.json` `cb68401b…a9d`) |
+
+Les deux échecs du run « après » touchent des parcours que ce changement ne
+modifie pas et qui ne partagent aucun état avec les parcours V1 (tenants
+dédiés) : S2 de `bulk-edit-sync-sources` (le clic « Annuler » des suggestions,
+4 ms après le statut « À jour » du Ctrl+S, n'écrit rien ; K FO relu à 1,3
+pendant 30 s, total 13,00 € à l'écran) et `commercial-rounding` « historical
+modes » (`PATCH /api/estimates/<id>` en 409, émis 0,5 s après le chargement de
+l'éditeur, pendant la prise de son bail). Ce sont des courses de bail et de
+sauvegarde, signalées pour correction séparée ; le run n'a pas été relancé
+jusqu'au vert. Hôte plus chargé pendant ce run : `engine-v3-editor.e2e.ts`,
+plancher de la suite, y prend 350 s contre 231 s dans le run « avant » ; les
+durées locales ne mesurent donc pas le coût des quatre parcours, lu plutôt
+dans la boucle (V1BT 19 à 25 s, V1PT01 5 à 7 s, à 2 workers).
+
 ### Exécution full ciblée (`workflow_dispatch`, `grep`)
 
 Prouver quelques parcours de la sélection full (métré, extended, `local`) sans
