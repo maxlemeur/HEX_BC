@@ -130,7 +130,13 @@ lançait que `dashboard-ux` et devait attendre ou déclencher la suite full de
   décisions `full`, donc 11 jobs `army-takeoff` complets (8 fichiers), et 4
   `none`. Le job ajoute des minutes de runner, pas de durée murale tant qu'il
   reste plus court que la suite critical ; mesure locale du lot complet dans la
-  section [Mesures](#mesures).
+  section [Mesures](#mesures). Mesuré sur la PR #42 (décision critical `full`,
+  donc métré `all` : setup et huit fichiers ; cache webpack restauré par
+  préfixe de clé depuis `main`, instantané de base exact) : job
+  `army-takeoff` de 8 min 22 s (run
+  39089316945, tête `9467ba95`) et de 8 min 18 s (run 39096480206, tête
+  `964775bc`), contre 12 min 15 s et 12 min 39 s pour `army-critical` dans les
+  mêmes runs, donc sans durée murale ajoutée.
 
 ### Exécution full ciblée (`workflow_dispatch`, `grep`)
 
@@ -298,7 +304,8 @@ verts, build 80,7 s (cache webpack local), parcours 123,9 s, 39/39 réussis
 `.e2e/army/ci/2026-10-18T00-57-15-780Z-full/` du clone (`manifest.json`
 SHA-256 `63d47b7512ccc5a74d2a335828151b9508a348da273af223b51002ba788cdd07`). Le
 job `army-takeoff` d'une PR `full` coûte donc environ 2 min de parcours en plus
-de l'installation, de la pile et d'un build souvent froid en CI.
+de l'installation, de la pile et du build ; en CI, le job entier mesure environ
+8 min 20 s (coût du job `army-takeoff` plus haut).
 
 Exécution full ciblée, même hôte et même révision :
 `run-tester-army-ci.ts full --app-port 3141 --grep '^VNEXT Team B - user stories e2e US-4\.1'`
@@ -349,7 +356,9 @@ puis phase développement, `scope: full`), et aucun job de PR ne le prouve :
 `RunContext` de #43), est prouvé par un déclenchement d'`e2e-army-full.yml`
 sans motif sur la tête fusionnée poussée ; son run et son manifeste
 (`scope: full`, phases `full` et `development` réussies, aucun `phasesNotRun`)
-restent à consigner ici. De même, le run calc-v3 de la PR 39096480257 (tête
+restent à consigner ici ; le commit qui les consigne devient la nouvelle tête
+et doit dire qu'il ne modifie que la documentation par rapport à la tête
+prouvée. De même, le run calc-v3 de la PR 39096480257 (tête
 `964775bc`, sélection `nightly`, six phases vertes dont `resume` avec GR06, voir
 [GR06 en CI](tester-army-calc-v3.md#gr06-en-ci)) précède la fusion de
 `488382d5` : seul le run calc-v3 de la PR sur la tête fusionnée poussée vaut
@@ -436,8 +445,12 @@ confidentialité du runner.
   run).
 - Coût : six piles et six builds par nuit dans un job (le premier build sur le
   cache webpack restauré depuis `main`, les suivants sur celui du premier) ;
-  délai maximal du job 120 min. Estimation non mesurée en CI : 25 à 35 min de
-  runner par nuit, autant par PR qui modifie le workflow.
+  délai maximal du job 120 min. Mesuré sur la PR #42, cache webpack restauré
+  par préfixe de clé depuis `main` : job de 28 min 04 s (run 39096480257, tête
+  `964775bc`, six phases vertes) et de 28 min 30 s (run 39089316912, tête
+  `9467ba95`, six phases exécutées, `resume` rouge), soit environ 28 min de
+  runner par PR qui modifie le workflow ; la nuit, qui n'existe qu'après la
+  fusion sur `main`, n'est pas encore mesurée.
 
 ## Contrat défini avant migration
 

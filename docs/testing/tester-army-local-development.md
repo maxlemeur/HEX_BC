@@ -152,7 +152,7 @@ alloués hors de la plage éphémère et des ports interdits au navigateur.
 ports de la pile de recette locale des développeurs (API et base) : le client
 `start` comme le superviseur lui-même (`e2e:army:ci -- dev-loop`) les refusent
 avant toute étape. Le superviseur refuse aussi `--grep` et `--files` : chaque
-`run` choisit sa sélection. Il exécute une seule fois migrations,
+`run` choisit sa sélection. Le superviseur exécute une seule fois migrations,
 pgTAP et matrice RLS, crée le compte, le tenant et les fixtures ARMY, puis
 construit l'application en production avec `build-local.mjs`. Pour chaque `run`, il exécute les parcours
 critical sélectionnés sur cette pile et ce build, avec tous les contrôles de
@@ -402,7 +402,9 @@ en-tête avec leur RED avant le correctif :
     sortie `.e2e/army`.
 12. Le superviseur lancé par `e2e:army:ci -- dev-loop` accepte un port de la
     pile partagée, ou un filtre de parcours (`--grep`, `--files`) qu'il ignore
-    ensuite, que seul le client `start` refusait.
+    ensuite, que seul le client `start` refusait. Le filtre de parcours vient
+    de la fusion de `488382d5` dans la PR #42 (RED `a98e7412`, correctif
+    `daa14ed3`), pas de cette revue.
 13. Les modules du superviseur changent sous une boucle ouverte : l'itération
     enregistre alors le checkout courant, mais applique les contrôles chargés
     au démarrage.
