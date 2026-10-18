@@ -350,6 +350,11 @@ export async function exportWorkbook(browser: Browser, versionId: string, mode: 
   }, { versionId, mode });
   const bytes = Buffer.from(exported.base64, "base64");
   expect([exported.status, Array.from(bytes.subarray(0, 4))]).toEqual([200, [0x50, 0x4b, 0x03, 0x04]]);
+  return { sha256: digest(bytes), bytes: bytes.length, rows: await readWorkbookRows(bytes) };
+}
+
+/** Lignes d'un classeur XLSX (feuille, numéro, cellules non vides) ; aussi pour un classeur téléchargé depuis l'éditeur. */
+export async function readWorkbookRows(bytes: Buffer) {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(bytes as unknown as Parameters<typeof workbook.xlsx.load>[0]);
   const rows: WorkbookRow[] = [];
@@ -369,7 +374,7 @@ export async function exportWorkbook(browser: Browser, versionId: string, mode: 
       rows.push({ sheet: sheet.name, row: rowNumber, cells });
     });
   });
-  return { sha256: digest(bytes), bytes: bytes.length, rows };
+  return rows;
 }
 
 /** Mêmes PU et PT bruts que le document pour chaque ligne-oracle, et une ligne de remise de 1,01 €. */
