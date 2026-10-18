@@ -16,12 +16,15 @@ type EstimatePrintLayoutButtonProps = {
   versionId: string;
   initialLayout: EstimatePdfLayoutOptions;
   autoPrint?: boolean;
+  /** Copie émise : sa mise en page est scellée, seul l'aperçu s'imprime (V3M-18). */
+  locked?: boolean;
 };
 
 export function EstimatePrintLayoutButton({
   versionId,
   initialLayout,
   autoPrint = false,
+  locked = false,
 }: Readonly<EstimatePrintLayoutButtonProps>) {
   const router = useRouter();
   const pathname = usePathname();
@@ -64,6 +67,21 @@ export function EstimatePrintLayoutButton({
     params.set("auto_print", "1");
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   };
+
+  if (locked) {
+    return (
+      <Button
+        variant="primary"
+        size="lg"
+        className="w-full sm:w-auto"
+        type="button"
+        onClick={() => window.print()}
+        leftIcon={<PrinterIcon aria-hidden="true" />}
+      >
+        Imprimer
+      </Button>
+    );
+  }
 
   return (
     <>
