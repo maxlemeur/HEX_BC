@@ -970,3 +970,86 @@ Le commit qui la corrige ne change que ce document. Il ajoute aussi C3 au tablea
 Node de chaque run. C3 reste la preuve du code à la tête : aucun chemin relevé par ses manifestes
 n'est sous `docs/` (1 781 entrées de construction ; seul fichier `.md` :
 `scripts/tester-army/README.md`). Rien n'est rejoué pour ce commit, hors `git diff --check`.
+
+### Fusion avec la PR #40
+
+`origin/main` est passé de `78533fe5` à `5cfd4a94`, la PR #40 (sous-lot 2.8, chemins d'entrée du
+moteur 3). Elle apporte le collage dans une v3 par l'écrivain de lot (V3E13 réécrit) et les
+migrations M6 (`20261017225906_estimate_engine_v3_entry_paths.sql`) et M6b
+(`20261018013249_estimate_creation_set_based_item_effects.sql`). La branche l'intègre par la fusion
+`be40ed54`, sans rebase. Seul conflit : l'en-tête de commentaires
+d'`engine-v3-editor-actions.e2e.ts`, où les deux côtés réécrivaient la ligne de V3E13. La
+description de 2.8 est gardée et la ligne V3E14 de cette branche est ajoutée. L'arbre fusionné ne
+diffère de la fusion automatique (`git merge-tree --write-tree f2c63d47 5cfd4a94`, `782a6b96`) que
+par ces lignes. Les corps de V3E13 et V3E14 et `useEstimateEditorState.impl.tsx` fusionnent sans
+conflit.
+
+Interactions que git ne signale pas, vérifiées par lecture de la tête fusionnée :
+
+- **Collage v1/v2 inchangé.** `useEstimateEditorPasteController.ts` et son câblage
+  (`useEstimateEditorState.impl.tsx:2387`) n'ont aucun diff contre `origin/main`. Le contrôleur
+  reçoit toujours `applyVersionToken`, soit `applyItemCreationVersionToken`, qui n'applique que le
+  jeton. Cette branche ne modifie aucun fichier de `src/lib` ni aucune fonction du collage :
+  `computeVersionTotalsPatch` et `applyVersionTokenAndTotals` ne vont qu'aux contrôleurs des lots,
+  des suggestions et de la présélection. Les totaux d'un collage v1/v2 restent écrits par le
+  serveur, dans le lot de création (`batchEstimateOperations`, `versionPatch` à trois totaux,
+  `src/lib/estimates/batch-preparation.ts:351`), comme sur `main`.
+- **Collage v3 sans garde v1/v2.** Le contrôleur du collage reçoit `v3Writer` (2.8), jamais
+  `computeVersionTotalsPatch`. La garde « Impossible de calculer les totaux du devis. » n'existe
+  que dans `applyBulkLineState` (`useEstimateEditorBulkController.ts:139`) et aux deux sites des
+  suggestions (`useEstimateEditorSuggestionsController.ts:990` et `:1235`), derrière `!v3Writer`.
+  Le collage n'y passe pas.
+- **Annulation d'un collage.** Le contrôleur n'a pas d'annulation propre. Il pousse la commande
+  `paste-insert` (`useEstimateEditorPasteController.ts:418`) dans l'historique partagé, que
+  `clearUndoRedoHistory()` vide en entier (`useUndoRedo.ts:197`, `stack: []`) à chaque
+  enregistrement réussi du paramétrage. L'annulation d'un collage est donc fermée comme celle d'une
+  majoration en lot. V3E14 juge déjà l'historique vide (`offered.history: false`), quelle que soit
+  la commande qu'il contient. En v1/v2, c'était déjà le cas sur cette branche. En v3, c'est un
+  effet de la fusion, sans code nouveau : une annulation de collage n'est plus offerte après un
+  enregistrement du paramétrage. Aucun code ne change, il n'y a donc pas de rouge à rejouer.
+
+Ce que la fusion invalide : l'éditeur (collage v3, `useEstimateClipboard.ts`,
+`PastePreviewDialog.tsx`) et la base (M6b réécrit les déclencheurs par ligne d'`estimate_items`,
+inchangés hors du contrat de création). La sélection qualifiante est rejouée, élargie à
+`paste|collage`. Ce motif n'ajoute aucun parcours, puisque V3E13 est déjà sélectionné par `V3E` :
+29 parcours, comme en C3. V1BT01 à V1BT03 et V1PT01 ne sont que dans `full` et ne sont pas rejoués
+ici.
+
+Clone WSL remis à `be40ed54` depuis le dépôt Windows, sans modification locale (`diffSha256`
+`e3b0c442…b855`), Node 24.19.0, 2 workers. Preuves sous `~/miaouffrage-totals-bulk/.e2e/army/ci/`,
+journaux `~/totals-bulk-logs/pr40-*.log`. Commande :
+`E2E_ARMY_WORKERS=2 npm run e2e:army:local -- --grep "bulk edit sync|bulk move|numeric entry|V3E|V3P01|V3FC|paste|collage" --app-port 3173`.
+
+| Run | Résultat | Preuves (`manifest.json` sha256) |
+| --- | --- | --- |
+| C4 | exit 1, 28/29. Seul V3E03 est rouge : `PATCH /lock?force=true` rend 409 (`engine-v3-editor-support.ts:286`) ; le journal serveur relève `23505` sur `draft_locks_version_id_key`. V3E13 : ligne `ml`, PU 13,00 €, `[4550, 910, 5460]`, puis `[1950, 390, 2340]` après l'annulation. V3E14 : aucune annulation offerte, `[50150, 5015, 55165]`, lignes et version à 1 000 pb. pgTAP `Files=22, Tests=1886, Result: PASS`, matrice RLS verte | `2026-10-18T08-12-58-870Z-critical` (`9a70a6ac…b39f`), `report.json` `ef5426dc…e7e0` |
+| C5 | exit 1, 28/29. Seul V3E01 est rouge, instabilité connue : rôle de O5 vide à l'écran, `waitForAutoSave` échoue (`fixtures.ts:355`). V3E03 est vert. pgTAP et matrice RLS verts | `2026-10-18T08-28-20-012Z-critical` (`9d85c13f…493b`), `report.json` `f963ad4c…d858` |
+| C6 | exit 1, 28/29. Seul V3E01 est rouge, même symptôme (rôle de O1 vide). V3E03 est vert. pgTAP et matrice RLS verts | `2026-10-18T08-37-00-713Z-critical` (`66903a2d…159a`), `report.json` `1aecbab4…0345` |
+
+Aucun des trois runs n'est entièrement vert. Chacun des 29 parcours est vert dans au moins un des
+trois, sur la même tête et sans modification locale. Les parcours que la fusion touche sont verts
+dans les trois, avec les mêmes valeurs : V3E13 et V3E14, `bulk-edit-sync` 4/4,
+`bulk-edit-sync-sources` 3/3, `bulk-move`, `numeric-entry` 2/2 et `numeric-entry-v3`. Dans chaque
+run, les trois `bulk-sync-<s1|s2|p1>-owner.json` relèvent trois comptes et trois tenants distincts,
+en Expert.
+
+V3E03 (2.6) n'était pas relevé instable. Sa reprise forcée du bail
+(`takeover_estimate_draft_lock`, `20260820194939_atomic_estimate_draft_lock_takeover.sql` : verrou
+consultatif, puis `delete` et `insert`) suit le rechargement de `checkpoint`
+(`engine-v3-editor-support.ts:512`), sans attendre le bail de la page rechargée. Cette page
+l'acquiert par un simple `insert` (`acquireLock`, `src/lib/estimates/locks.ts`), hors du verrou
+consultatif. Cause probable, non prouvée : cette acquisition s'insère entre le `delete` et
+l'`insert` de la reprise, d'où le 23505. Ni la PR #40 ni cette branche ne touchent ce parcours, ses
+aides, les verrous ou leur migration. Aucune attente ni relance n'est ajoutée ; le défaut est à
+suivre à part, comme V3E01.
+
+Contrôles du clone WSL sur `be40ed54` (journaux `pr40-typecheck`, `pr40-eslint`, `pr40-vitest`) :
+
+- `npm run typecheck` : exit 0 ;
+- `npx eslint --max-warnings=0` sur les 17 fichiers de code de la PR et
+  `useEstimateEditorPasteController.ts` : exit 0 ;
+- `npx vitest run` sur les 15 tests `src/hooks/useEstimateEditor*Controller.test.ts`,
+  `src/test/army-impact-map.test.ts` et `src/test/ci-guardrails.test.ts` : 17 fichiers, 208 tests ;
+- `git diff origin/main...HEAD` sur `src/lib/estimate-calculations.ts` et
+  `src/lib/estimate-v2-snapshot.ts` : vide ;
+- `git -c core.whitespace=cr-at-eol diff --check origin/main...HEAD` : propre.
