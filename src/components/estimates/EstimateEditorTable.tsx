@@ -40,7 +40,7 @@ import { useConfirm } from "@/components/feedback/confirm-provider";
 import type { SupplierComparisonAlternative } from "@/components/estimates/SupplierComparisonPanel";
 import type { CataloguePriceSuggestion } from "@/lib/estimates/catalogue-suggestions";
 import { alternativePriceForLineUnit } from "@/lib/estimates/supplier-offer-purchase-unit";
-import { resolveEstimateV3ArticleAssociation, resolveEstimateV3MobileLineMeta, resolveEstimateV3RuleUnit, resolveEstimateV3SuggestionUnitRefusal } from "@/lib/estimates/v3-editor";
+import { resolveEstimateArticleSheetUnit, resolveEstimateRuleUnitPatch, resolveEstimateV3ArticleAssociation, resolveEstimateV3MobileLineMeta } from "@/lib/estimates/v3-editor";
 import { useEstimateV3Grid, useEstimateV3UnitDrafts } from "@/components/estimates/v3/V3LineCells";
 import { EstimateEditorProvider } from "@/components/estimates/context/EstimateEditorContext";
 import {
@@ -1586,8 +1586,7 @@ export function EstimateEditorTable({
       if (v3Grid) {
         // v3 (F26-26) : offre jugée dans unit_code, description jamais écrite ; refus nommé dans la fiche.
         const v3 = resolveEstimateV3ArticleAssociation(suggestion, itemById.get(articleSheet.itemId)?.unit_code);
-        if (v3.ok) patchItemWithSuggestionTracking(articleSheet.itemId, v3.patch, { persist: true });
-        if (v3.ok) setArticleSheet(null);
+        if (v3.ok) { patchItemWithSuggestionTracking(articleSheet.itemId, v3.patch, { persist: true }); setArticleSheet(null); }
         return;
       }
       const designation = suggestion.product_designation.trim();
@@ -1820,14 +1819,10 @@ export function EstimateEditorTable({
     (item: EstimateItem, suggestion: SuggestionPreview) => {
       if (isReadOnly || item.item_type !== "line") return;
 
-      const patch: ItemPatch = {};
-      const unitValue = suggestion.rule.unit?.trim();
-      // Sous-lot 2.6b (A15) : sur une v3, unit_code du référentiel ; une unité inconnue est refusée, rien n’est écrit.
-      const v3Unit = unitValue && v3Grid ? resolveEstimateV3RuleUnit(unitValue) : null;
-      if (v3Unit && !v3Unit.ok) { toast.error({ title: "Suggestion non appliquée", description: v3Unit.message }); return; }
-      if (v3Unit?.ok) { if (v3Unit.unitCode) patch.unit_code = v3Unit.unitCode; } else if (unitValue) {
-        patch.description = unitValue;
-      }
+      // Sous-lot 2.6b (A15) : v3, unit_code du référentiel sans remplacer une unité choisie ; unité inconnue refusée.
+      const unitPatch = resolveEstimateRuleUnitPatch(suggestion.rule.unit, item, Boolean(v3Grid));
+      if (!unitPatch.ok) { toast.error({ title: "Suggestion non appliquée", description: unitPatch.message }); return; }
+      const patch: ItemPatch = { ...unitPatch.patch };
       const explicitSupplyTypeId = toNonEmptyString(
         (suggestion.rule as SuggestionRule & Record<string, unknown>)
           .supply_type_id
@@ -2708,8 +2703,7 @@ export function EstimateEditorTable({
           mode={articleSheet.mode}
           versionId={versionId}
           lineTitle={activeArticleItem.title}
-          lineUnit={v3Grid ? activeArticleItem.unit_code ?? null : mergedUnitDrafts[activeArticleItem.id] ?? activeArticleItem.description ?? null}
-          suggestionRefusal={v3Grid ? (suggestion) => resolveEstimateV3SuggestionUnitRefusal(suggestion, activeArticleItem.unit_code) : undefined}
+          {...resolveEstimateArticleSheetUnit(Boolean(v3Grid), activeArticleItem, mergedUnitDrafts[activeArticleItem.id])}
           productId={activeArticleItem.product_id ?? null}
           currency={currency}
           isReadOnly={isReadOnly}
