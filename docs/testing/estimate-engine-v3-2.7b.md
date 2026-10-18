@@ -1,9 +1,10 @@
 # Lot 2, sous-lot 2.7b : exports CSV et BDC V1.1 d'une v3 (A9, A10, A11)
 
 Décision D-a du 18/10/2026 (plan vers la bascule 2.10, M8 approuvée) : le CSV de l'éditeur et le BDC V1.1 d'une
-v3 sont livrés avant M8. Branche `lot2/2.7b-exports-csv-bdc-v3`, empilée sur la PR #45 (sous-lot 2.7, base locale
-`039ca113`, puis fusion de sa tête locale `58b1c93f` en `f1615b0f`) ; elle fusionne après elle. Depuis la revue de
-`37440c82`, la PR #60 est fermée jusqu'à la fusion de #45 (voir « Revue de `37440c82` »). Aucune migration.
+v3 sont livrés avant M8. Branche `lot2/2.7b-exports-csv-bdc-v3`, partie de la tête locale de 2.7 (`58b1c93f`,
+fusionnée en `f1615b0f`). La PR #60, fermée depuis la revue de `37440c82` tant que #45 n'était pas fusionnée, se
+rouvre sur la fusion d'`origin/main` (`b905ca26`, qui contient #45) dans la branche (voir « Fusion de `origin/main`
+après #45 ») : elle ne dépend plus d'aucune PR ouverte. Aucune migration.
 Parcours : `e2e/army/local/engine-v3-exports.e2e.ts` (V3X03 à V3X07) et V3E15 (`engine-v3-editor-actions.e2e.ts`).
 
 ## Défaillances observables (écrites avant le code)
@@ -103,6 +104,25 @@ du clone WSL `~/miaouffrage-l2-27b`.
 signale un conflit dans `scripts/tester-army/army-impact-map.json`, fichier que 2.7b ne modifie pas : la tête locale
 de 2.7 (`7fa27468`) a le même conflit avec `origin/main`, et 2.7b fusionne sans conflit avec elle. Sa résolution
 revient à #45 ; `origin/main` n'est pas fusionnée ici avant la réouverture de #60.
+
+## Fusion de `origin/main` après #45
+
+`8ef0c7ce` fusionne `origin/main` à `b905ca26`, qui contient #45 avec le code final de 2.7 (alerte de V3E05,
+impression scellée, matcher de M5) et #57. Aucun conflit : 2.7b touche quatre fichiers que `main` a aussi modifiés
+(`openapi.json`, `registry.ts`, `client.ts`, `useEstimateEditorState.impl.tsx`), mais dans des blocs distincts. Les
+commits de 2.7 que `main` contient déjà (`58b1c93f` est un ancêtre de `b905ca26`) ne sont ni dupliqués ni annulés.
+Le diff contre `b905ca26` se limite aux 16 fichiers de 2.7b. #63, fusionnée ensuite dans `main`, ne touche aucun
+fichier de 2.7b, et `git merge-tree` avec elle ne montre aucun conflit.
+
+| Commande | Source | Résultat | Artefact |
+|---|---|---|---|
+| `E2E_ARMY_WORKERS=2 npm run e2e:army:local -- --grep "V3X\|V3E05\|V3E15\|V3P" --app-port 3181`, pile possédée neuve | `8ef0c7ce`, arbre propre (diff vide) | 11/11 : setup, V3X01 à V3X07, V3E05, V3E15 et V3P (`engine-v3-persistence`) ; 0 échec, 0 reprise, 0 skip ; pgTAP et matrice RLS passés ; build `V_yCKjrHxXDdM7jtfaC95` | `.e2e/army/ci/2026-10-18T16-44-05-703Z-critical` |
+| `npm run e2e:army:calc-v3 -- --phase emission-v3` | `8ef0c7ce`, arbre propre | 6/6 : setup et les 5 parcours d'`engine-v3-emission` ; pgTAP et RLS passés | `.e2e/army/ci/2026-10-18T17-13-22-133Z-calc-v3` |
+| `npm run verify:pr` (WSL, Node 24) | tête qui ajoute cette section (fiche seule au-dessus de `8ef0c7ce`) | résultat dans la description de #60 | `/tmp/l27b-verify-merge.log` du clone WSL |
+| `git diff --check b905ca26 HEAD` | `8ef0c7ce` | aucune erreur | — |
+
+Le parcours critique a attendu une place native pendant environ 27 minutes, parce que d'autres sessions occupaient les
+trois places (`NATIVE_STACK_WAIT_SECONDS`). Aucune commande n'a été reprise.
 
 ## Limites
 
