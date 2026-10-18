@@ -72,6 +72,13 @@ DB_CI_STATEMENT_BUDGET=enforce npm run db:ci:local
     from « Confirmer l'import » to the « Devis créé » heading in IO01. That wait includes the route and the UI,
     so the RPC took at most that long;
   - one sample for each bound, on a runner whose load varies. Treat F ≈ 12–19 as an estimate, not a constant;
+  - since PR #52 (lever L2, 18/10/2026) the army-critical check aggregates parallel shards. The load per runner
+    is unchanged: each shard has its own `ubuntu-24.04` runner with one Next server, its own native stack and two
+    browser workers, as the single job measured above; only the journeys beside IO01 differ (critical shard
+    3/3). Measured there, run [39121336213](https://github.com/maxlemeur/HEX_BC/actions/runs/39121336213)
+    (`b54e0988`) waited 4 194 ms for the « Devis créé » heading, the same `expect.toBeVisible` step of
+    `report.json` that gave 4 568 ms. At 245 ms that is F ≈ 17,1, inside the 12–19 range: one more sample, still
+    an estimate;
   - for comparison, the quiet pgTAP job (`E2E RLS Matrix`) ran the 22-file suite in 4–8 s against 3 s locally
     before these probes (pg_prove rounds to the second), about 1,5–2,7×: most of the factor comes from contention
     in the journey job, not from the database alone.
@@ -144,7 +151,8 @@ logs.
   table above.
 - **Calibration**: the budget is calibrated on the owner's Apple-silicon Mac and the CI factor on GitHub's
   `ubuntu-24.04` runners. Only opt in on the calibrated machine. A slower machine, another runner class or a change
-  in the army-critical job's parallelism invalidates the budget: measure again and update this page.
+  in the army-critical job's parallelism invalidates the budget: measure again and update this page. The L2
+  shards kept two workers per runner and were measured again (CI-under-load factor above).
 - **Coverage**: the probes measure the database statements only. They do not cover the route, the network,
   PostgREST or the read path (L5). L7 measures the batch writer for creates only (no update, delete or reorder). L1
   sees only the per-line revision bump.

@@ -46,12 +46,15 @@ export type ImportSummary = {
   duplicatesSkipped: number;
 };
 
+/** Lookup-based actions wait for "ready"; the wizard stays mounted while lookups load or fail. */
+export type PriceBookLookupsStatus = "loading" | "ready" | "error";
+
 export type PriceBookCsvImportProps = {
   onImported: () => Promise<void> | void;
   onLookupsUpdated?: () => Promise<PriceBookLookups | void> | PriceBookLookups | void;
   lookups: PriceBookLookups;
-  /** The lookups are (re)loading: the wizard stays mounted, only lookup-based actions wait. */
-  isLookupsLoading?: boolean;
+  lookupsStatus?: PriceBookLookupsStatus;
+  onRetryLookups?: () => void;
 };
 
 export type PriceBookWorkflowActionState = {
@@ -61,7 +64,7 @@ export type PriceBookWorkflowActionState = {
   isSubmitting: boolean;
   isResolving: boolean;
   isCreatingMissing: boolean;
-  isLookupsLoading: boolean;
+  lookupsStatus: PriceBookLookupsStatus;
 };
 
 export type UsePriceBookCsvWorkflowResult = {

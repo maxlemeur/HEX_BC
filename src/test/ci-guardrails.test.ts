@@ -650,10 +650,21 @@ describe("CI and local quality guardrails", () => {
     expect(trigger).toMatch(/^ {4}inputs:\n {6}grep:\n(?: {8}.*\n)*? {8}required: false\n/mu);
     expect(trigger).toMatch(/^ {6}grep:\n(?: {8}.*\n)*? {8}type: string\n/mu);
     expect(trigger).toMatch(/^ {6}grep:\n(?: {8}.*\n)*? {8}default: ""\n/mu);
-    const run = stepNamed(workflow, "Run native database and TesterArmy full journeys");
+    const jobs = workflowJobs(workflow);
+    const plan = stepNamed(jobs["army-full-plan"], "Plan the full suite shards");
+    const run = stepNamed(jobs["army-full-shard"], "Run native database and TesterArmy full journeys");
     // A schedule has no inputs: the expression keeps it explicit and empty.
-    expect(run).toMatch(/^\s+ARMY_GREP: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.grep \|\| '' \}\}$/mu);
-    expect(run).toContain('run: node --import tsx scripts/run-tester-army-ci.ts full ${ARMY_GREP:+--grep "$ARMY_GREP"}');
+    const grepEnv = /^\s+ARMY_GREP: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.grep \|\| '' \}\}$/mu;
+    expect(plan).toMatch(grepEnv);
+    expect(run).toMatch(grepEnv);
+    // A filtered dispatch is one unsharded shard of the runner's own --grep
+    // selection, without the development job; otherwise each shard runs its files.
+    expect(runScript(plan)).toContain('if [[ -n "$ARMY_GREP" ]]; then args+=(--unsharded "dispatch --grep"); fi');
+    expect(run).toContain('run: node --import tsx scripts/run-tester-army-ci.ts full --shard "$ARMY_SHARD" ${ARMY_FILES:+--files "$ARMY_FILES"} ${ARMY_GREP:+--grep "$ARMY_GREP"}');
+    expect(run).toMatch(/^\s+ARMY_FILES: \$\{\{ matrix\.files \}\}$/mu);
+    expect(jobs["army-full-development"]).toMatch(/^ {4}if: needs\.army-full-plan\.outputs\.development == 'separate'$/mu);
+    expect(stepNamed(jobs["army-full-development"], "Run native database and TesterArmy development journeys"))
+      .toContain("run: node --import tsx scripts/run-tester-army-ci.ts full --phase development\n");
 
     // A filtered run proves a few tests only: its title, its check on the commit
     // and its artifact say so, while the nightly and an unfiltered dispatch keep
@@ -662,13 +673,77 @@ describe("CI and local quality guardrails", () => {
     const named = (whenFiltered: string, otherwise: string) => `\${{ ${filtered} && '${whenFiltered}' || '${otherwise}' }}`;
     expect(trigger).toMatch(/^run-name: /mu);
     expect(trigger).toContain(`\nrun-name: ${named("TesterArmy Full (filtré --grep, non qualifiant)", "TesterArmy Full")}\n`);
-    expect(workflowJobs(workflow)["army-full"]).toMatch(/^\n {4}name: /u);
-    expect(workflowJobs(workflow)["army-full"]).toContain(`\n    name: ${named("army-full (filtré --grep, non qualifiant)", "army-full")}\n`);
-    expect(stepNamed(workflow, "Retain sanitized business evidence"))
+    expect(jobs["army-full"]).toMatch(/^\n {4}name: /u);
+    expect(jobs["army-full"]).toContain(`\n    name: ${named("army-full (filtré --grep, non qualifiant)", "army-full")}\n`);
+    expect(stepNamed(jobs["army-full"], "Retain sanitized business evidence"))
       .toContain(`\n          name: ${named("army-full-filtered-evidence", "army-full-evidence")}\n`);
-    expect(stepNamed(workflow, "Announce a filtered full run")).toContain(`\n        if: ${filtered}\n`);
-    // inputs.grep is read only by ARMY_GREP and by that predicate.
-    expect(workflow.split("inputs.grep").length - 1).toBe(1 + workflow.split(filtered).length - 1);
+    expect(stepNamed(jobs["army-full-shard"], "Announce a filtered full run")).toContain(`\n        if: ${filtered}\n`);
+    // inputs.grep is read only by the two ARMY_GREP (plan and shard) and by that predicate.
+    expect(workflow.split("inputs.grep").length - 1).toBe(2 + workflow.split(filtered).length - 1);
+  });
+
+  // Parallel jobs (docs/testing/tester-army-ci.md, "Jobs parallèles"): a
+  // sharded suite is green only through its aggregate job. Ways the wiring
+  // could turn a partial run into a green check: the aggregate does not need
+  // every job it vouches for, runs only on success (a failed shard then shows
+  // a skipped, not a red, check) or after a cancellation, hands the aggregator
+  // other job results than its own, reads another suite's artifacts or misses
+  // a shard's; the matrix is not the plan job's output or stops at the first
+  // red shard; or the aggregate check changes the name watchers read.
+  it("checks every sharded Army suite in one stable aggregate job that needs every job it plans", async () => {
+    const { AGGREGATE_JOBS } = await import("../../scripts/tester-army/aggregate-shards");
+    const fullName = "${{ github.event_name == 'workflow_dispatch' && inputs.grep != '' && 'army-full (filtré --grep, non qualifiant)' || 'army-full' }}";
+    const suites = [
+      { suite: "critical", file: ".github/workflows/e2e-army-critical.yml", output: "critical_shards", aggregate: "army-critical", name: "army-critical",
+        unit: "army-critical-shard-${{ matrix.shard }}-evidence", pattern: "army-critical-shard-*-evidence", artifact: "army-critical-evidence" },
+      { suite: "full", file: ".github/workflows/e2e-army-full.yml", output: "shards", aggregate: "army-full", name: fullName,
+        unit: "army-full-shard-${{ matrix.shard }}-evidence", pattern: "army-full-*-evidence", artifact: "army-full-evidence" },
+      { suite: "calc-v3", file: ".github/workflows/e2e-army-calc-v3.yml", output: "phases", aggregate: "army-calc-v3", name: "army-calc-v3",
+        unit: "army-calc-v3-${{ matrix.phase }}-evidence", pattern: "army-calc-v3-*-evidence", artifact: "army-calc-v3-evidence" },
+    ] as const;
+    for (const { suite, file, output, aggregate, name, unit, pattern, artifact } of suites) {
+      const workflow = read(file);
+      const jobs = workflowJobs(workflow);
+      const { plan, units, development } = AGGREGATE_JOBS[suite];
+      const needed = [plan, units, ...(development ? [development] : [])];
+      expect(Object.keys(jobs).sort(), file).toEqual([...needed, aggregate, ...(suite === "critical" ? ["army-takeoff"] : [])].sort());
+
+      // The matrix is the plan job's output, and a red shard never cancels the others.
+      expect(jobs[units], file).toMatch(new RegExp(`^ {4}needs: ${plan}$`, "mu"));
+      expect(jobs[units], file).toMatch(/^ {6}fail-fast: false$/mu);
+      expect(jobs[units], file).toContain(`: \${{ fromJSON(needs.${plan}.outputs.${output}) }}\n`);
+      expect(jobs[units], file).toContain(`\n          name: ${unit}\n`);
+
+      // The aggregate needs every job it vouches for and runs after their
+      // failure, never after a cancelled run; its name is the stable check.
+      const job = jobs[aggregate];
+      expect(job, file).toContain(`\n    name: ${name}\n`);
+      expect(job, file).toContain(`\n    needs: [${needed.join(", ")}]\n`);
+      expect(job, file).toContain("\n    if: ${{ !cancelled() }}\n");
+      const step = stepNamed(job, "Aggregate the");
+      const results = [...step.matchAll(/^\s+([A-Z_]+_RESULT): \$\{\{ needs\.([a-z0-9-]+)\.result \}\}$/gmu)];
+      expect(results.map((match) => match[2]).sort(), file).toEqual([...needed].sort());
+      const script = runValues(step).map((value) => value.script).join("\n");
+      expect(script, file).toContain(`scripts/tester-army/aggregate-shards.ts ${suite}`);
+      for (const [, variable, need] of results) expect(script, file).toContain(`${need}=$${variable}`);
+      expect(script, file).toContain('--revision "$GITHUB_SHA"');
+      const upload = stepNamed(job, "Retain sanitized business evidence");
+      expect(upload, file).toContain("\n        if: always() && steps.aggregate.outputs.evidence != ''\n");
+      expect(upload, file).toContain("\n          path: ${{ steps.aggregate.outputs.evidence }}\n");
+      expect(upload, file).toContain(artifact);
+
+      // It downloads every unit's artifact and none of the aggregate's own.
+      expect(job, file).toContain(`\n          pattern: ${pattern}\n`);
+      const glob = new RegExp(`^${pattern.replace(/\./gu, "\\.").replace("*", "[^/]+")}$`, "u");
+      const units_ = (suite === "calc-v3" ? ["journeys", "offers"] : ["1", "12"]).map((value) => unit.replace(/\$\{\{ matrix\.[a-z]+ \}\}/u, value));
+      if (development) {
+        units_.push("army-full-development-evidence");
+        expect(jobs[development], file).toContain("\n          name: army-full-development-evidence\n");
+      }
+      for (const name_ of units_) expect(glob.test(name_), `${file} ${name_}`).toBe(true);
+      expect(glob.test(artifact), file).toBe(false);
+      expect(workflow.split(`name: ${artifact}\n`).length - 1, file).toBeLessThanOrEqual(1);
+    }
   });
 
   it("runs every production-served calc-v3 phase nightly and on the pull requests that edit it, any phase on dispatch", async () => {
@@ -698,19 +773,46 @@ describe("CI and local quality guardrails", () => {
     // serves. Emission runs under next dev until sub-lot 2.7 moves it to the
     // production build: this guard then requires it in the nightly list, and
     // adding it there is the whole reactivation.
-    const run = stepNamed(workflow, "Run native database and TesterArmy calc-v3 phases");
-    const nightly = /^\s+CALC_V3_NIGHTLY_PHASES: "([a-z0-9 -]+)"$/mu.exec(run)?.[1].split(" ");
+    const plan = stepNamed(workflow, "Plan the calc-v3 phases");
+    const nightly = /^\s+CALC_V3_NIGHTLY_PHASES: "([a-z0-9 -]+)"$/mu.exec(plan)?.[1].split(" ");
     expect(nightly).toEqual(CALC_V3_PHASES.filter((phase) => CALC_V3_PHASE_DEFINITIONS[phase].serverMode === "production"));
     if (CALC_V3_PHASE_DEFINITIONS.emission.serverMode !== "production") expect(nightly).not.toContain("emission");
-    expect(run).toMatch(/^\s+CALC_V3_SELECTION: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.phase \|\| 'nightly' \}\}$/mu);
+    expect(plan).toMatch(/^\s+CALC_V3_SELECTION: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.phase \|\| 'nightly' \}\}$/mu);
+    // One job and one owned stack per planned phase ("all" is one job of the
+    // whole campaign); only evidence that passed the runner's privacy check
+    // is uploaded.
+    const run = stepNamed(workflow, "Run native database and TesterArmy calc-v3 phases");
+    expect(run).toMatch(/^\s+CALC_V3_PHASE: \$\{\{ matrix\.phase \}\}$/mu);
     const script = runScript(run);
-    expect(script).toContain('node --import tsx scripts/run-tester-army-ci.ts calc-v3 --phase "$phase"');
-    expect(script).toMatch(/^set -uo pipefail$/mu);
-    // One owned stack per phase: a red phase never stops the next one, and only
-    // evidence that passed the runner's privacy check is uploaded.
-    expect(script).toContain('GITHUB_OUTPUT="$phase_output"');
+    expect(script).toContain('node --import tsx scripts/run-tester-army-ci.ts calc-v3 --phase "$CALC_V3_PHASE"');
+    expect(script).toContain('if [[ "$CALC_V3_PHASE" == "all" ]]; then\n  node --import tsx scripts/run-tester-army-ci.ts calc-v3\n');
     expect(script).not.toMatch(/\|\|\s*true/u);
     expect(workflow).not.toContain("E2E_ARMY_WORKERS");
+
+    // The plan script itself, run for real when bash is available: each
+    // selection gives its JSON list, and a value a list cannot carry verbatim is refused.
+    if (!canRunGuard && !process.env.CI) return;
+    const planned = (selection: string) => {
+      const directory = fs.mkdtempSync(path.join(os.tmpdir(), "army-calc-v3-plan-"));
+      try {
+        const output = path.join(directory, "output.txt");
+        fs.writeFileSync(output, "");
+        const result = spawnSync("bash", ["-c", runScript(plan)], {
+          encoding: "utf8",
+          env: { NODE_ENV: process.env.NODE_ENV, PATH: process.env.PATH ?? "", GITHUB_OUTPUT: output,
+            CALC_V3_NIGHTLY_PHASES: nightly!.join(" "), CALC_V3_SELECTION: selection },
+        });
+        return { status: result.status, phases: /^phases=(.*)$/mu.exec(fs.readFileSync(output, "utf8"))?.[1] };
+      } finally {
+        fs.rmSync(directory, { recursive: true, force: true });
+      }
+    };
+    expect(planned("nightly")).toEqual({ status: 0, phases: JSON.stringify(nightly) });
+    expect(planned("all")).toEqual({ status: 0, phases: '["all"]' });
+    expect(planned("emission")).toEqual({ status: 0, phases: '["emission"]' });
+    for (const injected of ['journeys","x', "journeys components", "x$(id)"]) {
+      expect(planned(injected), injected).toEqual({ status: 1, phases: undefined });
+    }
   });
 
   it.skipIf(!canRunGuard && !process.env.CI)(

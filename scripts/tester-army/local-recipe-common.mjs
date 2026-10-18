@@ -10,14 +10,19 @@ export const relativePath = (file) => path.relative(repositoryRoot, file).replac
 export const digestPattern = /^[0-9a-f]{64}$/;
 export const buildCommands = [["scripts/validate-openapi-runner.mjs"], ["--max-old-space-size=4096", "node_modules/next/dist/bin/next", "build", "--webpack"], ["--import", "tsx", "scripts/check-performance-budgets.ts"]];
 
-/** Keep Next's generated config updates separate from another active dev server. */
+/**
+ * Keep Next's generated config updates separate from another active dev server.
+ * Vitest files are left to `npm run typecheck` (root tsconfig, verify:pr): a
+ * red-first test importing a module that does not exist yet must not fail the
+ * production build every TesterArmy run starts with.
+ */
 export async function prepareArmyTypeScriptConfig(root = repositoryRoot) {
   await mkdir(path.join(root, ".e2e/army"), { recursive: true });
   await writeFile(path.join(root, ".e2e/army/tsconfig.json"), `${JSON.stringify({
     extends: "../../tsconfig.json",
     compilerOptions: { paths: { "@/*": ["../../src/*"] } },
     include: ["../../next-env.d.ts", "../../src/**/*.ts", "../../src/**/*.tsx", "next/types/**/*.ts", "next/dev/types/**/*.ts"],
-    exclude: ["../../node_modules"],
+    exclude: ["../../node_modules", "../../src/**/*.test.ts", "../../src/**/*.test.tsx"],
   }, null, 2)}\n`);
 }
 

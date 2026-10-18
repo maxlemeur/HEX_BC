@@ -11,6 +11,17 @@ name: TesterArmy Critical
 # docs-only; workflow_dispatch and the "army-full" label always run it. The
 # nightly full suite (critical journeys included) is e2e-army-full.yml.
 #
+# Parallel jobs (docs/testing/tester-army-ci.md, "Jobs parallèles"): the
+# army-select job decides once. The selected critical journeys (the whole
+# suite listed from e2e.config.ts for a full decision) are split into the
+# disjoint shards of scripts/tester-army/army-shards.json, each on its own
+# owned stack with the login setup and an authenticated journey; a small
+# selection is one shard, a list the runner would refuse one shard of its own
+# whole suite. The army-critical job is the check: it fails unless the
+# selection job and every shard succeeded and the shards' verified evidence
+# together ran exactly the selection, then retains it all as
+# army-critical-evidence. An explicit "none" runs no shard and claims nothing.
+#
 # The army-takeoff job runs, in parallel and from the same selection, the
 # takeoff journeys (army-impact-map.json "fullOnly", otherwise nightly only)
 # that a pull request reaches, recorded as scope "filtered-full"; all of them
@@ -31,15 +42,22 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  army-critical:
+  army-select:
+    name: army-critical selection
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 10
     env:
       CI: "1"
       DO_NOT_TRACK: "1"
       NEXT_TELEMETRY_DISABLED: "1"
       E2E_TELEMETRY_DISABLED: "1"
       SUPABASE_TELEMETRY_DISABLED: "1"
+    outputs:
+      mode: ${{ steps.select.outputs.mode }}
+      files: ${{ steps.select.outputs.files }}
+      full_only_mode: ${{ steps.select.outputs.full_only_mode }}
+      full_only_files: ${{ steps.select.outputs.full_only_files }}
+      critical_shards: ${{ steps.select.outputs.critical_shards }}
     steps:
       - name: Refuse any Supabase target other than loopback or the distinct staging host
         id: target_guard
@@ -105,10 +123,9 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
-          cache: npm
-      # Plain Node, before npm ci: a "none" selection skips the installs too.
-      # A selector error selects the full suite; a missing or empty output
-      # also runs it, since only an explicit "none" skips the journeys.
+      # Plain Node, no install: a "none" selection starts no shard. A selector
+      # error selects the full suite; a missing or empty output also runs it,
+      # since only an explicit "none" skips the journeys.
       - name: Select the critical journeys this change reaches
         id: select
         env:
@@ -137,73 +154,8 @@ jobs:
           esac
           # Plain type stripping on a package without "type": silence the notice.
           node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/tester-army/select-journeys.ts "${args[@]}"
-      - name: No critical journey reached by this change
-        if: steps.select.outputs.mode == 'none'
-        run: echo "::notice title=TesterArmy critical::Aucun parcours critical concerné (documentation ou chemins hors suite) ; parcours non exécutés, aucune preuve revendiquée."
-      - name: Install dependencies
-        if: steps.select.outputs.mode != 'none'
-        run: npm ci
-      - name: Install TesterArmy Chromium
-        if: steps.select.outputs.mode != 'none'
-        run: npx @e2e-dev/web install chromium --with-deps
-      # Next's webpack cache of the Army build (.e2e/army/next/cache, outside
-      # the build fingerprint of build-local.mjs). Every run restores the latest
-      # one main saved; only a push to main saves its own.
-      - name: Restore the Army Next build cache
-        if: steps.select.outputs.mode != 'none'
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .e2e/army/next/cache
-          key: army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-${{ github.sha }}
-          restore-keys: |
-            army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-
-      # Pre-migrated database snapshot (src/test/database-snapshot.ts): a hit
-      # restores the database dumped right after a verified db reset; the runner
-      # re-proves the applied migrations and the catalog fingerprint and falls
-      # back to db reset on any mismatch. The key covers every input of the
-      # snapshot's own key; exact key only, since an older snapshot would miss.
-      - name: Restore the pre-migrated database snapshot
-        id: db_snapshot
-        if: steps.select.outputs.mode != 'none'
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/army-db-snapshot
-          key: army-db-snapshot-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('supabase/migrations/**', 'supabase/seed*.sql', 'supabase/seeds/**', 'supabase/config.toml', 'src/test/supabase-cli.ts', 'src/test/database-snapshot.ts', 'src/test/local-supabase-ci.ts') }}
-      - name: Run native database and TesterArmy critical journeys
-        id: journeys
-        if: steps.select.outputs.mode != 'none'
-        env:
-          # Qualified for the critical journeys of the owned ephemeral stack
-          # (e2e.config.ts, docs/testing/tester-army-local-development.md).
-          E2E_ARMY_WORKERS: "2"
-          ARMY_FILES: ${{ steps.select.outputs.files }}
-          # Opt-in: unset, run-tester-army-ci keeps db reset.
-          ARMY_DB_SNAPSHOT_DIR: ${{ runner.temp }}/army-db-snapshot
-        run: node --import tsx scripts/run-tester-army-ci.ts critical ${ARMY_FILES:+--files "$ARMY_FILES"}
-      # Only a push to main saves, and only after a cache miss; a failed
-      # recording leaves no directory (the save step then warns, stores nothing).
-      - name: Save the pre-migrated database snapshot
-        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.select.outputs.mode != 'none' && steps.db_snapshot.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/army-db-snapshot
-          key: ${{ steps.db_snapshot.outputs.cache-primary-key }}
-      - name: Save the Army Next build cache
-        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.select.outputs.mode != 'none' }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .e2e/army/next/cache
-          key: army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-${{ github.sha }}
-      - name: Retain sanitized business evidence
-        if: always() && steps.journeys.outputs.evidence != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: army-critical-evidence
-          include-hidden-files: true
-          path: ${{ steps.journeys.outputs.evidence }}
-          if-no-files-found: error
-          retention-days: 7
-      # Paths, revisions and map digest only: why these journeys, or none, ran.
+      # Paths, revisions, map digest and shard plan: why these journeys, or
+      # none, ran, and where. The army-critical job reads its plan from here.
       - name: Retain the journey selection
         if: always() && steps.select.outputs.mode != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -214,15 +166,18 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # Takeoff journeys (army-impact-map.json "fullOnly"): only the e2e.config.ts
-  # full selection runs them, so without this job a pull request reaching them
-  # waited for the nightly full suite. Same selection as army-critical, in
-  # parallel; one worker, as in the full suite where they are qualified. A
-  # missing or empty output runs them (only an explicit "none" skips them); an
-  # empty file list falls back to the whole full selection.
-  army-takeoff:
+  # One owned stack per shard; a red shard never cancels the others.
+  army-critical-shard:
+    name: army-critical shard ${{ matrix.shard }}/${{ matrix.total }}
+    needs: army-select
+    # Only an explicit "none" starts no shard; an empty output fails the matrix.
+    if: needs.army-select.outputs.mode != 'none'
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.army-select.outputs.critical_shards) }}
     env:
       CI: "1"
       DO_NOT_TRACK: "1"
@@ -287,57 +242,166 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          # The tested commit and its parents: a pull request's merge commit
-          # (base tip + PR head) or a push and its previous main tip.
-          fetch-depth: 2
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
           cache: npm
-      # Plain Node, before npm ci: a "none" selection skips the installs too.
-      # A selector error selects the full suite; a missing or empty output
-      # also runs it, since only an explicit "none" skips the journeys.
-      - name: Select the takeoff journeys this change reaches
-        id: select
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PUSH_BEFORE: ${{ github.event.before }}
-          ARMY_FULL_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'army-full') }}
-        run: |
-          set -euo pipefail
-          args=(--event "$EVENT_NAME" --report .e2e/army/ci/selection.json)
-          case "$EVENT_NAME" in
-            pull_request)
-              # The PR diff (base...head) is the merge commit against its first
-              # parent, the base tip. Anything else is not provable: full suite.
-              if [[ "$ARMY_FULL_LABEL" == "true" ]]; then
-                args+=(--force-full "label army-full")
-              elif [[ "$(git rev-parse --verify --quiet 'HEAD^2' || true)" != "$PR_HEAD_SHA" ]]; then
-                args+=(--force-full "the checkout is not the pull request merge commit")
-              else
-                args+=(--base "$(git rev-parse 'HEAD^1')" --head "$(git rev-parse HEAD)")
-              fi
-              ;;
-            push)
-              args+=(--base "$PUSH_BEFORE" --head "$(git rev-parse HEAD)")
-              ;;
-          esac
-          # Plain type stripping on a package without "type": silence the notice.
-          node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/tester-army/select-journeys.ts "${args[@]}"
-      - name: No takeoff journey reached by this change
-        if: steps.select.outputs.full_only_mode == 'none'
-        run: echo "::notice title=TesterArmy takeoff::Aucun parcours du métré concerné ; parcours non exécutés, aucune preuve revendiquée."
       - name: Install dependencies
-        if: steps.select.outputs.full_only_mode != 'none'
         run: npm ci
       - name: Install TesterArmy Chromium
-        if: steps.select.outputs.full_only_mode != 'none'
         run: npx @e2e-dev/web install chromium --with-deps
-      # Restore only: the army-critical job saves both caches on a push to main.
+      # Next's webpack cache of the Army build (.e2e/army/next/cache, outside
+      # the build fingerprint of build-local.mjs). Every shard restores the
+      # latest one main saved; only shard 1 of a push to main saves its own.
       - name: Restore the Army Next build cache
-        if: steps.select.outputs.full_only_mode != 'none'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .e2e/army/next/cache
+          key: army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-${{ github.sha }}
+          restore-keys: |
+            army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-
+      # Pre-migrated database snapshot (src/test/database-snapshot.ts): a hit
+      # restores the database dumped right after a verified db reset; the runner
+      # re-proves the applied migrations and the catalog fingerprint and falls
+      # back to db reset on any mismatch. The key covers every input of the
+      # snapshot's own key; exact key only, since an older snapshot would miss.
+      - name: Restore the pre-migrated database snapshot
+        id: db_snapshot
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/army-db-snapshot
+          key: army-db-snapshot-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('supabase/migrations/**', 'supabase/seed*.sql', 'supabase/seeds/**', 'supabase/config.toml', 'src/test/supabase-cli.ts', 'src/test/database-snapshot.ts', 'src/test/local-supabase-ci.ts') }}
+      - name: Run native database and TesterArmy critical journeys
+        id: journeys
+        env:
+          # Qualified for the critical journeys of the owned ephemeral stack
+          # (e2e.config.ts, docs/testing/tester-army-local-development.md).
+          E2E_ARMY_WORKERS: "2"
+          # Empty for an unsharded whole-suite plan: the runner's own selection.
+          ARMY_FILES: ${{ matrix.files }}
+          ARMY_SHARD: ${{ matrix.shard }}/${{ matrix.total }}
+          # Opt-in: unset, run-tester-army-ci keeps db reset.
+          ARMY_DB_SNAPSHOT_DIR: ${{ runner.temp }}/army-db-snapshot
+        run: node --import tsx scripts/run-tester-army-ci.ts critical --shard "$ARMY_SHARD" ${ARMY_FILES:+--files "$ARMY_FILES"}
+      # Only shard 1 of a push to main saves, the snapshot only after a cache
+      # miss; a failed recording leaves no directory (the save step then warns,
+      # stores nothing).
+      - name: Save the pre-migrated database snapshot
+        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.shard == 1 && steps.db_snapshot.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/army-db-snapshot
+          key: ${{ steps.db_snapshot.outputs.cache-primary-key }}
+      - name: Save the Army Next build cache
+        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.shard == 1 }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .e2e/army/next/cache
+          key: army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-${{ github.sha }}
+      - name: Retain sanitized business evidence
+        if: always() && steps.journeys.outputs.evidence != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: army-critical-shard-${{ matrix.shard }}-evidence
+          include-hidden-files: true
+          path: ${{ steps.journeys.outputs.evidence }}
+          if-no-files-found: error
+          retention-days: 7
+
+  # Takeoff journeys (army-impact-map.json "fullOnly"): only the e2e.config.ts
+  # full selection runs them, so without this job a pull request reaching them
+  # waited for the nightly full suite. The army-select decision, in parallel
+  # with the critical shards; one worker, as in the full suite where they are
+  # qualified. A missing or empty output runs them (only an explicit "none"
+  # skips them); an empty file list falls back to the whole full selection.
+  army-takeoff:
+    needs: army-select
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      CI: "1"
+      DO_NOT_TRACK: "1"
+      NEXT_TELEMETRY_DISABLED: "1"
+      E2E_TELEMETRY_DISABLED: "1"
+      SUPABASE_TELEMETRY_DISABLED: "1"
+    steps:
+      - name: Refuse any Supabase target other than loopback or the distinct staging host
+        id: target_guard
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+        run: |
+          set -euo pipefail
+          normalize() {
+            local value="$1"
+            value="${value#"${value%%[![:space:]]*}"}"
+            value="${value%"${value##*[![:space:]]}"}"
+            printf '%s' "${value,,}"
+          }
+          refuse() {
+            echo "::error::$1"
+            exit 1
+          }
+
+          url="$(normalize "${NEXT_PUBLIC_SUPABASE_URL:-}")"
+          url="${url%/}"
+          staging="$(normalize "${E2E_STAGING_SUPABASE_HOST:-}")"
+          production="$(normalize "${PRODUCTION_SUPABASE_HOST:-}")"
+
+          loopback_pattern='^http://(localhost|127\.0\.0\.1|\[::1\])(:[0-9]{1,5})?$'
+          if [[ "$url" =~ $loopback_pattern ]]; then
+            echo "Cible Supabase : boucle locale du runner."
+            exit 0
+          fi
+
+          label='[a-z0-9]([a-z0-9-]*[a-z0-9])?'
+          host_pattern="^${label}(\.${label})+$"
+          remote_pattern="^https://(${label}(\.${label})+)$"
+          [[ "$url" =~ $remote_pattern ]] \
+            || refuse "NEXT_PUBLIC_SUPABASE_URL doit être une origine https nue (sans identifiants, port, chemin ni paramètre) ou une adresse de boucle locale."
+          host="${BASH_REMATCH[1]}"
+
+          [[ -n "$staging" ]] \
+            || refuse "Variable E2E_STAGING_SUPABASE_HOST absente : aucun projet de recette distinct de la production n'est déclaré."
+          [[ -n "$production" ]] \
+            || refuse "Variable PRODUCTION_SUPABASE_HOST absente : impossible de prouver que la cible n'est pas la production."
+          # Hotes nus seulement : sous forme d'URL, avec port, point final ou
+          # joker, la comparaison avec la production serait toujours vraie et
+          # la garde laisserait passer la production.
+          [[ "$staging" =~ $host_pattern ]] \
+            || refuse "E2E_STAGING_SUPABASE_HOST doit être un nom d'hôte nu (sans schéma, port, chemin ni point final), par exemple <ref>.supabase.co."
+          [[ "$production" =~ $host_pattern ]] \
+            || refuse "PRODUCTION_SUPABASE_HOST doit être un nom d'hôte nu (sans schéma, port, chemin ni point final), par exemple <ref>.supabase.co."
+          [[ "$staging" != "$production" ]] \
+            || refuse "E2E_STAGING_SUPABASE_HOST désigne le projet de production."
+          [[ "$host" != "$production" ]] \
+            || refuse "NEXT_PUBLIC_SUPABASE_URL désigne le projet de production."
+          [[ "$host" == "$staging" ]] \
+            || refuse "NEXT_PUBLIC_SUPABASE_URL ne désigne pas l'hôte de recette E2E_STAGING_SUPABASE_HOST."
+          echo "Cible Supabase : hôte de recette distinct de la production."
+      - name: No takeoff journey reached by this change
+        if: needs.army-select.outputs.full_only_mode == 'none'
+        run: echo "::notice title=TesterArmy takeoff::Aucun parcours du métré concerné ; parcours non exécutés, aucune preuve revendiquée."
+      - name: Checkout
+        if: needs.army-select.outputs.full_only_mode != 'none'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Node.js
+        if: needs.army-select.outputs.full_only_mode != 'none'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install dependencies
+        if: needs.army-select.outputs.full_only_mode != 'none'
+        run: npm ci
+      - name: Install TesterArmy Chromium
+        if: needs.army-select.outputs.full_only_mode != 'none'
+        run: npx @e2e-dev/web install chromium --with-deps
+      # Restore only: shard 1 of army-critical saves both caches on a push to main.
+      - name: Restore the Army Next build cache
+        if: needs.army-select.outputs.full_only_mode != 'none'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .e2e/army/next/cache
@@ -345,26 +409,139 @@ jobs:
           restore-keys: |
             army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-
       - name: Restore the pre-migrated database snapshot
-        if: steps.select.outputs.full_only_mode != 'none'
+        if: needs.army-select.outputs.full_only_mode != 'none'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/army-db-snapshot
           key: army-db-snapshot-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('supabase/migrations/**', 'supabase/seed*.sql', 'supabase/seeds/**', 'supabase/config.toml', 'src/test/supabase-cli.ts', 'src/test/database-snapshot.ts', 'src/test/local-supabase-ci.ts') }}
       - name: Run native database and TesterArmy takeoff journeys
         id: journeys
-        if: steps.select.outputs.full_only_mode != 'none'
+        if: needs.army-select.outputs.full_only_mode != 'none'
         env:
-          ARMY_FILES: ${{ steps.select.outputs.full_only_files }}
+          ARMY_FILES: ${{ needs.army-select.outputs.full_only_files }}
           # Opt-in: unset, run-tester-army-ci keeps db reset.
           ARMY_DB_SNAPSHOT_DIR: ${{ runner.temp }}/army-db-snapshot
         run: node --import tsx scripts/run-tester-army-ci.ts full ${ARMY_FILES:+--files "$ARMY_FILES"}
-      # The selection itself is retained by army-critical (army-critical-selection).
+      # The selection itself is retained by army-select (army-critical-selection).
       - name: Retain sanitized business evidence
-        if: always() && steps.select.outputs.full_only_mode != 'none' && steps.journeys.outputs.evidence != ''
+        if: always() && needs.army-select.outputs.full_only_mode != 'none' && steps.journeys.outputs.evidence != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: army-takeoff-evidence
           include-hidden-files: true
           path: ${{ steps.journeys.outputs.evidence }}
+          if-no-files-found: error
+          retention-days: 7
+
+  # The check of the critical journeys: green only when the selection job and
+  # every planned shard succeeded and their evidence, verified against each
+  # shard's own inventory, ran exactly the selection (scripts/tester-army/
+  # aggregate-shards.ts). It runs after a failed or skipped shard too, never
+  # after a cancelled run.
+  army-critical:
+    name: army-critical
+    needs: [army-select, army-critical-shard]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      CI: "1"
+      DO_NOT_TRACK: "1"
+      NEXT_TELEMETRY_DISABLED: "1"
+      E2E_TELEMETRY_DISABLED: "1"
+      SUPABASE_TELEMETRY_DISABLED: "1"
+    steps:
+      - name: Refuse any Supabase target other than loopback or the distinct staging host
+        id: target_guard
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+        run: |
+          set -euo pipefail
+          normalize() {
+            local value="$1"
+            value="${value#"${value%%[![:space:]]*}"}"
+            value="${value%"${value##*[![:space:]]}"}"
+            printf '%s' "${value,,}"
+          }
+          refuse() {
+            echo "::error::$1"
+            exit 1
+          }
+
+          url="$(normalize "${NEXT_PUBLIC_SUPABASE_URL:-}")"
+          url="${url%/}"
+          staging="$(normalize "${E2E_STAGING_SUPABASE_HOST:-}")"
+          production="$(normalize "${PRODUCTION_SUPABASE_HOST:-}")"
+
+          loopback_pattern='^http://(localhost|127\.0\.0\.1|\[::1\])(:[0-9]{1,5})?$'
+          if [[ "$url" =~ $loopback_pattern ]]; then
+            echo "Cible Supabase : boucle locale du runner."
+            exit 0
+          fi
+
+          label='[a-z0-9]([a-z0-9-]*[a-z0-9])?'
+          host_pattern="^${label}(\.${label})+$"
+          remote_pattern="^https://(${label}(\.${label})+)$"
+          [[ "$url" =~ $remote_pattern ]] \
+            || refuse "NEXT_PUBLIC_SUPABASE_URL doit être une origine https nue (sans identifiants, port, chemin ni paramètre) ou une adresse de boucle locale."
+          host="${BASH_REMATCH[1]}"
+
+          [[ -n "$staging" ]] \
+            || refuse "Variable E2E_STAGING_SUPABASE_HOST absente : aucun projet de recette distinct de la production n'est déclaré."
+          [[ -n "$production" ]] \
+            || refuse "Variable PRODUCTION_SUPABASE_HOST absente : impossible de prouver que la cible n'est pas la production."
+          # Hotes nus seulement : sous forme d'URL, avec port, point final ou
+          # joker, la comparaison avec la production serait toujours vraie et
+          # la garde laisserait passer la production.
+          [[ "$staging" =~ $host_pattern ]] \
+            || refuse "E2E_STAGING_SUPABASE_HOST doit être un nom d'hôte nu (sans schéma, port, chemin ni point final), par exemple <ref>.supabase.co."
+          [[ "$production" =~ $host_pattern ]] \
+            || refuse "PRODUCTION_SUPABASE_HOST doit être un nom d'hôte nu (sans schéma, port, chemin ni point final), par exemple <ref>.supabase.co."
+          [[ "$staging" != "$production" ]] \
+            || refuse "E2E_STAGING_SUPABASE_HOST désigne le projet de production."
+          [[ "$host" != "$production" ]] \
+            || refuse "NEXT_PUBLIC_SUPABASE_URL désigne le projet de production."
+          [[ "$host" == "$staging" ]] \
+            || refuse "NEXT_PUBLIC_SUPABASE_URL ne désigne pas l'hôte de recette E2E_STAGING_SUPABASE_HOST."
+          echo "Cible Supabase : hôte de recette distinct de la production."
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - name: No critical journey reached by this change
+        if: needs.army-select.outputs.mode == 'none'
+        run: echo "::notice title=TesterArmy critical::Aucun parcours critical concerné (documentation ou chemins hors suite) ; parcours non exécutés, aucune preuve revendiquée."
+      - name: Download the journey selection
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: army-critical-selection
+          path: .e2e/army/ci/aggregate-input/selection
+      - name: Download the shard evidence
+        if: needs.army-select.outputs.mode != 'none'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: army-critical-shard-*-evidence
+          path: .e2e/army/ci/aggregate-input/shards
+      - name: Aggregate the critical shards
+        id: aggregate
+        env:
+          SELECT_RESULT: ${{ needs.army-select.result }}
+          SHARDS_RESULT: ${{ needs.army-critical-shard.result }}
+        run: >-
+          node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/tester-army/aggregate-shards.ts critical
+          --plan .e2e/army/ci/aggregate-input/selection/selection.json
+          --evidence .e2e/army/ci/aggregate-input/shards --out .e2e/army/ci/aggregate
+          --results "army-select=$SELECT_RESULT,army-critical-shard=$SHARDS_RESULT" --revision "$GITHUB_SHA"
+      - name: Retain sanitized business evidence
+        if: always() && steps.aggregate.outputs.evidence != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: army-critical-evidence
+          include-hidden-files: true
+          path: ${{ steps.aggregate.outputs.evidence }}
           if-no-files-found: error
           retention-days: 7
