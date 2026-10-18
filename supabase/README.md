@@ -72,6 +72,25 @@ MCP ci-dessous.
 6. Lancer `npm run supabase:migrations:git-guard`, puis `npm run db:ci:local`.
 7. N'appliquer sur un projet partagé ou distant **que sur autorisation explicite de l'utilisateur**.
 
+Si `main` a reçu une migration plus récente pendant la vie de la PR, le garde refuse la
+vôtre. Juste avant la fusion, donnez-lui son horodatage final :
+
+```bash
+git fetch origin
+npm run supabase:migrations:restamp -- supabase/migrations/<fichier>.sql --dry-run
+npm run supabase:migrations:restamp -- supabase/migrations/<fichier>.sql
+```
+
+L'outil refuse un fichier présent sur la base (`--base`, `origin/main` par défaut), non
+suivi, absent ou périmé dans le manifeste, ou nommé par un rapport
+`docs/testing/shared-supabase-*` (migration appliquée au partagé). Il prend un horodatage
+UTC postérieur à la plus récente de la base, dans la tolérance du garde (`--at` le fixe),
+garde l'ordre de plusieurs fichiers, fait le `git mv`, renomme la clé du manifeste (hash
+recalculé seulement si le fichier cite son ancien horodatage) et réécrit puis liste les
+références à l'ancien nom ou horodatage dans les fichiers suivis. Il lance enfin le garde
+Git (`pull_request` contre la base) et la validation du manifeste, et sort en erreur si
+l'un échoue. Relisez la prose réécrite avant de committer.
+
 ### Runbook d'application via MCP
 
 Quand l'application distante est autorisée :

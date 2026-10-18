@@ -81,6 +81,10 @@ interface MigrationManifest {
   migrations: Record<string, string>;
 }
 
+export function hashSupabaseMigrationContents(contents: string) {
+  return createHash("sha256").update(contents.replace(/\r\n/g, "\n")).digest("hex");
+}
+
 export function computeSupabaseMigrationHashes(rootDirectory = process.cwd()) {
   const migrationsDirectory = path.join(rootDirectory, "supabase", "migrations");
   return Object.fromEntries(
@@ -88,12 +92,12 @@ export function computeSupabaseMigrationHashes(rootDirectory = process.cwd()) {
       .readdirSync(migrationsDirectory)
       .filter((fileName) => fileName.endsWith(".sql"))
       .sort()
-      .map((fileName) => {
-        const contents = fs
-          .readFileSync(path.join(migrationsDirectory, fileName), "utf8")
-          .replace(/\r\n/g, "\n");
-        return [fileName, createHash("sha256").update(contents).digest("hex")];
-      })
+      .map((fileName) => [
+        fileName,
+        hashSupabaseMigrationContents(
+          fs.readFileSync(path.join(migrationsDirectory, fileName), "utf8")
+        ),
+      ])
   );
 }
 
