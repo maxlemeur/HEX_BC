@@ -143,6 +143,26 @@ Vérification : `verifyEstimateSeal` / route `GET /api/estimates/[versionId]/ver
 > traitement conditionnel de `contractor_role` reste inchangé. Une évolution du
 > payload ne doit jamais réécrire les sceaux stockés ni supprimer ces candidats.
 
+### 3.1 Version en moteur 3
+
+Depuis la bascule du lot 2 (sous-lot 2.10b, migration M8), toute nouvelle
+version est en moteur 3, sauf chez une entreprise en politique 2 explicite
+(`docs/metier/regles-de-calcul.md` §8.1). Attention au vocabulaire : le
+« payload v3 » ci-dessus est la **charge du sceau** n° 3 d'une version moteur 2,
+pas le moteur 3.
+
+- **Gel** : `freeze_estimate_v3_snapshot` recalcule la version par le moteur 3
+  et fige contexte, bruts et totaux ; un brouillon modifié après son gel n'est
+  pas émis comme gelé.
+- **Émission** (sous-lot 2.7) : contrat client 2, charge de calcul 6, marqueur
+  de sceau 5 ; la vérification du sceau suit ce marqueur. Les sceaux des
+  versions moteur 1 et 2 gardent leurs candidats historiques.
+- **Duplication** : `duplicate_estimate_version` conserve le moteur de la
+  source (une v2 dupliquée reste une v2, une v3 reste une v3) sans lire la
+  politique de l'entreprise.
+- **Métré, structure IA, version zéro** : refusés sur une v3 avec un motif nommé
+  (P-19, P-14) ; une entreprise qui en a besoin reste en politique 2 explicite.
+
 ---
 
 ## 4. Rôles et autorisations

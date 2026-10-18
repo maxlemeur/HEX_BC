@@ -5,7 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { EstimateItemRecord } from "@/lib/estimate-calculations";
 import type { RpcImportItemPayload } from "@/lib/affaires/import-flow-server";
 import { buildEstimateV2SnapshotProjection } from "@/lib/estimate-v2-snapshot";
-import { NEW_ESTIMATE_CALC_ENGINE_VERSION } from "@/lib/estimates/calc-engine-version";
+import type { CalcEngineVersion } from "@/lib/estimates/calc-engine-version";
 import {
   calcPolicyContextChanged,
   isCalcPolicyContextChangedError,
@@ -169,6 +169,9 @@ export type InstantiateCanonicalEstimateV2FromTemplateInput = {
   dateDevis?: string | null;
   validiteJours?: number | null;
 };
+
+/** Moteur historique de la préparation v2, atteinte seulement quand la politique vaut 2. */
+const CANONICAL_V2_CALC_ENGINE_VERSION: CalcEngineVersion = 2;
 
 type LatestVersionDefaults = Pick<
   EstimateVersionRow,
@@ -603,7 +606,7 @@ function resolveVersionPayload(input: {
     rounding_step_cents: base.rounding_step_cents,
     max_section_depth: maxSectionDepth,
     contractor_role: base.contractor_role,
-    calc_engine_version: NEW_ESTIMATE_CALC_ENGINE_VERSION,
+    calc_engine_version: CANONICAL_V2_CALC_ENGINE_VERSION,
     total_ht_cents: 0,
     total_tax_cents: 0,
     total_ttc_cents: 0,
@@ -773,7 +776,7 @@ async function prepareCanonicalV2Creation(input: PersistCanonicalEstimateV2Input
     rounding_mode: versionPayload.rounding_mode,
     rounding_step_cents: versionPayload.rounding_step_cents,
     contractor_role: versionPayload.contractor_role,
-    calc_engine_version: NEW_ESTIMATE_CALC_ENGINE_VERSION,
+    calc_engine_version: CANONICAL_V2_CALC_ENGINE_VERSION,
   };
   const calculated = await calculateEstimateSnapshotForItems({
     supabase: input.supabase,

@@ -21,8 +21,14 @@ export type CalcEngineVersion = 1 | 2;
 
 const LEGACY_CALC_ENGINE_VERSION: CalcEngineVersion = 1;
 
-/** Moteur attribue aux nouvelles versions. Les versions existantes restent epinglees. */
-export const NEW_ESTIMATE_CALC_ENGINE_VERSION: CalcEngineVersion = 2;
+/**
+ * Moteur des nouvelles versions d'une entreprise sans ligne de politique : le moteur 3 depuis la
+ * bascule (lot 2, sous-lot 2.10b, migration M8 `estimate_engine_v3_default`). Une politique 2
+ * explicite garde le moteur 2 ; les versions existantes restent epinglees. Ce n'est pas un
+ * `CalcEngineVersion` : le moteur 3 n'est jamais relu comme une v1 ni calcule par le moteur
+ * historique (voir `engine/capabilities.ts`).
+ */
+export const NEW_ESTIMATE_CALC_ENGINE_VERSION = 3 as const satisfies EstimateEngineVersion;
 
 const SUPPORTED_CALC_ENGINE_VERSIONS: readonly CalcEngineVersion[] = [1, 2];
 
