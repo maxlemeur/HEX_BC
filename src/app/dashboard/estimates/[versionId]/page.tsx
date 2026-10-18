@@ -57,7 +57,7 @@ import {
   listEstimateVersionVariants,
   verifyEstimateSeal,
 } from "@/lib/estimates/server";
-import { formatEUR, normalizeEstimateCurrency } from "@/lib/money";
+import { formatCurrency, formatEUR, normalizeEstimateCurrency } from "@/lib/money";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
@@ -195,11 +195,11 @@ async function renderEstimateV3Detail(input: {
           </div>
           <div className="min-w-0">
             <dt className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Total HT</dt>
-            <dd className="mt-1 text-lg font-bold tabular-nums text-foreground">{formatEUR(summary.totalHtCents)}</dd>
+            <dd className="mt-1 text-lg font-bold tabular-nums text-foreground">{formatCurrency(summary.totalHtCents, currency)}</dd>
           </div>
           <div className="min-w-0">
             <dt className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Total TTC</dt>
-            <dd className="mt-1 text-lg font-bold tabular-nums text-foreground">{formatEUR(summary.payableTtcCents)}</dd>
+            <dd className="mt-1 text-lg font-bold tabular-nums text-foreground">{formatCurrency(summary.payableTtcCents, currency)}</dd>
             {expiry ? (
               <dd className={`mt-1 text-xs ${expiry.expired ? "text-danger" : "text-muted-foreground"}`}>
                 {expiry.expired ? "Expiré le" : "Valide jusqu’au"} {expiry.expiryDate}
