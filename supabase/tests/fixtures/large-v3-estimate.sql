@@ -17,10 +17,12 @@ insert into public.estimate_projects (id, tenant_id, user_id, name) values
 select public.set_tenant_calc_policy(current_setting('test.tenant_id')::uuid, 3::smallint, 1.3, 1.2, array[2000],
   'LB29 v3', '29200000-0000-4000-8000-000000000001');
 
--- copy_budget_ms (2.8b, L7): owner exception of 18/10/2026 to the 330 ms rule for a copy into a v3, « on accepte
--- jusqu'à 3,5 s pour 1 000 lignes » (docs/testing/large-estimate-statement-budget.md, « Copy into a v3 »).
-create temporary table lb29_budget as select 330::numeric as budget_ms, 3500::numeric as copy_budget_ms,
-  clock_timestamp() as started_at;
+-- Local WSL budgets, opt-in (AGENTS.md; docs/testing/large-estimate-statement-budget.md, « Budget derivation »). An
+-- atomic bulk operation gets 1 000 ms at the real volume, so budget_ms is 500 ms pro rata for this 1 021-item creation
+-- and settings probe against the 2 031-item hydraulic v3. copy_budget_ms (L7): option A gives a 1 000-operation copy
+-- 875 ms = the 3 500 ms CI/production maximum / planning factor 4. L4: at most 100 operations get 400 ms.
+create temporary table lb29_budget as select 500::numeric as budget_ms, 875::numeric as copy_budget_ms,
+  400::numeric as interactive_budget_ms, clock_timestamp() as started_at;
 -- updates: estimate_versions rows updated by a creation, estimate_items rows updated by a settings save.
 create temporary table lb29_sample (operation text, run integer, outcome text, duration_ms numeric, updates bigint);
 create temporary table lb29_payload (operation text, run integer, items jsonb, totals jsonb);
@@ -223,7 +225,7 @@ create function pg_temp.lb29_median(p_operation text) returns numeric language s
   select percentile_cont(0.5) within group (order by duration_ms)::numeric from lb29_sample where operation = p_operation
 $$;
 create function pg_temp.lb29_report(p_operation text) returns text language sql as $$
-  select format('%s: median %s ms over %s runs (%s), budget %s ms', p_operation,
+  select format('%s: median %s ms over %s runs (%s), local WSL budget %s ms (opt-in)', p_operation,
     pg_temp.lb29_median(p_operation), count(*), string_agg(duration_ms::text, ' ' order by run),
     (select budget_ms from lb29_budget))
   from lb29_sample where operation = p_operation
@@ -372,8 +374,9 @@ create function pg_temp.lb29_copy_median(p_target text, p_size integer) returns 
 $$;
 create function pg_temp.lb29_copy_report() returns setof text language sql as $$
   select diag(format('copy of %s operations into the %s target: median %s ms over %s runs (%s), receipt %s bytes, '
-      || '%s line updates, budget %s ms', size, target, pg_temp.lb29_copy_median(target, size), count(*),
-    string_agg(case when outcome = 'ok' then duration_ms::text else outcome end, ' ' order by run),
-    max(receipt_bytes), max(updates), (select copy_budget_ms from lb29_budget)))
+      || '%s line updates, local WSL budget %s ms (opt-in)', size, target, pg_temp.lb29_copy_median(target, size),
+    count(*), string_agg(case when outcome = 'ok' then duration_ms::text else outcome end, ' ' order by run),
+    max(receipt_bytes), max(updates),
+    (select case when size <= 100 then interactive_budget_ms else copy_budget_ms end from lb29_budget)))
   from lb29_copy_sample group by target, size order by size, target
 $$;

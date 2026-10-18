@@ -4723,6 +4723,14 @@ export type Database = {
         };
         Returns: Json;
       };
+      copy_estimate_items_atomic: {
+        Args: {
+          p_version_id: string;
+          p_draft_lock_session_id: string;
+          p_items: Json;
+        };
+        Returns: Json;
+      };
       finalize_estimate_assembly_calculation: {
         Args: {
           p_version_id: string;

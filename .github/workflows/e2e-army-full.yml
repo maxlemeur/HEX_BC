@@ -118,7 +118,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
       # Plain Node, no install. A filtered dispatch is one unsharded shard.
@@ -135,7 +135,7 @@ jobs:
           node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/tester-army/select-journeys.ts "${args[@]}"
       - name: Retain the shard plan
         if: always() && steps.plan.outputs.development != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: army-full-plan
           include-hidden-files: true
@@ -218,7 +218,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
           cache: npm
@@ -249,7 +249,7 @@ jobs:
         run: node --import tsx scripts/run-tester-army-ci.ts full --shard "$ARMY_SHARD" ${ARMY_FILES:+--files "$ARMY_FILES"} ${ARMY_GREP:+--grep "$ARMY_GREP"}
       - name: Retain sanitized business evidence
         if: always() && steps.journeys.outputs.evidence != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: army-full-shard-${{ matrix.shard }}-evidence
           include-hidden-files: true
@@ -330,7 +330,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
           cache: npm
@@ -343,7 +343,7 @@ jobs:
         run: node --import tsx scripts/run-tester-army-ci.ts full --phase development
       - name: Retain sanitized business evidence
         if: always() && steps.journeys.outputs.evidence != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: army-full-development-evidence
           include-hidden-files: true
@@ -426,7 +426,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
       - name: Download the shard plan
@@ -453,7 +453,7 @@ jobs:
           --revision "$GITHUB_SHA"
       - name: Retain sanitized business evidence
         if: always() && steps.aggregate.outputs.evidence != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ github.event_name == 'workflow_dispatch' && inputs.grep != '' && 'army-full-filtered-evidence' || 'army-full-evidence' }}
           include-hidden-files: true

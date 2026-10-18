@@ -75,6 +75,7 @@ import {
   alternativePriceForLineUnit, offerEstimateUnit, offerEstimateUnitPriceCents,
 } from "@/lib/estimates/supplier-offer-purchase-unit";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
+import { insertCopiedEstimateItems, type CopiedEstimateItem } from "@/lib/estimates/copy-items-server";
 import { persistAtomicEstimateSettings } from "@/lib/estimates/settings-atomic";
 import { pickV3ItemInputFields } from "@/lib/estimates/v3-persistence";
 import {
@@ -2299,7 +2300,7 @@ function buildImportedEstimateItemInsert(input: {
   parentId: string | null;
   position: number;
   title?: string;
-}): EstimateItemInsert {
+}): CopiedEstimateItem {
   return {
     id: input.itemId,
     tenant_id: input.tenantId,
@@ -2336,7 +2337,7 @@ function buildImportedEstimateItemInsert(input: {
     line_total_ht_cents: input.sourceItem.line_total_ht_cents,
     line_tax_cents: input.sourceItem.line_tax_cents,
     line_total_ttc_cents: input.sourceItem.line_total_ttc_cents,
-  } satisfies EstimateItemInsert;
+  };
 }
 
 function buildImportedSubtreePayload(input: {
@@ -2577,6 +2578,7 @@ type ImportLinkedDpgfSourceInternalInput = {
   persist?: boolean;
   /** Sous-lot 2.8b (A5) : brouillon v3, ses coefficients de vente et son jeton ; lignes écrites par l'écrivain de lot. */
   v3?: { saleCoefficientFo: number; saleCoefficientMo: number; updatedAt: string };
+  draftLockSessionId?: string | null;
 };
 
 async function importLinkedDpgfSourceIntoVersionInternal(
@@ -2644,7 +2646,9 @@ async function importLinkedDpgfSourceIntoVersionInternal(
   const createdSectionId = randomUUID();
   const rootPosition = await getNextItemPosition(input.supabase, input.versionId, null);
 
-  const sectionItemPayload: EstimateItemInsert = {
+  // Every copied column is explicit (copy_estimate_items_atomic stores exactly them): the values the column
+  // defaults gave the section before.
+  const sectionItemPayload = {
     id: createdSectionId,
     tenant_id: input.tenantId,
     version_id: input.versionId,
@@ -2652,17 +2656,37 @@ async function importLinkedDpgfSourceIntoVersionInternal(
     item_type: "section",
     position: rootPosition,
     title: resolvedSectionTitle,
+    aid: null,
+    description: null,
+    quantity: null,
+    unit_price_ht_cents: null,
+    tax_rate_bp: null,
+    k_fo: null,
+    h_mo: null,
+    k_mo: null,
+    h_mo_atelier: null,
+    labor_role_atelier_id: null,
+    h_mo_chantier: null,
+    labor_role_chantier_id: null,
+    pu_ht_cents: null,
+    labor_role_id: null,
+    category_id: null,
+    supply_type_id: null,
     source_provider: "dpgf",
     // source_job_id is reserved for takeoff_jobs FK; DPGF imports are tracked via source_file_name.
     source_job_id: null,
     source_file_name: latestImport.filename,
     source_page: null,
+    source_metadata: {},
     // Keep section payload explicit for strict DB payload checks/default-to-null behavior.
     h_mo_majoration: 1,
     k_mo_atelier: 1,
     k_mo_chantier: 1,
     selected_supplier_price_id: null,
-  };
+    line_total_ht_cents: null,
+    line_tax_cents: null,
+    line_total_ttc_cents: null,
+  } satisfies CopiedEstimateItem & EstimateItemInsert;
 
   const lineItemsPayload = validLines.map((line, index) => {
     const lineId = randomUUID();
@@ -2674,6 +2698,7 @@ async function importLinkedDpgfSourceIntoVersionInternal(
       item_type: "line",
       position: index + 1,
       title: line.title,
+      aid: null,
       description: line.description,
       quantity: line.quantity,
       unit_price_ht_cents: line.unitPriceHtCents,
@@ -2698,10 +2723,11 @@ async function importLinkedDpgfSourceIntoVersionInternal(
       source_job_id: null,
       source_file_name: latestImport.filename,
       source_page: line.rowIndex > 0 ? line.rowIndex : null,
+      source_metadata: {},
       line_total_ht_cents: line.lineTotalHtCents,
       line_tax_cents: line.lineTaxCents,
       line_total_ttc_cents: line.lineTotalTtcCents,
-    } satisfies EstimateItemInsert & EstimateItemRecord;
+    } satisfies CopiedEstimateItem & EstimateItemInsert & EstimateItemRecord;
   });
 
   if (input.persist === false) {
@@ -2737,15 +2763,13 @@ async function importLinkedDpgfSourceIntoVersionInternal(
     };
   }
 
-  const { error: insertError } = await input.supabase
-    .from("estimate_items")
-    .insert([sectionItemPayload, ...lineItemsPayload], {
-      defaultToNull: false,
-    });
-
-  if (insertError) {
-    throw mapSupabaseError(insertError, "Impossible d'importer la source DPGF liée.");
-  }
+  await insertCopiedEstimateItems({
+    supabase: input.supabase,
+    versionId: input.versionId,
+    draftLockSessionId: input.draftLockSessionId,
+    items: [sectionItemPayload, ...lineItemsPayload],
+    failureMessage: "Impossible d'importer la source DPGF liée.",
+  });
 
   const recalculateResult = await recalculateEstimateVersionTotals({
     supabase: input.supabase,
@@ -4127,7 +4151,7 @@ async function duplicateSectionInternal(input: {
   if (sourceIsV3 && !targetIsV3) throw estimateV3SectionCopyToHistoricalError();
 
   assertDraftStatus(targetVersion.status);
-  await assertDraftLockOwnedByCurrentUser({
+  const targetLock = await assertDraftLockOwnedByCurrentUser({
     supabase,
     tenantId,
     versionId: targetVersion.id,
@@ -4151,7 +4175,7 @@ async function duplicateSectionInternal(input: {
     newIdBySourceId.set(item.id, randomUUID());
   });
 
-  const duplicatedItemsPayload: EstimateItemInsert[] = subtree.orderedSubtreeItems.map(
+  const duplicatedItemsPayload: CopiedEstimateItem[] = subtree.orderedSubtreeItems.map(
     (item) => {
       const newItemId = newIdBySourceId.get(item.id);
       if (!newItemId) {
@@ -4203,13 +4227,13 @@ async function duplicateSectionInternal(input: {
     };
   }
 
-  const { error: insertError } = await supabase
-    .from("estimate_items")
-    .insert(duplicatedItemsPayload);
-
-  if (insertError) {
-    throw mapSupabaseError(insertError, "Impossible de dupliquer la section.");
-  }
+  await insertCopiedEstimateItems({
+    supabase,
+    versionId: targetVersion.id,
+    draftLockSessionId: targetLock.session_id,
+    items: duplicatedItemsPayload,
+    failureMessage: "Impossible de dupliquer la section.",
+  });
 
   if (!duplicatedSectionId) {
     throw internalError("Impossible de dupliquer la section.");
@@ -4269,7 +4293,7 @@ export async function importSectionsFromVersion(
   // par la règle P-12 depuis une v1/v2 (v3-section-copy.ts).
   const targetIsV3 = usesPerUnitLabor(resolveEstimateEngineVersion(targetVersion));
   assertDraftStatus(targetVersion.status);
-  await assertDraftLockOwnedByCurrentUser({
+  const targetLock = await assertDraftLockOwnedByCurrentUser({
     supabase,
     tenantId,
     versionId: targetVersion.id,
@@ -4345,7 +4369,7 @@ export async function importSectionsFromVersion(
     return nextPosition;
   };
 
-  const importedItemsPayload: EstimateItemInsert[] = [];
+  const importedItemsPayload: CopiedEstimateItem[] = [];
   const sourceIdByNewId = new Map<string, string>();
   const createdSectionIds: string[] = [];
   const createdLineIds: string[] = [];
@@ -4447,13 +4471,13 @@ export async function importSectionsFromVersion(
   }
 
   if (importedItemsPayload.length > 0) {
-    const { error: insertError } = await supabase
-      .from("estimate_items")
-      .insert(importedItemsPayload);
-
-    if (insertError) {
-      throw mapSupabaseError(insertError, "Impossible d'importer les sections.");
-    }
+    await insertCopiedEstimateItems({
+      supabase,
+      versionId: targetVersion.id,
+      draftLockSessionId: targetLock.session_id,
+      items: importedItemsPayload,
+      failureMessage: "Impossible d'importer les sections.",
+    });
   }
 
   const recalculateResult =
@@ -4498,7 +4522,7 @@ export async function importLinkedDpgfSourceIntoVersion(
 
   const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
   assertDraftStatus(version.status);
-  await assertDraftLockOwnedByCurrentUser({
+  const lock = await assertDraftLockOwnedByCurrentUser({
     supabase,
     tenantId,
     versionId,
@@ -4527,6 +4551,7 @@ export async function importLinkedDpgfSourceIntoVersion(
       ? { v3: { saleCoefficientFo: Number(version.sale_coefficient_fo), saleCoefficientMo: Number(version.sale_coefficient_mo),
           updatedAt: version.updated_at } }
       : {}),
+    draftLockSessionId: lock.session_id,
   });
 }
 

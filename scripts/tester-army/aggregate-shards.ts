@@ -1,6 +1,8 @@
 // Aggregate check of parallel TesterArmy jobs: army-critical (shards of the
-// critical selection), army-full (shards of the nightly full suite and its
-// development job) and army-calc-v3 (one job per phase). Runs with plain Node
+// critical selection), army-takeoff (shards of the full-only journeys the same
+// selection reaches, each a runner full --files run), army-full (shards of the
+// nightly full suite and its development job) and army-calc-v3 (one job per
+// phase). Runs with plain Node
 // (type stripping, builtins only), after `actions/download-artifact` put each
 // job's evidence in <evidence>/<artifact name>/. Contract:
 // docs/testing/tester-army-ci.md, "Jobs parallèles"; failure modes:
@@ -20,10 +22,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export type AggregateSuite = "critical" | "full" | "calc-v3";
+export type AggregateSuite = "critical" | "takeoff" | "full" | "calc-v3";
 export type AggregateInput = {
   suite: AggregateSuite;
-  /** critical: the selection (selection.json, its shards); full: the shard plan; calc-v3: the planned phase names. */
+  /** critical and takeoff: the selection (selection.json, its shards or takeoffShards); full: the shard plan; calc-v3: the planned phase names. */
   plan: unknown;
   /** Directory holding one subdirectory per downloaded artifact. */
   evidence: string;
@@ -69,6 +71,7 @@ const SETUP = "e2e/army/critical/auth.setup.e2e.ts";
 /** The jobs each aggregate needs, by workflow job id (the guard checks the workflows against it). */
 export const AGGREGATE_JOBS: Record<AggregateSuite, { plan: string; units: string; development?: string }> = {
   critical: { plan: "army-select", units: "army-critical-shard" },
+  takeoff: { plan: "army-select", units: "army-takeoff-shard" },
   full: { plan: "army-full-plan", units: "army-full-shard", development: "army-full-development" },
   "calc-v3": { plan: "army-calc-v3-plan", units: "army-calc-v3-phase" },
 };
@@ -144,13 +147,25 @@ function plannedUnits(input: AggregateInput, problems: string[]): { units: Unit[
     return { scope: "calc-v3", units: phases.map((phase) => ({ id: `calc-v3 ${phase}`, artifact: `army-calc-v3-${phase}-evidence`, kind: "calc-v3", phase })) };
   }
   const selection = record(input.plan);
-  const plan = readPlan(input.suite === "critical" ? selection.shards : input.plan, problems);
+  const plan = readPlan(input.suite === "critical" ? selection.shards : input.suite === "takeoff" ? selection.takeoffShards : input.plan, problems);
   if (!plan) return { units: [], scope: input.suite };
   checkPlan(plan, problems);
   let scope: string = input.suite;
-  if (input.suite === "critical") {
-    if (selection.schemaVersion !== "army-impact-selection-3" || !["none", "files", "full"].includes(String(selection.mode))) {
-      problems.push("The selection is unreadable (army-impact-selection-3 expected).");
+  if (input.suite === "takeoff") {
+    const fullOnly = record(selection.fullOnly);
+    if (selection.schemaVersion !== "army-impact-selection-4" || !["none", "files", "all"].includes(String(fullOnly.mode))) {
+      problems.push("The selection is unreadable (army-impact-selection-4 with a full-only decision expected).");
+    }
+    if (fullOnly.mode === "none" && plan.shards.length) problems.push("A none full-only decision plans no shard.");
+    if (fullOnly.mode !== "none" && plan.shards.length === 0) problems.push(`A ${String(fullOnly.mode)} full-only decision plans at least one shard.`);
+    if (plan.files.length && !same(plan.files, strings(fullOnly.files) ?? [])) {
+      problems.push("The plan does not cover the selection: its files differ from the selected full-only journeys.");
+    }
+    // Shards run full --files; an unsharded fail-safe runs the runner's whole full selection.
+    scope = plan.files.length ? "filtered-full" : "full";
+  } else if (input.suite === "critical") {
+    if (selection.schemaVersion !== "army-impact-selection-4" || !["none", "files", "full"].includes(String(selection.mode))) {
+      problems.push("The selection is unreadable (army-impact-selection-4 expected).");
     }
     if (selection.mode === "none" && plan.shards.length) problems.push("A none selection plans no shard.");
     if (selection.mode !== "none" && plan.shards.length === 0) problems.push(`A ${String(selection.mode)} selection plans at least one shard.`);
@@ -164,12 +179,13 @@ function plannedUnits(input: AggregateInput, problems: string[]): { units: Unit[
     if (plan.development !== "separate" && plan.files.length) problems.push("A sharded full plan runs its development phase in its own job.");
     scope = plan.development === "none" ? "filtered-full" : "full";
   }
-  const prefix = input.suite === "critical" ? "army-critical" : "army-full";
+  const prefix = { critical: "army-critical", takeoff: "army-takeoff", full: "army-full" }[input.suite];
   const units: Unit[] = plan.shards.map((shard) => ({ id: `shard ${shard.shard}/${shard.total}`, artifact: `${prefix}-shard-${shard.shard}-evidence`, kind: "shard", shard }));
   if (input.suite === "full" && plan.development === "separate") {
     units.push({ id: "development", artifact: "army-full-development-evidence", kind: "development", phase: "development" });
   }
-  const wholeSuite = plan.files.length > 0 && (input.suite === "critical" ? selection.mode === "full" : plan.development === "separate");
+  const wholeSuite = plan.files.length > 0 && (input.suite === "critical" ? selection.mode === "full"
+    : input.suite === "full" && plan.development === "separate");
   return { units, plan, scope, wholeSuite };
 }
 
@@ -189,12 +205,15 @@ function checkJobs(input: AggregateInput, units: Unit[], plan: Plan | undefined,
 function expectedPhases(input: AggregateInput, unit: Unit, plan: Plan | undefined): string[] {
   if (unit.kind === "development") return ["development"];
   if (input.suite === "critical") return ["critical"];
+  // An unsharded takeoff run is the runner's own full selection: both phases on its stack.
+  if (input.suite === "takeoff") return unit.shard?.files.length ? ["full"] : ["full", "development"];
   return plan?.development === "in-shard" ? ["full", "development"] : ["full"];
 }
 
 function expectedScope(input: AggregateInput, unit: Unit, plan: Plan | undefined): string {
   if (unit.kind === "calc-v3") return unit.phase === "all" ? "calc-v3" : `calc-v3-${unit.phase}`;
   if (unit.kind === "development") return "full-development";
+  if (input.suite === "takeoff") return unit.shard?.files.length ? "filtered-full" : "full";
   if (unit.shard?.files.length) return `filtered-${input.suite}`;
   return input.suite === "full" && plan?.development === "none" ? "filtered-full" : input.suite;
 }
@@ -253,7 +272,8 @@ function checkUnit(input: AggregateInput, unit: Unit, directory: string, plan: P
     problems.push(`${where} ${unit.artifact}/manifest.json is not JSON.`);
     return { id: unit.id, artifact: unit.artifact, kind: unit.kind, status: "failed", manifestSha256: sha256(bytes) };
   }
-  const suite = input.suite === "calc-v3" ? "calc-v3" : input.suite;
+  // The takeoff shards are runs of the full suite.
+  const suite = input.suite === "takeoff" ? "full" : input.suite;
   if (manifest.schemaVersion !== "army-native-ci-1" || manifest.suite !== suite) problems.push(`${where} is not a ${suite} runner manifest.`);
   if (manifest.status !== "passed") {
     const error = typeof manifest.error === "string" ? `: ${manifest.error.slice(0, 300)}` : "";
@@ -396,7 +416,7 @@ export function aggregateEvidence(input: AggregateInput): AggregateResult {
 }
 
 function summary(input: AggregateInput, result: AggregateResult): string {
-  const title = { critical: "TesterArmy critical", full: "TesterArmy full", "calc-v3": "TesterArmy calc-v3" }[input.suite];
+  const title = { critical: "TesterArmy critical", takeoff: "TesterArmy takeoff", full: "TesterArmy full", "calc-v3": "TesterArmy calc-v3" }[input.suite];
   const lines = [`### ${title} : agrégation des jobs parallèles`, ""];
   if (result.status === "not-run") return `${[...lines, "Aucun parcours sélectionné : aucun job lancé, aucune preuve revendiquée.", ""].join("\n")}\n`;
   lines.push(result.status === "passed" ? "Tous les jobs prévus ont réussi, leurs preuves sont intègres et couvrent la sélection." : "Agrégation en échec :", "");
@@ -413,9 +433,9 @@ function main() {
     }
     values.set(args[index], args[index + 1]);
   }
-  if (!["critical", "full", "calc-v3"].includes(suite) || !values.get("--evidence") || !values.get("--out") || !values.has("--results") ||
+  if (!["critical", "takeoff", "full", "calc-v3"].includes(suite) || !values.get("--evidence") || !values.get("--out") || !values.has("--results") ||
     (suite === "calc-v3" ? !values.has("--phases") : !values.has("--plan"))) {
-    throw new Error("Usage: node scripts/tester-army/aggregate-shards.ts critical|full --plan FILE | calc-v3 --phases A,B " +
+    throw new Error("Usage: node scripts/tester-army/aggregate-shards.ts critical|takeoff|full --plan FILE | calc-v3 --phases A,B " +
       "--evidence DIR --out DIR --results job=result,... [--revision SHA]");
   }
   const results = Object.fromEntries(values.get("--results")!.split(",").filter(Boolean).map((pair) => {

@@ -2,7 +2,7 @@
 // (scripts/tester-army/aggregate-shards.ts, docs/testing/tester-army-ci.md).
 //
 // A sharded run is green only through its aggregate job (army-critical,
-// army-full, army-calc-v3): the check name branch tooling and watchers read.
+// army-takeoff, army-full, army-calc-v3): the check name branch tooling and watchers read.
 // The CI can only show the happy path; these are the failures it cannot
 // produce on demand, each of which would otherwise turn a partial run into a
 // green check:
@@ -29,7 +29,11 @@
 // 9. a calc-v3 phase red, missing, or recorded under another phase;
 // 10. a single unit read as missing because actions/download-artifact puts the
 //    only artifact a pattern matches directly in its path (no subdirectory;
-//    run 39120187109), or a flat download taken for one of several units.
+//    run 39120187109), or a flat download taken for one of several units;
+// 11. takeoff shards: a plan that drops a selected full-only journey, shards
+//    planned for an explicit "none", a shard that is not the full runner's
+//    filtered run of its files, or a fail-safe unsharded run without the
+//    development phase its whole full selection includes.
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -134,7 +138,7 @@ const C = "e2e/army/local/c.e2e.ts";
 function criticalSelection(overrides: Record<string, unknown> = {}, shards = [[SETUP, A, C], [SETUP, B]]) {
   const files = [...new Set(shards.flat())].sort();
   return {
-    schemaVersion: "army-impact-selection-3", event: "pull_request", mode: "files", reason: "test", files,
+    schemaVersion: "army-impact-selection-4", event: "pull_request", mode: "files", reason: "test", files,
     shards: {
       schemaVersion: "army-shard-plan-1", suite: "critical", reason: "test", files, workers: 2, durationsSha256: null,
       shards: shards.map((list, index) => ({ shard: index + 1, total: shards.length, files: [...list].sort(), seconds: 10 })),
@@ -434,5 +438,78 @@ describe("TesterArmy full and calc-v3 aggregation", () => {
     // A failed aggregate still hands over what it gathered, so the evidence is retained.
     expect(fs.readFileSync(output, "utf8")).toBe(`evidence=${out}\n`);
     expect(run("army-select=success").status).toBe(1);
+  });
+});
+
+describe("TesterArmy takeoff aggregation", () => {
+  const T1 = "e2e/army/takeoff/t1.e2e.ts";
+  const T2 = "e2e/army/takeoff/t2.e2e.ts";
+  const T3 = "e2e/army/takeoff/nested/t3.e2e.ts";
+  const ok = { "army-select": "success", "army-takeoff-shard": "success" };
+
+  function takeoffSelection(fullOnly: { mode: string; files: string[] }, shards: string[][]) {
+    const files = [...new Set(shards.flat())].sort();
+    return {
+      schemaVersion: "army-impact-selection-4", event: "pull_request", mode: "none", reason: "test", files: [],
+      fullOnly: { reason: "test", ...fullOnly },
+      shards: { schemaVersion: "army-shard-plan-1", suite: "critical", reason: "test", files: [], workers: 2, durationsSha256: null, shards: [] },
+      takeoffShards: {
+        schemaVersion: "army-shard-plan-1", suite: "takeoff", reason: "test", files, workers: 1, durationsSha256: null,
+        shards: shards.map((list, index) => ({ shard: index + 1, total: shards.length, files: [...list].sort(), seconds: 10 })),
+      },
+    };
+  }
+
+  function writeTakeoffShards(shards: string[][], options: (index: number) => Partial<UnitOptions> = () => ({})) {
+    shards.forEach((list, index) => writeUnit({
+      suite: "full", artifact: `army-takeoff-shard-${index + 1}-evidence`, scope: list.length ? "filtered-full" : "full",
+      phases: list.length ? ["full"] : ["full", "development"], ran: { full: list.length ? list : [SETUP, T1], development: ["e2e/army/development/d.e2e.ts"] },
+      ...(list.length ? { journeyFiles: [...list].sort() } : {}), shard: { index: index + 1, total: shards.length }, ...options(index + 1),
+    }));
+  }
+
+  function takeoff(selection: unknown, results: Record<string, string> = ok): AggregateInput {
+    return { suite: "takeoff", plan: selection, evidence, out, results, revision: REVISION };
+  }
+
+  it("passes when the takeoff shards ran exactly the selected full-only journeys, and fails when one left no evidence", () => {
+    const plan = [[SETUP, T1, T3], [SETUP, T2]];
+    const selection = takeoffSelection({ mode: "all", files: [SETUP, T1, T2, T3].sort() }, plan);
+    writeTakeoffShards(plan.slice(0, 1));
+    expect(problems(takeoff(selection))).toMatchObject({ status: "failed", problems: expect.stringContaining("army-takeoff-shard-2-evidence") });
+    fs.rmSync(evidence, { recursive: true, force: true });
+    writeTakeoffShards(plan);
+    const result = aggregateEvidence(takeoff(selection));
+    expect(result.problems).toEqual([]);
+    expect(JSON.parse(fs.readFileSync(path.join(out, "manifest.json"), "utf8"))).toMatchObject({ suite: "takeoff", scope: "filtered-full",
+      status: "passed", union: { executed: [SETUP, T1, T2, T3].sort(), missing: [], unexpected: [], duplicated: [] } });
+  });
+
+  it("fails when the plan drops a selected journey, plans shards for none or a shard is not the full runner's run of its files", () => {
+    const plan = [[SETUP, T1], [SETUP, T2]];
+    writeTakeoffShards(plan);
+    expect(problems(takeoff(takeoffSelection({ mode: "all", files: [SETUP, T1, T2, T3].sort() }, plan))))
+      .toMatchObject({ status: "failed", problems: expect.stringContaining("selected full-only journeys") });
+    expect(problems(takeoff(takeoffSelection({ mode: "none", files: [] }, plan))))
+      .toMatchObject({ status: "failed", problems: expect.stringContaining("A none full-only decision plans no shard.") });
+    expect(problems(takeoff(takeoffSelection({ mode: "files", files: [SETUP, T1] }, []), { "army-select": "success", "army-takeoff-shard": "skipped" })))
+      .toMatchObject({ status: "failed", problems: expect.stringContaining("A files full-only decision plans at least one shard.") });
+
+    fs.rmSync(evidence, { recursive: true, force: true });
+    writeTakeoffShards(plan, (index) => (index === 2 ? { suite: "critical", scope: "filtered-critical" } : {}));
+    expect(problems(takeoff(takeoffSelection({ mode: "all", files: [SETUP, T1, T2].sort() }, plan))))
+      .toMatchObject({ status: "failed", problems: expect.stringMatching(/shard 2\/2 is not a full runner manifest[\s\S]*scope filtered-critical, expected filtered-full/u) });
+  });
+
+  it("claims nothing for an explicit none and requires both phases from a fail-safe unsharded run", () => {
+    expect(problems(takeoff(takeoffSelection({ mode: "none", files: [] }, []), { "army-select": "success", "army-takeoff-shard": "skipped" })))
+      .toEqual({ status: "not-run", problems: "" });
+
+    const failSafe = takeoffSelection({ mode: "all", files: [] }, [[]]);
+    writeTakeoffShards([[]], () => ({ phases: ["full"] }));
+    expect(problems(takeoff(failSafe))).toMatchObject({ status: "failed", problems: expect.stringContaining("expected full, development passed") });
+    fs.rmSync(evidence, { recursive: true, force: true });
+    writeTakeoffShards([[]]);
+    expect(aggregateEvidence(takeoff(failSafe)).problems).toEqual([]);
   });
 });

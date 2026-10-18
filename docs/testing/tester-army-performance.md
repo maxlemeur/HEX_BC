@@ -15,7 +15,7 @@ TesterArmy is the primary E2E runner. Critical business outcomes use exact asser
 | Deferred imports break navigation or dialogs | Existing business assertions plus actual first-open UI verification for changed features |
 | The page silently redirects or measurements are absent | Exact route/heading assertions and nonempty paint/frame measurements |
 
-Statement-level timings of large v3 estimates (creation and settings save on 1 021 items) are guarded in pgTAP, not here: see [large-estimate-statement-budget.md](large-estimate-statement-budget.md), which lists the batch writer and route timings it leaves unguarded.
+Statement-level timings of large v3 estimates (creation and settings save on 1 021 items, a 1 000-operation copy and a 100-operation batch into that v3) are guarded in pgTAP, not here: see [large-estimate-statement-budget.md](large-estimate-statement-budget.md), which lists the batch writer and route timings it leaves unguarded.
 
 ## Commands
 
