@@ -1233,3 +1233,31 @@ puis « Exporter DPGF » sont téléchargés, chacun avec la réponse de sa rout
 |---|---|---|
 | `E2E_ARMY_WORKERS=2 npm run e2e:army:local -- --grep "^V3E15\s" --app-port 3161` | `b9968ec9` | rouge attendu : « TesterArmy CI failed », `manifest.json` `status: failed` (`f92117c0…` ; le code de sortie n'a pas été capté par l'enveloppe de la commande). Attendu `{compact: true, compactExcel: true, compactCsv: false, menuExcel: true, menuCsv: false, dpgf: true, bdc: false}`, obtenu `{compact: false, compactExcel: null, compactCsv: null, menuExcel: false, menuCsv: false, dpgf: false, bdc: false}`. `.e2e/army/ci/2026-10-18T06-15-33-222Z-critical` |
 | idem | `0bf43c02` | **sortie 0** : états attendus ; Excel `200` sur `…/export?format=xlsx`, en-tête `Poste, Désignation, Unité, Quantité, Statut, TVA (%), PU HT, Total HT`, « Moteur de calcul » 3, ligne X 130 / 260 ; DPGF `200` sur `…&mode=dpgf`, colonnes « Statut », « h MO / unité », « PU vente HT EUR », « Total HT brut EUR », ligne X 130 / 260. `.e2e/army/ci/2026-10-18T06-19-41-201Z-critical` (`manifest.json` `c8d705e7…`) |
+
+Qualification de la tête `4187b524` (code, journeys et documentation corrigés ; la tête finale n'y ajoute que ce
+relevé). WSL, Node 24.19.0, `E2E_ARMY_WORKERS=2`, `NODE_OPTIONS=--max-old-space-size=4096`, aucun changement local
+(`diffSha256` vide), exécutions en série après la garde de concurrence ; journaux
+`~/miaouffrage-lot2-27/.e2e/lot2-2.7/final-*.log`. `origin/main` relu ensuite : toujours `78533fe5`, déjà fusionné.
+
+| Commande | Résultat |
+|---|---|
+| `npm run e2e:army:local -- --grep "V3M\|V3FC\|V3E\|V3P01" --app-port 3161` | **sortie 0** en 294 s : 19/19 (setup, V3E01 à V3E13, V3E15, V3M02, V3FC01, V3FC02, V3P01), V3E01 compris. `.e2e/army/ci/2026-10-18T06-25-39-174Z-critical` (`manifest.json` `15aab4e8…`) |
+| `npm run e2e:army:calc-v3 -- --phase emission-v3 --app-port 3162` | **sortie 0** en 99 s, build de production possédé : 5/5 (setup, V3M01, V3M03, V3M04, V3M05), 5 PDF reçus par le collecteur. `…/2026-10-18T06-30-59-251Z-calc-v3` (`manifest.json` `94bb6d98…`) |
+| `npm run e2e:army:local -- --grep "downloaded XLSX and DPGF cells\|commercial rounding uses lower steps" --app-port 3161` (en plus : exports de l'éditeur v1/v2 après le partage du drapeau) | **sortie 0** en 80 s : 3/3 (setup ; XLSX, DPGF et BDC téléchargés depuis l'éditeur v1/v2, cellules égales au devis persisté ; arrondi commercial au XLSX et au DPGF). `…/2026-10-18T06-33-20-513Z-critical` (`manifest.json` `39e29ec4…`) |
+| `npx vitest run src/test/army-dev-loop.test.ts` (WSL, en plus : les cas ignorés sous Windows, dont ceux de la PR #47) | **sortie 0** : 25/25 |
+
+Windows (`miaouffrage-l2-27`, même tête) : `npm run typecheck` sortie 0 ; `npx eslint --max-warnings=0` des fichiers
+touchés (`ExportDropdown.tsx`, `EstimateEditorToolbar.tsx` et son test, `useEstimateEditorExportController.ts` et son
+test, `useEstimateEditorState.impl.tsx`, `engine-v3-editor-actions.e2e.ts`, `engine-v3-emission-support.ts`,
+`calc-v3-phases.ts`) : sortie 0 ; `npx vitest run` des deux tests touchés et de `army-dev-loop`, `ci-guardrails`,
+`army-impact-map` : 5 fichiers, 47 passés / 10 ignorés (cas Linux d'`army-dev-loop`, joués dans WSL ci-dessus) ;
+`git -c core.whitespace=cr-at-eol diff --check origin/main...HEAD` : sortie 0 ; `git diff origin/main...HEAD --
+src/lib/estimate-calculations.ts src/lib/estimate-v2-snapshot.ts` : vide.
+
+Non rejoués après `803b5ba9` (§13.4), faute d'entrée touchée : `db:ci:local` (aucune migration ni test SQL ; ses
+pgTAP et matrice RLS repassent en tête de chaque run ci-dessus), empreintes de documents, `db:upgrade-check`, phases
+calc-v3 autres que `emission-v3`, campagne critique non filtrée.
+
+Reste : la PR #40 (2.8), ouverte, entre en conflit avec cette branche dans `engine-v3-editor-actions.e2e.ts`
+(constantes de V3E11 contre le retrait de `PASTE_REFUSAL`) et dans `supabase/migrations.manifest.json`. Ces conflits
+existaient déjà à `058dc448` ; V3E15 et l'éditeur fusionnent sans conflit (essai `git merge-tree` contre `f00da33b`).
