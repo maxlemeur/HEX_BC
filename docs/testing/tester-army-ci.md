@@ -410,33 +410,34 @@ pas d'instantané de base (`db reset` complet), 1 worker, preuves
 `army-calc-v3-evidence` téléversées seulement après le contrôle de
 confidentialité du runner.
 
-- Sélection nocturne : les phases servies par le build de production
-  (`journeys`, `components`, `numeric`, `resume`, `access`, `offers`), une
+- Sélection nocturne : les phases servies par le build de production, toutes
+  depuis le sous-lot 2.7 (`journeys`, `components`, `numeric`, `resume`,
+  `access`, `offers`, `emission`, `emission-v3`), une
   invocation `run-tester-army-ci.ts calc-v3 --phase <phase>` par phase, chacune
   sur sa propre pile, dans un seul job ; une phase rouge n'arrête pas les
   suivantes, le job échoue en nommant les phases sans preuve. Le répertoire de
   preuves de chaque phase n'est téléversé que si le runner l'a publié (sortie
   `evidence`, écrite seulement après le contrôle de confidentialité).
-- Émission exclue : servie par `next dev` (`canUseDevelopmentEstimateTerms`
-  n'accepte les conditions bac à sable qu'en développement), OF00 y échoue 7/7
-  depuis la PR #34 (rechargement à chaud qui remonte l'éditeur ; 6/6 en
-  production avec un garde local). Le sous-lot 2.7 étend ce garde au profil de
-  production possédé et passe l'émission en production. Réactivation : ajouter
-  `emission` à `CALC_V3_NIGHTLY_PHASES` dans le workflow, rien d'autre ; le garde
-  `src/test/ci-guardrails.test.ts` exige que cette liste soit exactement
-  l'ensemble des phases dont `serverMode` vaut `production`
-  (`scripts/tester-army/calc-v3-phases.ts`) et n'interdit l'émission que tant
-  qu'elle n'est pas servie en production : dès que 2.7 bascule l'émission, le
-  Quality Gate reste rouge tant qu'elle n'y est pas ajoutée, et l'ajout suffit à
-  le remettre au vert. La PR de 2.7, qui modifie alors ce workflow, lance
-  elle-même la sélection nocturne, émission comprise (ci-dessous).
+- Émission dans la nuit depuis le sous-lot 2.7 : jusque-là servie par
+  `next dev` (`canUseDevelopmentEstimateTerms` n'acceptait les conditions bac à
+  sable qu'en développement), où OF00 échouait 7/7 depuis la PR #34
+  (rechargement à chaud qui remonte l'éditeur ; 6/6 en production avec un garde
+  local), elle restait hors de la nuit. Le 2.7 (PR #45) étend ce garde au profil
+  de production possédé, sert `emission` et la nouvelle phase `emission-v3` en
+  production, et les ajoute à `CALC_V3_NIGHTLY_PHASES` et aux options de
+  `phase`, rien d'autre. Le garde `src/test/ci-guardrails.test.ts` exige que
+  cette liste soit exactement l'ensemble des phases dont `serverMode` vaut
+  `production` (`scripts/tester-army/calc-v3-phases.ts`) et que les options
+  soient `nightly`, `all` puis chaque phase : une phase ajoutée ou basculée sans
+  le workflow fait échouer le Quality Gate. La PR #45, qui modifie ce workflow,
+  lance elle-même la sélection nocturne, émission comprise (ci-dessous).
 - Déclenchement manuel (`workflow_dispatch`, entrée `phase`) : `nightly`
   (défaut, la sélection ci-dessus), `all` (la campagne complète en une
   invocation, émission comprise, exactement `npm run e2e:army:calc-v3`) ou une
-  seule phase, émission comprise. Le nom passe par `env`, et le runner refuse
-  toute valeur qui n'est pas une phase. GitHub ne planifie et ne déclenche que
-  les workflows présents sur la branche par défaut : ni la nuit ni le
-  déclenchement manuel n'existent avant la fusion de ce workflow sur `main` ;
+  seule phase, `emission` et `emission-v3` comprises. Le nom passe par `env`,
+  et le runner refuse toute valeur qui n'est pas une phase. GitHub ne planifie
+  et ne déclenche que les workflows présents sur la branche par défaut : ni la
+  nuit ni le déclenchement manuel n'existent avant la fusion de ce workflow sur `main` ;
   ensuite, un déclenchement sur une branche exécute la version de cette branche.
 - Pull request : une PR vers `main` qui modifie
   `.github/workflows/e2e-army-calc-v3.yml` lance la sélection nocturne (filtre
@@ -444,14 +445,16 @@ confidentialité du runner.
   ne le lance. Un nouveau push sur la PR annule et remplace son run en cours ;
   un run nocturne ou déclenché n'est jamais annulé (groupe de concurrence par
   run).
-- Coût : six piles et six builds par nuit dans un job (le premier build sur le
+- Coût : une pile et un build par phase dans un job (le premier build sur le
   cache webpack restauré depuis `main`, les suivants sur celui du premier) ;
-  délai maximal du job 120 min. Mesuré sur la PR #42, cache webpack restauré
-  par préfixe de clé depuis `main` : job de 28 min 04 s (run 39096480257, tête
-  `964775bc`, six phases vertes) et de 28 min 30 s (run 39089316912, tête
-  `9467ba95`, six phases exécutées, `resume` rouge), soit environ 28 min de
-  runner par PR qui modifie le workflow ; la nuit, qui n'existe qu'après la
-  fusion sur `main`, n'est pas encore mesurée.
+  délai maximal du job 120 min. Mesuré sur la PR #42 pour les six phases
+  d'alors, cache webpack restauré par préfixe de clé depuis `main` : job de
+  28 min 04 s (run 39096480257, tête `964775bc`, six phases vertes) et de
+  28 min 30 s (run 39089316912, tête `9467ba95`, six phases exécutées, `resume`
+  rouge), soit environ 28 min de runner par PR qui modifie le workflow. Depuis
+  le 2.7, la sélection compte huit phases (`emission` et `emission-v3` en plus) :
+  ce coût n'est pas encore mesuré (premier run : celui de la PR #45), pas plus
+  que la nuit, qui n'existe qu'après la fusion sur `main`.
 
 ## Contrat défini avant migration
 

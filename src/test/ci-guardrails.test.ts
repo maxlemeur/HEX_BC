@@ -695,9 +695,8 @@ describe("CI and local quality guardrails", () => {
     expect(workflow).toContain("\n  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n");
 
     // The nightly selection is exactly the phases the owned production build
-    // serves. Emission runs under next dev until sub-lot 2.7 moves it to the
-    // production build: this guard then requires it in the nightly list, and
-    // adding it there is the whole reactivation.
+    // serves. Since sub-lot 2.7 that includes emission and emission-v3; a phase
+    // moved back to next dev must also leave the nightly list.
     const run = stepNamed(workflow, "Run native database and TesterArmy calc-v3 phases");
     const nightly = /^\s+CALC_V3_NIGHTLY_PHASES: "([a-z0-9 -]+)"$/mu.exec(run)?.[1].split(" ");
     expect(nightly).toEqual(CALC_V3_PHASES.filter((phase) => CALC_V3_PHASE_DEFINITIONS[phase].serverMode === "production"));
