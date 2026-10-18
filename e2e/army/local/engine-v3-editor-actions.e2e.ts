@@ -30,7 +30,10 @@ import {
 //          actions PDF et modèle de la fiche fermées par leur nom ;
 //  V3E12 — suggestions en lot appliquées et annulées par l'écrivain v3 ;
 //  V3E13 — collage de lignes écrit par l'écrivain v3 (unité du référentiel, jamais description ni heures totales), et
-//          son annulation (sous-lot 2.8, qui lève le refus nommé de la revue du 2.6).
+//          son annulation (sous-lot 2.8, qui lève le refus nommé de la revue du 2.6) ;
+//  V3E14 — un enregistrement des réglages v3 (« Oui » à la propagation de la TVA) ferme l'annulation d'une majoration
+//          en lot et celle des suggestions, qui réécriraient l'ancien taux (fusion de la PR #41 avec 2.6,
+//          docs/testing/version-totals-after-bulk-actions.md).
 // Le refus générique du moteur 3 (bandeau de 2.1) n'est jamais une issue admise d'une action de la grille v3.
 const options = (timeout: number) => ({ session: "army", tags: ["critical", "local", "engine-v3"], timeout }) as const;
 
@@ -850,5 +853,116 @@ armyTest("V3E13 pasting rows into a v3 grid writes their v3 inputs through the v
     await recordEvidence(army, "v3e13-undo", { versionId: draft.versionId, actual: undoneView, nativeDialogs: dialogs });
     expect(undoneView, "undoing a v3 paste deletes the pasted line through the v3 writer").toEqual({
       present: false, order: [line.title, tail.title], totals: initial, genericRefusal: false,
+    });
+  });
+
+armyTest("V3E14 a v3 settings save that applies its VAT rate to every line closes the undo of a bulk majoration and of the suggestions",
+  options(420_000), async ({ app, screen, browser, army }) => {
+    const ui: Ui = { app, screen, browser };
+    const dialogs = await recordDialogs(ui);
+    const draft = await prepareV3Draft(ui, army, "V3E14");
+    const title = (ref: string) => `${army.runPrefix} ${ref}`;
+    // The lines of V3E12: B alone carries the rule's keyword.
+    const [lineA, lineB, lineC] = await seedLines(ui, army, draft, "v3e14", [
+      withLabor(title("A"), 2, 10000, 1, draft.tuyauteurId), supply(title("robinetterie"), 1, 5000), supply(title("C"), 1, 1000)]);
+    expect([lineA.line_total_ht_cents, lineB.line_total_ht_cents, lineC.line_total_ht_cents]).toEqual([35600, 6500, 1300]);
+    // Majoration 150 % on A: 404,00 € (V3E06). Then K FO 1,3 on B: 84,50 € (V3E12). Then « Oui » at 10 %: 50,15 € of VAT.
+    const majorated: Totals = [48200, 9640, 57840];
+    const acted: Totals = [50150, 10030, 60180];
+    const atTenPercent: Totals = [50150, 5015, 55165];
+    await lockVersion(browser, draft.versionId);
+    const rule = await apiRequest<Envelope<Record<string, { id: string }>>>(browser, "POST", `/api/estimates/${draft.versionId}/suggestion-rules`,
+      { name: `${army.runPrefix} K FO B`, match_value: "robinetterie", k_fo: 1.3, is_active: true });
+    await releaseVersion(browser, draft.versionId);
+    await recordEvidence(army, "v3e14-rule", { versionId: draft.versionId, lineId: lineB.id, response: rule });
+    expect([200, 201]).toContain(rule.status);
+    expect(rule.body.ok).toBe(true);
+    await switchToExpertMode(ui);
+    await openV3Editor(ui, army, draft, "v3e14");
+    await waitForDraftLease(ui);
+    const itemOf = (state: ArmyEstimate, id: string) => state.items.find(item => item.id === id);
+    const majorationOfA = (state: ArmyEstimate) => Number(itemOf(state, lineA.id)?.h_mo_majoration);
+    const kFoOfB = (state: ArmyEstimate) => Number(itemOf(state, lineB.id)?.k_fo);
+
+    // A bulk majoration, kept in the undo history, then the suggestions, kept in their own undo: both at 20 %.
+    const select = screen.getByLabel(`Sélectionner la ligne ${lineA.title}`, { exact: true });
+    await select.check();
+    const bulkBar = screen.getByTestId("estimate-editor-bulk-selection-bar");
+    await expect(bulkBar).toBeVisible();
+    await bulkBar.getByText("Modifier les attributs", { exact: true }).click();
+    await screen.getByLabel("Majoration MO en pourcentage", { exact: true }).fill("150");
+    await screen.getByTestId("estimate-editor-bulk-majoration-apply-button").click();
+    const afterMajoration = await waitState(ui, draft.versionId, (state) => majorationOfA(state) === 1.5 && sameTotals(state, majorated));
+    expect({ majoration: majorationOfA(afterMajoration), totals: totalsOf(afterMajoration) }).toEqual({ majoration: 1.5, totals: majorated });
+    await select.uncheck();
+    await expect(bulkBar).toBeHidden();
+    await screen.getByRole("tab", /^Affichage & contrôle(?: \d+)?$/).tap();
+    await screen.getByTestId("estimate-editor-display-button", { visible: true }).tap();
+    const review = screen.getByTestId("estimate-editor-bulk-suggestions-button");
+    await expect(review).toHaveText("Examiner 1 suggestion", { timeout: 30_000 });
+    await review.tap();
+    const suggestions = screen.getByRole("dialog", "Application en masse des suggestions", { exact: true });
+    await expect(suggestions).toBeVisible({ timeout: 30_000 });
+    await suggestions.getByRole("button", "Appliquer", { exact: true }).tap();
+    await expect(suggestions).toBeHidden({ timeout: 30_000 });
+    const afterSuggestions = await waitState(ui, draft.versionId, (state) => kFoOfB(state) === 1.3 && sameTotals(state, acted));
+    expect({ kFo: kFoOfB(afterSuggestions), totals: totalsOf(afterSuggestions) }).toEqual({ kFo: 1.3, totals: acted });
+    await screen.getByRole("tab", "Chiffrage", { exact: true }).tap();
+    const undo = screen.getByTestId("estimate-editor-undo-button", { visible: true });
+    const undoSuggestions = screen.getByTestId("estimate-editor-alert-undo-bulk-suggest-button");
+    await expect(undo).toBeEnabled({ timeout: 30_000 });
+    await expect(undoSuggestions).toBeVisible({ timeout: 30_000 });
+
+    // The settings of the mounted editor, opened from the summary bar: a navigation would remount the editor and drop
+    // the undo state that the step judges. « Oui » rewrites every line at 10 % in the same save (D8).
+    await screen.getByRole("button", "Ouvrir les paramètres", { exact: true }).tap();
+    await expect(settingsDialog(ui)).toBeVisible({ timeout: 30_000 });
+    await fillCell(ui, "TVA par défaut des nouvelles lignes", "10");
+    await clickSaveSettings(ui);
+    const propagation = screen.getByRole("alertdialog", /^Appliquer ce taux à toutes les lignes\s?\?$/);
+    await expect(propagation).toBeVisible({ timeout: 30_000 });
+    await propagation.getByRole("button", "Oui", { exact: true }).tap();
+    const rates = (state: ArmyEstimate) => ({
+      version: Number(state.version.tax_rate_bp), lines: [lineA, lineB, lineC].map(line => Number(itemOf(state, line.id)?.tax_rate_bp)),
+    });
+    const saved = await waitState(ui, draft.versionId, (state) => sameTotals(state, atTenPercent));
+    expect({ ...rates(saved), totals: totalsOf(saved) }).toEqual({ version: 1000, lines: [1000, 1000, 1000], totals: atTenPercent });
+    // The API sees the commit before the editor receives it: the button comes back with the acknowledgement.
+    await expect(settingsDialog(ui).getByRole("button", "Enregistrer le paramétrage", { exact: true })).toBeEnabled({ timeout: 30_000 });
+    await expect(screen.getByTestId("estimate-page-toolbar-autosave-status")).toHaveText(/^(Sauvegardé|À jour)$/, { timeout: 30_000 });
+    await screen.getByTestId("estimate-editor-drawer-close-button").tap();
+    await expect(settingsDialog(ui)).toBeHidden({ timeout: 30_000 });
+
+    // Both undos hold A and B as they were at 20 %. Still offered here, each one is run, so that the step fails on the
+    // VAT rate it writes back: the evidence of the stale undo.
+    const offered = { history: await undo.isEnabled(), suggestions: await undoSuggestions.isVisible() };
+    if (offered.history) {
+      await undo.tap();
+      await expect(screen.getByTestId("estimate-editor-redo-button", { visible: true })).toBeEnabled({ timeout: 30_000 });
+    }
+    if (offered.suggestions) {
+      await undoSuggestions.tap();
+      await expect(undoSuggestions).toBeHidden({ timeout: 30_000 });
+    }
+    const after = await readConsistent(ui, draft.versionId);
+    const view = {
+      offered, ...rates(after), majoration: majorationOfA(after), kFo: kFoOfB(after), totals: totalsOf(after),
+      genericRefusal: await genericRefusalShown(ui),
+    };
+    await recordEvidence(army, "v3e14-after-save", { versionId: draft.versionId, actual: view, nativeDialogs: dialogs });
+    expect(view, "a v3 settings save closes the undos captured before it").toEqual({
+      offered: { history: false, suggestions: false }, version: 1000, lines: [1000, 1000, 1000], majoration: 1.5, kFo: 1.3,
+      totals: atTenPercent, genericRefusal: false,
+    });
+    await checkpoint(ui, army, "v3e14-closed", draft.versionId, {
+      api: {
+        version: { totals: atTenPercent, taxRateBp: 1000 },
+        lines: {
+          [lineA.id]: { net: 40400, tax: 4040, taxRateBp: 1000 },
+          [lineB.id]: { net: 8450, tax: 845, taxRateBp: 1000 },
+          [lineC.id]: { net: 1300, tax: 130, taxRateBp: 1000 },
+        },
+      },
+      screen: { chips: chips(atTenPercent, "10") },
     });
   });

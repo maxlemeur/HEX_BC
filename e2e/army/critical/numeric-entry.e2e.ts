@@ -61,6 +61,13 @@ armyTest(
 
     await screen.getByRole("tab", "Affichage & contrôle", { exact: true }).click();
     await screen.getByTestId("estimate-editor-display-button", { visible: true }).click();
+    // Precondition: the shared campaign account keeps its default Simplifié mode. In Expert mode the
+    // « Contrôles avancés » push the settings button out of the 1280x800 viewport; no critical journey
+    // may switch that mode (docs/testing/version-totals-after-bulk-actions.md, « Mode Expert du compte partagé »).
+    const displayMenu = screen.getByRole("dialog", "Options d’affichage du chiffrage", { exact: true });
+    await expect(displayMenu).toBeVisible();
+    expect(await displayMenu.getByRole("region", "Contrôles avancés", { exact: true }).count(),
+      "Precondition: the shared campaign account must be in Simplifié mode; a journey switched profiles.ui_mode").toBe(0);
     await screen.getByTestId("estimate-editor-settings-button", { visible: true }).click();
     await expect(screen.getByRole("dialog", "Paramétrage du devis", { exact: true })).toBeVisible();
     const discount = screen.getByLabel("Remise (EUR HT)", { exact: true });
