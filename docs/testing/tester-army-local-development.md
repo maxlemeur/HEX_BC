@@ -944,13 +944,16 @@ possédée, `runLocalSupabaseCi` (`src/test/local-supabase-ci.ts`),
 `e2e:army:dev-loop`, `dev:army`, `db:upgrade-check`,
 `engine:document-fingerprints`, `engine:v3:parity`), démarrent leur pile sans
 regarder celles des autres sessions ; aucune variable d'environnement ne les
-limite. La limite est une consigne donnée aux agents (quatre depuis le 18/10,
-deux avant) : attendre, en sondant toutes les 30 s, tant que la limite est
-atteinte. Ce sondage n'est pas un verrou : deux agents qui attendent voient la
+limite. La limite est une consigne donnée aux agents : **trois** depuis le 18/10
+vers 12:00 (décision du porteur, à cause de la charge engagée de l'hôte Windows
+décrite plus bas), quatre le matin du 18/10, deux avant. Attendre, en sondant
+toutes les 30 s, tant que la limite est atteinte. Ce sondage n'est pas un verrou : deux agents qui attendent voient la
 même place libre et démarrent ensemble, et une pile n'apparaît que quelques
 secondes après le lancement de sa commande. Un verrou atomique, par exemple
 `flock` sur N fichiers de place pris par ces trois points d'entrée avant
-`supabase start`, supprimerait cette course ; il n'est pas implémenté.
+`supabase start`, supprimerait cette course ; la PR #49 l'introduit (trois
+places par défaut, réglables par `NATIVE_STACK_MAX_RUNS`) : jusqu'à sa fusion,
+seule la consigne s'applique.
 
 **Comment compter.** Chaque exécution possède exactement une pile, donc un
 processus `__supabase_stack_host__`, de `supabase start` jusqu'à `stop` ; une
@@ -974,7 +977,7 @@ echo $((hosts + builds))
 `|| true` sous `set -e`. `verify:pr` n'a pas de processus propre à compter et
 n'entre pas dans la marge mesurée ci-dessous (`tsc` vers 3 Go de RSS, Vitest à
 quatre workers) : le compter comme une exécution, ou ne pas le lancer pendant
-que quatre builds tournent.
+que trois builds tournent.
 
 Avec quatre piles actives, compter par nom de commande donnait d'autres
 nombres : `run-tester-army-ci` apparaît deux fois pour une exécution lancée par
@@ -1019,18 +1022,21 @@ de processeurs moins un, plafonné au nombre de pages plus un : 23 ici
 « Collecting page data using 23 workers »), contre 7 avec les huit processeurs
 du 16/10. Ces workers retirent toute limite de heap (`isolatedMemory`, voir le
 [build de production](#build-de-production-et-limite-de-heap)) : le plancher
-de 4096 Mio ne borne que la phase `tsc`. Le pic par exécution dépend donc du
+de 4096 Mio borne le processus Next principal (phase de compilation, jusqu'à
+4,0 Gio par exécution) et `tsc` ; seuls les workers de génération statique n'ont
+pas de limite. Le pic par exécution dépend donc du
 nombre de workers, passé de 7 à 23 quand `processors` est passé de 8 à 24, et
 grandit avec l'application. Les builds observés réutilisaient le cache du
 clone (45 s) et l'échantillonnage à 5 s peut manquer une pointe plus brève.
 
-**Limite retenue : quatre.** Budget à 20 % de marge : 80 % de 31,3 Gio, soit
-25,1 Gio. Une exécution au pic mesuré pèse 4,6 Gio ; la charge hors exécutions
-prend 3,7 Gio, le maximum mesuré hors pointe. La colonne de droite est une
-estimation de sensibilité, pas un pire cas : 5,9 Gio par exécution, le pic
-mesuré plus 1,3 Gio, la marge de `tsc` jusqu'à son plafond de heap (environ
-4,3 Gio de RSS au lieu de 3,0), appliquée à sa propre phase. La phase de
-génération statique qui suit n'a pas de limite de heap.
+**Limite retenue : trois** (décision du porteur du 18/10/2026, fixée par l'hôte
+Windows ci-dessous ; le budget de la VM seule en tolérerait quatre). Budget de
+la VM à 20 % de marge : 80 % de 31,3 Gio, soit 25,1 Gio. Une exécution au pic
+mesuré pèse 4,6 Gio ; la charge hors exécutions prend 3,7 Gio, le maximum
+mesuré hors pointe. La colonne de droite est une estimation de sensibilité, pas
+un pire cas : 5,9 Gio par exécution, soit une marge uniforme de 1,3 Gio
+(environ 28 %) sur le pic mesuré. La phase de génération statique n'a pas de
+limite de heap.
 
 | Exécutions | Toutes en build au pic mesuré | Estimation à 5,9 Gio par exécution |
 |---|---|---|
@@ -1038,7 +1044,7 @@ génération statique qui suit n'a pas de limite de heap.
 | 4 | 22,1 Gio (71 %) | 27,3 Gio (87 %) |
 | 5 | 26,7 Gio (85 %) | 33,2 Gio (106 %) |
 
-Quatre est le plus grand nombre qui garde 20 % de marge aux pics mesurés,
+Côté VM, quatre est le plus grand nombre qui garde 20 % de marge aux pics mesurés,
 même avec quatre builds simultanés (71 %) ; le mélange observé (une ou deux
 exécutions en build) reste sous 12 Gio, hors pointe d'un autre projet. Cinq
 exécutions sont exclues : 85 % dès les pics mesurés. L'estimation dépasse la
@@ -1083,6 +1089,9 @@ heures. Recommandations au propriétaire, non appliquées, par ordre :
    64 %. Le réglage ne s'applique qu'après `wsl --shutdown`, qui arrête toutes
    les piles : seulement quand aucune exécution n'est ouverte ;
 3. fermer les applications Windows inutiles.
+
+En attendant ces réglages, le porteur a fixé la limite à trois exécutions ou
+builds simultanés le 18/10/2026 (compteur ci-dessus : piles plus `next-build`).
 
 **Redémarrage de 07:44Z.** Ce n'est pas un plantage, mais le cycle
 d'inactivité de WSL. Le journal conservé commençait à 04:02Z lors de la revue
