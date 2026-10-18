@@ -109,8 +109,8 @@ rafraîchir la référence. Une saisie n'est ignorée que si la charge complète
 la ligne redevient identique à la référence périmée ; chaque scénario ci-dessous
 précise comment l'interface y parvient. Les deux actions sont dans
 « Affichage & contrôle » > affichage > « Contrôles avancés », visibles en mode
-Expert seulement : les parcours passent le compte en Expert par le commutateur
-du menu principal, puis rétablissent son mode initial.
+Expert seulement : chaque parcours s'exécute sous un propriétaire jetable,
+créé en mode Expert sur la pile possédée (depuis le 18/10/2026, voir plus bas).
 
 | Défaillance observable | Scénario et oracle |
 | --- | --- |
@@ -120,13 +120,21 @@ du menu principal, puis rétablissent son mode initial.
 | P2. Après une présélection, ressaisir l'ancien prix dans la cellule est ignoré | Non reproductible par l'interface : la saisie du prix conserve l'offre retenue, donc la charge diffère de la référence périmée (offre vide) et part au serveur. Aucune action n'efface seule l'offre retenue ; la présélection n'a pas d'annulation. Pas de parcours. |
 
 Chaque parcours crée ses propres article, fournisseur, offre et règle sous le
-préfixe ARMY du run (`e2e/army/critical/bulk-edit-sync-sources.e2e.ts`). Les
-règles de suggestion sont communes au tenant et leur correspondance floue
-pourrait toucher d'autres lignes ARMY : il n'existe pas de route de suppression,
-la règle est donc désactivée (`PATCH`, `is_active: false`) en fin de parcours,
-depuis l'éditeur, car l'écriture exige son verrou de brouillon. Le mode Expert,
-enregistré sur le profil du compte partagé, est rétabli en fin de parcours, y
-compris après un échec ; les preuves `*-restored.json` le vérifient.
+préfixe ARMY du run (`e2e/army/critical/bulk-edit-sync-sources.e2e.ts`). Le mode
+d'interface est enregistré sur le profil du compte, et les règles de suggestion
+sont communes au tenant. Jusqu'au 18/10/2026, les parcours passaient le compte
+partagé en Expert par le commutateur, puis le rétablissaient, et désactivaient leur
+règle en fin de parcours. Avec deux workers, ce mode partagé fuyait vers les autres
+parcours ([cause et preuves](version-totals-after-bulk-actions.md#mode-expert-du-compte-partagé-ci-39084774584)).
+Depuis, chaque parcours inscrit son propre compte jetable sur la pile possédée
+(`e2e/army/local/dedicated-owner.ts`, comme V3P01). Son tenant s'appelle
+`ARMY BES <run>` et son profil est mis en Expert en SQL à la création. Rien n'est
+rétabli ni désactivé : le compte partagé n'est jamais modifié, et la règle reste
+dans le tenant du parcours. La preuve `bulk-sync-<s1|s2|p1>-owner.json` relève
+l'identité du compte, le mode enregistré et le mode lu dans le menu. Chaque
+parcours vérifie en SQL que son devis appartient à ce compte. Ces parcours exigent
+donc la pile possédée (`e2e:army:local`, `e2e:army:ci`), comme P1 l'exigeait déjà
+pour ses lectures catalogue.
 
 ### Correction
 
