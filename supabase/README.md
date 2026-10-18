@@ -82,6 +82,11 @@ npm run supabase:migrations:restamp -- supabase/migrations/<fichier>.sql --dry-r
 npm run supabase:migrations:restamp -- supabase/migrations/<fichier>.sql
 ```
 
+Si la fusion s'arrête sur `supabase/migrations.manifest.json` (les deux côtés y ajoutent
+des entrées) : `git checkout --theirs supabase/migrations.manifest.json`, puis
+`npm run supabase:manifest:add`, qui réinscrit les migrations de la branche sans changer
+un hash déployé, et terminez la fusion.
+
 L'outil refuse tant que la base (`--base`, `origin/main` par défaut) n'est pas fusionnée
 dans la branche : sinon les fichiers qu'elle a ajoutés depuis le fork ne seraient ni
 cherchés ni vérifiés. Il refuse un fichier présent sur la base, non suivi, absent ou
