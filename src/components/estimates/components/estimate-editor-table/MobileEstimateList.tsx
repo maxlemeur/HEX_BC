@@ -18,6 +18,8 @@ export type MobileEstimateListRow = {
   depth: number;
   itemNumber: string | null;
   unitValue: string;
+  /** v3 (2.6b) : statut d'une ligne non chiffrée, affiché à la place de « quantité × unité ». */
+  metaLabel?: string | null;
   qualityFlags: EstimateQualityFlagKey[];
   sectionTotalCents: number | null;
   isCollapsed: boolean;
@@ -267,7 +269,7 @@ export function MobileEstimateList({
                       </span>
                       <span className="estimate-mobile-line__meta">
                         <span className="tabular-nums">
-                          {quantity.toLocaleString("fr-FR")} × {row.unitValue || "u"}
+                          {row.metaLabel ?? `${quantity.toLocaleString("fr-FR")} × ${row.unitValue || "u"}`}
                         </span>
                         {anomalyCount > 0 ? (
                           <span className="estimate-mobile-line__anomaly">

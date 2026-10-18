@@ -34,6 +34,7 @@ import {
   EstimateSettingsSummaryBar,
   type SettingsSection,
 } from "@/components/estimates/EstimateSettingsSummaryBar";
+import { useToast } from "@/components/ui-legacy/Toast";
 import { useUserContext } from "@/components/UserContext";
 import { useEstimateEditorExportController } from "@/hooks/useEstimateEditorExportController";
 import { isEstimateEditorOperationScopeCurrent } from "@/hooks/estimate-editor-operation-scope";
@@ -84,6 +85,7 @@ import {
 import {
   buildEditorItemSyncBaseline, buildEstimateV3ItemUpdatePayload, buildEstimateV3SummaryView, indexEstimateV3Lines,
 } from "@/lib/estimates/v3-editor";
+import { describeV3ConvertedLines } from "@/lib/estimates/v3-converted-lines";
 import {
   DEFAULT_TAX_RATE_BP,
   ESTIMATE_VERSION_CONFLICT_MESSAGE,
@@ -415,6 +417,7 @@ export function useEstimateEditorState({
   externalActionError?: { message: string; key: number } | null;
 }): EstimateEditorStateModel {
   const router = useRouter();
+  const toast = useToast();
   const resolvedVersionId = versionId;
   const {
     autoOpenVersionZero: shouldAutoOpenVersionZero,
@@ -540,7 +543,11 @@ export function useEstimateEditorState({
   const getPersistedTotals = useCallback(() => persistedTotalsRef.current, []);
   const applyRestoredDraft = useCallback(
     (draft: EstimateEditorConflictDraft) => {
-      if (draft.settings) {
+      // Lot 2, sous-lot 2.6b (A14) : les réglages d'un brouillon local ont la forme v2 (marge, mode, paliers) ; une v3
+      // ne les reprend jamais (sa marge vient des coefficients de vente, réglés et enregistrés par le tiroir v3) ; ses
+      // lignes restaurées partent par la charge v3 (saisies seulement).
+      const isV3Draft = resolveEditorEngineContext(versionRef.current).isV3;
+      if (draft.settings && !isV3Draft) {
         setSettings({
           ...draft.settings,
           currency: resolveEstimateCurrency(
@@ -570,6 +577,8 @@ export function useEstimateEditorState({
         restoredItems,
         skippedItemCount:
           draft.items.length - restoredItems.length + serverOnlyItems.length,
+        buildItemPayload: isV3Draft ? buildEstimateV3ItemUpdatePayload : buildEstimateItemUpdatePayload,
+        settingsRestored: Boolean(draft.settings) && !isV3Draft,
       };
     },
     []
@@ -1271,6 +1280,7 @@ export function useEstimateEditorState({
     qualityFlagsByItemId,
     qualityCounts,
     isLaborSplitEnabled,
+    isV3,
     reportError: setActionError,
     resolveErrorMessage: resolveEstimateActionError,
   });
@@ -2309,6 +2319,7 @@ export function useEstimateEditorState({
     canArchive,
     isStatusActionsDisabled,
     isSendBlockedForCurrentUser,
+    isSendGatingRefreshing,
     sendWorkflowPhaseLabel,
   } = statusController.meta;
   // Lot 2 : fermée en 2.6, l'émission manuelle d'une v3 est ouverte par 2.7 (gel du document, contrat client 2).
@@ -2500,9 +2511,14 @@ export function useEstimateEditorState({
         }
 
         targetLockAcquired = true;
-        await duplicateEstimateSection(synchronizedVersionSnapshot.id, sectionId, {
+        const duplicated = await duplicateEstimateSection(synchronizedVersionSnapshot.id, sectionId, {
           targetVersionId,
         });
+        // Sous-lot 2.8b (A6, P-12) : section v1/v2 copiée dans une v3, lignes dont les heures changent.
+        const converted = describeV3ConvertedLines(duplicated.convertedLines);
+        if (converted) {
+          toast.warning({ title: "Section copiée au moteur de calcul 3", description: converted, durationMs: 15_000 });
+        }
 
         redirected = true;
         router.push(`/dashboard/estimates/${targetVersionId}/edit`);
@@ -2533,6 +2549,7 @@ export function useEstimateEditorState({
       isReadOnly,
       readOnlyActionErrorMessage,
       router,
+      toast,
     ]
   );
 
@@ -2781,12 +2798,12 @@ export function useEstimateEditorState({
         onOpenVersionZeroDialog: handleOpenVersionZeroDialog,
         versionZeroActionLabel,
         isVersionZeroActionDisabled,
-        // Excel et DPGF : GET …/export, ouvert à une v3 par 2.7 (v3-export.ts). Sur une v3 restent fermés le CSV,
-        // construit par le client (editor-export.ts), et le BDC (P-20, décision du porteur requise).
+        // Excel et DPGF : GET …/export, ouvert à une v3 par 2.7 (v3-export.ts). CSV et BDC V1.1 d'une v3 : même route,
+        // ouverts par 2.7b (D-a ; v3-csv-export.ts, branche v3 de bdc-export.ts) ; le drapeau CSV suit alors le streaming.
         isExcelExportDisabled: isStreamingExportDisabled,
         isDpgfExportDisabled: isStreamingExportDisabled,
-        isCsvExportDisabled: isCsvExportDisabled || isV3,
-        isBdcExportDisabled: isStreamingExportDisabled || isV3,
+        isCsvExportDisabled,
+        isBdcExportDisabled: isStreamingExportDisabled,
         isExporting,
         exportLoadingLabel,
         activeExportMode,
@@ -2821,7 +2838,11 @@ export function useEstimateEditorState({
       bulkSuggestAppliedCount,
       onUndoBulkSuggest: handleUndoBulkSuggest,
       isUndoingBulkSuggest,
-      isUndoBulkSuggestDisabled: isSaveBlocked,
+      // The undo is shown once the lines are written, while the apply still sends its rule feedback;
+      // undoLastApply refuses to run during the apply, so the button waits for its end. It also waits
+      // for the gating read of the new token: its answer may add or remove the send-blocked alert
+      // above the button and move it under a press.
+      isUndoBulkSuggestDisabled: isSaveBlocked || isApplyingBulkSuggest || isSendGatingRefreshing,
       importSummaryMessage,
       actionNotice,
       actionError: displayedActionError,
@@ -2841,12 +2862,14 @@ export function useEstimateEditorState({
       handleUndoBulkSuggest,
       importSummaryMessage,
       isAdmin,
+      isApplyingBulkSuggest,
       isDraftLockedByOther,
       isForcingDraftUnlock,
       hasRestorableDraft,
       isReloadingVersion,
       isSaveBlocked,
       isSendBlockedForCurrentUser,
+      isSendGatingRefreshing,
       isStatusReadOnly,
       isUndoingBulkSuggest,
       isViewerReadOnly,

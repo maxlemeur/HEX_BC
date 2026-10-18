@@ -7,6 +7,7 @@ import { createClient } from "@supabase/supabase-js";
 
 import {
   assertLoopbackSupabaseUrl, BROWSER_RESTRICTED_LOCAL_PORTS, describeSafeFailure, runLocalSupabaseCi, SafeDiagnosticError,
+  type LocalSupabaseStatus,
 } from "../src/test/local-supabase-ci";
 import { createLocalCiEnvironment, type SupabaseEnvironment } from "../src/test/supabase-cli";
 import type { Database } from "../src/types/database";
@@ -18,12 +19,15 @@ import {
   LoopStateStore, proveLoopClosed, stackInputsDigest, supervisorModulesDigest,
 } from "./tester-army/dev-loop-state";
 import { CRITICAL_JOURNEY_FILE, FULL_JOURNEY_FILE } from "./tester-army/journey-files.mjs";
-import { buildSourceEvidence, redactOutput, sqlInventory } from "./tester-army/local-recipe-common.mjs";
+import {
+  grepAlternativeProblems, listArmySelection, localJourneyCoverageProblems, selectionPreflightProblems,
+} from "./tester-army/journey-preflight.mjs";
+import { buildSourceEvidence, redactOutput, sqlInventory, untrackedJourneyInputs } from "./tester-army/local-recipe-common.mjs";
 import { assertLocalAppPortAvailable, runLocalDevelopmentSession } from "./tester-army/local-development";
 
 const suite = process.argv[2];
 if (!["critical", "full", "dev", "dev-loop", "calc-v3"].includes(suite)) {
-  throw new Error("Usage: run-tester-army-ci.ts critical|full|dev|dev-loop|calc-v3 [--app-port PORT] [critical or full: --grep PATTERN | --files A.e2e.ts,B.e2e.ts] [critical or full: --shard I/N] [full only: --phase development] [calc-v3 only: --phase NAME [--grep PATTERN]] [dev-loop only: --ttl-minutes N]");
+  throw new Error("Usage: run-tester-army-ci.ts critical|full|dev|dev-loop|calc-v3 [--app-port PORT] [critical or full: --grep PATTERN | --files A.e2e.ts,B.e2e.ts] [critical or full: --shard I/N] [critical or full: --tenant-calc-engine 3|absent] [full only: --phase development] [calc-v3 only: --phase NAME [--grep PATTERN]] [dev-loop only: --ttl-minutes N]");
 }
 // Journey files a --files run may name: critical and local journeys of the
 // critical suite; for full, any journey folder of its selection (its shards,
@@ -38,12 +42,17 @@ let fullPhase: "development" | undefined;
 let shard: { index: number; total: number } | undefined;
 let appPort = 3107;
 let ttlMinutes = DEFAULT_DEV_LOOP_TTL_MINUTES;
+// Lot 2, sub-lot 2.10b (docs/testing/estimate-engine-v3-2.10.md, D-i and D-l): since M8 a tenant without a
+// policy row creates engine 3, and the campaign journeys are v1/v2 journeys (pilot A). The provisioned campaign
+// tenant therefore gets the explicit policy 2 before any journey; a pilot asks for an explicit policy 3 or for
+// no policy row (the default of a new tenant). Allowlisted values only; journeys with their own owner are unaffected.
+let tenantCalcEngine: 3 | "absent" | undefined;
 const suppliedOptions = new Set<string>();
 for (let index = 3; index < process.argv.length; index += 2) {
   const option = process.argv[index];
   const value = process.argv[index + 1];
-  if (!["--grep", "--files", "--app-port", "--phase", "--ttl-minutes", "--shard"].includes(option) || suppliedOptions.has(option) || !value?.trim()) {
-    throw new Error("Only one --app-port, one --grep or --files, one --shard and one --phase with explicit values are allowed.");
+  if (!["--grep", "--files", "--app-port", "--phase", "--ttl-minutes", "--shard", "--tenant-calc-engine"].includes(option) || suppliedOptions.has(option) || !value?.trim()) {
+    throw new Error("Only one --app-port, one --grep or --files, one --shard, one --tenant-calc-engine and one --phase with explicit values are allowed.");
   }
   suppliedOptions.add(option);
   if (option === "--files") {
@@ -75,6 +84,11 @@ for (let index = 3; index < process.argv.length; index += 2) {
       throw new Error("--shard I/N is restricted to critical and full, with 1 <= I <= N <= 99.");
     }
     shard = { index: Number(match[1]), total: Number(match[2]) };
+  } else if (option === "--tenant-calc-engine") {
+    if ((suite !== "critical" && suite !== "full") || (value !== "3" && value !== "absent")) {
+      throw new Error("--tenant-calc-engine is restricted to critical and full and accepts only 3 or absent (the 2.10b pilots).");
+    }
+    tenantCalcEngine = value === "3" ? 3 : "absent";
   } else if (option === "--phase" && suite === "full") {
     if (value !== "development") throw new Error("full --phase names its development phase only; --files or --grep narrow its full phase.");
     fullPhase = value;
@@ -137,6 +151,7 @@ const manifest: Record<string, unknown> = {
   // Not `files`: retainEvidence writes the evidence inventory under that key.
   ...(files.length ? { journeyFiles: files } : {}),
   ...(shard ? { shard } : {}),
+  ...(tenantCalcEngine ? { tenantCalcEngine } : {}),
   ...(calcV3Phase ? { calcV3Phase } : {}),
   ...(suite === "full" && !fullPhases.includes("development")
     ? { phasesNotRun: { development: "a filtered full run proves only the selected journeys of its production full phase" } }
@@ -154,6 +169,11 @@ const manifest: Record<string, unknown> = {
 interface RunContext { evidence: string; manifest: Record<string, unknown>; grep?: string; files: string[] }
 const mainContext: RunContext = { evidence, manifest, grep, files };
 let loopState: LoopStateStore | undefined;
+
+/** The revision, tracked diff and application inputs, plus the untracked journey files the diff leaves out. */
+async function runSourceEvidence() {
+  return { ...await buildSourceEvidence(), untrackedJourneyInputs: untrackedJourneyInputs() };
+}
 
 function redact(value: string) {
   return redactOutput(value, { NODE_ENV: "test", ...Object.fromEntries(knownSecrets.map((secret, index) => [`SECRET_${index}`, secret])) });
@@ -183,6 +203,42 @@ async function runNode(args: string[], environment: NodeJS.ProcessEnv, name: str
   fs.writeFileSync(path.join(context.evidence, `${name}.log`), redact(Buffer.concat(chunks).toString("utf8")));
   (context.manifest.steps as unknown[]).push({ name, command: [process.execPath, ...args], exitCode });
   if (exitCode !== 0) throw new Error(`${name} failed with exit code ${exitCode}; see its retained log.`);
+}
+
+/** The app, build and journey environment of a backend, without the ARMY account. */
+function applicationEnvironment(backend: URL, anonKey: string, serviceRoleKey: string): NodeJS.ProcessEnv {
+  fs.mkdirSync(path.join(root, ".e2e/army/coverage"), { recursive: true });
+  return {
+    ...createLocalCiEnvironment(process.env),
+    CI: "1", E2E_TELEMETRY_DISABLED: "1", NEXT_TELEMETRY_DISABLED: "1", DO_NOT_TRACK: "1",
+    NEXT_PUBLIC_SUPABASE_URL: backend.origin,
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: anonKey,
+    SUPABASE_SERVICE_ROLE_KEY: serviceRoleKey,
+    E2E_ALLOWED_SUPABASE_HOST: backend.hostname,
+    E2E_ARMY_BASE_URL: `http://localhost:${appPort}`, E2E_ARMY_SERVER_MODE: "production",
+    E2E_COVERAGE_BACKEND_ORIGIN: backend.origin,
+    E2E_COVERAGE_NETWORK_LOG: path.join(root, ".e2e/army/coverage/ci-server-network.jsonl"),
+    TAKEOFF_MODULE_ENABLED_BY_DEFAULT: "1",
+    RESEND_API_KEY: "", EMAIL_FROM: "", GEMINI_API_KEY: "", GOOGLE_GENERATIVE_AI_API_KEY: "",
+  };
+}
+
+// The production build of critical and full needs only the stack's origin and
+// keys (it never receives the ARMY account or the SQL transport): it starts as
+// soon as the stack runs, while the snapshot, pgTAP and the RLS matrix check
+// the database. runApplication, which runs only after they pass, awaits it.
+const buildsEarly = suite === "critical" || (suite === "full" && !fullPhases.every((phase) => phase === "development"));
+let earlyBuild: { origin: string; anonKey: string; done: Promise<void> } | undefined;
+
+function startEarlyBuild(status: Readonly<LocalSupabaseStatus>) {
+  const backend = new URL(status.url);
+  assertLoopbackSupabaseUrl(backend.href);
+  knownSecrets.push(status.anonKey, status.serviceRoleKey);
+  const done = runNode(["scripts/tester-army/build-local.mjs", "--execute"],
+    applicationEnvironment(backend, status.anonKey, status.serviceRoleKey), "build");
+  // Awaited by runApplication, or in main's finally when the database checks fail first.
+  done.catch(() => {});
+  earlyBuild = { origin: backend.origin, anonKey: status.anonKey, done };
 }
 
 async function runApplication(local: SupabaseEnvironment) {
@@ -278,21 +334,48 @@ async function runApplication(local: SupabaseEnvironment) {
     throw provisioningFailure("create catalogue article", "Could not create the local ARMY catalogue fixture.", articleError, articleStatus);
   }
   provisioning.completed.push("create catalogue article");
-  manifest.fixtures = { userId: user.user.id, tenantId, articleId: article.id, laborRole, backend: backend.origin, lifecycle: "destroyed with the owned stack" };
+  if (interactive && developmentStop.signal.aborted) return;
+  const { data: policyBefore, error: policyBeforeError, status: policyBeforeStatus } = await admin.from("tenant_calc_policies")
+    .select("tenant_id").eq("tenant_id", tenantId);
+  if (policyBeforeError || policyBefore?.length !== 0) {
+    throw provisioningFailure("verify absent calc policy", "The new ARMY tenant must start without a calc policy row.",
+      policyBeforeError, policyBeforeStatus);
+  }
+  provisioning.completed.push("verify absent calc policy");
+  let tenantCalcPolicy: Record<string, unknown> = { before: "absent", after: "absent", reason: "--tenant-calc-engine absent" };
+  if (tenantCalcEngine !== "absent") {
+    // The only writer of the policy (P-13: service_role); engine 3 takes the documented defaults (P-02, P-07).
+    const engine = tenantCalcEngine ?? 2;
+    const [fo, mo] = engine === 3 ? [1.3, 1.2] : [null, null];
+    const reason = engine === 3
+      ? "ARMY 2.10b pilot: campaign tenant at engine 3 (--tenant-calc-engine 3)"
+      : "ARMY 2.10b: campaign tenant at the explicit policy 2 (v1/v2 journeys, D-l)";
+    const { data: policy, error: policyError, status: policyStatus } = await admin.rpc("set_tenant_calc_policy", {
+      p_tenant_id: tenantId, p_new_estimate_calc_engine: engine, p_default_sale_coefficient_fo: fo,
+      p_default_sale_coefficient_mo: mo, p_allowed_tax_rates_bp: [2000, 1000, 550, 210],
+      p_change_reason: reason, p_actor_user_id: user.user.id,
+    });
+    if (policyError || policy?.tenant_id !== tenantId || policy.new_estimate_calc_engine !== engine ||
+      (policy.default_sale_coefficient_fo === null ? null : Number(policy.default_sale_coefficient_fo)) !== fo ||
+      (policy.default_sale_coefficient_mo === null ? null : Number(policy.default_sale_coefficient_mo)) !== mo ||
+      JSON.stringify(policy.allowed_tax_rates_bp) !== "[2000,1000,550,210]") {
+      throw provisioningFailure(`set calc policy ${engine}`, `Could not set the campaign tenant to engine ${engine}.`, policyError, policyStatus);
+    }
+    provisioning.completed.push(`set calc policy ${engine}`);
+    tenantCalcPolicy = {
+      before: "absent",
+      after: { engine, fo: fo === null ? null : fo.toFixed(4), mo: mo === null ? null : mo.toFixed(4), allowedTaxRatesBp: [2000, 1000, 550, 210] },
+      reason, writer: "public.set_tenant_calc_policy as service_role",
+    };
+  }
+  manifest.fixtures = {
+    userId: user.user.id, tenantId, articleId: article.id, laborRole, backend: backend.origin, tenantCalcPolicy,
+    lifecycle: "destroyed with the owned stack",
+  };
 
-  fs.mkdirSync(path.join(root, ".e2e/army/coverage"), { recursive: true });
   const environment: NodeJS.ProcessEnv = {
-    ...createLocalCiEnvironment(process.env),
-    CI: "1", E2E_TELEMETRY_DISABLED: "1", NEXT_TELEMETRY_DISABLED: "1", DO_NOT_TRACK: "1",
-    NEXT_PUBLIC_SUPABASE_URL: backend.origin,
-    NEXT_PUBLIC_SUPABASE_ANON_KEY: local.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    SUPABASE_SERVICE_ROLE_KEY: local.SUPABASE_SERVICE_ROLE_KEY,
-    E2E_LOGIN_EMAIL: email, E2E_LOGIN_PASSWORD: password, E2E_ALLOWED_SUPABASE_HOST: backend.hostname,
-    E2E_ARMY_BASE_URL: `http://localhost:${appPort}`, E2E_ARMY_SERVER_MODE: "production",
-    E2E_COVERAGE_BACKEND_ORIGIN: backend.origin,
-    E2E_COVERAGE_NETWORK_LOG: path.join(root, ".e2e/army/coverage/ci-server-network.jsonl"),
-    TAKEOFF_MODULE_ENABLED_BY_DEFAULT: "1",
-    RESEND_API_KEY: "", EMAIL_FROM: "", GEMINI_API_KEY: "", GOOGLE_GENERATIVE_AI_API_KEY: "",
+    ...applicationEnvironment(backend, local.NEXT_PUBLIC_SUPABASE_ANON_KEY!, local.SUPABASE_SERVICE_ROLE_KEY!),
+    E2E_LOGIN_EMAIL: email, E2E_LOGIN_PASSWORD: password,
   };
   if (suite === "calc-v3") {
     // Lot 2 baseline phases (docs/testing/tester-army-calc-v3.md). The PostgreSQL
@@ -344,10 +427,18 @@ async function runApplication(local: SupabaseEnvironment) {
     });
     return;
   }
-  // The development phase runs under next dev: alone, it needs no production build.
-  if (!(suite === "full" && fullPhases.every((phase) => phase === "development"))) {
+  // Started with the stack (startEarlyBuild), otherwise here. The development
+  // phase runs under next dev: alone, it needs no production build.
+  if (earlyBuild) {
+    if (earlyBuild.origin !== backend.origin || earlyBuild.anonKey !== local.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+      throw new Error("The production build was started for another backend than the journeys'.");
+    }
+    await earlyBuild.done;
+  } else if (!(suite === "full" && fullPhases.every((phase) => phase === "development"))) {
     await runNode(["scripts/tester-army/build-local.mjs", "--execute"], environment, "build");
   }
+  // Before the phases: an install failure is the run's error, not a phase's.
+  if (browserInstallDirectory) await awaitBrowserInstall();
   const failures: string[] = [];
   for (const phase of suite === "full" ? fullPhases : [suite!]) {
     try {
@@ -363,6 +454,30 @@ async function runApplication(local: SupabaseEnvironment) {
     }
   }
   if (failures.length) throw new Error(failures.join("; "));
+}
+
+// Opt-in (e2e-army-critical.yml): the workflow installs Chromium in the
+// background while the stack, the database checks and the build run, into
+// this directory, whose exit-code file appears when it ends. runApplication
+// waits for it before the journeys; a failed install fails the run with its log.
+const browserInstallDirectory = process.env.ARMY_BROWSER_INSTALL_DIR?.trim() || undefined;
+
+async function awaitBrowserInstall() {
+  const directory = browserInstallDirectory!;
+  if (!path.isAbsolute(directory)) throw new Error("ARMY_BROWSER_INSTALL_DIR must be an absolute directory.");
+  const exitFile = path.join(directory, "exit-code");
+  const startedAt = Date.now();
+  while (!fs.existsSync(exitFile)) {
+    if (Date.now() - startedAt > 10 * 60_000) throw new Error("The background Chromium install did not finish within 10 minutes.");
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  // The workflow moves a complete file into place: anything but an exit status is a failure.
+  const status = fs.readFileSync(exitFile, "utf8").trim();
+  const exitCode = /^[0-9]{1,3}$/.test(status) ? Number(status) : -1;
+  const log = path.join(directory, "install.log");
+  if (fs.existsSync(log)) fs.writeFileSync(path.join(evidence, "browser-install.log"), redact(fs.readFileSync(log, "utf8")));
+  manifest.browserInstall = { mode: "background", exitCode, waitedSeconds: Math.round((Date.now() - startedAt) / 100) / 10 };
+  if (exitCode !== 0) throw new Error(`The background Chromium install failed with exit code ${exitCode}; see browser-install.log.`);
 }
 
 async function runJourneys(phase: string, environment: NodeJS.ProcessEnv, context = mainContext) {
@@ -399,6 +514,9 @@ async function runJourneys(phase: string, environment: NodeJS.ProcessEnv, contex
     files.some((file) => !results.some((result) => result.file === file && result.status === "passed")))) {
     throw new Error("A --files run must execute and pass every requested journey file and nothing else.");
   }
+  // Likewise each alternative of the pattern (a dev-loop iteration has no preflight listing).
+  const grepProblems = grep ? grepAlternativeProblems(grep, results.filter((result) => result.kind === "test" && result.status === "passed")) : [];
+  if (grepProblems.length) throw new Error(`A --grep run must pass a test of each alternative: ${grepProblems.join(" ")}`);
   const armyManifest = JSON.parse(fs.readFileSync(path.join(root, ".e2e/army/critical/manifest.json"), "utf8"));
   if (armyManifest.source?.changedDuringRun !== false ||
     (phase !== "development" && armyManifest.productionBuild?.changedDuringRun !== false)) {
@@ -546,15 +664,33 @@ async function main() {
     // It holds nothing once it returns, so it precedes the claim: a loop refused for a busy port leaves no state and keeps that cause.
     await assertLocalAppPortAvailable(appPort);
     if (suite === "dev-loop") claimLoopState();
-    manifest.source = await buildSourceEvidence();
+    manifest.source = await runSourceEvidence();
     manifest.database = {
       migrations: await sqlInventory(path.join(root, "supabase/migrations")),
       tests: await sqlInventory(path.join(root, "supabase/tests/database")),
     };
+    // Fail closed before any stack, the source already recorded (src/test/army-journey-preflight.test.ts):
+    // a local journey no selection collects, or a filter part of which selects nothing.
+    if (suite === "critical" || suite === "full" || suite === "dev-loop") {
+      const problems = localJourneyCoverageProblems(root);
+      if (problems.length) throw new Error(problems.join(" "));
+    }
+    if ((suite === "critical" || suite === "full") && (grep || files.length)) {
+      const pairs = await listArmySelection({ root, suite, grep, files, env: createLocalCiEnvironment(process.env) });
+      const problems = selectionPreflightProblems({ pairs, grep, files });
+      manifest.selectionPreflight = {
+        status: problems.length ? "failed" : "passed",
+        runnable: pairs.filter((pair) => pair.disposition === "run" && pair.kind === "test")
+          .map((pair) => ({ file: pair.file, title: pair.titlePath.join(" › ") })),
+        problems,
+      };
+      if (problems.length) throw new Error(`The filtered ${suite} run is refused before any stack: ${problems.join(" ")}`);
+    }
     loopState?.update({ stackInputsSha256: await stackInputsDigest(root) });
     await runLocalSupabaseCi({
       reservedPorts: new Set([appPort]),
       runApplication,
+      ...(buildsEarly ? { onStackStarted: startEarlyBuild } : {}),
       // Only the dev loop keeps a state file: it needs this exact stack to
       // destroy it after an abnormal supervisor exit.
       onProjectPrepared: (project) => {
@@ -581,6 +717,8 @@ async function main() {
     manifest.error = redact(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   } finally {
+    // A build still running after failed database checks ends before the evidence is retained.
+    await earlyBuild?.done.catch(() => {});
     manifest.finishedAt = new Date().toISOString();
     if (suite === "dev-loop") {
       process.off("SIGINT", interruptDevelopment);
@@ -593,7 +731,7 @@ async function main() {
       process.off("SIGTERM", terminateDevelopment);
       manifest.stopRequested = developmentStop.signal.aborted ? developmentStop.signal.reason : null;
       try {
-        manifest.sourceAfter = await buildSourceEvidence();
+        manifest.sourceAfter = await runSourceEvidence();
         manifest.sourceChanged = JSON.stringify(manifest.source) !== JSON.stringify(manifest.sourceAfter);
         manifest.databaseAfter = { migrations: await sqlInventory(path.join(root, "supabase/migrations")) };
         if (fs.existsSync(developmentNetworkLog)) {

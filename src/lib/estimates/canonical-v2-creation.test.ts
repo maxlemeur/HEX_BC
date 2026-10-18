@@ -43,8 +43,20 @@ const IMPORT_ID = "55555555-5555-4555-8555-555555555555";
 
 type CreationSource = Parameters<typeof persistCanonicalEstimateV2>[0]["source"];
 
-/** Lot 2, sous-lot 2.5 (D3) : la création lit la politique de l'entreprise ; absente = moteur 2. */
-function absentCalcPolicyBuilder(policyRow: Record<string, unknown> | null = null) {
+/** Sous-lot 2.10b : politique 2 explicite, le levier de retour par entreprise ; sans coefficients. */
+const POLICY_TWO = {
+  tenant_id: TENANT_ID,
+  new_estimate_calc_engine: 2,
+  default_sale_coefficient_fo: null,
+  default_sale_coefficient_mo: null,
+  allowed_tax_rates_bp: [2000, 1000, 550, 210],
+};
+
+/**
+ * Lot 2, sous-lot 2.5 (D3) : la création lit la politique de l'entreprise. Depuis la bascule (2.10b, M8), une
+ * politique absente vaut le moteur 3 : les cas v2 tournent sous une ligne de politique 2 explicite (D-i).
+ */
+function absentCalcPolicyBuilder(policyRow: Record<string, unknown> | null = POLICY_TWO) {
   const builder = { select: vi.fn(), eq: vi.fn(), maybeSingle: vi.fn().mockResolvedValue({ data: policyRow, error: null }) };
   builder.select.mockReturnValue(builder);
   builder.eq.mockReturnValue(builder);
@@ -60,7 +72,7 @@ const POLICY_THREE = {
   allowed_tax_rates_bp: [2000, 1000, 550, 210],
 };
 
-function createSupabaseStub(policyRow: Record<string, unknown> | null = null) {
+function createSupabaseStub(policyRow: Record<string, unknown> | null = POLICY_TWO) {
   return {
     from: vi.fn((table: string) => {
       if (table === "tenant_calc_policies") return absentCalcPolicyBuilder(policyRow);
@@ -560,8 +572,8 @@ describe("max_section_depth of a version created in an existing affaire (Codex r
   });
 
   it("keeps the latest version's section depth for a v2 too (same schema default, same settings spread)", async () => {
-    const inherited = await createThroughRoutePayload(null, 1, {});
-    const supplied = await createThroughRoutePayload(null, 1, { max_section_depth: 2 });
+    const inherited = await createThroughRoutePayload(POLICY_TWO, 1, {});
+    const supplied = await createThroughRoutePayload(POLICY_TWO, 1, { max_section_depth: 2 });
 
     expect([inherited, supplied].map((payload) => [payload.calc_engine_version, payload.max_section_depth]))
       .toEqual([[2, 1], [2, 2]]);
@@ -636,7 +648,7 @@ describe("max_section_depth of a version created in an existing affaire (Codex r
   it("gives an import into an existing affaire the depth its sections need, never less than the inherited depth", async () => {
     const wizard = (latestDepth: number, sectionLevels: Array<1 | 2>) => {
       mockSingleLineSnapshot({ ht: 1000, tax: 200, ttc: 1200 });
-      return createThroughRoutePayload(null, latestDepth, { title: "Variante DPGF", validite_jours: 30 },
+      return createThroughRoutePayload(POLICY_TWO, latestDepth, { title: "Variante DPGF", validite_jours: 30 },
         { creationMode: "linked_dpgf_source", source: dpgfImport(sectionLevels) });
     };
     const twoLevels = await wizard(1, [1, 2]);
@@ -646,7 +658,7 @@ describe("max_section_depth of a version created in an existing affaire (Codex r
     // Import confirmé dans une affaire existante (`confirmUnifiedImportFlow`) : réglages sans profondeur, hors schéma.
     mockSingleLineSnapshot({ ht: 1000, tax: 200, ttc: 1200 });
     await persistCanonicalEstimateV2({
-      supabase: existingProjectStub(null, 1) as never,
+      supabase: existingProjectStub(POLICY_TWO, 1) as never,
       tenantId: TENANT_ID,
       actorUserId: USER_ID,
       project: { kind: "existing", id: PROJECT_ID },
@@ -663,7 +675,7 @@ describe("max_section_depth of a version created in an existing affaire (Codex r
   it("gives a template cloned into an existing affaire the depth of its hierarchy", async () => {
     mockSingleLineSnapshot({ ht: 1000, tax: 200, ttc: 1200 });
     await persistCanonicalEstimateV2({
-      supabase: existingProjectStub(null, 1) as never,
+      supabase: existingProjectStub(POLICY_TWO, 1) as never,
       tenantId: TENANT_ID,
       actorUserId: USER_ID,
       project: { kind: "existing", id: PROJECT_ID },
@@ -680,7 +692,7 @@ describe("max_section_depth of a version created in an existing affaire (Codex r
   it("refuses by name, before any write, a supplied depth too shallow for the imported sections", async () => {
     mockSingleLineSnapshot({ ht: 1000, tax: 200, ttc: 1200 });
 
-    await expect(createThroughRoutePayload(null, 4, { title: "Variante DPGF", max_section_depth: 2 },
+    await expect(createThroughRoutePayload(POLICY_TWO, 4, { title: "Variante DPGF", max_section_depth: 2 },
       { creationMode: "linked_dpgf_source", source: dpgfImport([1, 2]) })).rejects.toMatchObject({
       status: 400,
       code: "ESTIMATE_SECTION_DEPTH_TOO_SHALLOW",

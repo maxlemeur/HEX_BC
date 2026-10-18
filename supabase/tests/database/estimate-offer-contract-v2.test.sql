@@ -1,7 +1,7 @@
 -- Lot 2, sous-lot 2.7 : document client, contrat client 2, charge de calcul 6, émission v3 (M5).
 -- Conception : docs/audit-independant-2026-10-14/lot2/conception-lot2-moteur-v3.md, F1-F3, D2, D7,
 -- D8, D14, D15, §4, §5 (S2, S5), §6.1 (M5), §7 (fonctions d'offre), §14 (2.7).
--- Défaillances visées et contrat M5 supposé : docs/testing/estimate-engine-v3-2.7.md (F27-01 à F27-19).
+-- Défaillances visées et contrat M5 supposé : docs/testing/estimate-engine-v3-2.7.md (F27-01 à F27-21).
 --
 -- Écrite rouge avant M5. Toute lecture ou écriture d'un objet de M5 passe par pg_temp.v3_probe
 -- (sous-bloc toujours annulé) ou pg_temp.v3_try (sous-bloc conservé s'il réussit) : avant M5, chaque
@@ -535,7 +535,7 @@ as $$
     'company', (select value -> 'company' from c2_fx where key = 'identity:' || p_version::text),
     'rows', jsonb_build_array(jsonb_build_object(
         'kind', 'section', 'id', pg_temp.c2_item(p_version, 0), 'parentId', null, 'position', 1, 'depth', 0,
-        'title', 'Lot oracle', 'number', '1', 'saleHtCents', scenario.gross
+        'title', 'Lot oracle', 'number', '01', 'saleHtCents', scenario.gross
       )) || (
       select jsonb_agg(jsonb_build_object(
         'kind', 'line', 'id', pg_temp.c2_item(p_version, line.ord), 'parentId', pg_temp.c2_item(p_version, 0),
@@ -1011,6 +1011,142 @@ select is(
   ],
   array['ok:true', 'ok:false', 'ok:false', 'ok:false', 'ok:false', 'ok:false'],
   'F27-13 the contract 2 item match accepts the frozen S2 and refuses a 1 c line shift, a unit, a status, a base shift between rates, and a never-frozen v3'
+);
+
+-- ---------------------------------------------------------------------------
+-- F27-20, F27-21 : ordre des lignes et numéros de section du contrat 2 (revue Codex de 37440c82, C4). Le portail et
+-- le PDF rendent les lignes dans l'ordre du tableau avec leur `number`, et le sceau les couvre : la copie suit le
+-- parcours préfixe de l'arbre stocké (frères par position) et chaque section porte le numéro qui en découle, comme
+-- computeEstimateItemNumbering (racine sur deux chiffres au moins, puis rang parmi tous les frères, lignes comprises).
+-- Isolation (AGENTS.md) : seule la publication service_role reçoit un contrat présenté ; la route PDF ne prend qu'une
+-- mise en page et construit le contrat côté serveur, authenticated ne lit que estimate_documents. Aucun parcours ne
+-- peut donc présenter une copie réordonnée ou renumérotée.
+-- ---------------------------------------------------------------------------
+create function pg_temp.c2_swap(p_contract jsonb, p_left integer, p_right integer)
+returns jsonb
+language sql
+immutable
+as $$
+  select jsonb_set(jsonb_set(p_contract, array['rows', p_left::text], p_contract -> 'rows' -> p_right),
+    array['rows', p_right::text], p_contract -> 'rows' -> p_left)
+$$;
+
+select is(
+  array[
+    pg_temp.c2_match('a3270000-0000-4000-8000-000000000120', pg_temp.c2_contract('a3270000-0000-4000-8000-000000000120', 'S2')),
+    pg_temp.c2_match('a3270000-0000-4000-8000-000000000120',
+      pg_temp.c2_swap(pg_temp.c2_contract('a3270000-0000-4000-8000-000000000120', 'S2'), 1, 2)),
+    pg_temp.c2_match('a3270000-0000-4000-8000-000000000120', (select jsonb_set(contract, '{rows}',
+      ((contract -> 'rows') - 0) || jsonb_build_array(contract -> 'rows' -> 0))
+      from pg_temp.c2_contract('a3270000-0000-4000-8000-000000000120', 'S2') contract)),
+    pg_temp.c2_pair('a3270000-0000-4000-8000-000000000120', 'S2',
+      pg_temp.c2_swap(pg_temp.c2_contract('a3270000-0000-4000-8000-000000000120', 'S2'), 1, 2))
+  ],
+  array['ok:true', 'ok:false', 'ok:false', 'ok | 23514 OFFER_CLIENT_CONTRACT_ANCHOR_MISMATCH'],
+  'F27-20 the contract 2 item match refuses rows out of the stored order (O1 and O2 swapped, the section after its lines), and publication refuses them by name'
+);
+
+select is(
+  array[
+    pg_temp.c2_match('a3270000-0000-4000-8000-000000000120',
+      pg_temp.c2_set(pg_temp.c2_contract('a3270000-0000-4000-8000-000000000120', 'S2'), '{rows,0,number}', '"02"')),
+    pg_temp.c2_match('a3270000-0000-4000-8000-000000000120',
+      pg_temp.c2_set(pg_temp.c2_contract('a3270000-0000-4000-8000-000000000120', 'S2'), '{rows,0,number}', '"1"')),
+    pg_temp.c2_pair('a3270000-0000-4000-8000-000000000120', 'S2',
+      pg_temp.c2_set(pg_temp.c2_contract('a3270000-0000-4000-8000-000000000120', 'S2'), '{rows,0,number}', '"02"'))
+  ],
+  array['ok:false', 'ok:false', 'ok | 23514 OFFER_CLIENT_CONTRACT_ANCHOR_MISMATCH'],
+  'F27-21 the contract 2 item match refuses a section number other than the derived 01 ("02", "1"), and publication refuses it by name'
+);
+
+-- Arbre v3 imbriqué, oracle indépendant écrit d'après computeEstimateItemNumbering : racines 01 et 02 (positions 5 et
+-- 9), douze frères sous 01 dont la section de rang 12 (01.12), une section de profondeur 2 après une ligne (01.2.2).
+-- Les identifiants décroissent quand la position croît. Les lignes copient la ligne O1 figée de S2 ; elles sont
+-- écrites hors déclencheurs (session_replication_role, sous-bloc annulé) sous une version synthétique au gel frais.
+create function pg_temp.c2n_id(p_index integer)
+returns uuid
+language sql
+immutable
+as $$
+  select ('a3270000-0000-4000-8002-0000000001' || lpad((99 - p_index)::text, 2, '0'))::uuid
+$$;
+
+create function pg_temp.c2n_tree()
+returns table(ord integer, parent integer, kind text, pos integer, depth integer, number text)
+language sql
+immutable
+as $$
+  select * from (values
+    (1, null::integer, 'section', 5, 0, '01'), (2, 1, 'line', 1, 1, null::text), (3, 1, 'section', 2, 1, '01.2'),
+    (4, 3, 'line', 1, 2, null), (5, 3, 'section', 2, 2, '01.2.2'), (6, 5, 'line', 1, 3, null),
+    (7, 1, 'line', 3, 1, null), (8, 1, 'line', 4, 1, null), (9, 1, 'line', 5, 1, null), (10, 1, 'line', 6, 1, null),
+    (11, 1, 'line', 7, 1, null), (12, 1, 'line', 8, 1, null), (13, 1, 'line', 9, 1, null), (14, 1, 'line', 10, 1, null),
+    (15, 1, 'line', 11, 1, null), (16, 1, 'section', 12, 1, '01.12'), (17, 16, 'line', 1, 2, null),
+    (18, null, 'section', 9, 0, '02'), (19, 18, 'line', 1, 1, null)
+  ) tree(ord, parent, kind, pos, depth, number)
+$$;
+
+-- Contrat de l'arbre, lignes dans l'ordre `p_order` (ordre préfixe par défaut) ; pied nul, comme la version synthétique.
+create function pg_temp.c2n_contract(p_order integer[] default '{1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19}')
+returns jsonb
+language sql
+stable
+as $$
+  select jsonb_build_object(
+    'rows', jsonb_agg(case when tree.kind = 'section'
+      then jsonb_build_object('kind', 'section', 'id', pg_temp.c2n_id(tree.ord), 'parentId', pg_temp.c2n_id(tree.parent),
+        'position', tree.pos, 'depth', tree.depth, 'title', 'N' || tree.ord, 'number', tree.number, 'saleHtCents', 0)
+      else jsonb_build_object('kind', 'line', 'id', pg_temp.c2n_id(tree.ord), 'parentId', pg_temp.c2n_id(tree.parent),
+        'position', tree.pos, 'depth', tree.depth, 'title', 'N' || tree.ord, 'quantity', source.quantity,
+        'unitCode', source.unit_code, 'unitLabel', unit.symbol, 'pricingStatus', source.pricing_status,
+        'taxRateBp', source.tax_rate_bp, 'unitSaleHtCents', source.snapshot_pu_ht_cents,
+        'saleHtCents', source.snapshot_gross_ht_cents) end
+      order by array_position(p_order, tree.ord)),
+    'totals', jsonb_build_object('grossHtCents', 0, 'commercialDiscountCents', 0, 'commercialRoundingCents', 0,
+      'netHtCents', 0, 'taxCents', 0, 'payableTtcCents', 0, 'reverseCharge', false,
+      'discountIntent', jsonb_build_object('kind', 'none'), 'taxByRate', '[]'::jsonb))
+  from pg_temp.c2n_tree() tree
+  cross join public.estimate_items source
+  left join public.measurement_units unit on unit.code = source.unit_code
+  where source.id = pg_temp.c2_item('a3270000-0000-4000-8000-000000000120', 1)
+$$;
+
+create function pg_temp.c2n_match(p_contract jsonb)
+returns text
+language sql
+stable
+as $$
+  select pg_temp.v3_probe(array[
+      'set local session_replication_role = replica',
+      $s$insert into public.estimate_items
+        select (jsonb_populate_record(source, jsonb_build_object('id', pg_temp.c2n_id(tree.ord),
+          'version_id', 'a3270000-0000-4000-8002-000000000000', 'parent_id', pg_temp.c2n_id(tree.parent),
+          'position', tree.pos, 'title', 'N' || tree.ord))).*
+        from pg_temp.c2n_tree() tree
+        join public.estimate_items source on source.id = pg_temp.c2_item('a3270000-0000-4000-8000-000000000120',
+          case when tree.kind = 'section' then 0 else 1 end)$s$,
+      'set local session_replication_role = origin',
+      'set local role service_role'
+    ],
+    format('select public.estimate_offer_client_items_match_v2(%L::jsonb, %L::public.estimate_versions)::text', p_contract,
+      (select jsonb_populate_record(version, jsonb_build_object('id', 'a3270000-0000-4000-8002-000000000000',
+        'content_revision', 1, 'calc_snapshot_content_revision', 1,
+        'calc_snapshot_context', jsonb_build_object('engine', 3, 'discount', jsonb_build_object('kind', 'none'), 'tax_breakdown', '[]'::jsonb),
+        'gross_ht_cents', 0, 'discount_applied_cents', 0, 'commercial_rounding_cents', 0, 'total_ht_cents', 0,
+        'total_tax_cents', 0, 'total_ttc_cents', 0, 'rounding_adjustment_cents', 0, 'contractor_role', 'principal'))
+       from public.estimate_versions version where version.id = 'a3270000-0000-4000-8000-000000000120')))
+$$;
+
+select is(
+  array[
+    pg_temp.c2n_match(pg_temp.c2n_contract()),
+    pg_temp.c2n_match(pg_temp.c2_set(pg_temp.c2n_contract(), '{rows,15,number}', '"01.012"')),
+    pg_temp.c2n_match(pg_temp.c2_set(pg_temp.c2n_contract(), '{rows,4,number}', '"01.2.1"')),
+    pg_temp.c2n_match(pg_temp.c2n_contract(array[1, 2, 3, 4, 5, 6, 16, 17, 7, 8, 9, 10, 11, 12, 13, 14, 15, 18, 19])),
+    pg_temp.c2n_match(pg_temp.c2n_contract(array[18, 19, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]))
+  ],
+  array['ok:true', 'ok:false', 'ok:false', 'ok:false', 'ok:false'],
+  'F27-21 nested tree: the exact pre-order with 01, 01.2, 01.2.2, 01.12, 02 matches; 01.012, a rank among sections only (01.2.1), a sibling block or a root block out of order does not'
 );
 
 -- ---------------------------------------------------------------------------

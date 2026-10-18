@@ -359,8 +359,8 @@ pour qu'on puisse les parcourir d'un coup.
 
 | Point | Référence |
 |---|---|
-| Les deux contrats restent présents pour la **compatibilité historique** | `resolveCalcEngineVersion` retombe sur v1 ; aucune version existante n'est migrée implicitement |
-| Toute nouvelle version applicative utilise **v2** | `NEW_ESTIMATE_CALC_ENGINE_VERSION = 2` et façade `persistCanonicalEstimateV2` |
+| Les contrats v1 et v2 restent présents pour la **compatibilité historique** | `resolveCalcEngineVersion` retombe sur v1 et lève sur une v3 ; aucune version existante n'est migrée implicitement |
+| Toute nouvelle version applicative utilise **v3** depuis la bascule du lot 2 (sous-lot 2.10b, M8), sauf politique 2 explicite de l'entreprise | `NEW_ESTIMATE_CALC_ENGINE_VERSION = 3`, `ABSENT_TENANT_CALC_POLICY` et `persist_estimate_creation_atomic` ; [regles-de-calcul.md](regles-de-calcul.md) §8.1 |
 | L'éditeur respecte désormais `calc_engine_version` de la version | l'ancienne épingle `EDITOR_CALC_ENGINE_VERSION` a été retirée |
 | Les sorties suivent la version ou le snapshot contractuel | l'ancienne constante morte `EXPORT_CALC_ENGINE_VERSION` a été retirée |
 | `matchesFooter` est un invariant positif pour v2 | la persistance et le gel refusent une réconciliation lignes/pied invalide ; v1 conserve ses résultats historiques |

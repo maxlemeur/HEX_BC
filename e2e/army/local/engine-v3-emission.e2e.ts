@@ -65,6 +65,11 @@ import { admitCollectedResendDecision, allowOfferLifecycleTransition, offerTest,
 //  V3M-17 L'impression d'une v3 émise ne reprend pas les CGV de sa copie scellée : la case « Joindre les CGV »
 //         (`terms=1`) ou la politique courante du tenant ajoute les CGV du modèle vivant à une copie émise sans CGV, et
 //         une mise en page qui ne les demande pas retire celles qu'une copie a scellées.
+// Ajouté à la revue Codex de 5b740b2e et 37440c82 (docs/testing/estimate-engine-v3-2.7.md §13.14) :
+//  V3M-18 L'impression d'une v3 émise ne reprend pas la mise en page de sa copie scellée : sans paramètre (toutes les
+//         entrées de l'application) elle imprime la mise en page par défaut, et avec des paramètres (« Mise en page /
+//         imprimer ») un autre niveau de détail, mode de prix, numérotation, sous-total ou densité que le PDF stocké et
+//         le portail, sous le badge du sceau valide.
 // V3M01, V3M03, V3M04, V3M05 et V3M06 s'exécutent dans la phase calc-v3 `emission-v3` (collecteur sentinelle, build
 // de production possédé, `next start`) ; V3M02, sans courriel, dans la campagne critique locale sur le
 // build de production. Chacun n'est défini que dans sa campagne : la phase calc-v3 exige son résultat
@@ -294,6 +299,39 @@ async function printedTerms(ui: Ui, versionId: string, query: string) {
   await ui.app.open(`/dashboard/estimates/${versionId}/print${query}`);
   await expect(ui.screen.getByRole("heading", "Devis", { exact: true })).toBeVisible({ timeout: 30_000 });
   return termsIn(normalizeQuotes(await ui.browser.evaluate(() => document.body.innerText)));
+}
+
+/** Préréglage « décision » de la fenêtre « Préparer le PDF », sous lequel V3M06 scelle sa copie (V3M-18). */
+const DECISION_LAYOUT = { preset: "decision_summary", detailLevel: 2, priceMode: "total_only", density: "compact",
+  showNumbering: true, showSectionSubtotals: true, conditionsPlacement: "auto", includeTerms: false } as const;
+
+/**
+ * Mise en page imprimée d'une v3 sous la requête `query` (V3M-18) : configuration de l'en-tête, en-têtes et lignes du
+ * tableau du document visible (numéro, titre et dernier montant de chaque ligne, lus par `textContent`), « Total HT
+ * brut » du pied et boutons d'impression proposés.
+ */
+async function printedLayout(ui: Ui, versionId: string, query: string) {
+  await ui.app.open(`/dashboard/estimates/${versionId}/print${query}`);
+  await expect(ui.screen.getByRole("heading", "Devis", { exact: true })).toBeVisible({ timeout: 30_000 });
+  return ui.browser.evaluate(() => {
+    const text = (node: Element | null | undefined) => (node?.textContent ?? "").replace(/[\s  ]+/g, " ").trim();
+    const visible = Array.from(document.querySelectorAll(".estimate-document")).find((node) => node.getClientRects().length > 0);
+    const table = Array.from(visible?.querySelectorAll("table") ?? []).find((node) => node.querySelector("thead"));
+    const gross = Array.from(visible?.querySelectorAll("[data-testid=\"estimate-v3-document-totals\"] > div") ?? [])
+      .find((row) => text(row.querySelector("dt")) === "Total HT brut");
+    const buttons = Array.from(document.querySelectorAll("button")).map(text);
+    return {
+      configuration: Array.from(document.querySelectorAll("span")).map(text).find((value) => value.startsWith("Configuration :")) ?? null,
+      headings: Array.from(table?.querySelectorAll("thead th") ?? []).map(text),
+      rows: Array.from(table?.querySelectorAll("tbody tr") ?? []).map((row) => {
+        const cells = Array.from(row.querySelectorAll("td"));
+        return { label: Array.from(cells[0]?.querySelectorAll("span") ?? []).map(text), amount: text(cells.at(-1)) };
+      }),
+      gross: text(gross?.querySelector("dd")),
+      layoutButton: buttons.includes("Mise en page / imprimer"),
+      printButton: buttons.includes("Imprimer"),
+    };
+  });
 }
 
 /**
@@ -689,7 +727,8 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
       // S2 : remise de 1,01 €, le pied porte brut, remise, HT net, TVA et TTC.
       const ids = await createV3(browser, army, record, "V3M06");
       await settleV3(browser, army, record, "V3M06", ids, S2, fixture.owner.laborRoleId);
-      await generatePdf(browser, record, "pdf", ids.versionId);
+      // V3M-18 : le PDF est préparé sous le préréglage « décision » (chapitres jusqu'au niveau 2, total HT, compact).
+      await generatePdf(browser, record, "pdf", ids.versionId, DECISION_LAYOUT);
       const sent = await sendOffer(ui, record, "send", ids.versionId);
       const issued = await readEstimate(browser, ids.versionId);
       const verified = await verifySeal(browser, ids.versionId);
@@ -746,7 +785,7 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
       ];
       await printIdentity(ui, ids.versionId, emails);
       const printFooter = await footerRows(ui, { root: ".estimate-document", rows: "[data-testid=\"estimate-v3-document-totals\"] > div" });
-      // V3M-17 : la copie de V3M06 est scellée sans CGV (PDF préparé par l'API sous la mise en page par défaut). Son
+      // V3M-17 : la copie de V3M06 est scellée sans CGV (PDF préparé par l'API, préréglage « décision »). Son
       // impression qui demande « Joindre les CGV » (`terms=1`, comme la case de la fenêtre) n'en ajoute aucune.
       const printTerms = await printedTerms(ui, ids.versionId, "?terms=1");
       const portalText = await openCollectedPortal(ui, sent.portalUrl);
@@ -759,6 +798,31 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
       const expectedTerms = { sealed: NO_TERMS, printed: NO_TERMS, portal: NO_TERMS };
       await record("issued-terms", { versionId: ids.versionId, sha256: digest(sent.pdf), query: "?terms=1", expected: expectedTerms, actual: terms });
       expect(terms).toEqual(expectedTerms);
+
+      // V3M-18 : sans paramètre (toutes les entrées de l'application) comme avec une autre mise en page demandée,
+      // l'impression reprend la mise en page scellée : configuration « décision », quatre colonnes, la seule section
+      // numérotée 01 avec son sous-total (le HT brut de l'unique section), aucune ligne, et plus de fenêtre de mise en
+      // page. Le portail, encore ouvert, rend la même copie sous les mêmes colonnes.
+      const conflicting = "?preset=fo_mo&detail_level=lines&price_mode=fo_mo_and_total&density=comfortable&numbering=0&subtotals=0&conditions=new_page";
+      const portalHeadings = await ui.browser.evaluate(() => Array.from(document.querySelectorAll(
+        "[role=\"region\"][aria-label=\"Document du devis\"] thead th")).map((node) => (node.textContent ?? "").trim()));
+      await accountLogin(ui, "army");
+      const plain = await printedLayout(ui, ids.versionId, "");
+      const requested = await printedLayout(ui, ids.versionId, conflicting);
+      const sealedPrint = {
+        configuration: "Configuration : chapitres jusqu'au niveau 2, total HT, densité compacte",
+        headings: ["Designation", "Qte", "U", "Total HT"],
+        rows: [{ label: ["01", `${army.runPrefix} V3M06 lot`], amount: plain.gross }],
+        gross: plain.gross,
+        layoutButton: false,
+        printButton: true,
+      };
+      const layouts = { plain, requested, portalHeadings };
+      const expectedLayouts = { plain: sealedPrint, requested: sealedPrint, portalHeadings: ["Désignation", "Qté", "Unité", "Total HT"] };
+      await record("print-layout", { versionId: ids.versionId, sealed: DECISION_LAYOUT, queries: ["", conflicting], expected: expectedLayouts,
+        actual: layouts });
+      expect(plain.gross).toMatch(/\d €$/u);
+      expect(layouts).toEqual(expectedLayouts);
     });
 }
 

@@ -33,9 +33,23 @@ Marge commerciale + provision pour risques.
 **Coefficient de vente**
 Multiplicateur appliqué au déboursé sec pour obtenir le prix de vente. Dans le métier, il agrège
 FC, FG et B&A.
-→ Existe sous le nom **`margin_multiplier`**, en un seul étage : `vente = coût × margin_multiplier`.
+→ En **moteur 3** (nouvelles versions depuis la bascule du lot 2, sous-lot 2.10b) : deux coefficients de
+version, **FO** sur les fournitures et **MO** sur la main-d'œuvre (`sale_coefficient_fo`,
+`sale_coefficient_mo`), 1,30 et 1,20 par défaut (P-02). En moteurs 1 et 2 (historiques) : **`margin_multiplier`**,
+en un seul étage : `vente = coût × margin_multiplier`.
 La chaîne DS → FC → FG → CR → B&A → PV **n'est pas modélisée**. Voir
 [ecarts-standards-btp.md](ecarts-standards-btp.md).
+
+**Moteur de calcul**
+Contrat de calcul épinglé sur chaque version (`estimate_versions.calc_engine_version`) : 1 et 2 historiques,
+3 pour toute nouvelle version depuis la bascule (sous-lot 2.10b, migration M8). Une version garde son moteur
+(duplication comprise) ; aucune v2 n'est convertie et une v3 n'est jamais relue comme une v1.
+→ [regles-de-calcul.md](regles-de-calcul.md) §8.
+
+**Politique de calcul de l'entreprise**
+Ligne `tenant_calc_policies` : moteur des nouvelles versions et coefficients de vente par défaut. Absente :
+moteur 3 à 1,30 / 1,20 ; ligne 2 explicite : moteur 2 (retrait par entreprise et levier de retour arrière).
+Écrite seulement par l'équipe (`set_tenant_calc_policy`, `service_role`, motif et journal ; P-13).
 
 **Marge vs Marque** ⚠️
 Deux notions distinctes, et les confondre est l'erreur la plus coûteuse du métier :

@@ -13,11 +13,14 @@ function hasAtMostDecimals(value: number, scale: number) {
   return Math.abs(scaled - Math.round(scaled)) < 1e-6;
 }
 
-/** Moteur que le client attend pour ses projections (D3) ; absent = 2. */
+/**
+ * Moteur que le client attend pour ses projections (D3) ; absent = 2, si bien qu'un ancien client échoue fermé
+ * chez une entreprise au moteur 3, ce qu'est toute entreprise sans politique depuis la bascule (2.10b, M8).
+ */
 export const expectedCalcEngineVersionSchema = z
   .union([z.literal(1), z.literal(2), z.literal(3)])
   .describe(
-    "Moteur de calcul attendu par le client (absent = 2). S'il diffère de la politique de l'entreprise, la création est refusée en 409 CONTEXT_CHANGED sans rien écrire."
+    "Moteur de calcul attendu par le client (absent = 2). S'il diffère de la politique de l'entreprise, la création est refusée en 409 CONTEXT_CHANGED sans rien écrire. Depuis la bascule (sous-lot 2.10b, M8), une entreprise sans politique crée en moteur 3 aux coefficients de vente 1,30 (FO) et 1,20 (MO) : un client sans attente y reçoit ce 409 ; une politique 2 explicite garde le moteur 2."
   );
 
 /** Coefficient de vente `numeric(8,4)` dans ]0 ; 10] (D5). */

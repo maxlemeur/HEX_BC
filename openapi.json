@@ -2845,7 +2845,7 @@
           "Estimate Items"
         ],
         "summary": "Executer un batch d'operations",
-        "description": "Applique create/update/delete/reorder, allocations, totaux, audit et reçu dans une transaction unique. Un refus métier confirmé retourne committed:false sans effet, avec rolled_back:true pour les opérations précédentes. dry_run valide sans écriture ni réservation. If-Match prime sur concurrency_token ; query dry_run prime sur le corps. Une nouvelle écriture exige un brouillon, un bail de page actif et le token exact. Même acteur/clé/contenu/token original : reçu historique, avant CAS et sans ancien bail requis, sous droits writer actuels. version/totals/results sont ceux du commit ; current_version décrit l'état actuel. Un reçu est limité à 2 Mio. Une issue transport inconnue ne retourne jamais committed:false : conserver la demande et sa clé pour vérifier ou reprendre explicitement. Un collage composé de plusieurs batchs peut rester partiellement enregistré. Une création ou modification supprimée ensuite par cascade dans le même lot retourne item:null, deleted_in_batch:true et deleted_item_id ; elle ne représente pas une ligne encore persistée.",
+        "description": "Applique create/update/delete/reorder, allocations, totaux, audit et reçu dans une transaction unique. Un refus métier confirmé retourne committed:false sans effet, avec rolled_back:true pour les opérations précédentes. dry_run valide sans écriture ni réservation. If-Match prime sur concurrency_token ; query dry_run prime sur le corps. Une nouvelle écriture exige un brouillon, un bail de page actif et le token exact. Même acteur/clé/contenu/token original : reçu historique, avant CAS et sans ancien bail requis, sous droits writer actuels. version/totals/results sont ceux du commit ; current_version décrit l'état actuel. Un reçu est limité à 2 Mio : au-delà, 413 ESTIMATE_BATCH_RECEIPT_TOO_LARGE, aucune écriture. Une issue transport inconnue ne retourne jamais committed:false : conserver la demande et sa clé pour vérifier ou reprendre explicitement. Un collage composé de plusieurs batchs peut rester partiellement enregistré. Une création ou modification supprimée ensuite par cascade dans le même lot retourne item:null, deleted_in_batch:true et deleted_item_id ; elle ne représente pas une ligne encore persistée.",
         "parameters": [
           {
             "name": "versionId",
@@ -3804,7 +3804,7 @@
           "Estimate Output"
         ],
         "summary": "Exporter un devis en streaming",
-        "description": "Genere un fichier XLSX en streaming pour telechargement direct.",
+        "description": "Genere un fichier XLSX en streaming pour telechargement direct, ou le CSV de l'editeur d'une version du moteur de calcul 3 (format=csv), ecrit depuis son document.",
         "parameters": [
           {
             "name": "versionId",
@@ -3818,7 +3818,7 @@
           {
             "name": "format",
             "in": "query",
-            "description": "Format d'export (xlsx uniquement en v1).",
+            "description": "Format d'export : xlsx (defaut) ou csv. Le csv est le CSV de l'editeur d'une version du moteur de calcul 3, ecrit depuis son document (mode standard uniquement) ; une version v1/v2 recoit 409 ESTIMATE_CSV_EXPORT_V3_ONLY.",
             "required": false,
             "schema": {
               "$ref": "#/components/schemas/ExportFormatQueryParameter"
@@ -3836,7 +3836,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Flux binaire XLSX retourne.",
+            "description": "Flux binaire XLSX, ou CSV (separateur point-virgule, BOM UTF-8) d'une v3, retourne.",
             "headers": {
               "Content-Disposition": {
                 "description": "Nom du fichier exporte.",
@@ -3859,7 +3859,8 @@
                   "type": "string",
                   "format": "binary"
                 }
-              }
+              },
+              "text/csv": {}
             }
           },
           "400": {
@@ -4023,7 +4024,7 @@
           "Estimates"
         ],
         "summary": "Importer la source DPGF liee",
-        "description": "Importe la source DPGF canonique rattachee a l'affaire dans la version cible.",
+        "description": "Importe la source DPGF canonique rattachee a l'affaire dans la version cible. Moteur 3 (2.8b) : lignes normalisees pour le moteur 3 (unite du referentiel, statut a 0 EUR) aux coefficients de vente du brouillon, ecrites par l'ecrivain de lot v3 en un seul lot atomique, provenance de la ligne mappee gardee (source_metadata) ; au-dela de 1 000 elements ou d'un recu de l'ecrivain de plus de 2 Mio (libelles longs), 413 ESTIMATE_V3_COPY_TOO_LARGE, rien n'est ecrit ; element hors des bornes de l'ecrivain (titre de plus de 500 caracteres...), 400 ESTIMATE_V3_COPY_ITEM_INVALID qui le nomme.",
         "parameters": [
           {
             "name": "versionId",
@@ -4126,7 +4127,7 @@
           "Estimates"
         ],
         "summary": "Importer des sections d'une autre version",
-        "description": "Copie une selection de sections dans la version cible en mode append ou merge.",
+        "description": "Copie une selection de sections dans la version cible en mode append ou merge. Cible moteur 3 (2.8b) : saisies v3 copiees depuis une v3, ou converties depuis une v1/v2 par la regle P-12 (h/u = h / Q au demi superieur, liste converted_lines) ; ecriture par l'ecrivain de lot v3 en un seul lot, source_metadata des elements gardee (413 ESTIMATE_V3_COPY_TOO_LARGE au-dela de 1 000 elements ou d'un recu de l'ecrivain de plus de 2 Mio, rien n'est ecrit ; 400 ESTIMATE_V3_COPY_ITEM_INVALID pour un element hors des bornes de l'ecrivain, nomme). Source v3 vers une cible v1/v2 : 409 ESTIMATE_V3_SECTION_COPY_TO_HISTORICAL, rien n'est ecrit.",
         "parameters": [
           {
             "name": "versionId",
@@ -4429,7 +4430,7 @@
           "Estimate Items"
         ],
         "summary": "Modifier un item",
-        "description": "Met a jour une ligne ou section existante.",
+        "description": "Met a jour une ligne ou section existante. Moteur 3 (2.8b) : la conversion ligne <-> section (item_type) est refusee, 409 ESTIMATE_V3_ITEM_CONVERSION_UNAVAILABLE, rien n'est ecrit.",
         "parameters": [
           {
             "name": "versionId",
@@ -6470,7 +6471,7 @@
           "Estimates"
         ],
         "summary": "Dupliquer une section de devis",
-        "description": "Duplique la section source dans une version cible optionnelle.",
+        "description": "Duplique la section source dans une version cible optionnelle. Cible moteur 3 (2.8b) : memes regles que l'import de sections (saisies v3 copiees, conversion P-12 depuis une v1/v2 avec converted_lines, un seul lot atomique). Section v3 vers une v1/v2 : 409 ESTIMATE_V3_SECTION_COPY_TO_HISTORICAL.",
         "parameters": [
           {
             "name": "versionId",
@@ -24032,7 +24033,7 @@
                         "const": 3
                       }
                     ],
-                    "description": "Moteur de calcul attendu par le client (absent = 2). S'il diffère de la politique de l'entreprise, la création est refusée en 409 CONTEXT_CHANGED sans rien écrire."
+                    "description": "Moteur de calcul attendu par le client (absent = 2). S'il diffère de la politique de l'entreprise, la création est refusée en 409 CONTEXT_CHANGED sans rien écrire. Depuis la bascule (sous-lot 2.10b, M8), une entreprise sans politique crée en moteur 3 aux coefficients de vente 1,30 (FO) et 1,20 (MO) : un client sans attente y reçoit ce 409 ; une politique 2 explicite garde le moteur 2."
                   },
                   "sale_coefficient_fo": {
                     "type": "number",
@@ -31151,7 +31152,8 @@
       "ExportFormatQueryParameter": {
         "type": "string",
         "enum": [
-          "xlsx"
+          "xlsx",
+          "csv"
         ]
       },
       "ExportModeQueryParameter": {
@@ -54227,7 +54229,7 @@
                     "const": 3
                   }
                 ],
-                "description": "Moteur de calcul attendu par le client (absent = 2). S'il diffère de la politique de l'entreprise, la création est refusée en 409 CONTEXT_CHANGED sans rien écrire."
+                "description": "Moteur de calcul attendu par le client (absent = 2). S'il diffère de la politique de l'entreprise, la création est refusée en 409 CONTEXT_CHANGED sans rien écrire. Depuis la bascule (sous-lot 2.10b, M8), une entreprise sans politique crée en moteur 3 aux coefficients de vente 1,30 (FO) et 1,20 (MO) : un client sans attente y reçoit ce 409 ; une politique 2 explicite garde le moteur 2."
               }
             }
           },

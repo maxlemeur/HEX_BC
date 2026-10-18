@@ -9,6 +9,7 @@ import {
 import { streamEstimateVersionBdcV11Xlsx } from "@/lib/estimates/bdc-export";
 import { streamEstimateVersionDpgfXlsx } from "@/lib/estimates/dpgf-export";
 import { streamEstimateVersionXlsx } from "@/lib/estimates/export-stream";
+import { exportEstimateVersionV3Csv } from "@/lib/estimates/v3-csv-export";
 import type { Database } from "@/types/database";
 
 export const runtime = "nodejs";
@@ -29,15 +30,18 @@ async function getVersionId(paramsPromise: Promise<{ versionId: string }>) {
 }
 
 type ExportMode = "standard" | "dpgf" | "bdc";
+type ExportFormat = "xlsx" | "csv";
 
-function parseFormat(request: Request) {
+function parseFormat(request: Request): ExportFormat {
   const rawFormat = new URL(request.url).searchParams.get("format");
   if (!rawFormat) return "xlsx";
 
   const normalized = rawFormat.trim().toLowerCase();
   if (normalized.length === 0 || normalized === "xlsx") return "xlsx";
+  // Lot 2, sous-lot 2.7b : CSV de l'éditeur d'une v3, écrit par le serveur depuis le document v3.
+  if (normalized === "csv") return "csv";
 
-  throw badRequest("Seul le format xlsx est supporte.");
+  throw badRequest("Format d'export invalide. Valeurs supportees: xlsx, csv.");
 }
 
 function parseMode(request: Request): ExportMode {
@@ -72,10 +76,26 @@ export async function GET(
 ) {
   try {
     const versionId = await getVersionId(params);
-    parseFormat(request);
+    const format = parseFormat(request);
     const mode = parseMode(request);
+    if (format === "csv" && mode !== "standard") {
+      throw badRequest("Le format csv n'existe que pour l'export standard.");
+    }
     await assertExportAccess();
     const exportOptions = {};
+
+    if (format === "csv") {
+      const csv = await exportEstimateVersionV3Csv(versionId);
+      return new Response(csv.body, {
+        status: 200,
+        headers: {
+          "Content-Type": csv.contentType,
+          "Content-Disposition": `attachment; filename="${csv.filename}"`,
+          "X-Export-Progress": csv.progress,
+          "Cache-Control": "no-store",
+        },
+      });
+    }
 
     const exported =
       mode === "dpgf"

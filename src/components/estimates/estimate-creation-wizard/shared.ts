@@ -32,7 +32,10 @@ export type EstimateCreationEngine = {
   saleCoefficientMo: number | null;
 };
 
-/** Politique absente (moteur 2 jusqu'à la bascule), aussi le défaut d'un assistant monté sans page serveur. */
+/**
+ * Moteur 2 historique : défaut d'un assistant monté sans page serveur (tests de composants). La page de l'assistant
+ * lit la politique de l'entreprise ; depuis la bascule (2.10b, M8), une politique absente y vaut le moteur 3.
+ */
 export const HISTORICAL_CREATION_ENGINE: EstimateCreationEngine = {
   engine: 2,
   saleCoefficientFo: null,

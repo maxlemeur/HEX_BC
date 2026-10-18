@@ -8,6 +8,14 @@ import { type ReactNode } from "react";
 import { Modal } from "@/components/ui-legacy/Modal";
 import { DecimalDraftInput } from "@/components/estimates/components/estimate-editor-row/DecimalDraftInput";
 import {
+  formatEstimateV3Hours,
+  useEstimateV3Grid,
+  useEstimateV3LineTotalHours,
+  V3LineStateControls,
+  V3UnitField,
+} from "@/components/estimates/v3/V3LineCells";
+import { parseHoursPerUnit } from "@/lib/numeric-input/parsers";
+import {
   formatMajorationPercentInput,
   parseAmountDraft,
   parseCoefficientDraft,
@@ -93,6 +101,26 @@ export function MobileEstimateLineEditor({
   const majorationPercent = formatMajorationPercentInput(item.h_mo_majoration);
   const inputClassName = "form-input min-h-12 w-full text-base";
   const lineLabel = item.title || "sans titre";
+  // Lot 2, sous-lot 2.6b (A13, D-c) : sur une v3, l’unité vient du référentiel (`unit_code`) et les heures se
+  // saisissent par unité ; les heures totales Q × h/u sont celles du moteur, en lecture seule. Jamais `description`
+  // ni `h_mo`.
+  const isV3 = useEstimateV3Grid() !== null;
+  const v3TotalHours = useEstimateV3LineTotalHours(item);
+  const v3HoursPerUnit = (
+    field: "h_mo_per_unit" | "h_mo_atelier_per_unit" | "h_mo_chantier_per_unit",
+    ariaLabel: string,
+  ) => (
+    <DecimalDraftInput
+      className={inputClassName}
+      value={item[field] ?? null}
+      emptyValue={0}
+      disabled={isReadOnly}
+      parseValue={parseHoursPerUnit}
+      aria-label={ariaLabel}
+      onValueChange={(value) => onPatchItem(item.id, { [field]: value }, { persist: false })}
+      onValueCommit={(value) => onPatchItem(item.id, { [field]: value }, { persist: true })}
+    />
+  );
 
   return (
     <Modal.Root open={open} onOpenChange={onOpenChange}>
@@ -166,6 +194,12 @@ export function MobileEstimateLineEditor({
                 ))}
               </select>
             </Field>
+            {isV3 ? (
+              <div className="min-w-0">
+                <span className="form-label mb-1.5 block text-xs">Statut et TVA</span>
+                <V3LineStateControls item={item} isReadOnly={isReadOnly} onPatchItem={onPatchItem} />
+              </div>
+            ) : null}
             <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
               <Field label="Quantité">
                 <DecimalDraftInput
@@ -183,17 +217,21 @@ export function MobileEstimateLineEditor({
                 />
               </Field>
               <Field label="Unité">
-                <input
-                  className={inputClassName}
-                  value={unitValue}
-                  aria-label={`Unité pour ${lineLabel}`}
-                  list="estimate-unit-options"
-                  disabled={isReadOnly}
-                  onChange={(event) =>
-                    onUnitChange(item.id, event.currentTarget.value)
-                  }
-                  onBlur={() => onUnitCommit(item.id)}
-                />
+                {isV3 ? (
+                  <V3UnitField item={item} className={inputClassName} isReadOnly={isReadOnly} onPatchItem={onPatchItem} />
+                ) : (
+                  <input
+                    className={inputClassName}
+                    value={unitValue}
+                    aria-label={`Unité pour ${lineLabel}`}
+                    list="estimate-unit-options"
+                    disabled={isReadOnly}
+                    onChange={(event) =>
+                      onUnitChange(item.id, event.currentTarget.value)
+                    }
+                    onBlur={() => onUnitCommit(item.id)}
+                  />
+                )}
               </Field>
             </div>
           </section>
@@ -227,7 +265,31 @@ export function MobileEstimateLineEditor({
 
           <section className="space-y-3 rounded-2xl border border-amber-100 bg-amber-50/70 p-3" aria-label="Main d’œuvre">
             <SectionTitle>Main d’œuvre</SectionTitle>
-            {isLaborSplitEnabled ? (
+            {isV3 ? (
+              <>
+                {isLaborSplitEnabled ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Heures atelier par unité">
+                      {v3HoursPerUnit("h_mo_atelier_per_unit", `Heures de main-d’œuvre en atelier par unité pour ${lineLabel}`)}
+                    </Field>
+                    <Field label="Heures chantier par unité">
+                      {v3HoursPerUnit("h_mo_chantier_per_unit", `Heures de main-d’œuvre sur chantier par unité pour ${lineLabel}`)}
+                    </Field>
+                  </div>
+                ) : (
+                  <Field label="Heures de main d’œuvre par unité">
+                    {v3HoursPerUnit("h_mo_per_unit", `Heures de main-d’œuvre par unité pour ${lineLabel}`)}
+                  </Field>
+                )}
+                <p className="text-xs text-[var(--slate-600)]">
+                  {"Total de la ligne (Qté × h/u) : "}
+                  <output aria-label={`Heures de main-d’œuvre totales pour ${lineLabel}`} className="font-semibold tabular-nums">
+                    {formatEstimateV3Hours(v3TotalHours)}
+                  </output>
+                  {" h"}
+                </p>
+              </>
+            ) : isLaborSplitEnabled ? (
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Heures atelier">
                   <DecimalDraftInput

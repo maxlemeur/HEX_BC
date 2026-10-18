@@ -247,6 +247,44 @@ parcours critical : les parcours du métré passent par ce filtre full, et le
 superviseur de la boucle refuse `--grep` et `--files` (chaque `run` choisit
 sa sélection).
 
+### Sélection fermée avant la pile
+
+Le 18/10/2026, `npm run e2e:army:local -- --grep '^(V3C01|HFS0[12]) '` a
+réussi sans exécuter HFS01/HFS02 : leur fichier non suivi n'était dans aucune
+liste de `e2e.config.ts`, et l'alternative qui le visait ne retenait rien
+(run `.e2e/army/ci/2026-10-18T16-46-35-432Z-critical` du clone
+`~/miaouffrage-hub-fresh-start`). Depuis
+(`scripts/tester-army/journey-preflight.mjs`, garde
+`src/test/army-journey-preflight.test.ts`) :
+
+- chaque `e2e/army/local/**/*.e2e.ts` est collecté par une sélection
+  permanente (`e2e.config.ts`, phases calc-v3, profils offer-emission et
+  resend-portal) ou listé dans `LOCAL_JOURNEYS_OUTSIDE_SELECTIONS` avec le
+  document de la campagne qui l'a exécuté. Sinon `critical`, `full` et
+  `dev-loop` du runner, et toute exécution critical de
+  `run-tester-army.mjs`, refusent avant toute pile ; `verify:pr` le vérifie
+  sur l'arbre ;
+- un `critical` ou `full` filtré liste sa sélection avec `e2e list` (rien ne
+  démarre) avant la pile : chaque fichier `--files` doit avoir un test ou un
+  setup exécuté (les shards et le job métré y nomment le setup de connexion),
+  chaque alternative du `--grep` (ses `|` de premier niveau et ceux des
+  groupes non quantifiés ; un groupe quantifié, une assertion, une référence
+  arrière ou plus de 64 alternatives laissent le motif entier) un test
+  exécutable, et la sélection un test métier authentifié. Le manifeste garde
+  `selectionPreflight` (tests retenus, problèmes). Après chaque phase, boucle
+  comprise, chaque alternative doit avoir un test passé ;
+- `source.untrackedJourneyInputs` du manifeste (et de chaque itération de la
+  boucle) liste avec leur empreinte les fichiers non suivis de `e2e/**` et
+  `e2e*.config.ts`, que `diffSha256` (changements suivis) ignore.
+
+Limites : une classe de caractères n'est pas une alternative
+(`HFS0[12]` passe si HFS01 seul existe : écrire `HFS01|HFS02`), ni le contenu
+d'un groupe quantifié ou d'une assertion. La couverture lit les chaînes
+`"e2e/army/local/…e2e.ts"` des collecteurs comme du texte : une mention entre
+guillemets, même en commentaire ou hors liste `tests`, vaut collecte.
+`npm run e2e:army:critical`/`full -- --grep` (wrapper direct) et
+`calc-v3 --grep` n'ont pas le contrôle des alternatives.
+
 ### Forcer la suite complète
 
 - Poser le label `army-full` sur la PR, puis pousser un commit : le label est
@@ -718,6 +756,64 @@ critique. Le gain mural va de 1,5 fois (critical) à 3,2 fois (full), 2 à
 critical (mêmes jobs, `army-takeoff` compris), 1,5 fois pour full, 1 à 1,5 fois
 pour calc-v3.
 
+### Temps morts d'un shard (18/10/2026, soir)
+
+Run 39147767943 (PR #64, tête `11534e34`, suite critical complète, 3 shards,
+2 workers) : 7 min 52 s de la création du run à l'agrégation. Shard 1, chemin
+critique, 7 min 24 s : préparation, `npm ci` et caches 37 s ; Chromium 20 s
+(9 s d'apt, 8 s de téléchargement) ; pile 20 s ; instantané, pgTAP et RLS 21 s ;
+build 59 s ; parcours 4 min 46 s. Les deux autres shards : 4 min 15 s et
+4 min 08 s de parcours.
+
+- **V3E02 attendait 2 min pour rien.** `waitScreen`
+  (`e2e/army/local/engine-v3-editor-support.ts`) compare la lecture de l'écran
+  à l'attendu par `JSON.stringify`, donc dans l'ordre des clés : la ligne B
+  attendue `{status, pt}` est lue `{pt, status}`. Les quatre lectures de
+  `tstat-initial` et `tstat-back` n'égalaient jamais l'attendu et allaient au
+  bout de leur échéance de 30 s (41 lectures chacune), avant un `toEqual`, qui
+  ignore l'ordre, vert. V3E02 : 141 s dont 120 s d'attente ; le second worker
+  du shard restait inactif 3 min 30 s. Correction : comparaison dans un ordre
+  de clés canonique, le même jugement que le `toEqual` final ; aucune
+  assertion ne change. `engine-v3-editor.e2e.ts` passe de 262 s à 142 s
+  attendues.
+- **Durées absentes ou périmées.** `engine-v3-creators.e2e.ts` (113 s) et
+  `bulk-actions-v1-totals.e2e.ts` (36 s) comptaient les 20 s par défaut ;
+  `army-shards.json` reprend les durées de ce run pour la suite critical.
+  `secondsPerShard` critical passe de 360 à 300 s : environ 175 s de parcours à
+  2 workers, l'ordre du plus long fichier (142 s), au lieu de laisser un shard
+  dépasser le plancher. La suite complète reste à 4 shards (plafond inchangé).
+- **Chromium en arrière-plan.** Dans `army-critical-shard` et `army-takeoff`,
+  l'installation (`--with-deps`, inchangée) part en arrière-plan pendant la
+  pile, la base et le build ; `runApplication` attend son fichier `exit-code`
+  après le build, avant les parcours (`ARMY_BROWSER_INSTALL_DIR`), échoue avec
+  son journal (`browser-install.log` des preuves) si elle a échoué ou dure plus
+  de 10 min, et note `browserInstall` (code, attente) au manifeste. Sans la
+  variable, rien ne change.
+- **Build pendant les contrôles de base.** `runLocalSupabaseCi` appelle
+  `onStackStarted` avec le statut de la pile dès son démarrage ;
+  `run-tester-army-ci.ts` y lance le build de production des suites critical et
+  full (pas `full --phase development`, calc-v3, dev ni dev-loop), qui ne
+  reçoit que l'origine et les clés de la pile, jamais le compte ARMY ni le
+  transport SQL. Il tourne donc pendant l'instantané, pgTAP, RLS et la création
+  du compte ; `runApplication`, qui ne démarre qu'après pgTAP et RLS verts,
+  vérifie la même origine et la même clé anon puis l'attend avant les
+  parcours. Si les contrôles de base échouent, le run attend la fin du build
+  avant de garder ses preuves (jusqu'à environ 1 min de plus pour un run déjà
+  rouge). Vaut pour tous les runs de production critical et full, nuit
+  comprise ; Chromium en arrière-plan, pour le seul workflow critical.
+- **Non retenu.** Réutiliser le build de `main` : le client embarque l'URL et
+  la clé anon de la pile, propres à chaque shard. Sauter pgTAP et RLS dans un
+  shard : le runner n'ouvre les parcours qu'après eux (contrat du runner). Un
+  cinquième shard : le plancher de 142 s reste, pour un job de plus sur les 20.
+
+Attendu pour les fichiers de ce run : shard le plus long de 7 min 24 s à
+environ 5 min (31 s de préparation ; pile 20 s puis environ 60 s où le build
+couvre les 21 s de contrôles de base ; environ 175 s de parcours), run d'environ
+5 min 30 s au lieu de 7 min 52 s. `engine-v3-emission.e2e.ts`,
+`engine-v3-exports.e2e.ts` et `large-row-completeness.e2e.ts`, arrivés depuis,
+comptent encore les 20 s par défaut. À mesurer sur le run de la PR qui porte ces
+changements, avec la durée de RLS sous la charge du build.
+
 ### Chemins d'échec de l'agrégation, prouvés en CI
 
 Le 18/10/2026, une branche jetable (`throwaway/l2-aggregate-failure-proof`,
@@ -820,6 +916,18 @@ confidentialité du runner.
   compte huit phases (`emission` et `emission-v3` en plus), soit huit piles et
   huit builds par nuit : ce coût n'est pas encore mesuré (premier run : celui de
   la PR #45), pas plus que la nuit, qui n'existe qu'après la fusion sur `main`.
+
+## Politique de calcul de l'entreprise de recette (sous-lot 2.10b)
+
+Depuis la bascule du lot 2 (M8), une entreprise sans ligne de politique crée ses nouvelles versions en
+moteur 3. Les parcours de la campagne sont des parcours v1/v2 (pilote A : 91 échecs sur 176 dès la première
+création sous une politique 3). Le lanceur pose donc, après le provisionnement, la **politique 2 explicite**
+de l'entreprise de recette par `set_tenant_calc_policy` (`service_role`), et l'inscrit dans
+`manifest.fixtures.tenantCalcPolicy` ; les acteurs calc-v3 et les propriétaires dédiés font de même. Un
+parcours du moteur 3 tourne sur son propriétaire dédié et y ouvre sa politique 3. Pilotes seulement (`critical`
+et `full`) : `--tenant-calc-engine 3` (politique 3, 1,30 / 1,20) ou `--tenant-calc-engine absent` (aucune ligne,
+le défaut d'une entreprise neuve). Décision D-l, à ratifier par le porteur :
+[estimate-engine-v3-2.10.md](estimate-engine-v3-2.10.md) §2, §5.
 
 ## Contrat défini avant migration
 

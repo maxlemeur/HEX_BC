@@ -70,7 +70,7 @@ tout ce qui sert à la reprise est ici.
 | Build Next : limite mémoire sur toutes les plateformes | Poussé, CI verte | `f8229144`…`de54931d`, `scripts/next-build.mjs` |
 | Sous-lot 2.3 — saisie et import | **Terminé, fusionné sur `main`** | `de54931d..3dbcff35`, [preuves](../../testing/estimate-input-import-2.3.md) |
 | Sous-lot 2.0 — ligne de base et harnais de preuve | Presque terminé, **non fusionné** | branche `lot2/2.0-ligne-de-base` (`b26f5648`) |
-| Sous-lots 2.1, 2.2, 2.4 à 2.10 | Non commencés | conception §14 |
+| Sous-lots 2.1, 2.2, 2.4 à 2.10 | Livrés ou en revue depuis ce relevé du 16/10 (état périmé ; la bascule 2.10b, M8, est la dernière à fusionner) | conception §14, `docs/testing/estimate-engine-v3-2.*.md` |
 
 ### Sous-lot 2.0 : ce qui est prouvé, ce qui reste
 

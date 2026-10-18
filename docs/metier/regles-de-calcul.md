@@ -4,6 +4,10 @@
 > du code et de la migration du Lot 7. Les autres sections conservent les
 > références détaillées de la photographie du 2026-07-29. En cas de divergence,
 > **le code et les migrations font foi**.
+>
+> **Moteur 3 (lot 2, sous-lot 2.10b, 18/10/2026)** : moteur des nouvelles
+> versions depuis la bascule (§8.1) ; les moteurs v1/v2 décrits ici sont
+> historiques et leurs goldens « historiques acceptés » (§9).
 
 ---
 
@@ -279,17 +283,42 @@ sur les devis.
 
 ---
 
-## 8. Les deux moteurs de calcul
+## 8. Les moteurs de calcul
 
-`estimate_versions.calc_engine_version` gouverne le contrat de calcul. Son type
-applicatif est `1 | 2` et `resolveCalcEngineVersion` retombe volontairement sur
-`1` pour toute valeur absente ou invalide. La migration du Lot 7 conserve le
-défaut SQL historique à `1` : elle ne transforme aucune version existante.
+`estimate_versions.calc_engine_version` gouverne le contrat de calcul. Le type
+applicatif du moteur historique est `1 | 2` (`CalcEngineVersion`) et
+`resolveCalcEngineVersion` retombe volontairement sur `1` pour toute valeur
+absente ou invalide ; il **lève** sur une v3, qui n'est jamais relue comme une
+v1 (`EstimateEngineVersion = 1 | 2 | 3`, `engine/capabilities.ts`). La migration
+du Lot 7 conserve le défaut SQL historique à `1` : elle ne transforme aucune
+version existante.
+
+Depuis la bascule du lot 2 (sous-lot 2.10b, migration M8
+`estimate_engine_v3_default`), **les nouvelles versions sont en moteur 3** : son
+contrat est celui du §4 de la conception
+(`docs/audit-independant-2026-10-14/lot2/conception-lot2-moteur-v3.md`). Les
+sections 2 à 8.5 ci-dessous décrivent les moteurs v1/v2, **historiques** : ils
+restent le contrat des versions qui les portent, que rien ne convertit (D17,
+P-15), et des nouvelles versions d'une entreprise en politique 2 explicite.
 
 ### 8.1 Attribution du moteur et création canonique
 
-- `NEW_ESTIMATE_CALC_ENGINE_VERSION = 2` s'applique à toute **nouvelle** version
-  créée par les chemins applicatifs.
+- Le moteur d'une **nouvelle** version est celui de la politique de calcul de
+  l'entreprise (`tenant_calc_policies`, D3), relue `FOR SHARE` par
+  `persist_estimate_creation_atomic` :
+  - **sans ligne de politique : moteur 3**, coefficients de vente 1,30 (FO) et
+    1,20 (MO), taux de TVA 20 / 10 / 5,5 / 2,1 % (P-02, P-07). Défaut TS :
+    `ABSENT_TENANT_CALC_POLICY` (`calc-policy-server.ts`), égal aux replis de M8 ;
+    `NEW_ESTIMATE_CALC_ENGINE_VERSION = 3` ;
+  - **ligne de politique 2 explicite : moteur 2**. C'est le retrait par
+    entreprise et le levier de retour arrière, écrit par l'équipe
+    (`set_tenant_calc_policy`, `service_role` seul, motif et journal ; P-13) ;
+  - ligne de politique 3 : moteur 3 aux coefficients de la ligne.
+- Le client annonce le moteur qu'il attend (`expected_calc_engine_version`) ;
+  une attente absente vaut 2, si bien qu'un ancien client échoue fermé
+  (`409 CONTEXT_CHANGED`, rien d'écrit) chez une entreprise au moteur 3.
+- Aucun retour arrière applicatif en deçà de la bascule une fois une v3 créée
+  (R2) : le levier est la politique 2 explicite, par entreprise.
 - Les créations vierges, depuis template ou depuis import DPGF convergent dans
   `persistCanonicalEstimateV2` (`src/lib/estimates/canonical-v2-creation.ts`).
   Cette façade calcule d'abord un résultat v2 réconcilié, puis appelle la RPC
@@ -388,12 +417,27 @@ donc les devis déjà scellés ne sont ni réécrits ni invalidés.
 
 | Fichier | Rôle |
 |---|---|
-| `src/lib/estimate-calculations.golden.test.ts` | Goldens distincts v1/v2 et compatibilité des résultats historiques |
+| `src/lib/estimate-calculations.golden/*.test.ts` | Goldens distincts v1/v2 et compatibilité des résultats historiques (voir ci-dessous) |
 | `src/lib/estimate-calculations.reconciliation.test.ts` | Invariants de réconciliation entre lignes, sections et pied |
 | `src/lib/estimate-calculations.test.ts` | Unitaires de calcul, allocation et autoliquidation |
 | `src/lib/estimates/version-totals.test.ts` | Contexte figé et portée propriétaire stricte des rôles en v2, repli v1 |
 | `supabase/tests/database/estimate-calc-engine-governance.test.sql` | Contrats SQL de création, gel, publication, sceau et immutabilité |
 | `src/lib/money.test.ts` | Parsing et formatage par devise |
+| `supabase/tests/database/estimate-engine-v3-default.test.sql` | Bascule (M8) : politique absente → v3 à 1,30 / 1,20, politique 2 explicite → v2, duplication d'une v2 → v2, aucune version existante réécrite |
+
+**Goldens v1/v2 : historiques acceptés (sous-lot 2.10b).** Depuis la bascule,
+ces goldens décrivent des moteurs que plus aucune entreprise sans politique ne
+reçoit à la création. Ils restent le contrat des versions existantes et d'une
+politique 2 explicite : leurs assertions ne changent pas et `npm run verify:pr`
+les exécute toujours.
+
+| Fichier | Contrat figé | Statut |
+|---|---|---|
+| `src/lib/estimate-calculations.golden/v1.test.ts` | Moteur v1 | Historique accepté |
+| `src/lib/estimate-calculations.golden/v2.test.ts` | Moteur v2 | Historique accepté |
+| `src/lib/estimate-calculations.golden/margin-tiers.test.ts` | Marge par paliers (v1/v2) | Historique accepté |
+| `src/lib/estimate-calculations.golden/commercial-rounding.test.ts` | Arrondi commercial v1/v2 | Historique accepté |
+| `src/lib/estimate-calculations.golden/subcontractor.test.ts` | Autoliquidation (v1/v2) | Historique accepté |
 
 ---
 

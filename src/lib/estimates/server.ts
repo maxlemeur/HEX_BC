@@ -77,6 +77,14 @@ import {
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
 import { persistAtomicEstimateSettings } from "@/lib/estimates/settings-atomic";
 import { pickV3ItemInputFields } from "@/lib/estimates/v3-persistence";
+import {
+  commitV3Copy,
+  estimateV3SectionCopyToHistoricalError,
+  planV3LinkedDpgfImport,
+  planV3SectionCopy,
+} from "@/lib/estimates/v3-section-copy";
+import { ESTIMATE_V3_ITEM_CONVERSION_REASON } from "@/lib/estimates/v3-editor";
+import type { TemplateV3ConvertedLine } from "@/lib/estimates/template-v3-hours";
 import type {
   EstimateSupplierPreselectionException,
   EstimateSupplierPreselectionExceptionReason,
@@ -502,6 +510,8 @@ export type ImportEstimateSectionsResult = {
   imported_lines_count: number;
   created_section_ids: string[];
   created_line_ids: string[];
+  /** Sous-lot 2.8b : lignes v1/v2 entrées dans une v3 dont les heures changent (P-12), comme pour un modèle. */
+  converted_lines?: TemplateV3ConvertedLine[];
   totals: {
     total_ht_cents: number;
     total_tax_cents: number;
@@ -2386,6 +2396,7 @@ function buildImportedSubtreePayload(input: {
 
   return {
     items,
+    new_id_by_source_id: newIdBySourceId,
     created_section_ids: createdSectionIds,
     created_line_ids: createdLineIds,
     line_count: createdLineIds.length,
@@ -2564,6 +2575,8 @@ type ImportLinkedDpgfSourceInternalInput = {
   defaultTaxRateBp: number;
   sectionTitle?: string | null;
   persist?: boolean;
+  /** Sous-lot 2.8b (A5) : brouillon v3, ses coefficients de vente et son jeton ; lignes écrites par l'écrivain de lot. */
+  v3?: { saleCoefficientFo: number; saleCoefficientMo: number; updatedAt: string };
 };
 
 async function importLinkedDpgfSourceIntoVersionInternal(
@@ -2603,6 +2616,9 @@ async function importLinkedDpgfSourceIntoVersionInternal(
     marginMultiplier: input.marginMultiplier,
     defaultTaxRateBp: input.defaultTaxRateBp,
     entry: "direct",
+    ...(input.v3
+      ? { engine: 3, saleCoefficientFo: input.v3.saleCoefficientFo, saleCoefficientMo: input.v3.saleCoefficientMo }
+      : {}),
   });
   // No preview here: hours per unit and workbook parameters are refused, never priced at 0 €/h.
   if (importRequiresPreview(normalized)) {
@@ -2693,6 +2709,31 @@ async function importLinkedDpgfSourceIntoVersionInternal(
       sourceImportId: latestImport.id,
       items: [sectionItemPayload, ...lineItemsPayload],
       lineItems: lineItemsPayload,
+    };
+  }
+
+  if (input.v3) {
+    const committed = await commitV3Copy({
+      versionId: input.versionId,
+      updatedAt: input.v3.updatedAt,
+      plan: planV3LinkedDpgfImport({
+        sectionId: createdSectionId,
+        rootPosition,
+        sectionTitle: resolvedSectionTitle,
+        filename: latestImport.filename,
+        importId: latestImport.id,
+        lines: validLines.map((line, index) => ({ ...line, id: lineItemsPayload[index]!.id as string })),
+      }),
+    });
+    return {
+      source_import_id: latestImport.id,
+      target_version_id: input.versionId,
+      created_section_id: createdSectionId,
+      created_line_ids: lineItemsPayload.map((item) => item.id as string),
+      imported_lines_count: lineItemsPayload.length,
+      skipped_lines_count: Math.max(normalized.totalRows - lineItemsPayload.length, 0),
+      totals: committed.totals,
+      version: { id: committed.version.id, updated_at: committed.version.updated_at },
     };
   }
 
@@ -3559,22 +3600,8 @@ export async function listEstimateImportSections(
   const { supabase, tenantId } = context;
   await getVersionAccessOrThrow(supabase, sourceVersionId, context);
 
-  const { data: sourceItemsData, error: sourceItemsError } = await supabase
-    .from("estimate_items")
-    .select("*")
-    .eq("tenant_id", tenantId)
-    .eq("version_id", sourceVersionId)
-    .order("position", { ascending: true })
-    .order("created_at", { ascending: true });
-
-  if (sourceItemsError) {
-    throw mapSupabaseError(
-      sourceItemsError,
-      "Impossible de charger les sections source."
-    );
-  }
-
-  const sourceItems = (sourceItemsData ?? []) as EstimateItemRow[];
+  // Every item, by pages: the API returns 1 000 rows at most, and a partial read would miscount the sections.
+  const sourceItems = await readAllEstimateItems({ supabase, tenantId, versionId: sourceVersionId });
   const rootSections = sourceItems.filter(
     (item) => item.item_type === "section" && item.parent_id === null
   );
@@ -4036,6 +4063,19 @@ export async function duplicateEstimateVersion(
   };
 }
 
+/**
+ * Toutes les lignes d'une version copiée, par pages (l'API rend 1 000 lignes au plus), quel que soit le moteur.
+ * Sous-lot 2.8b (C8, revue Codex de la PR #59, G3 ; PR #70 pour les v1/v2) : au-delà de 500 éléments, la lecture
+ * prend plusieurs pages ; la version est relue après la dernière (jeton et révision de contenu lus avec l'accès),
+ * sinon une modification concurrente entre deux pages donnerait une copie mêlant deux états. Version changée :
+ * 409 VERSION_CONFLICT, rien n'est copié.
+ */
+async function readAllItemsForCopy(supabase: Supabase, tenantId: string, version: VersionAccessRow) {
+  const items = await readAllEstimateItems({ supabase, tenantId, versionId: version.id });
+  await assertEstimateVersionUnchanged({ supabase, version });
+  return items;
+}
+
 async function duplicateSectionInternal(input: {
   sectionId: string;
   targetVersionId?: string;
@@ -4080,14 +4120,11 @@ async function duplicateSectionInternal(input: {
     resolvedTargetVersionId,
     context
   );
-  // Lot 2, sous-lot 2.8 (règle 6) : une section ne se copie ni vers ni depuis une v3 pendant le lot 2 ;
-  // refus nommé avant toute écriture.
-  if (
-    usesPerUnitLabor(resolveEstimateEngineVersion(sourceVersion)) ||
-    usesPerUnitLabor(resolveEstimateEngineVersion(targetVersion))
-  ) {
-    throw new EstimateEngineUnavailableError();
-  }
+  // Lot 2, sous-lot 2.8b (A6, D-e) : une section entre dans une v3 par l'écrivain de lot (v3-section-copy.ts) ;
+  // une section v3 n'entre pas dans une v1/v2, refus nommé avant toute écriture.
+  const sourceIsV3 = usesPerUnitLabor(resolveEstimateEngineVersion(sourceVersion));
+  const targetIsV3 = usesPerUnitLabor(resolveEstimateEngineVersion(targetVersion));
+  if (sourceIsV3 && !targetIsV3) throw estimateV3SectionCopyToHistoricalError();
 
   assertDraftStatus(targetVersion.status);
   await assertDraftLockOwnedByCurrentUser({
@@ -4097,22 +4134,9 @@ async function duplicateSectionInternal(input: {
     userId,
   });
 
-  const { data: sourceItemsData, error: sourceItemsError } = await supabase
-    .from("estimate_items")
-    .select("*")
-    .eq("tenant_id", tenantId)
-    .eq("version_id", sourceVersion.id)
-    .order("position", { ascending: true })
-    .order("created_at", { ascending: true });
-
-  if (sourceItemsError) {
-    throw mapSupabaseError(
-      sourceItemsError,
-      "Impossible de charger la section source."
-    );
-  }
-
-  const sourceItems = (sourceItemsData ?? []) as EstimateItemRow[];
+  // Every item, by pages, pinned to the version read with its access: a partial or mixed read would copy part of
+  // the section, or two states of it.
+  const sourceItems = await readAllItemsForCopy(supabase, tenantId, sourceVersion);
   const subtree = collectSectionSubtreeItems(input.sectionId, sourceItems);
 
   if (!subtree) {
@@ -4158,6 +4182,27 @@ async function duplicateSectionInternal(input: {
     }
   );
 
+  const duplicatedSectionId = newIdBySourceId.get(input.sectionId);
+  if (targetIsV3 && duplicatedSectionId) {
+    const plan = planV3SectionCopy({
+      payload: duplicatedItemsPayload,
+      sourceIdByNewId: new Map([...newIdBySourceId].map(([sourceId, newId]) => [newId, sourceId])),
+      sourceItemsById: new Map(sourceItems.map((item) => [item.id, item])),
+      sourceIsV3,
+      sameVersion: sourceVersion.id === targetVersion.id,
+    });
+    const committed = await commitV3Copy({ versionId: targetVersion.id, updatedAt: targetVersion.updated_at, plan });
+    return {
+      duplicated_section_id: duplicatedSectionId,
+      source_version_id: sourceVersion.id,
+      target_version_id: targetVersion.id,
+      copied_item_count: duplicatedItemsPayload.length,
+      converted_lines: plan.convertedLines,
+      totals: committed.totals,
+      version: { id: committed.version.id, updated_at: committed.version.updated_at },
+    };
+  }
+
   const { error: insertError } = await supabase
     .from("estimate_items")
     .insert(duplicatedItemsPayload);
@@ -4166,7 +4211,6 @@ async function duplicateSectionInternal(input: {
     throw mapSupabaseError(insertError, "Impossible de dupliquer la section.");
   }
 
-  const duplicatedSectionId = newIdBySourceId.get(input.sectionId);
   if (!duplicatedSectionId) {
     throw internalError("Impossible de dupliquer la section.");
   }
@@ -4221,9 +4265,9 @@ export async function importSectionsFromVersion(
     targetVersionId,
     context
   );
-  // Lot 2, sous-lot 2.8 (règle 6) : une section d'une autre version n'entre pas encore dans une v3 (conversion
-  // des heures en h/u : suite du 2.8) ; refus nommé avant toute écriture, au lieu du refus SQL générique.
-  if (usesPerUnitLabor(resolveEstimateEngineVersion(targetVersion))) throw new EstimateEngineUnavailableError();
+  // Lot 2, sous-lot 2.8b (A7) : une section d'une autre version entre dans une v3 par l'écrivain de lot, convertie
+  // par la règle P-12 depuis une v1/v2 (v3-section-copy.ts).
+  const targetIsV3 = usesPerUnitLabor(resolveEstimateEngineVersion(targetVersion));
   assertDraftStatus(targetVersion.status);
   await assertDraftLockOwnedByCurrentUser({
     supabase,
@@ -4237,42 +4281,16 @@ export async function importSectionsFromVersion(
     input.source_version_id,
     context
   );
-  // Règle 6 (suite) : une section d'une v3 ne se copie pas non plus vers une v1/v2 (lignes non chiffrées).
-  if (usesPerUnitLabor(resolveEstimateEngineVersion(sourceVersion))) throw new EstimateEngineUnavailableError();
+  // D-e : une section d'une v3 ne se copie pas vers une v1/v2 (lignes non chiffrées), refus nommé.
+  const sourceIsV3 = usesPerUnitLabor(resolveEstimateEngineVersion(sourceVersion));
+  if (sourceIsV3 && !targetIsV3) throw estimateV3SectionCopyToHistoricalError();
 
-  const [{ data: sourceItemsData, error: sourceItemsError }, { data: targetItemsData, error: targetItemsError }] =
-    await Promise.all([
-      supabase
-        .from("estimate_items")
-        .select("*")
-        .eq("tenant_id", tenantId)
-        .eq("version_id", sourceVersion.id)
-        .order("position", { ascending: true })
-        .order("created_at", { ascending: true }),
-      supabase
-        .from("estimate_items")
-        .select("*")
-        .eq("tenant_id", tenantId)
-        .eq("version_id", targetVersion.id)
-        .order("position", { ascending: true })
-        .order("created_at", { ascending: true }),
-    ]);
-
-  if (sourceItemsError) {
-    throw mapSupabaseError(
-      sourceItemsError,
-      "Impossible de charger les sections source."
-    );
-  }
-  if (targetItemsError) {
-    throw mapSupabaseError(
-      targetItemsError,
-      "Impossible de charger les sections cibles."
-    );
-  }
-
-  const sourceItems = (sourceItemsData ?? []) as EstimateItemRow[];
-  const targetItems = (targetItemsData ?? []) as EstimateItemRow[];
+  // Every item of both versions, by pages, each pinned to the version read with its access. A partial or mixed
+  // source read would import part of a section; a target one would reuse its titles and child positions.
+  const [sourceItems, targetItems] = await Promise.all([
+    readAllItemsForCopy(supabase, tenantId, sourceVersion),
+    readAllItemsForCopy(supabase, tenantId, targetVersion),
+  ]);
   const sourceItemById = new Map(sourceItems.map((item) => [item.id, item]));
 
   const selectedSectionIds = input.section_ids;
@@ -4328,6 +4346,7 @@ export async function importSectionsFromVersion(
   };
 
   const importedItemsPayload: EstimateItemInsert[] = [];
+  const sourceIdByNewId = new Map<string, string>();
   const createdSectionIds: string[] = [];
   const createdLineIds: string[] = [];
   let importedLinesCount = 0;
@@ -4353,6 +4372,7 @@ export async function importSectionsFromVersion(
 
         sourceLines.forEach((sourceLine) => {
           const lineId = randomUUID();
+          sourceIdByNewId.set(lineId, sourceLine.id);
           importedItemsPayload.push(
             buildImportedEstimateItemInsert({
               sourceItem: sourceLine,
@@ -4388,6 +4408,7 @@ export async function importSectionsFromVersion(
     });
 
     importedItemsPayload.push(...importedSubtree.items);
+    importedSubtree.new_id_by_source_id.forEach((newId, sourceId) => sourceIdByNewId.set(newId, sourceId));
     createdSectionIds.push(...importedSubtree.created_section_ids);
     createdLineIds.push(...importedSubtree.created_line_ids);
     importedLinesCount += importedSubtree.line_count;
@@ -4400,6 +4421,29 @@ export async function importSectionsFromVersion(
         targetRootSectionIdByTitleKey.set(rootTitleKey, createdRootSectionId);
       }
     }
+  }
+
+  if (importedItemsPayload.length > 0 && targetIsV3) {
+    const plan = planV3SectionCopy({
+      payload: importedItemsPayload,
+      sourceIdByNewId,
+      sourceItemsById: sourceItemById,
+      sourceIsV3,
+      sameVersion: sourceVersion.id === targetVersion.id,
+    });
+    const committed = await commitV3Copy({ versionId: targetVersion.id, updatedAt: targetVersion.updated_at, plan });
+    return {
+      source_version_id: sourceVersion.id,
+      target_version_id: targetVersion.id,
+      mode: input.mode,
+      imported_sections_count: rootSelectedSectionIds.length,
+      imported_lines_count: importedLinesCount,
+      created_section_ids: createdSectionIds,
+      created_line_ids: createdLineIds,
+      converted_lines: plan.convertedLines,
+      totals: committed.totals,
+      version: { id: committed.version.id, updated_at: committed.version.updated_at },
+    };
   }
 
   if (importedItemsPayload.length > 0) {
@@ -4478,6 +4522,11 @@ export async function importLinkedDpgfSourceIntoVersion(
     marginMultiplier,
     defaultTaxRateBp: taxRateBp,
     sectionTitle: input.section_title ?? null,
+    // Sous-lot 2.8b (A5) : normalisé pour le moteur 3 aux coefficients du brouillon, jamais à ceux du classeur.
+    ...(usesPerUnitLabor(resolveEstimateEngineVersion(version))
+      ? { v3: { saleCoefficientFo: Number(version.sale_coefficient_fo), saleCoefficientMo: Number(version.sale_coefficient_mo),
+          updatedAt: version.updated_at } }
+      : {}),
   });
 }
 
@@ -4702,6 +4751,8 @@ export async function createEstimate(
     if (!latestImport) {
       throw badRequest("Aucune source DPGF liée à cette affaire.");
     }
+    // Revue 2.8b (IO14) : la source est lue en entier, par pages (PostgREST s'arrête à max_rows = 1000), pour toutes
+    // les politiques depuis la lecture complète de main (33c7031b).
     const mappedRows = await loadMappedRowsForImportWithRetry({
       supabase,
       tenantId,
@@ -6355,6 +6406,10 @@ export async function updateEstimateItem(
     currentItem.item_type === "line" && targetItemType === "section";
   const isConvertingSectionToLine =
     currentItem.item_type === "section" && targetItemType === "line";
+  // Lot 2, sous-lot 2.8b (A8, D-b) : conversion ligne ↔ section refusée par son nom sur une v3, avant toute écriture.
+  if ((isConvertingLineToSection || isConvertingSectionToLine) && usesPerUnitLabor(resolveEstimateEngineVersion(version))) {
+    throw conflict(ESTIMATE_V3_ITEM_CONVERSION_REASON, undefined, "ESTIMATE_V3_ITEM_CONVERSION_UNAVAILABLE");
+  }
 
   let hierarchyIndexForStructureChecks:
     | ReturnType<typeof buildHierarchyIndex>

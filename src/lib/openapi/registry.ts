@@ -4496,7 +4496,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     method: "patch",
     path: "/api/estimates/{versionId}/items",
     summary: "Modifier un item",
-    description: "Met a jour une ligne ou section existante.",
+    description: "Met a jour une ligne ou section existante. Moteur 3 (2.8b) : la conversion ligne <-> section (item_type) est refusee, 409 ESTIMATE_V3_ITEM_CONVERSION_UNAVAILABLE, rien n'est ecrit.",
     tags: ["Estimate Items"],
     parameters: [versionIdPathParameter, ifMatchHeaderOptionalParameter],
     requestBody: updateEstimateItemBody,
@@ -4568,7 +4568,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     path: "/api/estimates/{versionId}/batch",
     summary: "Executer un batch d'operations",
     description:
-      "Applique create/update/delete/reorder, allocations, totaux, audit et reçu dans une transaction unique. Un refus métier confirmé retourne committed:false sans effet, avec rolled_back:true pour les opérations précédentes. dry_run valide sans écriture ni réservation. If-Match prime sur concurrency_token ; query dry_run prime sur le corps. Une nouvelle écriture exige un brouillon, un bail de page actif et le token exact. Même acteur/clé/contenu/token original : reçu historique, avant CAS et sans ancien bail requis, sous droits writer actuels. version/totals/results sont ceux du commit ; current_version décrit l'état actuel. Un reçu est limité à 2 Mio. Une issue transport inconnue ne retourne jamais committed:false : conserver la demande et sa clé pour vérifier ou reprendre explicitement. Un collage composé de plusieurs batchs peut rester partiellement enregistré. Une création ou modification supprimée ensuite par cascade dans le même lot retourne item:null, deleted_in_batch:true et deleted_item_id ; elle ne représente pas une ligne encore persistée.",
+      "Applique create/update/delete/reorder, allocations, totaux, audit et reçu dans une transaction unique. Un refus métier confirmé retourne committed:false sans effet, avec rolled_back:true pour les opérations précédentes. dry_run valide sans écriture ni réservation. If-Match prime sur concurrency_token ; query dry_run prime sur le corps. Une nouvelle écriture exige un brouillon, un bail de page actif et le token exact. Même acteur/clé/contenu/token original : reçu historique, avant CAS et sans ancien bail requis, sous droits writer actuels. version/totals/results sont ceux du commit ; current_version décrit l'état actuel. Un reçu est limité à 2 Mio : au-delà, 413 ESTIMATE_BATCH_RECEIPT_TOO_LARGE, aucune écriture. Une issue transport inconnue ne retourne jamais committed:false : conserver la demande et sa clé pour vérifier ou reprendre explicitement. Un collage composé de plusieurs batchs peut rester partiellement enregistré. Une création ou modification supprimée ensuite par cascade dans le même lot retourne item:null, deleted_in_batch:true et deleted_item_id ; elle ne représente pas une ligne encore persistée.",
     tags: ["Estimate Items"],
     parameters: [
       versionIdPathParameter,
@@ -4606,7 +4606,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     path: "/api/estimates/{versionId}/export",
     summary: "Exporter un devis en streaming",
     description:
-      "Genere un fichier XLSX en streaming pour telechargement direct.",
+      "Genere un fichier XLSX en streaming pour telechargement direct, ou le CSV de l'editeur d'une version du moteur de calcul 3 (format=csv), ecrit depuis son document.",
     tags: ["Estimate Output"],
     parameters: [
       versionIdPathParameter,
@@ -4615,13 +4615,14 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     ],
     responses: {
       "200": {
-        description: "Flux binaire XLSX retourne.",
+        description: "Flux binaire XLSX, ou CSV (separateur point-virgule, BOM UTF-8) d'une v3, retourne.",
         headers: [exportContentDispositionHeader, exportProgressHeader],
         contents: [
           {
             contentType:
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
           },
+          { contentType: "text/csv" },
         ],
       },
     },
