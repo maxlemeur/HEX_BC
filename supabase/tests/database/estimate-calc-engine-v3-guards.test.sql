@@ -63,7 +63,12 @@ values
   ('public.persist_estimate_creation_atomic', 'création canonique (M4) : moteur attendu du client dans 1-3, comparé à la politique (absente = 3 depuis M8, sous-lot 2.10b), contrat canonical_v3 sous politique 3'),
   ('public.list_approval_queue', 'marge v1 lue en margin_bp (texte = 1 conservé) ; v3 : marque nette d''un gel v3 frais, sinon NULL (M4)'),
   ('public.estimate_offer_client_items_match', 'branche v1/v2 inchangée ; faux pour tout moteur hors {1,2} depuis M1'),
-  ('public.require_fresh_v2_snapshot_for_publication', 'refus nommé ESTIMATE_V3_EMISSION_NOT_READY (retiré en M5)'),
+  ('public.require_fresh_v2_snapshot_for_publication', 'gouvernance de fraîcheur v2 héritée par la v3 (in (2, 3), invoker) ; v3 : bruts figés complets et Σ bruts = brut de version ; refus M1 ESTIMATE_V3_EMISSION_NOT_READY retiré en M5'),
+  ('public.estimate_offer_engine_client_contract', 'règle unique d''appariement moteur ⇔ contrat client (M5) : v3 ⇔ contrat 2, v1/v2 ⇔ contrat 1'),
+  ('public.estimate_offer_document_valid', 'contrat attendu par le moteur (M5) : aucun document historique sans contrat pour une v3 ; branche du contrat 1 inchangée'),
+  ('public.publish_estimate_pdf_generation', 'publication (M5) : contrat présenté = contrat du moteur, puis ancres du contrat 1 ou appariement exact du contrat 2'),
+  ('public.estimate_offer_client_items_match_v2', 'appariement du contrat 2 (M5) : faux pour tout moteur autre que 3'),
+  ('public.freeze_estimate_v3_document_snapshot', 'gel documentaire v3 (M5) : refuse tout moteur autre que 3'),
   ('public.freeze_estimate_v2_snapshot_without_explicit_rounding', 'gel v2 : refuse tout moteur autre que 2 (inchangé)'),
   ('public.freeze_estimate_v2_document_snapshot', 'gel documentaire v2 : refuse tout moteur autre que 2 (inchangé)'),
   ('public.save_estimate_settings_atomic', 'branches v1 et v2/v3 (in (2, 3), invoker) ; branche v3 sous contrat d''écrivain (M4)'),
@@ -78,7 +83,6 @@ values
   ('public.recalculate_takeoff_estimate_version', 'métré v1/v2 inchangé ; le contrat d''écrivain refuse la v3 (P-19)'),
   ('public.guard_estimate_item_engine_columns', 'contrat d''écrivain v3 sur les lignes (M1)'),
   ('public.guard_estimate_version_engine_v3_writer', 'contrat d''écrivain v3 sur les versions (M1)'),
-  ('public.guard_estimate_document_engine_v3', 'refus des documents v3 (M1, remplacé en M5)'),
   ('private.calc_engine_freezes_snapshot', 'prédicat d''héritage de la gouvernance v2 (M1)'),
   ('public.guard_estimate_v2_snapshot_columns', 'prédicat d''héritage en ligne in (2, 3) : garde security invoker, schéma private fermé à authenticated/service_role (M1) ; = 3 : suppression d''une ligne v3 sous contrat d''écrivain (M4, revue de la PR #33)'),
   ('public.guard_estimate_project_v2_owner_change', 'prédicat d''héritage en ligne in (2, 3) : garde security invoker, schéma private fermé à authenticated/service_role (M1)'),
@@ -784,7 +788,10 @@ select is(
 );
 
 -- ---------------------------------------------------------------------------
--- F-SQL-08 et F-SQL-09 : émission fermée, de façon explicite et nommée.
+-- F-SQL-08 et F-SQL-09 : émission d'une v3 gouvernée par son nom. Réalignées en 2.7 (M5) : le refus
+-- général de M1 (ESTIMATE_V3_EMISSION_NOT_READY) est levé, l'appariement moteur ⇔ contrat client et
+-- la fraîcheur v2 héritée le remplacent (docs/testing/estimate-engine-v3-2.7.md, « Implémentation
+-- SQL (M5) »). Le parcours d'émission v3 complet est prouvé par estimate-offer-contract-v2.test.sql.
 -- ---------------------------------------------------------------------------
 select is(
   pg_temp.v3_probe(array[
@@ -795,18 +802,18 @@ select is(
        select tenant_id, id, 'processing', gen_random_uuid(), 'manual', content_revision, now()
        from public.estimate_versions where id = 'a3210000-0000-4000-8000-000000000106'$s$
   ]),
-  '0A000 ESTIMATE_V3_EMISSION_NOT_READY',
-  'F-SQL-09 no document can be prepared for a v3'
+  'ok',
+  'F-SQL-09 a v3 document generation can be claimed (contract-less processing row, M5)'
 );
 
 select is(
   pg_temp.v3_probe(array[
-    $s$insert into public.estimate_documents (tenant_id, version_id, status, last_error)
-       select tenant_id, id, 'failed', 'essai'
+    $s$insert into public.estimate_documents (tenant_id, version_id, status, last_error, client_contract_version, client_contract_snapshot)
+       select tenant_id, id, 'failed', 'essai', 1, '{}'::jsonb
        from public.estimate_versions where id = 'a3210000-0000-4000-8000-000000000106'$s$
   ]),
-  '0A000 ESTIMATE_V3_EMISSION_NOT_READY',
-  'F-SQL-09 no document row of any status can exist for a v3'
+  '23514 OFFER_CLIENT_CONTRACT_ENGINE_MISMATCH',
+  'F-SQL-09 no document row of a v3 can carry the client contract 1, whatever its status (M5 pairing)'
 );
 
 select is(
@@ -814,8 +821,8 @@ select is(
     'set local role service_role',
     $s$update public.estimate_versions set status = 'sending' where id = 'a3210000-0000-4000-8000-000000000106'$s$
   ]),
-  '0A000 ESTIMATE_V3_EMISSION_NOT_READY',
-  'F-SQL-08 a v3 draft cannot move to sending'
+  '40001 ESTIMATE_V2_SNAPSHOT_STALE',
+  'F-SQL-08 a never-frozen v3 draft cannot move to sending (inherited freshness, M5)'
 );
 
 select is(
@@ -823,8 +830,8 @@ select is(
     'set local role service_role',
     $s$update public.estimate_versions set status = 'sent' where id = 'a3210000-0000-4000-8000-000000000106'$s$
   ]),
-  '0A000 ESTIMATE_V3_EMISSION_NOT_READY',
-  'F-SQL-08 a v3 draft cannot move to sent'
+  '40001 ESTIMATE_V2_SNAPSHOT_STALE',
+  'F-SQL-08 a never-frozen v3 draft cannot move to sent (inherited freshness, M5)'
 );
 
 select is(
@@ -832,8 +839,8 @@ select is(
     'set local role service_role',
     $s$update public.estimate_versions set status = 'sending' where id = 'a3210000-0000-4000-8000-000000000103'$s$
   ]),
-  '0A000 ESTIMATE_V3_EMISSION_NOT_READY',
-  'F-SQL-08 even a freshly frozen v3 cannot be published before the v3 emission contract'
+  '23514 ESTIMATE_V2_SNAPSHOT_INVALID',
+  'F-SQL-08 a v3 whose snapshot is fresh but whose frozen lines are incomplete cannot move to sending (M5)'
 );
 
 select is(

@@ -903,7 +903,8 @@ et `coalesce(…, 1) = 2`. Toute nouvelle comparaison exige donc une revue expli
 | `money.ts:53-55`, `:94`, `NumberInput.tsx:17-27`, `editor-values.ts:28-39`, `clipboard.ts:61-171`, `:333-351`, `:437-498`, `:574-579`, `affaires/import-flow.ts:126-128`, `:165-173`, `:379-431`, `estimate-editor-row/shared.ts:254-263`, `EstimateEditorCommandBar.tsx:839-874`, `mappings/server.ts:780-892`, `mappings/schemas.ts` | parseurs par grandeur sur `parseDecimalInput` (grammaire unique déjà branchée dans ces fichiers par `d484c5a1`) ; convention de majoration ; heuristique d'en-têtes ; profil OPTIMA | 2.3 |
 | `prepare-estimate-document-data.ts:148-260`, `:452-547`, `EstimateDocument.tsx:350-505`, `EstimateDocumentTableRows.tsx:104-214`, `pdf-generator.tsx:1465`, `:1619-1761`, `[versionId]/page.tsx:179`, `:285`, `print/page.tsx:176`, `:241` | v3 : lignes brutes, unité, statut, pied v3 | 2.7 |
 | `estimate-seal.ts:10-13`, `:125-286`, `offer-document.ts:99-133`, `offer-contract.ts:330`, `server.ts:5666-5727` | charge 6 ; contrat 2 ; vérification | 2.7 |
-| `export-stream.ts:420-485`, `dpgf-export.ts:344`, `:358-360`, `editor-export.ts:382`, `:398-438`, `bdc-export.ts` | v3 : unité, h/u, PU et PT bruts, remise, TVA par taux ; base des heures dans l'en-tête | 2.7 |
+| `export-stream.ts:420-485`, `dpgf-export.ts:344`, `:358-360` | v3 : unité, h/u, PU et PT bruts, remise, TVA par taux ; base des heures dans l'en-tête | 2.7 |
+| `editor-export.ts:382`, `:398-438`, `bdc-export.ts` | mêmes colonnes v3 ; refus nommé `ESTIMATE_ENGINE_UNAVAILABLE` d'ici là | écart du 2.7 (18/10/2026) : éditeur avec 2.6, BDC avant 2.10 — **P-20, décision du porteur requise** |
 | `affaires/import-flow.ts:342-426`, `clipboard.ts`, `server.ts:2218-2264`, `generated-ouvrages.ts:1674-1728`, `generated-ouvrage-labor-hours.ts:11-40`, `assemblies-server.ts`, `templates-server.ts`, `src/lib/takeoff/server.ts:3419`, `:3839` | chemins d'entrée v3 ; refus nommé du métré | 2.8 |
 | `docs/metier/regles-de-calcul.md`, `cycle-de-vie.md`, `glossaire.md`, `CONTEXT.md:10-18`, `AGENTS.md` (invariants de calcul) | section moteur 3, sur décision du porteur | 2.10 |
 
@@ -1118,6 +1119,7 @@ Supabase partagé ni un déploiement (autorisations distinctes, §10 du cahier 2
 | P-17 | Qui marque une offre « inclus / gratuit » | Administrateur du catalogue | 2.2 | Validé le 16/10/2026 (proposition retenue) |
 | P-18 | Unité d'achat et conditionnement dans le lot 2 | Option 2.9 | 2.9 | Validé le 16/10/2026 : 2.9 est planifié dans le lot 2, puisque l'arbitrage 6 validé comprend la conversion vers l'unité d'achat ; il ne conditionne pas 2.10 (lecture de l'auditeur, à confirmer par le porteur s'il préfère reporter 2.9 hors du lot 2) |
 | P-19 | Métré sur une v3 | Refusé (arbitrage 13) | — | Validé le 16/10/2026 (proposition retenue) |
+| P-20 | Exports de l'éditeur et BDC d'une v3, prévus au 2.7 (§8.2, §14) | Éditeur (`editor-export.ts`, côté client) : livré avec l'éditeur v3 de 2.6, seul chemin qui l'atteint et le teste ; BDC (`bdc-export.ts`, coûts d'achat et unités d'achat de 2.9) : avant la bascule (2.10). D'ici là, refus nommé `ESTIMATE_ENGINE_UNAVAILABLE` (409), sans montant | 2.6 ; 2.10 | Proposé par le 2.7 le 18/10/2026 ; **décision du porteur requise** (sinon, le 2.7 les livre) |
 
 ---
 
@@ -1499,7 +1501,10 @@ migration distante sans autorisation explicite.
   - `prepare-estimate-document-data.ts`, `EstimateDocument.tsx`, `EstimateDocumentTableRows.tsx`,
     `EstimateDocumentTotalsV3.tsx`, `pdf-generator.tsx`, `pdf-v3-totals.tsx` ;
   - portail ;
-  - exports (`export-stream.ts`, `dpgf-export.ts`, `editor-export.ts`, `bdc-export.ts`) ;
+  - exports (`export-stream.ts`, `dpgf-export.ts`, `editor-export.ts`, `bdc-export.ts`) ; écart du 18/10/2026 :
+    `editor-export.ts` (côté client, atteint par le seul éditeur v3 de 2.6) et `bdc-export.ts` (coûts d'achat)
+    restent fermés à la v3 par leur refus nommé ; proposés pour 2.6 et avant 2.10 (P-20, **décision du porteur
+    requise** ; `docs/testing/estimate-engine-v3-2.7.md` §12) ;
   - extension de `canUseDevelopmentEstimateTerms` (`src/lib/estimates/pdf-terms-server.ts:21-34`) au build
     de production de la pile possédée, pour le profil `calc-v3` seulement, avec son test de garde-fou :
     refus avec un marqueur d'hébergement ou hors de ce profil ; cas `offer` sur 45585 inchangé (§10.4).

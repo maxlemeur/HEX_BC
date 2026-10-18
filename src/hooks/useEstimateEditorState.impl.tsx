@@ -73,7 +73,7 @@ import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { useEstimateV3Settings } from "@/hooks/useEstimateV3Settings";
 import type { EstimateTotals } from "@/lib/estimate-calculations";
 import { hasFreshEstimateV2Snapshot } from "@/lib/estimates/calc-engine-version";
-import { isLegacyEngine, isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
+import { ESTIMATE_ENGINE_UNAVAILABLE_MESSAGE, isLegacyEngine, isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
 import {
   normalizeEditorDraftItems, reconcilesEditorTotals, resolveEditorEngineContext, resolveEditorInitialDiscountCents,
   resolveEditorQualityItems,
@@ -1285,7 +1285,8 @@ export function useEstimateEditorState({
     exportBdc: handleExportBdc,
   } = exportController.actions;
   const {
-    isDisabled: isExportDisabled,
+    isStreamingDisabled: isStreamingExportDisabled,
+    isCsvDisabled: isCsvExportDisabled,
     loadingLabel: exportLoadingLabel,
   } = exportController.meta;
 
@@ -1975,7 +1976,8 @@ export function useEstimateEditorState({
   const importController = useEstimateEditorImportController({
     routeVersionId: resolvedVersionId,
     activeVersion: version,
-    autoOpenStructureDraft: shouldAutoOpenStructureDraft,
+    // Sous-lot 2.10a (N3, D-g) : `?openStructureDraft=1` n'ouvre rien sur une v3 (structure IA refusée, P-14).
+    autoOpenStructureDraft: shouldAutoOpenStructureDraft && !isV3,
     isMutationBlocked: isReadOnly || isConflictLocked,
     mutationBlockedMessage: isConflictLocked
       ? (conflictState?.message ?? ESTIMATE_VERSION_CONFLICT_MESSAGE)
@@ -2309,8 +2311,8 @@ export function useEstimateEditorState({
     isSendBlockedForCurrentUser,
     sendWorkflowPhaseLabel,
   } = statusController.meta;
-  // Lot 2, sous-lot 2.6 : l'émission d'une v3 reste fermée jusqu'au contrat client 2 (2.7).
-  const canSend = canSendForStatus && !isViewerReadOnly && !isV3;
+  // Lot 2 : fermée en 2.6, l'émission manuelle d'une v3 est ouverte par 2.7 (gel du document, contrat client 2).
+  const canSend = canSendForStatus && !isViewerReadOnly;
 
   const supplierController = useEstimateEditorSupplierController({
     routeVersionId: resolvedVersionId,
@@ -2584,6 +2586,8 @@ export function useEstimateEditorState({
       onDuplicateSectionToVersion: handleDuplicateSectionToVersion,
       onOpenImportFromEstimateDialog: handleOpenImportFromEstimateDialog,
       onOpenEstimateStructureDraftDialog: handleOpenEstimateStructureDraftDialog,
+      // Sous-lot 2.10a (N3, D-g) : la structure IA d'une v3 est refusée à la génération (P-14) ; dit avant.
+      estimateStructureDraftUnavailableReason: isV3 ? ESTIMATE_ENGINE_UNAVAILABLE_MESSAGE : null,
       onOpenGeneratedOuvrageDialog: handleOpenGeneratedOuvrageDialog,
       onDeleteItem: handleDeleteItem,
       onPatchItem: handlePatchItem,
@@ -2777,8 +2781,12 @@ export function useEstimateEditorState({
         onOpenVersionZeroDialog: handleOpenVersionZeroDialog,
         versionZeroActionLabel,
         isVersionZeroActionDisabled,
-        // Exports v3 (unité, h/u, PU et PT bruts, TVA par taux) : sous-lot 2.7.
-        isExportDisabled: isExportDisabled || isV3,
+        // Excel et DPGF : GET …/export, ouvert à une v3 par 2.7 (v3-export.ts). Sur une v3 restent fermés le CSV,
+        // construit par le client (editor-export.ts), et le BDC (P-20, décision du porteur requise).
+        isExcelExportDisabled: isStreamingExportDisabled,
+        isDpgfExportDisabled: isStreamingExportDisabled,
+        isCsvExportDisabled: isCsvExportDisabled || isV3,
+        isBdcExportDisabled: isStreamingExportDisabled || isV3,
         isExporting,
         exportLoadingLabel,
         activeExportMode,

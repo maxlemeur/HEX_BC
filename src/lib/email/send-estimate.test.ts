@@ -262,16 +262,18 @@ describe("sendEstimateEmail transactional workflow", () => {
   // Lot 2, sous-lot 2.1 (docs/testing/estimate-engine-v3-2.1.md, F-TS-05). Le refus du moteur
   // est une propriété de la version : il précède la configuration d'envoi, la relecture
   // d'un envoi, le gel, le contrôle bloquant, la réservation et toute livraison.
-  it("refuses a v3 draft by name before configuration, replay, freeze, gating, reservation or delivery", async () => {
+  // Réaligné en 2.7 (estimate-engine-v3-2.7.md §11.4, « Tests existants à réaligner ») : la v3
+  // s'envoie désormais (contrat client 2, parcours V3M01) ; le refus avant tout effet reste exigé
+  // pour un moteur hors domaine.
+  it("refuses a draft of an unknown engine by name before configuration, replay, freeze, gating, reservation or delivery", async () => {
     delete process.env.RESEND_API_KEY;
     delete process.env.EMAIL_FROM;
     vi.mocked(getAuthenticatedTenantContext).mockResolvedValue(
-      createContext("draft", { calc_engine_version: 3 }) as never
+      createContext("draft", { calc_engine_version: 4 }) as never
     );
 
     await expect(sendEstimateEmail(request)).rejects.toMatchObject({
-      code: "ESTIMATE_ENGINE_UNAVAILABLE",
-      engineVersion: 3,
+      code: "ESTIMATE_CALC_ENGINE_UNSUPPORTED",
     });
     expect(outboxMocks.findByRequest).not.toHaveBeenCalled();
     expect(outboxMocks.findActive).not.toHaveBeenCalled();

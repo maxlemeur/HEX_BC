@@ -14,10 +14,11 @@ import {
 // `scripts/run-tester-army-ci.ts calc-v3`, one TesterArmy invocation per phase;
 // failure modes are fixed in docs/testing/tester-army-calc-v3.md. It refuses
 // the developers' long-running stack (API 45585, DB 33485), any non-loopback
-// origin and any environment the owned-stack runner did not mark. The emission
-// phase serves `next dev`, where sandbox terms already apply
-// (src/lib/estimates/pdf-terms-server.ts); every other phase serves the owned
-// production build. offer-emission.config.ts stays unchanged.
+// origin and any environment the owned-stack runner did not mark. Every phase
+// serves the owned production build; since 2.7 the emission phases get the
+// sandbox terms of the owned calc-v3 production profile
+// (src/lib/estimates/pdf-terms-server.ts), a development phase keeps next dev.
+// offer-emission.config.ts stays unchanged.
 function loopbackOrigin(name: string, options: { ipv4Only?: boolean } = {}) {
   const value = process.env[name];
   let url: URL;
@@ -44,7 +45,7 @@ if (process.env.E2E_CALC_V3_OWNED_STACK !== "1") throw new Error("calc-v3 runs o
 const phase = process.env.E2E_CALC_V3_PHASE;
 if (!isCalcV3Phase(phase)) throw new Error("calc-v3 requires an explicit E2E_CALC_V3_PHASE.");
 const definition = CALC_V3_PHASE_DEFINITIONS[phase];
-const emission = phase === "emission";
+const emission = definition.sentinelCollector === true;
 const appOrigin = loopbackOrigin("E2E_ARMY_BASE_URL");
 const backend = loopbackOrigin("NEXT_PUBLIC_SUPABASE_URL", { ipv4Only: true });
 if (appOrigin.hostname !== "localhost") throw new Error("calc-v3 serves the app on localhost for Next hydration.");
@@ -90,7 +91,11 @@ if (emission) {
   }
   output = path.join(runDirectory, "sdk");
   appEnvironment = {
-    E2E_OFFER_SERVER_MODE: "dev", E2E_OFFER_SANDBOX_TERMS: "",
+    E2E_OFFER_SERVER_MODE: serverMode === "production" ? "production" : "dev",
+    E2E_OFFER_SANDBOX_TERMS: serverMode === "production" ? "1" : "",
+    // The owned-stack marker checked above: the sandbox terms of the owned calc-v3 production
+    // profile also require it and this campaign directory in the app process (pdf-terms-server.ts).
+    E2E_CALC_V3_OWNED_STACK: "1",
     E2E_OFFER_APP_ORIGIN: appOrigin.origin, E2E_OFFER_BACKEND_ORIGIN: backend.origin, E2E_OFFER_COLLECTOR_ORIGIN: collector.origin,
     E2E_OFFER_RUN_DIRECTORY: runDirectory, E2E_OFFER_COLLECTOR_DIRECTORY: collectorDirectory, E2E_OFFER_SECRET_POINTER: pointer,
     E2E_OFFER_SERVER_GUARD: "1", E2E_OFFER_NETWORK_LOG: networkLog,
@@ -184,6 +189,17 @@ export default {
         return password;
       },
     },
+    // emission-v3 only (V3M06): the second admin of the dedicated tenant, created by the phase fixture.
+    ...(process.env.E2E_V3M_VIEWER_EMAIL ? {
+      viewer: {
+        username: process.env.E2E_V3M_VIEWER_EMAIL,
+        password: () => {
+          const password = process.env.E2E_V3M_VIEWER_PASSWORD;
+          if (!password) throw new Error("E2E_V3M_VIEWER_PASSWORD is required for the emission-v3 viewer.");
+          return password;
+        },
+      },
+    } : {}),
   },
   ...(secrets ? { secrets } : {}),
 } satisfies E2EConfig;

@@ -121,9 +121,72 @@ function parseHistoryPage(
   return parsed;
 }
 
+type EstimateEmailDispatchProblem = { id: string; status: "unknown" | "failed"; lastErrorMessage: string | null };
+
+/** Dernier envoi initial resté « unknown » ou « failed » : l'action d'envoi le signale (toutes versions). */
+async function loadEmailDispatchProblem(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  versionId: string,
+  tenantId: string
+): Promise<EstimateEmailDispatchProblem | null> {
+  return Promise.resolve(
+    supabase
+      .from("estimate_emails")
+      .select("id, status, last_error_message")
+      .eq("version_id", versionId)
+      .eq("tenant_id", tenantId)
+      .eq("type", "initial")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+  )
+    .then((result) => {
+      const row = result.data as
+        | { id: string; status: string; last_error_message: string | null }
+        | null;
+      if (row?.status === "unknown" || row?.status === "failed") {
+        return {
+          id: row.id,
+          status: row.status as "unknown" | "failed",
+          lastErrorMessage: row.last_error_message,
+        };
+      }
+      return null;
+    })
+    .catch(() => null);
+}
+
+/** Sceau d'une version émise, vérifié (toutes versions) ; un brouillon n'est pas scellé. */
+async function resolveSealIntegrity(
+  version: Pick<EstimateVersion, "status" | "seal_hash">,
+  versionId: string
+): Promise<{ state: SealIntegrityState; hashPrefix: string | null }> {
+  let state: SealIntegrityState = "unsealed";
+  let hashPrefix = version.seal_hash?.slice(0, 8) ?? null;
+
+  if (version.status !== "draft" && version.seal_hash) {
+    try {
+      const verification = await verifyEstimateSeal(versionId);
+      state = verification.valid ? "valid" : "invalid";
+      if (verification.stored_hash) {
+        hashPrefix = verification.stored_hash.slice(0, 8);
+      }
+    } catch (error) {
+      console.error("Failed to verify estimate seal", {
+        versionId,
+        ...toSafeEstimateErrorLogDetails(error),
+      });
+      state = "error";
+    }
+  }
+  return { state, hashPrefix };
+}
+
 /**
- * Lot 2, sous-lot 2.6 : fiche d'un brouillon v3, en lecture. Totaux stockés (vérifiés à chaque
- * sauvegarde, D12), TVA par taux, lignes ; ni statut d'émission ni document client avant 2.7.
+ * Lot 2 : fiche d'une v3 en lecture (2.6), brouillon ou émise depuis 2.7. Totaux stockés (vérifiés à
+ * chaque sauvegarde, D12, figés à l'émission), TVA par taux, lignes. Comme une v1/v2 : sceau vérifié,
+ * actions de statut et d'envoi, PDF et impression du document client (contrat client 2) ; seul
+ * l'enregistrement comme modèle reste fermé, jusqu'en 2.8.
  */
 async function renderEstimateV3Detail(input: {
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
@@ -137,7 +200,7 @@ async function renderEstimateV3Detail(input: {
 }) {
   const { version, versionId, items } = input;
   const project = resolveProject(version.estimate_projects);
-  const [versionTimeline, plansSummary, registerSummary] = await Promise.all([
+  const [versionTimeline, plansSummary, registerSummary, emailDispatchProblem] = await Promise.all([
     listEstimateProjectVersions({
       projectId: version.project_id,
       page: input.timelinePage,
@@ -146,7 +209,9 @@ async function renderEstimateV3Detail(input: {
     }),
     fetchAffaireHubPlansSummary(version.project_id).catch(() => null),
     fetchAffaireRegisterSummary({ projectId: version.project_id, versionId }).catch(() => null),
+    loadEmailDispatchProblem(input.supabase, versionId, version.tenant_id),
   ]);
+  const seal = await resolveSealIntegrity(version, versionId);
   await assertEstimateVersionUnchanged({ supabase: input.supabase, version });
   const summary = readStoredEstimateV3DraftSummary(version, items);
   const currency = normalizeEstimateCurrency(version.currency) ?? "EUR";
@@ -164,14 +229,14 @@ async function renderEstimateV3Detail(input: {
         ]}
         title={`Chiffrage V${version.version_number}`}
         description={project?.name ? [project.name, project.client_name].filter(Boolean).join(" — ") : undefined}
-        meta={<SealIntegrityBadge state="unsealed" hashPrefix={null} />}
+        meta={<SealIntegrityBadge state={seal.state} hashPrefix={seal.hashPrefix} />}
         actions={
           <>
             <Link className={buttonVariants({ variant: "outline", size: "md" })} href={`/dashboard/estimates/${versionId}/print`}>
               <PrinterIcon aria-hidden="true" />
               Imprimer
             </Link>
-            <EstimateDetailActionsMenu versionId={versionId} versionStatus={version.status} canEditVersion={input.canEditVersion} closedEngineV3Actions />
+            <EstimateDetailActionsMenu versionId={versionId} versionStatus={version.status} canEditVersion={input.canEditVersion} closedEngineV3Template />
             {input.canEditVersion ? (
               <Link className={buttonVariants({ variant: "primary", size: "md" })} href={`/dashboard/estimates/${versionId}/edit`}>
                 <PencilIcon aria-hidden="true" />
@@ -191,6 +256,15 @@ async function renderEstimateV3Detail(input: {
             <dt className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Statut</dt>
             <dd className="mt-1">
               <Badge variant={statusBadge.variant} dot>{statusBadge.label}</Badge>
+              {input.canEditVersion ? (
+                <EstimateStatusActions
+                  versionId={versionId}
+                  currentStatus={version.status}
+                  updatedAt={version.updated_at}
+                  projectName={project?.name ?? undefined}
+                  emailDispatchProblem={emailDispatchProblem}
+                />
+              ) : null}
             </dd>
           </div>
           <div className="min-w-0">
@@ -237,7 +311,7 @@ async function renderEstimateV3Detail(input: {
           <EstimateTimeline currentVersionId={versionId} versions={versionTimeline.items} pagination={versionTimeline.pagination} inVersionCurrency />
         </div>
         <div className="min-w-0">
-          <EstimateV3DraftSummary summary={summary} items={items} currency={currency} />
+          <EstimateV3DraftSummary summary={summary} items={items} currency={currency} issued={version.status !== "draft"} />
         </div>
       </div>
     </div>
@@ -296,9 +370,9 @@ export default async function EstimateDetailPage({
   if (!userContext.tenantId || userContext.tenantId !== version.tenant_id) {
     notFound();
   }
-  // Lot 2, sous-lots 2.1 puis 2.6 : une v3 n'est jamais relue en moteur 1. Un brouillon v3 se lit sur
-  // ses montants stockés (TVA par taux), sans calcul ni émission ; seul un moteur inconnu garde le
-  // bandeau du moteur.
+  // Lot 2, sous-lots 2.1, 2.6 puis 2.7 : une v3 n'est jamais relue en moteur 1. Une v3 se lit sur ses
+  // montants stockés (TVA par taux), sans calcul, et s'émet comme une v1/v2 (renderEstimateV3Detail) ;
+  // seul un moteur inconnu garde le bandeau du moteur.
   const estimateEngine = resolveEstimateEngineVersionForDisplay(version);
   if (estimateEngine === null) {
     return (
@@ -349,31 +423,7 @@ export default async function EstimateDetailPage({
       projectId: version.project_id,
       versionId,
     }).catch(() => null),
-    Promise.resolve(
-      supabase
-        .from("estimate_emails")
-        .select("id, status, last_error_message")
-        .eq("version_id", versionId)
-        .eq("tenant_id", version.tenant_id)
-        .eq("type", "initial")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle()
-    )
-      .then((result) => {
-        const row = result.data as
-          | { id: string; status: string; last_error_message: string | null }
-          | null;
-        if (row?.status === "unknown" || row?.status === "failed") {
-          return {
-            id: row.id,
-            status: row.status as "unknown" | "failed",
-            lastErrorMessage: row.last_error_message,
-          };
-        }
-        return null;
-      })
-      .catch(() => null),
+    loadEmailDispatchProblem(supabase, versionId, version.tenant_id),
   ]);
   const laborRoleIds = preserveStoredSnapshot ? [] : Array.from(
     new Set(
@@ -486,24 +536,7 @@ export default async function EstimateDetailPage({
   const totalTtcCents = computedTotals.roundedTtcCents;
   const roundingAdjustmentCents = computedTotals.roundingAdjustmentCents;
 
-  let sealState: SealIntegrityState = "unsealed";
-  let sealHashPrefix = version.seal_hash?.slice(0, 8) ?? null;
-
-  if (version.status !== "draft" && version.seal_hash) {
-    try {
-      const verification = await verifyEstimateSeal(versionId);
-      sealState = verification.valid ? "valid" : "invalid";
-      if (verification.stored_hash) {
-        sealHashPrefix = verification.stored_hash.slice(0, 8);
-      }
-    } catch (error) {
-      console.error("Failed to verify estimate seal", {
-        versionId,
-        ...toSafeEstimateErrorLogDetails(error),
-      });
-      sealState = "error";
-    }
-  }
+  const seal = await resolveSealIntegrity(version, versionId);
 
   await assertEstimateVersionUnchanged({ supabase, version });
 
@@ -527,7 +560,7 @@ export default async function EstimateDetailPage({
             ? [project.name, project.client_name].filter(Boolean).join(" — ")
             : undefined
         }
-        meta={<SealIntegrityBadge state={sealState} hashPrefix={sealHashPrefix} />}
+        meta={<SealIntegrityBadge state={seal.state} hashPrefix={seal.hashPrefix} />}
         actions={
           <>
             <Link

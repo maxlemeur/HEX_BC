@@ -625,6 +625,122 @@ async function offersFixtures(context: CalcV3FixtureContext, campaign: string): 
     identities: { owner: publicActor(actor), prefix, suppliers, products, offers, estimates } };
 }
 
+// Sub-lot 2.7 (D14, D15, M5; docs/testing/estimate-engine-v3-2.7.md). A dedicated owner whose
+// tenant policy is at engine 3 (1,30 / 1,20, rates 20 / 10 / 5,5 / 2,1 %), set by service_role
+// through set_tenant_calc_policy, the only writer of lot 2 (P-13), with one active labor role at
+// exactly 4,000 cents an hour (§5.1). Its v3 estimates are created by the journey through the
+// application. The policy governs only new versions: one v2 draft witness (one 1 u line at
+// 20,00 € HT, 20 % VAT, no snapshot) is seeded in the same tenant so that the journey issues a
+// contract 1 offer before any v3 and re-verifies it after the v3 emissions. One more affaire
+// (V3M03, review of 2.7) carries its own active approval rule at 5,000 EUR HT (scope "client",
+// scope_id = that affaire) and one empty v3 draft at the policy coefficients, seeded here because
+// the offer browser guard admits a new version only in a new affaire: the journey fills it through
+// the application (lines, discount), gets it approved, then issues it.
+async function emissionV3Fixtures(context: CalcV3FixtureContext, campaign: string): Promise<CalcV3PhaseFixtures> {
+  const actor = await createActor(context, campaign, "emission-v3", { rmo4000: true });
+  const reason = `ARMY calc-v3 ${campaign} sous-lot 2.7 émission v3`;
+  await checked("emission-v3:tenant policy at engine 3", context.admin.rpc("set_tenant_calc_policy", {
+    p_tenant_id: actor.tenantId, p_new_estimate_calc_engine: 3, p_default_sale_coefficient_fo: 1.3,
+    p_default_sale_coefficient_mo: 1.2, p_allowed_tax_rates_bp: [2000, 1000, 550, 210], p_change_reason: reason,
+    p_actor_user_id: actor.userId,
+  }));
+  const policy = await checked("emission-v3:policy readback", context.admin.from("tenant_calc_policies")
+    .select("new_estimate_calc_engine, default_sale_coefficient_fo, default_sale_coefficient_mo, allowed_tax_rates_bp")
+    .eq("tenant_id", actor.tenantId).single());
+  if (policy.new_estimate_calc_engine !== 3 || Number(policy.default_sale_coefficient_fo) !== 1.3 ||
+    Number(policy.default_sale_coefficient_mo) !== 1.2 || JSON.stringify(policy.allowed_tax_rates_bp) !== "[2000,1000,550,210]") {
+    throw new Error("calc-v3 fixture emission-v3: the tenant policy readback differs.");
+  }
+  // Every new tenant receives the product's global approval rule at 5,000 EUR HT
+  // (seed_default_estimate_approval_rule, 20260812223050). S2 and S5 (69,053.55 EUR HT) of V3M01
+  // would be blocked at send by the approval gate: the global rule of this dedicated tenant only is
+  // deactivated. The approval path of a v3 (approval, then document freeze, PDF and send) is proven
+  // by V3M03 on the affaire below, whose own rule stays active.
+  // `estimate_rules` is absent from the generated types: this one update goes through the untyped client.
+  const untyped = context.admin as unknown as SupabaseClient;
+  const deactivated = (await checked("emission-v3:default approval rule", untyped.from("estimate_rules")
+    .update({ is_active: false }).eq("tenant_id", actor.tenantId).eq("rule_type", "require_approval")
+    .eq("scope_type", "global").is("scope_id", null).select("id, threshold_value, is_active"))) as
+    Array<{ id: string; threshold_value: number; is_active: boolean }>;
+  if (deactivated.length !== 1 || Number(deactivated[0].threshold_value) !== 500000 || deactivated[0].is_active !== false) {
+    throw new Error("calc-v3 fixture emission-v3: the dedicated tenant must hold exactly its default approval rule at 5,000 EUR.");
+  }
+  // Codex review of 3d78d662 (lane A, V3M06): a second new admin of this tenant reads the printout of a v3 the
+  // owner issued. It switches its own active tenant through the ordinary RPC, as the observer of the access phase.
+  const viewer = await createActor(context, campaign, "v3m-viewer");
+  const viewerMembership = await checked("emission-v3:second new admin in owner tenant", context.admin.from("tenant_memberships")
+    .insert({ tenant_id: actor.tenantId, user_id: viewer.userId, role: "admin", is_default: false }).select("id, tenant_id, role").single());
+  const viewerClient = createClient<Database>(context.backend, context.anonKey, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
+  try {
+    const signedIn = await viewerClient.auth.signInWithPassword({ email: viewer.email, password: viewer.password });
+    if (signedIn.error || signedIn.data.user?.id !== viewer.userId) throw new Error("calc-v3 fixture emission-v3: viewer ordinary authentication failed.");
+    await checked("emission-v3:viewer ordinary active-tenant switch", viewerClient.rpc("set_active_tenant_membership_default", { p_membership_id: viewerMembership.id }));
+    const active = await checked("emission-v3:viewer active tenant", viewerClient.from("tenant_memberships").select("id, tenant_id, role")
+      .eq("user_id", viewer.userId).eq("is_default", true).single());
+    if (active.id !== viewerMembership.id || active.tenant_id !== actor.tenantId || active.role !== "admin") {
+      throw new Error("calc-v3 fixture emission-v3: viewer active tenant mismatch.");
+    }
+  } finally {
+    await viewerClient.auth.signOut({ scope: "local" });
+  }
+  // Profile names written by the sign-up trigger from createActor's metadata (`ARMY calc-v3 <label>`).
+  const displayNames = await checked("emission-v3:owner and viewer profile names", context.admin.from("profiles")
+    .select("id, full_name").in("id", [actor.userId, viewer.userId]));
+  const nameOf = (userId: string) => displayNames.find((row) => row.id === userId)?.full_name ?? null;
+  if (nameOf(actor.userId) !== "ARMY calc-v3 emission-v3" || nameOf(viewer.userId) !== "ARMY calc-v3 v3m-viewer") {
+    throw new Error("calc-v3 fixture emission-v3: owner and viewer profile names differ.");
+  }
+  const owner = { userId: actor.userId, tenantId: actor.tenantId };
+  const common = { tenant_id: owner.tenantId };
+  const prefix = `ARMY-V3M-calc-v3-${campaign}`;
+  const witness = { projectId: randomUUID(), versionId: randomUUID(), sectionId: randomUUID(), lineId: randomUUID(),
+    title: `${prefix} témoin v2`, lineTitle: `${prefix} témoin v2 prestation` };
+  const approvalProject = { projectId: randomUUID(), versionId: randomUUID(), ruleId: randomUUID(), title: `${prefix} approbation v3`,
+    thresholdCents: 500000 };
+  const today = new Date().toISOString().slice(0, 10);
+  const records: PlanRecord[] = [
+    { table: "estimate_projects", row: { ...common, id: witness.projectId, user_id: owner.userId, name: witness.title } },
+    { table: "estimate_projects", row: { ...common, id: approvalProject.projectId, user_id: owner.userId, name: approvalProject.title } },
+    { table: "estimate_versions", row: { ...common, ...versionDefaults, id: approvalProject.versionId, project_id: approvalProject.projectId,
+      title: approvalProject.title, calc_engine_version: 3, sale_coefficient_fo: 1.3, sale_coefficient_mo: 1.2, gross_ht_cents: 0,
+      discount_applied_cents: 0, commercial_rounding_cents: 0, max_section_depth: 1, discount_bp: 0, discount_mode: "simple",
+      discount_steps: [], contractor_role: "principal", date_devis: today, validite_jours: 30 } },
+    { table: "estimate_rules", row: { ...common, id: approvalProject.ruleId, rule_type: "require_approval", scope_type: "client",
+      scope_id: approvalProject.projectId, threshold_value: approvalProject.thresholdCents, action: "require_approval", is_active: true } },
+    { table: "estimate_versions", row: { ...common, ...versionDefaults, id: witness.versionId, project_id: witness.projectId,
+      title: witness.title, calc_engine_version: 2, max_section_depth: 1, discount_bp: 0, discount_mode: "simple",
+      discount_steps: [], contractor_role: "principal", date_devis: today, validite_jours: 30,
+      total_ht_cents: 2000, total_tax_cents: 400, total_ttc_cents: 2400 } },
+    { table: "estimate_items", row: { ...common, id: witness.sectionId, version_id: witness.versionId, parent_id: null,
+      item_type: "section", position: 0, title: `${prefix} lot` } },
+    { table: "estimate_items", row: { ...common, id: witness.lineId, version_id: witness.versionId, parent_id: witness.sectionId,
+      item_type: "line", line_nature: "supply_only", position: 1, title: witness.lineTitle, description: "u", quantity: 1,
+      unit_price_ht_cents: 2000, tax_rate_bp: 2000, k_fo: 1, h_mo: 0, h_mo_majoration: 1, k_mo: 1, pu_ht_cents: 2000,
+      line_total_ht_cents: 2000, line_tax_cents: 400, line_total_ttc_cents: 2400 } },
+  ];
+  await executePlan(context, "emission-v3", records);
+  const engine = await checked("emission-v3:witness engine", context.admin.from("estimate_versions")
+    .select("calc_engine_version, status").eq("id", witness.versionId).single());
+  if (engine.calc_engine_version !== 2 || engine.status !== "draft") throw new Error("calc-v3 fixture emission-v3: the witness must be a v2 draft.");
+  const viewerValue = { userId: viewer.userId, tenantId: actor.tenantId, membershipId: viewerMembership.id,
+    bootstrapTenantId: viewer.bootstrapTenantId, displayName: "ARMY calc-v3 v3m-viewer" };
+  const file = await writeFixture(context, "emission-v3", { schemaVersion: "calc-v3-emission-v3-3", status: "ready", campaign,
+    apiUrl: context.backend, createdAt: new Date().toISOString(), prefix,
+    owner: { ...owner, laborRoleId: actor.laborRoleId, displayName: "ARMY calc-v3 emission-v3" }, viewer: viewerValue,
+    policy: { engine: 3, saleCoefficientFo: 1.3, saleCoefficientMo: 1.2, allowedTaxRatesBp: [2000, 1000, 550, 210] },
+    v2Witness: { ...witness, expected: { ht: 2000, tax: 400, ttc: 2400 } },
+    approvalRule: { id: deactivated[0].id, thresholdCents: 500000, isActive: false },
+    approvalProject: { projectId: approvalProject.projectId, versionId: approvalProject.versionId, ruleId: approvalProject.ruleId,
+      thresholdCents: approvalProject.thresholdCents },
+    boundary: "A new owner, its bootstrap tenant at policy 3 without its default global approval rule, one second new admin of that tenant (viewer), one v2 draft witness, and one affaire with its own active approval rule at 5,000 EUR HT and one empty v3 draft; the other v3 are created, and every v3 is filled, by the journeys through the application." });
+  return { env: { E2E_V3_EMISSION_FIXTURE_PATH: file },
+    secretEnv: { E2E_V3M_VIEWER_EMAIL: viewer.email, E2E_V3M_VIEWER_PASSWORD: viewer.password },
+    login: { email: actor.email, password: actor.password },
+    identities: { owner: publicActor(actor), viewer: viewerValue, prefix, v2Witness: witness, policy: "engine 3, 1,30 / 1,20",
+      approvalRule: "default 5,000 EUR global rule deactivated for this tenant",
+      approvalProject: { ...approvalProject, rule: "require_approval, scope client, 5,000 EUR HT, active" } } };
+}
+
 /** Prepares the explicit fixtures of one calc-v3 phase on the owned stack. */
 export async function prepareCalcV3Fixtures(phase: CalcV3Phase, context: CalcV3FixtureContext): Promise<CalcV3PhaseFixtures> {
   const campaign = randomUUID().slice(0, 8);
@@ -636,5 +752,6 @@ export async function prepareCalcV3Fixtures(phase: CalcV3Phase, context: CalcV3F
     case "access": return accessFixtures(context, campaign);
     case "offers": return offersFixtures(context, campaign);
     case "emission": return { env: {}, secretEnv: {}, identities: { note: "OF journeys create their own ARMY-OFFER estimates through the UI." } };
+    case "emission-v3": return emissionV3Fixtures(context, campaign);
   }
 }

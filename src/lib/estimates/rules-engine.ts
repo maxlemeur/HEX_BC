@@ -3649,6 +3649,21 @@ async function syncEstimateApprovalSummary(input: {
     });
   }
 
+  // Lot 2, sous-lot 2.7 (V3M01) : une version émise est en lecture seule
+  // (guard_estimate_versions_readonly refuse toute colonne hors statut et sceau). Son résumé se
+  // calcule pour l'affichage, sans l'écriture vouée au refus qui vidait le panneau d'approbation
+  // d'une version jamais évaluée en brouillon (envoi par l'API).
+  if (input.version.status !== "draft") {
+    return enrichEstimateApprovalSummary({
+      context: input.context,
+      version: input.version,
+      project: input.project,
+      items,
+      submissionReadiness,
+      summary: coreSummary,
+    });
+  }
+
   const serviceRoleClient = createOptionalServiceRoleClient();
   if (!serviceRoleClient) {
     if (process.env.NODE_ENV === "production") {

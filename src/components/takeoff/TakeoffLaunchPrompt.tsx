@@ -15,6 +15,8 @@ import {
   type TakeoffDocumentRecommendation,
 } from "@/lib/takeoff/document-classifier";
 import type { TakeoffLevel } from "@/lib/takeoff/types";
+import type { EstimateEngineVersion } from "@/lib/estimates/engine/capabilities";
+import { takeoffTargetEngineRefusal } from "@/lib/takeoff/engine-support";
 import { CheckIcon, FileTextIcon, LoaderCircleIcon } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 
@@ -100,6 +102,11 @@ type TakeoffLaunchPromptProps = {
   compact?: boolean;
   resultsHref?: string;
   title?: string;
+  /**
+   * Sous-lot 2.10a (N3, D-f) : moteur de la version cible (le brouillon, ou la version dupliquée, même moteur).
+   * Une v3 ne reçoit pas de métré : motif nommé et lancement désactivé avant toute analyse.
+   */
+  targetCalcEngineVersion?: EstimateEngineVersion | null;
 };
 
 type PromptState = "idle" | "launching" | "success" | "error";
@@ -141,9 +148,11 @@ export function TakeoffLaunchPrompt({
   compact,
   resultsHref,
   title,
+  targetCalcEngineVersion,
 }: TakeoffLaunchPromptProps) {
   const toast = useToast();
   const launchMode = resolveLaunchMode({ versionId, sourceVersionId });
+  const engineRefusal = takeoffTargetEngineRefusal(targetCalcEngineVersion);
   const [state, setState] = useState<PromptState>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [createdJobId, setCreatedJobId] = useState<string | null>(null);
@@ -193,7 +202,7 @@ export function TakeoffLaunchPrompt({
   }, [planSetId, projectId, sourceVersionId, versionId]);
 
   const handleLaunch = useCallback(async () => {
-    if (!selectedLevel || !launchMode) {
+    if (!selectedLevel || !launchMode || engineRefusal) {
       return;
     }
 
@@ -271,6 +280,7 @@ export function TakeoffLaunchPrompt({
       );
     }
   }, [
+    engineRefusal,
     launchMode,
     launchRecommendation,
     onLaunched,
@@ -447,6 +457,14 @@ export function TakeoffLaunchPrompt({
                 {levelWarning.message}
               </div>
             ) : null}
+            {engineRefusal ? (
+              <p
+                id={`takeoff-prompt-engine-${planSetId}`}
+                className="rounded border border-warning-border bg-warning-subtle px-3 py-2 text-xs text-warning"
+              >
+                {engineRefusal}
+              </p>
+            ) : null}
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -454,7 +472,8 @@ export function TakeoffLaunchPrompt({
               type="button"
               className={buttonVariants({ variant: "primary", size: "sm" })}
               onClick={() => void handleLaunch()}
-              disabled={!selectedLevel || !launchMode}
+              disabled={!selectedLevel || !launchMode || Boolean(engineRefusal)}
+              aria-describedby={engineRefusal ? `takeoff-prompt-engine-${planSetId}` : undefined}
             >
               {primaryActionLabel}
             </button>
