@@ -2,9 +2,9 @@
 
 Statut : **vert** (18/10/2026). Défaillances écrites avant les parcours, parcours écrits avant le code, rouges
 conservés (§5), correction (§6), preuves qualifiantes (§7), décisions et limites (§8), revue indépendante et
-clôture de ses constats (§9). Branche
+clôture de ses constats (§9), revue Codex de la PR #57 (§10). Branche
 `lot2/2.10a-createurs-v3`, base `origin/main` `5cfd4a94` (2.8 fusionné), puis fusion de `origin/main` `d7e672b4`
-(#45 / 2.7 non fusionné à cette date, M5 non réhorodatée). Non poussée. Source : plan vers 2.10 (§1.2 N1, N3 ;
+(#45 / 2.7 non fusionné à cette date, M5 non réhorodatée). PR #57. Source : plan vers 2.10 (§1.2 N1, N3 ;
 §3 « 2.10a » ; décisions du 18/10/2026 D-d, D-f, D-g, D-h), inventaire des écarts v3 (A1 à A4, A16), cahier de
 la bascule (§2), conception du lot 2 §14 « 2.10 », P-12, P-14, P-19, D3, D16.
 
@@ -99,7 +99,8 @@ coefficients, réglages de version, nombre de versions de l'affaire +1, et polit
    action. » ; `?openStructureDraft=1` n'ouvre pas l'assistant « Structure IA » ; le hub ne propose plus
    « Ouvrir la structure préliminaire » pour un brouillon v3.
 7. **Évolution de la marge (A16, D-d).** Les points v1/v2 restent ; la section « Analyse de marge » affiche
-   « Évolution de la marge indisponible pour le moteur de calcul 3 : V3. » (versions v3 nommées).
+   « Évolution de la marge indisponible pour le moteur de calcul 3 : V3. » (versions v3 nommées). Sans analyse
+   calculable (version courante sans ligne ni section racine, comme une v3 vierge), la carte garde l'avis seul (§10).
 
 ## 3. Parcours rouges (`e2e/army/local/engine-v3-creators.e2e.ts`)
 
@@ -122,6 +123,7 @@ SQL (`calc_engine_version`, coefficients, réglages, totaux), les lignes par l'A
 | V3C08 | Métré sur une v3 (jeu de plans réel, `sample-plan.pdf`) ; 3 | motif nommé et « Analyser maintenant » désactivé dans la proposition d'analyse (v3 sans ligne) puis dans « Analyser les plans » (v3 avec une ligne) ; API 409 `TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED` ; aucune tâche | boutons actifs ; l'API crée une tâche (annulée par le parcours) |
 | V3C09 | Structure IA sur une v3 (éditeur, Expert) ; 3 | bouton désactivé avec le motif ; `?openStructureDraft=1` n'ouvre rien ; aucune entrée de version zéro (TI-582, tous moteurs) | bouton actif, l'assistant s'ouvre |
 | V3C10 | Hub, affaire V1 v2 (15 %), V2 v2 (10 %), V3 v3 ; 3 puis 2 | graphique V1, V2 ; avis « … indisponible pour le moteur de calcul 3 : V3. » | graphique V1, V2 sans avis |
+| V3C14 | Hub (§10), affaire à DPGF lié, V1 v2 vierge puis V2 v3 vierge ; 3 puis 2 | V1 seule : aucune carte ; avec la V2 : carte avec l'avis « … : V2. » seul, ni indicateurs ni graphique | aucune carte avec la V2 |
 | V3C11 | **Garde**, politique absente : assistant vierge à 15 % et palier inférieur 100 €, assistant « Marge par tranche », « Créer directement », accueil | v2 aux valeurs d'aujourd'hui (1,15 / 1 500 bp, `down` 10 000 ; `tiered` ; réglages hérités de la dernière version ; marge 1) ; attente absente ou 2 ; aucune politique écrite | vert avant |
 | V3C12 | **Garde**, politique absente : assistant depuis T1, assistant avec DPGF lié | v2 avec les réglages de T1 et ses heures (5 h, 1 h) ; DPGF : description `m` / `u`, PU 12,50 / 65,00 €, HT 90,00 €, TVA 18,00 € | vert avant |
 
@@ -129,7 +131,8 @@ Correspondance avec le plan : V3S01a → V3C01, V3S03 → V3C02, V3S04 → V3C04
 V3S05 → V3C06, V3S06 → §4, V3S07 → V3C07, V3S08 → V3C08 et V3C09, V3S09 → V3C11 et V3C12 (politique absente,
 comme le demande la consigne du sous-lot ; une politique 2 explicite suit le même code, `policy.engine === 2`).
 Après la revue : V3C08 appelle aussi l'action « Créer un brouillon depuis V… » sur la v3, et V3C13 prouve les
-refus nommés et les heures atelier / chantier de la création depuis un modèle (§9).
+refus nommés et les heures atelier / chantier de la création depuis un modèle (§9). Après la revue Codex de la
+PR #57 : V3C14 (§10).
 
 Carte d'impact : le fichier rejoint `suite.journeys` et les groupes `wizard`, `affaires-list` et `affaire-hub`
 (`src/test/army-impact-map.test.ts`).
@@ -343,3 +346,27 @@ touché depuis `3c9dd453`, `validate-openapi` vert dans `verify:pr`.
 Hors sous-lot, préexistant (tâche séparée proposée) : le même retrait sans effet laisse une copie v1/v2 dans
 l'affaire quand un lancement depuis une source v1/v2 échoue après la copie ; `takeoff.test.ts`, simulé, assertait
 ce filtre.
+
+## 10. Revue Codex de la PR #57 (18/10/2026)
+
+Revue de Codex sur `27c358d0` : un constat P2. Clos, le comportement d'abord en rouge. Commits : `3a14a4d4`
+(parcours), `81d2e861` (correction).
+
+| # | Constat | Clôture | Preuve |
+|---|---|---|---|
+| C1 (P2, commentaire 4307430730) | Version courante sans section racine (v3 vierge) : `fetchAffaireHubMarginAnalysisWithContext` rend `null` avant l'avis A16 ; la carte « Analyse de marge » disparaît, l'avis avec elle | Sans analyse calculable (aucune ligne, aucune section racine, entrée v3 illisible), l'analyse rend l'avis seul (`AffaireHubMarginV3Notice`) dès qu'une v3 est dans l'affaire ; sans v3, toujours `null` (v1/v2 inchangées). La carte affiche alors son titre et l'avis, ni indicateurs ni graphique. `fetchAffaireHubMarginAnalysis` garde son contrat (analyse ou `null`) | V3C14 |
+
+Le hub ne monte la carte qu'en mode Expert et hors de son démarrage (un document, un DPGF lié ou une ligne dans
+la version courante) : V3C14 lie donc un DPGF. Au démarrage (version courante vierge, sans document ni DPGF), la
+carte reste masquée pour tous les moteurs, comme avant : inchangé, hors constat. Aucun test isolé ajouté ni
+modifié.
+
+| Preuve | Révision, commande | Résultat | Preuves (`.e2e/lot2-2.10a/codex-c1/`) |
+|---|---|---|---|
+| Rouge | `27c358d0` + parcours de `3a14a4d4` (Node 24.14.0) ; `E2E_ARMY_WORKERS=2 npm run e2e:army:local -- --grep '^V3C(01\|14) ' --app-port 3171` | **V3C14 rouge métier** : `withV3` `null` (aucune carte) au lieu de l'avis « … : V2. » ; garde `v2Only` `null` ; versions `[[1,2],[2,3]]`, v3 sans élément ; connexion et V3C01 verts | `red/` (`2026-10-18T15-52-03-881Z-critical`, `SHA256SUMS`) |
+| Vert | `81d2e861`, clone WSL propre (Node 24.19.0) ; `E2E_ARMY_WORKERS=2 npm run e2e:army:local -- --grep '^V3C' --app-port 3171` | **15/15** (connexion, V3C01 à V3C14), 1 min 37 s de parcours ; V3C14 : V1 seule sans carte, puis carte avec l'avis seul | `green/` (`2026-10-18T15-55-44-210Z-critical`, `SHA256SUMS`) ; capture `docs/testing/assets/lot2-2.10a/001-v3c14-margin-notice-blank-v3.png` |
+| Qualité | `81d2e861` ; `npm run verify:pr` | vert (Vitest node 301 fichiers dont 1 ignoré, jsdom 165, couverture critique 3), arbre inchangé après le run | `verify-pr-81d2e861.log` |
+| Diff | `git -c core.whitespace=cr-at-eol diff --check origin/main...HEAD` ; `git merge-tree --write-tree HEAD origin/main` | propre ; fusion sans conflit avec `c4c1e854`, donc aucune fusion (AGENTS.md) | — |
+
+Les deux runs ont tourné sans le verrou natif de `main` (la branche le précède) : départ une fois les piles,
+builds et places réservées sous trois, compte relu toutes les 5 s.
