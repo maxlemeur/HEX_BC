@@ -12,7 +12,7 @@ import {
 } from "../critical/fixtures";
 // The 2.4 reading of the OPTIMA control cells (15 significant digits, half up), shared with optima-lot-check.
 import { controlCents } from "../../../src/lib/imports/optima-control";
-import { ownedEstimateContext } from "./calculation-gate-support";
+import { ownedEstimateContext, querySql } from "./calculation-gate-support";
 // Aliased: not a React hook, despite its name.
 import { setTenantCalcPolicy, useDedicatedV3Owner as signUpDedicatedV3Owner, type V3Owner } from "./engine-v3-persistence-support";
 
@@ -477,46 +477,110 @@ armyTest("IO06 a v2 template enters a v3 with the same MO and lists its converte
     }
   });
 
-// E10 (règle 6) : une section importée d'une autre version reçoit un refus nommé dans une v3, sans écriture ;
-// la conversion des heures (mêmes règles que les modèles) est une suite du 2.8.
-armyTest("IO07 a section imported from another version into a v3 is refused by name, nothing written", options,
+/** v3 inputs and stored amounts of a line, compared between a source and its copy (2.8b). */
+function v3LineInputs(line: ArmyItem) {
+  return [line.title, field(line, "unit_code"), field(line, "pricing_status"), num(field(line, "h_mo_per_unit")), num(line.quantity),
+    num(line.unit_price_ht_cents), field(line, "labor_role_id"), num(field(line, "pu_ht_cents")), num(line.line_total_ht_cents)];
+}
+
+/** A v2 section of the anchor with the IO06 lines (tube 10 ml × 5 h, collier 3 000 u × 1 h, Tuyauteur). */
+async function anchorV2Section(browser: Browser, army: ArmyState, anchorId: string, roleId: string, title: string) {
+  await retakeLease(browser, anchorId);
+  const anchor = await readEstimate(browser, anchorId);
+  const position = anchor.items.filter((item) => item.parent_id === null).length + 1;
+  const section = await apiRequest<Envelope<{ item: ArmyItem }>>(browser, "POST", `/api/estimates/${anchorId}/items`,
+    { item_type: "section", position, title }, { "if-match": anchor.version.updated_at });
+  expect([section.status, section.body.ok]).toEqual([201, true]);
+  for (const [index, line] of [
+    { title: `${army.runPrefix} tube`, description: "ml", quantity: 10, h_mo: 5 },
+    { title: `${army.runPrefix} collier`, description: "u", quantity: 3000, h_mo: 1 },
+  ].entries()) {
+    const current = await readEstimate(browser, anchorId);
+    const created = await apiRequest<Envelope<{ item: ArmyItem }>>(browser, "POST", `/api/estimates/${anchorId}/items`,
+      { item_type: "line", parent_id: section.body.data.item.id, position: index + 1, unit_price_ht_cents: 1000, labor_role_id: roleId, ...line },
+      { "if-match": current.version.updated_at });
+    expect([created.status, created.body.ok]).toEqual([201, true]);
+  }
+  return section.body.data.item.id;
+}
+
+function subtreeLines(state: ArmyEstimate, sectionId: string) {
+  return lineItems(state).filter((line) => line.parent_id === sectionId).sort((a, b) => a.position - b.position);
+}
+
+type CopyReport = { title: string; template_hours: number; converted_hours: number };
+
+// Sous-lot 2.8b (A7, P-12, D-e ; docs/testing/estimate-engine-v3-2.8b.md) : IO07 vérifiait le refus du 2.8.
+// Une section v2 importée dans une v3 est convertie comme un modèle (mêmes valeurs qu'IO06) avec son rapport ;
+// v3 → v3 copie les saisies v3 ; v3 → v2 est refusé par son nom, rien n'est écrit.
+armyTest("IO07 sections enter a v3 from a v2 (converted, listed) and from a v3 (copied); a v3 section into a v2 is refused by name", options,
   async ({ app, screen, browser, army }) => {
     const ui = { app, screen, browser };
-    const { owner, projectId, anchorId } = await prepareV3Owner(ui, army, "section");
+    const { owner, projectId, anchorId, roleId } = await prepareV3Owner(ui, army, "section");
     try {
-      await retakeLease(browser, anchorId);
-      const anchor = await readEstimate(browser, anchorId);
-      const section = await apiRequest<Envelope<{ item: ArmyItem }>>(browser, "POST", `/api/estimates/${anchorId}/items`,
-        { item_type: "section", position: 1, title: `${army.runPrefix} lot à importer` }, { "if-match": anchor.version.updated_at });
-      expect([section.status, section.body.ok]).toEqual([201, true]);
-      const current = await readEstimate(browser, anchorId);
-      const line = await apiRequest<Envelope<{ item: ArmyItem }>>(browser, "POST", `/api/estimates/${anchorId}/items`,
-        { item_type: "line", parent_id: section.body.data.item.id, position: 1, title: `${army.runPrefix} tube`,
-          description: "ml", quantity: 10, unit_price_ht_cents: 1000, h_mo: 5 }, { "if-match": current.version.updated_at });
-      expect([line.status, line.body.ok]).toEqual([201, true]);
+      const v2SectionId = await anchorV2Section(browser, army, anchorId, roleId, `${army.runPrefix} lot à importer`);
       const versionId = await blankV3(ui, army, projectId, "section");
-      const before = await readEstimate(browser, versionId);
+      await retakeLease(browser, versionId);
+      type Imported = { created_section_ids: string[]; converted_lines?: CopyReport[] };
+      const fromV2 = await apiRequest<Envelope<Imported>>(browser, "POST", `/api/estimates/${versionId}/import-sections`,
+        { source_version_id: anchorId, section_ids: [v2SectionId] });
+      await recordEvidence(army, "io-section-import-v2", { versionId, status: fromV2.status, body: fromV2.body });
+      expect([fromV2.status, fromV2.body.ok, fromV2.body.error?.code ?? null]).toEqual([201, true, null]);
+      const imported = await readEstimate(browser, versionId);
+      const importedSectionId = fromV2.body.data.created_section_ids[0]!;
+      const importedLines = subtreeLines(imported, importedSectionId);
+      const observedV2 = {
+        engine: imported.version.calc_engine_version,
+        perUnit: importedLines.map((line) => [line.title, field(line, "unit_code"), num(field(line, "h_mo_per_unit")), num(line.h_mo)]),
+        converted: fromV2.body.data.converted_lines?.map((line) => [line.title, line.template_hours, line.converted_hours]) ?? null,
+        tube: importedLines.filter((line) => line.title === `${army.runPrefix} tube`)
+          .map((line) => [num(line.pu_ht_cents), num(line.line_total_ht_cents)])[0] ?? null,
+        footer: num(imported.version.total_ht_cents) === lineItems(imported).reduce((sum, line) => sum + Number(line.line_total_ht_cents), 0),
+      };
+      await recordEvidence(army, "io-section-import-v2-observed", { versionId, observedV2 });
+      expect(observedV2).toEqual({
+        engine: 3,
+        perUnit: [[`${army.runPrefix} tube`, "ml", 0.5, 5], [`${army.runPrefix} collier`, "u", 0.0003, 0.9]],
+        converted: [[`${army.runPrefix} collier`, 1, 0.9]],
+        tube: [3700, 37000],
+        footer: true,
+      });
+
+      // v3 → v3: the inputs are copied as they are, the amounts recomputed by the writer (same coefficients).
+      const otherId = await blankV3(ui, army, projectId, "section-b");
+      await retakeLease(browser, otherId);
+      const fromV3 = await apiRequest<Envelope<Imported>>(browser, "POST", `/api/estimates/${otherId}/import-sections`,
+        { source_version_id: versionId, section_ids: [importedSectionId] });
+      await recordEvidence(army, "io-section-import-v3", { otherId, status: fromV3.status, body: fromV3.body });
+      expect([fromV3.status, fromV3.body.ok, fromV3.body.error?.code ?? null]).toEqual([201, true, null]);
+      const copied = await readEstimate(browser, otherId);
+      expect({
+        lines: subtreeLines(copied, fromV3.body.data.created_section_ids[0]!).map(v3LineInputs),
+        converted: fromV3.body.data.converted_lines ?? [],
+      }).toEqual({ lines: importedLines.map(v3LineInputs), converted: [] });
+
+      // v3 → v2 (D-e): refused by name before any write, by import and by duplication.
+      await retakeLease(browser, anchorId);
       const anchorBefore = await readEstimate(browser, anchorId);
-      const v3Section = before.items.find((item) => item.item_type === "section")!;
-      const responses = {
-        importInto: await apiRequest<Envelope<unknown>>(browser, "POST", `/api/estimates/${versionId}/import-sections`,
-          { source_version_id: anchorId, section_ids: [section.body.data.item.id] }),
-        duplicateInto: await apiRequest<Envelope<unknown>>(browser, "POST",
-          `/api/estimates/${anchorId}/sections/${section.body.data.item.id}/duplicate`, { target_version_id: versionId }),
+      const v3Before = await readEstimate(browser, versionId);
+      const refusals = {
         importFrom: await apiRequest<Envelope<unknown>>(browser, "POST", `/api/estimates/${anchorId}/import-sections`,
-          { source_version_id: versionId, section_ids: [v3Section.id] }),
+          { source_version_id: versionId, section_ids: [importedSectionId] }),
+        duplicateTo: await apiRequest<Envelope<unknown>>(browser, "POST",
+          `/api/estimates/${versionId}/sections/${importedSectionId}/duplicate`, { target_version_id: anchorId },
+          await leaseSession(browser, anchorId)),
       };
-      const after = await readEstimate(browser, versionId);
       const anchorAfter = await readEstimate(browser, anchorId);
+      const v3After = await readEstimate(browser, versionId);
       const observed = {
-        responses: Object.fromEntries(Object.entries(responses).map(([name, response]) =>
+        responses: Object.fromEntries(Object.entries(refusals).map(([name, response]) =>
           [name, [response.status, response.body.ok, response.body.error?.code ?? null]])),
-        unchanged: after.items.length === before.items.length && after.version.updated_at === before.version.updated_at &&
-          anchorAfter.items.length === anchorBefore.items.length && anchorAfter.version.updated_at === anchorBefore.version.updated_at,
+        unchanged: anchorAfter.items.length === anchorBefore.items.length && anchorAfter.version.updated_at === anchorBefore.version.updated_at &&
+          v3After.items.length === v3Before.items.length && v3After.version.updated_at === v3Before.version.updated_at,
       };
-      await recordEvidence(army, "io-section-import", { versionId, observed });
-      const refused = [409, false, "ESTIMATE_ENGINE_UNAVAILABLE"];
-      expect(observed).toEqual({ responses: { importInto: refused, duplicateInto: refused, importFrom: refused }, unchanged: true });
+      await recordEvidence(army, "io-section-import-refused", { versionId, anchorId, observed });
+      const refused = [409, false, "ESTIMATE_V3_SECTION_COPY_TO_HISTORICAL"];
+      expect(observed).toEqual({ responses: { importFrom: refused, duplicateTo: refused }, unchanged: true });
     } finally {
       await closePolicy(owner, army, "section");
     }
@@ -608,5 +672,276 @@ armyTest("IO09 a v3 refuses by name an inexact assembly and a template line with
       });
     } finally {
       await closePolicy(owner, army, "refus");
+    }
+  });
+
+// ---------------------------------------------------------------------------------------------------------------
+// Sous-lot 2.8b (docs/testing/estimate-engine-v3-2.8b.md) : copies vers une v3. Défaillances observables, écrites
+// avant le code :
+//  C1  Le DPGF lié importé dans un brouillon v3 existant est refusé (insertion directe, 400 générique du garde SQL).
+//  C2  Une fois ouvert, il serait normalisé en v2 (unité dans `description`, statut chiffré) ou aux coefficients de la
+//      politique au lieu de ceux du brouillon ; provenance perdue.
+//  C3  Dupliquer une section d'une v3 (sur place ou vers une autre v3) est refusé (409 moteur indisponible).
+//  C4  Une copie perd `unit_code`, le statut ou les h/u, multiplie les heures par Q deux fois, ou écrit en plusieurs
+//      lots (écriture partielle).
+//  C5  Une section v2 entre dans une v3 sans conversion P-12 ni rapport ; une section v3 entre dans une v2 (D-e).
+//  C6  La conversion ligne ↔ section reste proposée sur une v3, puis échoue par un message générique (D-b).
+//  C7  Une copie v1/v2 → v1/v2 change de montants.
+
+/** A linked DPGF of the owned affaire (A5): an import and its mapped rows, as the import mapping stores them. */
+async function seedLinkedDpgf(owner: V3Owner, projectId: string, filename: string, rows: ReadonlyArray<Record<string, string>>) {
+  if (!UUID.test(projectId) || !/^ARMY-[A-Za-z0-9 .-]{1,120}\.xlsx$/.test(filename)) throw new Error("Invalid linked DPGF fixture input.");
+  const importId = randomUUID();
+  const payloads = rows.map((row, index) => `'${JSON.stringify({ row_index: index + 1, ...row }).replaceAll("'", "''")}'::jsonb`);
+  const output = await querySql(`BEGIN;
+INSERT INTO public.dpgf_imports (id, tenant_id, user_id, filename, source_format, status, row_count, parse_mode, project_id)
+SELECT '${importId}'::uuid, p.tenant_id, p.user_id, '${filename}', 'xlsx', 'completed', ${rows.length}, 'server', p.id
+FROM public.estimate_projects p WHERE p.id = '${projectId}' AND p.tenant_id = '${owner.tenantId}' AND p.user_id = '${owner.userId}';
+INSERT INTO public.dpgf_rows_mapped (tenant_id, import_id, payload, status, created_at)
+SELECT '${owner.tenantId}'::uuid, '${importId}'::uuid, r.payload, 'mapped', now() + r.ord * interval '1 millisecond'
+FROM unnest(ARRAY[${payloads.join(", ")}]) WITH ORDINALITY AS r(payload, ord)
+WHERE EXISTS (SELECT 1 FROM public.dpgf_imports i WHERE i.id = '${importId}'::uuid);
+COMMIT;
+SELECT count(*) FROM public.dpgf_rows_mapped WHERE import_id = '${importId}';
+`);
+  if (output.at(-1) !== String(rows.length)) throw new Error("The linked DPGF fixture was not persisted.");
+  return importId;
+}
+
+async function storedTotalHtCents(versionId: string) {
+  if (!UUID.test(versionId)) throw new Error("Invalid version identity.");
+  const [total] = await querySql(`SELECT total_ht_cents FROM public.estimate_versions WHERE id = '${versionId}';\n`);
+  return Number(total);
+}
+
+armyTest("IO10 the linked DPGF imported into a v3 draft keeps units and statuses, prices at the draft coefficients, keeps provenance", options,
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser };
+    const { owner, projectId } = await prepareV3Owner(ui, army, "dpgf-lie");
+    try {
+      const filename = `${army.runPrefix}-dpgf-lie.xlsx`;
+      const versionId = await blankV3(ui, army, projectId, "dpgf-lie");
+      // The draft's own coefficients (1,25 / 1,15), not the policy's (1,30 / 1,20), price the imported lines.
+      await saveSettings(browser, army, versionId, "dpgf-lie", { sale_coefficient_fo: 1.25, sale_coefficient_mo: 1.15 });
+      const before = await readEstimate(browser, versionId);
+      await seedLinkedDpgf(owner, projectId, filename, [
+        { designation: `${army.runPrefix} tube`, unit: "ml", quantity: "10", unit_price_ht: "12,00" },
+        { designation: `${army.runPrefix} collier`, unit: "u", quantity: "3", unit_price_ht: "4,00" },
+        { designation: `${army.runPrefix} provision`, unit: "PM", quantity: "1" },
+        { designation: `${army.runPrefix} hors lot`, unit: "HL", quantity: "1" },
+      ]);
+      await retakeLease(browser, versionId);
+      const imported = await apiRequest<Envelope<{ createdSectionId: string; importedLinesCount: number }>>(browser, "POST",
+        `/api/estimates/${versionId}/import-linked-dpgf`, {});
+      await recordEvidence(army, "io-linked-dpgf", { versionId, status: imported.status, body: imported.body });
+      expect([imported.status, imported.body.ok, imported.body.error?.code ?? null]).toEqual([201, true, null]);
+      const after = await readEstimate(browser, versionId);
+      const section = after.items.find((item) => item.id === imported.body.data.createdSectionId);
+      const lines = section ? subtreeLines(after, section.id) : [];
+      const observed = {
+        engine: after.version.calc_engine_version,
+        coefficients: [num(field(after.version, "sale_coefficient_fo")), num(field(after.version, "sale_coefficient_mo"))],
+        lines: lines.map((line) => [line.title, field(line, "unit_code"), field(line, "pricing_status"), num(field(line, "h_mo_per_unit")),
+          num(line.line_total_ht_cents)]),
+        pricedPu: lines.filter((line) => field(line, "pricing_status") === "priced").map((line) => num(field(line, "pu_ht_cents"))),
+        provenance: lines.map((line) => [field(line, "source_provider"), field(line, "source_file_name"), field(line, "source_page")]),
+        sectionProvenance: section ? [field(section, "source_provider"), field(section, "source_file_name")] : null,
+        previousItemsKept: before.items.every((item) => after.items.some((next) => next.id === item.id && next.title === item.title)),
+        apiTotal: num(after.version.total_ht_cents),
+        sqlTotal: await storedTotalHtCents(versionId),
+      };
+      await recordEvidence(army, "io-linked-dpgf-observed", { versionId, observed });
+      // 12,00 € × FO 1,25 = 15,00 € × 10 ml ; 4,00 € × 1,25 = 5,00 € × 3 u ; PM and HL at 0 € : 165,00 € HT.
+      expect(observed).toEqual({
+        engine: 3,
+        coefficients: [1.25, 1.15],
+        lines: [
+          [`${army.runPrefix} tube`, "ml", "priced", null, 15000],
+          [`${army.runPrefix} collier`, "u", "priced", null, 1500],
+          [`${army.runPrefix} provision`, null, "for_memory", null, 0],
+          [`${army.runPrefix} hors lot`, null, "out_of_scope", null, 0],
+        ],
+        pricedPu: [1500, 500],
+        provenance: [1, 2, 3, 4].map((page) => ["dpgf", filename, page]),
+        sectionProvenance: ["dpgf", filename],
+        previousItemsKept: true,
+        apiTotal: 16500,
+        sqlTotal: 16500,
+      });
+    } finally {
+      await closePolicy(owner, army, "dpgf-lie");
+    }
+  });
+
+/** v3 lines written by the batch writer under the first section: tube, PM provision and a sub-section with a coude. */
+async function seedV3Section(browser: Browser, army: ArmyState, versionId: string, roleId: string) {
+  const state = await readEstimate(browser, versionId);
+  const sectionId = state.items.find((item) => item.item_type === "section" && item.parent_id === null)!.id;
+  const line = (title: string, parentId: string, position: number, input: Record<string, unknown>) => ({ op: "create", data: {
+    item_type: "line", parent_id: parentId, position, title, tax_rate_bp: 2000, k_fo: 1, h_mo_majoration: 1, k_mo: 1, ...input } });
+  const first = await apiRequest<Envelope<{ committed: boolean; results: Array<{ data: { item: ArmyItem } }> }>>(browser, "POST",
+    `/api/estimates/${versionId}/batch`, { operation_key: randomUUID(), operations: [
+      line(`${army.runPrefix} tube`, sectionId, 1,
+        { quantity: 10, unit_price_ht_cents: 1000, unit_code: "ml", pricing_status: "priced", h_mo_per_unit: 0.5, labor_role_id: roleId }),
+      line(`${army.runPrefix} provision`, sectionId, 2, { quantity: 1, unit_price_ht_cents: 0, unit_code: null, pricing_status: "for_memory" }),
+      { op: "create", data: { item_type: "section", parent_id: sectionId, position: 3, title: `${army.runPrefix} sous-lot` } },
+    ] }, { "if-match": state.version.updated_at });
+  expect([first.status, first.body.ok, first.body.data?.committed]).toEqual([200, true, true]);
+  const subSection = first.body.data.results[2]!.data.item.id;
+  const current = await readEstimate(browser, versionId);
+  const second = await apiRequest<Envelope<{ committed: boolean }>>(browser, "POST", `/api/estimates/${versionId}/batch`,
+    { operation_key: randomUUID(), operations: [line(`${army.runPrefix} coude`, subSection, 1,
+      { quantity: 4, unit_price_ht_cents: 250, unit_code: "u", pricing_status: "priced", h_mo_per_unit: 0.25, labor_role_id: roleId })] },
+    { "if-match": current.version.updated_at });
+  expect([second.status, second.body.ok, second.body.data?.committed]).toEqual([200, true, true]);
+  return sectionId;
+}
+
+/** The subtree of a section in order: [depth, type, title or v3 inputs and amounts], titles of the root excepted. */
+function subtreeShape(state: ArmyEstimate, rootId: string) {
+  const rows: unknown[] = [];
+  const visit = (parentId: string, depth: number) => {
+    for (const item of state.items.filter((entry) => entry.parent_id === parentId).sort((a, b) => a.position - b.position)) {
+      rows.push(item.item_type === "line" ? [depth, ...v3LineInputs(item)] : [depth, "section", item.title]);
+      if (item.item_type === "section") visit(item.id, depth + 1);
+    }
+  };
+  visit(rootId, 1);
+  return rows;
+}
+
+armyTest("IO11 a v3 section is duplicated in place and to another v3 with the same inputs and amounts; a v2 copy keeps its amounts", options,
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser };
+    const { owner, projectId, anchorId, roleId } = await prepareV3Owner(ui, army, "duplication");
+    try {
+      const versionId = await blankV3(ui, army, projectId, "duplication");
+      const sectionId = await seedV3Section(browser, army, versionId, roleId);
+      const source = await readEstimate(browser, versionId);
+      const sourceShape = subtreeShape(source, sectionId);
+      type Duplicated = { duplicated_section_id: string; copied_item_count: number; converted_lines?: CopyReport[] };
+
+      const inPlace = await apiRequest<Envelope<Duplicated>>(browser, "POST",
+        `/api/estimates/${versionId}/sections/${sectionId}/duplicate`, {});
+      await recordEvidence(army, "io-duplicate-in-place", { versionId, status: inPlace.status, body: inPlace.body });
+      expect([inPlace.status, inPlace.body.ok, inPlace.body.error?.code ?? null]).toEqual([201, true, null]);
+      const afterInPlace = await readEstimate(browser, versionId);
+      const copyId = inPlace.body.data.duplicated_section_id;
+
+      const otherId = await blankV3(ui, army, projectId, "duplication-b");
+      await retakeLease(browser, otherId);
+      const toOther = await apiRequest<Envelope<Duplicated>>(browser, "POST",
+        `/api/estimates/${versionId}/sections/${sectionId}/duplicate`, { target_version_id: otherId }, await leaseSession(browser, otherId));
+      await recordEvidence(army, "io-duplicate-to-v3", { otherId, status: toOther.status, body: toOther.body });
+      expect([toOther.status, toOther.body.ok, toOther.body.error?.code ?? null]).toEqual([201, true, null]);
+      const other = await readEstimate(browser, otherId);
+
+      const observed = {
+        inPlace: {
+          title: afterInPlace.items.find((item) => item.id === copyId)?.title ?? null,
+          shape: subtreeShape(afterInPlace, copyId),
+          count: inPlace.body.data.copied_item_count,
+          sourceUnchanged: JSON.stringify(subtreeShape(afterInPlace, sectionId)) === JSON.stringify(sourceShape),
+          total: num(afterInPlace.version.total_ht_cents),
+          sqlTotal: await storedTotalHtCents(versionId),
+        },
+        toOther: { shape: subtreeShape(other, toOther.body.data.duplicated_section_id), total: num(other.version.total_ht_cents) },
+      };
+      await recordEvidence(army, "io-duplicate-observed", { versionId, otherId, sourceShape, sourceTotal: source.version.total_ht_cents, observed });
+      const sourceTotal = num(source.version.total_ht_cents)!;
+      expect(observed).toEqual({
+        inPlace: { title: `duplication lot (copie)`, shape: sourceShape, count: 5, sourceUnchanged: true,
+          total: sourceTotal * 2, sqlTotal: sourceTotal * 2 },
+        toOther: { shape: sourceShape, total: sourceTotal },
+      });
+      // Tube: 10,00 € × 1,30 + 0,5 h/u × 40 €/h × 1,20 = 37,00 € × 10 ml ; coude: 2,50 € × 1,30 + 0,25 × 40 × 1,20 = 15,25 € × 4 u.
+      expect(sourceTotal).toBe(37_000 + 6_100);
+
+      // C7 guard (green before): a v2 section duplicated in place keeps its amounts.
+      const v2SectionId = await anchorV2Section(browser, army, anchorId, roleId, `${army.runPrefix} lot v2`);
+      const anchorBefore = await readEstimate(browser, anchorId);
+      const v2Copy = await apiRequest<Envelope<Duplicated>>(browser, "POST", `/api/estimates/${anchorId}/sections/${v2SectionId}/duplicate`, {});
+      expect([v2Copy.status, v2Copy.body.ok]).toEqual([201, true]);
+      const anchorAfter = await readEstimate(browser, anchorId);
+      const v2Amounts = (state: ArmyEstimate, id: string) => subtreeLines(state, id).map((line) =>
+        [line.title, num(line.quantity), num(line.unit_price_ht_cents), num(line.h_mo), num(field(line, "pu_ht_cents")), num(line.line_total_ht_cents)]);
+      const v2Observed = {
+        copy: v2Amounts(anchorAfter, v2Copy.body.data.duplicated_section_id),
+        total: Number(anchorAfter.version.total_ht_cents) - Number(anchorBefore.version.total_ht_cents),
+        converted: v2Copy.body.data.converted_lines ?? [],
+      };
+      await recordEvidence(army, "io-duplicate-v2-guard", { anchorId, v2Observed });
+      expect(v2Observed).toEqual({
+        copy: v2Amounts(anchorBefore, v2SectionId),
+        total: v2Amounts(anchorBefore, v2SectionId).reduce((sum, line) => sum + Number(line[5]), 0),
+        converted: [],
+      });
+    } finally {
+      await closePolicy(owner, army, "duplication");
+    }
+  });
+
+armyTest("IO12 line ↔ section conversion is disabled with its reason in a v3 editor and refused by name, nothing written", options,
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser };
+    const { owner, projectId, roleId } = await prepareV3Owner(ui, army, "conversion");
+    try {
+      const versionId = await blankV3(ui, army, projectId, "conversion");
+      const sectionId = await seedV3Section(browser, army, versionId, roleId);
+      let state = await readEstimate(browser, versionId);
+      const empty = await apiRequest<Envelope<{ item: ArmyItem }>>(browser, "POST", `/api/estimates/${versionId}/items`,
+        { item_type: "section", position: 2, title: `${army.runPrefix} vide` }, { "if-match": state.version.updated_at });
+      expect([empty.status, empty.body.ok]).toEqual([201, true]);
+      state = await readEstimate(browser, versionId);
+      const tube = lineItems(state).find((line) => line.title === `${army.runPrefix} tube`)!;
+      const probes = {
+        lineToSection: await apiRequest<Envelope<unknown>>(browser, "PATCH", `/api/estimates/${versionId}/items`,
+          { id: tube.id, item_type: "section" }, { "if-match": state.version.updated_at }),
+        sectionToLine: await apiRequest<Envelope<unknown>>(browser, "PATCH", `/api/estimates/${versionId}/items`,
+          { id: empty.body.data.item.id, item_type: "line" }, { "if-match": state.version.updated_at }),
+      };
+      const afterProbes = await readEstimate(browser, versionId);
+
+      const released = await apiRequest(browser, "DELETE", `/api/estimates/${versionId}/lock`);
+      expect(released.status).toBe(200);
+      await app.open(`/dashboard/estimates/${versionId}/edit`);
+      await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible({ timeout: 60_000 });
+      const sectionTitle = browser.locator(`[data-estimate-item-id="${sectionId}"] [data-testid="estimate-section-title-input"]`);
+      await expect(sectionTitle).toBeEnabled({ timeout: 150_000 });
+      await screen.getByRole("button", `Plus d'actions pour ${army.runPrefix} tube`, { exact: true }).tap();
+      const lineConvert = screen.getByRole("menuitem", "Convertir en section", { exact: true });
+      await expect(lineConvert).toBeVisible();
+      const lineMenu = { disabled: await lineConvert.getAttribute("aria-disabled"), reason: await lineConvert.getAttribute("title") };
+      await browser.keyboard.press("Escape");
+      await browser.evaluate((id) => {
+        const row = document.querySelector(`[data-estimate-item-id="${id}"]`);
+        if (!(row instanceof HTMLElement)) throw new Error("Section row missing.");
+        const box = row.getBoundingClientRect();
+        row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: box.left + 40, clientY: box.top + 10 }));
+        return true;
+      }, empty.body.data.item.id);
+      const sectionConvert = browser.locator('[data-testid="estimate-section-context-convert-to-line-button"]');
+      await expect(sectionConvert).toBeVisible();
+      const sectionMenu = { disabled: await sectionConvert.isDisabled(), reason: await sectionConvert.getAttribute("title") };
+      const after = await readEstimate(browser, versionId);
+      const reason = "Conversion ligne ↔ section indisponible sur un devis au moteur de calcul 3 : supprimez l’élément puis recréez-le.";
+      const observed = {
+        responses: Object.fromEntries(Object.entries(probes).map(([name, response]) =>
+          [name, [response.status, response.body.ok, response.body.error?.code ?? null]])),
+        lineMenu,
+        sectionMenu,
+        unchanged: after.items.length === state.items.length && afterProbes.version.updated_at === state.version.updated_at &&
+          after.items.every((item) => state.items.some((previous) => previous.id === item.id && previous.item_type === item.item_type)),
+      };
+      await recordEvidence(army, "io-conversion-gate", { versionId, observed });
+      const refused = [409, false, "ESTIMATE_V3_ITEM_CONVERSION_UNAVAILABLE"];
+      expect(observed).toEqual({
+        responses: { lineToSection: refused, sectionToLine: refused },
+        lineMenu: { disabled: "true", reason },
+        sectionMenu: { disabled: true, reason },
+        unchanged: true,
+      });
+    } finally {
+      await closePolicy(owner, army, "conversion");
     }
   });
