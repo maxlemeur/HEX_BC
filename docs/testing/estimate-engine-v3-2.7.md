@@ -1865,7 +1865,7 @@ Limites : celles du §13.11 ; correction de V3E05 sans relecture indépendante (
 PR verte). Cette ronde suit sur `fix/lot2-2.7-sealed-print-and-contract-order`, ouverte depuis `b905ca26` :
 les trois commits de la ronde préparés sur `lot2/2.7-document-emission-v3` sont repris par `cherry-pick -x`
 (`2c0d1dce`, `60daee99`, `bc95746f` → `f3f47729`, `bed15133`, `35a00bf7`), la correction SQL devient une
-migration nouvelle et M5 reste intacte (sha256 `d0a799c0…c84f`, en cours d'application à la base partagée).
+migration nouvelle et M5 reste intacte (sha256 `d0a799c0…c84f`, déjà appliquée à la base partagée, `d1eefdf1`).
 
 | Constat (revue Codex) | Défaillance | Correction |
 |---|---|---|
@@ -1896,10 +1896,11 @@ local, Node 24.14.0, journaux `~/l27-fu-logs/`) :
 
 Revue interne (lecture seule, sur le diff stable `b905ca26...e33a443d`) : aucun défaut bloquant. Retenus comme
 limites : le sous-total attendu de V3M-18 est lu sur la page même (le HT brut, contrôlé par la forme seulement) ;
-une v3 émise dont la copie ne se vérifie pas retombe, comme avant, sur la mise en page demandée (comportement de
-`issuedCopyOf` antérieur à cette ronde) ; le préliminaire de la migration vérifie les propriétés de la fonction,
-pas son corps. La profondeur (`depth`) n'a pas besoin d'appariement : le validateur l'impose depuis `parentId`
-(racine 0, parent + 1), que l'appariement compare déjà à l'arbre stocké.
+une v3 émise dont la copie ne se vérifie pas n'imprime aucun document, sans repli sur la mise en page demandée :
+la page n'affiche qu'un avertissement (comportement de `issuedCopyOf` antérieur à cette ronde) ; le préliminaire
+de la migration vérifie les propriétés de la fonction, pas son corps. La profondeur (`depth`) n'a pas besoin
+d'appariement : le validateur l'impose depuis `parentId` (racine 0, parent + 1), que l'appariement compare déjà à
+l'arbre stocké.
 
 Non exécutés localement (la CI de la PR les rejoue) : la suite critique complète, `army-takeoff`, les autres phases
 calc-v3 (V3M01 et V3M05 impriment une copie scellée sous la mise en page par défaut, texte inchangé attendu), et
