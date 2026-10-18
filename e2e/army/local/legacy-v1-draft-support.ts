@@ -5,12 +5,11 @@ import { expect } from "e2e";
 import type { StoredTotals } from "../critical/version-totals-support";
 import { querySql } from "./calculation-gate-support";
 
-// A legacy V1 draft on the owned local stack, for the version-totals journeys (V1PT01, V1BT01).
+// A legacy V1 draft on the owned local stack, for the version-totals journeys (V1PT01, V1BT01 to V1BT03).
 // The public creation schema only makes V2 drafts, so the V1 draft is inserted in SQL by the native
 // owner of the owned stack, as engine-v3-fail-closed does for v3: fixed margin x1, 20 % VAT, no
 // discount, no rounding, one section and one line whose stored totals are given consistent.
 export type Envelope<T> = { ok: boolean; data: T; error?: { code: string; message: string } };
-export type UiMode = "simplified" | "expert";
 export type V1Draft = { projectId: string; versionId: string; sectionId: string; lineId: string; title: string };
 export type LegacyV1Line = {
   title: string; description: string | null; productId: string | null;
@@ -34,22 +33,6 @@ export async function createdData<T>(response: { status: number; body: Envelope<
   expect([200, 201], `HTTP ${response.status} ${response.body.error?.code ?? "without error code"}`).toContain(response.status);
   expect(response.body.ok).toBe(true);
   return response.body.data;
-}
-
-// The UI mode is stored on the shared account's profile: the caller restores the returned mode.
-export async function setUiMode(userId: string, mode: UiMode): Promise<UiMode> {
-  if (!UUID.test(userId)) throw new Error("Invalid profile identity.");
-  const output = await querySql(`BEGIN;
-SELECT ui_mode FROM public.profiles WHERE id = '${userId}' AND current_user = 'postgres' FOR UPDATE;
-UPDATE public.profiles SET ui_mode = '${mode}' WHERE id = '${userId}';
-COMMIT;
-SELECT 'ARMY_UI_MODE_COMMITTED';
-`);
-  const [previous, marker] = output;
-  if (output.length !== 2 || marker !== "ARMY_UI_MODE_COMMITTED" || (previous !== "simplified" && previous !== "expert")) {
-    throw new Error("The UI mode change of the owned profile is ambiguous; no retry.");
-  }
-  return previous;
 }
 
 export async function insertLegacyV1Draft(

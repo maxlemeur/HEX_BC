@@ -1021,7 +1021,8 @@ changements de modèle qui déplacent le focus), puis appuie sur Entrée sur le 
   déploiement, sur autorisation explicite (`AGENTS.md`, `supabase/README.md` §3) ; rien n'a été appliqué à distance.
 - Limites de l'implémentation : état revu au §11.6 (le §8.5 garde la trace des points corrigés par la revue).
 - `V1PT01` (`supplier-preselection-v1-totals.e2e.ts`) n'est sélectionné que par la suite `full` ; la v1 est couverte
-  ici par `OZ04` (phase `offers`, même scénario) et la v2 par P1 de `bulk-edit-sync-sources`.
+  ici par `OZ04` (phase `offers`, même scénario) et la v2 par P1 de `bulk-edit-sync-sources`. Depuis le 18/10/2026, `V1PT01` est
+  dans la sélection critical ([TesterArmy CI](tester-army-ci.md#parcours-v1-des-totaux-dans-la-sélection-des-pr)).
 - `OF00` (phase `emission` de calc-v3, `next dev`) est rouge depuis 2.9, sur `main` comme sur la branche (§10.3.1) :
   décision de 2.9 partagée avec 2.7 (la phase d'émission passera en build de production en 2.7) ; 2.6 ne l'aggrave
   pas.

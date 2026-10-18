@@ -267,7 +267,7 @@ Deux constats, vérifiés puis corrigés (`f2b297dc`, commentaire `ebcbb74d`).
 | Chemin | Garde | Exécution |
 | --- | --- | --- |
 | v2, marge fixe | P1 (`critical/bulk-edit-sync-sources`), lecture API | CI critical (PR selon la carte d'impact, push sur `main`) et suite `full` nocturne |
-| v1 historique | V1PT01 (`local/supplier-preselection-v1-totals`), API, hub et liste | suite `full` nocturne seulement : une régression v1 n'arrête pas une PR, elle apparaît la nuit suivante |
+| v1 historique | V1PT01 (`local/supplier-preselection-v1-totals`), API, hub et liste | suite `full` nocturne seulement : une régression v1 n'arrête pas une PR, elle apparaît la nuit suivante (jusqu'au 18/10/2026 ; depuis, CI critical, sous un propriétaire dédié : [TesterArmy CI](tester-army-ci.md#parcours-v1-des-totaux-dans-la-sélection-des-pr)) |
 | v1 historique | OZ04 (`local/supplier-offer-zero-price`), API, hub et liste | phase calc-v3 `offers`, à la main (`npm run e2e:army:calc-v3 -- --phase offers`) ; aucun workflow |
 
 ### Preuves (rouge puis vert)
