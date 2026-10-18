@@ -6,8 +6,10 @@ suppression annulée).
 
 ## Échec observé
 
-PR #42, run CI `39107622137` (suite critical, 2 workers, commit de fusion
-`4fd38d80`, Chromium 156 headless, 1280×800) : 94/95, V3E05 seul rouge.
+[PR #42](https://github.com/maxlemeur/HEX_BC/pull/42), run CI
+[`39107622137`](https://github.com/maxlemeur/HEX_BC/actions/runs/39107622137)
+(suite critical, 2 workers, commit de fusion `4fd38d80`, Chromium 156 headless,
+1280×800) : 94/95, V3E05 seul rouge.
 
 ```text
 tap did not become actionable in time: locator.click: Timeout 29727ms exceeded.
@@ -39,7 +41,8 @@ dans la zone d'alertes du ruban
 `estimate-editor-alert-totals-out-of-sync` : « Les totaux n'ont pas pu être
 sauvegardés. Vos modifications locales sont conservées. Réessayer » : un bloc
 de 62 px qui, avec ses marges, pousse la grille de 86 px. Puis « En attente »
-reste affiché (8 s et plus en local, 30 s dans la CI).
+reste affiché (8 s et plus en local, 30 s dans la CI), au plus jusqu'à
+l'autosauvegarde différée de 60 s.
 
 ## Mécanisme
 
@@ -54,8 +57,12 @@ reste affiché (8 s et plus en local, 30 s dans la CI).
 3. En v3 c'est faux : l'éditeur n'a aucun total client (`persistedTotals` nul)
    et le serveur stocke les six totaux v3 dans la même transaction que la ligne
    (`persistAtomicEstimateV3Item`, `atomic_create_estimate_item`,
-   `p_version_patch`). Rien ne vide ensuite `hasPendingTotalsSave` : « En
-   attente » sans rien à enregistrer.
+   `p_version_patch`). Seule l'autosauvegarde différée
+   (`AUTOSAVE_DEBOUNCE_MS`, 60 s) vide ensuite `hasPendingTotalsSave` : son
+   flush passe le garde « rien à faire » grâce à ce drapeau, n'envoie aucune
+   requête (aucun total v3 côté client, `buildVersionTotalsPatch(null)` vide),
+   remet le drapeau à faux et affiche « Sauvegardé ». « En attente » dure donc
+   jusqu'à 60 s sans rien à enregistrer ; ce n'est pas un état permanent.
 4. Le « + » n'accepte le pointeur que si la cellule de désignation est
    `:hover` ou `:focus-within` (`estimate-frozen.css`,
    `.estimate-section-quick-actions`). Le clic de Playwright 1.64 vérifie la
@@ -69,7 +76,8 @@ Un utilisateur réel n'est pas bloqué : un mouvement du pointeur (ou le focus
 clavier) fait réapparaître le « + ». Il voit en revanche une fausse alerte
 d'échec et la grille sauter deux fois de 86 px à chaque annulation de
 suppression ; un clic pendant le saut tombe sur une autre ligne. L'état reste
-ensuite « En attente ».
+ensuite « En attente » jusqu'à l'autosauvegarde de 60 s, qui n'envoie rien puis
+affiche « Sauvegardé ».
 
 ## Rouge
 
@@ -132,6 +140,20 @@ native possédée, preuves sous `.e2e/army/ci/` de ce checkout.
 - Le survol puis le tap d'`addGridLine` restent sensibles à tout décalage de la
   grille entre les deux actions ; la régression ne tient ouverte que la fenêtre
   de la cause connue.
-- Branche partie d'`origin/main` 5cfd4a94 ; `origin/main` a depuis avancé de
-  21 commits (CI, boucle dev-loop, documentation) sans toucher ces fichiers ;
-  non fusionnée ici.
+- Branche partie d'`origin/main` 5cfd4a94 ; `origin/main` a depuis avancé (CI,
+  boucle dev-loop, documentation, règles de livraison) sans toucher ces quatre
+  fichiers ; réconciliation par fusion avant le push (voir « Preuves sur la tête
+  fusionnée »).
+
+## Revue
+
+- Tour 1, revue locale de l'auteur : aucun défaut bloquant ; un point mineur
+  laissé tel quel pour garder les preuves sur des entrées identiques (la route
+  retenue de la remise en ordre n'est retirée que sur le chemin de succès).
+- Tour 2, revue indépendante en lecture seule (18/10/2026) : prête, ni bloquant
+  ni majeur ; cause, correction, rouge et preuves vérifiés contre le code et les
+  empreintes des itérations. Trois points mineurs, corrigés : « En attente »
+  durait jusqu'à l'autosauvegarde de 60 s et non indéfiniment ; un décompte de
+  commits d'avance périmé ; la description de PR sans tableau de validation, sans
+  lien vers la PR #42 et le run CI, ni ordre de fusion après la PR #41 (même
+  zone partagée des hooks de l'éditeur et des parcours engine-v3).
