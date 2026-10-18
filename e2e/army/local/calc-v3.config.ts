@@ -93,6 +93,9 @@ if (emission) {
   appEnvironment = {
     E2E_OFFER_SERVER_MODE: serverMode === "production" ? "production" : "dev",
     E2E_OFFER_SANDBOX_TERMS: serverMode === "production" ? "1" : "",
+    // The owned-stack marker checked above: the sandbox terms of the owned calc-v3 production
+    // profile also require it and this campaign directory in the app process (pdf-terms-server.ts).
+    E2E_CALC_V3_OWNED_STACK: "1",
     E2E_OFFER_APP_ORIGIN: appOrigin.origin, E2E_OFFER_BACKEND_ORIGIN: backend.origin, E2E_OFFER_COLLECTOR_ORIGIN: collector.origin,
     E2E_OFFER_RUN_DIRECTORY: runDirectory, E2E_OFFER_COLLECTOR_DIRECTORY: collectorDirectory, E2E_OFFER_SECRET_POINTER: pointer,
     E2E_OFFER_SERVER_GUARD: "1", E2E_OFFER_NETWORK_LOG: networkLog,
