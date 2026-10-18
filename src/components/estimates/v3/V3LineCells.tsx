@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 
 import { DecimalDraftInput } from "@/components/estimates/components/estimate-editor-row/DecimalDraftInput";
 import {
@@ -20,6 +20,7 @@ import {
   formatEstimateV3TaxRate,
   formatEstimateV3UnitLabel,
   isEstimateV3PricingStatus,
+  readEstimateV3LineMargin,
   resolveEstimateV3TaxRateOptions,
   resolveEstimateV3UnitInput,
   type EstimateV3LineIndex,
@@ -68,6 +69,28 @@ export function useEstimateV3Grid(): EstimateV3GridModel | null {
 export function useEstimateV3Line(itemId: string): EstimateV3LineResult | null {
   const grid = useEstimateV3Grid();
   return grid ? findEstimateV3Line(grid.lines, itemId) : null;
+}
+
+/**
+ * « Deboursé sec », « Marge € », « Marque % » d'une ligne v3, lus dans le moteur (revue de 2.6, F26-24) : jamais la
+ * formule v1/v2 de `computeEstimateLineMargin`, qui prenait le net comme vente et les taux atelier/chantier du rôle.
+ */
+export function readEstimateV3GridLineMargin(grid: EstimateV3GridModel, itemId: string) {
+  return readEstimateV3LineMargin(findEstimateV3Line(grid.lines, itemId));
+}
+
+/**
+ * Unités des lignes lues hors de la cellule « U » (copie vers le presse-papiers) : sur une v3, le code du référentiel
+ * `unit_code`, jamais `description` (vide sur une ligne faite par la grille) ; v1/v2 : les brouillons d'unité.
+ */
+export function useEstimateV3UnitDrafts(
+  items: ReadonlyArray<Pick<EstimateItem, "id" | "item_type" | "unit_code">>,
+  historicalDrafts: Record<string, string>
+): Record<string, string> {
+  const grid = useEstimateV3Grid();
+  return useMemo(() => (grid
+    ? Object.fromEntries(items.filter((item) => item.item_type === "line").map((item) => [item.id, item.unit_code ?? ""]))
+    : historicalDrafts), [grid, historicalDrafts, items]);
 }
 
 type PatchItem = (itemId: string, patch: ItemPatch, options?: { persist?: boolean }) => void;

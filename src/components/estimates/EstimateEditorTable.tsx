@@ -40,6 +40,8 @@ import { useConfirm } from "@/components/feedback/confirm-provider";
 import type { SupplierComparisonAlternative } from "@/components/estimates/SupplierComparisonPanel";
 import type { CataloguePriceSuggestion } from "@/lib/estimates/catalogue-suggestions";
 import { alternativePriceForLineUnit } from "@/lib/estimates/supplier-offer-purchase-unit";
+import { resolveEstimateV3ArticleAssociation, resolveEstimateV3SuggestionUnitRefusal } from "@/lib/estimates/v3-editor";
+import { useEstimateV3Grid, useEstimateV3UnitDrafts } from "@/components/estimates/v3/V3LineCells";
 import { EstimateEditorProvider } from "@/components/estimates/context/EstimateEditorContext";
 import {
   EstimateEditorRowActionsProvider,
@@ -1286,6 +1288,10 @@ export function EstimateEditorTable({
     return next;
   }, [items, unitDrafts]);
 
+  // Lot 2, sous-lot 2.6 (revue) : une ligne v3 a son unité dans unit_code (copie, association d'article).
+  const v3Grid = useEstimateV3Grid();
+  const clipboardUnitDrafts = useEstimateV3UnitDrafts(items, mergedUnitDrafts);
+
   const mergedSupplyTypeDrafts = useMemo(() => {
     const next = { ...supplyTypeDrafts };
     items.forEach((item) => {
@@ -1513,7 +1519,7 @@ export function EstimateEditorTable({
     items,
     selectedLineIdList,
     hasSelectedLines,
-    mergedUnitDrafts,
+    mergedUnitDrafts: clipboardUnitDrafts,
     supplyTypeById,
     onPasteRows,
   });
@@ -1570,6 +1576,13 @@ export function EstimateEditorTable({
   const handleAssociateArticle = useCallback(
     (suggestion: CataloguePriceSuggestion) => {
       if (!articleSheet || isReadOnly) return;
+      if (v3Grid) {
+        // v3 (F26-26) : offre jugée dans unit_code, description jamais écrite ; refus nommé dans la fiche.
+        const v3 = resolveEstimateV3ArticleAssociation(suggestion, itemById.get(articleSheet.itemId)?.unit_code);
+        if (v3.ok) patchItemWithSuggestionTracking(articleSheet.itemId, v3.patch, { persist: true });
+        if (v3.ok) setArticleSheet(null);
+        return;
+      }
       const designation = suggestion.product_designation.trim();
       const lineUnit = (mergedUnitDrafts[articleSheet.itemId] ?? "").trim();
       // 2.9: a converted offer keeps a line in bars at the bar price; any other line takes the
@@ -1596,7 +1609,7 @@ export function EstimateEditorTable({
       );
       setArticleSheet(null);
     },
-    [articleSheet, isReadOnly, mergedUnitDrafts, patchItemWithSuggestionTracking]
+    [articleSheet, isReadOnly, itemById, mergedUnitDrafts, patchItemWithSuggestionTracking, v3Grid]
   );
 
   const handleDetachArticle = useCallback(() => {
@@ -2683,7 +2696,8 @@ export function EstimateEditorTable({
           mode={articleSheet.mode}
           versionId={versionId}
           lineTitle={activeArticleItem.title}
-          lineUnit={mergedUnitDrafts[activeArticleItem.id] ?? activeArticleItem.description ?? null}
+          lineUnit={v3Grid ? activeArticleItem.unit_code ?? null : mergedUnitDrafts[activeArticleItem.id] ?? activeArticleItem.description ?? null}
+          suggestionRefusal={v3Grid ? (suggestion) => resolveEstimateV3SuggestionUnitRefusal(suggestion, activeArticleItem.unit_code) : undefined}
           productId={activeArticleItem.product_id ?? null}
           currency={currency}
           isReadOnly={isReadOnly}

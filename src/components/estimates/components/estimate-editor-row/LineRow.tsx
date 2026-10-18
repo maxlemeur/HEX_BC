@@ -51,7 +51,7 @@ import { CatalogueSuggestionsPopover } from "@/components/estimates/components/e
 import { LaborSplitCells } from "@/components/estimates/components/estimate-editor-row/LaborSplitCells";
 import { StandardMoCells } from "@/components/estimates/components/estimate-editor-row/StandardMoCells";
 import { EstimateLineNatureSelect } from "@/components/estimates/components/estimate-editor-row/EstimateLineNatureSelect";
-import { useEstimateV3Grid, V3LineStateControls, V3UnitCell } from "@/components/estimates/v3/V3LineCells";
+import { readEstimateV3GridLineMargin, useEstimateV3Grid, V3LineStateControls, V3UnitCell } from "@/components/estimates/v3/V3LineCells";
 import {
   type CataloguePriceSuggestion,
   type ColumnVisibilitySet,
@@ -384,14 +384,14 @@ export function LineRow({
       isPriceBreakdownVisible("ds") ||
       isPriceBreakdownVisible("marge") ||
       isPriceBreakdownVisible("marque")
-        ? computeEstimateLineMargin({
+        ? v3Grid ? readEstimateV3GridLineMargin(v3Grid, item.id) : computeEstimateLineMargin({
             item,
             laborRoles,
             isLaborSplitEnabled,
           })
         : { costCents: 0, saleCents: 0, marginCents: 0, markupRatio: null },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [item, laborRoles, isLaborSplitEnabled, visibleColumns]
+    [item, laborRoles, isLaborSplitEnabled, visibleColumns, v3Grid]
   );
   const dismissedOutlierSet = new Set(dismissedOutlierFlags);
   const quantityOutlierActive =
