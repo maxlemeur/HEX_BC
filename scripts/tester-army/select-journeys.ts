@@ -530,7 +530,8 @@ export function selectJourneys(input: {
   journeys.add(map.suite.setup);
   // The runner refuses a run without an authenticated business journey.
   if (![...journeys].some((journey) => journey !== map.suite.setup && !anonymous.has(journey))) journeys.add(map.suite.anchor);
-  if (map.suite.journeys.every((journey) => journeys.has(journey))) return selection("full", "every critical journey is affected", [], decisions, fullOnly);
+  // A full critical selection runs every takeoff journey too, as any other full one.
+  if (map.suite.journeys.every((journey) => journeys.has(journey))) return selection("full", "every critical journey is affected", [], decisions);
   return selection("files", `${journeys.size} of ${map.suite.journeys.length} journey files selected`, [...journeys].sort(), decisions, fullOnly);
 }
 
