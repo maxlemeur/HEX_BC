@@ -9,10 +9,11 @@ import {
 import { formatCurrency, type SupportedEstimateCurrency } from "@/lib/money";
 
 /**
- * Lot 2, sous-lot 2.6 - lecture d'un brouillon v3 sur la fiche et l'impression (conception §14
- * « 2.6 », D7, D8). Montants stockés seulement (aucun recalcul : ils sont vérifiés à chaque
- * sauvegarde par `estimate_v3_assert_draft`, D12) ; TVA par taux. Le document client v3 (lignes
- * brutes, contrat client 2) et l'émission (PDF, envoi) arrivent en 2.7.
+ * Lot 2, sous-lot 2.6 - lecture d'une v3 sur sa fiche (conception §14 « 2.6 », D7, D8). Montants
+ * stockés seulement (aucun recalcul : ils sont vérifiés à chaque sauvegarde par
+ * `estimate_v3_assert_draft`, D12, puis figés à l'émission) ; TVA par taux. Depuis 2.7, le document
+ * client v3 (lignes brutes, contrat client 2) s'imprime par `EstimateV3PrintPage` et s'émet comme
+ * une v1/v2 : cette carte ne le remplace pas.
  */
 
 const STATUS_LABELS = new Map(ESTIMATE_V3_PRICING_STATUS_OPTIONS.map((option) => [option.value, option.label]));
@@ -56,15 +57,19 @@ export function EstimateV3DraftSummary({
   summary,
   items,
   currency,
-}: Readonly<{ summary: EstimateV3SummaryView; items: readonly Line[]; currency: SupportedEstimateCurrency }>) {
+  issued = false,
+}: Readonly<{ summary: EstimateV3SummaryView; items: readonly Line[]; currency: SupportedEstimateCurrency; issued?: boolean }>) {
   const lines = items.filter((item) => item.item_type === "line");
   const money = (cents: number | null) => (cents === null ? "—" : formatCurrency(cents, currency));
   return (
     <Card className="p-4 sm:p-6" data-testid="estimate-v3-draft-summary">
-      <h2 className="text-base font-semibold text-foreground">Brouillon au moteur de calcul 3</h2>
+      <h2 className="text-base font-semibold text-foreground">
+        {issued ? "Devis émis au moteur de calcul 3" : "Brouillon au moteur de calcul 3"}
+      </h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        Montants enregistrés du brouillon. Le document client et l’émission (PDF, envoi) d’un devis au moteur de
-        calcul 3 ne sont pas encore disponibles.
+        {issued
+          ? "Montants figés à l’émission. Le document client s’imprime et se télécharge depuis cette fiche."
+          : "Montants enregistrés du brouillon. Le document client se prépare depuis cette fiche (Imprimer, Préparer le PDF)."}
       </p>
       <div className="mt-4 grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0 overflow-x-auto">

@@ -4,7 +4,11 @@ import {
   hasActiveLaborSplitPayload,
   type EstimateItemRecord,
 } from "@/lib/estimate-calculations";
-import { shouldPreserveStoredEstimateV2Snapshot } from "@/lib/estimates/calc-engine-version";
+import {
+  resolveEstimateEngineVersion,
+  shouldPreserveStoredEstimateV2Snapshot,
+} from "@/lib/estimates/calc-engine-version";
+import { usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import {
   ESTIMATE_EXPORT_PROGRESS_COMPLETE,
   ESTIMATE_EXPORT_XLSX_CONTENT_TYPE,
@@ -17,6 +21,11 @@ import {
   majorationCoefficientToPercent,
 } from "@/lib/estimates/majoration";
 import { getEstimateVersionDetails } from "@/lib/estimates/server";
+import {
+  loadEstimateV3ExportDocument,
+  writeEstimateV3DpgfWorkbook,
+  type EstimateV3ExportDocument,
+} from "@/lib/estimates/v3-export";
 
 type WorksheetRowValue = Record<string, unknown> | unknown[];
 
@@ -89,6 +98,13 @@ type DpgfExportPayload = {
   versionTitle: string | null;
   dateDevis: string;
   rows: DpgfLineRow[];
+  /** Lot 2, sous-lot 2.7 : document d'une v3 et ses référentiels (aucune ligne DPGF v1/v2). */
+  v3?: {
+    document: EstimateV3ExportDocument;
+    supplyTypeById: Map<string, string>;
+    laborRoleNameById: Map<string, string>;
+    categoryById: Map<string, string>;
+  };
 };
 
 function toSafeString(value: string | null | undefined, fallback: string) {
@@ -486,8 +502,9 @@ async function buildDpgfExportPayload(
     includeExportCalculationContext: true,
   });
   const items = details.items as EstimateItemRecord[];
+  const engineV3 = usesSaleCoefficients(resolveEstimateEngineVersion(details.version));
   const preserveStoredSnapshot =
-    shouldPreserveStoredEstimateV2Snapshot(details.version);
+    !engineV3 && shouldPreserveStoredEstimateV2Snapshot(details.version);
   const supplyTypeById = new Map(
     (details.supply_types ?? []).map((supplyType) => [supplyType.id, supplyType.name])
   );
@@ -498,7 +515,7 @@ async function buildDpgfExportPayload(
     (details.categories ?? []).map((category) => [category.id, category.name])
   );
 
-  return {
+  const identity = {
     projectName: details.version.estimate_projects.name,
     projectReference: details.version.estimate_projects.reference,
     projectClient: details.version.estimate_projects.client_name,
@@ -506,6 +523,13 @@ async function buildDpgfExportPayload(
     versionNumber: details.version.version_number,
     versionTitle: details.version.title,
     dateDevis: details.version.date_devis,
+  };
+  if (engineV3) {
+    return { ...identity, rows: [], v3: { document: await loadEstimateV3ExportDocument(versionId),
+      supplyTypeById, laborRoleNameById, categoryById } };
+  }
+  return {
+    ...identity,
     rows: buildDpgfRows({
       items,
       supplyTypeById,
@@ -538,11 +562,19 @@ export async function streamEstimateVersionDpgfXlsx(
   const output = new PassThrough();
   const writerFactory = options?.workbookWriterFactory ?? createWorkbookWriterFactory();
 
-  writeWorkbook({
-    payload,
-    stream: output,
-    workbookWriterFactory: writerFactory,
-  }).catch((error) => {
+  const written = payload.v3
+    ? writeEstimateV3DpgfWorkbook({
+        identity: { ...payload, versionStatus: payload.v3.document.version.status },
+        ...payload.v3,
+        stream: output,
+        workbookWriterFactory: writerFactory,
+      })
+    : writeWorkbook({
+        payload,
+        stream: output,
+        workbookWriterFactory: writerFactory,
+      });
+  written.catch((error) => {
     output.destroy(error as Error);
   });
 

@@ -253,6 +253,7 @@
     "20261017205000_estimate_engine_v3_line_repricing.sql": "dfca54e8ba90f205d95208b9faf22717ea02649e90424572d1343f8ebc7b9db5",
     "20261017225906_estimate_engine_v3_entry_paths.sql": "87f4a0452e9dba51b6ff4d180ad42f6aad6e8d4c52414013f793d25f34c2885a",
     "20261018013249_estimate_creation_set_based_item_effects.sql": "8b4f54601e21a53b146d7306256f22c5273685e055e267ce87b149a707745dfb",
-    "20261018093005_serialize_estimate_draft_lock_acquisition.sql": "66451e191aa8f317c83f2d87aacd39587fa6a6286b68ece431f7ae4352421178"
+    "20261018093005_serialize_estimate_draft_lock_acquisition.sql": "66451e191aa8f317c83f2d87aacd39587fa6a6286b68ece431f7ae4352421178",
+    "20261018102840_estimate_offer_client_contract_v2.sql": "d0a799c095fdc5b9efef2ab13cf9d13e871877fe03b355f1337d7a27ed32c84f"
   }
 }

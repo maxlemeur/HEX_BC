@@ -14,12 +14,18 @@ import {
 } from "@/lib/estimate-calculations";
 import {
   resolveCalcEngineVersion,
+  resolveEstimateEngineVersion,
   shouldPreserveStoredEstimateV2Snapshot,
 } from "@/lib/estimates/calc-engine-version";
 import { ESTIMATE_VAT_REVERSE_CHARGE_NOTICE } from "@/lib/estimates/document-copy";
-import { isLegacyEngine, isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
+import { isLegacyEngine, isUnifiedEngine, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import { internalError } from "@/lib/estimates/errors";
 import { getEstimateVersionDetails, listEstimateItems } from "@/lib/estimates/server";
+import {
+  loadEstimateV3ExportDocument,
+  writeEstimateV3Workbook,
+  type EstimateV3ExportDocument,
+} from "@/lib/estimates/v3-export";
 import { bankersRound } from "@/lib/money";
 
 const moduleRequire = createRequire(import.meta.url);
@@ -104,6 +110,11 @@ type EstimateExportPayload = {
   vatReverseCharge: boolean;
   totals: EstimateBreakdown["totals"];
   rows: ExportLineRow[];
+};
+
+/** Lot 2, sous-lot 2.7 : une v3 s'exporte depuis son document (gel ou aperçu du brouillon). */
+type EstimateV3ExportPayload = Omit<EstimateExportPayload, "totals" | "rows" | "vatReverseCharge"> & {
+  document: EstimateV3ExportDocument;
 };
 
 export type WorkbookWriterFactory = (
@@ -411,11 +422,22 @@ async function writeWorkbook(input: {
 async function buildEstimateExportPayload(
   versionId: string,
   isLaborSplitEnabled: boolean
-): Promise<EstimateExportPayload> {
+): Promise<EstimateExportPayload | EstimateV3ExportPayload> {
   const [versionDetails, listItemsResult] = await Promise.all([
     getEstimateVersionDetails(versionId, { includeExportCalculationContext: true }),
     listEstimateItems(versionId),
   ]);
+  if (usesSaleCoefficients(resolveEstimateEngineVersion(versionDetails.version))) {
+    return {
+      versionId: versionDetails.version.id,
+      projectName: versionDetails.version.estimate_projects.name,
+      projectReference: versionDetails.version.estimate_projects.reference,
+      versionNumber: versionDetails.version.version_number,
+      versionTitle: versionDetails.version.title,
+      versionStatus: versionDetails.version.status,
+      document: await loadEstimateV3ExportDocument(versionId),
+    };
+  }
 
   const version = versionDetails.version as unknown as EstimateVersionForCalc;
   const calcEngineVersion = resolveCalcEngineVersion(
@@ -548,11 +570,19 @@ export async function streamEstimateVersionXlsx(
   const output = new PassThrough();
   const writerFactory = options?.workbookWriterFactory ?? createWorkbookWriterFactory();
 
-  writeWorkbook({
-    payload,
-    stream: output,
-    workbookWriterFactory: writerFactory,
-  }).catch((error) => {
+  const written = "document" in payload
+    ? writeEstimateV3Workbook({
+        identity: { ...payload, dateDevis: payload.document.version.date_devis },
+        document: payload.document,
+        stream: output,
+        workbookWriterFactory: writerFactory,
+      })
+    : writeWorkbook({
+        payload,
+        stream: output,
+        workbookWriterFactory: writerFactory,
+      });
+  written.catch((error) => {
     output.destroy(error as Error);
   });
 

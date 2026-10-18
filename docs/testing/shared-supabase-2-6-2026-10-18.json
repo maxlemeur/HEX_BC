@@ -97,5 +97,5 @@
     "Supabase advisors not re-read (tool not exposed in this session)"
   ],
   "notExecuted": ["other migrations", "tenant calc policy", "deployment"],
-  "remaining": ["M5 20261017213500 (2.7)", "M6 20261017225906 (2.8)", "M6b 20261018013249 (2.8)", "M8 (2.10, owner approval required)"]
+  "remaining": ["M5 20261018102840 (2.7)", "M6 20261017225906 (2.8)", "M6b 20261018013249 (2.8)", "M8 (2.10, owner approval required)"]
 }
