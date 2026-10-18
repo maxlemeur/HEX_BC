@@ -379,6 +379,20 @@ describe("local Supabase CI", () => {
     }
   });
 
+  it("refuses a symlinked pgTAP file and a second name for the same file", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pgtap-selection-"));
+    const tests = path.join(root, "supabase", "tests", "database");
+    fs.mkdirSync(tests, { recursive: true });
+    fs.writeFileSync(path.join(tests, "a.test.sql"), "select 1;\n");
+    fs.writeFileSync(path.join(root, "outside.sql"), "select 1;\n");
+    fs.symlinkSync(path.join(root, "outside.sql"), path.join(tests, "link.test.sql"));
+    // A hard link stands for any alias of one file, such as FOO/foo on a case-insensitive filesystem.
+    fs.linkSync(path.join(tests, "a.test.sql"), path.join(tests, "alias.test.sql"));
+    expect(() => parseLocalSupabaseCiArguments(["--files", "link.test.sql"], root)).toThrow("symbolic link");
+    expect(() => parseLocalSupabaseCiArguments(["--files", "a.test.sql,alias.test.sql"], root)).toThrow("listed twice");
+    expect(parseLocalSupabaseCiArguments(["--files", "a.test.sql"], root)).toEqual({ pgTapFiles: ["a.test.sql"] });
+  });
+
   it("runs only the selected pgTAP files, counts them, keeps RLS unless skipped and says the run is partial", async () => {
     const projectRoot = "C:/temp/miaouffrage-supabase-ci-test";
     const databaseTests = path.join(projectRoot, "supabase", "tests", "database");

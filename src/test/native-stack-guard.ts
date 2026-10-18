@@ -149,44 +149,65 @@ export async function acquireNativeStackSlot(options: AcquireNativeStackSlotOpti
   const deadline = Date.now() + (options.waitMs ?? 0);
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const file = path.join(directory, `${pid}-${randomUUID()}.json`);
+  // SIGINT/SIGTERM cancel a wait, even when a caller's own handler (Army
+  // dev modes) makes the cleanup guard stand aside.
+  let cancelled: NodeJS.Signals | undefined;
+  let wake = () => {};
+  const onSignal = (signal: NodeJS.Signals) => {
+    cancelled = signal;
+    wake();
+  };
   const record = { pid, label: options.label, cwd: process.cwd(), startedAt: new Date().toISOString() };
-  for (;;) {
-    fs.writeFileSync(file, `${JSON.stringify(record)}\n`, { flag: "wx", mode: 0o600 });
-    let holders: string[];
-    try {
-      const slots = liveSlots(directory, isAlive);
-      const owned = new Set(slots.flatMap((slot) => slot.stackRoot ? [canonical(slot.stackRoot)] : []));
-      const commands = listProcesses();
-      holders = [
-        ...slots.filter((slot) => slot.file !== file).map((slot) => `run PID ${slot.pid}: ${slot.detail}`),
-        ...stackHostRoots(commands).filter((root) => !owned.has(canonical(root)))
-          .map((root) => `native stack not owned by a guarded run: ${root}`),
-        ...productionBuilds(commands).map((command) => `production build: ${command.slice(0, 120)}`),
-      ];
-    } catch (error) {
-      fs.rmSync(file, { force: true });
-      throw error;
-    }
-    if (holders.length < limit) {
-      const release = () => {
-        process.off("exit", release);
+  try {
+    for (;;) {
+      fs.writeFileSync(file, `${JSON.stringify(record)}\n`, { flag: "wx", mode: 0o600 });
+      let holders: string[];
+      try {
+        const slots = liveSlots(directory, isAlive);
+        const owned = new Set(slots.flatMap((slot) => slot.stackRoot ? [canonical(slot.stackRoot)] : []));
+        const commands = listProcesses();
+        holders = [
+          ...slots.filter((slot) => slot.file !== file).map((slot) => `run PID ${slot.pid}: ${slot.detail}`),
+          ...stackHostRoots(commands).filter((root) => !owned.has(canonical(root)))
+            .map((root) => `native stack not owned by a guarded run: ${root}`),
+          ...productionBuilds(commands).map((command) => `production build: ${command.slice(0, 120)}`),
+        ];
+      } catch (error) {
         fs.rmSync(file, { force: true });
-      };
-      process.on("exit", release);
-      const recordStack = (rootDirectory: string) => {
-        fs.writeFileSync(file, `${JSON.stringify({ ...record, stackRoot: canonical(rootDirectory) })}\n`, { mode: 0o600 });
-      };
-      return { recordStack, release };
+        throw error;
+      }
+      if (holders.length < limit) {
+        const release = () => {
+          process.off("exit", release);
+          fs.rmSync(file, { force: true });
+        };
+        process.on("exit", release);
+        const recordStack = (rootDirectory: string) => {
+          fs.writeFileSync(file, `${JSON.stringify({ ...record, stackRoot: canonical(rootDirectory) })}\n`, { mode: 0o600 });
+        };
+        return { recordStack, release };
+      }
+      fs.rmSync(file, { force: true });
+      if (Date.now() >= deadline) {
+        throw new NativeStackLimitError(
+          `Native Supabase run limit reached: ${holders.length} of ${limit} places are taken (slots in ${directory}):\n` +
+          `${holders.map((holder) => `- ${holder}`).join("\n")}\n` +
+          "Wait for one to finish, stop it, set NATIVE_STACK_WAIT_SECONDS to wait, or NATIVE_STACK_MAX_RUNS to change the limit."
+        );
+      }
+      if (!process.listeners("SIGINT").includes(onSignal)) {
+        process.on("SIGINT", onSignal);
+        process.on("SIGTERM", onSignal);
+      }
+      await Promise.race([
+        sleep((options.pollMs ?? 2_000) + Math.floor(Math.random() * 250)),
+        new Promise<void>((resolve) => { wake = resolve; }),
+      ]);
+      if (cancelled) throw new NativeStackLimitError(`Waiting for a native place was cancelled by ${cancelled}`);
     }
-    fs.rmSync(file, { force: true });
-    if (Date.now() >= deadline) {
-      throw new NativeStackLimitError(
-        `Native Supabase run limit reached: ${holders.length} of ${limit} places are taken (slots in ${directory}):\n` +
-        `${holders.map((holder) => `- ${holder}`).join("\n")}\n` +
-        "Wait for one to finish, stop it, set NATIVE_STACK_WAIT_SECONDS to wait, or NATIVE_STACK_MAX_RUNS to change the limit."
-      );
-    }
-    await sleep((options.pollMs ?? 2_000) + Math.floor(Math.random() * 250));
+  } finally {
+    process.off("SIGINT", onSignal);
+    process.off("SIGTERM", onSignal);
   }
 }
 
@@ -208,16 +229,20 @@ export function cleanUpOnTerminationSignals(
   const remove = () => {
     for (const signal of signals) target.off(signal, handler);
   };
+  let cleaning = false;
   const handler = (signal: NodeJS.Signals) => {
+    // A repeated signal must not reach the default action mid-cleanup.
+    if (cleaning) return;
     // Assumes no library registers a passive SIGINT/SIGTERM listener: any
     // other listener is taken to own the shutdown.
     if (target.listenerCount(signal) > 1) return;
-    remove();
+    cleaning = true;
     try {
       cleanup(signal);
     } catch (error) {
       console.error(`Cleanup after ${signal} failed: ${error instanceof Error ? error.message : String(error)}`);
     }
+    remove();
     target.kill(target.pid, signal);
   };
   for (const signal of signals) target.on(signal, handler);

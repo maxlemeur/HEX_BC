@@ -106,6 +106,27 @@ describe("native stack slots", () => {
     }
   });
 
+  it("lets Ctrl+C cancel a wait even when the caller owns the shutdown", async () => {
+    const directory = slotDirectory();
+    await acquireNativeStackSlot({ label: "holder", directory, pid: 1, limit: 1, isAlive: () => true, listProcesses: noProcesses });
+    // The Army dev modes register their own handler, so the cleanup guard stands aside.
+    const caller = vi.fn();
+    process.on("SIGINT", caller);
+    try {
+      const waiting = acquireNativeStackSlot({
+        label: "waiter", directory, pid: 2, limit: 1, waitMs: 3_600_000, isAlive: () => true,
+        listProcesses: noProcesses, sleep: () => new Promise(() => {}),
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+      process.emit("SIGINT", "SIGINT");
+      await expect(waiting).rejects.toThrow("Waiting for a native place was cancelled by SIGINT");
+    } finally {
+      process.off("SIGINT", caller);
+    }
+    expect(process.listenerCount("SIGINT") + process.listenerCount("SIGTERM")).toBe(0);
+    expect(fs.readdirSync(directory).filter((name) => name.startsWith("2-"))).toEqual([]);
+  });
+
   it("never admits more than the limit among racing processes", async () => {
     const directory = slotDirectory();
     const start = path.join(directory, "..", `${path.basename(directory)}.start`);
@@ -169,6 +190,23 @@ describe("termination signal cleanup", () => {
     expect(fs.readFileSync(marker, "utf8")).toBe("SIGTERM\n");
     expect(fs.readdirSync(directory)).toEqual(["cleanup.log"]);
   }, 30_000);
+
+  it("keeps its handler during cleanup, so a repeated signal cannot interrupt it", () => {
+    const target = Object.assign(new EventEmitter(), { pid: 42, kill: vi.fn() });
+    let handlersDuringCleanup = 0;
+    const cleanup = vi.fn(() => {
+      // Ctrl+C pressed again while `stack destroy` runs.
+      handlersDuringCleanup = target.listenerCount("SIGINT");
+      target.emit("SIGINT", "SIGINT");
+      target.emit("SIGTERM", "SIGTERM");
+    });
+    cleanUpOnTerminationSignals(cleanup, target as never);
+    target.emit("SIGINT", "SIGINT");
+    expect(handlersDuringCleanup).toBe(1);
+    expect(cleanup).toHaveBeenCalledExactlyOnceWith("SIGINT");
+    expect(target.kill).toHaveBeenCalledExactlyOnceWith(42, "SIGINT");
+    expect(target.listenerCount("SIGINT") + target.listenerCount("SIGTERM")).toBe(0);
+  });
 
   it("leaves the shutdown to a caller that handles the signal itself", () => {
     const target = Object.assign(new EventEmitter(), { pid: 42, kill: vi.fn() });

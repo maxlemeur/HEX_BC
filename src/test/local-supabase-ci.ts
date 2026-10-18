@@ -208,14 +208,19 @@ export function parseLocalSupabaseCiArguments(argv: readonly string[], rootDirec
       if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.sql$/.test(file)) {
         throw new Error(`${name} is not a pgTAP file directly under supabase/tests/database`);
       }
-      if (!fs.statSync(path.join(rootDirectory, PGTAP_DIRECTORY, file), { throwIfNoEntry: false })?.isFile()) {
-        throw new Error(`${name} does not exist under supabase/tests/database`);
+      // lstat: a symlink could point outside the folder; the copied tree keeps it.
+      const entry = fs.lstatSync(path.join(rootDirectory, PGTAP_DIRECTORY, file), { throwIfNoEntry: false });
+      if (entry?.isSymbolicLink()) throw new Error(`${name} is a symbolic link, not a pgTAP file`);
+      if (!entry?.isFile()) throw new Error(`${name} does not exist under supabase/tests/database`);
+      return { file, identity: `${entry.dev}:${entry.ino}` };
+    }).map(({ file, identity }, index, selected) => {
+      // By file identity: FOO.test.sql and foo.test.sql are one file on a
+      // case-insensitive filesystem (macOS default).
+      if (selected.findIndex((other) => other.identity === identity) !== index) {
+        throw new Error("A pgTAP file is listed twice in --files");
       }
       return file;
     });
-    if (new Set(options.pgTapFiles).size !== options.pgTapFiles.length) {
-      throw new Error("A pgTAP file is listed twice in --files");
-    }
   }
   return options;
 }
