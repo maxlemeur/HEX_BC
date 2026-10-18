@@ -1230,7 +1230,7 @@ correction. Les assertions existantes de `V3E07` et `V3E09` ne sont pas modifié
 | # | Constat | Revérification | Rouge (`350dd0ec`) | Correction |
 |---|---|---|---|---|
 | F1 (P1) | `useCatalogueSuggestions.ts:180` : sur une ligne v3 en ml, une suggestion de la désignation prix par le seul prix de référence de l'article, dans une autre unité (u), a `supplier_price_id` nul ; le contrôle d'unité est sauté, `unit_code` reste ml et le prix à la pièce est stocké comme prix au mètre | confirmé à la lecture : refus seulement `si selectedSupplierPriceId` ; la fiche « Associer ou remplacer l'article » juge déjà tout prix suggéré depuis `1c16ad40` (F26-26), pas la désignation | `V3E09` : suggestion non refusée ; ligne enregistrée avec l'article à la pièce, PR 800 c, offre nulle, totaux 2 080 / 416 / 2 496 c au lieu de 3 224 / 645 / 3 869 c | `0842ea4d` : sur une v3, tout prix suggéré (offre ou prix de référence) est jugé dans `unit_code` par `areSupplierUnitsCompatible` (normaliseur partagé `src/lib/units/normalize.ts`), même refus nommé que F26-26 : « Unité différente du devis : offre en u, ligne en ml. » ; rien d'autre n'est écrit |
-| F2 (P2) | `[versionId]/page.tsx:202` : totaux d'en-tête d'une v3 toujours en euros, résumé dessous dans la devise de la version (USD, GBP) | confirmé à la lecture : `formatEUR` dans l'en-tête, `formatCurrency(…, currency)` dans `EstimateV3DraftSummary` | `V3E07` (brouillon passé en USD par l'API, montants inchangés) : en-tête « 560,00 € » / « 672,00 € », résumé « $560.00 » / « $672.00 » | `e589b37b` : l'en-tête est formaté avec la devise résolue (`normalizeEstimateCurrency(version.currency) ?? "EUR"`, celle du résumé) |
+| F2 (P2) | `[versionId]/page.tsx:202` : totaux d'en-tête d'une v3 toujours en euros, résumé dessous dans la devise de la version (USD, GBP) | confirmé à la lecture : `formatEUR` dans l'en-tête, `formatCurrency(…, currency)` dans `EstimateV3DraftSummary` | `V3E07` (brouillon passé en USD par l'API, montants inchangés) : en-tête « 560,00 € » / « 672,00 € », résumé « $560.00 » / « $672.00 » | `e589b37b` : l'en-tête est formaté avec la devise résolue (`normalizeEstimateCurrency(version.currency) ?? "EUR"`, celle du résumé) ; complété par `f6e5ae34` pour l'historique des versions de la même fiche (§11.7.1) |
 
 Extensions des parcours (rouge `350dd0ec`) :
 
@@ -1280,3 +1280,56 @@ Limites : le refus d'un prix de référence garde le libellé nommé de F26-26 (
 chemin v1/v2 de la suggestion est inchangé par construction (la condition vaut l'ancienne quand la grille n'est pas
 v3), prouvé par la phase `offers` ; `V3E01` a de nouveau perdu une fois le rôle saisi (§8.5), cause toujours non
 établie, rien ajouté pour le faire passer ; commits non poussés.
+
+#### 11.7.1 Revue de la correction Codex (18/10/2026, sur `b319cbfe`)
+
+Deux constats d'une relecture des quatre commits ci-dessus, revérifiés dans le code puis, pour le défaut de
+comportement, rendus observables par un parcours rouge avant la correction. Aucune assertion existante n'est
+modifiée ; `V3E07` est étendu.
+
+| # | Constat | Revérification | Rouge (`0256db8a`) | Correction |
+|---|---|---|---|---|
+| R1 (majeur) | F2 non fermé : sur la même fiche v3, la carte « Historique des versions » (`EstimateTimeline.tsx:211`, `:221`, `:227`) formate le HT, l'écart HT et le TTC de chaque version par `formatEUR` ; un brouillon v3 en USD y montre son entrée « Courante » en euros sous un en-tête et un résumé en dollars. La carte d'approbation (`EstimateApprovalSummaryCard.tsx:21-26`) fixe aussi EUR pour les motifs `total_ht_cents` | confirmé : la sélection de l'historique (`listEstimateProjectVersions`) ne lit pas `currency`, `EstimateProjectVersionTimelineItem` n'en a pas ; l'extension `V3E07` de `350dd0ec` ne lisait que l'en-tête et le résumé | `V3E07` : après le passage en USD, entrée « Courante » « 560,00 € », écart « +560,00 € », « 672,00 € » au lieu de « $560.00 », aucun écart, « $672.00 » (la lecture en euros avant le passage est verte) | `f6e5ae34` : l'historique lit la `currency` de chaque version ; la fiche v3 lui demande `inVersionCurrency` : chaque entrée dans sa devise résolue (`normalizeEstimateCurrency(…) ?? "EUR"`, comme l'en-tête), aucun écart HT entre deux versions voisines de devises différentes. Sans la propriété (fiche v1/v2), tout reste en euros et l'écart est calculé comme avant (`formatEUR` est `formatCurrency(…, "EUR")`) |
+| R2 (mineur) | `350dd0ec` a supprimé par accident l'espace après l'identifiant de `V3E10` (« V3E10the … ») : un parcours hors périmètre renommé, une sélection bornée (`"V3E10 "`, `\bV3E10\b`) ne le prenait plus | confirmé par `git show 350dd0ec` ; seul titre touché (tous les autres gardent « V3Exx <texte> ») | — (titre, pas de comportement) | `a07ad21f` : titre d'origine rétabli, parcours inchangé ; sélectionné par `V3E10\b` au vert |
+
+Extension de `V3E07` (rouge `0256db8a`) : la carte est lue deux fois, par entrée (HT, écart, TTC, `aria-current`).
+En euros, avant le passage en USD : V2 (ce brouillon v3) « 560,00 € », écart « +560,00 € », « 672,00 € » ; V1 (l'ancre
+v2 vide) « 0,00 € », sans écart — comportement existant, conservé. Après le passage en USD : V2 « $560.00 », aucun
+écart, « $672.00 » ; V1 toujours « 0,00 € ».
+
+Relevés, non corrigés (antérieurs à 2.6, communs à tous les moteurs) :
+
+- **Carte d'approbation** : les seuils des règles d'approbation n'ont pas de devise. Le moteur de règles compare les
+  centimes bruts du total HT à un seuil sans devise et écrit ses motifs en euros (`rules-engine.ts`, `formatEuroCents`),
+  comme la carte (`APPROVAL_MONEY_FORMATTER`) et l'écart HT du résumé des changements
+  (`estimate-approval/shared.tsx`, `formatCurrencyDelta`). Afficher le seuil en dollars affirmerait une règle en
+  dollars qui n'existe pas ; afficher seulement le total en dollars rendrait la comparaison illisible. À trancher dans
+  le domaine des approbations (une devise sur les règles, ou le refus d'une règle dans une autre devise).
+- **Hub de l'affaire** : `VersionTimelineCard` et le résumé financier (`AffaireHubSections.tsx:96`, `:105`, `:283`)
+  formatent en euros toutes les versions ; page distincte de la fiche, hors F2.
+
+Preuves (WSL Ubuntu 24.04, Node 24.14.0 (nvm, Node 24 de `.nvmrc`), `e2e` 0.21.0 ; clone `~/miaouffrage-lot2-26`
+remis à la branche par `git -c safe.directory='*' fetch` du dépôt Windows puis `git reset --hard FETCH_HEAD`, diff
+local vide, `diffSha256` `e3b0c442…b855` ; un worker, `NODE_OPTIONS=--max-old-space-size=4096` ; une seule exécution
+native possédée à la fois) :
+
+| Passage | Commande | Révision | Résultat | Archive (clone WSL) |
+|---|---|---|---|---|
+| Rouge | `E2E_ARMY_WORKERS=1 npm run e2e:army:local -- --grep "V3E07"` | `0256db8a` | sortie 1 ; en amont pgTAP `Files=20, Tests=1854, Result: PASS`, « Behavioral RLS matrix passed. », build ; **1/1 rouge** pour la raison visée : entrée « Courante » `{"ht":"560,00 €","delta":"+560,00 €","ttc":"672,00 €"}` au lieu de `{"ht":"$560.00","delta":null,"ttc":"$672.00"}` ; lecture en euros, en-tête et résumé en dollars verts | `.e2e/army/ci/2026-10-18T03-19-12-669Z-critical`, manifeste `02b5eed72a36f93146bd8bb0d1feeebf5479d67f78a1c68f31e906f14d99f9de`, confidentialité `passed` |
+| Vert | `E2E_ARMY_WORKERS=1 npm run e2e:army:local -- --grep "V3E07\|V3E10\b"` | `f6e5ae34` | sortie 0 ; pgTAP 1854 PASS, matrice RLS, build ; **2/2 verts** en une tentative (15,1 s) : `V3E07` (historique « $560.00 », aucun écart, « $672.00 », ancre « 0,00 € » ; en euros « +560,00 € ») et `V3E10` sélectionné par son titre rétabli | `.e2e/army/ci/2026-10-18T03-22-43-889Z-critical`, manifeste `6343216385f182130a6afea564323b5deb4adfc39b770085d5a714678f6ed87b`, confidentialité `passed` |
+| Parcours 2.6 et hub | `E2E_ARMY_WORKERS=1 npm run e2e:army:local -- --grep "V3E\|V3P01\|V3FC\|HUB0[345]"` | `f6e5ae34` | sortie 0 ; pgTAP 1854 PASS, matrice RLS, build ; **20/20 verts**, chacun en une tentative (5 min 21 s) : `V3E01` à `V3E13`, `V3P01`, `V3FC01` (fiche v3, sélection de l'historique avec `currency`), `V3FC02`, et `HUB03` à `HUB05` (hub de l'affaire, même `listEstimateProjectVersions` sur des versions v2), plus la mise en place d'authentification ; `V3E01` vert cette fois (§8.5 inchangé) | `.e2e/army/ci/2026-10-18T03-25-41-793Z-critical`, manifeste `998dcba561acc2467343628371df5dec126342305cbe276ad8e458d23bd71b42`, confidentialité `passed` |
+
+Windows (Node 24.19.0), arbre identique à `f6e5ae34` hors ce document : `npm run typecheck` sortie 0 ; `npx eslint
+--max-warnings=0` sur `EstimateTimeline.tsx`, `[versionId]/page.tsx`, `src/lib/estimates/server.ts` et
+`engine-v3-editor-actions.e2e.ts`, sortie 0 ; `npx vitest run --project=node` sur `src/lib/estimates/server.test.ts`,
+`server.coverage.test.ts`, `src/lib/affaires/server.test.ts` (qui simule `listEstimateProjectVersions`) et
+`src/test/army-impact-map.test.ts` : 4 fichiers, 133/133 ; `npx vitest run --project=jsdom` sur les cinq fichiers de
+§11.7 : 44/44 ; `npm run check:architecture` : « Architecture budgets passed (1134 modules, 0 allowed runtime
+cycles). » ; `git -c core.whitespace=cr-at-eol diff --check origin/main...HEAD` propre ; `estimate-calculations.ts` et
+`estimate-v2-snapshot.ts` : aucun diff depuis `origin/main`. Carte d'impact : `src/lib/estimates/server.ts`, chargé par
+le noyau partagé, envoie la PR à la suite complète, comme elle l'était déjà (`army-impact-map.json` modifié par la
+branche). `origin/main` inchangé (`89627add`) : aucune fusion ; la PR #41 n'est pas fusionnée, les parcours
+`bulk-edit-sync-sources` et `numeric-entry` n'ont pas été rejoués.
+
+Limites : la fiche v1/v2 n'est couverte par aucun parcours qui lit son historique ; elle est inchangée par
+construction (propriété absente, mêmes appels de formatage) ; commits non poussés.
