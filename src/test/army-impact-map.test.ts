@@ -290,6 +290,10 @@ describe("TesterArmy critical impact map", () => {
       const hook = `src/hooks/useEstimateEditor${controller}Controller.ts`;
       expect(select([hook]).files, hook).toEqual(expect.arrayContaining(v1Totals));
     }
+    // Their stored-totals oracle reads the affaire hub and the affaires list (PR #58 review).
+    for (const page of ["src/app/dashboard/affaires/[projectId]/page.tsx", "src/app/dashboard/affaires/page.tsx"]) {
+      expect(select([page]).files, page).toEqual(expect.arrayContaining(v1Totals));
+    }
 
     // A journey edit runs that journey; an anonymous one also needs an
     // authenticated business journey for the runner's proof.

@@ -151,10 +151,12 @@ dans la suite full, à 1 worker, parce qu'ils basculaient en SQL le compte de
 campagne partagé en mode Expert puis le rétablissaient. Une PR sur l'éditeur ou
 les totaux demandait donc une suite full déclenchée à la main. Depuis le
 18/10/2026, ils sont dans la liste critical `localBusiness` d'`e2e.config.ts`,
-dans `suite.journeys` et dans le groupe `editor` de la carte : une PR qui
-atteint l'éditeur (règles `estimate-editor`, `estimates-boundaries`) ou une
-route API qu'ils appellent (graphe `/api/...`) les lance dans les shards
-critical, à 2 workers.
+dans `suite.journeys` et dans les groupes `editor`, `affaire-hub` et
+`affaires-list` de la carte : une PR qui atteint l'éditeur (règles
+`estimate-editor`, `estimates-boundaries`), le hub ou la liste des affaires,
+que lit leur oracle `expectStoredTotalsMatchLines` (revue Codex de la PR #58),
+ou une route API qu'ils appellent (graphe `/api/...`) les lance dans les
+shards critical, à 2 workers.
 
 - **Collision avant correction (rouge).** `main` `8eaee26b` sans modification
   locale, clone WSL `~/miaouffrage-v1-selection` :
