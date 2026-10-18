@@ -472,7 +472,7 @@ une erreur compensée).
     payableTtcCents, reverseCharge}`.
   - Invariants : Σ lignes = brut ; net = brut − remise − arrondi ; Σ `taxByRate` = TVA ; pour chaque taux,
     TVA = arrondi½↑(base × taux) ; TTC = net + TVA.
-  - Ordre et numéros (revue Codex de #60, C4 ; migration de suite `20261018164500_…_order.sql`) : à la
+  - Ordre et numéros (revue Codex de #60, C4 ; migration de suite `20261018172935_…_order.sql`) : à la
     publication, les lignes suivent le parcours préfixe de l'arbre figé (frères par position) et chaque section
     porte le numéro qui en découle (`computeEstimateItemNumbering`) ; sinon `23514 OFFER_CLIENT_CONTRACT_ANCHOR_MISMATCH`.
 - Règle d'appariement : v3 ⇔ contrat 2 ; v1/v2 ⇔ contrat 1 ou historique.

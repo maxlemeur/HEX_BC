@@ -20,7 +20,7 @@ commandes et les chemins tels qu'exécutés (`--grep '^V3E02\s'`, `v3e02-*`).
 | Fichier | Rôle |
 |---|---|
 | `supabase/tests/database/estimate-offer-contract-v2.test.sql` | pgTAP, F27-01 à F27-21 (§4, §13.14) |
-| `supabase/migrations/20261018164500_estimate_offer_client_contract_v2_order.sql` | Suite de M5 (M5 inchangée) : l'appariement du contrat 2 exige l'ordre préfixe de l'arbre stocké et les numéros de section qui en découlent (§13.14) |
+| `supabase/migrations/20261018172935_estimate_offer_client_contract_v2_order.sql` | Suite de M5 (M5 inchangée) : l'appariement du contrat 2 exige l'ordre préfixe de l'arbre stocké et les numéros de section qui en découlent (§13.14) |
 | `e2e/army/local/engine-v3-emission.e2e.ts`, `engine-v3-emission-support.ts` | Parcours V3M01, V3M03, V3M04, V3M05 et V3M06 (calc-v3) et V3M02 (critique locale), §3, §12 et §13 |
 | `e2e/army/local/engine-v3-editor-actions.e2e.ts` (fichier de 2.6) | V3E11 réécrit et V3E15 (critique locale) à la fusion du 2.6, §13 |
 | `e2e/army/local/engine-v3-exports.e2e.ts` | Parcours V3X01 (réimport du DPGF v3) et V3X02 (devise des montants), critique locale, §13.8 et §13.9 |
@@ -209,7 +209,7 @@ exacte doit passer dans la même sonde, pour qu'un refus général ne passe pas 
   snapshot_gross_ht_cents`) ; pied ⇔ version (`gross_ht_cents`, `discount_applied_cents`,
   `commercial_rounding_cents`, totaux) et contexte figé (intention, `tax_breakdown`) ; gel frais
   (`calc_snapshot_content_revision = content_revision`, contexte moteur 3). Depuis la migration de suite
-  `20261018164500_…_order.sql` (§13.14) : lignes dans l'ordre préfixe de l'arbre stocké (frères par position, puis
+  `20261018172935_…_order.sql` (§13.14) : lignes dans l'ordre préfixe de l'arbre stocké (frères par position, puis
   identifiant) et numéro de chaque section dérivé de cet arbre comme `computeEstimateItemNumbering`.
 - `publish_estimate_pdf_generation` : signature inchangée (11 arguments), aiguillage sur `schemaVersion` ;
   contrat invalide → `22023 ESTIMATE_PDF_PUBLICATION_INVALID` ; contrat valide mais différent du devis figé, ou
@@ -1870,7 +1870,7 @@ migration nouvelle et M5 reste intacte (sha256 `d0a799c0…c84f`, en cours d'app
 | Constat (revue Codex) | Défaillance | Correction |
 |---|---|---|
 | C3, #45 commentaire 4307760714 et #60 commentaire 4307583962 : une v3 émise s'imprime sous la mise en page de l'adresse (défaut sans paramètre), pas sous celle de sa copie scellée | V3M-18 (V3M06 scellé sous le préréglage « décision », impression sans paramètre et avec des paramètres contraires) | `bed15133` : `EstimateV3PrintPage` prend `proof.layoutOptions` entière ; `EstimatePrintLayoutButton` `locked` : simple « Imprimer » pour une copie émise, `auto_print` conservé |
-| C4, #60 commentaire 4307583969 : l'appariement exact du contrat 2 joint les lignes par identifiant seul, sans ordre ni numéro de section | F27-20, F27-21 (pgTAP, isolation justifiée en tête du bloc : seule la publication `service_role` reçoit un contrat présenté) | `238a5e40` : `20261018164500_estimate_offer_client_contract_v2_order.sql` redéfinit `estimate_offer_client_items_match_v2` (même signature, `security invoker`, `search_path` vide, exécution `service_role` seul, préliminaire sur ces propriétés) : parcours préfixe de l'arbre stocké (frères par position, puis identifiant) et numéros de `computeEstimateItemNumbering` ; refus inchangé `23514 OFFER_CLIENT_CONTRACT_ANCHOR_MISMATCH` |
+| C4, #60 commentaire 4307583969 : l'appariement exact du contrat 2 joint les lignes par identifiant seul, sans ordre ni numéro de section | F27-20, F27-21 (pgTAP, isolation justifiée en tête du bloc : seule la publication `service_role` reçoit un contrat présenté) | `238a5e40` : `20261018172935_estimate_offer_client_contract_v2_order.sql` redéfinit `estimate_offer_client_items_match_v2` (même signature, `security invoker`, `search_path` vide, exécution `service_role` seul, préliminaire sur ces propriétés) : parcours préfixe de l'arbre stocké (frères par position, puis identifiant) et numéros de `computeEstimateItemNumbering` ; refus inchangé `23514 OFFER_CLIENT_CONTRACT_ANCHOR_MISMATCH` |
 
 Le test rouge `35a00bf7` ne s'exécutait pas : `contract -> 'rows' - 0` se lit `contract -> ('rows' - 0)` (`-` lie
 plus fort que `->`) et un paramètre `DEFAULT` ne peut contenir de sous-requête. Corrigé par `591285f5` et
@@ -1907,6 +1907,14 @@ une mesure de la publication sur le volume IO01 (1 021 éléments) : l'ajout est
 sur les éléments de la version, non chronométrés. Parité TypeScript ↔ SQL des numéros exécutée sur S2 (une section)
 et l'arbre imbriqué de F27-21 (profondeur 3, 12 frères, deux racines, identifiants contraires aux positions), pas
 sur des racines ≥ 10.
+
+**Fusion de `main` `f1a5a74b` et réhorodatage.** `origin/main` a gagné `20261018170351_complete_estimate_insertion_receipts.sql`
+(`33c7031b`, lectures complètes) pendant la ronde : la garde Git refusait une migration plus ancienne que la base. Fusion
+`--no-ff` de `origin/main` (seul conflit : `supabase/migrations.manifest.json`, les deux entrées gardées), puis
+réhorodatage de `20261018164500` en `20261018172935` (nom proposé par `npm run supabase:migrations:restamp -- … --dry-run`,
+appliqué par `git mv` ; sha256 inchangé, deux références de documentation suivies). Les preuves vertes ci-dessus
+portent sur `e33a443d` ; après la fusion sont rejoués `db:ci:local`, la garde Git, `supabase:validate` et
+`verify:pr` (description de la PR).
 
 Base partagée : la migration s'applique après M5 et après la fusion de cette PR (autorisation du porteur pour le
 lot 2) ; un document déjà publié garde sa copie (aucune ligne réécrite).
