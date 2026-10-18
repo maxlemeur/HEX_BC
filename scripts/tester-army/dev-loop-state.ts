@@ -247,6 +247,22 @@ export async function stackInputsDigest(root: string) {
   return createHash("sha256").update(JSON.stringify({ migrations, config })).digest("hex");
 }
 
+/**
+ * Whether the recorded workdir is the stack this loop prepared: its isolated
+ * config carries the recorded project ID, which names the recorded supervisor.
+ * Anything else (a corrupted or foreign state) is never destroyed.
+ */
+export function ownsRecordedProject(state: LoopState) {
+  if (!state.stack || !state.stack.projectId.startsWith(`miaouffrage-ci-${state.supervisor.pid}-`)) return false;
+  try {
+    return fs.readFileSync(path.join(state.stack.rootDirectory, "supabase", "config.toml"), "utf8")
+      .split(/\r?\n/).includes(`project_id = "${state.stack.projectId}"`);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
 /** Removes a directory this loop created under the temporary directory, nothing else. */
 export function removeOwnedTemporaryDirectory(directory: string, prefix: string) {
   const resolved = path.resolve(directory);

@@ -9,7 +9,7 @@ import { runSupabaseCli } from "../../src/test/supabase-cli";
 import {
   applicationSourceDigest, assertJourneySelection, classifyLoopState, decideRebuild, DEV_LOOP_ITERATION_SCOPE,
   DEV_LOOP_SOCKET_PREFIX, DEV_LOOP_STATE_FILE, DEV_LOOP_SUPERVISOR_ENTRY, type DevLoopCommand, listeningPorts,
-  type LoopBuild, type LoopState, type LoopStateStore, parseDevLoopArguments, probeSupervisor, readBuildId,
+  type LoopBuild, type LoopState, type LoopStateStore, ownsRecordedProject, parseDevLoopArguments, probeSupervisor, readBuildId,
   readLoopState, removeOwnedTemporaryDirectory, stackInputsDigest, SUPABASE_PROJECT_PREFIX, writeLoopState,
 } from "./dev-loop-state";
 import { buildSourceEvidence } from "./local-recipe-common.mjs";
@@ -302,7 +302,9 @@ async function cleanUpAbandonedLoop(statePath: string, state: LoopState) {
   const errors: string[] = [];
   const notes: string[] = [];
   const directory = state.stack?.rootDirectory;
-  if (directory && fs.existsSync(directory)) {
+  if (directory && fs.existsSync(directory) && !ownsRecordedProject(state)) {
+    errors.push(`refusing to destroy ${directory}: its configuration does not carry the recorded project ${state.stack?.projectId}`);
+  } else if (directory && fs.existsSync(directory)) {
     try { runSupabaseCli(["stop", "--workdir", directory], { capture: true }); }
     catch { notes.push("supabase stop failed (a stack that never started has nothing to stop)"); }
     try {

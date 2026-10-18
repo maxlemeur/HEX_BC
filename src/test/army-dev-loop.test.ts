@@ -17,8 +17,9 @@
 //    so a skipped rebuild would skip a check a qualification run performs;
 // 6. migrations or supabase/config.toml change under a running loop and the
 //    iterations keep running against the schema of the start;
-// 7. stop removes a directory it does not own, or reports a destroyed stack
-//    while one of its ports still listens;
+// 7. stop removes a directory it does not own, destroys a stack another
+//    session prepared (a corrupted or foreign state), or reports a destroyed
+//    stack while one of its ports still listens;
 // 8. the command line accepts an ambiguous or unfiltered selection, an
 //    invalid pattern, a repeated option, an out-of-range TTL or a forbidden
 //    port.
@@ -39,6 +40,7 @@ import {
   DEV_LOOP_SUPERVISOR_ENTRY,
   listeningPorts,
   type LoopState,
+  ownsRecordedProject,
   parseDevLoopArguments,
   probeSupervisor,
   readLoopState,
@@ -224,6 +226,24 @@ describe("TesterArmy dev loop", () => {
     expect(await listeningPorts([port])).toEqual([port]);
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     expect(await listeningPorts([port])).toEqual([]);
+  });
+
+  it("destroys an abandoned stack only when its workdir carries the recorded project", () => {
+    const workdir = temporaryDirectory("miaouffrage-supabase-ci-");
+    fs.mkdirSync(path.join(workdir, "supabase"));
+    const projectId = "miaouffrage-ci-4242-abcd1234";
+    const config = (id: string) => fs.writeFileSync(path.join(workdir, "supabase/config.toml"), `# isolated\nproject_id = "${id}"\n[api]\nport = 16001\n`);
+    const state = loopState({ supervisor: { pid: 4242 }, stack: { projectId, rootDirectory: workdir, ports: [16001] } });
+    config(projectId);
+    expect(ownsRecordedProject(state)).toBe(true);
+    // Another session's stack, a project of another supervisor, or no config at all.
+    config("miaouffrage-ci-7777-ffff0000");
+    expect(ownsRecordedProject(state)).toBe(false);
+    config(projectId);
+    expect(ownsRecordedProject(loopState({ supervisor: { pid: 5151 }, stack: state.stack }))).toBe(false);
+    fs.rmSync(path.join(workdir, "supabase/config.toml"));
+    expect(ownsRecordedProject(state)).toBe(false);
+    expect(ownsRecordedProject(loopState({ stack: undefined }))).toBe(false);
   });
 
   it("accepts only explicit, filtered loop commands", () => {
