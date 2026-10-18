@@ -267,9 +267,7 @@ export function useEstimateEditorSyncController({
         }
         if (structural) {
           structuralGenerationRef.current += 1;
-          // Sans totaux en retour, seul un éditeur v1/v2 a son pied à réenregistrer (writesEditorTotals).
-          const needsTotalsSave = (!totals && writesEditorTotals(snapshot)) ||
-            pendingItemUpdatesRef.current.size > 0 || pendingSettingsRef.current;
+          const needsTotalsSave = (!totals && writesEditorTotals(snapshot)) || pendingItemUpdatesRef.current.size > 0 || pendingSettingsRef.current;
           updateHasPendingTotalsSave(needsTotalsSave);
           mutationObserverRef.current.setTotalsOutOfSync(needsTotalsSave);
         }
