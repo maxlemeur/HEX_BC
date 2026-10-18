@@ -110,18 +110,25 @@ describe("DPGF structure analysis", () => {
   });
 
   // Lot 2, sous-lot 2.8: an OPTIMA lot carries a « Sous-total » after each sub-lot (row 9 of the
-  // hydraulic lot). The footer started there and every later line was dropped (1 line of 785).
+  // hydraulic lot), then the heading of the next sub-lot. The footer started at the first one and every
+  // later line was dropped (1 line of 785).
   it("ignores an intermediate subtotal alone and keeps the lines that follow it", () => {
     const preview = analyzeImportStructure([
       row({ rowIndex: 0, title: "Tube acier", quantity: 2, unit: "ml", unitPrice: 10 }),
       row({ rowIndex: 1, title: "Sous-total Alimentation EC surchauffée" }),
-      row({ rowIndex: 2, title: "Pose seule", quantity: 3, unit: "u" }),
-      row({ rowIndex: 3, title: "Total général" }),
-      row({ rowIndex: 4, title: "Les prix sont valables pendant 30 jours" }),
+      row({ rowIndex: 2, title: "Raccordements hydrauliques primaires", bold: true }),
+      row({ rowIndex: 3, title: "Pose seule", quantity: 3, unit: "u" }),
+      // A sub-lot subtotal followed by its lot's subtotal (OPTIMA rows 209 and 211), then a heading.
+      row({ rowIndex: 4, title: "Sous-total Alimentation EF et expansion" }),
+      row({ rowIndex: 5, title: "Sous-total Production de chaleur" }),
+      row({ rowIndex: 6, title: "Echangeur primaire", bold: true }),
+      row({ rowIndex: 7, title: "Echangeur à plaques", quantity: 1, unit: "u", unitPrice: 900 }),
+      row({ rowIndex: 8, title: "Total général" }),
+      row({ rowIndex: 9, title: "Les prix sont valables pendant 30 jours" }),
     ]);
 
-    expect(preview.footer_row_indexes).toEqual([1, 3, 4]);
-    expect(preview.summary.footer_start_row_index).toBe(3);
+    expect(preview.footer_row_indexes).toEqual([1, 4, 5, 8, 9]);
+    expect(preview.summary.footer_start_row_index).toBe(8);
   });
 
   it("still starts a classic footer at its first Sous-total when no line content follows", () => {
@@ -160,6 +167,18 @@ describe("DPGF structure analysis", () => {
     ]);
 
     expect(preview.footer_row_indexes).toEqual([1, 2]);
+    expect(preview.summary.footer_start_row_index).toBe(1);
+  });
+
+  it("keeps options listed right after a Sous-total HT in the footer, as before", () => {
+    const preview = analyzeImportStructure([
+      row({ rowIndex: 0, title: "Tube acier", quantity: 2, unit: "ml", unitPrice: 10 }),
+      row({ rowIndex: 1, title: "Sous-total HT", totalHt: 100_000 }),
+      row({ rowIndex: 2, title: "PSE 1 : robinet thermostatique", quantity: 4, unit: "u", unitPrice: 50 }),
+      row({ rowIndex: 3, title: "Total HT", totalHt: 100_200 }),
+    ]);
+
+    expect(preview.footer_row_indexes).toEqual([1, 2, 3]);
     expect(preview.summary.footer_start_row_index).toBe(1);
   });
 

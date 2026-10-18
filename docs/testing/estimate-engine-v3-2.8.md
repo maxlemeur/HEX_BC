@@ -190,12 +190,14 @@ Point d'attention pour l'implémentation : sur le classeur hydraulique complet, 
 1. **Pied de document de l'import (tous moteurs)** : `analyzeImportStructure` ouvrait le pied au premier
    « Sous-total » et ignorait tout ce qui suivait. Un lot OPTIMA porte un sous-total par sous-lot : le lot
    hydraulique n'importait qu'une ligne sur 785 (110 sur la plomberie), en v1/v2 comme en v3 — c'était la
-   cause du « 1 ligne vérifiée » relevé en phase rouge. Désormais seul un « Sous-total » suivi d'une ligne à
-   quantité positive est ignoré seul ; « Total… », les mentions légales et un dernier « Sous-total » ouvrent
-   toujours le pied (revue : un pied chiffré « Sous-total HT / TVA / Total TTC » et des options après
-   « Total HT » gardent le comportement d'avant, tests dédiés). Correctif de perte de lignes, qui change le
-   résultat d'un import v1/v2 des seuls classeurs à sous-totaux intermédiaires (plus de lignes importées) ;
-   `dpgf-import` et `import-optima-v2` rejoués verts.
+   cause du « 1 ligne vérifiée » relevé en phase rouge. Désormais seul un « Sous-total » suivi d'un intitulé
+   sans quantité (le sous-lot suivant) ou d'un autre tel « Sous-total » (celui du lot), puis plus loin d'une
+   ligne à quantité positive, est ignoré seul : dans les deux classeurs OPTIMA, le pied commence au dernier
+   bloc de sous-totaux et aucune ligne à quantité n'est perdue. « Total… », les mentions légales, un dernier
+   « Sous-total » et un « Sous-total » suivi d'options chiffrées ouvrent toujours le pied (revues : pied chiffré
+   « Sous-total HT / TVA / Total TTC », options après « Total HT » ou juste après « Sous-total HT », tests
+   dédiés). Correctif de perte de lignes, qui change le résultat d'un import v1/v2 des seuls classeurs à
+   sous-totaux intermédiaires (plus de lignes importées) ; `dpgf-import` et `import-optima-v2` rejoués verts.
 2. **Ouvrage généré** : h/u = h / Q arrondi (comme un modèle), pas « exact ou refus » (comme un ouvrage de
    bibliothèque). Un sous-détail généré donne des heures totales estimées ; un refus sur quotient inexact
    bloquerait la plupart des insertions. Q nulle avec des heures : refus nommé
@@ -231,6 +233,19 @@ Point d'attention pour l'implémentation : sur le classeur hydraulique complet, 
 | 11 | Pont sans contrôle de tenant | corrigé (cas B rouge d'abord) |
 | 13 | Fins de ligne réécrites dans `generated-ouvrages.test.ts` | corrigé (18 lignes réelles) |
 | 7, 9, 12 | Limites | écart 7 |
+
+Revue de suivi (sur `c28866e4`) : les corrections tiennent, aucun défaut bloquant ni important ; quatre
+mineurs. Sous-total suivi directement d'options chiffrées (encore importées) : corrigé, test rouge d'abord ;
+le test « sous-total intermédiaire » écrit dans ce sous-lot plaçait une ligne juste après le sous-total, cas
+absent des classeurs OPTIMA : aligné sur leur structure (intitulé du sous-lot suivant). La première règle
+durcie perdait encore des lignes OPTIMA, un sous-total de sous-lot pouvant être suivi de celui du lot
+(lignes 209 et 211 du lot hydraulique) : IO01 et IO03 rouges (123/785, 257/656) ; chaînes de sous-totaux
+prises en compte, simulation sur les deux classeurs (aucune ligne à quantité perdue), cas ajouté au test,
+puis IO01 et IO03 verts. Commentaire déplacé :
+corrigé. Restent documentés : le contrôle des rôles MO des modèles est côté TypeScript seulement (un appel
+direct de la RPC l'évite, sans enjeu de sécurité, comme pour les ouvrages) et refuse aussi une ligne non
+chiffrée ; le cas pgTAP H n'exerce la branche v3 de `commit_generated_ouvrages` qu'avec 0 h (la division
+h / Q non nulle n'est exécutée que par son miroir TypeScript).
 
 La suite complète (`e2e:army:ci -- full`, avant ces suites) a aussi trouvé une régression : le collage
 proposait « Prix Unitaire » comme contrôle sur toute feuille, alors que `numeric-entry-v3` (2.3) exige qu'il

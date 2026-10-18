@@ -579,16 +579,6 @@ async function collectEstimateAssemblyTreeIds(input: {
   return Array.from(visited);
 }
 
-/**
- * Un composant de main-d'oeuvre SANS role porte son taux horaire dans
- * unit_cost_ht_cents (cf. refresh_estimate_assembly_rollup). Or une ligne de
- * devis ne sait calculer la MO que via labor_role_id -> taux horaire : sans
- * role, tout le cout de main-d'oeuvre serait silencieusement perdu a
- * l'insertion (ligne a 0 EUR alors que la bibliotheque annonce un montant).
- *
- * On refuse donc l'insertion, sous-ouvrages compris, plutot que de sous-chiffrer
- * le devis sans prevenir.
- */
 // Lot 2, sous-lot 2.8 (rules 3 and 5, P-12): the named refusals of M6 reach the user with the line named.
 const V3_ENTRY_REFUSALS: Record<string, (title: string) => string> = {
   ESTIMATE_V3_TEMPLATE_HOURS_WITHOUT_QUANTITY: (title) =>
@@ -632,6 +622,16 @@ async function assertTemplateLaborRolesResolved(input: {
   );
 }
 
+/**
+ * Un composant de main-d'oeuvre SANS role porte son taux horaire dans
+ * unit_cost_ht_cents (cf. refresh_estimate_assembly_rollup). Or une ligne de
+ * devis ne sait calculer la MO que via labor_role_id -> taux horaire : sans
+ * role, tout le cout de main-d'oeuvre serait silencieusement perdu a
+ * l'insertion (ligne a 0 EUR alors que la bibliotheque annonce un montant).
+ *
+ * On refuse donc l'insertion, sous-ouvrages compris, plutot que de sous-chiffrer
+ * le devis sans prevenir.
+ */
 async function assertAssemblyLaborRolesResolved(input: {
   supabase: Supabase;
   tenantId: string;
