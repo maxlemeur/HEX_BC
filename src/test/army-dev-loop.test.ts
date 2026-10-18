@@ -39,8 +39,9 @@
 // 14. a state copied or restored into another checkout while its loop runs
 //    is taken for this checkout's: stop signals the other checkout's
 //    supervisor, run drives its socket, cleanup removes its socket or stack;
-// 15. a migration or config.toml edit made during an iteration's rebuild
-//    reaches the journeys, which then run against the schema of the start;
+// 15. a migration or config.toml edit made after an iteration's preflight,
+//    around its rebuild (build-local.mjs only refuses one made while it
+//    builds), reaches the journeys, which run against the schema of the start;
 // 16. after a SIGKILL during an iteration, the journey process and its
 //    `next start` survive on the application port while stop reports the
 //    loop closed and deletes its state;
@@ -755,7 +756,7 @@ describe("TesterArmy dev loop", () => {
     }, 30_000);
 
     it("rechecks migrations and config.toml after a rebuild, immediately before the journeys", async () => {
-      // The stub's empty inputs make the iteration rebuild; a migration lands during that build (15).
+      // The stub's empty inputs make the iteration rebuild; a migration lands as it returns (15).
       const loop = await openSession({
         afterBuild: (count, checkout) => {
           if (count === 2) fs.writeFileSync(path.join(checkout, "supabase/migrations/002_during_build.sql"), "create table b ();\n");
