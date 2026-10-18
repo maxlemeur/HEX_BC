@@ -485,7 +485,8 @@ describe("TesterArmy critical impact map", () => {
 
     expect(run(["--event", "pull_request", "--force-full"]).status).toBe(2);
     expect(run(["--event", "pull_request", "--unknown", "x"]).status).toBe(2);
-  });
+    // Four selector processes: the 5 s default does not hold on a loaded runner (PR #75, run 39176050241).
+  }, 30_000);
 });
 
 describe("TesterArmy shard plans", () => {
@@ -659,7 +660,8 @@ describe("TesterArmy shard plans", () => {
     } finally {
       fs.rmSync(directory, { recursive: true, force: true });
     }
-  });
+    // Four selector processes and two in-process plans: timed out at 5,3 s on a loaded runner (PR #75, run 39176050241).
+  }, 30_000);
 });
 
 /** Journey files the e2e.config.ts full selection runs in this working tree. */

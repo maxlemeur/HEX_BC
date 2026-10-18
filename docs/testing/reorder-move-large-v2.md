@@ -102,6 +102,12 @@ Retained evidence (manifests, logs, business artifacts): `.codex-tmp/reorder-mov
 | RM04 move 1 000 → 999 lines | **400 `BAD_REQUEST`, `57014` after 8 429 ms, nothing written** | 200 in 1 210 ms (986 ms in an earlier loop), same effects |
 | `bulk-move`, `engine-v3-editor-actions` (reorder on a v3 draft) | — | passed (1 and 15 tests) |
 
+CI flake fixed with this change: the first PR run's `Tests` job
+([39176050241](https://github.com/maxlemeur/HEX_BC/actions/runs/39176050241)) failed in
+`src/test/army-impact-map.test.ts`, « hands the workflow one matrix entry per shard », at 5,3 s against the 5 s
+default timeout (1,2 s locally). It spawns the journey selector four times; it and its spawn-based sibling now set
+30 s, as the other subprocess tests do.
+
 ### Statement profile (median of 3 rolled-back runs, ms)
 
 | Statement | main, `authenticated` | main, `postgres` | change, `authenticated` | change, `postgres` | `estimate_versions` updates |
