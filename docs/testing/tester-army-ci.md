@@ -163,7 +163,11 @@ complète, phase développement comprise, et garde les noms qualifiants
 déclenchement sans motif. En local, le même filtre :
 `npm run e2e:army:ci -- full --grep '<motif>'`, ou
 `npm run e2e:army:ci -- full --files e2e/army/critical/auth.setup.e2e.ts,e2e/army/takeoff/<parcours>.e2e.ts`
-(sous-dossiers acceptés).
+(sous-dossiers acceptés). La boucle d'itération `npm run e2e:army:dev-loop`
+([développement local](tester-army-local-development.md)) ne sert que des
+parcours critical : les parcours du métré passent par ce filtre full, et le
+superviseur de la boucle refuse `--grep` et `--files` (chaque `run` choisit
+sa sélection).
 
 ### Forcer la suite complète
 
@@ -319,6 +323,23 @@ Preuve : `.e2e/army/ci/2026-10-18T01-54-16-965Z-full/` du clone
 `f327384ae8f93bcf338e859369d7dccd3d270b9160638cb56fbf2a5a48cff7fc`). La copie,
 non suivie par git, n'entre pas dans `source.diffSha256`, qui ne couvre que les
 fichiers suivis ; elle a été supprimée après le run.
+
+Après la fusion de `origin/main` `488382d5` (PR #44, éditeur v3 de 2.6 ; PR #43,
+boucle d'itération), même hôte, clone à `daa14ed3` sans modification locale
+(`diffSha256` `e3b0c442…b855`), 250 migrations :
+`run-tester-army-ci.ts full --app-port 3142 --files e2e/army/critical/auth.setup.e2e.ts,e2e/army/takeoff/contracts.e2e.ts`
+(`contracts.e2e.ts` appartient au groupe `takeoff-wizard` que les fichiers
+de l'éditeur v3 atteignent) : `db reset` 7,6 s, pgTAP (`Files=20, Tests=1854`)
+et RLS verts, build 38,1 s (cache webpack local), parcours 26,5 s, 9/9,
+`scope: filtered-full`, `phasesNotRun.development`, run complet 86,9 s,
+confidentialité passée. Preuve : `.e2e/army/ci/2026-10-18T04-32-02-670Z-full/`
+du clone (`manifest.json` SHA-256
+`f50ce808d671cde4ac821ece3a99d5fdb15008b88d2ed7c50b4bd628ea0db100`). La boucle
+de #43 sur la même révision (`start --app-port 3143`, 83,5 s ; `run --grep
+HUB03` 2/2 en 7,0 s ; `run --files e2e/army/critical/hub-plans-card.e2e.ts`
+4/4 en 14,8 s, sans reconstruction ; `stop` 3,2 s, pile, entrée du registre et
+ports retirés) n'est pas une qualification ; pendant qu'elle était ouverte, ce
+même `full --files` a été refusé avant toute pile.
 
 Chiffres CI de référence : la description de la PR qui introduit ces
 changements relève, avec les identifiants de run, la suite critical complète à
