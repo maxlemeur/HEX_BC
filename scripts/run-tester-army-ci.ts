@@ -23,7 +23,7 @@ import { assertLocalAppPortAvailable, runLocalDevelopmentSession } from "./teste
 
 const suite = process.argv[2];
 if (!["critical", "full", "dev", "dev-loop", "calc-v3"].includes(suite)) {
-  throw new Error("Usage: run-tester-army-ci.ts critical|full|dev|dev-loop|calc-v3 [--app-port PORT] [critical or full: --grep PATTERN | --files A.e2e.ts,B.e2e.ts] [critical or full: --shard I/N] [full only: --phase development] [calc-v3 only: --phase NAME [--grep PATTERN]] [dev-loop only: --ttl-minutes N]");
+  throw new Error("Usage: run-tester-army-ci.ts critical|full|dev|dev-loop|calc-v3 [--app-port PORT] [critical or full: --grep PATTERN | --files A.e2e.ts,B.e2e.ts] [critical or full: --shard I/N] [critical or full: --tenant-calc-engine 3] [full only: --phase development] [calc-v3 only: --phase NAME [--grep PATTERN]] [dev-loop only: --ttl-minutes N]");
 }
 // Journey files a --files run may name: critical and local journeys of the
 // critical suite; for full, any journey folder of its selection (its shards,
@@ -38,12 +38,15 @@ let fullPhase: "development" | undefined;
 let shard: { index: number; total: number } | undefined;
 let appPort = 3107;
 let ttlMinutes = DEFAULT_DEV_LOOP_TTL_MINUTES;
+// Lot 2, sub-lot 2.10b pilot (docs/testing/estimate-engine-v3-2.10.md): the provisioned campaign tenant gets an
+// explicit engine-3 policy before any journey. Allowlisted value only; journeys with their own owner are unaffected.
+let tenantCalcEngine: 3 | undefined;
 const suppliedOptions = new Set<string>();
 for (let index = 3; index < process.argv.length; index += 2) {
   const option = process.argv[index];
   const value = process.argv[index + 1];
-  if (!["--grep", "--files", "--app-port", "--phase", "--ttl-minutes", "--shard"].includes(option) || suppliedOptions.has(option) || !value?.trim()) {
-    throw new Error("Only one --app-port, one --grep or --files, one --shard and one --phase with explicit values are allowed.");
+  if (!["--grep", "--files", "--app-port", "--phase", "--ttl-minutes", "--shard", "--tenant-calc-engine"].includes(option) || suppliedOptions.has(option) || !value?.trim()) {
+    throw new Error("Only one --app-port, one --grep or --files, one --shard, one --tenant-calc-engine and one --phase with explicit values are allowed.");
   }
   suppliedOptions.add(option);
   if (option === "--files") {
@@ -75,6 +78,11 @@ for (let index = 3; index < process.argv.length; index += 2) {
       throw new Error("--shard I/N is restricted to critical and full, with 1 <= I <= N <= 99.");
     }
     shard = { index: Number(match[1]), total: Number(match[2]) };
+  } else if (option === "--tenant-calc-engine") {
+    if ((suite !== "critical" && suite !== "full") || value !== "3") {
+      throw new Error("--tenant-calc-engine is restricted to critical and full and accepts only 3 (the 2.10b pilot policy).");
+    }
+    tenantCalcEngine = 3;
   } else if (option === "--phase" && suite === "full") {
     if (value !== "development") throw new Error("full --phase names its development phase only; --files or --grep narrow its full phase.");
     fullPhase = value;
@@ -137,6 +145,7 @@ const manifest: Record<string, unknown> = {
   // Not `files`: retainEvidence writes the evidence inventory under that key.
   ...(files.length ? { journeyFiles: files } : {}),
   ...(shard ? { shard } : {}),
+  ...(tenantCalcEngine ? { tenantCalcEngine } : {}),
   ...(calcV3Phase ? { calcV3Phase } : {}),
   ...(suite === "full" && !fullPhases.includes("development")
     ? { phasesNotRun: { development: "a filtered full run proves only the selected journeys of its production full phase" } }
@@ -278,7 +287,35 @@ async function runApplication(local: SupabaseEnvironment) {
     throw provisioningFailure("create catalogue article", "Could not create the local ARMY catalogue fixture.", articleError, articleStatus);
   }
   provisioning.completed.push("create catalogue article");
-  manifest.fixtures = { userId: user.user.id, tenantId, articleId: article.id, laborRole, backend: backend.origin, lifecycle: "destroyed with the owned stack" };
+  let tenantCalcPolicy: Record<string, unknown> | undefined;
+  if (tenantCalcEngine === 3) {
+    // The only writer of the policy (P-13: service_role), with the documented defaults (P-02, P-07).
+    const { data: before, error: beforeError, status: beforeStatus } = await admin.from("tenant_calc_policies")
+      .select("tenant_id").eq("tenant_id", tenantId);
+    if (beforeError || before?.length !== 0) {
+      throw provisioningFailure("verify absent calc policy", "The new ARMY tenant must start without a calc policy row.", beforeError, beforeStatus);
+    }
+    const reason = "ARMY 2.10b pilot: campaign tenant at engine 3 (--tenant-calc-engine 3)";
+    const { data: policy, error: policyError, status: policyStatus } = await admin.rpc("set_tenant_calc_policy", {
+      p_tenant_id: tenantId, p_new_estimate_calc_engine: 3, p_default_sale_coefficient_fo: 1.3,
+      p_default_sale_coefficient_mo: 1.2, p_allowed_tax_rates_bp: [2000, 1000, 550, 210],
+      p_change_reason: reason, p_actor_user_id: user.user.id,
+    });
+    if (policyError || policy?.tenant_id !== tenantId || policy.new_estimate_calc_engine !== 3 ||
+      Number(policy.default_sale_coefficient_fo) !== 1.3 || Number(policy.default_sale_coefficient_mo) !== 1.2 ||
+      JSON.stringify(policy.allowed_tax_rates_bp) !== "[2000,1000,550,210]") {
+      throw provisioningFailure("set calc policy 3", "Could not set the campaign tenant to engine 3.", policyError, policyStatus);
+    }
+    provisioning.completed.push("set calc policy 3");
+    tenantCalcPolicy = {
+      before: "absent", after: { engine: 3, fo: "1.3000", mo: "1.2000", allowedTaxRatesBp: [2000, 1000, 550, 210] },
+      reason, writer: "public.set_tenant_calc_policy as service_role",
+    };
+  }
+  manifest.fixtures = {
+    userId: user.user.id, tenantId, articleId: article.id, laborRole, backend: backend.origin,
+    ...(tenantCalcPolicy ? { tenantCalcPolicy } : {}), lifecycle: "destroyed with the owned stack",
+  };
 
   fs.mkdirSync(path.join(root, ".e2e/army/coverage"), { recursive: true });
   const environment: NodeJS.ProcessEnv = {
