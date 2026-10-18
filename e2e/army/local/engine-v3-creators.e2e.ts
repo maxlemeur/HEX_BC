@@ -37,7 +37,8 @@ import { grid, releaseVersion, switchToExpertMode, waitForDraftLease } from "./e
 // Chaque parcours a son propriétaire dédié ; la politique 3 (1,30 / 1,20) est refermée à 2 en fin de parcours.
 const options = { session: "army", tags: ["critical", "local", "engine-v3", "creators"], timeout: 600_000 } as const;
 // Parcours qui capturent un état visible pour la pull request : sans la session de campagne restaurée, dont la saisie
-// du mot de passe retient toute capture ; le propriétaire dédié remplace de toute façon ses cookies.
+// du mot de passe retient toute capture ; le propriétaire dédié remplace de toute façon ses cookies. Ils ne lancent
+// donc pas la connexion : une sélection faite d'eux seuls est refusée par le runner, y joindre V3C01 par exemple.
 const capturing = { tags: options.tags, timeout: options.timeout } as const;
 const V2_ONLY_KEYS = ["margin_mode", "margin_bp", "margin_multiplier", "global_coefficient", "discount_steps"] as const;
 const V3_BLANK = { engine: 3, coefficients: [1.3, 1.2], neutral: ["fixed", 1, 1, "simple", []], rounding: ["none"] };
@@ -535,7 +536,11 @@ armyTest("V3C10 the hub margin evolution keeps its v2 points and says the v3 is 
             .filter((label) => /^V\d+$/.test(label)) : null,
         };
       });
-      await screen.getByRole("heading", "Analyse de marge", { exact: true }).scrollIntoView();
+      // The notice sits under the chart, below the fold: centred, clear of the sticky workflow stepper.
+      await browser.evaluate(() => {
+        document.querySelector("[data-testid=\"margin-evolution-v3-notice\"]")?.scrollIntoView({ block: "center" });
+        return true;
+      });
       await captureScreen(ui, army, "v3c10-margin-notice");
       const observed = {
         chartVersions: read.chartVersions,
