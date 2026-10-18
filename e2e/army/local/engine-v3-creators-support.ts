@@ -123,7 +123,8 @@ export function v3Settings(version: StoredVersion) {
   return {
     engine: version.engine, coefficients: [version.fo, version.mo],
     neutral: [version.marginMode, version.marginMultiplier, version.globalCoefficient, version.discountMode, version.discountSteps],
-    rounding: [version.roundingMode, version.roundingStepCents],
+    // The step of « Aucun » is not a setting the user chose (inherited or default): only the mode is compared.
+    rounding: version.roundingMode === "none" ? ["none"] : [version.roundingMode, version.roundingStepCents],
   };
 }
 
