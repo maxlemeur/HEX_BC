@@ -215,14 +215,43 @@ describe("local Supabase CI", () => {
     vi.stubGlobal("process", new Proxy(nativeProcess, {
       get: (target, key) => key === "platform" ? "linux" : Reflect.get(target, key),
     }));
+    // The dev loop records these ports in its state file before the stack starts.
+    let reportedPorts: number[] = [];
     try {
-      await expect(runLocalSupabaseCi({ ...dependencies, reservedPorts })).rejects.toThrow("Fixture stops before launching any service");
+      await expect(runLocalSupabaseCi({
+        ...dependencies, reservedPorts, onProjectPrepared: (project) => { reportedPorts = [...(project.ports ?? [])]; },
+      })).rejects.toThrow("Fixture stops before launching any service");
       expect(new Set(allocated).size).toBe(8);
       expect(allocated.every((port) => allowed.has(port))).toBe(true);
+      expect([...reportedPorts].sort()).toEqual([...allocated].sort());
     } finally {
       vi.stubGlobal("process", nativeProcess);
       reader.mockRestore();
     }
+  });
+
+  it("reports its isolated project before starting the stack and cleans up when that report fails", async () => {
+    // The dev loop's stale cleanup needs the workdir of a stack whose
+    // supervisor died during `supabase start`: it must be known beforehand.
+    const reported = createDependencies();
+    const identities: string[] = [];
+    await runLocalSupabaseCi({
+      ...reported.dependencies,
+      onProjectPrepared: (project) => {
+        expect(reported.calls).toEqual(["--version"]);
+        identities.push(`${project.projectId} ${project.rootDirectory}`);
+      },
+    });
+    expect(identities).toEqual(["miaouffrage-ci-test C:/temp/miaouffrage-supabase-ci-test"]);
+
+    const failing = createDependencies();
+    await expect(runLocalSupabaseCi({
+      ...failing.dependencies,
+      onProjectPrepared: () => { throw new Error("dev-loop state is not writable"); },
+    })).rejects.toThrow("Phase failed: prepare isolated project: dev-loop state is not writable");
+    expect(failing.calls).toEqual(["--version"]);
+    expect(failing.dependencies.provisionUsers).not.toHaveBeenCalled();
+    expect(failing.dependencies.removeProject).toHaveBeenCalledOnce();
   });
 
   it("refuses browser-blocked ports even when they are the only unreserved candidates", async () => {

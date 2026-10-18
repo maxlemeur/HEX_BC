@@ -71,6 +71,7 @@
     "e2e:army:full:list": "node scripts/run-tester-army.mjs full-list",
     "e2e:army:ci": "node --import tsx scripts/run-tester-army-ci.ts",
     "e2e:army:local": "node --import tsx scripts/run-tester-army-ci.ts critical",
+    "e2e:army:dev-loop": "node --import tsx scripts/tester-army/dev-loop.ts",
     "e2e:army:development": "node scripts/run-tester-army.mjs development",
     "e2e:army:polish": "node scripts/run-tester-army.mjs polish",
     "e2e:army:polish:list": "node scripts/run-tester-army.mjs polish-list",
