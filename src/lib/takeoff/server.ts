@@ -7256,13 +7256,36 @@ export async function applyTakeoffJob(
   }
 }
 
-async function assertEstimateVersionAccessibleAsDraft(input: {
+type TakeoffTargetVersionAccess = {
   supabase: Awaited<ReturnType<typeof getAuthenticatedContext>>["supabase"];
   estimateVersionId: string;
   tenantId: string;
   userId: string;
   tenantRole: string;
-}) {
+};
+
+async function assertEstimateVersionAccessibleAsDraft(input: TakeoffTargetVersionAccess) {
+  const version = await assertEstimateVersionAccessibleForTakeoff(input);
+  assertDraftStatus(version.status);
+}
+
+/**
+ * Sous-lot 2.10a (revue, N3, D-f) : « Créer un brouillon depuis V… » copie d'abord sa source, et la copie garde son
+ * moteur (P-15). Une source v3 est refusée avant la copie, avec le refus de la création d'une tâche ; sinon la copie
+ * v3 restait dans l'affaire. Mêmes contrôles d'accès que la cible ; le statut de la source est libre.
+ */
+export async function assertTakeoffSourceVersionSupported(sourceVersionId: string) {
+  const { supabase, tenantId, userId, tenantRole } = await getAuthenticatedContext();
+  await assertEstimateVersionAccessibleForTakeoff({
+    supabase,
+    tenantId,
+    userId,
+    tenantRole,
+    estimateVersionId: sourceVersionId,
+  });
+}
+
+async function assertEstimateVersionAccessibleForTakeoff(input: TakeoffTargetVersionAccess) {
   const { data, error } = await input.supabase
     .from("estimate_versions")
     .select("id, status, calc_engine_version, estimate_projects!inner(tenant_id, user_id)")
@@ -7312,7 +7335,7 @@ async function assertEstimateVersionAccessibleAsDraft(input: {
     throw takeoffEngineV3Unsupported(input.estimateVersionId);
   }
 
-  assertDraftStatus(data.status);
+  return data;
 }
 
 async function removeUploadedFileIfPresent(input: {
