@@ -1066,20 +1066,8 @@ armyTest("V3E16 included, for-memory and out-of-scope v3 lines at 0 € raise no
       blocking: ["no_pdf_generated"], canSend: false, missingPrice: [], missingLaborTime: [],
     });
 
-    // Même règle dans l'éditeur : aucune pastille « Prix manquant » ni « Temps MO manquant » sur les lignes de statut.
-    await openV3Editor(ui, army, draft, "v3e16");
-    await waitForDraftLease(ui);
-    const empty = Object.fromEntries([lineP.id, ...statusIds].map(id => [id, [] as string[]]));
-    let dots = await qualityDots(ui, [lineP.id, ...statusIds]);
-    const deadline = Date.now() + 15_000;
-    while (JSON.stringify(dots) !== JSON.stringify(empty) && Date.now() < deadline) {
-      await pause(750);
-      dots = await qualityDots(ui, [lineP.id, ...statusIds]);
-    }
-    await recordEvidence(army, "v3e16-editor-dots", { versionId: draft.versionId, actual: dots, nativeDialogs: dialogs });
-    expect(dots, "the v3 editor shows no missing price or labour time on status lines").toEqual(empty);
-
     // Garde v1/v2 : une ligne v2 « HL » à 0 € (mention dans description) reste un prix manquant qui bloque l'envoi.
+    // Avant toute navigation : le bail de l'ancre v2, pris par ensureTuyauteur, appartient à la session de ce document.
     await lockVersion(browser, draft.anchorId);
     const anchor = await readEstimate(browser, draft.anchorId);
     const section = await apiRequest<Envelope<{ item: ArmyItem }>>(browser, "POST", `/api/estimates/${draft.anchorId}/items`,
@@ -1101,6 +1089,19 @@ armyTest("V3E16 included, for-memory and out-of-scope v3 lines at 0 € raise no
     expect(v2View, "a v2 line at 0 € still blocks the send by missing price").toEqual({
       blocking: true, canSend: false, missingPrice: [v2Line.body.data.item.id], severity: "blocking",
     });
+
+    // Même règle dans l'éditeur : aucune pastille « Prix manquant » ni « Temps MO manquant » sur les lignes de statut.
+    await openV3Editor(ui, army, draft, "v3e16");
+    await waitForDraftLease(ui);
+    const empty = Object.fromEntries([lineP.id, ...statusIds].map(id => [id, [] as string[]]));
+    let dots = await qualityDots(ui, [lineP.id, ...statusIds]);
+    const deadline = Date.now() + 15_000;
+    while (JSON.stringify(dots) !== JSON.stringify(empty) && Date.now() < deadline) {
+      await pause(750);
+      dots = await qualityDots(ui, [lineP.id, ...statusIds]);
+    }
+    await recordEvidence(army, "v3e16-editor-dots", { versionId: draft.versionId, actual: dots, nativeDialogs: dialogs });
+    expect(dots, "the v3 editor shows no missing price or labour time on status lines").toEqual(empty);
   });
 
 /**
@@ -1159,6 +1160,9 @@ armyTest("V3E17 at phone width the mobile line editor of a v3 writes unit_code f
     }
     await editor.getByRole("button", "Terminer", { exact: true }).tap();
     await expect(editor).toBeHidden({ timeout: 30_000 });
+    // Sur téléphone, « Sauvegarder maintenant » du menu « Plus d'actions » (l'enregistrement automatique attend 60 s).
+    await screen.getByTestId("estimate-page-toolbar-more-actions-button", { visible: true }).tap();
+    await screen.getByTestId("estimate-page-toolbar-save-now-button", { visible: true }).tap();
     const saved = await waitState(ui, draft.versionId, (state) => {
       const item = lineByTitle(state, line.title);
       return item?.unit_code === "ml" && Number(item?.h_mo_per_unit) === 1.5 && sameTotals(state, typed);
@@ -1215,17 +1219,21 @@ armyTest("V3E18 restoring a conflicting local draft on a v3 writes its v3 inputs
     const draftItems = before.items.map(item => item.id === line.id
       ? { ...item, unit_code: "ml", h_mo_per_unit: 1.5 } : item);
     const settings = { margin_mode: "fixed", margin_multiplier: 1.25, margin_bp: 2500, discount_bp: 0, tax_rate_bp: 2000, currency: "EUR" };
-    await browser.evaluate((input) => {
-      sessionStorage.setItem(`estimate:edit:conflict-draft:${input.versionId}`,
-        JSON.stringify({ settings: input.settings, items: input.items, saved_at: new Date().toISOString() }));
+    await browser.evaluate((entry) => {
+      const [key, value] = entry as [string, string];
+      sessionStorage.setItem(key, value);
       return true;
-    }, { versionId: draft.versionId, settings, items: draftItems });
+    }, [`estimate:edit:conflict-draft:${draft.versionId}`,
+      JSON.stringify({ settings, items: draftItems, saved_at: new Date().toISOString() })]);
     await browser.reload();
     await expect(grid(ui)).toBeVisible({ timeout: 60_000 });
     await waitForDraftLease(ui);
     const restore = screen.getByTestId("estimate-editor-alert-restore-draft-button");
     await expect(restore).toBeVisible({ timeout: 30_000 });
     await restore.tap();
+    // Les lignes restaurées restent en attente : Ctrl+S les enregistre (l'enregistrement automatique attend 60 s).
+    await expect(restore).toBeHidden({ timeout: 30_000 });
+    await browser.keyboard.press("ControlOrMeta+s");
     const after = await waitState(ui, draft.versionId, (state) => {
       const item = lineByTitle(state, line.title);
       return item?.unit_code === "ml" && Number(item?.h_mo_per_unit) === 1.5 && sameTotals(state, restored);
