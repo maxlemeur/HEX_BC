@@ -1221,3 +1221,62 @@ migrations passée ; `git -c core.whitespace=cr-at-eol diff --check origin/main.
 - `OF00` (phase `emission` de calc-v3, `next dev`) : rouge intermittent hérité de 2.9 (§10.3.1), vert au passage du §11.5.
 - Course connue entre deux parcours v2 à deux workers (`bulk-edit-sync-sources`, qui bascule l'utilisateur ARMY partagé en
   mode Expert, et `numeric entry v3`, qui suppose le mode Simplifié) : §11.5 ; hors de 2.6.
+
+### 11.7 Revue Codex de la PR #44 (18/10/2026, sur `b6a81dee`)
+
+Deux constats d'un relecteur tiers, revérifiés dans le code puis rendus observables par un parcours rouge avant toute
+correction. Les assertions existantes de `V3E07` et `V3E09` ne sont pas modifiées ; les deux parcours sont étendus.
+
+| # | Constat | Revérification | Rouge (`350dd0ec`) | Correction |
+|---|---|---|---|---|
+| F1 (P1) | `useCatalogueSuggestions.ts:180` : sur une ligne v3 en ml, une suggestion de la désignation prix par le seul prix de référence de l'article, dans une autre unité (u), a `supplier_price_id` nul ; le contrôle d'unité est sauté, `unit_code` reste ml et le prix à la pièce est stocké comme prix au mètre | confirmé à la lecture : refus seulement `si selectedSupplierPriceId` ; la fiche « Associer ou remplacer l'article » juge déjà tout prix suggéré depuis `1c16ad40` (F26-26), pas la désignation | `V3E09` : suggestion non refusée ; ligne enregistrée avec l'article à la pièce, PR 800 c, offre nulle, totaux 2 080 / 416 / 2 496 c au lieu de 3 224 / 645 / 3 869 c | `0842ea4d` : sur une v3, tout prix suggéré (offre ou prix de référence) est jugé dans `unit_code` par `areSupplierUnitsCompatible` (normaliseur partagé `src/lib/units/normalize.ts`), même refus nommé que F26-26 : « Unité différente du devis : offre en u, ligne en ml. » ; rien d'autre n'est écrit |
+| F2 (P2) | `[versionId]/page.tsx:202` : totaux d'en-tête d'une v3 toujours en euros, résumé dessous dans la devise de la version (USD, GBP) | confirmé à la lecture : `formatEUR` dans l'en-tête, `formatCurrency(…, currency)` dans `EstimateV3DraftSummary` | `V3E07` (brouillon passé en USD par l'API, montants inchangés) : en-tête « 560,00 € » / « 672,00 € », résumé « $560.00 » / « $672.00 » | `e589b37b` : l'en-tête est formaté avec la devise résolue (`normalizeEstimateCurrency(version.currency) ?? "EUR"`, celle du résumé) |
+
+Extensions des parcours (rouge `350dd0ec`) :
+
+- `V3E09` : un troisième article du catalogue, « … tube cuivre piece », unité u, prix de référence 800 c, **sans offre**.
+  La fiche le propose désactivé, refusé par son nom (preuve E2E du complément `1c16ad40` de F26-26, qui n'en avait pas ;
+  déjà vert au rouge). Puis, sur la ligne en ml associée à l'article en ml, sa désignation est saisie dans la cellule
+  et Entrée choisit la suggestion : attendus le refus nommé dans la liste, puis, après Tab et Ctrl+S, l'article en ml,
+  son offre, le PR 1 240 c, `unit_code` ml, `description` nulle et les totaux 3 224 / 645 / 3 869 c ; seule la
+  désignation saisie devient le titre, comme toute saisie de la cellule. Point de contrôle écran et API, avant et
+  après rechargement.
+- `V3E07` : après la lecture de la fiche en euros, `currency` passe à USD par `PATCH /api/estimates/{id}` (même contrat
+  que `V3E11`) ; attendus en en-tête et dans le résumé « $560.00 » (HT) et « $672.00 » (TTC à payer).
+
+v1/v2 (relevés à la revérification, non corrigés ; comportement v1/v2 inchangé par ces commits) :
+
+- **F1** : le même défaut existe sur le même chemin (`applyCatalogueSuggestion`) pour une ligne v1/v2 dont `description`
+  porte une unité : un prix de référence dans une autre unité y est appliqué (présent sur `main`, la correction R3 de
+  2.2 ne visait que les offres). Non corrigé ici, car pas sûr : l'unité v1/v2 est le texte libre de `description`, qui
+  peut encore porter une désignation écrite avant 2.2 ; étendre le refus y refuserait tout prix de référence (« ligne
+  en <désignation> »), changement de comportement v1/v2 hors de cette PR et sans parcours v1/v2 qui le qualifie. À
+  trancher pour les moteurs 1 et 2.
+- **F2** : la fiche v1/v2 affiche en-tête et document en euros quelle que soit la devise (`formatEUR`, `EstimateDocument`
+  sans `currency`), alors que son impression suit la devise de la version. Ce n'est pas l'écart en-tête / résumé de F2
+  (la fiche v1/v2 est cohérente avec elle-même), le chemin est distinct et antérieur à 2.6 : non corrigé.
+
+Preuves (WSL Ubuntu 24.04, Node 24.19.0, `e2e` 0.21.0 ; clone `~/miaouffrage-lot2-26` remis à la branche par
+`git -c safe.directory='*' fetch` du dépôt Windows puis `git reset --hard FETCH_HEAD`, diff local vide, `diffSha256`
+`e3b0c442…b855` ; un worker, `NODE_OPTIONS=--max-old-space-size=4096` ; une seule exécution native possédée à la fois) :
+
+| Passage | Commande | Révision | Résultat | Archive (clone WSL) |
+|---|---|---|---|---|
+| Rouge | `E2E_ARMY_WORKERS=1 npm run e2e:army:local -- --grep "V3E07\|V3E09"` | `350dd0ec` | sortie 1 ; en amont pgTAP `Files=20, Tests=1854, Result: PASS`, « Behavioral RLS matrix passed. », build ; **2/2 rouges** pour la raison visée (valeurs du tableau ci-dessus) ; fiche de `V3E09` déjà verte pour l'article à la pièce | `.e2e/army/ci/2026-10-18T02-38-55-869Z-critical`, manifeste `d23939866b8d90db7cda2714d5b63380593e4747b0528afef7a9bee3622109da`, confidentialité `passed` |
+| Vert | même commande | `e589b37b` | sortie 0 ; **2/2 verts** en une tentative (19,0 s) ; `V3E09` : « Unité différente du devis : offre en u, ligne en ml. » dans la liste, article en ml, son offre, PR 1 240 c, `unit_code` ml, `description` nulle, 3 224 / 645 / 3 869 c, relus après rechargement ; `V3E07` : « $560.00 » / « $672.00 » en en-tête et au résumé | `.e2e/army/ci/2026-10-18T02-42-19-279Z-critical`, manifeste `be7b05c8563dc6ebd750ee6b35bfff8c7f17a8157f001433921c55f4474b328f`, confidentialité `passed` |
+| Parcours 2.6 | `E2E_ARMY_WORKERS=1 npm run e2e:army:local -- --grep "V3E\|V3P01\|V3FC"` | `e589b37b` | sortie 1 ; **16/17** : `V3E02` à `V3E13`, `V3P01`, `V3FC01`, `V3FC02` verts en une tentative ; **`V3E01` rouge** : rôle « Tuyauteur » de la ligne O2 perdu après sa saisie (liste vide à l'échec, PU 124,32 € sans main-d'œuvre, sauvegarde attendue jamais vue), signature de l'instabilité non reproduite du §8.5 ; la cellule du rôle et la fiche ne sont pas touchées par ces commits, et le locataire dédié du parcours n'a aucun article (aucune suggestion) | `.e2e/army/ci/2026-10-18T02-44-16-770Z-critical`, manifeste `f8f60ed1db077ab4a95c43d4c3af809c27dcaa9a0f750552cbb543ee7b3643e3`, confidentialité `passed` |
+| `V3E01` seul | `E2E_ARMY_WORKERS=1 npm run e2e:army:local -- --grep "V3E01"` | `e589b37b` | sortie 0 ; 1/1 vert (61,6 s) ; rien modifié entre les deux passages | `.e2e/army/ci/2026-10-18T02-52-53-737Z-critical`, manifeste `e2637fab3107f06eb424db90f7630bde5b71abe6a06fc4e701b410e9803b4e31`, confidentialité `passed` |
+| Suggestion v1/v2 inchangée | `E2E_ARMY_WORKERS=1 npm run e2e:army:calc-v3 -- --phase offers` | `e589b37b` | sortie 0 ; sources inchangées pendant la campagne ; **10/10** : `OZ01` à `OZ04` (dont le refus de la suggestion v2 d'une offre dans une autre unité, ligne en m2) et `PU01` à `PU05` | `.e2e/army/ci/2026-10-18T02-55-59-076Z-calc-v3`, manifeste `e2b26ba24181237d7ef6ff89da6dea3554a3824071632151c384d426f79a9e20`, confidentialité `passed` |
+
+Windows (Node 24.19.0), arbre identique à `e589b37b` : `npm run typecheck` sortie 0 ; `npx eslint --max-warnings=0` sur
+`useCatalogueSuggestions.ts`, `[versionId]/page.tsx` et `engine-v3-editor-actions.e2e.ts`, sortie 0 ; `npx vitest run
+--project=jsdom` sur `EstimateEditorRow.catalogue`, `.behavior`, `.line-cells`, `EstimateEditorTable.integration` et
+`CatalogueSuggestionsPopover` : 5 fichiers, 44/44 ; `npx vitest run --project=node src/test/army-impact-map.test.ts` :
+10/10 ; `npm run check:architecture` : « Architecture budgets passed (1134 modules, 0 allowed runtime cycles). » ;
+`git diff --check` propre ; `estimate-calculations.ts` et `estimate-v2-snapshot.ts` : aucun diff depuis `origin/main`.
+Carte d'impact inchangée (les deux fichiers corrigés y mènent déjà aux parcours `engine-v3-*`).
+
+Limites : le refus d'un prix de référence garde le libellé nommé de F26-26 (« offre en u »), comme la fiche ; le
+chemin v1/v2 de la suggestion est inchangé par construction (la condition vaut l'ancienne quand la grille n'est pas
+v3), prouvé par la phase `offers` ; `V3E01` a de nouveau perdu une fois le rôle saisi (§8.5), cause toujours non
+établie, rien ajouté pour le faire passer ; commits non poussés.
