@@ -36,7 +36,21 @@
 //    port that only the `start` client refuses;
 // 13. the supervisor's own modules change under a running loop: an iteration
 //    then records the current checkout but applies the checks loaded at start.
+// 14. a state copied or restored into another checkout while its loop runs
+//    is taken for this checkout's: stop signals the other checkout's
+//    supervisor, run drives its socket, cleanup removes its socket or stack;
+// 15. a migration or config.toml edit made during an iteration's rebuild
+//    reaches the journeys, which then run against the schema of the start;
+// 16. after a SIGKILL during an iteration, the journey process and its
+//    `next start` survive on the application port while stop reports the
+//    loop closed and deletes its state;
+// 17. a no-rebuild iteration's evidence names a build whose manifest and
+//    inputs only the in-memory session summary held, lost with a killed
+//    supervisor;
+// 18. an unreadable, malformed or unpermitted registry entry is skipped, so
+//    the proof reports the registry clear and deletes the only recovery state.
 import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -56,6 +70,7 @@ import {
   DEV_LOOP_STATE_SCHEMA,
   DEV_LOOP_SUPERVISOR_ENTRY,
   findRegisteredStack,
+  inspectLoopState,
   listeningPorts,
   type LoopState,
   type LoopStateStore,
@@ -63,6 +78,7 @@ import {
   ownsRecordedProject,
   parseDevLoopArguments,
   probeSupervisor,
+  proveLoopClosed,
   proveStackDestroyed,
   readLoopState,
   removeOwnedTemporaryDirectory,
@@ -144,11 +160,20 @@ function request(socketPath: string, body: Record<string, unknown>) {
   });
 }
 
+const sha256 = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
+
 /**
  * A supervisor session on a disposable checkout: fake supervisor modules,
  * one migration, a build stub and journeys that only record their call.
+ * The stub records `buildInputs` (none by default, so every iteration
+ * rebuilds) and calls `afterBuild` with its call count, 1 being the start.
  */
-async function openSession(options: { ttlMinutes?: number; failUpdate?: (patch: Partial<LoopState>, current: LoopState) => boolean } = {}) {
+async function openSession(options: {
+  ttlMinutes?: number;
+  failUpdate?: (patch: Partial<LoopState>, current: LoopState) => boolean;
+  buildInputs?: unknown[];
+  afterBuild?: (count: number, checkout: string) => void;
+} = {}) {
   const checkout = temporaryDirectory("army-dev-loop-session-");
   fs.mkdirSync(path.join(checkout, "supabase/migrations"), { recursive: true });
   fs.writeFileSync(path.join(checkout, "supabase/migrations/001_base.sql"), "create table a ();\n");
@@ -172,6 +197,7 @@ async function openSession(options: { ttlMinutes?: number; failUpdate?: (patch: 
   } as unknown as LoopStateStore;
   const controller = new AbortController();
   const journeys: string[] = [];
+  let buildCount = 0;
   const session = runDevLoopSession({
     root: checkout, store, signal: controller.signal, ttlMinutes: options.ttlMinutes ?? 60,
     sessionEvidence: temporaryDirectory(),
@@ -180,7 +206,11 @@ async function openSession(options: { ttlMinutes?: number; failUpdate?: (patch: 
     build: async () => {
       const builds = path.join(checkout, ".e2e/army/recipes/builds/unit");
       fs.mkdirSync(builds, { recursive: true });
-      fs.writeFileSync(path.join(builds, "manifest.json"), JSON.stringify({ buildId: "build-unit", sourceChangedDuringBuild: false, inputs: [] }));
+      fs.writeFileSync(path.join(builds, "manifest.json"), JSON.stringify({
+        buildId: "build-unit", sourceChangedDuringBuild: false, inputs: options.buildInputs ?? [],
+      }));
+      buildCount += 1;
+      options.afterBuild?.(buildCount, checkout);
     },
     journeys: async (context) => { journeys.push(context.grep ?? context.files.join(",")); },
     finalize: (context) => { fs.writeFileSync(path.join(context.evidence, "manifest.json"), JSON.stringify(context.manifest)); },
@@ -193,16 +223,36 @@ async function openSession(options: { ttlMinutes?: number; failUpdate?: (patch: 
   return { checkout, controller, session, journeys, results };
 }
 
-/** The supervisor entry, from another checkout and without any inherited backend, CI output or secret. */
-function runSupervisorEntry(checkout: string, args: string[]) {
+/** The current environment without any inherited backend, CI output or secret. */
+function isolatedEnvironment() {
   const env: NodeJS.ProcessEnv = { ...process.env, TSX_TSCONFIG_PATH: path.join(root, "tsconfig.json") };
   for (const key of Object.keys(env)) {
     if (/SUPABASE|^E2E_|^RLS_|^NEXT_PUBLIC_|^GITHUB_|DATABASE_URL|^PG/i.test(key)) delete env[key];
   }
-  return spawnSync(process.execPath, [
-    "--import", pathToFileURL(path.join(root, "node_modules/tsx/dist/loader.mjs")).href,
-    path.join(root, DEV_LOOP_SUPERVISOR_ENTRY), ...args,
-  ], { cwd: checkout, encoding: "utf8", timeout: 90_000, windowsHide: true, env });
+  return env;
+}
+
+const tsxLoader = pathToFileURL(path.join(root, "node_modules/tsx/dist/loader.mjs")).href;
+
+/** The supervisor entry, from another checkout. */
+function runSupervisorEntry(checkout: string, args: string[]) {
+  return spawnSync(process.execPath, ["--import", tsxLoader, path.join(root, DEV_LOOP_SUPERVISOR_ENTRY), ...args],
+    { cwd: checkout, encoding: "utf8", timeout: 90_000, windowsHide: true, env: isolatedEnvironment() });
+}
+
+/** The loop client (`npm run e2e:army:dev-loop -- ...`) in `checkout`; asynchronous, so this process can serve a socket meanwhile. */
+function runDevLoopCli(checkout: string, args: string[]) {
+  return new Promise<{ code: number | null; stdout: string; output: string }>((resolve, reject) => {
+    const child = spawn(process.execPath, ["--import", tsxLoader, path.join(root, "scripts/tester-army/dev-loop.ts"), ...args],
+      { cwd: checkout, env: isolatedEnvironment(), stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+    let stdout = "";
+    let output = "";
+    child.stdout.setEncoding("utf8").on("data", (chunk: string) => { stdout += chunk; output += chunk; });
+    child.stderr.setEncoding("utf8").on("data", (chunk: string) => { output += chunk; });
+    const timer = setTimeout(() => child.kill("SIGKILL"), 60_000);
+    child.once("error", reject);
+    child.once("close", (code) => { clearTimeout(timer); resolve({ code, stdout, output }); });
+  });
 }
 
 describe("TesterArmy dev loop", () => {
@@ -280,14 +330,18 @@ describe("TesterArmy dev loop", () => {
     expect(applicationSourceDigest(deleted)).not.toBe(digest);
 
     const built = { appSourceSha256: digest, buildId: "build-1" };
-    expect(decideRebuild({ built, appSourceSha256: digest, buildIdOnDisk: "build-1" })).toMatchObject({ rebuild: false });
-    expect(decideRebuild({ built: undefined, appSourceSha256: digest, buildIdOnDisk: "build-1" })).toMatchObject({ rebuild: true });
-    expect(decideRebuild({ built, appSourceSha256: applicationSourceDigest(edited), buildIdOnDisk: "build-1" }))
+    const intact = { buildManifestIntact: true };
+    expect(decideRebuild({ built, appSourceSha256: digest, buildIdOnDisk: "build-1", ...intact })).toMatchObject({ rebuild: false });
+    expect(decideRebuild({ built: undefined, appSourceSha256: digest, buildIdOnDisk: "build-1", ...intact })).toMatchObject({ rebuild: true });
+    expect(decideRebuild({ built, appSourceSha256: applicationSourceDigest(edited), buildIdOnDisk: "build-1", ...intact }))
       .toMatchObject({ rebuild: true, reason: expect.stringMatching(/application sources changed/) });
-    expect(decideRebuild({ built, appSourceSha256: digest, buildIdOnDisk: "build-2" }))
+    expect(decideRebuild({ built, appSourceSha256: digest, buildIdOnDisk: "build-2", ...intact }))
       .toMatchObject({ rebuild: true, reason: expect.stringMatching(/replaced/) });
-    expect(decideRebuild({ built, appSourceSha256: digest, buildIdOnDisk: null }))
+    expect(decideRebuild({ built, appSourceSha256: digest, buildIdOnDisk: null, ...intact }))
       .toMatchObject({ rebuild: true, reason: expect.stringMatching(/missing/) });
+    // The build an iteration runs on must still have the manifest of its inputs (17).
+    expect(decideRebuild({ built, appSourceSha256: digest, buildIdOnDisk: "build-1", buildManifestIntact: false }))
+      .toMatchObject({ rebuild: true, reason: expect.stringMatching(/manifest of build build-1/) });
   });
 
   it("keeps every source the Army build type-checks inside the rebuild hash", async () => {
@@ -417,7 +471,7 @@ describe("TesterArmy dev loop", () => {
     });
 
     const statePath = path.join(temporaryDirectory(), "state.json");
-    const state = loopState({ status: "stopping", supervisor: { pid: 4242 }, stack });
+    const state = loopState({ status: "stopping", supervisor: { pid: 4242 }, stack, appOrigin: `http://localhost:${await closedPort()}` });
     writeLoopState(statePath, state);
     const calls: string[] = [];
     let destroyRemovesEntry = false;
@@ -457,6 +511,156 @@ describe("TesterArmy dev loop", () => {
     expect(readLoopState(statePath)).toMatchObject({ status: "cleanup-failed" });
     expect(fs.existsSync(foreign)).toBe(true);
   });
+
+  it("keeps an abandoned loop's state while its application port still listens", async () => {
+    // A SIGKILL during an iteration leaves the journey process and its
+    // `next start` running on the loop's application port (16).
+    const application = net.createServer();
+    await new Promise<void>((resolve) => application.listen(0, "127.0.0.1", resolve));
+    const appPort = (application.address() as net.AddressInfo).port;
+    const registry = temporaryDirectory("army-dev-loop-registry-");
+    const statePath = path.join(temporaryDirectory(), "state.json");
+    const stack = {
+      projectId: "miaouffrage-ci-4242-abcd1234", ports: [await closedPort()],
+      rootDirectory: path.join(os.tmpdir(), `miaouffrage-supabase-ci-gone-${process.pid}`),
+    };
+    const state = loopState({ status: "running", expiresAt: null, supervisor: { pid: 4242 }, appOrigin: `http://localhost:${appPort}`, stack });
+    writeLoopState(statePath, state);
+    const supabase = () => { throw new Error("no CLI call expected: the stack is already gone"); };
+    try {
+      const kept = await cleanUpAbandonedLoop(statePath, state, { supabase, registry });
+      expect(kept.proof).toMatchObject({ projectDirectoryRemoved: true, registryEntryRemoved: true, portsClosed: true, appPortClosed: false });
+      expect(kept.errors.join("; ")).toMatch(new RegExp(`application port ${appPort} still listening`));
+      expect(readLoopState(statePath)).toMatchObject({ status: "cleanup-failed", error: expect.stringMatching(/application port/) });
+    } finally {
+      await new Promise<void>((resolve) => application.close(() => resolve()));
+    }
+    const done = await cleanUpAbandonedLoop(statePath, readLoopState(statePath)!, { supabase, registry });
+    expect(done.errors).toEqual([]);
+    expect(done.proof).toMatchObject({ portsClosed: true, appPortClosed: true });
+    expect(readLoopState(statePath)).toBeNull();
+    // An origin whose port cannot be read is never proven closed.
+    expect(await proveLoopClosed({ stack: undefined, appOrigin: "http://localhost" }, registry))
+      .toMatchObject({ appPortClosed: false, problems: [expect.stringMatching(/application port/)] });
+  }, 40_000);
+
+  it("treats an unreadable, malformed or unpermitted registry entry as unproven cleanup", async () => {
+    // Such an entry may be this loop's stack: skipping it would report the
+    // registry clear and delete the only record of that stack (18).
+    const registry = temporaryDirectory("army-dev-loop-registry-");
+    fs.writeFileSync(path.join(registry, ".registry-lock.sqlite"), "");
+    const stack = {
+      projectId: "miaouffrage-ci-4242-abcd1234", ports: [await closedPort()],
+      rootDirectory: path.join(os.tmpdir(), `miaouffrage-supabase-ci-gone-${process.pid}`),
+    };
+    const state = loopState({ status: "stopping", supervisor: { pid: 4242 }, appOrigin: `http://localhost:${await closedPort()}`, stack });
+    const statePath = path.join(temporaryDirectory(), "state.json");
+    const entry = path.join(registry, "ab".repeat(32));
+    fs.mkdirSync(path.join(entry, "data"), { recursive: true });
+    const entryState = path.join(entry, "state.json");
+    const supabase = () => { throw new Error("no CLI call expected on an entry that cannot be read"); };
+    const cases: Array<[string, () => void]> = [
+      ["truncated", () => fs.writeFileSync(entryState, "{\"identity\": {\"projectRoot\": ")],
+      ["without identity", () => fs.writeFileSync(entryState, JSON.stringify({ id: path.basename(entry), ports: [] }))],
+      ["without state.json", () => fs.rmSync(entryState, { force: true })],
+    ];
+    if (process.platform !== "win32" && process.getuid?.() !== 0) {
+      cases.push(["permission denied", () => {
+        fs.writeFileSync(entryState, JSON.stringify({ identity: { projectRoot: stack.rootDirectory }, ports: [{ key: "api", port: stack.ports[0] }] }));
+        fs.chmodSync(entryState, 0o000);
+      }]);
+    }
+    try {
+      for (const [name, make] of cases) {
+        make();
+        expect(await proveStackDestroyed(stack, registry), name).toMatchObject({
+          registryEntryRemoved: false, problems: [expect.stringMatching(new RegExp(`registry entry ${path.basename(entry)} .*unreadable`))],
+        });
+        writeLoopState(statePath, state);
+        const kept = await cleanUpAbandonedLoop(statePath, state, { supabase, registry });
+        expect(kept.proof.registryEntryRemoved, name).toBe(false);
+        expect(readLoopState(statePath), name).toMatchObject({ status: "cleanup-failed", error: expect.stringMatching(/unreadable/) });
+      }
+    } finally {
+      if (fs.existsSync(entryState)) fs.chmodSync(entryState, 0o600);
+    }
+    // Only once the entry is gone is the cleanup proven and the state released.
+    fs.rmSync(entry, { recursive: true, force: true });
+    const done = await cleanUpAbandonedLoop(statePath, readLoopState(statePath)!, { supabase, registry });
+    expect(done.errors).toEqual([]);
+    expect(readLoopState(statePath)).toBeNull();
+  }, 60_000);
+
+  it("never probes or classifies a state recorded by another checkout as this checkout's loop", () => {
+    // A copied or restored state names another checkout's supervisor, socket
+    // and stack: none of them may be used from here (14).
+    const original = temporaryDirectory("army-dev-loop-original-");
+    const copy = temporaryDirectory("army-dev-loop-copy-");
+    const now = Date.now();
+    for (const checkout of [original, path.join(original, "missing"), path.relative(process.cwd(), copy) || "."]) {
+      expect(inspectLoopState(loopState({ checkout }), copy, now), checkout).toEqual({
+        kind: "foreign-checkout", reason: expect.stringContaining(checkout),
+      });
+    }
+    expect(inspectLoopState(null, copy, now)).toEqual({ kind: "absent" });
+    if (process.platform !== "win32") {
+      // The same checkout spelled through a symbolic link is this checkout:
+      // its pid is then probed (this test process is no supervisor).
+      const link = path.join(temporaryDirectory(), "checkout-link");
+      fs.symlinkSync(copy, link);
+      expect(inspectLoopState(loopState({ checkout: link }), copy, now)).toMatchObject({ kind: "stale" });
+    }
+  });
+
+  it.skipIf(process.platform === "win32")("refuses a copied state before using its supervisor, socket or cleanup metadata", async () => {
+    // Checkout `original` runs its loop; its state.json was copied into `copy`.
+    const original = temporaryDirectory("army-dev-loop-original-");
+    const copy = temporaryDirectory("army-dev-loop-copy-");
+    fs.mkdirSync(path.join(copy, "scripts"), { recursive: true });
+    fs.writeFileSync(path.join(copy, DEV_LOOP_SUPERVISOR_ENTRY), "// the loop client only checks that the entry exists\n");
+    const supervisor = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", DEV_LOOP_SUPERVISOR_ENTRY, "dev-loop"], { cwd: original, stdio: "ignore" });
+    const socketDirectory = temporaryDirectory("miaouffrage-army-loop-");
+    const socketPath = path.join(socketDirectory, "loop.sock");
+    const requests: string[] = [];
+    const server = net.createServer((socket) => {
+      socket.setEncoding("utf8");
+      socket.on("data", (chunk: string) => { requests.push(chunk); socket.end(); });
+      socket.on("error", () => { /* the client left */ });
+    });
+    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+    const statePath = path.join(copy, DEV_LOOP_STATE_FILE);
+    createLoopState(statePath, loopState({
+      checkout: original, supervisor: { pid: supervisor.pid! }, socket: socketPath, stack: undefined,
+      appOrigin: `http://localhost:${await closedPort()}`,
+    }));
+    const before = fs.readFileSync(statePath, "utf8");
+    try {
+      await sleep(300);
+      expect(probeSupervisor(supervisor.pid!, original)).toBe("owned");
+      const outcome = async (args: string[]) => {
+        const result = await runDevLoopCli(copy, args);
+        return { code: result.code, refused: /another checkout/.test(result.output), output: result.output.slice(-400) };
+      };
+      const run = await outcome(["run", "--grep", "HUB03"]);
+      const start = await outcome(["start", "--app-port", "3118"]);
+      const status = await runDevLoopCli(copy, ["status"]);
+      const stop = await outcome(["stop"]);
+      expect({
+        run: { code: run.code, refused: run.refused }, start: { code: start.code, refused: start.refused },
+        status: (JSON.parse(status.stdout) as { classification: { kind: string } }).classification.kind,
+        stop: { code: stop.code, refused: stop.refused },
+        requestsReceived: requests.length, supervisor: probeSupervisor(supervisor.pid!, original),
+        socketDirectoryKept: fs.existsSync(socketDirectory), stateUnchanged: fs.existsSync(statePath) && fs.readFileSync(statePath, "utf8") === before,
+      }, JSON.stringify({ run, start, stop })).toEqual({
+        run: { code: 1, refused: true }, start: { code: 1, refused: true }, status: "foreign-checkout", stop: { code: 1, refused: true },
+        requestsReceived: 0, supervisor: "owned", socketDirectoryKept: true, stateUnchanged: true,
+      });
+    } finally {
+      supervisor.kill("SIGKILL");
+      await waitForExit(supervisor);
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  }, 120_000);
 
   it("marks an iteration's raw SDK archive as a non-qualification run", () => {
     const checkout = temporaryDirectory();
@@ -549,5 +753,49 @@ describe("TesterArmy dev loop", () => {
         loop.controller.abort("cleanup");
       }
     }, 30_000);
+
+    it("rechecks migrations and config.toml after a rebuild, immediately before the journeys", async () => {
+      // The stub's empty inputs make the iteration rebuild; a migration lands during that build (15).
+      const loop = await openSession({
+        afterBuild: (count, checkout) => {
+          if (count === 2) fs.writeFileSync(path.join(checkout, "supabase/migrations/002_during_build.sql"), "create table b ();\n");
+        },
+      });
+      try {
+        expect(await loop.results("HUB03")).toEqual([expect.objectContaining({
+          status: "failed", rebuilt: true, error: expect.stringMatching(/Migrations or supabase\/config.toml changed/),
+        })]);
+        expect(loop.journeys).toEqual([]);
+      } finally {
+        loop.controller.abort("SIGTERM");
+        await within(loop.session, 5_000, "the session returns after SIGTERM");
+      }
+    }, 60_000);
+
+    it("retains in every iteration the manifest of the build it ran on, and rebuilds once that manifest is gone", async () => {
+      // The stub records the checkout's real build inputs: the first iteration does not rebuild (17).
+      const loop = await openSession({ buildInputs: (await buildSourceEvidence()).inputs });
+      const buildManifest = ".e2e/army/recipes/builds/unit/manifest.json";
+      const evidenceOf = (result: Record<string, unknown>) => JSON.parse(fs.readFileSync(path.join(loop.checkout, String(result.evidence)), "utf8")) as
+        { build?: Record<string, unknown> };
+      try {
+        const [first] = await loop.results("HUB03");
+        expect(first).toMatchObject({ status: "passed", rebuilt: false, buildId: "build-unit" });
+        const bytes = fs.readFileSync(path.join(loop.checkout, buildManifest));
+        expect(evidenceOf(first).build).toMatchObject({ rebuilt: false, buildId: "build-unit", buildManifest, buildManifestSha256: sha256(bytes) });
+        const retained = path.join(loop.checkout, path.dirname(String(first.evidence)), "builds/unit/manifest.json");
+        expect(fs.existsSync(retained) && fs.readFileSync(retained).equals(bytes)).toBe(true);
+
+        // Its manifest gone, the build no longer proves its inputs: rebuild before any journey.
+        fs.rmSync(path.join(loop.checkout, buildManifest));
+        const [second] = await loop.results("HUB03");
+        expect(second).toMatchObject({ status: "passed", rebuilt: true, reason: expect.stringMatching(/manifest of build build-unit/) });
+        expect(evidenceOf(second).build).toMatchObject({ rebuilt: true, buildManifest, buildManifestSha256: expect.stringMatching(/^[0-9a-f]{64}$/) });
+        expect(loop.journeys).toEqual(["HUB03", "HUB03"]);
+      } finally {
+        loop.controller.abort("SIGTERM");
+        await within(loop.session, 5_000, "the session returns after SIGTERM");
+      }
+    }, 90_000);
   });
 });

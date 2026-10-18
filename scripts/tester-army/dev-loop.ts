@@ -7,11 +7,12 @@ import { fileURLToPath } from "node:url";
 
 import { runSupabaseCli } from "../../src/test/supabase-cli";
 import {
-  applicationSourceDigest, assertJourneySelection, classifyLoopState, decideRebuild, DEV_LOOP_ITERATION_SCOPE,
-  DEV_LOOP_SOCKET_PREFIX, DEV_LOOP_STATE_FILE, DEV_LOOP_SUPERVISOR_ENTRY, type DevLoopCommand, findRegisteredStack,
-  type LoopBuild, type LoopState, type LoopStateStore, markIterationArchive, ownsRecordedProject, ownsRegisteredStack,
-  parseDevLoopArguments, probeSupervisor, proveStackDestroyed, readBuildId, readLoopState, removeOwnedTemporaryDirectory,
-  stackInputsDigest, SUPABASE_PROJECT_PREFIX, SUPABASE_STACK_REGISTRY, supervisorModulesDigest, writeLoopState,
+  applicationSourceDigest, assertJourneySelection, decideRebuild, DEV_LOOP_ITERATION_SCOPE, DEV_LOOP_SOCKET_PREFIX,
+  DEV_LOOP_STATE_FILE, DEV_LOOP_SUPERVISOR_ENTRY, type DevLoopCommand, findRegisteredStack, foreignCheckoutReason,
+  inspectLoopState, type LoopBuild, type LoopState, type LoopStateStore, markIterationArchive, ownsRecordedProject,
+  ownsRegisteredStack, parseDevLoopArguments, probeSupervisor, proveLoopClosed, readBuildId, readBuildManifest,
+  readLoopState, removeOwnedTemporaryDirectory, sha256, stackInputsDigest, SUPABASE_PROJECT_PREFIX,
+  SUPABASE_STACK_REGISTRY, supervisorModulesDigest, writeLoopState,
 } from "./dev-loop-state";
 import { buildSourceEvidence } from "./local-recipe-common.mjs";
 
@@ -61,17 +62,35 @@ async function buildApplication(input: DevLoopSessionInput, context: DevLoopRunC
     .map((name) => path.join(builds, name, "manifest.json"))
     .filter((file) => fs.existsSync(file) && fs.statSync(file).mtimeMs >= startedAt - 1_000)
     .sort((left, right) => fs.statSync(right).mtimeMs - fs.statSync(left).mtimeMs);
-  const manifest = manifests[0] ? JSON.parse(fs.readFileSync(manifests[0], "utf8")) as Record<string, unknown> : undefined;
+  const bytes = manifests[0] ? fs.readFileSync(manifests[0]) : undefined;
+  const manifest = bytes ? JSON.parse(bytes.toString("utf8")) as Record<string, unknown> : undefined;
   const buildId = readBuildId(input.root);
-  if (!manifest || !buildId || manifest.buildId !== buildId || manifest.sourceChangedDuringBuild !== false || !Array.isArray(manifest.inputs)) {
+  if (!bytes || !manifest || !buildId || manifest.buildId !== buildId || manifest.sourceChangedDuringBuild !== false || !Array.isArray(manifest.inputs)) {
     throw new Error("The Army production build does not match a manifest of its own inputs.");
   }
+  // The manifest's path and digest reach the state now and every iteration's
+  // evidence later: a killed supervisor never writes its session summary.
   const build: LoopBuild = {
     appSourceSha256: applicationSourceDigest(manifest.inputs as Array<{ path: string; sha256?: string; missing?: boolean }>),
     buildId, builtAt: new Date().toISOString(), count: (previous?.count ?? 0) + 1,
+    manifest: relativeTo(input.root, manifests[0]), manifestSha256: sha256(bytes),
   };
   input.store.update({ build });
-  return { build, manifest: relativeTo(input.root, manifests[0]), seconds: secondsSince(startedAt) };
+  return { build, manifest: build.manifest, seconds: secondsSince(startedAt) };
+}
+
+/**
+ * Copies the manifest (and build log) of the build an iteration runs on into
+ * its evidence, laid out as retainEvidence lays out a build made during a run.
+ */
+function retainBuildManifest(root: string, build: LoopBuild, evidence: string) {
+  const bytes = readBuildManifest(root, build);
+  if (!bytes) throw new Error(`The manifest of build ${build.buildId} is missing or changed; stop the loop and start it again.`);
+  const source = path.dirname(path.join(root, build.manifest));
+  const target = path.join(evidence, "builds", path.basename(source));
+  fs.mkdirSync(target, { recursive: true });
+  fs.writeFileSync(path.join(target, "manifest.json"), bytes);
+  if (fs.existsSync(path.join(source, "build.log"))) fs.copyFileSync(path.join(source, "build.log"), path.join(target, "build.log"));
 }
 
 /**
@@ -151,7 +170,9 @@ export async function runDevLoopSession(input: DevLoopSessionInput) {
     const context: DevLoopRunContext = { evidence, manifest, grep: selection.grep, files: selection.files };
     const timings: Record<string, number> = {};
     let rebuilt = false;
-    try {
+    // The stack and the checks applied are those of the start: checked before
+    // any build, then again right before the journeys, as a rebuild takes a minute.
+    const assertStartInputs = async () => {
       if (await stackInputsDigest(input.root) !== input.store.current.stackInputsSha256) {
         throw new Error("Migrations or supabase/config.toml changed since the loop started: stop the loop and start it again.");
       }
@@ -159,9 +180,14 @@ export async function runDevLoopSession(input: DevLoopSessionInput) {
       if (supervisorModulesDigest(input.root) !== input.store.current.supervisorModulesSha256) {
         throw new Error(`The dev-loop supervisor's own modules (${DEV_LOOP_SUPERVISOR_ENTRY} and its local imports) changed since the loop started, so its checks are those of the start: stop the loop and start it again.`);
       }
+    };
+    try {
+      await assertStartInputs();
       const source = await buildSourceEvidence();
       const appSourceSha256 = applicationSourceDigest(source.inputs);
-      const decision = decideRebuild({ built: build, appSourceSha256, buildIdOnDisk: readBuildId(input.root) });
+      const decision = decideRebuild({
+        built: build, appSourceSha256, buildIdOnDisk: readBuildId(input.root), buildManifestIntact: readBuildManifest(input.root, build) !== null,
+      });
       manifest.source = { revision: source.revision, diffSha256: source.diffSha256, appSourceSha256 };
       manifest.build = { rebuilt: decision.rebuild, reason: decision.reason, previousBuildId: build.buildId };
       timings.sourceCheckSeconds = secondsSince(started);
@@ -171,11 +197,15 @@ export async function runDevLoopSession(input: DevLoopSessionInput) {
         build = rebuild.build;
         rebuilt = true;
         timings.buildSeconds = rebuild.seconds;
-        Object.assign(manifest.build as Record<string, unknown>, { buildManifest: rebuild.manifest });
       } else {
         timings.buildSeconds = 0;
       }
-      Object.assign(manifest.build as Record<string, unknown>, { buildId: build.buildId, appSourceSha256: build.appSourceSha256 });
+      Object.assign(manifest.build as Record<string, unknown>, {
+        buildId: build.buildId, appSourceSha256: build.appSourceSha256, buildManifest: build.manifest, buildManifestSha256: build.manifestSha256,
+      });
+      // Rebuilt or not, the iteration keeps the inputs of the build it runs on.
+      retainBuildManifest(input.root, build, evidence);
+      await assertStartInputs();
       notify(`Iteration ${index}: running the selected critical journeys (${selection.grep ? `--grep ${selection.grep}` : `--files ${selection.files.join(",")}`}).`);
       const journeysStarted = Date.now();
       let journeyError: unknown;
@@ -382,7 +412,7 @@ export async function cleanUpAbandonedLoop(statePath: string, state: LoopState, 
     try { removeOwnedTemporaryDirectory(path.dirname(state.socket), DEV_LOOP_SOCKET_PREFIX); }
     catch (error) { errors.push(error instanceof Error ? error.message : String(error)); }
   }
-  const proof = await proveStackDestroyed(stack, registry);
+  const proof = await proveLoopClosed(state, registry);
   errors.push(...proof.problems);
   if (errors.length) writeLoopState(statePath, { ...state, status: "cleanup-failed", expiresAt: null, error: errors.join("; ") });
   else fs.rmSync(statePath, { force: true });
@@ -403,12 +433,15 @@ async function main() {
   }
   const statePath = path.join(root, DEV_LOOP_STATE_FILE);
   const state = readLoopState(statePath);
-  const classification = classifyLoopState(state, state ? probeSupervisor(state.supervisor.pid, state.checkout) : null, Date.now());
+  // A state of another checkout is never probed: its pid, socket and stack are not this checkout's.
+  const classification = inspectLoopState(state, root, Date.now());
 
   if (command.action === "status") {
     console.log(JSON.stringify({ classification, state }, null, 2));
     return 0;
   }
+  const refuseForeign = (reason: string) => new Error(`${DEV_LOOP_STATE_FILE}: ${reason}. Nothing was signalled, stopped or removed: manage that loop from its own checkout, and remove this file by hand once you have checked it is a copy.`);
+  if (classification.kind === "foreign-checkout") throw refuseForeign(classification.reason);
 
   if (command.action === "start") {
     if (state) {
@@ -482,17 +515,19 @@ async function main() {
     console.log(`Dev loop: stopping supervisor ${pid}; it destroys its own stack.`);
     process.kill(pid, "SIGTERM");
     const deadline = Date.now() + 10 * 60_000;
-    while (probeSupervisor(pid, state.checkout) === "owned" && Date.now() < deadline) await sleep(1_000);
-    if (probeSupervisor(pid, state.checkout) === "owned") {
+    while (probeSupervisor(pid, root) === "owned" && Date.now() < deadline) await sleep(1_000);
+    if (probeSupervisor(pid, root) === "owned") {
       console.error("The supervisor did not stop within 10 minutes; nothing was removed.");
       return 1;
     }
   }
   const leftover = readLoopState(statePath);
+  const foreignLeftover = leftover && foreignCheckoutReason(leftover, root);
+  if (foreignLeftover) throw refuseForeign(foreignLeftover);
   const stack = (leftover ?? state).stack;
   const cleanup = leftover
     ? await cleanUpAbandonedLoop(statePath, leftover)
-    : { errors: [] as string[], notes: [] as string[], proof: await proveStackDestroyed(stack) };
+    : { errors: [] as string[], notes: [] as string[], proof: await proveLoopClosed(state) };
   const stateRemoved = !fs.existsSync(statePath);
   const report = {
     stopped: stateRemoved && cleanup.errors.length === 0 && cleanup.proof.problems.length === 0,
@@ -501,6 +536,7 @@ async function main() {
     projectDirectoryRemoved: cleanup.proof.projectDirectoryRemoved,
     registryEntryRemoved: cleanup.proof.registryEntryRemoved,
     portsClosed: cleanup.proof.portsClosed,
+    appPortClosed: cleanup.proof.appPortClosed,
     stateRemoved,
     evidence: state.evidence,
     errors: cleanup.errors,

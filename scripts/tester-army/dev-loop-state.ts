@@ -31,6 +31,9 @@ export interface LoopBuild {
   buildId: string;
   builtAt: string;
   count: number;
+  /** build-local.mjs's manifest of this build's inputs, relative to the checkout. */
+  manifest: string;
+  manifestSha256: string;
 }
 
 export interface LoopState {
@@ -190,7 +193,8 @@ export function probeSupervisor(pid: number, checkout: string): SupervisorProbe 
 export type LoopClassification =
   | { kind: "absent" }
   | { kind: "live"; expired: boolean }
-  | { kind: "stale"; reason: string };
+  | { kind: "stale"; reason: string }
+  | { kind: "foreign-checkout"; reason: string };
 
 /** Only an owned, running supervisor makes a loop live; its TTL is only reported. */
 export function classifyLoopState(state: LoopState | null, probe: SupervisorProbe | null, now: number): LoopClassification {
@@ -205,6 +209,26 @@ export function classifyLoopState(state: LoopState | null, probe: SupervisorProb
       ? `pid ${state.supervisor.pid} now runs another process`
       : `supervisor ${state.supervisor.pid} is no longer running`,
   };
+}
+
+/**
+ * Why `state` is not this checkout's own, or null when it is. A state copied
+ * or restored from another checkout names that checkout's supervisor, socket
+ * and stack: its recorded checkout must resolve to `root` itself.
+ */
+export function foreignCheckoutReason(state: LoopState, root: string) {
+  const real = (directory: string) => { try { return fs.realpathSync.native(directory); } catch { return null; } };
+  const recorded = path.isAbsolute(state.checkout) ? real(state.checkout) : null;
+  return recorded !== null && recorded === real(root) ? null
+    : `the dev-loop state records checkout ${state.checkout}, not this checkout (${root}); it was copied or restored from another checkout`;
+}
+
+/** The classification `start`, `run`, `stop` and `status` act on: nothing of a foreign state is probed. */
+export function inspectLoopState(state: LoopState | null, root: string, now: number): LoopClassification {
+  if (!state) return { kind: "absent" };
+  const reason = foreignCheckoutReason(state, root);
+  if (reason) return { kind: "foreign-checkout", reason };
+  return classifyLoopState(state, probeSupervisor(state.supervisor.pid, root), now);
 }
 
 type SourceInput = { path: string; sha256?: string; missing?: boolean };
@@ -224,11 +248,17 @@ export function decideRebuild(input: {
   built: Pick<LoopBuild, "appSourceSha256" | "buildId"> | undefined;
   appSourceSha256: string;
   buildIdOnDisk: string | null;
+  /** The build's recorded manifest still exists with its recorded digest. */
+  buildManifestIntact: boolean;
 }): { rebuild: boolean; reason: string } {
   if (!input.built) return { rebuild: true, reason: "no production build yet" };
   if (input.buildIdOnDisk === null) return { rebuild: true, reason: "the production build output is missing" };
   if (input.buildIdOnDisk !== input.built.buildId) {
     return { rebuild: true, reason: "the production build was replaced by another run in this checkout" };
+  }
+  // Every iteration retains the manifest of the build it runs on (its inputs).
+  if (!input.buildManifestIntact) {
+    return { rebuild: true, reason: `the manifest of build ${input.built.buildId} is missing or changed` };
   }
   if (input.appSourceSha256 !== input.built.appSourceSha256) {
     return { rebuild: true, reason: "application sources changed since the last build" };
@@ -239,6 +269,16 @@ export function decideRebuild(input: {
 export function readBuildId(root: string) {
   try { return fs.readFileSync(path.join(root, ".e2e/army/next/BUILD_ID"), "utf8").trim() || null; }
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
+}
+
+export const sha256 = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
+
+/** The bytes of `build`'s recorded manifest, or null once it is missing or no longer matches its digest. */
+export function readBuildManifest(root: string, build: Pick<LoopBuild, "manifest" | "manifestSha256">) {
+  let bytes: Buffer;
+  try { bytes = fs.readFileSync(path.join(root, build.manifest)); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
+  return sha256(bytes) === build.manifestSha256 ? bytes : null;
 }
 
 /** What the owned stack was built from: migrations and config.toml, applied once at start. */
@@ -274,25 +314,30 @@ export function removeOwnedTemporaryDirectory(directory: string, prefix: string)
   fs.rmSync(resolved, { recursive: true, force: true });
 }
 
-/** Ports among `ports` that still accept a loopback connection. */
-export async function listeningPorts(ports: readonly number[]) {
+// A host without IPv6 loopback cannot listen on ::1 either.
+const NO_IPV6_LOOPBACK = new Set(["EADDRNOTAVAIL", "EAFNOSUPPORT", "ENETUNREACH"]);
+
+/** Ports among `ports` that still accept a connection on the loopback `host`. */
+export async function listeningPorts(ports: readonly number[], host = "127.0.0.1") {
   const results = await Promise.all(ports.map((port) => new Promise<number | null>((resolve) => {
-    const socket = net.connect({ host: "127.0.0.1", port });
+    const socket = net.connect({ host, port });
     const done = (listening: boolean) => { socket.destroy(); resolve(listening ? port : null); };
     socket.setTimeout(2_000, () => done(true));
     socket.once("connect", () => done(true));
     // Anything but a refusal leaves the port unproven: report it.
-    socket.once("error", (error: NodeJS.ErrnoException) => done(error.code !== "ECONNREFUSED"));
+    socket.once("error", (error: NodeJS.ErrnoException) =>
+      done(error.code !== "ECONNREFUSED" && !(host === "::1" && NO_IPV6_LOOPBACK.has(error.code ?? ""))));
   })));
   return results.filter((port): port is number => port !== null);
 }
 
-/** Ports still listening after up to ten one-second retries. */
-export async function waitForClosedPorts(ports: readonly number[]) {
-  let listening = await listeningPorts(ports);
+/** Ports still listening on any of `hosts` after up to ten one-second retries. */
+export async function waitForClosedPorts(ports: readonly number[], hosts: readonly string[] = ["127.0.0.1"]) {
+  const probe = async () => [...new Set((await Promise.all(hosts.map((host) => listeningPorts(ports, host)))).flat())].sort((a, b) => a - b);
+  let listening = await probe();
   for (let attempt = 0; listening.length && attempt < 10; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 1_000));
-    listening = await listeningPorts(ports);
+    listening = await probe();
   }
   return listening;
 }
@@ -308,30 +353,61 @@ export interface RegisteredStack {
   apiPort: number | null;
 }
 
+const errorCode = (error: unknown) => (error as NodeJS.ErrnoException).code ?? (error instanceof SyntaxError ? "malformed JSON" : "unknown error");
+
 /**
- * The native registry entry of the stack started with `--workdir rootDirectory`.
- * The entry outlives its workdir (a WSL restart empties /tmp) and holds the
- * stack's data. Only `identity.projectRoot` and the `api` port are read; the
- * entry's credentials never leave its state.json.
+ * The native registry entry of the stack started with `--workdir rootDirectory`,
+ * and every entry whose identity could not be read. The entry outlives its
+ * workdir (a WSL restart empties /tmp) and holds the stack's data. Only
+ * `identity.projectRoot` and the `api` port are read; the entry's credentials
+ * never leave its state.json. An entry directory whose state.json is missing,
+ * unreadable, malformed or without a project root may be that stack: it is
+ * reported, never skipped. Plain files (the registry lock) are not entries.
  */
-export function findRegisteredStack(rootDirectory: string, registry = SUPABASE_STACK_REGISTRY): RegisteredStack | null {
+export function inspectRegistry(rootDirectory: string, registry = SUPABASE_STACK_REGISTRY) {
+  const unreadable: string[] = [];
   let names: string[];
   try { names = fs.readdirSync(registry); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { registered: null, unreadable };
+    return { registered: null, unreadable: [`${registry} (${errorCode(error)})`] };
+  }
   const wanted = path.resolve(rootDirectory);
   for (const name of names.sort()) {
     const directory = path.join(registry, name);
+    let isDirectory: boolean;
+    try { isDirectory = fs.statSync(directory).isDirectory(); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; // removed meanwhile
+      unreadable.push(`${name} (${errorCode(error)})`);
+      continue;
+    }
+    if (!isDirectory) continue;
     let entry: { identity?: { projectRoot?: unknown }; ports?: unknown } | null;
-    // The registry lock file, or an entry without a readable state, is not a registered stack.
-    try { entry = JSON.parse(fs.readFileSync(path.join(directory, "state.json"), "utf8")); } catch { continue; }
+    try { entry = JSON.parse(fs.readFileSync(path.join(directory, "state.json"), "utf8")); }
+    catch (error) {
+      // Removed by its own `stack destroy` meanwhile: no longer an entry.
+      if ((error as NodeJS.ErrnoException).code === "ENOENT" && !fs.existsSync(directory)) continue;
+      unreadable.push(`${name} (state.json: ${errorCode(error)})`);
+      continue;
+    }
     const projectRoot = entry?.identity?.projectRoot;
-    if (typeof projectRoot !== "string" || path.resolve(projectRoot) !== wanted) continue;
+    if (typeof projectRoot !== "string") {
+      unreadable.push(`${name} (state.json: no identity.projectRoot)`);
+      continue;
+    }
+    if (path.resolve(projectRoot) !== wanted) continue;
     const api = Array.isArray(entry?.ports)
       ? (entry.ports as Array<{ key?: unknown; port?: unknown } | null>).find((port) => port?.key === "api")
       : undefined;
-    return { id: name, directory, apiPort: Number.isSafeInteger(api?.port) ? api!.port as number : null };
+    return { registered: { id: name, directory, apiPort: Number.isSafeInteger(api?.port) ? api!.port as number : null }, unreadable };
   }
-  return null;
+  return { registered: null, unreadable };
+}
+
+/** The readable native registry entry of the stack started with `--workdir rootDirectory`. */
+export function findRegisteredStack(rootDirectory: string, registry = SUPABASE_STACK_REGISTRY): RegisteredStack | null {
+  return inspectRegistry(rootDirectory, registry).registered;
 }
 
 /**
@@ -351,17 +427,57 @@ export function ownsRegisteredStack(state: LoopState, registered: RegisteredStac
 
 export interface StackProof { projectDirectoryRemoved: boolean; registryEntryRemoved: boolean; portsClosed: boolean; problems: string[] }
 
-/** A stack is destroyed only once its workdir, its native registry entry and every recorded port are gone. */
+/**
+ * A stack is destroyed only once its workdir, its native registry entry and
+ * every recorded port are gone. A registry entry that cannot be read may be
+ * that stack, so it leaves the destruction unproven; it is read once more
+ * after a second, in case another session's CLI was writing it.
+ */
 export async function proveStackDestroyed(stack: LoopState["stack"], registry = SUPABASE_STACK_REGISTRY): Promise<StackProof> {
   const listening = await waitForClosedPorts(stack?.ports ?? []);
   const projectDirectoryRemoved = !stack || !fs.existsSync(stack.rootDirectory);
-  const registered = stack ? findRegisteredStack(stack.rootDirectory, registry) : null;
+  let scan = stack ? inspectRegistry(stack.rootDirectory, registry) : { registered: null, unreadable: [] as string[] };
+  if (stack && !scan.registered && scan.unreadable.length) {
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    scan = inspectRegistry(stack.rootDirectory, registry);
+  }
+  const { registered, unreadable } = scan;
   const problems = [
     ...(projectDirectoryRemoved ? [] : ["project directory remains"]),
     ...(registered ? [`native registry entry ${registered.id} remains (stack data kept)`] : []),
+    ...unreadable.map((entry) => `native registry entry ${entry} is unreadable, so it may be this stack: cleanup unproven`),
     ...(listening.length ? [`ports still listening: ${listening.join(", ")}`] : []),
   ];
-  return { projectDirectoryRemoved, registryEntryRemoved: !registered, portsClosed: listening.length === 0, problems };
+  return { projectDirectoryRemoved, registryEntryRemoved: !registered && unreadable.length === 0, portsClosed: listening.length === 0, problems };
+}
+
+export interface LoopClosureProof extends StackProof { appPortClosed: boolean }
+
+/** The `next start` port of the loop, from its recorded origin; null when unreadable. */
+export function loopAppPort(appOrigin: unknown) {
+  try {
+    const url = new URL(String(appOrigin));
+    const port = Number(url.port);
+    return url.hostname === "localhost" && Number.isSafeInteger(port) && port >= 1024 && port <= 65535 ? port : null;
+  } catch { return null; }
+}
+
+/**
+ * A loop is closed once its stack is destroyed and its application port is
+ * closed on both loopbacks: after a SIGKILL during an iteration, the journey
+ * process and its `next start` can outlive the supervisor there.
+ */
+export async function proveLoopClosed(state: Pick<LoopState, "stack" | "appOrigin">, registry = SUPABASE_STACK_REGISTRY): Promise<LoopClosureProof> {
+  const appPort = loopAppPort(state.appOrigin);
+  const [stack, appListening] = await Promise.all([
+    proveStackDestroyed(state.stack, registry),
+    appPort === null ? Promise.resolve(null) : waitForClosedPorts([appPort], ["127.0.0.1", "::1"]),
+  ]);
+  const appPortClosed = appListening !== null && appListening.length === 0;
+  const problem = appPort === null
+    ? `application port unknown (appOrigin ${String(state.appOrigin).slice(0, 64)}): its closure is unproven`
+    : `application port ${appPort} still listening: a journey or the \`next start\` of an interrupted iteration may survive; stop again once it has closed`;
+  return { ...stack, appPortClosed, problems: [...stack.problems, ...(appPortClosed ? [] : [problem])] };
 }
 
 export const DEV_LOOP_ARCHIVE_MARKER = "dev-loop-iteration.json";

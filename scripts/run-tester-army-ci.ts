@@ -15,7 +15,7 @@ import { CALC_V3_FORBIDDEN_PORTS, isCalcV3Phase, type CalcV3Phase } from "./test
 import { runDevLoopSession } from "./tester-army/dev-loop";
 import {
   DEFAULT_DEV_LOOP_TTL_MINUTES, DEV_LOOP_SESSION_SCOPE, DEV_LOOP_STATE_FILE, DEV_LOOP_STATE_SCHEMA, DEV_LOOP_TTL_RANGE,
-  LoopStateStore, proveStackDestroyed, stackInputsDigest, supervisorModulesDigest,
+  LoopStateStore, proveLoopClosed, stackInputsDigest, supervisorModulesDigest,
 } from "./tester-army/dev-loop-state";
 import { buildSourceEvidence, redactOutput, sqlInventory } from "./tester-army/local-recipe-common.mjs";
 import { assertLocalAppPortAvailable, runLocalDevelopmentSession } from "./tester-army/local-development";
@@ -467,14 +467,15 @@ function claimLoopState() {
 }
 
 // After runLocalSupabaseCi, which removes the workdir even when `stack destroy`
-// failed: the state goes only once workdir, native registry entry and ports are gone.
+// failed: the state goes only once workdir, native registry entry, stack
+// ports and the application port are gone.
 async function releaseLoopState() {
   if (!loopState) return;
   const stack = loopState.current.stack;
-  const proof = await proveStackDestroyed(stack);
+  const proof = await proveLoopClosed(loopState.current);
   manifest.devLoopCleanup = {
     project: stack?.projectId ?? null, projectDirectoryRemoved: proof.projectDirectoryRemoved,
-    registryEntryRemoved: proof.registryEntryRemoved, portsClosed: proof.portsClosed,
+    registryEntryRemoved: proof.registryEntryRemoved, portsClosed: proof.portsClosed, appPortClosed: proof.appPortClosed,
   };
   if (proof.problems.length === 0) {
     loopState.release();
@@ -482,7 +483,7 @@ async function releaseLoopState() {
   }
   loopState.update({ status: "cleanup-failed", expiresAt: null, error: proof.problems.join("; ") });
   manifest.status = "failed";
-  manifest.error = "The dev-loop stack was not provably destroyed; run `npm run e2e:army:dev-loop -- stop`.";
+  manifest.error = "The dev loop was not provably closed (stack, native registry or application port); run `npm run e2e:army:dev-loop -- stop`.";
   process.exitCode = 1;
 }
 
