@@ -3,7 +3,7 @@
 import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
-import type { AffaireHubMarginAnalysisResult } from "@/lib/affaires/server";
+import type { AffaireHubMarginAnalysisResult, AffaireHubMarginCardData } from "@/lib/affaires/server";
 import { formatEUR } from "@/lib/money";
 import { ChevronRightIcon } from "lucide-react";
 
@@ -327,11 +327,13 @@ export function MarginAnalysisWidget({
   data,
   errorMessage,
 }: {
-  data: AffaireHubMarginAnalysisResult | null;
+  data: AffaireHubMarginCardData;
   errorMessage?: string;
 }) {
   // Don't render an empty card — it wastes vertical space
   if (!data && !errorMessage) return null;
+  // Sous-lot 2.10a (revue Codex de la PR #57) : sans analyse calculable (v3 vierge), l'avis v3 reste seul.
+  const analysis = data && "global" in data ? data : null;
   const unavailableV3 = data?.versionEvolutionUnavailableV3 ?? [];
 
   return (
@@ -346,13 +348,17 @@ export function MarginAnalysisWidget({
         </div>
       ) : !data ? null : (
         <div className="space-y-5">
-          <MarginGlobalSummary global={data.global} />
-          <MarginSectionTable
-            sections={data.sections}
-            currentVersionId={data.currentVersionId}
-          />
-          {data.versionEvolution.length > 1 && (
-            <MarginVersionChart points={data.versionEvolution} />
+          {analysis && (
+            <>
+              <MarginGlobalSummary global={analysis.global} />
+              <MarginSectionTable
+                sections={analysis.sections}
+                currentVersionId={analysis.currentVersionId}
+              />
+              {analysis.versionEvolution.length > 1 && (
+                <MarginVersionChart points={analysis.versionEvolution} />
+              )}
+            </>
           )}
           {/* Sous-lot 2.10a (A16, D-d) : une v3 est nommée, jamais retirée sans le dire. */}
           {unavailableV3.length > 0 && (

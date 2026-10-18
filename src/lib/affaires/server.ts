@@ -307,7 +307,7 @@ export type AffaireHubInitialDataResult = {
   summary: AffaireHubSummaryResult;
   timelineResult: PromiseSettledResult<AffaireHubTimelineResult>;
   dpgfSourceResult: PromiseSettledResult<AffaireHubDpgfSourceResult>;
-  marginAnalysisResult: PromiseSettledResult<AffaireHubMarginAnalysisResult>;
+  marginAnalysisResult: PromiseSettledResult<AffaireHubMarginCardData>;
 };
 
 export type MarginSectionBreakdown = {
@@ -354,6 +354,15 @@ export type AffaireHubMarginAnalysisResult = {
   versionEvolutionUnavailableV3?: number[];
   currentVersionId: string;
 } | null;
+
+/**
+ * Sous-lot 2.10a (A16, revue Codex de la PR #57) : l'avis seul, quand aucune analyse ne se calcule (version courante
+ * sans ligne ni section racine, comme une v3 vierge) alors qu'une v3 est dans l'affaire. Sans v3, toujours `null`.
+ */
+export type AffaireHubMarginV3Notice = { versionEvolutionUnavailableV3: number[] };
+
+/** Ce que reçoit la carte « Analyse de marge » du hub : l'analyse, l'avis v3 seul, ou rien. */
+export type AffaireHubMarginCardData = AffaireHubMarginAnalysisResult | AffaireHubMarginV3Notice;
 
 function toSafeInteger(value: number | string | null | undefined): number {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -2184,21 +2193,24 @@ function buildMarginVersionEvolution(versions: MarginAnalysisVersionRow[]): Marg
   });
 }
 
-/** Sous-lot 2.10a (A16, D-d) : versions en moteur 3 retirées de l'évolution, nommées à l'utilisateur. */
-function marginEvolutionV3Notice(versions: MarginAnalysisVersionRow[]) {
+/**
+ * Sous-lot 2.10a (A16, D-d) : versions en moteur 3 retirées de l'évolution, nommées à l'utilisateur. Rendu aussi
+ * quand l'analyse ne se calcule pas (revue Codex de la PR #57) : `null` seulement sans v3.
+ */
+function marginEvolutionV3Notice(versions: MarginAnalysisVersionRow[]): AffaireHubMarginV3Notice | null {
   const versionNumbers = versions
     .filter((v) => {
       const engine = resolveEstimateEngineVersionForDisplay(v);
       return engine !== null && usesSaleCoefficients(engine);
     })
     .map((v) => toSafeInteger(v.version_number));
-  return versionNumbers.length > 0 ? { versionEvolutionUnavailableV3: versionNumbers } : {};
+  return versionNumbers.length > 0 ? { versionEvolutionUnavailableV3: versionNumbers } : null;
 }
 
 async function fetchAffaireHubMarginAnalysisWithContext(
   context: AffaireContext,
   project: AffaireHubProjectRow
-): Promise<AffaireHubMarginAnalysisResult> {
+): Promise<AffaireHubMarginCardData> {
   // 1. Fetch all versions
   const { data: versionsData, error: versionsError } = await context.supabase
     .from("estimate_versions")
@@ -2233,7 +2245,7 @@ async function fetchAffaireHubMarginAnalysisWithContext(
   }
 
   const items = (itemsData ?? []) as Array<EstimateItemRecord & EstimateV3LineRecord>;
-  if (items.length === 0) return null;
+  if (items.length === 0) return marginEvolutionV3Notice(versions);
 
   // 4. Fetch labor roles for rate lookup
   const laborRoleIds = new Set<string>();
@@ -2266,7 +2278,7 @@ async function fetchAffaireHubMarginAnalysisWithContext(
   );
   const rootSectionIds = rootSections.map((s) => s.id);
 
-  if (rootSectionIds.length === 0) return null;
+  if (rootSectionIds.length === 0) return marginEvolutionV3Notice(versions);
 
   const marginMultiplier = Number.isFinite(currentVersion.margin_multiplier)
     ? currentVersion.margin_multiplier
@@ -2320,7 +2332,7 @@ async function fetchAffaireHubMarginAnalysisWithContext(
       laborRatesById: laborRateById,
       laborSplitEnabled: isLaborSplitEnabled,
     });
-    if (!v3Analysis) return null;
+    if (!v3Analysis) return marginEvolutionV3Notice(versions);
     return {
       ...v3Analysis,
       versionEvolution: buildMarginVersionEvolution(versions),
@@ -2480,5 +2492,7 @@ export async function fetchAffaireHubMarginAnalysis(
 ): Promise<AffaireHubMarginAnalysisResult> {
   const context = await getAuthenticatedContext();
   const project = await fetchAffaireHubProjectOrThrow(context, projectId);
-  return fetchAffaireHubMarginAnalysisWithContext(context, project);
+  const data = await fetchAffaireHubMarginAnalysisWithContext(context, project);
+  // L'analyse seule : l'avis v3 rendu sans analyse ne sert qu'à la carte du hub.
+  return data !== null && "global" in data ? data : null;
 }
