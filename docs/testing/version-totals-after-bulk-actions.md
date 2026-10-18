@@ -78,6 +78,34 @@ par la sauvegarde automatique suivante ; `bulkDeleteLines` remet pourtant
 `setTotalsOutOfSync(false)` (`:284`, `:317`, `:337`). C'est un autre mécanisme (écart borné par
 le délai de la sauvegarde automatique), à traiter dans un lot séparé s'il est confirmé.
 
+La revue indépendante (constat 3, plus bas) confirme ce mécanisme par lecture du code et l'étend.
+Les autres écritures de l'éditeur v1/v2 qui changent un montant passent par la même route
+`DELETE` et n'écrivent donc pas de totaux. Elles ne sont vérifiées par aucun parcours et restent
+hors de ce lot. Lignes relevées sur la tête de branche :
+
+| Chemin | Appel (fichier:ligne) |
+| --- | --- |
+| Suppression d'une ligne ou d'une section (`deleteItem`) | `useEstimateEditorItemsController.ts:697`, rétablissement `:750` |
+| Annulation de la création d'une ligne ou d'une section | `useEstimateEditorItemsController.ts:319`, `:357`, `:537`, `:571` |
+| Annulation d'une insertion de structure | `useEstimateEditorStructureController.ts:354`, `:520` |
+| Annulation d'un collage | `useEstimateEditorPasteController.ts:356` |
+| Suppression en lot et son rétablissement | `useEstimateEditorBulkController.ts:311`, `:365` (`setTotalsOutOfSync(false)` en `:315`, `:348`, `:368`) |
+
+`deleteEstimateItem` (`server.ts`) ne fait qu'un `.delete()` ; son propre commentaire le dit
+(« cette suppression directe ne recalcule rien ») et renvoie la v3 au lot. `client.ts` classe `/items` comme
+structurel : `onCommit` n'arme qu'un enregistrement différé des totaux, écrit par la sauvegarde
+automatique suivante (`AUTOSAVE_DEBOUNCE_MS` = 60 s) ou par une sauvegarde manuelle. Deux
+corrections possibles, pour un lot séparé :
+
+- passer ces suppressions par `batchEstimateOperations` (`op: "delete"`, qui écrit les totaux
+  côté serveur, comme le fait déjà la v3) ;
+- faire suivre chaque suppression d'un `bulkUpdateEstimateItems([], patch)` sans ligne.
+
+Dans les deux cas, retirer les `setTotalsOutOfSync(false)` de `bulkDeleteLines`. Le déplacement
+en lot reste exempté à bon droit. Selon la revue (non revérifié ici), réordonner, déplacer et
+créer par collage passent par des chemins de structure ou par lots : soit ils ne changent aucun
+montant, soit le serveur y écrit les totaux.
+
 ## Correction (`4f670996`, `db968ffe`)
 
 Même forme que la PR #36, par le calcul existant, sans changement serveur :
@@ -110,7 +138,8 @@ Même forme que la PR #36, par le calcul existant, sans changement serveur :
   `useEstimateEditorSuggestionsController.test.ts`) : harnais complété de
   `computeVersionTotalsPatch` comme celui de la présélection (#36), et assertions d'arguments
   exacts complétées du patch. Aucun nouveau test isolé : le comportement est jugé par les
-  parcours.
+  parcours. La revue a montré que ce harnais à valeur constante ne pouvait rien détecter
+  (constat 2, plus bas) : il est remplacé par `1eb299e0`.
 
 Aucune migration, aucune modification SQL ni OpenAPI : rien à appliquer à la base partagée.
 `src/lib/estimate-calculations.ts` et `src/lib/estimate-v2-snapshot.ts` : diff vide contre
@@ -142,7 +171,10 @@ Limites connues :
 - l'annulation et le rétablissement de l'historique ne passent pas par
   `ensureGroupedActionCanProceed`. Le calcul porte sur les lignes de l'éditeur. Une saisie de
   ligne empile sa propre étape d'annulation au-dessus du lot. En v2, le serveur recalcule depuis
-  la base. Non couvert par un parcours en v1 ;
+  la base. En v1, l'annulation et le rétablissement sont couverts depuis la revue par V1BT02 et
+  V1BT03 (BT8) ;
+- un enregistrement du paramétrage vide l'historique et l'annulation des suggestions, en v1 comme
+  en v2 (`88854fcb`, BT9 plus bas) ;
 - suppression en lot : autre mécanisme, hors de ce lot (voir l'inventaire).
 
 ## Scénarios (rouges avant correction)
@@ -162,8 +194,9 @@ diffèrent (`allowManualTotalsReconciliation`, `useEstimateEditorState.impl.tsx:
 `bulkUpdateEstimateItems([], patch)`, que le serveur recalcule ; elle n'écrit aucune ligne, ne
 vide pas l'historique (`clearHistory()` ne suit qu'un lot de lignes, `:853`) ni l'annulation des
 suggestions. Après correction, ce Ctrl+S ne fait rien. L'annulation est alors la seule écriture
-jugée. En v1, ce rapprochement n'existe pas : l'annulation v1 n'a pas de parcours (même fonction
-`applyBulkLineState` que la v2).
+jugée. En v1, ce rapprochement n'existe pas. Depuis la revue, V1BT02 et V1BT03 (BT8) jugent
+d'abord le lot ou l'application, puis l'annulation : chaque écriture y est jugée sur ses propres
+totaux.
 
 Deux conditions du rapprochement, établies par les runs 1 et 2 (plus bas) :
 
@@ -189,6 +222,8 @@ actif à 40 €/h du compte CI possédé (`run-tester-army-ci.ts`), relu par `ba
 | BT5. v2 : annulation des suggestions en lot | S2 « … to the suggested value after their undo ». Après application, Ctrl+S : version `[1300, 260, 1560]`. Annulation, ligne relue à K FO 1 : `[1000, 200, 1200]`. |
 | BT6. v1 historique : majoration MO en lot | V1BT01 (`e2e/army/local/bulk-actions-v1-totals.e2e.ts`, sélection `full` comme V1PT01). Projet créé par `POST /api/estimates`, brouillon v1 inséré en version 2 par le propriétaire natif de la pile possédée (`e2e/army/local/legacy-v1-draft-support.ts`, extrait de V1PT01 sans changement de valeurs) : marge ×1, TVA 20 %, sans remise ni arrondi ; 2 u à 10,00 € plus 1 h au rôle à 40 €/h, totaux semés cohérents `[6000, 1200, 7200]`. Majoration 150 %, ligne relue à 1,5 : lignes = version = `[8000, 1600, 9600]` ; hub et liste : 80,00 € (`expectStoredTotalsMatchLines()`, mode Expert par SQL, puis mode initial restauré). |
 | BT7. La correction change un autre montant | `src/lib/estimate-calculations.ts` et `src/lib/estimate-v2-snapshot.ts` restent sans modification ; P1, V1PT01, D3, `bulk-move`, `commercial-rounding`, `estimate-integrity` restent verts. |
+| BT8. v1 historique : annulation, rétablissement, suggestions (ajouté par la revue) | Même brouillon v1 semé que BT6, `[6000, 1200, 7200]`. V1BT02 : majoration 150 % `[8000, 1600, 9600]`, « Annuler » `[6000, 1200, 7200]`, « Rétablir » `[8000, 1600, 9600]`. V1BT03, règle K FO 1,3 sur le titre exact : application `[6600, 1320, 7920]`, annulation `[6000, 1200, 7200]`, nouvelle application `[6600, 1320, 7920]`. Valeurs du moteur v1 (`computeEstimateBreakdown`, `calc_engine_version` 1). |
+| BT9. Enregistrement du paramétrage après une action en lot (constat 1 de la revue) | Suite de V1BT02 et V1BT03 : marge ×1,2 choisie et enregistrée dans la boîte « Paramétrage du devis » de l'éditeur monté (ouverte par la barre de résumé ; une navigation remonterait l'éditeur et viderait l'état jugé). Le serveur reprend les lignes : `[9600, 1920, 11520]` (80,00 € × 1,2) et `[7920, 1584, 9504]` (66,00 € × 1,2). Ensuite, l'annulation de l'historique (V1BT02) ou des suggestions (V1BT03), si elle est encore offerte, est exécutée pour que l'étape échoue sur ses valeurs. Attendu : version = lignes = valeurs ci-dessus, « Annuler » désactivé, alerte des suggestions masquée, puis hub et liste à 96,00 € et 79,20 €. |
 
 Les parcours D1 à D3 gardent leur rôle (référence de synchronisation,
 [bulk-edit-sync-baseline.md](bulk-edit-sync-baseline.md)) : leur ligne porte désormais 1 h au
@@ -196,18 +231,20 @@ rôle à 40 €/h pour que la majoration change un montant, et chacun vérifie l
 contrôle de BT1 suit le lot de D1 ; celui de BT4 suit l'application de S1 : pas dans
 `suggestionJourney`, partagé avec S2, où il masquerait BT5.
 
-Non couvert : v2 en marge `tiered` (déjà recalculée par le serveur), annulation v1, catégorie et
+Non couvert : v2 en marge `tiered` (déjà recalculée par le serveur), catégorie et rôle MO en v1
+(même fonction `applyBulkLineState` que la majoration, jugée par BT8 et par les tests isolés),
 déplacement (sans effet sur les montants), approbations, Direction et documents (ils lisent les
 mêmes colonnes, non parcourus ici).
 
-Commandes (clone WSL `~/miaouffrage-totals-bulk`, pile Supabase native possédée). V1BT01 et
-V1PT01 n'appartiennent qu'à la sélection `full`, que le runner ne filtre pas : pour les filtrer,
-un run ajoute temporairement les deux fichiers à la liste critical `localBusiness` de
+Commandes (clone WSL `~/miaouffrage-totals-bulk`, pile Supabase native possédée). V1BT01 à
+V1BT03 et V1PT01 n'appartiennent qu'à la sélection `full`, que le runner ne filtre pas : pour les
+filtrer, un run ajoute temporairement les deux fichiers à la liste critical `localBusiness` de
 `e2e.config.ts` (comme R1 de la PR #36), modification non commitée et relevée par son
 `diffSha256`.
 
 ```bash
 npm run e2e:army:local -- --grep "bulk edit sync|^V1BT01\s|^V1PT01\s" --app-port <port>
+npm run e2e:army:local -- --grep "bulk edit sync|bulk move persists|commercial rounding|^V1BT0[123]\s|^V1PT01\s" --app-port <port>
 npm run e2e:army:ci -- full --app-port <port>
 ```
 
@@ -328,6 +365,215 @@ contenu de `db968ffe`, seule modification locale : ce document) :
   `test:ci:jsdom` 162 fichiers et 821 tests, `test:critical-coverage` 3 fichiers et 12 tests).
   Journal : `~/totals-bulk-logs/verify-pr.log`.
 
-Non exécuté : revue indépendante en lecture seule (à confier sur ce diff stable), parcours de la
-catégorie en lot (aucun n'existe), annulation v1, v2 `tiered`, approbations, Direction et
-documents.
+Non exécuté à ce stade : parcours de la catégorie en lot (aucun n'existe), annulation v1, v2
+`tiered`, approbations, Direction et documents. La revue indépendante a suivi (section suivante).
+
+## Revue indépendante et préparation à la publication (18/10/2026)
+
+Une revue en lecture seule a porté sur le diff stable `4f6f5c26..958d4c75`. Chaque constat a été
+revérifié dans le code avant d'être corrigé.
+
+### Constat 1, majeur, confirmé : un enregistrement du paramétrage laisse des annulations périmées
+
+Déclencheur, sur un brouillon v1 : une action en lot, puis un enregistrement du paramétrage qui
+change un montant (ici la marge), puis « Annuler ».
+
+- Le serveur reprend chaque ligne au nouveau paramétrage (`prepareHistoricalSettings`,
+  `src/lib/estimates/settings-atomic.ts`), et l'éditeur remplace ses lignes par celles qui lui
+  sont confirmées. Rien ne vidait pourtant l'historique : sa portée est la version
+  (`EstimateEditorPage.tsx`), et `clearHistory()` ne suit qu'un lot de lignes.
+- Les commandes de l'historique gardent les lignes saisies avant l'action (`selectedLines`,
+  `updatedLines`). Elles gardent aussi, par fermeture, le `computeVersionTotalsPatch` du rendu où
+  l'action a eu lieu, donc l'ancien `savedSettings`.
+- En v1, le serveur écrit le patch tel qu'il est envoyé. Il ne contrôle que HT + TVA = TTC
+  (`assertEstimateTotalsInvariantForPatch`).
+
+L'annulation des suggestions (`undoLastApply`) a la même forme. Elle relit le calcul courant,
+mais remet des lignes chiffrées à l'ancien paramétrage, et son alerte survit à l'enregistrement.
+Avant ce lot, les lignes restaurées étaient déjà périmées (défaut préexistant) ; ce lot y ajoutait
+des totaux périmés.
+
+Correction (`88854fcb`) : un enregistrement réussi du paramétrage vide l'historique
+(`clearUndoRedoHistory`) et l'annulation des suggestions (nouvelle action `discardUndo` du
+contrôleur). C'est la suite de la règle existante, qui vide déjà l'historique après un lot de
+lignes. Le diff de `useEstimateEditorState.impl.tsx` se limite à 5 lignes : 2 appels, 2 lignes de
+commentaire et 1 déstructuration. Les quatre lignes CRLF du fichier sont conservées.
+
+Une autre correction a été écartée : relire le calcul courant par une référence, puis recalculer
+les lignes au moment de l'annulation. `normalizeLine` lit le paramétrage en cours de saisie
+(`settings`), et l'annulation de l'historique ne passe par aucune garde qui refuserait un
+paramétrage non enregistré. Une annulation faite pendant une saisie de marge aurait écrit, en v1,
+des lignes à la marge saisie et des totaux à la marge enregistrée. La forme retenue garde le
+calcul enregistré pour les lignes comme pour les totaux.
+
+Conséquence visible, en v1 comme en v2 : après un enregistrement du paramétrage, « Annuler » et
+« Annuler les suggestions » ne sont plus offerts pour les actions antérieures. Aucun parcours
+existant n'annule après un enregistrement du paramétrage. Le raccourci Ctrl+S de
+`reconcileStoredTotals()` n'enregistre le paramétrage que s'il a des modifications en attente :
+il n'en a aucune dans D2 ni dans S2.
+
+Reste préexistant, non corrigé, aucun parcours ne l'atteint. Les fermetures périmées subsistent
+dans deux cas :
+
+- un rechargement de la même version, après qu'une autre session a changé son paramétrage ;
+- une modification du taux d'un rôle, avant la sauvegarde qui vide l'historique.
+
+### Constat 2, mineur, confirmé : le harnais isolé ne pouvait détecter aucun mauvais total
+
+Les deux harnais remplaçaient `computeVersionTotalsPatch` par une constante. Contre les anciens
+tests, deux mutations passaient :
+
+- l'annulation des suggestions calculée sur les lignes courantes au lieu des lignes restaurées :
+  20/20 verts ;
+- les totaux du lot calculés sur les lignes d'avant l'écriture : 20/20 verts.
+
+En v1, ces totaux sont les seuls que le serveur enregistre. Aucun parcours ne couvrait alors la
+catégorie, le rôle MO, ni l'annulation et le rétablissement en v1.
+
+Correction (`1eb299e0`). Le substitut additionne les lignes qu'il reçoit (`totalsOf`). Les
+assertions portent sur :
+
+- les lignes reçues, pour l'action, l'annulation et le rétablissement de la majoration, et pour
+  ceux de la catégorie ;
+- le patch exact, quatrième argument ;
+- la préférence pour les totaux du serveur (`bulkResult.totals`) ;
+- l'absence de totaux pour un déplacement.
+
+Côté suggestions, elles portent sur les lignes de l'application, avec une ligne non sélectionnée,
+et sur celles de l'annulation.
+
+Ces tests ont été écrits après le code. Leur pouvoir de détection est donc établi par mutation,
+chaque mutation étant retirée après son run. Cinq mutations rougissent les nouveaux tests :
+
+- totaux du lot sur les lignes d'avant l'écriture : 3 rouges ;
+- totaux du serveur ignorés : 1 rouge ;
+- déplacement avec totaux : 1 rouge ;
+- annulation des suggestions sur les lignes courantes : 1 rouge ;
+- application des suggestions sur les lignes d'avant l'écriture : 4 rouges.
+
+La lacune E2E v1 est aussi réduite par BT8.
+
+### Constat 3, mineur, confirmé, préexistant, hors de ce lot
+
+Les suppressions et les annulations de création passent par la route `DELETE`, qui n'écrit pas de
+totaux. Voir l'inventaire, complété plus haut. Ce constat n'appelle aucune correction dans ce lot.
+
+### Rapprochement avec `main`
+
+`origin/main` avait avancé de `fc2ba2dc` à `91068850`. Il apporte les PR #34 (sous-lot 2.9,
+unité d'achat, migration `20261017172127_supplier_offer_purchase_unit.sql`), #37 (`e190161a`) et
+#38. La branche l'intègre par fusion, sans rebase (`85d684d7`), sans conflit. Les runs R4, R5, G3
+et F3 portent sur cette tête fusionnée, et leur pile éphémère applique donc cette migration. Ce lot
+n'ajoute aucune migration.
+
+Pendant F3, `origin/main` a encore avancé, jusqu'à `89627add`. Il apporte `870e4d62`, `7393d941`
+et `89627add` : l'import CSV du catalogue et l'attente du parcours US-4.1. Ces commits ne touchent
+aucun fichier de ce lot : ni `src/hooks`, ni `e2e/army/critical`, ni `e2e/army/local`, ni
+`e2e.config.ts`. Ils sont intégrés par une seconde fusion, sans conflit (`ad2f2c4e`).
+
+### Preuves rouges (avant `88854fcb`)
+
+Même environnement que plus haut. Les deux runs ajoutent temporairement les fichiers v1 à la liste
+critical (`diffSha256` `7fbcd375…9bae`), retirée ensuite. Avant chaque run, le verrou des piles
+natives est relu, en comptant les arbres de travail distincts : un autre run possédé au plus.
+Commande :
+`npm run e2e:army:local -- --grep "^V1BT0[123]\s|^V1PT01\s" --app-port 3151`.
+
+| Run | Révision | Résultat | Preuves (sous `~/miaouffrage-totals-bulk/.e2e/army/ci`) |
+| --- | --- | --- | --- |
+| R4 | `a249a92b` | exit 1 ; V1BT01, V1PT01 verts. V1BT02 et V1BT03 rouges sur un défaut du parcours : le bouton de paramétrage du menu d'affichage est hors de la fenêtre en mode Expert. Leurs étapes d'avant l'enregistrement sont vertes. | `2026-10-18T00-05-56-659Z-critical` (`manifest.json` sha256 `3b5b47ad…d4dc`) |
+| R5 | `09ac7776` (paramétrage ouvert par la barre de résumé) | exit 1 ; V1BT01, V1PT01 verts ; V1BT02 et V1BT03 rouges à l'oracle, à l'étape `after-margin` | `2026-10-18T00-11-39-100Z-critical` (`manifest.json` sha256 `ec68a4ad…1473`) |
+
+R5, valeurs relues (`critical/artifacts/business/`) :
+
+| Scénario | Étape | Attendu | Lignes | Version | Fichier (sha256) |
+| --- | --- | --- | --- | --- | --- |
+| BT8, V1BT02 | majoration, annulation, rétablissement | `[8000, 1600, 9600]`, `[6000, 1200, 7200]`, `[8000, 1600, 9600]` | égales | égales | `…-084d7dc5-v1-history-{majoration,undo,redo}-stored-totals.json` |
+| BT9, V1BT02 | marge ×1,2 enregistrée | `[9600, 1920, 11520]` | `[9600, 1920, 11520]` | `[9600, 1920, 11520]` | `…-084d7dc5-v1-history-margin-saved-stored-totals.json` (`d2e6f28a…b8dd`) |
+| BT9, V1BT02 | « Annuler » encore offert, exécuté | `[9600, 1920, 11520]` | `[6000, 1200, 7200]` | `[6000, 1200, 7200]` | `ARMY-1792282369791-084d7dc5-v1-history-after-margin-stored-totals.json` (`d8ab0bb1…f2f1`) |
+| BT8, V1BT03 | application, annulation, nouvelle application | `[6600, 1320, 7920]`, `[6000, 1200, 7200]`, `[6600, 1320, 7920]` | égales | égales | `…-f1c3c37c-v1-suggestions-{apply,undo,reapply}-stored-totals.json` |
+| BT9, V1BT03 | marge ×1,2 enregistrée | `[7920, 1584, 9504]` | `[7920, 1584, 9504]` | `[7920, 1584, 9504]` | `…-f1c3c37c-v1-suggestions-margin-saved-stored-totals.json` (`ade16265…f048`) |
+| BT9, V1BT03 | « Annuler les suggestions » encore offert, exécuté | `[7920, 1584, 9504]` | `[6000, 1200, 7200]` | `[7200, 1440, 8640]` | `ARMY-1792282375539-f1c3c37c-v1-suggestions-after-margin-stored-totals.json` (`5adeda4b…8092`) |
+
+Lecture du rouge :
+
+- V1BT02 : la version reste à la marge ×1,2, mais l'annulation y écrit la ligne et les totaux
+  d'avant la majoration à la marge ×1. Lignes = version, toutes deux fausses.
+- V1BT03 : l'annulation remet la ligne chiffrée à ×1 et des totaux recalculés à ×1,2. Version ≠
+  lignes.
+
+### Preuves vertes (après `88854fcb`)
+
+| Run | Révision | Commande | Résultat | Preuves (sous `~/miaouffrage-totals-bulk/.e2e/army/ci`) |
+| --- | --- | --- | --- | --- |
+| G3 | `88854fcb` (filtre temporaire `7fbcd375…9bae`) | `npm run e2e:army:local -- --grep "bulk edit sync\|bulk move persists\|commercial rounding\|^V1BT0[123]\s\|^V1PT01\s" --app-port 3151` | exit 0 ; 15/15 : setup, S1, S2, P1, D1 à D4, `bulk-move`, `commercial-rounding` 2/2, V1BT01 à V1BT03, V1PT01 (1 min 54 s de parcours) | `2026-10-18T00-16-58-935Z-critical` (`manifest.json` sha256 `94a4a236…a504`) |
+
+G3, valeurs relues. Les étapes BT8 donnent les mêmes valeurs qu'en R5. Les autres :
+
+| Scénario | Étape | Lignes = version | Fichier (sha256) |
+| --- | --- | --- | --- |
+| BT9, V1BT02 | marge ×1,2 enregistrée | `[9600, 1920, 11520]` | `ARMY-1792282790987-fed8d2c7-v1-history-margin-saved-stored-totals.json` (`c95244d3…c4e0`) |
+| BT9, V1BT02 | après l'enregistrement (« Annuler » désactivé) | `[9600, 1920, 11520]` | `…-fed8d2c7-v1-history-after-margin-stored-totals.json` (`50048b1e…584e`) |
+| BT9, V1BT02 | hub et liste : 96,00 € | `[9600, 1920, 11520]` | `…-fed8d2c7-v1-history-final-stored-totals.json` (`7e799c33…6024`) |
+| BT9, V1BT03 | marge ×1,2 enregistrée | `[7920, 1584, 9504]` | `ARMY-1792282797140-7fed9718-v1-suggestions-margin-saved-stored-totals.json` (`664acf54…fd96`) |
+| BT9, V1BT03 | après l'enregistrement (alerte masquée) | `[7920, 1584, 9504]` | `…-7fed9718-v1-suggestions-after-margin-stored-totals.json` (`df05f199…d781`) |
+| BT9, V1BT03 | hub et liste : 79,20 € | `[7920, 1584, 9504]` | `…-7fed9718-v1-suggestions-final-stored-totals.json` (`31f31764…40bc`) |
+| Témoins | D2 annulation, S2 annulation, P1, V1BT01, V1PT01 | `[5000, 1000, 6000]`, `[1000, 200, 1200]`, `[1234, 247, 1481]`, `[8000, 1600, 9600]`, `[3702, 740, 4442]` | inchangés depuis F2 |
+
+Les assertions des parcours n'ont pas changé entre R5 et G3 : seul le code de l'éditeur a changé
+(`09ac7776..88854fcb`, plus le test isolé `1eb299e0`). La branche de diagnostic, qui exécute
+l'annulation encore offerte, n'est pas parcourue en G3, puisque l'annulation n'est plus offerte.
+Les deux parcours v1 restaurent le mode initial `simplified`. V1BT03 désactive sa règle.
+
+| Run | Révision | Commande | Résultat | Preuves (sous `~/miaouffrage-totals-bulk/.e2e/army/ci`) |
+| --- | --- | --- | --- | --- |
+| F3 | `88854fcb`, sans modification locale (`diffSha256` `e3b0c442…b855`) | `npm run e2e:army:ci -- full --app-port 3151` | exit 1 ; phase `full` 144/145 (11 min 45 s de parcours) : seul US-4.1 rouge (« Analyser » jamais activé, préexistant, corrigé sur `main` par `870e4d62` et `7393d941`). Verts : `bulk-edit-sync` 4/4, `bulk-edit-sync-sources` 3/3, `bulk-move`, `commercial-rounding` 2/2, `estimate-integrity` 5/5, `numeric-entry` 2/2, `numeric-entry-v3`, `settings-contracts` 2/2, V1BT01 à V1BT03, V1PT01. Phase `development` 4/4 | `2026-10-18T00-20-36-093Z-full` (`manifest.json` sha256 `9896bdb4…a2e9`) |
+| G4 | `ad2f2c4e`, tête fusionnée avec `origin/main` `89627add` (filtre temporaire `7fbcd375…9bae`) | même commande que G3 | exit 0 ; 15/15 (1 min 54 s de parcours) | `2026-10-18T00-35-14-335Z-critical` (`manifest.json` sha256 `a9b134fc…7aba`) |
+
+En F3 et en G4, chaque étape relue donne lignes = version aux valeurs exactes de G3. Pour V1BT02 :
+`[8000, 1600, 9600]`, `[6000, 1200, 7200]`, `[8000, 1600, 9600]`, puis `[9600, 1920, 11520]` trois
+fois. Pour V1BT03 : `[6600, 1320, 7920]`, `[6000, 1200, 7200]`, `[6600, 1320, 7920]`, puis
+`[7920, 1584, 9504]` trois fois. Les témoins sont D1 `[7000, 1400, 8400]`, D2 et D4 aux valeurs de
+F2, S1 `[1300, 260, 1560]`, S2 `[1000, 200, 1200]`, P1 `[1234, 247, 1481]`, V1BT01
+`[8000, 1600, 9600]` et V1PT01 `[3702, 740, 4442]`. Exemples de fichiers :
+
+- F3 : `ARMY-1792283428387-a0a3a0b1-v1-history-after-margin-stored-totals.json` (`16243db8…5432`) ;
+- F3 : `ARMY-1792283434303-67835385-v1-suggestions-after-margin-stored-totals.json` (`f549709d…9d1e`) ;
+- G4 : `ARMY-1792283883622-d113d17c-v1-history-after-margin-stored-totals.json` (`e720184a…97a4`) ;
+- G4 : `ARMY-1792283889753-ba258f25-v1-suggestions-after-margin-stored-totals.json` (`28803caf…20c2`).
+
+Journaux : `~/totals-bulk-logs/red-shipprep-run{1,2}.log`, `green-shipprep-critical.log` (G3),
+`green-shipprep-full.log` (F3) et `green-shipprep-merged.log` (G4).
+
+Contrôles statiques et isolés (worktree Windows, sur `88854fcb` puis sur la tête fusionnée
+`ad2f2c4e`, mêmes résultats ; seule modification locale : ce document) :
+
+- `npm run typecheck`, puis `npx eslint --max-warnings=0` sur les 12 fichiers `src/hooks`,
+  `e2e` et `e2e.config.ts` du diff : exit 0 ;
+- `npx vitest run src/hooks/useEstimateEditorBulkController.test.ts
+  src/hooks/useEstimateEditorSuggestionsController.test.ts src/test/army-impact-map.test.ts
+  src/test/ci-guardrails.test.ts` : 4 fichiers, 44 tests passés ;
+- `npx vitest run src/lib/estimates/engine-frozen-corpus.test.ts
+  src/lib/estimate-calculations.golden/v1.test.ts src/hooks` : 36 fichiers, 319 tests passés ;
+- `npm run check:architecture` : 1 125 modules, 0 cycle ;
+- `git diff fc2ba2dc` et `git diff origin/main` sur `src/lib/estimate-calculations.ts` et
+  `src/lib/estimate-v2-snapshot.ts` : vides ;
+- `git -c core.whitespace=cr-at-eol diff --check origin/main...HEAD` : propre ;
+- `npm run verify:pr`, lancé dans le clone WSL sur `ad2f2c4e` sans modification locale
+  (`diffSha256` `e3b0c442…b855`), sort en exit 0, chaîne complète :
+  - `audit:dependencies` ;
+  - `audit:signatures` : 762 signatures et 219 attestations vérifiées ;
+  - `check:architecture` : 1 125 modules ;
+  - `validate-openapi` : 144 routes, 192 opérations ;
+  - `typecheck`, `lint` ;
+  - `test:ci:node` : 296 fichiers passés et 1 ignoré, 2 808 tests passés et 2 ignorés ;
+  - `test:ci:jsdom` : 164 fichiers et 824 tests ;
+  - `test:critical-coverage` : 3 fichiers et 12 tests.
+
+  Journal : `~/totals-bulk-logs/verify-pr-shipprep.log`.
+
+Aucun nouveau parcours critical : les trois parcours v1 sont dans
+`e2e/army/local/bulk-actions-v1-totals.e2e.ts`, de la sélection `full` (`e2e.config.ts`), comme
+V1BT01. La carte d'impact (`scripts/tester-army/army-impact-map.json`) ne recense que les parcours
+critical : elle est inchangée. La sélection de PR calculée contre `origin/main` est `full`, à cause
+de `e2e.config.ts` (`select-journeys.ts`, « shared core »).
