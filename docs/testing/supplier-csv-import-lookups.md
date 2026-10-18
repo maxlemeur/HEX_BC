@@ -66,13 +66,14 @@ Depuis la partie « Lecture des référentiels en échec » ci-dessous,
 
 ## Limites
 
-- Ces parcours vivent dans `e2e/army/takeoff/**` : seule la suite `full`
-  (nocturne) les exécute. Ni la liste `localBusiness` ni
-  `scripts/tester-army/army-impact-map.json` ne les retiennent, donc la CI
-  d'une pull request ne les lance pas. Depuis la PR #42, la règle
-  `affaire-prices` et le graphe de `scripts/tester-army/army-impact-map.json`
-  les retiennent : une PR qui les atteint les lance dans le job `army-takeoff`
-  (`full --files`), voir [TesterArmy CI](tester-army-ci.md).
+- Ces parcours vivent dans `e2e/army/takeoff/**`. Avant la PR #42, seule la
+  suite `full` (nocturne) les exécutait et la CI d'une pull request ne les
+  lançait pas ; depuis la PR #42, la règle `affaire-prices` et le graphe de
+  `scripts/tester-army/army-impact-map.json` les retiennent : une PR qui les
+  atteint les lance dans le job `army-takeoff` (`full --files`), voir
+  [TesterArmy CI](tester-army-ci.md). Sur la PR #56, le job `army-takeoff` du
+  run [39123554299](https://github.com/maxlemeur/HEX_BC/actions/runs/39123554299)
+  (tête `ecc4cd9b`) a retenu `team-b-user-stories.e2e.ts` et réussi.
 - Les runs ci-dessous ont exigé la sélection temporaire de `e2e.config.ts`.
 - Cible `chromium-desktop` seulement ; mobile non exécuté.
 - US-4.1 choisit son fichier dès le titre rendu par le serveur, sans attendre
