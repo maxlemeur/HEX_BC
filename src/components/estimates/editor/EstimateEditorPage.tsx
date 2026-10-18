@@ -12,6 +12,7 @@ import {
 } from "@/components/estimates/EstimateSettingsSummaryBar";
 import { EstimateEditorAlerts } from "@/components/estimates/editor/EstimateEditorAlerts";
 import { EstimateEditorToolbar } from "@/components/estimates/editor/EstimateEditorToolbar";
+import { EstimateV3GridProvider } from "@/components/estimates/v3/V3LineCells";
 import { EmptyState } from "@/components/layout/empty-state";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { useUserContext } from "@/components/UserContext";
@@ -146,6 +147,7 @@ export function EstimateEditorPage({
   const projectId = readyMeta?.projectId ?? null;
   const editorTableProps = readyMeta?.editorTableProps ?? null;
   const drawerProps = readyMeta?.drawerProps ?? null;
+  const v3Grid = readyMeta?.v3Grid ?? null;
   const alertsRegion = useMemo(
     () =>
       alertsProps ? (
@@ -170,18 +172,21 @@ export function EstimateEditorPage({
       ) : null,
     [projectId, summaryBarProps, toolbarProps]
   );
+  // Lot 2, sous-lot 2.6 : une v3 fournit à la grille les lignes de son moteur (cellules v3).
   const tableRegion = useMemo(
     () =>
       editorTableProps ? (
-        <div data-testid="estimate-editor-table-region">
-          <MemoizedEstimateEditorTable
-            {...editorTableProps}
-            ribbonHeaderNode={ribbonHeader}
-            ribbonAlertsNode={alertsRegion}
-          />
-        </div>
+        <EstimateV3GridProvider value={v3Grid}>
+          <div data-testid="estimate-editor-table-region">
+            <MemoizedEstimateEditorTable
+              {...editorTableProps}
+              ribbonHeaderNode={ribbonHeader}
+              ribbonAlertsNode={alertsRegion}
+            />
+          </div>
+        </EstimateV3GridProvider>
       ) : null,
-    [alertsRegion, editorTableProps, ribbonHeader]
+    [alertsRegion, editorTableProps, ribbonHeader, v3Grid]
   );
   const drawerRegion = useMemo(
     () =>

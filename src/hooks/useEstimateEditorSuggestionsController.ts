@@ -37,6 +37,7 @@ import {
   type EstimateVersionRow,
   type EstimateVersionTotalsPatch,
 } from "@/lib/estimates/editor-items";
+import type { EstimateV3EditorWriter } from "@/lib/estimates/v3-editor-writer";
 import type { Database } from "@/types/database";
 
 type EstimateCategory =
@@ -77,7 +78,10 @@ export type EstimateEditorSuggestionsControllerInput = {
   reportError: (message: string | null) => void;
   resolveErrorMessage: (message: string) => string;
   ensureGroupedActionCanProceed: (actionLabel: string) => Promise<boolean>;
-  /** Version totals of these rows, from the editor's persisted-totals calculation. */
+  /**
+   * Version totals of these rows, from the editor's persisted-totals calculation (v1/v2). A v3
+   * sends none: its writer recalculates and checks them (D12).
+   */
   computeVersionTotalsPatch: (
     items: EditorEstimateItem[]
   ) => EstimateVersionTotalsPatch | undefined;
@@ -92,6 +96,11 @@ export type EstimateEditorSuggestionsControllerInput = {
     error: unknown,
     options?: { persistDraft?: boolean }
   ) => boolean;
+  /**
+   * Lot 2, sous-lot 2.6 (revue, F26-32) : sur une v3, appliquer et annuler les suggestions en lot passe par
+   * l'écrivain de lot (saisies seulement, recalcul et vérification D12) ; absent en v1/v2 (chemins historiques).
+   */
+  v3Writer?: EstimateV3EditorWriter;
 };
 
 export type EstimateEditorSuggestionsController = {
@@ -332,7 +341,9 @@ export function useEstimateEditorSuggestionsController({
   applyVersionToken,
   markItemsSynced,
   handleVersionConflict,
+  v3Writer,
 }: EstimateEditorSuggestionsControllerInput): EstimateEditorSuggestionsController {
+  const buildLineUpdate = v3Writer?.buildUpdatePayload ?? buildEstimateItemUpdatePayload;
   const [rulesState, setRulesState] = useState<SuggestionRulesState>(() =>
     createEmptyRulesState(routeVersionId)
   );
@@ -963,17 +974,20 @@ export function useEstimateEditorSuggestionsController({
       });
       const updatesPayload = updatedLines.map((item) => ({
         id: item.id,
-        updates: buildEstimateItemUpdatePayload(item),
+        updates: buildLineUpdate(item),
       }));
       const updatedById = new Map(
         updatedLines.map((item) => [item.id, item])
       );
       // The lines and the version totals they imply are written by one RPC: the
-      // stored totals feed the affaires list, approvals and documents.
-      const versionTotalsPatch = computeVersionTotalsPatch(
-        snapshot.map((item) => updatedById.get(item.id) ?? item)
-      );
-      if (!versionTotalsPatch) {
+      // stored totals feed the affaires list, approvals and documents. A v3
+      // sends no client total: its writer recalculates and checks them (D12).
+      const versionTotalsPatch = v3Writer
+        ? undefined
+        : computeVersionTotalsPatch(
+            snapshot.map((item) => updatedById.get(item.id) ?? item)
+          );
+      if (!v3Writer && !versionTotalsPatch) {
         setInteractiveState((previous) =>
           previous.routeVersionId === targetVersionId
             ? {
@@ -1009,12 +1023,14 @@ export function useEstimateEditorSuggestionsController({
       );
 
       try {
-        const bulkResult = await bulkUpdateEstimateItems(
-          targetVersionId,
-          versionSnapshot.updated_at,
-          updatesPayload,
-          versionTotalsPatch
-        );
+        const bulkResult = v3Writer
+          ? { versionToken: await v3Writer.updateItems(targetVersionId, versionSnapshot.updated_at, updatesPayload), totals: undefined }
+          : await bulkUpdateEstimateItems(
+              targetVersionId,
+              versionSnapshot.updated_at,
+              updatesPayload,
+              versionTotalsPatch
+            );
         if (
           !isScopeCurrent(targetVersionId, scopeGeneration) ||
           bulkOperationGenerationRef.current !== operationGeneration ||
@@ -1138,6 +1154,7 @@ export function useEstimateEditorSuggestionsController({
     }
   }, [
     applyVersionToken,
+    buildLineUpdate,
     computeVersionTotalsPatch,
     ensureGroupedActionCanProceed,
     getItemsSnapshot,
@@ -1152,6 +1169,7 @@ export function useEstimateEditorSuggestionsController({
     resolveErrorMessage,
     setItems,
     setTotalsOutOfSync,
+    v3Writer,
   ]);
 
   const undoLastApply = useCallback(async () => {
@@ -1208,10 +1226,13 @@ export function useEstimateEditorSuggestionsController({
       const previousById = new Map(
         previousItems.map((item) => [item.id, item])
       );
-      const versionTotalsPatch = computeVersionTotalsPatch(
-        currentItemsSnapshot.map((item) => previousById.get(item.id) ?? item)
-      );
-      if (!versionTotalsPatch) {
+      // A v3 sends no client total: its writer recalculates and checks them (D12).
+      const versionTotalsPatch = v3Writer
+        ? undefined
+        : computeVersionTotalsPatch(
+            currentItemsSnapshot.map((item) => previousById.get(item.id) ?? item)
+          );
+      if (!v3Writer && !versionTotalsPatch) {
         reportError("Impossible de calculer les totaux du devis.");
         return;
       }
@@ -1227,15 +1248,17 @@ export function useEstimateEditorSuggestionsController({
 
       const undoPayload = previousItems.map((item) => ({
         id: item.id,
-        updates: buildEstimateItemUpdatePayload(item),
+        updates: buildLineUpdate(item),
       }));
       try {
-        const bulkResult = await bulkUpdateEstimateItems(
-          targetVersionId,
-          versionSnapshot.updated_at,
-          undoPayload,
-          versionTotalsPatch
-        );
+        const bulkResult = v3Writer
+          ? { versionToken: await v3Writer.updateItems(targetVersionId, versionSnapshot.updated_at, undoPayload), totals: undefined }
+          : await bulkUpdateEstimateItems(
+              targetVersionId,
+              versionSnapshot.updated_at,
+              undoPayload,
+              versionTotalsPatch
+            );
         if (
           !isScopeCurrent(targetVersionId, scopeGeneration) ||
           bulkOperationGenerationRef.current !== operationGeneration ||
@@ -1295,6 +1318,7 @@ export function useEstimateEditorSuggestionsController({
     }
   }, [
     applyVersionToken,
+    buildLineUpdate,
     computeVersionTotalsPatch,
     ensureGroupedActionCanProceed,
     getItemsSnapshot,
@@ -1308,6 +1332,7 @@ export function useEstimateEditorSuggestionsController({
     resolveErrorMessage,
     setItems,
     setTotalsOutOfSync,
+    v3Writer,
   ]);
 
   // A settings save reprices every line on the server. The lines kept for the undo carry the

@@ -10,7 +10,9 @@ import {
   type SetStateAction,
 } from "react";
 
-import { bulkUpdateEstimateItems } from "@/lib/estimates/client";
+import { bulkUpdateEstimateItems, type EstimateVersionToken } from "@/lib/estimates/client";
+import { resolveEditorEngineContext } from "@/lib/estimates/editor-engine";
+import { commitEstimateV3Operations } from "@/lib/estimates/v3-editor-writer";
 import {
   buildEstimateItemUpdatePayload,
   type EditorEstimateItem,
@@ -91,6 +93,24 @@ type ScopedSupplierDialogState = {
   routeVersionId: string;
   dialog: SupplierDialogState;
 };
+
+/**
+ * Lot 2, sous-lot 2.6 (F26-17, choix du doc 2.6) : sur une v3, la présélection passe par l'écrivain
+ * de lot de 2.5, comme une saisie de PR FO dans la grille : seuls le PR FO et l'offre retenue partent,
+ * le serveur recalcule PU, nets, TVA et totaux et les vérifie (D12) dans la même transaction.
+ */
+function writeEstimateV3SupplierPreselection(
+  versionId: string,
+  updatedAt: string,
+  updates: ReadonlyArray<{ id: string; updates: EstimateItemUpdatePayload }>
+): Promise<EstimateVersionToken> {
+  return commitEstimateV3Operations(
+    versionId,
+    updatedAt,
+    updates.map((entry) => ({ op: "update" as const, id: entry.id, data: entry.updates })),
+    "La présélection fournisseurs n'a pas été enregistrée."
+  );
+}
 
 const EMPTY_DIALOG_STATE: SupplierDialogState = {
   isOpen: false,
@@ -314,9 +334,11 @@ type EstimateEditorSupplierControllerInput = {
   computeVersionTotalsPatch: (
     items: EditorEstimateItem[]
   ) => EstimateVersionTotalsPatch | undefined;
+  /** `contentRevision` : rendue par l'écrivain v3 seulement (lot 2, sous-lot 2.6). */
   applyVersionToken: (
     updatedAt: string,
-    totals?: EstimateVersionTotalsPatch
+    totals?: EstimateVersionTotalsPatch,
+    contentRevision?: number
   ) => void;
   markItemsSynced: (
     entries: ReadonlyArray<{ id: string; updates: EstimateItemUpdatePayload }>
@@ -641,12 +663,16 @@ export function useEstimateEditorSupplierController({
         : item;
     });
     const updatedById = new Map(updatedLines.map((item) => [item.id, item]));
+    const isV3 = resolveEditorEngineContext(versionSnapshot).isV3;
     // The lines and the version totals they imply are written by one RPC: the
-    // stored totals feed the affaires list, approvals and documents.
-    const versionTotalsPatch = computeVersionTotalsPatch(
-      snapshot.map((item) => updatedById.get(item.id) ?? item)
-    );
-    if (!versionTotalsPatch) {
+    // stored totals feed the affaires list, approvals and documents. A v3
+    // sends no client total: its writer recalculates and checks them (D12).
+    const versionTotalsPatch = isV3
+      ? undefined
+      : computeVersionTotalsPatch(
+          snapshot.map((item) => updatedById.get(item.id) ?? item)
+        );
+    if (!isV3 && !versionTotalsPatch) {
       setScopedDialogState((previous) => ({
         routeVersionId,
         dialog: {
@@ -676,15 +702,26 @@ export function useEstimateEditorSupplierController({
     );
     const updates = updatedLines.map((item) => ({
       id: item.id,
-      updates: buildEstimateItemUpdatePayload(item),
+      updates: isV3
+        ? { unit_price_ht_cents: item.unit_price_ht_cents, selected_supplier_price_id: item.selected_supplier_price_id }
+        : buildEstimateItemUpdatePayload(item),
     }));
     try {
-      const result = await bulkUpdateEstimateItems(
-        targetVersionId,
-        versionSnapshot.updated_at,
-        updates,
-        versionTotalsPatch
-      );
+      const result = isV3
+        ? {
+            versionToken: await writeEstimateV3SupplierPreselection(
+              targetVersionId,
+              versionSnapshot.updated_at,
+              updates
+            ),
+            totals: undefined,
+          }
+        : await bulkUpdateEstimateItems(
+            targetVersionId,
+            versionSnapshot.updated_at,
+            updates,
+            versionTotalsPatch
+          );
       if (
         !isCurrentRoute(targetVersionId) ||
         requestGenerationRef.current !== generation
@@ -692,9 +729,11 @@ export function useEstimateEditorSupplierController({
         return;
       }
       // v2 returns the totals it recalculated; v1 stores the patch as sent.
+      // Only the v3 writer returns the content revision the editor resumes from.
       applyVersionToken(
         result.versionToken.updated_at,
-        result.totals ?? versionTotalsPatch
+        result.totals ?? versionTotalsPatch,
+        isV3 ? result.versionToken.content_revision : undefined
       );
       // Without a fresh baseline, an edit back to the previous value is dropped.
       markItemsSynced(updates);

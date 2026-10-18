@@ -22,10 +22,7 @@ import {
 } from "react";
 
 import { EditableCell } from "@/components/estimates/EditableCell";
-import {
-  computeEstimateLineMargin,
-  formatMarkupRatio,
-} from "@/lib/estimates/line-margin";
+import { computeEstimateLineMargin, formatMarkupRatio } from "@/lib/estimates/line-margin";
 import { DecimalDraftInput } from "@/components/estimates/components/estimate-editor-row/DecimalDraftInput";
 import { hasTakeoffSourceBadge } from "@/lib/takeoff/source-badge";
 import { Popover } from "@/components/ui-legacy/Popover";
@@ -34,10 +31,7 @@ import {
   ESTIMATE_QUALITY_FLAG_META,
   type EstimateQualityFlagKey,
 } from "@/lib/estimate-quality";
-import {
-  ESTIMATE_OUTLIER_FLAG_KEYS,
-  type EstimateOutlierFlagKey,
-} from "@/lib/estimates/outlier-detection";
+import { ESTIMATE_OUTLIER_FLAG_KEYS, type EstimateOutlierFlagKey } from "@/lib/estimates/outlier-detection";
 import {
   buildTreeConnectorSegments,
   type TreeConnectorMeta,
@@ -57,6 +51,7 @@ import { CatalogueSuggestionsPopover } from "@/components/estimates/components/e
 import { LaborSplitCells } from "@/components/estimates/components/estimate-editor-row/LaborSplitCells";
 import { StandardMoCells } from "@/components/estimates/components/estimate-editor-row/StandardMoCells";
 import { EstimateLineNatureSelect } from "@/components/estimates/components/estimate-editor-row/EstimateLineNatureSelect";
+import { readEstimateV3GridLineMargin, useEstimateV3Grid, V3LineStateControls, V3UnitCell } from "@/components/estimates/v3/V3LineCells";
 import {
   type CataloguePriceSuggestion,
   type ColumnVisibilitySet,
@@ -330,6 +325,7 @@ export function LineRow({
 }: LineRowProps) {
   const [catalogueSuggestionsAnchor, setCatalogueSuggestionsAnchor] =
     useState<HTMLDivElement | null>(null);
+  const v3Grid = useEstimateV3Grid(); // Lot 2, sous-lot 2.6 : cellules v3 déléguées (V3LineCells).
 
   const treeConnectorSegments = buildTreeConnectorSegments(treeConnectorMeta);
   const hasTreeConnectors =
@@ -388,14 +384,14 @@ export function LineRow({
       isPriceBreakdownVisible("ds") ||
       isPriceBreakdownVisible("marge") ||
       isPriceBreakdownVisible("marque")
-        ? computeEstimateLineMargin({
+        ? v3Grid ? readEstimateV3GridLineMargin(v3Grid, item.id) : computeEstimateLineMargin({
             item,
             laborRoles,
             isLaborSplitEnabled,
           })
         : { costCents: 0, saleCents: 0, marginCents: 0, markupRatio: null },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [item, laborRoles, isLaborSplitEnabled, visibleColumns]
+    [item, laborRoles, isLaborSplitEnabled, visibleColumns, v3Grid]
   );
   const dismissedOutlierSet = new Set(dismissedOutlierFlags);
   const quantityOutlierActive =
@@ -756,13 +752,14 @@ export function LineRow({
                     : undefined
                 }
               />
+              {v3Grid ? <V3LineStateControls item={item} isReadOnly={isReadOnly} onPatchItem={onPatchItem} /> : null}
               {item.selected_supplier_price_id && !isSupplierColumnVisible ? supplierOfferContent : null}
               {showCatalogueSuggestions && catalogueSuggestionsAnchor ? (
                 <CatalogueSuggestionsPopover
                   anchor={catalogueSuggestionsAnchor}
                   itemId={item.id}
                   query={item.title}
-                  lineUnit={item.description}
+                  lineUnit={v3Grid ? item.unit_code : item.description}
                   estimateCurrency={estimateCurrency}
                   catalogueListboxId={catalogueListboxId}
                   isCatalogueLoading={isCatalogueLoading}
@@ -860,7 +857,8 @@ export function LineRow({
           onPatchItem(item.id, { quantity }, { persist: true });
         }}
       />
-      <div
+      {v3Grid ? <V3UnitCell cell={unitCell} cellProps={unitCellProps} editorProps={unitEditorProps} navigation={navigation}
+        item={item} isReadOnly={isReadOnly} onPatchItem={onPatchItem} /> : <div
         {...unitCellProps}
         data-estimate-column="unit"
         role="gridcell"
@@ -887,7 +885,7 @@ export function LineRow({
           placeholder="Obligatoire" aria-label={`Unité pour ${item.title || "sans titre"}`}
           disabled={isReadOnly}
         />
-      </div>
+      </div>}
       <EditableCell
         cell={unitPriceCell}
         navigation={navigation}
@@ -1149,7 +1147,7 @@ export function LineRow({
         <input
           className="estimate-input"
           type="text"
-          value={formatNumberDisplay((item.pu_ht_cents ?? 0) / 100, {
+          value={v3Grid && item.pu_ht_cents === null ? "" : formatNumberDisplay((item.pu_ht_cents ?? 0) / 100, {
             minDecimals: 2,
             maxDecimals: 2,
           })}

@@ -4609,6 +4609,9 @@ export async function bulkUpdateEstimateItems(
   };
 }
 
+// Lot 2, sous-lot 2.6 (revue) : colonnes de saisie d'une ligne v3 (D4, D9), transmises à la création.
+const V3_CREATE_INPUT_KEYS = ["unit_code", "pricing_status", "h_mo_per_unit", "h_mo_atelier_per_unit", "h_mo_chantier_per_unit"] as const;
+
 function toCreateEstimateItemBody(
   item: Database["public"]["Tables"]["estimate_items"]["Insert"]
 ) {
@@ -4667,6 +4670,9 @@ function toCreateEstimateItemBody(
         source_job_id: itemWithSource.source_job_id ?? null,
         source_file_name: itemWithSource.source_file_name ?? null,
         source_page: itemWithSource.source_page ?? null,
+        // Lot 2, sous-lot 2.6 (revue) : saisies d'une ligne v3, seulement quand la charge les porte (recréation
+        // d'une ligne v3) ; une charge v1/v2 n'en porte aucune et reste identique.
+        ...Object.fromEntries(V3_CREATE_INPUT_KEYS.flatMap((key) => (item[key] === undefined ? [] : [[key, item[key]]]))),
       };
 }
 

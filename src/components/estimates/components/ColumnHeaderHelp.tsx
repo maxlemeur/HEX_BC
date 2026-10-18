@@ -31,6 +31,29 @@ export const COLUMN_HEADER_TOOLTIPS: Record<string, string> = {
     "Taux de marque = marge / prix de vente. À ne pas confondre avec le taux de marge (marge / déboursé) : sur un coefficient de vente 1,35, la marque vaut 25,9 % et la marge 35 %.",
 };
 
+/**
+ * Moteur de calcul 3 (sous-lot 2.6, D4, D7, D11, §4 de la conception) : « h MO / u » porte les heures
+ * **par unité**, la quantité les multiplie ; PU arrondi au centime une seule fois, PT = Qté × PU.
+ */
+export const ESTIMATE_V3_COLUMN_HEADER_TOOLTIPS: Record<string, string> = {
+  "Désignation": "Désignation de l'article ou de la prestation, avec son statut de chiffrage et son taux de TVA.",
+  "Qté": "Quantité d'unités. Elle multiplie la fourniture et les heures de main d'œuvre (h MO / u).",
+  "U": "Unité du référentiel (ml — mètre linéaire, m2 — mètre carré, u — unité…). Un alias saisi (« ML », « m² ») est validé à la sortie du champ.",
+  "Statut": "Statut de chiffrage : seule une ligne « Chiffrée » entre au HT et à la TVA. Une ligne « Hors lot », « Inclus », « Pour mémoire », « Non chiffrée » ou « Sans objet » garde ses saisies, à 0 €.",
+  "TVA %": "Taux de TVA de la ligne. La TVA se calcule par taux sur la somme des nets de ligne, puis se répartit entre les lignes du taux.",
+  "PR FO": "Prix d'achat unitaire fourniture HT (prix catalogue fournisseur)",
+  "K FO": "Coefficient de coût fourniture — multiplie uniquement le prix de revient FO. Ex : K = 1.20 → +20% sur le prix FO",
+  "h MO / u": "Heures de main d'œuvre par unité. Le total d'heures de la ligne (h MO total, en lecture seule) vaut Qté × h MO / u.",
+  "Majoration MO (%)": "Majoration appliquée au coût MO, en plus du K MO : 100 % = neutre, 115 % = +15 %. Stockée en coefficient (115 % → ×1,15), entre 0 % et 1 000 %.",
+  "K MO": "Coefficient de coût main d'œuvre (difficulté d'exécution). Ex : travail en hauteur → K = 1.30",
+  "Type MO": "Rôle de main d'œuvre et son taux horaire, celui du propriétaire du devis.",
+  "PU": "PU = arrondi au centime de (PR FO × K FO × coefficient de vente FO + h MO / u × Majoration MO × K MO × taux horaire × coefficient de vente MO), un seul arrondi.",
+  "Prix total": "Prix total HT brut de la ligne = arrondi au centime de Qté × PU. La remise et l'arrondi commercial se répartissent ensuite entre les lignes pour donner le HT net.",
+  "Deboursé sec": "Coût direct de la ligne : Qté × (PR FO × K FO + h MO / u × Majoration MO × K MO × taux horaire), avant les coefficients de vente.",
+  "Marge €": "Prix total HT brut − déboursé sec, avant la remise et l'arrondi commercial du pied.",
+  "Marque %": "Taux de marque = marge / prix de vente.",
+};
+
 type ColumnHeaderHelpProps = {
   label: string;
   tooltip: string;

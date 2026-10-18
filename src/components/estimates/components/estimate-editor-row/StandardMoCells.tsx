@@ -11,6 +11,7 @@ import {
 } from "@/lib/estimate-quality";
 import { type SpreadsheetCellProps, type SpreadsheetEditorProps } from "@/hooks/useSpreadsheetNavigation";
 import { DecimalDraftInput } from "@/components/estimates/components/estimate-editor-row/DecimalDraftInput";
+import { useEstimateV3Grid, V3LaborHoursCellContent } from "@/components/estimates/v3/V3LineCells";
 import {
   type ColumnVisibilitySet,
   type EstimateItem,
@@ -86,6 +87,8 @@ export function StandardMoCells({
     selectedLaborRole,
     item.h_mo
   );
+  // Lot 2, sous-lot 2.6 : sur une v3, heures par unité saisies et heures totales en lecture seule (D4).
+  const v3Grid = useEstimateV3Grid();
 
   return (
     <EstimateOrderedCells>
@@ -104,7 +107,9 @@ export function StandardMoCells({
           }`
         )}
       >
-        <DecimalDraftInput
+        {v3Grid ? (
+          <V3LaborHoursCellContent item={item} editorProps={hMoEditorProps} isReadOnly={isReadOnly} onPatchItem={onPatchItem} />
+        ) : <DecimalDraftInput
           className="estimate-input estimate-input--compact-number"
           ref={hMoEditorProps.ref}
           tabIndex={hMoEditorProps.tabIndex}
@@ -130,7 +135,7 @@ export function StandardMoCells({
           }
           placeholder="0.0"
           disabled={isReadOnly}
-        />
+        />}
       </div>
       {(!visibleColumns || visibleColumns.has("h_mo_majoration")) ? (
         <div

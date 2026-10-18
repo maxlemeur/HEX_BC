@@ -477,11 +477,12 @@ describe("useEstimateEditorBulkController", () => {
     expect(
       clientMocks.bulkUpdateEstimateItems.mock.calls.map((call) => call[3])
     ).toEqual([applied, restored, applied]);
-    // A v1 draft stores the patch as sent; a v2 draft returns the totals it recalculated.
+    // A v1 draft stores the patch as sent; a v2 draft returns the totals it recalculated. Only
+    // the v3 writer returns a content revision.
     expect(harness.applyVersionToken.mock.calls).toEqual([
-      ["token-apply", applied],
-      ["token-undo", restored],
-      ["token-redo", recalculated],
+      ["token-apply", applied, undefined],
+      ["token-undo", restored, undefined],
+      ["token-redo", recalculated, undefined],
     ]);
   });
 

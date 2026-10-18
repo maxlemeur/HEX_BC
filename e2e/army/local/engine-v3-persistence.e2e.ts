@@ -24,7 +24,8 @@ import {
 //  V3P-04 Les colonnes v3 d'une ligne (unité, statut, heures par unité) sont ignorées ou perdues
 //         par le lot ; h_mo n'est pas dérivé de Q × h/u.
 //  V3P-05 Un PU, un brut, une TVA de ligne ou un total diffère d'un centime de l'oracle (§5.1, S1).
-//  V3P-06 L'éditeur v2 s'ouvre sur une v3 persistée et la réécrit (l'éditeur v3 arrive en 2.6).
+//  V3P-06 L'éditeur ne s'ouvre pas sur une v3 persistée (bandeau 2.1), ou l'ouvrir la réécrit
+//         (réécrit en 2.6 : l'éditeur v3 s'ouvre, docs/testing/estimate-engine-v3-2.6.md §1.4).
 //  V3P-07 Remise : une intention est dérivée de l'autre (discount_bp recalculé à côté du montant,
 //         ou l'inverse), le montant appliqué est faux (S2, S3) ou ne suit pas le brut (EUHIST).
 //  V3P-08 « Appliquer à toutes les lignes » ne change que la version, ou que certaines lignes.
@@ -390,10 +391,20 @@ armyTest("V3P01 a v3 born behind the tenant policy persists the oracle, its sett
   expect(lineItems(s1).map(lineView)).toEqual(expectedLines(S1, 2000));
   expect(v3Version(s1)).toEqual({ ...emptyV3, gross: 6905456, totals: S1.totals });
 
-  // V3P-06 : l'éditeur v2 ne s'ouvre pas sur une v3 persistée et ne la réécrit pas.
+  // V3P-06, réécrit en 2.6 (doc 2.6 §1.4, F26-15) : l'éditeur v3 s'ouvre sur la v3 persistée, sans le
+  // bandeau du moteur 3 de 2.1, et l'ouvrir ne la réécrit pas (ni normalisation v2, ni total client).
+  // Le bail de brouillon pris par l'API de ce document est rendu d'abord : l'éditeur ouvert par une
+  // navigation est une autre session de page (useDraftLock) et resterait « Verrouillé par vous dans un
+  // autre onglet ». Les écritures suivantes le reprennent (`retakeLease`).
+  const release = await apiRequest(browser, "DELETE", `/api/estimates/${oracleId}/lock`);
+  expect(release.status).toBe(200);
   await app.open(`/dashboard/estimates/${oracleId}/edit`);
-  await expect(screen.getByText(BANNER, { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible({ timeout: 60_000 });
+  await expect(screen.getByTestId("estimate-page-toolbar-autosave-status")).toHaveText(/^(Sauvegardé|À jour)$/, { timeout: 30_000 });
+  const editorBanner = await browser.evaluate((banner) => (document.body.textContent ?? "").includes(banner), BANNER);
   const afterEditor = await readEstimate(browser, oracleId);
+  await recordEvidence(army, "v3p-editor-open", { versionId: oracleId, editorBanner, expected: stamp(s1), actual: stamp(afterEditor) });
+  expect(editorBanner, "the v3 editor opens instead of the 2.1 banner").toBe(false);
   expect(stamp(afterEditor)).toEqual(stamp(s1));
 
   // Lecture à l'écran (2.5) : la liste des versions de l'affaire affiche le HT stocké de la v3
