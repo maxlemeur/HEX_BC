@@ -1087,7 +1087,7 @@ as $$
 $$;
 
 -- Contrat de l'arbre, lignes dans l'ordre `p_order` (ordre préfixe par défaut) ; pied nul, comme la version synthétique.
-create function pg_temp.c2n_contract(p_order integer[] default array(select generate_series(1, 19)))
+create function pg_temp.c2n_contract(p_order integer[] default '{1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19}')
 returns jsonb
 language sql
 stable
