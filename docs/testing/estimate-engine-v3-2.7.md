@@ -20,10 +20,10 @@ commandes et les chemins tels qu'exécutés (`--grep '^V3E02\s'`, `v3e02-*`).
 | Fichier | Rôle |
 |---|---|
 | `supabase/tests/database/estimate-offer-contract-v2.test.sql` | pgTAP, F27-01 à F27-19 (§4) |
-| `e2e/army/local/engine-v3-emission.e2e.ts`, `engine-v3-emission-support.ts` | Parcours V3M01, V3M03, V3M04 et V3M05 (calc-v3) et V3M02 (critique locale), §3, §12 et §13 |
+| `e2e/army/local/engine-v3-emission.e2e.ts`, `engine-v3-emission-support.ts` | Parcours V3M01, V3M03, V3M04, V3M05 et V3M06 (calc-v3) et V3M02 (critique locale), §3, §12 et §13 |
 | `e2e/army/local/engine-v3-editor-actions.e2e.ts` (fichier de 2.6) | V3E11 réécrit et V3E15 (critique locale) à la fusion du 2.6, §13 |
 | `scripts/tester-army/calc-v3-phases.ts` | Nouvelle phase `emission-v3` (collecteur sentinelle ; next dev au rouge, build de production possédé depuis l'intégration, §10.4) |
-| `scripts/tester-army/calc-v3-fixtures.ts` | Fixture de la phase : propriétaire dédié en politique 3, témoin v2 brouillon |
+| `scripts/tester-army/calc-v3-fixtures.ts` | Fixture de la phase : propriétaire dédié en politique 3, témoin v2 brouillon, second administrateur du tenant (V3M06, §13.8) |
 | `scripts/tester-army/calc-v3-campaign.ts`, `e2e/army/local/calc-v3.config.ts` | Collecteur, garde réseau d'offre et lecture des PDF reçus pilotés par `sentinelCollector` (et non plus par le nom `emission`) |
 | `scripts/tester-army/army-impact-map.json` | Parcours inscrit (la liste critique locale de `e2e.config.ts` prend `engine-v3-*.e2e.ts`), groupe `print` |
 
@@ -1303,3 +1303,62 @@ Conflits avec les PR ouvertes, par essai `git merge-tree` de leurs têtes pouss�
 
 La PR fusionnée en second résout ses conflits et rejoue ce qu'ils invalident. Ce traitement n'a pas de troisième
 relecture.
+
+### 13.8 Revue Codex de 3d78d662 — voie A (18/10/2026)
+
+Deux constats P2 de Codex sur `3d78d662`, traités selon les décisions du coordinateur, sur la branche locale
+`tmp/l2-27-codex-a` (à reporter sur la branche de la PR). Aucune migration, aucun test SQL, ni
+`src/lib/estimate-calculations.ts` ni `src/lib/estimate-v2-snapshot.ts` ne changent.
+
+| Constat | Traitement |
+|---|---|
+| P2 (commentaire 4306173923, `print/page.tsx:195`) : l'impression d'une v3 envoyée, acceptée ou archivée passe au document le profil du lecteur et l'affaire vivante. Un autre administrateur du tenant y figure sous « Émis par » et les changements de l'affaire après l'émission s'impriment, alors que le badge vérifie l'identité de la copie au contrat 2 | hors brouillon, `EstimateV3PrintPage` relit la copie émise par `loadVerifiedOfferDocument`, le lecteur vérifié du portail et de `verifyEstimateSeal`. Elle imprime depuis le contrat 2 l'émetteur, l'entreprise, le client, l'affaire, la référence (déjà suffixée de la version), la date, la validité et les limites de prestation. Une copie qui ne se vérifie pas (`ApiError`, ou `OfferContractError` de l'analyseur strict) n'est pas imprimée : un avis la nomme. Le brouillon garde l'aperçu vivant. `EstimateDocument`, l'en-tête et le pied d'entreprise reçoivent en option l'entreprise et la référence figées ; leurs appelants v1/v2 n'en passent aucune. Lignes et montants restent ceux du gel stocké couvert par la charge 6 : son pied est égal au contrat par `contract2MatchesVersion`, ses lignes le sont en SQL à la publication |
+| P2 (commentaire 4306173926, `CommercialEstimateDocument.tsx:190`) : au contrat 2 avec remise ou arrondi, le pied HTML du portail met en bandeau sa première ligne, « Total HT brut », et laisse « Total HT net » et le TTC en lignes ordinaires | le pied du contrat 2 suit l'emphase de `buildEstimateV3FooterRows` : `net` en bandeau, `payable` en gras, `detail` sinon, portée par `data-emphasis`. Le contrat 1 est inchangé (première ligne en bandeau, aucun attribut). L'impression (`EstimateDocumentTotalsV3`) et le PDF (`PdfEstimateTotalsV3`) la suivaient déjà |
+
+Défaillances écrites avant le code : V3M-15 et V3M-16 (en-tête de `engine-v3-emission.e2e.ts`). Parcours V3M06 (phase
+`emission-v3`) : un S2 (remise de 1,01 €) émis par le propriétaire dédié est imprimé trois fois. D'abord à l'émission,
+puis après la modification de l'affaire par sa fiche (nom, client, référence, adresse, comme OF02), enfin par un second
+administrateur du tenant. La fixture `calc-v3-emission-v3-3` crée cet administrateur, qui bascule son tenant actif par
+la RPC ordinaire comme l'observateur de `access` ; le profil calc-v3 le connecte sous l'identifiant `viewer`. Attendu à
+chaque lecture : « Émis par » du propriétaire et son adresse, client « Client à renseigner », chantier au nom d'émission
+sans adresse, bloc « Devis » relevé à l'émission, sceau `valid`. V3M06 relit ensuite le pied de l'impression et celui
+du portail collecté. La phase attend 6 résultats.
+
+| Commande (WSL, `~/miaouffrage-l27-codex-a`, aucun changement local) | Arbre | Résultat |
+|---|---|---|
+| `npm run e2e:army:calc-v3 -- --phase emission-v3 --grep "^V3M06\s" --app-port 3163` | `ec3a8e26` | rouge attendu (V3M-15), sortie 1. `atEmission` conforme ; `afterChange` client `["ARMY client modifié V3M06", "Référence projet : ARMY-REF-V3M06"]` et chantier renommé ; `asViewer` émetteur `["ARMY calc-v3 v3m-viewer", "<adresse du lecteur>"]` ; sceau `valid` aux trois lectures. `.e2e/army/ci/2026-10-18T07-54-12-029Z-calc-v3` (`manifest.json` `dc3e34f4…`) |
+| idem | `0ca15e51` | **sortie 0** : 2/2 (setup, V3M06). `…/2026-10-18T08-02-34-087Z-calc-v3` (`a0b971fc…`) |
+| idem | `63b07056` | rouge attendu (V3M-16), identité verte. Impression : « Total HT net » en bandeau, TTC en gras. Portail : « Total HT brut » en bandeau et en gras, « Total HT net » et « Total TTC » ordinaires, aucun `data-emphasis`. `…/2026-10-18T08-05-32-301Z-calc-v3` (`7fd81388…`) |
+| idem | `22825bbb` | **sortie 0** : 2/2. `…/2026-10-18T08-08-32-722Z-calc-v3` (`8d147ae9…`) |
+
+Qualification de la tête de code `d8186244` (`22825bbb` plus l'avis nommé d'une `OfferContractError` ; la tête
+suivante n'ajoute que ces relevés). Node 24.19.0, `E2E_ARMY_WORKERS=2`, `NODE_OPTIONS=--max-old-space-size=4096`, après la
+garde de concurrence (au plus quatre runs natifs possédés) ; journaux `~/l27-codex-a-logs/*.log` (tête, état local,
+commande, code de sortie, durée murale).
+
+| Commande | Résultat |
+|---|---|
+| `npm run e2e:army:calc-v3 -- --phase emission-v3 --app-port 3163` | **sortie 0** en 192 s : 6/6 (setup, V3M01, V3M03, V3M04, V3M05, V3M06), 6 PDF reçus. `…/2026-10-18T08-13-25-064Z-calc-v3` (`f86a311f…`) |
+| `npm run e2e:army:calc-v3 -- --phase emission --app-port 3163` (contrat 1, `offer-emission.e2e.ts`) | **sortie 0** en 180 s : 6/6 (setup, OF00, OF01, OF02, OF04, OF0L), 4 PDF reçus. `…/2026-10-18T08-16-38-213Z-calc-v3` (`ae094486…`) |
+| `npm run e2e:army:local -- --files` du groupe `print` de la carte d'impact et de `engine-v3-fail-closed`, `purchase-decimals` (en plus : impression v1/v2, brouillon v3, bon de commande) | sortie 1 en 416 s : 14/15. `commercial-rounding` 2, `estimate-integrity` 5, V3M02, V3FC01, V3FC02 et V3E02 à V3E04 verts. V3E01 rouge dans l'éditeur, avant toute impression : la sauvegarde observée n'a pas O2 complet avant l'échéance (HT 37 296 c au lieu de 62 496). Ni la grille ni la sauvegarde ne sont touchées ; d'autres runs natifs tournaient en même temps. `…/2026-10-18T08-21-06-273Z-critical` (`a01b6180…`) |
+| `npm run e2e:army:local -- --grep "^V3E01\s" --app-port 3163` (reprise de V3E01, même tête) | **sortie 0** en 191 s : 2/2. `…/2026-10-18T08-29-34-810Z-critical` (`2c0b536c…`) |
+
+`npm run typecheck`, `npx eslint --max-warnings=0` des huit fichiers touchés et `npx vitest run` de
+`EstimateDocument.test.ts`, `PurchaseOrderDocument.test.ts`, `offer-commercial-render.test.tsx` et
+`estimate-calculations.golden/subcontractor.test.ts` (31 passés) : sortie 0. `git -c core.whitespace=cr-at-eol diff
+--check 3d78d662...HEAD` : sortie 0. `git diff 3d78d662` des deux moteurs historiques, de `supabase/migrations/` et de
+`supabase/migrations.manifest.json` : vide.
+
+Limites :
+
+- Une version v1/v2 émise s'imprime toujours avec le profil du lecteur et l'affaire vivante (branche historique de
+  `print/page.tsx`) : même classe de défaut, laissée telle quelle car le contrat 1 doit rester identique. Elle relève
+  d'une décision séparée.
+- Hors brouillon, l'impression d'une v3 relit et hache désormais deux fois le PDF stocké : une fois pour le badge
+  (`verifyEstimateSeal`), une fois pour la copie.
+- Une v3 en `sending`, pas encore scellée, affiche l'avis au lieu d'une identité vivante.
+- L'avis d'une copie invérifiable n'a pas de parcours : il faudrait altérer la copie stockée. Aucun repli vivant n'existe
+  dans `issuedCopyOf`.
+- Comme V3M05, V3M06 n'est atteint que par la phase calc-v3 `emission-v3`, pas par la sélection d'impact des PR.
+- Les commentaires du parcours et de `calc-v3-phases.ts` renvoient à ce §13.8 : à renuméroter si la voie B prend ce
+  numéro.
