@@ -32,7 +32,7 @@ import {
 //          action modèle de la fiche fermée par son nom ; depuis la fusion de 2.7 (émission v3), le PDF y est ouvert
 //          (doc 2.7 §13 ; sa génération par la fiche est prouvée par V3M05) ;
 //  V3E15 — fusion de 2.7 : l'éditeur d'une v3 propose « Exporter Excel » et « Exporter DPGF » (routes serveur de 2.7,
-//          classeurs v3), et garde « Exporter CSV » et « Exporter BDC V1.1 » fermés (P-20 ; doc 2.7 §13) ;
+//          classeurs v3) ; « Exporter CSV » et « Exporter BDC V1.1 » y sont ouverts par 2.7b (D-a ; V3X03 à V3X05) ;
 //  V3E12 — suggestions en lot appliquées et annulées par l'écrivain v3 ;
 //  V3E13 — collage de lignes écrit par l'écrivain v3 (unité du référentiel, jamais description ni heures totales), et
 //          son annulation (sous-lot 2.8, qui lève le refus nommé de la revue du 2.6) ;
@@ -750,7 +750,7 @@ armyTest("V3E11 a 0 % discount saves without a pending state, a stored rounding 
     expect(detail, "the v3 draft detail page opens the PDF and closes the template by name").toEqual(expectedDetail);
   });
 
-armyTest("V3E15 the v3 editor offers the Excel and DPGF exports, which stream the v3 workbooks, and keeps the CSV and BDC exports closed",
+armyTest("V3E15 the v3 editor offers the Excel, DPGF, CSV and BDC exports; Excel and DPGF stream the v3 workbooks",
   options(420_000), async ({ app, screen, browser, army }) => {
     const ui: Ui = { app, screen, browser };
     const dialogs = await recordDialogs(ui);
@@ -794,9 +794,10 @@ armyTest("V3E15 the v3 editor offers the Excel and DPGF exports, which stream th
       compact: compactEnabled, compactExcel: compactItems.excel, compactCsv: compactItems.csv,
       menuExcel: menu.excel?.enabled ?? null, menuCsv: menu.csv?.enabled ?? null, dpgf: menu.dpgf?.enabled ?? null, bdc: menu.bdc?.enabled ?? null,
     };
-    const expectedStates = { compact: true, compactExcel: true, compactCsv: false, menuExcel: true, menuCsv: false, dpgf: true, bdc: false };
+    // 2.7b (D-a, docs/testing/estimate-engine-v3-2.7b.md) ouvre le CSV et le BDC d'une v3 : V3X03 à V3X05 en prouvent le contenu.
+    const expectedStates = { compact: true, compactExcel: true, compactCsv: true, menuExcel: true, menuCsv: true, dpgf: true, bdc: true };
     await recordEvidence(army, "v3e15-export-actions", { versionId: draft.versionId, expected: expectedStates, actual: states, menu });
-    expect(states, "the v3 editor opens Excel and DPGF and keeps CSV and BDC closed (P-20)").toEqual(expectedStates);
+    expect(states, "the v3 editor opens Excel, DPGF, CSV and BDC (P-20, D-a)").toEqual(expectedStates);
 
     // Chaque export est la réponse 200 de sa route, téléchargée par l'éditeur et relue par ExcelJS.
     const exported = async (url: RegExp, trigger: () => Promise<void>) => {
