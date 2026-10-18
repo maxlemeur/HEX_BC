@@ -20,7 +20,7 @@ import {
 //          unité inconnue ou statut refusés par la cellule « U » (F26-10) ;
 //  V3E06 — majoration, déplacement et suppression en lot, et leur annulation ;
 //  V3E07 — taux horaire d'un rôle changé dans le tiroir : totaux stockés recalculés, fiche = éditeur ; totaux d'en-tête
-//          de la fiche dans la devise de la version (revue Codex de la PR #44, F2) ;
+//          et historique des versions de la fiche dans la devise de chaque version (revue Codex de la PR #44, F2) ;
 //  V3E08 — colonnes « Deboursé sec », « Marge € », « Marque % » lues dans le moteur ; contrôle « Temps MO manquant » ;
 //  V3E09 — « Associer ou remplacer l’article » juge l'offre dans unit_code et n'écrit jamais description ; un prix de
 //          référence (sans offre) dans une autre unité est refusé par la fiche et par la suggestion de la désignation
@@ -395,6 +395,29 @@ armyTest("V3E07 a labour rate changed in the v3 editor recomputes and stores the
     await expect.poll(readDetail, { timeout: 30_000 }).toBe(eur(at50[0]));
     await recordEvidence(army, "v3e07-end", { versionId: draft.versionId, detailHt: await readDetail(), nativeDialogs: dialogs });
 
+    // Revue de la correction F2 : l'« Historique des versions » de la même fiche (V2 = ce brouillon v3, V1 = l'ancre v2
+    // vide, en euros). Chaque entrée : HT, écart avec la version précédente, TTC. Même devise : l'écart est affiché.
+    const readTimeline = () => browser.evaluate(() => {
+      const clean = (text: string | null | undefined) => (text ?? "").replace(/[\s  ]+/g, " ").trim();
+      const entries = Array.from(document.querySelectorAll("section[aria-labelledby=\"estimate-timeline-title\"] li > a"));
+      return entries.map((entry) => {
+        const label = (text: string) => Array.from(entry.querySelectorAll("p")).find(node => clean(node.textContent) === text);
+        const ht = label("Total HT")?.nextElementSibling;
+        return {
+          current: entry.getAttribute("aria-current") === "page",
+          ht: ht?.firstElementChild ? clean(ht.firstElementChild.textContent) : null,
+          delta: ht?.children[1] ? clean(ht.children[1].textContent) : null,
+          ttc: clean(label("Total TTC")?.nextElementSibling?.textContent) || null,
+        };
+      });
+    });
+    const anchorEntry = { current: false, ht: eur(0), delta: null, ttc: eur(0) };
+    const expectedTimelineEur = [{ current: true, ht: eur(at50[0]), delta: `+${eur(at50[0])}`, ttc: eur(at50[2]) }, anchorEntry];
+    await becomes(async () => JSON.stringify(await readTimeline()) === JSON.stringify(expectedTimelineEur), 30_000);
+    const timelineEur = await readTimeline();
+    await recordEvidence(army, "v3e07-timeline-eur", { versionId: draft.versionId, anchorId: draft.anchorId, expected: expectedTimelineEur, actual: timelineEur });
+    expect(timelineEur, "the v3 detail timeline shows each version in euros and the HT delta between two euro versions").toEqual(expectedTimelineEur);
+
     // Revue Codex de la PR #44 (F2) : un brouillon v3 en dollars US affiche ses totaux d'en-tête dans la devise de la
     // version, comme son résumé (montants inchangés), jamais en euros.
     await patchSettingsByApi(ui, army, draft, "v3e07-currency", { currency: "USD" });
@@ -417,6 +440,16 @@ armyTest("V3E07 a labour rate changed in the v3 editor recomputes and stores the
     const currencies = await readCurrencies();
     await recordEvidence(army, "v3e07-currency", { versionId: draft.versionId, expected: expectedCurrencies, actual: currencies, nativeDialogs: dialogs });
     expect(currencies, "the v3 headline totals are formatted in the version currency, as the summary").toEqual(expectedCurrencies);
+
+    // Revue de la correction F2 : l'entrée « Courante » de l'historique suit aussi la devise de la version (mêmes
+    // « $560.00 » / « $672.00 »), l'ancre v2 reste en euros, et aucun écart n'est calculé entre deux devises.
+    const expectedTimelineUsd = [{ current: true, ht: "$560.00", delta: null, ttc: "$672.00" }, anchorEntry];
+    await becomes(async () => JSON.stringify(await readTimeline()) === JSON.stringify(expectedTimelineUsd), 30_000);
+    const timelineUsd = await readTimeline();
+    await recordEvidence(army, "v3e07-timeline-currency", {
+      versionId: draft.versionId, anchorId: draft.anchorId, expected: expectedTimelineUsd, actual: timelineUsd, nativeDialogs: dialogs,
+    });
+    expect(timelineUsd, "the v3 detail timeline formats each version in its own currency, with no delta across currencies").toEqual(expectedTimelineUsd);
   });
 
 armyTest("V3E08 the cost, margin and markup columns of a v3 line read the engine, and the missing labour time check reads the engine hours",
