@@ -1,7 +1,7 @@
 # Chemins d'entrée v3 (sous-lot 2.8)
 
 Statut : **phase verte** (IO04 attend le 2.6), branche `lot2/2.8-chemins-entree-v3` (base `main` `78ca0855`,
-2.9 compris).
+2.9 compris) ; création atomique accélérée par M8 après le dépassement de délai d'IO01 en CI (dernière section).
 Source : [conception du lot 2](../audit-independant-2026-10-14/lot2/conception-lot2-moteur-v3.md), §14 « 2.8 »,
 D16, D11, §5.4, §6.1 M6, §7 ; décisions P-12 et P-14 (validées le 16/10/2026). Dépendances livrées : 2.3
 (profil OPTIMA, parseurs), 2.5 (persistance v3, M4). Le collage dans la grille v3 dépend du 2.6, en cours ;
@@ -288,3 +288,81 @@ enrichissements de provenance interrogent `.in("estimate_item_id", …)` avec to
 d'environ 37 Ko). Les parcours IO lancent donc la lecture dans la page et l'attendent par sondage, durée
 consignée dans les preuves, au lieu d'échouer sur le délai fixe d'un `browser.evaluate` ; l'enquête est une
 suite proposée.
+
+## Création atomique (M8, `20261018013249_estimate_creation_set_based_item_effects.sql`)
+
+**Constat (CI de la PR, `army-critical`, 18/10/2026)** : IO01 échoue sur `57014 canceling statement due to
+statement timeout` dans `persist_estimate_creation_atomic`. Les rôles de l'API ont un `statement_timeout` de
+8 s (CI comme production) ; créer la v3 du lot hydraulique (1 021 éléments) déclenchait, par ligne, une mise à
+jour de la révision de contenu de la version (et sa ligne d'audit), la ligne d'audit de l'élément, une recherche
+de couverture des sources et une remontée de hiérarchie. Localement 660 ms ; en CI (deux travailleurs, coureur
+partagé) au-delà de 8 s. IO03 (plomberie) passait.
+
+**Décision du porteur (relayée le 18/10/2026)** : ni relèvement du délai des rôles de l'API, ni découpage de la
+création en plusieurs RPC (atomicité) ; rejeu ensembliste des effets par ligne en fin de RPC, sans changer
+aucun résultat, avec mesure avant/après et preuve pgTAP, rouge d'abord.
+
+**Contrat** :
+
+1. `persist_estimate_creation_atomic` pose `miaouffrage.estimate_creation_atomic` = id de la version créée
+   autour de l'insertion de ses éléments (`set_config` local, valeur précédente restaurée), puis appelle
+   `public.estimate_creation_replay_item_effects_for_writer` avec les ids dans l'ordre du payload.
+2. Sous ce contrat, et seulement pour l'insertion d'un élément de cette version, les quatre déclencheurs par
+   ligne rendent la main aussitôt. Une autre version, une mise à jour, une suppression, un autre écrivain les
+   gardent.
+3. Le pont (security definer, `service_role` seul, refusé hors contrat
+   `42501 ESTIMATE_CREATION_REPLAY_OUTSIDE_CONTRACT`) rejoue dans l'ordre des déclencheurs : profondeur de
+   chaque élément (mêmes contrôles, mêmes messages, premier élément fautif dans l'ordre du payload) ; une étape
+   de révision par élément (même contrôle de brouillon, une mise à jour de + N, admise par
+   `guard_estimate_version_workflow_columns` seulement à la hausse, sur un brouillon, avec
+   `miaouffrage.estimate_creation_replay` et le contrat de création liés tous deux à cette version) ; une ligne
+   d'audit par étape et par insertion, aux valeurs qu'écrivait `log_estimate_audit` ; l'invalidation de
+   couverture, rejouée élément par élément quand une exigence est bornée à (`dpgfLotId`) ou liée à l'un d'eux.
+   Le pont referme ensuite le contrat : un seul rejeu par création.
+4. Sur une v3, le rejeu précède le contrôle de projection D12, comme les déclencheurs le précédaient.
+
+**Défaillances visées** : C1 délai dépassé sur un lot complet ; C2 une révision, une ligne d'audit, une
+révision de couverture ou un refus de profondeur différents du chemin par ligne ; C3 le contrat profite à une
+autre version, à une autre opération ou à un appel direct du pont ; C4 une v3 créée ne passe plus D12.
+
+**Preuves** :
+
+- **pgTAP** `estimate-creation-atomic-item-effects.test.sql` (isolation justifiée : l'égalité des lignes
+  d'audit et des révisions et les gardes du contrat ne sont pas observables depuis un parcours). Référence R :
+  version créée vide puis les mêmes éléments écrits ligne par ligne ; candidate C : création atomique. Égaux :
+  révision de contenu, ligne de version, lignes d'audit des éléments et des étapes de révision (identifiant
+  d'enregistrement, version, avant/après compris), révisions techniques de deux exigences de couverture
+  (3 chacune : racine, lot A, ligne liée), refus de profondeur ; mises à jour de la version 6 (R) contre 1 (C) ;
+  contrat refermé ; sous un contrat posé, autre version et mise à jour gardent audit et révision ; pont refusé
+  hors contrat, pour une autre version, au second appel et à `authenticated` (permission refusée) ; écriture
+  directe de la révision refusée (`ESTIMATE_CONTENT_REVISION_IS_MANAGED`) sans contrat, avec le seul réglage de
+  rejeu, liée à une autre version ou à la baisse ; v3 créée, D12 passé, une étape et deux lignes d'audit par
+  élément.
+- **Rouge** (sans M8) : 2 assertions sur 13, sur leur propre motif (`6|6` au lieu de `6|1` ; pont absent,
+  `42883`) ; les 11 assertions d'équivalence déjà vertes sur le chemin par ligne. **Vert** avec M8 : 13 sur 13.
+  Après la revue : 2 sur 14 rouges contre la première M8 (second rejeu accepté ; révision écrite avec le seul
+  réglage de rejeu), puis 14 sur 14.
+- **Mesure** (sonde non versionnée, création v3 de 1 021 éléments au profil du lot hydraulique, 7 passages
+  annulés, pile locale) : médiane **660,5 ms avant, 245,0 ms après** (× 2,7). Reste : insertion et
+  déclencheurs BEFORE par ligne (dérivation v3, gardes) ~ 65 ms, contrôle D12 ~ 50 ms, audit ensembliste
+  ~ 75 ms (les mêmes 2 042 lignes). Si la CI reste à ≥ 12 fois le local (IO01 ≥ 8 s pour 660 ms), IO01 y
+  descend vers 3 s : la preuve est IO01 en CI.
+- **Rejoués** (sur `e7ea42d4` + M8, journaux `.e2e/lot2-2.8/green/m8/`) : `db:ci:local` (22 fichiers,
+  1 886 assertions, matrice RLS), `db:upgrade-check` (0 différence, contrôle négatif), corpus figé et
+  empreintes documentaires identiques ; TesterArmy `dpgf-import`, `import-optima-v2`, `numeric-entry-v3`,
+  `engine-v3-import-optima` : 15 parcours sur 16, IO04 rouge attendu, avant et après la revue. IO01 vert
+  (785/785) ; sa durée (196 s puis 135 s) vient de lectures bloquées ~60 s (constat ci-dessus), pas de la
+  création.
+
+**Écart assumé** : quand un payload porte deux refus différents (un refus de profondeur et le refus d'une
+ligne plus loin par un autre déclencheur ou une contrainte), le refus remonté peut différer. Une création
+acceptée écrit les mêmes lignes, révisions, lignes d'audit et révisions de couverture.
+
+**Revue indépendante (lecture seule, M8 avant commit)** : aucun écart de résultat (copies conformes à leurs
+sources, déclencheurs de `estimate_versions` sans dépendance à la profondeur ni au rôle pour cette mise à jour,
+ordre et valeurs des lignes d'audit, ids du payload égaux aux ids insérés, réglages locaux annulés avec la
+transaction). Corrigés : exemption de la garde liée aussi au contrat de création, au brouillon et à une hausse
+(elle ne tenait qu'au réglage de rejeu, qui aurait permis à un appel SQL direct de reculer le jeton de
+fraîcheur) ; audit des étapes lié aux deux réglages ; pont à usage unique ; assertions d'audit complétées et
+refus de la garde testés ; commentaire de la RPC sur l'ordre du payload rectifié (la clé étrangère `parent_id`
+est différée).
