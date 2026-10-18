@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { mapSupabaseError } from "@/lib/estimates/errors";
+import { selectInChunks } from "@/lib/supabase/in-chunks";
 
 export type SelectedSupplierDetails = {
   price_id: string;
@@ -14,10 +15,11 @@ export async function readSelectedSupplierDetails(
   priceIds: string[],
 ): Promise<Map<string, SelectedSupplierDetails>> {
   if (priceIds.length === 0) return new Map();
-  const { data, error } = await supabase.from("supplier_pricebook")
-    .select("id, supplier_catalog_items(supplier_sku, suppliers(name))")
-    .eq("tenant_id", tenantId)
-    .in("id", Array.from(new Set(priceIds)));
+  const { data, error } = await selectInChunks(Array.from(new Set(priceIds)), (chunk) =>
+    supabase.from("supplier_pricebook")
+      .select("id, supplier_catalog_items(supplier_sku, suppliers(name))")
+      .eq("tenant_id", tenantId)
+      .in("id", chunk));
   if (error) throw mapSupabaseError(error, "Impossible de charger les offres retenues.");
   const rows = (data ?? []) as unknown as Array<{
     id: string;
