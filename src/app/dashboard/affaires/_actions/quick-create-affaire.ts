@@ -19,8 +19,13 @@ import {
   getImportOrThrow,
   normalizeNullableText,
   toRpcImportItems,
+  type Supabase,
 } from "@/lib/affaires/import-flow-server";
+import { resolveImportSaleCoefficients, v3LineContext } from "@/lib/affaires/import-engine-server";
+import { readTenantCalcPolicy } from "@/lib/estimates/calc-policy-server";
 import { persistCanonicalEstimateV2 } from "@/lib/estimates/canonical-v2-creation";
+import { EstimateEngineUnavailableError } from "@/lib/estimates/engine/capabilities";
+import { ApiError } from "@/lib/estimates/errors";
 import { createEstimate } from "@/lib/estimates/server";
 import { createMapping } from "@/lib/mappings/server";
 import { mappingRecordSchema } from "@/lib/mappings/schemas";
@@ -104,16 +109,27 @@ function buildManualEstimateEntryPoint(
   };
 }
 
+/**
+ * Sous-lot 2.10a (N1) : une version vierge a des réglages neutres pour tout moteur ; l'action déclare donc le moteur
+ * de la politique qu'elle lit, comme l'import de l'affaire. La création relit la politique sous verrou : une
+ * politique changée entre-temps donne CONTEXT_CHANGED sans rien écrire (D3).
+ */
+async function readExpectedCreationEngine(supabase: Supabase, tenantId: string) {
+  return (await readTenantCalcPolicy(supabase, tenantId)).engine;
+}
+
 async function createProjectWithBlankEstimate({
   projectName,
   clientName,
   reference,
   linkedImportId,
+  expectedEngine,
 }: {
   projectName: string;
   clientName: string | null;
   reference: string | null;
   linkedImportId?: string | null;
+  expectedEngine: 2 | 3;
 }) {
   const created = await createEstimate({
     project: {
@@ -122,6 +138,7 @@ async function createProjectWithBlankEstimate({
       reference,
     },
     creation_mode: "blank",
+    version: { expected_calc_engine_version: expectedEngine },
     ...(linkedImportId ? { linked_import_id: linkedImportId } : {}),
   });
 
@@ -183,6 +200,7 @@ async function createAndOptionallyLinkEmptyAffaire(input: {
     clientName: input.clientName,
     reference: input.reference,
     linkedImportId: input.linkImportId,
+    expectedEngine: await readExpectedCreationEngine(input.supabase, input.membership.tenant_id),
   });
 
   const manualEstimate = buildManualEstimateEntryPoint(projectId, versionId);
@@ -256,8 +274,11 @@ export async function startAffaireManualEstimate(
     project_id: parsed.data.projectId,
     creation_mode: "blank",
     // Affaire existante : la profondeur de sections vient de la dernière version, avec ou sans titre (revue de suivi
-    // de F4, PR #33).
-    ...(versionTitle ? { version: { title: versionTitle } } : {}),
+    // de F4, PR #33). Moteur de la politique lue (2.10a, N1).
+    version: {
+      ...(versionTitle ? { title: versionTitle } : {}),
+      expected_calc_engine_version: await readExpectedCreationEngine(context.supabase, context.membership.tenant_id),
+    },
   });
 
   revalidateQuickCreatePaths(created.project.id, created.version.id);
@@ -336,10 +357,18 @@ export async function startAffaireFromImport(
     tenantId: membership.tenant_id,
   });
 
+  // Sous-lot 2.10a (A2) : sous une politique 3, lignes normalisées pour le moteur 3 comme l'import de l'affaire.
+  const saleCoefficients = await resolveImportSaleCoefficients({
+    supabase,
+    tenantId: membership.tenant_id,
+    rows: mappedRows,
+    requested: undefined,
+  });
   const normalizedRows = normalizeMappedRowsForEstimateCreation(mappedRows, {
     marginMultiplier: DEFAULT_MARGIN_MULTIPLIER,
     defaultTaxRateBp: DEFAULT_TAX_RATE_BP,
     entry: "direct",
+    ...v3LineContext(saleCoefficients),
   });
 
   // Hours per unit and workbook parameters need the import preview (P-16, E17): the affaire is
@@ -374,6 +403,9 @@ export async function startAffaireFromImport(
       },
       version: {
         title: normalizeNullableText(parsed.data.versionTitle) ?? "Import DPGF",
+        ...(saleCoefficients
+          ? { sale_coefficient_fo: saleCoefficients.fo, sale_coefficient_mo: saleCoefficients.mo }
+          : {}),
       },
       source: {
         kind: "import",
@@ -385,12 +417,17 @@ export async function startAffaireFromImport(
           importId,
           mappingId,
         }),
+        ...(saleCoefficients ? { engine: 3 } : {}),
       },
+      expectedCalcEngineVersion: saleCoefficients ? 3 : 2,
     });
   } catch (error) {
-    throw new Error("Impossible de créer l'affaire depuis l'import.", {
-      cause: error,
-    });
+    // Sous-lot 2.10a (A2) : un refus nommé garde sa cause au lieu du message générique.
+    const named = error instanceof ApiError || error instanceof EstimateEngineUnavailableError;
+    throw new Error(
+      named ? `Impossible de créer l'affaire depuis l'import : ${error.message}` : "Impossible de créer l'affaire depuis l'import.",
+      { cause: error }
+    );
   }
 
   const stats = buildImportFlowStats(

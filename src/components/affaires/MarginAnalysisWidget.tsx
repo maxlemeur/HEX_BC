@@ -332,6 +332,7 @@ export function MarginAnalysisWidget({
 }) {
   // Don't render an empty card — it wastes vertical space
   if (!data && !errorMessage) return null;
+  const unavailableV3 = data?.versionEvolutionUnavailableV3 ?? [];
 
   return (
     <section className="rounded-lg border border-border bg-surface shadow-card p-5">
@@ -352,6 +353,13 @@ export function MarginAnalysisWidget({
           />
           {data.versionEvolution.length > 1 && (
             <MarginVersionChart points={data.versionEvolution} />
+          )}
+          {/* Sous-lot 2.10a (A16, D-d) : une v3 est nommée, jamais retirée sans le dire. */}
+          {unavailableV3.length > 0 && (
+            <p className="text-xs text-muted-foreground" data-testid="margin-evolution-v3-notice">
+              Évolution de la marge indisponible pour le moteur de calcul 3 :{" "}
+              {unavailableV3.map((versionNumber) => `V${versionNumber}`).join(", ")}.
+            </p>
           )}
         </div>
       )}

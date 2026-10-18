@@ -292,6 +292,8 @@ type EstimateEditorTableProps = {
   onOpenSupplierPreselectionDialog: () => void;
   onOpenImportFromEstimateDialog?: () => void;
   onOpenEstimateStructureDraftDialog?: () => void;
+  /** Sous-lot 2.10a (N3, D-g) : motif qui désactive la structure IA (moteur 3). */
+  estimateStructureDraftUnavailableReason?: string | null;
   onOpenGeneratedOuvrageDialog?: () => void;
   onReorder: (parentId: string | null, orderedIds: string[]) => void;
   onMoveItem: (
@@ -916,6 +918,7 @@ export function EstimateEditorTable({
   onOpenSupplierPreselectionDialog,
   onOpenImportFromEstimateDialog,
   onOpenEstimateStructureDraftDialog,
+  estimateStructureDraftUnavailableReason = null,
   onOpenGeneratedOuvrageDialog,
   onReorder,
   onMoveItem,
@@ -2523,6 +2526,7 @@ export function EstimateEditorTable({
                 onOpenEstimateStructureDraftDialog={
                   onOpenEstimateStructureDraftDialog
                 }
+                estimateStructureDraftUnavailableReason={estimateStructureDraftUnavailableReason}
                 onOpenGeneratedOuvrageDialog={onOpenGeneratedOuvrageDialog}
                 onExpandAllSections={handleExpandAllSections}
                 onCollapseAllSections={handleCollapseAllSections}

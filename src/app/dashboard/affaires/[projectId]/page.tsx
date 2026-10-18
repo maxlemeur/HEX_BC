@@ -30,6 +30,7 @@ import {
   fetchAffaireHubPlansSummary,
   fetchProjectVersionList,
 } from "@/lib/affaires/server";
+import { resolveEstimateEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
 import {
   APPROVAL_DECISION_JOURNAL_AUTHOR_QUERY_PARAM,
   APPROVAL_DECISION_JOURNAL_STATUS_QUERY_PARAM,
@@ -224,7 +225,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
 
   let plansSummary: Awaited<ReturnType<typeof fetchAffaireHubPlansSummary>> | null =
     null;
-  let projectVersions: Array<{ id: string; version_number: number }> = [];
+  let projectVersions: Awaited<ReturnType<typeof fetchProjectVersionList>> = [];
   const registerPage =
     registerPageResult.status === "fulfilled" ? registerPageResult.value : null;
   const registerScopeOptions =
@@ -355,6 +356,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       ? {
           id: effectiveSummary.currentVersion.id,
           status: effectiveSummary.currentVersion.status,
+          calcEngineVersion: effectiveSummary.currentVersion.calcEngineVersion ?? null,
         }
       : null,
     structureMode: effectiveSummary.structureMode ?? null,
@@ -377,6 +379,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       projectVersions={projectVersions.map((version) => ({
         id: version.id,
         versionNumber: version.version_number,
+        calcEngineVersion: resolveEstimateEngineVersionForDisplay(version),
       }))}
       sectionErrors={sectionErrors}
       justCreated={justCreated}

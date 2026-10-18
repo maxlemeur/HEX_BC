@@ -799,11 +799,16 @@ export function readImportWorkbookParameters(rows: ImportFlowMappedRowInput[]): 
   return null;
 }
 
-/** True when the rows carry hours per unit or workbook parameters, which only the preview shows. */
+/**
+ * True when the rows carry hours per unit or workbook parameters, which only the preview shows. Engine 3
+ * (2.10a): a line hours column too, refused per line by the normalization; without the preview, where the
+ * column is chosen as hours per unit, those lines would be dropped or the hours valued at 0 €/h.
+ */
 export function importRequiresPreview(normalized: NormalizeImportFlowRowsResult): boolean {
   return (
     normalized.workbookParameters !== null ||
-    normalized.invalidLines.some((line) => line.reason === "preview_required") ||
+    normalized.invalidLines.some((line) =>
+      line.reason === "preview_required" || line.reason === "line_hours_require_hours_per_unit") ||
     normalized.validLines.some((line) => typeof line.hoursPerUnit === "number")
   );
 }

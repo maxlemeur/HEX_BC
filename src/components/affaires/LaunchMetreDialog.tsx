@@ -30,6 +30,8 @@ import {
   type PlanSetListItem,
   type TakeoffLevel,
 } from "@/lib/takeoff/client";
+import type { EstimateEngineVersion } from "@/lib/estimates/engine/capabilities";
+import { takeoffTargetEngineRefusal } from "@/lib/takeoff/engine-support";
 import { CheckIcon } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -90,11 +92,13 @@ type LaunchMetreDialogProps = {
   onOpenChange: (open: boolean) => void;
   onLaunched?: (jobId: string) => void;
   projectId: string;
+  // Sous-lot 2.10a (N3, D-f) : moteur de chaque cible ; une v3 (ou sa copie) ne reçoit pas de métré.
   currentVersion:
     | {
         id: string;
         status: string;
         versionNumber: number;
+        calcEngineVersion?: EstimateEngineVersion | null;
       }
     | null;
   plansContext:
@@ -109,6 +113,7 @@ type LaunchMetreDialogProps = {
   availableVersions?: Array<{
     id: string;
     versionNumber: number;
+    calcEngineVersion?: EstimateEngineVersion | null;
   }>;
   availablePlanSets?: LaunchMetrePlanSetOption[];
   initialPlanSetId?: string | null;
@@ -120,6 +125,8 @@ type LaunchVersionOption = {
   mode: "existing_draft" | "create_draft_from_source";
   label: string;
   helper: string;
+  /** Motif nommé quand la cible (le brouillon, ou la copie de la source) est une v3. */
+  engineRefusal: string | null;
 };
 
 type LaunchVersionMode = LaunchVersionOption["mode"] | "missing";
@@ -145,6 +152,7 @@ function buildVersionOptions(input: {
       mode: "existing_draft",
       label: `Utiliser V${input.currentVersion.versionNumber} (brouillon courant)`,
       helper: "Le métré sera rattaché directement à ce brouillon.",
+      engineRefusal: takeoffTargetEngineRefusal(input.currentVersion.calcEngineVersion),
     });
     seen.add(input.currentVersion.id);
   }
@@ -160,6 +168,8 @@ function buildVersionOptions(input: {
       mode: "create_draft_from_source",
       label: `Créer un brouillon depuis V${version.versionNumber}`,
       helper: `Un nouveau brouillon sera créé depuis V${version.versionNumber} avant lancement.`,
+      // La copie garde le moteur de sa source (P-15).
+      engineRefusal: takeoffTargetEngineRefusal(version.calcEngineVersion),
     });
     seen.add(version.id);
   }
@@ -180,6 +190,7 @@ function buildVersionOptions(input: {
         input.currentVersion.status === "draft"
           ? "Le métré sera rattaché directement à ce brouillon."
           : `Un nouveau brouillon sera créé depuis V${input.currentVersion.versionNumber} avant lancement.`,
+      engineRefusal: takeoffTargetEngineRefusal(input.currentVersion.calcEngineVersion),
     });
   }
 
@@ -305,6 +316,7 @@ function LaunchMetreDialogContent({
     selectedVersionOption?.mode ??
     (currentVersion ? "create_draft_from_source" : "missing");
   const hasTargetVersion = selectedVersionOption !== null;
+  const targetEngineRefusal = selectedVersionOption?.engineRefusal ?? null;
   const hasPlanFiles = (selectedPlanSet?.fileCount ?? 0) > 0;
   const hasUsablePlanSet = planSetOptions.some((option) => option.fileCount > 0);
   const versionLabel = selectedVersionOption
@@ -369,7 +381,7 @@ function LaunchMetreDialogContent({
   );
 
   const handleLaunch = useCallback(async () => {
-    if (!selectedPlanSet || !hasPlanFiles) {
+    if (!selectedPlanSet || !hasPlanFiles || selectedVersionOption?.engineRefusal) {
       return;
     }
 
@@ -623,6 +635,11 @@ function LaunchMetreDialogContent({
                             {selectedVersionOption.helper}
                           </span>
                         </div>
+                        {targetEngineRefusal ? (
+                          <Alert variant="warning">
+                            <AlertDescription id="launch-metre-target-engine">{targetEngineRefusal}</AlertDescription>
+                          </Alert>
+                        ) : null}
                       </div>
                     ) : (
                       <p className="text-sm text-subtle-foreground">
@@ -721,7 +738,8 @@ function LaunchMetreDialogContent({
                       type="button"
                       className={cn(buttonVariants({ variant: "primary", size: "md" }), "w-full sm:w-auto")}
                       onClick={() => void handleLaunch()}
-                      disabled={isSubmitting || !hasTargetVersion}
+                      disabled={isSubmitting || !hasTargetVersion || Boolean(targetEngineRefusal)}
+                      aria-describedby={targetEngineRefusal ? "launch-metre-target-engine" : undefined}
                     >
                       {versionMode === "create_draft_from_source"
                         ? "Créer un brouillon et analyser"

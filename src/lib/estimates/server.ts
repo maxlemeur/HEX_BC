@@ -12,6 +12,11 @@ import {
 } from "@/lib/affaires/import-flow";
 import { toRpcImportItems } from "@/lib/affaires/import-flow-server";
 import {
+  resolveImportSaleCoefficients,
+  v3LineContext,
+  type ImportSaleCoefficients,
+} from "@/lib/affaires/import-engine-server";
+import {
   computeEstimateLineValues,
   hasActiveLaborSplitPayload,
   type EstimateItemRecord,
@@ -4674,6 +4679,7 @@ export async function createEstimate(
     kind: "blank",
     importId: input.linked_import_id ?? null,
   };
+  let linkedDpgfSaleCoefficients: ImportSaleCoefficients | null = null;
   if (creationMode === "linked_dpgf_source") {
     const projectId = targetProjectId!;
     const latestImport = await loadLatestLinkedDpgfImportForProject({
@@ -4696,6 +4702,17 @@ export async function createEstimate(
         "La source DPGF liée ne contient aucune ligne mappee exploitable."
       );
     }
+    // Sous-lot 2.10a (A3) : sous une politique 3, lignes normalisées pour le moteur 3 comme l'import de l'affaire
+    // (unité du référentiel, PU du moteur 3), aux coefficients choisis dans l'assistant, sinon ceux de la politique.
+    linkedDpgfSaleCoefficients = await resolveImportSaleCoefficients({
+      supabase,
+      tenantId,
+      rows: mappedRows,
+      requested: {
+        fo: input.version?.sale_coefficient_fo,
+        mo: input.version?.sale_coefficient_mo,
+      },
+    });
     const normalized = normalizeMappedRowsForEstimateCreation(mappedRows, {
       marginMultiplier:
         input.version?.margin_multiplier ??
@@ -4706,6 +4723,7 @@ export async function createEstimate(
         latestProjectVersionDefaults?.tax_rate_bp ??
         DEFAULT_TAX_RATE_BP,
       entry: "direct",
+      ...v3LineContext(linkedDpgfSaleCoefficients),
     });
     // No preview in the wizard's DPGF source mode (P-16, E17).
     if (importRequiresPreview(normalized)) {
@@ -4733,6 +4751,7 @@ export async function createEstimate(
         importId: latestImport.id,
         mappingId: latestMapping?.id ?? null,
       }),
+      ...(linkedDpgfSaleCoefficients ? { engine: 3 } : {}),
     };
   }
 
@@ -4762,6 +4781,13 @@ export async function createEstimate(
       ...(normalizedCurrency === undefined
         ? {}
         : { currency: normalizedCurrency }),
+      // The coefficients that priced the linked DPGF lines (2.10a, A3).
+      ...(linkedDpgfSaleCoefficients
+        ? {
+            sale_coefficient_fo: linkedDpgfSaleCoefficients.fo,
+            sale_coefficient_mo: linkedDpgfSaleCoefficients.mo,
+          }
+        : {}),
     },
     source,
   });

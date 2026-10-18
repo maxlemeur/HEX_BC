@@ -75,6 +75,43 @@ export function convertedTemplateLineHours(source: TemplateV3HoursSource): Decim
   };
 }
 
+export type TemplateV3HoursPerUnitSource = TemplateV3HoursSource & {
+  readonly h_mo_atelier: number | null;
+  readonly h_mo_chantier: number | null;
+};
+
+export type TemplateV3HoursPerUnit = {
+  h_mo_per_unit: number | null;
+  h_mo_atelier_per_unit: number | null;
+  h_mo_chantier_per_unit: number | null;
+};
+
+/**
+ * Sous-lot 2.10a (A1) : heures par unité d'une ligne de modèle qui entre dans une v3 créée depuis ce modèle,
+ * miroir de la boucle de M6, atelier et chantier compris. Modèle issu d'une v3 (l'une de ses heures par unité
+ * renseignée) : copiées telles quelles. Sinon h / Q au demi supérieur à 4 décimales (Q absente = 1, Q nulle
+ * sans heures = 0, atelier ou chantier absent = absent). `null` : Q nulle avec des heures, refus nommé de
+ * l'appelant (`ESTIMATE_V3_TEMPLATE_HOURS_WITHOUT_QUANTITY`).
+ */
+export function templateLineHoursPerUnitForV3(source: TemplateV3HoursPerUnitSource): TemplateV3HoursPerUnit | null {
+  const fromV3 = {
+    h_mo_per_unit: source.h_mo_per_unit ?? null,
+    h_mo_atelier_per_unit: source.h_mo_atelier_per_unit ?? null,
+    h_mo_chantier_per_unit: source.h_mo_chantier_per_unit ?? null,
+  };
+  if (Object.values(fromV3).some((value) => value !== null)) return fromV3;
+  const quantity = source.quantity ?? 1;
+  const perUnit = (hours: number | null) => (hours === null ? null : hoursPerUnitHalfUp(hours, quantity));
+  const labor = perUnit(source.h_mo ?? 0);
+  const atelier = perUnit(source.h_mo_atelier);
+  const chantier = perUnit(source.h_mo_chantier);
+  if (labor === null || (source.h_mo_atelier !== null && atelier === null) ||
+    (source.h_mo_chantier !== null && chantier === null)) {
+    return null;
+  }
+  return { h_mo_per_unit: labor, h_mo_atelier_per_unit: atelier, h_mo_chantier_per_unit: chantier };
+}
+
 export function listTemplateLinesConvertedForV3(
   items: ReadonlyArray<TemplateV3HoursSource>
 ): TemplateV3ConvertedLine[] {

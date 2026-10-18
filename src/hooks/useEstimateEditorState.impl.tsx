@@ -73,7 +73,7 @@ import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { useEstimateV3Settings } from "@/hooks/useEstimateV3Settings";
 import type { EstimateTotals } from "@/lib/estimate-calculations";
 import { hasFreshEstimateV2Snapshot } from "@/lib/estimates/calc-engine-version";
-import { isLegacyEngine, isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
+import { ESTIMATE_ENGINE_UNAVAILABLE_MESSAGE, isLegacyEngine, isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
 import {
   normalizeEditorDraftItems, reconcilesEditorTotals, resolveEditorEngineContext, resolveEditorInitialDiscountCents,
   resolveEditorQualityItems,
@@ -1975,7 +1975,8 @@ export function useEstimateEditorState({
   const importController = useEstimateEditorImportController({
     routeVersionId: resolvedVersionId,
     activeVersion: version,
-    autoOpenStructureDraft: shouldAutoOpenStructureDraft,
+    // Sous-lot 2.10a (N3, D-g) : `?openStructureDraft=1` n'ouvre rien sur une v3 (structure IA refusée, P-14).
+    autoOpenStructureDraft: shouldAutoOpenStructureDraft && !isV3,
     isMutationBlocked: isReadOnly || isConflictLocked,
     mutationBlockedMessage: isConflictLocked
       ? (conflictState?.message ?? ESTIMATE_VERSION_CONFLICT_MESSAGE)
@@ -2584,6 +2585,8 @@ export function useEstimateEditorState({
       onDuplicateSectionToVersion: handleDuplicateSectionToVersion,
       onOpenImportFromEstimateDialog: handleOpenImportFromEstimateDialog,
       onOpenEstimateStructureDraftDialog: handleOpenEstimateStructureDraftDialog,
+      // Sous-lot 2.10a (N3, D-g) : la structure IA d'une v3 est refusée à la génération (P-14) ; dit avant.
+      estimateStructureDraftUnavailableReason: isV3 ? ESTIMATE_ENGINE_UNAVAILABLE_MESSAGE : null,
       onOpenGeneratedOuvrageDialog: handleOpenGeneratedOuvrageDialog,
       onDeleteItem: handleDeleteItem,
       onPatchItem: handlePatchItem,

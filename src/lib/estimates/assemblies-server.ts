@@ -18,9 +18,11 @@ import {
   resolveSectionLevelFromParent,
 } from "@/lib/estimates/estimate-placement-helpers";
 import {
+  assertTemplateLaborRolesOwnedForV3,
   errorMessageContains,
   loadEstimateTemplateItems,
   loadEstimateTemplateOrThrow,
+  templateHoursWithoutQuantityMessage,
   throwAssemblyCompositionErrorIfNeeded,
   throwAssemblyNameConflictIfNeeded,
   toAssemblySummary,
@@ -66,7 +68,6 @@ type EstimateAssemblyMemberInsert =
   Database["public"]["Tables"]["estimate_assembly_members"]["Insert"];
 type LaborRoleRow = Database["public"]["Tables"]["labor_roles"]["Row"];
 type SupplyTypeRow = Database["public"]["Tables"]["supply_types"]["Row"];
-type EstimateTemplateItemRow = Database["public"]["Tables"]["estimate_template_items"]["Row"];
 type EstimateItemRow = Database["public"]["Tables"]["estimate_items"]["Row"] & {
   labor_role_atelier_id?: string | null;
   labor_role_chantier_id?: string | null;
@@ -581,8 +582,7 @@ async function collectEstimateAssemblyTreeIds(input: {
 
 // Lot 2, sous-lot 2.8 (rules 3 and 5, P-12): the named refusals of M6 reach the user with the line named.
 const V3_ENTRY_REFUSALS: Record<string, (title: string) => string> = {
-  ESTIMATE_V3_TEMPLATE_HOURS_WITHOUT_QUANTITY: (title) =>
-    `La ligne « ${title} » du modèle porte des heures sans quantité : un chiffrage moteur 3 stocke des heures par unité. Renseignez sa quantité dans le modèle.`,
+  ESTIMATE_V3_TEMPLATE_HOURS_WITHOUT_QUANTITY: templateHoursWithoutQuantityMessage,
   ESTIMATE_V3_ASSEMBLY_HOURS_WITHOUT_QUANTITY: (title) =>
     `Le composant « ${title} » porte des heures sans quantité par défaut : un chiffrage moteur 3 stocke des heures par unité. Renseignez sa quantité par défaut dans l'ouvrage.`,
   ESTIMATE_V3_ASSEMBLY_HOURS_PER_UNIT_INEXACT: (title) =>
@@ -594,32 +594,6 @@ function throwNamedV3EntryRefusal(error: { message?: string | null; details?: st
   if (!describe) return;
   const title = error.details?.trim() || "sans titre";
   throw badRequest(describe(title), { title }, error.message!);
-}
-
-/**
- * Lot 2, sous-lot 2.8 (review): into a v3, a template labour role that is not the project owner's is valued
- * at 0 €/h by the engine without a word, then refused by every later TypeScript write. Refused by name.
- */
-async function assertTemplateLaborRolesResolved(input: {
-  supabase: Supabase;
-  tenantId: string;
-  projectUserId: string;
-  templateItems: EstimateTemplateItemRow[];
-}) {
-  const rolesOf = (item: EstimateTemplateItemRow) =>
-    [item.labor_role_id, item.labor_role_atelier_id, item.labor_role_chantier_id].filter((id): id is string => Boolean(id));
-  const validRoles = await loadValidLaborRoleIdsForOwner({
-    supabase: input.supabase, tenantId: input.tenantId, ownerUserId: input.projectUserId,
-    laborRoleIds: input.templateItems.flatMap(rolesOf),
-  });
-  const offending = input.templateItems.filter((item) => rolesOf(item).some((id) => !validRoles.has(id)));
-  if (offending.length === 0) return;
-
-  throw badRequest(
-    "Ce modèle porte des rôles de main-d'œuvre qui ne sont pas ceux du propriétaire du devis : un chiffrage moteur 3 compterait leurs heures à 0 €/h. Remplacez-les dans le modèle avant de l'insérer.",
-    { items: offending.map((item) => ({ id: item.id, title: item.title ?? "Ligne sans titre" })) },
-    "ESTIMATE_TEMPLATE_LABOR_ROLE_REQUIRED"
-  );
 }
 
 /**
@@ -832,7 +806,7 @@ export async function insertTemplateIntoVersion(input: {
     throw badRequest("Ce template ne contient aucun élément.");
   }
   if (resolveEstimateEngineVersion(version) === 3) {
-    await assertTemplateLaborRolesResolved({ supabase, tenantId, projectUserId: project.user_id, templateItems });
+    await assertTemplateLaborRolesOwnedForV3({ supabase, tenantId, projectUserId: project.user_id, templateItems });
   }
 
   let targetParentId: string | null = null;

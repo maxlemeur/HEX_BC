@@ -259,6 +259,7 @@ export function UnifiedImportFlow({
         <LazyPlansStep
           projectId={confirmResult.projectId}
           versionId={confirmResult.versionId}
+          versionCalcEngineVersion={confirmResult.calcEngineVersion ?? null}
           onSkip={skipPlansStep}
           onContinue={finishPlansStep}
           showSuccessBanner
