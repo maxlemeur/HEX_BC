@@ -1055,3 +1055,150 @@ Contrôles du clone WSL sur `be40ed54` (journaux `pr40-typecheck`, `pr40-eslint`
 - `git diff origin/main...HEAD` sur `src/lib/estimate-calculations.ts` et
   `src/lib/estimate-v2-snapshot.ts` : vide ;
 - `git -c core.whitespace=cr-at-eol diff --check origin/main...HEAD` : propre.
+
+## V1BT03 rouge dans la suite `full` 39113661225 (409 sur la règle de suggestion)
+
+### Défaillance observée
+
+Le run `e2e-army-full.yml` 39113661225 a été déclenché à la main sur `5680c7c8`, qui contient la
+fusion avec la PR #40. Résultat : 168/169. Seul V1BT03 est rouge, avec l'erreur « expected
+[200,201] to contain 409 » (`legacy-v1-draft-support.ts:33`, `createdData`). La requête refusée
+est le `POST /api/estimates/<version>/suggestion-rules` que le parcours envoie par l'API, éditeur
+ouvert. Chronologie du `report.json` :
+
+- 09:15:57.269 : ouverture de l'éditeur ;
+- 09:15:58.124 : la grille « Lignes de devis » est visible (attente de 514 ms) ;
+- 09:15:58.287 : le POST est refusé en 409 (`appLog`).
+
+L'écran à l'échec affiche déjà « À jour » : l'éditeur a obtenu son bail juste après le POST.
+V1BT01, V1BT02 et V1PT01 passent dans le même run. V1BT03 était vert en F4 (`a91fc411`).
+
+### Cause
+
+`createSuggestionRule` (`reference-data-server.ts:338`) exige le bail de brouillon de la page
+(`assertDraftLockOwnedByCurrentUser`, `server-context.ts:224`). Sans bail actif, la réponse est
+409 `LOCK_REQUIRED` (`:237`). Les autres 409 possibles sont exclus par lecture :
+
+- **Bail d'une autre session.** `apiRequest` (`fixtures.ts:168`) prend la session de verrou de la
+  page dans la même table que l'éditeur (`__miaouffrageEstimateDraftLockSessions`). À la première
+  ouverture, aucune autre page n'a ouvert cette version.
+- **`CONTEXT_CHANGED` (40001).** Aucun déclencheur de contexte de calcul ne porte sur
+  `estimate_suggestion_rules`.
+- **`CONFLICT` (23505).** La table n'a pas d'index unique sur la position.
+
+L'éditeur demande son bail dans un effet, une fois monté (`useDraftLock.ts:439`). Il le redemande
+toutes les 5 s tant qu'il ne l'a pas (`:496`). La grille s'affiche dès que la version est chargée
+(`EstimateEditorPage.tsx:215`). Entre les deux, l'éditeur est en lecture seule :
+
+- `isDraftLockPending` rend `isReadOnly` vrai (`useEstimateEditorSyncController.ts:608`) ;
+- la barre d'outils affiche « Connexion… » (`useEstimateEditorAutoSave.ts:228`) ;
+- la création d'une règle par l'interface est refusée avant toute requête, avec le message
+  « Acquisition du verrou de brouillon en cours. » (`guardRuleMutation`,
+  `useEstimateEditorSuggestionsController.ts:554`, et `useEstimateEditorSyncController.ts:626`).
+
+**Un utilisateur ne peut donc pas envoyer cette écriture avant le bail.** Seul le parcours, qui
+passe par l'API, pouvait le faire. C'est une course du parcours, pas un défaut du produit.
+
+Elle existe depuis l'écriture de V1BT03 (`a249a92b`). Son issue dépend du temps que met le serveur
+à rendre le bail, comparé à l'étape suivante du parcours. Elle n'est pas due à la PR #40 :
+
+- entre `a91fc411` et `5680c7c8`, aucun diff ne touche la route et la bibliothèque des verrous, la
+  route des règles, `useDraftLock`, le contrôleur de synchronisation, l'auto-sauvegarde ou le
+  client ;
+- M6 et M6b ne mentionnent ni `draft_locks` ni `estimate_suggestion_rules`.
+
+La fin du parcours rencontrait déjà la même course à la réouverture. Elle la contournait par une
+relance : un `expect.poll` du `PATCH` de désactivation, jusqu'au statut 200 (« retry until the
+reopened editor holds it »).
+
+### Correction (`bb521950`, `e2e/` seulement)
+
+- `openEditor` attend que le statut de synchronisation de la barre d'outils affiche « À jour » ou
+  « Sauvegardé », avec un délai de 30 s. Ce n'est le cas que si l'éditeur détient son bail et que
+  l'utilisateur peut écrire : `!isSaveBlocked` implique `!isDraftLockPending` et
+  `!isDraftLockedByOther`. Le délai de 30 s couvre la nouvelle demande, toutes les 5 s, quand le
+  bail de la page déchargée n'est pas encore libéré.
+- La fin du parcours envoie son `PATCH` une seule fois, après cette même attente. La relance est
+  retirée.
+- `createdData` nomme le code refusé dans son message.
+
+Pourquoi ce n'est pas une attente qui masque un défaut : elle attend l'état visible qui autorise
+la même écriture pour un utilisateur. Elle ne rejoue aucune requête métier. Si le bail n'arrive
+jamais, elle échoue au bout de 30 s, sur « Connexion… » ou « Verrouillé ». Le produit n'est pas
+modifié, puisqu'il refuse déjà l'écriture tant que le bail manque.
+
+### Fusion avec la PR #42
+
+`origin/main` est passé de `5cfd4a94` à `f37d7bbb`. Il apporte la PR #42 (preuves ciblées de la CI
+et run nocturne calc-v3) et le relevé de M6 et M6b sur le Supabase partagé. La fusion `9f89b7bd`
+est faite sans rebase et sans conflit (`git merge-tree --write-tree`). Elle ne touche aucun
+fichier de la branche. Elle ajoute un mode filtré à `e2e-army-full.yml` (entrée `grep`) et à
+`run-tester-army-ci.ts full`. Ce mode n'est pas utilisé ici. La sélection de la PR reste `full` à
+cause d'`e2e.config.ts`, et elle inclut désormais tous les parcours takeoff (`fullOnly: all`).
+Tests de garde du worktree Windows sur le résultat de la fusion
+(`src/test/army-impact-map.test.ts`, `ci-guardrails.test.ts`, `army-dev-loop.test.ts`) :
+3 fichiers, 49 tests passés et 10 ignorés.
+
+### Preuves
+
+Clone WSL `~/miaouffrage-totals-bulk`, Ubuntu 24.04, Node 24.19.0,
+`NODE_OPTIONS=--max-old-space-size=4096`, port applicatif 3173.
+
+**1 worker, pas 2.** V1PT01 et V1BT01 à V1BT03 basculent le mode du compte partagé et sont dans
+deux fichiers. À 2 workers, les deux fichiers tourneraient en parallèle (« Mode Expert du compte
+partagé »). C'est aussi le réglage de la suite `full` en CI.
+
+Modifications locales jetables, jamais commitées :
+
+| Nom | Contenu | sha256 |
+| --- | --- | --- |
+| C | ajoute `supplier-preselection-v1-totals` et `bulk-actions-v1-totals` à la liste `localBusiness` d'`e2e.config.ts` (même diff que G1 et G2) | diff `7fbcd375…9bae` |
+| D | rouge seulement : la route du navigateur critique (`fixtures.ts`) retient 3 s chaque `POST /api/estimates/<id>/lock` | patch `ee7ae009…ec6e` |
+| M | message de `createdData`, identique au commit | patch `3d509d70…f566` |
+
+La boucle n'est pas un run qualifiant. Session `2026-10-18T09-47-00-921Z-dev-loop` (manifeste
+`0917edd5…4de4`), motif `^V1BT0[123]\s|^V1PT01\s` :
+
+| Itération | Révision et diff | Résultat | Manifeste (sha256) |
+| --- | --- | --- | --- |
+| 001 à 003 | `9f89b7bd` + C (`7fbcd375…9bae`) | vert trois fois, 5/5 : la course ne se reproduit pas seule en local | `80096c0f…8b20`, `06f86a98…152d`, `166ccc99…41c4` |
+| 004, rouge | `9f89b7bd` + C + D + M (`14235d42…21cb`) | exit 1, 4/5. V1BT03 est rouge à l'étape 7, comme en CI : « HTTP 409 LOCK_REQUIRED: expected [200,201] to contain 409 » (`legacy-v1-draft-support.ts:33`). V1BT01, V1BT02 et V1PT01, qui passent par l'interface, sont verts | `ac4d9b27…fb29` (`report.json` `8f09574d…5812`) |
+| 005 | `9f89b7bd` + C + D + correction (`b6d0eb74…1e91`) | 5/5. Les trois attentes de bail de V1BT03 lisent « Connexion… » environ 30 fois, puis « À jour » à 3 154, 3 136 et 3 236 ms. Le `PATCH` unique de la fin rend 200 | `b5c49da9…abb6` |
+| 006, 007 | `9f89b7bd` + C + correction (`6fae8347…cf33`) | 5/5 deux fois | `e6dbb934…12e8`, `a8ed76b9…70d7` |
+
+Boucle arrêtée ensuite : pile détruite, registre retiré, ports fermés, état retiré.
+
+Runs qualifiants : `npm run e2e:army:local -- --grep "^V1BT0[123]\s|^V1PT01\s" --app-port 3173`,
+sur `bb521950` + C (`diffSha256` `7fbcd375…9bae`), 1 worker, portée `filtered-critical`. pgTAP
+`Files=22, Tests=1886` et matrice RLS verts.
+
+| Run | Résultat | Preuves (`manifest.json`, `report.json`) |
+| --- | --- | --- |
+| Q1 | exit 0, 5/5, une tentative chacun | `2026-10-18T09-55-36-545Z-critical` (`717b0db8…f8e4`, `be5137d1…4bd6`) |
+| Q2 | exit 0, 5/5, une tentative chacun | `2026-10-18T09-57-52-190Z-critical` (`4bb04d99…8dbd`, `34067123…f7fb`) |
+
+Valeurs relues dans Q1 et Q2 (lignes = version = attendu, `[HT, TVA, TTC]`) :
+
+- V1BT01 : `[8000, 1600, 9600]` ;
+- V1BT02 : `[9600, 1920, 11520]` après la marge ;
+- V1BT03 : `[6600, 1320, 7920]` à l'application, `[6000, 1200, 7200]` à l'annulation,
+  `[6600, 1320, 7920]` à la nouvelle application, puis `[7920, 1584, 9504]` à la marge, après la
+  marge et à la fin. Mode rétabli à `simplified`, règle désactivée ;
+- V1PT01 : `[3702, 740, 4442]`.
+
+Exemples : `…-92315141-v1-suggestions-final-stored-totals.json` (`201f5ffb…1769`, Q1) et
+`…-95f4a4af-v1-suggestions-final-stored-totals.json` (`e99f6461…3dfb`, Q2).
+
+Dans Q1, à la réouverture, le statut passe par « Lecture seule » (environ 130 ms) entre
+« Connexion… » et « À jour ». L'attente l'ignore, puisqu'elle n'accepte que « À jour » ou
+« Sauvegardé ».
+
+Contrôles du worktree Windows sur `bb521950` :
+
+- `npm run typecheck` : exit 0 ;
+- `npx eslint --max-warnings=0` sur les deux fichiers touchés : exit 0 ;
+- `git diff --cached --check` : propre ;
+- aucun diff sur `src/lib/estimate-calculations.ts` ni sur `src/lib/estimate-v2-snapshot.ts`.
+
+La suite `full` est relancée en CI sur la tête poussée. Son résultat est consigné dans la
+description de la PR #41.
