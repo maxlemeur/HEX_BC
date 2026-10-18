@@ -458,14 +458,11 @@ les limites qui demeurent sont au §11.6.
   générique du moteur 3 (`ESTIMATE_ENGINE_UNAVAILABLE`, V3P-15 et V3P-18) : rien n'est écrit, l'erreur s'affiche
   et la ligne revenait à la relecture. Elle passe désormais par le lot (`op: "delete"`, qui recalcule), prouvée par
   `V3E05` (§11).
-- **Instabilité observée, non reproduite** : à `86ef5886`, deux passages de `V3E01` sur trois
-  (`2026-10-17T21-01-04-472Z`, `2026-10-17T21-09-01-580Z`) ont perdu le rôle « Tuyauteur » saisi dans la liste
-  « Rôle de main-d'œuvre pour {t} » (ligne O2 puis O1) : après le remplissage, le champ est focalisé, la liste
-  ouverte et le texte vide, donc le Tab ne valide rien et la sauvegarde attendue n'arrive pas. Une sonde des
-  événements (focus, saisie, touches, piles d'appel) n'a ensuite montré que la séquence nominale, et les six
-  passages suivants (sondés ou non, dont le vert du §8.6) n'ont plus perdu de saisie dans la grille ; `ed93d1fd` ne touche
-  pas ce chemin (tiroir fermé pendant la saisie). Cause non établie ; aucune reprise ni attente ajoutée pour
-  faire passer le parcours (AGENTS.md).
+- ~~**Instabilité observée, non reproduite** : `V3E01` perd parfois le rôle « Tuyauteur » saisi dans la grille~~
+  (deux passages sur trois à `86ef5886`, `2026-10-17T21-01-04-472Z` et `2026-10-17T21-09-01-580Z`) : cause
+  établie et corrigée le 18/10. Un rendu différé de la grille donnait le focus à la cellule active pendant que la
+  liste du rôle l'avait déjà ; la liste vidait ensuite le texte saisi. Diagnostic, rouge, correction et preuves :
+  [v3e01-labour-role-lost.md](v3e01-labour-role-lost.md).
 
 ### 8.6 Preuves des pistes (17 et 18/10/2026)
 
@@ -542,7 +539,7 @@ création puis remise à 2, rôle « Tuyauteur » 40 €/h par l'API.
 |---|---|
 | `e2e/army/local/engine-v3-editor.e2e.ts` | Parcours `V3E01`, `V3E02`, `V3E03`, `V3E04` (ajouté à l'intégration, §10.4) (sélection critique locale : motif `engine-v3-*.e2e.ts` d'`e2e.config.ts`) |
 | `e2e/army/local/engine-v3-editor-support.ts` | Préalables (propriétaire, v3, section, lignes par lot), mode Expert, préréglage « Standard », lectures d'écran et d'API, relevé `checkpoint` |
-| `e2e/army/local/engine-v3-editor-actions.e2e.ts` | Ajouté à la revue (§11) : `V3E05` à `V3E13`, actions de la grille et du tiroir hors saisie d'une cellule (suppressions, lots, taux horaire, sous-détail, article, question de TVA, remise nulle, arrondi stocké, fiche, suggestions en lot, collage) |
+| `e2e/army/local/engine-v3-editor-actions.e2e.ts` | Ajouté à la revue (§11) : `V3E05` à `V3E14`, actions de la grille et du tiroir hors saisie d'une cellule (suppressions, lots, taux horaire, sous-détail, article, question de TVA, remise nulle, arrondi stocké, fiche, suggestions en lot, collage) ; `V3E14` (PR #41, [fusion avec 2.6](./version-totals-after-bulk-actions.md#fusion-avec-la-pr-44-sous-lot-26-éditeur-v3-et-la-pr-43-boucle-army)) : annulations d'une v3 (lot, suggestions) fermées par un enregistrement des réglages |
 | `scripts/tester-army/army-impact-map.json` | Parcours ajouté à `suite.journeys`, aux groupes `editor`, `affaires-list`, `print` et à la règle `estimate-detail` |
 
 ```bash

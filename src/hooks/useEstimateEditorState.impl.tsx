@@ -1536,6 +1536,11 @@ export function useEstimateEditorState({
         return;
       }
       if (!isCurrentSettingsSave()) return;
+      // The server repriced every line at these settings, on every engine, and a v3 « Oui » also
+      // rewrote each line's VAT rate: an undo captured before would write back the lines of the
+      // previous ones, with their totals on v1 and their VAT rate on v3.
+      clearUndoRedoHistory();
+      discardBulkSuggestUndo();
 
       const updatedVersion = saved.version;
       const mergedVersion = {
@@ -2190,7 +2195,8 @@ export function useEstimateEditorState({
     reportError: setActionError,
     resolveErrorMessage: resolveEstimateActionError,
     ensureGroupedActionCanProceed,
-    applyVersionToken,
+    computeVersionTotalsPatch,
+    applyVersionToken: applyVersionTokenAndTotals,
     markItemsSynced,
     handleVersionConflict,
     v3Writer: isV3 ? ESTIMATE_V3_EDITOR_WRITER : undefined,
@@ -2218,6 +2224,7 @@ export function useEstimateEditorState({
     toggleAll: handleToggleAllBulkSuggestItems,
     applySelected: handleApplyBulkSuggest,
     undoLastApply: handleUndoBulkSuggest,
+    discardUndo: discardBulkSuggestUndo,
   } = suggestionsController.actions;
   const {
     preview: bulkSuggestPreview,
@@ -2357,7 +2364,8 @@ export function useEstimateEditorState({
     reportError: setActionError,
     resolveErrorMessage: resolveEstimateActionError,
     normalizeLine: normalizePatchedItem,
-    applyVersionToken,
+    computeVersionTotalsPatch,
+    applyVersionToken: applyVersionTokenAndTotals,
     markItemsSynced,
     ensureGroupedActionCanProceed,
     handleVersionConflict,
