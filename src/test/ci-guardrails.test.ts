@@ -90,6 +90,17 @@ function runValues(workflow: string): { line: number; script: string }[] {
   return values;
 }
 
+/**
+ * `${{ }}` expressions of a shell script other than a needed job's result. Every
+ * `${{` counts, read up to its first `}}` (or the end of the script when none
+ * closes it): braces inside an expression, as in format('{0}', ...), cannot
+ * hide it, and the allowed form contains no brace or quote.
+ */
+function shellInterpolations(script: string): string[] {
+  return (script.match(/\$\{\{[\s\S]*?(?:\}\}|$)/gu) ?? [])
+    .filter((expression) => !/^\$\{\{\s*needs\.[A-Za-z0-9_-]+\.result\s*\}\}$/u.test(expression));
+}
+
 function expectInstallStepsToHaveNoSecrets(workflow: string) {
   const installSteps = workflowSteps(workflow).filter(
     (step) =>
@@ -615,12 +626,21 @@ describe("CI and local quality guardrails", () => {
     const offenders: string[] = [];
     for (const name of fs.readdirSync(workflowDirectory).filter((entry) => /\.ya?ml$/u.test(entry)).sort()) {
       for (const { line, script } of runValues(read(`.github/workflows/${name}`))) {
-        for (const expression of script.match(/\$\{\{[^}]*\}\}/gu) ?? []) {
-          if (!/^\$\{\{\s*needs\.[A-Za-z0-9_-]+\.result\s*\}\}$/u.test(expression)) offenders.push(`${name}:${line}: ${expression}`);
-        }
+        for (const expression of shellInterpolations(script)) offenders.push(`${name}:${line}: ${expression}`);
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  it("finds every expression of a shell script, braces inside it and unclosed ones included", () => {
+    const needed = '[[ "${{ needs.army-critical.result }}" == success ]]';
+    expect(shellInterpolations(needed)).toEqual([]);
+    expect(shellInterpolations(`node x \${{ format('{0}', inputs.grep) }} && ${needed}`)).toHaveLength(1);
+    expect(shellInterpolations("echo ${{ toJSON(github.event.pull_request.title) }}")).toHaveLength(1);
+    expect(shellInterpolations("echo ${{ needs.a.result || inputs.phase }}")).toHaveLength(1);
+    expect(shellInterpolations('echo "${{ needs.a.result }}${{ inputs.phase }}"')).toHaveLength(1);
+    // The workflow parser still expands an expression the scan cannot close.
+    expect(shellInterpolations("echo ${{ inputs.phase")).toHaveLength(1);
   });
 
   it("filters a dispatched full run by --grep only, while the nightly schedule stays the whole full suite", () => {
@@ -653,11 +673,12 @@ describe("CI and local quality guardrails", () => {
 
     // The nightly selection is exactly the phases the owned production build
     // serves. Emission runs under next dev until sub-lot 2.7 moves it to the
-    // production build: this guard then requires it in the nightly list.
+    // production build: this guard then requires it in the nightly list, and
+    // adding it there is the whole reactivation.
     const run = stepNamed(workflow, "Run native database and TesterArmy calc-v3 phases");
     const nightly = /^\s+CALC_V3_NIGHTLY_PHASES: "([a-z0-9 -]+)"$/mu.exec(run)?.[1].split(" ");
     expect(nightly).toEqual(CALC_V3_PHASES.filter((phase) => CALC_V3_PHASE_DEFINITIONS[phase].serverMode === "production"));
-    expect(nightly).not.toContain("emission");
+    if (CALC_V3_PHASE_DEFINITIONS.emission.serverMode !== "production") expect(nightly).not.toContain("emission");
     expect(run).toMatch(/^\s+CALC_V3_SELECTION: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.phase \|\| 'nightly' \}\}$/mu);
     const script = runScript(run);
     expect(script).toContain('node --import tsx scripts/run-tester-army-ci.ts calc-v3 --phase "$phase"');
