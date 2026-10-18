@@ -7,6 +7,7 @@ import { SealIntegrityBadge, type SealIntegrityState } from "@/components/estima
 import { Alert, AlertTitle } from "@/components/ui/alert";
 import { ApiError } from "@/lib/estimates/errors";
 import { toSafeEstimateErrorLogDetails } from "@/lib/estimates/logging";
+import { OfferContractError } from "@/lib/estimates/offer-contract-core";
 import type { ClientContract2 } from "@/lib/estimates/offer-contract-v2";
 import { loadVerifiedOfferDocument } from "@/lib/estimates/offer-document";
 import { describeEstimatePdfLayout, type EstimatePdfLayoutOptions } from "@/lib/estimates/pdf-layout";
@@ -107,7 +108,8 @@ async function issuedCopyOf(input: { supabase: SupabaseClient<Database>; tenantI
     const contract = (await loadVerifiedOfferDocument(input)).proof.clientContractSnapshot;
     return contract?.schemaVersion === 2 ? contract : null;
   } catch (error) {
-    if (!(error instanceof ApiError)) throw error;
+    // Refus de la relecture (ApiError) ou copie stockée que l'analyseur strict rejette (OfferContractError).
+    if (!(error instanceof ApiError) && !(error instanceof OfferContractError)) throw error;
     console.error("Failed to read the issued estimate copy for print", { versionId: input.versionId, ...toSafeEstimateErrorLogDetails(error) });
     return null;
   }
