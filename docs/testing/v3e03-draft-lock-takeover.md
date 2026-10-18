@@ -1,10 +1,11 @@
 # V3E03 : reprise forcée du bail perdue contre une acquisition en vol
 
 Flake signalé le 18/10/2026 sur le parcours `V3E03` (sous-lot 2.6,
-`e2e/army/local/engine-v3-editor.e2e.ts`) : une exécution sur trois,
-`PATCH /api/estimates/<id>/lock?force=true` répond 409 et le serveur journalise
-`23505` sur `draft_locks_version_id_key`. Décision : défaut produit, corrigé en
-base ; le parcours n'est pas modifié.
+`e2e/army/local/engine-v3-editor.e2e.ts`) : rouge dans une des trois exécutions
+locales C4 à C6 de la PR #41, puis 2 fois sur 16 mesurées dans la boucle de
+développement (ci-dessous). `PATCH /api/estimates/<id>/lock?force=true` répond
+409 et le serveur journalise `23505` sur `draft_locks_version_id_key`.
+Décision : défaut produit, corrigé en base ; le parcours n'est pas modifié.
 
 ## Preuve du flake
 
@@ -25,7 +26,7 @@ Run critique `2026-10-18T08-12-58-870Z-critical` du clone WSL
 l'erreur est celle de la RPC `takeover_estimate_draft_lock`.
 
 Base de référence avant correction, boucle `e2e:army:dev-loop` sur `5cfd4a94`
-(`origin/main`), build `CGjWY_v7ljuk_Q-nTpyON`, session
+(base de la branche, et des preuves antérieures à la fusion d'`origin/main`), build `CGjWY_v7ljuk_Q-nTpyON`, session
 `.e2e/army/ci/2026-10-18T09-16-37-167Z-dev-loop` du clone `~/miaouffrage-v3e03` :
 `V3E03` 16 fois, 2 échecs (itérations 007 et 009), tous deux
 `expected 409 to be 200` à la ligne 286 avec le même 23505 dans `app.log`.
@@ -101,7 +102,8 @@ le renouvellement de la page de reprise recevait 409. Chaque run ajoute le même
 ## Correction
 
 Migration `20261018093005_serialize_estimate_draft_lock_acquisition.sql`, plus
-récente que toutes celles d'`origin/main` au commit : le trigger `BEFORE INSERT`
+récente que toutes celles d'`origin/main`, au commit puis après la fusion
+d'`origin/main` `76b71c9e` (dernière : `20261018013249`) : le trigger `BEFORE INSERT`
 de `draft_locks` (`assign_draft_lock_tenant_id`) prend le même verrou
 consultatif que la reprise (`hashtextextended(version_id::text, 0)`) avant
 d'atteindre l'index unique. Une reprise qui attend supprime l'acquisition
@@ -151,10 +153,18 @@ migrations.
   `LOCK02` y échoue explicitement au lieu de passer.
 - Le verrou est pris dans un trigger `BEFORE`, donc avant le contrôle RLS : un
   `INSERT` refusé d'un autre tenant le tient le temps de sa propre instruction
-  (mono-instruction par PostgREST). Un `INSERT` de plusieurs lignes prend un
-  verrou par version dans l'ordre des lignes ; deux tels `INSERT` concurrents
-  en ordre inverse pourraient s'interbloquer (40P01). Aucun chemin applicatif ne
-  le fait ; seules des fixtures SQL mono-session insèrent plusieurs baux.
+  (mono-instruction par PostgREST). C'est la seule contention que la
+  correction ajoute.
+- Comportement préexistant, inchangé : deux `INSERT` concurrents de plusieurs
+  baux, en ordre inverse, s'interbloquent déjà sans la migration (40P01), par
+  l'index unique ; le verrou consultatif déplace seulement cette attente dans
+  le trigger `BEFORE`. Aucun chemin applicatif ne le fait ; seules des fixtures
+  SQL mono-session insèrent plusieurs baux.
+- Variante non exécutée : un `INSERT` ordinaire validé strictement entre le
+  `DELETE` et l'`INSERT` de la reprise. Aucun test ne l'exécute, faute de pause
+  injectable dans la RPC. La correction la ferme par construction : l'`INSERT`
+  d'acquisition attend désormais le verrou consultatif, que la reprise prend
+  avant son `DELETE`.
 - La partie 2 de `LOCK02` n'a tourné qu'après correction (la partie 1 échoue
   avant elle) ; son 409 avant correction se déduit de la même attente d'index.
 - La moitié en vol de `LOCK02` est un `INSERT` SQL tenu ouvert, pas un second
