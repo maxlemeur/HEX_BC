@@ -2316,6 +2316,7 @@ export function useEstimateEditorState({
     canArchive,
     isStatusActionsDisabled,
     isSendBlockedForCurrentUser,
+    isSendGatingRefreshing,
     sendWorkflowPhaseLabel,
   } = statusController.meta;
   // Lot 2 : fermée en 2.6, l'émission manuelle d'une v3 est ouverte par 2.7 (gel du document, contrat client 2).
@@ -2828,7 +2829,11 @@ export function useEstimateEditorState({
       bulkSuggestAppliedCount,
       onUndoBulkSuggest: handleUndoBulkSuggest,
       isUndoingBulkSuggest,
-      isUndoBulkSuggestDisabled: isSaveBlocked,
+      // The undo is shown once the lines are written, while the apply still sends its rule feedback;
+      // undoLastApply refuses to run during the apply, so the button waits for its end. It also waits
+      // for the gating read of the new token: its answer may add or remove the send-blocked alert
+      // above the button and move it under a press.
+      isUndoBulkSuggestDisabled: isSaveBlocked || isApplyingBulkSuggest || isSendGatingRefreshing,
       importSummaryMessage,
       actionNotice,
       actionError: displayedActionError,
@@ -2848,12 +2853,14 @@ export function useEstimateEditorState({
       handleUndoBulkSuggest,
       importSummaryMessage,
       isAdmin,
+      isApplyingBulkSuggest,
       isDraftLockedByOther,
       isForcingDraftUnlock,
       hasRestorableDraft,
       isReloadingVersion,
       isSaveBlocked,
       isSendBlockedForCurrentUser,
+      isSendGatingRefreshing,
       isStatusReadOnly,
       isUndoingBulkSuggest,
       isViewerReadOnly,

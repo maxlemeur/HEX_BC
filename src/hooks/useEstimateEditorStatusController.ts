@@ -107,6 +107,8 @@ export type EstimateEditorStatusController = {
     canArchive: boolean;
     isStatusActionsDisabled: boolean;
     isSendBlockedForCurrentUser: boolean;
+    /** The draft's gating is read again after a write: the send-blocked alert may still change. */
+    isSendGatingRefreshing: boolean;
     sendWorkflowPhaseLabel: string | null;
   };
 };
@@ -217,6 +219,12 @@ export function useEstimateEditorStatusController({
   // de chaque contrôle, ce qui déplaçait la grille après chaque écriture (V3E05, estimate-engine-v3-2.7.md §13.13).
   const displayedSendGating =
     sendGating ?? (preloadRequestKey ? preloadedGatingSnapshot?.value ?? null : null);
+  // Until the current token's check answers, that alert may still appear or disappear and move the
+  // controls below it (« Annuler les suggestions », docs/testing/bulk-edit-sync-baseline.md).
+  const isSendGatingRefreshing =
+    preloadRequestKey !== null &&
+    workflowSendGating === null &&
+    preloadedGatingSnapshot?.requestKey !== preloadRequestKey;
 
   const activeRouteVersionIdRef = useRef(routeVersionId);
   const previousRouteVersionIdRef = useRef(routeVersionId);
@@ -289,7 +297,9 @@ export function useEstimateEditorStatusController({
     }
 
     operationGenerationRef.current += 1;
-    preloadGenerationRef.current += 1;
+    // The gating read in flight is kept: its answer is still checked against the version and its
+    // token, and dropping it left the current token unchecked (gating masked, undo held) until the
+    // next write.
     isOperationInProgressRef.current = true;
     const scope = {
       versionId: routeVersionId,
@@ -869,6 +879,7 @@ export function useEstimateEditorStatusController({
         !displayedSendGating.canSend &&
         hasKnownBlockingSendFlags &&
         !isAdmin,
+      isSendGatingRefreshing,
       sendWorkflowPhaseLabel: resolveWorkflowPhaseLabel(sendWorkflowPhase),
     }),
     [
@@ -877,6 +888,7 @@ export function useEstimateEditorStatusController({
       displayedSendGating,
       hasKnownBlockingSendFlags,
       isAdmin,
+      isSendGatingRefreshing,
       isStatusActionsDisabled,
       sendWorkflowPhase,
     ]
