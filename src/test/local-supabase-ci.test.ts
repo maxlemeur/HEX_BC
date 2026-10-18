@@ -95,7 +95,7 @@ function createDependencies(options: {
     calls,
     release,
     dependencies: {
-      acquireStackSlot: vi.fn(async () => ({ release })),
+      acquireStackSlot: vi.fn(async () => ({ recordStack: vi.fn(), release })),
       ensureRuntime: vi.fn(),
       environment: {},
       log,

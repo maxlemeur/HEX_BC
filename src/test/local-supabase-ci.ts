@@ -958,6 +958,7 @@ export async function runLocalSupabaseCi(
     slot = await dependencies.acquireStackSlot();
     activePhase = "prepare isolated project";
     project = await dependencies.prepareProject(dependencies.reservedPorts);
+    slot.recordStack(project.rootDirectory);
     dependencies.onProjectPrepared?.({ ...project });
     if (interrupted) throw new Error(`Interrupted by ${interrupted} before the stack started`);
     startAttempted = true;

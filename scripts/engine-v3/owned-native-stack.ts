@@ -222,6 +222,7 @@ export async function withOwnedNativeStack<T>(
   try {
     slot = await acquireNativeStackSlot({ label: `engine-v3 owned stack (${options.prefix})`, waitMs: nativeStackWaitMs() });
     project = await prepareOwnedProject(options.prefix);
+    slot.recordStack(project.rootDirectory);
     startAttempted = true;
     supabase(withWorkdir(["start", "--runtime", "native"]));
     options.log("disposable native stack started.");

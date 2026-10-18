@@ -157,9 +157,11 @@ Scripts spécialisés disponibles ; leur présence ne qualifie pas leur exécuti
   preuve complète `db:ci:local`.
 - Ctrl+C (SIGINT) ou SIGTERM pendant un run détruit la pile (`stop` puis
   `stack destroy --yes`), retire le répertoire isolé et libère le créneau.
-- Au plus 4 runs natifs simultanés par utilisateur (`db:ci:local`, runner Army,
-  `engine-v3` parity et upgrade-check) : le cinquième est refusé
-  (`NativeStackLimitError`, avec PID et dossier des détenteurs) ;
+- Au plus 3 places natives simultanées par utilisateur
+  (`NATIVE_STACK_MAX_RUNS` pour changer) : runs `db:ci:local`, runner Army,
+  `engine-v3` parity et upgrade-check, plus toute pile native qu'aucun run
+  gardé ne possède et tout build `node scripts/next-build.mjs`. Au-delà, le run
+  est refusé (`NativeStackLimitError`, qui nomme les détenteurs) ;
   `NATIVE_STACK_WAIT_SECONDS=<n>` attend `n` secondes. Détails :
   [`local-native-stack-tooling.md`](../docs/testing/local-native-stack-tooling.md).
 - Fail-closed CI workflow: `.github/workflows/e2e-rls-matrix.yml`. It blocks merges

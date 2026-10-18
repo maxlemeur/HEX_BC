@@ -522,6 +522,7 @@ async function main() {
     slot = await acquireNativeStackSlot({ label: `engine-v3 upgrade check (${label})`, waitMs: nativeStackWaitMs() });
     report.phase = "prepare isolated project";
     project = await prepareUpgradeProject(partition, synthetic);
+    slot.recordStack(project.rootDirectory);
     report.stack = { projectId: project.projectId, ports: project.ports, neverAllocated: NEVER_ALLOCATED_PORTS };
 
     report.phase = "start local stack";

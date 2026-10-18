@@ -2,19 +2,26 @@
 // runLocalSupabaseCi (db:ci:local, the Army runner, document fingerprints),
 // scripts/engine-v3/owned-native-stack.ts and scripts/engine-v3/upgrade-check.ts.
 // See docs/testing/local-native-stack-tooling.md.
+import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-/** Native runs one user may own at once on one host. */
-export const MAX_ACTIVE_NATIVE_STACKS = 4;
+/**
+ * Native runs one user may own at once on one host, by default: a native
+ * stack and a production build each take one. `NATIVE_STACK_MAX_RUNS`
+ * overrides it (owner decision of 18/10/2026: 3, memory pressure under WSL).
+ */
+export const MAX_ACTIVE_NATIVE_STACKS = 3;
 
 export class NativeStackLimitError extends Error {
   override name = "NativeStackLimitError";
 }
 
 export interface NativeStackSlot {
+  /** Records the isolated workdir, so its stack host is not counted twice. */
+  recordStack: (rootDirectory: string) => void;
   /** Idempotent; also runs on process exit. */
   release: () => void;
 }
@@ -28,6 +35,8 @@ export interface AcquireNativeStackSlotOptions {
   pollMs?: number;
   pid?: number;
   isAlive?: (pid: number) => boolean;
+  /** Command lines of this user's processes. */
+  listProcesses?: () => string[];
   sleep?: (ms: number) => Promise<void>;
 }
 
@@ -41,6 +50,43 @@ export function nativeStackWaitMs(environment: Readonly<Record<string, string | 
   if (!value) return 0;
   if (!/^\d{1,6}$/.test(value)) throw new Error("NATIVE_STACK_WAIT_SECONDS must be a whole number of seconds");
   return Number(value) * 1000;
+}
+
+/** `NATIVE_STACK_MAX_RUNS`: whole number from 1 to 32, default 3. */
+export function nativeStackLimit(environment: Readonly<Record<string, string | undefined>> = process.env) {
+  const value = environment.NATIVE_STACK_MAX_RUNS?.trim();
+  if (!value) return MAX_ACTIVE_NATIVE_STACKS;
+  if (!/^\d{1,2}$/.test(value) || Number(value) < 1 || Number(value) > 32) {
+    throw new Error("NATIVE_STACK_MAX_RUNS must be a whole number from 1 to 32");
+  }
+  return Number(value);
+}
+
+function listUserProcesses() {
+  const result = spawnSync("ps", ["-U", String(process.getuid?.() ?? os.userInfo().uid), "-o", "command="], {
+    encoding: "utf8", maxBuffer: 16 * 1024 * 1024, timeout: 10_000,
+  });
+  if (result.error || result.status !== 0) throw new Error("Could not list this user's processes to count native runs");
+  return result.stdout.split("\n").filter(Boolean);
+}
+
+/** Workdirs of running Supabase native stack hosts. */
+function stackHostRoots(commands: readonly string[]) {
+  return commands.filter((command) => /(?:^|\/)supabase __supabase_stack_host__ /.test(command)).map((command) =>
+    /"projectRoot":"((?:[^"\\]|\\.)*)"/.exec(command)?.[1] ?? command);
+}
+
+/** Production builds started without a stack (`npm run build`). */
+function productionBuilds(commands: readonly string[]) {
+  return commands.filter((command) => /^(?:\S*\/)?node\s+scripts\/next-build\.mjs(?:\s|$)/.test(command));
+}
+
+function canonical(directory: string) {
+  try {
+    return fs.realpathSync(directory);
+  } catch {
+    return path.resolve(directory);
+  }
 }
 
 function isProcessAlive(pid: number) {
@@ -60,7 +106,7 @@ const SLOT_FILE = /^(\d+)-[0-9a-f-]{36}\.json$/;
  * read from the file name, so a file still being written counts as well.
  */
 function liveSlots(directory: string, isAlive: (pid: number) => boolean) {
-  const live: Array<{ file: string; pid: number; detail: string }> = [];
+  const live: Array<{ file: string; pid: number; detail: string; stackRoot?: string }> = [];
   for (const name of fs.readdirSync(directory)) {
     const match = SLOT_FILE.exec(name);
     if (!match) continue;
@@ -70,14 +116,16 @@ function liveSlots(directory: string, isAlive: (pid: number) => boolean) {
       fs.rmSync(file, { force: true });
       continue;
     }
-    let detail = "";
+    let detail = "starting";
+    let stackRoot: string | undefined;
     try {
-      const record = JSON.parse(fs.readFileSync(file, "utf8")) as { label?: string; cwd?: string; startedAt?: string };
+      const record = JSON.parse(fs.readFileSync(file, "utf8")) as { label?: string; cwd?: string; startedAt?: string; stackRoot?: string };
       detail = `${record.label} in ${record.cwd} since ${record.startedAt}`;
+      stackRoot = record.stackRoot;
     } catch {
-      detail = "starting";
+      // Still being written by its live owner.
     }
-    live.push({ file, pid, detail });
+    live.push({ file, pid, detail, stackRoot });
   }
   return live;
 }
@@ -86,41 +134,56 @@ function liveSlots(directory: string, isAlive: (pid: number) => boolean) {
  * Reserves one of the user's native-run slots, or refuses (or waits) with a
  * NativeStackLimitError naming the holders. Each run creates its own file
  * before counting the live files, so of two racing runs the later counter sees
- * both: never more than `limit` are admitted, though both may back off.
+ * both: never more than `limit` are admitted, though both may back off. Stack
+ * hosts no live slot owns (a crashed or unguarded run, a manual stack) and
+ * production builds (`node scripts/next-build.mjs`) take places too; those
+ * are counted best effort, from a process listing.
  */
 export async function acquireNativeStackSlot(options: AcquireNativeStackSlotOptions): Promise<NativeStackSlot> {
   const directory = options.directory ?? defaultNativeStackSlotDirectory();
-  const limit = options.limit ?? MAX_ACTIVE_NATIVE_STACKS;
+  const limit = options.limit ?? nativeStackLimit();
+  const listProcesses = options.listProcesses ?? listUserProcesses;
   const pid = options.pid ?? process.pid;
   const isAlive = options.isAlive ?? isProcessAlive;
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const deadline = Date.now() + (options.waitMs ?? 0);
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const file = path.join(directory, `${pid}-${randomUUID()}.json`);
-  const record = `${JSON.stringify({ pid, label: options.label, cwd: process.cwd(), startedAt: new Date().toISOString() })}\n`;
+  const record = { pid, label: options.label, cwd: process.cwd(), startedAt: new Date().toISOString() };
   for (;;) {
-    fs.writeFileSync(file, record, { flag: "wx", mode: 0o600 });
-    let others: ReturnType<typeof liveSlots>;
+    fs.writeFileSync(file, `${JSON.stringify(record)}\n`, { flag: "wx", mode: 0o600 });
+    let holders: string[];
     try {
-      others = liveSlots(directory, isAlive).filter((slot) => slot.file !== file);
+      const slots = liveSlots(directory, isAlive);
+      const owned = new Set(slots.flatMap((slot) => slot.stackRoot ? [canonical(slot.stackRoot)] : []));
+      const commands = listProcesses();
+      holders = [
+        ...slots.filter((slot) => slot.file !== file).map((slot) => `run PID ${slot.pid}: ${slot.detail}`),
+        ...stackHostRoots(commands).filter((root) => !owned.has(canonical(root)))
+          .map((root) => `native stack not owned by a guarded run: ${root}`),
+        ...productionBuilds(commands).map((command) => `production build: ${command.slice(0, 120)}`),
+      ];
     } catch (error) {
       fs.rmSync(file, { force: true });
       throw error;
     }
-    if (others.length < limit) {
+    if (holders.length < limit) {
       const release = () => {
         process.off("exit", release);
         fs.rmSync(file, { force: true });
       };
       process.on("exit", release);
-      return { release };
+      const recordStack = (rootDirectory: string) => {
+        fs.writeFileSync(file, `${JSON.stringify({ ...record, stackRoot: canonical(rootDirectory) })}\n`, { mode: 0o600 });
+      };
+      return { recordStack, release };
     }
     fs.rmSync(file, { force: true });
     if (Date.now() >= deadline) {
       throw new NativeStackLimitError(
-        `Native Supabase run limit reached: ${others.length} of ${limit} slots are held in ${directory}:\n` +
-        `${others.map((slot) => `- PID ${slot.pid}: ${slot.detail}`).join("\n")}\n` +
-        "Wait for one to finish, stop it, or set NATIVE_STACK_WAIT_SECONDS to wait."
+        `Native Supabase run limit reached: ${holders.length} of ${limit} places are taken (slots in ${directory}):\n` +
+        `${holders.map((holder) => `- ${holder}`).join("\n")}\n` +
+        "Wait for one to finish, stop it, set NATIVE_STACK_WAIT_SECONDS to wait, or NATIVE_STACK_MAX_RUNS to change the limit."
       );
     }
     await sleep((options.pollMs ?? 2_000) + Math.floor(Math.random() * 250));
