@@ -20,6 +20,7 @@ import {
   ESTIMATE_V3_STATUS_DOCUMENT_LABELS,
   footerFromClientContract2,
   formatEstimateV3FooterAmount,
+  type EstimateV3FooterRow,
 } from "@/lib/estimates/v3-document-presentation";
 import { formatCurrency } from "@/lib/money";
 
@@ -105,14 +106,27 @@ function headings(layout: EstimatePdfLayoutOptions): string[] {
     ...(layout.priceMode === "fo_mo_and_total" ? ["FO HT", "MO HT"] : []), "Total HT"];
 }
 
-/** Pied HTML : contrat 2 (pied v3 du gel) ou contrat 1 (inchangé). */
-function footerRows(contract: ClientContract1 | ClientContract2): Array<{ label: string; amount: string }> {
+type FooterRow = { label: string; amount: string; emphasis?: EstimateV3FooterRow["emphasis"] };
+
+/** Pied HTML : contrat 2 (pied v3 du gel, avec l'emphase de chaque ligne) ou contrat 1 (inchangé). */
+function footerRows(contract: ClientContract1 | ClientContract2): FooterRow[] {
   if (contract.schemaVersion === 2) {
     const currency = contract.version.currency;
     return buildEstimateV3FooterRows(footerFromClientContract2(contract.totals), currency)
-      .map((row) => ({ label: row.label, amount: formatEstimateV3FooterAmount(row, currency) }));
+      .map((row) => ({ label: row.label, amount: formatEstimateV3FooterAmount(row, currency), emphasis: row.emphasis }));
   }
   return totalRows(contract).map((entry) => ({ label: entry.label, amount: formatCurrency(entry.cents, contract.version.currency) }));
+}
+
+/**
+ * Revue Codex de 3d78d662 : le contrat 2 suit l'emphase de buildEstimateV3FooterRows (HT net en bandeau, TTC
+ * en gras), comme le PDF et l'impression, et non la position (sa première ligne est le brut). Contrat 1 :
+ * inchangé, sa première ligne (Total HT) en bandeau.
+ */
+function footerRowStyle(entry: FooterRow, index: number): string {
+  if (entry.emphasis === undefined) return index === 0 ? "bg-brand-blue font-bold text-white" : "border-t border-border";
+  if (entry.emphasis === "net") return "bg-brand-blue font-bold text-white";
+  return [index === 0 ? null : "border-t border-border", entry.emphasis === "payable" ? "font-bold" : null].filter(Boolean).join(" ");
 }
 
 /** Taux d'en-tête : celui de la version (contrat 1) ou ceux du récapitulatif figé (contrat 2). */
@@ -187,7 +201,8 @@ export function CommercialEstimateDocument(input: CommercialEstimateDocumentProp
         </tr>)}</tbody>
       </table></div>
       <dl className="mb-6 ml-auto w-full max-w-xs rounded-lg border border-border bg-surface-subtle">
-        {footerRows(c).map((entry, index) => <div key={entry.label} className={`flex justify-between px-4 py-2 ${index === 0 ? "bg-brand-blue font-bold text-white" : "border-t border-border"}`}>
+        {footerRows(c).map((entry, index) => <div key={entry.label} data-emphasis={entry.emphasis}
+          className={`flex justify-between px-4 py-2 ${footerRowStyle(entry, index)}`}>
           <dt>{entry.label}</dt><dd>{entry.amount}</dd>
         </div>)}
       </dl>
