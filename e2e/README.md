@@ -150,6 +150,18 @@ Scripts spécialisés disponibles ; leur présence ne qualifie pas leur exécuti
   Prérequis : Linux (glibc 2.35+) ou macOS 14+ sur Apple silicon, compte non root ;
   sous Windows, depuis WSL et un clone Linux du dépôt (voir `supabase/README.md`).
   La suite refuse une URL distante ou une exécution hors de ce runner local.
+- Run partiel : `npm run db:ci:local -- --files a.test.sql,b.test.sql` ne lance
+  que ces fichiers de `supabase/tests/database` (noms nus ou préfixés par ce
+  dossier ; tout autre chemin est refusé avant la pile) ; la matrice RLS tourne
+  encore, sauf `--skip-rls`. Le journal le déclare partiel : ce n'est jamais la
+  preuve complète `db:ci:local`.
+- Ctrl+C (SIGINT) ou SIGTERM pendant un run détruit la pile (`stop` puis
+  `stack destroy --yes`), retire le répertoire isolé et libère le créneau.
+- Au plus 4 runs natifs simultanés par utilisateur (`db:ci:local`, runner Army,
+  `engine-v3` parity et upgrade-check) : le cinquième est refusé
+  (`NativeStackLimitError`, avec PID et dossier des détenteurs) ;
+  `NATIVE_STACK_WAIT_SECONDS=<n>` attend `n` secondes. Détails :
+  [`local-native-stack-tooling.md`](../docs/testing/local-native-stack-tooling.md).
 - Fail-closed CI workflow: `.github/workflows/e2e-rls-matrix.yml`. It blocks merges
   only when repository branch protection requires this check.
 

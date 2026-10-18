@@ -36,6 +36,12 @@ import {
   type NativeRuntimeHost,
 } from "../../src/test/local-supabase-ci";
 import {
+  acquireNativeStackSlot,
+  cleanUpOnTerminationSignals,
+  type NativeStackSlot,
+  nativeStackWaitMs,
+} from "../../src/test/native-stack-guard";
+import {
   assertNoRemoteSupabaseEnvironment,
   createLocalCiEnvironment,
   PINNED_SUPABASE_CLI_VERSION,
@@ -423,6 +429,42 @@ async function main() {
   let primaryError: unknown;
   const cleanupErrors: string[] = [];
   const withWorkdir = (args: string[]) => [...args, "--workdir", project?.rootDirectory ?? ""];
+  let slot: NativeStackSlot | undefined;
+  let cleanedUp = false;
+  // Runs once: from `finally` or from SIGINT/SIGTERM (see native-stack-guard).
+  const destroyStack = () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    report.cleanup = { stop: "not started", destroy: "not started", workdirRemoved: false };
+    if (startAttempted && project) {
+      // A native `stop` keeps the stack's data: the destroy always follows.
+      for (const [key, args] of [["stop", ["stop"]], ["destroy", ["stack", "destroy", "--yes"]]] as const) {
+        try {
+          supabase(withWorkdir([...args]));
+          report.cleanup[key] = "ok";
+        } catch (error) {
+          report.cleanup[key] = "failed";
+          cleanupErrors.push(`${key}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    }
+    if (project) {
+      try {
+        removeUpgradeProject(project.rootDirectory);
+        report.cleanup.workdirRemoved = true;
+      } catch (error) {
+        cleanupErrors.push(`workdir: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    slot?.release();
+  };
+  const removeSignalHandlers = cleanUpOnTerminationSignals((signal) => {
+    log(`${signal} received: destroying the disposable native stack.`);
+    destroyStack();
+    report.status = "failed";
+    report.error = redact(`Interrupted by ${signal} during ${report.phase}\n${cleanupErrors.join("\n")}`);
+    writeReport();
+  });
   const verifyInventory = (expected: MigrationDigest[], name: string) => {
     const rows = parseSupabaseMigrationList(
       supabase(withWorkdir(["migration", "list", "--local", "--output-format", "json"]))
@@ -476,6 +518,8 @@ async function main() {
     }
     report.supabaseCli = cliVersion;
 
+    report.phase = "reserve native stack slot";
+    slot = await acquireNativeStackSlot({ label: `engine-v3 upgrade check (${label})`, waitMs: nativeStackWaitMs() });
     report.phase = "prepare isolated project";
     project = await prepareUpgradeProject(partition, synthetic);
     report.stack = { projectId: project.projectId, ports: project.ports, neverAllocated: NEVER_ALLOCATED_PORTS };
@@ -606,27 +650,8 @@ async function main() {
   } catch (error) {
     primaryError = error;
   } finally {
-    report.cleanup = { stop: "not started", destroy: "not started", workdirRemoved: false };
-    if (startAttempted && project) {
-      // A native `stop` keeps the stack's data: the destroy always follows.
-      for (const [key, args] of [["stop", ["stop"]], ["destroy", ["stack", "destroy", "--yes"]]] as const) {
-        try {
-          supabase(withWorkdir([...args]));
-          report.cleanup[key] = "ok";
-        } catch (error) {
-          report.cleanup[key] = "failed";
-          cleanupErrors.push(`${key}: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
-    }
-    if (project) {
-      try {
-        removeUpgradeProject(project.rootDirectory);
-        report.cleanup.workdirRemoved = true;
-      } catch (error) {
-        cleanupErrors.push(`workdir: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
+    destroyStack();
+    removeSignalHandlers();
   }
 
   report.finishedAt = new Date().toISOString();

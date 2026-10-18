@@ -195,9 +195,12 @@ ou ne correspond plus à son empreinte : sans lui, l'itération ne pourrait pas
 prouver les entrées de son build.
 
 Vérification de types : le build Army type-checke `.e2e/army/tsconfig.json`,
-qui n'inclut que `src/**`, `next-env.d.ts` et les types générés par Next. Les
-parcours `e2e/**` ne sont donc vérifiés par aucun run Army actuel, qualifiant
-ou non ; `npm run typecheck` (dans `verify:pr`) les couvre. Ne pas reconstruire
+qui n'inclut que `src/**`, `next-env.d.ts` et les types générés par Next, sans
+les fichiers Vitest `src/**/*.test.ts(x)` : un test rouge d'abord, qui importe
+un module pas encore écrit, ne casse plus le build de chaque run Army. Les
+parcours `e2e/**` et ces fichiers Vitest ne sont donc vérifiés par aucun run
+Army actuel, qualifiant ou non ; `npm run typecheck` (dans `verify:pr`) les
+couvre. Ne pas reconstruire
 pour une modification de parcours ne retire aucun contrôle, et la boucle ne
 lance pas de `tsc` supplémentaire. `src/test/army-dev-loop.test.ts` échoue si ce
 tsconfig inclut un jour une source hors de l'empreinte.
