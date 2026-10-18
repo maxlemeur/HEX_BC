@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { mkdir, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,6 +42,20 @@ export async function buildSourceEvidence() {
     catch (error) { if (error.code === "ENOENT") return { path: file, missing: true }; throw error; }
   }));
   return { revision: git(["rev-parse", "HEAD"]).trim(), diffSha256: sha256(git(["diff", "HEAD", "--binary"], "buffer")), inputs };
+}
+
+/**
+ * Untracked, non-ignored journey, support and TesterArmy config files (e2e/**,
+ * e2e*.config.ts), with their digests: the part of a run's source identity
+ * that the revision and diffSha256 (tracked changes only) leave out. Kept out
+ * of buildSourceEvidence, which is also the application build identity.
+ */
+export function untrackedJourneyInputs(root = repositoryRoot) {
+  const result = spawnSync("git", ["-c", `safe.directory=${root}`, "ls-files", "--others", "--exclude-standard", "-z", "--", "e2e", "e2e*.config.ts"],
+    { cwd: root, env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" }, encoding: "utf8", windowsHide: true, maxBuffer: 32 * 1024 * 1024 });
+  requireValue(result.status === 0, "Read-only Git source evidence is unavailable.");
+  return [...new Set(result.stdout.split("\0").filter(Boolean))].sort()
+    .map((file) => ({ path: file, sha256: sha256(readFileSync(path.join(root, file))) }));
 }
 
 export function requireValue(condition, message) {

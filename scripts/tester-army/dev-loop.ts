@@ -14,7 +14,7 @@ import {
   proveLoopClosed, readBuildId, readBuildManifest, readLoopState, removeOwnedTemporaryDirectory, sha256,
   stackInputsDigest, SUPABASE_PROJECT_PREFIX, SUPABASE_STACK_REGISTRY, supervisorModulesDigest, writeLoopState,
 } from "./dev-loop-state";
-import { buildSourceEvidence } from "./local-recipe-common.mjs";
+import { buildSourceEvidence, untrackedJourneyInputs } from "./local-recipe-common.mjs";
 
 // Opt-in iteration loop for TesterArmy journeys (docs/testing/tester-army-local-development.md).
 // `start` launches `run-tester-army-ci.ts dev-loop` detached: one owned native
@@ -188,7 +188,7 @@ export async function runDevLoopSession(input: DevLoopSessionInput) {
       const decision = decideRebuild({
         built: build, appSourceSha256, buildIdOnDisk: readBuildId(input.root), buildManifestIntact: readBuildManifest(input.root, build) !== null,
       });
-      manifest.source = { revision: source.revision, diffSha256: source.diffSha256, appSourceSha256 };
+      manifest.source = { revision: source.revision, diffSha256: source.diffSha256, appSourceSha256, untrackedJourneyInputs: untrackedJourneyInputs() };
       manifest.build = { rebuilt: decision.rebuild, reason: decision.reason, previousBuildId: build.buildId };
       timings.sourceCheckSeconds = secondsSince(started);
       notify(`Iteration ${index}: ${decision.rebuild ? "rebuilding" : "no rebuild"}, ${decision.reason}.`);
