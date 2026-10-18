@@ -7,9 +7,11 @@
 --   bump that M6b replays in one pass would update it once per item. The other replayed effects (audit, coverage,
 --   depth) write the same rows either way: only the opt-in budget sees them come back;
 -- - the v3 settings save (c_FO 1,3 -> 2) rewrites all 900 priced lines, so the budget measures a real repricing;
--- - sub-lot 2.8b (L7): a 100-operation copy into the 1 021-item v3 (commit_estimate_batch) commits and updates none of
---   the lines already stored. Before 20261018160000 the v3 projection rewrote every line of the version, each no-op
---   update firing the per-line revision bump and audit (4,1 s locally, the IO13 timeout in CI).
+-- - sub-lot 2.8b (L7): a 1 000-operation copy (the cap of a copy into a v3, each line with its import provenance) into
+--   an 8-item and into the 1 021-item v3 (commit_estimate_batch) commits, its receipt (which does not echo the
+--   provenance) under 2 Mio, and updates none of the lines already stored. Before 20261018160000 the v3
+--   projection rewrote every line of the version, each no-op update firing the per-line revision bump and audit
+--   (4,1 s for 100 operations locally, the IO13 timeout in CI), and the receipt went over 2 Mio with the provenance.
 begin;
 
 create extension if not exists pgtap with schema extensions;
@@ -18,7 +20,7 @@ select plan(7);
 
 \ir ../fixtures/large-v3-estimate.sql
 select pg_temp.lb29_run(1);
-select pg_temp.lb29_copy_run(1, array[100]);
+select pg_temp.lb29_copy_run(1, array[1000]);
 select * from pg_temp.lb29_diag();
 select * from pg_temp.lb29_copy_report();
 
@@ -52,7 +54,7 @@ select is(
 select is(
   (select string_agg(target || ' ' || outcome, ', ' order by target) from lb29_copy_sample),
   'large ok, small ok',
-  'a 100-operation copy into a v3 commits in one batch, into an 8-item and into a 1 021-item version'
+  'a 1 000-operation copy into a v3 commits in one batch, into an 8-item and into a 1 021-item version'
 );
 
 select is(

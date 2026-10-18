@@ -17,7 +17,10 @@ insert into public.estimate_projects (id, tenant_id, user_id, name) values
 select public.set_tenant_calc_policy(current_setting('test.tenant_id')::uuid, 3::smallint, 1.3, 1.2, array[2000],
   'LB29 v3', '29200000-0000-4000-8000-000000000001');
 
-create temporary table lb29_budget as select 330::numeric as budget_ms, clock_timestamp() as started_at;
+-- copy_budget_ms (2.8b, L7): owner exception of 18/10/2026 to the 330 ms rule for a copy into a v3, « on accepte
+-- jusqu'à 3,5 s pour 1 000 lignes » (docs/testing/large-estimate-statement-budget.md, « Copy into a v3 »).
+create temporary table lb29_budget as select 330::numeric as budget_ms, 3500::numeric as copy_budget_ms,
+  clock_timestamp() as started_at;
 -- updates: estimate_versions rows updated by a creation, estimate_items rows updated by a settings save.
 create temporary table lb29_sample (operation text, run integer, outcome text, duration_ms numeric, updates bigint);
 create temporary table lb29_payload (operation text, run integer, items jsonb, totals jsonb);
@@ -371,6 +374,6 @@ create function pg_temp.lb29_copy_report() returns setof text language sql as $$
   select diag(format('copy of %s operations into the %s target: median %s ms over %s runs (%s), receipt %s bytes, '
       || '%s line updates, budget %s ms', size, target, pg_temp.lb29_copy_median(target, size), count(*),
     string_agg(case when outcome = 'ok' then duration_ms::text else outcome end, ' ' order by run),
-    max(receipt_bytes), max(updates), (select budget_ms from lb29_budget)))
+    max(receipt_bytes), max(updates), (select copy_budget_ms from lb29_budget)))
   from lb29_copy_sample group by target, size order by size, target
 $$;
