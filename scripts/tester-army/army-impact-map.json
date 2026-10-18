@@ -24,6 +24,7 @@
       "e2e/army/critical/prehydration-auth.e2e.ts",
       "e2e/army/critical/stale-save.e2e.ts",
       "e2e/army/critical/team-a-hub.e2e.ts",
+      "e2e/army/local/engine-v3-default.e2e.ts",
       "e2e/army/local/engine-v3-editor-actions.e2e.ts",
       "e2e/army/local/engine-v3-editor.e2e.ts",
       "e2e/army/local/engine-v3-fail-closed.e2e.ts",
@@ -179,6 +180,7 @@
     "editor": [
       "@wizard",
       "e2e/army/critical/team-a-hub.e2e.ts",
+      "e2e/army/local/engine-v3-default.e2e.ts",
       "e2e/army/local/engine-v3-editor-actions.e2e.ts",
       "e2e/army/local/engine-v3-editor.e2e.ts",
       "e2e/army/local/engine-v3-fail-closed.e2e.ts",
@@ -189,6 +191,7 @@
     "affaires-list": [
       "e2e/army/critical/dashboard-ux.e2e.ts",
       "e2e/army/critical/team-a-hub.e2e.ts",
+      "e2e/army/local/engine-v3-default.e2e.ts",
       "e2e/army/local/engine-v3-editor-actions.e2e.ts",
       "e2e/army/local/engine-v3-editor.e2e.ts",
       "e2e/army/local/engine-v3-fail-closed.e2e.ts",
@@ -343,7 +346,7 @@
       "id": "estimate-detail",
       "note": "Fiche de version : seuls les parcours du moteur 3 l’ouvrent (bandeau de lecture de 2.1, brouillon v3 de 2.6).",
       "paths": ["src/app/dashboard/estimates/[versionId]/page.tsx"],
-      "journeys": ["e2e/army/local/engine-v3-editor-actions.e2e.ts", "e2e/army/local/engine-v3-editor.e2e.ts", "e2e/army/local/engine-v3-fail-closed.e2e.ts"]
+      "journeys": ["e2e/army/local/engine-v3-default.e2e.ts", "e2e/army/local/engine-v3-editor-actions.e2e.ts", "e2e/army/local/engine-v3-editor.e2e.ts", "e2e/army/local/engine-v3-fail-closed.e2e.ts"]
     },
     {
       "id": "estimates-boundaries",
