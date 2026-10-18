@@ -1,7 +1,7 @@
 import { EstimateEditorPage } from "@/components/estimates/editor/EstimateEditorPage";
 import { EstimateEngineUnavailableNotice } from "@/components/estimates/EstimateEngineUnavailableNotice";
 import type { SettingsSection } from "@/components/estimates/EstimateSettingsSummaryBar";
-import { resolveCalcEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
+import { resolveEstimateEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type EditEstimateRoutePageProps = {
@@ -10,10 +10,10 @@ type EditEstimateRoutePageProps = {
 };
 
 /**
- * Lot 2, sous-lot 2.1 : l'éditeur ne sait calculer qu'en moteur 1 ou 2. Une version au moteur 3
- * est remplacée par le bandeau du moteur avant tout chargement de l'éditeur (ni verrou, ni
- * normalisation, ni sauvegarde). Une lecture en échec laisse l'éditeur signaler sa propre erreur ;
- * son chargement refuse lui aussi une v3 par son nom.
+ * Lot 2, sous-lot 2.1, puis 2.6 : l'éditeur calcule en moteur 1, 2 ou 3 (la v3 délègue au moteur
+ * pur et à ses écrivains). Seul un moteur inconnu (au-delà de 3) est remplacé par le bandeau avant
+ * tout chargement de l'éditeur (ni verrou, ni normalisation, ni sauvegarde). Une lecture en échec
+ * laisse l'éditeur signaler sa propre erreur.
  */
 async function readEngineUnavailableVersion(versionId: string) {
   try {
@@ -23,7 +23,7 @@ async function readEngineUnavailableVersion(versionId: string) {
       .select("version_number, project_id, calc_engine_version, estimate_projects ( name )")
       .eq("id", versionId)
       .maybeSingle();
-    if (!data || resolveCalcEngineVersionForDisplay(data) !== null) return null;
+    if (!data || resolveEstimateEngineVersionForDisplay(data) !== null) return null;
     const project = Array.isArray(data.estimate_projects) ? data.estimate_projects[0] : data.estimate_projects;
     return { versionNumber: data.version_number, projectId: data.project_id, projectName: project?.name ?? null };
   } catch {

@@ -52,6 +52,7 @@ import {
   type SupportedEstimateCurrency,
 } from "@/lib/money";
 import { getEstimateEditorItemClientKey } from "@/lib/estimates/editor-items";
+import { useEstimateV3Line } from "@/components/estimates/v3/V3LineCells";
 import {
   type TreeConnectorMeta,
 } from "@/lib/estimates/tree-connectors";
@@ -274,6 +275,8 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
   onOpenMobileEditor,
 }: EstimateEditorRowProps) {
   const navigation = useEstimateSpreadsheetNavigation();
+  // Lot 2, sous-lot 2.6 : sur une v3, le PT affiché est le brut ⌈Q × PU⌋ du moteur (D7).
+  const v3Line = useEstimateV3Line(item.id);
   const {
     onDeleteItem,
     onOpenArticle,
@@ -653,7 +656,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
       isPendingCreate={isPendingCreate}
       isHighlighted={isHighlighted}
       isSearchMatch={isSearchMatch}
-      lineTotal={item.line_total_ht_cents ?? 0}
+      lineTotal={v3Line ? v3Line.gross_ht_cents : (item.line_total_ht_cents ?? 0)}
       kFoValue={item.k_fo ?? 1}
       hMoValue={item.h_mo ?? 0}
       hMoMajorationPercent={hMoMajorationPercent}

@@ -18,6 +18,7 @@ import {
   fetchCatalogueSuggestions,
 } from "@/components/estimates/components/estimate-editor-row/shared";
 import { type SpreadsheetEditorProps } from "@/hooks/useSpreadsheetNavigation";
+import { useEstimateV3Grid } from "@/components/estimates/v3/V3LineCells";
 import { areSupplierUnitsCompatible } from "@/lib/estimates/supplier-offer-eligibility";
 import { alternativePriceForLineUnit } from "@/lib/estimates/supplier-offer-purchase-unit";
 
@@ -40,6 +41,7 @@ export function useCatalogueSuggestions({
   titleEditorProps,
   onPatchItem,
 }: UseCatalogueSuggestionsOptions) {
+  const isV3 = useEstimateV3Grid() !== null;
   const [isTitleFocused, setIsTitleFocused] = useState(false);
   const [catalogueSuggestions, setCatalogueSuggestions] = useState<
     CataloguePriceSuggestion[]
@@ -167,21 +169,25 @@ export function useCatalogueSuggestions({
       const selectedSupplierPriceId =
         alternative?.supplier_price_id ?? suggestion.supplier_price_id;
       const selectedDescription = suggestion.product_designation.trim();
+      // The line unit lives in `description` (v1/v2) or in the referential `unit_code` (v3, sub-lot
+      // 2.6, F26-10). Keep it; on v1/v2 fill it from the chosen offer only when the line has none
+      // (sub-lot 2.2: the designation was written there before), and never price a line with an
+      // offer in another unit. A v3 line unit is never replaced by a suggestion.
+      const lineUnit = isV3 ? item.unit_code : item.description;
       // 2.9: a converted offer prices a line in metres per metre, a line in bars per bar.
-      const linePrice = alternativePriceForLineUnit(alternative ?? suggestion, item.description);
-
-      // The line unit lives in `description`. Keep it; fill it from the chosen offer only when
-      // the line has none (sub-lot 2.2: the designation was written there before), and never
-      // price a line with an offer in another unit.
+      const linePrice = alternativePriceForLineUnit(alternative ?? suggestion, lineUnit);
       const suggestedUnit = linePrice.unit?.trim() ?? "";
-      if (selectedSupplierPriceId && !areSupplierUnitsCompatible(item.description, suggestedUnit)) {
-        setCatalogueError(`Unité différente du devis : offre en ${suggestedUnit}, ligne en ${item.description?.trim()}.`);
+      // On a v3 line every suggested price is judged in unit_code, a product reference price without
+      // any offer as well (F26-26, Codex review of PR #44). v1/v2 judge an offer only: their unit is
+      // free text in `description`, which may still hold a designation (sub-lot 2.2).
+      if ((isV3 || selectedSupplierPriceId) && !areSupplierUnitsCompatible(lineUnit, suggestedUnit)) {
+        setCatalogueError(`Unité différente du devis : offre en ${suggestedUnit}, ligne en ${lineUnit?.trim()}.`);
         return;
       }
       const patch: ItemPatch = {
         product_id: suggestion.product_id,
         title: selectedDescription,
-        ...(!item.description?.trim() && suggestedUnit ? { description: suggestedUnit } : {}),
+        ...(!isV3 && !item.description?.trim() && suggestedUnit ? { description: suggestedUnit } : {}),
         unit_price_ht_cents: linePrice.priceCents,
         selected_supplier_price_id: selectedSupplierPriceId,
       };
@@ -189,7 +195,7 @@ export function useCatalogueSuggestions({
       onPatchItem(item.id, patch, { persist: true });
       setIsTitleFocused(false);
     },
-    [isReadOnly, item.description, item.id, item.item_type, onPatchItem]
+    [isReadOnly, isV3, item.description, item.id, item.item_type, item.unit_code, onPatchItem]
   );
 
   const handleLineTitleFocus = useCallback(

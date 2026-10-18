@@ -24,6 +24,8 @@
       "e2e/army/critical/prehydration-auth.e2e.ts",
       "e2e/army/critical/stale-save.e2e.ts",
       "e2e/army/critical/team-a-hub.e2e.ts",
+      "e2e/army/local/engine-v3-editor-actions.e2e.ts",
+      "e2e/army/local/engine-v3-editor.e2e.ts",
       "e2e/army/local/engine-v3-fail-closed.e2e.ts",
       "e2e/army/local/engine-v3-persistence.e2e.ts",
       "e2e/army/local/estimate-create-calculation-gate.e2e.ts",
@@ -163,6 +165,8 @@
     "editor": [
       "@wizard",
       "e2e/army/critical/team-a-hub.e2e.ts",
+      "e2e/army/local/engine-v3-editor-actions.e2e.ts",
+      "e2e/army/local/engine-v3-editor.e2e.ts",
       "e2e/army/local/engine-v3-fail-closed.e2e.ts",
       "e2e/army/local/engine-v3-persistence.e2e.ts",
       "e2e/army/local/tech-debt-lock-boundaries.e2e.ts"
@@ -170,6 +174,8 @@
     "affaires-list": [
       "e2e/army/critical/dashboard-ux.e2e.ts",
       "e2e/army/critical/team-a-hub.e2e.ts",
+      "e2e/army/local/engine-v3-editor-actions.e2e.ts",
+      "e2e/army/local/engine-v3-editor.e2e.ts",
       "e2e/army/local/engine-v3-fail-closed.e2e.ts",
       "e2e/army/local/engine-v3-persistence.e2e.ts",
       "e2e/army/local/estimate-create-calculation-gate.e2e.ts",
@@ -197,7 +203,8 @@
     ],
     "print": [
       "e2e/army/critical/commercial-rounding.e2e.ts",
-      "e2e/army/critical/estimate-integrity.e2e.ts"
+      "e2e/army/critical/estimate-integrity.e2e.ts",
+      "e2e/army/local/engine-v3-editor.e2e.ts"
     ]
   },
   "rules": [
@@ -284,9 +291,9 @@
     },
     {
       "id": "estimate-detail",
-      "note": "Fiche de version : seul le parcours du moteur 3 fermé par défaut l’ouvre (bandeau de lecture).",
+      "note": "Fiche de version : seuls les parcours du moteur 3 l’ouvrent (bandeau de lecture de 2.1, brouillon v3 de 2.6).",
       "paths": ["src/app/dashboard/estimates/[versionId]/page.tsx"],
-      "journeys": ["e2e/army/local/engine-v3-fail-closed.e2e.ts"]
+      "journeys": ["e2e/army/local/engine-v3-editor-actions.e2e.ts", "e2e/army/local/engine-v3-editor.e2e.ts", "e2e/army/local/engine-v3-fail-closed.e2e.ts"]
     },
     {
       "id": "estimates-boundaries",

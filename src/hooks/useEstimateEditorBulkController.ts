@@ -15,6 +15,7 @@ import {
   type EstimateVersionRow,
 } from "@/lib/estimates/editor-items";
 import { toFiniteNumber } from "@/lib/estimates/editor-values";
+import type { EstimateV3EditorWriter } from "@/lib/estimates/v3-editor-writer";
 import { buildSiblingOrderByParent } from "@/app/dashboard/estimates/[versionId]/edit/utils/item-tree";
 
 type RecreatedItems = {
@@ -23,12 +24,14 @@ type RecreatedItems = {
 };
 
 // A move is only saved with its placement; the line payload alone omits it.
-function buildPlacedLineUpdatePayload(line: EstimateItem): EstimateItemUpdatePayload {
-  return {
-    ...buildEstimateItemUpdatePayload(line),
+function withPlacement(
+  buildLine: (line: EstimateItem) => EstimateItemUpdatePayload
+): (line: EstimateItem) => EstimateItemUpdatePayload {
+  return (line) => ({
+    ...buildLine(line),
     parent_id: line.parent_id ?? null,
     position: line.position,
-  };
+  });
 }
 
 type EstimateEditorBulkControllerInput = {
@@ -42,7 +45,7 @@ type EstimateEditorBulkControllerInput = {
   reportError: (message: string | null) => void;
   resolveErrorMessage: (message: string) => string;
   normalizeLine: (item: EditorEstimateItem) => EditorEstimateItem;
-  applyVersionToken: (updatedAt: string) => void;
+  applyVersionToken: (updatedAt: string, contentRevision?: number) => void;
   markItemsSynced: (
     entries: ReadonlyArray<{ id: string; updates: EstimateItemUpdatePayload }>
   ) => void;
@@ -64,6 +67,11 @@ type EstimateEditorBulkControllerInput = {
     isCurrentScope?: () => boolean
   ) => Promise<void>;
   reloadItems: () => Promise<void>;
+  /**
+   * Lot 2, sous-lot 2.6 (revue, F26-22) : sur une v3, les lignes modifiées, déplacées ou supprimées en lot partent
+   * par l'écrivain de lot (saisies seulement, recalcul et vérification D12) ; absent en v1/v2 (chemins historiques).
+   */
+  v3Writer?: EstimateV3EditorWriter;
 };
 
 export function useEstimateEditorBulkController({
@@ -86,13 +94,16 @@ export function useEstimateEditorBulkController({
   recreateItemsFromSnapshots,
   applySiblingOrder,
   reloadItems,
+  v3Writer,
 }: EstimateEditorBulkControllerInput) {
+  const buildLineUpdate = v3Writer?.buildUpdatePayload ?? buildEstimateItemUpdatePayload;
+  const buildPlacedLineUpdatePayload = useMemo(() => withPlacement(buildLineUpdate), [buildLineUpdate]);
   const applyBulkLineState = useCallback(
     async (
       targetLines: EstimateItem[],
       failureMessage: string,
       isCurrentScope: () => boolean = () => true,
-      buildUpdate: (line: EstimateItem) => EstimateItemUpdatePayload = buildEstimateItemUpdatePayload
+      buildUpdate: (line: EstimateItem) => EstimateItemUpdatePayload = buildLineUpdate
     ) => {
       const snapshot = getItemsSnapshot();
       const versionSnapshot = getVersionSnapshot();
@@ -113,18 +124,23 @@ export function useEstimateEditorBulkController({
       }));
 
       try {
-        const bulkResult = await bulkUpdateEstimateItems(
-          targetVersionId,
-          versionSnapshot.updated_at,
-          updates
-        );
+        const bulkResult = v3Writer
+          ? { versionToken: await v3Writer.updateItems(targetVersionId, versionSnapshot.updated_at, updates) }
+          : await bulkUpdateEstimateItems(
+              targetVersionId,
+              versionSnapshot.updated_at,
+              updates
+            );
         if (
           getVersionSnapshot()?.id !== targetVersionId ||
           !isCurrentScope()
         ) {
           return false;
         }
-        applyVersionToken(bulkResult.versionToken.updated_at);
+        applyVersionToken(
+          bulkResult.versionToken.updated_at,
+          v3Writer ? bulkResult.versionToken.content_revision : undefined
+        );
         // Without a fresh baseline, an edit back to the previous value is dropped.
         markItemsSynced(updates);
         setTotalsOutOfSync(false);
@@ -149,6 +165,7 @@ export function useEstimateEditorBulkController({
     },
     [
       applyVersionToken,
+      buildLineUpdate,
       getItemsSnapshot,
       getVersionSnapshot,
       handleVersionConflict,
@@ -157,6 +174,7 @@ export function useEstimateEditorBulkController({
       resolveErrorMessage,
       setItems,
       setTotalsOutOfSync,
+      v3Writer,
     ]
   );
 
@@ -276,9 +294,15 @@ export function useEstimateEditorBulkController({
 
       let deletedCount = 0;
       try {
-        for (const line of selectedLines) {
-          await deleteEstimateItem(targetVersionId, line.id);
-          deletedCount += 1;
+        if (v3Writer) {
+          // v3 : un seul lot `delete`, atomique (aucune suppression partielle), recalculé et vérifié.
+          await v3Writer.deleteItems(targetVersionId, versionSnapshot.updated_at, selectedLines.map((line) => line.id));
+          deletedCount = selectedLines.length;
+        } else {
+          for (const line of selectedLines) {
+            await deleteEstimateItem(targetVersionId, line.id);
+            deletedCount += 1;
+          }
         }
         if (getVersionSnapshot()?.id !== targetVersionId) return;
         setTotalsOutOfSync(false);
@@ -330,8 +354,12 @@ export function useEstimateEditorBulkController({
               previous.filter((item) => !toDelete.has(item.id))
             );
             try {
-              for (const lineId of currentDeletedLineIds) {
-                await deleteEstimateItem(currentVersion.id, lineId);
+              if (v3Writer) {
+                await v3Writer.deleteItems(currentVersion.id, currentVersion.updated_at, currentDeletedLineIds);
+              } else {
+                for (const lineId of currentDeletedLineIds) {
+                  await deleteEstimateItem(currentVersion.id, lineId);
+                }
               }
               if (context && !context.isCurrentScope()) return;
               setTotalsOutOfSync(false);
@@ -386,6 +414,7 @@ export function useEstimateEditorBulkController({
       setItems,
       setTotalsOutOfSync,
       triggerVersionReload,
+      v3Writer,
     ]
   );
 
@@ -459,6 +488,7 @@ export function useEstimateEditorBulkController({
     },
     [
       applyBulkLineState,
+      buildPlacedLineUpdatePayload,
       getItemsSnapshot,
       getVersionSnapshot,
       guardBulkAction,
