@@ -138,6 +138,11 @@ export function computeEstimateQualityFlagsForItem(
   options?: EstimateQualityComputationOptions
 ): EstimateQualityFlagKey[] {
   if (item.item_type !== "line") return [];
+  // Lot 2, sous-lot 2.6b (G1) : une ligne v3 non chiffrée (incluse, pour mémoire, hors lot…) n'a aucun montant
+  // (P-09 : le moteur 3 l'exclut du HT et de la TVA) ; aucun contrôle de qualité ne s'y applique, pas même la
+  // quantité (46 des 79 lignes de statut du lot OPTIMA hydraulique n'en ont pas). Une ligne v1/v2 est toujours
+  // « priced » (déclencheur M4) : ses drapeaux ne changent pas.
+  if ((item.pricing_status ?? "priced") !== "priced") return [];
 
   const flags: EstimateQualityFlagKey[] = [];
   const quantity = parsePositiveNumber(item.quantity);
@@ -167,17 +172,14 @@ export function computeEstimateQualityFlagsForItem(
   const effectiveLaborHours = splitEnabled
     ? laborHoursAtelier + laborHoursChantier
     : laborHours;
-  // Lot 2, sous-lot 2.6b (G1) : une ligne v3 non chiffrée (incluse, pour mémoire, hors lot…) est à 0 € par son
-  // statut (P-09) ; ni prix ni temps n'y manquent. Une ligne v1/v2 est toujours « priced » (déclencheur M4).
-  const isPriced = (item.pricing_status ?? "priced") === "priced";
 
-  if (isPriced && expectsSupply && unitPriceHtCents <= 0) {
+  if (expectsSupply && unitPriceHtCents <= 0) {
     flags.push("missing_price");
   }
   if (quantity <= 0) {
     flags.push("missing_quantity");
   }
-  if (isPriced && expectsLabor && effectiveLaborHours <= 0) {
+  if (expectsLabor && effectiveLaborHours <= 0) {
     flags.push("missing_labor_time");
   }
   if (expectsLabor && !splitEnabled && laborHours > 0 && !laborRoleId) {

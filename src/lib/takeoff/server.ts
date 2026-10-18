@@ -419,6 +419,8 @@ const ESTIMATE_RISK_ITEMS_SELECT = [
   "id",
   "parent_id",
   "item_type",
+  // Lot 2, sous-lot 2.6b (G1) : une ligne v3 non chiffrée ne lève aucun drapeau de qualité (estimate-quality.ts).
+  "pricing_status",
   "title",
   "description",
   "quantity",
@@ -3253,6 +3255,7 @@ type EstimateRiskItemRow = {
   id: string;
   parent_id: string | null;
   item_type: string;
+  pricing_status: string | null;
   title: string;
   description: string | null;
   quantity: number | null;

@@ -299,6 +299,19 @@ export function resolveEstimateV3RuleUnit(raw: string): { ok: true; unitCode: st
   return { ok: true, unitCode: resolution.kind === "unit" ? resolution.unitCode : null };
 }
 
+/**
+ * Lot 2, sous-lot 2.6b (revue) : ligne de la liste mobile d'une v3. Une ligne non chiffrée affiche son statut ; une
+ * ligne chiffrée, son unité du référentiel ou « sans unité » (que le gel refuse), jamais l'unité « u » d'une v1/v2.
+ */
+export function resolveEstimateV3MobileLineMeta(item: Pick<EstimateItem, "pricing_status" | "unit_code">): {
+  unitValue: string; metaLabel: string | null;
+} {
+  const status = item.pricing_status ?? "priced";
+  if (status === "priced") return { unitValue: item.unit_code || "sans unité", metaLabel: null };
+  const label = ESTIMATE_V3_PRICING_STATUS_OPTIONS.find((option) => option.value === status)?.label ?? status;
+  return { unitValue: item.unit_code ?? "", metaLabel: label };
+}
+
 /* ---------- TVA (D8) ---------- */
 
 /** « 20 », « 5,5 », « 2,1 » : taux de TVA en pourcentage fr-FR. */

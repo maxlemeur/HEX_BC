@@ -40,7 +40,7 @@ import { useConfirm } from "@/components/feedback/confirm-provider";
 import type { SupplierComparisonAlternative } from "@/components/estimates/SupplierComparisonPanel";
 import type { CataloguePriceSuggestion } from "@/lib/estimates/catalogue-suggestions";
 import { alternativePriceForLineUnit } from "@/lib/estimates/supplier-offer-purchase-unit";
-import { resolveEstimateV3ArticleAssociation, resolveEstimateV3RuleUnit, resolveEstimateV3SuggestionUnitRefusal } from "@/lib/estimates/v3-editor";
+import { resolveEstimateV3ArticleAssociation, resolveEstimateV3MobileLineMeta, resolveEstimateV3RuleUnit, resolveEstimateV3SuggestionUnitRefusal } from "@/lib/estimates/v3-editor";
 import { useEstimateV3Grid, useEstimateV3UnitDrafts } from "@/components/estimates/v3/V3LineCells";
 import { EstimateEditorProvider } from "@/components/estimates/context/EstimateEditorContext";
 import {
@@ -2372,7 +2372,7 @@ export function EstimateEditorTable({
           item,
           depth,
           itemNumber: itemNumberById[item.id] ?? null,
-          unitValue: clipboardUnitDrafts[item.id] ?? "", // 2.6b (A13) : unit_code sur une v3
+          ...(v3Grid ? resolveEstimateV3MobileLineMeta(item) : { unitValue: mergedUnitDrafts[item.id] ?? "" }), // 2.6b : v3
           qualityFlags: qualityFlagsByItemId[item.id] ?? EMPTY_QUALITY_FLAGS,
           sectionTotalCents:
             item.item_type === "section"
@@ -2394,11 +2394,11 @@ export function EstimateEditorTable({
         };
       }),
     [
-      clipboardUnitDrafts,
       collapsedSectionIds,
       depthMap,
       getSectionTotals,
       itemNumberById,
+      mergedUnitDrafts, v3Grid,
       qualityFlagsByItemId,
       resolvedMaxSectionDepth,
       sectionLevelById,
