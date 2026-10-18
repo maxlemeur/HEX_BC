@@ -587,7 +587,7 @@ armyTest("V3E09 associating an article to a v3 line judges its offer in unit_cod
     });
   });
 
-armyTest("V3E10the VAT propagation question opens from every save path of the v3 settings: Ctrl+S and saving on close",
+armyTest("V3E10 the VAT propagation question opens from every save path of the v3 settings: Ctrl+S and saving on close",
   options(420_000), async ({ app, screen, browser, army }) => {
     const ui: Ui = { app, screen, browser };
     const dialogs = await recordDialogs(ui);
