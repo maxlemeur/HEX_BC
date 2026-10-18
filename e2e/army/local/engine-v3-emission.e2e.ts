@@ -58,6 +58,9 @@ import { admitCollectedResendDecision, allowOfferLifecycleTransition, offerTest,
 //  V3M-15 L'impression d'une v3 émise imprime l'identité vivante au lieu de la copie émise que couvre son sceau
 //         valide : « Émis par » est le profil du lecteur (un second administrateur du tenant), et le client, la
 //         référence, l'affaire et l'adresse du chantier sont ceux modifiés après l'émission.
+//  V3M-16 Le pied du portail d'une copie au contrat 2 avec remise met en bandeau « Total HT brut » au lieu de
+//         « Total HT net », ou ne fait pas ressortir « Total TTC », contrairement à l'emphase que porte
+//         buildEstimateV3FooterRows (HT net en bandeau, TTC en gras) et que suivent le PDF et l'impression.
 // V3M01, V3M03, V3M04, V3M05 et V3M06 s'exécutent dans la phase calc-v3 `emission-v3` (collecteur sentinelle, build
 // de production possédé, `next start`) ; V3M02, sans courriel, dans la campagne critique locale sur le
 // build de production. Chacun n'est défini que dans sa campagne : la phase calc-v3 exige son résultat
@@ -269,6 +272,28 @@ async function printIdentity(ui: Ui, versionId: string, emails: Record<string, s
   const mask = (line: string) => Object.entries(emails).find(([, email]) => line === email)?.[0]
     ?? (line.includes("@") ? "<autre adresse>" : line);
   return { ...read, issuer: read.issuer.map(mask) };
+}
+
+/**
+ * Lignes du pied d'un document affiché (V3M-16) : libellé, emphase portée (`data-emphasis`), bandeau (même fond
+ * que l'en-tête du tableau du document) et montant en gras (graisse d'au moins 600).
+ */
+async function footerRows(ui: Ui, scope: { root: string; rows: string }) {
+  return ui.browser.evaluate((selectors) => {
+    const root = Array.from(document.querySelectorAll(selectors.root)).find((node) => node.getClientRects().length > 0);
+    const transparent = "rgba(0, 0, 0, 0)";
+    const head = [root?.querySelector("thead"), root?.querySelector("thead tr")]
+      .map((node) => (node ? getComputedStyle(node).backgroundColor : transparent)).find((color) => color !== transparent) ?? null;
+    return Array.from(root?.querySelectorAll(selectors.rows) ?? []).map((row) => {
+      const amount = row.querySelector("dd");
+      return {
+        label: (row.querySelector("dt")?.textContent ?? "").replace(/[\s  ]+/g, " ").trim(),
+        emphasis: row.getAttribute("data-emphasis"),
+        banner: head !== null && getComputedStyle(row).backgroundColor === head,
+        strong: amount !== null && Number(getComputedStyle(amount).fontWeight) >= 600,
+      };
+    });
+  }, scope);
 }
 
 if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE === "emission-v3") {
@@ -621,7 +646,8 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
 
   // V3M-15 : l'identité imprimée d'une v3 émise est celle de sa copie au contrat 2, relevée trois fois : par le
   // propriétaire à l'émission, après la modification de l'affaire, puis par le second administrateur du tenant.
-  offerTest("V3M06 a sent v3 prints the identity of its issued copy, not the affaire changed after emission nor the profile of a second admin who opens it, with its valid seal",
+  // V3M-16 : le pied de son portail porte l'emphase du pied v3, comme l'impression.
+  offerTest("V3M06 a sent v3 prints the identity of its issued copy, not the affaire changed after emission nor the profile of a second admin who opens it, with its valid seal, and its portal footer emphasises the net HT and the TTC as the print does",
     { session: "army", trace: "off", tags: ["engine-v3", "offer-emission"], timeout: 600_000 }, async (ui) => {
       const { app, screen, browser, army } = ui;
       const fixture = emissionFixture();
@@ -633,7 +659,7 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
       const ids = await createV3(browser, army, record, "V3M06");
       await settleV3(browser, army, record, "V3M06", ids, S2, fixture.owner.laborRoleId);
       await generatePdf(browser, record, "pdf", ids.versionId);
-      await sendOffer(ui, record, "send", ids.versionId);
+      const sent = await sendOffer(ui, record, "send", ids.versionId);
       const issued = await readEstimate(browser, ids.versionId);
       const verified = await verifySeal(browser, ids.versionId);
       await record("issued", { versionId: ids.versionId, status: issued.version.status, marker: issued.version.seal_payload_version, verified });
@@ -677,6 +703,24 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
       await record("print-identity", { versionId: ids.versionId, changed, viewer: fixture.viewer.displayName, expected: expectedPrints, actual: prints });
       expect(atEmission.devis).toContain("Version : V1");
       expect(prints).toEqual(expectedPrints);
+
+      // V3M-16 : buildEstimateV3FooterRows met « Total HT net » en bandeau et « Total TTC » en gras ; « Total HT brut »,
+      // la remise et la TVA restent des lignes de détail. L'impression (EstimateDocumentTotalsV3) suit déjà cette emphase.
+      const footer = [
+        { label: "Total HT brut", emphasis: "detail", banner: false, strong: false },
+        { label: "Remise commerciale", emphasis: "detail", banner: false, strong: false },
+        { label: "Total HT net", emphasis: "net", banner: true, strong: true },
+        { label: "TVA 20 % sur 69 053,55 €", emphasis: "detail", banner: false, strong: false },
+        { label: "Total TTC", emphasis: "payable", banner: false, strong: true },
+      ];
+      await printIdentity(ui, ids.versionId, emails);
+      const printFooter = await footerRows(ui, { root: ".estimate-document", rows: "[data-testid=\"estimate-v3-document-totals\"] > div" });
+      await openCollectedPortal(ui, sent.portalUrl);
+      const portalFooter = await footerRows(ui, { root: "[role=\"region\"][aria-label=\"Document du devis\"]", rows: "dl > div" });
+      const footers = { print: printFooter, portal: portalFooter };
+      const expectedFooters = { print: footer.map((row) => ({ ...row, emphasis: null })), portal: footer };
+      await record("footer-emphasis", { versionId: ids.versionId, portalUrlSha256: digest(sent.portalUrl), expected: expectedFooters, actual: footers });
+      expect(footers).toEqual(expectedFooters);
     });
 }
 
