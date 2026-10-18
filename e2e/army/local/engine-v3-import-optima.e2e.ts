@@ -730,13 +730,23 @@ armyTest("IO10 the linked DPGF imported into a v3 draft keeps units and statuses
         { designation: `${army.runPrefix} provision`, unit: "PM", quantity: "1" },
         { designation: `${army.runPrefix} hors lot`, unit: "HL", quantity: "1" },
       ]);
-      await retakeLease(browser, versionId);
-      const imported = await apiRequest<Envelope<{ createdSectionId: string; importedLinesCount: number }>>(browser, "POST",
-        `/api/estimates/${versionId}/import-linked-dpgf`, {});
-      await recordEvidence(army, "io-linked-dpgf", { versionId, status: imported.status, body: imported.body });
-      expect([imported.status, imported.body.ok, imported.body.error?.code ?? null]).toEqual([201, true, null]);
+      // The editor's own action (toolbar « Importer le DPGF source »), as a user reaches it on a v3 draft.
+      const released = await apiRequest(browser, "DELETE", `/api/estimates/${versionId}/lock`);
+      expect(released.status).toBe(200);
+      await app.open(`/dashboard/estimates/${versionId}/edit`);
+      await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible({ timeout: 60_000 });
+      const firstSectionId = before.items.find((item) => item.item_type === "section" && item.parent_id === null)!.id;
+      await expect(browser.locator(`[data-estimate-item-id="${firstSectionId}"] [data-testid="estimate-section-title-input"]`))
+        .toBeEnabled({ timeout: 150_000 });
+      await screen.getByTestId("estimate-page-toolbar-more-actions-button").tap();
+      const importButton = screen.getByTestId("estimate-page-toolbar-import-dpgf-source-button");
+      await expect(importButton).toBeEnabled({ timeout: 30_000 });
+      await importButton.tap();
+      const summary = screen.getByText("4 lignes importées depuis le DPGF source.", { exact: true }).first();
+      await expect(summary).toBeVisible({ timeout: 60_000 });
       const after = await readEstimate(browser, versionId);
-      const section = after.items.find((item) => item.id === imported.body.data.createdSectionId);
+      const section = after.items.find((item) => item.item_type === "section" && field(item, "source_provider") === "dpgf");
+      await recordEvidence(army, "io-linked-dpgf", { versionId, summary: await summary.textContent(), sectionId: section?.id ?? null });
       const lines = section ? subtreeLines(after, section.id) : [];
       const observed = {
         engine: after.version.calc_engine_version,
@@ -821,12 +831,29 @@ armyTest("IO11 a v3 section is duplicated in place and to another v3 with the sa
       const sourceShape = subtreeShape(source, sectionId);
       type Duplicated = { duplicated_section_id: string; copied_item_count: number; converted_lines?: CopyReport[] };
 
-      const inPlace = await apiRequest<Envelope<Duplicated>>(browser, "POST",
-        `/api/estimates/${versionId}/sections/${sectionId}/duplicate`, {});
-      await recordEvidence(army, "io-duplicate-in-place", { versionId, status: inPlace.status, body: inPlace.body });
-      expect([inPlace.status, inPlace.body.ok, inPlace.body.error?.code ?? null]).toEqual([201, true, null]);
+      // In place through the editor's section menu (« Dupliquer la section »), as a user reaches it.
+      const released = await apiRequest(browser, "DELETE", `/api/estimates/${versionId}/lock`);
+      expect(released.status).toBe(200);
+      await app.open(`/dashboard/estimates/${versionId}/edit`);
+      await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible({ timeout: 60_000 });
+      await expect(browser.locator(`[data-estimate-item-id="${sectionId}"] [data-testid="estimate-section-title-input"]`))
+        .toBeEnabled({ timeout: 150_000 });
+      await browser.evaluate((id) => {
+        const row = document.querySelector(`[data-estimate-item-id="${id}"]`);
+        if (!(row instanceof HTMLElement)) throw new Error("Section row missing.");
+        const box = row.getBoundingClientRect();
+        row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: box.left + 40, clientY: box.top + 10 }));
+        return true;
+      }, sectionId);
+      const duplicateButton = browser.locator('[data-testid="estimate-section-context-duplicate-button"]');
+      await expect(duplicateButton).toBeEnabled();
+      await duplicateButton.click();
+      const copyTitle = "duplication lot (copie)";
+      await expect.poll(async () => (await readEstimate(browser, versionId)).items.some((item) => item.title === copyTitle),
+        { timeout: 60_000, interval: 500 }).toBe(true);
       const afterInPlace = await readEstimate(browser, versionId);
-      const copyId = inPlace.body.data.duplicated_section_id;
+      const copyId = afterInPlace.items.find((item) => item.title === copyTitle)!.id;
+      await recordEvidence(army, "io-duplicate-in-place", { versionId, copyId, items: afterInPlace.items.length });
 
       const otherId = await blankV3(ui, army, projectId, "duplication-b");
       await retakeLease(browser, otherId);
@@ -840,19 +867,20 @@ armyTest("IO11 a v3 section is duplicated in place and to another v3 with the sa
         inPlace: {
           title: afterInPlace.items.find((item) => item.id === copyId)?.title ?? null,
           shape: subtreeShape(afterInPlace, copyId),
-          count: inPlace.body.data.copied_item_count,
+          count: 1 + subtreeShape(afterInPlace, copyId).length,
           sourceUnchanged: JSON.stringify(subtreeShape(afterInPlace, sectionId)) === JSON.stringify(sourceShape),
           total: num(afterInPlace.version.total_ht_cents),
           sqlTotal: await storedTotalHtCents(versionId),
         },
-        toOther: { shape: subtreeShape(other, toOther.body.data.duplicated_section_id), total: num(other.version.total_ht_cents) },
+        toOther: { shape: subtreeShape(other, toOther.body.data.duplicated_section_id), total: num(other.version.total_ht_cents),
+          count: toOther.body.data.copied_item_count, converted: toOther.body.data.converted_lines ?? null },
       };
       await recordEvidence(army, "io-duplicate-observed", { versionId, otherId, sourceShape, sourceTotal: source.version.total_ht_cents, observed });
       const sourceTotal = num(source.version.total_ht_cents)!;
       expect(observed).toEqual({
         inPlace: { title: `duplication lot (copie)`, shape: sourceShape, count: 5, sourceUnchanged: true,
           total: sourceTotal * 2, sqlTotal: sourceTotal * 2 },
-        toOther: { shape: sourceShape, total: sourceTotal },
+        toOther: { shape: sourceShape, total: sourceTotal, count: 5, converted: [] },
       });
       // Tube: 10,00 € × 1,30 + 0,5 h/u × 40 €/h × 1,20 = 37,00 € × 10 ml ; coude: 2,50 € × 1,30 + 0,25 × 40 × 1,20 = 15,25 € × 4 u.
       expect(sourceTotal).toBe(37_000 + 6_100);
@@ -943,5 +971,70 @@ armyTest("IO12 line ↔ section conversion is disabled with its reason in a v3 e
       });
     } finally {
       await closePolicy(owner, army, "conversion");
+    }
+  });
+
+/** A v2 section of `count` lines written in SQL on the anchor (a v2: no v3 writer guard), for the batch limit. */
+async function seedLargeV2Section(owner: V3Owner, anchorId: string, count: number, position: number) {
+  if (!UUID.test(anchorId) || !Number.isSafeInteger(count) || count < 1 || count > 5000 || !Number.isSafeInteger(position)) throw new Error("Invalid large section input.");
+  const sectionId = randomUUID();
+  const output = await querySql(`BEGIN;
+INSERT INTO public.estimate_items (id, tenant_id, version_id, item_type, position, title)
+SELECT '${sectionId}'::uuid, v.tenant_id, v.id, 'section', ${position}, 'Lot volumineux ${count}'
+FROM public.estimate_versions v WHERE v.id = '${anchorId}'::uuid AND v.tenant_id = '${owner.tenantId}'::uuid;
+INSERT INTO public.estimate_items (tenant_id, version_id, parent_id, item_type, position, title, description,
+  quantity, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, h_mo_majoration, k_mo,
+  pu_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents)
+SELECT v.tenant_id, v.id, '${sectionId}'::uuid, 'line', g, 'Fourniture et pose de canalisation PVC 110 mm, ligne ' || g, 'u', 1, 100, 2000, 1, 0, 1, 1, 130, 130, 26, 156
+FROM public.estimate_versions v CROSS JOIN generate_series(1, ${count}) AS g
+WHERE v.id = '${anchorId}'::uuid AND EXISTS (SELECT 1 FROM public.estimate_items s WHERE s.id = '${sectionId}'::uuid);
+COMMIT;
+SELECT count(*) FROM public.estimate_items WHERE parent_id = '${sectionId}'::uuid;
+`);
+  if (output.at(-1) !== String(count)) throw new Error("The large v2 section was not persisted.");
+  return sectionId;
+}
+
+// C8 (2.8b) : une copie vers une v3 est un seul lot atomique de l'écrivain v3 ; au-delà de 1 000 opérations, refus
+// nommé qui renvoie vers l'import de l'affaire, jamais une écriture en plusieurs lots.
+armyTest("IO13 a section copy into a v3 is one atomic batch up to 1 000 operations and refused by name beyond it, pointing to the affaire import, nothing written", options,
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser };
+    const { owner, projectId, anchorId } = await prepareV3Owner(ui, army, "limite");
+    try {
+      const largeSectionId = await seedLargeV2Section(owner, anchorId, 1000, 900);
+      const boundarySectionId = await seedLargeV2Section(owner, anchorId, 999, 901);
+      const versionId = await blankV3(ui, army, projectId, "limite");
+      await retakeLease(browser, versionId);
+      const before = await readEstimate(browser, versionId);
+      const response = await apiRequest<Envelope<unknown>>(browser, "POST", `/api/estimates/${versionId}/import-sections`,
+        { source_version_id: anchorId, section_ids: [largeSectionId] });
+      const after = await readEstimate(browser, versionId);
+      const observed = {
+        response: [response.status, response.body.ok, response.body.error?.code ?? null],
+        pointsToAffaireImport: (response.body.error?.message ?? "").includes("depuis l’affaire"),
+        unchanged: after.items.length === before.items.length && after.version.updated_at === before.version.updated_at,
+      };
+      await recordEvidence(army, "io-copy-too-large", { versionId, anchorId, largeSectionId, message: response.body.error?.message, observed });
+      expect(observed).toEqual({ response: [413, false, "ESTIMATE_V3_COPY_TOO_LARGE"], pointsToAffaireImport: true, unchanged: true });
+
+      // At the limit (1 section + 999 lines = 1 000 operations): one atomic batch, every line, amounts of the writer.
+      type Imported = { created_section_ids: string[]; created_line_ids: string[] };
+      const atLimit = await apiRequest<Envelope<Imported>>(browser, "POST", `/api/estimates/${versionId}/import-sections`,
+        { source_version_id: anchorId, section_ids: [boundarySectionId] });
+      const copied = await readEstimate(browser, versionId);
+      const copiedLines = atLimit.body.data?.created_section_ids?.[0] ? subtreeLines(copied, atLimit.body.data.created_section_ids[0]) : [];
+      const boundary = {
+        response: [atLimit.status, atLimit.body.ok, atLimit.body.error?.code ?? null],
+        lines: copiedLines.length,
+        priced: copiedLines.filter((line) => num(line.line_total_ht_cents) === 130).length,
+        total: num(copied.version.total_ht_cents),
+        sqlTotal: await storedTotalHtCents(versionId),
+      };
+      await recordEvidence(army, "io-copy-at-limit", { versionId, boundarySectionId, boundary });
+      // 999 × (1,00 € × FO 1,30) = 1 298,70 € HT.
+      expect(boundary).toEqual({ response: [201, true, null], lines: 999, priced: 999, total: 129_870, sqlTotal: 129_870 });
+    } finally {
+      await closePolicy(owner, army, "limite");
     }
   });

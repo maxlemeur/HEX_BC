@@ -55,6 +55,8 @@ export type VersionAccessRow = Pick<
   | "total_tax_cents"
   | "total_ttc_cents"
   | "calc_engine_version"
+  | "sale_coefficient_fo"
+  | "sale_coefficient_mo"
   | "calc_snapshot_content_revision"
   | "calc_snapshot_context"
 > & {

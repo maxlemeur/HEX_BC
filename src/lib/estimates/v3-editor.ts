@@ -207,6 +207,13 @@ export function readEstimateV3LineMargin(line: EstimateV3LineResult | null): Est
 
 /* ---------- Association d'un article (revue de 2.6, F26-26, même contrat que F26-20) ---------- */
 
+/**
+ * Sous-lot 2.8b (A8, D-b) : la conversion ligne ↔ section n'a pas d'écrivain v3 ; désactivée avec ce motif dans
+ * l'éditeur, refusée par le même message côté serveur (`ESTIMATE_V3_ITEM_CONVERSION_UNAVAILABLE`).
+ */
+export const ESTIMATE_V3_ITEM_CONVERSION_REASON =
+  "Conversion ligne ↔ section indisponible sur un devis au moteur de calcul 3 : supprimez l’élément puis recréez-le.";
+
 /** Libellé du refus, celui de la comparaison fournisseurs et de la suggestion du catalogue. */
 export const ESTIMATE_V3_UNIT_MISMATCH_LABEL = "Unité différente du devis";
 

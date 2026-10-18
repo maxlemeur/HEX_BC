@@ -3,6 +3,8 @@
 import { type FocusEvent, type KeyboardEvent, useEffect, useState } from "react";
 
 import { normalizeAidInput } from "@/components/estimates/components/estimate-editor-row/shared";
+import { useEstimateV3Grid } from "@/components/estimates/v3/V3LineCells";
+import { ESTIMATE_V3_ITEM_CONVERSION_REASON } from "@/lib/estimates/v3-editor";
 
 type EstimateEditorTableLineContextMenuProps = {
   itemId: string;
@@ -39,6 +41,8 @@ export function EstimateEditorTableLineContextMenu({
   onAssociateArticle,
   onConvertToSection,
 }: EstimateEditorTableLineContextMenuProps) {
+  // Sous-lot 2.8b (A8, D-b) : pas de conversion ligne ↔ section sur une v3, motif nommé.
+  const isV3 = useEstimateV3Grid() !== null;
   const [aidDraft, setAidDraft] = useState(aid ?? "");
 
   useEffect(() => {
@@ -121,7 +125,8 @@ export function EstimateEditorTableLineContextMenu({
             className="estimate-supplier-comparison-context-menu__action"
             role="menuitem"
             onClick={() => onConvertToSection(itemId)}
-            disabled={isReadOnly || isItemConversionPending}
+            disabled={isReadOnly || isItemConversionPending || isV3}
+            title={isV3 ? ESTIMATE_V3_ITEM_CONVERSION_REASON : undefined}
           >
             Convertir en section
           </button>

@@ -4023,7 +4023,7 @@
           "Estimates"
         ],
         "summary": "Importer la source DPGF liee",
-        "description": "Importe la source DPGF canonique rattachee a l'affaire dans la version cible.",
+        "description": "Importe la source DPGF canonique rattachee a l'affaire dans la version cible. Moteur 3 (2.8b) : lignes normalisees pour le moteur 3 (unite du referentiel, statut a 0 EUR) aux coefficients de vente du brouillon, ecrites par l'ecrivain de lot v3 en un seul lot atomique ; au-dela de 1 000 elements, 413 ESTIMATE_V3_COPY_TOO_LARGE.",
         "parameters": [
           {
             "name": "versionId",
@@ -4126,7 +4126,7 @@
           "Estimates"
         ],
         "summary": "Importer des sections d'une autre version",
-        "description": "Copie une selection de sections dans la version cible en mode append ou merge.",
+        "description": "Copie une selection de sections dans la version cible en mode append ou merge. Cible moteur 3 (2.8b) : saisies v3 copiees depuis une v3, ou converties depuis une v1/v2 par la regle P-12 (h/u = h / Q au demi superieur, liste converted_lines) ; ecriture par l'ecrivain de lot v3 en un seul lot (413 ESTIMATE_V3_COPY_TOO_LARGE au-dela de 1 000 elements). Source v3 vers une cible v1/v2 : 409 ESTIMATE_V3_SECTION_COPY_TO_HISTORICAL, rien n'est ecrit.",
         "parameters": [
           {
             "name": "versionId",
@@ -4429,7 +4429,7 @@
           "Estimate Items"
         ],
         "summary": "Modifier un item",
-        "description": "Met a jour une ligne ou section existante.",
+        "description": "Met a jour une ligne ou section existante. Moteur 3 (2.8b) : la conversion ligne <-> section (item_type) est refusee, 409 ESTIMATE_V3_ITEM_CONVERSION_UNAVAILABLE, rien n'est ecrit.",
         "parameters": [
           {
             "name": "versionId",
@@ -6470,7 +6470,7 @@
           "Estimates"
         ],
         "summary": "Dupliquer une section de devis",
-        "description": "Duplique la section source dans une version cible optionnelle.",
+        "description": "Duplique la section source dans une version cible optionnelle. Cible moteur 3 (2.8b) : memes regles que l'import de sections (saisies v3 copiees, conversion P-12 depuis une v1/v2 avec converted_lines, un seul lot atomique). Section v3 vers une v1/v2 : 409 ESTIMATE_V3_SECTION_COPY_TO_HISTORICAL.",
         "parameters": [
           {
             "name": "versionId",

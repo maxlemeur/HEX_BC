@@ -49,6 +49,8 @@ export type ExecuteEstimateBatchOptions = {
   operationKey?: string;
   dryRun?: boolean;
   maxOperations?: number;
+  /** Server-side copies only (2.8b): identities of the created items, so that a child names a section created earlier in the batch. Never set by the HTTP batch API. */
+  createdIds?: Array<{ index: number; id: string }>;
 };
 
 export function resolveEstimateBatchMaxOperations(override?: number) {
@@ -217,7 +219,7 @@ export async function executeEstimateBatch(
   let prepared;
   try {
     prepared = await prepareEstimateBatch({ context, versionId, projectUserId: project.user_id,
-      expectedUpdatedAt: version.updated_at, operations });
+      expectedUpdatedAt: version.updated_at, operations, createdIds: options.createdIds });
   } catch (error) {
     if (!(error instanceof EstimateBatchPreparationError)) throw error;
     return { committed: false, version: initialVersion, results: [

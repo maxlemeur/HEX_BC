@@ -4487,7 +4487,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     method: "patch",
     path: "/api/estimates/{versionId}/items",
     summary: "Modifier un item",
-    description: "Met a jour une ligne ou section existante.",
+    description: "Met a jour une ligne ou section existante. Moteur 3 (2.8b) : la conversion ligne <-> section (item_type) est refusee, 409 ESTIMATE_V3_ITEM_CONVERSION_UNAVAILABLE, rien n'est ecrit.",
     tags: ["Estimate Items"],
     parameters: [versionIdPathParameter, ifMatchHeaderOptionalParameter],
     requestBody: updateEstimateItemBody,
