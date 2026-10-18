@@ -167,8 +167,20 @@ function createLatestMappingBuilder(mappingId: string | null) {
   return builder;
 }
 
-function createAbsentCalcPolicyBuilder() {
-  const builder = { select: vi.fn(), eq: vi.fn(), maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }) };
+/**
+ * Sous-lot 2.10b (D-i) : depuis la bascule (M8), une politique absente vaut le moteur 3 ; ces cas v2 tournent sous
+ * une ligne de politique 2 explicite, le retrait par entreprise.
+ */
+const EXPLICIT_POLICY_TWO = {
+  tenant_id: TENANT_ID,
+  new_estimate_calc_engine: 2,
+  default_sale_coefficient_fo: null,
+  default_sale_coefficient_mo: null,
+  allowed_tax_rates_bp: [2000, 1000, 550, 210],
+};
+
+function createExplicitPolicyTwoBuilder() {
+  const builder = { select: vi.fn(), eq: vi.fn(), maybeSingle: vi.fn().mockResolvedValue({ data: EXPLICIT_POLICY_TWO, error: null }) };
   builder.select.mockReturnValue(builder);
   builder.eq.mockReturnValue(builder);
   return builder;
@@ -225,8 +237,8 @@ function createSupabaseStub(input: {
       }),
     },
     from: vi.fn((table: string) => {
-      // Sous-lot 2.10a : politique de calcul absente (moteur 2), relue par chaque action de création.
-      if (table === "tenant_calc_policies") return createAbsentCalcPolicyBuilder();
+      // Sous-lot 2.10a : politique de calcul relue par chaque action de création ; politique 2 explicite (2.10b).
+      if (table === "tenant_calc_policies") return createExplicitPolicyTwoBuilder();
       const queue = tableQueues[table] ?? [];
       const builder = queue.shift();
       if (!builder) {
