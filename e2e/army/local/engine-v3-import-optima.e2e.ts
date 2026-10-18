@@ -1126,3 +1126,35 @@ armyTest("IO13 a section copy into a v3 is one atomic batch up to 100 operations
       await closePolicy(owner, army, "limite");
     }
   });
+
+// Revue 2.8b (Codex, P1) : une v3 créée depuis le DPGF lié lit la source par pages ; PostgREST s'arrête à
+// max_rows = 1000 et la création gardait en silence les 1 000 premières lignes d'une source plus longue.
+armyTest("IO14 a v3 created from a linked DPGF of 1 001 lines keeps every line", options,
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser };
+    const { owner, projectId } = await prepareV3Owner(ui, army, "dpgf-long");
+    try {
+      const filename = `${army.runPrefix}-dpgf-long.xlsx`;
+      const importId = await seedLinkedDpgf(owner, projectId, filename, Array.from({ length: 1001 }, (_, index) =>
+        ({ designation: `${army.runPrefix} ligne ${index + 1}`, unit: "u", quantity: "1", unit_price_ht: "1,00" })));
+      const created = await createVersion(browser, { creation_mode: "linked_dpgf_source", project_id: projectId,
+        version: { ...NEUTRAL_VERSION, title: `${army.runPrefix} dpgf long v3`, expected_calc_engine_version: 3 } });
+      const versionId = created.body.data?.version?.id ?? null;
+      if (versionId) ownEstimate(army, { projectId, versionId });
+      const [lines, rows] = versionId && UUID.test(versionId) ? await querySql(`SELECT count(*) FROM public.estimate_items
+WHERE version_id = '${versionId}'::uuid AND item_type = 'line' AND source_provider = 'dpgf';
+SELECT count(*) FROM public.dpgf_rows_mapped WHERE import_id = '${importId}'::uuid;
+`) : [null, null];
+      const observed = {
+        response: [created.status, created.body.ok, created.body.error?.code ?? null, created.body.data?.version?.calc_engine_version ?? null],
+        rows: Number(rows), lines: Number(lines),
+        total: num(created.body.data?.version?.total_ht_cents),
+        sqlTotal: versionId ? await storedTotalHtCents(versionId) : null,
+      };
+      await recordEvidence(army, "io-linked-dpgf-long", { versionId, importId, observed });
+      // 1 001 × (1,00 € × FO 1,30) = 1 301,30 € HT.
+      expect(observed).toEqual({ response: [201, true, null, 3], rows: 1001, lines: 1001, total: 130_130, sqlTotal: 130_130 });
+    } finally {
+      await closePolicy(owner, army, "dpgf-long");
+    }
+  });

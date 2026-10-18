@@ -21,6 +21,7 @@ Statut : **vert** (18/10/2026). Branche `lot2/2.8b-copies-into-v3`, empilée sur
 | C10 | Conversion P-12 d'une copie v1/v2 → v3 rendue par l'API mais jamais montrée (revue) | IO07 |
 | C11 | `source_metadata` des éléments copiés perdue (`_timax_provenance`, `sourceDocumentId`, import) (revue) | IO10, IO11 |
 | C12 | Motif de la conversion désactivée invisible : l'entrée désactivée du menu ne reçoit pas le survol (revue) | IO12 |
+| C13 | v3 créée depuis le DPGF lié : source lue sans pages, 1 000 premières lignes gardées en silence (revue Codex, code du 2.10a) | IO14 |
 
 ## 2. Rouges conservés
 
@@ -98,10 +99,14 @@ Statut : **vert** (18/10/2026). Branche `lot2/2.8b-copies-into-v3`, empilée sur
 | Reçu > 2 Mio « écrit puis inconnu » | Infirmé : la base refuse le reçu avant validation, rien n'est écrit (mesure : 1 000 opérations avec provenance → `ESTIMATE_BATCH_INVALID_INPUT`). Réel : un refus générique. Corrigé par l'estimation du reçu avant écriture (413 nommé) |
 | Motif invisible (menu) | Motif écrit dans les trois entrées désactivées |
 | Titre > 500 caractères | Bornes de l'écrivain vérifiées avant écriture : 400 `ESTIMATE_V3_COPY_ITEM_INVALID` qui nomme l'élément |
+| Codex P1 : création v3 depuis le DPGF lié tronquée | Lecture par pages sous une politique 3 (option ajoutée par ce lot) ; v1/v2 inchangé |
+| Codex P2 ×2 (`source_metadata`, `converted_lines`) | Mêmes constats que ci-dessus |
 
 - **Rouges** : boucle `2026-10-18T15-36-53-287Z-dev-loop`, itération 1, 5 sur 5 pour la bonne raison (IO07 résumé
   sans conversion, IO10 et IO11 métadonnées vides, IO12 motif non visible, IO13 101 opérations en 201).
 - **Verts** : boucle `2026-10-18T15-53-18-287Z-dev-loop`, itération 1, 5 sur 5 (avec la migration) ; pgTAP de la boucle :
   copie de 100 opérations dans la v3 de 1 021 éléments, 0 ligne réécrite.
+- **IO14** : rouge à l'itération 1 de `2026-10-18T16-13-41-259Z-dev-loop` (1 000 lignes sur 1 001, total 1 300,00 €),
+  vert à l'itération 2 (1 001 lignes, 1 301,30 €, API = SQL).
 - **IO13 révisé** : 101 opérations → 413 ; titre de 501 caractères → 400 nommé ; à la limite (1 section + 99 lignes
   de 400 caractères) → 201, 99 lignes, total 12 870 (API = SQL).

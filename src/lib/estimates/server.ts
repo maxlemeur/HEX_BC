@@ -60,7 +60,9 @@ import {
   EstimateEngineUnavailableError,
   isUnifiedEngine,
   usesPerUnitLabor,
+  usesSaleCoefficients,
 } from "@/lib/estimates/engine/capabilities";
+import { readTenantCalcPolicy } from "@/lib/estimates/calc-policy-server";
 import { getTakeoffLinkedSourceVersionByJobId } from "@/lib/takeoff/version-links";
 import { isSupplierAlternativeCurrencyCompatible } from "@/lib/estimates/supplier-preselection";
 import { readSupplierOfferConditions, readSelectedSupplierDetails, type SupplierOfferConditions, type SelectedSupplierDetails } from "@/lib/estimates/supplier-offer-conditions";
@@ -4813,12 +4815,15 @@ export async function createEstimate(
     if (!latestImport) {
       throw badRequest("Aucune source DPGF liée à cette affaire.");
     }
+    // Revue 2.8b (IO14) : sous une politique 3, la source est lue par pages (PostgREST s'arrête à max_rows = 1000),
+    // comme son import dans un brouillon v3 ; la lecture v1/v2 reste inchangée.
     const mappedRows = await loadMappedRowsForImportWithRetry({
       supabase,
       tenantId,
       importId: latestImport.id,
       maxAttempts: 10,
       retryDelayMs: 300,
+      paginate: usesSaleCoefficients((await readTenantCalcPolicy(supabase, tenantId)).engine),
     });
     if (mappedRows.length === 0) {
       throw badRequest(
