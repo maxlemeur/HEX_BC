@@ -744,3 +744,166 @@ la connexion, `bulk-edit-sync-sources`, `numeric-entry`, `numeric-entry-v3` et V
 worktree Windows : `npm run typecheck`, `npx eslint --max-warnings=0` sur les trois fichiers `e2e`
 touchés, les tests `army-impact-map` et `ci-guardrails` (23 tests) et `git diff --check`, tous en
 exit 0.
+
+## Fusion avec la PR #44 (sous-lot 2.6, éditeur v3) et la PR #43 (boucle Army)
+
+### Rapprochement
+
+`origin/main` est passé de `89627add` à `488382d5`. Il apporte la PR #44 (sous-lot 2.6, éditeur
+v3, fusionnée en `da462ac4`) et la PR #43 (boucle `e2e:army:dev-loop`). La branche l'intègre par une
+fusion sans rebase (`7b821fd3`). Deux fichiers sont en conflit, `useEstimateEditorBulkController.ts`
+et `useEstimateEditorSuggestionsController.ts`. `useEstimateEditorState.impl.tsx` fusionne sans
+conflit.
+
+- 2.6 (F26-22, F26-32, doc 2.6 §11) fait passer les lignes d'une v3 par l'écrivain de lot
+  (`v3Writer.updateItems`, `src/lib/estimates/v3-editor-writer.ts`) : il envoie les saisies
+  seulement, le serveur recalcule et vérifie (D12). Le contrôleur des lots applique aussi la
+  révision de contenu que rend cet écrivain.
+- Cette branche envoie, en v1/v2, les totaux de `computeVersionTotalsPatch` avec
+  `bulkUpdateEstimateItems`, puis applique ceux que le serveur rend.
+
+Résolution :
+
+- v3 (`v3Writer` injecté) : le chemin de 2.6 est inchangé. Aucun total client n'est calculé ni
+  envoyé, et seule la révision de contenu de l'écrivain v3 est appliquée, comme sur `main`.
+- v1/v2 : le patch de totaux de cette branche est inchangé.
+- `applyVersionToken` prend `(updatedAt, totals?, contentRevision?)`. C'est la forme que 2.6 a déjà
+  donnée au contrôleur de la présélection (`useEstimateEditorSupplierController.ts:666-736`, garde
+  `isV3 ? undefined : computeVersionTotalsPatch(…)`). Les deux contrôleurs en reprennent la garde,
+  sur `v3Writer` (`useEstimateEditorBulkController.ts:139`,
+  `useEstimateEditorSuggestionsController.ts:985` et `:1230`).
+- Le test isolé du contrôleur des lots attend le troisième argument, `undefined` hors v3.
+
+Défaut que la fusion automatique aurait introduit : sur une v3, `computePersistedTotals` rend `null`
+(`useEstimateEditorCalculation.ts:311`, 2.6). La garde de cette branche (« Impossible de calculer
+les totaux du devis. »), gardée pour tous les moteurs, aurait refusé sur une v3 chaque majoration,
+catégorie, rôle en lot, application et annulation des suggestions, avant toute écriture. V3E06 et
+V3E12 passent par ces chemins et sont verts après la résolution.
+
+### Décision : l'enregistrement du paramétrage ferme aussi les annulations d'une v3
+
+`88854fcb` vide l'historique et l'annulation des suggestions à chaque enregistrement réussi du
+paramétrage. Après la fusion, cette règle s'applique aussi à une v3. Elle est gardée, sans
+distinction de moteur :
+
+- la sauvegarde v3 reprend chaque ligne au nouveau paramétrage (`prepareV3Settings`,
+  `src/lib/estimates/settings-atomic.ts:101`), et « Oui » à la question de propagation réécrit le
+  taux de TVA de chaque ligne dans la même transaction (`:105`) ;
+- la charge de ligne v3 porte `tax_rate_bp` (`buildEstimateV3ItemUpdatePayload`, `v3-editor.ts:147`,
+  qui part de `buildEstimateItemUpdatePayload`, `editor-items.ts:291`). L'annulation d'un lot
+  garde les lignes d'avant l'action (`selectedLines`), et celle des suggestions les lignes d'avant
+  l'application (`previousItems`). Sans la règle, une annulation après « Oui » réécrit l'ancien taux
+  sur ces lignes. Le serveur recalcule des totaux cohérents, mais au taux que l'utilisateur vient de
+  remplacer.
+
+Coût : après une sauvegarde v3 à « Non », ou qui ne change qu'un coefficient, l'annulation aurait
+été juste, puisque les saisies sont inchangées et que le serveur recalcule. Elle est quand même
+fermée. Une seule règle pour les trois moteurs a été préférée à un cas « Oui » seulement. Le
+commentaire de `useEstimateEditorState.impl.tsx` le dit. Les quatre lignes CRLF du fichier sont
+conservées.
+
+Parcours ajouté, V3E14 (`engine-v3-editor-actions.e2e.ts`, `a91fc411`). Lignes de V3E12 :
+A 356,00 €, B 65,00 €, C 13,00 €. Puis majoration 150 % en lot sur A (404,00 €, comme V3E06) et
+K FO 1,3 par les suggestions sur B (84,50 €, comme V3E12) : `[50150, 10030, 60180]`. Ensuite,
+paramétrage ouvert par la barre de résumé de l'éditeur monté, TVA à 10 %, « Oui » :
+`[50150, 5015, 55165]`, trois lignes à 1 000 pb. Si l'annulation de l'historique ou celle des
+suggestions est encore offerte, elle est exécutée, pour que le parcours échoue sur le taux qu'elle
+réécrit. Attendu : aucune n'est offerte, lignes et version restent à 10 %, majoration 1,5 et K FO
+1,3, puis relecture après rechargement. Le parcours ne dépend que des aides de 2.6.
+
+### Ce que la fusion invalide, et ce qui est rejoué
+
+- Contrôleurs des lots et des suggestions, enregistrement du paramétrage : parcours v2
+  `bulk-edit-sync`, `bulk-edit-sync-sources`, `bulk-move`, `numeric-entry` et `numeric-entry-v3`,
+  et parcours v3 de 2.6 (V3E01 à V3E13, V3P01, V3FC01, V3FC02), avec V3E14. Sélection qualifiante à
+  2 workers.
+- Parcours v1 (V1PT01, V1BT01 à V1BT03) : ils ne sont que dans la sélection `full`
+  (`e2e.config.ts`), et `--grep` y est refusé (`scripts/run-tester-army-ci.ts:52`). Ils sont donc
+  rejoués par `npm run e2e:army:ci -- full`, sélection complète.
+- Course connue de 2.6 (doc 2.6 §11.5 et §11.6) : `bulk-edit-sync-sources` basculait le compte
+  partagé en Expert pendant `numeric entry v3`. Elle est fermée par les propriétaires dédiés de
+  `7d1f9687`, désormais sur la même tête que 2.6. La sélection combinée de 2.6, à 2 workers, en est
+  la preuve : 2.6 l'y avait vue rouge, 26/27 (doc 2.6 §11.5), et `numeric entry v3` y est vert en
+  C1 comme en C2 ci-dessous.
+
+### Preuves
+
+Clone WSL `~/miaouffrage-totals-bulk`, remis à la branche (`git -c safe.directory='*' fetch` du
+dépôt Windows, puis `git reset --hard FETCH_HEAD`), Ubuntu 24.04, Node 24.14.0,
+`NODE_OPTIONS=--max-old-space-size=4096`. Preuves sous `~/miaouffrage-totals-bulk/.e2e/army/ci/`,
+journaux sous `~/totals-bulk-logs/` et `~/totals-bulk-devloop-*.log`.
+
+| Run | Révision | Commande | Résultat | Preuves (`manifest.json` sha256) |
+| --- | --- | --- | --- | --- |
+| L1, boucle (non qualifiante) | `a91fc411`, sans modification locale | `npm run e2e:army:dev-loop -- start --app-port 3173`, puis `run --grep "V3E14"` | exit 0, 2/2 (connexion, V3E14), 15,1 s de parcours, 1 worker | session `2026-10-18T04-36-47-720Z-dev-loop`, itération `001-…` (`42a5826d…95ea`) |
+| L2, rouge, boucle (non qualifiante) | `a91fc411` plus une modification locale jetable : les deux appels `clearUndoRedoHistory()` et `discardBulkSuggestUndo()` retirés (`diffSha256` `d9c73757…e4b2`) | `run --grep "V3E14"`, reconstruit (43,6 s) | exit 1, 1/2 : V3E14 rouge. Les deux annulations sont offertes et exécutées : A et B reviennent à 2 000 pb, majoration 1, K FO 1, `[43400, 8550, 51950]` | itération `002-…` (`60529626…523c`) ; `…-6792f7f2-v3e14-after-save.json` |
+| C1 | `a91fc411`, sans modification locale | `E2E_ARMY_WORKERS=2 npm run e2e:army:local -- --grep "bulk edit sync\|bulk move\|numeric entry\|V3E\|V3P01\|V3FC" --app-port 3173` | exit 1, 28/29. Seul V3E01 est rouge, à la saisie de la ligne O4 : la liste « Rôle de main-d'œuvre » est restée vide (écran à l'échec), donc la sauvegarde attendue (h/u 0,2, PU 13,53 €) n'arrive pas, et `waitForAutoSave` échoue (`fixtures.ts:355`). C'est l'instabilité de V3E01 déjà relevée par 2.6 (doc 2.6 §8.5 : rôle « Tuyauteur » perdu dans la grille, cause non établie), sur un chemin que la fusion ne touche pas. | `2026-10-18T04-50-33-362Z-critical` (`fcf4debf…6601`) |
+| C2 | idem | même commande | exit 0, 29/29, chacun en une tentative (4 min 25 s de parcours) : connexion, `bulk-edit-sync` 4/4, `bulk-edit-sync-sources` 3/3, `bulk-move`, `numeric-entry` 2/2, `numeric-entry-v3`, V3E01 à V3E14, V3P01, V3FC01, V3FC02. pgTAP `Files=20, Tests=1854, Result: PASS`, matrice RLS verte | `2026-10-18T05-00-07-973Z-critical` (`8789bb8b…41f0`) |
+| F4 | idem | `npm run e2e:army:ci -- full --app-port 3173` | exit 1 ; phase `full` 160/161, 1 worker (17 min 11 s de parcours) : seul V3E01 est rouge, même instabilité qu'en C1 (rôle de O2 vide à l'écran). Verts : V1BT01 à V1BT03 (`bulk-actions-v1-totals` 3/3), V1PT01, V3E02 à V3E14, V3P01, V3FC01, V3FC02, `bulk-edit-sync` 4/4, `bulk-edit-sync-sources` 3/3, `bulk-move`, `commercial-rounding` 2/2, `estimate-integrity` 5/5, `numeric-entry` 2/2, `numeric-entry-v3`, `settings-contracts` 2/2. Phase `development` 4/4 | `2026-10-18T05-06-23-931Z-full` (`58b631fd…73a3`) |
+
+Entre C1 et C2, un lancement par `nohup` dans une session WSL détachée a reçu SIGHUP au bout de
+2 s (exit 129, `2026-10-18T04-58-36-192Z-critical`, sans parcours). Ce n'est pas un résultat. Sa
+pile native, démarrée en `detached`, est restée : elle a été arrêtée puis détruite (`supabase stop`
+et `supabase stack destroy --workdir`, `project_id` `miaouffrage-ci-3183-92eb8bec`), puis son
+répertoire supprimé.
+
+En C2, V3E14 relève `…-20666502-v3e14-after-save.json` (`fec9766e…3be0`) : aucune annulation
+offerte, `[50150, 5015, 55165]`, trois lignes à 1 000 pb. Les fichiers `bulk-sync-<s1|s2|p1>-owner.json`
+relèvent trois comptes et trois tenants distincts, avec `storedMode: "expert"` et `uiMode: "Expert"`.
+`numeric entry v3`, rouge dans la sélection combinée de 2.6, est vert.
+
+En F4, chaque étape v1 relue donne lignes = version aux valeurs de G3 et F3 : V1BT01
+`[8000, 1600, 9600]` ; V1BT02 `[8000, 1600, 9600]`, `[6000, 1200, 7200]`, `[8000, 1600, 9600]`, puis
+`[9600, 1920, 11520]` trois fois ; V1BT03 `[6600, 1320, 7920]`, `[6000, 1200, 7200]`,
+`[6600, 1320, 7920]`, puis `[7920, 1584, 9504]` trois fois ; V1PT01 `[3702, 740, 4442]`. Exemples :
+`ARMY-1792300573088-57d54046-v1-history-after-margin-stored-totals.json` (`2a8959b7…b133`),
+`ARMY-1792300579136-fd7ebabd-v1-suggestions-after-margin-stored-totals.json` (`e8e5efc5…ce9d`).
+V3E14 y relève les mêmes valeurs qu'en C2 (`…-78028791-v3e14-after-save.json`, `989be3da…d737`).
+
+V3E01 est rouge en C1 et en F4, vert en C2. Pour séparer la fusion de l'instabilité connue, V3E01 a
+été rejoué seul, 1 worker, dans une même boucle (session `2026-10-18T05-27-19-829Z-dev-loop`,
+`738a622e…01c5`, non qualifiante), trois fois sur la tête fusionnée puis trois fois sur
+`origin/main` `488382d5`, sans modification locale :
+
+| Itération | Révision | Résultat | Manifeste (sha256) |
+| --- | --- | --- | --- |
+| 001 | `a91fc411` | vert | `fef7e9cb…122e` |
+| 002 | `a91fc411` | rouge, rôle de O1 vide | `3ccd0123…b2e4` |
+| 003 | `a91fc411` | vert | `7f2177f5…b76a` |
+| 004 | `488382d5` (reconstruit) | vert | `2aa25b33…6013` |
+| 005 | `488382d5` | rouge, rôle de O3 vide | `039e1f39…1528` |
+| 006 | `488382d5` | vert | `f995b129…e597` |
+
+Même symptôme, même fréquence sur `main` : l'instabilité précède la fusion. Le chemin de saisie de
+la grille (contrôleur des éléments, synchronisation) n'est pas touché par ce lot. Aucune assertion,
+attente ou relance n'est ajoutée. La cause reste celle, non établie, du doc 2.6 §8.5. Elle est hors
+de ce lot et à suivre à part.
+
+Contrôles du worktree Windows, sur `a91fc411` :
+
+- `npm run typecheck` : exit 0 ;
+- `npx eslint --max-warnings=0` sur les quatre fichiers `src/hooks` résolus ou touchés et sur
+  `engine-v3-editor-actions.e2e.ts` : exit 0 ;
+- `npx vitest run src/hooks/useEstimateEditorBulkController.test.ts
+  src/hooks/useEstimateEditorSuggestionsController.test.ts src/test/army-impact-map.test.ts
+  src/test/ci-guardrails.test.ts` : 4 fichiers, 44 tests. Avant l'adaptation du test des lots, 1
+  échec : l'appel attendu `["token-apply", applied]` reçoit le troisième argument, `undefined` ;
+- `npx vitest run src/hooks src/lib/estimates/engine-frozen-corpus.test.ts
+  src/lib/estimate-calculations.golden/v1.test.ts src/lib/estimates/v3-settings-payload.test.ts` :
+  37 fichiers, 323 tests ;
+- `npm run check:architecture` : 1 134 modules, 0 cycle ;
+- `git diff origin/main` sur `src/lib/estimate-calculations.ts` et `src/lib/estimate-v2-snapshot.ts` :
+  vide ;
+- `git -c core.whitespace=cr-at-eol diff --check origin/main...HEAD` : propre.
+
+Sélection de PR contre `origin/main` : `full` (`select-journeys.ts`, à cause d'`e2e.config.ts`), comme
+avant la fusion.
+
+Limites :
+
+- le contrôleur des suggestions n'applique pas la révision de contenu que rend l'écrivain v3, alors
+  que celui des lots l'applique. C'est le comportement de 2.6 sur `main`, laissé tel quel. V3E12
+  enchaîne application et annulation, V3E14 application et enregistrement du paramétrage, sans
+  erreur ;
+- aucune revue indépendante n'a porté sur cette fusion ;
+- F4 n'est pas un run `full` entièrement vert : son seul rouge est V3E01 (ci-dessus).
