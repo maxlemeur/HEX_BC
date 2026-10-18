@@ -2302,8 +2302,8 @@ export function useEstimateEditorState({
     isSendBlockedForCurrentUser,
     sendWorkflowPhaseLabel,
   } = statusController.meta;
-  // Lot 2, sous-lot 2.6 : l'émission d'une v3 reste fermée jusqu'au contrat client 2 (2.7).
-  const canSend = canSendForStatus && !isViewerReadOnly && !isV3;
+  // Lot 2 : fermée en 2.6, l'émission manuelle d'une v3 est ouverte par 2.7 (gel du document, contrat client 2).
+  const canSend = canSendForStatus && !isViewerReadOnly;
 
   const supplierController = useEstimateEditorSupplierController({
     routeVersionId: resolvedVersionId,
@@ -2769,7 +2769,7 @@ export function useEstimateEditorState({
         onOpenVersionZeroDialog: handleOpenVersionZeroDialog,
         versionZeroActionLabel,
         isVersionZeroActionDisabled,
-        // Exports v3 (unité, h/u, PU et PT bruts, TVA par taux) : sous-lot 2.7.
+        // Exports de l'éditeur (editor-export.ts) d'une v3 : restés fermés par 2.7 (P-20, décision du porteur requise).
         isExportDisabled: isExportDisabled || isV3,
         isExporting,
         exportLoadingLabel,
