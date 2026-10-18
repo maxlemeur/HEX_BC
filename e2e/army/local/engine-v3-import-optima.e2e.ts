@@ -719,7 +719,7 @@ armyTest("IO09 a v3 refuses by name an inexact assembly and a template line with
 //  C7  Une copie v1/v2 → v1/v2 change de montants.
 
 /** A linked DPGF of the owned affaire (A5): an import and its mapped rows, as the import mapping stores them. */
-async function seedLinkedDpgf(owner: V3Owner, projectId: string, filename: string, rows: ReadonlyArray<Record<string, string>>) {
+async function seedLinkedDpgf(owner: V3Owner, projectId: string, filename: string, rows: ReadonlyArray<Record<string, unknown>>) {
   if (!UUID.test(projectId) || !/^ARMY-[A-Za-z0-9 .-]{1,120}\.xlsx$/.test(filename)) throw new Error("Invalid linked DPGF fixture input.");
   const importId = randomUUID();
   const payloads = rows.map((row, index) => `'${JSON.stringify({ row_index: index + 1, ...row }).replaceAll("'", "''")}'::jsonb`);
@@ -782,7 +782,10 @@ armyTest("IO10 the linked DPGF imported into a v3 draft keeps units and statuses
       const before = await readEstimate(browser, versionId);
       const importId = await seedLinkedDpgf(owner, projectId, filename, [
         { designation: `${army.runPrefix} tube`, unit: "ml", quantity: "10", unit_price_ht: "12,00" },
-        { designation: `${army.runPrefix} collier`, unit: "u", quantity: "3", unit_price_ht: "4,00" },
+        // Revue Codex de la PR #59 (G1) : une ligne issue d'un tableau PDF porte sa page dans `raw_row._timax_provenance`
+        // (import tabulaire PDF) ; une ligne de classeur n'a pas de page.
+        { designation: `${army.runPrefix} collier`, unit: "u", quantity: "3", unit_price_ht: "4,00",
+          raw_row: { _timax_provenance: { source_page: 7, table_index: 0, source_file_name: null, source_document_id: null } } },
         { designation: `${army.runPrefix} provision`, unit: "PM", quantity: "1" },
         { designation: `${army.runPrefix} hors lot`, unit: "HL", quantity: "1" },
       ]);
@@ -830,7 +833,8 @@ armyTest("IO10 the linked DPGF imported into a v3 draft keeps units and statuses
           [`${army.runPrefix} hors lot`, null, "out_of_scope", null, 0],
         ],
         pricedPu: [1500, 500],
-        provenance: [1, 2, 3, 4].map((page) => ["dpgf", filename, page]),
+        // G1 : la page du document source (`line.sourcePage`, comme le sérialiseur commun), jamais le numéro de ligne.
+        provenance: [null, 7, null, null].map((page) => ["dpgf", filename, page]),
         sectionProvenance: ["dpgf", filename],
         metadata: [1, 2, 3, 4].map((row) => `${importId}|${row}|t|-`),
         previousItemsKept: true,
@@ -1044,9 +1048,12 @@ armyTest("IO12 line ↔ section conversion is disabled with its reason in a v3 e
 
 /**
  * A v2 section of `count` lines written in SQL on the anchor (a v2: no v3 writer guard), for the batch limit. Line
- * titles are `titleLength` characters long (the writer accepts 500); the v1/v2 writers never bounded them.
+ * titles are `titleLength` characters long (the writer accepts 500); the v1/v2 writers never bounded them. With
+ * `provenance`, each line carries the source_metadata of an imported workbook row (import, mapping, mapped row, OPTIMA
+ * structure), as the affaire import writes it: the copy carries it to the v3 (F2), and the receipt must not echo it.
  */
-async function seedLargeV2Section(owner: V3Owner, anchorId: string, count: number, position: number, titleLength = 55) {
+async function seedLargeV2Section(owner: V3Owner, anchorId: string, count: number, position: number, titleLength = 55,
+  provenance = false) {
   if (!UUID.test(anchorId) || !Number.isSafeInteger(count) || count < 1 || count > 5000 || !Number.isSafeInteger(position) ||
     !Number.isSafeInteger(titleLength) || titleLength < 55 || titleLength > 1000) throw new Error("Invalid large section input.");
   const sectionId = randomUUID();
@@ -1056,9 +1063,14 @@ SELECT '${sectionId}'::uuid, v.tenant_id, v.id, 'section', ${position}, 'Lot vol
 FROM public.estimate_versions v WHERE v.id = '${anchorId}'::uuid AND v.tenant_id = '${owner.tenantId}'::uuid;
 INSERT INTO public.estimate_items (tenant_id, version_id, parent_id, item_type, position, title, description,
   quantity, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, h_mo_majoration, k_mo,
-  pu_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents)
+  pu_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents, source_metadata)
 SELECT v.tenant_id, v.id, '${sectionId}'::uuid, 'line', g,
-  rpad('Fourniture et pose de canalisation PVC 110 mm, ligne ' || g || ' ', ${titleLength}, 'x'), 'u', 1, 100, 2000, 1, 0, 1, 1, 130, 130, 26, 156
+  rpad('Fourniture et pose de canalisation PVC 110 mm, ligne ' || g || ' ', ${titleLength}, 'x'), 'u', 1, 100, 2000, 1, 0, 1, 1, 130, 130, 26, 156,
+  ${provenance ? `jsonb_build_object('import_id', '${randomUUID()}', 'mapping_id', '${randomUUID()}', 'mapped_row_id', gen_random_uuid(),
+    'row_index', g, 'notes', null, 'sheet_name', 'PLOMBERIE', 'source_row_number', g + 12, 'bold_columns', '[]'::jsonb,
+    'merged_columns', '[]'::jsonb, 'outline_level', null, '_timax_structure', jsonb_build_object('sheet_name', 'PLOMBERIE',
+      'source_row_number', g + 12, 'bold_columns', '[]'::jsonb, 'merged_columns', '[]'::jsonb, 'outline_level', null,
+      'column_order', '["N°","Désignation","Uté","Qté","PR Fourniture unitaire"]'::jsonb))` : "'{}'::jsonb"}
 FROM public.estimate_versions v CROSS JOIN generate_series(1, ${count}) AS g
 WHERE v.id = '${anchorId}'::uuid AND EXISTS (SELECT 1 FROM public.estimate_items s WHERE s.id = '${sectionId}'::uuid);
 COMMIT;
@@ -1068,17 +1080,19 @@ SELECT count(*) FROM public.estimate_items WHERE parent_id = '${sectionId}'::uui
   return sectionId;
 }
 
-// C8 (2.8b) : une copie vers une v3 est un seul lot atomique de l'écrivain v3 ; au-delà de 100 opérations (revue :
-// 1 000 dépassaient le délai de 8 s en CI, run 39138950745), refus nommé qui renvoie vers l'import de l'affaire, jamais
-// une écriture en plusieurs lots. C9 (revue) : un titre au-delà de 500 caractères est refusé par son nom, rien n'est écrit.
-armyTest("IO13 a section copy into a v3 is one atomic batch up to 100 operations and refused by name beyond it, pointing to the affaire import, nothing written", options,
+// C8 (2.8b) : une copie vers une v3 est un seul lot atomique de l'écrivain v3, jusqu'à 1 000 opérations (décision du
+// propriétaire du 18/10 : jusqu'à 3,5 s localement pour 1 000 lignes ; en CI, sous le délai de 8 s des rôles de l'API,
+// run 39138950745 rouge avant 20261018160000) ; au-delà, refus nommé qui renvoie vers l'import de l'affaire, jamais une
+// écriture en plusieurs lots. C9 (revue) : un titre au-delà de 500 caractères est refusé par son nom, rien n'est écrit.
+armyTest("IO13 a section copy into a v3 is one atomic batch up to 1 000 operations and refused by name beyond it, pointing to the affaire import, nothing written", options,
   async ({ app, screen, browser, army }) => {
     const ui = { app, screen, browser };
     const { owner, projectId, anchorId } = await prepareV3Owner(ui, army, "limite");
     try {
-      const largeSectionId = await seedLargeV2Section(owner, anchorId, 100, 900);
-      // At the limit with 400-character titles: the receipt of the writer stays under its 2 Mio.
-      const boundarySectionId = await seedLargeV2Section(owner, anchorId, 99, 901, 400);
+      const largeSectionId = await seedLargeV2Section(owner, anchorId, 1000, 900);
+      // At the limit, every line carries the provenance of an imported row: the copy keeps it (F2), the receipt of the
+      // writer does not echo it (owner decision of 18/10: no limit is raised for it).
+      const boundarySectionId = await seedLargeV2Section(owner, anchorId, 999, 901, 55, true);
       const longTitleSectionId = await seedLargeV2Section(owner, anchorId, 1, 902, 501);
       const versionId = await blankV3(ui, army, projectId, "limite");
       await retakeLease(browser, versionId);
@@ -1106,22 +1120,32 @@ armyTest("IO13 a section copy into a v3 is one atomic batch up to 100 operations
       await recordEvidence(army, "io-copy-long-title", { versionId, longTitleSectionId, message: longTitle.body.error?.message, named });
       expect(named).toEqual({ response: [400, false, "ESTIMATE_V3_COPY_ITEM_INVALID"], namesTheLine: true, unchanged: true });
 
-      // At the limit (1 section + 99 lines = 100 operations): one atomic batch, every line, amounts of the writer.
+      // At the limit (1 section + 999 lines = 1 000 operations): one atomic batch, every line, amounts of the writer.
       type Imported = { created_section_ids: string[]; created_line_ids: string[] };
+      const started = Date.now();
       const atLimit = await apiRequest<Envelope<Imported>>(browser, "POST", `/api/estimates/${versionId}/import-sections`,
         { source_version_id: anchorId, section_ids: [boundarySectionId] });
+      const elapsedMs = Date.now() - started;
       const copied = await readEstimate(browser, versionId);
-      const copiedLines = atLimit.body.data?.created_section_ids?.[0] ? subtreeLines(copied, atLimit.body.data.created_section_ids[0]) : [];
+      const copiedSectionId = atLimit.body.data?.created_section_ids?.[0] ?? null;
+      const copiedLines = copiedSectionId ? subtreeLines(copied, copiedSectionId) : [];
+      const [withProvenance] = copiedSectionId && UUID.test(copiedSectionId) ? await querySql(`SELECT count(*) FROM public.estimate_items
+WHERE parent_id = '${copiedSectionId}'::uuid AND item_type = 'line' AND source_metadata ? 'mapped_row_id'
+  AND source_metadata->'_timax_structure'->>'sheet_name' = 'PLOMBERIE';
+`) : [null];
       const boundary = {
         response: [atLimit.status, atLimit.body.ok, atLimit.body.error?.code ?? null],
         lines: copiedLines.length,
+        withProvenance: Number(withProvenance),
         priced: copiedLines.filter((line) => num(line.line_total_ht_cents) === 130).length,
         total: num(copied.version.total_ht_cents),
         sqlTotal: await storedTotalHtCents(versionId),
       };
-      await recordEvidence(army, "io-copy-at-limit", { versionId, boundarySectionId, boundary });
-      // 99 × (1,00 € × FO 1,30) = 128,70 € HT.
-      expect(boundary).toEqual({ response: [201, true, null], lines: 99, priced: 99, total: 12_870, sqlTotal: 12_870 });
+      // elapsedMs: the whole route (reads, preparation, commit_estimate_batch), reported for the CI runner, not asserted.
+      await recordEvidence(army, "io-copy-at-limit", { versionId, boundarySectionId, boundary, elapsedMs });
+      // 999 × (1,00 € × FO 1,30) = 1 298,70 € HT.
+      expect(boundary).toEqual({ response: [201, true, null], lines: 999, withProvenance: 999, priced: 999, total: 129_870,
+        sqlTotal: 129_870 });
     } finally {
       await closePolicy(owner, army, "limite");
     }
