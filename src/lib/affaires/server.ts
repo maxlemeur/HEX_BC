@@ -1,3 +1,4 @@
+import { selectInChunks } from "@/lib/supabase/in-chunks";
 import { readAllRows } from "@/lib/supabase/read-all";
 import { cache } from "react";
 
@@ -246,6 +247,12 @@ export type AffaireHubSummaryResult = {
   acceptedVersion: AffaireHubVersionSummary | null;
   versionsCount: number;
   lineCount: number;
+  /**
+   * Une version de l'affaire, quelle qu'elle soit, a au moins une ligne. Le hub n'affiche son démarrage qu'à défaut
+   * (décision du 18/10/2026, docs/testing/affaire-hub-fresh-start-decision.md) ; `lineCount` reste celui de la
+   * version courante.
+   */
+  affaireHasLines: boolean;
   hubReadiness?: AffaireHubReadinessResult | null;
   structureContinuation?: AffairePreliminaryStructureCapability | null;
   structureMode?: EstimateStructureModeSummary | null;
@@ -863,6 +870,37 @@ const fetchAffaireHubProjectOrThrow = cache(async (
   return project;
 });
 
+/**
+ * Une ligne dans l'une des versions de l'affaire : ses versions d'abord, puis une ligne au plus par lot de versions.
+ * La lecture reste bornée par l'affaire, jamais par toutes les lignes de l'entreprise.
+ */
+async function readAffaireHasLineInAnyVersion(context: AffaireContext, projectId: string): Promise<boolean> {
+  const { data: versions, error: versionsError } = await readAllRows(() => context.supabase
+    .from("estimate_versions")
+    .select("id", { count: "exact" })
+    .eq("tenant_id", context.tenantId)
+    .eq("project_id", projectId));
+
+  if (versionsError) {
+    throw mapSupabaseError(versionsError, "Impossible de charger les versions de l'affaire.");
+  }
+
+  const { data, error } = await selectInChunks((versions ?? []).map((version) => version.id), (versionIds) =>
+    context.supabase
+      .from("estimate_items")
+      .select("id")
+      .eq("tenant_id", context.tenantId)
+      .eq("item_type", "line")
+      .in("version_id", versionIds)
+      .limit(1));
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de vérifier les lignes des versions de l'affaire.");
+  }
+
+  return data.length > 0;
+}
+
 function queryAffaireHubCurrentVersion(context: AffaireContext, projectId: string) {
   return context.supabase
     .from("estimate_versions")
@@ -1056,6 +1094,12 @@ async function fetchAffaireHubSummaryWithContext(
     }
   }
 
+  const versionsCount = versionsCountResult.count ?? 0;
+  // Une version courante vide ne suffit pas au démarrage quand une autre version de l'affaire a des lignes.
+  const affaireHasLines =
+    lineCount > 0 ||
+    (currentVersion !== null && versionsCount > 1 && (await readAffaireHasLineInAnyVersion(context, project.id)));
+
   return {
     project: {
       id: project.id,
@@ -1066,8 +1110,9 @@ async function fetchAffaireHubSummaryWithContext(
     },
     currentVersion: currentVersion ? toAffaireHubVersionSummary(currentVersion) : null,
     acceptedVersion: acceptedVersion ? toAffaireHubVersionSummary(acceptedVersion) : null,
-    versionsCount: versionsCountResult.count ?? 0,
+    versionsCount,
     lineCount,
+    affaireHasLines,
     hubReadiness,
     structureContinuation,
     structureMode,
