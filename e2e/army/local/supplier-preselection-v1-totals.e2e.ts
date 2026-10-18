@@ -10,9 +10,10 @@ import { assertOwnedLocalBackend, createdData, insertLegacyV1Draft, setUiMode, t
 // path in the calc-v3 "offers" phase, which no workflow runs; the critical P1 journey is the V2
 // guard. The public creation schema only makes V2 drafts, so the V1 draft is inserted in SQL by
 // the native owner of the owned stack, as engine-v3-fail-closed does for v3. The preselection is
-// in Expert mode only: the journey switches the shared account's profile and restores it, like
-// bulk-edit-sync-sources. For that reason it belongs to the nightly full selection (one worker),
-// not to the critical CI selection (two workers, files in parallel).
+// in Expert mode only: the journey switches the shared account's profile and restores it. For that
+// reason it belongs to the nightly full selection (one worker), not to the critical CI selection
+// (two workers, files in parallel), whose Expert journeys run as dedicated owners
+// (bulk-edit-sync-sources, dedicated-owner.ts).
 const options = { session: "army", tags: ["critical", "local", "version-totals"], timeout: 240_000 } as const;
 
 // Fixed margin x1, 20 % VAT, no discount, no rounding: 3 u at 10,00 € (seeded, consistent),

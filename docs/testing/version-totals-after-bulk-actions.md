@@ -577,3 +577,121 @@ Aucun nouveau parcours critical : les trois parcours v1 sont dans
 V1BT01. La carte d'impact (`scripts/tester-army/army-impact-map.json`) ne recense que les parcours
 critical : elle est inchangée. La sélection de PR calculée contre `origin/main` est `full`, à cause
 de `e2e.config.ts` (`select-journeys.ts`, « shared core »).
+
+## Mode Expert du compte partagé (CI 39084774584)
+
+### Défaillance observée
+
+Run `army-critical` 39084774584 de la PR #41. Révision `5b30dae3`, fusion de PR de `f4ed8c3e`, sans
+modification locale. Sélection complète, 2 workers. Résultat : 80/83, 3 échecs (rapport sha256
+`3b352587…1eb8`) :
+
+- S2 (`bulk-edit-sync-sources.e2e.ts`, « after their undo ») : l'`expect.poll` de `setUiMode`,
+  ligne 61, attend « Simplifié » et lit « Expert » pendant 30 s ;
+- `numeric-entry.e2e.ts:64` (« persists grouped settings ») : `estimate-editor-settings-button` reste
+  « outside of the viewport » pendant 30 s ;
+- `numeric-entry-v3.e2e.ts:38` : même symptôme, sur le même bouton.
+
+Les écrans des deux échecs `numeric-entry` montrent la section « Contrôles avancés » dans le menu
+d'affichage. Cette section n'existe qu'en mode Expert (`EstimateEditorCommandBar.tsx`,
+`!isSimplifiedMode`). En Expert, à 1280×800, le bouton de paramétrage de ce menu sort de la fenêtre :
+le run R4 l'avait déjà constaté. Ce n'est donc pas une régression de #41, ni de la barre d'outils, ni
+de l'enregistrement du paramétrage : l'éditeur a été chargé en Expert.
+
+### Chaîne causale
+
+Sources : `report.json`, `artifacts/server-network.jsonl` et preuves `*-restored.json`. Le journal
+réseau est celui du serveur Next, commun aux deux workers.
+
+1. S2 tourne sur un worker de 49 à 116 s. Son corps passe. Au rétablissement, le parcours clique sur
+   le commutateur à 01:04:13.45. Le libellé passe aussitôt à « Simplifié », mais c'est l'état
+   optimiste de `useUiMode`. Le parcours recharge la page à 01:04:14.25, 0,8 s plus tard. Entre les
+   deux, le serveur n'émet aucune requête `/rest/v1/profiles`. La suivante (01:04:14.390) part en même
+   temps que `tenant_memberships` : c'est la lecture du layout rechargé (`getUserProfile`). L'action
+   serveur `updateProfileUiMode` n'a donc jamais écrit. Dix rechargements en 30 s lisent « Expert »,
+   et S2 échoue sans écrire `bulk-sync-s2-restored.json`. Au premier basculement du même parcours, à
+   l'aller, la seule requête `profiles` isolée entre le clic (01:03:39.55) et le rechargement
+   (01:03:40.45) part à 01:03:40.317. C'est vraisemblablement l'écriture, 0,13 s avant le
+   rechargement : sous la charge de deux workers, la marge est faible. Le `poll` ne peut pas rattraper
+   une écriture perdue : il recharge, mais ne reclique pas.
+2. P1 (116–147 s) relève `initialMode: "Expert"` (`bulk-sync-p1-restored.json`). Il n'a donc rien à
+   rétablir, et le compte partagé reste en Expert jusqu'à la fin du run.
+3. `numeric-entry-v3` (461–510 s) et `numeric-entry` « paramétrage » (515–561 s) ouvrent le
+   paramétrage par le menu d'affichage, en Expert : le bouton est hors de la fenêtre.
+   `numeric-entry` « grid drafts » (502–515 s) n'ouvre pas ce menu et passe.
+
+Aucun autre parcours du run n'écrit le mode. Le seul écrivain est le commutateur de `DashboardShell`,
+et l'autre worker exécutait `bulk-edit-sync.e2e.ts`, qui n'y touche pas.
+
+Le même état partagé fuit aussi sans écriture perdue, par simple concurrence. Ce second mécanisme se
+reproduit en local, avant correction (tableau ci-dessous) : un parcours de l'autre worker charge
+l'éditeur pendant que S1, S2 ou P1 tient le compte partagé en Expert. Les trois `*-restored.json` y
+sont corrects.
+
+### Cause
+
+S1, S2 et P1 modifiaient un état du compte de campagne, partagé par les deux workers, alors que le
+runner exécute les fichiers en parallèle (`e2e` 0.21 : « a file's tests run in order on one worker,
+files run in parallel »). Le mode d'interface est enregistré sur `profiles.ui_mode`. Les parcours V1
+qui basculent ce mode (V1PT01, V1BT01 à V1BT03) sont, pour cette raison, dans la sélection `full`,
+exécutée par un seul worker. `bulk-edit-sync-sources`, lui, est dans la sélection critical à deux
+workers.
+
+### Correction (`7d1f9687`, `e2e/` seulement)
+
+- Chaque parcours S1, S2 et P1 s'exécute sous son propre compte jetable, inscrit sur la pile possédée
+  (`e2e/army/local/dedicated-owner.ts`, `signUpDedicatedOwner`). C'est le procédé de V3P01 pour sa
+  politique de tenant : inscription par la clé anonyme, tenant renommé `ARMY BES <run>`, cookies de
+  session remplacés dans ce seul contexte. Le profil est mis en Expert en SQL, dans la même
+  transaction, par le propriétaire natif. Le parcours relit ensuite « Expert » dans le menu avant de
+  commencer (`bulk-sync-<s1|s2|p1>-owner.json`). Le compte partagé n'est jamais modifié, et rien
+  n'est rétabli.
+- Chaque parcours vérifie en SQL que son devis appartient au compte et au tenant dédiés
+  (`ownedEstimateContext`).
+- La règle de suggestion naît dans le tenant du parcours. Sa désactivation de fin de parcours,
+  devenue sans objet, est retirée, avec sa relance sur le verrou de brouillon.
+- V3P01 réutilise la même inscription (`useDedicatedV3Owner` délègue, avec la même adresse et le même
+  tenant `ARMY V3P <run>`). Seul ajout : la vérification que son profil reste au mode par défaut,
+  `simplified`.
+
+Aucune assertion métier, attente ou relance n'est ajoutée, et aucun parcours ne quitte la sélection.
+Un groupe `describe({ serial: true })` ne suffisait pas : il ordonne ses membres sur un worker, mais
+les autres fichiers continuent de tourner en parallèle, et `numeric-entry` y aurait encore vu le mode
+Expert. Le runner n'a pas été modifié.
+
+Limite : S1, S2 et P1 exigent désormais la pile possédée (`e2e:army:local`, `e2e:army:ci`). Sur une
+pile non possédée, ils échouent fermés au lieu de basculer le compte partagé. P1 l'exigeait déjà pour
+ses lectures du catalogue. La carte d'impact est inchangée : `bulk-edit-sync-sources` y est déjà un
+parcours, et le graphe d'imports suit `dedicated-owner.ts`. Sur le seul diff `f4ed8c3e..7d1f9687`,
+`select-journeys.ts` retient la connexion, `bulk-edit-sync-sources` et V3P01 ; la PR entière reste
+`full` à cause d'`e2e.config.ts`. V1PT01 et V1BT01 à V1BT03 basculent
+toujours le compte partagé en SQL, mais sous un seul worker, dans la sélection `full`.
+
+### Preuves
+
+Clone WSL `~/miaouffrage-totals-bulk`, Ubuntu 24.04, Node 24.19.0, `NODE_OPTIONS=--max-old-space-size=4096`,
+`E2E_ARMY_WORKERS=2`, sans modification locale (`diffSha256` `e3b0c442…b855`). Commande :
+`npm run e2e:army:local -- --grep "<filtre>" --app-port 3147`. Chaque run passe pgTAP et la matrice
+RLS. Preuves sous `~/miaouffrage-totals-bulk/.e2e/army/ci/`, journaux sous `~/army-logs-totals-bulk/`.
+
+| Run | Révision | Filtre | Résultat | Preuves (`manifest.json` sha256) |
+| --- | --- | --- | --- | --- |
+| E1, rouge | `f4ed8c3e` | `bulk edit sync\|numeric entry` | exit 1, 10/11. `numeric-entry-v3` démarre à 30,3 s, pendant que P1 (25,0–35,5 s) tient le compte partagé en Expert. Son écran porte « Contrôles avancés », et il échoue sur le bouton hors de la fenêtre. `numeric-entry`, lancé après le rétablissement de P1, passe. | `2026-10-18T01-24-11-195Z-critical` (`8b3c94ac…f3ab`) |
+| E2, rouge | `f4ed8c3e` | `bulk edit sync (suggestions\|supplier)\|numeric entry` | exit 1, 6/7. `numeric-entry-v3` (1,5–35,4 s) recouvre S1, S2 et P1 et échoue de même. `numeric-entry` (33,4–47,2 s) arrive après le rétablissement et passe. | `2026-10-18T01-41-57-297Z-critical` (`918355fb…8ac2`) |
+| G5 | `7d1f9687` | `bulk edit sync\|numeric entry` | exit 0, 11/11 | `2026-10-18T01-32-44-811Z-critical` (`47f2d458…c685`) |
+| G6 | `7d1f9687` | idem | exit 0, 11/11 | `2026-10-18T01-35-29-987Z-critical` (`1760b172…44d8`) |
+| G7 | `7d1f9687` | idem | exit 0, 11/11 | `2026-10-18T01-37-36-264Z-critical` (`d6b1f57d…6447`) |
+| G8 | `7d1f9687` | filtre d'E2 | exit 0, 7/7. `numeric-entry-v3` (1,4–18,0 s) recouvre S1 et S2, et `numeric-entry` (18,0–31,8 s) recouvre P1. | `2026-10-18T01-39-52-560Z-critical` (`02ae204e…523a`) |
+| G9 | `7d1f9687` | `^V3P01` | exit 0, 2/2 (connexion, V3P01) | `2026-10-18T01-44-02-441Z-critical` (`72593888…b387`) |
+| G10 | `7d1f9687` | aucun (sélection critical complète, comme la CI) | exit 0, 83/83 (3 min 1 s de parcours) | `2026-10-18T01-45-35-053Z-critical` (`f760f229…7e7a`) |
+
+En G5 à G8, chaque `bulk-sync-<s1|s2|p1>-owner.json` relève un compte et un tenant distincts, avec
+`storedMode: "expert"` et `uiMode: "Expert"`. Les oracles métier de S1, S2 et P1 sont inchangés et
+verts, en G10 aussi. Le filtre de G5 à G7 laisse les fichiers s'ordonner comme en E1 : `bulk-edit-sync-sources`,
+plus court sans les rétablissements, se termine avant `numeric-entry-v3`. G8 est donc la preuve du
+recouvrement.
+
+Contrôles du worktree Windows sur `7d1f9687` : `npm run typecheck` ;
+`npx eslint --max-warnings=0` sur les trois fichiers `e2e` touchés ;
+`npx vitest run --project=node src/test/army-impact-map.test.ts src/test/ci-guardrails.test.ts`
+(2 fichiers, 23 tests) ; `git diff --check`. Tous en exit 0.
