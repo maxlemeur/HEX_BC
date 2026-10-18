@@ -66,7 +66,7 @@ campagne Army entière est une campagne v1/v2 : 91 parcours sur 176 échouent d�
 politique 3. Les convertir au moteur 3 dépasse ce sous-lot. Repli prévu par le cahier (§6) : l'entreprise de
 recette de la campagne est provisionnée en **politique 2 explicite** par le lanceur (comme les propriétaires
 dédiés, D-i) ; les parcours v3 tournent sur leurs propriétaires dédiés (politique 3 posée par l'unique écrivain) ;
-le défaut « politique absente = 3 » est prouvé par V3S01 et par pgTAP. La mesure d'acceptation de la conception
+le défaut « politique absente = 3 » est prouvé par V3S01, V3S01b et pgTAP. La mesure d'acceptation de la conception
 « 100 % des créations du parcours en v3 » n'est donc pas atteinte par la campagne ; le pilote B
 (`--tenant-calc-engine absent`) la mesurera quand les parcours v1/v2 auront été épinglés un à un ou convertis.
 
@@ -84,15 +84,19 @@ le défaut « politique absente = 3 » est prouvé par V3S01 et par pgTAP. La me
 | F210-08 | Une version, une ligne ou une ligne de politique existante est réécrite | pgTAP (`to_jsonb` avant/après) ; contrôle de montée de version et empreintes par moteur (§7) |
 | F210-09 | M8 remplit la politique (ligne écrite), ou change le défaut de colonne | pgTAP ; V3S01 |
 | F210-10 | M8 est copiée d'une définition périmée (elle écraserait M6b) ou horodatée avant une migration de `main` | préalable `md5` de M8 ; `supabase:migrations:git-guard` |
-| F210-11 | Défauts TS et SQL divergents | V3S01 : la création TS n'envoie pas de coefficients, la base applique les siens, l'écran montre 1,30 / 1,20 |
+| F210-11 | Défauts TS et SQL divergents | V3S01 couvre le repli SQL (l'API sans coefficients : la base applique les siens) ; V3S01b couvre le défaut TS `ABSENT_TENANT_CALC_POLICY` (l'assistant propose 1,30 / 1,20, envoie 1.3 / 1.2, la base enregistre une v3 à 1.3000 / 1.2000). L'import et les modèles lisent le même défaut par `readTenantCalcPolicy` ; aucun parcours ne les exerce sans ligne de politique |
 
 Parcours E2E (`e2e/army/local/engine-v3-default.e2e.ts`, propriétaires dédiés) :
 
 - **V3S01** (rouge de M8) : propriétaire sans ligne de politique ; `POST /api/estimates` avec l'attente 3 et sans
   coefficient → 201, lecture SQL `calc_engine_version = 3`, `1.3000` / `1.2000`, totaux 0 ; tiroir de paramétrage
   « 1,30 » / « 1,20 » ; la même affaire sans attente → `409 CONTEXT_CHANGED`, une seule version ; politique et
-  journal toujours vides. Seul créateur de `main` qui annonce l'attente 3 : l'API (l'assistant, l'accueil et les
-  modèles l'annoncent avec #57, couverts par ses V3C01 à V3C13).
+  journal toujours vides. Depuis #57, l'assistant, l'accueil, les modèles et l'import annoncent aussi l'attente de
+  la politique (V3C01 à V3C13, sous une politique 3 posée).
+- **V3S01b** (revue, ajouté après M8, F210-11) : propriétaire sans ligne de politique ; l'assistant (affaire
+  vierge, « Créer le chiffrage ») : l'étape de prix propose « 1,30 » / « 1,20 » sans marge ni tranche, la requête
+  envoie l'attente 3 et 1.3 / 1.2, la lecture SQL trouve une v3 à `1.3000` / `1.2000`, totaux 0 ; politique et
+  journal toujours vides.
 - **V3S02** (garde) : propriétaire en politique 2 explicite ; v2 d'une ligne (2 × 10,00 €, 2 000 / 400 / 2 400) ;
   politique 3 posée par `set_tenant_calc_policy` ; « Dupliquer » depuis la fiche → la copie est une v2 aux mêmes
   montants, sans coefficients, et l'empreinte de la source (statut, révision, totaux, colonnes de montant des
@@ -175,7 +179,7 @@ Commandes dans WSL, clone Linux, pile possédée, Node 24.19.0 ; journaux sous `
 | Montée de version | `db:upgrade-check -- lot2-2-10` | 0 différence ; contrôle négatif détecté (`.e2e/engine-v3/upgrade-check/2026-10-18T15-33-34-225Z-lot2-2-10`) ; `--negative-control` échoue exactement sur la migration synthétique (attendu) |
 | Empreintes documentaires | `engine:document-fingerprints -- check` | identiques, 14 familles (`.e2e/engine-v3/document-fingerprints/2026-10-18T15-44-59-887Z-check`) |
 | Campagne complète | `e2e:army:ci -- full` | 173 / 174 + development 4 / 4 (`.e2e/army/ci/2026-10-18T15-46-59-989Z-full`) ; seul rouge : SET02 (§9, hors bascule) |
-| calc-v3 | `e2e:army:calc-v3 -- --phase journeys` | vert (264 s, `.e2e/army/ci/2026-10-18T16-00-36-133Z-calc-v3`) ; phase `components` interrompue à 18:07 par l'arrêt de la campagne (préparation `exit=2`, pile arrêtée) : **non prouvée**, les autres phases non lancées ; la CI de la PR les exécute |
+| calc-v3 | `e2e:army:calc-v3 -- --phase journeys` | vert (264 s, `.e2e/army/ci/2026-10-18T16-00-36-133Z-calc-v3`), avant la fusion de #45 (émission). Phase `components` interrompue à 18:07 par l'arrêt de la campagne (préparation `exit=2`, pile arrêtée) : **non prouvée** ; numeric, resume, access, offers, emission et emission-v3 non lancées. La CI de la PR **ne les exécute pas** (`e2e-army-calc-v3.yml` ne tourne sur une PR que si elle modifie ce fichier) : **préalable de fusion**, après le push, `gh workflow run e2e-army-calc-v3.yml --ref lot2/2.10b-bascule-m8 -f phase=all`, preuve consignée ici |
 | Qualité | `verify:pr` (arbre de `6aa1ed31`, avant commit) | vert (167 s) |
 
 **M8 isolée** (`~/l210b-m8proof/m8-proof.json`, sha256 `36745c20…`) :
@@ -206,10 +210,21 @@ changement (`git diff --stat` vide) ; le corpus figé v1/v2 est rejoué par `ver
   de M8 échoue (`LOT2_2_10_M8_PREREQUISITE_MISSING`) : M8 se reconstruit alors depuis la nouvelle définition
   vivante, toujours à trois lignes près. Aucune PR ouverte du lot ne la redéfinit au 18/10/2026.
 - **Gardes de #57** : V3C11 et V3C12 tournent désormais « sous une politique 2 explicite » (§9).
-- **Supabase partagé** : non appliqué, sans autorisation. Ordre : M6, M6b, M5 réhorodatée, M8 en dernier. Avant
-  M8, une politique 2 explicite pour toute entreprise réelle (R12) et pour l'entreprise de la campagne
-  `e2e:army:critical` partagée ; vérifier que le commit déployé sur Vercel contient le code 2.10 (sinon ses
-  créations échouent fermées en `CONTEXT_CHANGED` jusqu'au déploiement manuel).
+- **Supabase partagé : M8 exclue de l'autorisation permanente.** Le porteur autorise d'appliquer les migrations
+  du lot 2 après la fusion de leur PR, « Ni politique de calcul ni déploiement »
+  (`docs/testing/shared-supabase-m5-2026-10-18.md`, utilisée pour M5 puis `20261018170351`). M8 ne relève pas de cette autorisation et demande une
+  décision propre du porteur : appliquée seule, elle fait passer au moteur 3 toute entreprise sans ligne de
+  politique (toutes, puisque l'autorisation interdit d'en écrire), et chaque création y échoue en
+  `409 CONTEXT_CHANGED` (sans écriture) tant que le code déployé ne la suit pas. Les deux sens échouent : un
+  commit qui contient 2.10a sans `6aa1ed31` (défaut TS « absente = 2 ») contre une base avec M8, et un commit
+  qui contient `6aa1ed31` (défaut TS « absente = 3 ») contre une base sans M8.
+- **État et ordre.** Déjà appliquées au Supabase partagé : M6, M6b, M5, M7 et `20261018170351` ; M8 est la
+  suivante. Deux ordres sûrs, chacun sur autorisation distincte :
+  1. écrire d'abord une politique 2 explicite pour chaque entreprise du Supabase partagé, dont l'entreprise de la
+     campagne `e2e:army:critical` partagée (écriture de politique, R12), puis M8 et le déploiement dans
+     n'importe quel ordre : rien ne change pour elles tant que l'équipe ne les passe pas à 3 ;
+  2. ou appliquer M8 puis déployer aussitôt (Vercel, manuel) un commit qui contient `6aa1ed31`, en acceptant
+     la fenêtre de 409 entre les deux.
 - **Usage client réel** : Q01 (trois dossiers et leurs résultats attendus), avis de l'expert-comptable sur P-06 et
   P-07, phase 0 de l'audit, et D-f/D-g (métré, structure IA en v3).
 
@@ -252,5 +267,25 @@ tête de la seconde fusion quand elle les invalide (dernière ligne).
 | Seconde fusion : garde Git, historique, SQL, RLS et parcours touchés | `git-guard -- --base f1a5a74b`, `supabase:validate`, même `--grep` (`b03d5798`, `diffSha256` du vide, 204 s) | verts ; pgTAP **26 fichiers, 1 974 tests** (dont `complete-estimate-receipts`) ; matrice RLS verte ; 5 / 5 ; preuve `.e2e/army/ci/2026-10-18T17-16-53-959Z-critical` |
 
 Seule la tête fusionnée et ce qu'elle change sont rejoués localement (consigne de vitesse du porteur, 18/10) : la
-sélection critique non filtrée, les parcours takeoff et calc-v3 tournent dans la CI de la PR, qui fait foi.
+sélection critique non filtrée et les parcours takeoff tournent dans la CI de la PR, qui fait foi. calc-v3 n'y
+tourne pas : son dispatch manuel (§7) est un préalable de fusion.
 `verify:pr` est lancé une fois sur la tête finale (résultat dans le corps de la PR).
+
+## 10. Revue interne avant le premier push (18/10/2026)
+
+Revue en lecture seule de `254d1342..be7f443d` : contrat M8 et code conformes (corps de M8 = M6b à trois lignes
+près, absente = 2 côté attente, politique 2 explicite → v2, duplication sans lecture de politique, fichiers
+protégés sans diff). Quatre défauts de procédure ou de documentation, corrigés :
+
+| Constat | Correction |
+|---|---|
+| §8 laissait M8 sous l'autorisation permanente, dans un ordre périmé, avec une condition de déploiement fausse (« code 2.10 ») | §8 : M8 exclue de l'autorisation, état appliqué jusqu'à `20261018170351`, deux ordres sûrs, condition exacte `6aa1ed31` |
+| calc-v3 annoncé comme exécuté par la CI de la PR | §7 et §9 corrigés : dispatch manuel `-f phase=all` après le push, préalable de fusion |
+| F210-11 sans preuve : V3S01 n'exerce que le repli SQL | V3S01b (`a17c1c28`) : l'assistant sans ligne de politique propose 1,30 / 1,20, envoie 1.3 / 1.2, la base enregistre une v3 à 1.3000 / 1.2000 |
+| `e9c0ac6c` réécrivait les fins de ligne CRLF de `quick-create-affaire.test.ts` (#57) | `5c569a07` : octets de `main` restaurés, seul le changement de politique 2 reste (16+ / 4−), `git diff --check` propre |
+
+Preuve de V3S01b : `e2e:army:ci -- critical --grep "V3S0"` sur `a17c1c28` (`diffSha256` du vide, 2 workers, 95 s) :
+pgTAP 26 fichiers, 1 974 tests ; matrice RLS verte ; V3S01, V3S01b, V3S02 verts (4 / 4 avec l'authentification) ;
+valeurs attendues et lues identiques dans `v3s01b-offered` et `v3s01b-created` ; preuve
+`.e2e/army/ci/2026-10-18T17-38-52-915Z-critical` (clone WSL). V3S01b couvre une garantie déjà livrée par
+`6aa1ed31` : il est vert dès son ajout, sans rouge préalable (aucun changement de comportement).
