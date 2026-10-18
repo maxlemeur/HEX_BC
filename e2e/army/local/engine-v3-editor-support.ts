@@ -60,7 +60,7 @@ export type V3Draft = {
   tuyauteurId: string;
 };
 
-async function lockVersion(browser: Browser, versionId: string) {
+export async function lockVersion(browser: Browser, versionId: string) {
   const lock = await apiRequest(browser, "POST", `/api/estimates/${versionId}/lock`);
   expect(lock.status).toBe(201);
 }
@@ -70,7 +70,7 @@ async function lockVersion(browser: Browser, versionId: string) {
  * API session; the editor opened afterwards by a navigation is another page session (useDraftLock)
  * and would otherwise stay read-only, « verrouillé par vous dans un autre onglet » (2.6 green run).
  */
-async function releaseVersion(browser: Browser, versionId: string) {
+export async function releaseVersion(browser: Browser, versionId: string) {
   const release = await apiRequest(browser, "DELETE", `/api/estimates/${versionId}/lock`);
   expect(release.status).toBe(200);
 }
@@ -144,14 +144,18 @@ export async function prepareV3Draft(ui: Ui, army: ArmyState, label: string): Pr
   return { owner, projectId, anchorId, versionId, sectionId: section.body.data.item.id, sectionTitle, tuyauteurId };
 }
 
-/** Lines that a scenario does not type, by one committed batch (same contract as V3P01, §9.3.2 of 2.5). */
-export async function seedLines(ui: Ui, army: ArmyState, draft: V3Draft, label: string, lines: Array<Record<string, unknown>>) {
+/**
+ * Lines that a scenario does not type, by one committed batch (same contract as V3P01, §9.3.2 of 2.5),
+ * in the draft's section unless another section is named.
+ */
+export async function seedLines(ui: Ui, army: ArmyState, draft: V3Draft, label: string, lines: Array<Record<string, unknown>>,
+  parentId: string = draft.sectionId) {
   // prepareV3Draft handed its lease back: this document takes it again for the batch only.
   await lockVersion(ui.browser, draft.versionId);
   const before = await readEstimate(ui.browser, draft.versionId);
   const request = {
     operation_key: randomUUID(),
-    operations: lines.map((line, index) => ({ op: "create", data: { item_type: "line", parent_id: draft.sectionId, position: index + 1, ...line } })),
+    operations: lines.map((line, index) => ({ op: "create", data: { item_type: "line", parent_id: parentId, position: index + 1, ...line } })),
   };
   const response = await apiRequest<Envelope<{ committed: boolean; results: Array<{ status: string; code?: string }> }>>(
     ui.browser, "POST", `/api/estimates/${draft.versionId}/batch`, request, { "if-match": before.version.updated_at });
