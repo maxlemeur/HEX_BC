@@ -1,9 +1,9 @@
 # Lectures au-delà de la limite de lignes de l'API (variantes, ordre, déplacement, hiérarchie, sources d'import)
 
 PostgREST renvoie au plus 1 000 lignes par requête (`supabase/config.toml`, `[api] max_rows = 1000`). Le
-correctif des copies de sections v1/v2 (en cours, hors de `main`) laissait hors périmètre d'autres lectures de
-`src/lib/estimates/server.ts`. Pendant ce travail, 33c7031b (lectures complètes `readAllRows`,
-[postgrest-completeness-2026-10-18.md](postgrest-completeness-2026-10-18.md)) a corrigé quatre d'entre elles
+correctif des copies de sections v1/v2 ([copy-row-limit-v2.md](copy-row-limit-v2.md), #70) laissait hors
+périmètre d'autres lectures de `src/lib/estimates/server.ts`. Pendant ce travail, 33c7031b (lectures complètes
+`readAllRows`, [postgrest-completeness-2026-10-18.md](postgrest-completeness-2026-10-18.md)) a corrigé quatre d'entre elles
 (constats P2 · 18 et P2 · 44 de l'[audit](../audits/postgrest-1000-rows-2026-10-18.md)), sans parcours sur ces
 chemins ; l'audit écartait la liste des devis sources (`server.ts:3487`) avec la copie de sections. Ce lot
 corrige cette dernière lecture et ajoute le parcours des cinq défaillances.
@@ -90,6 +90,11 @@ passent par GitHub (AGENTS.md) : branche `wip/row-limit-reads`, supprimée ensui
 | 2 | `main` 36c5158c + parcours de forme intermédiaire (LR02 à LR04 actuels, LR05 sur le tenant partagé), sans correctif | idem, itération 6 | Rouge, 5/5 : LR01 600/400 ; LR02 200, 1 000 lignes réordonnées ; LR03 `item_not_in_source_parent` ; LR04 400, section au rang physique 1 001 ; LR05 1 000 sur 1 030 | idem |
 | 3 | `main` f1a5a74b + parcours final, sans correctif (f6592caa) | GitHub, run [39151345173](https://github.com/maxlemeur/HEX_BC/actions/runs/39151345173) | **Rouge, attendu** : 5 réussis sur 6 (setup compris), LR01 à LR04 verts grâce à 33c7031b ; LR05 rouge, 1 000 versions proposées sur 1 001, la plus ancienne absente (premier écart au rang 1 000) | `.codex-tmp/row-limit-reads/gh-red-39151345173/` |
 | 4 | idem + correctif (e0d8a8a0) | GitHub, run [39151463800](https://github.com/maxlemeur/HEX_BC/actions/runs/39151463800) | **Vert, 6/6** : LR01 600 et 500 ; LR02 409, 1 001 frères nommés, ordre inchangé ; LR03 409 sans `reason`, 1 000 frères source nommés, rien déplacé ; LR04 201, ligne en position 1, 5 / 1 / 6 enregistrés, relus et sommés ; LR05 1 001 versions dans l'ordre SQL, la plus ancienne en dernier | `.codex-tmp/row-limit-reads/gh-green-39151463800/` |
+
+Après la fusion de #70 et l'union des listes de `e2e.config.ts` et de la carte d'impact (3e36a1f9), sur un clone
+WSL propre : `npm run e2e:army:local -- --grep 'LR0' --app-port 3184`, pgTAP et matrice RLS réussis, **6/6 verts**
+(`filtered-critical`, 1 worker), mêmes valeurs exactes que le run 4 ; liste des sources 446 ms, création 321 ms.
+Preuves : `.codex-tmp/row-limit-reads/local-merged/` (dossier CI `2026-10-18T20-16-09-139Z-critical`).
 
 Durées en CI (run 4) : amorçages SQL de 897 à 1 046 ms par scénario (lots de 250 lignes), 136 ms pour les
 1 001 versions ; requêtes : refus du réordonnancement 134 ms, refus du déplacement 161 ms, création 240 ms, liste
