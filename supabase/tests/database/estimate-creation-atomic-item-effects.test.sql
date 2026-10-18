@@ -1,4 +1,4 @@
--- Lot 2, sous-lot 2.8 (M8): the atomic creation of a version replays the per-line effects of its items in one
+-- Lot 2, sous-lot 2.8 (M6b): the atomic creation of a version replays the per-line effects of its items in one
 -- pass (content revision, audit, source coverage, hierarchy depth) instead of firing four triggers per line.
 -- A complete OPTIMA lot (~1 021 items) exceeded the 8 s statement timeout of the API roles in CI (IO01).
 -- Isolation: the equivalence of revisions and audit rows, and the guards of the session contract, are not

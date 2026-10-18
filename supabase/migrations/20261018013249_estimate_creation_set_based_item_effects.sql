@@ -1,4 +1,4 @@
--- Lot 2, sub-lot 2.8 (M8): the atomic creation of a version replays the per-line effects of its items in
+-- Lot 2, sub-lot 2.8 (M6b): the atomic creation of a version replays the per-line effects of its items in
 -- one pass. A complete OPTIMA lot (1 021 items) fired, per line, a content revision update of the version
 -- with its audit row, an audit row for the item, a source coverage lookup and a hierarchy walk, and
 -- exceeded the 8 s statement timeout of the API roles in CI (IO01). Contract, failure modes and proofs:
@@ -33,7 +33,7 @@ begin
     or to_regprocedure('private.source_coverage_next(bigint)') is null
     or not exists (select 1 from information_schema.columns where table_schema = 'public'
       and table_name = 'estimate_versions' and column_name = 'content_revision') then
-    raise exception 'LOT2_2_8_M8_PREREQUISITE_MISSING';
+    raise exception 'LOT2_2_8_M6B_PREREQUISITE_MISSING';
   end if;
 end;
 $preflight$;
@@ -337,7 +337,7 @@ end;
 $$;
 
 comment on function public.estimate_creation_replay_item_effects_for_writer(uuid, uuid[]) is
-  'Lot 2, sub-lot 2.8 (M8): replays, under the creation contract of a version, the per-line effects of its inserted items (depth, content revision, audit, source coverage) in one pass and with the same results.';
+  'Lot 2, sub-lot 2.8 (M6b): replays, under the creation contract of a version, the per-line effects of its inserted items (depth, content revision, audit, source coverage) in one pass and with the same results.';
 
 revoke all on function public.estimate_creation_replay_item_effects_for_writer(uuid, uuid[]) from public, anon, authenticated, service_role;
 grant execute on function public.estimate_creation_replay_item_effects_for_writer(uuid, uuid[]) to service_role;
@@ -360,7 +360,7 @@ declare
   target_tenant_id uuid;
   target_action text := tg_op;
 begin
-  -- Lot 2, sub-lot 2.8 (M8): the atomic creation of a version journals the insertion of its items
+  -- Lot 2, sub-lot 2.8 (M6b): the atomic creation of a version journals the insertion of its items
   -- and its content revision steps itself, in one pass and with the same rows
   -- (public.estimate_creation_replay_item_effects_for_writer).
   if tg_op = 'INSERT' and tg_table_name = 'estimate_items' then
@@ -526,7 +526,7 @@ declare
   target_version_ids uuid[];
   target_status public.estimate_status;
 begin
-  -- Lot 2, sub-lot 2.8 (M8): the atomic creation of a version bumps the revision once per item
+  -- Lot 2, sub-lot 2.8 (M6b): the atomic creation of a version bumps the revision once per item
   -- itself, after its insert (public.estimate_creation_replay_item_effects_for_writer).
   if tg_op = 'INSERT' then
     if new.version_id::text = coalesce(pg_catalog.current_setting('miaouffrage.estimate_creation_atomic', true), '') then
@@ -602,7 +602,7 @@ declare
   parent_has_invalid_type boolean := false;
   target_section_level integer := 1;
 begin
-  -- Lot 2, sub-lot 2.8 (M8): the atomic creation of a version checks the depth of its items itself,
+  -- Lot 2, sub-lot 2.8 (M6b): the atomic creation of a version checks the depth of its items itself,
   -- with the same messages (public.estimate_creation_replay_item_effects_for_writer).
   if tg_op = 'INSERT' then
     if new.version_id::text = coalesce(pg_catalog.current_setting('miaouffrage.estimate_creation_atomic', true), '') then
@@ -679,7 +679,7 @@ $$;
 create or replace function private.source_coverage_invalidate() returns trigger language plpgsql security definer set search_path='' as $$
 declare old_value jsonb; new_value jsonb; identities uuid[]; affected uuid[]; req uuid; descendants uuid[];
 begin
-  -- Lot 2, sub-lot 2.8 (M8): the atomic creation of a version replays this invalidation for its items
+  -- Lot 2, sub-lot 2.8 (M6b): the atomic creation of a version replays this invalidation for its items
   -- (public.estimate_creation_replay_item_effects_for_writer).
   if tg_op='INSERT' and tg_table_name='estimate_items' then
     if new.version_id::text=coalesce(pg_catalog.current_setting('miaouffrage.estimate_creation_atomic',true),'') then return null; end if;
@@ -770,7 +770,7 @@ begin
         message = 'ESTIMATE_STATUS_REQUIRES_TRUSTED_WORKFLOW';
   end if;
 
-  -- Lot 2, sub-lot 2.8 (M8): only the replay of the atomic creation of this draft raises its revision
+  -- Lot 2, sub-lot 2.8 (M6b): only the replay of the atomic creation of this draft raises its revision
   -- directly, once for all its items.
   if new.content_revision is distinct from old.content_revision
     and pg_trigger_depth() = 1
@@ -1028,7 +1028,7 @@ begin
       message = 'ESTIMATE_ITEMS_PAYLOAD_INVALID';
   end if;
 
-  -- The hierarchy check (replayed after the insert since M8) and the coverage
+  -- The hierarchy check (replayed after the insert since M6b) and the coverage
   -- replay rely on the accepted payload order, made explicit before any
   -- project/import mutation: every child must follow its section parent in the
   -- payload and every payload id must be unique and concrete.
@@ -1450,7 +1450,7 @@ begin
   end if;
 
   if jsonb_array_length(p_items) > 0 then
-    -- Lot 2, sub-lot 2.8 (M8): under the creation contract of this version, the per-line triggers
+    -- Lot 2, sub-lot 2.8 (M6b): under the creation contract of this version, the per-line triggers
     -- (content revision, audit, source coverage, depth) leave its items to one replay, in payload
     -- order, at the end of the insert.
     previous_creation_contract := coalesce(
