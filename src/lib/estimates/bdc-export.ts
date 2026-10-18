@@ -6,7 +6,11 @@ import {
   type EstimateItemRecord,
   type EstimateVersionForCalc,
 } from "@/lib/estimate-calculations";
-import { shouldPreserveStoredEstimateV2Snapshot } from "@/lib/estimates/calc-engine-version";
+import {
+  resolveEstimateEngineVersion,
+  shouldPreserveStoredEstimateV2Snapshot,
+} from "@/lib/estimates/calc-engine-version";
+import { usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import {
   alternativePriceForLineUnit,
   type SupplierOfferPurchaseUnit,
@@ -19,6 +23,20 @@ import {
   type WorkbookWriterFactory,
 } from "@/lib/estimates/export-stream";
 import { getEstimateSupplierComparisons, getEstimateVersionDetails } from "@/lib/estimates/server";
+import { ESTIMATE_V3_STATUS_DOCUMENT_LABELS } from "@/lib/estimates/v3-document-presentation";
+import {
+  amountsSourceLabel,
+  currencyOf,
+  depthsOf,
+  documentOrder,
+  ESTIMATE_V3_CURRENCY_FORMATS,
+  euros,
+  footerEntries,
+  loadEstimateV3ExportDocument,
+  usesEstimateV3LaborSplit,
+  type EstimateV3ExportDocument,
+} from "@/lib/estimates/v3-export";
+import { ESTIMATE_VAT_REVERSE_CHARGE_NOTICE } from "@/lib/estimates/document-copy";
 
 type WorksheetRowValue = Record<string, unknown> | unknown[];
 
@@ -109,6 +127,8 @@ type BdcExportRow = {
   supplier3Url: string;
   refInterne: string;
   isSection: boolean;
+  /** Lot 2, sous-lot 2.7b : colonnes propres à une v3, ajoutées après « Ref interne ». */
+  v3?: { status: string; hoursPerUnit: number | null; saleUnitPriceEur: number | null };
 };
 
 type BdcExportPayload = {
@@ -116,6 +136,8 @@ type BdcExportPayload = {
   projectReference: string | null;
   versionNumber: number;
   rows: BdcExportRow[];
+  /** Lot 2, sous-lot 2.7b : document v3 dont viennent les lignes (aucun montant recalculé ici). */
+  v3?: { document: EstimateV3ExportDocument };
 };
 
 const SUPPLIER_COMPARISON_BATCH_SIZE = 200;
@@ -306,7 +328,7 @@ function applyHeaderFill(
   }
 }
 
-function styleWorksheetHeader(worksheet: WorksheetLike) {
+function styleWorksheetHeader(worksheet: WorksheetLike, engineV3 = false) {
   const headerRow = worksheet.getRow?.(1);
   if (!headerRow) return;
 
@@ -322,6 +344,23 @@ function styleWorksheetHeader(worksheet: WorksheetLike) {
   applyHeaderFill(headerRow, 19, 30, "FF7E22CE");
   // Ref interne
   applyHeaderFill(headerRow, 31, 31, "FF334155");
+
+  if (engineV3) {
+    // Lot 2, sous-lot 2.7b : colonnes v3 après « Ref interne » ; les totaux sont ceux du document v3, sans la
+    // formule indicative V1.1.
+    applyHeaderFill(headerRow, 32, 34, "FF0F766E");
+    const notes: Array<[number, string]> = [
+      [16, "Moteur 3 : brut FO du document (Q × PR FO × K FO × coefficient de vente FO, réparti sur le brut de ligne)"],
+      [17, "Moteur 3 : brut MO du document (brut de ligne − brut FO)"],
+      [18, "Moteur 3 : brut de ligne du document (Q × PU vente), avant remise commerciale"],
+    ];
+    for (const [column, note] of notes) {
+      const cell = headerRow.getCell?.(column);
+      if (cell) cell.note = note;
+    }
+    headerRow.commit();
+    return;
+  }
 
   const totalFoCell = headerRow.getCell?.(16);
   if (totalFoCell) {
@@ -376,7 +415,7 @@ function resolveExportAid(item: EstimateItemRecord) {
   return normalized.length > 0 ? normalized : item.id;
 }
 
-async function getSupplierComparisonsForExport(versionId: string, lineItemIds: string[]) {
+export async function getSupplierComparisonsForExport(versionId: string, lineItemIds: string[]) {
   if (lineItemIds.length === 0) {
     return [] as SupplierComparison[];
   }
@@ -588,12 +627,105 @@ function buildBdcRows(input: {
   });
 }
 
+/**
+ * Lot 2, sous-lot 2.7b (A10, D-a) : lignes BDC V1.1 d'une v3, lues dans le document v3 (gel, ou aperçu d'un brouillon
+ * modifié depuis son gel), jamais recalculées par le moteur v1/v2 (D12). Unité du référentiel (`unit_code`), PR FO saisi,
+ * K FO et K MO saisis, FO, MO (= brut − FO) et HT bruts du document ; « h MO » et « Taux horaire MO » restent vides (les
+ * heures par unité et le statut vont dans les colonnes v3). Ligne ventilée au déclenchement du moteur
+ * (`usesEstimateV3LaborSplit` : drapeau du calcul, heures, rôle ou K MO atelier/chantier) : rôles « Atelier : … /
+ * Chantier : … », h/u additionnées et K MO pondéré par les heures, comme le BDC d'une v1/v2. Une ligne non chiffrée porte
+ * 0 € et son libellé de statut, sans prix ni heures. Les prix fournisseurs sont ramenés à l'unité de la ligne (2.9).
+ */
+function buildBdcV3Rows(input: {
+  document: EstimateV3ExportDocument;
+  supplyTypeById: Map<string, string>;
+  laborRoleNameById: Map<string, string>;
+  categoryById: Map<string, string>;
+  comparisonByItemId: Map<string, SupplierComparison>;
+}): BdcExportRow[] {
+  const { prepared } = input.document;
+  const depths = depthsOf(input.document.items);
+  const roleName = (id: string | null | undefined, fallback: string) =>
+    id ? (input.laborRoleNameById.get(id) ?? fallback) : "";
+  return documentOrder(input.document.items).map((item): BdcExportRow => {
+    const depth = depths.get(item.id) ?? 0;
+    const designation = `${depth > 0 ? "  ".repeat(depth) : ""}${item.title}`;
+    const aid = resolveExportAid(item as unknown as EstimateItemRecord);
+    if (item.item_type !== "line") {
+      return {
+        type: "section", position: item.position, aid, designation, unite: "", quantite: null, typeFo: "",
+        puFoHtEur: null, prFoHtEur: null, kFo: null, hMo: null, kMo: null, tauxHoraireMoEur: null, roleMo: "",
+        categorie: "", totalFoHtEur: null, totalMoHtEur: null, totalHtEur: null,
+        supplier1Name: "", supplier1PriceEur: null, supplier1Ref: "", supplier1Url: "",
+        supplier2Name: "", supplier2PriceEur: null, supplier2Ref: "", supplier2Url: "",
+        supplier3Name: "", supplier3PriceEur: null, supplier3Ref: "", supplier3Url: "",
+        refInterne: item.id, isSection: true, v3: { status: "", hoursPerUnit: null, saleUnitPriceEur: null },
+      };
+    }
+    const line = prepared.v3.linesById[item.id];
+    const priced = line.pricingStatus === "priced";
+    const split = usesEstimateV3LaborSplit(input.document, item);
+    const roleMo = split
+      ? [item.labor_role_atelier_id ? `Atelier: ${roleName(item.labor_role_atelier_id, "Rôle atelier")}` : "",
+        item.labor_role_chantier_id ? `Chantier: ${roleName(item.labor_role_chantier_id, "Rôle chantier")}` : ""]
+        .filter(Boolean).join(" / ")
+      : roleName(item.labor_role_id, "");
+    const hoursAtelier = Number(item.h_mo_atelier_per_unit ?? 0);
+    const hoursChantier = Number(item.h_mo_chantier_per_unit ?? 0);
+    const hoursPerUnit = split ? hoursAtelier + hoursChantier : (item.h_mo_per_unit ?? null);
+    // Même K MO de ligne ventilée que le BDC v1/v2 (`resolveLaborCoefficient`) : pondéré par les heures, 1 sans heures.
+    const kMo = !split ? (item.k_mo ?? 1) : hoursAtelier + hoursChantier <= 0 ? 1
+      : (hoursAtelier * Number(item.k_mo_atelier ?? 1) + hoursChantier * Number(item.k_mo_chantier ?? 1))
+        / (hoursAtelier + hoursChantier);
+    const comparison = input.comparisonByItemId.get(item.id);
+    const [supplier1, supplier2, supplier3] = ([0, 1, 2] as const)
+      .map((rank) => resolveSupplierByRank(comparison, rank, line.unitCode));
+    return {
+      type: "line", position: item.position, aid, designation,
+      unite: line.unitCode ?? "",
+      quantite: toNullableNumber(item.quantity),
+      typeFo: item.supply_type_id ? (input.supplyTypeById.get(item.supply_type_id) ?? "") : "",
+      puFoHtEur: priced ? euros(item.unit_price_ht_cents) : null,
+      prFoHtEur: priced ? euros(item.unit_price_ht_cents) : null,
+      kFo: item.k_fo ?? 1,
+      hMo: null,
+      kMo,
+      tauxHoraireMoEur: null,
+      roleMo,
+      categorie: item.category_id ? (input.categoryById.get(item.category_id) ?? "") : "",
+      totalFoHtEur: euros(line.foSaleHtCents),
+      totalMoHtEur: euros(line.moSaleHtCents),
+      totalHtEur: euros(line.saleHtCents),
+      supplier1Name: supplier1.name, supplier1PriceEur: supplier1.unitPriceEur, supplier1Ref: supplier1.reference, supplier1Url: supplier1.url,
+      supplier2Name: supplier2.name, supplier2PriceEur: supplier2.unitPriceEur, supplier2Ref: supplier2.reference, supplier2Url: supplier2.url,
+      supplier3Name: supplier3.name, supplier3PriceEur: supplier3.unitPriceEur, supplier3Ref: supplier3.reference, supplier3Url: supplier3.url,
+      refInterne: item.id,
+      isSection: false,
+      v3: {
+        status: ESTIMATE_V3_STATUS_DOCUMENT_LABELS[line.pricingStatus],
+        hoursPerUnit: priced ? hoursPerUnit : null,
+        saleUnitPriceEur: priced ? euros(line.unitSaleHtCents) : null,
+      },
+    };
+  });
+}
+
+/** Colonnes ajoutées après « Ref interne » pour une v3 (l'en-tête V1.1 reste intact et dans son ordre). */
+function bdcV3Columns(currency: string) {
+  return [
+    { header: "Statut", key: "statut_v3", width: 16 },
+    { header: "h MO / unité", key: "h_mo_per_unit_v3", width: 14 },
+    { header: `PU vente HT ${currency}`, key: "pu_vente_ht_v3", width: 18 },
+  ];
+}
+
 async function writeWorkbook(input: {
   payload: BdcExportPayload;
   stream: NodeJS.WritableStream;
   workbookWriterFactory: WorkbookWriterFactory;
 }) {
   const workbook = (await input.workbookWriterFactory(input.stream)) as WorkbookWriterLike;
+  const v3 = input.payload.v3;
 
   const bdcSheet = workbook.addWorksheet("BDC_V1_1");
   bdcSheet.columns = [
@@ -628,12 +760,14 @@ async function writeWorkbook(input: {
     { header: "Fournisseur 3 Ref", key: "fournisseur_3_ref", width: 20 },
     { header: "Fournisseur 3 URL", key: "fournisseur_3_url", width: 30 },
     { header: "Ref interne", key: "ref_interne", width: 38 },
+    ...(v3 ? bdcV3Columns(currencyOf(v3.document)) : []),
   ];
-  styleWorksheetHeader(bdcSheet);
+  styleWorksheetHeader(bdcSheet, v3 !== undefined);
 
   let rowNumber = 1;
   input.payload.rows.forEach((row) => {
     rowNumber += 1;
+    const v3Cells = v3 ? [row.v3?.status ?? "", row.v3?.hoursPerUnit ?? null, row.v3?.saleUnitPriceEur ?? null] : [];
     const bdcRow = bdcSheet.addRow([
       row.type,
       row.position,
@@ -666,12 +800,20 @@ async function writeWorkbook(input: {
       row.supplier3Ref,
       row.supplier3Url,
       row.refInterne,
+      ...v3Cells,
     ]);
 
     if (row.isSection) {
       bdcRow.font = {
         bold: true,
       };
+    } else if (v3) {
+      // v3 : montants du document au format de la devise de la version ; aucune formule indicative V1.1 (D12).
+      const money = ESTIMATE_V3_CURRENCY_FORMATS[currencyOf(v3.document)];
+      setCellNumberFormat(bdcRow, 2, "0");
+      setCellNumberFormat(bdcRow, 6, "0.###");
+      for (const column of [10, 12, 33]) setCellNumberFormat(bdcRow, column, "0.###");
+      for (const column of [8, 9, 16, 17, 18, 20, 24, 28, 34]) setCellNumberFormat(bdcRow, column, money);
     } else {
       setCellNumberFormat(bdcRow, 2, "0");
       setCellNumberFormat(bdcRow, 6, "0.###");
@@ -706,6 +848,35 @@ async function writeWorkbook(input: {
   });
   bdcSheet.commit();
 
+  if (v3) {
+    // v3 : source des montants (gel ou aperçu non figé), coefficients de vente et pied du document, sans recalcul.
+    const { document } = v3;
+    const money = ESTIMATE_V3_CURRENCY_FORMATS[currencyOf(document)];
+    const summary = workbook.addWorksheet("Resume");
+    summary.columns = [{ header: "Champ", key: "field", width: 40 }, { header: "Valeur", key: "value", width: 32 }];
+    const header = summary.getRow?.(1);
+    if (header) {
+      applyHeaderFill(header, 1, 2, "FF1E3A8A");
+      header.commit();
+    }
+    const footer = footerEntries(document);
+    const rows: Array<[string, string | number, boolean]> = [
+      ["Moteur de calcul", 3, false],
+      ["Montants", amountsSourceLabel(document), false],
+      ["Coefficient de vente FO", Number(document.version.sale_coefficient_fo ?? 0), false],
+      ["Coefficient de vente MO", Number(document.version.sale_coefficient_mo ?? 0), false],
+      ...footer.map(([label, amount]): [string, number, boolean] => [label, amount, true]),
+      ...(document.prepared.v3.totals.reverseCharge
+        ? [["Régime de TVA", ESTIMATE_VAT_REVERSE_CHARGE_NOTICE, false] as [string, string, boolean]] : []),
+    ];
+    for (const [field, value, isMoney] of rows) {
+      const summaryRow = summary.addRow([field, value]);
+      if (isMoney) setCellNumberFormat(summaryRow, 2, money);
+      summaryRow.commit();
+    }
+    summary.commit();
+  }
+
   await workbook.commit();
 }
 
@@ -717,6 +888,35 @@ async function buildBdcExportPayload(
     includeExportCalculationContext: true,
   });
   const items = details.items as EstimateItemRecord[];
+  const supplyTypeById = new Map(
+    (details.supply_types ?? []).map((supplyType) => [supplyType.id, supplyType.name])
+  );
+  const laborRoleNameById = new Map(
+    (details.labor_roles ?? []).map((role) => [role.id, role.name])
+  );
+  const categoryById = new Map(
+    (details.categories ?? []).map((category) => [category.id, category.name])
+  );
+  // Lot 2, sous-lot 2.7b : une v3 est aiguillée avant tout garde ou calcul v1/v2 (computeEstimateLineValues,
+  // shouldPreserveStoredEstimateV2Snapshot) vers son document ; ses montants ne sont jamais recalculés ici (D12).
+  if (usesSaleCoefficients(resolveEstimateEngineVersion(details.version))) {
+    const document = await loadEstimateV3ExportDocument(versionId);
+    const v3LineIds = document.items.filter((item) => item.item_type === "line").map((item) => item.id);
+    const v3Comparisons = await getSupplierComparisonsForExport(versionId, v3LineIds);
+    return {
+      projectName: details.version.estimate_projects.name,
+      projectReference: details.version.estimate_projects.reference,
+      versionNumber: details.version.version_number,
+      rows: buildBdcV3Rows({
+        document,
+        supplyTypeById,
+        laborRoleNameById,
+        categoryById,
+        comparisonByItemId: new Map(v3Comparisons.map((comparison) => [comparison.item_id, comparison])),
+      }),
+      v3: { document },
+    };
+  }
   const preserveStoredSnapshot =
     shouldPreserveStoredEstimateV2Snapshot(details.version);
   const lineItemIds = items
@@ -728,17 +928,8 @@ async function buildBdcExportPayload(
   const comparisonByItemId = new Map(
     supplierComparisons.map((comparison) => [comparison.item_id, comparison])
   );
-  const supplyTypeById = new Map(
-    (details.supply_types ?? []).map((supplyType) => [supplyType.id, supplyType.name])
-  );
   const laborRateById = new Map(
     (details.labor_roles ?? []).map((role) => [role.id, role.hourly_rate_cents ?? 0])
-  );
-  const laborRoleNameById = new Map(
-    (details.labor_roles ?? []).map((role) => [role.id, role.name])
-  );
-  const categoryById = new Map(
-    (details.categories ?? []).map((category) => [category.id, category.name])
   );
 
   return {
