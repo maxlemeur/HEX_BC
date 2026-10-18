@@ -1,6 +1,6 @@
 # Éditeur et réglages v3 (sous-lot 2.6) — défaillances, parcours E2E, implémentation et preuves
 
-Statut : **vert, intégré** (18/10/2026). Le rouge a été écrit le 17/10/2026 sans code de production (isolation
+Statut : **vert, intégré, revu** (18/10/2026 ; revue et corrections au §11). Le rouge a été écrit le 17/10/2026 sans code de production (isolation
 Vitest au §5, parcours E2E au §9.8). L'implémentation, en deux pistes (réglages `e0022a1f`, grille `d97107a7` à
 `6521ab4a`), est au §8 ; l'intégration des deux pistes, la fusion d'`origin/main` et les preuves mesurées sont au
 §10. Ce document fixe les défaillances observables de l'éditeur v3 (§2), leur preuve (parcours E2E
@@ -31,7 +31,8 @@ Dépendances : 2.5, 2.3.
 | `src/components/estimates/v3/TaxRatePropagationDialog.tsx` | Dialogue au changement de taux par défaut : « Oui » applique le taux à toutes les lignes dans la **même** sauvegarde (`apply_tax_rate_to_lines`, D8) ; « Non » ne change que le taux des nouvelles lignes |
 
 Modules ajoutés au vert par la piste grille (§8.1) : `src/lib/estimates/editor-engine.ts`,
-`src/lib/estimates/v3-editor.ts`, `src/components/estimates/v3/EstimateV3DraftSummary.tsx`.
+`src/lib/estimates/v3-editor.ts`, `src/components/estimates/v3/EstimateV3DraftSummary.tsx` ; à la revue (§11) :
+`src/lib/estimates/v3-editor-writer.ts` (écritures de la grille v3 par l'écrivain de lot).
 
 ### 1.2 API pure (`src/lib/estimates/v3-settings-payload.ts`)
 
@@ -187,7 +188,7 @@ l'écran à l'API relue après rechargement et aux valeurs du §3.
 | F26-07 | Changement de taux par défaut non propagé après « Oui », propagé après « Non », ou réglages et lignes en deux sauvegardes | V3E-05 | — |
 | F26-08 | Pied par taux faux : TVA ligne à ligne (S5 : 1 325 527 c au lieu de 1 325 525 c), un seul taux au récapitulatif | V3E-05 | — |
 | F26-09 | Ligne non chiffrée (« Hors lot ») comptée au HT ou à la TVA, ou ses saisies perdues au retour à « Chiffrée » (T-STAT) | V3E-06 | — |
-| F26-10 | Unité : « ML » lue comme millilitre ou laissée en texte libre, unité inconnue acceptée en silence, unité remplacée par une suggestion catalogue (F18) | V3E-07 | — |
+| F26-10 | Unité : « ML » lue comme millilitre ou laissée en texte libre, unité inconnue acceptée en silence (ou refusée sans que la cellule se quitte), unité remplacée par une suggestion catalogue (F18) | V3E-07 ; inconnue et statut : V3E05 (revue, §11) | — |
 | F26-11 | Confusion h/u et `h_mo` : la grille écrit `h_mo` (refus `ESTIMATE_V3_LABOR_HOURS_PER_UNIT_REQUIRED`) ou « h MO total » est éditable ; la MO ne suit pas Q ; aide « par unité » en v1/v2 ou « total » en v3 | V3E-01, V3E-08 | — |
 | F26-12 | « Barème par défaut » affiché ou appliqué en v3 ; repère du barème de l'entreprise appliqué ; marge affichée depuis `margin_multiplier` ou `effective_margin_multiplier` (×1 → « 0 % ») | V3E-09 | — |
 | F26-13 | Arrondi `up` ou `nearest` proposé en v3 (y compris « Réglage conservé »), ou arrondi traité hors remise HT | V3E-10 | — |
@@ -198,6 +199,18 @@ l'écran à l'API relue après rechargement et aux valeurs du §3.
 | F26-18 | Budget dépassé (`EstimateEditorTable.tsx` > 2 600, `useEstimateEditorState.impl.tsx` > 3 100, `useEstimateEditorSyncController.ts` > 1 200) | `npm run check:architecture` (dans `verify:pr`) | — |
 | F26-19 | Régression v1/v2 : charge, aperçu ou montants v2 changés | parcours critiques existants (`estimate-integrity`), corpus figé et empreintes ; `git diff --stat` vide sur `estimate-calculations.ts` et `estimate-v2-snapshot.ts` | — |
 | F26-20 | Ajouté à l'intégration (§10.4) : la comparaison fournisseurs d'une ligne v3 (« Comparer les fournisseurs », « Choisir une offre ») lit l'unité dans `description`, vide sur une ligne v3 : toute unité d'offre passe pour compatible (une ligne en ml peut prendre un prix à la barre) et retenir une offre écrit son unité dans `description` | V3E-12 | — |
+| F26-21 | Revue (§11) : supprimer une ligne ou une section d'une v3, annuler un ajout, rétablir une suppression ou nettoyer une ligne retirée pendant sa création passe par la suppression directe (refus générique, ligne revenue, ou ligne orpheline cachée) ; annuler une suppression recrée la ligne sans ses saisies v3 (`h_mo` refusé, `unit_code` perdu) | V3E05 | — |
+| F26-22 | Revue : majoration, catégorie, rôle, déplacement ou suppression en lot d'une v3 (et leur annulation) par `POST /items/bulk` ou la suppression directe : refus générique après une mise à jour optimiste | V3E06 | — |
+| F26-23 | Revue : le taux horaire d'un rôle changé dans l'éditeur ne recalcule rien de stocké : l'aperçu suit, la fiche, l'impression, la liste des affaires et les approbations gardent l'ancien HT sous « Sauvegardé » | V3E07 | — |
+| F26-24 | Revue : « Deboursé sec », « Marge € », « Marque % » d'une ligne v3 recalculés par la formule v1/v2 (vente = net, taux atelier/chantier) au lieu du moteur (brut − déboursé) | V3E08 | — |
+| F26-25 | Revue : « Temps MO manquant » et la nature de ligne lus sur le `h_mo` stocké, périmé dès qu'une saisie change Q ou h/u | V3E08 | — |
+| F26-26 | Revue : « Associer ou remplacer l'article » lit l'unité d'une ligne v3 dans `description`, prix d'une autre unité accepté, unité de l'offre écrite dans `description` (même famille que F26-20) | V3E09 | — |
+| F26-27 | Revue : Ctrl+S, l'enregistrement à la fermeture du tiroir et la navigation n'ouvrent pas la question de propagation de la TVA (sauvegarde bloquée par une erreur derrière le tiroir) | V3E10 | — |
+| F26-28 | Revue : « 0 » dans « Remise (%) » laisse les réglages « Non sauvegardé » après leur sauvegarde | V3E11 | — |
+| F26-29 | Revue : un palier inférieur stocké hors de la liste s'affiche « Aucun » alors qu'il s'applique | V3E11 | — |
+| F26-30 | Revue : la fiche d'un brouillon v3 propose « Préparer le PDF » et « Sauvegarder comme modèle » (émission fermée jusqu'en 2.7, modèles jusqu'en 2.8), refusés ensuite par le message générique | V3E11 | — |
+| F26-31 | Revue : coller des lignes dans une v3 écrit l'unité dans `description` (`unit_code` perdu) et des heures totales (refusées) | V3E13 | — |
+| F26-32 | Revue : appliquer ou annuler les suggestions en lot sur une v3 par `POST /items/bulk` : refus générique | V3E12 | — |
 
 **F26-17, contrat retenu** (Choix au rouge, **décision** du porteur au vert, §8) : sur une v3, appliquer la
 présélection passe par l'écrivain v3 de 2.5 (les mêmes opérations de lot qu'une saisie de PR FO dans la grille) :
@@ -288,7 +301,7 @@ npx vitest run --project=node src/lib/estimates/v3-settings-payload.test.ts
 npx vitest run --project=node src/test/army-impact-map.test.ts src/test/ci-guardrails.test.ts
 npm run check:architecture
 # WSL, clone Linux ~/miaouffrage-lot2-26 (au plus deux exécutions natives possédées en parallèle)
-E2E_ARMY_WORKERS=2 NODE_OPTIONS=--max-old-space-size=4096 npm run e2e:army:local -- --grep "V3E0|V3P01|V3FC"
+E2E_ARMY_WORKERS=2 NODE_OPTIONS=--max-old-space-size=4096 npm run e2e:army:local -- --grep "V3E|V3P01|V3FC"
 NODE_OPTIONS=--max-old-space-size=4096 npm run e2e:army:calc-v3            # parcours de référence 2.0, hors CI
 npm run engine:document-fingerprints -- check                            # empreintes identiques
 npm run db:ci:local                                                      # si le SQL change
@@ -322,6 +335,8 @@ prises par délégation du porteur, le 17/10/2026 :
 | Modèles, ouvrages, métré | Refusés sur une v3 jusqu'en 2.8, par les refus nommés existants du serveur (aucune conversion côté éditeur) |
 | Messages de refus des réglages | Ceux proposés au §1.2, suivis de « Valeur conservée : {valeur}. » |
 | TVA par défaut d'une v3 | Tout taux de 0 à 100 %, 2 décimales au plus ; la liste des taux de l'entreprise n'est pas imposée à la saisie, le gel la contrôle (D8) |
+| **Écart à la conception (relevé par la revue, à confirmer par le porteur dans la PR)** : migration en 2.6 | La conception donne à 2.6 « Migration : aucune » (§14 « 2.6 »). 2.6 ajoute `20261017205000_estimate_engine_v3_line_repricing.sql` pour corriger un défaut de l'écrivain de 2.5 révélé par `V3E02` (§8.4 : une ligne non chiffrée ne pouvait plus redevenir « Chiffrée » par `commit_estimate_batch`). Elle doit être appliquée au Supabase partagé avant tout déploiement, sur autorisation explicite (`AGENTS.md`, `supabase/README.md` §3) ; elle n'a tourné que sur des piles locales jetables. Son commentaire disait « CHECK de M4 » : corrigé (« garde de colonnes de M4 »), empreinte du manifeste mise à jour (`d0d82b4e`) |
+| Choix de la revue (§11.2), dans le cadre des décisions ci-dessus | collage refusé par son nom sur une v3 ; suggestions en lot, actions en lot, suppressions et recréations par l'écrivain de lot ; l'article associé ne fixe jamais l'unité d'une ligne v3 ; fiche d'un brouillon v3 : PDF et modèle désactivés avec leur raison |
 
 ### 8.1 Aiguillage et délégation
 
@@ -386,7 +401,7 @@ Deux défauts, rouges par le parcours lui-même :
   a été annulé. »). Migration `20261017205000_estimate_engine_v3_line_repricing.sql` : un déclencheur `BEFORE
   UPDATE OF pricing_status` donne un PU provisoire nul à une ligne qui redevient chiffrée ; la projection du
   même lot écrit le PU du moteur et `estimate_v3_assert_draft` vérifie chaque PU (D12), un PU provisoire ne peut
-  donc jamais être validé. Seule une ligne v3 peut quitter `priced` (CHECK de M4) : aucune v1/v2 n'est touchée,
+  donc jamais être validé. Seule une ligne v3 peut quitter `priced` (garde de colonnes de M4, `guard_estimate_item_engine_columns` ; libellé corrigé à la revue, §11) : aucune v1/v2 n'est touchée,
   aucune comparaison de moteur à un littéral (liste blanche F-SQL-14 inchangée). M4 n'est pas réécrite. À
   appliquer au Supabase partagé avant tout déploiement (AGENTS.md).
 - **Barème v1/v2 dans le tiroir d'une v3** (`V3E01`, V3E-09, F26-12, passage 7) : le tiroir rendait, sous les
@@ -412,32 +427,37 @@ désormais avant l'ouverture comme dans les parcours de l'éditeur.
 
 ### 8.5 Limites
 
+État revu le 18/10/2026 (§11) : les points barrés par la revue sont corrigés et ne restent ici que pour la trace ;
+les limites qui demeurent sont au §11.6.
+
 - La donnée de `V3E03` porte la même unité dans `description` et `unit_code` : la lecture de `unit_code` par la
   comparaison fournisseurs n'y est pas discriminée.
 - Taux proposés par la cellule « TVA % » : la liste par défaut de la politique (20 / 10 / 5,5 / 2,1 %) et le taux
   de la ligne ; une liste propre à l'entreprise n'est pas encore lue par l'éditeur (contrôlée au gel).
-- Changer le taux horaire d'un rôle n'écrit rien sur une v3 : l'aperçu le suit, la prochaine écriture recalcule.
-- L'éditeur mobile d'une ligne et la restauration d'un brouillon en conflit restent v2 : sur une v3, une heure
-  totale saisie est refusée par le serveur (`ESTIMATE_V3_LABOR_HOURS_PER_UNIT_REQUIRED`), jamais écrite.
-- Actions en lot (catégorie, rôle, majoration) : leur charge est réduite aux saisies par `toEngineItemWrite`.
-- « Associer ou remplacer l'article » (fiche article, `handleAssociateArticle` d'`EstimateEditorTable.tsx`) lit encore
-  l'unité dans le brouillon d'unité v1/v2 (`description`) et écrit l'unité de l'offre dans `description` : sur une
-  v3, le prix retenu n'est pas jugé dans `unit_code` (même famille que F26-20, non corrigé ici, aucun parcours ne
-  le couvre ; le contrat de l'association, qui fait de l'article la source de l'unité en v1/v2, reste à fixer pour
-  une v3).
+- ~~Changer le taux horaire d'un rôle n'écrit rien sur une v3~~ : corrigé (F26-23, §11).
+- L'éditeur mobile d'une ligne et la restauration d'un brouillon en conflit restent v2. **Correction de la revue** :
+  sur une v3, une heure totale saisie dans l'éditeur mobile n'est pas refusée par le serveur, elle est **ignorée sans
+  message** côté client (la charge v3 retire `h_mo`, la file trouve alors une charge égale à la référence et
+  n'envoie rien, le champ revient à la valeur de l'aperçu) ; l'unité saisie dans l'éditeur mobile s'écrit dans
+  `description`, sans effet sur `unit_code`. Limite maintenue (§11.6).
+- ~~Actions en lot (catégorie, rôle, majoration) : leur charge est réduite aux saisies par `toEngineItemWrite`~~ :
+  inexact (relevé par la revue) — `toEngineItemWrite` ne servait qu'à la sauvegarde de la grille, et les actions
+  en lot partaient par `POST /items/bulk`, refusé sur une v3. Corrigé (F26-22, §11).
+- ~~« Associer ou remplacer l'article » lit l'unité dans `description`~~ : corrigé (F26-26, §11) ; l'article ne fixe
+  jamais l'unité d'une ligne v3.
 - Tiroir d'une v3 : le gestionnaire des tranches de marge n'y est plus rendu ; le barème de l'entreprise se
   gère depuis le tiroir d'une v1/v2 (ou `/api/margin-tiers`) jusqu'à un gestionnaire rédigé pour le moteur 3.
 - F26-07, « rien n'est envoyé avant la réponse » : tenu par `requestSave` (§1.3) et vérifié seulement par un
   contrôle jsdom jetable de la piste réglages, hors dépôt ; le parcours asserte l'issue de « Non » et de « Oui »
   (version et sept lignes relues), pas l'absence de requête pendant que le dialogue est ouvert.
-- Un arrondi v3 stocké (par l'API, qui admet tout pas ≥ 1 c) à un pas inférieur hors de la liste de l'éditeur
-  (1 / 10 / 50 / 100 €) s'affiche avec une note (« Réglage actuel : palier inférieur de …, remplacé au prochain
-  choix. »), sans option correspondante.
-- Supprimer une ligne ou une section d'une v3 depuis la grille passe encore par la suppression directe
+- ~~Un arrondi v3 stocké hors de la liste s'affiche avec une note, sans option correspondante~~ : corrigé (F26-29,
+  §11) — le pas stocké est une option « (réglage actuel) ».
+- ~~Supprimer une ligne ou une section d'une v3 depuis la grille passe encore par la suppression directe~~ (corrigé,
+  F26-21, §11) : passait par la suppression directe
   (`deleteEstimateItem`, `useEstimateEditorItemsController.ts`), que 2.5 refuse sur une v3 avec le message
   générique du moteur 3 (`ESTIMATE_ENGINE_UNAVAILABLE`, V3P-15 et V3P-18) : rien n'est écrit, l'erreur s'affiche
-  et la ligne revient à la relecture. La suppression par le lot (`op: "delete"`, qui recalcule) n'est pas encore
-  branchée dans l'éditeur ; hors des scénarios du §14 « 2.6 », aucun parcours ne la couvre.
+  et la ligne revenait à la relecture. Elle passe désormais par le lot (`op: "delete"`, qui recalcule), prouvée par
+  `V3E05` (§11).
 - **Instabilité observée, non reproduite** : à `86ef5886`, deux passages de `V3E01` sur trois
   (`2026-10-17T21-01-04-472Z`, `2026-10-17T21-09-01-580Z`) ont perdu le rôle « Tuyauteur » saisi dans la liste
   « Rôle de main-d'œuvre pour {t} » (ligne O2 puis O1) : après le remplissage, le champ est focalisé, la liste
@@ -522,6 +542,7 @@ création puis remise à 2, rôle « Tuyauteur » 40 €/h par l'API.
 |---|---|
 | `e2e/army/local/engine-v3-editor.e2e.ts` | Parcours `V3E01`, `V3E02`, `V3E03`, `V3E04` (ajouté à l'intégration, §10.4) (sélection critique locale : motif `engine-v3-*.e2e.ts` d'`e2e.config.ts`) |
 | `e2e/army/local/engine-v3-editor-support.ts` | Préalables (propriétaire, v3, section, lignes par lot), mode Expert, préréglage « Standard », lectures d'écran et d'API, relevé `checkpoint` |
+| `e2e/army/local/engine-v3-editor-actions.e2e.ts` | Ajouté à la revue (§11) : `V3E05` à `V3E13`, actions de la grille et du tiroir hors saisie d'une cellule (suppressions, lots, taux horaire, sous-détail, article, question de TVA, remise nulle, arrondi stocké, fiche, suggestions en lot, collage) |
 | `scripts/tester-army/army-impact-map.json` | Parcours ajouté à `suite.journeys`, aux groupes `editor`, `affaires-list`, `print` et à la règle `estimate-detail` |
 
 ```bash
@@ -981,7 +1002,7 @@ panneau proposait donc une offre dans une autre unité (prix à la barre sur une
 - **Correction** (`c8c750f3`) : sur une v3 (contexte `useEstimateV3Grid`), l'unité de la ligne est `unit_code` pour
   l'éligibilité, le prix converti (2.9) et l'affichage du panneau (`activeSupplierComparisonUnit`), et retenir une
   offre n'écrit que le PR FO et l'offre ; v1/v2 inchangées (`description`, mêmes valeurs écrites). Vert au §10.3.
-- Même famille, non corrigée : l'association d'article depuis la fiche (§8.5).
+- Même famille, corrigée à la revue : l'association d'article depuis la fiche (F26-26, §11).
 
 **Sonde de `V3FC01` corrigée** (`a7417e3d`, sans toucher une assertion) : à `c8c750f3`, `V3FC01` a attendu 30 s « TTC à
 payer 70,20 € » ; l'écran à l'échec montre le déclencheur « Voir les détails de TVA, remise et TTC » sans le focus et la
@@ -990,17 +1011,18 @@ modèle de navigation change, ce qui peut arriver après l'aperçu : le `focus()
 sonde envoyait Entrée à la cellule, et le détail ne s'ouvrait pas. La sonde attend désormais que la grille tienne le
 focus, puis appuie sur Entrée sur le déclencheur lui-même (`locator.press`) ; l'assertion (TTC de l'aperçu v3, jamais la
 lecture v1) est inchangée et verte à `71802307`. Ce vol du focus de la barre d'outils par la grille est un comportement
-existant de l'éditeur, tous moteurs, hors du périmètre de 2.6.
+existant de l'éditeur, tous moteurs, hors du périmètre de 2.6. **Revue** (`cc78c87d`) : cette sonde faisait du vol du
+focus une condition préalable (si la grille ne le prenait plus, `V3FC01` échouait pour une raison étrangère à la lecture
+v3) ; elle attend désormais un éditeur posé, bail pris (`waitForDraftLease` : le passage en édition est l'un des
+changements de modèle qui déplacent le focus), puis appuie sur Entrée sur le déclencheur, sans rien supposer du focus.
 
 ### 10.5 Limites et suites
 
-- Aucune revue indépendante en lecture seule n'a été conduite sur le diff stable de 2.6 (exigée par `AGENTS.md`
-  pour un changement de cette taille) : à faire avant la PR.
+- ~~Aucune revue indépendante en lecture seule n'a été conduite~~ : deux revues indépendantes en lecture seule ont été
+  conduites sur le diff stable le 18/10/2026 ; constats, revérification, rouges, corrections et preuves au §11.
 - Migration `20261017205000_estimate_engine_v3_line_repricing.sql` : à appliquer au Supabase partagé avant tout
   déploiement, sur autorisation explicite (`AGENTS.md`, `supabase/README.md` §3) ; rien n'a été appliqué à distance.
-- Limites de l'implémentation au §8.5 (suppression d'une ligne v3 depuis la grille, éditeur mobile, gestionnaire des
-  tranches de marge, liste des taux de l'entreprise, instabilité non reproduite de la liste des rôles : aucune perte
-  de saisie dans les six passages postérieurs à `86ef5886` du §8.5 ni dans les quatre passages de `V3E01` du §10.3).
+- Limites de l'implémentation : état revu au §11.6 (le §8.5 garde la trace des points corrigés par la revue).
 - `V1PT01` (`supplier-preselection-v1-totals.e2e.ts`) n'est sélectionné que par la suite `full` ; la v1 est couverte
   ici par `OZ04` (phase `offers`, même scénario) et la v2 par P1 de `bulk-edit-sync-sources`.
 - `OF00` (phase `emission` de calc-v3, `next dev`) est rouge depuis 2.9, sur `main` comme sur la branche (§10.3.1) :
@@ -1008,3 +1030,111 @@ existant de l'éditeur, tous moteurs, hors du périmètre de 2.6.
   pas.
 - `origin/main` peut encore avancer : avant un push autorisé, refusionner et rejouer ce que la fusion invalide
   (`AGENTS.md`).
+
+## 11. Revue indépendante et corrections (18/10/2026)
+
+Deux revues indépendantes en lecture seule ont été conduites sur le diff stable (`ae9b375d`). Chaque constat a été
+revérifié (lecture du code, puis parcours rouge quand le constat est un comportement) avant toute correction ; les
+assertions des tests du rouge de 2.6 (`V3E01` à `V3E04`, `V3S-01` à `V3S-04`) ne sont pas modifiées.
+
+### 11.1 Constats et revérification
+
+| # | Constat (revue) | Revérification | Suite |
+|---|---|---|---|
+| R1-1, R2-2 | « Deboursé sec », « Marge € », « Marque % » d'une v3 calculés par la formule v1/v2 (`computeEstimateLineMargin`) | confirmé, rouge `V3E08` : marge 11,50 € au lieu de 25,00 €, ligne « Hors lot » à 30,00 € de déboursé et −30,00 € de marge | corrigé, F26-24 |
+| R1-2 | Taux horaire d'un rôle : rien de stocké recalculé, aucun écart signalé | confirmé, rouge `V3E07` : totaux stockés 500,00 € / 100,00 € / 600,00 € pour 560,00 € HT à l'écran | corrigé, F26-23 |
+| R1-3 | Collage : unité dans `description`, heures totales, totaux v2 | confirmé, rouge `V3E13` : ligne créée, `unit_code` perdu, révision changée | refus nommé, F26-31 |
+| R1-4, R2-3 | « Associer ou remplacer l'article » : unité lue dans `description`, offre d'une autre unité acceptée, unité écrite dans `description` | confirmé, rouge `V3E09` : offre « barre » proposée sur une ligne en ml, `description` « ML » après l'association | corrigé, F26-26 |
+| R1-5 | Suppression d'une ligne, annulation d'un ajout, nettoyage en vol par la suppression directe (refusée en v3) | confirmé, rouge `V3E05` (second passage) : refus générique affiché, ligne revenue | corrigé, F26-21 |
+| R1-6, R2-5 | Question de propagation de la TVA ouverte par le seul bouton « Enregistrer le paramétrage » | confirmé, rouge `V3E10` : aucune question au Ctrl+S | corrigé, F26-27 |
+| R1-7 | « 0 » dans « Remise (%) » → « Non sauvegardé » sans fin | confirmé, rouge `V3E11` : statut « Non sauvegardé » après la sauvegarde | corrigé, F26-28 |
+| R1-8 | Palier d'arrondi stocké hors liste affiché « Aucun » | confirmé, rouge `V3E11` : `select.value` « none », « Aucun » ; le volet « “Aucun” ne déclenche pas d'événement » n'est pas discriminé par le parcours (`selectOption` déclenche l'événement) : tenu par construction (le pas stocké est une option distincte) | corrigé, F26-29 |
+| R1-9 | Fiche d'un brouillon v3 : PDF et modèle proposés | confirmé, rouge `V3E11` : les deux actions actives, aucune raison | corrigé, F26-30 |
+| R2-1 | Actions en lot (catégorie, rôle, majoration, déplacement, suppression, suggestions et leurs annulations) hors écrivain v3 ; §8.5 inexact | confirmé, rouges `V3E06` (majoration en lot : refus générique) et `V3E12` (suggestions en lot : refus générique) ; §8.5 inexact à la lecture | corrigé, F26-22 et F26-32 ; §8.5 corrigé |
+| R2-4 | Contrôles qualité sur le `h_mo` stocké | confirmé, rouge `V3E08` : « Temps MO manquant » encore signalé après la sauvegarde des heures par unité | corrigé, F26-25 |
+| R2-6 | Sonde `V3FC01` conditionnée au vol du focus | confirmé à la lecture (`a7417e3d`) | sonde corrigée (`cc78c87d`), §10.4 |
+| R2-7 | §8.5 inexact pour l'éditeur mobile (heure totale « refusée par le serveur ») | confirmé à la lecture : ignorée sans message côté client | §8.5 corrigé ; limite maintenue (§11.6) |
+| R2-8 | F26-10 sans parcours pour une unité inconnue ou un statut | confirmé ; le parcours ajouté (`V3E05`) a révélé un défaut : après le refus, `reportValidity()` ramenait le focus dans la cellule et Tab ne la quittait plus | refus gardé, piège du focus corrigé (`a15cc432`) |
+| R2-9 | Migration ajoutée en 2.6 non consignée, commentaire « CHECK de M4 » faux | confirmé à la lecture | écart consigné au §8 ; commentaire corrigé (`d0d82b4e`) |
+
+Revérifié en plus, hors des constats (lecture du code, non corrigé, §11.6) : « Convertir en section », « Convertir en
+ligne » (`PATCH /items`) et « Dupliquer la section » (insertion directe) refusent aussi une v3 côté serveur, sans rien
+écrire.
+
+### 11.2 Choix de la revue (dans le cadre des décisions du §8)
+
+- **Écrivain unique** (`src/lib/estimates/v3-editor-writer.ts`, nouveau) : sur une v3, les contrôleurs saturés
+  délèguent suppressions, mises à jour en lot et recréations à l'écrivain de lot de 2.5 (recalcul et vérification
+  D12 dans la même transaction) ; une v1/v2 garde ses appels historiques, à l'identique (l'écrivain n'est injecté que
+  sur une v3). Suppression en lot : un seul lot atomique (aucune suppression partielle). Recréation : saisies v3
+  (`unit_code`, statut, heures par unité), jamais `h_mo` ni une projection.
+- **Taux horaire (F26-23)** : une fois le rôle enregistré, un lot `update` sans changement sur une ligne qui porte le
+  rôle suffit, le lot v3 projetant toutes les lignes ; un échec est signalé (« Le taux horaire est enregistré, mais
+  les montants du devis n'ont pas été recalculés : … »).
+- **Collage (F26-31)** : refus nommé dans l'aperçu, avant toute écriture — « Le collage de lignes n’est pas encore
+  disponible pour un devis au moteur de calcul 3 : saisissez les lignes dans la grille (unité du référentiel, heures
+  par unité). » Son contrat v3 (unité du référentiel, heures par unité ou totales, statut) n'est pas fixé ; la copie
+  d'une ligne v3 exporte `unit_code`.
+- **Association d'article (F26-26)** : même règle que la suggestion de la désignation (2.6) : l'offre est jugée et
+  prix dans `unit_code`, une autre unité est refusée (« Unité différente du devis : offre en …, ligne en … »,
+  suggestion désactivée dans la fiche), l'article ne fixe jamais l'unité d'une ligne v3 et `description` n'est jamais
+  écrite. v1/v2 : chemin historique (l'article reste la source de l'unité).
+- **Question de TVA (F26-27)** : `askTaxPropagation` du hook ; la sauvegarde qui l'appelle (Ctrl+S, fermeture du tiroir,
+  navigation) attend la réponse, le tiroir est rendu visible si besoin ; « Oui » / « Non » reprennent la même
+  sauvegarde (jamais une seconde), Échap n'enregistre rien.
+- **Fiche (F26-30)** : « Préparer le PDF » et « Sauvegarder comme modèle » désactivés, raison affichée : « Moteur de
+  calcul 3 : le PDF et l’enregistrement comme modèle ne sont pas encore disponibles pour ce brouillon. » ;
+  « Dupliquer » reste (2.5 duplique une v3).
+- **Unité inconnue (F26-10)** : refus gardé (cellule signalée, `aria-invalid`, message dans l'infobulle et pour les
+  lecteurs d'écran), sans `reportValidity()`.
+
+### 11.3 Rouges observés (18/10/2026)
+
+WSL Ubuntu 24.04, Node 24.14.0, `e2e` 0.21.0, clone `~/miaouffrage-lot2-26` remis à la branche (`git -c
+safe.directory='*' fetch` du worktree Windows puis `git reset --hard FETCH_HEAD`), diff local vide (`diffSha256`
+`e3b0c442…b855`), verrou natif attendu avant chaque lancement.
+
+| Passage | Commande | Révision | Résultat | Archive (clone WSL) |
+|---|---|---|---|---|
+| 1 | `E2E_ARMY_WORKERS=2 npm run e2e:army:local -- --grep "V3E05\|V3E06\|V3E07\|V3E08\|V3E09\|V3E10\|V3E11\|V3E12\|V3E13"` | `8e9d90f5` | sortie 1 ; en amont « Local migration inventory matches the repository. », pgTAP `Files=20, Tests=1854, Result: PASS`, « Behavioral RLS matrix passed. », build ; setup vert, **9/9 rouges** | `.e2e/army/ci/2026-10-18T01-09-47-012Z-critical`, manifeste `7af1a469d34b36d0172f3129dd717611705e7f25324971f38aa7f3216581ffa7`, confidentialité `passed` |
+| 2 | même commande, `--grep "V3E05\|V3E12"` | `1e235ce4` | sortie 1 ; mêmes contrôles en amont ; **2/2 rouges** | `.e2e/army/ci/2026-10-18T01-19-21-640Z-critical`, manifeste `109bceca7baa3e29d78cabc7b5ab234cf23d4302f5b718b776aa8ca52e5efeb9`, confidentialité `passed` |
+
+Première assertion en échec de chaque parcours (les assertions `expect.soft` d'un même parcours sont listées) :
+
+| Parcours | Passage | Attendu | Observé |
+|---|---|---|---|
+| `V3E05` | 1 | « xyz » et « HL » refusés par leur nom, la cellule se quitte | refus nommés et `aria-invalid`, mais `focusLeft: false` (défaut révélé, F26-10) |
+| `V3E05` | 2 (après `a15cc432`) | ligne C supprimée, HT 447,00 € | refus générique, ligne présente, HT 460,00 € (F26-21) |
+| `V3E06` | 1 | majoration 1,5 sur A et B, HT 482,00 € | majorations 1 / 1, HT 434,00 €, refus générique (F26-22) |
+| `V3E07` | 1 | taux 5 000 c/h, totaux stockés 56 000 / 11 200 / 67 200 c | taux enregistré, totaux stockés 50 000 / 10 000 / 60 000 c (F26-23) |
+| `V3E08` | 1 | (soft) P : 110,00 € / 25,00 € / 18,5 % ; « Hors lot » : 0,00 € / 0,00 € / - ; « Temps MO manquant » après la sauvegarde : non | (soft) P : 110,00 € / 11,50 € / 9,5 % ; « Hors lot » : 30,00 € / -30,00 € (en rouge) / - ; « Temps MO manquant » encore levé (F26-24, F26-25) |
+| `V3E09` | 1 | (soft) offre « barre » désactivée et refusée par son nom ; `description` nulle après l'association | (soft) offre « barre » active, sans refus ; `description` « ML » (F26-26) |
+| `V3E10` | 1 | question de propagation ouverte par Ctrl+S | aucune question (F26-27) |
+| `V3E11` | 1 | (soft) plus rien en attente après 0 % ; (soft) arrondi stocké 2,50 € sélectionné ; PDF et modèle désactivés avec leur raison | (soft) « Non sauvegardé » ; (soft) `value` « none », « Aucun », 5 options ; PDF et modèle actifs, aucune raison (F26-28 à F26-30) |
+| `V3E12` | 1 | « Examiner 1 suggestion » | « Examiner 3 suggestions » : **préalable faux**, la règle floue de `suggestion-scoring` appariait les trois lignes d'un même préfixe ; corrigé sans toucher une assertion (`1e235ce4` : mot-clé « robinetterie » porté par la seule ligne B) |
+| `V3E12` | 2 | K FO 1,3 sur B, HT 453,50 € | K FO 1, HT 434,00 €, refus générique (F26-32) |
+| `V3E13` | 1 | collage refusé par son nom, rien d'écrit | ligne collée créée, révision changée, HT 39,00 € (F26-31) |
+
+Les étapes suivantes de chaque parcours (annulations, déplacement et suppression en lot, section, fermeture du tiroir,
+annulation des suggestions) n'ont pas été atteintes au rouge : leurs défauts sont établis à la lecture (routes
+directes refusées par 2.5 sur une v3 : `deleteEstimateItem` et `bulkUpdateEstimateItems` de `server.ts`) et leur
+correction est prouvée par le vert (§11.5).
+
+### 11.4 Corrections
+
+| Commit | Défaillances | Fichiers |
+|---|---|---|
+| `cc78c87d` | sonde `V3FC01` (R2-6) | `engine-v3-fail-closed.e2e.ts` |
+| `8e9d90f5` | rouges `V3E05` à `V3E13` | `engine-v3-editor-actions.e2e.ts` (nouveau), `engine-v3-editor-support.ts` (bail et section des préalables), carte d'impact |
+| `a15cc432` | F26-10 (piège du focus) | `V3LineCells.tsx` |
+| `1e235ce4` | préalable de `V3E12` | `engine-v3-editor-actions.e2e.ts` |
+| `b86a76fa` | F26-27, F26-28, F26-29 | `useEstimateV3Settings.ts`, `v3-settings-payload.ts`, `EstimateV3SettingsSection.tsx` |
+| `ae53f150` | F26-21, F26-22, F26-23, F26-25, F26-31, F26-32 | `v3-editor-writer.ts` (nouveau), `v3-editor.ts`, `editor-engine.ts`, `client.ts` (corps de création : saisies v3 quand la charge les porte), contrôleurs des éléments, des lots, des suggestions, du collage et de la présélection, `useEstimateEditorState.impl.tsx` |
+| `9f47fc93` | F26-24, F26-26 | `LineRow.tsx`, `V3LineCells.tsx`, `EstimateArticleSheet.tsx`, `EstimateEditorTable.tsx` |
+| `6c646080` | F26-30 | `EstimateDetailActionsMenu.tsx`, `[versionId]/page.tsx` |
+| `d0d82b4e` | R2-9 (commentaire) | migration `20261017205000`, `migrations.manifest.json` |
+
+Budgets (lignes non vides) : `EstimateEditorTable.tsx` 2 591 / 2 600, `useEstimateEditorState.impl.tsx` 2 946 / 3 100,
+`useEstimateEditorSyncController.ts` 1 199 / 1 200 (inchangé), `LineRow.tsx` 1 197 / 1 200,
+`useEstimateEditorSuggestionsController.ts` 1 224 / 1 400. `estimate-calculations.ts` et `estimate-v2-snapshot.ts` :
+aucun diff.
