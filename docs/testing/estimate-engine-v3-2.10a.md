@@ -1,7 +1,8 @@
 # Créateurs prêts pour le moteur 3 (sous-lot 2.10a)
 
 Statut : **vert** (18/10/2026). Défaillances écrites avant les parcours, parcours écrits avant le code, rouges
-conservés (§5), correction (§6), preuves qualifiantes (§7), décisions et limites (§8). Branche
+conservés (§5), correction (§6), preuves qualifiantes (§7), décisions et limites (§8), revue indépendante et
+clôture de ses constats (§9). Branche
 `lot2/2.10a-createurs-v3`, base `origin/main` `5cfd4a94` (2.8 fusionné), puis fusion de `origin/main` `d7e672b4`
 (#45 / 2.7 non fusionné à cette date, M5 non réhorodatée). Non poussée. Source : plan vers 2.10 (§1.2 N1, N3 ;
 §3 « 2.10a » ; décisions du 18/10/2026 D-d, D-f, D-g, D-h), inventaire des écarts v3 (A1 à A4, A16), cahier de
@@ -91,7 +92,8 @@ coefficients, réglages de version, nombre de versions de l'affaire +1, et polit
    en moteur de calcul 3. » et leur « Analyser maintenant » est désactivé ; `POST
    /api/takeoff/jobs` répond `409 TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED` avant tout dépôt ; aucune tâche
    n'est écrite. Même refus pour la proposition de l'étape des plans après un import qui crée une v3, et pour
-   les actions serveur du hub (`createTakeoffJobFromPlanSet`).
+   les actions serveur du hub (`createTakeoffJobFromPlanSet`) ; « Créer un brouillon depuis V… » refuse une source
+   v3 avant de la copier (revue, §9).
 6. **Structure IA (N3, D-g).** Sur une v3, « Proposer une structure avec l'IA » est désactivé, avec pour
    description accessible « Ce devis utilise le moteur de calcul 3, pas encore disponible pour cette
    action. » ; `?openStructureDraft=1` n'ouvre pas l'assistant « Structure IA » ; le hub ne propose plus
@@ -126,6 +128,8 @@ SQL (`calc_engine_version`, coefficients, réglages, totaux), les lignes par l'A
 Correspondance avec le plan : V3S01a → V3C01, V3S03 → V3C02, V3S04 → V3C04 et V3C05, V3T01 → oracle de V3C04,
 V3S05 → V3C06, V3S06 → §4, V3S07 → V3C07, V3S08 → V3C08 et V3C09, V3S09 → V3C11 et V3C12 (politique absente,
 comme le demande la consigne du sous-lot ; une politique 2 explicite suit le même code, `policy.engine === 2`).
+Après la revue : V3C08 appelle aussi l'action « Créer un brouillon depuis V… » sur la v3, et V3C13 prouve les
+refus nommés et les heures atelier / chantier de la création depuis un modèle (§9).
 
 Carte d'impact : le fichier rejoint `suite.journeys` et les groupes `wizard`, `affaires-list` et `affaire-hub`
 (`src/test/army-impact-map.test.ts`).
@@ -231,7 +235,7 @@ parcours, pile et ports libérés à la fin. Le commit suivant ne touche que cet
 |---|---|---|---|
 | Parcours 2.10a et parcours de création | `npm run e2e:army:local -- --grep '^V3C(0[1-9]\|1[0-2]) \|[Ww]izard\|[Cc]réation\|[Cc]reation\|[Tt]emplate\|[Mm]odèle\|[Ii]mport\|[Oo]nboarding\|[Qq]uick\|^V3P01 \|^V3E0[1-4] \|^IO0' --app-port 3171` | **34/34** (`filtered-critical`) : V3C01 à V3C12 ; IO01, IO03 à IO09 ; V3E01 à V3E04, V3E11 (remise 0 %, palier, fiche v3) ; V3P01 ; GATE02 (créations concurrentes) ; « creation persists final French » (`estimate-integrity`) ; les trois parcours de `import-optima-v2` ; `commercial-rounding` ; accès anonyme et connexion ; 7 min 13 s de parcours | `local-grep/` (manifeste `2026-10-18T11-19-40-395Z-critical`, journaux, archive SDK, `ARMY-*-v3c*.json`, `SHA256SUMS`, 590 fichiers) |
 | Suite critique, une fois | `npm run e2e:army:ci -- critical --app-port 3172` | **117/117**, 0 instable, 0 ignoré ; 7 min 50 s de parcours | `critical/` (manifeste `2026-10-18T11-29-46-751Z-critical`, 1 454 fichiers) |
-| Qualité | `npm run verify:pr` (audit, architecture, `validate-openapi`, typecheck, lint, Vitest node 301 fichiers dont 1 ignoré, jsdom 165, couverture critique) | vert | `verify-pr-3c9dd453.log` ; l'en-tête de ce journal porte une révision fausse (substitution du shell Windows) : le clone WSL était à `3c9dd453`, propre, pendant tout le run |
+| Qualité | `npm run verify:pr` (audit, architecture, `validate-openapi`, typecheck, lint, Vitest node 301 fichiers dont 1 ignoré, jsdom 165, couverture critique) | vert | `verify-pr-3c9dd453.log` (en-tête à une révision fausse, substitution du shell Windows : le clone WSL était à `3c9dd453`, propre) ; vert de nouveau sur `1242d339`, en-tête juste : `verify-pr-final.log` |
 | OpenAPI | `npm run generate-openapi`, `npm run validate-openapi` | spec valide et synchronisée ; diff relu (instanciation, takeoff, création) | `openapi.json` |
 | Diff | `git -c core.whitespace=cr-at-eol diff --check origin/main...HEAD` ; `git diff --stat origin/main...HEAD -- src/lib/estimate-calculations.ts src/lib/estimate-v2-snapshot.ts supabase/migrations` | propre ; vide | — |
 
@@ -291,4 +295,51 @@ Limites (non couvertes par ce sous-lot) :
 - Les parcours du métré (`e2e/army/takeoff/*`, hors `critical`) n'ont pas été rejoués localement : sous une
   politique absente, le contrôle ajouté ne refuse rien ; la sélection d'une pull request les lance (carte
   d'impact modifiée).
-- Revue indépendante : non faite par cet agent.
+- Revue indépendante : faite, constats clos au §9.
+
+## 9. Revue indépendante et clôture (18/10/2026)
+
+Revue en lecture seule sur `1242d339` : trois constats mineurs, aucun bloquant ni majeur. Tous clos ; le
+comportement d'abord en rouge. Commits : `f5ffcbf5` (parcours), `017172fa` (correction), `6b0f8d04` (capture).
+
+| # | Constat | Clôture | Preuve |
+|---|---|---|---|
+| R1 | « Créer un brouillon depuis V… » (`launchTakeoffFromSourceVersionPlanSet`) copie sa source avant que la création de la tâche refuse la copie v3 | Plus grave que décrit : le retrait de la copie filtre sur `parent_version_id`, nul pour une copie simple, et ne supprime rien. Une source v3 laissait donc une copie v3 dans l'affaire. `assertTakeoffSourceVersionSupported` refuse la source v3 avant la copie (mêmes contrôles d'accès que la cible, statut libre, même `TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED`) ; le contrôle à la création de la tâche reste en filet | V3C08 étendu : l'action est appelée sur la v3 depuis la page du hub (identifiant lu dans le manifeste du build), hors du bouton désactivé. Rouge (code de `1242d339`, parcours de `f5ffcbf5`) : 500 masqué, **1 version ajoutée, 1 insertion au journal d'audit** (`audit_logs`). Vert sur `017172fa` : 0 et 0 |
+| R2 | Aucun parcours ne prouve, sur le chemin de création, les refus nommés de M6 ni les heures atelier / chantier | V3C13 (nouveau, politique 3). Ligne Q 0 avec 2 h → `400 ESTIMATE_V3_TEMPLATE_HOURS_WITHOUT_QUANTITY`, ligne nommée, ni affaire ni version. Modèle du propriétaire instancié par un second administrateur de l'entreprise (un modèle n'est visible que de son auteur et des administrateurs) → `400 ESTIMATE_TEMPLATE_LABOR_ROLE_REQUIRED`, rien d'écrit. Ligne éclatée, EST_031 actif : 3 u, 1 h d'atelier (Tuyauteur, 40 €/h), 2 h de chantier (Soudeur, 50 €/h) → h/u 1 ; 0,3333 ; 0,6667, PU 69,00 €, 207,00 € ; lignes et totaux égaux à l'insertion M6 ; rapports vides | Vert dès le code de `1242d339` (itération 2) : le code était juste, la preuve manquait. Aucun changement de code |
+| R3 | Corps de PR : rouges cités sur `d83223b4`, captures absentes | Rouges sur `bb4772f3` (même code ; `d83223b4` n'ajoute que cette fiche). Captures prises par les parcours (`captureScreen`) pendant le run qualifiant : étape de prix v3 (V3C02), avertissement de conversion T1 et T2 (V3C04), refus du métré dans la proposition et dans « Analyser les plans » (V3C08), structure IA désactivée avec son motif (V3C09), avis A16 (V3C10) | `.e2e/lot2-2.10a/review/screenshots/` |
+
+Captures : le SDK refuse toute capture après la saisie d'un secret, y compris dans une session restaurée. V3C02,
+V3C04, V3C08, V3C09 et V3C10 tournent donc sans la session de campagne ; leur propriétaire dédié remplaçait déjà
+ses cookies. Ils ne déclenchent plus la connexion : une sélection faite d'eux seuls est refusée par le runner
+(itération 5) ; y joindre V3C01. La sélection par fichier de la CI n'est pas touchée.
+
+Test isolé touché : la simulation de `@/lib/takeoff/server` dans `takeoff.test.ts` gagne la nouvelle fonction.
+Aucun test isolé ajouté.
+
+Itérations (boucle, non qualifiantes, pile `miaouffrage-ci-27312-724d9c82` détruite ; `.e2e/lot2-2.10a/review/devloop/`) :
+
+| It. | Révision (diff) | Sélection | Résultat |
+|---|---|---|---|
+| 1 | `1242d339` + parcours en cours | V3C02, V3C08, V3C13 | V3C08 rouge métier ; V3C13 rouge de parcours (réponse `projectId` / `versionId` ; modèle invisible pour un chiffreur, d'où un administrateur) |
+| 2 | `1242d339` + parcours de `f5ffcbf5` | V3C08, V3C13 | **V3C08 rouge métier** (1 version, 1 insertion) ; V3C13 vert |
+| 3 | `f5ffcbf5` + code de `017172fa` | V3C08, V3C13 | vert, après reconstruction |
+| 4 | `017172fa`, diff vide | V3C01 à V3C13 | vert 14/14 (connexion comprise) |
+| 5 | `017172fa` + capture V3C10 | V3C10 | refusé par le runner : aucune connexion sélectionnée |
+| 6 | `017172fa` + capture V3C10 | V3C01, V3C10 | vert, avis capturé |
+
+Runs qualifiants (tête de code `6b0f8d04`, clone WSL propre, pile possédée et jetable, migrations, pgTAP et
+matrice RLS verts, `E2E_ARMY_WORKERS=2`) :
+
+| Preuve | Commande | Résultat | Preuves (`.e2e/lot2-2.10a/review/`) |
+|---|---|---|---|
+| Suite critique, une fois | `npm run e2e:army:ci -- critical --app-port 3171` | **118/118** (117 + V3C13), 0 instable, 0 ignoré ; 8 min 36 s de parcours, 10 min 20 s au total | `critical/` (manifeste `2026-10-18T12-35-48-560Z-critical`, journal, `SHA256SUMS`, 1 467 fichiers) ; `screenshots/` (7 PNG, `SHA256SUMS`) |
+| Qualité | `npm run verify:pr` (Vitest node 301 fichiers dont 1 ignoré, jsdom 165, couverture critique 3) | vert, arbre inchangé après le run | `verify-pr-6b0f8d04.log` |
+| Diff | `git -c core.whitespace=cr-at-eol diff --check origin/main...HEAD` ; diff de `estimate-calculations.ts`, `estimate-v2-snapshot.ts`, `supabase/migrations` | propre ; vide | — |
+
+La suite critique contient tous les parcours du run `e2e:army:local --grep` du §7 (V3C, IO, V3E, V3P01, GATE02,
+création ; les 34 résultats y passent tous) : il n'est pas rejoué à part. OpenAPI : aucune route ni schéma
+touché depuis `3c9dd453`, `validate-openapi` vert dans `verify:pr`.
+
+Hors sous-lot, préexistant (tâche séparée proposée) : le même retrait sans effet laisse une copie v1/v2 dans
+l'affaire quand un lancement depuis une source v1/v2 échoue après la copie ; `takeoff.test.ts`, simulé, assertait
+ce filtre.
