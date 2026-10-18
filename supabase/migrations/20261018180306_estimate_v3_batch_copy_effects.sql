@@ -23,8 +23,9 @@
 --    revision, audit, source coverage, hierarchy depth) to public.estimate_creation_replay_item_effects_for_writer,
 --    the one-pass replay of the atomic creation (M6b, 20261018013249), under its contract bound to this version: the
 --    same rows, revisions and audit. Known difference: a depth refusal, already refused by the batch preparation
---    before any write, surfaces after the operations as a generic ESTIMATE_BATCH_INVALID_INPUT, not on an operation.
---    A batch with an update, delete or reorder keeps the per-line triggers.
+--    before any write, surfaces after the operations as a generic ESTIMATE_BATCH_INVALID_INPUT, not on an operation
+--    (the replay walks the stored ancestors too, see 8). A batch with an update, delete or reorder keeps the per-line
+--    triggers.
 -- 5. A create that names its position and title skips the sibling max(position) scan and the ancestor walk, which
 --    only feed those defaults; results and the canonical operations are accumulated in arrays instead of being
 --    copied at each append (private.canonical_estimate_batch_operations: same output).
@@ -40,10 +41,14 @@
 --    (ESTIMATE_BATCH_SOURCE_METADATA_FOREIGN), nothing written. A reference found nowhere (deleted since) is kept;
 --    another affaire of the same tenant is kept too, since a section copied from another affaire keeps its own
 --    provenance. Accepted limitation: a member can still label lines with references of their own tenant.
--- The functions are copied from their latest definition (20261017162000) with only these lines changed: no later
--- migration redefines them (20261018170351, complete receipts on main, only adds insert_estimate_template_with_receipt
--- and insert_estimate_assembly_with_receipt). CREATE OR REPLACE keeps their owner and ACLs. No existing row is
--- rewritten.
+-- 8. Internal review of #59: the parent walk of the replay stopped at the number of created items, enough for a new
+--    version (every ancestor is in its payload) but not for a batch under stored ancestors: a direct call nested a
+--    section or a line beyond max_section_depth. The walk is now bounded by greatest(item_count, max_section_depth),
+--    which sees every ancestor up to max_section_depth + 1; the M6b creation keeps the same walk.
+-- The functions are copied from their latest definition (20261017162000; the replay from 20261018013249) with only
+-- these lines changed: no later migration redefines them (20261018170351, complete receipts on main, only adds
+-- insert_estimate_template_with_receipt and insert_estimate_assembly_with_receipt; 20261018172935 only the client
+-- contract 2 order). CREATE OR REPLACE keeps their owner and ACLs. No existing row is rewritten.
 begin;
 
 do $preflight$
@@ -396,5 +401,305 @@ begin
 exception when lock_not_available or deadlock_detected then perform private.estimate_batch_error('STALE'); return null;
   when invalid_text_representation or numeric_value_out_of_range then perform private.estimate_batch_error('INVALID_INPUT'); return null;
 end $function$;
+
+
+-- 8. The M6b replay, copied from its latest definition (20261018013249) with only its parent walk bound changed.
+CREATE OR REPLACE FUNCTION public.estimate_creation_replay_item_effects_for_writer(
+  p_version_id uuid,
+  p_item_ids uuid[]
+)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  item_count integer := coalesce(cardinality(p_item_ids), 0);
+  target_max_depth integer;
+  target_status public.estimate_status;
+  depth_row record;
+  version_before jsonb;
+  version_after jsonb;
+  base_revision bigint;
+  previous_replay text;
+  version_user_id uuid;
+  item_user_id uuid;
+  replayed_item_id uuid;
+  identities uuid[];
+  descendants uuid[];
+  affected uuid[];
+  affected_requirement_id uuid;
+begin
+  if p_version_id is null
+    or coalesce(pg_catalog.current_setting('miaouffrage.estimate_creation_atomic', true), '') <> p_version_id::text
+  then
+    raise exception using errcode = '42501', message = 'ESTIMATE_CREATION_REPLAY_OUTSIDE_CONTRACT';
+  end if;
+
+  if item_count = 0 then
+    perform pg_catalog.set_config('miaouffrage.estimate_creation_atomic', '', true);
+    return;
+  end if;
+
+  if (select count(distinct replayed.id) from unnest(p_item_ids) as replayed(id)) <> item_count
+    or (
+      select count(*)
+      from public.estimate_items item
+      where item.id = any(p_item_ids)
+        and item.version_id = p_version_id
+    ) <> item_count
+  then
+    raise exception using errcode = '22023', message = 'ESTIMATE_CREATION_REPLAY_ITEMS_INVALID';
+  end if;
+
+  -- validate_estimate_item_hierarchy_depth, item by item in payload order. The creation payload puts
+  -- every parent before its children, so the chain seen after the insert is the one each row saw.
+  select coalesce(version.max_section_depth, 3)
+    into target_max_depth
+  from public.estimate_versions version
+  where version.id = p_version_id;
+
+  if target_max_depth is null then
+    raise exception 'version_id invalide pour estimate_items';
+  end if;
+
+  for depth_row in
+    with recursive replayed as (
+      select item.id, item.parent_id, item.item_type, entry.ordinality
+      from unnest(p_item_ids) with ordinality as entry(id, ordinality)
+      join public.estimate_items item on item.id = entry.id
+    ),
+    parent_chain as (
+      select replayed.id as origin_id, parent.id, parent.parent_id, parent.item_type, 1 as depth
+      from replayed
+      join public.estimate_items parent
+        on parent.id = replayed.parent_id
+       and parent.version_id = p_version_id
+      union all
+      select parent_chain.origin_id, parent.id, parent.parent_id, parent.item_type, parent_chain.depth + 1
+      from parent_chain
+      join public.estimate_items parent
+        on parent.id = parent_chain.parent_id
+       and parent.version_id = p_version_id
+      -- 8. (review of #59) Bounded by the version depth too: a batch on an existing version creates items under
+      -- stored ancestors, whose chain is longer than the items created.
+      where parent_chain.depth <= greatest(item_count, target_max_depth)
+    )
+    select
+      replayed.ordinality,
+      replayed.parent_id,
+      replayed.item_type,
+      coalesce(max(parent_chain.depth), 0) as parent_depth,
+      coalesce(bool_or(parent_chain.item_type <> 'section'), false) as parent_has_invalid_type
+    from replayed
+    left join parent_chain on parent_chain.origin_id = replayed.id
+    group by replayed.ordinality, replayed.parent_id, replayed.item_type
+    order by replayed.ordinality
+  loop
+    if depth_row.parent_id is not null then
+      if depth_row.parent_depth = 0 then
+        raise exception 'parent_id invalide pour estimate_items';
+      end if;
+
+      if depth_row.parent_has_invalid_type then
+        raise exception 'Le parent doit etre une section.';
+      end if;
+    end if;
+
+    if depth_row.item_type = 'section' then
+      if depth_row.parent_depth + 1 > target_max_depth then
+        raise exception 'Profondeur de section depassee (max %).', target_max_depth;
+      end if;
+    elsif depth_row.parent_id is null then
+      raise exception 'Une ligne doit etre rattachee a une section.';
+    elsif depth_row.parent_depth > target_max_depth then
+      raise exception
+        'Une ligne ne peut pas etre rattachee au-dela du niveau %.',
+        target_max_depth;
+    end if;
+  end loop;
+
+  -- bump_estimate_content_revision_from_item, once per item: the same checks, then one update.
+  select version.status
+    into target_status
+  from public.estimate_versions version
+  where version.id = p_version_id
+  for update;
+
+  if target_status is null then
+    raise exception using errcode = 'P0001', message = 'ESTIMATE_VERSION_NOT_FOUND';
+  end if;
+
+  if target_status <> 'draft'::public.estimate_status then
+    raise exception using errcode = '42501', message = 'ESTIMATE_VERSION_READ_ONLY';
+  end if;
+
+  select to_jsonb(version.*)
+    into version_before
+  from public.estimate_versions version
+  where version.id = p_version_id;
+  base_revision := (version_before->>'content_revision')::bigint;
+
+  previous_replay := coalesce(pg_catalog.current_setting('miaouffrage.estimate_creation_replay', true), '');
+  perform pg_catalog.set_config('miaouffrage.estimate_creation_replay', p_version_id::text, true);
+  update public.estimate_versions version
+  set content_revision = version.content_revision + item_count
+  where version.id = p_version_id;
+  perform pg_catalog.set_config('miaouffrage.estimate_creation_replay', previous_replay, true);
+
+  select to_jsonb(version.*)
+    into version_after
+  from public.estimate_versions version
+  where version.id = p_version_id;
+
+  -- log_estimate_audit for each revision step, then for the insert of the item, in the order the
+  -- per-line triggers wrote them: the user of the request, else the owner of the project.
+  version_user_id := coalesce(
+    nullif(version_after->>'user_id', '')::uuid,
+    nullif(version_before->>'user_id', '')::uuid,
+    nullif(version_after->>'created_by', '')::uuid,
+    nullif(version_before->>'created_by', '')::uuid
+  );
+  if version_user_id is null and nullif(version_after->>'project_id', '') is not null then
+    select project.user_id
+      into version_user_id
+    from public.estimate_projects project
+    where project.id = (version_after->>'project_id')::uuid;
+  end if;
+
+  select project.user_id
+    into item_user_id
+  from public.estimate_versions version
+  join public.estimate_projects project on project.id = version.project_id
+  where version.id = p_version_id;
+
+  insert into public.audit_logs (
+    tenant_id,
+    user_id,
+    table_name,
+    record_id,
+    estimate_version_id,
+    action,
+    before_data,
+    after_data
+  )
+  select
+    replay.tenant_id,
+    replay.user_id,
+    replay.table_name,
+    replay.record_id,
+    replay.estimate_version_id,
+    replay.action,
+    replay.before_data,
+    replay.after_data
+  from (
+    select
+      step.ordinality,
+      1 as kind,
+      coalesce(
+        nullif(version_after->>'tenant_id', '')::uuid,
+        nullif(version_before->>'tenant_id', '')::uuid,
+        public.current_tenant_id()
+      ) as tenant_id,
+      coalesce((select auth.uid()), version_user_id) as user_id,
+      'estimate_versions'::text as table_name,
+      p_version_id as record_id,
+      p_version_id as estimate_version_id,
+      'UPDATE'::text as action,
+      coalesce(
+        pg_catalog.lag(step.after_data) over (order by step.ordinality),
+        version_before
+      ) as before_data,
+      step.after_data
+    from (
+      select
+        revision_step.ordinality,
+        version_after || jsonb_build_object('content_revision', base_revision + revision_step.ordinality) as after_data
+      from generate_series(1, item_count) as revision_step(ordinality)
+    ) as step
+    union all
+    select
+      entry.ordinality,
+      2,
+      coalesce(
+        item.tenant_id,
+        nullif(version_after->>'tenant_id', '')::uuid,
+        public.current_tenant_id()
+      ),
+      coalesce(
+        (select auth.uid()),
+        nullif(item_row.value->>'user_id', '')::uuid,
+        nullif(item_row.value->>'created_by', '')::uuid,
+        item_user_id
+      ),
+      'estimate_items',
+      item.id,
+      item.version_id,
+      'INSERT',
+      null::jsonb,
+      item_row.value
+    from unnest(p_item_ids) with ordinality as entry(id, ordinality)
+    join public.estimate_items item on item.id = entry.id
+    cross join lateral (select to_jsonb(item.*) as value offset 0) as item_row
+  ) as replay
+  order by replay.ordinality, replay.kind;
+
+  -- private.source_coverage_invalidate for each item insert: when a requirement is scoped to or linked
+  -- with an item of this creation, the invalidation is replayed item by item as the trigger did. Every
+  -- descendant of a new item is a new item: its parent is in the payload, checked above in this version.
+  if exists (
+      select 1
+      from private.estimate_source_coverage_links link
+      where link.item_id = any(p_item_ids)
+    )
+    or exists (
+      select 1
+      from private.estimate_source_coverage_requirements requirement
+      join unnest(p_item_ids) as replayed(id)
+        on (requirement.scope->>'dpgfLotId')::uuid = replayed.id
+    )
+  then
+    foreach replayed_item_id in array p_item_ids loop
+      identities := array[null::uuid, replayed_item_id];
+      with recursive children as (
+        select item.id
+        from public.estimate_items item
+        where item.id = any(identities)
+        union
+        select child.id
+        from public.estimate_items child
+        join children on child.parent_id = children.id
+      )
+      select array_agg(children.id) into descendants from children;
+      identities := identities || coalesce(descendants, '{}');
+
+      select array_agg(requirement.id order by requirement.id)
+        into affected
+      from private.estimate_source_coverage_requirements requirement
+      where requirement.id in (
+          select link.requirement_id
+          from private.estimate_source_coverage_links link
+          where link.item_id = any(identities)
+        )
+        or (requirement.scope->>'dpgfLotId')::uuid = any(identities);
+
+      foreach affected_requirement_id in array coalesce(affected, '{}') loop
+        update private.estimate_source_coverage_requirements requirement
+        set technical_revision = private.source_coverage_next(requirement.technical_revision)
+        where requirement.id = affected_requirement_id
+          and exists (
+            select 1
+            from private.estimate_source_reviews review
+            join public.estimate_versions version on version.id = review.version_id
+            where review.id = requirement.review_id
+          );
+      end loop;
+    end loop;
+  end if;
+
+  -- One replay per creation: a second call in the same transaction would bump and journal twice.
+  perform pg_catalog.set_config('miaouffrage.estimate_creation_atomic', '', true);
+end;
+$$;
 
 commit;
