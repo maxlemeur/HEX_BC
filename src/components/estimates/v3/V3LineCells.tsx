@@ -78,8 +78,10 @@ function lineLabel(item: Pick<EstimateItem, "title">) {
 
 /**
  * Cellule « U » (référentiel, D9) : un alias unique validé à la sortie du champ (« ML » → ml),
- * affiché « ml — mètre linéaire ». Une saisie inconnue reste visible, refusée par son message,
- * sans écriture ; vider le champ retire l'unité (brouillon incomplet admis).
+ * affiché « ml — mètre linéaire ». Une saisie inconnue reste visible, refusée par son message
+ * (cellule signalée, `aria-invalid`, message dans l'infobulle et pour les lecteurs d'écran), sans
+ * écriture ; la cellule se quitte (revue de 2.6, F26-10 : `reportValidity()` y ramenait le focus et
+ * Tab ne sortait plus de la cellule). Vider le champ retire l'unité (brouillon incomplet admis).
  */
 export function V3UnitCell({
   cell,
@@ -113,7 +115,7 @@ export function V3UnitCell({
       className={toCellClassName(
         navigation,
         cell,
-        `estimate-cell${!value.trim() ? " estimate-cell--required-empty" : ""}`,
+        `estimate-cell${!value.trim() || error ? " estimate-cell--required-empty" : ""}`,
       )}
     >
       <input
@@ -139,7 +141,6 @@ export function V3UnitCell({
           if (resolution.kind === "invalid") {
             setError(resolution.message);
             event.currentTarget.setCustomValidity(resolution.message);
-            event.currentTarget.reportValidity();
             return;
           }
           setDraft(null);
