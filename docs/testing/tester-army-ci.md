@@ -4,15 +4,18 @@
 
 Décision du 17/10/2026 : une pull request ne lance que les parcours TesterArmy
 critical que ses fichiers atteignent. La suite critical complète tourne à chaque
-push de code sur `main` et chaque nuit.
+push de code sur `main` et chaque nuit. Demande du 18/10/2026 : les parcours du
+métré (`e2e/army/takeoff/**`), lancés jusque-là par la seule suite full, entrent
+dans la carte et sont lancés par la PR qui les atteint (job `army-takeoff`,
+[ci-dessous](#parcours-du-métré-fullonly)).
 
-| Événement | Parcours critical | Build Army |
-| --- | --- | --- |
-| Pull request, documentation seule ou chemins hors suite | aucun (`none`) | non |
-| Pull request, autres chemins | fichiers sélectionnés (`files`) ou suite complète (`full`) | oui |
-| Push sur `main` | suite complète, sauf push de documentation seule (aucun) | oui, sauf documentation |
-| `workflow_dispatch`, label `army-full` | suite complète | oui |
-| Nuit, 03:15 UTC (`e2e-army-full.yml`) | phase `full` : tous les parcours critical, plus extended et takeoff, puis phase développement | oui |
+| Événement | Parcours critical (`army-critical`) | Parcours du métré (`army-takeoff`) | Build Army |
+| --- | --- | --- | --- |
+| Pull request, documentation seule ou chemins hors suite | aucun (`none`) | aucun (`none`) | non |
+| Pull request, autres chemins | fichiers sélectionnés (`files`) ou suite complète (`full`) | fichiers atteints (`files`), aucun, ou tous (`all`) si la décision critical est `full` | oui, par job lancé |
+| Push sur `main` | suite complète, sauf push de documentation seule (aucun) | aucun : la nuit les lance | oui, sauf documentation |
+| `workflow_dispatch`, label `army-full` | suite complète | tous (`all`) | oui |
+| Nuit, 03:15 UTC (`e2e-army-full.yml`) | phase `full` : tous les parcours critical, plus extended et takeoff, puis phase développement | (compris dans la phase `full`) | oui |
 
 ### Décision
 
@@ -75,6 +78,75 @@ setup s'exécute. L'artefact `army-critical-selection` (`selection.json` :
 l'étape gardent le motif, y compris pour `none`. Une exécution filtrée ne prouve
 que ses fichiers ; elle ne qualifie pas la suite complète.
 
+### Parcours du métré (`fullOnly`)
+
+Les huit fichiers `e2e/army/takeoff/*.e2e.ts` ne sont lancés que par la
+sélection full de `e2e.config.ts`. Avant ce changement, une PR qui les touchait
+(PR #39 : import CSV fournisseur US-4.1, -b, -c, page prix de l'affaire) ne
+lançait que `dashboard-ux` et devait attendre ou déclencher la suite full de
+30 min pour trois parcours d'une dizaine de secondes.
+
+- Carte : section `fullOnly`, dont `globs` reprend tel quel le glob takeoff de
+  la liste full de `e2e.config.ts` et `journeys` liste exactement ses fichiers.
+  Les règles y renvoient comme aux parcours critical, par groupes :
+  `takeoff-hub` (connexion par la liste des affaires, hub et ses sous-routes),
+  `takeoff-affaire-takeoff` (métré de l'affaire), `takeoff-wizard` (assistant de
+  création puis éditeur), plus `affaire-prices` (US-4.1), `estimate-takeoff`
+  (`contracts.e2e.ts`), `purchase-orders` (US-4.4), `dpgf-pages` (US-2.1, US-2.2)
+  et `tabular-pdf-fixture` (`us22_live_tabular.pdf`). `*` (coquille applicative)
+  les atteint aussi ; un fichier du métré, ou un module qu'il importe ou dont il
+  nomme la route `/api/...`, se sélectionne lui-même par le graphe.
+- Décision (`selection.json`, champ `fullOnly`, schéma
+  `army-impact-selection-2`) : sur une PR, les fichiers atteints plus le setup
+  de connexion (`files`), ou `none`. Dès que la décision critical est `full`
+  (chemin partagé ou non cartographié, diff vide, label `army-full`,
+  `workflow_dispatch`, erreur), tous les parcours du métré (`all`). Sur un push,
+  `none` : le contrôle après fusion reste la suite critical, la nuit lance le
+  métré. Repli sûr : la liste `all` est relue dans l'arbre de travail par les
+  globs de la carte, si bien qu'un parcours ajouté sans être inscrit tourne quand
+  même (et la carte, invalide, impose la suite critical complète) ; une liste
+  impossible à établir (carte illisible) donne un `all` vide, que le job lance
+  comme la sélection full entière.
+- Job `army-takeoff` de `e2e-army-critical.yml`, en parallèle d'`army-critical`
+  (pas de `needs`, donc pas d'allongement du chemin critique tant qu'il est
+  plus court) : même garde de cible, même étape de sélection à l'octet près (le
+  garde l'exige), puis, sauf sortie explicite `none`, installation, caches
+  restaurés seulement (build et instantané de base) et
+  `run-tester-army-ci.ts full --files <setup,parcours>`, à 1 worker comme la
+  suite full où ces parcours sont qualifiés. Le manifeste enregistre
+  `scope: filtered-full`, `journeyFiles` et `phasesNotRun.development` ; le run
+  échoue si un fichier demandé n'a pas tous ses tests exécutés et réussis ou si
+  un autre fichier que ceux-là et le setup s'exécute. Preuves :
+  `army-takeoff-evidence` ; la sélection reste dans `army-critical-selection`.
+- Coût : rejouée sur les 15 dernières fusions de `main`, la sélection donne 11
+  décisions `full`, donc 11 jobs `army-takeoff` complets (8 fichiers), et 4
+  `none`. Le job ajoute des minutes de runner, pas de durée murale tant qu'il
+  reste plus court que la suite critical ; mesure locale du lot complet dans la
+  section [Mesures](#mesures).
+
+### Exécution full ciblée (`workflow_dispatch`, `grep`)
+
+Prouver quelques parcours de la sélection full (métré, extended, `local`) sans
+la suite de 30 min : Actions → TesterArmy Full → Run workflow, sur la branche,
+avec le champ `grep` (motif `--grep` des titres de tests, describe et test
+joints par une espace), ou :
+
+```sh
+gh workflow run e2e-army-full.yml --ref <branche> -f grep='^VNEXT Team B - user stories e2e US-4\.1'
+```
+
+Le motif passe par `env` puis une expansion entre guillemets, jamais collé dans
+le script (garde `src/test/ci-guardrails.test.ts`). Le runner refuse un motif
+vide, invalide ou commençant par `-`. Une exécution filtrée lance la seule
+phase `full` (le setup de connexion compris), pas la phase développement ; le
+manifeste enregistre `scope: filtered-full`, `grep` et
+`phasesNotRun.development`, et une annonce de l'exécution filtrée apparaît dans
+le résumé du job. Elle ne prouve que ses tests retenus et ne qualifie pas la
+suite full. La planification de 03:15 UTC n'a pas d'entrée : elle reste la
+suite full complète, phase développement comprise. En local, le même filtre :
+`npm run e2e:army:ci -- full --grep '<motif>'`, ou
+`npm run e2e:army:ci -- full --files e2e/army/critical/auth.setup.e2e.ts,e2e/army/takeoff/<parcours>.e2e.ts`.
+
 ### Forcer la suite complète
 
 - Poser le label `army-full` sur la PR, puis pousser un commit : le label est
@@ -92,14 +164,21 @@ Gate) échoue si : un parcours critical de la CI (liste `localBusiness` de
 la carte nomme un fichier absent ou un glob qui ne correspond à rien ; un chemin
 `full` exigé ou un repli sûr change ; une fixture lue par un parcours ne lui est
 pas routée ; le workflow saute les parcours pour autre chose que `none`, ou
-déplace `E2E_ARMY_WORKERS` ou l'enregistrement du cache. Sans protection de
-branche (plan Free), un Quality Gate rouge n'empêche pas une fusion : le
-contrôle de complétude des parcours est donc aussi fait par le sélecteur à
-chaque exécution (repli sûr ci-dessus).
+déplace `E2E_ARMY_WORKERS` ou l'enregistrement du cache. Pour le métré, il
+échoue aussi si : `fullOnly.journeys` diffère des fichiers du glob takeoff de la
+liste full de `e2e.config.ts`, ou ce glob n'y figure plus ; un parcours du métré
+n'est atteint par aucune règle ; une décision incertaine ne les lance pas tous ;
+le job `army-takeoff` saute pour autre chose que `none`, diffère de l'étape de
+sélection d'`army-critical`, fixe un nombre de workers ou enregistre un cache.
+Sans protection de branche (plan Free), un Quality Gate rouge n'empêche pas une
+fusion : le contrôle de complétude des parcours est donc aussi fait par le
+sélecteur à chaque exécution (repli sûr ci-dessus).
 
 À l'ajout d'un parcours critical : l'inscrire dans `suite.journeys` et dans une
 règle ou un groupe ; sinon chaque exécution du sélecteur lance la suite
-complète. D'une page ou d'une route : la couvrir par une règle, sinon
+complète. D'un parcours du métré : l'inscrire dans `fullOnly.journeys` et dans
+une règle ou un groupe `takeoff-*` ; non inscrit, il tourne quand même (repli
+`all`) avec la suite critical complète. D'une page ou d'une route : la couvrir par une règle, sinon
 tout changement qui l'atteint lance la suite complète. D'une route API sans
 appelant UI : `api-without-ui-caller`. D'une fixture lue par chemin : une règle
 vers ses parcours. Voir la sélection d'une branche :
@@ -116,15 +195,16 @@ node scripts/tester-army/select-journeys.ts --event pull_request --base origin/m
   `army-next-<OS>-<hash package-lock.json et next.config.ts>-<sha>`) ; seul un
   push sur `main` enregistre le sien.
 - `E2E_ARMY_WORKERS: "2"` dans l'environnement de la seule étape des parcours
-  critical ([qualification](tester-army-local-development.md)). La suite full
-  reste à 1.
+  critical ([qualification](tester-army-local-development.md)). La suite full,
+  le job `army-takeoff` et la campagne calc-v3 restent à 1.
 - Ctrl+S au lieu de l'autosave à 60 s dans les parcours qui ne qualifient pas
   l'autosave : seul « creation persists … after reload »
   (`estimate-integrity.e2e.ts`) garde l'attente réelle du cycle automatique
   ([cas couverts](tester-army-estimate-cases.md)). `AUTOSAVE_DEBOUNCE_MS` reste
   à 60 000 ; aucun changement produit.
 - Instantané de base pré-migrée (`src/test/database-snapshot.ts`), opt-in par
-  `ARMY_DB_SNAPSHOT_DIR`, que seule l'étape des parcours critical fixe à
+  `ARMY_DB_SNAPSHOT_DIR`, que seules les étapes des parcours critical et du
+  métré (`e2e-army-critical.yml`) fixent à
   `${{ runner.temp }}/army-db-snapshot`. Clé interne : SHA-256 des migrations,
   des seeds, du gabarit `config.toml` isolé, de la version du CLI Supabase, du
   bundle PostgreSQL et du format. Absent ou périmé : `db reset`, contrôle des
@@ -139,13 +219,14 @@ node scripts/tester-army/select-journeys.ts --event pull_request --base origin/m
   prête, avant pgTAP : un run qui échoue ensuite (pgTAP, matrice RLS,
   parcours) la garde. Un échec antérieur (démarrage de la pile, `db reset`) ne
   la laisse que dans `database.log`, qui journalise chaque décision. Cache
-  GitHub : restauré à chaque run critical sur la clé exacte
-  `army-db-snapshot-v1-<OS>-<arch>-<hash des entrées>`, enregistré seulement
-  par un push sur `main` quand la clé exacte est absente du cache (miss). Une
-  clé GitHub est immuable : si une restauration y est rejetée, chaque run
-  retombe sur `db reset` sans pouvoir la remplacer ; incrémenter alors
-  `army-db-snapshot-v1` dans le workflow. `e2e-army-full.yml` et `e2e-rls-matrix.yml` ne le
-  définissent pas : un `db reset` complet tourne chaque nuit.
+  GitHub : restauré à chaque run critical (et par `army-takeoff`) sur la clé
+  exacte `army-db-snapshot-v1-<OS>-<arch>-<hash des entrées>`, enregistré
+  seulement par un push sur `main` quand la clé exacte est absente du cache
+  (miss). Une clé GitHub est immuable : si une restauration y est rejetée, chaque
+  run retombe sur `db reset` sans pouvoir la remplacer ; incrémenter alors
+  `army-db-snapshot-v1` dans le workflow. `e2e-army-full.yml`,
+  `e2e-army-calc-v3.yml` et `e2e-rls-matrix.yml` ne le définissent pas : un
+  `db reset` complet tourne chaque nuit.
 
 ### Mesures
 
@@ -182,6 +263,28 @@ cache. Durées lues sur les horodatages du journal du runner.
   `bulk-*` ; base restaurée, étape 2,6 s ; build 77 s sans cache ; parcours
   153 s ; run 247 s.
 
+Parcours du métré, mesure locale du 18/10/2026 (WSL Ubuntu 24.04, Node 24.14.0,
+clone `~/miaouffrage-ci-proofs` à `b47b91b7`, sans modification locale ; une
+autre session faisait tourner une pile native en même temps) :
+`run-tester-army-ci.ts full --app-port 3141 --files` avec le setup et les huit
+fichiers du métré (la liste `all` du sélecteur) : `db reset`, pgTAP et RLS
+verts, build 80,7 s (cache webpack local), parcours 123,9 s, 39/39 réussis
+(setup et 38 tests), aucune phase développement (`phasesNotRun`), run complet
+233 s, confidentialité passée. Preuve :
+`.e2e/army/ci/2026-10-18T00-57-15-780Z-full/` du clone (`manifest.json`
+SHA-256 `63d47b7512ccc5a74d2a335828151b9508a348da273af223b51002ba788cdd07`). Le
+job `army-takeoff` d'une PR `full` coûte donc environ 2 min de parcours en plus
+de l'installation, de la pile et d'un build souvent froid en CI.
+
+Exécution full ciblée, même hôte et même révision :
+`run-tester-army-ci.ts full --app-port 3141 --grep '^VNEXT Team B - user stories e2e US-4\.1'`
+(le motif de la PR #39) : build 48,8 s, parcours 10,9 s, 4/4 (setup, US-4.1,
+US-4.1b, US-4.1c), `scope: filtered-full`, `grep` et `phasesNotRun` au
+manifeste, run complet 89 s, contre une suite full d'environ 30 min en CI.
+Preuve : `.e2e/army/ci/2026-10-18T01-03-08-809Z-full/` du clone
+(`manifest.json` SHA-256
+`997242a353a12d0e69f55bafa9a75f07cdb6956d9f0fb7da1c6246de3578b7e0`).
+
 Chiffres CI de référence : la description de la PR qui introduit ces
 changements relève, avec les identifiants de run, la suite critical complète à
 2 workers et le Quality Gate de cette PR, caches froids (la PR modifie ce
@@ -202,6 +305,51 @@ sur `main`, qui enregistre ces caches.
   d'entrée, le push sur `main` et la nuit rattrapent le reste.
 - Gains mesurés en local seulement à la rédaction (section Mesures) ; le run CI
   de la PR, suite complète, fait foi.
+- Métré : les règles `takeoff-*` décrivent les pages que chaque parcours ouvre
+  (lecture des parcours au 18/10/2026) et surestiment plutôt (par exemple tout
+  `src/app/dashboard/orders/**` pour US-4.4). Une page ouverte par un lien
+  calculé n'est pas vue ; la nuit la rattrape. Un push sur `main` ne relance pas
+  le métré qu'une PR fusionnée a prouvé.
+- Un `all` sans liste (carte illisible) lance la sélection full entière dans
+  `army-takeoff` (environ 30 min) : coûteux, mais jamais moins de parcours.
+
+## Campagne calc-v3 nocturne (`e2e-army-calc-v3.yml`)
+
+Demande du 18/10/2026 : la campagne du lot 2 (`npm run e2e:army:calc-v3`,
+[contrat et phases](tester-army-calc-v3.md)) n'était lancée par aucune CI, et
+les agents la rejouaient en local (6 à 7 min). Elle tourne désormais chaque nuit
+à 04:45 UTC, après la suite full, sur `ubuntu-24.04`, avec les mêmes gardes que
+`e2e-army-full.yml` : garde de cible, aucun secret, installation sans `env`,
+pile native possédée et détruite, cache webpack du build restauré seulement,
+pas d'instantané de base (`db reset` complet), 1 worker, preuves
+`army-calc-v3-evidence` téléversées seulement après le contrôle de
+confidentialité du runner.
+
+- Sélection nocturne : les phases servies par le build de production
+  (`journeys`, `components`, `numeric`, `resume`, `access`, `offers`), une
+  invocation `run-tester-army-ci.ts calc-v3 --phase <phase>` par phase, chacune
+  sur sa propre pile, dans un seul job ; une phase rouge n'arrête pas les
+  suivantes, le job échoue en nommant les phases sans preuve. Le répertoire de
+  preuves de chaque phase n'est téléversé que si le runner l'a publié (sortie
+  `evidence`, écrite seulement après le contrôle de confidentialité).
+- Émission exclue : servie par `next dev` (`canUseDevelopmentEstimateTerms`
+  n'accepte les conditions bac à sable qu'en développement), OF00 y échoue 7/7
+  depuis la PR #34 (rechargement à chaud qui remonte l'éditeur ; 6/6 en
+  production avec un garde local). Le sous-lot 2.7 étend ce garde au profil de
+  production possédé et passe l'émission en production. Réactivation : ajouter
+  `emission` à `CALC_V3_NIGHTLY_PHASES` dans le workflow ; le garde
+  `src/test/ci-guardrails.test.ts` exige que cette liste soit exactement
+  l'ensemble des phases dont `serverMode` vaut `production`
+  (`scripts/tester-army/calc-v3-phases.ts`) : dès que 2.7 bascule l'émission,
+  le Quality Gate reste rouge tant qu'elle n'y est pas ajoutée.
+- Déclenchement manuel (`workflow_dispatch`, entrée `phase`) : `nightly`
+  (défaut, la sélection ci-dessus), `all` (la campagne complète en une
+  invocation, émission comprise, exactement `npm run e2e:army:calc-v3`) ou une
+  seule phase, émission comprise. Le nom passe par `env`, et le runner refuse
+  toute valeur qui n'est pas une phase.
+- Coût : six piles et six builds par nuit dans un job (le premier build sur le
+  cache webpack restauré depuis `main`, les suivants sur celui du premier) ;
+  délai maximal du job 120 min.
 
 ## Contrat défini avant migration
 

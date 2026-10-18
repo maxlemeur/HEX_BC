@@ -135,6 +135,33 @@ exécution concurrente change les temps de réponse : avant d'interpréter un ro
 autre pile, build ou navigateur ne tournait (les exécutions de la ligne de base ci-dessous ont
 échantillonné ces processus toutes les 20 s ; aucun chevauchement pour les exécutions retenues).
 
+## CI nocturne (`e2e-army-calc-v3.yml`)
+
+Depuis le 18/10/2026, la campagne tourne aussi en CI : chaque nuit à 04:45 UTC et à la demande
+(Actions → TesterArmy calc-v3 → Run workflow, ou `gh workflow run e2e-army-calc-v3.yml --ref
+<branche> -f phase=<choix>`). Inutile de la relancer en local pour une branche poussée : la
+déclencher sur la branche et lire l'artefact `army-calc-v3-evidence` (un répertoire
+`.e2e/army/ci/<horodatage>-calc-v3/` par invocation, mêmes preuves qu'en local).
+
+| Entrée `phase` | Exécution |
+|---|---|
+| `nightly` (défaut, et la planification) | `journeys`, `components`, `numeric`, `resume`, `access`, `offers` : une invocation `--phase` et une pile possédée par phase, dans un seul job ; une phase rouge n'arrête pas les suivantes |
+| `all` | `npm run e2e:army:calc-v3` à l'identique : toutes les phases sur une pile, émission comprise, en dernier |
+| une phase | `--phase <phase>`, `emission` comprise |
+
+**Émission exclue de la nuit.** Elle est servie par `next dev` (section « Phases » ci-dessus), où OF00
+échoue 7/7 depuis la PR #34 (le rechargement à chaud remonte l'éditeur ; 6/6 en production avec un
+garde local). La lancer chaque nuit ne produirait qu'un rouge connu. Le sous-lot 2.7
+(`lot2/2.7-document-emission-v3`) étend `canUseDevelopmentEstimateTerms` au profil de production
+possédé et passe l'émission en `serverMode: "production"`. Réactivation, dans la même PR que 2.7 :
+ajouter `emission` à `CALC_V3_NIGHTLY_PHASES` dans `.github/workflows/e2e-army-calc-v3.yml`. Le garde
+`src/test/ci-guardrails.test.ts` impose que cette liste soit exactement les phases de production de
+`scripts/tester-army/calc-v3-phases.ts` : il échoue tant que l'émission basculée n'y est pas ajoutée.
+
+La nuit ne fixe ni `--grep` ni instantané de base : chaque phase applique sa sélection par défaut et
+ses nombres attendus, sur une base issue d'un `db reset` complet. Les rouges à la base (`knownRedAtBase`)
+restent hors sélection et se rejouent en local par `--phase <phase> --grep <motif>`.
+
 ## Preuves
 
 - `.e2e/army/ci/<horodatage>-calc-v3/` : manifeste du lanceur (commande, révision et empreinte des
@@ -186,6 +213,8 @@ rejouent tels quels.
 
 ## Limites
 
+- La CI nocturne ne lance pas l'émission tant que le sous-lot 2.7 ne l'a pas passée en production
+  (section « CI nocturne ») ; seul un déclenchement manuel (`all` ou `emission`) la lance.
 - L'émission en `next dev` ne qualifie pas le build de production ; la sonde
   `check-offer-network-guard.mjs` de la recette d'offre n'est pas rejouée, seul le reçu
   `guard-installed` du serveur est exigé. Le garde refuse trois requêtes sortantes du serveur de
