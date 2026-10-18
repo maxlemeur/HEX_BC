@@ -171,7 +171,7 @@ async function renderEstimateV3Detail(input: {
               <PrinterIcon aria-hidden="true" />
               Imprimer
             </Link>
-            <EstimateDetailActionsMenu versionId={versionId} versionStatus={version.status} canEditVersion={input.canEditVersion} />
+            <EstimateDetailActionsMenu versionId={versionId} versionStatus={version.status} canEditVersion={input.canEditVersion} closedEngineV3Actions />
             {input.canEditVersion ? (
               <Link className={buttonVariants({ variant: "primary", size: "md" })} href={`/dashboard/estimates/${versionId}/edit`}>
                 <PencilIcon aria-hidden="true" />
