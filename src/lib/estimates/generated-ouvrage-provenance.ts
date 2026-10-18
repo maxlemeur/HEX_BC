@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database, Json } from "@/types/database";
+import { selectInChunks } from "@/lib/supabase/in-chunks";
 
 type Supabase = SupabaseClient<Database>;
 type JsonRecord = Record<string, unknown>;
@@ -156,11 +157,13 @@ export async function enrichEstimateItemsWithGeneratedOuvrageProvenance(input: {
     return input.items;
   }
 
-  const { data: applicationData, error: applicationError } = await input.supabase
-    .from("estimate_generated_ouvrage_applications" as never)
-    .select("*" as never)
-    .eq("tenant_id", input.tenantId)
-    .in("estimate_item_id", itemIds);
+  const { data: applicationData, error: applicationError } = await selectInChunks(itemIds, (chunk) =>
+    input.supabase
+      .from("estimate_generated_ouvrage_applications" as never)
+      .select("*" as never)
+      .eq("tenant_id", input.tenantId)
+      .in("estimate_item_id", chunk)
+  );
 
   if (applicationError || !applicationData || applicationData.length === 0) {
     return input.items;
@@ -179,31 +182,37 @@ export async function enrichEstimateItemsWithGeneratedOuvrageProvenance(input: {
     fragmentResult,
     snapshotResult,
   ] = await Promise.all([
-    input.supabase
-      .from("estimate_generated_ouvrage_candidates" as never)
-      .select("*" as never)
-      .eq("tenant_id", input.tenantId)
-      .in("id", candidateIds),
+    selectInChunks(candidateIds, (chunk) =>
+      input.supabase
+        .from("estimate_generated_ouvrage_candidates" as never)
+        .select("*" as never)
+        .eq("tenant_id", input.tenantId)
+        .in("id", chunk)
+    ),
     input.supabase
       .from("estimate_generated_ouvrage_drafts" as never)
       .select("id, created_at, generation_metadata" as never)
       .eq("tenant_id", input.tenantId)
       .in("id", draftIds),
-    input.supabase
-      .from("estimate_generated_ouvrage_candidate_sources" as never)
-      .select("*" as never)
-      .eq("tenant_id", input.tenantId)
-      .in("candidate_id", candidateIds),
+    selectInChunks(candidateIds, (chunk) =>
+      input.supabase
+        .from("estimate_generated_ouvrage_candidate_sources" as never)
+        .select("*" as never)
+        .eq("tenant_id", input.tenantId)
+        .in("candidate_id", chunk)
+    ),
     input.supabase
       .from("estimate_generated_ouvrage_source_fragments" as never)
       .select("*" as never)
       .eq("tenant_id", input.tenantId)
       .in("draft_id", draftIds),
-    input.supabase
-      .from("estimate_generated_ouvrage_work_snapshots" as never)
-      .select("*" as never)
-      .eq("tenant_id", input.tenantId)
-      .in("estimate_item_id", itemIds),
+    selectInChunks(itemIds, (chunk) =>
+      input.supabase
+        .from("estimate_generated_ouvrage_work_snapshots" as never)
+        .select("*" as never)
+        .eq("tenant_id", input.tenantId)
+        .in("estimate_item_id", chunk)
+    ),
   ]);
 
   if (

@@ -764,6 +764,7 @@ const SAFE_DIAGNOSTIC_PHASES = new Set([
   "reset local database",
   "verify migration inventory",
   "verify database snapshot",
+  "run statement budgets",
   "run pgTAP",
   "run behavioral RLS matrix",
 ]);
@@ -1098,6 +1099,22 @@ export async function runLocalSupabaseCi(
     validatePgTapReport(pgTapOutput, expectedTestFiles);
     dependencies.log(pgTapOutput.trim());
     dependencies.log("Database pgTAP tests passed.");
+    // Wall-clock budgets are opt-in and never run in CI: they hold only on the
+    // machine they were calibrated on (docs/testing/large-estimate-statement-budget.md).
+    if (dependencies.environment.DB_CI_STATEMENT_BUDGET === "enforce") {
+      activePhase = "run statement budgets";
+      const budgetOutput = dependencies.supabase(withWorkdir([
+        "test",
+        "db",
+        "--local",
+        path.join(project.rootDirectory, "supabase", "tests", "budget"),
+      ]), true);
+      validatePgTapReport(budgetOutput, fs.readdirSync(
+        path.join(process.cwd(), "supabase", "tests", "budget")
+      ).filter((file) => file.endsWith(".sql")).length);
+      dependencies.log(budgetOutput.trim());
+      dependencies.log("Statement budgets passed.");
+    }
 
     if (dependencies.skipRlsMatrix) {
       dependencies.log("Behavioral RLS matrix skipped (--skip-rls).");
