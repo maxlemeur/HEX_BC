@@ -1,0 +1,591 @@
+{
+  "schemaVersion": "shared-supabase-m5-1",
+  "dateEuropeParis": "2026-10-18",
+  "project": "ijropnynpwjbllievrip",
+  "authorization": "Owner, 18/10/2026: apply lot 2 migrations after their PR merges; no calc policy, no deployment, never supabase db push.",
+  "source": {
+    "mergeCommit": "b905ca26b405ef734de3bdae14acda139f128bc2",
+    "pr": 45,
+    "file": "supabase/migrations/20261018102840_estimate_offer_client_contract_v2.sql",
+    "bytes": 79790,
+    "sha256": "d0a799c095fdc5b9efef2ab13cf9d13e871877fe03b355f1337d7a27ed32c84f",
+    "md5": "33f299d0262eddbbda9324a376c1f10d",
+    "manifestSha256": "d0a799c095fdc5b9efef2ab13cf9d13e871877fe03b355f1337d7a27ed32c84f",
+    "gitBlob": "9e2bd712232b618a4bf3272a3b47839534905995",
+    "lastFileCommit": "cab86923f8260ed227a2ec1ae27182259792188d",
+    "restampedFrom": "20261017213500 (name only; bytes identical to the locally qualified kit at 3d78d662)"
+  },
+  "apply": {
+    "tool": "mcp supabase_miaouffrage apply_migration",
+    "name": "20261018102840_estimate_offer_client_contract_v2",
+    "attempts": 1,
+    "result": "success",
+    "remoteVersion": "20261018165014",
+    "history": [
+      {
+        "md5": "33f299d0262eddbbda9324a376c1f10d",
+        "name": "20261018102840_estimate_offer_client_contract_v2",
+        "bytes": 79790,
+        "version": "20261018165014",
+        "statements": 1
+      }
+    ]
+  },
+  "preconditions": {
+    "capturedAt": "2026-10-18 16:44:00.453269+00",
+    "check": "c8710145ff36f9485bf154ee158b74a6",
+    "values": {
+      "m5_history": [],
+      "m5_recorded": false,
+      "search_path": "\"\\$user\", public, extensions",
+      "m2_6_recorded": true,
+      "last_migration": {
+        "name": "20261018093005_serialize_estimate_draft_lock_acquisition",
+        "version": "20261018122210"
+      },
+      "versions_total": 1238,
+      "documents_total": 51,
+      "migrations_total": 303,
+      "pair_check_count": 1,
+      "versions_engine3": 0,
+      "documents_contract_1": 0,
+      "m3_measurement_units": true,
+      "pair_check_validated": true,
+      "pair_check_definition": "CHECK ((((client_contract_version IS NULL) AND (client_contract_snapshot IS NULL)) OR ((client_contract_version IS NOT NULL) AND (client_contract_version = 1) AND (client_contract_snapshot IS NOT NULL))))",
+      "c2_names_any_signature": 0,
+      "m4_estimate_v3_compute": true,
+      "documents_contract_null": 51,
+      "m5_dependencies_missing": [],
+      "documents_contract_other": 0,
+      "documents_on_engine3_versions": 0,
+      "m1_freeze_estimate_v3_snapshot": true,
+      "c2_estimate_offer_client_valid_v2": false,
+      "documents_violating_m5_pair_check": 0,
+      "freeze_estimate_v2_document_snapshot": true,
+      "m1_guard_estimate_document_engine_v3": true,
+      "pair_check_is_reviewed_m1_definition": true,
+      "c2_estimate_offer_client_items_match_v2": false,
+      "c2_freeze_estimate_v3_document_snapshot": false,
+      "c2_estimate_offer_engine_client_contract": false
+    },
+    "comparator": "23/23 PASS (compare.cjs pre-before, last migration expected = 20261018093005 draft lock)"
+  },
+  "postconditions": {
+    "capturedAt": "2026-10-18 16:50:56.484327+00",
+    "check": "14b9cf808dffd92fc26df5409896e903",
+    "values": {
+      "m5_history": [
+        {
+          "md5": "33f299d0262eddbbda9324a376c1f10d",
+          "name": "20261018102840_estimate_offer_client_contract_v2",
+          "bytes": 79790,
+          "version": "20261018165014",
+          "statements": 1
+        }
+      ],
+      "m5_recorded": true,
+      "search_path": "\"\\$user\", public, extensions",
+      "m2_6_recorded": true,
+      "last_migration": {
+        "name": "20261018102840_estimate_offer_client_contract_v2",
+        "version": "20261018165014"
+      },
+      "versions_total": 1238,
+      "documents_total": 51,
+      "migrations_total": 304,
+      "pair_check_count": 1,
+      "versions_engine3": 0,
+      "documents_contract_1": 0,
+      "m3_measurement_units": true,
+      "pair_check_validated": true,
+      "pair_check_definition": "CHECK ((((client_contract_version IS NULL) AND (client_contract_snapshot IS NULL)) OR ((client_contract_version IS NOT NULL) AND (client_contract_version = ANY (ARRAY[1, 2])) AND (client_contract_snapshot IS NOT NULL))))",
+      "c2_names_any_signature": 4,
+      "m4_estimate_v3_compute": true,
+      "documents_contract_null": 51,
+      "m5_dependencies_missing": [],
+      "documents_contract_other": 0,
+      "documents_on_engine3_versions": 0,
+      "m1_freeze_estimate_v3_snapshot": true,
+      "c2_estimate_offer_client_valid_v2": true,
+      "documents_violating_m5_pair_check": 0,
+      "freeze_estimate_v2_document_snapshot": true,
+      "m1_guard_estimate_document_engine_v3": true,
+      "pair_check_is_reviewed_m1_definition": false,
+      "c2_estimate_offer_client_items_match_v2": true,
+      "c2_freeze_estimate_v3_document_snapshot": true,
+      "c2_estimate_offer_engine_client_contract": true
+    },
+    "comparator": "29/29 PASS (compare.cjs pre-after)"
+  },
+  "catalog": {
+    "method": "q2-catalog.sql of the M5 kit with a digest projection: per-function md5 of the full jsonb entry (kind, ret, lang, owner, src, args, cfg, sd, vol, strict, par, leak, acl, cmt) and md5 per section; expected values recomputed offline from the canonical local oracles (before/after M5) with jsonb text serialization",
+    "before": {
+      "capturedAt": "2026-10-18 16:45:18.899961+00",
+      "payloadMd5": "61b151ce28b9b8b550aa11b3e1243f62",
+      "vsOracleBeforeM5": "28/28 functions identical; every section identical",
+      "sections": {
+        "estimate_documents": "e828f8aad3599e8b3322b668135b5ff2",
+        "pairCheck": [
+          "estimate_documents_client_contract_pair_check:c:valid:CHECK ((((client_contract_version IS NULL) AND (client_contract_snapshot IS NULL)) OR ((client_contract_version IS NOT NULL) AND (client_contract_version = 1) AND (client_contract_snapshot IS NOT NULL))))"
+        ],
+        "otherConstraints": "ab53f0159a78e4c411ee3560d6f647b6",
+        "restOfTable": "0463d1789b0588981b561997e0313c64",
+        "triggersOnReplaced": "40760c5c0dee630b98332371c2d8071e",
+        "dependencyColumns": "d37fe852a1ca47f20601015e1118ddcc",
+        "dependencyEnums": "ce5943d328fb04f5257ceee28a0c9af4",
+        "defaultAcl": [
+          "postgres:public:f:anon=EXECUTE,authenticated=EXECUTE,postgres=EXECUTE,service_role=EXECUTE",
+          "supabase_admin:public:f:anon=EXECUTE,authenticated=EXECUTE,postgres=EXECUTE,service_role=EXECUTE"
+        ],
+        "global": "b9d0c974b51b46c0deb894a512b40327",
+        "globalCounts": {
+          "fn": 400,
+          "rel": 121,
+          "enums": 23
+        }
+      }
+    },
+    "after": {
+      "capturedAt": "2026-10-18 16:51:48.494552+00",
+      "payloadMd5": "9a2f3c4268f2aa07d7f04a47dfaf558d",
+      "vsOracleAfterM5": "32/32 functions identical; every section identical",
+      "bodiesEqualFile": "15/15",
+      "calleesUnchanged": "17/17",
+      "globalUnchanged": true,
+      "sections": {
+        "estimate_documents": "18ce93ab3d04128adc3e883e298a897f",
+        "pairCheck": [
+          "estimate_documents_client_contract_pair_check:c:valid:CHECK ((((client_contract_version IS NULL) AND (client_contract_snapshot IS NULL)) OR ((client_contract_version IS NOT NULL) AND (client_contract_version = ANY (ARRAY[1, 2])) AND (client_contract_snapshot IS NOT NULL))))"
+        ],
+        "otherConstraints": "ab53f0159a78e4c411ee3560d6f647b6",
+        "restOfTable": "0463d1789b0588981b561997e0313c64",
+        "triggersOnReplaced": "40760c5c0dee630b98332371c2d8071e",
+        "dependencyColumns": "d37fe852a1ca47f20601015e1118ddcc",
+        "dependencyEnums": "ce5943d328fb04f5257ceee28a0c9af4",
+        "defaultAcl": [
+          "postgres:public:f:anon=EXECUTE,authenticated=EXECUTE,postgres=EXECUTE,service_role=EXECUTE",
+          "supabase_admin:public:f:anon=EXECUTE,authenticated=EXECUTE,postgres=EXECUTE,service_role=EXECUTE"
+        ],
+        "global": "b9d0c974b51b46c0deb894a512b40327",
+        "globalCounts": {
+          "fn": 400,
+          "rel": 121,
+          "enums": 23
+        }
+      }
+    },
+    "security": "all 15 new/replaced functions: SECURITY INVOKER, proconfig search_path=\"\", ACL postgres:EXECUTE,service_role:EXECUTE (as the canonical oracle)",
+    "functions": [
+      {
+        "identity": "public.assert_estimate_offer_actor(p_tenant_id uuid, p_version_id uuid, p_actor_user_id uuid)",
+        "role": "callee",
+        "srcMd5": "843b5736f6ca9ddf8c3baf5de2ee5bc3",
+        "metadataMd5": "54b6b630168bb2bf2370e67bec47c6c3",
+        "oracleAfter": true,
+        "before": {
+          "srcMd5": "843b5736f6ca9ddf8c3baf5de2ee5bc3",
+          "metadataMd5": "54b6b630168bb2bf2370e67bec47c6c3",
+          "oracleBefore": true
+        }
+      },
+      {
+        "identity": "public.assert_estimate_offer_dispatch_proof(dispatch estimate_emails, version estimate_versions)",
+        "role": "replaced",
+        "srcMd5": "6f820e0b35feb8e6f8adc7c23677216c",
+        "metadataMd5": "ca7b5dec99f2c3d56eba29aa37ecd6cd",
+        "oracleAfter": true,
+        "before": {
+          "srcMd5": "494e2407371c71fb126cfa63f24ae134",
+          "metadataMd5": "23d44483d39254679af2a2b4043fe965",
+          "oracleBefore": true
+        }
+      },
+      {
+        "identity": "public.capture_estimate_offer_identity(version estimate_versions, p_actor_user_id uuid, p_company_snapshot jsonb)",
+        "role": "callee",
+        "srcMd5": "f11e8ff566efefffcf815aca9c97a8e5",
+        "metadataMd5": "9f3424e00738fcab2e0392144838d467",
+        "oracleAfter": true,
+        "before": {
+          "srcMd5": "f11e8ff566efefffcf815aca9c97a8e5",
+          "metadataMd5": "9f3424e00738fcab2e0392144838d467",
+          "oracleBefore": true
+        }
+      },
+      {
+        "identity": "public.claim_portal_estimate_decision(p_portal_token_id uuid, p_decision text, p_client_ip inet, p_reject_reason text, p_expected_seal_hash text, p_expected_document_contract jsonb)",
+        "role": "replaced",
+        "srcMd5": "c6fd09eb4acc8a7cfd17e027cfe3f086",
+        "metadataMd5": "fda0a8165403822dfc232b7e2b8b252b",
+        "oracleAfter": true,
+        "before": {
+          "srcMd5": "bfbfa00926ede646f386ca89b6c385f5",
+          "metadataMd5": "60fb8f9a870c9f6e5c87069993bbf0ff",
+          "oracleBefore": true
+        }
+      },
+      {
+        "identity": "public.estimate_offer_client_items_match(snapshot jsonb, version estimate_versions)",
+        "role": "callee",
+        "srcMd5": "1201ea822aa8ae318a0be9f93b78cc0b",
+        "metadataMd5": "f2c27ecbd5a1d0f47e6046ee82300454",
+        "oracleAfter": true,
+        "before": {
+          "srcMd5": "1201ea822aa8ae318a0be9f93b78cc0b",
+          "metadataMd5": "f2c27ecbd5a1d0f47e6046ee82300454",
+          "oracleBefore": true
+        }
+      },
+      {
+        "identity": "public.estimate_offer_client_items_match_v2(snapshot jsonb, version estimate_versions)",
+        "role": "new",
+        "srcMd5": "f6bf942f7dcfb7b16fd55003956c90b7",
+        "metadataMd5": "a523752b51c58248a1c0b0a0d049fb85",
+        "oracleAfter": true,
+        "before": null
+      },
+      {
+        "identity": "public.estimate_offer_client_valid(value jsonb, layout jsonb)",
+        "role": "callee",
+        "srcMd5": "2a64d95b58f9bbc9eb536caba320fcef",
+        "metadataMd5": "69263cf414507decca9c3d74a4e8ae0d",
+        "oracleAfter": true,
+        "before": {
+          "srcMd5": "2a64d95b58f9bbc9eb536caba320fcef",
+          "metadataMd5": "69263cf414507decca9c3d74a4e8ae0d",
+          "oracleBefore": true
+        }
+      },
+      {
+        "identity": "public.estimate_offer_client_valid_v2(value jsonb, layout jsonb)",
+        "role": "new",
+        "srcMd5": "a907372bbf34c796f5013ff2b8742a23",
+        "metadataMd5": "efac9bbd39cf6c92431d4ad46a51655a",
+        "oracleAfter": true,
+        "before": null
+      },
+      {
+        "identity": "public.estimate_offer_date(value jsonb)",
+        "role": "callee",
+        "srcMd5": "79697ef1ed07057cf237ea29ab738a87",
+        "metadataMd5": "193acdac8adf06595934b28bd713b53b",
+        "oracleAfter": true,
+        "before": {
+          "srcMd5": "79697ef1ed07057cf237ea29ab738a87",
+          "metadataMd5": "193acdac8adf06595934b28bd713b53b",
+          "oracleBefore": true
+        }
+      },
+      {
+        "identity": "public.estimate_offer_document_proof(document estimate_documents, version estimate_versions)",
+        "role": "callee",
+        "srcMd5": "45b4163172957f688a68ffe9340d6dee",
+        "metadataMd5": "bd2cd8634b492bda294ad6ba9fa2fd64",
+        "oracleAfter": true,
+        "before": {
+          "srcMd5": "45b4163172957f688a68ffe9340d6dee",
+          "metadataMd5": "bd2cd8634b492bda294ad6ba9fa2fd64",
+          "oracleBefore": true
+        }
+      },
+      {
+        "identity": "public.estimate_offer_document_valid(document estimate_documents, version estimate_versions, allow_legacy boolean)",
+        "role": "replaced",
+        "srcMd5": "1149cd10d30ffc029d0c8aeb6303094b",
+        "metadataMd5": "988d9b1d85f5c54b00e95222e277da80",
+        "oracleAfter": true,
+        "before": {
+          "srcMd5": "3f520c6aea7f5688c4d780b457feed53",
+          "metadataMd5": "80a61a39f267c3b7804ccc11751395cc",
+          "oracleBefore": true
+        }
+      },
+      {
+        "identity": "public.estimate_offer_engine_client_contract(p_calc_engine_version smallint)",
+        "role": "new",
+        "srcMd5": "cdfeb96df3c58f67f4bee8c3654d1d01",
+        "metadataMd5": "34feadd96a8cfef1666c09d055bd0ba1",
+        "oracleAfter": true,
+        "before": null
+      },
+      {
+        "identity": "public.estimate_offer_identity_valid(value jsonb)",
+        "role": "callee",
+        "srcMd5": "d5c7c8dcf7263862463034efbd0c30b2",
+        "metadataMd5": "6c060912d90b7b4d0fbfa71e6ed94672",
+        "oracleAfter": true,
+        "before": {
+          "srcMd5": "d5c7c8dcf7263862463034efbd0c30b2",
+          "metadataMd5": "6c060912d90b7b4d0fbfa71e6ed94672",
+          "oracleBefore": true
+        }
+      },
+      {
+        "identity": "public.estimate_offer_instant(value jsonb)",
+        "role": "callee",
+        "srcMd5": "436e167f0f3f39a9126f6086fd166cc5",
+        "metadataMd5": "3e0ed83c3c55f0d4eea5be64d14ee3f3",
+        "oracleAfter": true,
+        "before": {
+          "srcMd5": "436e167f0f3f39a9126f6086fd166cc5",
+          "metadataMd5": "3e0ed83c3c55f0d4eea5be64d14ee3f3",
+          "oracleBefore": true
+        }
+      },
+      {
+        "identity": "public.estimate_offer_keys(value jsonb, required text[], optional text[])",
+        "role": "callee",
+        "srcMd5": "7b775c126c57b18167d3bc4fd4cbd64f",
+        "metadataMd5": "5b662780f13aec5942b80e94e404c80f",
+        "oracleAfter": true,
+        "before": {
+          "srcMd5": "7b775c126c57b18167d3bc4fd4cbd64f",
+          "metadataMd5": "5b662780f13aec5942b80e94e404c80f",
+          "oracleBefore": true
+        }
+      },
+      {
+        "identity": "public.estimate_offer_layout_valid(value jsonb)",
+        "role": "callee",
+        "srcMd5": "1dea170f6a398ca9e9862bee5bd92dfa",
+        "metadataMd5": "049b3cbd18ed03b310104435e093a86c",
+        "oracleAfter": true,
+        "before": {
+          "srcMd5": "1dea170f6a398ca9e9862bee5bd92dfa",
+          "metadataMd5": "049b3cbd18ed03b310104435e093a86c",
+          "oracleBefore": true
+        }
+      },
+      {
+        "identity": "public.estimate_offer_number(value jsonb, minimum numeric, maximum numeric, whole boolean)",
+        "role": "callee",
+        "srcMd5": "f8e5fc1ebd3365e71a13203ca666ae52",
+        "metadataMd5": "07e86a610d96b365e78f2309a2d41adf",
+        "oracleAfter": true,
+        "before": {
+          "srcMd5": "f8e5fc1ebd3365e71a13203ca666ae52",
+          "metadataMd5": "07e86a610d96b365e78f2309a2d41adf",
+          "oracleBefore": true
+        }
+      },
+      {
+        "identity": "public.estimate_offer_terms_valid(value jsonb)",
+        "role": "callee",
+        "srcMd5": "49be50a92b9667a31d16bed459eb51ed",
+        "metadataMd5": "9ddf72bf5b7f0832accb03d664611dd1",
+        "oracleAfter": true,
+        "before": {
+          "srcMd5": "49be50a92b9667a31d16bed459eb51ed",
+          "metadataMd5": "9ddf72bf5b7f0832accb03d664611dd1",
+          "oracleBefore": true
+        }
+      },
+      {
+        "identity": "public.estimate_offer_text(value jsonb, nullable boolean)",
+        "role": "callee",
+        "srcMd5": "84e69803951445cfc950f5bf084270eb",
+        "metadataMd5": "df080dc277754bd94611e40eaefc100b",
+        "oracleAfter": true,
+        "before": {
+          "srcMd5": "84e69803951445cfc950f5bf084270eb",
+          "metadataMd5": "df080dc277754bd94611e40eaefc100b",
+          "oracleBefore": true
+        }
+      },
+      {
+        "identity": "public.estimate_offer_trim(value text)",
+        "role": "callee",
+        "srcMd5": "ca1c7e44ece761bb04b6a20ae497f65d",
+        "metadataMd5": "b684532524762c26e80b358a24f2cf6c",
+        "oracleAfter": true,
+        "before": {
+          "srcMd5": "ca1c7e44ece761bb04b6a20ae497f65d",
+          "metadataMd5": "b684532524762c26e80b358a24f2cf6c",
+          "oracleBefore": true
+        }
+      },
+      {
+        "identity": "public.estimate_offer_uuid(value jsonb, nullable boolean)",
+        "role": "callee",
+        "srcMd5": "a0509dc5f5e11b35147104dcab6e2b48",
+        "metadataMd5": "17e7a8274c241d244992f34a73376293",
+        "oracleAfter": true,
+        "before": {
+          "srcMd5": "a0509dc5f5e11b35147104dcab6e2b48",
+          "metadataMd5": "17e7a8274c241d244992f34a73376293",
+          "oracleBefore": true
+        }
+      },
+      {
+        "identity": "public.freeze_estimate_v3_document_snapshot(p_version_id uuid, p_tenant_id uuid, p_expected_updated_at timestamp with time zone, p_expected_content_revision bigint, p_actor_user_id uuid, p_draft_lock_session_id uuid, p_calculation_context jsonb, p_item_snapshots jsonb, p_version_totals jsonb)",
+        "role": "new",
+        "srcMd5": "7a996a1417fef60e5a2ebee8f3870425",
+        "metadataMd5": "d7de8d64f8f4ba91efb8bcedde2935c4",
+        "oracleAfter": true,
+        "before": null
+      },
+      {
+        "identity": "public.freeze_estimate_v3_snapshot(p_version_id uuid, p_tenant_id uuid, p_expected_updated_at timestamp with time zone, p_expected_content_revision bigint, p_actor_user_id uuid, p_purpose text, p_calculation_context jsonb, p_item_snapshots jsonb, p_version_totals jsonb)",
+        "role": "callee",
+        "srcMd5": "532c7f2f34b32f4a544dcc6e1ef16bb2",
+        "metadataMd5": "33cd1191bc32ce713729a2a7edce2952",
+        "oracleAfter": true,
+        "before": {
+          "srcMd5": "532c7f2f34b32f4a544dcc6e1ef16bb2",
+          "metadataMd5": "33cd1191bc32ce713729a2a7edce2952",
+          "oracleBefore": true
+        }
+      },
+      {
+        "identity": "public.guard_estimate_document_engine_v3()",
+        "role": "replaced",
+        "srcMd5": "b4e071c1e896336b5414fa82c17f4a91",
+        "metadataMd5": "60d5348326143d298eb6a4bef6124f2d",
+        "oracleAfter": true,
+        "before": {
+          "srcMd5": "80f37a854e75c7366806c23ac798d39b",
+          "metadataMd5": "dddd89bbf6100f2db3fd806ad5ef3953",
+          "oracleBefore": true
+        }
+      },
+      {
+        "identity": "public.guard_estimate_offer_document()",
+        "role": "replaced",
+        "srcMd5": "d4eddaacce9e4f8cb64aeda4ecb0889e",
+        "metadataMd5": "64bf34015d45f8dce04468cdc403f86b",
+        "oracleAfter": true,
+        "before": {
+          "srcMd5": "0db1c3f1bffdddd14e3edb529a8b1ec7",
+          "metadataMd5": "54ab4d3f378e3b2e9cd9b1cf91d16230",
+          "oracleBefore": true
+        }
+      },
+      {
+        "identity": "public.guard_estimate_offer_seal()",
+        "role": "replaced",
+        "srcMd5": "35e6089eb787042dbb4fc00f17bdcd60",
+        "metadataMd5": "7af6ff4e359aeb8b13b82e60c62c026f",
+        "oracleAfter": true,
+        "before": {
+          "srcMd5": "31db6dde703ca57cb76929f832625dd4",
+          "metadataMd5": "218475d18a028f9770b905de7da8c38c",
+          "oracleBefore": true
+        }
+      },
+      {
+        "identity": "public.log_estimate_version_event(p_estimate_version_id uuid, p_event_type text, p_created_by uuid, p_metadata jsonb, p_occurred_at timestamp with time zone)",
+        "role": "callee",
+        "srcMd5": "35b077e49e7564ea9cc3765149c02faa",
+        "metadataMd5": "57c3741d9c3945a13df02c77e848d628",
+        "oracleAfter": true,
+        "before": {
+          "srcMd5": "35b077e49e7564ea9cc3765149c02faa",
+          "metadataMd5": "57c3741d9c3945a13df02c77e848d628",
+          "oracleBefore": true
+        }
+      },
+      {
+        "identity": "public.prepare_estimate_email_dispatch(p_dispatch_id uuid, p_tenant_id uuid, p_actor_user_id uuid, p_seal_hash text, p_provider_payload_hash text, p_html_body text, p_text_body text, p_document_path text, p_document_sha256 text, p_attachment_filename text, p_expected_document_contract jsonb, p_seal_payload_version smallint)",
+        "role": "replaced",
+        "srcMd5": "e29e0aeb46876ca467122f96628d66b8",
+        "metadataMd5": "4e1cbd7a5a3c73fb9997d4d828e518a2",
+        "oracleAfter": true,
+        "before": {
+          "srcMd5": "17d4d2619d47fb3271b5e80b58fb152c",
+          "metadataMd5": "264f86445d0f01bb675a7f061d2a73f2",
+          "oracleBefore": true
+        }
+      },
+      {
+        "identity": "public.publish_estimate_pdf_generation(p_version_id uuid, p_tenant_id uuid, p_actor_user_id uuid, p_generation_token uuid, p_file_path text, p_sha256_hash text, p_file_size_bytes bigint, p_generated_at timestamp with time zone, p_layout_options jsonb, p_terms_snapshot jsonb, p_client_contract_snapshot jsonb)",
+        "role": "replaced",
+        "srcMd5": "a1cf05f1ec31a64a9cf6113834398932",
+        "metadataMd5": "435fee88f464938da68322a6430fe9d6",
+        "oracleAfter": true,
+        "before": {
+          "srcMd5": "095bb4856df484362382e579693d3fc9",
+          "metadataMd5": "c0050ef5072428c598f223f8ff2b86a6",
+          "oracleBefore": true
+        }
+      },
+      {
+        "identity": "public.require_fresh_v2_snapshot_for_publication()",
+        "role": "replaced",
+        "srcMd5": "d177908c5c8d12e3d7593e625433d3a5",
+        "metadataMd5": "620ede7a724adbe396754e45f5b47b47",
+        "oracleAfter": true,
+        "before": {
+          "srcMd5": "8be0850d999dc291fe6a6e2313bfa5a2",
+          "metadataMd5": "d8f7028af7e9b9ddc3da263bed4fccb6",
+          "oracleBefore": true
+        }
+      },
+      {
+        "identity": "public.reserve_estimate_email_dispatch(p_version_id uuid, p_tenant_id uuid, p_expected_updated_at timestamp with time zone, p_actor_user_id uuid, p_request_id uuid, p_payload_hash text, p_recipient text, p_cc text[], p_subject text, p_body text, p_from_address text, p_portal_origin text, p_company_snapshot jsonb)",
+        "role": "replaced",
+        "srcMd5": "826a2742d448cfa5ba730c8eef47cc43",
+        "metadataMd5": "ac4810f1bc9063131777d5b6cda0460a",
+        "oracleAfter": true,
+        "before": {
+          "srcMd5": "f9b5f7bbb8173dec454abf885b8465bc",
+          "metadataMd5": "1604febf166ea1898904282b75538a99",
+          "oracleBefore": true
+        }
+      },
+      {
+        "identity": "public.transition_estimate_version_status(p_version_id uuid, p_tenant_id uuid, p_expected_updated_at timestamp with time zone, p_next_status estimate_status, p_seal_hash text, p_actor_user_id uuid, p_event_metadata jsonb, p_occurred_at timestamp with time zone, p_seal_payload_version smallint, p_expected_document_contract jsonb)",
+        "role": "replaced",
+        "srcMd5": "ef71ae7deb338f0f5a475057b658fb9f",
+        "metadataMd5": "54f21895534eb4d1951ee40607197540",
+        "oracleAfter": true,
+        "before": {
+          "srcMd5": "b4d2ac01fa4061d75d552e2195af02db",
+          "metadataMd5": "deea786ce05d64d1154c153970f5e0ee",
+          "oracleBefore": true
+        }
+      }
+    ]
+  },
+  "data": {
+    "method": "q3-data.sql of the M5 kit (per-row md5 of to_jsonb, sorted, md5 per table, then total), reader postgres (bypassrls), no column excluded",
+    "before": {
+      "capturedAt": "2026-10-18 16:46:16.8699+00",
+      "tables": 122,
+      "rows": 39683,
+      "totalMd5": "555cb5b6b5d53885c1e986b2581b029f",
+      "tablesMd5": "c43d8444764984b351da9b434bcd393d",
+      "forceRlsTables": 50,
+      "forceRlsListMd5": "eda471ed4dccd8448166979ab18ffd25"
+    },
+    "after": {
+      "capturedAt": "2026-10-18 16:50:33.80856+00",
+      "tables": 122,
+      "rows": 39683,
+      "totalMd5": "555cb5b6b5d53885c1e986b2581b029f",
+      "tablesMd5": "c43d8444764984b351da9b434bcd393d",
+      "forceRlsTables": 50,
+      "forceRlsListMd5": "eda471ed4dccd8448166979ab18ffd25"
+    },
+    "unchanged": true
+  },
+  "limits": [
+    "Remote checks cover catalog, history and data fingerprints; M5 behaviour was executed locally (kit: canonical rehearsal, pgTAP, db:ci:local RLS matrix) and by PR #45 CI, not on the shared base.",
+    "Catalog and data queries return digests, not full snapshots.",
+    "No other migration, calc policy or deployment."
+  ],
+  "localEvidence": {
+    "dir": "scratchpad m5-apply (not committed)",
+    "sha256": {
+      "results/q1-before.json": "63d4d6eff3404c9e2bfca81b470e4352cffd1c44e91dbc78804589454af3c595",
+      "results/q1-after.json": "820a73f1013cc08e83c03f4e94eb4ca5f968e163e8b0e54a3d9dfb18b1c854fd",
+      "results/q2-before.json": "a8398746b65e953ecff079726070e57d5046f82c417381488bebc98f9b322cc2",
+      "results/q2-after.json": "0680dbf01d78636cc6464c7d6d773b6c8fd17abeff4fcff65b7beec39e362c6a",
+      "q2-digest.sql": "bfb5933eaeeecaf4bbdcf467cca1138ef9c585c80949c13ea08b54c063825f8d",
+      "q3-digest.sql": "b5d5bc4e2f8e6601453229dd8112c8c03ebcb2ef657beaa7476107902efea623",
+      "compare.cjs": "bc8447fa0c9e863059823ae62d2110e821c89ac12ffc1579ac5f95859fb16ceb",
+      "cmpd.cjs": "b85c2f85f3737edd52bbc88043dd873b29663317fe6c0a9ced5c9ed13f297921",
+      "gen.cjs": "91334e881de3a05141a084dd295e59dd2fcc0fd73837ed69b1c7880543e61d6d",
+      "expected-digests.json": "465418e90bb9618e644ba5fd91d5d60afbcc94f4eda6d53f9a015ede32c69193"
+    }
+  }
+}

@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// Pagination faults are covered with the real SDK in read-all.test.ts.
+vi.mock("@/lib/supabase/read-all", () => import("@/test/complete-reads-fixture"));
+
+
 import type { EstimateItemRecord } from "@/lib/estimate-calculations";
 import {
   calculateEstimateSnapshotForItems,

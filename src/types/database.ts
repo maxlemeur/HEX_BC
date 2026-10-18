@@ -5126,6 +5126,14 @@ export type Database = {
           version_id: string;
         }[];
       };
+      insert_estimate_template_with_receipt: {
+        Args: { p_version_id: string; p_template_id: string; p_after_item_id?: string | null };
+        Returns: Json;
+      };
+      insert_estimate_assembly_with_receipt: {
+        Args: { p_version_id: string; p_assembly_id: string; p_after_item_id?: string | null };
+        Returns: Json;
+      };
       insert_estimate_assembly_into_version: {
         Args: {
           p_version_id: string;

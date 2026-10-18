@@ -1,4 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// Pagination faults are covered with the real SDK in read-all.test.ts.
+vi.mock("@/lib/supabase/read-all", () => import("@/test/complete-reads-fixture"));
+
 
 import {
   checkApprovalRule,

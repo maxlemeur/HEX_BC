@@ -59,6 +59,16 @@ async function openSettings(ui: Ui, versionId: string) {
   await expect(ui.screen.getByLabel("Arrondi", { exact: true })).toBeVisible();
 }
 
+// A reloaded editor renders before it holds its draft lease: it stays read-only and its sync
+// status reads « Connexion… » (« Verrouillé » while the unloaded page still holds it) until then.
+// apiRequest sends the page's lock session, so an API write waits for the state in which the
+// user could write, « À jour » or « Sauvegardé ». Otherwise it gets 409: LOCK_REQUIRED, or
+// CONFLICT while the unloaded page still holds the lease.
+async function waitForEditorLease(ui: Ui) {
+  await expect(ui.screen.getByTestId("estimate-page-toolbar-autosave-status"))
+    .toHaveText(/^(À jour|Sauvegardé)$/, { timeout: 30_000 });
+}
+
 async function saveSettings(ui: Ui) {
   await ui.screen.getByRole("button", "Enregistrer le paramétrage", { exact: true }).tap();
   await expect(ui.screen.getByRole("button", "Enregistrer le paramétrage", { exact: true })).toBeEnabled();
@@ -199,12 +209,13 @@ armyTest(
       ["up", 1000, 92000, "Réglage conservé : au palier supérieur, pas de 10,00 €"],
       ["down", 250, 91250, "Réglage conservé : au palier inférieur, pas de 2,50 €"],
     ] as const) {
+      await waitForEditorLease(ui);
       const before = await readEstimate(browser, ids.versionId);
-      const seeded = await apiRequest(browser, "PATCH", `/api/estimates/${ids.versionId}`, {
+      const seeded = await apiRequest<{ error?: { code?: string } }>(browser, "PATCH", `/api/estimates/${ids.versionId}`, {
         rounding_mode: mode, rounding_step_cents: step,
         expected_content_revision: before.version.content_revision,
       }, { "If-Match": before.version.updated_at });
-      expect(seeded.status).toBe(200);
+      expect(seeded.status, seeded.body.error?.code ?? "without error code").toBe(200);
       await openSettings(ui, ids.versionId);
       await expect(screen.getByRole("option", optionLabel, { exact: true })).toBeSelected();
       const updatedTitle = `${army.runPrefix} keep-${mode}`;

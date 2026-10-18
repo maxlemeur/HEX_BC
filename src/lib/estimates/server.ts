@@ -1,3 +1,4 @@
+import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { randomUUID } from "node:crypto";
 import { persistAtomicEstimateItem } from "@/lib/estimates/atomic-item-creation";
 import { normalizeStoredItemNumerics } from "@/lib/estimates/stored-item-numeric";
@@ -64,7 +65,6 @@ import {
   usesPerUnitLabor,
   usesSaleCoefficients,
 } from "@/lib/estimates/engine/capabilities";
-import { readTenantCalcPolicy } from "@/lib/estimates/calc-policy-server";
 import { getTakeoffLinkedSourceVersionByJobId } from "@/lib/takeoff/version-links";
 import { isSupplierAlternativeCurrencyCompatible } from "@/lib/estimates/supplier-preselection";
 import { readSupplierOfferConditions, readSelectedSupplierDetails, type SupplierOfferConditions, type SelectedSupplierDetails } from "@/lib/estimates/supplier-offer-conditions";
@@ -939,11 +939,11 @@ async function hydrateSuggestedCatalogueCandidates(input: {
   >();
 
   if (supplierPriceIds.length > 0) {
-    const { data: linksData, error: linksError } = await input.supabase
+    const { data: linksData, error: linksError } = await readAllRowsInChunks(supplierPriceIds, (pageIds) => input.supabase
       .from("dpgf_catalogue_links")
-      .select("supplier_price_id, material_index_id")
+      .select("supplier_price_id, material_index_id, id", { count: "exact" })
       .eq("tenant_id", input.tenantId)
-      .in("supplier_price_id", supplierPriceIds);
+      .in("supplier_price_id", pageIds));
 
     if (linksError) {
       throw mapSupabaseError(
@@ -965,11 +965,11 @@ async function hydrateSuggestedCatalogueCandidates(input: {
     );
 
     if (materialIndexIds.length > 0) {
-      const { data: indicesData, error: indicesError } = await input.supabase
+      const { data: indicesData, error: indicesError } = await readAllRowsInChunks(materialIndexIds, (pageIds) => input.supabase
         .from("material_indices")
-        .select("id, index_code, index_value, updated_at, index_date")
+        .select("id, index_code, index_value, updated_at, index_date", { count: "exact" })
         .eq("tenant_id", input.tenantId)
-        .in("id", materialIndexIds);
+        .in("id", pageIds));
 
       if (indicesError) {
         throw mapSupabaseError(
@@ -2482,32 +2482,14 @@ async function loadMappedRowsForImport(input: {
   supabase: Supabase;
   tenantId: string;
   importId: string;
-  /** Sous-lot 2.8b (C8) : toutes les lignes par pages (v3), jamais les 1 000 premières seulement. */
-  paginate?: boolean;
 }) {
-  if (input.paginate) {
-    const rows: DpgfMappedRowForEstimateImport[] = [];
-    for (let offset = 0; ; offset += 1000) {
-      const { data, error } = await input.supabase
-        .from("dpgf_rows_mapped")
-        .select("id, payload, created_at")
-        .eq("tenant_id", input.tenantId)
-        .eq("import_id", input.importId)
-        .order("created_at", { ascending: true })
-        .order("id", { ascending: true })
-        .range(offset, offset + 999);
-      if (error) throw mapSupabaseError(error, "Impossible de charger les lignes DPGF mappées.");
-      rows.push(...((data ?? []) as DpgfMappedRowForEstimateImport[]));
-      if (!data || data.length < 1000) return rows;
-    }
-  }
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("dpgf_rows_mapped")
-    .select("id, payload, created_at")
+    .select("id, payload, created_at", { count: "exact" })
     .eq("tenant_id", input.tenantId)
     .eq("import_id", input.importId)
     .order("created_at", { ascending: true })
-    .order("id", { ascending: true });
+    .order("id", { ascending: true }));
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger les lignes DPGF mappées.");
@@ -2528,7 +2510,6 @@ async function loadMappedRowsForImportWithRetry(input: {
   importId: string;
   maxAttempts?: number;
   retryDelayMs?: number;
-  paginate?: boolean;
 }) {
   const maxAttempts = Math.max(1, input.maxAttempts ?? 8);
   const retryDelayMs = Math.max(0, input.retryDelayMs ?? 300);
@@ -2539,7 +2520,6 @@ async function loadMappedRowsForImportWithRetry(input: {
       supabase: input.supabase,
       tenantId: input.tenantId,
       importId: input.importId,
-      paginate: input.paginate,
     });
 
     if (lastRows.length > 0) {
@@ -2624,7 +2604,6 @@ async function importLinkedDpgfSourceIntoVersionInternal(
     importId: latestImport.id,
     maxAttempts: 10,
     retryDelayMs: 300,
-    paginate: Boolean(input.v3),
   });
 
   if (mappedRows.length === 0) {
@@ -3833,12 +3812,12 @@ export async function listEstimateVersionVariants(
   const versionIds = rows.map((row) => row.id);
 
   if (versionIds.length > 0) {
-    const { data: lineItemsData, error: lineItemsError } = await supabase
+    const { data: lineItemsData, error: lineItemsError } = await readAllRowsInChunks(versionIds, (pageIds) => supabase
       .from("estimate_items")
-      .select("version_id")
+      .select("version_id, id", { count: "exact" })
       .eq("tenant_id", tenantId)
       .eq("item_type", "line")
-      .in("version_id", versionIds);
+      .in("version_id", pageIds));
 
     if (lineItemsError) {
       throw mapSupabaseError(
@@ -3927,7 +3906,8 @@ export async function listLatestEstimates() {
   let query = supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, version_number, status, title, updated_at, total_ht_cents, date_devis, currency, validite_jours, estimate_projects!inner(id, name, reference, client_name, is_archived)"
+      "id, project_id, version_number, status, title, updated_at, total_ht_cents, date_devis, currency, validite_jours, estimate_projects!inner(id, name, reference, client_name, is_archived)",
+      { count: "exact" }
     )
     .eq("tenant_id", tenantId)
     .eq("estimate_projects.tenant_id", tenantId)
@@ -3937,9 +3917,9 @@ export async function listLatestEstimates() {
     query = query.eq("estimate_projects.user_id", userId);
   }
 
-  const { data, error } = await query
+  const { data, error } = await readAllRows(() => query
     .order("version_number", { ascending: false })
-    .order("updated_at", { ascending: false });
+    .order("updated_at", { ascending: false }));
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger la liste des chiffrages.");
@@ -4817,15 +4797,14 @@ export async function createEstimate(
     if (!latestImport) {
       throw badRequest("Aucune source DPGF liée à cette affaire.");
     }
-    // Revue 2.8b (IO14) : sous une politique 3, la source est lue par pages (PostgREST s'arrête à max_rows = 1000),
-    // comme son import dans un brouillon v3 ; la lecture v1/v2 reste inchangée.
+    // Revue 2.8b (IO14) : la source est lue en entier, par pages (PostgREST s'arrête à max_rows = 1000), pour toutes
+    // les politiques depuis la lecture complète de main (33c7031b).
     const mappedRows = await loadMappedRowsForImportWithRetry({
       supabase,
       tenantId,
       importId: latestImport.id,
       maxAttempts: 10,
       retryDelayMs: 300,
-      paginate: usesSaleCoefficients((await readTenantCalcPolicy(supabase, tenantId)).engine),
     });
     if (mappedRows.length === 0) {
       throw badRequest(
@@ -7204,7 +7183,7 @@ export async function reorderEstimateItems(
 
   let siblingsQuery = supabase
     .from("estimate_items")
-    .select("id")
+    .select("id", { count: "exact" })
     .eq("tenant_id", tenantId)
     .eq("version_id", versionId);
 
@@ -7212,7 +7191,7 @@ export async function reorderEstimateItems(
     ? siblingsQuery.is("parent_id", null)
     : siblingsQuery.eq("parent_id", parentId);
 
-  const { data: siblings, error: siblingsError } = await siblingsQuery;
+  const { data: siblings, error: siblingsError } = await readAllRows(() => siblingsQuery);
 
   if (siblingsError) {
     throw mapSupabaseError(siblingsError, "Impossible de charger les lignes à reordonner.");
@@ -7370,7 +7349,7 @@ export async function moveEstimateItem(
   const loadSiblingIds = async (parentId: string | null) => {
     let query = supabase
       .from("estimate_items")
-      .select("id")
+      .select("id", { count: "exact" })
       .eq("tenant_id", tenantId)
       .eq("version_id", versionId)
       .order("position", { ascending: true })
@@ -7380,7 +7359,7 @@ export async function moveEstimateItem(
       ? query.is("parent_id", null)
       : query.eq("parent_id", parentId);
 
-    const { data: siblings, error: siblingsError } = await query;
+    const { data: siblings, error: siblingsError } = await readAllRows(() => query);
 
     if (siblingsError) {
       throw mapSupabaseError(

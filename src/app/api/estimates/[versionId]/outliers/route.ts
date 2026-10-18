@@ -1,3 +1,4 @@
+import { readAllRows } from "@/lib/supabase/read-all";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
@@ -179,12 +180,12 @@ async function loadDismissedByItemId(input: {
   context: AuthenticatedContext;
   versionId: string;
 }) {
-  const { data, error } = await input.context.supabase
+  const { data, error } = await readAllRows(() => input.context.supabase
     .from("estimate_item_outlier_dismissals")
-    .select("item_id, flag_key")
+    .select("item_id, flag_key, id", { count: "exact" })
     .eq("tenant_id", input.context.tenantId)
     .eq("version_id", input.versionId)
-    .order("dismissed_at", { ascending: true });
+    .order("dismissed_at", { ascending: true }));
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger les valeurs atypiques acceptées.");

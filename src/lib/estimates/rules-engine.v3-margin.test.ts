@@ -1,4 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// Pagination faults are covered with the real SDK in read-all.test.ts.
+vi.mock("@/lib/supabase/read-all", () => import("@/test/complete-reads-fixture"));
+
 
 import { evaluateRules, type RulesEngineVersion } from "@/lib/estimates/rules-engine";
 // Contrat de la preuve vivante de marque v3 (2.5) : le type recopié au rouge est remplacé par
