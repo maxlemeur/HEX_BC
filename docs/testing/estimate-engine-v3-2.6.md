@@ -542,7 +542,7 @@ création puis remise à 2, rôle « Tuyauteur » 40 €/h par l'API.
 |---|---|
 | `e2e/army/local/engine-v3-editor.e2e.ts` | Parcours `V3E01`, `V3E02`, `V3E03`, `V3E04` (ajouté à l'intégration, §10.4) (sélection critique locale : motif `engine-v3-*.e2e.ts` d'`e2e.config.ts`) |
 | `e2e/army/local/engine-v3-editor-support.ts` | Préalables (propriétaire, v3, section, lignes par lot), mode Expert, préréglage « Standard », lectures d'écran et d'API, relevé `checkpoint` |
-| `e2e/army/local/engine-v3-editor-actions.e2e.ts` | Ajouté à la revue (§11) : `V3E05` à `V3E13`, actions de la grille et du tiroir hors saisie d'une cellule (suppressions, lots, taux horaire, sous-détail, article, question de TVA, remise nulle, arrondi stocké, fiche, suggestions en lot, collage) |
+| `e2e/army/local/engine-v3-editor-actions.e2e.ts` | Ajouté à la revue (§11) : `V3E05` à `V3E14`, actions de la grille et du tiroir hors saisie d'une cellule (suppressions, lots, taux horaire, sous-détail, article, question de TVA, remise nulle, arrondi stocké, fiche, suggestions en lot, collage) ; `V3E14` (PR #41, [fusion avec 2.6](./version-totals-after-bulk-actions.md#fusion-avec-la-pr-44-sous-lot-26-éditeur-v3-et-la-pr-43-boucle-army)) : annulations d'une v3 (lot, suggestions) fermées par un enregistrement des réglages |
 | `scripts/tester-army/army-impact-map.json` | Parcours ajouté à `suite.journeys`, aux groupes `editor`, `affaires-list`, `print` et à la règle `estimate-detail` |
 
 ```bash

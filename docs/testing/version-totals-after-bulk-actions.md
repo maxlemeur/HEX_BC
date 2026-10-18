@@ -7,8 +7,10 @@ lot, avec leurs annulations et rétablissements, puis application et annulation 
 suggestions en lot. Ces chemins sont signalés, non vérifiés, dans la section « Même forme
 ailleurs » de la PR #36.
 
-Périmètre : moteurs v1 et v2. Le chemin v3 relève du sous-lot 2.6 (autre branche) ; aucun code
-v3 n'est touché ici.
+Périmètre : moteurs v1 et v2. Depuis la fusion `7b821fd3` avec 2.6 (PR #44), une v3 garde le
+chemin de l'écrivain de 2.6 : aucun total client n'est calculé ni envoyé. L'enregistrement du
+paramétrage ferme aussi ses annulations (V3E14). Voir « [Fusion avec la PR #44 (sous-lot 2.6,
+éditeur v3) et la PR #43 (boucle Army)](#fusion-avec-la-pr-44-sous-lot-26-éditeur-v3-et-la-pr-43-boucle-army) ».
 
 ## Défaillance observable
 
@@ -143,8 +145,11 @@ Même forme que la PR #36, par le calcul existant, sans changement serveur :
 
 Aucune migration, aucune modification SQL ni OpenAPI : rien à appliquer à la base partagée.
 `src/lib/estimate-calculations.ts` et `src/lib/estimate-v2-snapshot.ts` : diff vide contre
-`fc2ba2dc`. Aucun code v3 touché ; l'éditeur refuse une v3 avant tout chargement
-(`src/app/dashboard/estimates/[versionId]/edit/page.tsx`).
+`fc2ba2dc`. Vrai à `fc2ba2dc`, avant la fusion `7b821fd3` : aucun code v3 n'était touché, et
+l'éditeur refusait une v3 avant tout chargement
+(`src/app/dashboard/estimates/[versionId]/edit/page.tsx`). Depuis la fusion, l'éditeur ouvre les
+brouillons v3 (2.6), et les deux contrôleurs gardent pour une v3 le chemin de 2.6 (voir « Fusion
+avec la PR #44 … »).
 
 La catégorie envoie désormais elle aussi ses totaux, inchangés : en v2, elle passe donc par
 `projectDraftMutation`, comme toute écriture en lot d'une v2 `tiered`. Aucun parcours ne
@@ -780,6 +785,15 @@ les totaux du devis. »), gardée pour tous les moteurs, aurait refusé sur une 
 catégorie, rôle en lot, application et annulation des suggestions, avant toute écriture. V3E06 et
 V3E12 passent par ces chemins et sont verts après la résolution.
 
+Git ne signale pas ces trois gardes comme conflits (`useEstimateEditorBulkController.ts:139`,
+`useEstimateEditorSuggestionsController.ts:985` et `:1230`) : la fusion automatique les garde sans
+condition de moteur, et `7b821fd3` les corrige dans le commit de fusion. C'est une correction de
+comportement, pas une résolution de conflit, et elle n'avait pas de rouge. Il est rejoué après coup,
+sans réécrire la fusion (L3 et L4 ci-dessous) : une modification locale jetable remet le texte de la
+fusion automatique sur ces trois gardes (reconstruit par `git merge-file --diff3` sur `89627add`,
+`32cfcc69` et `488382d5`, gardes hors des zones de conflit), et V3E06 et V3E12 échouent sur le refus
+« Impossible de calculer les totaux du devis. ».
+
 ### Décision : l'enregistrement du paramétrage ferme aussi les annulations d'une v3
 
 `88854fcb` vide l'historique et l'annulation des suggestions à chaque enregistrement réussi du
@@ -837,6 +851,8 @@ journaux sous `~/totals-bulk-logs/` et `~/totals-bulk-devloop-*.log`.
 | --- | --- | --- | --- | --- |
 | L1, boucle (non qualifiante) | `a91fc411`, sans modification locale | `npm run e2e:army:dev-loop -- start --app-port 3173`, puis `run --grep "V3E14"` | exit 0, 2/2 (connexion, V3E14), 15,1 s de parcours, 1 worker | session `2026-10-18T04-36-47-720Z-dev-loop`, itération `001-…` (`42a5826d…95ea`) |
 | L2, rouge, boucle (non qualifiante) | `a91fc411` plus une modification locale jetable : les deux appels `clearUndoRedoHistory()` et `discardBulkSuggestUndo()` retirés (`diffSha256` `d9c73757…e4b2`) | `run --grep "V3E14"`, reconstruit (43,6 s) | exit 1, 1/2 : V3E14 rouge. Les deux annulations sont offertes et exécutées : A et B reviennent à 2 000 pb, majoration 1, K FO 1, `[43400, 8550, 51950]` | itération `002-…` (`60529626…523c`) ; `…-6792f7f2-v3e14-after-save.json` |
+| L3, rouge, boucle (non qualifiante) | `28a7d25e` (après la fusion d'`origin/main` `78533fe5`) plus une modification locale jetable : le texte de la fusion automatique remis sur les trois gardes, soit `const isPlacementWrite = buildUpdate === buildPlacedLineUpdatePayload;` et `if (!isPlacementWrite && !versionTotalsPatch)` dans le contrôleur des lots, `computeVersionTotalsPatch(…)` sans condition et `if (!versionTotalsPatch)` aux deux sites des suggestions (`diffSha256` `a08b5ae6…6e5c`). Node 24.19.0 | `npm run e2e:army:dev-loop -- start --app-port 3173`, puis `run --grep "V3E06\|V3E12"`, reconstruit (39,9 s) | exit 1 (`failed`), 1/3 : connexion verte, V3E06 et V3E12 rouges. Le refus « Impossible de calculer les totaux du devis. » est affiché : alerte `estimate-editor-alert-action-error` de l'éditeur en V3E06, dialogue des suggestions en V3E12. Rien n'est écrit : V3E06 garde les majorations `[1, 1]`, `[43400, 8680, 52080]` et le PU de A à 178,00 € ; V3E12 garde K FO 1, `[43400, 8680, 52080]` et le PU de B à 65,00 €. Le journal réseau du serveur (`server-network.jsonl`) ne relève que les deux `commit_estimate_batch` des graines, aucun de l'écrivain v3 (7 en L4). La révision de contenu n'est pas relevée par ces parcours : l'absence d'écriture en est la seule preuve | session `2026-10-18T06-07-10-478Z-dev-loop` (`97d4045f…2636`), itération `001-…` (`3b34230c…e67e`) ; `…-87216141-v3e06-majoration.json` (`c3a0fbb9…e232`), `…-8ab461fc-v3e12-applied.json` (`ea1946cc…7c39`) ; écrans à l'échec `045894f1…ddc0` (V3E06) et `70ffb6f9…ee59` (V3E12) |
+| L4, boucle (non qualifiante) | `28a7d25e`, clone remis (`git checkout -- .`, `diffSha256` `e3b0c442…b855`) | même boucle, `run --grep "V3E06\|V3E12"`, reconstruit (39,4 s) | exit 0, 3/3 (connexion, V3E06, V3E12), 23,2 s de parcours, 1 worker. V3E06 : majorations `[1.5, 1.5]`, `[48200, 9640, 57840]` ; V3E12 : K FO 1,3, `[45350, 9070, 54420]`, puis `[43400, 8680, 52080]` après l'annulation. `commit_estimate_batch` 7 fois : 2 graines et 5 écritures de l'écrivain v3. Boucle arrêtée ensuite (`stopped` : répertoire et entrée du registre de la pile retirés, ports fermés, état retiré) | itération `002-…` (`717a9be8…d2e2`) ; `…-f103f8e2-v3e06-majoration.json` (`db560c15…050b`), `…-34afce39-v3e12-applied.json` (`9d269710…ea17`) |
 | C1 | `a91fc411`, sans modification locale | `E2E_ARMY_WORKERS=2 npm run e2e:army:local -- --grep "bulk edit sync\|bulk move\|numeric entry\|V3E\|V3P01\|V3FC" --app-port 3173` | exit 1, 28/29. Seul V3E01 est rouge, à la saisie de la ligne O4 : la liste « Rôle de main-d'œuvre » est restée vide (écran à l'échec), donc la sauvegarde attendue (h/u 0,2, PU 13,53 €) n'arrive pas, et `waitForAutoSave` échoue (`fixtures.ts:355`). C'est l'instabilité de V3E01 déjà relevée par 2.6 (doc 2.6 §8.5 : rôle « Tuyauteur » perdu dans la grille, cause non établie), sur un chemin que la fusion ne touche pas. | `2026-10-18T04-50-33-362Z-critical` (`fcf4debf…6601`) |
 | C2 | idem | même commande | exit 0, 29/29, chacun en une tentative (4 min 25 s de parcours) : connexion, `bulk-edit-sync` 4/4, `bulk-edit-sync-sources` 3/3, `bulk-move`, `numeric-entry` 2/2, `numeric-entry-v3`, V3E01 à V3E14, V3P01, V3FC01, V3FC02. pgTAP `Files=20, Tests=1854, Result: PASS`, matrice RLS verte | `2026-10-18T05-00-07-973Z-critical` (`8789bb8b…41f0`) |
 | F4 | idem | `npm run e2e:army:ci -- full --app-port 3173` | exit 1 ; phase `full` 160/161, 1 worker (17 min 11 s de parcours) : seul V3E01 est rouge, même instabilité qu'en C1 (rôle de O2 vide à l'écran). Verts : V1BT01 à V1BT03 (`bulk-actions-v1-totals` 3/3), V1PT01, V3E02 à V3E14, V3P01, V3FC01, V3FC02, `bulk-edit-sync` 4/4, `bulk-edit-sync-sources` 3/3, `bulk-move`, `commercial-rounding` 2/2, `estimate-integrity` 5/5, `numeric-entry` 2/2, `numeric-entry-v3`, `settings-contracts` 2/2. Phase `development` 4/4 | `2026-10-18T05-06-23-931Z-full` (`58b631fd…73a3`) |
@@ -905,5 +921,26 @@ Limites :
   que celui des lots l'applique. C'est le comportement de 2.6 sur `main`, laissé tel quel. V3E12
   enchaîne application et annulation, V3E14 application et enregistrement du paramétrage, sans
   erreur ;
-- aucune revue indépendante n'a porté sur cette fusion ;
+- une revue indépendante en lecture seule a porté sur `55ce0c0a` (section suivante). Aucune n'a
+  porté sur les corrections qui la suivent ;
 - F4 n'est pas un run `full` entièrement vert : son seul rouge est V3E01 (ci-dessus).
+
+### Revue de la fusion et rapprochement avec `78533fe5`
+
+La revue en lecture seule de `55ce0c0a` relève deux constats mineurs, traités sans réécrire la
+fusion :
+
+1. La correction des gardes v3 est faite dans le commit de fusion sans rouge (« Défaut que la fusion
+   automatique aurait introduit », plus haut). Le rouge est rejoué après coup : L3, puis L4 au vert.
+2. Les énoncés de périmètre étaient périmés après la fusion : paragraphe « Périmètre » en tête,
+   phrase « Aucun code v3 touché » (section « Correction »), inventaire de 2.6
+   (`estimate-engine-v3-2.6.md`, `engine-v3-editor-actions.e2e.ts` listé « V3E05 à V3E13 ») et
+   description de la PR #41. Les trois premiers sont corrigés ici, la description à part.
+
+`origin/main` est ensuite passé à `78533fe5`. Il apporte la PR #46 (relevé de la migration 2.6 sur
+le Supabase partagé, dont une ligne de `estimate-engine-v3-2.6.md`, autre que la ligne d'inventaire
+modifiée ici) et la PR #47 (chemins résolus de la boucle : `scripts/tester-army/dev-loop-state.ts`,
+`src/test/army-dev-loop.test.ts`, `tester-army-local-development.md`). La fusion `28a7d25e` est sans
+conflit : la branche ne modifiait alors aucun de ces fichiers. Elle n'invalide que la boucle, et L3 et L4 tournent
+déjà avec. La sélection qualifiante est rejouée sur la tête finale ; son manifeste et les contrôles
+du worktree Windows figurent dans la description de la PR #41.
