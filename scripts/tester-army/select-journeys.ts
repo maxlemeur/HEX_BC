@@ -25,13 +25,21 @@
 // event), listed from the working tree so an unlisted one still runs; none on
 // a push, whose post-merge check stays the critical suite (the nightly full
 // suite runs them).
+//
+// Parallel jobs (army-shards.json, docs/testing/tester-army-ci.md, "Jobs
+// parallèles"): the critical files, or the whole critical suite listed from
+// e2e.config.ts, are split into disjoint shards, each with the login setup and
+// an authenticated journey, by longest measured duration first; `--plan full`
+// splits the nightly full selection the same way. A file is never cut. A list
+// the runner would refuse or that cannot be established is one unsharded
+// shard running the runner's own whole suite.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { FULL_ONLY_JOURNEY_FILE } from "./journey-files.mjs";
+import { CRITICAL_JOURNEY_FILE, FULL_JOURNEY_FILE, FULL_ONLY_JOURNEY_FILE } from "./journey-files.mjs";
 
 export type ImpactRule = { id: string; note?: string; paths: string[]; journeys: string[] };
 export type ImpactMap = {
@@ -63,18 +71,44 @@ export type FullOnlySelection = {
   reason: string;
   files: string[];
 };
+export type ShardSuite = "critical" | "full";
+/** scripts/tester-army/army-shards.json: measured seconds per journey file and each suite's limits. */
+export type ShardDurations = {
+  schemaVersion: number;
+  note?: string;
+  measured?: string[];
+  defaultSeconds: number;
+  suites: Record<ShardSuite, { maxShards: number; secondsPerShard: number; workers: number }>;
+  seconds: Record<string, number>;
+};
+export type PlannedShard = { shard: number; total: number; files: string[]; seconds: number };
+export type ShardPlan = {
+  schemaVersion: "army-shard-plan-1";
+  suite: ShardSuite;
+  reason: string;
+  /** Every file the shards run together, login setup included; empty: one shard runs the runner's own whole suite. */
+  files: string[];
+  /** E2E_ARMY_WORKERS of every shard; null when the durations file is unreadable. */
+  workers: number | null;
+  durationsSha256: string | null;
+  shards: PlannedShard[];
+  /** Full suite only: its development phase in its own job, on the single shard's stack, or not at all (--grep). */
+  development?: "separate" | "in-shard" | "none";
+};
 export type Selection = {
-  schemaVersion: "army-impact-selection-2";
+  schemaVersion: "army-impact-selection-3";
   event: string;
   base: string | null;
   head: string | null;
   mapSha256: string | null;
-  /** Critical journeys (army-critical job). */
+  /** Critical journeys (army-critical shard jobs). */
   mode: "none" | "full" | "files";
   reason: string;
   files: string[];
   /** Full-only journeys (army-takeoff job). */
   fullOnly: FullOnlySelection;
+  /** The critical journeys split into parallel jobs (empty for "none"). */
+  shards: ShardPlan;
   changedPaths: PathDecision[];
 };
 export type SourceGraph = {
@@ -85,6 +119,7 @@ export type SourceGraph = {
 };
 
 export const MAP_PATH = "scripts/tester-army/army-impact-map.json";
+export const SHARDS_PATH = "scripts/tester-army/army-shards.json";
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".css"];
 const RESOLVE_SUFFIXES = ["", ".ts", ".tsx", ".mts", ".js", ".jsx", ".mjs", ".cjs", ".json", ".css",
   "/index.ts", "/index.tsx", "/index.js", "/index.jsx", "/index.mjs"];
@@ -483,6 +518,149 @@ const PUSH_FULL_ONLY: FullOnlySelection = {
   mode: "none", reason: "push: the post-merge check is the critical suite; the nightly full suite runs the full-only journeys", files: [],
 };
 
+/** Problems that make army-shards.json unusable; with the suites' journeys, also the files no suite runs. */
+export function validateShardDurations(durations: ShardDurations, journeys?: readonly string[]): string[] {
+  const problems: string[] = [];
+  if (durations?.schemaVersion !== 1) return [`Unsupported army-shards.json schemaVersion ${durations?.schemaVersion}.`];
+  const positive = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value > 0;
+  const integer = (value: unknown, low: number, high: number) => Number.isInteger(value) && (value as number) >= low && (value as number) <= high;
+  if (!positive(durations.defaultSeconds)) problems.push("army-shards.json defaultSeconds must be a positive number of seconds.");
+  for (const suite of ["critical", "full"] as const) {
+    const settings = durations.suites?.[suite];
+    if (!integer(settings?.maxShards, 1, 8) || !positive(settings?.secondsPerShard) || !integer(settings?.workers, 1, 4)) {
+      problems.push(`army-shards.json suite ${suite} needs maxShards from 1 to 8, secondsPerShard above 0 and workers from 1 to 4.`);
+    }
+  }
+  const known = journeys ? new Set(journeys) : undefined;
+  for (const [file, seconds] of Object.entries(durations.seconds ?? {})) {
+    if (!positive(seconds)) problems.push(`army-shards.json times ${file} with ${seconds}, not a positive number of seconds.`);
+    if (known && !known.has(file)) problems.push(`army-shards.json times ${file}, which no suite runs.`);
+  }
+  return problems;
+}
+
+export function loadShardDurations(root: string): { durations: ShardDurations; sha256: string } {
+  const bytes = fs.readFileSync(path.join(root, SHARDS_PATH));
+  return { durations: JSON.parse(bytes.toString("utf8")) as ShardDurations, sha256: createHash("sha256").update(bytes).digest("hex") };
+}
+
+/** The durations file when it is readable and valid; null otherwise (every plan is then one shard). */
+function usableShardDurations(root: string): { durations: ShardDurations | null; sha256: string | null } {
+  try {
+    const loaded = loadShardDurations(root);
+    return validateShardDurations(loaded.durations).length ? { durations: null, sha256: loaded.sha256 } : loaded;
+  } catch {
+    return { durations: null, sha256: null };
+  }
+}
+
+/**
+ * Splits a selection into disjoint shards, each with the login setup, longest
+ * measured file first onto the least loaded shard: authenticated journeys
+ * first, so that every shard holds one (the runner refuses a run of anonymous
+ * journeys only), anonymous ones after. A file is never cut, so an SDK serial
+ * group, which lives in one file, stays whole. One shard when the measured
+ * journeys fit it; one shard of the runner's own whole suite (files empty)
+ * when the list is the whole suite or cannot be used as runner --files.
+ */
+export function planShards(input: {
+  suite: ShardSuite;
+  /** The files to run, login setup included. */
+  files: readonly string[];
+  /** The files are the suite's whole listing: a single shard then runs the runner's own selection instead. */
+  wholeSuite: boolean;
+  setup: string;
+  anonymous: readonly string[];
+  /** The runner's --files pattern. */
+  accepts: RegExp;
+  durations: ShardDurations | null;
+  durationsSha256?: string | null;
+}): ShardPlan {
+  const settings = input.durations?.suites?.[input.suite];
+  const plan = (reason: string, shards: string[][], seconds: number[]): ShardPlan => ({
+    schemaVersion: "army-shard-plan-1", suite: input.suite, reason, files: [...new Set(shards.flat())].sort(),
+    workers: settings?.workers ?? null, durationsSha256: input.durationsSha256 ?? null,
+    shards: shards.map((files, index) => ({ shard: index + 1, total: shards.length, files: [...files].sort(), seconds: seconds[index] })),
+  });
+  const whole = (why: string) => plan(`one shard, the runner's own whole suite: ${why}`, [[]], [0]);
+  const files = [...new Set(input.files)].sort();
+  if (files.length === 0) return whole("no list of its journeys");
+  const refused = files.find((file) => !input.accepts.test(file));
+  if (refused) return whole(`the runner's --files refuses ${refused}`);
+  if (!files.includes(input.setup)) return whole(`the list lacks the login setup ${input.setup}`);
+  const business = files.filter((file) => file !== input.setup);
+  if (!settings || !input.durations) {
+    const why = "no usable measured durations (army-shards.json)";
+    return input.wholeSuite ? whole(why) : plan(`one shard: ${why}`, [files], [0]);
+  }
+  const { defaultSeconds, seconds } = input.durations;
+  const weight = (file: string) => seconds[file] ?? defaultSeconds;
+  const total = business.reduce((sum, file) => sum + weight(file), 0);
+  const anonymous = new Set(input.anonymous);
+  const authenticated = business.filter((file) => !anonymous.has(file));
+  const count = Math.min(settings.maxShards, Math.max(1, authenticated.length), Math.max(1, Math.ceil(total / settings.secondsPerShard)));
+  if (count === 1) {
+    const why = `${total} s of measured journeys fit one shard of ${settings.secondsPerShard} s`;
+    return input.wholeSuite ? whole(why) : plan(`one shard: ${why}`, [files], [total]);
+  }
+  const longestFirst = (list: string[]) => [...list].sort((a, b) => weight(b) - weight(a) || (a < b ? -1 : a > b ? 1 : 0));
+  const bins = Array.from({ length: count }, () => ({ load: 0, files: [input.setup] }));
+  for (const file of [...longestFirst(authenticated), ...longestFirst(business.filter((entry) => anonymous.has(entry)))]) {
+    let target = 0;
+    for (let index = 1; index < count; index += 1) if (bins[index].load < bins[target].load) target = index;
+    bins[target].load += weight(file);
+    bins[target].files.push(file);
+  }
+  return plan(`${count} shards: ${total} s of measured journeys, ${settings.secondsPerShard} s per shard, at most ${settings.maxShards}`,
+    bins.map((bin) => bin.files), bins.map((bin) => bin.load));
+}
+
+/** One GitHub matrix entry per shard; the files comma-joined (the selector refuses a path with a comma). */
+export function shardMatrix(plan: ShardPlan): Array<{ shard: number; total: number; files: string }> {
+  return plan.shards.map(({ shard, total, files }) => ({ shard, total, files: files.join(",") }));
+}
+
+type ShardInput = { suiteJourneys: readonly string[] | null; durations: ShardDurations | null; durationsSha256: string | null };
+
+function criticalShards(map: ImpactMap, mode: Selection["mode"], files: string[], input: ShardInput | undefined): ShardPlan {
+  const base = { suite: "critical" as const, setup: map.suite.setup, anonymous: map.suite.anonymous, accepts: CRITICAL_JOURNEY_FILE,
+    durations: input?.durations ?? null, durationsSha256: input?.durationsSha256 ?? null };
+  if (mode === "none") {
+    return { schemaVersion: "army-shard-plan-1", suite: "critical", reason: "no critical journey to run", files: [],
+      workers: base.durations?.suites?.critical?.workers ?? null, durationsSha256: base.durationsSha256, shards: [] };
+  }
+  return mode === "files"
+    ? planShards({ ...base, files, wholeSuite: false })
+    : planShards({ ...base, files: input?.suiteJourneys ?? [], wholeSuite: true });
+}
+
+/**
+ * The nightly full selection split into shards: listed from the e2e.config.ts
+ * full globs and the working tree (an unregistered journey is listed too),
+ * the development phase in its own job. Filtered (--grep), or a list that
+ * cannot be established: one shard of the runner's own selection, which then
+ * runs no development phase (--grep) or both phases on its stack.
+ */
+export function planFullSuite(root: string, options: { repositoryFiles?: string[]; config?: string; unsharded?: string } = {}): ShardPlan {
+  const { durations, sha256 } = usableShardDurations(root);
+  const unsharded = (reason: string, development: "in-shard" | "none"): ShardPlan => ({
+    schemaVersion: "army-shard-plan-1", suite: "full", reason, files: [], workers: durations?.suites?.full?.workers ?? null,
+    durationsSha256: sha256, development, shards: [{ shard: 1, total: 1, files: [], seconds: 0 }],
+  });
+  if (options.unsharded) return unsharded(`one shard, the runner's own selection: ${options.unsharded}`, "none");
+  try {
+    const { map } = loadImpactMap(root);
+    const repositoryFiles = options.repositoryFiles ?? listRepositoryFiles(root);
+    const globs = fullSelectionGlobs(options.config ?? fs.readFileSync(path.join(root, "e2e.config.ts"), "utf8"));
+    const files = repositoryFiles.filter((file) => globs.some((glob) => globToRegExp(glob).test(file)));
+    const plan = planShards({ suite: "full", files, wholeSuite: true, setup: map.suite.setup, anonymous: map.suite.anonymous,
+      accepts: FULL_JOURNEY_FILE, durations, durationsSha256: sha256 });
+    return { ...plan, development: plan.files.length ? "separate" : "in-shard" };
+  } catch (error) {
+    return unsharded(`fail-safe: ${(error as Error).message}`, "in-shard");
+  }
+}
+
 export function selectJourneys(input: {
   map: ImpactMap;
   graph: SourceGraph;
@@ -493,6 +671,8 @@ export function selectJourneys(input: {
   base?: string | null;
   head?: string | null;
   mapSha256?: string | null;
+  /** The critical suite listing and the measured durations; absent, every plan is one shard. */
+  shards?: ShardInput;
 }): Selection {
   const { map, graph, event } = input;
   // When the critical decision is unsure, every full-only journey runs too.
@@ -501,8 +681,9 @@ export function selectJourneys(input: {
     : { mode: "all", reason: `every full-only journey: ${why}`, files: [map.suite.setup, ...map.fullOnly.journeys].sort() };
   const selection = (mode: Selection["mode"], reason: string, files: string[], changedPaths: PathDecision[],
     fullOnly: FullOnlySelection = everyFullOnly(reason)): Selection => ({
-    schemaVersion: "army-impact-selection-2", event, base: input.base ?? null, head: input.head ?? null,
-    mapSha256: input.mapSha256 ?? null, mode, reason, files, fullOnly, changedPaths,
+    schemaVersion: "army-impact-selection-3", event, base: input.base ?? null, head: input.head ?? null,
+    mapSha256: input.mapSha256 ?? null, mode, reason, files, fullOnly,
+    shards: criticalShards(map, mode, files, input.shards), changedPaths,
   });
   if (input.forceFull) return selection("full", `full suite forced: ${input.forceFull}`, [], []);
   if (event !== "pull_request" && event !== "push") return selection("full", `event ${event || "unknown"} always runs the full suite`, [], []);
@@ -608,12 +789,18 @@ export function selectFromRepository(root: string, request: SelectionRequest): S
       : request.paths ?? (request.pathsFile
         ? fs.readFileSync(request.pathsFile, "utf8").split(/[\0\r\n]+/).map((file) => file.trim()).filter(Boolean)
         : changedPathsFromGit(root, base ?? "", head));
+    const durations = usableShardDurations(root);
     return selectJourneys({ map, graph: buildSourceGraph(root, map, repositoryFiles), event, paths,
-      forceFull, base, head: givenPaths ? null : head, mapSha256: sha256 });
+      forceFull, base, head: givenPaths ? null : head, mapSha256: sha256,
+      shards: { suiteJourneys, durations: durations.durations, durationsSha256: durations.sha256 } });
   } catch (error) {
-    return { schemaVersion: "army-impact-selection-2", event, base, head, mapSha256: null, mode: "full",
-      reason: `fail-safe: ${(error as Error).message}`, files: [],
-      fullOnly: fullOnlyFailSafe(event, loadedMap, repositoryFiles), changedPaths: [] };
+    const reason = `fail-safe: ${(error as Error).message}`;
+    // Unsure of the map: one shard of the runner's own whole suite, as before shards existed.
+    const shards: ShardPlan = { schemaVersion: "army-shard-plan-1", suite: "critical",
+      reason: `one shard, the runner's own whole suite: ${reason}`, files: [], workers: usableShardDurations(root).durations?.suites.critical.workers ?? null,
+      durationsSha256: null, shards: [{ shard: 1, total: 1, files: [], seconds: 0 }] };
+    return { schemaVersion: "army-impact-selection-3", event, base, head, mapSha256: null, mode: "full",
+      reason, files: [], fullOnly: fullOnlyFailSafe(event, loadedMap, repositoryFiles), shards, changedPaths: [] };
   }
 }
 
@@ -632,6 +819,7 @@ function summary(selection: Selection): string {
       ? `Exécution enregistrée « filtered-full » : ${fullOnly.files.length} fichiers (${fullOnly.mode === "all" ? "tous" : "sélection par impact"}).`
       : "Liste indisponible : sélection full complète.", "", `Motif : ${fullOnly.reason}.`, "");
   if (fullOnly.files.length) lines.push(...fullOnly.files.map((file) => `- \`${file}\``), "");
+  if (selection.mode !== "none") lines.push("#### Jobs parallèles (army-critical shard)", "", ...shardLines(selection.shards));
   if (selection.changedPaths.length) {
     lines.push("<details><summary>Chemins modifiés</summary>", "", "| Chemin | Classe | Parcours |", "| --- | --- | --- |");
     for (const decision of selection.changedPaths.slice(0, 300)) {
@@ -642,14 +830,36 @@ function summary(selection: Selection): string {
   return `${lines.join("\n")}\n`;
 }
 
+function shardLines(plan: ShardPlan): string[] {
+  const lines = [`${plan.shards.length} job(s) à ${plan.workers ?? "?"} worker(s). Motif : ${plan.reason}.`, ""];
+  for (const shard of plan.shards) {
+    lines.push(`- shard ${shard.shard}/${shard.total} : ${shard.files.length ? `${shard.files.length} fichiers, ${shard.seconds} s mesurées` : "suite entière du runner"}`);
+  }
+  return [...lines, ""];
+}
+
 function option(args: string[], name: string): string | undefined {
   const index = args.indexOf(name);
   return index === -1 ? undefined : args[index + 1];
 }
 
+/** Writes the JSON report, the GitHub outputs and the job summary; a path that could split or inject an output is refused. */
+function publish(args: string[], result: unknown, files: string[], outputs: string, markdown: string) {
+  if (files.some((file) => /[\r\n,]/u.test(file))) throw new Error("A selected journey path contains a comma or a line break.");
+  const json = `${JSON.stringify(result, null, 2)}\n`;
+  const report = option(args, "--report");
+  if (report) {
+    fs.mkdirSync(path.dirname(path.resolve(report)), { recursive: true });
+    fs.writeFileSync(report, json);
+  }
+  if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, outputs);
+  if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, markdown);
+  process.stdout.write(json);
+}
+
 function main() {
   const args = process.argv.slice(2);
-  const known = new Set(["--event", "--base", "--head", "--paths-file", "--report", "--force-full"]);
+  const known = new Set(["--event", "--base", "--head", "--paths-file", "--report", "--force-full", "--plan", "--unsharded"]);
   const seen = new Set<string>();
   for (let index = 0; index < args.length; index += 1) {
     if (!known.has(args[index]) || seen.has(args[index])) throw new Error(`Unknown or repeated argument ${args[index]}.`);
@@ -657,11 +867,21 @@ function main() {
     if (!args[index + 1] || known.has(args[index + 1])) throw new Error(`${args[index]} requires a value.`);
     index += 1;
   }
-  const event = option(args, "--event");
-  if (!event) {
-    throw new Error("Usage: node scripts/tester-army/select-journeys.ts --event pull_request|push|<other> " +
-      "[--base REV --head REV | --paths-file FILE] [--force-full REASON] [--report FILE]");
+  const usage = "Usage: node scripts/tester-army/select-journeys.ts --event pull_request|push|<other> " +
+    "[--base REV --head REV | --paths-file FILE] [--force-full REASON] [--report FILE]" +
+    " | --plan full [--unsharded REASON] [--report FILE]";
+  const planned = option(args, "--plan");
+  if (planned !== undefined) {
+    // The nightly full suite: no impact selection, only its shards.
+    if (planned !== "full" || ["--event", "--base", "--head", "--paths-file", "--force-full"].some((name) => seen.has(name))) throw new Error(usage);
+    const plan = planFullSuite(process.cwd(), { unsharded: option(args, "--unsharded") });
+    publish(args, plan, plan.files, `shards=${JSON.stringify(shardMatrix(plan))}\ndevelopment=${plan.development}\n`,
+      ["### Suite TesterArmy full : jobs parallèles", "", ...shardLines(plan),
+        `Phase développement : ${plan.development === "separate" ? "job army-full-development" : plan.development === "in-shard" ? "sur la pile du shard unique" : "non lancée (exécution filtrée)"}.`, ""].join("\n"));
+    return;
   }
+  const event = option(args, "--event");
+  if (!event || seen.has("--unsharded")) throw new Error(usage);
   const result = selectFromRepository(process.cwd(), {
     event,
     base: option(args, "--base") ?? null,
@@ -669,22 +889,10 @@ function main() {
     pathsFile: option(args, "--paths-file"),
     forceFull: option(args, "--force-full") ?? null,
   });
-  // GitHub outputs are comma-joined lines: a path that could split or inject one is refused.
-  if ([...result.files, ...result.fullOnly.files].some((file) => /[\r\n,]/u.test(file))) {
-    throw new Error("A selected journey path contains a comma or a line break.");
-  }
-  const json = `${JSON.stringify(result, null, 2)}\n`;
-  const report = option(args, "--report");
-  if (report) {
-    fs.mkdirSync(path.dirname(path.resolve(report)), { recursive: true });
-    fs.writeFileSync(report, json);
-  }
-  if (process.env.GITHUB_OUTPUT) {
-    fs.appendFileSync(process.env.GITHUB_OUTPUT, `mode=${result.mode}\nfiles=${result.files.join(",")}\n` +
-      `full_only_mode=${result.fullOnly.mode}\nfull_only_files=${result.fullOnly.files.join(",")}\n`);
-  }
-  if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary(result));
-  process.stdout.write(json);
+  publish(args, result, [...result.files, ...result.fullOnly.files, ...result.shards.files],
+    `mode=${result.mode}\nfiles=${result.files.join(",")}\n` +
+    `full_only_mode=${result.fullOnly.mode}\nfull_only_files=${result.fullOnly.files.join(",")}\n` +
+    `critical_shards=${JSON.stringify(shardMatrix(result.shards))}\n`, summary(result));
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

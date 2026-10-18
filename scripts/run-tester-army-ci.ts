@@ -17,30 +17,33 @@ import {
   DEFAULT_DEV_LOOP_TTL_MINUTES, DEV_LOOP_SESSION_SCOPE, DEV_LOOP_STATE_FILE, DEV_LOOP_STATE_SCHEMA, DEV_LOOP_TTL_RANGE,
   LoopStateStore, proveLoopClosed, stackInputsDigest, supervisorModulesDigest,
 } from "./tester-army/dev-loop-state";
-import { FULL_ONLY_JOURNEY_FILE } from "./tester-army/journey-files.mjs";
+import { CRITICAL_JOURNEY_FILE, FULL_JOURNEY_FILE } from "./tester-army/journey-files.mjs";
 import { buildSourceEvidence, redactOutput, sqlInventory } from "./tester-army/local-recipe-common.mjs";
 import { assertLocalAppPortAvailable, runLocalDevelopmentSession } from "./tester-army/local-development";
 
 const suite = process.argv[2];
 if (!["critical", "full", "dev", "dev-loop", "calc-v3"].includes(suite)) {
-  throw new Error("Usage: run-tester-army-ci.ts critical|full|dev|dev-loop|calc-v3 [--app-port PORT] [critical or full: --grep PATTERN | --files A.e2e.ts,B.e2e.ts] [calc-v3 only: --phase NAME [--grep PATTERN]] [dev-loop only: --ttl-minutes N]");
+  throw new Error("Usage: run-tester-army-ci.ts critical|full|dev|dev-loop|calc-v3 [--app-port PORT] [critical or full: --grep PATTERN | --files A.e2e.ts,B.e2e.ts] [critical or full: --shard I/N] [full only: --phase development] [calc-v3 only: --phase NAME [--grep PATTERN]] [dev-loop only: --ttl-minutes N]");
 }
 // Journey files a --files run may name: critical and local journeys of the
-// critical suite; for full, the full-only takeoff journeys and their login setup.
-const FILES_PATTERN = suite === "full"
-  ? FULL_ONLY_JOURNEY_FILE
-  : /^e2e\/army\/(?:critical|local)\/[A-Za-z0-9][A-Za-z0-9._-]*\.e2e\.ts$/;
+// critical suite; for full, any journey folder of its selection (its shards,
+// the takeoff journeys and their login setup among them).
+const FILES_PATTERN = suite === "full" ? FULL_JOURNEY_FILE : CRITICAL_JOURNEY_FILE;
 let grep: string | undefined;
 let files: string[] = [];
 let calcV3Phase: CalcV3Phase | undefined;
+// The development phase of the full suite alone: its own job in a sharded nightly run.
+let fullPhase: "development" | undefined;
+// This run's place among the parallel jobs of one selection (docs/testing/tester-army-ci.md), recorded only.
+let shard: { index: number; total: number } | undefined;
 let appPort = 3107;
 let ttlMinutes = DEFAULT_DEV_LOOP_TTL_MINUTES;
 const suppliedOptions = new Set<string>();
 for (let index = 3; index < process.argv.length; index += 2) {
   const option = process.argv[index];
   const value = process.argv[index + 1];
-  if (!["--grep", "--files", "--app-port", "--phase", "--ttl-minutes"].includes(option) || suppliedOptions.has(option) || !value?.trim()) {
-    throw new Error("Only one --app-port, one --grep or --files and one calc-v3 --phase with explicit values are allowed.");
+  if (!["--grep", "--files", "--app-port", "--phase", "--ttl-minutes", "--shard"].includes(option) || suppliedOptions.has(option) || !value?.trim()) {
+    throw new Error("Only one --app-port, one --grep or --files, one --shard and one --phase with explicit values are allowed.");
   }
   suppliedOptions.add(option);
   if (option === "--files") {
@@ -53,7 +56,7 @@ for (let index = 3; index < process.argv.length; index += 2) {
     files = value.split(",");
     if (new Set(files).size !== files.length || files.some((file) => !FILES_PATTERN.test(file) || !fs.existsSync(file))) {
       throw new Error(suite === "full"
-        ? "full --files lists distinct existing e2e/army/takeoff/**/*.e2e.ts paths (and the critical login setup), comma-separated."
+        ? "full --files lists distinct existing e2e/army/{critical,extended,local,takeoff}/**/*.e2e.ts paths, comma-separated."
         : "--files lists distinct existing e2e/army/critical or e2e/army/local *.e2e.ts paths, comma-separated.");
     }
   } else if (option === "--grep") {
@@ -66,6 +69,15 @@ for (let index = 3; index < process.argv.length; index += 2) {
     if (suite === "full" && value.startsWith("-")) throw new Error("A full --grep pattern cannot start with a dash.");
     new RegExp(value);
     grep = value;
+  } else if (option === "--shard") {
+    const match = /^([1-9][0-9]?)\/([1-9][0-9]?)$/.exec(value);
+    if ((suite !== "critical" && suite !== "full") || !match || Number(match[1]) > Number(match[2])) {
+      throw new Error("--shard I/N is restricted to critical and full, with 1 <= I <= N <= 99.");
+    }
+    shard = { index: Number(match[1]), total: Number(match[2]) };
+  } else if (option === "--phase" && suite === "full") {
+    if (value !== "development") throw new Error("full --phase names its development phase only; --files or --grep narrow its full phase.");
+    fullPhase = value;
   } else if (option === "--phase") {
     if (suite !== "calc-v3" || !isCalcV3Phase(value)) throw new Error("--phase names one calc-v3 phase: journeys|components|numeric|resume|access|offers|emission|emission-v3.");
     calcV3Phase = value;
@@ -95,9 +107,11 @@ if (workers !== "" && !/^[1-4]$/.test(workers)) {
   throw new Error(`E2E_ARMY_WORKERS must be an integer from 1 to 4 (default 1); received "${workers}".`);
 }
 if (suite === "calc-v3" && grep && !calcV3Phase) throw new Error("A calc-v3 --grep filters exactly one --phase.");
+if (fullPhase && (grep || files.length || shard)) throw new Error("full --phase development runs that phase alone: no --grep, --files or --shard.");
 // A filtered full run proves only the production full selection it filters;
-// the development phase (its own journeys) runs with the unfiltered suite only.
-const fullPhases = grep || files.length ? ["full"] : ["full", "development"];
+// the development phase (its own journeys) runs with the unfiltered suite only,
+// or alone (--phase development) beside the shards of a sharded full suite.
+const fullPhases = fullPhase ? [fullPhase] : grep || files.length ? ["full"] : ["full", "development"];
 const root = process.cwd();
 const evidence = path.join(root, ".e2e/army/ci", `${new Date().toISOString().replace(/[:.]/g, "-")}-${suite}`);
 fs.mkdirSync(evidence, { recursive: true });
@@ -117,14 +131,18 @@ const manifest: Record<string, unknown> = {
   platform: process.platform,
   appOrigin: `http://localhost:${appPort}`,
   scope: suite === "dev" ? "interactive-development" : suite === "dev-loop" ? DEV_LOOP_SESSION_SCOPE
-    : grep || files.length ? `filtered-${suite}` : calcV3Phase ? `calc-v3-${calcV3Phase}` : suite,
+    : grep || files.length ? `filtered-${suite}` : calcV3Phase ? `calc-v3-${calcV3Phase}` : fullPhase ? `full-${fullPhase}` : suite,
   ...(suite === "dev-loop" ? { qualification: false, ttlMinutes } : {}),
   ...(grep ? { grep } : {}),
   // Not `files`: retainEvidence writes the evidence inventory under that key.
   ...(files.length ? { journeyFiles: files } : {}),
+  ...(shard ? { shard } : {}),
   ...(calcV3Phase ? { calcV3Phase } : {}),
-  ...(suite === "full" && fullPhases.length === 1
+  ...(suite === "full" && !fullPhases.includes("development")
     ? { phasesNotRun: { development: "a filtered full run proves only the selected journeys of its production full phase" } }
+    : {}),
+  ...(suite === "full" && !fullPhases.includes("full")
+    ? { phasesNotRun: { full: "--phase development runs the development phase alone; the shards of the full suite run its full phase" } }
     : {}),
   ...(suite === "dev" ? { e2e: "not-run" } : { workers: workers === "" ? 1 : Number(workers) }),
   status: "preparing",
@@ -326,7 +344,10 @@ async function runApplication(local: SupabaseEnvironment) {
     });
     return;
   }
-  await runNode(["scripts/tester-army/build-local.mjs", "--execute"], environment, "build");
+  // The development phase runs under next dev: alone, it needs no production build.
+  if (!(suite === "full" && fullPhases.every((phase) => phase === "development"))) {
+    await runNode(["scripts/tester-army/build-local.mjs", "--execute"], environment, "build");
+  }
   const failures: string[] = [];
   for (const phase of suite === "full" ? fullPhases : [suite!]) {
     try {

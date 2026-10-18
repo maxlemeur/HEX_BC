@@ -1688,9 +1688,51 @@ restaure) : **sortie 0** en 210 s sur `ad37aea9` (arbre de code de `7127c4e1`), 
 autres tests découverts sont hors sélection. Contrôle de confidentialité passé. `.e2e/army/ci/2026-10-18T12-06-04-527Z-full`
 (`manifest.json` `ddc058aa…`), journal `~/l27-r5-logs/takeoff-full.log`.
 
-Par rapport à `7127c4e1`, la tête qui suit ne change que la documentation et ce commentaire du garde : les preuves
-E2E, SQL et de montée de version du §13.10 et ci-dessus restent celles de l'arbre de code. `npm run verify:pr` est
-rejoué sur la tête finale (description de la PR).
+Par rapport à `7127c4e1`, `21a0b99c` ne change que la documentation et ce commentaire du garde. `origin/main` a
+ensuite avancé : toute la chaîne est rejouée sur la fusion (§13.12).
 
 Limites : pas de capture d'écran (ci-dessus) ; coût d'une nuit à huit phases non mesuré ; la sélection `nightly`
 et le job `army-takeoff` de la PR ne tournent que sur le runner après la poussée.
+
+### 13.12 Fusion de `main` `33705bc7` (outillage natif local, #49) et requalification (18/10/2026)
+
+**Fusion `039ca113`** (`git merge --no-ff origin/main`, sans rebase ni poussée) de `33705bc7`, arrivé pendant la
+correction du §13.11 : PR #49, qui ne change que les lanceurs locaux (places natives comptées et réservées dans
+`~/.supabase/native-runs/`, nettoyage de la pile sur SIGINT/SIGTERM, `db:ci:local -- --files`, build Army sans les
+fichiers Vitest ; [relevé](local-native-stack-tooling.md)). Aucun fichier commun avec cette branche, aucun conflit,
+aucune migration : M5 `20261018102840` reste la plus récente et garde son horodatage (sha256 `d0a799c0…c84f`
+inchangé). Garde Git `pull_request` contre `33705bc7` passée (2 changements dans sa portée), `supabase:validate` 253
+fichiers et 253 versions, `typecheck` sortie 0, `ci-guardrails` et `army-impact-map` 33/33,
+`git diff --check origin/main...HEAD` propre (Windows). #49 change le lanceur de chaque run natif (pile, build,
+montée de version, empreintes) : toute la chaîne est rejouée sur la tête de code `039ca113`.
+
+**Requalification de `039ca113`** (WSL Ubuntu 24.04, clone `~/miaouffrage-lot2-27`, Node 24.19.0,
+`E2E_ARMY_WORKERS=2` sauf le métré, `NODE_OPTIONS=--max-old-space-size=4096`, `NATIVE_STACK_WAIT_SECONDS=3600`,
+aucun changement local, `diffSha256` `e3b0c442…`, en série sous la limite native de trois ; journaux
+`~/l27-r5-logs/m-*.log` : tête, état local, commande, sortie, durée murale). Tous les manifestes enregistrent la
+révision `039ca113` et 253 migrations, M5 en dernier :
+
+| Commande | Résultat |
+|---|---|
+| `npm run verify:pr` | **sortie 0** en 79 s : audit et signatures (762 paquets), architecture (1 148 modules, 0 cycle), OpenAPI (144 routes, 192 opérations), typecheck, lint, Vitest node 3 261 (+18 de #49 ; `rls.e2e.test.ts`, 2 tests, ignoré comme avant, joué par `db:ci:local`) et jsdom 830, couverture critique 12 |
+| `npm run db:ci:local` | **sortie 0** en 33 s : inventaire local conforme au dépôt ; pgTAP `Files=24, Tests=1941`, `Result: PASS` ; matrice RLS passée |
+| `npm run e2e:army:ci -- critical --app-port 3161` (non filtrée) | **sortie 0** en 503 s : 109/109, aucun `flaky` ni `skipped`. `.e2e/army/ci/2026-10-18T12-15-43-592Z-critical` (`manifest.json` `3ed13a0e…`) |
+| `npm run e2e:army:ci -- full --files '<setup + huit parcours du métré>' --app-port 3161` (1 worker, comme `army-takeoff`) | **sortie 0** en 223 s : `filtered-full`, 39/39, aucun `flaky` ni `skipped`. `…/2026-10-18T12-24-07-814Z-full` (`1c5d261a…`) |
+| `npm run e2e:army:calc-v3 -- --phase journeys --app-port 3161` | **sortie 0** en 152 s : 11/11. `…/2026-10-18T12-27-51-522Z-calc-v3` (`82d27e2b…`) |
+| idem `--phase components` | **sortie 0** en 123 s : 5/5. `…/2026-10-18T12-30-25-296Z-calc-v3` (`73884ea5…`) |
+| idem `--phase numeric` | **sortie 0** en 179 s : 4/4. `…/2026-10-18T12-32-29-634Z-calc-v3` (`0debb789…`) |
+| idem `--phase resume` | **sortie 0** en 136 s : 5/5 (5 rouges à la base hors sélection, comme avant). `…/2026-10-18T12-35-29-775Z-calc-v3` (`e525de96…`) |
+| idem `--phase access` | **sortie 0** en 121 s : 2/2. `…/2026-10-18T12-37-47-418Z-calc-v3` (`ef4f712b…`) |
+| idem `--phase offers` | **sortie 0** en 510 s : 10/10. `…/2026-10-18T12-46-20-974Z-calc-v3` (`de2e2b21…`) |
+| idem `--phase emission` | **sortie 0** en 162 s : 6/6, 4 PDF reçus par le collecteur. `…/2026-10-18T12-54-52-311Z-calc-v3` (`addec588…`) |
+| idem `--phase emission-v3` | **sortie 0** en 138 s : 6/6 (V3M01, V3M03 à V3M06), 6 PDF reçus par le collecteur. `…/2026-10-18T12-57-35-940Z-calc-v3` (`fba356a3…`) |
+| `npm run db:upgrade-check -- lot2-2-7` | **sortie 0** en 20 s : 244 migrations de référence, 9 postérieures, 0 différence, contrôle négatif détecté. `.e2e/engine-v3/upgrade-check/2026-10-18T12-59-54-650Z-lot2-2-7` |
+| idem `--negative-control` | sortie 1 en 33 s, comme exigé : exactement 1 différence (`pu_ht_cents 1481 -> 1482`). `…/2026-10-18T13-00-15-684Z-lot2-2-7-negative-control` |
+| `npm run engine:document-fingerprints -- check` | **sortie 0** en 70 s : 14 familles v1/v2 identiques. `.e2e/engine-v3/document-fingerprints/2026-10-18T13-00-49-535Z-check` |
+
+Toutes les sélections sont exécutées en entier (sélectionnés = exécutés = passés). Aucun parcours instable connu n'a
+échoué : aucune reprise. Les preuves du §13.10 et du §13.11 (sur `7127c4e1` et `ad37aea9`) ne qualifient pas
+`039ca113`. `npm run verify:pr` est rejoué sur la tête finale, ce relevé compris (description de la PR).
+
+Limites : celles du §13.11. Si `origin/main` avance encore avant la poussée, refusionner ; réhorodater M5 seulement
+si `main` gagne une migration plus récente.

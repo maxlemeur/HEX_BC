@@ -153,16 +153,17 @@ Demande du 18/10/2026 : la campagne tourne aussi en CI, chaque nuit à 04:45 UTC
 <branche> -f phase=<choix>`), dès que ce workflow est sur `main` : GitHub ne planifie et ne déclenche
 que les workflows de la branche par défaut, puis exécute la version du fichier de la branche
 demandée. Inutile ensuite de la relancer en local pour une branche poussée : la déclencher sur la
-branche et lire l'artefact `army-calc-v3-evidence` (un répertoire `.e2e/army/ci/<horodatage>-calc-v3/`
-par invocation, mêmes preuves qu'en local). Une PR vers `main` qui modifie
+branche et lire l'artefact `army-calc-v3-evidence` (manifeste d'agrégation `manifest.json`, puis le
+répertoire de preuves de chaque phase sous `units/army-calc-v3-<phase>-evidence/`, mêmes preuves
+qu'en local ; chaque phase garde aussi son propre artefact). Une PR vers `main` qui modifie
 `.github/workflows/e2e-army-calc-v3.yml` lance d'elle-même la sélection `nightly` : c'est ainsi que
 le workflow est prouvé avant sa fusion, et que la PR de 2.7 prouve l'émission en production. Aucune
 autre PR ne le lance.
 
 | Entrée `phase` | Exécution |
 |---|---|
-| `nightly` (défaut, la planification et une PR qui modifie le workflow) | `journeys`, `components`, `numeric`, `resume`, `access`, `offers`, `emission`, `emission-v3` : une invocation `--phase` et une pile possédée par phase, dans un seul job ; une phase rouge n'arrête pas les suivantes |
-| `all` | `npm run e2e:army:calc-v3` à l'identique : toutes les phases sur une pile, émission comprise, en dernier |
+| `nightly` (défaut, la planification et une PR qui modifie le workflow) | `journeys`, `components`, `numeric`, `resume`, `access`, `offers`, `emission`, `emission-v3` : une invocation `--phase` et une pile possédée par phase, chacune dans son job ([jobs parallèles](tester-army-ci.md#jobs-parallèles)) ; une phase rouge n'arrête pas les autres, le job `army-calc-v3` nomme les phases sans preuve |
+| `all` | `npm run e2e:army:calc-v3` à l'identique, dans un seul job : toutes les phases sur une pile, émission comprise, en dernier |
 | une phase | `--phase <phase>`, `emission` et `emission-v3` comprises |
 
 **Émission dans la nuit depuis 2.7.** Jusqu'au sous-lot 2.7, l'émission était servie par `next dev`, où
