@@ -23,7 +23,7 @@ v3 n'est jamais relue comme une v1 (`CalcEngineVersion` reste `1 | 2`).
 | Duplication | moteur de la source | inchangé (`duplicate_source` / `duplicate_source_v3`, ne lit pas la politique) |
 | Versions et lignes existantes | — | inchangées (aucune `UPDATE`, D17, P-15) |
 
-**M8** (`supabase/migrations/20261018171616_estimate_engine_v3_default.sql`) remplace
+**M8** (`supabase/migrations/20261018180027_estimate_engine_v3_default.sql`) remplace
 `persist_estimate_creation_atomic` par sa **définition vivante** (M6b, `20261018013249`), à **trois lignes près** :
 moteur d'une politique absente `coalesce(policy_row.new_estimate_calc_engine, 3)` ; replis `1.3000` et `1.2000`
 des coefficients FO et MO d'une v3 (sans eux, une v3 sous politique absente violerait
@@ -202,9 +202,11 @@ changement (`git diff --stat` vide) ; le corpus figé v1/v2 est rejoué par `ver
 
 - **Fusion en dernier, réhorodatage obligatoire.** M8 a été réhorodatée le 18/10/2026 après la fusion de
   `origin/main` `51bce775` (`20261018130000` → `20261018164448`), puis après celle de `f1a5a74b` (dernière
-  migration de `main` : `20261018170351`, reçus d'insertion complets) : `20261018164448` → `20261018171616` (§9). À la fusion, si `main` a reçu une migration entre-temps :
+  migration de `main` : `20261018170351`, reçus d'insertion complets) : `20261018164448` → `20261018171616`, puis après celle
+  de `ab1e0ca3` (dernière migration : `20261018172935`, ordre du contrat 2, #65) : `20261018171616` → `20261018180027`
+  (§9). À la fusion, si `main` a reçu une migration entre-temps :
   `git fetch origin`, `git merge origin/main`, `npm run supabase:migrations:restamp --
-  supabase/migrations/20261018171616_estimate_engine_v3_default.sql --dry-run` puis sans `--dry-run`
+  supabase/migrations/20261018180027_estimate_engine_v3_default.sql --dry-run` puis sans `--dry-run`
   (`supabase/README.md` §3), `supabase:validate`, `supabase:migrations:git-guard`.
 - **Préalable de M8.** Si une migration fusionnée avant redéfinit `persist_estimate_creation_atomic`, le préalable
   de M8 échoue (`LOT2_2_10_M8_PREREQUISITE_MISSING`) : M8 se reconstruit alors depuis la nouvelle définition
