@@ -873,6 +873,115 @@ describe("VNEXT Team B - user stories e2e", { session: "army", tags: ["critical"
     await recordEvidence(page.army, "supplier-import-create-missing-result", { ...ids, sourceImportId, created, persisted: persisted.data });
   });
 
+  test("US-4.1d blocks the supplier CSV analysis after a failed lookup read until a retry succeeds", async ({ ui: page }) => {
+    const ids = await createEstimateViaWizard(page, { projectName: `${page.army.runPrefix} US41 lookup failure`, title: "ARMY supplier CSV lookup failure" });
+    const fixture = await localTakeoffFixture(page.army, ids);
+    page.army.ownedPriceLookupProjects = [ids.projectId];
+    // Only loaded lookups resolve this existing supplier: empty ones would report it unknown.
+    const knownSupplier = { id: randomUUID(), tenant_id: fixture.tenantId, name: `${page.army.runPrefix} Fournisseur connu`, is_active: true };
+    const seeded = await fixture.client.from("suppliers").insert(knownSupplier);
+    expect(seeded.error).toBe(null);
+    await recordEvidence(page.army, "supplier-import-lookups-failed", { ...ids, tenantId: fixture.tenantId, knownSupplier,
+      boundary: "The test answers every supplier lookup read with a 500 until the retry, which goes to the owned-read guard unchanged." });
+    // Every read fails until the retry: a dev server's StrictMode loads twice and only the latest load counts.
+    let failSupplierReads = true;
+    let failedSupplierReads = 0;
+    await page.browser.route(/\/rest\/v1\/suppliers\?/, async (route) => {
+      if (!failSupplierReads) return route.fallback();
+      failedSupplierReads += 1;
+      // supabase-js retries 503, 520 and network errors but not a 500: the page sees each failure once.
+      await route.fulfill({ status: 500, headers: { "access-control-allow-origin": "*" },
+        json: { code: "ARMY", message: "Lookup read refused by the test", details: null, hint: null } });
+    });
+    await page.goto(`/dashboard/affaires/${ids.projectId}/prices`);
+    await expect(page.getByRole("heading", { name: "Prix fournisseurs", exact: true })).toBeVisible();
+    const failure = page.getByRole("alert").filter({ hasText: "Impossible de charger les fournisseurs et produits existants." });
+    await expect(failure).toBeVisible();
+    expect(failedSupplierReads).toBeGreaterThan(0);
+
+    await page.getByLabel("Fichier CSV", { exact: true }).setInputFiles(fixtureFile(page, "us41-lookups-failed.csv", Buffer.from(
+      ["fournisseur;reference_produit;prix_unitaire;devise", `${knownSupplier.name};${page.army.runPrefix}-REF;21.00;EUR`].join("\n"),
+      "utf8"
+    )));
+    await expect(page.getByText("us41-lookups-failed.csv", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Analyser" })).toBeDisabled();
+
+    failSupplierReads = false;
+    const retriedLookups = Promise.all([
+      page.browser.waitForResponse(/\/rest\/v1\/suppliers\?/, { timeout: 60_000 }),
+      page.browser.waitForResponse(/\/rest\/v1\/products\?/, { timeout: 60_000 }),
+    ]);
+    await failure.getByRole("button", { name: "Réessayer" }).click();
+    for (const response of await retriedLookups) expect(response.status).toBe(200);
+    await expect(failure).toBeHidden();
+    await expect(page.getByText("us41-lookups-failed.csv", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Analyser" })).toBeEnabled();
+    await page.getByRole("button", { name: "Analyser" }).click();
+    await expect(page.getByRole("heading", { name: /Étape 2 [—-] Associer les colonnes/i })).toBeVisible();
+    await expect(page.getByText("Fournisseurs inconnus : 0 · Produits inconnus : 1", { exact: true })).toBeVisible();
+  });
+
+  test("US-4.1e turns a supplier lookup read that never answers into a retryable failure", async ({ ui: page }) => {
+    const ids = await createEstimateViaWizard(page, { projectName: `${page.army.runPrefix} US41 lookup hang`, title: "ARMY supplier CSV lookup hang" });
+    const fixture = await localTakeoffFixture(page.army, ids);
+    page.army.ownedPriceLookupProjects = [ids.projectId];
+    const knownSupplier = { id: randomUUID(), tenant_id: fixture.tenantId, name: `${page.army.runPrefix} Fournisseur connu`, is_active: true };
+    const seeded = await fixture.client.from("suppliers").insert(knownSupplier);
+    expect(seeded.error).toBe(null);
+    await recordEvidence(page.army, "supplier-import-lookups-hung", { ...ids, tenantId: fixture.tenantId, knownSupplier,
+      boundary: "The test never answers a supplier lookup read until the retry, which goes to the owned-read guard unchanged." });
+    // Every read is held until the retry: a dev server's StrictMode loads twice and only the latest load counts.
+    let holdSupplierReads = true;
+    let heldSupplierReads = 0;
+    let releaseHeldReads!: () => void;
+    const heldReadsReleased = new Promise<void>((resolve) => { releaseHeldReads = resolve; });
+    await page.browser.route(/\/rest\/v1\/suppliers\?/, async (route) => {
+      if (!holdSupplierReads) return route.fallback();
+      heldSupplierReads += 1;
+      await heldReadsReleased;
+      // The page gave up on these reads long ago: aborting them may fail and nothing waits for them.
+      await route.abort().catch(() => undefined);
+    });
+    const failure = page.getByRole("alert").filter({ hasText: "Impossible de charger les fournisseurs et produits existants." });
+    try {
+      const pricesListed = page.browser.waitForResponse(/\/api\/prices\?/, { timeout: 60_000 });
+      await page.goto("/dashboard/prices");
+      await expect(page.getByRole("heading", { name: "Prix fournisseurs", exact: true })).toBeVisible();
+      // The client reads this list after hydration: the panel toggle then responds.
+      expect((await pricesListed).status).toBe(200);
+      await page.getByRole("button", { name: /Importer un fichier de prix \(CSV\)/ }).click();
+      await expect(page.getByText("Chargement des référentiels pour l’import…")).toBeVisible();
+      await page.getByLabel("Fichier CSV", { exact: true }).setInputFiles(fixtureFile(page, "us41-lookups-hung.csv", Buffer.from(
+        ["fournisseur;reference_produit;prix_unitaire;devise", `${knownSupplier.name};${page.army.runPrefix}-REF;21.00;EUR`].join("\n"),
+        "utf8"
+      )));
+      await expect(page.getByText("us41-lookups-hung.csv", { exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Analyser" })).toBeDisabled();
+
+      // The read never answers: only a bounded wait on the client can turn it into a failure.
+      await expect(failure).toBeVisible({ timeout: 40_000 });
+      await expect(page.getByText("Chargement des référentiels pour l’import…")).toBeHidden();
+      await expect(page.getByRole("button", { name: "Analyser" })).toBeDisabled();
+      expect(heldSupplierReads).toBeGreaterThan(0);
+    } finally {
+      holdSupplierReads = false;
+      releaseHeldReads();
+    }
+
+    const retriedLookups = Promise.all([
+      page.browser.waitForResponse(/\/rest\/v1\/suppliers\?/, { timeout: 60_000 }),
+      page.browser.waitForResponse(/\/rest\/v1\/products\?/, { timeout: 60_000 }),
+    ]);
+    await failure.getByRole("button", { name: "Réessayer" }).click();
+    for (const response of await retriedLookups) expect(response.status).toBe(200);
+    await expect(failure).toBeHidden();
+    await expect(page.getByText("us41-lookups-hung.csv", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Analyser" })).toBeEnabled();
+    await page.getByRole("button", { name: "Analyser" }).click();
+    await expect(page.getByRole("heading", { name: /Étape 2 [—-] Associer les colonnes/i })).toBeVisible();
+    await expect(page.getByText("Fournisseurs inconnus : 0 · Produits inconnus : 1", { exact: true })).toBeVisible();
+  });
+
   test("US-4.3 reports missing supplier coverage without inventing alternatives", async ({ ui: page }) => {
     const ids = await createEstimateViaWizard(page, {
       projectName: `${page.army.runPrefix} no supplier coverage`, title: "ARMY Team B no supplier price",

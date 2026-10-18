@@ -40,7 +40,7 @@ export function usePriceBookCsvWorkflow({
   onImported,
   onLookupsUpdated,
   lookups,
-  isLookupsLoading = false,
+  lookupsStatus = "ready",
 }: PriceBookCsvImportProps): UsePriceBookCsvWorkflowResult {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { parseFile } = useFileParser();
@@ -115,9 +115,9 @@ export function usePriceBookCsvWorkflow({
       isSubmitting,
       isResolving,
       isCreatingMissing,
-      isLookupsLoading,
+      lookupsStatus,
     }),
-    [isCreatingMissing, isLookupsLoading, isParsing, isResolving, isSubmitting, isValidating]
+    [isCreatingMissing, isParsing, isResolving, isSubmitting, isValidating, lookupsStatus]
   );
 
   const resetWorkflowState = useCallback(() => {
