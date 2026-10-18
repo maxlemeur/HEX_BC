@@ -9,13 +9,26 @@ import {
   parseOfferPresentation, type ClientContract1, type CommercialRow1,
   type OfferPresentation, type OfferTermsSnapshot,
 } from "@/lib/estimates/offer-contract";
+import type { ClientContract2, CommercialRow2 } from "@/lib/estimates/offer-contract-v2";
 import type { EstimatePdfLayoutOptions } from "@/lib/estimates/pdf-layout";
 import { ESTIMATE_DRAFT_TERMS_NOTICE, parseEstimateTermsClauses } from "@/lib/estimates/pdf-terms";
 import { PdfEstimateTotalsCard } from "@/lib/estimates/pdf-totals-card";
+import { PdfEstimateTotalsV3 } from "@/lib/estimates/pdf-v3-totals";
+import {
+  buildEstimateV3FooterRows,
+  describeEstimateV3Rates,
+  ESTIMATE_V3_STATUS_DOCUMENT_LABELS,
+  footerFromClientContract2,
+  formatEstimateV3FooterAmount,
+  type EstimateV3FooterRow,
+} from "@/lib/estimates/v3-document-presentation";
 import { formatCurrency } from "@/lib/money";
 
+type CommercialRow = CommercialRow1 | CommercialRow2;
+
 export type CommercialEstimateDocumentProps = {
-  contract: ClientContract1;
+  /** Contrat client 1 (moteurs 1 et 2) ou contrat client 2 (moteur 3, sous-lot 2.7). */
+  contract: ClientContract1 | ClientContract2;
   layout: EstimatePdfLayoutOptions;
   terms: OfferTermsSnapshot | null;
   /** Only a trusted local DEVELOPMENT caller can enable draft terms. */
@@ -40,30 +53,87 @@ function formatDate(value: string): string {
   return dateFormatter.format(new Date(value));
 }
 
-function visibleRows({ contract, layout }: OfferPresentation): CommercialRow1[] {
+function visibleRows({ contract, layout }: OfferPresentation): CommercialRow[] {
   const depth = layout.detailLevel;
-  return contract.rows.filter((row) => depth === "lines" || (row.kind === "section" && row.depth + 1 <= depth));
+  const rows: CommercialRow[] = contract.rows;
+  return rows.filter((row) => depth === "lines" || (row.kind === "section" && row.depth + 1 <= depth));
 }
 
-function rowValues(row: CommercialRow1, model: OfferPresentation): string[] {
+/**
+ * Contrat 2 (moteur 3) : unité du référentiel et valeurs brutes publiées ; une ligne non chiffrée
+ * imprime son statut au lieu d'un montant (D9).
+ */
+function rowValuesV3(row: CommercialRow2, model: OfferPresentation): string[] {
   const { layout, contract } = model;
+  const money = (cents: number) => formatCurrency(cents, contract.version.currency);
   const amounts = row.kind === "line" || layout.showSectionSubtotals;
-  const title = row.kind === "section" && layout.showNumbering ? `${row.number}  ${row.title}` : row.title;
-  const values = [title, row.kind === "line" ? quantityFormatter.format(row.quantity) : "", row.kind === "line" ? row.unit : ""];
-  if (layout.priceMode === "unit_and_total") values.push(row.kind === "line" ? formatCurrency(row.unitSaleHtCents, contract.version.currency) : "");
+  if (row.kind === "section") {
+    const title = layout.showNumbering ? `${row.number}  ${row.title}` : row.title;
+    const split = row as CommercialRow2 & { foSaleHtCents: number; moSaleHtCents: number };
+    return [title, "", "", ...(layout.priceMode === "unit_and_total" ? [""] : []),
+      ...(layout.priceMode === "fo_mo_and_total" ? [amounts ? money(split.foSaleHtCents) : "", amounts ? money(split.moSaleHtCents) : ""] : []),
+      amounts ? money(row.saleHtCents) : ""];
+  }
+  const priced = row.pricingStatus === "priced";
+  const status = ESTIMATE_V3_STATUS_DOCUMENT_LABELS[row.pricingStatus];
+  const split = row as CommercialRow2 & { foSaleHtCents: number; moSaleHtCents: number };
+  return [row.title, quantityFormatter.format(row.quantity), row.unitLabel ?? "-",
+    ...(layout.priceMode === "unit_and_total" ? [priced && row.unitSaleHtCents !== null ? money(row.unitSaleHtCents) : "-"] : []),
+    ...(layout.priceMode === "fo_mo_and_total" ? [priced ? money(split.foSaleHtCents) : "-", priced ? money(split.moSaleHtCents) : "-"] : []),
+    priced ? money(row.saleHtCents) : status];
+}
+
+function rowValues(row: CommercialRow, model: OfferPresentation): string[] {
+  if (model.contract.schemaVersion === 2) return rowValuesV3(row as CommercialRow2, model);
+  const { layout, contract } = model;
+  const historical = row as CommercialRow1;
+  const amounts = historical.kind === "line" || layout.showSectionSubtotals;
+  const title = historical.kind === "section" && layout.showNumbering ? `${historical.number}  ${historical.title}` : historical.title;
+  const values = [title, historical.kind === "line" ? quantityFormatter.format(historical.quantity) : "", historical.kind === "line" ? historical.unit : ""];
+  if (layout.priceMode === "unit_and_total") values.push(historical.kind === "line" ? formatCurrency(historical.unitSaleHtCents, contract.version.currency) : "");
   if (layout.priceMode === "fo_mo_and_total") {
     // Presentation validation requires the pair on every row in this mode.
-    const split = row as CommercialRow1 & { foSaleHtCents: number; moSaleHtCents: number };
+    const split = historical as CommercialRow1 & { foSaleHtCents: number; moSaleHtCents: number };
     values.push(amounts ? formatCurrency(split.foSaleHtCents, contract.version.currency) : "",
       amounts ? formatCurrency(split.moSaleHtCents, contract.version.currency) : "");
   }
-  values.push(amounts ? formatCurrency(row.saleHtCents, contract.version.currency) : "");
+  values.push(amounts ? formatCurrency(historical.saleHtCents, contract.version.currency) : "");
   return values;
 }
 
 function headings(layout: EstimatePdfLayoutOptions): string[] {
   return ["Désignation", "Qté", "Unité", ...(layout.priceMode === "unit_and_total" ? ["PU HT"] : []),
     ...(layout.priceMode === "fo_mo_and_total" ? ["FO HT", "MO HT"] : []), "Total HT"];
+}
+
+type FooterRow = { label: string; amount: string; emphasis?: EstimateV3FooterRow["emphasis"] };
+
+/** Pied HTML : contrat 2 (pied v3 du gel, avec l'emphase de chaque ligne) ou contrat 1 (inchangé). */
+function footerRows(contract: ClientContract1 | ClientContract2): FooterRow[] {
+  if (contract.schemaVersion === 2) {
+    const currency = contract.version.currency;
+    return buildEstimateV3FooterRows(footerFromClientContract2(contract.totals), currency)
+      .map((row) => ({ label: row.label, amount: formatEstimateV3FooterAmount(row, currency), emphasis: row.emphasis }));
+  }
+  return totalRows(contract).map((entry) => ({ label: entry.label, amount: formatCurrency(entry.cents, contract.version.currency) }));
+}
+
+/**
+ * Revue Codex de 3d78d662 : le contrat 2 suit l'emphase de buildEstimateV3FooterRows (HT net en bandeau, TTC
+ * en gras), comme le PDF et l'impression, et non la position (sa première ligne est le brut). Contrat 1 :
+ * inchangé, sa première ligne (Total HT) en bandeau.
+ */
+function footerRowStyle(entry: FooterRow, index: number): string {
+  if (entry.emphasis === undefined) return index === 0 ? "bg-brand-blue font-bold text-white" : "border-t border-border";
+  if (entry.emphasis === "net") return "bg-brand-blue font-bold text-white";
+  return [index === 0 ? null : "border-t border-border", entry.emphasis === "payable" ? "font-bold" : null].filter(Boolean).join(" ");
+}
+
+/** Taux d'en-tête : celui de la version (contrat 1) ou ceux du récapitulatif figé (contrat 2). */
+function validityTax(contract: ClientContract1 | ClientContract2): string {
+  // Sans ligne chiffrée, le récapitulatif est vide : le taux par défaut de la version reste affiché.
+  if (contract.schemaVersion === 2 && contract.totals.taxByRate.length > 0) return `TVA : ${describeEstimateV3Rates(contract.totals)}`;
+  return `TVA : ${contract.version.taxRateBp / 100} %`;
 }
 
 function totalRows(contract: ClientContract1): Array<{ label: string; cents: number }> {
@@ -112,7 +182,7 @@ export function CommercialEstimateDocument(input: CommercialEstimateDocumentProp
         </div>
       </div>
       <p className="mb-4 text-center text-xs">Validité : {c.version.validiteJours} jours — {c.version.contractorRole === "subcontractor"
-        ? "Autoliquidation" : `TVA : ${c.version.taxRateBp / 100} %`}</p>
+        ? "Autoliquidation" : validityTax(c)}</p>
       <div className="mb-5 grid gap-4 sm:grid-cols-2">
         <section className="rounded-lg border border-border p-4"><h2 className="text-xs font-semibold uppercase">Client</h2>
           <p className="font-bold">{c.project.clientName ?? "Client à renseigner"}</p>
@@ -131,8 +201,9 @@ export function CommercialEstimateDocument(input: CommercialEstimateDocumentProp
         </tr>)}</tbody>
       </table></div>
       <dl className="mb-6 ml-auto w-full max-w-xs rounded-lg border border-border bg-surface-subtle">
-        {totalRows(c).map((entry, index) => <div key={entry.label} className={`flex justify-between px-4 py-2 ${index === 0 ? "bg-brand-blue font-bold text-white" : "border-t border-border"}`}>
-          <dt>{entry.label}</dt><dd>{formatCurrency(entry.cents, c.version.currency)}</dd>
+        {footerRows(c).map((entry, index) => <div key={entry.label} data-emphasis={entry.emphasis}
+          className={`flex justify-between px-4 py-2 ${footerRowStyle(entry, index)}`}>
+          <dt>{entry.label}</dt><dd>{entry.amount}</dd>
         </div>)}
       </dl>
       {c.version.contractorRole === "subcontractor" ? <p className="mb-5 text-xs">{ESTIMATE_VAT_REVERSE_CHARGE_NOTICE}</p> : null}
@@ -184,7 +255,7 @@ const pdfStyles = StyleSheet.create({
   notice: { marginBottom: 8, fontSize: 8, color: colors.muted },
 });
 
-function PdfChrome({ contract: c }: { contract: ClientContract1 }) {
+function PdfChrome({ contract: c }: { contract: ClientContract1 | ClientContract2 }) {
   return <>
     <View style={pdfStyles.blue} fixed /><View style={pdfStyles.orange} fixed />
     <View style={pdfStyles.footer} fixed>
@@ -198,7 +269,7 @@ function hyphenatePdfIdentity(word: string): string[] {
   return word.length > 24 ? (word.match(/[\s\S]{1,20}/gu) ?? [word]) : [word];
 }
 
-function PdfBrand({ contract: c, logoDataUri }: { contract: ClientContract1; logoDataUri: string | null }) {
+function PdfBrand({ contract: c, logoDataUri }: { contract: ClientContract1 | ClientContract2; logoDataUri: string | null }) {
   return <View style={pdfStyles.brand} wrap={false}>
     {logoDataUri ? <PdfImage src={logoDataUri} style={pdfStyles.logo} /> : <Text style={pdfStyles.company}>{c.company.name}</Text>}
     <View style={pdfStyles.establishment}>
@@ -250,7 +321,7 @@ export function buildCommercialEstimatePdfDocument(input: CommercialEstimateDocu
           <Text>Le {formatDate(c.version.dateDevis)}</Text><Text>Version : V{c.version.number}</Text></View>
         <View style={{ width: "31%" }} />
       </View>
-      <Text style={pdfStyles.validity}>Validité : {c.version.validiteJours} jours — {reversed ? "Autoliquidation" : `TVA : ${c.version.taxRateBp / 100} %`}</Text>
+      <Text style={pdfStyles.validity}>Validité : {c.version.validiteJours} jours — {reversed ? "Autoliquidation" : validityTax(c)}</Text>
       <View style={pdfStyles.cards}>
         <View style={pdfStyles.card}><Text style={pdfStyles.label}>Client</Text><Text style={pdfStyles.name} hyphenationCallback={hyphenatePdfIdentity}>{c.project.clientName ?? "Client à renseigner"}</Text>
           {c.project.reference ? <Text>Référence projet : {c.project.reference}</Text> : null}</View>
@@ -258,9 +329,11 @@ export function buildCommercialEstimatePdfDocument(input: CommercialEstimateDocu
           <Text>{c.project.siteAddress ?? "Adresse du chantier non renseignée"}</Text></View>
       </View>
       <PdfTable model={model} />
-      <PdfEstimateTotalsCard totalHtCents={c.totals.saleHtCents} totalTaxCents={c.totals.taxCents}
-        amountDueCents={c.totals.payableTtcCents} roundingAdjustmentCents={c.totals.roundingAdjustmentCents}
-        currency={c.version.currency} taxRateBp={c.version.taxRateBp} vatReverseCharge={reversed} />
+      {c.schemaVersion === 2
+        ? <PdfEstimateTotalsV3 footer={footerFromClientContract2(c.totals)} currency={c.version.currency} />
+        : <PdfEstimateTotalsCard totalHtCents={c.totals.saleHtCents} totalTaxCents={c.totals.taxCents}
+          amountDueCents={c.totals.payableTtcCents} roundingAdjustmentCents={c.totals.roundingAdjustmentCents}
+          currency={c.version.currency} taxRateBp={c.version.taxRateBp} vatReverseCharge={reversed} />}
       {reversed ? <Text style={pdfStyles.notice}>{ESTIMATE_VAT_REVERSE_CHARGE_NOTICE}</Text> : null}
       {limits && !separateLimits ? <PdfLimits text={limits} /> : null}
     </Page>

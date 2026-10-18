@@ -23,7 +23,7 @@ import { useUiMode } from "@/hooks/useUiMode";
 import type {
   AffaireHubDpgfSourceResult,
   AffaireHubFinishLineSummaryResult,
-  AffaireHubMarginAnalysisResult,
+  AffaireHubMarginCardData,
   AffaireHubSummaryResult,
   AffaireHubTimelineResult,
 } from "@/lib/affaires/server";
@@ -108,7 +108,7 @@ type AffaireHubProps = {
   summary: AffaireHubSummaryResult;
   timeline: AffaireHubTimelineResult | null;
   dpgfSource: AffaireHubDpgfSourceResult;
-  marginAnalysis?: AffaireHubMarginAnalysisResult | null;
+  marginAnalysis?: AffaireHubMarginCardData;
   approvalSummary?: EstimateApprovalSummary | null;
   approvalJournal?: EstimateApprovalDecisionJournal | null;
   directionSignals?: {

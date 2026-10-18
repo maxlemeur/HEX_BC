@@ -96,7 +96,10 @@ type MoreActionsDropdownProps = {
   isImportingDpgfSource: boolean;
   isImportDpgfSourceDisabled: boolean;
   isExporting: boolean;
-  isExportDisabled: boolean;
+  isExcelExportDisabled: boolean;
+  isCsvExportDisabled: boolean;
+  isDpgfExportDisabled: boolean;
+  isBdcExportDisabled: boolean;
   activeExportMode: EstimateExportMode | "csv" | null;
   versionId: string;
   versionStatus: EstimateStatus;
@@ -155,7 +158,10 @@ function MoreActionsDropdown({
   isImportingDpgfSource,
   isImportDpgfSourceDisabled,
   isExporting,
-  isExportDisabled,
+  isExcelExportDisabled,
+  isCsvExportDisabled,
+  isDpgfExportDisabled,
+  isBdcExportDisabled,
   activeExportMode,
   versionId,
   versionStatus,
@@ -384,7 +390,7 @@ function MoreActionsDropdown({
                 close();
                 onExportExcel();
               }}
-              disabled={isExportDisabled}
+              disabled={isExcelExportDisabled}
             >
               Exporter Excel
             </button>
@@ -396,7 +402,7 @@ function MoreActionsDropdown({
                 close();
                 onExportCSV();
               }}
-              disabled={isExportDisabled}
+              disabled={isCsvExportDisabled}
             >
               Exporter CSV
             </button>
@@ -455,7 +461,7 @@ function MoreActionsDropdown({
               close();
               onExportDpgf();
             }}
-            disabled={isExportDisabled}
+            disabled={isDpgfExportDisabled}
             data-testid="estimate-page-toolbar-export-dpgf-button"
           >
             {isExporting && activeExportMode === "dpgf"
@@ -470,7 +476,7 @@ function MoreActionsDropdown({
               close();
               onExportBdc();
             }}
-            disabled={isExportDisabled}
+            disabled={isBdcExportDisabled}
             data-testid="estimate-page-toolbar-export-bdc-button"
           >
             {isExporting && activeExportMode === "bdc"
@@ -556,7 +562,10 @@ type EstimateEditorToolbarProps = {
   onOpenVersionZeroDialog?: () => void;
   versionZeroActionLabel?: string;
   isVersionZeroActionDisabled?: boolean;
-  isExportDisabled: boolean;
+  isExcelExportDisabled: boolean;
+  isCsvExportDisabled: boolean;
+  isDpgfExportDisabled: boolean;
+  isBdcExportDisabled: boolean;
   isExporting: boolean;
   exportLoadingLabel: string;
   activeExportMode: EstimateExportMode | "csv" | null;
@@ -600,7 +609,10 @@ export function EstimateEditorToolbar({
   onOpenVersionZeroDialog,
   versionZeroActionLabel = "Préparer un brouillon IA",
   isVersionZeroActionDisabled = false,
-  isExportDisabled,
+  isExcelExportDisabled,
+  isCsvExportDisabled,
+  isDpgfExportDisabled,
+  isBdcExportDisabled,
   isExporting,
   exportLoadingLabel,
   activeExportMode,
@@ -678,7 +690,8 @@ export function EstimateEditorToolbar({
           <ExportDropdown
             onExportExcel={onExportExcel}
             onExportCSV={onExportCSV}
-            disabled={isExportDisabled}
+            excelDisabled={isExcelExportDisabled}
+            csvDisabled={isCsvExportDisabled}
             loading={isExporting}
             loadingLabel={exportLoadingLabel}
           />
@@ -732,7 +745,10 @@ export function EstimateEditorToolbar({
             isImportingDpgfSource={isImportingDpgfSource}
             isImportDpgfSourceDisabled={isImportDpgfSourceDisabled}
             isExporting={isExporting}
-            isExportDisabled={isExportDisabled}
+            isExcelExportDisabled={isExcelExportDisabled}
+            isCsvExportDisabled={isCsvExportDisabled}
+            isDpgfExportDisabled={isDpgfExportDisabled}
+            isBdcExportDisabled={isBdcExportDisabled}
             activeExportMode={activeExportMode}
             versionId={versionId}
             versionStatus={status}

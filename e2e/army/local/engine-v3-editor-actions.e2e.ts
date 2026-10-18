@@ -1,11 +1,13 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 
 import { expect } from "e2e";
 
 import {
-  apiRequest, armyTest, readEstimate, recordEvidence, saveLineEditsWithShortcut, waitForAutoSave,
+  apiRequest, armyTest, readEstimate, recordEvidence, resolveDownload, saveLineEditsWithShortcut, waitForAutoSave,
   type ArmyEstimate, type ArmyItem, type ArmyState,
 } from "../critical/fixtures";
+import { readWorkbookRows, type WorkbookRow } from "./engine-v3-emission-support";
 import {
   BANNER, addGridLine, checkpoint, clickSaveSettings, eur, fillCell, grid, lineView, lockVersion, normalized, openSettings,
   openV3Editor, pause, prepareV3Draft, readConsistent, releaseVersion, seedLines, settingsDialog, switchToExpertMode,
@@ -27,7 +29,10 @@ import {
 //          (revue Codex de la PR #44, F1) ;
 //  V3E10 — question de propagation de la TVA ouverte par Ctrl+S et par l'enregistrement à la fermeture du tiroir ;
 //  V3E11 — remise de 0 % enregistrée sans état « en attente » ; palier d'arrondi hors liste affiché tel qu'appliqué ;
-//          actions PDF et modèle de la fiche fermées par leur nom ;
+//          action modèle de la fiche fermée par son nom ; depuis la fusion de 2.7 (émission v3), le PDF y est ouvert
+//          (doc 2.7 §13 ; sa génération par la fiche est prouvée par V3M05) ;
+//  V3E15 — fusion de 2.7 : l'éditeur d'une v3 propose « Exporter Excel » et « Exporter DPGF » (routes serveur de 2.7,
+//          classeurs v3), et garde « Exporter CSV » et « Exporter BDC V1.1 » fermés (P-20 ; doc 2.7 §13) ;
 //  V3E12 — suggestions en lot appliquées et annulées par l'écrivain v3 ;
 //  V3E13 — collage de lignes écrit par l'écrivain v3 (unité du référentiel, jamais description ni heures totales), et
 //          son annulation (sous-lot 2.8, qui lève le refus nommé de la revue du 2.6) ;
@@ -43,7 +48,9 @@ const chips = (totals: Totals, rate = "20", extra: string[] = []) => [
 ];
 const apostrophes = (text: string) => text.replace(/[’']/g, "'");
 // Messages nommés retenus par la revue (doc 2.6 §11.2).
-const DETAIL_ACTIONS_REASON = "Moteur de calcul 3 : le PDF et l’enregistrement comme modèle ne sont pas encore disponibles";
+// Fusion de 2.7 : seul l'enregistrement comme modèle reste fermé (2.8) ; l'ancienne raison, qui nommait le PDF, disparaît.
+const DETAIL_TEMPLATE_REASON = "Moteur de calcul 3 : l’enregistrement comme modèle n’est pas encore disponible pour ce devis.";
+const DETAIL_ACTIONS_REASON_2_6 = "Moteur de calcul 3 : le PDF et l’enregistrement comme modèle ne sont pas encore disponibles";
 const UNIT_REFUSED = "Unité différente du devis";
 
 const supply = (title: string, quantity: number, prCents: number, extra: Record<string, unknown> = {}) => ({
@@ -706,7 +713,7 @@ armyTest("V3E10 the VAT propagation question opens from every save path of the v
     await recordEvidence(army, "v3e10-end", { versionId: draft.versionId, nativeDialogs: dialogs });
   });
 
-armyTest("V3E11 a 0 % discount saves without a pending state, a stored rounding step outside the list shows as applied, and the detail page closes PDF and template by name",
+armyTest("V3E11 a 0 % discount saves without a pending state, a stored rounding step outside the list shows as applied, and the detail page opens the PDF and closes the template by name",
   options(420_000), async ({ app, screen, browser, army }) => {
     const ui: Ui = { app, screen, browser };
     const dialogs = await recordDialogs(ui);
@@ -758,7 +765,8 @@ armyTest("V3E11 a 0 % discount saves without a pending state, a stored rounding 
     await recordEvidence(army, "v3e11-rounding-none", { versionId: draft.versionId, saved: afterNone, actual: await settingsOf() });
     expect(afterNone, "choosing « Aucun » after a stored 2,50 € step is saved").toBe(true);
 
-    // F26-30 : la fiche d'un brouillon v3 ne propose ni PDF ni modèle (émission en 2.7, modèles en 2.8) ; elle le dit.
+    // F26-30, revu à la fusion de 2.7 : la fiche d'un brouillon v3 propose le PDF (émission v3 de 2.7), pas le modèle
+    // (2.8) ; elle dit pourquoi le seul modèle reste fermé, sans plus nommer le PDF.
     await app.open(`/dashboard/estimates/${draft.versionId}`);
     await screen.getByTestId("estimate-detail-more-actions").tap();
     const actions = browser.locator("[aria-label=\"Autres actions sur la version\"]");
@@ -770,11 +778,100 @@ armyTest("V3E11 a 0 % discount saves without a pending state, a stored rounding 
     const detail = {
       pdf: await actionView("Préparer le PDF"), template: await actionView("Sauvegarder comme modèle"),
       duplicate: await actionView("Dupliquer"),
-      reason: apostrophes(normalized(await actions.textContent())).includes(apostrophes(DETAIL_ACTIONS_REASON)),
+      reason: apostrophes(normalized(await actions.textContent())).includes(apostrophes(DETAIL_TEMPLATE_REASON)),
+      pdfNamedClosed: apostrophes(normalized(await actions.textContent())).includes(apostrophes(DETAIL_ACTIONS_REASON_2_6)),
     };
-    const expectedDetail = { pdf: { present: true, enabled: false }, template: { present: true, enabled: false }, duplicate: { present: true, enabled: true }, reason: true };
+    const expectedDetail = { pdf: { present: true, enabled: true }, template: { present: true, enabled: false },
+      duplicate: { present: true, enabled: true }, reason: true, pdfNamedClosed: false };
     await recordEvidence(army, "v3e11-detail-actions", { versionId: draft.versionId, expected: expectedDetail, actual: detail, nativeDialogs: dialogs });
-    expect(detail, "the v3 draft detail page closes PDF and template by name").toEqual(expectedDetail);
+    expect(detail, "the v3 draft detail page opens the PDF and closes the template by name").toEqual(expectedDetail);
+  });
+
+armyTest("V3E15 the v3 editor offers the Excel and DPGF exports, which stream the v3 workbooks, and keeps the CSV and BDC exports closed",
+  options(420_000), async ({ app, screen, browser, army }) => {
+    const ui: Ui = { app, screen, browser };
+    const dialogs = await recordDialogs(ui);
+    const draft = await prepareV3Draft(ui, army, "V3E15");
+    // X : 2 u à 100,00 € → PU 130,00 €, PT 260,00 € (c_FO 1,30).
+    const title = `${army.runPrefix} X`;
+    const [line] = await seedLines(ui, army, draft, "v3e15", [supply(title, 2, 10000)]);
+    expect(line.line_total_ht_cents).toBe(26000);
+    await openV3Editor(ui, army, draft, "v3e15");
+    await waitForDraftLease(ui);
+
+    // P-20 (doc 2.7 §9.1) ne ferme que l'export CSV de l'éditeur (editor-export.ts) et le BDC ; Excel et DPGF appellent
+    // GET …/export, que 2.7 ouvre pour une v3 (v3-export.ts). À 1 280 px, Excel et CSV sont dans le menu compact
+    // « Exporter » ; leurs entrées de « Plus d'actions » (menu mobile, masqué à cette largeur) sont lues dans le DOM.
+    const compact = screen.getByRole("button", "Exporter", { exact: true });
+    await expect(compact).toBeVisible({ timeout: 30_000 });
+    const compactEnabled = await compact.isEnabled();
+    let compactItems: { excel: boolean | null; csv: boolean | null } = { excel: null, csv: null };
+    if (compactEnabled) {
+      await compact.tap();
+      compactItems = {
+        excel: await screen.getByRole("button", "Excel (.xlsx)", { exact: true }).isEnabled(),
+        csv: await screen.getByRole("button", "Fichier CSV (.csv)", { exact: true }).isEnabled(),
+      };
+      await compact.tap();
+    }
+    const more = screen.getByTestId("estimate-page-toolbar-more-actions-button");
+    await more.tap();
+    await expect(screen.getByTestId("estimate-page-toolbar-more-actions-menu")).toBeVisible({ timeout: 30_000 });
+    const menu = await browser.evaluate(() => {
+      const panel = document.querySelector("[data-testid=\"estimate-page-toolbar-more-actions-menu\"]");
+      const entry = (label: string) => {
+        const button = Array.from(panel?.querySelectorAll("button") ?? [])
+          .find(node => (node.textContent ?? "").replace(/\s+/g, " ").trim() === label);
+        return button instanceof HTMLButtonElement ? { enabled: !button.disabled, shown: button.getClientRects().length > 0 } : null;
+      };
+      return { excel: entry("Exporter Excel"), csv: entry("Exporter CSV"), dpgf: entry("Exporter DPGF"), bdc: entry("Exporter BDC V1.1") };
+    });
+    await more.tap();
+    const states = {
+      compact: compactEnabled, compactExcel: compactItems.excel, compactCsv: compactItems.csv,
+      menuExcel: menu.excel?.enabled ?? null, menuCsv: menu.csv?.enabled ?? null, dpgf: menu.dpgf?.enabled ?? null, bdc: menu.bdc?.enabled ?? null,
+    };
+    const expectedStates = { compact: true, compactExcel: true, compactCsv: false, menuExcel: true, menuCsv: false, dpgf: true, bdc: false };
+    await recordEvidence(army, "v3e15-export-actions", { versionId: draft.versionId, expected: expectedStates, actual: states, menu });
+    expect(states, "the v3 editor opens Excel and DPGF and keeps CSV and BDC closed (P-20)").toEqual(expectedStates);
+
+    // Chaque export est la réponse 200 de sa route, téléchargée par l'éditeur et relue par ExcelJS.
+    const exported = async (url: RegExp, trigger: () => Promise<void>) => {
+      const [response, file] = await Promise.all([
+        browser.waitForResponse(url, { timeout: 60_000 }), browser.waitForDownload(trigger, { timeout: 60_000 })]);
+      const absolutePath = await resolveDownload(file);
+      const bytes = await readFile(absolutePath);
+      return { status: response.status, url: response.url, filename: file.suggestedFilename, path: absolutePath, bytes: bytes.length,
+        sha256: createHash("sha256").update(bytes).digest("hex"), rows: await readWorkbookRows(bytes) };
+    };
+    await compact.tap();
+    const standard = await exported(new RegExp(`/api/estimates/${draft.versionId}/export\\?format=xlsx$`),
+      () => screen.getByRole("button", "Excel (.xlsx)", { exact: true }).tap());
+    await more.tap();
+    const dpgf = await exported(new RegExp(`/api/estimates/${draft.versionId}/export\\?format=xlsx&mode=dpgf$`),
+      () => screen.getByTestId("estimate-page-toolbar-export-dpgf-button").tap());
+    const header = (rows: WorkbookRow[], sheet: string) => rows.find(row => row.sheet === sheet && row.row === 1)?.cells ?? null;
+    const field = (rows: WorkbookRow[], sheet: string, name: string) => rows.find(row => row.sheet === sheet && row.cells[0] === name)?.cells[1] ?? null;
+    const hasLine = (rows: WorkbookRow[], sheet: string) => rows.some(row => row.sheet === sheet &&
+      row.cells.some(value => typeof value === "string" && normalized(value) === title) && [130, 260].every(amount => row.cells.includes(amount)));
+    const exportsView = {
+      standard: { status: standard.status, xlsx: /\.xlsx$/i.test(standard.filename), header: header(standard.rows, "Devis"),
+        engine: field(standard.rows, "Resume", "Moteur de calcul"), line: hasLine(standard.rows, "Devis") },
+      dpgf: { status: dpgf.status, xlsx: /\.xlsx$/i.test(dpgf.filename),
+        v3Columns: ["Statut", "h MO / unité", "PU vente HT EUR", "Total HT brut EUR"].every(column => header(dpgf.rows, "Données")?.includes(column) ?? false),
+        line: hasLine(dpgf.rows, "Données") },
+    };
+    // En-tête exact de l'export standard d'une v3 (writeEstimateV3Workbook) ; colonnes propres au DPGF v3.
+    const expectedExports = {
+      standard: { status: 200, xlsx: true, header: ["Poste", "Désignation", "Unité", "Quantité", "Statut", "TVA (%)", "PU HT", "Total HT"],
+        engine: 3, line: true },
+      dpgf: { status: 200, xlsx: true, v3Columns: true, line: true },
+    };
+    const artifact = (file: typeof standard) =>
+      ({ url: file.url, filename: file.filename, path: file.path, bytes: file.bytes, sha256: file.sha256 });
+    await recordEvidence(army, "v3e15-exports", { versionId: draft.versionId, expected: expectedExports, actual: exportsView,
+      standard: artifact(standard), dpgf: artifact(dpgf), nativeDialogs: dialogs });
+    expect(exportsView, "the v3 editor's Excel and DPGF exports are the v3 workbooks of 2.7").toEqual(expectedExports);
   });
 
 armyTest("V3E12 bulk suggestions are applied to v3 lines and undone through the v3 writer, with recomputed totals",

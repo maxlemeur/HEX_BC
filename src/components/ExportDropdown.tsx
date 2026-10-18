@@ -10,6 +10,9 @@ type ExportDropdownProps = {
   onExportExcel: () => void;
   onExportCSV: () => void;
   disabled?: boolean;
+  /** Ferme une seule entrée ; le menu reste ouvrable tant qu'une entrée est disponible. */
+  excelDisabled?: boolean;
+  csvDisabled?: boolean;
   loading?: boolean;
   loadingLabel?: string;
 };
@@ -21,6 +24,8 @@ export function ExportDropdown({
   onExportExcel,
   onExportCSV,
   disabled = false,
+  excelDisabled = false,
+  csvDisabled = false,
   loading = false,
   loadingLabel = "Export en cours…",
 }: ExportDropdownProps) {
@@ -73,7 +78,7 @@ export function ExportDropdown({
         variant="outline"
         size="md"
         onClick={() => setIsOpen(!isOpen)}
-        disabled={disabled || loading}
+        disabled={disabled || loading || (excelDisabled && csvDisabled)}
         aria-expanded={isOpen}
         aria-controls={isOpen ? panelId : undefined}
         leftIcon={<DownloadIcon aria-hidden="true" />}
@@ -96,7 +101,7 @@ export function ExportDropdown({
             type="button"
             className={itemClass}
             onClick={handleExcelClick}
-            disabled={loading}
+            disabled={loading || excelDisabled}
           >
             <FileSpreadsheetIcon aria-hidden="true" />
             Excel (.xlsx)
@@ -105,7 +110,7 @@ export function ExportDropdown({
             type="button"
             className={itemClass}
             onClick={handleCSVClick}
-            disabled={loading}
+            disabled={loading || csvDisabled}
           >
             <FileTextIcon aria-hidden="true" />
             Fichier CSV (.csv)

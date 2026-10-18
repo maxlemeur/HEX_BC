@@ -1,7 +1,41 @@
 import { createHash } from "node:crypto";
 
 import { isLegacyEngine } from "@/lib/estimates/engine/capabilities";
+import {
+  address,
+  canonicalJson,
+  cents,
+  choice,
+  date,
+  hash,
+  instant,
+  integer,
+  invalid,
+  MAX_CENTS,
+  nullableText,
+  nullableUuid,
+  object,
+  parseLayout,
+  parseTerms,
+  run,
+  text,
+  uuid,
+  type OfferProofParseOptions,
+  type OfferTermsSnapshot,
+} from "@/lib/estimates/offer-contract-core";
+import {
+  hasContract2Portions,
+  parseContract2,
+  type ClientContract2,
+} from "@/lib/estimates/offer-contract-v2-parser";
 import type { EstimatePdfLayoutOptions } from "@/lib/estimates/pdf-layout";
+
+export {
+  OfferContractError,
+  type OfferContractErrorCode,
+  type OfferProofParseOptions,
+  type OfferTermsSnapshot,
+} from "@/lib/estimates/offer-contract-core";
 
 type SaleFoMo1 = { foSaleHtCents: number; moSaleHtCents: number };
 type Section1 = {
@@ -76,16 +110,6 @@ export type ClientContract1 = {
   exclusions: string | null;
 };
 
-type TermsFields = {
-  templateId: string;
-  title: string;
-  body: string;
-  version: number;
-  capturedAt: string;
-};
-export type OfferTermsSnapshot =
-  | (TermsFields & { legalReviewedAt: string })
-  | (TermsFields & { legalReviewedAt: string | null; isDraft: true });
 type ProofFields = {
   proofVersion: 1;
   documentId: string;
@@ -104,6 +128,16 @@ export type DocumentProof1 = ProofFields & (
   | {
       clientContractVersion: 1;
       clientContractSnapshot: ClientContract1;
+      fileSizeBytes: number;
+      generatedAt: string;
+      generatedBy: string;
+      publishedGenerationToken: string;
+      publishedPurpose: "manual" | "email" | "workflow";
+    }
+  | {
+      // Lot 2, sous-lot 2.7 (D14) : marqueur du contrat client 2, réservé au moteur 3.
+      clientContractVersion: 2;
+      clientContractSnapshot: ClientContract2;
       fileSizeBytes: number;
       generatedAt: string;
       generatedBy: string;
@@ -137,150 +171,12 @@ export type Seal5 = {
     termsSnapshot: OfferTermsSnapshot | null;
   };
 };
-export type OfferProofParseOptions = { allowDevelopmentTerms?: boolean };
 export type OfferPresentation = {
-  contract: ClientContract1;
+  /** Contrat client 1 (moteurs 1 et 2) ou contrat client 2 (moteur 3, sous-lot 2.7, D14). */
+  contract: ClientContract1 | ClientContract2;
   layout: EstimatePdfLayoutOptions;
   terms: OfferTermsSnapshot | null;
 };
-export type OfferContractErrorCode =
-  | "OFFER_CLIENT_CONTRACT_INVALID"
-  | "OFFER_DOCUMENT_PROOF_INVALID"
-  | "OFFER_SEAL_INPUT_INVALID"
-  | "OFFER_PRESENTATION_INVALID";
-
-export class OfferContractError extends Error {
-  constructor(public readonly code: OfferContractErrorCode, message: string) {
-    super(message);
-    this.name = "OfferContractError";
-  }
-}
-
-const MAX_CENTS = 2_147_483_647;
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const HASH_PATTERN = /^[0-9a-f]{64}$/;
-type RecordValue = Record<string, unknown>;
-
-class InvalidValue extends Error {}
-
-function invalid(location: string): never {
-  throw new InvalidValue(`Invalid offer contract at ${location}.`);
-}
-
-function object(value: unknown, required: readonly string[], location: string, optional: readonly string[] = []): RecordValue {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) invalid(location);
-  const prototype = Object.getPrototypeOf(value);
-  if (prototype !== Object.prototype && prototype !== null) invalid(location);
-  const allowed = new Set([...required, ...optional]);
-  const descriptors = Object.getOwnPropertyDescriptors(value);
-  for (const key of Reflect.ownKeys(descriptors)) {
-    if (typeof key !== "string" || !allowed.has(key)) invalid(location);
-    const descriptor = descriptors[key];
-    if (!descriptor.enumerable || !("value" in descriptor)) invalid(location);
-  }
-  if (required.some((key) => !Object.hasOwn(descriptors, key))) invalid(location);
-  return value as RecordValue;
-}
-
-function text(value: unknown, location: string): string {
-  if (typeof value !== "string" || value.trim().length === 0 || value.includes("\0")) invalid(location);
-  for (let index = 0; index < value.length; index += 1) {
-    const unit = value.charCodeAt(index);
-    if (unit >= 0xd800 && unit <= 0xdbff) {
-      const next = value.charCodeAt(index + 1);
-      if (!(next >= 0xdc00 && next <= 0xdfff)) invalid(location);
-      index += 1;
-    } else if (unit >= 0xdc00 && unit <= 0xdfff) {
-      invalid(location);
-    }
-  }
-  return value;
-}
-
-function nullableText(value: unknown, location: string): string | null {
-  return value === null ? null : text(value, location);
-}
-
-function integer(value: unknown, minimum: number, maximum: number, location: string): number {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || Object.is(value, -0)
-    || value < minimum || value > maximum) invalid(location);
-  return value;
-}
-
-function cents(value: unknown, location: string): number {
-  return integer(value, 0, MAX_CENTS, location);
-}
-
-function uuid(value: unknown, location: string): string {
-  if (typeof value !== "string" || !UUID_PATTERN.test(value)) invalid(location);
-  return value;
-}
-
-function nullableUuid(value: unknown, location: string): string | null {
-  return value === null ? null : uuid(value, location);
-}
-
-function hash(value: unknown, location: string): string {
-  if (typeof value !== "string" || !HASH_PATTERN.test(value)) invalid(location);
-  return value;
-}
-
-function choice<T extends string | number | null>(value: unknown, values: readonly T[], location: string): T {
-  if (!values.includes(value as T)) invalid(location);
-  return value as T;
-}
-
-function boolean(value: unknown, location: string): boolean {
-  if (typeof value !== "boolean") invalid(location);
-  return value;
-}
-
-function validCalendar(year: number, month: number, day: number): boolean {
-  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
-  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-  return year >= 1 && year <= 9999 && month >= 1 && month <= 12 && day >= 1 && day <= days[month - 1];
-}
-
-function date(value: unknown, location: string): string {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) invalid(location);
-  const [year, month, day] = value.split("-").map(Number);
-  if (!validCalendar(year, month, day)) invalid(location);
-  return value;
-}
-
-function instant(value: unknown, location: string): { original: string; utc: string } {
-  if (typeof value !== "string") invalid(location);
-  const match = /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?([Zz]|([+-])(\d{2}):(\d{2}))$/.exec(value);
-  if (!match) invalid(location);
-  const [year, month, day, hour, minute, second] = match.slice(1, 7).map(Number);
-  const offsetHour = Number(match[10] ?? 0);
-  const offsetMinute = Number(match[11] ?? 0);
-  if (!validCalendar(year, month, day) || hour > 23 || minute > 59 || second > 59
-    || offsetHour > 23 || offsetMinute > 59) invalid(location);
-  const offset = (offsetHour * 60 + offsetMinute) * (match[9] === "-" ? -1 : 1);
-  const wholeSecond = new Date(0);
-  wholeSecond.setUTCFullYear(year, month - 1, day);
-  wholeSecond.setUTCHours(hour, minute, second, 0);
-  const utc = new Date(wholeSecond.getTime() - offset * 60_000).toISOString();
-  if (!/^\d{4}-/.test(utc) || utc.startsWith("0000-")) invalid(location);
-  // Date handles only whole seconds/zone arithmetic. Never pass the microseconds
-  // through its millisecond precision; preserve them as an independent fraction.
-  return { original: value, utc: `${utc.slice(0, -5)}.${(match[7] ?? "").padEnd(6, "0")}Z` };
-}
-
-function calendarOrInstant(value: unknown, location: string): string {
-  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return date(value, location);
-  return instant(value, location).original;
-}
-
-function address(value: unknown, location: string): ClientContract1["company"]["address"] {
-  const source = object(value, ["street", "postalCode", "city"], location);
-  return {
-    street: text(source.street, `${location}.street`),
-    postalCode: text(source.postalCode, `${location}.postalCode`),
-    city: text(source.city, `${location}.city`),
-  };
-}
 
 function row(value: unknown): CommercialRow1 {
   const kind = typeof value === "object" && value !== null
@@ -412,37 +308,11 @@ function parseSnapshot(value: unknown): ClientContract1 {
   return parsed;
 }
 
-function parseLayout(value: unknown): EstimatePdfLayoutOptions {
-  const source = object(value, ["preset", "detailLevel", "priceMode", "density", "showNumbering", "showSectionSubtotals", "conditionsPlacement", "includeTerms"], "layoutOptions");
-  return {
-    preset: choice(source.preset, ["client_detailed", "decision_summary", "fo_mo"], "layoutOptions.preset"),
-    detailLevel: choice(source.detailLevel, [1, 2, 3, 4, "lines"], "layoutOptions.detailLevel"),
-    priceMode: choice(source.priceMode, ["total_only", "unit_and_total", "fo_mo_and_total"], "layoutOptions.priceMode"),
-    density: choice(source.density, ["compact", "standard", "comfortable"], "layoutOptions.density"),
-    showNumbering: boolean(source.showNumbering, "layoutOptions.showNumbering"),
-    showSectionSubtotals: boolean(source.showSectionSubtotals, "layoutOptions.showSectionSubtotals"),
-    conditionsPlacement: choice(source.conditionsPlacement, ["auto", "new_page"], "layoutOptions.conditionsPlacement"),
-    includeTerms: boolean(source.includeTerms, "layoutOptions.includeTerms"),
-  };
-}
-
-function parseTerms(value: unknown, options: OfferProofParseOptions): OfferTermsSnapshot | null {
-  if (value === null) return null;
-  const source = object(value, ["templateId", "title", "body", "version", "legalReviewedAt", "capturedAt"], "termsSnapshot", ["isDraft"]);
-  const draft = Object.hasOwn(source, "isDraft");
-  if (draft && (source.isDraft !== true || options.allowDevelopmentTerms !== true)) invalid("termsSnapshot.isDraft");
-  const fields: TermsFields = { templateId: text(source.templateId, "termsSnapshot.templateId"), title: text(source.title, "termsSnapshot.title"),
-    body: text(source.body, "termsSnapshot.body"), version: integer(source.version, 1, Number.MAX_SAFE_INTEGER, "termsSnapshot.version"),
-    capturedAt: instant(source.capturedAt, "termsSnapshot.capturedAt").original };
-  if (draft) return { ...fields, legalReviewedAt: source.legalReviewedAt === null ? null : calendarOrInstant(source.legalReviewedAt, "termsSnapshot.legalReviewedAt"), isDraft: true };
-  return { ...fields, legalReviewedAt: calendarOrInstant(source.legalReviewedAt, "termsSnapshot.legalReviewedAt") };
-}
-
 function parseProof(value: unknown, options: OfferProofParseOptions): DocumentProof1 {
   const source = object(value, ["proofVersion", "documentId", "tenantId", "versionId", "projectId", "status", "filePath", "sha256Hash", "fileSizeBytes",
     "generatedAt", "generatedBy", "publishedGenerationToken", "publishedPurpose", "publishedDispatchId", "publishedContentRevision", "clientContractVersion",
     "clientContractSnapshot", "layoutOptions", "termsSnapshot"], "documentProof");
-  const marker = choice(source.clientContractVersion, [1, null] as const, "documentProof.clientContractVersion");
+  const marker = choice(source.clientContractVersion, [1, 2, null] as const, "documentProof.clientContractVersion");
   const layout = parseLayout(source.layoutOptions);
   const terms = parseTerms(source.termsSnapshot, options);
   if (layout.includeTerms && terms === null) invalid("documentProof.termsSnapshot");
@@ -471,27 +341,32 @@ function parseProof(value: unknown, options: OfferProofParseOptions): DocumentPr
       publishedGenerationToken: nullableUuid(source.publishedGenerationToken, "documentProof.publishedGenerationToken"), publishedPurpose: purpose };
   }
   if (purpose === "legacy" || common.filePath !== canonicalPath) invalid("documentProof.publication");
-  const captured = parseSnapshot(source.clientContractSnapshot);
+  // Lot 2, sous-lot 2.7 (D14) : le marqueur choisit le contrat, jamais l'inverse. Un contrat 1
+  // sous le marqueur 2 (ou l'inverse) est refusé par l'analyseur du marqueur ; mêmes ancres.
+  const captured = marker === 2 ? parseContract2(source.clientContractSnapshot) : parseSnapshot(source.clientContractSnapshot);
   const generatedBy = uuid(source.generatedBy, "documentProof.generatedBy");
   if (captured.version.id !== common.versionId || captured.version.tenantId !== common.tenantId
     || captured.version.projectId !== common.projectId || captured.version.contentRevision !== common.publishedContentRevision
     || captured.issuer.userId !== generatedBy) invalid("documentProof.anchors");
   if ((purpose === "email") !== (common.publishedDispatchId !== null)) invalid("documentProof.publishedDispatchId");
-  if (captured.rows.some((entry) => hasPortions(entry) !== (layout.priceMode === "fo_mo_and_total"))) invalid("documentProof.priceMode");
-  return { ...common, clientContractVersion: 1, clientContractSnapshot: captured,
+  if (rowPortions(captured).some((portions) => portions !== (layout.priceMode === "fo_mo_and_total"))) invalid("documentProof.priceMode");
+  const published = {
     fileSizeBytes: integer(source.fileSizeBytes, 1, Number.MAX_SAFE_INTEGER, "documentProof.fileSizeBytes"),
     generatedAt: instant(source.generatedAt, "documentProof.generatedAt").utc, generatedBy,
     publishedGenerationToken: uuid(source.publishedGenerationToken, "documentProof.publishedGenerationToken"), publishedPurpose: purpose };
+  return captured.schemaVersion === 2
+    ? { ...common, clientContractVersion: 2, clientContractSnapshot: captured, ...published }
+    : { ...common, clientContractVersion: 1, clientContractSnapshot: captured, ...published };
 }
 
-function run<T>(code: OfferContractErrorCode, parse: () => T): T {
-  try {
-    return parse();
-  } catch (error) {
-    // Unknown input can contain throwing proxies. Do not echo their values or
-    // messages; the public interface exposes only a stable code and location.
-    throw new OfferContractError(code, error instanceof InvalidValue ? error.message : "Invalid offer contract.");
-  }
+/** Parts FO/MO de chaque ligne et section, quel que soit le contrat. */
+function rowPortions(contract: ClientContract1 | ClientContract2): boolean[] {
+  return contract.schemaVersion === 2 ? contract.rows.map(hasContract2Portions) : contract.rows.map(hasPortions);
+}
+
+function schemaVersionOf(value: unknown): unknown {
+  return typeof value === "object" && value !== null
+    ? Object.getOwnPropertyDescriptor(value, "schemaVersion")?.value : undefined;
 }
 
 /** Parse a strict commercial copy without repairing or consulting live data. */
@@ -508,26 +383,14 @@ export function parseOfferDocumentProof(value: unknown, options: OfferProofParse
 export function parseOfferPresentation(value: unknown, options: OfferProofParseOptions = {}): OfferPresentation {
   return run("OFFER_PRESENTATION_INVALID", () => {
     const source = object(value, ["contract", "layout", "terms"], "presentation");
-    const contract = parseSnapshot(source.contract);
+    // Lot 2, sous-lot 2.7 : une copie au schéma 2 (moteur 3) passe par l'analyseur strict du contrat 2.
+    const contract = schemaVersionOf(source.contract) === 2 ? parseContract2(source.contract) : parseSnapshot(source.contract);
     const layout = parseLayout(source.layout);
     const terms = parseTerms(source.terms, options);
     if (layout.includeTerms && terms === null) invalid("presentation.terms");
-    if (contract.rows.some((entry) => hasPortions(entry) !== (layout.priceMode === "fo_mo_and_total"))) invalid("presentation.priceMode");
+    if (rowPortions(contract).some((portions) => portions !== (layout.priceMode === "fo_mo_and_total"))) invalid("presentation.priceMode");
     return { contract, layout, terms };
   });
-}
-
-function canonicalValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalValue);
-  if (typeof value === "object" && value !== null) {
-    const source = value as RecordValue;
-    return Object.fromEntries(Object.keys(source).sort().map((key) => [key, canonicalValue(source[key])]));
-  }
-  return value;
-}
-
-function canonicalJson(value: unknown): string {
-  return JSON.stringify(canonicalValue(value));
 }
 
 /** Seal5 binds a caller-supplied actual builder4 hash to the captured copy/PDF. */
