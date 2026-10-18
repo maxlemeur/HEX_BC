@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   batchEstimateOperations: vi.fn(),
+  commitEstimateV3Operations: vi.fn(),
   computeEstimateLineValues: vi.fn(),
   deleteEstimateItem: vi.fn(),
   reorderEstimateItems: vi.fn(),
@@ -20,6 +21,10 @@ vi.mock("@/lib/estimates/client", () => ({
   reorderEstimateItems: mocks.reorderEstimateItems,
 }));
 
+vi.mock("@/lib/estimates/v3-editor-writer", () => ({
+  commitEstimateV3Operations: mocks.commitEstimateV3Operations,
+}));
+
 import type { EstimateEditorHistoryCommand } from "@/hooks/useEstimateEditorHistoryController";
 import { useEstimateEditorPasteController } from "@/hooks/useEstimateEditorPasteController";
 import type { ClipboardPreviewValues } from "@/lib/estimates/clipboard";
@@ -29,6 +34,7 @@ import type {
   EstimateItemInsertPayload,
   EstimateVersionRow,
 } from "@/lib/estimates/editor-items";
+import type { EstimateV3EditorWriter } from "@/lib/estimates/v3-editor-writer";
 
 type CreateOperation = {
   op: "create";
@@ -71,6 +77,9 @@ function createRow(
     h_mo: 0,
     k_mo: 1,
     h_mo_majoration: 1,
+    h_mo_per_unit: null,
+    control_unit_price: null,
+    hourly_rate: null,
     ...overrides,
   };
 }
@@ -117,6 +126,7 @@ function createHarness(input?: {
     contractor_role?: string;
   } | null;
   conflictHandled?: boolean;
+  v3Writer?: EstimateV3EditorWriter;
 }) {
   let items = input?.items ?? [];
   let version =
@@ -165,6 +175,7 @@ function createHarness(input?: {
       pushHistoryCommand,
       recreateItemsFromSnapshots,
       reloadItems,
+      v3Writer: input?.v3Writer,
     })
   );
 
@@ -233,6 +244,10 @@ beforeEach(() => {
   });
   mocks.deleteEstimateItem.mockReset().mockResolvedValue(undefined);
   mocks.reorderEstimateItems.mockReset().mockResolvedValue(undefined);
+  mocks.commitEstimateV3Operations.mockReset().mockImplementation(async () => ({
+    id: "627ef080-0001-4000-8000-000000000001",
+    updated_at: `token-${++generatedTokenCount}`,
+  }));
 });
 
 afterEach(() => {
@@ -370,6 +385,22 @@ describe("useEstimateEditorPasteController anchors and payloads", () => {
     expect(harness.applyVersionToken).toHaveBeenCalledWith("token-1");
     expect(readHistoryCommand(harness.pushHistoryCommand).label).toBe(
       "paste-insert"
+    );
+  });
+
+  it("2.8: stores pasted hours per unit on a v1/v2 as line hours h/u × Q (P-16)", async () => {
+    const harness = createHarness({ items: [] });
+
+    await act(async () => {
+      await harness.result.current.actions.pasteRows({
+        anchorRowId: null,
+        rows: [createRow("O1", { quantity: 20, unit: "ml", h_mo: null, h_mo_per_unit: 1.991, control_unit_price: 174.59 })],
+      });
+    });
+
+    expect(mocks.computeEstimateLineValues).toHaveBeenCalledWith(
+      expect.objectContaining({ quantity: 20, h_mo: 39.82 }),
+      expect.anything()
     );
   });
 
@@ -680,5 +711,68 @@ describe("useEstimateEditorPasteController route races", () => {
     expect(harness.pushHistoryCommand).not.toHaveBeenCalled();
     expect(mocks.reorderEstimateItems).not.toHaveBeenCalled();
     expect(mocks.deleteEstimateItem).not.toHaveBeenCalled();
+  });
+});
+
+// Sub-lot 2.8, rule 2: a paste into a v3 goes through the v3 batch writer, its reorder and its undo included.
+// Isolation exception: undoing 101 pasted lines (batches of 100) and the payload keys, too costly in a journey;
+// IO04 and V3E13 paste into a v3 grid.
+describe("useEstimateEditorPasteController v3 (2.8)", () => {
+  function createV3Writer() {
+    let deletions = 0;
+    return {
+      deleteItems: vi.fn(async () => ({ id: "627ef080-0001-4000-8000-000000000001", updated_at: `token-delete-${++deletions}` })),
+      updateItems: vi.fn(),
+      buildInsertPayload: vi.fn(),
+      buildUpdatePayload: vi.fn(),
+    } as unknown as EstimateV3EditorWriter & { deleteItems: ReturnType<typeof vi.fn> };
+  }
+
+  it("writes v3 inputs only and reorders after the anchor line through the v3 writer", async () => {
+    const harness = createHarness({
+      items: [
+        createItem("anchor", { parent_id: "section", position: 1 }),
+        createItem("tail", { parent_id: "section", position: 2 }),
+      ],
+      v3Writer: createV3Writer(),
+    });
+
+    await act(async () => {
+      await harness.result.current.actions.pasteRows({
+        anchorRowId: "anchor",
+        rows: [createRow("Tube", { unit: "ml", quantity: 20, unit_price_ht: 54.66, h_mo: null, h_mo_per_unit: 1.991 })],
+        laborRoleId: "role-fitter",
+      });
+    });
+
+    const data = (mocks.batchEstimateOperations.mock.calls[0]?.[2] as CreateOperation[])[0]?.data as Record<string, unknown>;
+    expect(data).toMatchObject({
+      parent_id: "section", title: "Tube", description: null, quantity: 20, unit_price_ht_cents: 5466,
+      unit_code: "ml", pricing_status: "priced", h_mo_per_unit: 1.991, labor_role_id: "role-fitter",
+    });
+    expect(Object.keys(data).filter((key) => ["h_mo", "pu_ht_cents", "line_total_ht_cents"].includes(key))).toEqual([]);
+    expect(mocks.commitEstimateV3Operations.mock.calls[0]?.[2]).toEqual([
+      { op: "reorder", data: { parent_id: "section", ordered_ids: ["anchor", "created-1", "tail"] } },
+    ]);
+    expect(mocks.reorderEstimateItems).not.toHaveBeenCalled();
+    expect(harness.applyVersionToken).toHaveBeenLastCalledWith("token-2");
+  });
+
+  it("undoes 101 pasted lines in v3 batches of at most 100 deletions", async () => {
+    const v3Writer = createV3Writer();
+    const harness = createHarness({ v3Writer });
+    const rows = Array.from({ length: 101 }, (_, index) => createRow(`Ligne ${index + 1}`, { unit: "u" }));
+
+    await act(async () => {
+      await harness.result.current.actions.pasteRows({ anchorRowId: null, rows });
+    });
+    await act(async () => {
+      await readHistoryCommand(harness.pushHistoryCommand).undo();
+    });
+
+    expect(v3Writer.deleteItems.mock.calls.map((call) => (call[2] as string[]).length)).toEqual([100, 1]);
+    expect(mocks.deleteEstimateItem).not.toHaveBeenCalled();
+    expect(harness.applyVersionToken).toHaveBeenLastCalledWith("token-delete-2");
+    expect(harness.getItems()).toEqual([]);
   });
 });

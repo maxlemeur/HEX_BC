@@ -11,6 +11,8 @@ import {
   parseStoredCoefficient,
 } from "@/lib/numeric-input/parsers";
 import { computeEstimateLineValues } from "@/lib/estimate-calculations";
+import { computeEstimateV3Breakdown, EstimateV3Error, type EstimateV3PricingStatus } from "@/lib/estimates/engine-v3";
+import { controlCents } from "@/lib/imports/optima-control";
 import {
   MAJORATION_TARGETS,
   checkUnitPriceAgainstControl,
@@ -31,6 +33,7 @@ import {
   type ImportStructureLevel,
   type ImportStructureRow,
 } from "@/lib/imports/structure";
+import { normalizeMeasurementUnit } from "@/lib/units/normalize";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -52,6 +55,14 @@ export type ImportFlowLineValuesContext = {
    * (`preview_required`) rather than priced at 0 €/h (P-16 « avec aperçu », E17).
    */
   entry?: "preview" | "direct";
+  /**
+   * Lot 2, sous-lot 2.8 (D16, D11): engine of the estimate the rows enter. 3: hours per unit kept as
+   * such, unit through the shared referential (a code, or a pricing status at 0 €), PU and the
+   * « Prix Unitaire » self-check on the v3 engine at the sale coefficients below. Absent: 1/2.
+   */
+  engine?: number;
+  saleCoefficientFo?: number;
+  saleCoefficientMo?: number;
 };
 
 export const IMPORT_PREVIEW_REQUIRED_MESSAGE =
@@ -79,7 +90,11 @@ export type ValidImportFlowLine = {
   // Stored v1/v2 line hours: the total of the line, never per unit.
   hMo: number;
   // P-16: hours per unit read from the source when the line hours were computed as h/u × Q.
+  // Engine 3 (2.8): the stored hours per unit; hMo is then only their derived total, for display.
   hoursPerUnit?: number | null;
+  // Engine 3 only (2.8, D9): unit code of the shared referential and pricing status of the line.
+  unitCode?: string | null;
+  pricingStatus?: EstimateV3PricingStatus;
   hMoMajoration: number;
   kMo: number;
   laborRoleId?: string | null;
@@ -112,6 +127,7 @@ export type InvalidImportFlowLineReason =
   | "invalid_majoration"
   | "undeclared_majoration_unit"
   | "preview_required"
+  | "line_hours_require_hours_per_unit"
   | "invalid_row_payload";
 
 export type InvalidImportFlowLine = {
@@ -279,6 +295,70 @@ function readControlUnitPriceCents(value: unknown): number | null {
   if (isMissingNumericValue(value)) return null;
   const euros = parseDecimalInput(value, { currency: "EUR" });
   return euros === null || euros < 0 ? null : euros * 100;
+}
+
+/** D11 on a v3 (2.8): « Prix Unitaire » read like the 2.4 lot check, 15 significant digits then half up. */
+function readControlCentsForV3(value: unknown): number | null {
+  if (isMissingNumericValue(value)) return null;
+  const euros = typeof value === "number" ? value : parseDecimalInput(value, { currency: "EUR" });
+  return euros === null || !Number.isFinite(euros) || euros < 0 ? null : controlCents(euros);
+}
+
+const IMPORT_V3_LINE_ID = "00000000-0000-4000-8000-000000000000";
+
+/** One imported line on the v3 engine (D13) at the sale coefficients, without discount or rounding. */
+function computeImportLineV3(
+  line: {
+    quantity: number;
+    unitPriceHtCents: number;
+    taxRateBp: number;
+    kFo: number;
+    hoursPerUnit: number | null;
+    hMoMajoration: number;
+    kMo: number;
+    laborRateCents: number | null;
+    pricingStatus: EstimateV3PricingStatus;
+    unitCode: string | null;
+  },
+  context: ImportFlowLineValuesContext
+) {
+  if (context.saleCoefficientFo === undefined || context.saleCoefficientMo === undefined) {
+    throw new Error("IMPORT_V3_SALE_COEFFICIENTS_MISSING");
+  }
+  const breakdown = computeEstimateV3Breakdown({
+    params: {
+      sale_coefficient_fo: context.saleCoefficientFo,
+      sale_coefficient_mo: context.saleCoefficientMo,
+      discount_amount_cents: null,
+      discount_bp: 0,
+      rounding_mode: "none",
+      rounding_step_cents: 1,
+      reverse_charge: false,
+      labor_split_enabled: false,
+    },
+    items: [{
+      id: IMPORT_V3_LINE_ID,
+      item_type: "line",
+      parent_id: null,
+      quantity: line.quantity,
+      unit_price_ht_cents: line.unitPriceHtCents,
+      k_fo: line.kFo,
+      h_mo_per_unit: line.hoursPerUnit,
+      h_mo_atelier_per_unit: null,
+      h_mo_chantier_per_unit: null,
+      h_mo_majoration: line.hMoMajoration,
+      k_mo: line.kMo,
+      k_mo_atelier: null,
+      k_mo_chantier: null,
+      labor_rate_cents: line.laborRateCents,
+      labor_rate_atelier_cents: null,
+      labor_rate_chantier_cents: null,
+      pricing_status: line.pricingStatus,
+      tax_rate_bp: line.taxRateBp,
+      unit_code: line.unitCode,
+    }],
+  });
+  return breakdown.lines[0]!;
 }
 
 function parseWorkbookParameters(
@@ -537,6 +617,12 @@ export function normalizeMappedRowsForEstimateCreation(
       continue;
     }
     const hoursPerUnit = hoursPerUnitField.value;
+    // 2.8 (D16): a v3 stores hours per unit, never a line total; such a column is chosen as h/u.
+    const isV3 = context.engine === 3;
+    if (isV3 && (lineHoursField.value ?? 0) > 0) {
+      reject("line_hours_require_hours_per_unit");
+      continue;
+    }
     const hMo =
       hoursPerUnit !== null
         ? computeLineHoursFromHoursPerUnit(roundedQuantity, hoursPerUnit)
@@ -558,6 +644,74 @@ export function normalizeMappedRowsForEstimateCreation(
     const kFo = kFoField.value ?? 1;
     const hMoMajoration = majorationField.status === "value" ? majorationField.coefficient : 1;
     const kMo = kMoField.value ?? 1;
+
+    if (isV3) {
+      // D9: the unit through the shared referential; a status mention gives a line at 0 €.
+      const unit = normalizeMeasurementUnit(normalizeOptionalText(row.mappedRow.unit));
+      const pricingStatus = unit.pricingStatus ?? "priced";
+      const priced = pricingStatus === "priced";
+      const v3LaborRole = priced && (hoursPerUnit ?? 0) > 0 ? (context.laborRole ?? null) : null;
+      let v3Line: ReturnType<typeof computeImportLineV3>;
+      try {
+        v3Line = computeImportLineV3({
+          quantity: roundedQuantity,
+          unitPriceHtCents,
+          taxRateBp,
+          kFo,
+          hoursPerUnit,
+          hMoMajoration,
+          kMo,
+          laborRateCents: v3LaborRole?.hourlyRateCents ?? null,
+          pricingStatus,
+          unitCode: unit.unitCode,
+        }, context);
+      } catch (error) {
+        if (!(error instanceof EstimateV3Error)) throw error;
+        reject("invalid_row_payload");
+        continue;
+      }
+      const v3ImportLine: ValidImportFlowLine = {
+        itemType: "line",
+        mappedRowId: row.id,
+        rowIndex: row.rowIndex,
+        title,
+        description: normalizeOptionalText(row.mappedRow.unit),
+        notes,
+        sourcePage,
+        sourceMetadata,
+        quantity: roundedQuantity,
+        unitPriceHtCents,
+        taxRateBp,
+        kFo,
+        hMo: priced ? hMo : 0,
+        hoursPerUnit,
+        unitCode: unit.unitCode,
+        pricingStatus,
+        hMoMajoration,
+        kMo,
+        laborRoleId: v3LaborRole?.id ?? null,
+        puHtCents: v3Line.pu_ht_cents ?? 0,
+        lineTotalHtCents: v3Line.line_total_ht_cents,
+        lineTaxCents: v3Line.line_tax_cents,
+        lineTotalTtcCents: v3Line.line_total_ttc_cents,
+      };
+      validLines.push(v3ImportLine);
+      validItems.push(v3ImportLine);
+      if (priced && unitPriceHtCents === 0) zeroPriceRows += 1;
+      // D11 self-check: the v3 PU (an integer of cents) against « Prix Unitaire » to the cent.
+      const expectedUnitPriceCents = priced ? readControlCentsForV3(row.mappedRow.control_unit_price) : null;
+      if (expectedUnitPriceCents !== null && roundedQuantity > 0 && v3Line.pu_ht_cents !== null) {
+        unitPriceChecks.push({
+          rowIndex: row.rowIndex,
+          title,
+          expectedUnitPriceCents,
+          computedUnitPriceCents: v3Line.pu_ht_cents,
+          deltaCents: v3Line.pu_ht_cents - expectedUnitPriceCents,
+        });
+      }
+      continue;
+    }
+
     const laborRole = hMo > 0 ? (context.laborRole ?? null) : null;
 
     const lineValues = computeEstimateLineValues(
@@ -627,6 +781,22 @@ export function normalizeMappedRowsForEstimateCreation(
     workbookParameters,
     unitPriceChecks,
   };
+}
+
+/**
+ * The workbook parameter row of the mapped rows (OPTIMA row 2), read as the normalization reads it:
+ * a v3 import proposes its coefficients before the lines are priced (2.8, E4).
+ */
+export function readImportWorkbookParameters(rows: ImportFlowMappedRowInput[]): ImportWorkbookParameters | null {
+  for (const [index, row] of rows.entries()) {
+    const payload = asRecord(row.payload);
+    const mappedRow = payload ? resolveMappedPayload(payload) : null;
+    if (!payload || !mappedRow || !isWorkbookParameterRow(mappedRow, resolveRowTitle(mappedRow))) continue;
+    const values = readWorkbookParameterValues(mappedRow);
+    const rowIndex = Number.isInteger(payload.row_index) ? Number(payload.row_index) : index + 1;
+    return values ? parseWorkbookParameters(rowIndex, values) : null;
+  }
+  return null;
 }
 
 /** True when the rows carry hours per unit or workbook parameters, which only the preview shows. */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { controlCents } from "../../scripts/engine-v3/optima-control";
+import { controlCents } from "@/lib/imports/optima-control";
 
 // Lot 2, sous-lot 2.4 (docs/testing/estimate-engine-v3-2.4.md) : les cellules de contrôle OPTIMA
 // (« Prix Unitaire », « Prix Total ») sont lues aux 15 chiffres significatifs d'Excel, puis
