@@ -55,6 +55,11 @@ type EstimateEditorPasteControllerInput = {
     snapshots: EstimateItem[]
   ) => Promise<RecreatedItems>;
   reloadItems: () => Promise<void>;
+  /**
+   * Lot 2, sous-lot 2.6 (revue, F26-31) : refus nommé du collage, avant toute écriture, tant que son contrat v3
+   * (unité du référentiel, heures par unité) n'est pas fixé ; absent en v1/v2.
+   */
+  unavailableMessage?: string | null;
 };
 
 export function useEstimateEditorPasteController({
@@ -76,6 +81,7 @@ export function useEstimateEditorPasteController({
   pushHistoryCommand,
   recreateItemsFromSnapshots,
   reloadItems,
+  unavailableMessage = null,
 }: EstimateEditorPasteControllerInput) {
   const pasteRows = useCallback(
     async ({
@@ -89,6 +95,8 @@ export function useEstimateEditorPasteController({
         reportError(mutationBlockedMessage);
         return;
       }
+      // L'aperçu du collage affiche le refus ; rien n'est écrit.
+      if (unavailableMessage) throw new Error(unavailableMessage);
       if (!(await ensureGroupedActionCanProceed("coller les lignes"))) return;
 
       const versionSnapshot = getVersionSnapshot();
@@ -463,6 +471,7 @@ export function useEstimateEditorPasteController({
       settings,
       supplyTypeIdByLowerName,
       triggerVersionReload,
+      unavailableMessage,
     ]
   );
 

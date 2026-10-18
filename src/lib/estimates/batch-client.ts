@@ -43,7 +43,9 @@ function validateItem(value: unknown, versionId: string, expectedId?: string) {
     (expectedId !== undefined && value.id !== expectedId) || value.version_id !== versionId ||
     !["line", "section"].includes(String(value.item_type))) return unknownOutcome();
   if (value.item_type === "line") {
-    if (typeof value.pu_ht_cents !== "number" || !Number.isSafeInteger(value.pu_ht_cents) || value.pu_ht_cents < 0) return unknownOutcome();
+    // Lot 2, sous-lot 2.6 : une ligne v3 non chiffrée (« Hors lot »…) n'a pas de PU (décision 3 de 2.5).
+    const unpricedV3 = value.pu_ht_cents === null && typeof value.pricing_status === "string" && value.pricing_status !== "priced";
+    if (!unpricedV3 && (typeof value.pu_ht_cents !== "number" || !Number.isSafeInteger(value.pu_ht_cents) || value.pu_ht_cents < 0)) return unknownOutcome();
     totals({ total_ht_cents: value.line_total_ht_cents, total_tax_cents: value.line_tax_cents, total_ttc_cents: value.line_total_ttc_cents });
   }
 }

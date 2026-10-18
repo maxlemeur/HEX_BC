@@ -343,6 +343,7 @@ type EstimateProjectVersionTimelineRow = Pick<
   | "created_at"
   | "total_ttc_cents"
   | "total_ht_cents"
+  | "currency"
 > & {
   parent_version_id?: string | null;
   variant_label?: string | null;
@@ -365,6 +366,8 @@ export type EstimateProjectVersionTimelineItem = {
   created_at: string;
   total_ttc_cents: number;
   total_ht_cents: number;
+  /** Devise stockée de la version (code ISO) : ses totaux sont dans cette devise. */
+  currency: string;
   parent_version_id: string | null;
   variant_label: string | null;
   author_name: string | null;
@@ -3336,7 +3339,7 @@ export async function listEstimateProjectVersions(input: {
   const { data: versionsData, error: versionsError } = await supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, version_number, status, title, updated_at, created_at, total_ttc_cents, total_ht_cents, parent_version_id, variant_label"
+      "id, project_id, version_number, status, title, updated_at, created_at, total_ttc_cents, total_ht_cents, currency, parent_version_id, variant_label"
     )
     .eq("tenant_id", tenantId)
     .eq("project_id", input.projectId)
@@ -3412,6 +3415,7 @@ export async function listEstimateProjectVersions(input: {
       created_at: row.created_at,
       total_ttc_cents: row.total_ttc_cents,
       total_ht_cents: row.total_ht_cents,
+      currency: row.currency,
       parent_version_id: row.parent_version_id ?? null,
       variant_label: toNullableText(row.variant_label) ?? null,
       author_name: authorNameById.get(authorId) ?? null,

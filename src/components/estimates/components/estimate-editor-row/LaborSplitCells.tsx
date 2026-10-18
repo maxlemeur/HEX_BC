@@ -7,6 +7,8 @@ import { EstimateOrderedCells } from "@/components/estimates/context/EstimateCol
 import { EstimateTypeCombobox } from "@/components/estimates/EstimateTypeCombobox";
 import { formatCurrency } from "@/lib/money";
 import { resolveLaborRoleHourlyRate } from "@/lib/estimates/editor-items";
+import { useEstimateV3Grid } from "@/components/estimates/v3/V3LineCells";
+import { parseHoursPerUnit } from "@/lib/numeric-input/parsers";
 
 import {
   type EstimateQualityFlagKey,
@@ -108,6 +110,15 @@ export function LaborSplitCells({
   onPatchItem,
 }: LaborSplitCellsProps) {
   const hasIncompleteSplit = qualityFlags.includes("labor_split_incomplete");
+  // Lot 2, sous-lot 2.6 : sur une v3, l'atelier et le chantier se saisissent aussi par unité (D4).
+  const perUnit = useEstimateV3Grid() !== null;
+  const hours = (scope: "atelier" | "chantier") => perUnit
+    ? { value: item[`h_mo_${scope}_per_unit`] ?? null, parseValue: parseHoursPerUnit, suffix: " par unité",
+        patch: (value: number) => ({ [`h_mo_${scope}_per_unit`]: value }) }
+    : { value: splitFields[`h_mo_${scope}`], parseValue: parseLineHoursDraft, suffix: "",
+        patch: (value: number) => ({ [`h_mo_${scope}`]: value }) };
+  const atelierHours = hours("atelier");
+  const chantierHours = hours("chantier");
 
   return (
     <EstimateOrderedCells>
@@ -161,13 +172,13 @@ export function LaborSplitCells({
           tabIndex={hMoAtelierEditorProps.tabIndex}
           step="0.1"
           min={0}
-          value={splitFields.h_mo_atelier}
-          parseValue={parseLineHoursDraft}
-          aria-label={`Heures de main-d’œuvre en atelier pour ${item.title || "sans titre"}`}
+          value={atelierHours.value}
+          parseValue={atelierHours.parseValue}
+          aria-label={`Heures de main-d’œuvre en atelier${atelierHours.suffix} pour ${item.title || "sans titre"}`}
           onFocus={hMoAtelierEditorProps.onFocus}
           onKeyDown={hMoAtelierEditorProps.onKeyDown}
-          onValueChange={(value) => onPatchItem(item.id, { h_mo_atelier: value }, { persist: false })}
-          onValueCommit={(value) => onPatchItem(item.id, { h_mo_atelier: value }, { persist: true })}
+          onValueChange={(value) => onPatchItem(item.id, atelierHours.patch(value), { persist: false })}
+          onValueCommit={(value) => onPatchItem(item.id, atelierHours.patch(value), { persist: true })}
           onBlur={hMoAtelierEditorProps.onBlur}
           placeholder="0.0"
           disabled={isReadOnly}
@@ -242,13 +253,13 @@ export function LaborSplitCells({
           tabIndex={hMoChantierEditorProps.tabIndex}
           step="0.1"
           min={0}
-          value={splitFields.h_mo_chantier}
-          parseValue={parseLineHoursDraft}
-          aria-label={`Heures de main-d’œuvre sur chantier pour ${item.title || "sans titre"}`}
+          value={chantierHours.value}
+          parseValue={chantierHours.parseValue}
+          aria-label={`Heures de main-d’œuvre sur chantier${chantierHours.suffix} pour ${item.title || "sans titre"}`}
           onFocus={hMoChantierEditorProps.onFocus}
           onKeyDown={hMoChantierEditorProps.onKeyDown}
-          onValueChange={(value) => onPatchItem(item.id, { h_mo_chantier: value }, { persist: false })}
-          onValueCommit={(value) => onPatchItem(item.id, { h_mo_chantier: value }, { persist: true })}
+          onValueChange={(value) => onPatchItem(item.id, chantierHours.patch(value), { persist: false })}
+          onValueCommit={(value) => onPatchItem(item.id, chantierHours.patch(value), { persist: true })}
           onBlur={hMoChantierEditorProps.onBlur}
           placeholder="0.0"
           disabled={isReadOnly}

@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { NumberInput, parseLocalizedNumberInput } from "@/components/ui-legacy/NumberInput";
 import { MarginTiersExplanation } from "@/components/estimates/MarginTiersExplanation";
 import { getCommercialRoundingOptions } from "@/components/estimates/rounding-options";
+import { EstimateV3SettingsSection } from "@/components/estimates/v3/EstimateV3SettingsSection";
+import type { EstimateV3SettingsController } from "@/hooks/useEstimateV3Settings";
 import {
   SUPPORTED_ESTIMATE_CURRENCIES,
   formatCurrency,
@@ -64,6 +66,17 @@ type EstimateSettingsPanelProps = {
   error: string | null;
   onChange: (patch: Partial<EstimateSettingsState>) => void;
   onSave: () => void;
+  /**
+   * Lot 2, sous-lot 2.6 : réglages d'une v3 (`useEstimateV3Settings`). Présent, il remplace les blocs
+   * marge, remise, TVA et arrondi par `EstimateV3SettingsSection` et porte les champs communs ; absent
+   * (v1/v2), le panneau est inchangé.
+   */
+  v3?: EstimateV3SettingsController | null;
+};
+
+/** Champs communs à tous les moteurs (identité, validité, devise, régime de TVA). */
+type CommonSettingsPatch = Partial<Pick<EstimateSettingsState, "title" | "date_devis" | "exclusions" | "validite_jours" | "currency">> & {
+  contractor_role?: "principal" | "subcontractor";
 };
 
 const MARGIN_SUGGESTIONS = [1.05, 1.1, 1.2, 1.3, 1.5];
@@ -122,8 +135,13 @@ export function EstimateSettingsPanel({
   error,
   onChange,
   onSave,
+  v3 = null,
 }: EstimateSettingsPanelProps) {
   const [glossaryDismissed, setGlossaryDismissed] = useState(false);
+  // v3 : les champs communs sont ceux du brouillon v3, seule source de sa charge ; v1/v2 : inchangés.
+  const commonSettings = v3?.draft ?? settings;
+  const changeCommon: (patch: CommonSettingsPatch) => void = v3 ? v3.updateDraft : onChange;
+  const commonDisabled = isReadOnly || (v3 !== null && v3.draft === null);
 
   useEffect(() => {
     try {
@@ -152,6 +170,54 @@ export function EstimateSettingsPanel({
   const globalCoefficient = Number.isFinite(settings.global_coefficient ?? NaN)
     ? Math.max(settings.global_coefficient ?? 1, 0)
     : 1;
+  const contractorRoleField = (
+    <div className={FIELD_CLASS}>
+      <FieldLabel htmlFor="estimate-contractor-role">Régime de TVA</FieldLabel>
+      <NativeSelect
+        id="estimate-contractor-role"
+        disabled={commonDisabled}
+        value={commonSettings.contractor_role ?? "principal"}
+        aria-describedby="estimate-contractor-role-hint"
+        onChange={(event) =>
+          changeCommon({
+            contractor_role:
+              event.target.value === "subcontractor"
+                ? "subcontractor"
+                : "principal",
+          })
+        }
+      >
+        <option value="principal">
+          Entreprise principale — TVA facturée
+        </option>
+        <option value="subcontractor">
+          Autoliquidation — travaux immobiliers sous-traités éligibles
+        </option>
+      </NativeSelect>
+      <div id="estimate-contractor-role-hint" className="space-y-1">
+        <p className="text-xs text-muted-foreground">
+          {commonSettings.contractor_role === "subcontractor"
+            ? "À sélectionner uniquement pour une sous-traitance de travaux immobiliers relevant de l’article 283, 2 nonies du CGI. Le devis est alors émis hors taxe avec la mention « Autoliquidation » ; la TVA est due par le preneur."
+            : "Régime normal : la TVA est facturée au taux applicable."}
+        </p>
+        {commonSettings.contractor_role === "subcontractor" ? (
+          <p className="text-xs font-medium text-warning">
+            Vérifiez le contrat : le nettoyage faisant l’objet d’un contrat
+            séparé, la fabrication ou fourniture de biens, la location
+            d’engins et les prestations intellectuelles ne relèvent pas
+            automatiquement de ce régime.
+          </p>
+        ) : null}
+      </div>
+      {/*
+        EST-E27 — D2 : le logiciel PROPOSE le régime, il ne le déduit
+        jamais. Les exclusions du dispositif (nettoyage sous contrat
+        séparé, fabrication de matériaux, prestations intellectuelles,
+        location d'engins) dépendent de la nature du CONTRAT, que
+        l'application ne connaît pas. L'arbitrage revient à l'utilisateur.
+      */}
+    </div>
+  );
 
   return (
     <Card className="p-5 sm:p-8">
@@ -199,9 +265,9 @@ export function EstimateSettingsPanel({
           <FieldLabel htmlFor="estimate-title">Titre</FieldLabel>
           <Input
             id="estimate-title"
-            value={settings.title}
-            disabled={isReadOnly}
-            onChange={(event) => onChange({ title: event.target.value })}
+            value={commonSettings.title}
+            disabled={commonDisabled}
+            onChange={(event) => changeCommon({ title: event.target.value })}
           />
         </div>
 
@@ -210,9 +276,9 @@ export function EstimateSettingsPanel({
           <Input
             id="estimate-date"
             type="date"
-            value={settings.date_devis}
-            disabled={isReadOnly}
-            onChange={(event) => onChange({ date_devis: event.target.value })}
+            value={commonSettings.date_devis}
+            disabled={commonDisabled}
+            onChange={(event) => changeCommon({ date_devis: event.target.value })}
           />
         </div>
 
@@ -222,11 +288,11 @@ export function EstimateSettingsPanel({
             id="estimate-validite"
             className={NUMBER_INPUT_CLASS}
             min={1}
-            value={settings.validite_jours}
-            disabled={isReadOnly}
+            value={commonSettings.validite_jours}
+            disabled={commonDisabled}
             parseValue={parseIntegerNumberInput}
             emptyValue={0}
-            onValueChange={(validite_jours) => onChange({ validite_jours })}
+            onValueChange={(validite_jours) => changeCommon({ validite_jours })}
           />
         </div>
 
@@ -243,10 +309,10 @@ export function EstimateSettingsPanel({
           <FieldLabel htmlFor="estimate-currency">Devise</FieldLabel>
           <NativeSelect
             id="estimate-currency"
-            value={settings.currency}
-            disabled={isReadOnly}
+            value={commonSettings.currency}
+            disabled={commonDisabled}
             onChange={(event) =>
-              onChange({
+              changeCommon({
                 currency: event.target.value as SupportedEstimateCurrency,
               })
             }
@@ -272,15 +338,25 @@ export function EstimateSettingsPanel({
         <Textarea
           id="estimate-exclusions"
           className="min-h-32 resize-y text-sm"
-          value={settings.exclusions}
-          disabled={isReadOnly}
+          value={commonSettings.exclusions}
+          disabled={commonDisabled}
           maxLength={5000}
           aria-describedby="estimate-exclusions-hint"
           placeholder="Ex. : cordiste, DOE, équilibrage, calorifuge des robinetteries…"
-          onChange={(event) => onChange({ exclusions: event.target.value })}
+          onChange={(event) => changeCommon({ exclusions: event.target.value })}
         />
       </div>
 
+      {v3 ? (
+        <EstimateV3SettingsSection
+          controller={v3}
+          fallbackCurrency={settings.currency}
+          isReadOnly={isReadOnly}
+          isSaving={isSaving}
+          onSave={onSave}
+          contractorRoleField={contractorRoleField}
+        />
+      ) : (
       <div className="estimate-settings-grid mt-8 flex flex-col-reverse gap-6 lg:grid lg:grid-cols-3">
         <div className="min-w-0 space-y-6 lg:col-span-2">
           <div role="group" aria-labelledby="estimate-margin-mode-label">
@@ -454,52 +530,7 @@ export function EstimateSettingsPanel({
               </div>
             )}
           </div>
-          <div className={FIELD_CLASS}>
-            <FieldLabel htmlFor="estimate-contractor-role">Régime de TVA</FieldLabel>
-            <NativeSelect
-              id="estimate-contractor-role"
-              disabled={isReadOnly}
-              value={settings.contractor_role ?? "principal"}
-              aria-describedby="estimate-contractor-role-hint"
-              onChange={(event) =>
-                onChange({
-                  contractor_role:
-                    event.target.value === "subcontractor"
-                      ? "subcontractor"
-                      : "principal",
-                })
-              }
-            >
-              <option value="principal">
-                Entreprise principale — TVA facturée
-              </option>
-              <option value="subcontractor">
-                Autoliquidation — travaux immobiliers sous-traités éligibles
-              </option>
-            </NativeSelect>
-            <div id="estimate-contractor-role-hint" className="space-y-1">
-              <p className="text-xs text-muted-foreground">
-                {settings.contractor_role === "subcontractor"
-                  ? "À sélectionner uniquement pour une sous-traitance de travaux immobiliers relevant de l’article 283, 2 nonies du CGI. Le devis est alors émis hors taxe avec la mention « Autoliquidation » ; la TVA est due par le preneur."
-                  : "Régime normal : la TVA est facturée au taux applicable."}
-              </p>
-              {settings.contractor_role === "subcontractor" ? (
-                <p className="text-xs font-medium text-warning">
-                  Vérifiez le contrat : le nettoyage faisant l’objet d’un contrat
-                  séparé, la fabrication ou fourniture de biens, la location
-                  d’engins et les prestations intellectuelles ne relèvent pas
-                  automatiquement de ce régime.
-                </p>
-              ) : null}
-            </div>
-            {/*
-              EST-E27 — D2 : le logiciel PROPOSE le régime, il ne le déduit
-              jamais. Les exclusions du dispositif (nettoyage sous contrat
-              séparé, fabrication de matériaux, prestations intellectuelles,
-              location d'engins) dépendent de la nature du CONTRAT, que
-              l'application ne connaît pas. L'arbitrage revient à l'utilisateur.
-            */}
-          </div>
+          {contractorRoleField}
 
           <div className={FIELD_CLASS}>
             <FieldLabel htmlFor="estimate-tax">TVA unique</FieldLabel>
@@ -688,6 +719,7 @@ export function EstimateSettingsPanel({
           </Button>
         </div>
       </div>
+      )}
     </Card>
   );
 }

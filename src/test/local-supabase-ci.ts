@@ -136,6 +136,8 @@ interface ProvisionedUsers {
 interface IsolatedSupabaseProject {
   projectId: string;
   rootDirectory: string;
+  /** The isolated ports written into its config.toml. */
+  ports?: number[];
 }
 
 interface LocalSupabaseCiDependencies {
@@ -150,6 +152,11 @@ interface LocalSupabaseCiDependencies {
    * afterwards still knows whether its database was reset or restored.
    */
   onDatabaseProvenance?: (provenance: LocalDatabaseProvenance) => void;
+  /**
+   * Called with the isolated project before its stack starts: a supervisor
+   * that dies afterwards leaves enough to stop and destroy that exact stack.
+   */
+  onProjectPrepared?: (project: Readonly<IsolatedSupabaseProject>) => void;
   prepareProject: (reservedPorts: ReadonlySet<number>) => Promise<IsolatedSupabaseProject>;
   provisionUsers: (
     status: LocalSupabaseStatus
@@ -280,7 +287,7 @@ async function prepareIsolatedProject(additionalReservedPorts: ReadonlySet<numbe
       }
     }
     fs.writeFileSync(path.join(targetDirectory, "config.toml"), config, "utf8");
-    return { projectId, rootDirectory };
+    return { projectId, rootDirectory, ports: [...portReplacements.values()] };
   } catch (error) {
     removeIsolatedProject({ projectId, rootDirectory });
     throw error;
@@ -847,6 +854,7 @@ export async function runLocalSupabaseCi(
   try {
     activePhase = "prepare isolated project";
     project = await dependencies.prepareProject(dependencies.reservedPorts);
+    dependencies.onProjectPrepared?.({ ...project });
     startAttempted = true;
     activePhase = "start local stack";
     // Postgres starts eagerly; Auth and the Data API start on their first request.

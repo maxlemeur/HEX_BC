@@ -5,12 +5,18 @@ import { expect, type App } from "e2e";
 
 import { apiRequest, armyTest, ownEstimate, recordEvidence, type ArmyState } from "../critical/fixtures";
 import { ownedEstimateContext } from "./calculation-gate-support";
+import { waitForDraftLease } from "./engine-v3-editor-support";
 import { insertV3Fixture, readV3State, type V3Fixture } from "./engine-v3-support";
 
 // Lot 2, sous-lot 2.1 — socle fermé par défaut (docs/testing/estimate-engine-v3-2.1.md, E2E-01
 // à E2E-03). Défaillances observables, écrites avant le code :
 //  E2E-01 L'éditeur ou la fiche d'une v3 la relit comme une v1 : totaux v1 affichés
-//         (45,00 € HT, 54,00 € TTC, PU 22,50 € pour 2 × 15,00 € à marge ×1,5), sans bandeau.
+//         (45,00 € HT, 54,00 € TTC, PU 22,50 € pour 2 × 22,50 € à marge ×1).
+//         Réécrit en 2.6 (docs/testing/estimate-engine-v3-2.6.md §1.4) : l'éditeur et la fiche d'un
+//         brouillon v3 s'ouvrent sans le bandeau de 2.1 ; l'éditeur montre l'aperçu du moteur 3
+//         (PU 29,25 €, 58,50 € HT, 70,20 € TTC à c_FO 1,30), la fiche les montants stockés. Le
+//         propriétaire de la fixture est en mode Simplifié : le pied montre la seule pastille HT et
+//         le TTC se lit dans son détail (« Voir les détails de TVA, remise et TTC »).
 //  E2E-02 Ouvrir une v3 la réécrit (sauvegarde, normalisation, totaux) : révision ou montants
 //         modifiés en base.
 //  E2E-03 Publier ou envoyer une v3 réussit, échoue sans message nommé, ou laisse un document,
@@ -21,6 +27,11 @@ import { insertV3Fixture, readV3State, type V3Fixture } from "./engine-v3-suppor
 const options = { session: "army", tags: ["critical", "local", "engine-v3"], timeout: 180_000 } as const;
 const BANNER = "Ce devis utilise le moteur de calcul 3, pas encore disponible pour cette action.";
 const V1_AMOUNTS = /45,00|54,00|22,50/;
+// L'éditeur v3 affiche le PR FO saisi (22,50) : seule la lecture v1 du HT et du TTC y est interdite.
+const V1_TOTALS = /45,00\s?€|54,00\s?€/;
+// Aperçu du moteur 3 de la fixture : 2 × ⌈2 250 × 1,30⌋ = 5 850 c HT, TVA 20 % 1 170 c, TTC 7 020 c.
+const V3_PREVIEW_HT_CHIP = "Total HT : 58,50 €";
+const V3_PREVIEW_TTC = /TTC à payer\s*70,20\s?€/;
 type Envelope<T> = { ok: boolean; data: T; error?: { code: string; message: string } };
 
 function assertOwnedLocalBackend() {
@@ -84,39 +95,48 @@ async function sendFromJourneyProcess(app: App, browser: Browser, fixture: V3Fix
   return { status: response.status, body, sessionCheckStatus: sessionCheck.status };
 }
 
-armyTest("V3FC01 a v3 opens behind the engine banner, shows no v1 total and is not rewritten", options, async ({ app, screen, browser, army }) => {
+armyTest("V3FC01 a v3 draft opens in the v3 editor and on its detail page without the engine banner, shows no v1 total and is not rewritten", options, async ({ app, screen, browser, army }) => {
   const fixture = await prepareV3Fixture(app, browser, army);
   const before = await readV3State(fixture.versionId);
+  const summaryChips = () => browser.evaluate(() => Array.from(
+    document.querySelectorAll("[role=\"region\"][aria-label=\"Résumé du paramétrage\"] button")
+  ).map(button => (button.getAttribute("aria-label") ?? button.textContent ?? "").replace(/[\s  ]+/g, " ").trim()));
 
-  // Wait until the page shows either the banner or a v1 reading, so the evidence records
-  // which one a red build rendered before the assertions below.
-  const settledText = async () => {
-    await expect.poll(async () => {
-      const text = await visibleText(browser);
-      return text.includes(BANNER) || V1_AMOUNTS.test(text);
-    }, { timeout: 30_000 }).toBe(true);
-    return visibleText(browser);
-  };
+  // 2.6 : l'éditeur v3 s'ouvre (grille, pied v3) ; on attend l'aperçu du moteur 3 avant de lire l'écran.
   await app.open(`/dashboard/estimates/${fixture.versionId}/edit`);
-  const editorText = await settledText();
+  await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible({ timeout: 60_000 });
+  await expect.poll(async () => (await summaryChips()).includes(V3_PREVIEW_HT_CHIP), { timeout: 30_000 }).toBe(true);
+  const editorChips = await summaryChips();
+  // Mode Simplifié : le détail (TVA, TTC) s'ouvre au clavier, sans le survol qui l'ouvre aussi. La grille (re)donne le
+  // focus à sa cellule active quand son modèle de navigation change (useSpreadsheetNavigation), dont le passage en
+  // édition à la prise du bail : on attend un éditeur posé (bail pris), sans rien supposer du focus, puis Entrée part
+  // sur le déclencheur lui-même (doc 2.6 §10.4 et §11.4, revue du 18/10/2026).
+  await waitForDraftLease({ app, screen, browser });
+  await screen.getByRole("button", "Voir les détails de TVA, remise et TTC", { exact: true }).press("Enter");
+  await expect.poll(async () => V3_PREVIEW_TTC.test(await visibleText(browser)), { timeout: 30_000 }).toBe(true);
+  const editorText = await visibleText(browser);
+  // La fiche relit les montants stockés (nuls pour cette fixture insérée en SQL), sans recalcul.
   await app.open(`/dashboard/estimates/${fixture.versionId}`);
-  const detailText = await settledText();
+  await expect.poll(async () => (await visibleText(browser)).includes("Brouillon au moteur de calcul 3"), { timeout: 30_000 }).toBe(true);
+  const detailText = await visibleText(browser);
 
   const after = await readV3State(fixture.versionId);
   await recordEvidence(army, "engine-v3-read", {
     fixture: { versionId: fixture.versionId, title: fixture.title },
-    expected: { banner: BANNER, v1AmountsShown: false, state: before },
+    expected: { banner: false, v1AmountsShown: false, editorHtChip: V3_PREVIEW_HT_CHIP, editorTtc: String(V3_PREVIEW_TTC), state: before },
     actual: {
-      editor: { banner: editorText.includes(BANNER), v1AmountsShown: V1_AMOUNTS.test(editorText) },
+      editor: { banner: editorText.includes(BANNER), v1TotalsShown: V1_TOTALS.test(editorText), chips: editorChips,
+        ttcShown: V3_PREVIEW_TTC.test(editorText) },
       detail: { banner: detailText.includes(BANNER), v1AmountsShown: V1_AMOUNTS.test(detailText) },
       state: after,
     },
   });
-  expect(editorText).toContain(BANNER);
-  expect(detailText).toContain(BANNER);
-  expect(editorText).not.toMatch(V1_AMOUNTS);
+  expect(editorText).not.toContain(BANNER);
+  expect(detailText).not.toContain(BANNER);
+  expect(editorChips).toContain(V3_PREVIEW_HT_CHIP);
+  expect(editorText).toMatch(V3_PREVIEW_TTC);
+  expect(editorText).not.toMatch(V1_TOTALS);
   expect(detailText).not.toMatch(V1_AMOUNTS);
-  await expect(screen.getByText(BANNER, { exact: true })).toBeVisible();
   expect(after).toEqual(before);
   expect([after.engine, after.status, after.totals]).toEqual([3, "draft", [0, 0, 0]]);
 });

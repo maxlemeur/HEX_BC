@@ -2,7 +2,11 @@
 
 import { useState } from "react";
 
-import { COLUMN_HEADER_TOOLTIPS } from "@/components/estimates/components/ColumnHeaderHelp";
+import {
+  COLUMN_HEADER_TOOLTIPS,
+  ESTIMATE_V3_COLUMN_HEADER_TOOLTIPS,
+} from "@/components/estimates/components/ColumnHeaderHelp";
+import { useEstimateV3Grid } from "@/components/estimates/v3/V3LineCells";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -179,8 +183,72 @@ const HELP_SECTIONS: HelpSection[] = [
   },
 ];
 
+const V3_TIP = ESTIMATE_V3_COLUMN_HEADER_TOOLTIPS;
+
+/** Moteur de calcul 3 (sous-lot 2.6, D4, D11) : heures par unité, formule complète du PU. */
+const HELP_SECTIONS_V3: HelpSection[] = [
+  {
+    id: "general",
+    title: "Informations de ligne",
+    tone: "general",
+    items: [
+      { label: "Désignation", description: V3_TIP["Désignation"], kind: "Saisie" },
+      { label: "Qté", description: V3_TIP["Qté"], kind: "Saisie" },
+      { label: "U", description: V3_TIP["U"], kind: "Saisie" },
+      { label: "Statut", description: V3_TIP["Statut"], kind: "Saisie" },
+      { label: "TVA %", description: V3_TIP["TVA %"], kind: "Saisie" },
+    ],
+  },
+  {
+    id: "supply",
+    title: "Fournitures",
+    tone: "supply",
+    items: [
+      { label: "PR FO", description: V3_TIP["PR FO"], kind: "Saisie" },
+      { label: "Type FO", description: COLUMN_HEADER_TOOLTIPS["Type FO"], kind: "Saisie" },
+      { label: "K FO", description: V3_TIP["K FO"], kind: "Saisie" },
+    ],
+  },
+  {
+    id: "labor",
+    title: "Main d’œuvre",
+    tone: "labor",
+    items: [
+      { label: "h MO / u", description: V3_TIP["h MO / u"], kind: "Saisie" },
+      { label: "h MO total", description: "Qté × h MO / u, arrondi à 3 décimales : jamais saisi.", kind: "Calculé" },
+      { label: "Type MO", description: V3_TIP["Type MO"], kind: "Saisie" },
+      { label: "K MO", description: V3_TIP["K MO"], kind: "Saisie" },
+      { label: "Majoration MO (%)", description: V3_TIP["Majoration MO (%)"], kind: "Saisie" },
+    ],
+    note:
+      "Lorsque la main d’œuvre est séparée, l’atelier et le chantier se saisissent aussi en heures par unité.",
+  },
+  {
+    id: "sale",
+    title: "Vente",
+    tone: "sale",
+    items: [
+      { label: "PU", description: V3_TIP["PU"], kind: "Calculé" },
+      { label: "Prix total", description: V3_TIP["Prix total"], kind: "Calculé" },
+    ],
+  },
+  {
+    id: "analysis",
+    title: "Analyse de marge",
+    tone: "analysis",
+    items: [
+      { label: "Déboursé sec", description: V3_TIP["Deboursé sec"], kind: "Calculé" },
+      { label: "Marge €", description: V3_TIP["Marge €"], kind: "Calculé" },
+      { label: "Marque %", description: V3_TIP["Marque %"], kind: "Calculé" },
+    ],
+  },
+];
+
 export function EstimateColumnsHelpPanel() {
   const [open, setOpen] = useState(false);
+  // Lot 2, sous-lot 2.6 : l'aide suit le moteur de la version ouverte (v1/v2 : heures de ligne).
+  const isV3 = useEstimateV3Grid() !== null;
+  const sections = isV3 ? HELP_SECTIONS_V3 : HELP_SECTIONS;
 
   return (
     <>
@@ -226,7 +294,7 @@ export function EstimateColumnsHelpPanel() {
           </div>
 
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-surface-subtle px-5 py-5 sm:px-6">
-            {HELP_SECTIONS.map((section) => {
+            {sections.map((section) => {
               const tone = HELP_TONE_STYLES[section.tone];
 
               return (
@@ -282,6 +350,23 @@ export function EstimateColumnsHelpPanel() {
               >
                 Exemple de calcul du PU
               </h3>
+              {isV3 ? (
+                <>
+                  <p className="mt-3 font-mono text-sm leading-6 text-primary-foreground">
+                    100 € × 1,20 × 1,30 + 1 h × 100 % × 1,10 × 50 € × 1,20 = 222,00 €
+                  </p>
+                  <p className="mt-2 text-xs leading-5 text-primary-foreground">
+                    Ici : PR FO 100 €, K FO 1,20, coefficient de vente FO 1,30, 1 h MO / u à
+                    50 €/h, majoration 100 %, K MO 1,10 et coefficient de vente MO 1,20 : le PU
+                    est arrondi au centime une seule fois.
+                  </p>
+                  <p className="mt-2 text-xs leading-5 text-primary-foreground">
+                    Les heures étant par unité, une Qté de 2 double la fourniture et la main
+                    d’œuvre : h MO total = 2 h et prix total = 2 × 222,00 € = 444,00 €.
+                  </p>
+                </>
+              ) : (
+              <>
               <p className="mt-3 font-mono text-sm leading-6 text-primary-foreground">
                 (1 × 100 € × 1,20 + 1 h × 1,10 × 50 €) × 1,10 = 192,50 €
               </p>
@@ -295,6 +380,8 @@ export function EstimateColumnsHelpPanel() {
                 la fourniture mais pas l’heure : (2 × 100 € × 1,20 + 1 h × 1,10
                 × 50 €) × 1,10 = 324,50 €, soit un PU de 162,25 €.
               </p>
+              </>
+              )}
             </section>
           </div>
         </SheetContent>
