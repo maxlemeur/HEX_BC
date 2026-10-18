@@ -67,6 +67,26 @@ export function reconcilesEditorTotals(version: EngineVersionSource): boolean {
   }
 }
 
+/**
+ * Une écriture de structure acquittée sans totaux (création, ordre) laisse à un éditeur v1/v2 son pied à
+ * réenregistrer. Une v3 n'a aucun total client à écrire (`persistedTotals` nul) : le serveur a recalculé et stocké
+ * ses totaux dans la même transaction (2.5, D12). Sans cet aiguillage, l'annulation d'une suppression affichait
+ * « Les totaux n'ont pas pu être sauvegardés » le temps de sa remise en ordre, la grille sautait, puis l'état
+ * restait « En attente » (docs/testing/v3e05-click-intercepted.md).
+ */
+export function writesEditorTotals(version: EngineVersionSource): boolean {
+  const engine = resolveEditorEngine(version);
+  switch (engine) {
+    case 1:
+    case 2:
+      return true;
+    case 3:
+      return false;
+    default:
+      return assertNever(engine);
+  }
+}
+
 /** Charge de ligne envoyée par la sauvegarde groupée : une v3 n'envoie ni heures totales ni projection. */
 export function toEngineItemWrite(payload: EstimateItemUpdatePayload, version: EngineVersionSource): EstimateItemUpdatePayload {
   const engine = resolveEditorEngine(version);

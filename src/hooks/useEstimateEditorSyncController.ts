@@ -48,7 +48,7 @@ import {
   type EstimateItem,
   type EstimateItemUpdatePayload,
 } from "@/lib/estimates/editor-items";
-import { reconcilesEditorTotals, toEngineItemWrite } from "@/lib/estimates/editor-engine";
+import { reconcilesEditorTotals, toEngineItemWrite, writesEditorTotals } from "@/lib/estimates/editor-engine";
 import { isDraftLockRequiredError, isVersionConflictError } from "@/lib/estimates/editor-sync-errors";
 import { buildEditorItemSyncBaseline } from "@/lib/estimates/v3-editor";
 
@@ -244,7 +244,8 @@ export function useEstimateEditorSyncController({
         setReadRequiredMessage(message);
       },
       onCommit: ({ version, deletedIds, structural, needsReload, totals }) => {
-        if (!getCurrentVersionSnapshot() || version.id !== routeVersionId) return;
+        const snapshot = getCurrentVersionSnapshot();
+        if (!snapshot || version.id !== routeVersionId) return;
         if (needsReload) {
           const message = "Le résultat est confirmé. Relisez le devis avant de poursuivre ; vos saisies locales sont conservées.";
           recoveryReloadMessageRef.current = message;
@@ -266,7 +267,9 @@ export function useEstimateEditorSyncController({
         }
         if (structural) {
           structuralGenerationRef.current += 1;
-          const needsTotalsSave = !totals || pendingItemUpdatesRef.current.size > 0 || pendingSettingsRef.current;
+          // Sans totaux en retour, seul un éditeur v1/v2 a son pied à réenregistrer (writesEditorTotals).
+          const needsTotalsSave = (!totals && writesEditorTotals(snapshot)) ||
+            pendingItemUpdatesRef.current.size > 0 || pendingSettingsRef.current;
           updateHasPendingTotalsSave(needsTotalsSave);
           mutationObserverRef.current.setTotalsOutOfSync(needsTotalsSave);
         }
