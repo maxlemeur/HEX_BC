@@ -127,3 +127,154 @@ inspection d'un PDF. Les deux scénarios portent sur des brouillons ARMY ; ils
 ne qualifient pas une offre déjà émise ou ses snapshots. Cette campagne ne
 prouve ni l'affichage mobile, ni les devises USD/GBP, ni l'autoliquidation,
 ni une exécution sur Supabase partagé ou un déploiement public.
+
+## Parcours historique rouge à 2 workers : 409 au `PATCH` d'amorçage (18 octobre 2026)
+
+### Défaillance observée
+
+Clone WSL `~/miaouffrage-v1-selection-verify` (Ubuntu 24.04, Node 24.14.0), commande
+`E2E_ARMY_WORKERS=2 npm run e2e:army:ci -- critical --app-port 3174`, révision `ef0b8289`
+(`ci/v1-totals-journeys-in-pr-selection`, sans modification locale). Cette branche fait entrer
+les parcours V1 de totaux dans la sélection critique, sous des propriétaires dédiés
+(`bulk-actions-v1-totals`, `supplier-preselection-v1-totals`, `legacy-v1-draft-support.ts`). Elle
+ne touche ni ce parcours, ni `fixtures.ts`, ni le code des verrous : elle ne change que la
+répartition des parcours entre les deux workers. Résultat : 108/110. Les deux rouges sont ce
+parcours et `bulk-edit-sync-sources` (« expected 1.3 to be 1 », défaut distinct, non traité
+ici). La même commande sur `main` `c4c1e854` était passée une fois. Preuves :
+`.e2e/army/ci/2026-10-18T12-49-48-645Z-critical/` (`critical/report.json` sha256
+`cb68401b…ba9d`).
+
+« commercial rounding displays historical modes explicitly and preserves them on unrelated
+saves » échoue sur « expected 409 to be 200 » (`commercial-rounding.e2e.ts:207`). La requête
+refusée est le `PATCH /api/estimates/<version>` qui sème le mode historique de la troisième
+itération (`down`, pas de 2,50 €). Chronologie de la tentative unique (`report.json`) :
+
+- 12:53:17.821 : `browser.goto(…/edit?openSettings=rounding)`, fin de la deuxième itération ;
+- 12:53:18.314 : « Arrondi » visible, puis titre et option relus (lecture seule suffit) ;
+- 12:53:18.332 : `GET` de la version, qui fournit `updated_at` et `content_revision` ;
+- 12:53:18.425 : `PATCH` envoyé, refusé à 12:53:18.511 en `409 Conflict` (`appLog`).
+
+L'autre worker exécutait alors `dashboard-ux` (UX08 à UX14), soit une suite de rendus de pages.
+Le rapport ne garde pas le corps de la réponse : le code du refus n'y figure pas. L'écran à
+l'échec (`screen-at-failure.txt`) affiche « Connexion… » dans le statut de synchronisation
+(`estimate-page-toolbar-autosave-status`), les champs du paramétrage désactivés et le bouton
+« Lecture seule ». L'éditeur rechargé ne détenait donc pas encore son bail.
+
+### Cause
+
+`patchEstimateVersion` (`src/lib/estimates/server.ts`) contrôle l'accès, le statut, puis le bail
+(`assertDraftLockOwnedByCurrentUser`, `src/lib/estimates/server-context.ts`), puis `If-Match`.
+Dans le journal réseau du serveur (`critical/artifacts/server-network.jsonl`), la lecture
+`draft_locks` de 12:53:18.505 est la dernière requête Supabase avant le 409 : aucune écriture
+n'a été tentée. Codes possibles à ce stade :
+
+- `VERSION_CONFLICT` : exclu à la lecture du code. Entre le `GET` et le `PATCH`, rien n'écrit
+  `estimate_versions`. L'acquisition du bail lit la version sans l'écrire
+  (`20261018093005_serialize_estimate_draft_lock_acquisition.sql`) ;
+- `LOCK_REQUIRED` : aucun bail actif ;
+- `CONFLICT` (« déjà verrouillée dans une autre page d'édition ») : bail encore tenu par la page
+  déchargée, sous une autre session du même utilisateur.
+
+Mécanisme. `goto` charge un nouveau document. L'ancien libère son bail sur `beforeunload`, par
+une requête `keepalive` (`src/hooks/useDraftLock.ts`). Le nouveau prend une nouvelle identité de
+session : `getEstimateDraftLockSessionId` (`src/lib/estimates/client.ts`) ne reprend celle de
+`sessionStorage` qu'après un vrai rechargement. Il demande son bail une fois la version
+brouillon chargée par le client, puis toutes les 5 s tant qu'il ne l'a pas. Le délai comprend
+donc cette lecture. La libération de l'ancienne page ne supprime que la ligne de sa propre
+session (`src/lib/estimates/locks.ts`) : elle ne peut pas retirer le nouveau bail. `apiRequest`
+(`fixtures.ts`) envoie l'identité de session de la page, lue dans la même table que l'éditeur
+(`__miaouffrageEstimateDraftLockSessions`). Un `PATCH` parti avant que l'éditeur ait obtenu son
+bail est donc refusé.
+
+Un utilisateur ne peut pas envoyer cette écriture. Tant que le bail manque, l'éditeur est en
+lecture seule (`isDraftLockPending`, `src/hooks/useEstimateEditorSyncController.ts`) et le
+paramétrage est désactivé. Il s'agit d'une course du parcours, et non d'un défaut du produit.
+C'est la même forme que V1BT03 (`bb521950`, voir
+[Totaux de version après les actions en lot](version-totals-after-bulk-actions.md#v1bt03-rouge-dans-la-suite-full-39113661225-409-sur-la-règle-de-suggestion)).
+La course existe depuis l'arrivée du parcours dans `e2e/army/critical` (`28ccc857`, 14/10),
+avec la même boucle `PATCH` puis `goto`. Son issue dépend du délai d'acquisition du bail sous
+charge. Dans le même run, le `PATCH` de la deuxième itération, envoyé 661 ms après son
+`goto`, était passé. Celui de la troisième est parti 604 ms après le sien.
+
+### Correction (`e2e/` seulement)
+
+- `waitForEditorLease` : avant chaque `PATCH` d'amorçage, le parcours attend que le statut de la
+  barre d'outils affiche « À jour » ou « Sauvegardé », avec un délai de 30 s. Ce statut n'est
+  rendu que pour une version brouillon chargée. Ces deux libellés n'apparaissent que si
+  l'enregistrement n'est pas bloqué (`src/hooks/useEstimateEditorAutoSave.ts`). Cela exige
+  `!isDraftLockPending` et `!isDraftLockedByOther`, donc un bail détenu par la page. Le délai de
+  30 s couvre aussi la redemande toutes les 5 s, quand la page déchargée tient encore le bail.
+  Sur un autre statut sans blocage (« Totaux à synchroniser », par exemple), l'attente échoue au
+  lieu d'écrire : c'est un échec lisible, sans risque de masquer un défaut.
+- L'assertion nomme le code refusé, comme `createdData` depuis `bb521950`.
+- Le produit n'est pas modifié. Les oracles (mode, pas, HT, TTC, titre, option sélectionnée) sont
+  inchangés.
+
+Cette attente ne masque pas de défaut. Elle attend l'état visible dans lequel un utilisateur peut
+faire la même écriture, et ne rejoue aucune requête métier. Si le bail n'arrive jamais, elle
+échoue au bout de 30 s, sur « Connexion… » ou « Verrouillé ».
+
+Les autres écritures API des parcours critiques prennent d'abord le bail elles-mêmes par
+`POST …/lock`, sur la page où elles écrivent. Elles passent par la fixture `createLineViaApi`
+(`bulk-move`, `bulk-edit-sync-sources`, `estimate-integrity`, etc.) ou par un `POST …/lock`
+explicite (`stale-save`, `import-optima-v2`). Ce `POST` partage la session de la page avec
+l'éditeur. Elles n'ont pas cette course.
+
+### Reproduction et preuves
+
+Clone WSL `~/miaouffrage-rounding-flake`, Ubuntu 24.04, Node 24.14.0, révision `c4c1e854`
+(`main`), port applicatif 3175, `E2E_ARMY_WORKERS=2`. La sélection rejoue l'arrondi avec
+`dashboard-ux`, que l'autre worker exécutait au moment de l'échec en CI.
+
+Modifications locales jetables, jamais commitées :
+
+| Nom | Contenu |
+| --- | --- |
+| D | rouge seulement : la route du navigateur critique (`fixtures.ts`) retient 3 s chaque `POST /api/estimates/<id>/lock` |
+| M | message de l'assertion seul (le code refusé), sans l'attente du bail |
+
+Boucle `e2e:army:dev-loop` (session `2026-10-18T14-53-39-239Z-dev-loop`, manifeste
+`660bbd87…f04c`, build `qyPfD3K3kro28oHb51yWa`). Elle ne constitue pas un run qualifiant.
+
+| Itération | Diff (`diffSha256`) | Sélection | Résultat | `report.json` (sha256) |
+| --- | --- | --- | --- | --- |
+| 001, rouge | D + M (`b8d81fb6…b16b`) | `--grep "historical modes"` | exit 1, 1/2. Rouge sur la ligne de la CI : « LOCK_REQUIRED: expected 409 to be 200 » (`:207`), au `PATCH` de la deuxième itération (premier rechargement), 836 ms après son `goto`. Écran à l'échec : « Connexion… » | `4e70ea31…f36e` |
+| 002 | D + correction (`d2ce4801…e838`) | idem | exit 0, 2/2. Attentes du bail : 4 ms (page du wizard, bail déjà détenu), puis 3 024 et 5 337 ms après les deux rechargements ; aucun 409 | `a203d9fb…7d71` |
+| 003 | correction (`9af6364b…414a`) | `--files` arrondi + `dashboard-ux` | exit 0, 32/32. Bail obtenu 599 et 560 ms après le `goto` | `7f2f2820…8424` |
+| 004 | M (`23af57d0…1c37`) | idem | exit 0, 32/32 : sans D, la course ne se reproduit pas seule en local | `5092ccc3…0140` |
+
+Sans retenue, le bail arrive environ 560 à 600 ms après le `goto`. C'est à peu près le temps
+que met le parcours pour atteindre son `PATCH` (604 ms dans le run de la CI). La marge est
+presque nulle, d'où un échec seulement sous charge.
+
+Boucle arrêtée ensuite : état retiré, pile détruite, aucune erreur.
+
+Runs qualifiants, sans D : `E2E_ARMY_WORKERS=2 npm run e2e:army:local -- --files
+e2e/army/critical/commercial-rounding.e2e.ts,e2e/army/critical/dashboard-ux.e2e.ts --app-port 3175`,
+sur `c4c1e854` + correction (`diffSha256` `9af6364b…414a`). Portée `filtered-critical`, pgTAP et
+matrice RLS verts.
+
+| Run | Résultat | Bail au `PATCH` (2ᵉ et 3ᵉ itérations) | Preuves (`manifest.json`, `report.json`) |
+| --- | --- | --- | --- |
+| Q1 | exit 0, 32/32, une tentative chacun (496 s, pile et build compris) | déjà détenu : attentes de 3 et 4 ms ; bail présent 645 et 733 ms après le `goto` | `2026-10-18T15-10-17-513Z-critical` (`37df33cd…8a7c`, `ef605163…2d49`) |
+| Q2 | exit 0, 32/32, une tentative chacun (245 s) | pas encore détenu : attentes de 326 et 109 ms ; bail obtenu 846 et 633 ms après le `goto`. Sans l'attente, ces deux `PATCH` seraient partis avant que l'éditeur détienne son bail | `2026-10-18T15-18-33-901Z-critical` (`7c9b26ac…523d`, `19509bf7…b200`) |
+
+Valeurs relues dans Q1 et Q2 (oracles inchangés) : HT 76 063 centimes ; `nearest`, pas 100,
+TTC 91 300 ; `up`, pas 1 000, TTC 92 000 ; `down`, pas 250, TTC 91 250. Titre modifié relu par
+l'API et après rechargement, option historique toujours sélectionnée. Preuves :
+`ARMY-1792336697121-186dd1a6-rounding-historical-{nearest,up,down}.json` (Q1) et
+`ARMY-1792336945957-32acffbc-rounding-historical-{nearest,up,down}.json` (Q2). Le premier
+parcours du fichier, qui n'utilise pas l'API pour écrire après un rechargement, passe aussi dans
+les deux runs.
+
+Après la revue indépendante, le commentaire de `waitForEditorLease` nomme les deux codes (une
+ligne devenue deux). C'est la seule différence entre le diff qualifié et le diff final
+(`a9609551…0b74`). Sur ce diff final, dans le clone WSL : `npm run typecheck` et
+`npx eslint --max-warnings=0` sur `commercial-rounding.e2e.ts` et `fixtures.ts` rendent
+exit 0.
+
+**Limites :** la course ne se reproduit pas seule en local (itération 004). Le rouge repose sur
+la retenue D, qui force la même fenêtre. Le code du 409 de la CI n'est pas archivé : il est
+`LOCK_REQUIRED` ou `CONFLICT`, `VERSION_CONFLICT` étant exclu par lecture. La suite critique
+complète à 2 workers n'a pas été rejouée ici ; son autre rouge du 18/10
+(`bulk-edit-sync-sources`) reste à traiter à part.
