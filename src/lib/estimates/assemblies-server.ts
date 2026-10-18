@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { finalizeAssemblyCalculation } from "@/lib/estimates/assembly-calculation";
+import { resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
 import {
   loadAssemblyItemCountByAssemblyId,
   loadAssemblyMemberCountByAssemblyId,
@@ -49,6 +50,7 @@ import type {
   ListEstimateAssembliesQueryInput,
   UpdateEstimateAssemblyInput,
 } from "@/lib/estimates/schemas";
+import { listTemplateLinesConvertedForV3 } from "@/lib/estimates/template-v3-hours";
 import type { Database, Json } from "@/types/database";
 
 type Supabase = SupabaseClient<Database>;
@@ -64,6 +66,7 @@ type EstimateAssemblyMemberInsert =
   Database["public"]["Tables"]["estimate_assembly_members"]["Insert"];
 type LaborRoleRow = Database["public"]["Tables"]["labor_roles"]["Row"];
 type SupplyTypeRow = Database["public"]["Tables"]["supply_types"]["Row"];
+type EstimateTemplateItemRow = Database["public"]["Tables"]["estimate_template_items"]["Row"];
 type EstimateItemRow = Database["public"]["Tables"]["estimate_items"]["Row"] & {
   labor_role_atelier_id?: string | null;
   labor_role_chantier_id?: string | null;
@@ -576,6 +579,49 @@ async function collectEstimateAssemblyTreeIds(input: {
   return Array.from(visited);
 }
 
+// Lot 2, sous-lot 2.8 (rules 3 and 5, P-12): the named refusals of M6 reach the user with the line named.
+const V3_ENTRY_REFUSALS: Record<string, (title: string) => string> = {
+  ESTIMATE_V3_TEMPLATE_HOURS_WITHOUT_QUANTITY: (title) =>
+    `La ligne « ${title} » du modèle porte des heures sans quantité : un chiffrage moteur 3 stocke des heures par unité. Renseignez sa quantité dans le modèle.`,
+  ESTIMATE_V3_ASSEMBLY_HOURS_WITHOUT_QUANTITY: (title) =>
+    `Le composant « ${title} » porte des heures sans quantité par défaut : un chiffrage moteur 3 stocke des heures par unité. Renseignez sa quantité par défaut dans l'ouvrage.`,
+  ESTIMATE_V3_ASSEMBLY_HOURS_PER_UNIT_INEXACT: (title) =>
+    `Les heures du composant « ${title} » divisées par sa quantité par défaut ne tombent pas juste à quatre décimales : un chiffrage moteur 3 les stockerait arrondies. Ajustez ses heures ou sa quantité par défaut dans l'ouvrage.`,
+};
+
+function throwNamedV3EntryRefusal(error: { message?: string | null; details?: string | null }) {
+  const describe = error.message ? V3_ENTRY_REFUSALS[error.message] : undefined;
+  if (!describe) return;
+  const title = error.details?.trim() || "sans titre";
+  throw badRequest(describe(title), { title }, error.message!);
+}
+
+/**
+ * Lot 2, sous-lot 2.8 (review): into a v3, a template labour role that is not the project owner's is valued
+ * at 0 €/h by the engine without a word, then refused by every later TypeScript write. Refused by name.
+ */
+async function assertTemplateLaborRolesResolved(input: {
+  supabase: Supabase;
+  tenantId: string;
+  projectUserId: string;
+  templateItems: EstimateTemplateItemRow[];
+}) {
+  const rolesOf = (item: EstimateTemplateItemRow) =>
+    [item.labor_role_id, item.labor_role_atelier_id, item.labor_role_chantier_id].filter((id): id is string => Boolean(id));
+  const validRoles = await loadValidLaborRoleIdsForOwner({
+    supabase: input.supabase, tenantId: input.tenantId, ownerUserId: input.projectUserId,
+    laborRoleIds: input.templateItems.flatMap(rolesOf),
+  });
+  const offending = input.templateItems.filter((item) => rolesOf(item).some((id) => !validRoles.has(id)));
+  if (offending.length === 0) return;
+
+  throw badRequest(
+    "Ce modèle porte des rôles de main-d'œuvre qui ne sont pas ceux du propriétaire du devis : un chiffrage moteur 3 compterait leurs heures à 0 €/h. Remplacez-les dans le modèle avant de l'insérer.",
+    { items: offending.map((item) => ({ id: item.id, title: item.title ?? "Ligne sans titre" })) },
+    "ESTIMATE_TEMPLATE_LABOR_ROLE_REQUIRED"
+  );
+}
+
 /**
  * Un composant de main-d'oeuvre SANS role porte son taux horaire dans
  * unit_cost_ht_cents (cf. refresh_estimate_assembly_rollup). Or une ligne de
@@ -703,6 +749,7 @@ export async function insertAssemblyIntoVersion(input: {
     if (errorMessageContains(error, "after_item_id invalide")) {
       throw badRequest("afterItemId invalide.", error);
     }
+    throwNamedV3EntryRefusal(error);
     throw mapSupabaseError(error, "Impossible d'insérer l'ouvrage.");
   }
 
@@ -715,6 +762,28 @@ export async function insertAssemblyIntoVersion(input: {
       { data },
       "ESTIMATE_ASSEMBLY_INSERT_FAILED"
     );
+  }
+
+  // Lot 2, 2.8 (M6): a v3 receives the v3 engine amounts in the insertion transaction itself.
+  if (resolveEstimateEngineVersion(version) === 3) {
+    const { data: inserted, error: insertedError } = await supabase
+      .from("estimate_versions")
+      .select("id, updated_at, total_ht_cents, total_tax_cents, total_ttc_cents")
+      .eq("tenant_id", tenantId)
+      .eq("id", input.versionId)
+      .single();
+    if (insertedError || !inserted) {
+      throw mapSupabaseError(insertedError, "Impossible de relire le devis après l'insertion de l'ouvrage.");
+    }
+    return {
+      items: insertedItems,
+      version: { id: inserted.id, updated_at: inserted.updated_at },
+      totals: {
+        total_ht_cents: inserted.total_ht_cents,
+        total_tax_cents: inserted.total_tax_cents,
+        total_ttc_cents: inserted.total_ttc_cents,
+      },
+    };
   }
 
   return finalizeAssemblyCalculation({
@@ -734,7 +803,7 @@ export async function insertTemplateIntoVersion(input: {
 }) {
   const context = await getAuthenticatedContext();
   const { supabase, tenantId, userId } = context;
-  const { version } = await getVersionAccessOrThrow(
+  const { version, project } = await getVersionAccessOrThrow(
     supabase,
     input.versionId,
     context
@@ -761,6 +830,9 @@ export async function insertTemplateIntoVersion(input: {
 
   if (templateItems.length === 0) {
     throw badRequest("Ce template ne contient aucun élément.");
+  }
+  if (resolveEstimateEngineVersion(version) === 3) {
+    await assertTemplateLaborRolesResolved({ supabase, tenantId, projectUserId: project.user_id, templateItems });
   }
 
   let targetParentId: string | null = null;
@@ -862,6 +934,7 @@ export async function insertTemplateIntoVersion(input: {
     if (errorMessageContains(error, "after_item_id invalide")) {
       throw badRequest("afterItemId invalide.", error);
     }
+    throwNamedV3EntryRefusal(error);
     throw mapSupabaseError(error, "Impossible d'insérer le template.");
   }
 
@@ -893,6 +966,14 @@ export async function insertTemplateIntoVersion(input: {
   const orderedItems = insertedItemIds
     .map((id) => reloadedItemsById.get(id))
     .filter((item): item is EstimateItemRow => Boolean(item));
+
+  // Lot 2, 2.8 (P-12): into a v3, the lines whose hours change through h / Q are listed.
+  if (resolveEstimateEngineVersion(version) === 3) {
+    return {
+      items: orderedItems,
+      converted_lines: listTemplateLinesConvertedForV3(templateItems),
+    };
+  }
 
   return {
     items: orderedItems,

@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
+import { EstimateEngineUnavailableError, usesPerUnitLabor } from "@/lib/estimates/engine/capabilities";
 
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -14,6 +16,7 @@ import {
 } from "@/lib/estimates/errors";
 import { getAuthenticatedTenantContext as getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
+import { selectInChunks } from "@/lib/supabase/in-chunks";
 import { assertDraftLockOwnedByCurrentUser } from "@/lib/estimates/server-context";
 import {
   assignVersionZeroLotKeys,
@@ -85,6 +88,7 @@ type VersionAccessRow = Pick<
   | "margin_multiplier"
   | "tax_rate_bp"
   | "updated_at"
+  | "calc_engine_version"
 > & {
   estimate_projects: EmbeddedProjectAccess | EmbeddedProjectAccess[] | null;
 };
@@ -427,7 +431,7 @@ async function getVersionAccessOrThrow(
   const { data, error } = await supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, status, margin_multiplier, tax_rate_bp, updated_at, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name, notes, is_archived)"
+      "id, project_id, status, margin_multiplier, tax_rate_bp, updated_at, calc_engine_version, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name, notes, is_archived)"
     )
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)
@@ -1265,6 +1269,8 @@ export async function generateVersionZeroDraft(input: {
     input.versionId,
     context
   );
+  // Lot 2, sous-lot 2.8 (P-14) : refusée dans une v3 pendant le lot 2, avec le message nommé.
+  if (usesPerUnitLabor(resolveEstimateEngineVersion(version))) throw new EstimateEngineUnavailableError();
 
   assertDraftStatus(version.status);
   await assertDraftLockOwnedByCurrentUser({
@@ -1619,6 +1625,8 @@ export async function materializeVersionZeroDraft(input: {
   assertCanWriteEstimateWorkflows(context.tenantRole);
   const { supabase, tenantId, userId } = context;
   const { version } = await getVersionAccessOrThrow(supabase, input.versionId, context);
+  // Lot 2, sous-lot 2.8 (P-14) : refusée dans une v3 pendant le lot 2, avec le message nommé.
+  if (usesPerUnitLabor(resolveEstimateEngineVersion(version))) throw new EstimateEngineUnavailableError();
 
   assertDraftStatus(version.status);
   await assertDraftLockOwnedByCurrentUser({
@@ -1860,11 +1868,13 @@ export async function enrichEstimateItemsWithVersionZeroProvenance(input: {
   }
 
   const itemIds = targetItems.map((item) => item.id);
-  const { data: applicationsData, error } = await input.supabase
-    .from("estimate_version_zero_applications")
-    .select("*")
-    .eq("tenant_id", input.tenantId)
-    .in("estimate_item_id", itemIds);
+  const { data: applicationsData, error } = await selectInChunks(itemIds, (chunk) =>
+    input.supabase
+      .from("estimate_version_zero_applications")
+      .select("*")
+      .eq("tenant_id", input.tenantId)
+      .in("estimate_item_id", chunk)
+  );
 
   if (error) {
     throw mapSupabaseError(
@@ -1886,26 +1896,20 @@ export async function enrichEstimateItemsWithVersionZeroProvenance(input: {
         "id",
         Array.from(new Set(applications.map((application) => application.draft_id)))
       ),
-    input.supabase
-      .from("estimate_version_zero_lots")
-      .select("*")
-      .in(
-        "id",
-        Array.from(
-          new Set(
-            applications
-              .map((application) => application.lot_id)
-              .filter((value): value is string => typeof value === "string")
-          )
+    selectInChunks(
+      Array.from(
+        new Set(
+          applications
+            .map((application) => application.lot_id)
+            .filter((value): value is string => typeof value === "string")
         )
       ),
-    input.supabase
-      .from("estimate_version_zero_lines")
-      .select("*")
-      .in(
-        "id",
-        Array.from(new Set(applications.map((application) => application.line_id)))
-      ),
+      (chunk) => input.supabase.from("estimate_version_zero_lots").select("*").in("id", chunk)
+    ),
+    selectInChunks(
+      Array.from(new Set(applications.map((application) => application.line_id))),
+      (chunk) => input.supabase.from("estimate_version_zero_lines").select("*").in("id", chunk)
+    ),
   ]);
 
   if (draftsResponse.error) {

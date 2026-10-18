@@ -79,7 +79,7 @@ import {
   resolveEditorQualityItems,
 } from "@/lib/estimates/editor-engine";
 import {
-  ESTIMATE_V3_EDITOR_WRITER, ESTIMATE_V3_PASTE_UNAVAILABLE_MESSAGE, recomputeEstimateV3AfterLaborRate,
+  ESTIMATE_V3_EDITOR_WRITER, recomputeEstimateV3AfterLaborRate,
 } from "@/lib/estimates/v3-editor-writer";
 import {
   buildEditorItemSyncBaseline, buildEstimateV3ItemUpdatePayload, buildEstimateV3SummaryView, indexEstimateV3Lines,
@@ -2398,7 +2398,7 @@ export function useEstimateEditorState({
     pushHistoryCommand,
     recreateItemsFromSnapshots,
     reloadItems,
-    unavailableMessage: isV3 ? ESTIMATE_V3_PASTE_UNAVAILABLE_MESSAGE : null,
+    v3Writer: isV3 ? ESTIMATE_V3_EDITOR_WRITER : undefined,
   });
   const { pasteRows: handlePasteRows } = pasteController.actions;
 
