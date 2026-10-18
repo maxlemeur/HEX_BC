@@ -177,7 +177,10 @@ export function useCatalogueSuggestions({
       // 2.9: a converted offer prices a line in metres per metre, a line in bars per bar.
       const linePrice = alternativePriceForLineUnit(alternative ?? suggestion, lineUnit);
       const suggestedUnit = linePrice.unit?.trim() ?? "";
-      if (selectedSupplierPriceId && !areSupplierUnitsCompatible(lineUnit, suggestedUnit)) {
+      // On a v3 line every suggested price is judged in unit_code, a product reference price without
+      // any offer as well (F26-26, Codex review of PR #44). v1/v2 judge an offer only: their unit is
+      // free text in `description`, which may still hold a designation (sub-lot 2.2).
+      if ((isV3 || selectedSupplierPriceId) && !areSupplierUnitsCompatible(lineUnit, suggestedUnit)) {
         setCatalogueError(`Unité différente du devis : offre en ${suggestedUnit}, ligne en ${lineUnit?.trim()}.`);
         return;
       }
