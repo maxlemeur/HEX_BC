@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { IconButton } from "@/components/ui/icon-button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { EstimateTotals } from "@/lib/estimate-calculations";
+import { formatEstimateV3TaxRate, type EstimateV3SummaryView } from "@/lib/estimates/v3-editor";
 import { formatCurrency, type SupportedEstimateCurrency } from "@/lib/money";
 import { MoreHorizontalIcon, SettingsIcon } from "lucide-react";
 
@@ -34,6 +35,11 @@ type EstimateSettingsSummaryBarProps = {
   taxRateBp: number;
   isExpert: boolean;
   onOpenSettings: (section?: SettingsSection) => void;
+  /**
+   * Lot 2, sous-lot 2.6 : pied d'une v3 (aperçu du moteur pur, D7, D8), présent seulement sur une
+   * v3 ; nul tant que l'aperçu est indisponible. Aucune marge v2 (multiplicateur ×1) n'y figure.
+   */
+  v3Summary?: EstimateV3SummaryView | null;
 };
 
 /* ---------- sub-components ---------- */
@@ -123,6 +129,73 @@ function SkeletonChips() {
   );
 }
 
+/**
+ * Pied v3 : HT net, une TVA par taux présent (somme par taux, jamais ligne à ligne), TVA totale,
+ * TTC à payer = HT + TVA, et la remise ou l'arrondi commercial dès qu'ils s'appliquent (contrat
+ * d'écran §9.4.3 de docs/testing/estimate-engine-v3-2.6.md).
+ */
+function V3SummaryItems({
+  summary,
+  currency,
+  isExpert,
+  openSection,
+}: {
+  summary: EstimateV3SummaryView;
+  currency: SupportedEstimateCurrency;
+  isExpert: boolean;
+  openSection: (section: SettingsSection) => () => void;
+}) {
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const money = (cents: number) => formatCurrency(cents, currency);
+  const entries: Array<{ key: string; label: string; value: string; section: SettingsSection; variant?: ChipVariant }> = [
+    ...(summary.discountAppliedCents > 0
+      ? [{ key: "discount", label: "Remise commerciale", value: formatSignedCurrency(-summary.discountAppliedCents, currency), section: "discount" as const }]
+      : []),
+    ...(summary.commercialRoundingCents > 0
+      ? [{ key: "rounding", label: "Arrondi commercial", value: formatSignedCurrency(-summary.commercialRoundingCents, currency), section: "rounding" as const }]
+      : []),
+    ...summary.taxByRate.map((row) => ({
+      key: `tax-${row.rateBp}`, label: `TVA ${formatEstimateV3TaxRate(row.rateBp)} %`, value: money(row.taxCents), section: "tax" as const,
+    })),
+    { key: "tax", label: "TVA", value: money(summary.totalTaxCents), section: "tax" },
+    { key: "ttc", label: "TTC à payer", value: money(summary.payableTtcCents), section: "rounding", variant: "highlight" },
+  ];
+  const totalHt = { label: "Total HT", value: money(summary.totalHtCents) };
+  if (isExpert) {
+    return (
+      <div className="estimate-summary-bar__items">
+        <SummaryChip label={totalHt.label} value={totalHt.value} variant="primary" onClick={openSection("general")} />
+        {entries.map((entry) => (
+          <SummaryChip key={entry.key} label={entry.label} value={entry.value} variant={entry.variant} onClick={openSection(entry.section)} />
+        ))}
+      </div>
+    );
+  }
+  return (
+    <div className="estimate-summary-bar__items">
+      <SummaryChip label={totalHt.label} value={totalHt.value} variant="primary" onClick={openSection("general")} />
+      <Popover open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
+        <PopoverTrigger
+          openOnHover
+          delay={200}
+          className="estimate-summary-bar__chip"
+          aria-label="Voir les détails de TVA, remise et TTC"
+        >
+          <MoreHorizontalIcon aria-hidden="true" size={14} />
+        </PopoverTrigger>
+        <PopoverContent side="bottom" className="estimate-summary-bar__popover-content w-auto gap-0.5 p-1.5">
+          {entries.map((entry) => (
+            <PopoverRow key={entry.key} label={entry.label} value={entry.value} onClick={() => {
+              setIsDetailsOpen(false);
+              openSection(entry.section)();
+            }} />
+          ))}
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
 /* ---------- main component ---------- */
 
 export function EstimateSettingsSummaryBar({
@@ -131,6 +204,7 @@ export function EstimateSettingsSummaryBar({
   taxRateBp,
   isExpert,
   onOpenSettings,
+  v3Summary,
 }: EstimateSettingsSummaryBarProps) {
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const derived = useMemo(() => {
@@ -174,7 +248,15 @@ export function EstimateSettingsSummaryBar({
       role="region"
       aria-label="Résumé du paramétrage"
     >
-      {!derived ? (
+      {v3Summary !== undefined ? (
+        v3Summary ? (
+          <V3SummaryItems summary={v3Summary} currency={currency} isExpert={isExpert} openSection={openSection} />
+        ) : (
+          <div className="estimate-summary-bar__items" role="status">
+            Aperçu du moteur de calcul 3 indisponible : vérifiez les saisies et le paramétrage.
+          </div>
+        )
+      ) : !derived ? (
         <SkeletonChips />
       ) : (
         <div className="estimate-summary-bar__items">

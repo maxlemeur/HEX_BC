@@ -36,6 +36,7 @@ import {
   type EstimateItemUpdatePayload,
   type EstimateVersionRow,
 } from "@/lib/estimates/editor-items";
+import type { EstimateV3EditorWriter } from "@/lib/estimates/v3-editor-writer";
 import type { Database } from "@/types/database";
 
 type EstimateCategory =
@@ -84,6 +85,11 @@ export type EstimateEditorSuggestionsControllerInput = {
     error: unknown,
     options?: { persistDraft?: boolean }
   ) => boolean;
+  /**
+   * Lot 2, sous-lot 2.6 (revue, F26-32) : sur une v3, appliquer et annuler les suggestions en lot passe par
+   * l'écrivain de lot (saisies seulement, recalcul et vérification D12) ; absent en v1/v2 (chemins historiques).
+   */
+  v3Writer?: EstimateV3EditorWriter;
 };
 
 export type EstimateEditorSuggestionsController = {
@@ -321,7 +327,9 @@ export function useEstimateEditorSuggestionsController({
   applyVersionToken,
   markItemsSynced,
   handleVersionConflict,
+  v3Writer,
 }: EstimateEditorSuggestionsControllerInput): EstimateEditorSuggestionsController {
+  const buildLineUpdate = v3Writer?.buildUpdatePayload ?? buildEstimateItemUpdatePayload;
   const [rulesState, setRulesState] = useState<SuggestionRulesState>(() =>
     createEmptyRulesState(routeVersionId)
   );
@@ -952,7 +960,7 @@ export function useEstimateEditorSuggestionsController({
       });
       const updatesPayload = updatedLines.map((item) => ({
         id: item.id,
-        updates: buildEstimateItemUpdatePayload(item),
+        updates: buildLineUpdate(item),
       }));
       const updatedById = new Map(
         updatedLines.map((item) => [item.id, item])
@@ -982,11 +990,13 @@ export function useEstimateEditorSuggestionsController({
       );
 
       try {
-        const bulkResult = await bulkUpdateEstimateItems(
-          targetVersionId,
-          versionSnapshot.updated_at,
-          updatesPayload
-        );
+        const bulkResult = v3Writer
+          ? { versionToken: await v3Writer.updateItems(targetVersionId, versionSnapshot.updated_at, updatesPayload) }
+          : await bulkUpdateEstimateItems(
+              targetVersionId,
+              versionSnapshot.updated_at,
+              updatesPayload
+            );
         if (
           !isScopeCurrent(targetVersionId, scopeGeneration) ||
           bulkOperationGenerationRef.current !== operationGeneration ||
@@ -1106,6 +1116,7 @@ export function useEstimateEditorSuggestionsController({
     }
   }, [
     applyVersionToken,
+    buildLineUpdate,
     ensureGroupedActionCanProceed,
     getItemsSnapshot,
     getVersionSnapshot,
@@ -1119,6 +1130,7 @@ export function useEstimateEditorSuggestionsController({
     resolveErrorMessage,
     setItems,
     setTotalsOutOfSync,
+    v3Writer,
   ]);
 
   const undoLastApply = useCallback(async () => {
@@ -1187,14 +1199,16 @@ export function useEstimateEditorSuggestionsController({
 
       const undoPayload = previousItems.map((item) => ({
         id: item.id,
-        updates: buildEstimateItemUpdatePayload(item),
+        updates: buildLineUpdate(item),
       }));
       try {
-        const bulkResult = await bulkUpdateEstimateItems(
-          targetVersionId,
-          versionSnapshot.updated_at,
-          undoPayload
-        );
+        const bulkResult = v3Writer
+          ? { versionToken: await v3Writer.updateItems(targetVersionId, versionSnapshot.updated_at, undoPayload) }
+          : await bulkUpdateEstimateItems(
+              targetVersionId,
+              versionSnapshot.updated_at,
+              undoPayload
+            );
         if (
           !isScopeCurrent(targetVersionId, scopeGeneration) ||
           bulkOperationGenerationRef.current !== operationGeneration ||
@@ -1251,6 +1265,7 @@ export function useEstimateEditorSuggestionsController({
     }
   }, [
     applyVersionToken,
+    buildLineUpdate,
     ensureGroupedActionCanProceed,
     getItemsSnapshot,
     getVersionSnapshot,
@@ -1263,6 +1278,7 @@ export function useEstimateEditorSuggestionsController({
     resolveErrorMessage,
     setItems,
     setTotalsOutOfSync,
+    v3Writer,
   ]);
 
   return {

@@ -32,6 +32,8 @@ type EstimateArticleSheetProps = {
   lineTitle: string;
   /** Unit of the line: a converted offer shows (and gives) its price in it (2.9). */
   lineUnit?: string | null;
+  /** Lot 2, sous-lot 2.6 (revue, F26-26) : refus nommé d'un article proposé (v3 : offre dans une autre unité). */
+  suggestionRefusal?: (suggestion: CataloguePriceSuggestion) => string | null;
   productId: string | null;
   currency: SupportedEstimateCurrency;
   isReadOnly: boolean;
@@ -91,6 +93,7 @@ export function EstimateArticleSheet({
   versionId,
   lineTitle,
   lineUnit = null,
+  suggestionRefusal,
   productId,
   currency,
   isReadOnly,
@@ -233,11 +236,13 @@ export function EstimateArticleSheet({
               <div className="min-h-0 overflow-y-auto rounded-lg border border-border">
                 {suggestions.map((suggestion) => {
                   const linePrice = alternativePriceForLineUnit(suggestion, lineUnit);
+                  const refusal = suggestionRefusal?.(suggestion) ?? null;
                   return (
                     <button
                       type="button"
                       key={suggestion.product_id}
-                      className="flex w-full items-start justify-between gap-3 border-b border-border-subtle p-3 text-left outline-none last:border-b-0 hover:bg-surface-subtle focus-visible:bg-surface-subtle focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+                      className="flex w-full items-start justify-between gap-3 border-b border-border-subtle p-3 text-left outline-none last:border-b-0 hover:bg-surface-subtle focus-visible:bg-surface-subtle focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={refusal !== null}
                       onClick={() => onAssociate(suggestion)}
                     >
                       <span className="min-w-0">
@@ -248,6 +253,7 @@ export function EstimateArticleSheet({
                           {suggestion.product_reference ?? "Sans référence"}
                           {suggestion.supplier_name ? ` · ${suggestion.supplier_name}` : ""}
                         </span>
+                        {refusal ? <span className="block text-xs font-medium text-danger">{refusal}</span> : null}
                       </span>
                       <span className="shrink-0 font-medium tabular-nums text-foreground">
                         {supplierOfferZeroPriceLabel(suggestion.zero_price_kind) ?? (
