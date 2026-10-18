@@ -416,11 +416,18 @@ sélection.
 
 ### Point de départ (runs relevés le 18/10/2026)
 
+Durée murale : de la création du run à la fin de son dernier job (API des jobs).
+
 | Workflow | Runs relevés | Durée murale | Chemin critique |
 | --- | --- | --- | --- |
-| TesterArmy Critical | 10 derniers runs avec parcours (39089874956 à 39109681611) | 12 min 25 s à 19 min 40 s, médiane 16 min | `army-critical` ; `army-takeoff` (6 à 8 min) en parallèle |
-| TesterArmy Full | 9 derniers runs non filtrés (38810364369 à 39110052211) | 21 min 11 s à 33 min 47 s, médiane 25 min 26 s | un job : phase full puis développement |
-| TesterArmy calc-v3 | les 4 runs existants (PR #42) | 19 min 55 s à 28 min 30 s | un job : six phases en série |
+| TesterArmy Critical | les 9 runs de la suite complète du 18/10, 09:02 à 10:48 UTC, la période des runs de la PR #52 : 6 push sur `main` (39113776570, 39116902885, 39118649738, 39118677442, 39120614572, 39120664290) et 3 PR (39117364539, 39119401428, 39119642798) | 10 min 22 s à 14 min 33 s, médiane 12 min 30 s | `army-critical` ; sur une PR, `army-takeoff` (4 min 55 s à 6 min 18 s) en parallèle |
+| TesterArmy Full | 9 derniers runs non filtrés (38810364369 à 39110052211) ; même période, 39117805338 : 27 min 44 s | 21 min 11 s à 33 min 47 s, médiane 25 min 26 s | un job : phase full puis développement |
+| TesterArmy calc-v3 | les 5 runs verts d'avant la PR (39096480257, 39107622162, 39109681565, 39113912045, 39113912980) | 18 min 54 s à 28 min 06 s, médiane 23 min 16 s | un job : six phases en série |
+
+Critical : les 10 runs relevés d'abord (39089874956 à 39109681611, 02:22 à
+07:58 UTC, médiane 16 min) ne sont plus comparables, le même job unique ayant
+pris 10 à 15 min sur `main` pendant les runs de la PR ; seule la même période
+sert de point de départ.
 
 Décomposition, run 39109681611 (PR #42, suite critical complète à 2 workers,
 tête `fef02223`) : installation et Chromium 50 s, pile 20 s, `db reset`, pgTAP
@@ -462,11 +469,14 @@ parcours à 1 worker, phase développement 50 à 91 s. calc-v3, run 39109681565 
   shard), les parcours authentifiés avant les anonymes, si bien que chaque shard
   a un parcours métier authentifié (le runner refuse sinon) ; le setup de
   connexion dans chaque shard. Même liste, même plan, quel que soit l'ordre.
-- Un seul shard : si les secondes tiennent dans un shard (une sélection garde
-  alors ses fichiers) ; si la liste est la suite entière, ou ne peut pas servir
-  de `--files` (chemin que le runner refuse, setup absent, durées illisibles,
-  repli sûr de la carte), ce shard lance la sélection du runner lui-même, comme
-  avant les shards.
+- Un seul shard, dans deux cas :
+  - les secondes mesurées tiennent dans un shard, ou `army-shards.json` est
+    illisible ou invalide : une sélection `files` garde alors ses fichiers, la
+    suite entière lance la sélection du runner lui-même ;
+  - la liste ne peut pas servir de `--files` (repli sûr de la carte, liste vide,
+    chemin que le runner refuse, setup absent) : ce shard lance la suite
+    entière du runner lui-même, pour une sélection `files` aussi (plus de
+    parcours, jamais moins), comme avant les shards.
 - Critical (`e2e-army-critical.yml`) : le job `army-select` décide une fois
   (`selection.json`, champ `shards`, sortie `critical_shards`) ; liste = les
   fichiers de la sélection, ou pour `full` la liste `localBusiness` de
@@ -548,9 +558,9 @@ public, mais au plus 20 jobs simultanés pour tout le dépôt).
 
 | Workflow | Avant | Après, estimé | Jobs lourds | Minutes de runner, avant → estimé |
 | --- | --- | --- | --- | --- |
-| Critical, suite complète | 13 à 16 min | environ 8 min (fixe 3 min 15 + 317 s simulées) | 1 → 3 shards (+ `army-takeoff`) | 13 → 25 |
+| Critical, suite complète | 10 à 15 min | environ 8 min (fixe 3 min 15 + 317 s simulées) | 1 → 3 shards (+ `army-takeoff` sur une PR) | 19 → 25 (`army-takeoff` compris des deux côtés) |
 | Full, nuit | 21 à 34 min | environ 10 min (fixe 4 min + 313 s simulées) | 1 → 5 shards + développement | 28 → 52 |
-| calc-v3, nuit | 20 à 28 min | environ 9 min (`offers`, 474 s, plus installation) | 1 → 6 phases | 25 → 25 |
+| calc-v3, nuit | 19 à 28 min | environ 9 min (`offers`, 474 s, plus installation) | 1 → 6 phases | 25 → 25 |
 
 Simulation (`army-shards.json`, ordre des fichiers du scheduler, 2 workers par
 shard critical) : 550 s de parcours en un shard (mesuré 578 s), 404 s en deux,
@@ -561,20 +571,33 @@ mesurées en CI après le changement sont relevées ci-dessous.
 
 ### Mesures des jobs parallèles
 
-Runs du 18/10/2026 sur la tête `cde9f237` de la PR #52 (commit de fusion
-`cbe04fa3` pour les runs de PR), mesurés par l'API des jobs (premier début au
-dernier fin de job) :
+Runs du 18/10/2026 de la PR #52, mesurés par l'API des jobs : durée murale de
+la création du run à la fin de son dernier job, minutes de runner en somme des
+durées des jobs. Avant : le point de départ ci-dessus (même période pour
+critical).
 
-| Workflow | Run | Durée murale | Avant | Minutes de runner |
+| Workflow | Avant | Tête `cde9f237` | Tête `b54e0988` | Gain mural (`b54e0988`) |
 | --- | --- | --- | --- | --- |
-| Critical, suite complète (PR) | 39118155443 | **7 min 49 s** : sélection 7 s ; shards 6 min 08 s, 6 min 24 s et 7 min 17 s (étape des parcours 5 min 09 s à 6 min 18 s) ; agrégation 18 s ; `army-takeoff` 6 min 13 s en parallèle | médiane 16 min (12 min 25 s à 19 min 40 s, 10 runs) | 26 min 27 s |
-| calc-v3 `nightly` (PR) | 39118155457 | **10 min 00 s** : `offers` 9 min 36 s, les cinq autres phases 3 min 02 s à 4 min 21 s ; agrégation 14 s | 19 min 55 s à 28 min 30 s (4 runs) | 29 min 21 s |
-| Full, déclenchement sans motif | 39118690328 | **9 min 13 s** : plan 9 s ; shards 7 min 18 s à 7 min 46 s (jusqu'à 1 min 01 s d'attente d'un runner) ; développement 2 min 11 s sans build ; agrégation 15 s | médiane 25 min 26 s (21 min 11 s à 33 min 47 s, 9 runs) | 40 min 15 s |
+| Critical, suite complète (PR) | médiane 12 min 30 s (10 min 22 s à 14 min 33 s, 9 runs) | 7 min 48 s (39118155443) : shards 6 min 08 s à 7 min 17 s, étape des parcours 5 min 09 s à 6 min 18 s | **8 min 08 s** (39121336213) : sélection 10 s ; shards 7 min 33 s, 6 min 43 s et 5 min 07 s ; agrégation 17 s ; `army-takeoff` 5 min 43 s en parallèle | 1,5 fois |
+| Full, déclenchement sans motif | médiane 25 min 26 s (21 min 11 s à 33 min 47 s, 9 runs) | 9 min 13 s (39118690328, jusqu'à 1 min 01 s d'attente d'un runner) | **7 min 55 s** (39121895810) : plan 8 s ; shards 6 min 20 s à 7 min 25 s ; développement 3 min 10 s sans build ; agrégation 15 s | 3,2 fois |
+| calc-v3 `nightly` (PR) | médiane 23 min 16 s (18 min 54 s à 28 min 06 s, 5 runs) | 10 min 00 s (39118155457) | **9 min 34 s** (39121336221) : `offers` 9 min 12 s, les cinq autres phases 3 min 15 s à 4 min 40 s ; agrégation 12 s | 2 à 2,9 fois (2,4 sur la médiane) |
+| Full filtré `--grep` | 4 min 06 s (39089324671) | — | 3 min 26 s (39121897344, non qualifiant) | — |
+| calc-v3, une phase (`access`) | — | — | 3 min 26 s (39121899428) | — |
 
-Quality Gate du même run de PR : 2 min 25 s. Aucun job critical ni calc-v3 n'a
-attendu un runner plus de 3 s.
+Minutes de runner, sur les mêmes jobs avant et après :
 
-Agrégations, toutes vertes : critical, 28 fichiers prévus, exécutés et
+| Workflow | Avant | Après (`b54e0988`) | Rapport |
+| --- | --- | --- | --- |
+| Critical, PR de suite complète (`army-critical` et `army-takeoff`) | 18 min 23 s à 19 min 03 s (39119401428, 39117364539, 39119642798) | 25 min 33 s (25 min 28 s sur `96513413`, 26 min 27 s sur `cde9f237`) | 1,35 fois |
+| Full sans motif | médiane 25 min 26 s (un job) | 38 min 27 s (40 min 15 s sur `cde9f237`) | 1,5 fois |
+| calc-v3 `nightly` | 18 min 51 s à 28 min 04 s (un job) | 28 min 54 s (29 min 21 s sur `cde9f237`) | 1 à 1,5 fois |
+
+Sans `army-takeoff`, les shards critical et leur agrégation coûtent 19 min 50 s
+contre 10 min 42 s à 13 min 28 s pour le job unique (environ 1,6 fois). Quality
+Gate : 2 min 25 s (`cde9f237`), 2 min 09 s (`b54e0988`). Aucun job de
+`b54e0988` n'a attendu un runner plus de 3 s.
+
+Agrégations de `cde9f237`, toutes vertes : critical, 28 fichiers prévus, exécutés et
 découverts par le CLI dans chaque shard (103 tests découverts ; 18, 60 et 27
 résultats sélectionnés, setup compris), aucun manquant, en trop ni en double,
 artefact `army-critical-evidence` ; full, 45 fichiers prévus et exécutés
@@ -606,12 +629,25 @@ touche chaque sélection critical d'un seul shard (petites PR) et chaque phase
 calc-v3 déclenchée seule ; rejoué en local sur les preuves du run 39120187109 :
 vert, `scope: filtered-full`.
 
-Écarts au modèle : l'étape des parcours d'un shard critical (5 à 6 min) dépasse
-les 317 s simulées, et la phase `offers` (8 min 41 s d'étape) les 474 s mesurées
-dans l'ancien job, où son build reprenait le cache webpack des phases
-précédentes ; le shard le plus long reste le chemin critique. Le gain mural est
-de 2 à 2,8 fois, payé en minutes de runner : environ deux fois plus pour
-critical, 1,6 fois pour full, 1 à 1,5 fois pour calc-v3.
+Tête `b54e0988` (ce correctif, plus la fusion d'`origin/main` `d7e672b4`, PR #41
+et #53) : agrégations vertes, critical 28/28 fichiers prévus, exécutés et
+découverts par le CLI dans chaque shard ; full 46/46 (dont
+`bulk-actions-v1-totals.e2e.ts`, ajouté par `main` entre-temps et listé sans
+modification du plan) plus le développement 4/4 ; calc-v3 6/6 phases ; aucun
+manquant, en trop ni en double. Le déclenchement `--grep` (39121897344) et la
+phase `access` seule (39121899428) passent par le téléchargement à plat : verts.
+V3E01 est vert dans les shards critical et full après #53
+(`fix/v3e01-labour-role-lost`) : run d'une nouvelle tête, pas une relance du
+rouge.
+
+Écarts au modèle : l'étape des parcours d'un shard critical (4 min 21 s à
+6 min 36 s) dépasse les 317 s simulées, et la phase `offers` (8 min 41 s d'étape
+sur `cde9f237`) les 474 s mesurées dans l'ancien job, où son build reprenait le
+cache webpack des phases précédentes ; le shard le plus long reste le chemin
+critique. Le gain mural va de 1,5 fois (critical) à 3,2 fois (full), 2 à
+2,9 fois pour calc-v3 ; il se paie en minutes de runner : 1,35 fois pour
+critical (mêmes jobs, `army-takeoff` compris), 1,5 fois pour full, 1 à 1,5 fois
+pour calc-v3.
 
 ### Limites
 
