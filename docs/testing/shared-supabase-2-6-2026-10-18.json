@@ -1,0 +1,101 @@
+{
+  "project": "ijropnynpwjbllievrip",
+  "date": "2026-10-18",
+  "source": {
+    "repository": "maxlemeur/HEX_BC",
+    "mainMergeCommit": "da462ac4622893c9d8287e4c56eaa9048eba20e5",
+    "pullRequest": 44,
+    "fileLastCommit": "d0d82b4ef8bfb6b107c806c3279d2185435de5f3",
+    "file": "supabase/migrations/20261017205000_estimate_engine_v3_line_repricing.sql",
+    "bytes": 2258,
+    "sha256": "dfca54e8ba90f205d95208b9faf22717ea02649e90424572d1343f8ebc7b9db5",
+    "gitBlob": "03cb91ff4457cdd97f6ac1a1aa521697f4e028e7",
+    "manifestSha256Matches": true
+  },
+  "application": {
+    "method": "mcp supabase_miaouffrage apply_migration",
+    "name": "20261017205000_estimate_engine_v3_line_repricing",
+    "remoteVersion": "20261018041924",
+    "appliedAtUtc": "2026-10-18T04:19:24Z",
+    "dbPush": false,
+    "attempts": 1
+  },
+  "preconditions": {
+    "functionAbsent": true,
+    "repricingTriggerCount": 0,
+    "pricingStatusColumnPresent": true,
+    "pricingStatusEnumValues": 6,
+    "estimateV3AssertDraftUuidPresent": true,
+    "estimateV3AssertDraftOverloads": 1,
+    "guardEstimateItemEngineColumnsPresent": true,
+    "lastRemoteMigration": "20261017230116",
+    "v3Versions": 0,
+    "estimateItemsTriggersBefore": [
+      "aaa_guard_transferred_purchase_item",
+      "aay_guard_estimate_item_engine_columns",
+      "aaz_guard_estimate_v2_snapshot_columns",
+      "ab_derive_estimate_item_v3_columns",
+      "bump_estimate_content_revision_from_item",
+      "estimate_items_audit_trigger",
+      "estimate_items_hierarchy_depth_guard",
+      "normalize_estimate_item_line_nature",
+      "set_estimate_items_tenant_id",
+      "set_estimate_items_updated_at",
+      "source_coverage_item_technical",
+      "trg_validate_estimate_item_product_tenant"
+    ]
+  },
+  "postChecks": {
+    "function": "private.provision_estimate_item_v3_repriced_pu()",
+    "prosrcLength": 321,
+    "prosrcMd5": "e372ad1d131bd7673ad9efed0cd3ed04",
+    "prosrcMd5FromFile": "e372ad1d131bd7673ad9efed0cd3ed04",
+    "proconfig": ["search_path=\"\""],
+    "securityDefiner": false,
+    "acl": "{postgres=X/postgres}",
+    "execute": { "anon": false, "authenticated": false, "service_role": false },
+    "hasComment": true,
+    "trigger": {
+      "name": "ac_provision_estimate_item_v3_repriced_pu",
+      "enabled": "O",
+      "definition": "CREATE TRIGGER ac_provision_estimate_item_v3_repriced_pu BEFORE UPDATE OF pricing_status ON public.estimate_items FOR EACH ROW EXECUTE FUNCTION private.provision_estimate_item_v3_repriced_pu()"
+    },
+    "lastRemoteMigration": "20261018041924 20261017205000_estimate_engine_v3_line_repricing",
+    "v3Versions": 0
+  },
+  "fingerprints": {
+    "method": "md5(string_agg(md5(t::text), '' order by t.id)) plus count(*)",
+    "before": {
+      "public.estimate_items": { "rows": 1305, "md5": "8c89597805e038a0d00dd590503c5451" },
+      "public.estimate_versions": { "rows": 1238, "md5": "5a7c2227934c663894fc72fa3ce2d7cc" }
+    },
+    "after": {
+      "public.estimate_items": { "rows": 1305, "md5": "8c89597805e038a0d00dd590503c5451" },
+      "public.estimate_versions": { "rows": 1238, "md5": "5a7c2227934c663894fc72fa3ce2d7cc" }
+    },
+    "identical": true
+  },
+  "behaviouralProof": {
+    "where": "local ephemeral stacks (CI of PR #44)",
+    "headCommit": "0dec560fb1e987ce9ff66ef6ed82d9d4d5671971",
+    "checks": {
+      "rls-matrix": "SUCCESS",
+      "army-critical": "SUCCESS",
+      "quality-gate": "SUCCESS",
+      "Tests": "SUCCESS",
+      "Statique": "SUCCESS",
+      "smoke": "SUCCESS"
+    },
+    "sharedBusinessCalls": false
+  },
+  "preservedDifferences": [
+    "constraint estimate_items_pu_ht_check on shared vs estimate_items_pu_ht_cents_check in the repository (same predicate)"
+  ],
+  "limits": [
+    "fingerprints cover estimate_items and estimate_versions only; the migration has no DML",
+    "no global function or table diff; the migration creates one function and one trigger and replaces nothing",
+    "Supabase advisors not re-read (tool not exposed in this session)"
+  ],
+  "notExecuted": ["other migrations", "tenant calc policy", "deployment"],
+  "remaining": ["M5 20261017213500 (2.7)", "M6 20261017225906 (2.8)", "M6b 20261018013249 (2.8)", "M8 (2.10, owner approval required)"]
+}
