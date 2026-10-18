@@ -1081,7 +1081,89 @@ Windows (`miaouffrage-l2-27`, `5f0fecd3`, changements locaux : documentation seu
 - **P-20 à arbitrer** : exports de l'éditeur et BDC d'une v3 restés fermés (refus nommé) ; la conception les
   propose pour 2.6 et avant 2.10. Sans décision, le 2.7 n'est pas conforme à son périmètre initial sur ce point.
 - La fiche d'une v3 (`[versionId]/page.tsx`) garde le bandeau de 2.1 : V3M-09 prouve la route qu'elle et l'affaire
-  lisent, pas le panneau d'approbation, que la vue de lecture v3 du 2.6 affichera.
-- La fusion du 2.6 reste à faire (§10.6) ; elle exige de rejouer `db:ci:local`, V3M01 à V3M04, V3FC et la
+  lisent, pas le panneau d'approbation, que la vue de lecture v3 du 2.6 affichera (fusionnée : §13).
+- La fusion du 2.6 reste à faire (§10.6 ; faite le 18/10/2026, §13) ; elle exige de rejouer `db:ci:local`, V3M01 à V3M04, V3FC et la
   campagne complète.
 - Le Supabase partagé n'est pas touché ; M5 n'y est pas appliquée.
+
+## 13. Fusion du 2.6 (PR #44) et de la boucle Army (PR #43), 18/10/2026
+
+`git merge --no-ff origin/main` (`488382d5` : 2.6 fusionné en `da462ac4`, boucle `e2e:army:dev-loop` de la PR #43)
+sur `9ee5e240`, sans rebase ni poussée : fusion `2af3cb29`. Commits suivants : `8e33598b` et `ac19ec55` (rouges),
+`7418afcb` (correction), `803b5ba9` (sonde), puis ce document (documentation seule).
+
+### 13.1 Conflits et résolution
+
+| Fichier | Résolution (intention des deux côtés) |
+|---|---|
+| `supabase/migrations.manifest.json` | les deux entrées ; `20261017205000_estimate_engine_v3_line_repricing.sql` (2.6) précède M5 (`20261017213500`), sans réhorodatage puisque 2.6 est arrivé le premier sur `main` |
+| `scripts/tester-army/army-impact-map.json` | union : `engine-v3-editor-actions`, `engine-v3-editor` et `engine-v3-emission` dans la liste locale ; `engine-v3-editor` et `engine-v3-emission` dans le groupe `print` ; la note de la règle `estimate-print` nomme V3E01 et V3M02 |
+| `print/page.tsx` | moteur inconnu : bandeau de 2.1 ; toute v3, brouillon ou émise : `EstimateV3PrintPage` (gel stocké ou aperçu du moteur pur, refus nommé d'un aperçu impossible, V3FC02). Le résumé de brouillon de 2.6 n'est plus servi par l'impression : 2.6 le donnait pour provisoire (« son document client arrive en 2.7 ») et il n'imprime ni les lignes brutes ni le pied qu'exige V3M02 (§9.5) ; il reste la vue de la fiche. Ses colonnes de sélection supplémentaires sont retirées avec lui. V3E01 (titre « Devis », aucun bandeau) passe sur le document v3 |
+
+Fusionnés sans conflit et relus : `engine-v3-fail-closed.e2e.ts` (V3FC01 de 2.6, V3FC02 de 2.7), `scripts/run-tester-army-ci.ts`,
+`src/lib/estimates/server.ts`.
+
+### 13.2 Décisions de 2.6 rouvertes par 2.7
+
+2.6 fermait sur une v3, « jusqu'en 2.7 », ce que 2.7 ouvre ; fusionnés, ces écrans restaient fermés ou faux.
+Défaillances observables, écrites avant le code (`e2e/army/local/engine-v3-emission.e2e.ts`, V3M-12 à V3M-14) :
+
+| Défaillance | Preuve |
+|---|---|
+| Fiche d'un brouillon v3 : « Préparer le PDF » désactivé, raison de 2.6 nommant le PDF (F26-30) | V3E11 réécrit (critique) : PDF actif, seul le modèle fermé, nouvelle raison, l'ancienne absente ; V3M05 |
+| PDF préparé par la fenêtre de la fiche autre que le document client v3 (« 1 u 13,00 € 13,00 € », TVA 20 % 13,00 / 2,60, TTC 15,60) | V3M05 |
+| Éditeur d'une v3 sans « Envoyer » (émission manuelle), ou émission qui ne scelle pas (marqueur 5, contrat 2, charge 6) | V3M05 |
+| Fiche d'une v3 émise : « Non scellé » codé en dur, ni PDF original ni actions de statut ; acceptation par la fiche qui change le sceau | V3M05 |
+| Carte de lecture v3 disant le document client et l'émission « pas encore disponibles », titre « Brouillon » d'une v3 émise | V3M05 |
+
+V3M05 tourne dans la phase calc-v3 `emission-v3` (le garde de la campagne critique refuse toute écriture `…/status`) ;
+la phase attend 4 résultats du fichier. Correction `7418afcb` : `EstimateDetailActionsMenu` (prop `closedEngineV3Template`)
+ne ferme plus que le modèle (2.8) ; la fiche v3 rend `EstimateStatusActions` et le sceau vérifié, lus par deux
+fonctions désormais partagées avec la fiche v1/v2 (`loadEmailDispatchProblem`, `resolveSealIntegrity`, sans
+changement de comportement) ; la carte de lecture titre « Devis émis au moteur de calcul 3 » une v3 émise ;
+l'éditeur offre « Envoyer » sur une v3. Restent fermés : les exports de l'éditeur d'une v3 (P-20, décision du porteur
+requise) et l'enregistrement comme modèle (2.8). Sonde `803b5ba9` : le premier vert lisait « Marquer accepté » absent
+alors que la page l'affichait à l'échec (îlot client) ; attente bornée sans assertion, aucun attendu changé.
+
+### 13.3 Preuves rouges et itérations (WSL, clone `~/miaouffrage-lot2-27`, aucun changement local)
+
+| Commande | Arbre | Résultat |
+|---|---|---|
+| `npm run e2e:army:local -- --grep "^V3E11\s" --app-port 3227` | `8e33598b` | sortie 1 : V3E11 rouge, `pdf {present: true, enabled: false}`, `reason: false`, `pdfNamedClosed: true`. `.e2e/army/ci/2026-10-18T04-43-38-866Z-critical` |
+| `npm run e2e:army:calc-v3 -- --phase emission-v3 --grep "^V3M05\s" --app-port 3127` | `ac19ec55` | sortie 1 : « Préparer le PDF » désactivé, raison absente, carte « pas encore disponibles » (relevés), « Envoyer » absent de l'éditeur (relevé), arrêt sur `toBeEnabled`. `…/2026-10-18T04-48-14-350Z-calc-v3` |
+| idem | `7418afcb` | sortie 1 : PDF de la fiche (`202`, texte v3 exact, brouillon), émission par l'éditeur (`200`, `sent`, marqueur 5, `/verify` contrat 2 et charge 6), fiche émise (sceau `valid`, « Télécharger le PDF », modèle fermé, carte « Devis émis ») ; « Marquer accepté » relu absent (sonde, §13.2). `…/2026-10-18T04-54-18-806Z-calc-v3` |
+| idem | `803b5ba9` | sortie 0 : acceptation par la fiche `200`, `accepted`, même sceau, `/verify` valide. `…/2026-10-18T04-58-09-862Z-calc-v3` |
+
+### 13.4 Qualification de l'arbre fusionné (`803b5ba9`, aucun changement local)
+
+WSL, Node 24.19.0, `NODE_OPTIONS=--max-old-space-size=4096`, exécutions natives en série, chacune après la garde de
+concurrence (moins de quatre piles natives actives au départ). Journaux : `~/miaouffrage-lot2-27/.e2e/lot2-2.7/merge-qual-*.log`.
+
+| Commande | Résultat |
+|---|---|
+| `npm run db:ci:local` | **sortie 0** en 28 s : `Files=21, Tests=1904`, `Result: PASS`, matrice RLS passée |
+| `npm run e2e:army:local -- --grep "V3M\|V3FC\|V3E\|V3P01" --app-port 3227` | **sortie 0** en 407 s : 18/18 (setup, V3E01 à V3E13, V3M02, V3FC01, V3FC02, V3P01). `.e2e/army/ci/2026-10-18T05-01-14-796Z-critical` (`manifest.json` `837c0803…`) |
+| `npm run e2e:army:calc-v3 -- --app-port 3127` (campagne complète) | **sortie 0** en 754 s, toutes phases en build de production : journeys 11, components 5, numeric 4, resume 5, access 2, offers 10, emission 6 (4 PDF reçus), emission-v3 5 (V3M01, V3M03, V3M04, V3M05 ; 5 PDF reçus). `…/2026-10-18T05-08-01-386Z-calc-v3` (`manifest.json` `43a3d298…`) |
+| `npm run engine:document-fingerprints -- check` | **sortie 0** en 44 s : 14 familles v1/v2 identiques. `.e2e/engine-v3/document-fingerprints/2026-10-18T05-20-35-248Z-check` |
+| `npm run db:upgrade-check -- lot2-2-7` | **sortie 0** en 20 s : 244 migrations de référence, 7 postérieures appliquées (dont `20261017205000` de 2.6 puis M5), 0 différence, contrôle négatif détecté |
+| `npm run db:upgrade-check -- lot2-2-7 --negative-control` | sortie 1 en 20 s, comme exigé : exactement 1 différence (`pu_ht_cents 1481 -> 1482`) |
+| `npm run e2e:army:local -- --app-port 3227` (sélection critique locale non filtrée, en plus : la fiche v1/v2 partage désormais deux fonctions avec la fiche v3) | **sortie 0** en 733 s : 96/96 (28 fichiers). `…/2026-10-18T05-21-59-346Z-critical` (`manifest.json` `63fcd009…`) |
+
+Windows (`miaouffrage-l2-27`) : `npm run typecheck` sortie 0 ; `npx eslint --max-warnings=0` des fichiers touchés depuis la
+fusion et de l'impression résolue : sortie 0 ; `npx vitest run` complet (avant la sonde `803b5ba9`, qui ne touche qu'un
+parcours) : 465 fichiers passés / 1 ignoré, 3 992 tests passés / 11 ignorés ; `army-impact-map`, `ci-guardrails`,
+`army-dev-loop`, `local-supabase-ci` sur l'arbre final : 63 passés / 8 ignorés (cas Linux) ; `npm run check:architecture` :
+1 144 modules, 0 cycle ; `npm run supabase:validate` : 251 fichiers, 251 versions uniques ;
+`npm run supabase:migrations:git-guard -- --mode pull_request --base 488382d5…` : passé (2 changements cadrés, M5 et le
+manifeste). En mode local, la garde compare à `@{upstream}` (la pointe 2.7 d'avant la fusion) et refuse la migration de 2.6,
+plus ancienne que M5 : attendu, la PR se juge contre `main`. `git diff origin/main...HEAD -- src/lib/estimate-calculations.ts
+src/lib/estimate-v2-snapshot.ts` : vide ; `git -c core.whitespace=cr-at-eol diff --check origin/main...HEAD` : sortie 0.
+
+### 13.5 Limites
+
+- Aucune relecture indépendante de la résolution ni de `7418afcb` (AGENTS.md la demande) : à faire sur ce diff stable.
+- V3M05 n'est atteint que par la campagne calc-v3 (`emission-v3`) : la sélection d'impact des PR, critique, ne le
+  choisit pas ; V3E11 (critique) tient l'état du menu de la fiche d'un brouillon.
+- P-20 (exports de l'éditeur et BDC d'une v3) reste à arbitrer ; l'envoi par courriel depuis la fiche d'une v3 passe par
+  la route `POST …/send` que V3M01 prouve, sans parcours d'écran de la fenêtre d'envoi.
+- Le Supabase partagé n'est pas touché ; ni la migration de 2.6 ni M5 n'y sont appliquées. Rien n'est poussé.
