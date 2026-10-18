@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { IconButton } from "@/components/ui/icon-button";
 import { NativeSelect } from "@/components/ui/native-select";
+import type { PasteLaborRoleField } from "@/components/estimates/hooks/useEstimateClipboard";
 
 export type PastePreviewDetectedFormat = "bdc" | "optima" | "generic" | null;
 
@@ -39,7 +40,12 @@ export type PastePreviewRow = {
   include: boolean;
   values: Record<string, PastePreviewCellValue>;
   invalidReasons: string[];
+  /** v3 (sous-lot 2.8, règle 2) : valeurs interprétées qui seront écrites. */
+  interpretation?: string[];
 };
+
+/** Rôle MO des lignes collées dans une v3 (règle de l'import OPTIMA, E17). */
+export type PastePreviewLaborRole = PasteLaborRoleField & { onChange: (value: string) => void };
 
 export type PastePreviewDialogProps = {
   isOpen: boolean;
@@ -51,6 +57,7 @@ export type PastePreviewDialogProps = {
   onToggleRow: (rowId: string, include: boolean) => void;
   onConfirm: () => void;
   onClose: () => void;
+  laborRole?: PastePreviewLaborRole | null;
 };
 
 function getDetectedFormatBadge(
@@ -107,6 +114,7 @@ export function PastePreviewDialog({
   onToggleRow,
   onConfirm,
   onClose,
+  laborRole = null,
 }: Readonly<PastePreviewDialogProps>) {
   const formatBadge = useMemo(
     () => getDetectedFormatBadge(detectedFormat),
@@ -160,8 +168,10 @@ export function PastePreviewDialog({
 
   const hasErrors = errors.length > 0;
   const hasDuplicateMapping = duplicateTargets.size > 0;
+  const showsInterpretation = rows.some((row) => row.interpretation !== undefined);
   const canConfirm =
-    includedRowsCount > 0 && includedInvalidRowsCount === 0 && !hasErrors && !hasDuplicateMapping;
+    includedRowsCount > 0 && includedInvalidRowsCount === 0 && !hasErrors && !hasDuplicateMapping &&
+    !laborRole?.blocking;
 
   const allRowsErrors = useMemo(() => uniqueRowsErrors(rows), [rows]);
 
@@ -211,6 +221,32 @@ export function PastePreviewDialog({
           <Alert variant="danger" data-testid="paste-preview-dialog-duplicate-mapping-error">
             Plusieurs colonnes pointent vers le même champ cible. Corrigez le mapping avant de confirmer.
           </Alert>
+        ) : null}
+
+        {laborRole ? (
+          <div className="flex flex-wrap items-center gap-3" data-testid="paste-preview-labor-role">
+            <label htmlFor="paste-preview-labor-role-select" className="text-sm font-medium text-foreground">
+              Rôle MO des lignes collées
+            </label>
+            <NativeSelect
+              id="paste-preview-labor-role-select"
+              size="sm"
+              value={laborRole.value}
+              onChange={(event) => laborRole.onChange(event.target.value)}
+              data-testid="paste-preview-labor-role-select"
+            >
+              {laborRole.options.map((option) => (
+                <option key={option.value || "choose"} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </NativeSelect>
+            {laborRole.message ? (
+              <p className={laborRole.blocking ? "text-xs text-danger" : "text-xs text-muted-foreground"}>
+                {laborRole.message}
+              </p>
+            ) : null}
+          </div>
         ) : null}
 
         <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
@@ -336,6 +372,7 @@ export function PastePreviewDialog({
                       {sourceColumns.map((column) => (
                         <th key={column}>{column}</th>
                       ))}
+                      {showsInterpretation ? <th>Valeurs écrites (moteur 3)</th> : null}
                       <th>État</th>
                       <th>Raisons invalides</th>
                     </tr>
@@ -367,6 +404,13 @@ export function PastePreviewDialog({
                               {normalizeCellValue(row.values[column])}
                             </td>
                           ))}
+                          {showsInterpretation ? (
+                            <td data-testid="paste-preview-row-interpretation">
+                              {(row.interpretation ?? []).map((note) => (
+                                <span key={`${row.id}:${note}`} className="block text-xs">{note}</span>
+                              ))}
+                            </td>
+                          ) : null}
                           <td>
                             {!row.include ? (
                               <Badge variant="neutral" size="sm" dot>Exclue</Badge>

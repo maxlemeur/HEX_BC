@@ -279,6 +279,7 @@ type EstimateEditorTableProps = {
   onPasteRows: (input: {
     anchorRowId: string | null;
     rows: ClipboardPreviewValues[];
+    laborRoleId?: string | null;
   }) => Promise<void>;
   onUndo: () => Promise<void>;
   onRedo: () => Promise<void>;
@@ -1507,6 +1508,8 @@ export function EstimateEditorTable({
     pasteMappingEntries,
     pasteDialogRows,
     pasteErrors,
+    pasteLaborRoleField,
+    handlePasteLaborRoleChange,
     handlePasteMappingChange,
     handleTogglePasteRow,
     handleConfirmPastePreview,
@@ -1521,6 +1524,7 @@ export function EstimateEditorTable({
     hasSelectedLines,
     mergedUnitDrafts: clipboardUnitDrafts,
     supplyTypeById,
+    v3LaborRoles: v3Grid ? laborRoles : null,
     onPasteRows,
   });
 
@@ -2776,6 +2780,7 @@ export function EstimateEditorTable({
           onToggleRow={handleTogglePasteRow}
           onConfirm={() => void handleConfirmPastePreview()}
           onClose={closePastePreview}
+          laborRole={pasteLaborRoleField ? { ...pasteLaborRoleField, onChange: handlePasteLaborRoleChange } : null}
         />
       ) : null}
 

@@ -69,8 +69,12 @@ values
   ('public.save_estimate_settings_atomic', 'branches v1 et v2/v3 (in (2, 3), invoker) ; branche v3 sous contrat d''écrivain (M4)'),
   ('public.commit_estimate_batch', 'branche v3 sous contrat d''écrivain (M4) ; v2/v3 par le prédicat d''héritage'),
   ('public.atomic_create_estimate_item', 'branches v1 et v2/v3 (in (2, 3), invoker) ; branche v3 sous contrat d''écrivain (M4)'),
-  ('public.finalize_estimate_assembly_calculation', 'branches v1/v2 ; le contrat d''écrivain refuse la v3 jusqu''à M6'),
-  ('public.commit_generated_ouvrages', 'branches v1/v2 ; le contrat d''écrivain refuse la v3 jusqu''à M6'),
+  ('public.finalize_estimate_assembly_calculation', 'branches v1/v2 ; une v3 reçoit ses montants à l''insertion de l''ouvrage (M6), le contrat d''écrivain refuse ce finaliseur'),
+  ('public.commit_generated_ouvrages', 'branches v1/v2 ; branche v3 sous contrat d''écrivain, h/u et montants du moteur v3 par le pont d''entrée (M6)'),
+  ('public.insert_estimate_template_into_version', 'branche v3 sous contrat d''écrivain : h/u du modèle ou converti, refus nommé, montants par le pont d''entrée (M6)'),
+  ('public.materialize_estimate_assembly_tree', 'branche v3 : h/u = h / quantité par défaut exact à 4 décimales, refus nommés (M6)'),
+  ('public.insert_estimate_assembly_into_version', 'branche v3 sous contrat d''écrivain, montants par le pont d''entrée (M6)'),
+  ('public.estimate_v3_complete_entry_for_writer', 'pont d''entrée (M6) : refuse tout moteur autre que 3'),
   ('public.recalculate_takeoff_estimate_version', 'métré v1/v2 inchangé ; le contrat d''écrivain refuse la v3 (P-19)'),
   ('public.guard_estimate_item_engine_columns', 'contrat d''écrivain v3 sur les lignes (M1)'),
   ('public.guard_estimate_version_engine_v3_writer', 'contrat d''écrivain v3 sur les versions (M1)'),
@@ -1308,8 +1312,32 @@ select is(
           from public.labor_roles where id = 'a3210000-0000-4000-8000-000000000020')
        )$s$
   ]),
-  '0A000 ESTIMATE_V3_WRITER_NOT_SUPPORTED',
-  'F-SQL-10 commit_generated_ouvrages cannot write into a v3 (fallback section first)'
+  '22023 GENERATED_OUVRAGE_INVALID_INPUT',
+  'F-SQL-10 commit_generated_ouvrages refuses a client projection into a v3 (M6: amounts of the v3 engine)'
+);
+
+select is(
+  pg_temp.v3_probe(array[
+    'set local role authenticated',
+    $s$select set_config('request.jwt.claim.sub', 'a3210000-0000-4000-8000-000000000001', true)$s$,
+    $s$select public.commit_generated_ouvrages(
+         'a3210000-0000-4000-8000-000000000101',
+         'a3210000-0000-4000-8000-000000000409',
+         gen_random_uuid(),
+         (select updated_at from public.estimate_versions where id = 'a3210000-0000-4000-8000-000000000101'),
+         'a3210000-0000-4000-8000-000000000301',
+         '[{"candidateId":"a3210000-0000-4000-8000-000000000580","designation":"Ouvrage généré","unit":"u","quantity":1,"lotId":null,"reviewToken":"0000000000000000000000000000000000000000000000000000000000000000"}]'::jsonb,
+         '[{"candidateId":"a3210000-0000-4000-8000-000000000580","subdetailId":"a3210000-0000-4000-8000-000000000586","estimateItemId":"a3210000-0000-4000-8000-000000000581","assemblyId":"a3210000-0000-4000-8000-000000000582","applicationId":"a3210000-0000-4000-8000-000000000583","snapshotId":"a3210000-0000-4000-8000-000000000584","resolvedLotId":"a3210000-0000-4000-8000-000000000585","placementMode":"fallback_unclassified","estimateItemMapping":{},"componentProjections":[],"item":{}}]'::jsonb,
+         '{"id":"a3210000-0000-4000-8000-000000000585","created":true}'::jsonb,
+         '[]'::jsonb,
+         '{}'::jsonb,
+         '{}'::jsonb,
+         (select jsonb_build_object('id', id, 'name', name, 'hourly_rate_cents', hourly_rate_cents, 'is_active', is_active, 'position', position)
+          from public.labor_roles where id = 'a3210000-0000-4000-8000-000000000020')
+       )$s$
+  ]),
+  'P0002 GENERATED_OUVRAGE_NOT_FOUND',
+  'F-SQL-10 commit_generated_ouvrages writes the fallback section of a v3 under its writer contract, then checks the review (M6)'
 );
 
 select is(
@@ -1350,9 +1378,13 @@ select is(
          'a3210000-0000-4000-8000-000000000403',
          null
        )$s$
-  ]),
-  '0A000 ESTIMATE_V3_WRITER_NOT_SUPPORTED',
-  'F-SQL-10 a library assembly cannot be inserted into a v3'
+  ],
+  $a$select format('%s|%s',
+       (select count(*) from public.estimate_items where version_id = 'a3210000-0000-4000-8000-000000000101'
+          and title = 'Robinet' and unit_code = 'u' and h_mo_per_unit = 0),
+       coalesce(nullif(current_setting('miaouffrage.estimate_v3_writer', true), ''), 'closed'))$a$),
+  'ok:1|closed',
+  'F-SQL-10 a library assembly enters a v3 under its writer contract, closed after the call (M6)'
 );
 
 select is(
@@ -1379,9 +1411,13 @@ select is(
          'a3210000-0000-4000-8000-000000000401',
          null
        )$s$
-  ]),
-  '0A000 ESTIMATE_V3_WRITER_NOT_SUPPORTED',
-  'F-SQL-10 a template cannot be inserted into a v3'
+  ],
+  $a$select format('%s|%s',
+       (select count(*) from public.estimate_items where version_id = 'a3210000-0000-4000-8000-000000000101'
+          and title = 'Ligne de modèle' and unit_code = 'u' and h_mo_per_unit = 0),
+       coalesce(nullif(current_setting('miaouffrage.estimate_v3_writer', true), ''), 'closed'))$a$),
+  'ok:1|closed',
+  'F-SQL-10 a template enters a v3 under its writer contract, closed after the call (M6)'
 );
 
 select is(

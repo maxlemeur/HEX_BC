@@ -90,6 +90,8 @@ export type PreviewStepResult = {
   structurePlan: { decisions: StructureDecision[] };
   // Labour role of the imported hours (sub-lot 2.3, E17); undefined lets the server resolve it.
   laborRoleId?: string | null;
+  // Sale coefficients of the v3 the import creates (sub-lot 2.8, E4); undefined lets the server propose them.
+  saleCoefficients?: { fo: number; mo: number };
 };
 
 /** Targets whose values the line preview explains: hours, majoration, parameters, controls. */

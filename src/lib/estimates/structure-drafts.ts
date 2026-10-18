@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
+import { resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
+import { EstimateEngineUnavailableError, usesPerUnitLabor } from "@/lib/estimates/engine/capabilities";
 
 import {
   normalizeMappedRowsForEstimateCreation,
@@ -130,6 +132,7 @@ type VersionAccessRow = Pick<
   | "margin_multiplier"
   | "tax_rate_bp"
   | "updated_at"
+  | "calc_engine_version"
 > & {
   estimate_projects: EmbeddedProjectAccess | EmbeddedProjectAccess[] | null;
 };
@@ -494,7 +497,7 @@ async function getVersionAccessOrThrow(
   const { data, error } = await supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, status, margin_multiplier, tax_rate_bp, updated_at, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name, notes, is_archived)"
+      "id, project_id, status, margin_multiplier, tax_rate_bp, updated_at, calc_engine_version, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name, notes, is_archived)"
     )
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)
@@ -2279,6 +2282,8 @@ export async function generateEstimateStructureDraft(
   assertCanWriteEstimateWorkflows(context.tenantRole);
   const { supabase, tenantId, userId } = context;
   const { version, project } = await getVersionAccessOrThrow(supabase, versionId, context);
+  // Lot 2, sous-lot 2.8 (P-14) : refusée dans une v3 pendant le lot 2, avec le message nommé.
+  if (usesPerUnitLabor(resolveEstimateEngineVersion(version))) throw new EstimateEngineUnavailableError();
 
   assertDraftStatus(version.status);
   await assertDraftLockOwnedByCurrentUser({
@@ -2711,6 +2716,8 @@ export async function applyEstimateStructureDraft(
   assertCanWriteEstimateWorkflows(context.tenantRole);
   const { supabase, tenantId, userId } = context;
   const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
+  // Lot 2, sous-lot 2.8 (P-14) : refusée dans une v3 pendant le lot 2, avec le message nommé.
+  if (usesPerUnitLabor(resolveEstimateEngineVersion(version))) throw new EstimateEngineUnavailableError();
 
   assertDraftStatus(version.status);
   await assertDraftLockOwnedByCurrentUser({

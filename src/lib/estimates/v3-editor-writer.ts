@@ -21,10 +21,6 @@ import {
   toEstimateV3ItemWrite,
 } from "@/lib/estimates/v3-editor";
 
-/** Refus nommé du collage tant que son contrat v3 (unité du référentiel, heures par unité) n'est pas fixé. */
-export const ESTIMATE_V3_PASTE_UNAVAILABLE_MESSAGE =
-  "Le collage de lignes n’est pas encore disponible pour un devis au moteur de calcul 3 : saisissez les lignes dans la grille (unité du référentiel, heures par unité).";
-
 /** Un lot v3 validé : jeton de version acquitté (avec sa révision de contenu) ; sinon, l'erreur nommée du lot. */
 export async function commitEstimateV3Operations(
   versionId: string,
