@@ -124,19 +124,85 @@ export async function retakeLease(browser: Browser, versionId: string) {
   expect(lease.status).toBe(200);
 }
 
-/** Une affaire et une v3 attendue (moteur 3 de la politique) par l'API de création de 2.5. */
-export async function createV3(browser: Browser, army: ArmyState, record: Evidence, label: string) {
+/**
+ * Une affaire et une v3 attendue (moteur 3 de la politique) par l'API de création de 2.5 ; avec
+ * `projectId`, la v3 naît dans une affaire existante (affaire de la fixture, par exemple).
+ */
+export async function createV3(browser: Browser, army: ArmyState, record: Evidence, label: string, projectId?: string) {
   const today = new Date().toISOString().slice(0, 10);
-  const created = await apiRequest<Envelope<Created>>(browser, "POST", "/api/estimates", {
-    project: { name: `${army.runPrefix}-${label}` },
-    version: { ...NEUTRAL_V3_VERSION, title: `${army.runPrefix} ${label}`, date_devis: today, expected_calc_engine_version: 3 },
-  });
+  const version = { ...NEUTRAL_V3_VERSION, title: `${army.runPrefix} ${label}`, date_devis: today, expected_calc_engine_version: 3 };
+  const created = await apiRequest<Envelope<Created>>(browser, "POST", "/api/estimates",
+    projectId ? { project_id: projectId, version } : { project: { name: `${army.runPrefix}-${label}` }, version });
   await record(`${label}-created`, { status: created.status, ok: created.body.ok, error: created.body.error ?? null,
     engine: created.body.data?.version?.calc_engine_version ?? null });
   expect([created.status, created.body.ok, created.body.data?.version?.calc_engine_version]).toEqual([201, true, 3]);
-  const ids = { projectId: created.body.data.project.id, versionId: created.body.data.version.id };
+  const ids = { projectId: projectId ?? created.body.data.project.id, versionId: created.body.data.version.id };
   ownEstimate(army, ids);
   return ids;
+}
+
+/**
+ * Brouillon v3 d'une seule ligne de 1 × 10,00 € (PR FO), sous une section, écrite par le lot de 2.5 :
+ * - sans unité et chiffrée, aucun gel ne peut le figer (D9 ; l'unité est facultative à la saisie,
+ *   exigée au gel) ;
+ * - « included » en u, il n'a aucune ligne chiffrée : récapitulatif de TVA vide, montants nuls.
+ */
+export async function settleOneLineV3(browser: Browser, army: ArmyState, record: Evidence, label: string, ids: { versionId: string },
+  line: { unitCode: string | null; pricingStatus: "priced" | "included" }) {
+  const lock = await apiRequest(browser, "POST", `/api/estimates/${ids.versionId}/lock`);
+  expect(lock.status).toBe(201);
+  const empty = await readEstimate(browser, ids.versionId);
+  const section = await apiRequest<Envelope<{ item: ArmyItem }>>(browser, "POST", `/api/estimates/${ids.versionId}/items`,
+    { item_type: "section", position: 1, title: `${army.runPrefix} ${label} lot` }, { "if-match": empty.version.updated_at });
+  expect([section.status, section.body.ok]).toEqual([201, true]);
+  const beforeBatch = await readEstimate(browser, ids.versionId);
+  const batch = await apiRequest<Envelope<{ committed: boolean }>>(browser, "POST", `/api/estimates/${ids.versionId}/batch`, {
+    operation_key: randomUUID(),
+    operations: [{ op: "create", data: {
+      item_type: "line", parent_id: section.body.data.item.id, position: 1, line_nature: "supply_only",
+      title: `${army.runPrefix} ${label} ligne`, description: null, unit_code: line.unitCode, pricing_status: line.pricingStatus, quantity: 1,
+      unit_price_ht_cents: 1000, tax_rate_bp: 2000, k_fo: 1, h_mo_per_unit: 0, h_mo_majoration: 1, k_mo: 1, labor_role_id: null,
+      source_provider: "manual",
+    } }],
+  }, { "if-match": beforeBatch.version.updated_at });
+  expect([batch.status, batch.body.ok, batch.body.data?.committed]).toEqual([200, true, true]);
+  const settled = await readEstimate(browser, ids.versionId);
+  const lines = settled.items.filter((item) => item.item_type === "line");
+  const actual = { engine: settled.version.calc_engine_version, status: settled.version.status,
+    lines: lines.map((item) => [item.unit_code ?? null, item.pricing_status ?? null, Number(item.quantity)]) };
+  await record(`${label}-settled`, { versionId: ids.versionId, actual });
+  expect(actual).toEqual({ engine: 3, status: "draft", lines: [[line.unitCode, line.pricingStatus, 1]] });
+  return settled;
+}
+
+/** Résumé d'approbation par la route que lisent la fiche et l'affaire (GET …/approval). */
+export async function readApproval(browser: Browser, versionId: string) {
+  const read = await apiRequest<Envelope<{ approvalStatus?: string; reasons?: Array<{ ruleId?: string; approvalStatus?: string }> }>>(
+    browser, "GET", `/api/estimates/${versionId}/approval`);
+  return { status: read.status, ok: read.body.ok ?? null, code: read.body.error?.code ?? null,
+    approvalStatus: read.body.data?.approvalStatus ?? null, reasons: read.body.data?.reasons ?? [] };
+}
+
+/**
+ * Action d'approbation (POST …/approve) depuis le processus du parcours, pour la seule v3 possédée :
+ * le garde de navigateur des offres interdit /approve, par conception (comme V3P01). Les cookies de
+ * la session du navigateur portent l'authentification ; l'origine est l'application possédée en boucle.
+ */
+export async function approvalFromJourneyProcess(app: App, browser: Browser, versionId: string, body: Record<string, unknown>) {
+  const origin = new URL(app.baseUrl!).origin;
+  if (!/^http:\/\/localhost:\d+$/.test(origin)) throw new Error("The v3 approval probe targets the owned loopback app only.");
+  const cookie = (await browser.cookies())
+    .filter((entry) => !entry.domain || entry.domain === "localhost" || entry.domain === ".localhost")
+    .map((entry) => `${entry.name}=${entry.value}`).join("; ");
+  const response = await fetch(`${origin}/api/estimates/${versionId}/approve`, {
+    method: "POST", redirect: "manual",
+    headers: { cookie, origin, "content-type": "application/json", "x-estimate-draft-lock-session-id": randomUUID() },
+    body: JSON.stringify(body),
+  });
+  let parsed: Envelope<unknown> | { invalidJson: true };
+  try { parsed = await response.json() as Envelope<unknown>; } catch { parsed = { invalidJson: true }; }
+  const envelope = parsed as Partial<Envelope<unknown>>;
+  return { status: response.status, ok: envelope.ok ?? null, code: envelope.error?.code ?? null, message: envelope.error?.message ?? null };
 }
 
 /** Les 7 lignes en S5 : O1–O3 passent à 10 % par un lot de mises à jour, sur un brouillon réglé en S2. */

@@ -621,7 +621,9 @@ async function offersFixtures(context: CalcV3FixtureContext, campaign: string): 
 // exactly 4,000 cents an hour (§5.1). Its v3 estimates are created by the journey through the
 // application. The policy governs only new versions: one v2 draft witness (one 1 u line at
 // 20,00 € HT, 20 % VAT, no snapshot) is seeded in the same tenant so that the journey issues a
-// contract 1 offer before any v3 and re-verifies it after the v3 emissions.
+// contract 1 offer before any v3 and re-verifies it after the v3 emissions. One more affaire
+// (V3M03, review of 2.7) carries its own active approval rule at 5,000 EUR HT (scope "client",
+// scope_id = that affaire): the journey creates its v3 there, gets it approved, then issues it.
 async function emissionV3Fixtures(context: CalcV3FixtureContext, campaign: string): Promise<CalcV3PhaseFixtures> {
   const actor = await createActor(context, campaign, "emission-v3", { rmo4000: true });
   const reason = `ARMY calc-v3 ${campaign} sous-lot 2.7 émission v3`;
@@ -638,9 +640,10 @@ async function emissionV3Fixtures(context: CalcV3FixtureContext, campaign: strin
     throw new Error("calc-v3 fixture emission-v3: the tenant policy readback differs.");
   }
   // Every new tenant receives the product's global approval rule at 5,000 EUR HT
-  // (seed_default_estimate_approval_rule, 20260812223050). S2 and S5 (69,053.55 EUR HT) would
-  // be blocked at send by the approval gate, which is outside the emission contract of 2.7
-  // and covered by the approval journeys: the rule of this dedicated tenant only is deactivated.
+  // (seed_default_estimate_approval_rule, 20260812223050). S2 and S5 (69,053.55 EUR HT) of V3M01
+  // would be blocked at send by the approval gate: the global rule of this dedicated tenant only is
+  // deactivated. The approval path of a v3 (approval, then document freeze, PDF and send) is proven
+  // by V3M03 on the affaire below, whose own rule stays active.
   // `estimate_rules` is absent from the generated types: this one update goes through the untyped client.
   const untyped = context.admin as unknown as SupabaseClient;
   const deactivated = (await checked("emission-v3:default approval rule", untyped.from("estimate_rules")
@@ -655,9 +658,13 @@ async function emissionV3Fixtures(context: CalcV3FixtureContext, campaign: strin
   const prefix = `ARMY-V3M-calc-v3-${campaign}`;
   const witness = { projectId: randomUUID(), versionId: randomUUID(), sectionId: randomUUID(), lineId: randomUUID(),
     title: `${prefix} témoin v2`, lineTitle: `${prefix} témoin v2 prestation` };
+  const approvalProject = { projectId: randomUUID(), ruleId: randomUUID(), title: `${prefix} approbation v3`, thresholdCents: 500000 };
   const today = new Date().toISOString().slice(0, 10);
   const records: PlanRecord[] = [
     { table: "estimate_projects", row: { ...common, id: witness.projectId, user_id: owner.userId, name: witness.title } },
+    { table: "estimate_projects", row: { ...common, id: approvalProject.projectId, user_id: owner.userId, name: approvalProject.title } },
+    { table: "estimate_rules", row: { ...common, id: approvalProject.ruleId, rule_type: "require_approval", scope_type: "client",
+      scope_id: approvalProject.projectId, threshold_value: approvalProject.thresholdCents, action: "require_approval", is_active: true } },
     { table: "estimate_versions", row: { ...common, ...versionDefaults, id: witness.versionId, project_id: witness.projectId,
       title: witness.title, calc_engine_version: 2, max_section_depth: 1, discount_bp: 0, discount_mode: "simple",
       discount_steps: [], contractor_role: "principal", date_devis: today, validite_jours: 30,
@@ -673,16 +680,18 @@ async function emissionV3Fixtures(context: CalcV3FixtureContext, campaign: strin
   const engine = await checked("emission-v3:witness engine", context.admin.from("estimate_versions")
     .select("calc_engine_version, status").eq("id", witness.versionId).single());
   if (engine.calc_engine_version !== 2 || engine.status !== "draft") throw new Error("calc-v3 fixture emission-v3: the witness must be a v2 draft.");
-  const file = await writeFixture(context, "emission-v3", { schemaVersion: "calc-v3-emission-v3-1", status: "ready", campaign,
+  const file = await writeFixture(context, "emission-v3", { schemaVersion: "calc-v3-emission-v3-2", status: "ready", campaign,
     apiUrl: context.backend, createdAt: new Date().toISOString(), prefix, owner: { ...owner, laborRoleId: actor.laborRoleId },
     policy: { engine: 3, saleCoefficientFo: 1.3, saleCoefficientMo: 1.2, allowedTaxRatesBp: [2000, 1000, 550, 210] },
     v2Witness: { ...witness, expected: { ht: 2000, tax: 400, ttc: 2400 } },
     approvalRule: { id: deactivated[0].id, thresholdCents: 500000, isActive: false },
-    boundary: "A new owner, its bootstrap tenant at policy 3 without its default approval rule, and one v2 draft witness; every v3 is created by the journey through the application." });
+    approvalProject: { projectId: approvalProject.projectId, ruleId: approvalProject.ruleId, thresholdCents: approvalProject.thresholdCents },
+    boundary: "A new owner, its bootstrap tenant at policy 3 without its default global approval rule, one v2 draft witness and one empty affaire with its own active approval rule at 5,000 EUR HT; every v3 is created by the journey through the application." });
   return { env: { E2E_V3_EMISSION_FIXTURE_PATH: file }, secretEnv: {},
     login: { email: actor.email, password: actor.password },
     identities: { owner: publicActor(actor), prefix, v2Witness: witness, policy: "engine 3, 1,30 / 1,20",
-      approvalRule: "default 5,000 EUR global rule deactivated for this tenant" } };
+      approvalRule: "default 5,000 EUR global rule deactivated for this tenant",
+      approvalProject: { ...approvalProject, rule: "require_approval, scope client, 5,000 EUR HT, active" } } };
 }
 
 /** Prepares the explicit fixtures of one calc-v3 phase on the owned stack. */

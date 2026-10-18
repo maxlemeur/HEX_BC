@@ -127,13 +127,20 @@ armyTest("V3FC01 a v3 opens behind the engine banner, shows no v1 total and is n
 // §5.2 : fin de ESTIMATE_ENGINE_UNAVAILABLE sur POST …/pdf et POST …/send), donc le refus général de 2.1 ne
 // tient plus. E2E-03 porte désormais sur une v3 que le moteur 3 ne peut pas figer : la ligne chiffrée de la
 // fixture n'a pas d'unité (D9) et ses montants stockés sont périmés (0). Sous le bail de la page (pour qu'un
-// refus ne soit pas un artefact de verrou), la publication est refusée par son nom avant toute réclamation ;
-// l'envoi, dans la campagne critique, est refusé par la configuration sans fournisseur avant toute relecture,
-// gel ou réservation (l'envoi d'une v3 est prouvé par V3M01, phase calc-v3 emission-v3, avec le collecteur).
+// refus ne soit pas un artefact de verrou), la publication est refusée par son nom avant toute réclamation.
+// Revue 2.7 (§10.6) : l'aperçu d'impression et les exports XLSX standard et DPGF de ce brouillon, qui le
+// présentent par le moteur pur sans le figer, le refusent par le même nom (rouge : page d'erreur et 500
+// INTERNAL_ERROR, le préparateur levant ESTIMATE_V3_STORED_INCOHERENT pendant le rendu).
+// L'envoi n'est ici qu'un contrôle de configuration, pas une preuve du moteur 3 : la campagne critique n'a
+// pas de fournisseur et `getRequiredEnvVar("RESEND_API_KEY")` refuse avant toute relecture, tout gel et toute
+// réservation, quel que soit le moteur. Le refus nommé de l'envoi d'une v3 sans unité, avec un fournisseur,
+// est prouvé par V3M01 (phase calc-v3 emission-v3, collecteur sentinelle).
 const UNIT_REQUIRED = "Une unité est requise sur chaque ligne chiffrée avant le gel.";
+const PRINT_REFUSAL = `Le document client de ce devis ne peut pas être préparé : ${UNIT_REQUIRED}`;
+const ROUTE_ERROR = "Cette page n’a pas pu être chargée";
 const NO_PROVIDER = "Configuration email manquante: RESEND_API_KEY.";
 
-armyTest("V3FC02 publishing a v3 that engine 3 cannot freeze is refused by name, and neither it nor a send leaves a document, envelope or status change", options, async ({ app, browser, army }) => {
+armyTest("V3FC02 publishing, printing or exporting a v3 that engine 3 cannot freeze is refused by name, and no document, envelope or status change is left (send: configuration refusal)", options, async ({ app, browser, army }) => {
   const fixture = await prepareV3Fixture(app, browser, army);
   const lock = await apiRequest(browser, "POST", `/api/estimates/${fixture.versionId}/lock`);
   expect(lock.status).toBe(201);
@@ -144,6 +151,17 @@ armyTest("V3FC02 publishing a v3 that engine 3 cannot freeze is refused by name,
 
   const publication = await apiRequest<Envelope<unknown>>(browser, "POST", `/api/estimates/${fixture.versionId}/pdf`, {});
   const afterPublication = await readV3State(fixture.versionId);
+  // Wait until the print page shows either the named notice or the route error, so the evidence
+  // records which one a red build rendered before the assertions below.
+  await app.open(`/dashboard/estimates/${fixture.versionId}/print`);
+  await expect.poll(async () => {
+    const text = await visibleText(browser);
+    return text.includes(PRINT_REFUSAL) || text.includes(ROUTE_ERROR);
+  }, { timeout: 30_000 }).toBe(true);
+  const printText = await visibleText(browser);
+  const exportStandard = await apiRequest<Envelope<unknown>>(browser, "GET", `/api/estimates/${fixture.versionId}/export?format=xlsx`);
+  const exportDpgf = await apiRequest<Envelope<unknown>>(browser, "GET", `/api/estimates/${fixture.versionId}/export?format=xlsx&mode=dpgf`);
+  const afterReads = await readV3State(fixture.versionId);
   const send = await sendFromJourneyProcess(app, browser, fixture, before.updatedAt, lockSessionId);
   const after = await readV3State(fixture.versionId);
 
@@ -151,20 +169,28 @@ armyTest("V3FC02 publishing a v3 that engine 3 cannot freeze is refused by name,
     const body = response.body as Envelope<unknown>;
     return { status: response.status, ok: body.ok ?? null, code: body.error?.code ?? null, message: body.error?.message ?? null };
   };
+  const refusal = { status: 400, ok: false, code: "ESTIMATE_V3_UNIT_REQUIRED", message: UNIT_REQUIRED };
   const expected = {
-    publication: { status: 400, ok: false, code: "ESTIMATE_V3_UNIT_REQUIRED", message: UNIT_REQUIRED },
+    publication: refusal,
+    print: { notice: true, routeError: false },
+    exports: { standard: refusal, dpgf: refusal },
     send: { status: 500, ok: false, code: "INTERNAL_ERROR", message: NO_PROVIDER },
+  };
+  const actual = {
+    publication: summary(publication),
+    print: { notice: printText.includes(PRINT_REFUSAL), routeError: printText.includes(ROUTE_ERROR) },
+    exports: { standard: summary(exportStandard), dpgf: summary(exportDpgf) },
+    send: summary(send),
   };
   await recordEvidence(army, "engine-v3-emission", {
     fixture: { versionId: fixture.versionId, title: fixture.title },
     expected: { ...expected, lease: 201, state: before },
-    actual: { lease: lock.status, publication: summary(publication), send: summary(send), sendSessionCheck: send.sessionCheckStatus,
-      afterPublication, after },
+    actual: { ...actual, lease: lock.status, sendSessionCheck: send.sessionCheckStatus, afterPublication, afterReads, after },
   });
   expect(send.sessionCheckStatus).toBe(200);
-  expect(summary(publication)).toEqual(expected.publication);
-  expect(summary(send)).toEqual(expected.send);
+  expect(actual).toEqual(expected);
   expect(afterPublication).toEqual(before);
+  expect(afterReads).toEqual(before);
   expect(after).toEqual(before);
   expect([after.status, after.documents, after.emails]).toEqual(["draft", 0, 0]);
 });

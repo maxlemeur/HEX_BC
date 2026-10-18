@@ -8,9 +8,9 @@ import { credentials, expect, secrets, type App, type Screen } from "e2e";
 
 import { apiRequest, armyTest, ownEstimate, readEstimate, recordEvidence, type ArmyState } from "../critical/fixtures";
 import {
-  createV3, documentChecks, expectedDocumentChecks, expectedExportChecks, exportChecks, exportWorkbook, generatePdf, moveToS5,
-  pdfText, printText, retakeLease, S2, S5, settleV3, storedPdfBytes, storedPdfState, verifySeal, type Envelope, type Evidence,
-  type Scenario,
+  approvalFromJourneyProcess, createV3, documentChecks, expectedDocumentChecks, expectedExportChecks, exportChecks, exportWorkbook,
+  generatePdf, moveToS5, pdfText, printText, readApproval, retakeLease, S2, S5, settleOneLineV3, settleV3, storedPdfBytes,
+  storedPdfState, verifySeal, type Envelope, type Evidence, type Scenario,
 } from "./engine-v3-emission-support";
 import { setTenantCalcPolicy, useDedicatedV3Owner } from "./engine-v3-persistence-support";
 import { admitCollectedResendDecision, offerTest, recordOfferEvidence } from "./resend-portal-fixtures";
@@ -34,29 +34,60 @@ import { admitCollectedResendDecision, offerTest, recordOfferEvidence } from "./
 //  V3M-07 L'acceptation au portail d'une v3 échoue ou change son sceau.
 //  V3M-08 Régression : une v2 émise avant (contrat 1, charge 4, marqueur 5) ne se vérifie plus ou
 //         change de SHA-256 de PDF après les émissions v3.
-// V3M01 s'exécute dans la phase calc-v3 `emission-v3` (collecteur sentinelle, next dev) ; V3M02,
-// sans courriel, dans la campagne critique locale sur le build de production. Chacun n'est défini
-// que dans sa campagne : la phase calc-v3 exige son résultat exact par fichier.
+// Ajoutés à la revue 2.7 (docs/testing/estimate-engine-v3-2.7.md §10.6) :
+//  V3M-09 Le résumé d'approbation d'une version émise (GET …/approval, lu par la fiche et l'affaire)
+//         échoue : la relecture tente l'écriture que guard_estimate_versions_readonly refuse (régression
+//         de e4fc30cf ; le panneau d'approbation disparaît).
+//  V3M-10 Une v3 au-dessus du seuil d'approbation ne peut pas être émise une fois approuvée, ou son
+//         approbation ne survit pas au gel du document, au PDF et à l'envoi.
+//  V3M-11 L'envoi d'une v3 que le moteur 3 ne peut pas figer (ligne chiffrée sans unité), avec un
+//         fournisseur configuré, réussit, échoue sans son nom, ou laisse un document, un reçu, un
+//         changement de statut ou de version.
+// V3M01, V3M03 et V3M04 s'exécutent dans la phase calc-v3 `emission-v3` (collecteur sentinelle, build
+// de production possédé, `next start`) ; V3M02, sans courriel, dans la campagne critique locale sur le
+// build de production. Chacun n'est défini que dans sa campagne : la phase calc-v3 exige son résultat
+// exact par fichier.
 const digest = (value: Buffer | string) => createHash("sha256").update(value).digest("hex");
-type Ui = { app: App; screen: Screen; browser: Browser; army: ArmyState };
+const UNIT_REQUIRED = "Une unité est requise sur chaque ligne chiffrée avant le gel.";
+type Ui ={ app: App; screen: Screen; browser: Browser; army: ArmyState };
 type Receipt = { id: string; pdf: { sha256: string; bytes: number }; delivery: string };
 type Packet = { id: string; payload: { html: string; attachments: { filename: string; content: string }[] } };
 type EmissionFixture = {
-  schemaVersion: "calc-v3-emission-v3-1";
+  schemaVersion: "calc-v3-emission-v3-2";
   owner: { userId: string; tenantId: string; laborRoleId: string };
   v2Witness: { projectId: string; versionId: string; lineTitle: string; expected: { ht: number; tax: number; ttc: number } };
+  /** Affaire de V3M03 portant sa propre règle d'approbation active à 5 000 € HT (portée « client »). */
+  approvalProject: { projectId: string; ruleId: string; thresholdCents: number };
 };
 
 function emissionFixture(): EmissionFixture {
   const file = process.env.E2E_V3_EMISSION_FIXTURE_PATH;
-  if (!file) throw new Error("V3M01 requires the calc-v3 emission-v3 fixture path.");
+  if (!file) throw new Error("The emission-v3 journeys require the calc-v3 emission-v3 fixture path.");
   const value = JSON.parse(readFileSync(file, "utf8")) as EmissionFixture;
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-  if (value.schemaVersion !== "calc-v3-emission-v3-1" || ![value.owner.userId, value.owner.tenantId, value.owner.laborRoleId,
-    value.v2Witness.projectId, value.v2Witness.versionId].every((id) => uuid.test(id))) {
-    throw new Error("V3M01 fixture shape differs.");
+  if (value.schemaVersion !== "calc-v3-emission-v3-2" || ![value.owner.userId, value.owner.tenantId, value.owner.laborRoleId,
+    value.v2Witness.projectId, value.v2Witness.versionId, value.approvalProject.projectId, value.approvalProject.ruleId]
+    .every((id) => uuid.test(id)) || value.approvalProject.thresholdCents !== 500000) {
+    throw new Error("The emission-v3 fixture shape differs.");
   }
   return value;
+}
+
+/**
+ * V3M-09 : le résumé d'approbation d'une version émise se relit (200), sans l'écriture vouée au refus
+ * de guard_estimate_versions_readonly (e4fc30cf) ; la fiche et l'affaire le lisent par cette route.
+ */
+async function expectIssuedApprovalRead(ui: Ui, record: Evidence, label: string, versionId: string, approvalStatus: string) {
+  const read = await readApproval(ui.browser, versionId);
+  const actual = { status: read.status, ok: read.ok, code: read.code, approvalStatus: read.approvalStatus };
+  const expected = { status: 200, ok: true, code: null, approvalStatus };
+  await record(`${label}-approval-read`, { versionId, expected, actual });
+  expect(actual).toEqual(expected);
+}
+
+/** Noms des reçus du collecteur (un répertoire par message reçu). */
+async function receiptNames() {
+  return (await readdir(collectorReceipts())).filter((entry) => /^[a-f0-9]{64}$/.test(entry)).sort();
 }
 
 function collectorReceipts() {
@@ -219,6 +250,8 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
         s2State.version.total_tax_cents, s2State.version.total_ttc_cents]).toEqual(["sent", 5, ...S2.totals]);
       expect(s2Verified).toMatchObject({ status: 200, ok: true, data: { valid: true, stored_hash: s2State.version.seal_hash,
         computed_hash: s2State.version.seal_hash, seal_payload_version: 5, client_contract_version: 2, calc_payload_version: 6 } });
+      // V3M-09 : S2, créé, réglé et envoyé par l'API, n'a jamais été évalué en brouillon (règle par défaut désactivée).
+      await expectIssuedApprovalRead(ui, record, "s2", s2.versionId, "not_required");
       await expectIssuedDocument(ui, record, "s2", s2.versionId, S2, s2Sent.pdf);
 
       // S5 : O1–O3 à 10 %, O4–O7 à 20 % ; émis, renvoyé (même document), puis accepté au portail.
@@ -235,6 +268,7 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
         s5State.version.total_tax_cents, s5State.version.total_ttc_cents]).toEqual(["sent", 5, ...S5.totals]);
       expect(s5Verified).toMatchObject({ status: 200, ok: true, data: { valid: true, stored_hash: s5State.version.seal_hash,
         computed_hash: s5State.version.seal_hash, seal_payload_version: 5, client_contract_version: 2, calc_payload_version: 6 } });
+      await expectIssuedApprovalRead(ui, record, "s5", s5.versionId, "not_required");
       const s5Text = await expectIssuedDocument(ui, record, "s5", s5.versionId, S5, s5Sent.pdf);
       await app.open(`/dashboard/estimates/${s5.versionId}`);
       const s5Resent = await sendOffer(ui, record, "s5-resend", s5.versionId);
@@ -280,10 +314,109 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
         seal_payload_version: 5, client_contract_version: 1, calc_payload_version: 4 } });
       expect([witnessDocument.status, witnessDocument.documentStatus, witnessDocument.sha256]).toEqual([200, "ready", witnessSent.receipt.pdf.sha256]);
     });
+
+  // V3M-10 : la règle d'approbation de l'affaire de la fixture (5 000 € HT, portée « client ») s'applique à S2
+  // (69 053,55 € HT) ; l'administrateur de l'entreprise approuve, puis la v3 est émise sous le contrat 2.
+  offerTest("V3M03 a v3 above its approval threshold is approved, then issued under client contract 2 and payload 6 with its approval intact",
+    { session: "army", trace: "off", tags: ["engine-v3", "offer-emission"], timeout: 600_000 }, async (ui) => {
+      const { app, browser, army } = ui;
+      const fixture = emissionFixture();
+      const { projectId, ruleId } = fixture.approvalProject;
+      const record: Evidence = (label, data) => recordOfferEvidence(army, `v3m03-${label}`, data);
+      await app.open("/dashboard/affaires");
+      await expectOfferGuardInstalled(record);
+      const ids = await createV3(browser, army, record, "V3M-approval", projectId);
+      await settleV3(browser, army, record, "V3M-approval", ids, S2, fixture.owner.laborRoleId);
+
+      const required = await readApproval(browser, ids.versionId);
+      const requiredView = { status: required.status, approvalStatus: required.approvalStatus,
+        rule: required.reasons.some((reason) => reason.ruleId === ruleId) };
+      await record("required", { versionId: ids.versionId, ruleId, expected: { status: 200, approvalStatus: "required", rule: true },
+        actual: requiredView });
+      expect(requiredView).toEqual({ status: 200, approvalStatus: "required", rule: true });
+      const submitted = await approvalFromJourneyProcess(app, browser, ids.versionId,
+        { action: "submit_for_review", rule_ids: [ruleId], submission_message: `${army.runPrefix} approbation v3` });
+      const inReview = await readEstimate(browser, ids.versionId);
+      const decided = await approvalFromJourneyProcess(app, browser, ids.versionId, { action: "decide", decision: "approved", comments: [] });
+      const approved = await readEstimate(browser, ids.versionId);
+      const approvedRead = await readApproval(browser, ids.versionId);
+      const approval = {
+        submitted: [submitted.status, submitted.ok], inReview: inReview.version.approval_status,
+        decided: [decided.status, decided.ok], approved: approved.version.approval_status,
+        read: [approvedRead.status, approvedRead.approvalStatus],
+        totals: [approved.version.total_ht_cents, approved.version.total_tax_cents, approved.version.total_ttc_cents],
+      };
+      const expectedApproval = { submitted: [201, true], inReview: "in_review", decided: [200, true], approved: "approved",
+        read: [200, "approved"], totals: [...S2.totals] };
+      await record("approval", { versionId: ids.versionId, expected: expectedApproval, actual: approval, submitted, decided });
+      expect(approval).toEqual(expectedApproval);
+
+      // Gel du document, PDF puis envoi : l'approbation et la révision survivent ; sceau du contrat 2 et de la charge 6.
+      await generatePdf(browser, record, "pdf", ids.versionId);
+      const afterPdf = await readEstimate(browser, ids.versionId);
+      const sent = await sendOffer(ui, record, "send", ids.versionId);
+      const stored = await storedPdfState(browser, ids.versionId);
+      const issued = await readEstimate(browser, ids.versionId);
+      const verified = await verifySeal(browser, ids.versionId);
+      const text = await pdfText(sent.pdf);
+      const actual = {
+        afterPdf: [afterPdf.version.status, afterPdf.version.approval_status, afterPdf.version.content_revision],
+        issued: [issued.version.status, issued.version.approval_status, issued.version.content_revision, issued.version.seal_payload_version,
+          issued.version.total_ht_cents, issued.version.total_tax_cents, issued.version.total_ttc_cents],
+        receiptMatchesDocument: sent.receipt.pdf.sha256 === stored.sha256,
+        document: documentChecks(text.text, S2),
+      };
+      const expected = {
+        afterPdf: ["draft", "approved", approved.version.content_revision],
+        issued: ["sent", "approved", approved.version.content_revision, 5, ...S2.totals],
+        receiptMatchesDocument: true,
+        document: expectedDocumentChecks(S2),
+      };
+      await record("issued", { versionId: ids.versionId, sha256: text.sha256, expected, actual, verified });
+      expect(actual).toEqual(expected);
+      expect(verified).toMatchObject({ status: 200, ok: true, data: { valid: true, stored_hash: issued.version.seal_hash,
+        computed_hash: issued.version.seal_hash, seal_payload_version: 5, client_contract_version: 2, calc_payload_version: 6 } });
+      await expectIssuedApprovalRead(ui, record, "issued", ids.versionId, "approved");
+    });
+
+  // V3M-11 : E2E-03 de 2.1 avec un fournisseur configuré (le collecteur) ; V3FC02 n'en fait qu'un contrôle de configuration.
+  offerTest("V3M04 sending a v3 that engine 3 cannot freeze is refused by name with a provider configured, leaving no document, receipt or status change",
+    { session: "army", trace: "off", tags: ["engine-v3", "offer-emission"], timeout: 300_000 }, async (ui) => {
+      const { app, browser, army } = ui;
+      emissionFixture();
+      const record: Evidence = (label, data) => recordOfferEvidence(army, `v3m04-${label}`, data);
+      await app.open("/dashboard/affaires");
+      await expectOfferGuardInstalled(record);
+      const ids = await createV3(browser, army, record, "V3M-unitless");
+      await settleOneLineV3(browser, army, record, "V3M-unitless", ids, { unitCode: null, pricingStatus: "priced" });
+      await retakeLease(browser, ids.versionId);
+      const before = await readEstimate(browser, ids.versionId);
+      const receiptsBefore = await receiptNames();
+      const refused = await apiRequest<Envelope<unknown>>(browser, "POST", `/api/estimates/${ids.versionId}/send`, {
+        to: "army-unitless@offer.invalid", subject: "V3M-unitless offre commerciale v3", message: "Tentative d'envoi d'une v3 sans unité.",
+      }, { "idempotency-key": randomUUID(), "if-match": before.version.updated_at });
+      const after = await readEstimate(browser, ids.versionId);
+      const document = await storedPdfState(browser, ids.versionId);
+      const actual = {
+        send: { status: refused.status, ok: refused.body.ok ?? null, code: refused.body.error?.code ?? null,
+          message: refused.body.error?.message ?? null },
+        state: [after.version.status, after.version.updated_at, after.version.content_revision],
+        document: [document.status, document.documentStatus],
+        receipts: await receiptNames(),
+      };
+      const expected = {
+        send: { status: 400, ok: false, code: "ESTIMATE_V3_UNIT_REQUIRED", message: UNIT_REQUIRED },
+        state: ["draft", before.version.updated_at, before.version.content_revision],
+        document: [404, null],
+        receipts: receiptsBefore,
+      };
+      await record("send-refused", { versionId: ids.versionId, expected, actual });
+      expect(actual).toEqual(expected);
+    });
 }
 
 if (process.env.E2E_ARMY_SUITE === "critical") {
-  armyTest("V3M02 a v3 in S2 then S5 renders its client document, print and exports with the oracle amounts on the production build",
+  armyTest("V3M02 a v3 in S2 then S5 renders its client document, print and exports with the oracle amounts on the production build, and a v3 without a priced line keeps its version VAT rate",
     { session: "army", tags: ["critical", "local", "engine-v3"], timeout: 600_000 }, async ({ app, screen, browser, army }) => {
       const backend = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!);
       if (!["localhost", "127.0.0.1", "[::1]"].includes(backend.hostname) || backend.hostname !== process.env.E2E_ALLOWED_SUPABASE_HOST ||
@@ -316,5 +449,17 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
       await moveToS5(browser, record, "V3M02", ids.versionId);
       await generatePdf(browser, record, "s5", ids.versionId);
       await expectIssuedDocument(ui, record, "s5", ids.versionId, S5, await storedPdfBytes(browser, ids.versionId));
+
+      // Revue 2.7 (§10.6) : une v3 sans ligne chiffrée a un récapitulatif de TVA vide ; l'en-tête de validité du
+      // document client reprend le taux par défaut de la version (3a8e576a ; rouge sans lui : « TVA : » vide).
+      await app.open("/dashboard/affaires");
+      const unpriced = await createV3(browser, army, record, "V3M02-unpriced");
+      await settleOneLineV3(browser, army, record, "V3M02-unpriced", unpriced, { unitCode: "u", pricingStatus: "included" });
+      await generatePdf(browser, record, "unpriced", unpriced.versionId);
+      const unpricedText = await pdfText(await storedPdfBytes(browser, unpriced.versionId));
+      const header = { versionRate: /Validité : 30 jours [—–-] TVA : 20 %/u.test(unpricedText.text) };
+      await record("unpriced-header", { versionId: unpriced.versionId, sha256: unpricedText.sha256, expected: { versionRate: true },
+        actual: { ...header, excerpt: /Validité : .{0,40}/u.exec(unpricedText.text)?.[0] ?? null } });
+      expect(header).toEqual({ versionRate: true });
     });
 }
