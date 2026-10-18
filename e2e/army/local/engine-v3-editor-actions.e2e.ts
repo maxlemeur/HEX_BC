@@ -95,6 +95,12 @@ async function pageText(ui: Ui) {
   return apostrophes(normalized(await ui.browser.evaluate(() => document.body.innerText)));
 }
 
+/** Label of the ribbon's synchronisation status (« À jour », « En attente », …). */
+async function autoSaveStatus(ui: Ui) {
+  return normalized(await ui.browser.evaluate(() =>
+    document.querySelector("[data-testid=\"estimate-page-toolbar-autosave-status\"]")?.textContent ?? null));
+}
+
 /** The 2.1 engine banner text: a grid action of the v3 editor must never end on it (F26-17's rule, extended). */
 async function genericRefusalShown(ui: Ui) {
   return (await pageText(ui)).includes(apostrophes(BANNER));
@@ -212,7 +218,38 @@ armyTest("V3E05 a v3 line, an added line and a section are deleted, and a deleti
     expect(deleteView, "a v3 line is deleted by the v3 writer").toEqual({ present: false, totals: withoutC, genericRefusal: false });
 
     // Annuler la suppression recrée la ligne avec ses saisies v3 (unité, statut, h/u), sans heures totales ni projection.
-    await undo(ui);
+    // CI 39107622137 (docs/testing/v3e05-click-intercepted.md) : sa remise en ordre, retenue ici, laisse ouverte la fenêtre
+    // que la CI a touchée au hasard. Ni alerte « totaux non sauvegardés » ni saut de la grille pendant l'annulation ;
+    // le pointeur laissé sur le titre de la section atteint encore son « + » ; l'annulation finie, rien « En attente ».
+    const reorderUrl = new URL(`/api/estimates/${draft.versionId}/items/reorder`, app.baseUrl!).href;
+    let releaseReorder!: () => void;
+    const reorderGate = new Promise<void>((resolve) => { releaseReorder = resolve; });
+    let reorderHeld = false;
+    const sectionTitle = browser.locator(`[data-estimate-item-id="${draft.sectionId}"] [data-testid="estimate-section-title-input"]`);
+    const sectionTop = async () => { const box = await sectionTitle.boundingBox(); return box ? Math.round(box.y) : null; };
+    const totalsAlert = screen.getByTestId("estimate-editor-alert-totals-out-of-sync");
+    const topBeforeUndo = await sectionTop();
+    await browser.route(reorderUrl, async (route) => { reorderHeld = true; await reorderGate; await route.fallback(); });
+    let inFlight: { alert: boolean; top: number | null };
+    try {
+      await undo(ui);
+      await expect.poll(() => reorderHeld).toBe(true);
+      // Line C is back in the grid: its recreation is committed and rendered, only its reorder is in flight.
+      await expect(screen.getByRole("combobox", lineC.title, { exact: true })).toBeVisible();
+      inFlight = { alert: await totalsAlert.isVisible(), top: await sectionTop() };
+      await sectionTitle.hover();
+    } finally {
+      releaseReorder();
+    }
+    await expect(screen.getByTestId("estimate-editor-redo-button", { visible: true })).toBeEnabled({ timeout: 30_000 });
+    await browser.unroute(reorderUrl);
+    const settled = { alert: await totalsAlert.isVisible(), top: await sectionTop(), status: await autoSaveStatus(ui) };
+    await recordEvidence(army, "v3e05-undo-in-flight", { versionId: draft.versionId, actual: { topBeforeUndo, inFlight, settled } });
+    expect({ inFlight, settled }, "an undone v3 deletion neither raises the totals alert nor moves the grid").toEqual({
+      inFlight: { alert: false, top: topBeforeUndo }, settled: { alert: false, top: topBeforeUndo, status: "À jour" },
+    });
+    // The CI tap: the « + » opens from the pointer left on the section title during the undo, without a new hover.
+    await screen.getByRole("button", `Ajouter dans ${draft.sectionTitle}`, { exact: true }).tap();
     const restored = await waitState(ui, draft.versionId, (state) => lineByTitle(state, lineC.title) !== null && sameTotals(state, initial));
     const restoredC = lineByTitle(restored, lineC.title);
     const restoreView = {
