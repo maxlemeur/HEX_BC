@@ -495,7 +495,8 @@ parcours à 1 worker, phase développement 50 à 91 s. calc-v3, run 39109681565 
 - calc-v3 (`e2e-army-calc-v3.yml`) : un job par phase planifiée
   (`CALC_V3_NIGHTLY_PHASES`, ou la phase ou `all` d'un déclenchement).
 - Au 18/10/2026 : suite critical complète en 3 shards de 348, 350 et 348 s
-  mesurées ; suite full en 5 shards de 302 à 303 s.
+  mesurées ; suite full en 5 shards de 306 à 308 s (46 fichiers depuis
+  `bulk-actions-v1-totals.e2e.ts`, compté aux 20 s par défaut).
 
 ### Contrôle d'agrégation
 
@@ -648,6 +649,29 @@ critique. Le gain mural va de 1,5 fois (critical) à 3,2 fois (full), 2 à
 2,9 fois pour calc-v3 ; il se paie en minutes de runner : 1,35 fois pour
 critical (mêmes jobs, `army-takeoff` compris), 1,5 fois pour full, 1 à 1,5 fois
 pour calc-v3.
+
+### Chemins d'échec de l'agrégation, prouvés en CI
+
+Le 18/10/2026, une branche jetable (`throwaway/l2-aggregate-failure-proof`,
+commit `fc01e2ce` sur `1d934f35`, jamais fusionnée, supprimée après ses runs) a
+injecté des fautes dans les jobs d'unité, sans toucher `aggregate-shards.ts` ni
+les jobs d'agrégation, puis déclenché les trois workflows :
+
+| Run | Fautes injectées | Jobs d'unité | Agrégation |
+| --- | --- | --- | --- |
+| Full 39125133203 (8 min 20 s) | (1) `prehydration-auth.e2e.ts` lève une erreur pour `signup` (shard 1/5) ; (2) le shard 2/5 retire son dernier fichier prévu, `takeoff-dpgf-review.e2e.ts`, et passe ; (3) après son manifeste, le shard 3/5 ajoute un saut de ligne à `full/report.json` et un fichier `planted.txt` ; (4) le shard 4/5 passe sans téléverser ses preuves ; (5) le job développement est ignoré (`if: false`) ; le shard 5/5 est intact | shard 1/5 rouge ; 2/5 à 5/5 verts ; développement ignoré | **rouge**, 13 problèmes, un ou plusieurs par faute : matrice `failure` et développement `skipped` au lieu de `success` ; shard 1/5 `status failed` et son résultat rouge ; shard 2/5 `journeyFiles` hors plan et `did not run …takeoff-dpgf-review.e2e.ts` ; shard 3/5 `full/report.json does not match its inventory` et `planted.txt is not in its inventory` ; shard 4/5 et développement sans manifeste ; 11 fichiers prévus absents de l'union. Aucun pour le shard 5/5 |
+| Critical 39125135446 (8 min 26 s) | (1), qui tombe dans le shard 3/3 ; `army-takeoff`, que l'agrégation n'attend pas, ignoré pour économiser des minutes | shard 3/3 rouge ; 1/3 et 2/3 verts | **rouge**, 5 problèmes : matrice `failure`, puis statut, phase, résultat et comptes du shard 3/3 ; union 28/28 ; aucun pour les shards 1/3 et 2/3 |
+| calc-v3 `access` 39125137105 (3 min 50 s) | (6) le job `access` lance la phase `resume` et la téléverse sous `army-calc-v3-access-evidence`, lue à plat | tous verts | **rouge**, 3 problèmes : portée `calc-v3-resume` au lieu de `calc-v3-access`, phase `resume` enregistrée, `calc-v3.json` a lancé `resume` |
+
+Des jobs d'unité verts ne suffisent donc pas : les shards full 2/5 à 4/5 et le
+job `access` étaient verts, et l'agrégation a lu leurs preuves. Chaque
+agrégation rouge a gardé son artefact (`army-full-evidence`,
+`army-critical-evidence`, `army-calc-v3-evidence`, rétention 7 jours) avec
+`status: failed`, la révision `fc01e2ce` et ses problèmes. L'annulation est
+observée sur la PR : runs 39119464374 et 39119464339, agrégation `cancelled`,
+jamais verte. Non observés en CI : une sélection `none` et une PR critical d'un
+seul shard, couvertes par `src/test/army-shard-aggregate.test.ts` et, pour la
+lecture à plat, par les déclenchements verts 39121897344 et 39121899428.
 
 ### Limites
 
