@@ -1037,7 +1037,7 @@ select is(
     pg_temp.c2_match('a3270000-0000-4000-8000-000000000120',
       pg_temp.c2_swap(pg_temp.c2_contract('a3270000-0000-4000-8000-000000000120', 'S2'), 1, 2)),
     pg_temp.c2_match('a3270000-0000-4000-8000-000000000120', (select jsonb_set(contract, '{rows}',
-      (contract -> 'rows' - 0) || jsonb_build_array(contract -> 'rows' -> 0))
+      ((contract -> 'rows') - 0) || jsonb_build_array(contract -> 'rows' -> 0))
       from pg_temp.c2_contract('a3270000-0000-4000-8000-000000000120', 'S2') contract)),
     pg_temp.c2_pair('a3270000-0000-4000-8000-000000000120', 'S2',
       pg_temp.c2_swap(pg_temp.c2_contract('a3270000-0000-4000-8000-000000000120', 'S2'), 1, 2))
