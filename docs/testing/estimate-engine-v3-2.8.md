@@ -360,6 +360,10 @@ autre version, à une autre opération ou à un appel direct du pont ; C4 une v3
   (785/785) ; sa durée (196 s puis 135 s) vient de lectures bloquées ~60 s (constat ci-dessus), pas de la
   création.
 
+**Garde locale** : le budget de déclaration d'un gros devis v3 (création et enregistrement des paramètres sur
+1 021 éléments, invariance d'échelle partout, médiane ≤ 330 ms sur Mac Apple silicon) est dans
+[large-estimate-statement-budget.md](large-estimate-statement-budget.md).
+
 **Écart assumé** : quand un payload porte deux refus différents (un refus de profondeur et le refus d'une
 ligne plus loin par un autre déclencheur ou une contrainte), le refus remonté peut différer. Une création
 acceptée écrit les mêmes lignes, révisions, lignes d'audit et révisions de couverture.
