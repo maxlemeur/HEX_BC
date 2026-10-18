@@ -116,7 +116,8 @@ const READ_BUDGET_MS = 10_000;
 
 /**
  * GET /api/estimates/{id} started in the page and awaited by polling, so that a stalled read is measured
- * instead of failing on one browser.evaluate budget; its duration is recorded and bounded (E10).
+ * instead of failing on one browser.evaluate budget. A failed fetch is reported, not left to the poll timeout.
+ * Callers record the duration, then bound it with expectReadsWithinBudget (E10).
  */
 async function readEstimatePatiently(browser: Browser, versionId: string) {
   type Pending = { started: number; done: { status: number; ms: number; text: string } | null };
@@ -126,17 +127,23 @@ async function readEstimatePatiently(browser: Browser, versionId: string) {
     scope.__ioRead = pending;
     void fetch(path, { credentials: "same-origin" }).then(async (response) => {
       pending.done = { status: response.status, ms: Math.round(performance.now() - pending.started), text: await response.text() };
+    }).catch((error: unknown) => {
+      pending.done = { status: -1, ms: Math.round(performance.now() - pending.started), text: String(error) };
     });
     return 1;
   }, `/api/estimates/${versionId}`);
   await expect.poll(() => browser.evaluate(() =>
     (globalThis as typeof globalThis & { __ioRead?: Pending }).__ioRead?.done !== null), { timeout: 180_000 }).toBe(true);
   const done = await browser.evaluate(() => (globalThis as typeof globalThis & { __ioRead?: Pending }).__ioRead!.done!);
-  expect(done.status).toBe(200);
-  expect(done.ms).toBeLessThan(READ_BUDGET_MS);
+  expect({ status: done.status, error: done.status === 200 ? null : done.text.slice(0, 300) }).toEqual({ status: 200, error: null });
   const body = JSON.parse(done.text) as Envelope<{ version: ArmyEstimate["version"]; items: ArmyItem[] }>;
   return { state: { project: body.data.version.estimate_projects, version: body.data.version, items: body.data.items } as ArmyEstimate,
     ms: done.ms };
+}
+
+/** E10, after the durations are recorded: a failing run keeps every measured read. */
+function expectReadsWithinBudget(...ms: number[]) {
+  expect(ms.filter((value) => value >= READ_BUDGET_MS)).toEqual([]);
 }
 
 async function saveSettings(browser: Browser, army: ArmyState, versionId: string, label: string, patch: Record<string, unknown>) {
@@ -152,9 +159,11 @@ async function saveSettings(browser: Browser, army: ArmyState, versionId: string
     { ...patch, expected_content_revision: before.version.content_revision }, { "if-match": before.version.updated_at });
   await recordEvidence(army, `io-settings-${label}`, { versionId, patch, status: response.status, ok: response.body.ok,
     elapsedMs: { leaseAndRead: sent - started, read: beforeMs, save: Date.now() - sent } });
+  expectReadsWithinBudget(beforeMs);
   expect([response.status, response.body.ok]).toEqual([200, true]);
   const reread = await readEstimatePatiently(browser, versionId);
   await recordEvidence(army, `io-settings-${label}-reread`, { versionId, rereadMs: reread.ms });
+  expectReadsWithinBudget(reread.ms);
   return reread.state;
 }
 
@@ -254,6 +263,7 @@ async function expectImportedLot(browser: Browser, army: ArmyState, versionId: s
     totalHtCents: state.version.total_ht_cents,
   };
   await recordEvidence(army, `io-${label}-imported`, { versionId, readMs, workbookPriced: workbook.controls.length, workbookStatuses: workbook.statuses, observed });
+  expectReadsWithinBudget(readMs);
   expect(observed).toEqual({
     engine: 3, coefficients: [1.3, 1.3], priced: lot.priced, pricesEqualControl: true, statuses: lot.statuses,
     statusLinesAtZero: true, priceAsUnit: 0, hoursPerUnitRead: true, provenanceOnEveryLine: true,
@@ -278,6 +288,7 @@ async function expectConsecutiveReads(browser: Browser, army: ArmyState, version
     reads.push({ ms, items: state.items.length, totalHtCents: state.version.total_ht_cents });
   }
   await recordEvidence(army, `io-${label}-consecutive-reads`, { versionId, budgetMs: READ_BUDGET_MS, reads });
+  expectReadsWithinBudget(...reads.map((read) => read.ms));
   expect(new Set(reads.map((read) => `${read.items}:${read.totalHtCents}`)).size).toBe(1);
 }
 

@@ -285,13 +285,21 @@ Journaux : `.e2e/lot2-2.8/green/` (copie de travail, non versionnée).
 
 ### Constat hors périmètre : lecture d'un gros devis
 
-Sur le devis hydraulique (~1 000 éléments), `GET /api/estimates/{id}` répond en ~0,7 s, mais deux lectures
-sur quatre ont pris 61 s (blocage d'environ 60 s, puis réponse correcte) ; la plomberie (~800 éléments) reste
-à ~0,3 s. Le chemin est antérieur au 2.8 et indépendant du moteur ; cause probable à confirmer : les
-enrichissements de provenance interrogent `.in("estimate_item_id", …)` avec tous les identifiants (URL
-d'environ 37 Ko). Les parcours IO lancent donc la lecture dans la page et l'attendent par sondage, durée
-consignée dans les preuves, au lieu d'échouer sur le délai fixe d'un `browser.evaluate` ; l'enquête est une
-suite proposée.
+Sur le devis hydraulique (~1 000 éléments), `GET /api/estimates/{id}` répondait en ~0,7 s, mais deux lectures
+sur quatre prenaient 61 s (blocage d'environ 60 s, puis réponse correcte) ; la plomberie a aussi bloqué une fois.
+
+**Cause (18/10/2026, pile native locale, macOS)** : les enrichissements de provenance filtraient `.in()` sur tous
+les éléments, soit 41 Ko (plomberie) à 79 Ko (hydraulique) d'URL encodée. La passerelle native refuse les en-têtes
+au-delà d'environ 16 Ko : `431` avec `Connection: close` et un corps délimité par la fermeture. Le journal réseau
+instrumenté du serveur montre la 431 en 2 ms, puis l'étape suivante de la lecture 60,04 s plus tard : la lecture
+de ce corps bloquait. Sans blocage, la même 431 faisait perdre en silence la provenance structure IA et ouvrage
+généré au-delà d'environ 430 éléments, et faisait échouer la provenance V0 et les offres retenues.
+
+**Correction** : `selectInChunks` (`src/lib/supabase/in-chunks.ts`) lit ces filtres par lots de 150 identifiants
+(URL d'environ 6 Ko). E10 dans `engine-v3-import-optima.e2e.ts` borne chaque lecture patiente à 10 s et ajoute six
+lectures consécutives par lot. Elles étaient rouges avant la correction (60 728 ms) et sont vertes après (0,3 à
+1,2 s). Les lectures restent lancées dans la page et attendues par sondage. Un trou de 60 s distinct, après
+`/auth/v1/user`, apparaît ailleurs dans les journaux et n'est pas traité ici.
 
 ## Création atomique (M6b, `20261018013249_estimate_creation_set_based_item_effects.sql`)
 

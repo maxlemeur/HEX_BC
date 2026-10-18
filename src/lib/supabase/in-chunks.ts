@@ -2,9 +2,10 @@
  * A PostgREST `in.(…)` filter travels in the request URL. Gateways cap request
  * headers (the Supabase native gateway answers 431 above about 16 KB, roughly
  * 430 UUIDs), so a filter built from every line of a large estimate must be
- * read in bounded chunks: 200 UUIDs keep the URL under 8 KB.
+ * read in bounded chunks: 150 UUIDs (39 bytes each once encoded) keep the URL
+ * around 6 KB.
  */
-export const IN_FILTER_CHUNK_SIZE = 200;
+export const IN_FILTER_CHUNK_SIZE = 150;
 
 /**
  * Runs `select` once per chunk of `values`, sequentially, and concatenates the
