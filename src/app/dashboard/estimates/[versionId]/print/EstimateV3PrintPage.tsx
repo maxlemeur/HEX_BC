@@ -36,6 +36,10 @@ import { EstimatePrintLayoutButton } from "./EstimatePrintLayoutButton";
  * Revue de 8dd28c91 : ses CGV sont aussi celles de la copie scellée (mise en page et instantané que
  * couvre le sceau, comme au portail). Ni le modèle vivant, ni la politique courante du tenant, ni la
  * case « Joindre les CGV » ne les ajoutent ou ne les retirent.
+ *
+ * Revue Codex de 5b740b2e et 37440c82 (V3M-18) : sa mise en page aussi est celle de la copie scellée, entière,
+ * comme au portail. Les paramètres de l'adresse ne la changent pas, et la fenêtre de mise en page laisse place à
+ * un simple bouton « Imprimer ».
  */
 
 type PrintProject = {
@@ -57,8 +61,8 @@ type EstimateV3PrintPageProps = {
   portalUrl: string | null;
 };
 
-/** Copie émise au contrat 2 et CGV de son document scellé (nulles s'il n'en joint pas). */
-type IssuedCopy = { contract: ClientContract2; terms: EstimateTermsSnapshot | null };
+/** Copie émise au contrat 2, mise en page et CGV de son document scellé (nulles s'il n'en joint pas). */
+type IssuedCopy = { contract: ClientContract2; layout: EstimatePdfLayoutOptions; terms: EstimateTermsSnapshot | null };
 
 type PrintIdentity = Pick<EstimateDocumentProps, "projectName" | "projectSiteAddress" | "projectClient" | "projectReference"
   | "estimateReference" | "issuedEstimateReference" | "versionNumber" | "dateDevis" | "validiteJours" | "exclusions"
@@ -115,7 +119,7 @@ async function issuedCopyOf(input: { supabase: SupabaseClient<Database>; tenantI
     const { proof } = await loadVerifiedOfferDocument(input);
     const contract = proof.clientContractSnapshot;
     return contract?.schemaVersion === 2
-      ? { contract, terms: proof.layoutOptions.includeTerms ? proof.termsSnapshot : null }
+      ? { contract, layout: proof.layoutOptions, terms: proof.layoutOptions.includeTerms ? proof.termsSnapshot : null }
       : null;
   } catch (error) {
     // Refus de la relecture (ApiError) ou copie stockée que l'analyseur strict rejette (OfferContractError).
@@ -169,9 +173,10 @@ export async function EstimateV3PrintPage({
     ? printTitleOf(captured.project.estimateReference, captured.project.name, captured.version.number, captured.version.dateDevis)
     : printTitleOf(formatEstimateReference(project?.estimate_reference, version.version_number), project?.name,
       version.version_number, version.date_devis);
-  // Copie émise : ses CGV scellées, jointes si et seulement si son document les joint ; brouillon : l'aperçu demandé.
+  // Copie émise : sa mise en page et ses CGV scellées (jointes si et seulement si son document les joint) ;
+  // brouillon : l'aperçu demandé.
   const terms = issuedCopy ? issuedCopy.terms : previewLayout.terms;
-  const layout = issuedCopy ? { ...previewLayout.layout, includeTerms: terms !== null } : previewLayout.layout;
+  const layout = issuedCopy ? issuedCopy.layout : previewLayout.layout;
   const currency = normalizeEstimateCurrency(version.currency) ?? "EUR";
   return (
     <div className="min-h-screen print:bg-surface">
@@ -195,7 +200,8 @@ export async function EstimateV3PrintPage({
               <span className="text-muted-foreground">Configuration : {describeEstimatePdfLayout(layout)}</span>
             </>
           }
-          actions={<EstimatePrintLayoutButton versionId={versionId} initialLayout={layout} autoPrint={autoPrint} />}
+          actions={<EstimatePrintLayoutButton versionId={versionId} initialLayout={layout} autoPrint={autoPrint}
+            locked={issuedCopy !== null} />}
         />
       </div>
 
