@@ -3,9 +3,10 @@
  *
  * Miroir de `insert_estimate_template_into_version` (M6) : h/u = arrondi demi-supérieur de h / Q à
  * 4 décimales (Q absente = 1), puis le déclencheur v3 dérive h = arrondi(Q × h/u, 3). Une ligne dont
- * ce h dérivé diffère des heures du modèle est listée à l'utilisateur. Une ligne qui porte déjà ses
- * heures par unité (modèle issu d'une v3) n'est pas convertie ; Q nulle avec des heures est refusée
- * par la base avant cette liste.
+ * ce h dérivé diffère des heures du modèle est listée à l'utilisateur. Une ligne qui porte déjà l'une de
+ * ses heures par unité (modèle issu d'une v3) n'est pas convertie ; Q nulle avec des heures est refusée
+ * par la base avant cette liste. Seules les heures MO totales sont comparées (atelier et chantier non
+ * listés).
  */
 import {
   compare,
@@ -23,6 +24,8 @@ export type TemplateV3HoursSource = {
   readonly quantity: number | null;
   readonly h_mo: number | null;
   readonly h_mo_per_unit?: number | null;
+  readonly h_mo_atelier_per_unit?: number | null;
+  readonly h_mo_chantier_per_unit?: number | null;
 };
 
 export type TemplateV3ConvertedLine = {
@@ -53,7 +56,9 @@ export function hoursPerUnitHalfUp(hours: number, quantity: number): number | nu
 
 /** h dérivé dans la v3 : arrondi(Q × arrondi(h / Q, 4), 3) ; `null` sans conversion. */
 export function convertedTemplateLineHours(source: TemplateV3HoursSource): Decimal | null {
-  if (source.item_type !== "line" || (source.h_mo_per_unit !== null && source.h_mo_per_unit !== undefined)) return null;
+  const savedFromV3 = [source.h_mo_per_unit, source.h_mo_atelier_per_unit, source.h_mo_chantier_per_unit]
+    .some((value) => value !== null && value !== undefined);
+  if (source.item_type !== "line" || savedFromV3) return null;
   const quantity = readDecimal(source.quantity ?? 1, "quantity");
   const hours = readDecimal(source.h_mo ?? 0, "h_mo");
   if (quantity.units === BigInt(0)) return null;

@@ -4059,6 +4059,14 @@ async function duplicateSectionInternal(input: {
     resolvedTargetVersionId,
     context
   );
+  // Lot 2, sous-lot 2.8 (règle 6) : une section ne se copie ni vers ni depuis une v3 pendant le lot 2 ;
+  // refus nommé avant toute écriture.
+  if (
+    usesPerUnitLabor(resolveEstimateEngineVersion(sourceVersion)) ||
+    usesPerUnitLabor(resolveEstimateEngineVersion(targetVersion))
+  ) {
+    throw new EstimateEngineUnavailableError();
+  }
 
   assertDraftStatus(targetVersion.status);
   await assertDraftLockOwnedByCurrentUser({
@@ -4208,6 +4216,8 @@ export async function importSectionsFromVersion(
     input.source_version_id,
     context
   );
+  // Règle 6 (suite) : une section d'une v3 ne se copie pas non plus vers une v1/v2 (lignes non chiffrées).
+  if (usesPerUnitLabor(resolveEstimateEngineVersion(sourceVersion))) throw new EstimateEngineUnavailableError();
 
   const [{ data: sourceItemsData, error: sourceItemsError }, { data: targetItemsData, error: targetItemsError }] =
     await Promise.all([

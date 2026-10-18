@@ -115,13 +115,12 @@ function hasUsablePrice(mappedRow: JsonRecord) {
   return (unitPrice !== null && unitPrice > 0) || (total !== null && total > 0);
 }
 
-/** A row that can become an estimate line: a price, a positive quantity or hours. */
-function hasLineContent(mappedRow: JsonRecord) {
-  if (hasUsablePrice(mappedRow)) return true;
-  return [mappedRow.quantity, mappedRow.labor_hours_per_unit, mappedRow.labor_hours, mappedRow.h_mo].some((value) => {
-    const parsed = parseNumericValue(value);
-    return parsed !== null && parsed > 0;
-  });
+const SUBTOTAL_TITLE_PATTERN = /^sous[- ]?total\b/i;
+
+/** An estimate line row: a positive quantity (a VAT or TTC amount of a priced footer has none). */
+function hasLineQuantity(mappedRow: JsonRecord) {
+  const quantity = parseNumericValue(mappedRow.quantity);
+  return quantity !== null && quantity > 0;
 }
 
 function resolveTitle(mappedRow: JsonRecord) {
@@ -189,22 +188,25 @@ export function analyzeImportStructure(rows: ImportStructureRow[]): ImportStruct
   let footerStarted = false;
   let footerStartRowIndex: number | null = null;
   let zeroPriceRows = 0;
-  // Lot 2, sous-lot 2.8: the footer is the trailing block. A total or legal row followed by line content
-  // (an OPTIMA « Sous-total » after each sub-lot) is ignored alone; the lines after it are kept.
-  const lastContentRowIndex = sortedRows.reduce((last, row) => {
+  // Lot 2, sous-lot 2.8: an OPTIMA lot carries a « Sous-total » after each sub-lot. A « Sous-total »
+  // followed by a line with a quantity is ignored alone and the lines after it are kept; any other total
+  // or legal row, or a last « Sous-total », still starts the footer.
+  const lastQuantityRowIndex = sortedRows.reduce((last, row) => {
     const title = resolveTitle(row.mappedRow);
-    return title && !isFooterTitle(title) && hasLineContent(row.mappedRow) ? row.rowIndex : last;
+    return title && !isFooterTitle(title) && hasLineQuantity(row.mappedRow) ? row.rowIndex : last;
   }, Number.NEGATIVE_INFINITY);
 
   for (const row of sortedRows) {
     const title = resolveTitle(row.mappedRow);
-    const isTotalOrLegal = Boolean(title) && isFooterTitle(title);
-    if (!footerStarted && isTotalOrLegal && row.rowIndex > lastContentRowIndex) {
+    const isFooterRow = Boolean(title) && isFooterTitle(title);
+    const isIntermediateSubtotal = isFooterRow && SUBTOTAL_TITLE_PATTERN.test(stripAccents(title)) &&
+      row.rowIndex < lastQuantityRowIndex;
+    if (!footerStarted && isFooterRow && !isIntermediateSubtotal) {
       footerStarted = true;
       footerStartRowIndex = row.rowIndex;
     }
 
-    if (footerStarted || isTotalOrLegal) {
+    if (footerStarted || isIntermediateSubtotal) {
       footerRowIndexes.push(row.rowIndex);
       continue;
     }

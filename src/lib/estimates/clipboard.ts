@@ -177,8 +177,9 @@ const TARGET_FIELD_ALIASES: Record<ClipboardTargetField, string[]> = {
     "heures par unite",
     "heures mo par unite",
   ],
-  // The workbook's sale price is a control (D11), never the supply cost: exact names only.
-  control_unit_price: ["control_unit_price", "prix unitaire", "prix unitaire de vente"],
+  // The workbook's sale price is a control (D11), never the supply cost. « Prix Unitaire » is proposed
+  // only on a sheet recognised by the OPTIMA profile (below): elsewhere it stays unmapped (2.3 review).
+  control_unit_price: ["control_unit_price"],
 };
 
 const BDC_HEADER_MARKERS = new Set<string>([
@@ -734,12 +735,17 @@ export function suggestClipboardColumnMapping(headers: string[]): ClipboardColum
     usedFields.add(candidate.field);
   }
 
-  // Sub-lot 2.8: a sheet recognised by the 2.3 OPTIMA profile declares its majoration additive.
+  // Sub-lot 2.8: a sheet recognised by the 2.3 OPTIMA profile declares its majoration additive and its
+  // « Prix Unitaire » a sale control.
   const profile = detectImportProfile(headers);
   if (profile?.id === "optima") {
     for (const [sourceHeader, target] of Object.entries(profile.mapping)) {
       if (target === "h_mo_majoration_additive" && mapping[sourceHeader] === "h_mo_majoration") {
         mapping[sourceHeader] = "h_mo_majoration_additive";
+      }
+      if (target === "control_unit_price" && mapping[sourceHeader] === undefined &&
+        !Object.values(mapping).includes("control_unit_price")) {
+        mapping[sourceHeader] = "control_unit_price";
       }
     }
   }

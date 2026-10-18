@@ -2814,12 +2814,15 @@ describe("estimate assemblies insertion", () => {
 function createTemplateInsertSupabaseMock(input?: {
   versionStatus?: "draft" | "sent" | "accepted" | "archived";
   versionMaxSectionDepth?: number;
+  calcEngineVersion?: number;
+  ownerLaborRoleIds?: string[];
   draftLockUserId?: string | null;
   templateItems?: Array<{
     id: string;
     parent_id: string | null;
     item_type: "section" | "line";
     position: number;
+    labor_role_id?: string | null;
   }>;
   afterItemId?: string | null;
   anchorExists?: boolean;
@@ -2875,6 +2878,7 @@ function createTemplateInsertSupabaseMock(input?: {
         total_ht_cents: 0,
         total_tax_cents: 0,
         total_ttc_cents: 0,
+        ...(input?.calcEngineVersion === undefined ? {} : { calc_engine_version: input.calcEngineVersion }),
         estimate_projects: {
           id: PROJECT_ID,
           tenant_id: TENANT_ID,
@@ -3080,6 +3084,18 @@ function createTemplateInsertSupabaseMock(input?: {
           select: vi.fn(() => templateItemsBuilder),
         };
       }
+      if (table === "labor_roles") {
+        // Labour roles of the project owner, read as loadValidLaborRoleIdsForOwner reads them.
+        const laborRolesBuilder = {
+          eq: vi.fn(),
+          in: vi.fn((_column: string, ids: string[]) => Promise.resolve({
+            data: ids.filter((id) => (input?.ownerLaborRoleIds ?? []).includes(id)).map((id) => ({ id })),
+            error: null,
+          })),
+        };
+        laborRolesBuilder.eq.mockReturnValue(laborRolesBuilder);
+        return { select: vi.fn(() => laborRolesBuilder) };
+      }
       if (table === "estimate_items") {
         return {
           select: vi.fn((columns: string) => {
@@ -3110,6 +3126,27 @@ function createTemplateInsertSupabaseMock(input?: {
 describe("estimate templates insertion", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  // Lot 2, sous-lot 2.8 (review): into a v3, a labour role that is not the project owner's is valued at
+  // 0 €/h without a word, then breaks every later TypeScript write. Isolation: an E2E would need a second
+  // user of the tenant owning a role; the dedicated v3 owner fixture has a single user.
+  it("2.8: refuses by name a v3 insertion whose template lines carry another user's labour role", async () => {
+    const supabase = createTemplateInsertSupabaseMock({
+      calcEngineVersion: 3,
+      ownerLaborRoleIds: ["owner-role"],
+      templateItems: [
+        { id: "c3c3c3c3-c3c3-4c3c-8c3c-c3c3c3c3c3c3", parent_id: null, item_type: "section", position: 1 },
+        { id: "d4d4d4d4-d4d4-4d4d-8d4d-d4d4d4d4d4d4", parent_id: "c3c3c3c3-c3c3-4c3c-8c3c-c3c3c3c3c3c3",
+          item_type: "line", position: 1, labor_role_id: "other-user-role" },
+      ],
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      insertTemplateIntoVersion({ templateId: TEMPLATE_ID, versionId: VERSION_ID })
+    ).rejects.toMatchObject({ status: 400, code: "ESTIMATE_TEMPLATE_LABOR_ROLE_REQUIRED" });
+    expect(supabase.rpc).not.toHaveBeenCalled();
   });
 
   it("rejects template insertion when a root line is not under a section leaf", async () => {

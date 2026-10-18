@@ -118,12 +118,14 @@ as $$
     ('estimate_items', 'snapshot_gross_ht_cents', 'null'),
     ('estimate_items', 'snapshot_gross_fo_ht_cents', 'null'),
     -- Sous-lot 2.8 (M6, 20261017225906) : colonnes v3 nulles sur tout modèle existant, statut au
-    -- défaut constant « priced » (P-12).
+    -- défaut constant « priced » (P-12) ; coefficients de vente des modèles nuls (D5).
     ('estimate_template_items', 'unit_code', 'null'),
     ('estimate_template_items', 'pricing_status', '"priced"'),
     ('estimate_template_items', 'h_mo_per_unit', 'null'),
     ('estimate_template_items', 'h_mo_atelier_per_unit', 'null'),
-    ('estimate_template_items', 'h_mo_chantier_per_unit', 'null')
+    ('estimate_template_items', 'h_mo_chantier_per_unit', 'null'),
+    ('estimate_templates', 'sale_coefficient_fo', 'null'),
+    ('estimate_templates', 'sale_coefficient_mo', 'null')
   ) as declared(table_name, column_name, neutral_value)
 $$;
 

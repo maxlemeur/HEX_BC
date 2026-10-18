@@ -27,7 +27,9 @@ explicitement ou refuse** (D16) ; aucun ne multiplie des heures par unité par Q
      modifiables avant confirmation ; taux horaire comparé au rôle choisi, écart signalé ;
    - **import auto-vérifiant** : le PU v3 recalculé est comparé ligne à ligne à « Prix Unitaire » ; tout
      écart supérieur à 0,5 c est listé avant confirmation ;
-   - `sourceDocumentId` et `_timax_provenance` présents (I9).
+   - provenance de l'import conservée sur chaque ligne (import, correspondance, ligne mappée, structure de
+     feuille), comme pour `dpgf-import` ; `sourceDocumentId` et `_timax_provenance` restent ceux d'un import
+     PDF (I9), chemin inchangé.
 2. **Collage vers une v3** : les en-têtes OPTIMA sont reconnus (« Tps pose unitaire » → h/u, « Prix
    Unitaire » → contrôle) ; l'aperçu montre les valeurs interprétées.
 3. **Ouvrage de bibliothèque vers une v3** : h/u = `h_mo / default_quantity`, exact à 4 décimales, sinon
@@ -145,9 +147,12 @@ Point d'attention pour l'implémentation : sur le classeur hydraulique complet, 
 ### Ce qui est livré
 
 - **M6** `20261017225906_estimate_engine_v3_entry_paths.sql` (manifeste à jour, garde Git et cohérence des
-  migrations vertes) : colonnes v3 de `estimate_template_items` (neutres à la montée de version) ; copie par
-  `create_estimate_template_from_version` et `duplicate_estimate_template` ; pont
-  `public.estimate_v3_complete_entry_for_writer` (brouillon v3 seulement, sous contrat d'écrivain : unité des
+  migrations vertes) : colonnes v3 de `estimate_template_items` et coefficients de vente de
+  `estimate_templates` (D5, §6.2 ; neutres à la montée de version) ; copie par
+  `create_estimate_template_from_version` et `duplicate_estimate_template` ; un modèle issu d'une v3 se
+  reconnaît à l'une de ses trois colonnes h/u, copiées telles quelles ; pont
+  `public.estimate_v3_complete_entry_for_writer` (brouillon v3 d'un tenant de l'appelant seulement, sous
+  contrat d'écrivain : unité des
   nouvelles lignes par le référentiel, montants du moteur v3 sur toutes les lignes et la version, contrôle
   `estimate_v3_assert_draft`) ; branches v3 de `insert_estimate_template_into_version`,
   `materialize_estimate_assembly_tree`, `insert_estimate_assembly_into_version`,
@@ -161,17 +166,21 @@ Point d'attention pour l'implémentation : sur le classeur hydraulique complet, 
   classeur proposés dans l'aperçu, modifiables avant confirmation, sinon ceux de l'entreprise ; une colonne
   d'heures de ligne est refusée sur une v3 (`line_hours_require_hours_per_unit`). Le refus nommé reste en
   place pour toute autre source (modèle, création rapide, assistant, DPGF liée).
-- **Collage** (`clipboard.ts`) : « Tps pose unitaire » → h/u, « Prix Unitaire » → contrôle (nom exact
-  seulement, jamais collé), « Majoration MO » d'une feuille reconnue OPTIMA → majoration additive (0 = ×1) ;
+- **Collage** (`clipboard.ts`) : « Tps pose unitaire » → h/u ; sur une feuille reconnue par le profil OPTIMA,
+  « Prix Unitaire » → contrôle (jamais collé ; ailleurs il reste non mappé, règle 2.3) et « Majoration MO » →
+  majoration additive (0 = ×1) ;
   sur une v1/v2, h/u × Q en heures de ligne (P-16). La grille v3 qui applique le collage relève du 2.6.
 - **Ouvrage de bibliothèque et modèle** (`assemblies-server.ts`) : la v3 reçoit ses montants dans la
   transaction d'insertion (pas de finalisation v1/v2) ; l'insertion d'un modèle liste les lignes converties
-  (`converted_lines`, `template-v3-hours.ts`, miroir exact de M6).
+  (`converted_lines`, `template-v3-hours.ts`, miroir exact de M6) ; les refus de M6 arrivent nommés à
+  l'utilisateur (400, code `ESTIMATE_V3_…`, ligne ou composant nommé) ; un modèle dont une ligne porte le rôle
+  MO d'un autre utilisateur est refusé dans une v3 (`ESTIMATE_TEMPLATE_LABOR_ROLE_REQUIRED`), au lieu d'une
+  MO comptée à 0 €/h sans avertissement.
 - **Ouvrage généré** (`generated-ouvrages.ts`) : ligne v3 au rendement par unité (h / Q, demi-supérieur,
   4 décimales), sans projection client ; la base calcule et vérifie les montants.
 - **Refus nommés** (`ESTIMATE_ENGINE_UNAVAILABLE`, 409, avant toute écriture) : section importée d'une autre
-  version (règle 6), structure IA (génération et application) et version zéro (génération et matérialisation)
-  (P-14). Avant : refus SQL générique, ou brouillon de structure IA généré pour une v3. La mise à jour groupée
+  version vers ou depuis une v3 et section dupliquée vers ou depuis une v3 (règle 6), structure IA (génération
+  et application) et version zéro (génération et matérialisation) (P-14). Avant : refus SQL générique, ou brouillon de structure IA généré pour une v3. La mise à jour groupée
   directe refusait déjà par son nom (2.5).
 - **Aperçu de l'import** : un rôle choisi dont le taux diffère du taux horaire du classeur est signalé
   (« Taux horaire du classeur 40,00 €/h, rôle choisi 45,00 €/h : la MO différera du classeur. »).
@@ -181,10 +190,12 @@ Point d'attention pour l'implémentation : sur le classeur hydraulique complet, 
 1. **Pied de document de l'import (tous moteurs)** : `analyzeImportStructure` ouvrait le pied au premier
    « Sous-total » et ignorait tout ce qui suivait. Un lot OPTIMA porte un sous-total par sous-lot : le lot
    hydraulique n'importait qu'une ligne sur 785 (110 sur la plomberie), en v1/v2 comme en v3 — c'était la
-   cause du « 1 ligne vérifiée » relevé en phase rouge. Désormais une ligne de total ou de mention suivie de
-   lignes porteuses (prix, quantité ou heures) est ignorée seule ; le pied est le bloc final. Correctif de
-   perte de lignes, qui change le résultat d'un import v1/v2 de ces classeurs (plus de lignes importées) ;
-   les tests existants du pied restent verts, un test nouveau le fixe.
+   cause du « 1 ligne vérifiée » relevé en phase rouge. Désormais seul un « Sous-total » suivi d'une ligne à
+   quantité positive est ignoré seul ; « Total… », les mentions légales et un dernier « Sous-total » ouvrent
+   toujours le pied (revue : un pied chiffré « Sous-total HT / TVA / Total TTC » et des options après
+   « Total HT » gardent le comportement d'avant, tests dédiés). Correctif de perte de lignes, qui change le
+   résultat d'un import v1/v2 des seuls classeurs à sous-totaux intermédiaires (plus de lignes importées) ;
+   `dpgf-import` et `import-optima-v2` rejoués verts.
 2. **Ouvrage généré** : h/u = h / Q arrondi (comme un modèle), pas « exact ou refus » (comme un ouvrage de
    bibliothèque). Un sous-détail généré donne des heures totales estimées ; un refus sur quotient inexact
    bloquerait la plupart des insertions. Q nulle avec des heures : refus nommé
@@ -195,14 +206,43 @@ Point d'attention pour l'implémentation : sur le classeur hydraulique complet, 
    heures par les règles des modèles est une suite du 2.8 (aucun test rouge ne la couvrait en phase rouge).
 5. **Routes d'insertion** : elles répondent 200 depuis toujours ; les parcours rouges IO05/IO06 attendaient
    201 par erreur, corrigé.
-6. **IO04** (collage dans la grille v3) attend le 2.6 ; l'interprétation du collage est prouvée en Vitest.
+6. **IO04** (collage dans la grille v3) attend le 2.6 : la PR 2.8 se fusionne après le 2.6 et reste rouge sur
+   IO04 jusque-là ; l'interprétation du collage est prouvée en Vitest.
+7. **Limites connues, non traitées** : `converted_lines` ne compare que les heures MO totales (atelier et
+   chantier non listés) ; une ligne non chiffrée (HL, PM…) d'un modèle issu d'une v3, insérée dans une v1/v2,
+   y devient chiffrée (colonnes v3 ignorées) ; une unité non résolue par le référentiel n'est pas signalée à
+   l'import (le gel la refusera, `ESTIMATE_V3_UNIT_REQUIRED`) ; les coefficients de vente d'un modèle sont
+   stockés mais aucun chemin ne crée encore une v3 depuis un modèle (refus nommé sous politique 3).
+
+### Revue indépendante (lecture seule, sur `efbf243b` réconcilié avec `main` `91068850`)
+
+13 constats, aucun bloquant sur les montants, M6 ou l'isolation entre tenants. Suites données :
+
+| # | Constat | Suite |
+|---|---|---|
+| 1 | IO04 rouge dans la sélection de la CI | fusion après le 2.6 (écart 6) |
+| 2 | Pied de document trop permissif sur un DPGF générique | corrigé, tests rouges d'abord (pied chiffré, options après « Total HT ») |
+| 3 | Refus de M6 perdus côté API (400 générique) | corrigé, parcours IO09 (non exécuté rouge : l'issue rouge était le 400 générique observé en phase rouge) |
+| 4 | Rôle MO d'un autre utilisateur dans un modèle → MO à 0 €/h | corrigé pour une v3, test Vitest rouge d'abord (isolation : un parcours demanderait un second utilisateur du tenant) |
+| 5 | Assertions faibles (IO05, IO06, provenance) ; succès v3 de `commit_generated_ouvrages` jamais exécuté | montants absolus IO05 (24,00 € puis 48,00 €) et IO06 (37,00 €), provenance sur chaque ligne (IO01, IO03), cas pgTAP H de bout en bout (vert : aucun défaut, seule l'attente d'unité était fausse, « m » → `ml`) |
+| 6 | Modèle v3 reconnu par `h_mo_per_unit` seul | corrigé (T4 rouge d'abord), miroir TypeScript aligné |
+| 8 | Duplication de section et import depuis une v3 : message générique | corrigé, sondes IO07 |
+| 10 | Coefficients de vente des modèles (D5) absents | ajoutés à M6, assertion pgTAP rouge d'abord |
+| 11 | Pont sans contrôle de tenant | corrigé (cas B rouge d'abord) |
+| 13 | Fins de ligne réécrites dans `generated-ouvrages.test.ts` | corrigé (18 lignes réelles) |
+| 7, 9, 12 | Limites | écart 7 |
+
+La suite complète (`e2e:army:ci -- full`, avant ces suites) a aussi trouvé une régression : le collage
+proposait « Prix Unitaire » comme contrôle sur toute feuille, alors que `numeric-entry-v3` (2.3) exige qu'il
+reste non mappé hors OPTIMA ; restreint au profil OPTIMA, test 2.3 rétabli.
 
 ### Exécution verte
 
 Journaux : `.e2e/lot2-2.8/green/` (copie de travail, non versionnée).
 
-- **pgTAP** (`npm run db:ci:local`) : 21 fichiers, 1 867 assertions, matrice RLS comportementale verte ;
-  `estimate-engine-v3-entry-paths.test.sql` vert (T1, T1-v2, A1, G, T3 ; T2, A2, A3 refusés par leur nom) ;
+- **pgTAP** (`npm run db:ci:local`) : 21 fichiers, 1 871 assertions, matrice RLS comportementale verte ;
+  `estimate-engine-v3-entry-paths.test.sql` vert (T1, T1-v2, T4, A1, G, H, T3, coefficients du modèle ; T2,
+  A2, A3 refusés par leur nom ; B refusé hors tenant) ;
   `estimate-calc-engine-v3-guards.test.sql` vert avec la liste blanche et les sondes réécrites.
 - **Montée de version** (`db:upgrade-check`, avec contrôle négatif) : 0 différence ; colonnes v3 des modèles
   neutres. **Corpus figé** identique à l'octet (600 cas) ; **empreintes documentaires** identiques.
@@ -217,10 +257,12 @@ Journaux : `.e2e/lot2-2.8/green/` (copie de travail, non versionnée).
     1,30 / 1,20, coût 1 264 749,07 €, coefficient réalisé 1,243188 ;
   - IO03 plomberie : 656/656, Σ 1 027 655,61 €, 981 887,92 € à 1,30 / 1,20, coût 790 490,05 €,
     1,242126 ;
-  - IO05 (ouvrage Q = 10 puis 20 : MO doublée), IO06 (modèle v2 : h/u 0,5 et 0,0003, collier listé
-    1 h → 0,9 h), IO07, IO08 verts ;
-  - non-régression des imports : `dpgf-import` (DPGF01 ×2, DPGF03) et `import-optima-v2` (2.3, 3 parcours)
-    verts avec le correctif du pied ; IO04 rouge, attendu (grille v3 du 2.6).
+  - IO05 (ouvrage : PU 24,00 €, 240,00 € à Q = 10 puis 480,00 € à Q = 20), IO06 (modèle v2 : h/u 0,5 et
+    0,0003, collier listé 1 h → 0,9 h, tube 37,00 € × 10), IO07, IO08, IO09 verts ;
+  - non-régression : `numeric-entry-v3`, `dpgf-import` (DPGF01 ×2, DPGF03) et `import-optima-v2` (2.3,
+    3 parcours) verts ; 15 parcours sur 16, IO04 rouge, attendu (grille v3 du 2.6) ;
+  - suite complète (`e2e:army:ci -- full`, avant les suites de la revue) : 146 sur 148, IO04 et la régression
+    `numeric-entry-v3` corrigée depuis.
 
 ### Constat hors périmètre : lecture d'un gros devis
 

@@ -2,12 +2,14 @@
 -- Contract, failure modes and proofs: docs/testing/estimate-engine-v3-2.8.md.
 --
 -- 1. estimate_template_items gains the v3 line columns (unit_code, pricing_status, hours per unit), null
---    and 'priced' on every existing template; create_estimate_template_from_version and
---    duplicate_estimate_template copy them.
+--    and 'priced' on every existing template, and estimate_templates the sale coefficients (D5, null on
+--    every existing template); create_estimate_template_from_version and duplicate_estimate_template copy
+--    them.
 -- 2. public.estimate_v3_complete_entry_for_writer: under the v3 writer contract, resolves the unit of the
 --    new lines through the shared referential (a code, or a status mention), then stores the amounts of
 --    the v3 engine (private.estimate_v3_compute) on every line and on the version, and asserts them
---    (private.estimate_v3_assert_draft). Draft v3 only; same trust model as the M4 writer bridges.
+--    (private.estimate_v3_assert_draft). Draft v3 of the caller's tenant only; otherwise the trust model
+--    of the M4 writer bridges.
 -- 3. insert_estimate_template_into_version: into a v3, hours per unit from the template, or h / Q
 --    half up to 4 decimals for a v1/v2 template; Q = 0 with hours is refused, line named
 --    (ESTIMATE_V3_TEMPLATE_HOURS_WITHOUT_QUANTITY).
@@ -54,6 +56,16 @@ alter table public.estimate_template_items add constraint estimate_template_item
   and (h_mo_atelier_per_unit is null or h_mo_atelier_per_unit >= 0)
   and (h_mo_chantier_per_unit is null or h_mo_chantier_per_unit >= 0)
 );
+-- D5, §6.2: the sale coefficients of a template saved from a v3, in ]0 ; 10]; null on every existing template.
+alter table public.estimate_templates
+  add column if not exists sale_coefficient_fo numeric(8,4),
+  add column if not exists sale_coefficient_mo numeric(8,4);
+alter table public.estimate_templates drop constraint if exists estimate_templates_sale_coefficients_check;
+alter table public.estimate_templates add constraint estimate_templates_sale_coefficients_check check (
+  (sale_coefficient_fo is null or (sale_coefficient_fo > 0 and sale_coefficient_fo <= 10))
+  and (sale_coefficient_mo is null or (sale_coefficient_mo > 0 and sale_coefficient_mo <= 10))
+);
+
 comment on column public.estimate_template_items.unit_code is
   'Engine 3 unit code of a template line saved from a v3 (D9); null on templates saved from engines 1 and 2.';
 comment on column public.estimate_template_items.h_mo_per_unit is
@@ -71,7 +83,9 @@ begin
   if p_version_id is null
     or coalesce(pg_catalog.current_setting('miaouffrage.estimate_v3_writer', true), '') <> p_version_id::text
     or not exists (select 1 from public.estimate_versions version
-      where version.id = p_version_id and version.calc_engine_version = 3 and version.status = 'draft')
+      where version.id = p_version_id and version.calc_engine_version = 3 and version.status = 'draft'
+        -- A member of the version's tenant (the native owner and service contexts have no user).
+        and ((select auth.uid()) is null or public.is_tenant_member(version.tenant_id)))
   then
     raise exception using errcode = '0A000', message = 'ESTIMATE_V3_WRITER_NOT_SUPPORTED';
   end if;
@@ -123,7 +137,7 @@ comment on function public.estimate_v3_complete_entry_for_writer(uuid, uuid[]) i
 revoke all on function public.estimate_v3_complete_entry_for_writer(uuid, uuid[]) from public, anon, authenticated, service_role;
 grant execute on function public.estimate_v3_complete_entry_for_writer(uuid, uuid[]) to authenticated, service_role;
 
--- Copied from 20261014114943; only the v3 columns are added to the copies.
+-- Copied from 20261014114943; only the v3 columns and the sale coefficients are added to the copies.
 CREATE OR REPLACE FUNCTION public.create_estimate_template_from_version(p_source_version_id uuid, p_name text, p_description text)
  RETURNS uuid
  LANGUAGE plpgsql
@@ -178,7 +192,9 @@ begin
     tax_rate_bp,
     rounding_mode,
     rounding_step_cents,
-    validite_jours
+    validite_jours,
+    sale_coefficient_fo,
+    sale_coefficient_mo
   )
   values (
     new_template_id,
@@ -199,7 +215,10 @@ begin
     source_version.tax_rate_bp,
     source_version.rounding_mode,
     source_version.rounding_step_cents,
-    source_version.validite_jours
+    source_version.validite_jours,
+    -- 2.8 (M6, D5): the sale coefficients of a v3 (null on engines 1 and 2).
+    source_version.sale_coefficient_fo,
+    source_version.sale_coefficient_mo
   );
 
   create temporary table _estimate_template_item_map (
@@ -344,7 +363,9 @@ begin
     tax_rate_bp,
     rounding_mode,
     rounding_step_cents,
-    validite_jours
+    validite_jours,
+    sale_coefficient_fo,
+    sale_coefficient_mo
   )
   values (
     new_template_id,
@@ -365,7 +386,10 @@ begin
     source_template.tax_rate_bp,
     source_template.rounding_mode,
     source_template.rounding_step_cents,
-    source_template.validite_jours
+    source_template.validite_jours,
+    -- 2.8 (M6, D5): the sale coefficients of a v3 (null on engines 1 and 2).
+    source_template.sale_coefficient_fo,
+    source_template.sale_coefficient_mo
   );
 
   create temporary table _estimate_template_duplicate_map (
@@ -640,11 +664,13 @@ begin
       end if;
     end if;
 
-    -- 2.8 (M6, P-12): hours per unit for a v3, from the template or converted h / Q (half up, 4 decimals).
+    -- 2.8 (M6, P-12): hours per unit for a v3, from a template saved from a v3 (any of its hours per unit
+    -- columns set: copied as they are) or converted h / Q (half up, 4 decimals).
     hours_per_unit := null; atelier_per_unit := null; chantier_per_unit := null;
     if is_v3 and tpl_item.item_type = 'line' then
       line_quantity := coalesce(tpl_item.quantity, 1);
-      if tpl_item.h_mo_per_unit is not null then
+      if tpl_item.h_mo_per_unit is not null or tpl_item.h_mo_atelier_per_unit is not null
+        or tpl_item.h_mo_chantier_per_unit is not null then
         hours_per_unit := tpl_item.h_mo_per_unit;
         atelier_per_unit := tpl_item.h_mo_atelier_per_unit;
         chantier_per_unit := tpl_item.h_mo_chantier_per_unit;

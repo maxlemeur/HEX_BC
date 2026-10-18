@@ -3223,6 +3223,8 @@ export type Database = {
           rounding_mode: "none" | "nearest" | "up" | "down";
           rounding_step_cents: number;
           validite_jours: number;
+          sale_coefficient_fo: number | null;
+          sale_coefficient_mo: number | null;
         };
         Insert: {
           id?: string;
@@ -3246,6 +3248,8 @@ export type Database = {
           rounding_mode?: "none" | "nearest" | "up" | "down";
           rounding_step_cents?: number;
           validite_jours?: number;
+          sale_coefficient_fo?: number | null;
+          sale_coefficient_mo?: number | null;
         };
         Update: {
           id?: string;
@@ -3269,6 +3273,8 @@ export type Database = {
           rounding_mode?: "none" | "nearest" | "up" | "down";
           rounding_step_cents?: number;
           validite_jours?: number;
+          sale_coefficient_fo?: number | null;
+          sale_coefficient_mo?: number | null;
         };
         Relationships: [];
       };

@@ -13,6 +13,7 @@ function row(input: {
   quantity?: unknown;
   unit?: unknown;
   unitPrice?: unknown;
+  totalHt?: unknown;
   bold?: boolean;
 }): ImportStructureRow {
   const rawRow = attachImportRowStructure(
@@ -41,6 +42,7 @@ function row(input: {
       quantity: input.quantity ?? null,
       unit: input.unit ?? null,
       unit_price_ht: input.unitPrice ?? null,
+      ...(input.totalHt === undefined ? {} : { total_ht: input.totalHt }),
     },
   };
 }
@@ -135,6 +137,30 @@ describe("DPGF structure analysis", () => {
     expect(preview.footer_row_indexes).toEqual([2, 3, 4, 5]);
     expect(preview.summary.footer_start_row_index).toBe(2);
     expect(preview.candidates.map((candidate) => candidate.row_index)).not.toContain(3);
+  });
+
+  // Independent review of 2.8: a priced footer and options after the total keep the previous behaviour.
+  it("starts a priced footer at its Sous-total HT: the VAT and TTC amounts are not lines", () => {
+    const preview = analyzeImportStructure([
+      row({ rowIndex: 0, title: "Tube acier", quantity: 2, unit: "ml", unitPrice: 10 }),
+      row({ rowIndex: 1, title: "Sous-total HT", totalHt: 100_000 }),
+      row({ rowIndex: 2, title: "TVA 20 %", totalHt: 20_000 }),
+      row({ rowIndex: 3, title: "Total TTC", totalHt: 120_000 }),
+    ]);
+
+    expect(preview.footer_row_indexes).toEqual([1, 2, 3]);
+    expect(preview.summary.footer_start_row_index).toBe(1);
+  });
+
+  it("keeps options listed after Total HT in the footer, as before", () => {
+    const preview = analyzeImportStructure([
+      row({ rowIndex: 0, title: "Tube acier", quantity: 2, unit: "ml", unitPrice: 10 }),
+      row({ rowIndex: 1, title: "Total HT", totalHt: 20 }),
+      row({ rowIndex: 2, title: "PSE 1 : robinet thermostatique", quantity: 4, unit: "u", unitPrice: 50 }),
+    ]);
+
+    expect(preview.footer_row_indexes).toEqual([1, 2]);
+    expect(preview.summary.footer_start_row_index).toBe(1);
   });
 
   it("accepts a reviewed level-two section after level one", () => {

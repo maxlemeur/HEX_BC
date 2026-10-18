@@ -58,6 +58,15 @@ const NEUTRAL_VERSION = {
 const EDITOR_URL = /\/dashboard\/estimates\/[0-9a-f-]{36}\/edit(?:[?#].*)?$/i;
 const STATUS_MENTIONS = /^(HL|inc|NC|PM|CP|SO)$/i;
 const field = (item: object, key: string) => (item as Record<string, unknown>)[key];
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Import provenance of an XLSX line, as dpgf-import asserts it (no PDF page provenance). */
+function hasImportProvenance(line: ArmyItem) {
+  const meta = (field(line, "source_metadata") ?? {}) as Record<string, unknown>;
+  const structure = (meta._timax_structure ?? {}) as Record<string, unknown>;
+  return field(line, "source_provider") === "dpgf" && UUID.test(String(meta.import_id)) && UUID.test(String(meta.mapping_id)) &&
+    UUID.test(String(meta.mapped_row_id)) && typeof structure.source_row_number === "number" && !("_timax_provenance" in meta);
+}
 const num = (value: unknown) => (value === null || value === undefined ? null : Number(value));
 
 /** The control prices of the priced lines and the status mentions of a workbook (§5.4 reading). */
@@ -235,12 +244,14 @@ async function expectImportedLot(browser: Browser, army: ArmyState, versionId: s
     statusLinesAtZero: lines.filter((line) => field(line, "pricing_status") !== "priced").every((line) => Number(line.line_total_ht_cents) === 0),
     priceAsUnit: lines.filter((line) => /^\d+(?:[.,]\d+)?$/.test(String(field(line, "unit_code") ?? line.description ?? ""))).length,
     hoursPerUnitRead: lines.filter((line) => num(field(line, "h_mo_per_unit")) !== null).length > 0,
+    provenanceOnEveryLine: lines.every(hasImportProvenance),
     totalHtCents: state.version.total_ht_cents,
   };
   await recordEvidence(army, `io-${label}-imported`, { versionId, readMs, workbookPriced: workbook.controls.length, workbookStatuses: workbook.statuses, observed });
   expect(observed).toEqual({
     engine: 3, coefficients: [1.3, 1.3], priced: lot.priced, pricesEqualControl: true, statuses: lot.statuses,
-    statusLinesAtZero: true, priceAsUnit: 0, hoursPerUnitRead: true, totalHtCents: lot.sumAtWorkbookCoefficientsCents,
+    statusLinesAtZero: true, priceAsUnit: 0, hoursPerUnitRead: true, provenanceOnEveryLine: true,
+    totalHtCents: lot.sumAtWorkbookCoefficientsCents,
   });
 }
 
@@ -359,10 +370,11 @@ armyTest("IO05 a library assembly enters a v3 per unit: its MO doubles from Q = 
       const observed = {
         ten: [num(atTen.quantity), field(atTen, "unit_code"), num(field(atTen, "h_mo_per_unit")), num(atTen.h_mo)],
         twenty: [num(atTwenty.quantity), num(atTwenty.h_mo)],
-        moDoubled: Number(atTwenty.line_total_ht_cents) === 2 * Number(atTen.line_total_ht_cents),
+        // 0,5 h/u × 40 €/h × MO 1,20 = 24,00 € per unit, at Q = 10 then 20.
+        amounts: [num(atTen.pu_ht_cents), num(atTen.line_total_ht_cents), num(atTwenty.line_total_ht_cents)],
       };
       await recordEvidence(army, "io-assembly-quantities", { versionId, observed });
-      expect(observed).toEqual({ ten: [10, "ml", 0.5, 5], twenty: [20, 10], moDoubled: true });
+      expect(observed).toEqual({ ten: [10, "ml", 0.5, 5], twenty: [20, 10], amounts: [2400, 24000, 48000] });
     } finally {
       await closePolicy(owner, army, "ouvrage");
     }
@@ -403,10 +415,14 @@ armyTest("IO06 a v2 template enters a v3 with the same MO and lists its converte
       const observed = {
         perUnit: lines.map((line) => [line.title, num(field(line, "h_mo_per_unit")), num(line.h_mo)]),
         converted: inserted.body.data.converted_lines?.map((line) => [line.title, line.template_hours, line.converted_hours]) ?? null,
+        // Tube: 10,00 € × FO 1,30 + 0,5 h/u × 40 €/h × MO 1,20 = 37,00 € per unit, the template's 5 h kept.
+        tube: lines.filter((line) => line.title === `${army.runPrefix} tube`)
+          .map((line) => [num(line.pu_ht_cents), num(line.line_total_ht_cents)])[0] ?? null,
       };
       expect(observed).toEqual({
         perUnit: [[`${army.runPrefix} tube`, 0.5, 5], [`${army.runPrefix} collier`, 0.0003, 0.9]],
         converted: [[`${army.runPrefix} collier`, 1, 0.9]],
+        tube: [3700, 37000],
       });
     } finally {
       await closePolicy(owner, army, "modele");
@@ -432,15 +448,27 @@ armyTest("IO07 a section imported from another version into a v3 is refused by n
       expect([line.status, line.body.ok]).toEqual([201, true]);
       const versionId = await blankV3(ui, army, projectId, "section");
       const before = await readEstimate(browser, versionId);
-      const imported = await apiRequest<Envelope<unknown>>(browser, "POST", `/api/estimates/${versionId}/import-sections`,
-        { source_version_id: anchorId, section_ids: [section.body.data.item.id] });
+      const anchorBefore = await readEstimate(browser, anchorId);
+      const v3Section = before.items.find((item) => item.item_type === "section")!;
+      const responses = {
+        importInto: await apiRequest<Envelope<unknown>>(browser, "POST", `/api/estimates/${versionId}/import-sections`,
+          { source_version_id: anchorId, section_ids: [section.body.data.item.id] }),
+        duplicateInto: await apiRequest<Envelope<unknown>>(browser, "POST",
+          `/api/estimates/${anchorId}/sections/${section.body.data.item.id}/duplicate`, { target_version_id: versionId }),
+        importFrom: await apiRequest<Envelope<unknown>>(browser, "POST", `/api/estimates/${anchorId}/import-sections`,
+          { source_version_id: versionId, section_ids: [v3Section.id] }),
+      };
       const after = await readEstimate(browser, versionId);
+      const anchorAfter = await readEstimate(browser, anchorId);
       const observed = {
-        response: [imported.status, imported.body.ok, imported.body.error?.code ?? null],
-        unchanged: after.items.length === before.items.length && after.version.updated_at === before.version.updated_at,
+        responses: Object.fromEntries(Object.entries(responses).map(([name, response]) =>
+          [name, [response.status, response.body.ok, response.body.error?.code ?? null]])),
+        unchanged: after.items.length === before.items.length && after.version.updated_at === before.version.updated_at &&
+          anchorAfter.items.length === anchorBefore.items.length && anchorAfter.version.updated_at === anchorBefore.version.updated_at,
       };
       await recordEvidence(army, "io-section-import", { versionId, observed });
-      expect(observed).toEqual({ response: [409, false, "ESTIMATE_ENGINE_UNAVAILABLE"], unchanged: true });
+      const refused = [409, false, "ESTIMATE_ENGINE_UNAVAILABLE"];
+      expect(observed).toEqual({ responses: { importInto: refused, duplicateInto: refused, importFrom: refused }, unchanged: true });
     } finally {
       await closePolicy(owner, army, "section");
     }
@@ -479,5 +507,58 @@ armyTest("IO08 AI structure and version zero are refused by name in a v3, nothin
       });
     } finally {
       await closePolicy(owner, army, "p14");
+    }
+  });
+
+// Règles 3 et 5 (P-12) : les refus SQL de M6 atteignent l'utilisateur par leur nom, avec la ligne nommée.
+armyTest("IO09 a v3 refuses by name an inexact assembly and a template line with hours but no quantity, nothing written", options,
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser };
+    const { owner, projectId, anchorId, roleId } = await prepareV3Owner(ui, army, "refus");
+    try {
+      const robinet = `${army.runPrefix} robinet`;
+      const assembly = await apiRequest<Envelope<{ assembly: { id: string } }>>(browser, "POST", "/api/estimates/assemblies", {
+        name: `${army.runPrefix} ouvrage inexact`, unit: "u",
+        items: [{ title: robinet, unit: "u", default_quantity: 3, h_mo: 1, position: 1, cost_type: "labor", labor_role_id: roleId, k_mo: 1 }],
+      });
+      expect([assembly.status, assembly.body.ok]).toEqual([201, true]);
+      const sansQuantite = `${army.runPrefix} sans quantité`;
+      await retakeLease(browser, anchorId);
+      const anchor = await readEstimate(browser, anchorId);
+      const section = await apiRequest<Envelope<{ item: ArmyItem }>>(browser, "POST", `/api/estimates/${anchorId}/items`,
+        { item_type: "section", position: 1, title: "Modèle refus" }, { "if-match": anchor.version.updated_at });
+      expect([section.status, section.body.ok]).toEqual([201, true]);
+      const current = await readEstimate(browser, anchorId);
+      const line = await apiRequest<Envelope<{ item: ArmyItem }>>(browser, "POST", `/api/estimates/${anchorId}/items`,
+        { item_type: "line", parent_id: section.body.data.item.id, position: 1, title: sansQuantite, description: "u",
+          quantity: 0, unit_price_ht_cents: 1000, h_mo: 2, labor_role_id: roleId }, { "if-match": current.version.updated_at });
+      expect([line.status, line.body.ok]).toEqual([201, true]);
+      const template = await apiRequest<Envelope<{ template: { id: string } }>>(browser, "POST", "/api/estimates/templates",
+        { source_version_id: anchorId, name: `${army.runPrefix} modèle sans quantité` });
+      expect([template.status, template.body.ok]).toEqual([201, true]);
+      const versionId = await blankV3(ui, army, projectId, "refus");
+      await retakeLease(browser, versionId);
+      const before = await readEstimate(browser, versionId);
+      const insertedAssembly = await apiRequest<Envelope<unknown>>(browser, "POST",
+        `/api/estimates/assemblies/${assembly.body.data.assembly.id}/insert`, { version_id: versionId }, await leaseSession(browser, versionId));
+      const insertedTemplate = await apiRequest<Envelope<unknown>>(browser, "POST",
+        `/api/estimates/templates/${template.body.data.template.id}/insert`, { version_id: versionId }, await leaseSession(browser, versionId));
+      const after = await readEstimate(browser, versionId);
+      const named = (response: typeof insertedAssembly, title: string) =>
+        [response.status, response.body.ok, response.body.error?.code ?? null, (response.body.error?.message ?? "").includes(title)];
+      const observed = {
+        assembly: named(insertedAssembly, robinet),
+        template: named(insertedTemplate, sansQuantite),
+        unchanged: after.items.length === before.items.length && after.version.updated_at === before.version.updated_at,
+      };
+      await recordEvidence(army, "io-named-refusals", { versionId, observed,
+        bodies: { assembly: insertedAssembly.body, template: insertedTemplate.body } });
+      expect(observed).toEqual({
+        assembly: [400, false, "ESTIMATE_V3_ASSEMBLY_HOURS_PER_UNIT_INEXACT", true],
+        template: [400, false, "ESTIMATE_V3_TEMPLATE_HOURS_WITHOUT_QUANTITY", true],
+        unchanged: true,
+      });
+    } finally {
+      await closePolicy(owner, army, "refus");
     }
   });
