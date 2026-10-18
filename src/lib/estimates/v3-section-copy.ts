@@ -166,12 +166,33 @@ function tooLarge(operations: number) {
     details: { operations, max_operations: ESTIMATE_V3_COPY_MAX_OPERATIONS } });
 }
 
+/**
+ * Octets du texte jsonb que la base mesure sur les opérations (1 Mio, `octet_length(operations::text)`) : le JSON
+ * compact plus l'espace de chaque « ": " » et « , ». Environ 37 Ko de plus pour 1 000 lignes ; la marge de 4 Kio
+ * couvre l'écriture des nombres et la mise en forme canonique.
+ */
+function jsonbTextBytes(value: unknown) {
+  let spaces = 0;
+  const visit = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      spaces += Math.max(node.length - 1, 0);
+      node.forEach(visit);
+    } else if (node && typeof node === "object") {
+      const values = Object.values(node).filter((entry) => entry !== undefined);
+      spaces += values.length + Math.max(values.length - 1, 0);
+      values.forEach(visit);
+    }
+  };
+  visit(value);
+  return Buffer.byteLength(JSON.stringify(value), "utf8") + spaces;
+}
+
 const shortTitle = (title: string | undefined) =>
   !title ? "Élément" : title.length > 80 ? `${title.slice(0, 79)}…` : title;
 
 /**
  * Un seul lot atomique dans la v3 cible, au jeton lu par l'appelant. Avant toute écriture : la limite (opérations,
- * corps, reçu estimé) et les bornes de l'écrivain pour chaque élément (titre de 500 caractères…), refusées par leur
+ * corps mesuré comme la base) et les bornes de l'écrivain pour chaque élément (titre de 500 caractères…), refusées par leur
  * nom. Une opération refusée par l'écrivain est rendue par son code, avec l'élément nommé ; rien n'est écrit.
  */
 export async function commitV3Copy(input: {
@@ -180,7 +201,7 @@ export async function commitV3Copy(input: {
   plan: Pick<V3CopyPlan, "operations" | "createdIds" | "titles">;
 }): Promise<EstimateBatchCommittedResult> {
   const { operations, createdIds, titles } = input.plan;
-  const operationBytes = Buffer.byteLength(JSON.stringify({ operations }), "utf8");
+  const operationBytes = jsonbTextBytes(operations);
   // La provenance voyage dans la requête de l'écrivain (identités de création), bornée comme un corps de lot (1 Mio).
   const metadataBytes = Buffer.byteLength(JSON.stringify(createdIds.map((entry) => entry.source_metadata ?? null)), "utf8");
   if (operations.length > ESTIMATE_V3_COPY_MAX_OPERATIONS || operationBytes > ESTIMATE_BATCH_MAX_BODY_BYTES - 4096 ||

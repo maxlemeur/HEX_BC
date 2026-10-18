@@ -108,7 +108,7 @@ written). The probe `pg_temp.lb29_copy_run` (one root section and N - 1 priced l
 back, as the owner) measured it in WSL on a loaded Windows host, about twice slower than the calibrated Mac (the
 creation took 415–480 ms there against 245 ms):
 
-| Copy | Before `20261018180306` (5 runs) | After (7 runs for 100, 3 for 1 000) |
+| Copy | Before the migration (5 runs) | Its first review version, then `20261018160000` (7 runs for 100, 3 for 1 000) |
 | --- | --- | --- |
 | 100 operations into the 8-item v3 | 554 ms | **173 ms** |
 | 100 operations into the 1 021-item v3 | 4 102 ms | **282 ms**, 0 line updates |
@@ -116,10 +116,12 @@ creation took 415–480 ms there against 245 ms):
 
 The profile (`pg_stat_xact_user_functions`) put 3,2 s of the 3,9 s of two 100-operation copies in
 `bulk_update_estimate_items`: the v3 projection rewrote every line of the version, each no-op update firing the
-revision bump, two audit rows and the coverage invalidation. `20261018180306` passes only the lines whose amounts
+revision bump, two audit rows and the coverage invalidation. The first review version of the migration (then
+`20261018160000`, since restamped `20261018180306`) passes only the lines whose amounts
 differ (D12 still checks them all) and reads created ids and projections from maps. What remains is linear in the
 operations (per-line triggers about 1,1 ms, batch loop about 0,85 ms, the quadratic `canonical_estimate_batch_operations`
-about 0,6 s at 1 000), so a copy is capped at **100 operations**, the size of the editor batches: 282 ms here,
+about 0,6 s at 1 000), so that version capped a copy at **100 operations** (superseded by the owner decision below),
+the size of the editor batches: 282 ms here,
 about half on the Mac, a few seconds in CI. Beyond it, a named 413 points to the affaire import, which creates the
 version in one set-based statement (L1, L2).
 

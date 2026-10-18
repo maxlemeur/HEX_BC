@@ -26,6 +26,8 @@ Statut : **vert** (18/10/2026). Branche `lot2/2.8b-copies-into-v3`, empilée sur
 | C15 | Provenance forgée d'une autre entreprise écrite par un appel direct de `commit_estimate_batch` (G2) | pgTAP (appel direct) |
 | C16 | Source de plus de 500 éléments modifiée entre deux pages de lecture : copie mêlant deux états (G3) | aucun parcours (course) |
 | C17 | Reçu de l'écrivain au-delà de 2 Mio : 400 générique, ou copie de 1 000 lignes refusée à tort par une estimation (§7) | IO13 |
+| C18 | Lot de créations seules appelé directement : section ou ligne rangée sous des ancêtres stockés au-delà de `max_section_depth` (revue interne, §8) | pgTAP (appel direct) |
+| C19 | Copie sous 1 Mio en JSON compact mais au-delà en texte jsonb mesuré par la base : 400 générique au lieu du 413 nommé (revue interne, §8) | IO13 |
 
 ## 2. Rouges conservés
 
@@ -101,7 +103,7 @@ Statut : **vert** (18/10/2026). Branche `lot2/2.8b-copies-into-v3`, empilée sur
 | Constat | Disposition |
 |---|---|
 | CI rouge, shard 3 | Parcours IO13 identifié (preuve `2026-10-18T15-07-22-063Z-critical` du run 39138950745) : copie de 1 000 opérations en 503 `BATCH_OUTCOME_UNKNOWN` après 9,7 s, délai de 8 s des rôles de l'API. Corrigé par les deux lignes suivantes |
-| 1 000 opérations hors budget | Mesuré (L7, [budget](large-estimate-statement-budget.md#copy-into-a-v3-28b-l7)) : 10–15 s ; 100 opérations dans une v3 de 1 021 éléments : 4,1 s, la projection v3 réécrivait chaque ligne. `20261018180306` ne réécrit que les montants qui changent (282 ms) ; limite ramenée à 100 opérations, taille des lots de l'éditeur. Écart au plan (1 000) : le délai de la CI l'impose |
+| 1 000 opérations hors budget | Mesuré (L7, [budget](large-estimate-statement-budget.md#copy-into-a-v3-28b-l7)) : 10–15 s ; 100 opérations dans une v3 de 1 021 éléments : 4,1 s, la projection v3 réécrivait chaque ligne. La première version de la migration (alors `20261018160000`) ne réécrit que les montants qui changent (282 ms) ; limite ramenée à 100 opérations, taille des lots de l'éditeur. Écart au plan (1 000) : le délai de la CI l'imposait ; remplacé par la décision du propriétaire (§7, 1 000 opérations) |
 | Rapport P-12 non montré | `converted_lines` lu par le client ; résumé de l'import de sections et avis de la copie vers une autre version |
 | `source_metadata` perdue | `p_created_ids` porte la `source_metadata` de l'élément copié (côté serveur seulement, hors requête canonique et reçu rejoué) ; A5 : métadonnées de la ligne mappée et `import_id` |
 | Reçu > 2 Mio « écrit puis inconnu » | Infirmé : la base refuse le reçu avant validation, rien n'est écrit (mesure : 1 000 opérations avec provenance → `ESTIMATE_BATCH_INVALID_INPUT`). Réel : un refus générique. Corrigé par l'estimation du reçu avant écriture (413 nommé) |
@@ -132,7 +134,7 @@ au plus 3,5 s pour 1 000 lignes, sous le délai de 8 s des rôles de l'API en CI
 | G3 (`server.ts:4094`) : source de plus de 500 éléments lue en plusieurs pages sans revérifier son jeton | Réel. `readAllItemsForV3Copy` relit la version (`assertEstimateVersionUnchanged` : jeton et révision de contenu) après la dernière page, source comme cible ; changée : 409 `VERSION_CONFLICT`, rien n'est copié. Aucun parcours ne force une écriture entre deux pages : course non reproduite, assistant existant réutilisé |
 | Limite de 100 opérations | Remontée à 1 000 (décision ci-dessus). La migration rejoue en une passe les effets par ligne d'un lot de créations seules (rejeu M6b), saute les recherches de position et de titre par défaut quand l'opération les nomme, accumule résultats et opérations canoniques dans des tableaux et ne renvoie plus dans le reçu la `source_metadata` reçue par `p_created_ids` |
 | Reçu de l'écrivain au-delà de 2 Mio | L'estimation avant écriture (§6) refusait à tort 1 000 lignes qui tiennent (≈ 2,04 Mo réels) ; retirée. La base refuse désormais un reçu trop gros par son nom (`ESTIMATE_BATCH_RECEIPT_TOO_LARGE`, 413 sur la route de lot), la copie le rend par son 413 nommé ; rien n'est écrit dans les deux cas |
-| `main` a bougé (`33c7031b`, lecture complète) | Fusionné (`25cd083b`) : conflits `server.ts` (lecture du DPGF lié : `readAllRows` de `main` pour toutes les politiques, l'option `paginate` du 2.8b retirée) et manifeste. `20261018170351` ne redéfinit pas `commit_estimate_batch` (seuls `20261012030743` et `20261017162000` le définissent sur `main`) : il ajoute `insert_estimate_template_with_receipt` et `insert_estimate_assembly_with_receipt`, que cette migration ne touche pas. Migration réhorodatée `20261018160000` → `20261018180306` (`supabase:migrations:restamp`, garde Git et manifeste passés) |
+| `main` a bougé (`33c7031b`, lecture complète) | Fusionné (`25cd083b`) : conflits `server.ts` (lecture du DPGF lié : `readAllRows` de `main` pour toutes les politiques, l'option `paginate` du 2.8b retirée) et manifeste. `20261018170351` ne redéfinit pas `commit_estimate_batch` (seuls `20261012030743` et `20261017162000` le définissent sur `main`) : il ajoute `insert_estimate_template_with_receipt` et `insert_estimate_assembly_with_receipt`, que cette migration ne touche pas. Migration réhorodatée `20261018160000` → `20261018172303` (`supabase:migrations:restamp`, garde Git et manifeste passés), puis `20261018180306` (§8) |
 
 Preuves (clone WSL `~/miaouffrage-l2-28b`, hôte partagé chargé, `E2E_ARMY_WORKERS=2`) :
 
@@ -155,3 +157,12 @@ Preuves (clone WSL `~/miaouffrage-l2-28b`, hôte partagé chargé, `E2E_ARMY_WOR
 - **Consommateurs de l'écrivain de lot**, itération 3 (`--files` : `large-row-completeness` du propriétaire,
   `engine-v3-import-optima`, `engine-v3-editor-actions`, `engine-v3-persistence`, `numeric-entry-v3`, `numeric-entry`,
   `engine-v3-creators`) : 44/44 verts en 343,5 s.
+
+## 8. Revue interne avant l'envoi, fusion de `main` (18/10/2026, 20 h)
+
+| Constat | Disposition |
+|---|---|
+| Profondeur d'un lot de créations seules (moyen, intégrité) | Réel. Le rejeu M6b auquel ce lot confie la profondeur ne remontait les parents que jusqu'au nombre d'éléments créés : suffisant pour une nouvelle version (tous les ancêtres dans la charge), pas sous des ancêtres stockés. Un appel direct rangeait une section au niveau 4, ou une ligne sous elle (`max_section_depth` 3). La migration redéfinit le rejeu avec la remontée bornée par `greatest(nombre créé, max_section_depth)` : chaque ancêtre jusqu'à `max_section_depth + 1` est vu ; la création M6b garde la même remontée. Refus : `22023 ESTIMATE_BATCH_INVALID_INPUT`, rien d'écrit. L'application n'y est pas exposée (la préparation du lot refuse avant l'appel) |
+| Marge de taille de la copie (faible) | Réel. La copie mesurait ses opérations en JSON compact avec 4 Kio de marge ; la base mesure leur texte jsonb (`": "` et `", "`, environ 37 Ko de plus pour 1 000 lignes). Entre les deux : 400 générique. La copie mesure désormais comme la base (`jsonbTextBytes`), la marge de 4 Kio reste pour l'écriture des nombres : 413 `ESTIMATE_V3_COPY_TOO_LARGE` nommé, rien d'écrit |
+| Documentation réhorodatée mécaniquement (faible) | Les lignes historiques (§6, budget L7) nomment la première version de la migration (alors `20261018160000`) et renvoient à la décision du §7 |
+| `main` a bougé (#60, #62, #65) | Fusionné : conflits `engine-v3-import-optima.e2e.ts` (deux imports gardés) et manifeste. `20261018172935` (ordre du contrat client 2) ne touche ni l'écrivain de lot ni le rejeu ; migration réhorodatée `20261018172303` → `20261018180306` (`supabase:migrations:restamp --base origin/main`, garde Git et manifeste passés) |
