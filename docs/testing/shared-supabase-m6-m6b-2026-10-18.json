@@ -1,0 +1,259 @@
+{
+  "project": "ijropnynpwjbllievrip",
+  "date": "2026-10-18",
+  "source": {
+    "repository": "maxlemeur/HEX_BC",
+    "mainMergeCommit": "5cfd4a94215975f3caa122ff5f64e1192b60cc5f",
+    "pullRequest": 40,
+    "prHead": "f00da33bb8913a403c604dcc4e89e01204f82b59",
+    "files": [
+      {
+        "stage": "M6",
+        "file": "supabase/migrations/20261017225906_estimate_engine_v3_entry_paths.sql",
+        "bytes": 75580,
+        "sha256": "87f4a0452e9dba51b6ff4d180ad42f6aad6e8d4c52414013f793d25f34c2885a",
+        "md5": "159198c4539bec93f1ccf67c13444f66",
+        "gitBlob": "64564c950af395ba4c96c2f37478675f1c4ff26c",
+        "fileLastCommit": "c28866e4bfeb689ea4e00947bf61ef7293dd8a3e",
+        "manifestSha256Matches": true
+      },
+      {
+        "stage": "M6b",
+        "file": "supabase/migrations/20261018013249_estimate_creation_set_based_item_effects.sql",
+        "bytes": 56179,
+        "sha256": "8b4f54601e21a53b146d7306256f22c5273685e055e267ce87b149a707745dfb",
+        "md5": "6ceba67089163633f740b0562a27b5f6",
+        "gitBlob": "656f4a48d8a79e55388efae414065a7a828d98ad",
+        "fileLastCommit": "2fb27f3248527b3fc08b5cbb37cf511c70b90dd2",
+        "manifestSha256Matches": true
+      }
+    ]
+  },
+  "application": [
+    {
+      "name": "20261017225906_estimate_engine_v3_entry_paths",
+      "remoteVersion": "20261018092154",
+      "appliedAtUtc": "2026-10-18T09:21:54Z",
+      "attempts": 1,
+      "storedStatementBytes": 75580,
+      "storedStatementMd5": "159198c4539bec93f1ccf67c13444f66",
+      "byteExact": true
+    },
+    {
+      "name": "20261018013249_estimate_creation_set_based_item_effects",
+      "remoteVersion": "20261018093015",
+      "appliedAtUtc": "2026-10-18T09:30:15Z",
+      "attempts": 1,
+      "storedStatementBytes": 56179,
+      "storedStatementMd5": "6ceba67089163633f740b0562a27b5f6",
+      "byteExact": true
+    }
+  ],
+  "method": "mcp supabase_miaouffrage apply_migration",
+  "dbPush": false,
+  "fixupSql": false,
+  "preconditionsBeforeM6": {
+    "checkFunctions": {
+      "absent": [
+        1,
+        9
+      ],
+      "before": [
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "row10": "OTHER:178d947e9593774a0ab4536244f0e5d5",
+      "secdefCfgOk": true,
+      "equalsCoordinatorBaseline": true
+    },
+    "row10DriftAccepted": {
+      "sharedMd5": "178d947e9593774a0ab4536244f0e5d5",
+      "repoEst448Md5": "fbe155589a374d8a09d719290b6357e0",
+      "basis": "coordinator proof: identical modulo whitespace and comments",
+      "reverifiedByThisAgent": false,
+      "resolvedAfterM6b": "4f15e16cd95af198c7510d96b4e20b74"
+    },
+    "lastRemoteMigration": "20261018041924 20261017205000_estimate_engine_v3_line_repricing",
+    "m6PreflightBlockPassed": true,
+    "preM6SqlRerun": false
+  },
+  "postM6": {
+    "rows1to8": "after",
+    "secdefCfgOk": true,
+    "row1Acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+    "bridge1Execute": {
+      "service_role": true,
+      "authenticated": true,
+      "anon": false,
+      "public": false
+    },
+    "rows9to15UnchangedFromA": true,
+    "columns": {
+      "estimate_template_items.unit_code": "text",
+      "estimate_template_items.pricing_status": "estimate_line_pricing_status not null default 'priced'",
+      "estimate_template_items.h_mo_per_unit": "numeric(12,4)",
+      "estimate_template_items.h_mo_atelier_per_unit": "numeric(12,4)",
+      "estimate_template_items.h_mo_chantier_per_unit": "numeric(12,4)",
+      "estimate_templates.sale_coefficient_fo": "numeric(8,4)",
+      "estimate_templates.sale_coefficient_mo": "numeric(8,4)"
+    },
+    "constraints": {
+      "estimate_template_items_unit_code_fkey": "present, convalidated, def ok",
+      "estimate_template_items_v3_section_columns_check": "present, convalidated, def ok",
+      "estimate_template_items_v3_hours_per_unit_nonnegative_check": "present, convalidated, def ok",
+      "estimate_templates_sale_coefficients_check": "present, convalidated, def ok"
+    },
+    "commentsEqualFile": {
+      "unit_code": true,
+      "h_mo_per_unit": true,
+      "bridge1": true
+    },
+    "templateRows": {
+      "estimate_template_items": 0,
+      "estimate_templates": 0
+    },
+    "nonDefaultRows": 0,
+    "historyNewRows": 1,
+    "serverVersionNum": "170006"
+  },
+  "preM6b": {
+    "preflightAllTrue": true,
+    "helpersAllTrue": true,
+    "requiredColumnsMissing": [],
+    "m6Recorded": 1,
+    "m6IsLast": true,
+    "m6bRecorded": 0,
+    "bridge9Present": false,
+    "persistOverloads": 1,
+    "perLineTriggers": [
+      "bump_estimate_content_revision_from_item:O",
+      "estimate_items_audit_trigger:O",
+      "estimate_items_hierarchy_depth_guard:O",
+      "source_coverage_item_technical:O",
+      "aaa_guard_estimate_version_workflow_columns:O",
+      "estimate_versions_audit_trigger:O"
+    ],
+    "v3Versions": 0,
+    "coverageLinks": 0,
+    "coverageRequirements": 0
+  },
+  "postM6b": {
+    "allRowsAfter": true,
+    "secdefCfgOk": true,
+    "aclOkRows": [
+      1,
+      9
+    ],
+    "row9Acl": "{postgres=X/postgres,service_role=X/postgres}",
+    "row9Owner": "postgres",
+    "atomicOkRows9to15": true,
+    "bridge9Execute": {
+      "service_role": true,
+      "authenticated": false,
+      "anon": false,
+      "public": false
+    },
+    "bridge9CommentEqualsFile": true,
+    "bridge9Overloads": 1,
+    "persistOverloads": 1,
+    "historyLast": "20261018093015 20261018013249_estimate_creation_set_based_item_effects",
+    "newRowsAfter2_6": 2
+  },
+  "fingerprints": {
+    "method": "reduced fingerprints.sql: per table rows, md5(string_agg(md5((to_jsonb(row) - m6_cols)::text) order by collate C)), readable, rls_applies; digest = md5(tables jsonb)",
+    "scope": "public and private, relkind r/p",
+    "snapshots": [
+      {
+        "label": "coordinator before M6",
+        "atUtc": "09:09",
+        "digest": "402ebc8b9468aede891357b1cb68743b"
+      },
+      {
+        "label": "A before M6",
+        "atUtc": "2026-10-18T09:14:36Z",
+        "digest": "402ebc8b9468aede891357b1cb68743b"
+      },
+      {
+        "label": "after M6",
+        "atUtc": "2026-10-18T09:22:16Z",
+        "digest": "402ebc8b9468aede891357b1cb68743b"
+      },
+      {
+        "label": "before M6b",
+        "atUtc": "2026-10-18T09:26:24Z",
+        "digest": "402ebc8b9468aede891357b1cb68743b"
+      },
+      {
+        "label": "after M6b",
+        "atUtc": "2026-10-18T09:30:42Z",
+        "digest": "402ebc8b9468aede891357b1cb68743b"
+      }
+    ],
+    "tableCount": 122,
+    "totalRows": 39683,
+    "bypassRls": true,
+    "unprovenTables": 0,
+    "identical": true
+  },
+  "triggerFingerprint": {
+    "tables": [
+      "audit_logs",
+      "estimate_items",
+      "estimate_template_items",
+      "estimate_templates",
+      "estimate_versions"
+    ],
+    "count": 37,
+    "digest": "a62fc541c833d81e83c48117c753ec04",
+    "atUtc": [
+      "09:14:57",
+      "09:23:17",
+      "09:31:43"
+    ],
+    "identical": true
+  },
+  "behaviouralProof": {
+    "where": "local ephemeral stacks (CI of PR #40) and kit local-validation/run2",
+    "headCommit": "f00da33bb8913a403c604dcc4e89e01204f82b59",
+    "checks": {
+      "rls-matrix": "SUCCESS",
+      "army-critical": "SUCCESS",
+      "quality-gate": "SUCCESS",
+      "Tests": "SUCCESS",
+      "Statique": "SUCCESS",
+      "smoke": "SUCCESS",
+      "Build": "SKIPPED"
+    },
+    "sharedBusinessCalls": false
+  },
+  "preservedDifferences": [
+    "constraint estimate_items_pu_ht_check on shared vs estimate_items_pu_ht_cents_check in the repository (same predicate); neither M6 nor M6b names it"
+  ],
+  "limits": [
+    "no behaviour run on shared",
+    "Supabase advisors not re-read",
+    "M5 (2.7) not yet applied; to apply after PR #45 under its restamped name; out-of-order acceptable because objects are disjoint (by name, checked on branch head 3d78d662, not the merged version)",
+    "log_estimate_audit drift accepted on the coordinator's proof, not re-verified here",
+    "shared PostgreSQL 17.6 vs local validation 17.11",
+    "auth, storage and supabase_migrations outside the data fingerprint"
+  ],
+  "notExecuted": [
+    "other migrations",
+    "tenant calc policy",
+    "deployment"
+  ],
+  "remaining": [
+    "M5 20261017213500 (2.7, after PR #45)",
+    "M8 (2.10, owner approval required)"
+  ]
+}

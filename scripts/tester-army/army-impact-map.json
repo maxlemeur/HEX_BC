@@ -68,7 +68,7 @@
     "src/test/**",
     "scripts/engine-v3/**",
     "scripts/test-*-sql.mjs",
-    "scripts/{add-supabase-migrations-to-manifest,check-architecture-budgets,check-dependency-audit,guard-supabase-migrations,restamp-unpushed-migrations,run-local-supabase-ci,run-takeoff-provider-benchmark,sofinther-prices,validate-e2e-environment,validate-supabase-migrations,verify-local-supabase-migrations,verify-production-build}.ts",
+    "scripts/{add-supabase-migrations-to-manifest,check-architecture-budgets,check-dependency-audit,guard-supabase-migrations,run-local-supabase-ci,run-takeoff-provider-benchmark,sofinther-prices,supabase-migration-restamp,validate-e2e-environment,validate-supabase-migrations,verify-local-supabase-migrations,verify-production-build}.ts",
     "scripts/{check-durable-recovery,extract-audit-artifact,typecheck}.mjs",
     "scripts/generate-fake-plan.py",
     "supabase/.gitignore",
