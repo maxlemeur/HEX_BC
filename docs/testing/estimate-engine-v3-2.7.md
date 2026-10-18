@@ -1166,4 +1166,8 @@ src/lib/estimate-v2-snapshot.ts` : vide ; `git -c core.whitespace=cr-at-eol diff
   choisit pas ; V3E11 (critique) tient l'état du menu de la fiche d'un brouillon.
 - P-20 (exports de l'éditeur et BDC d'une v3) reste à arbitrer ; l'envoi par courriel depuis la fiche d'une v3 passe par
   la route `POST …/send` que V3M01 prouve, sans parcours d'écran de la fenêtre d'envoi.
-- Le Supabase partagé n'est pas touché ; ni la migration de 2.6 ni M5 n'y sont appliquées. Rien n'est poussé.
+- Cette fusion ne touche pas le Supabase partagé ; M5 n'y est pas appliquée (la migration de 2.6 y a été appliquée après la PR #44, PR #46, hors de cette branche). Rien n'est poussé.
+- `origin/main` a avancé pendant la qualification (`78533fe5` : PR #46, rapport d'application de la migration de 2.6 au
+  partagé, documentation seule ; PR #47, `scripts/tester-army/dev-loop-state.ts`, chemins résolus de la boucle). Non
+  fusionnés ici : essai `git merge-tree` sans conflit après le retrait d'une note de ce document adjacente à la PR #46 ;
+  `dev-loop-state.ts` est un module du superviseur, entrée du build Army : une nouvelle fusion relance ce qu'elle invalide.
