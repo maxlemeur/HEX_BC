@@ -72,7 +72,8 @@ export function reconcilesEditorTotals(version: EngineVersionSource): boolean {
  * réenregistrer. Une v3 n'a aucun total client à écrire (`persistedTotals` nul) : le serveur a recalculé et stocké
  * ses totaux dans la même transaction (2.5, D12). Sans cet aiguillage, l'annulation d'une suppression affichait
  * « Les totaux n'ont pas pu être sauvegardés » le temps de sa remise en ordre, la grille sautait, puis l'état
- * restait « En attente » (docs/testing/v3e05-click-intercepted.md).
+ * restait « En attente » jusqu'à l'autosauvegarde de 60 s, qui n'envoyait rien
+ * (docs/testing/v3e05-click-intercepted.md).
  */
 export function writesEditorTotals(version: EngineVersionSource): boolean {
   const engine = resolveEditorEngine(version);
