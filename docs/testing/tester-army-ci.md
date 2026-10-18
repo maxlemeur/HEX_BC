@@ -107,6 +107,14 @@ lançait que `dashboard-ux` et devait attendre ou déclencher la suite full de
   même (et la carte, invalide, impose la suite critical complète) ; une liste
   impossible à établir (carte illisible) donne un `all` vide, que le job lance
   comme la sélection full entière.
+- Chemins transmis au runner : le motif partagé
+  `scripts/tester-army/journey-files.mjs` (lu par les deux runners et par le
+  sélecteur) accepte, comme le glob `e2e/army/takeoff/**`, un parcours dans un
+  sous-dossier (`e2e/army/takeoff/metre/x.e2e.ts`) et refuse `..`, les entrées
+  commençant par `.` ou `_`, les espaces et tout autre dossier. Un parcours du
+  métré que ce motif refuserait rend la carte invalide, et le repli donne alors
+  un `all` vide (sélection full entière) plutôt qu'une liste que le runner
+  rejetterait avant de rien lancer.
 - Job `army-takeoff` de `e2e-army-critical.yml`, en parallèle d'`army-critical`
   (pas de `needs`, donc pas d'allongement du chemin critique tant qu'il est
   plus court) : même garde de cible, même étape de sélection à l'octet près (le
@@ -135,6 +143,10 @@ joints par une espace), ou :
 gh workflow run e2e-army-full.yml --ref <branche> -f grep='^VNEXT Team B - user stories e2e US-4\.1'
 ```
 
+GitHub ne déclenche que les workflows présents sur la branche par défaut ;
+`e2e-army-full.yml` y est déjà, et un déclenchement sur une branche exécute la
+version du fichier de cette branche, entrée `grep` comprise.
+
 Le motif passe par `env` puis une expansion entre guillemets, jamais collé dans
 le script (garde `src/test/ci-guardrails.test.ts`). Le runner refuse un motif
 vide, invalide ou commençant par `-`. Une exécution filtrée lance la seule
@@ -142,10 +154,16 @@ phase `full` (le setup de connexion compris), pas la phase développement ; le
 manifeste enregistre `scope: filtered-full`, `grep` et
 `phasesNotRun.development`, et une annonce de l'exécution filtrée apparaît dans
 le résumé du job. Elle ne prouve que ses tests retenus et ne qualifie pas la
-suite full. La planification de 03:15 UTC n'a pas d'entrée : elle reste la
-suite full complète, phase développement comprise. En local, le même filtre :
+suite full : son titre de run (« TesterArmy Full (filtré --grep, non
+qualifiant) »), son contrôle sur le commit (`army-full (filtré --grep, non
+qualifiant)`) et son artefact (`army-full-filtered-evidence`) le disent. La
+planification de 03:15 UTC n'a pas d'entrée : elle reste la suite full
+complète, phase développement comprise, et garde les noms qualifiants
+« TesterArmy Full », `army-full` et `army-full-evidence`, comme un
+déclenchement sans motif. En local, le même filtre :
 `npm run e2e:army:ci -- full --grep '<motif>'`, ou
-`npm run e2e:army:ci -- full --files e2e/army/critical/auth.setup.e2e.ts,e2e/army/takeoff/<parcours>.e2e.ts`.
+`npm run e2e:army:ci -- full --files e2e/army/critical/auth.setup.e2e.ts,e2e/army/takeoff/<parcours>.e2e.ts`
+(sous-dossiers acceptés).
 
 ### Forcer la suite complète
 
@@ -168,8 +186,10 @@ déplace `E2E_ARMY_WORKERS` ou l'enregistrement du cache. Pour le métré, il
 échoue aussi si : `fullOnly.journeys` diffère des fichiers du glob takeoff de la
 liste full de `e2e.config.ts`, ou ce glob n'y figure plus ; un parcours du métré
 n'est atteint par aucune règle ; une décision incertaine ne les lance pas tous ;
-le job `army-takeoff` saute pour autre chose que `none`, diffère de l'étape de
-sélection d'`army-critical`, fixe un nombre de workers ou enregistre un cache.
+la sélection transmet un chemin que `full --files` refuse (sous-dossier
+compris) ; le job `army-takeoff` saute pour autre chose que `none`, diffère de
+l'étape de sélection d'`army-critical`, fixe un nombre de workers ou enregistre
+un cache.
 Sans protection de branche (plan Free), un Quality Gate rouge n'empêche pas une
 fusion : le contrôle de complétude des parcours est donc aussi fait par le
 sélecteur à chaque exécution (repli sûr ci-dessus).
@@ -285,6 +305,21 @@ Preuve : `.e2e/army/ci/2026-10-18T01-03-08-809Z-full/` du clone
 (`manifest.json` SHA-256
 `997242a353a12d0e69f55bafa9a75f07cdb6956d9f0fb7da1c6246de3578b7e0`).
 
+Parcours du métré dans un sous-dossier, même hôte, révision `9546e7d5` : copie
+temporaire non versionnée de `contracts.e2e.ts` dans
+`e2e/army/takeoff/nested-proof/` (imports relatifs ajustés, titres préfixés
+`NESTED`, SHA-256
+`9f3aee5017fa0749a6e6b5bc4a308110b5873a52fe77585be7ada55f42c3ea46`), puis
+`run-tester-army-ci.ts full --app-port 3141 --files e2e/army/critical/auth.setup.e2e.ts,e2e/army/takeoff/nested-proof/contracts.e2e.ts` :
+`db reset` 8,4 s, pgTAP et RLS verts, build 45,7 s (cache webpack local),
+parcours 25,9 s, 9/9 (setup et les 8 tests du fichier imbriqué ; 151 tests
+découverts), `scope: filtered-full`, run complet 99 s, confidentialité passée.
+Preuve : `.e2e/army/ci/2026-10-18T01-54-16-965Z-full/` du clone
+(`manifest.json` SHA-256
+`f327384ae8f93bcf338e859369d7dccd3d270b9160638cb56fbf2a5a48cff7fc`). La copie,
+non suivie par git, n'entre pas dans `source.diffSha256`, qui ne couvre que les
+fichiers suivis ; elle a été supprimée après le run.
+
 Chiffres CI de référence : la description de la PR qui introduit ces
 changements relève, avec les identifiants de run, la suite critical complète à
 2 workers et le Quality Gate de cette PR, caches froids (la PR modifie ce
@@ -337,19 +372,32 @@ confidentialité du runner.
   depuis la PR #34 (rechargement à chaud qui remonte l'éditeur ; 6/6 en
   production avec un garde local). Le sous-lot 2.7 étend ce garde au profil de
   production possédé et passe l'émission en production. Réactivation : ajouter
-  `emission` à `CALC_V3_NIGHTLY_PHASES` dans le workflow ; le garde
+  `emission` à `CALC_V3_NIGHTLY_PHASES` dans le workflow, rien d'autre ; le garde
   `src/test/ci-guardrails.test.ts` exige que cette liste soit exactement
   l'ensemble des phases dont `serverMode` vaut `production`
-  (`scripts/tester-army/calc-v3-phases.ts`) : dès que 2.7 bascule l'émission,
-  le Quality Gate reste rouge tant qu'elle n'y est pas ajoutée.
+  (`scripts/tester-army/calc-v3-phases.ts`) et n'interdit l'émission que tant
+  qu'elle n'est pas servie en production : dès que 2.7 bascule l'émission, le
+  Quality Gate reste rouge tant qu'elle n'y est pas ajoutée, et l'ajout suffit à
+  le remettre au vert. La PR de 2.7, qui modifie alors ce workflow, lance
+  elle-même la sélection nocturne, émission comprise (ci-dessous).
 - Déclenchement manuel (`workflow_dispatch`, entrée `phase`) : `nightly`
   (défaut, la sélection ci-dessus), `all` (la campagne complète en une
   invocation, émission comprise, exactement `npm run e2e:army:calc-v3`) ou une
   seule phase, émission comprise. Le nom passe par `env`, et le runner refuse
-  toute valeur qui n'est pas une phase.
+  toute valeur qui n'est pas une phase. GitHub ne planifie et ne déclenche que
+  les workflows présents sur la branche par défaut : ni la nuit ni le
+  déclenchement manuel n'existent avant la fusion de ce workflow sur `main` ;
+  ensuite, un déclenchement sur une branche exécute la version de cette branche.
+- Pull request : une PR vers `main` qui modifie
+  `.github/workflows/e2e-army-calc-v3.yml` lance la sélection nocturne (filtre
+  `paths`), si bien que le workflow est prouvé avant sa fusion ; aucune autre PR
+  ne le lance. Un nouveau push sur la PR annule et remplace son run en cours ;
+  un run nocturne ou déclenché n'est jamais annulé (groupe de concurrence par
+  run).
 - Coût : six piles et six builds par nuit dans un job (le premier build sur le
   cache webpack restauré depuis `main`, les suivants sur celui du premier) ;
-  délai maximal du job 120 min.
+  délai maximal du job 120 min. Estimation non mesurée en CI : 25 à 35 min de
+  runner par nuit, autant par PR qui modifie le workflow.
 
 ## Contrat défini avant migration
 

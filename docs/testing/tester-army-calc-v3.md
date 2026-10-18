@@ -137,15 +137,20 @@ autre pile, build ou navigateur ne tournait (les exécutions de la ligne de base
 
 ## CI nocturne (`e2e-army-calc-v3.yml`)
 
-Depuis le 18/10/2026, la campagne tourne aussi en CI : chaque nuit à 04:45 UTC et à la demande
+Demande du 18/10/2026 : la campagne tourne aussi en CI, chaque nuit à 04:45 UTC et à la demande
 (Actions → TesterArmy calc-v3 → Run workflow, ou `gh workflow run e2e-army-calc-v3.yml --ref
-<branche> -f phase=<choix>`). Inutile de la relancer en local pour une branche poussée : la
-déclencher sur la branche et lire l'artefact `army-calc-v3-evidence` (un répertoire
-`.e2e/army/ci/<horodatage>-calc-v3/` par invocation, mêmes preuves qu'en local).
+<branche> -f phase=<choix>`), dès que ce workflow est sur `main` : GitHub ne planifie et ne déclenche
+que les workflows de la branche par défaut, puis exécute la version du fichier de la branche
+demandée. Inutile ensuite de la relancer en local pour une branche poussée : la déclencher sur la
+branche et lire l'artefact `army-calc-v3-evidence` (un répertoire `.e2e/army/ci/<horodatage>-calc-v3/`
+par invocation, mêmes preuves qu'en local). Une PR vers `main` qui modifie
+`.github/workflows/e2e-army-calc-v3.yml` lance d'elle-même la sélection `nightly` : c'est ainsi que
+le workflow est prouvé avant sa fusion, et que la PR de 2.7 prouve l'émission en production. Aucune
+autre PR ne le lance.
 
 | Entrée `phase` | Exécution |
 |---|---|
-| `nightly` (défaut, et la planification) | `journeys`, `components`, `numeric`, `resume`, `access`, `offers` : une invocation `--phase` et une pile possédée par phase, dans un seul job ; une phase rouge n'arrête pas les suivantes |
+| `nightly` (défaut, la planification et une PR qui modifie le workflow) | `journeys`, `components`, `numeric`, `resume`, `access`, `offers` : une invocation `--phase` et une pile possédée par phase, dans un seul job ; une phase rouge n'arrête pas les suivantes |
 | `all` | `npm run e2e:army:calc-v3` à l'identique : toutes les phases sur une pile, émission comprise, en dernier |
 | une phase | `--phase <phase>`, `emission` comprise |
 
@@ -154,9 +159,11 @@ déclencher sur la branche et lire l'artefact `army-calc-v3-evidence` (un réper
 garde local). La lancer chaque nuit ne produirait qu'un rouge connu. Le sous-lot 2.7
 (`lot2/2.7-document-emission-v3`) étend `canUseDevelopmentEstimateTerms` au profil de production
 possédé et passe l'émission en `serverMode: "production"`. Réactivation, dans la même PR que 2.7 :
-ajouter `emission` à `CALC_V3_NIGHTLY_PHASES` dans `.github/workflows/e2e-army-calc-v3.yml`. Le garde
-`src/test/ci-guardrails.test.ts` impose que cette liste soit exactement les phases de production de
-`scripts/tester-army/calc-v3-phases.ts` : il échoue tant que l'émission basculée n'y est pas ajoutée.
+ajouter `emission` à `CALC_V3_NIGHTLY_PHASES` dans `.github/workflows/e2e-army-calc-v3.yml`, rien
+d'autre. Le garde `src/test/ci-guardrails.test.ts` impose que cette liste soit exactement les phases
+de production de `scripts/tester-army/calc-v3-phases.ts` et n'interdit l'émission que tant qu'elle
+n'est pas servie en production : il échoue tant que l'émission basculée n'y est pas ajoutée, et cet
+ajout suffit à le remettre au vert.
 
 La nuit ne fixe ni `--grep` ni instantané de base : chaque phase applique sa sélection par défaut et
 ses nombres attendus, sur une base issue d'un `db reset` complet. Les rouges à la base (`knownRedAtBase`)
