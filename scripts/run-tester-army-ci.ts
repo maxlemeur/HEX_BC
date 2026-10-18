@@ -19,7 +19,10 @@ import {
   LoopStateStore, proveLoopClosed, stackInputsDigest, supervisorModulesDigest,
 } from "./tester-army/dev-loop-state";
 import { CRITICAL_JOURNEY_FILE, FULL_JOURNEY_FILE } from "./tester-army/journey-files.mjs";
-import { buildSourceEvidence, redactOutput, sqlInventory } from "./tester-army/local-recipe-common.mjs";
+import {
+  grepAlternativeProblems, listArmySelection, localJourneyCoverageProblems, selectionPreflightProblems,
+} from "./tester-army/journey-preflight.mjs";
+import { buildSourceEvidence, redactOutput, sqlInventory, untrackedJourneyInputs } from "./tester-army/local-recipe-common.mjs";
 import { assertLocalAppPortAvailable, runLocalDevelopmentSession } from "./tester-army/local-development";
 
 const suite = process.argv[2];
@@ -166,6 +169,11 @@ const manifest: Record<string, unknown> = {
 interface RunContext { evidence: string; manifest: Record<string, unknown>; grep?: string; files: string[] }
 const mainContext: RunContext = { evidence, manifest, grep, files };
 let loopState: LoopStateStore | undefined;
+
+/** The revision, tracked diff and application inputs, plus the untracked journey files the diff leaves out. */
+async function runSourceEvidence() {
+  return { ...await buildSourceEvidence(), untrackedJourneyInputs: untrackedJourneyInputs() };
+}
 
 function redact(value: string) {
   return redactOutput(value, { NODE_ENV: "test", ...Object.fromEntries(knownSecrets.map((secret, index) => [`SECRET_${index}`, secret])) });
@@ -506,6 +514,9 @@ async function runJourneys(phase: string, environment: NodeJS.ProcessEnv, contex
     files.some((file) => !results.some((result) => result.file === file && result.status === "passed")))) {
     throw new Error("A --files run must execute and pass every requested journey file and nothing else.");
   }
+  // Likewise each alternative of the pattern (a dev-loop iteration has no preflight listing).
+  const grepProblems = grep ? grepAlternativeProblems(grep, results.filter((result) => result.kind === "test" && result.status === "passed")) : [];
+  if (grepProblems.length) throw new Error(`A --grep run must pass a test of each alternative: ${grepProblems.join(" ")}`);
   const armyManifest = JSON.parse(fs.readFileSync(path.join(root, ".e2e/army/critical/manifest.json"), "utf8"));
   if (armyManifest.source?.changedDuringRun !== false ||
     (phase !== "development" && armyManifest.productionBuild?.changedDuringRun !== false)) {
@@ -653,11 +664,28 @@ async function main() {
     // It holds nothing once it returns, so it precedes the claim: a loop refused for a busy port leaves no state and keeps that cause.
     await assertLocalAppPortAvailable(appPort);
     if (suite === "dev-loop") claimLoopState();
-    manifest.source = await buildSourceEvidence();
+    manifest.source = await runSourceEvidence();
     manifest.database = {
       migrations: await sqlInventory(path.join(root, "supabase/migrations")),
       tests: await sqlInventory(path.join(root, "supabase/tests/database")),
     };
+    // Fail closed before any stack, the source already recorded (src/test/army-journey-preflight.test.ts):
+    // a local journey no selection collects, or a filter part of which selects nothing.
+    if (suite === "critical" || suite === "full" || suite === "dev-loop") {
+      const problems = localJourneyCoverageProblems(root);
+      if (problems.length) throw new Error(problems.join(" "));
+    }
+    if ((suite === "critical" || suite === "full") && (grep || files.length)) {
+      const pairs = await listArmySelection({ root, suite, grep, files, env: createLocalCiEnvironment(process.env) });
+      const problems = selectionPreflightProblems({ pairs, grep, files });
+      manifest.selectionPreflight = {
+        status: problems.length ? "failed" : "passed",
+        runnable: pairs.filter((pair) => pair.disposition === "run" && pair.kind === "test")
+          .map((pair) => ({ file: pair.file, title: pair.titlePath.join(" › ") })),
+        problems,
+      };
+      if (problems.length) throw new Error(`The filtered ${suite} run is refused before any stack: ${problems.join(" ")}`);
+    }
     loopState?.update({ stackInputsSha256: await stackInputsDigest(root) });
     await runLocalSupabaseCi({
       reservedPorts: new Set([appPort]),
@@ -703,7 +731,7 @@ async function main() {
       process.off("SIGTERM", terminateDevelopment);
       manifest.stopRequested = developmentStop.signal.aborted ? developmentStop.signal.reason : null;
       try {
-        manifest.sourceAfter = await buildSourceEvidence();
+        manifest.sourceAfter = await runSourceEvidence();
         manifest.sourceChanged = JSON.stringify(manifest.source) !== JSON.stringify(manifest.sourceAfter);
         manifest.databaseAfter = { migrations: await sqlInventory(path.join(root, "supabase/migrations")) };
         if (fs.existsSync(developmentNetworkLog)) {

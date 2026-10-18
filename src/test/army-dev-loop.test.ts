@@ -627,8 +627,9 @@ describe("TesterArmy dev loop", () => {
 
   it("refuses a busy application port before claiming the checkout, and keeps that cause (19)", async () => {
     // claimLoopState digests the supervisor's own modules: the checkout holds
-    // copies of them. It has no supabase/ directory, so should the refusal
-    // regress, the run still stops at the stack-input digest, before any stack.
+    // copies of them. It is no Git checkout and has no supabase/ directory, so
+    // should the refusal regress, the run still stops at its source evidence
+    // or the stack-input digest, before any stack.
     const checkout = temporaryDirectory();
     for (const file of supervisorModules(root)) {
       fs.mkdirSync(path.dirname(path.join(checkout, file)), { recursive: true });

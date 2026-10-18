@@ -247,6 +247,44 @@ parcours critical : les parcours du métré passent par ce filtre full, et le
 superviseur de la boucle refuse `--grep` et `--files` (chaque `run` choisit
 sa sélection).
 
+### Sélection fermée avant la pile
+
+Le 18/10/2026, `npm run e2e:army:local -- --grep '^(V3C01|HFS0[12]) '` a
+réussi sans exécuter HFS01/HFS02 : leur fichier non suivi n'était dans aucune
+liste de `e2e.config.ts`, et l'alternative qui le visait ne retenait rien
+(run `.e2e/army/ci/2026-10-18T16-46-35-432Z-critical` du clone
+`~/miaouffrage-hub-fresh-start`). Depuis
+(`scripts/tester-army/journey-preflight.mjs`, garde
+`src/test/army-journey-preflight.test.ts`) :
+
+- chaque `e2e/army/local/**/*.e2e.ts` est collecté par une sélection
+  permanente (`e2e.config.ts`, phases calc-v3, profils offer-emission et
+  resend-portal) ou listé dans `LOCAL_JOURNEYS_OUTSIDE_SELECTIONS` avec le
+  document de la campagne qui l'a exécuté. Sinon `critical`, `full` et
+  `dev-loop` du runner, et toute exécution critical de
+  `run-tester-army.mjs`, refusent avant toute pile ; `verify:pr` le vérifie
+  sur l'arbre ;
+- un `critical` ou `full` filtré liste sa sélection avec `e2e list` (rien ne
+  démarre) avant la pile : chaque fichier `--files` doit avoir un test ou un
+  setup exécuté (les shards et le job métré y nomment le setup de connexion),
+  chaque alternative du `--grep` (ses `|` de premier niveau et ceux des
+  groupes non quantifiés ; un groupe quantifié, une assertion, une référence
+  arrière ou plus de 64 alternatives laissent le motif entier) un test
+  exécutable, et la sélection un test métier authentifié. Le manifeste garde
+  `selectionPreflight` (tests retenus, problèmes). Après chaque phase, boucle
+  comprise, chaque alternative doit avoir un test passé ;
+- `source.untrackedJourneyInputs` du manifeste (et de chaque itération de la
+  boucle) liste avec leur empreinte les fichiers non suivis de `e2e/**` et
+  `e2e*.config.ts`, que `diffSha256` (changements suivis) ignore.
+
+Limites : une classe de caractères n'est pas une alternative
+(`HFS0[12]` passe si HFS01 seul existe : écrire `HFS01|HFS02`), ni le contenu
+d'un groupe quantifié ou d'une assertion. La couverture lit les chaînes
+`"e2e/army/local/…e2e.ts"` des collecteurs comme du texte : une mention entre
+guillemets, même en commentaire ou hors liste `tests`, vaut collecte.
+`npm run e2e:army:critical`/`full -- --grep` (wrapper direct) et
+`calc-v3 --grep` n'ont pas le contrôle des alternatives.
+
 ### Forcer la suite complète
 
 - Poser le label `army-full` sur la PR, puis pousser un commit : le label est

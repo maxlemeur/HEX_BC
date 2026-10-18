@@ -8,6 +8,7 @@ import { loadCoverageProfile } from "./tester-army/coverage-profile.mjs";
 import { sanitizeCoverageEvidence } from "./tester-army/coverage-evidence.mjs";
 import { archiveSetupFailure, assertSetupPath, readSetupLogBaseline, readSetupLogDelta, redactSetupError } from "./tester-army/setup-failure-archive.mjs";
 import { CRITICAL_JOURNEY_FILE, FULL_JOURNEY_FILE } from "./tester-army/journey-files.mjs";
+import { localJourneyCoverageProblems } from "./tester-army/journey-preflight.mjs";
 import { prepareArmyTypeScriptConfig } from "./tester-army/local-recipe-common.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -60,6 +61,11 @@ for (let index = 0; index < extraArgs.length; index += 1) {
   } else if (!["--headed", "--no-cache", "--debug"].includes(arg) || discoveryOnly) {
     throw new Error("Pilot flags are limited to --target, --headed, --no-cache, --debug and --max-duration; authenticated runs also accept --grep, critical runs e2e/army/{critical,local} journey files, full runs e2e/army/{critical,extended,local,takeoff} journey files; list accepts selection flags only.");
   }
+}
+// A local journey no selection collects would never run, and nothing would say so.
+if (critical && !discoveryOnly) {
+  const problems = localJourneyCoverageProblems(root);
+  if (problems.length) throw new Error(problems.join(" "));
 }
 const hasTarget = extraArgs.some((arg) => arg === "--target" || arg.startsWith("--target="));
 const args = [
