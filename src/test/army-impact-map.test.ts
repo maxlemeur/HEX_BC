@@ -540,6 +540,17 @@ describe("TesterArmy shard plans", () => {
     const none = selectFromRepository(root, { event: "pull_request", paths: ["docs/testing/tester-army-ci.md"], repositoryFiles: files });
     expect(none.mode).toBe("none");
     expect(none.shards).toMatchObject({ files: [], shards: [] });
+
+    // The takeoff journeys: all of them split at one worker each, a few in one job, none planned for none.
+    expect(full.fullOnly.mode).toBe("all");
+    expect(full.takeoffShards.shards.length).toBeGreaterThan(1);
+    expect(full.takeoffShards.shards.length).toBeLessThanOrEqual(durations.suites.takeoff.maxShards);
+    expect(full.takeoffShards.workers).toBe(1);
+    expectPartition(full.takeoffShards, full.fullOnly.files, "every takeoff journey");
+    const contracts = selectFromRepository(root, { event: "pull_request", paths: ["e2e/army/takeoff/contracts.e2e.ts"], repositoryFiles: files });
+    expect(contracts.takeoffShards.shards).toEqual([{ shard: 1, total: 1, files: contracts.fullOnly.files, seconds: expect.any(Number) }]);
+    expect(none.fullOnly.mode).toBe("none");
+    expect(none.takeoffShards).toMatchObject({ files: [], shards: [] });
   });
 
   it("plans the same shards whatever the order of the selection, the heaviest journeys spread first", () => {
@@ -635,9 +646,10 @@ describe("TesterArmy shard plans", () => {
       expect(matrix).toEqual(shardMatrix(selection.shards));
       expect(matrix.map((entry) => entry.files.split(",")).flat().filter((file) => file !== map.suite.setup).sort())
         .toEqual(criticalSuiteFromConfig().filter((file) => file !== map.suite.setup));
+      expect(JSON.parse(critical.takeoff_shards)).toEqual(shardMatrix(selection.takeoffShards));
 
       fs.writeFileSync(paths, "docs/testing/tester-army-ci.md\n");
-      expect(readOutputs(["--event", "pull_request", "--paths-file", paths])).toMatchObject({ mode: "none", critical_shards: "[]" });
+      expect(readOutputs(["--event", "pull_request", "--paths-file", paths])).toMatchObject({ mode: "none", critical_shards: "[]", takeoff_shards: "[]" });
 
       const nightly = readOutputs(["--plan", "full"]);
       expect(nightly.development).toBe("separate");
@@ -667,7 +679,7 @@ describe("TesterArmy critical workflow wiring", () => {
     const select = steps(jobs["army-select"]);
     expect(select.some((step) => /^\s+node .*scripts\/tester-army\/select-journeys\.ts /mu.test(step))).toBe(true);
     expect(select.some((step) => /^\s+run: npm ci\b/mu.test(step))).toBe(false);
-    for (const output of ["mode", "files", "full_only_mode", "full_only_files", "critical_shards"]) {
+    for (const output of ["mode", "files", "full_only_mode", "critical_shards", "takeoff_shards"]) {
       expect(jobs["army-select"]).toContain(`\n      ${output}: \${{ steps.select.outputs.${output} }}\n`);
     }
     // An empty or missing selector output must run the journeys: only an
@@ -698,30 +710,26 @@ describe("TesterArmy critical workflow wiring", () => {
     expect(workflow).not.toMatch(/uses: actions\/cache@/u);
   });
 
-  it("runs the takeoff journeys a change reaches in a parallel job, at one worker, skipping only an explicit none", () => {
+  it("runs the takeoff journeys a change reaches in parallel shard jobs, at one worker, skipping only an explicit none", () => {
     const workflow = read(".github/workflows/e2e-army-critical.yml");
     const jobs = jobBlocks(workflow);
-    expect(Object.keys(jobs)).toEqual(["army-select", "army-critical-shard", "army-takeoff", "army-critical"]);
-    const takeoff = steps(jobs["army-takeoff"]);
+    expect(Object.keys(jobs)).toEqual(["army-select", "army-critical-shard", "army-takeoff-shard", "army-critical", "army-takeoff"]);
+    const shard = jobs["army-takeoff-shard"];
     // Same decision as the critical shards: army-select's, read once, never recomputed.
-    expect(jobs["army-takeoff"]).toMatch(/^ {4}needs: army-select$/mu);
-    expect(jobs["army-takeoff"]).not.toMatch(/scripts\/tester-army\/select-journeys\.ts/u);
-    expect(jobs["army-takeoff"]).not.toMatch(/^ {4}if:/mu);
-
-    const gated = takeoff.slice(1).filter((step) => !step.trimStart().startsWith("No takeoff journey"));
-    expect(gated.length).toBeGreaterThan(0);
-    for (const step of gated) {
-      // An empty or missing output runs the journeys (fail-safe).
-      expect(step).toMatch(/^\s+if: .*needs\.army-select\.outputs\.full_only_mode != 'none'/mu);
-      expect(step).not.toMatch(/full_only_mode == /u);
-      expect(step).not.toMatch(/uses: actions\/cache\/save@/u);
-    }
-    const run = takeoff.find((step) => step.trimStart().startsWith("Run native database and TesterArmy takeoff journeys"));
+    expect(shard).toMatch(/^ {4}needs: army-select$/mu);
+    expect(shard).not.toMatch(/scripts\/tester-army\/select-journeys\.ts/u);
+    // An empty or missing output runs the journeys (an empty matrix then fails, never passes).
+    expect(shard).toMatch(/^ {4}if: needs\.army-select\.outputs\.full_only_mode != 'none'$/mu);
+    expect(shard).not.toMatch(/full_only_mode == /u);
+    expect(shard).toContain("\n        include: ${{ fromJSON(needs.army-select.outputs.takeoff_shards) }}\n");
+    expect(shard).not.toMatch(/uses: actions\/cache\/save@/u);
+    const run = steps(shard).find((step) => step.trimStart().startsWith("Run native database and TesterArmy takeoff journeys"));
     expect(run).toBeDefined();
-    expect(run).toMatch(/^\s+ARMY_FILES: \$\{\{ needs\.army-select\.outputs\.full_only_files \}\}$/mu);
-    expect(run).toContain('run: node --import tsx scripts/run-tester-army-ci.ts full ${ARMY_FILES:+--files "$ARMY_FILES"}');
+    expect(run).toMatch(/^\s+ARMY_FILES: \$\{\{ matrix\.files \}\}$/mu);
+    expect(run).toContain('run: node --import tsx scripts/run-tester-army-ci.ts full --shard "$ARMY_SHARD" ${ARMY_FILES:+--files "$ARMY_FILES"}');
     // One worker, as in the nightly full suite where these journeys are qualified.
-    expect(jobs["army-takeoff"]).not.toContain("E2E_ARMY_WORKERS");
+    expect(shard).not.toContain("E2E_ARMY_WORKERS");
+    expect(jobs["army-takeoff"]).toContain("No takeoff journey reached by this change");
   });
 });
 

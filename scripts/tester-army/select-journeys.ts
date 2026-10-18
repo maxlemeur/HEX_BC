@@ -24,7 +24,9 @@
 // of them whenever the critical decision is "full" (unsure, forced, other
 // event), listed from the working tree so an unlisted one still runs; none on
 // a push, whose post-merge check stays the critical suite (the nightly full
-// suite runs them).
+// suite runs them). They are split into their own shards (army-shards.json
+// suite "takeoff"), one army-takeoff-shard job each, at 1 worker as in the full
+// suite where they are qualified.
 //
 // Parallel jobs (army-shards.json, docs/testing/tester-army-ci.md, "Jobs
 // parallèles"): the critical files, or the whole critical suite listed from
@@ -71,7 +73,7 @@ export type FullOnlySelection = {
   reason: string;
   files: string[];
 };
-export type ShardSuite = "critical" | "full";
+export type ShardSuite = "critical" | "full" | "takeoff";
 /** scripts/tester-army/army-shards.json: measured seconds per journey file and each suite's limits. */
 export type ShardDurations = {
   schemaVersion: number;
@@ -96,7 +98,7 @@ export type ShardPlan = {
   development?: "separate" | "in-shard" | "none";
 };
 export type Selection = {
-  schemaVersion: "army-impact-selection-3";
+  schemaVersion: "army-impact-selection-4";
   event: string;
   base: string | null;
   head: string | null;
@@ -109,6 +111,8 @@ export type Selection = {
   fullOnly: FullOnlySelection;
   /** The critical journeys split into parallel jobs (empty for "none"). */
   shards: ShardPlan;
+  /** The full-only journeys split into parallel army-takeoff-shard jobs (empty for "none"). */
+  takeoffShards: ShardPlan;
   changedPaths: PathDecision[];
 };
 export type SourceGraph = {
@@ -525,7 +529,7 @@ export function validateShardDurations(durations: ShardDurations, journeys?: rea
   const positive = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value > 0;
   const integer = (value: unknown, low: number, high: number) => Number.isInteger(value) && (value as number) >= low && (value as number) <= high;
   if (!positive(durations.defaultSeconds)) problems.push("army-shards.json defaultSeconds must be a positive number of seconds.");
-  for (const suite of ["critical", "full"] as const) {
+  for (const suite of ["critical", "full", "takeoff"] as const) {
     const settings = durations.suites?.[suite];
     if (!integer(settings?.maxShards, 1, 8) || !positive(settings?.secondsPerShard) || !integer(settings?.workers, 1, 4)) {
       problems.push(`army-shards.json suite ${suite} needs maxShards from 1 to 8, secondsPerShard above 0 and workers from 1 to 4.`);
@@ -635,6 +639,21 @@ function criticalShards(map: ImpactMap, mode: Selection["mode"], files: string[]
 }
 
 /**
+ * The full-only journeys split into shards, each a runner full --files run of
+ * its files and the login setup. An empty list (fail-safe) is one shard of the
+ * runner's own whole full selection, as the unsharded army-takeoff job ran it.
+ */
+function takeoffShards(setup: string, fullOnly: FullOnlySelection, input: ShardInput | undefined): ShardPlan {
+  const durations = input?.durations ?? null;
+  if (fullOnly.mode === "none") {
+    return { schemaVersion: "army-shard-plan-1", suite: "takeoff", reason: "no full-only journey to run", files: [],
+      workers: durations?.suites?.takeoff?.workers ?? null, durationsSha256: input?.durationsSha256 ?? null, shards: [] };
+  }
+  return planShards({ suite: "takeoff", files: fullOnly.files, wholeSuite: false, setup, anonymous: [], accepts: FULL_ONLY_JOURNEY_FILE,
+    durations, durationsSha256: input?.durationsSha256 ?? null });
+}
+
+/**
  * The nightly full selection split into shards: listed from the e2e.config.ts
  * full globs and the working tree (an unregistered journey is listed too),
  * the development phase in its own job. Filtered (--grep), or a list that
@@ -681,9 +700,9 @@ export function selectJourneys(input: {
     : { mode: "all", reason: `every full-only journey: ${why}`, files: [map.suite.setup, ...map.fullOnly.journeys].sort() };
   const selection = (mode: Selection["mode"], reason: string, files: string[], changedPaths: PathDecision[],
     fullOnly: FullOnlySelection = everyFullOnly(reason)): Selection => ({
-    schemaVersion: "army-impact-selection-3", event, base: input.base ?? null, head: input.head ?? null,
+    schemaVersion: "army-impact-selection-4", event, base: input.base ?? null, head: input.head ?? null,
     mapSha256: input.mapSha256 ?? null, mode, reason, files, fullOnly,
-    shards: criticalShards(map, mode, files, input.shards), changedPaths,
+    shards: criticalShards(map, mode, files, input.shards), takeoffShards: takeoffShards(map.suite.setup, fullOnly, input.shards), changedPaths,
   });
   if (input.forceFull) return selection("full", `full suite forced: ${input.forceFull}`, [], []);
   if (event !== "pull_request" && event !== "push") return selection("full", `event ${event || "unknown"} always runs the full suite`, [], []);
@@ -799,8 +818,14 @@ export function selectFromRepository(root: string, request: SelectionRequest): S
     const shards: ShardPlan = { schemaVersion: "army-shard-plan-1", suite: "critical",
       reason: `one shard, the runner's own whole suite: ${reason}`, files: [], workers: usableShardDurations(root).durations?.suites.critical.workers ?? null,
       durationsSha256: null, shards: [{ shard: 1, total: 1, files: [], seconds: 0 }] };
-    return { schemaVersion: "army-impact-selection-3", event, base, head, mapSha256: null, mode: "full",
-      reason, files: [], fullOnly: fullOnlyFailSafe(event, loadedMap, repositoryFiles), shards, changedPaths: [] };
+    const fullOnly = fullOnlyFailSafe(event, loadedMap, repositoryFiles);
+    // Unsure too: the fail-safe full-only list in one shard, unsplit.
+    const takeoff: ShardPlan = { schemaVersion: "army-shard-plan-1", suite: "takeoff", reason: fullOnly.mode === "none"
+      ? "no full-only journey to run" : fullOnly.files.length ? `one shard: ${reason}` : `one shard, the runner's own whole suite: ${reason}`,
+      files: fullOnly.files, workers: usableShardDurations(root).durations?.suites.takeoff.workers ?? null, durationsSha256: null,
+      shards: fullOnly.mode === "none" ? [] : [{ shard: 1, total: 1, files: fullOnly.files, seconds: 0 }] };
+    return { schemaVersion: "army-impact-selection-4", event, base, head, mapSha256: null, mode: "full",
+      reason, files: [], fullOnly, shards, takeoffShards: takeoff, changedPaths: [] };
   }
 }
 
@@ -819,6 +844,7 @@ function summary(selection: Selection): string {
       ? `Exécution enregistrée « filtered-full » : ${fullOnly.files.length} fichiers (${fullOnly.mode === "all" ? "tous" : "sélection par impact"}).`
       : "Liste indisponible : sélection full complète.", "", `Motif : ${fullOnly.reason}.`, "");
   if (fullOnly.files.length) lines.push(...fullOnly.files.map((file) => `- \`${file}\``), "");
+  if (fullOnly.mode !== "none") lines.push("#### Jobs parallèles (army-takeoff shard)", "", ...shardLines(selection.takeoffShards));
   if (selection.mode !== "none") lines.push("#### Jobs parallèles (army-critical shard)", "", ...shardLines(selection.shards));
   if (selection.changedPaths.length) {
     lines.push("<details><summary>Chemins modifiés</summary>", "", "| Chemin | Classe | Parcours |", "| --- | --- | --- |");
@@ -889,10 +915,11 @@ function main() {
     pathsFile: option(args, "--paths-file"),
     forceFull: option(args, "--force-full") ?? null,
   });
-  publish(args, result, [...result.files, ...result.fullOnly.files, ...result.shards.files],
+  publish(args, result, [...result.files, ...result.fullOnly.files, ...result.shards.files, ...result.takeoffShards.files],
     `mode=${result.mode}\nfiles=${result.files.join(",")}\n` +
     `full_only_mode=${result.fullOnly.mode}\nfull_only_files=${result.fullOnly.files.join(",")}\n` +
-    `critical_shards=${JSON.stringify(shardMatrix(result.shards))}\n`, summary(result));
+    `critical_shards=${JSON.stringify(shardMatrix(result.shards))}\n` +
+    `takeoff_shards=${JSON.stringify(shardMatrix(result.takeoffShards))}\n`, summary(result));
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
