@@ -238,9 +238,12 @@ celle de la reprise retenue puis relâchée :
   RSC (rafraîchissement, préchargement) porte `?_rsc=` et ne peut pas correspondre au motif exact ;
   aucune n'a atteint le serveur dans cette fenêtre.
 
-Les en-têtes de la vraie réponse sont donc arrivés ; c'est la copie DevTools du corps qui manque :
-le navigateur a signalé le chargement annulé (`loadingFailed`, `net::ERR_ABORTED`), relu par
-`request.failure()` dans `readResponseBody` du SDK. L'application n'annule rien : `handleResume`
+Les en-têtes de la vraie réponse sont donc arrivés, puis Chromium a signalé le chargement de cette
+même requête annulé (`Network.loadingFailed`, `net::ERR_ABORTED`, relu par `request.failure()` dans
+`readResponseBody` du SDK), moins de 90 ms après les en-têtes. Sous Chromium, Playwright ne pose ce
+texte d'échec que sur un `loadingFailed` du vrai chargement réseau : rien ne prouve qu'il ne s'agisse
+que de la copie DevTools du corps, et aucun artefact CI ne montre que la page a reçu le corps. La
+question reste ouverte. L'application n'annule rien : `handleResume`
 (`src/components/estimates/GeneratedOuvrageDialog.tsx`) appelle l'action sans signal,
 `fetchServerAction` de Next 16.4 n'utilise aucun `AbortController`, le client Flight
 (`react-server-dom-webpack`) lit le flux jusqu'au bout sans jamais l'annuler ; la fermeture du dialogue
@@ -266,6 +269,9 @@ clone : l'erreur est enregistrée et le parcours échoue. Ni retry ni pause : le
 sondages d'un état observé (30 s, comme l'ancienne attente). La preuve `late-resume-delivery`
 (horodatages, statut, longueur, erreur) est écrite avant les assertions, pour qu'un rouge en CI nomme
 la cause vue par la page. GR05, rouge à la base et hors sélection, garde son attente par URL.
+Si le runner annule vraiment la requête, ce correctif ne rendra pas GR06 vert : la lecture du clone sera
+annulée elle aussi, et `late-resume-delivery` montrera l'erreur vue par la page. C'est alors un défaut du
+navigateur ou de l'application à traiter comme tel, pas un parcours à assouplir.
 
 **Preuve (clone WSL `~/miaouffrage-ci-proofs`, 18/10/2026).** Révision `9467ba95` plus ce seul fichier
 (`diffSha256` `8bf160c9…1902`, fichier `db538d65…9120`), Node 24.19.0, port applicatif 3147, aucune
