@@ -1564,7 +1564,7 @@ Limites :
   PR (jusqu'à l'édition du workflow à la fusion).
 - Aucune relecture indépendante de ce traitement.
 
-### 13.10 Fusion de `main` (`d4b6ff73`) et réhorodatage de M5 (18/10/2026)
+### 13.10 Fusions de `main` (`d4b6ff73`, puis `d7e672b4`) et réhorodatage de M5 (18/10/2026)
 
 Décision du coordinateur, par délégation du porteur : M5 est réhorodatée après toute migration de `main`, son
 contenu restant identique octet pour octet, car la répétition sur base partagée s'appuie sur lui. Le §13.8 est une
@@ -1617,27 +1617,38 @@ de document, d'envoi, de portail et de transition et la contrainte d'`estimate_d
 fonctions de modèles, d'ouvrages, d'assemblages, de création et d'audit de M6/M6b de l'autre, sans référence croisée
 (relu sur l'arbre fusionné ; le contenu de M5 est celui de `3d78d662` que cite le rapport de M6/M6b).
 
-**Qualification de la tête de code `cab86923`** (WSL Ubuntu 24.04, clone `~/miaouffrage-lot2-27`, Node 24.19.0,
+**Seconde fusion `7127c4e1`** de `origin/main` `d7e672b4`, arrivé pendant la qualification : PR #53 (focus de la
+cellule active, V3E01) et #41 (totaux de version après les actions en lot, V3E14). Aucun conflit ni aucune
+migration : M5 (`20261018102840`) reste plus récente que toute migration de la base (garde Git `pull_request` contre
+`d7e672b4` et `supabase:validate` passés, `ci-guardrails` et `army-impact-map` 33/33, `typecheck` sortie 0,
+Windows). V3E11 et V3E15 gardent leurs constantes ; V3E14 de #41 s'y ajoute. Cette fusion change le hook d'état de
+l'éditeur et la navigation de la grille, entrées de tous les parcours d'éditeur : toute la chaîne est rejouée.
+
+**Qualification de la tête de code `7127c4e1`** (WSL Ubuntu 24.04, clone `~/miaouffrage-lot2-27`, Node 24.19.0,
 `E2E_ARMY_WORKERS=2`, `NODE_OPTIONS=--max-old-space-size=4096`, aucun changement local, `diffSha256` `e3b0c442…`,
-en série sous la limite native de trois ; journaux `~/l27-r3-logs/*.log` : tête, état local, commande, sortie,
+en série sous la limite native de trois ; journaux `~/l27-r4-logs/*.log` : tête, état local, commande, sortie,
 durée murale) :
 
 | Commande | Résultat |
 |---|---|
-| `npm run supabase:migrations:git-guard -- --base d4b6ff73… --mode pull_request` ; `npm run supabase:validate` (Windows) | sortie 0 (2 changements) ; 253 fichiers, 253 versions uniques |
 | `npm run db:ci:local` | **sortie 0** en 33 s : migrations appliquées dans l'ordre M6, M6b, M5 ; pgTAP `Files=24, Tests=1941`, `Result: PASS` ; matrice RLS passée |
-| `npm run e2e:army:ci -- critical --app-port 3161` (non filtrée, comme la CI) | **sortie 0** en 510 s : 107/107, aucun `flaky` ni `skipped` (les 99 du §13.9 plus IO01 et IO03 à IO09 de #40). V3X01, V3X02, V3E01 à V3E13, V3E15, V3M02, V3FC01, V3FC02 et V3P01 verts au premier essai. `.e2e/army/ci/2026-10-18T10-32-44-815Z-critical` (`manifest.json` `b0545961…`) |
-| `npm run e2e:army:calc-v3 -- --phase journeys --app-port 3161` | **sortie 0** en 136 s : 11/11. `…/2026-10-18T10-41-32-385Z-calc-v3` (`7a0b3163…`) |
-| idem `--phase components` | **sortie 0** en 122 s : 5/5. `…/2026-10-18T10-43-49-901Z-calc-v3` (`61cdcfab…`) |
-| idem `--phase numeric` | **sortie 0** en 125 s : 4/4. `…/2026-10-18T10-45-52-639Z-calc-v3` (`e929866f…`) |
-| idem `--phase resume` | **sortie 0** en 102 s : 5/5 (GR01, GR03, GR05, GR07 et GR09, rouges à la base, hors sélection). `…/2026-10-18T10-47-58-716Z-calc-v3` (`8394348f…`) |
-| idem `--phase access` | **sortie 0** en 77 s : 2/2. `…/2026-10-18T10-49-41-818Z-calc-v3` (`c7ad45e4…`) |
-| idem `--phase offers` | **sortie 0** en 472 s : 10/10. `…/2026-10-18T10-50-59-933Z-calc-v3` (`94259636…`) |
-| idem `--phase emission` | **sortie 0** en 141 s : 6/6 (contrat 1, OF00 à OF0L), 4 PDF reçus. `…/2026-10-18T10-58-53-181Z-calc-v3` (`7de59efa…`) |
-| idem `--phase emission-v3` | **sortie 0** en 135 s : 6/6 (V3M01, V3M03 à V3M06), 6 PDF reçus. `…/2026-10-18T11-01-14-647Z-calc-v3` (`405bf7e9…`) |
-| `npm run db:upgrade-check -- lot2-2-7` | **sortie 0** en 23 s : 244 migrations de référence, 9 postérieures appliquées (M2, M1, M3, M4, M7, 2.6, M6, M6b, puis M5 sous son nouveau nom), 0 différence, contrôle négatif détecté. `.e2e/engine-v3/upgrade-check/2026-10-18T11-03-30-836Z-lot2-2-7` |
-| `npm run db:upgrade-check -- lot2-2-7 --negative-control` | sortie 1 en 20 s, comme exigé : exactement 1 différence (`pu_ht_cents 1481 -> 1482`). `…/2026-10-18T11-03-54-665Z-lot2-2-7-negative-control` |
-| `npm run engine:document-fingerprints -- check` (en plus) | **sortie 0** en 49 s : 14 familles v1/v2 identiques. `.e2e/engine-v3/document-fingerprints/2026-10-18T11-04-29-569Z-check` |
+| `npm run e2e:army:ci -- critical --app-port 3161` (non filtrée, comme la CI) | **sortie 0** en 471 s : 109/109, aucun `flaky` ni `skipped` (les 99 du §13.9, IO01 et IO03 à IO09 de #40, V3E14 et « bulk edit sync stores the version totals with a bulk labour role… » de #41). V3X01, V3X02, V3E01 à V3E15, V3M02, V3FC01, V3FC02 et V3P01 verts au premier essai. `.e2e/army/ci/2026-10-18T11-08-55-096Z-critical` (`manifest.json` `41646058…`) |
+| `npm run e2e:army:calc-v3 -- --phase journeys --app-port 3161` | **sortie 0** en 168 s : 11/11. `…/2026-10-18T11-16-46-925Z-calc-v3` (`682234bb…`) |
+| idem `--phase components` | **sortie 0** en 157 s : 5/5. `…/2026-10-18T11-19-36-224Z-calc-v3` (`cdf97d57…`) |
+| idem `--phase numeric` | **sortie 0** en 169 s : 4/4. `…/2026-10-18T11-22-14-602Z-calc-v3` (`6dbf4a56…`) |
+| idem `--phase resume` | **sortie 0** en 126 s : 5/5 (GR01, GR03, GR05, GR07 et GR09, rouges à la base, hors sélection). `…/2026-10-18T11-25-04-719Z-calc-v3` (`bae1de1d…`) |
+| idem `--phase access` | **sortie 0** en 97 s : 2/2. `…/2026-10-18T11-27-11-444Z-calc-v3` (`93202704…`) |
+| idem `--phase offers` | **sortie 0** en 492 s : 10/10. `…/2026-10-18T11-28-49-647Z-calc-v3` (`c5088071…`) |
+| idem `--phase emission` | **sortie 0** en 136 s : 6/6 (contrat 1, OF00 à OF0L), 4 PDF reçus par le collecteur. `…/2026-10-18T11-37-02-831Z-calc-v3` (`3dd8b86e…`) |
+| idem `--phase emission-v3` | **sortie 0** en 122 s : 6/6 (V3M01, V3M03 à V3M06), 6 PDF reçus par le collecteur. `…/2026-10-18T11-39-19-809Z-calc-v3` (`c9e80ab9…`) |
+| `npm run db:upgrade-check -- lot2-2-7` | **sortie 0** en 23 s : 244 migrations de référence, 9 postérieures appliquées (M2, M1, M3, M4, M7, 2.6, M6, M6b, puis M5 sous son nouveau nom), 0 différence, contrôle négatif détecté. `.e2e/engine-v3/upgrade-check/2026-10-18T11-41-22-806Z-lot2-2-7` |
+| `npm run db:upgrade-check -- lot2-2-7 --negative-control` | sortie 1 en 20 s, comme exigé : exactement 1 différence (`pu_ht_cents 1481 -> 1482`). `…/2026-10-18T11-41-47-123Z-lot2-2-7-negative-control` |
+| `npm run engine:document-fingerprints -- check` (en plus) | **sortie 0** en 49 s : 14 familles v1/v2 identiques. `.e2e/engine-v3/document-fingerprints/2026-10-18T11-42-07-678Z-check` |
+
+La même chaîne, jouée d'abord sur `cab86923` (première fusion et réhorodatage, `~/l27-r3-logs/`), était entièrement
+verte : `db:ci:local` 1 941 tests, critique 107/107 (`…/2026-10-18T10-32-44-815Z-critical`), phases calc-v3 11, 5,
+4, 5, 2, 10, 6 et 6 (`…/2026-10-18T10-41-32-385Z-calc-v3` à `…/2026-10-18T11-01-14-647Z-calc-v3`), upgrade-check 0
+différence et contrôle négatif à 1 différence, empreintes identiques. Elle ne qualifie pas `7127c4e1`.
 
 Les phases calc-v3 sont jouées comme la sélection `nightly` du workflow : une invocation `--phase` et une pile par
 phase. Aucun des parcours instables connus (V3E01, V3E03, V3E05, collision du mode Expert entre
