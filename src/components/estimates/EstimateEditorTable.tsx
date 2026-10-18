@@ -40,7 +40,7 @@ import { useConfirm } from "@/components/feedback/confirm-provider";
 import type { SupplierComparisonAlternative } from "@/components/estimates/SupplierComparisonPanel";
 import type { CataloguePriceSuggestion } from "@/lib/estimates/catalogue-suggestions";
 import { alternativePriceForLineUnit } from "@/lib/estimates/supplier-offer-purchase-unit";
-import { resolveEstimateV3ArticleAssociation, resolveEstimateV3SuggestionUnitRefusal } from "@/lib/estimates/v3-editor";
+import { resolveEstimateArticleSheetUnit, resolveEstimateRuleUnitPatch, resolveEstimateV3ArticleAssociation, resolveEstimateV3MobileLineMeta } from "@/lib/estimates/v3-editor";
 import { useEstimateV3Grid, useEstimateV3UnitDrafts } from "@/components/estimates/v3/V3LineCells";
 import { EstimateEditorProvider } from "@/components/estimates/context/EstimateEditorContext";
 import {
@@ -292,6 +292,8 @@ type EstimateEditorTableProps = {
   onOpenSupplierPreselectionDialog: () => void;
   onOpenImportFromEstimateDialog?: () => void;
   onOpenEstimateStructureDraftDialog?: () => void;
+  /** Sous-lot 2.10a (N3, D-g) : motif qui désactive la structure IA (moteur 3). */
+  estimateStructureDraftUnavailableReason?: string | null;
   onOpenGeneratedOuvrageDialog?: () => void;
   onReorder: (parentId: string | null, orderedIds: string[]) => void;
   onMoveItem: (
@@ -916,6 +918,7 @@ export function EstimateEditorTable({
   onOpenSupplierPreselectionDialog,
   onOpenImportFromEstimateDialog,
   onOpenEstimateStructureDraftDialog,
+  estimateStructureDraftUnavailableReason = null,
   onOpenGeneratedOuvrageDialog,
   onReorder,
   onMoveItem,
@@ -1583,8 +1586,7 @@ export function EstimateEditorTable({
       if (v3Grid) {
         // v3 (F26-26) : offre jugée dans unit_code, description jamais écrite ; refus nommé dans la fiche.
         const v3 = resolveEstimateV3ArticleAssociation(suggestion, itemById.get(articleSheet.itemId)?.unit_code);
-        if (v3.ok) patchItemWithSuggestionTracking(articleSheet.itemId, v3.patch, { persist: true });
-        if (v3.ok) setArticleSheet(null);
+        if (v3.ok) { patchItemWithSuggestionTracking(articleSheet.itemId, v3.patch, { persist: true }); setArticleSheet(null); }
         return;
       }
       const designation = suggestion.product_designation.trim();
@@ -1817,11 +1819,10 @@ export function EstimateEditorTable({
     (item: EstimateItem, suggestion: SuggestionPreview) => {
       if (isReadOnly || item.item_type !== "line") return;
 
-      const patch: ItemPatch = {};
-      const unitValue = suggestion.rule.unit?.trim();
-      if (unitValue) {
-        patch.description = unitValue;
-      }
+      // Sous-lot 2.6b (A15) : v3, unit_code du référentiel sans remplacer une unité choisie ; unité inconnue refusée.
+      const unitPatch = resolveEstimateRuleUnitPatch(suggestion.rule.unit, item, Boolean(v3Grid));
+      if (!unitPatch.ok) { toast.error({ title: "Suggestion non appliquée", description: unitPatch.message }); return; }
+      const patch: ItemPatch = { ...unitPatch.patch };
       const explicitSupplyTypeId = toNonEmptyString(
         (suggestion.rule as SuggestionRule & Record<string, unknown>)
           .supply_type_id
@@ -1871,6 +1872,7 @@ export function EstimateEditorTable({
       patchItemWithSuggestionTracking,
       sendSuggestionFeedback,
       supplyTypeByLowerName,
+      toast, v3Grid,
     ]
   );
 
@@ -2368,7 +2370,7 @@ export function EstimateEditorTable({
           item,
           depth,
           itemNumber: itemNumberById[item.id] ?? null,
-          unitValue: mergedUnitDrafts[item.id] ?? "",
+          ...(v3Grid ? resolveEstimateV3MobileLineMeta(item) : { unitValue: mergedUnitDrafts[item.id] ?? "" }), // 2.6b : v3
           qualityFlags: qualityFlagsByItemId[item.id] ?? EMPTY_QUALITY_FLAGS,
           sectionTotalCents:
             item.item_type === "section"
@@ -2394,7 +2396,7 @@ export function EstimateEditorTable({
       depthMap,
       getSectionTotals,
       itemNumberById,
-      mergedUnitDrafts,
+      mergedUnitDrafts, v3Grid,
       qualityFlagsByItemId,
       resolvedMaxSectionDepth,
       sectionLevelById,
@@ -2523,6 +2525,7 @@ export function EstimateEditorTable({
                 onOpenEstimateStructureDraftDialog={
                   onOpenEstimateStructureDraftDialog
                 }
+                estimateStructureDraftUnavailableReason={estimateStructureDraftUnavailableReason}
                 onOpenGeneratedOuvrageDialog={onOpenGeneratedOuvrageDialog}
                 onExpandAllSections={handleExpandAllSections}
                 onCollapseAllSections={handleCollapseAllSections}
@@ -2700,8 +2703,7 @@ export function EstimateEditorTable({
           mode={articleSheet.mode}
           versionId={versionId}
           lineTitle={activeArticleItem.title}
-          lineUnit={v3Grid ? activeArticleItem.unit_code ?? null : mergedUnitDrafts[activeArticleItem.id] ?? activeArticleItem.description ?? null}
-          suggestionRefusal={v3Grid ? (suggestion) => resolveEstimateV3SuggestionUnitRefusal(suggestion, activeArticleItem.unit_code) : undefined}
+          {...resolveEstimateArticleSheetUnit(Boolean(v3Grid), activeArticleItem, mergedUnitDrafts[activeArticleItem.id])}
           productId={activeArticleItem.product_id ?? null}
           currency={currency}
           isReadOnly={isReadOnly}

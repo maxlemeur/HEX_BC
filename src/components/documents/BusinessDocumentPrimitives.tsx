@@ -5,6 +5,19 @@ import { COMPANY_INFO } from "@/lib/company-info";
 import { BUSINESS_DOCUMENT_THEME } from "@/lib/documents/document-theme";
 import { cn } from "@/lib/utils";
 
+type BusinessDocumentAddress = { street: string; postalCode: string; city: string };
+
+/**
+ * Entreprise imprimée : la configuration courante (`COMPANY_INFO`) par défaut, ou celle que la copie
+ * émise d'un devis a figée (contrat client ; revue Codex de 3d78d662).
+ */
+export type BusinessDocumentCompany = {
+  address: BusinessDocumentAddress;
+  registeredOffice: BusinessDocumentAddress;
+  phone: { landline: string; mobile: string };
+  legal: { siret: string; vat: string };
+};
+
 type BusinessDocumentFrameProps = {
   children: ReactNode;
   className?: string;
@@ -33,7 +46,9 @@ export function BusinessDocumentFrame({
   );
 }
 
-export function BusinessDocumentBrandHeader() {
+export function BusinessDocumentBrandHeader({
+  company = COMPANY_INFO,
+}: Readonly<{ company?: BusinessDocumentCompany }>) {
   return (
     <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
       <Image
@@ -48,27 +63,29 @@ export function BusinessDocumentBrandHeader() {
         <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Etablissement principal :
         </p>
-        <p className="text-slate-600">{COMPANY_INFO.address.street}</p>
+        <p className="text-slate-600">{company.address.street}</p>
         <p className="text-slate-600">
-          {COMPANY_INFO.address.postalCode} {COMPANY_INFO.address.city}
+          {company.address.postalCode} {company.address.city}
         </p>
         <div className="mt-1 text-slate-600">
-          <p>{COMPANY_INFO.phone.landline}</p>
-          <p>{COMPANY_INFO.phone.mobile}</p>
+          <p>{company.phone.landline}</p>
+          <p>{company.phone.mobile}</p>
         </div>
       </div>
     </div>
   );
 }
 
-export function BusinessDocumentFooter() {
-  const address = `${COMPANY_INFO.registeredOffice.street} ${COMPANY_INFO.registeredOffice.postalCode} ${COMPANY_INFO.registeredOffice.city}`;
+export function BusinessDocumentFooter({
+  company = COMPANY_INFO,
+}: Readonly<{ company?: BusinessDocumentCompany }>) {
+  const address = `${company.registeredOffice.street} ${company.registeredOffice.postalCode} ${company.registeredOffice.city}`;
 
   return (
     <div className="purchase-order-footer mt-auto border-t border-border pt-5 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground print:pt-3">
       <p className="mb-1">Siège social : {address}</p>
       <p>
-        SIRET {COMPANY_INFO.legal.siret} - TVA {COMPANY_INFO.legal.vat}
+        SIRET {company.legal.siret} - TVA {company.legal.vat}
       </p>
     </div>
   );

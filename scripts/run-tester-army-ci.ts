@@ -7,6 +7,7 @@ import { createClient } from "@supabase/supabase-js";
 
 import {
   assertLoopbackSupabaseUrl, BROWSER_RESTRICTED_LOCAL_PORTS, describeSafeFailure, runLocalSupabaseCi, SafeDiagnosticError,
+  type LocalSupabaseStatus,
 } from "../src/test/local-supabase-ci";
 import { createLocalCiEnvironment, type SupabaseEnvironment } from "../src/test/supabase-cli";
 import type { Database } from "../src/types/database";
@@ -79,7 +80,7 @@ for (let index = 3; index < process.argv.length; index += 2) {
     if (value !== "development") throw new Error("full --phase names its development phase only; --files or --grep narrow its full phase.");
     fullPhase = value;
   } else if (option === "--phase") {
-    if (suite !== "calc-v3" || !isCalcV3Phase(value)) throw new Error("--phase names one calc-v3 phase: journeys|components|numeric|resume|access|emission.");
+    if (suite !== "calc-v3" || !isCalcV3Phase(value)) throw new Error("--phase names one calc-v3 phase: journeys|components|numeric|resume|access|offers|emission|emission-v3.");
     calcV3Phase = value;
   } else if (option === "--ttl-minutes") {
     if (suite !== "dev-loop" || !/^[0-9]+$/.test(value) || Number(value) < DEV_LOOP_TTL_RANGE[0] || Number(value) > DEV_LOOP_TTL_RANGE[1]) {
@@ -185,6 +186,42 @@ async function runNode(args: string[], environment: NodeJS.ProcessEnv, name: str
   if (exitCode !== 0) throw new Error(`${name} failed with exit code ${exitCode}; see its retained log.`);
 }
 
+/** The app, build and journey environment of a backend, without the ARMY account. */
+function applicationEnvironment(backend: URL, anonKey: string, serviceRoleKey: string): NodeJS.ProcessEnv {
+  fs.mkdirSync(path.join(root, ".e2e/army/coverage"), { recursive: true });
+  return {
+    ...createLocalCiEnvironment(process.env),
+    CI: "1", E2E_TELEMETRY_DISABLED: "1", NEXT_TELEMETRY_DISABLED: "1", DO_NOT_TRACK: "1",
+    NEXT_PUBLIC_SUPABASE_URL: backend.origin,
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: anonKey,
+    SUPABASE_SERVICE_ROLE_KEY: serviceRoleKey,
+    E2E_ALLOWED_SUPABASE_HOST: backend.hostname,
+    E2E_ARMY_BASE_URL: `http://localhost:${appPort}`, E2E_ARMY_SERVER_MODE: "production",
+    E2E_COVERAGE_BACKEND_ORIGIN: backend.origin,
+    E2E_COVERAGE_NETWORK_LOG: path.join(root, ".e2e/army/coverage/ci-server-network.jsonl"),
+    TAKEOFF_MODULE_ENABLED_BY_DEFAULT: "1",
+    RESEND_API_KEY: "", EMAIL_FROM: "", GEMINI_API_KEY: "", GOOGLE_GENERATIVE_AI_API_KEY: "",
+  };
+}
+
+// The production build of critical and full needs only the stack's origin and
+// keys (it never receives the ARMY account or the SQL transport): it starts as
+// soon as the stack runs, while the snapshot, pgTAP and the RLS matrix check
+// the database. runApplication, which runs only after they pass, awaits it.
+const buildsEarly = suite === "critical" || (suite === "full" && !fullPhases.every((phase) => phase === "development"));
+let earlyBuild: { origin: string; anonKey: string; done: Promise<void> } | undefined;
+
+function startEarlyBuild(status: Readonly<LocalSupabaseStatus>) {
+  const backend = new URL(status.url);
+  assertLoopbackSupabaseUrl(backend.href);
+  knownSecrets.push(status.anonKey, status.serviceRoleKey);
+  const done = runNode(["scripts/tester-army/build-local.mjs", "--execute"],
+    applicationEnvironment(backend, status.anonKey, status.serviceRoleKey), "build");
+  // Awaited by runApplication, or in main's finally when the database checks fail first.
+  done.catch(() => {});
+  earlyBuild = { origin: backend.origin, anonKey: status.anonKey, done };
+}
+
 async function runApplication(local: SupabaseEnvironment) {
   if (interactive && developmentStop.signal.aborted) return;
   if (local.RLS_E2E_EPHEMERAL !== "1" || local.RLS_E2E_LOCAL !== "1") throw new Error("An owned ephemeral stack is required.");
@@ -280,19 +317,9 @@ async function runApplication(local: SupabaseEnvironment) {
   provisioning.completed.push("create catalogue article");
   manifest.fixtures = { userId: user.user.id, tenantId, articleId: article.id, laborRole, backend: backend.origin, lifecycle: "destroyed with the owned stack" };
 
-  fs.mkdirSync(path.join(root, ".e2e/army/coverage"), { recursive: true });
   const environment: NodeJS.ProcessEnv = {
-    ...createLocalCiEnvironment(process.env),
-    CI: "1", E2E_TELEMETRY_DISABLED: "1", NEXT_TELEMETRY_DISABLED: "1", DO_NOT_TRACK: "1",
-    NEXT_PUBLIC_SUPABASE_URL: backend.origin,
-    NEXT_PUBLIC_SUPABASE_ANON_KEY: local.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    SUPABASE_SERVICE_ROLE_KEY: local.SUPABASE_SERVICE_ROLE_KEY,
-    E2E_LOGIN_EMAIL: email, E2E_LOGIN_PASSWORD: password, E2E_ALLOWED_SUPABASE_HOST: backend.hostname,
-    E2E_ARMY_BASE_URL: `http://localhost:${appPort}`, E2E_ARMY_SERVER_MODE: "production",
-    E2E_COVERAGE_BACKEND_ORIGIN: backend.origin,
-    E2E_COVERAGE_NETWORK_LOG: path.join(root, ".e2e/army/coverage/ci-server-network.jsonl"),
-    TAKEOFF_MODULE_ENABLED_BY_DEFAULT: "1",
-    RESEND_API_KEY: "", EMAIL_FROM: "", GEMINI_API_KEY: "", GOOGLE_GENERATIVE_AI_API_KEY: "",
+    ...applicationEnvironment(backend, local.NEXT_PUBLIC_SUPABASE_ANON_KEY!, local.SUPABASE_SERVICE_ROLE_KEY!),
+    E2E_LOGIN_EMAIL: email, E2E_LOGIN_PASSWORD: password,
   };
   if (suite === "calc-v3") {
     // Lot 2 baseline phases (docs/testing/tester-army-calc-v3.md). The PostgreSQL
@@ -344,10 +371,18 @@ async function runApplication(local: SupabaseEnvironment) {
     });
     return;
   }
-  // The development phase runs under next dev: alone, it needs no production build.
-  if (!(suite === "full" && fullPhases.every((phase) => phase === "development"))) {
+  // Started with the stack (startEarlyBuild), otherwise here. The development
+  // phase runs under next dev: alone, it needs no production build.
+  if (earlyBuild) {
+    if (earlyBuild.origin !== backend.origin || earlyBuild.anonKey !== local.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+      throw new Error("The production build was started for another backend than the journeys'.");
+    }
+    await earlyBuild.done;
+  } else if (!(suite === "full" && fullPhases.every((phase) => phase === "development"))) {
     await runNode(["scripts/tester-army/build-local.mjs", "--execute"], environment, "build");
   }
+  // Before the phases: an install failure is the run's error, not a phase's.
+  if (browserInstallDirectory) await awaitBrowserInstall();
   const failures: string[] = [];
   for (const phase of suite === "full" ? fullPhases : [suite!]) {
     try {
@@ -363,6 +398,30 @@ async function runApplication(local: SupabaseEnvironment) {
     }
   }
   if (failures.length) throw new Error(failures.join("; "));
+}
+
+// Opt-in (e2e-army-critical.yml): the workflow installs Chromium in the
+// background while the stack, the database checks and the build run, into
+// this directory, whose exit-code file appears when it ends. runApplication
+// waits for it before the journeys; a failed install fails the run with its log.
+const browserInstallDirectory = process.env.ARMY_BROWSER_INSTALL_DIR?.trim() || undefined;
+
+async function awaitBrowserInstall() {
+  const directory = browserInstallDirectory!;
+  if (!path.isAbsolute(directory)) throw new Error("ARMY_BROWSER_INSTALL_DIR must be an absolute directory.");
+  const exitFile = path.join(directory, "exit-code");
+  const startedAt = Date.now();
+  while (!fs.existsSync(exitFile)) {
+    if (Date.now() - startedAt > 10 * 60_000) throw new Error("The background Chromium install did not finish within 10 minutes.");
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  // The workflow moves a complete file into place: anything but an exit status is a failure.
+  const status = fs.readFileSync(exitFile, "utf8").trim();
+  const exitCode = /^[0-9]{1,3}$/.test(status) ? Number(status) : -1;
+  const log = path.join(directory, "install.log");
+  if (fs.existsSync(log)) fs.writeFileSync(path.join(evidence, "browser-install.log"), redact(fs.readFileSync(log, "utf8")));
+  manifest.browserInstall = { mode: "background", exitCode, waitedSeconds: Math.round((Date.now() - startedAt) / 100) / 10 };
+  if (exitCode !== 0) throw new Error(`The background Chromium install failed with exit code ${exitCode}; see browser-install.log.`);
 }
 
 async function runJourneys(phase: string, environment: NodeJS.ProcessEnv, context = mainContext) {
@@ -555,6 +614,7 @@ async function main() {
     await runLocalSupabaseCi({
       reservedPorts: new Set([appPort]),
       runApplication,
+      ...(buildsEarly ? { onStackStarted: startEarlyBuild } : {}),
       // Only the dev loop keeps a state file: it needs this exact stack to
       // destroy it after an abnormal supervisor exit.
       onProjectPrepared: (project) => {
@@ -581,6 +641,8 @@ async function main() {
     manifest.error = redact(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   } finally {
+    // A build still running after failed database checks ends before the evidence is retained.
+    await earlyBuild?.done.catch(() => {});
     manifest.finishedAt = new Date().toISOString();
     if (suite === "dev-loop") {
       process.off("SIGINT", interruptDevelopment);

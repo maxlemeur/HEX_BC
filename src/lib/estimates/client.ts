@@ -231,6 +231,8 @@ export type DuplicateEstimateSectionResult = {
   targetVersionId: string;
   copiedItemCount: number;
   versionToken: EstimateVersionToken | null;
+  /** Sous-lot 2.8b (A6, P-12) : lignes v1/v2 entrées dans une v3 dont les heures changent (`converted_lines`). */
+  convertedLines?: V3ConvertedLine[];
 };
 
 export type EstimateImportSourceVersion = {
@@ -500,6 +502,25 @@ export type InstantiateEstimateTemplatePayload = {
   dateDevis?: string;
   validiteJours?: number;
   projectNotes?: string | null;
+  /** Sous-lot 2.10a (D3) : moteur des nouvelles versions lu par la page. */
+  expectedCalcEngineVersion?: 2 | 3;
+};
+
+/** Ligne v1/v2 dont les heures changent en entrant dans une v3 (P-12) : heures source → heures dérivées. */
+export type V3ConvertedLine = { title: string; templateHours: number; convertedHours: number };
+
+/** Sous-lot 2.10a (P-12, D-h) : modèle entré dans une v3, lignes converties et réglages non repris. */
+export type InstantiateEstimateTemplateConversion = {
+  convertedLines: Array<{ title: string; templateHours: number; convertedHours: number }>;
+  droppedSettings: Array<{ setting: string; label: string }>;
+};
+
+export type InstantiateEstimateTemplateResult = {
+  projectId: string;
+  versionId: string;
+  redirectTo: string;
+  /** Absent hors moteur 3. */
+  conversion?: InstantiateEstimateTemplateConversion;
 };
 
 export type EstimateVersionWithProject = EstimateVersionRow & {
@@ -658,6 +679,11 @@ export type CreateEstimatePayload = {
   currency?: string;
   projectNotes?: string | null;
   creationMode?: CreateEstimateCreationMode;
+  /** Sous-lot 2.10a (D3) : moteur des nouvelles versions lu par la page ; envoyé tel quel. */
+  expectedCalcEngineVersion?: 2 | 3;
+  /** Moteur 3 seulement (D5). */
+  saleCoefficientFo?: number;
+  saleCoefficientMo?: number;
 };
 
 export type EstimateVersionToken = Pick<EstimateVersionRow, "id" | "updated_at"> & { content_revision?: number };
@@ -2668,6 +2694,20 @@ function parseEstimateImportSectionPreviews(
     .sort((left, right) => left.position - right.position);
 }
 
+/** Sous-lot 2.8b : `converted_lines` d'une copie vers une v3 (vide hors conversion v1/v2 → v3). */
+function parseV3ConvertedLines(value: unknown): V3ConvertedLine[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((line) => {
+    if (!isRecord(line)) return [];
+    const title = toStringValue(line.title);
+    const templateHours = toNumber(line.template_hours);
+    const convertedHours = toNumber(line.converted_hours);
+    return title !== null && templateHours !== null && convertedHours !== null
+      ? [{ title, templateHours, convertedHours }]
+      : [];
+  });
+}
+
 function parseImportEstimateSectionsResult(
   payload: unknown
 ): ImportEstimateSectionsResult | null {
@@ -2720,6 +2760,7 @@ function parseImportEstimateSectionsResult(
     createdSectionIds,
     createdLineIds,
     versionToken: parseVersionToken(root),
+    convertedLines: parseV3ConvertedLines(root.converted_lines),
   };
 }
 
@@ -3158,6 +3199,7 @@ function parseDuplicateEstimateSectionResult(
     targetVersionId,
     copiedItemCount,
     versionToken,
+    convertedLines: parseV3ConvertedLines(root.converted_lines),
   };
 }
 
@@ -3709,10 +3751,33 @@ function parseInstantiateTemplateResult(payload: unknown) {
     throw new Error("Impossible d'instancier le template.");
   }
 
+  // Sous-lot 2.10a : rapport d'un modèle entré dans une v3 (les deux listes, ou aucune hors moteur 3).
+  const conversion: InstantiateEstimateTemplateConversion | undefined =
+    Array.isArray(root.converted_lines) && Array.isArray(root.dropped_settings)
+      ? {
+          convertedLines: root.converted_lines.flatMap((line) => {
+            if (!isRecord(line)) return [];
+            const title = toStringValue(line.title);
+            const templateHours = toNumber(line.template_hours);
+            const convertedHours = toNumber(line.converted_hours);
+            return title !== null && templateHours !== null && convertedHours !== null
+              ? [{ title, templateHours, convertedHours }]
+              : [];
+          }),
+          droppedSettings: root.dropped_settings.flatMap((entry) => {
+            if (!isRecord(entry)) return [];
+            const setting = toStringValue(entry.setting);
+            const label = toStringValue(entry.label);
+            return setting !== null && label !== null ? [{ setting, label }] : [];
+          }),
+        }
+      : undefined;
+
   return {
     projectId,
     versionId,
     redirectTo,
+    ...(conversion ? { conversion } : {}),
   };
 }
 
@@ -4175,6 +4240,11 @@ export async function createEstimate(
         ? { rounding_step_cents: input.roundingStepCents }
         : {}),
       ...(input.currency ? { currency: input.currency } : {}),
+      ...(input.saleCoefficientFo != null ? { sale_coefficient_fo: input.saleCoefficientFo } : {}),
+      ...(input.saleCoefficientMo != null ? { sale_coefficient_mo: input.saleCoefficientMo } : {}),
+      ...(input.expectedCalcEngineVersion != null
+        ? { expected_calc_engine_version: input.expectedCalcEngineVersion }
+        : {}),
     },
   };
 
@@ -4842,7 +4912,8 @@ export async function resumeEstimateBatchOperation(identity: EstimateBatchIdenti
 
 export async function exportEstimate(
   versionId: string,
-  format: "xlsx" = "xlsx",
+  /** csv : CSV d'une v3 écrit par le serveur (sous-lot 2.7b) ; celui d'une v1/v2 reste construit par l'éditeur. */
+  format: "xlsx" | "csv" = "xlsx",
   options: {
     mode?: EstimateExportMode;
   } = {}
@@ -5735,7 +5806,7 @@ export async function duplicateEstimateTemplate(
 export async function instantiateEstimateFromTemplate(
   templateId: string,
   input: InstantiateEstimateTemplatePayload
-): Promise<{ projectId: string; versionId: string; redirectTo: string }> {
+): Promise<InstantiateEstimateTemplateResult> {
   const projectName = input.projectName?.trim() ?? null;
   const projectId = input.projectId?.trim() ?? null;
 
@@ -5748,6 +5819,9 @@ export async function instantiateEstimateFromTemplate(
     dateDevis: input.dateDevis,
     validiteJours: input.validiteJours,
     projectNotes: input.projectNotes ?? null,
+    ...(input.expectedCalcEngineVersion != null
+      ? { expectedCalcEngineVersion: input.expectedCalcEngineVersion }
+      : {}),
   };
 
   if (projectId) {

@@ -1,3 +1,4 @@
+import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
@@ -983,13 +984,14 @@ async function listExistingRegisterEntriesBySyncKey(input: {
     return new Map<string, AffaireRegisterEntryRow>();
   }
 
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRowsInChunks(input.syncKeys, (pageIds) => input.supabase
     .from("affaire_register_entries" as never)
     .select(
-      "id, tenant_id, project_id, version_id, source_document_id, kind, code, text, severity, status, origin_kind, scope_type, scope_id, scope_ref, scope_label, source_file_name, sync_key, is_active, metadata, created_by, updated_by, created_at, updated_at" as never
+      "id, tenant_id, project_id, version_id, source_document_id, kind, code, text, severity, status, origin_kind, scope_type, scope_id, scope_ref, scope_label, source_file_name, sync_key, is_active, metadata, created_by, updated_by, created_at, updated_at" as never,
+      { count: "exact" }
     )
     .eq("project_id", input.projectId)
-    .in("sync_key", input.syncKeys);
+    .in("sync_key", pageIds));
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger le registre affaire.");
@@ -1023,15 +1025,16 @@ async function deactivateMissingSyncEntries(input: {
     return;
   }
 
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRowsInChunks(staleSyncKeys, (pageIds) => input.supabase
     .from("affaire_register_entries" as never)
     .select(
-      "id, tenant_id, project_id, version_id, source_document_id, kind, code, text, severity, status, origin_kind, scope_type, scope_id, scope_ref, scope_label, source_file_name, sync_key, is_active, metadata, created_by, updated_by, created_at, updated_at" as never
+      "id, tenant_id, project_id, version_id, source_document_id, kind, code, text, severity, status, origin_kind, scope_type, scope_id, scope_ref, scope_label, source_file_name, sync_key, is_active, metadata, created_by, updated_by, created_at, updated_at" as never,
+      { count: "exact" }
     )
     .eq("project_id", input.projectId)
     .eq("origin_kind", input.originKind)
     .eq("is_active", true)
-    .in("sync_key", staleSyncKeys);
+    .in("sync_key", pageIds));
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de désactiver le registre sync.");
@@ -1370,13 +1373,13 @@ export async function fetchAffaireRegisterGateSummary(input: {
 }): Promise<AffaireRegisterGateSummary> {
   let query = input.supabase
     .from("affaire_register_entries" as never)
-    .select(GATE_ENTRY_SELECT as never)
+    .select(GATE_ENTRY_SELECT as never, { count: "exact" })
     .eq("project_id", input.projectId as never)
     .eq("is_active", true as never);
 
   query = applyVersionScopeFilter(query as never, input.versionId ?? null) as never;
 
-  const { data, error } = await query.order("updated_at", { ascending: false });
+  const { data, error } = await readAllRows(() => query.order("updated_at", { ascending: false }));
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger la synthèse du registre affaire.");
@@ -1763,14 +1766,15 @@ export async function fetchAffaireRegisterScopeOptions(input: {
     };
   }
 
-  const { data, error } = await context.supabase
+  const versionId = input.versionId;
+  const { data, error } = await readAllRows(() => context.supabase
     .from("estimate_items")
-    .select("id, title, item_type, parent_id, position")
+    .select("id, title, item_type, parent_id, position", { count: "exact" })
     .eq("tenant_id", context.tenantId)
-    .eq("version_id", input.versionId)
+    .eq("version_id", versionId)
     .in("item_type", ["section", "line"])
     .order("position", { ascending: true })
-    .order("id", { ascending: true });
+    .order("id", { ascending: true }));
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger les scopes du registre.");
@@ -1831,15 +1835,15 @@ export async function fetchAffaireRegisterReviewExport(input: {
 
   let query = context.supabase
     .from("affaire_register_entries" as never)
-    .select(ENTRY_SELECT as never)
+    .select(ENTRY_SELECT as never, { count: "exact" })
     .eq("project_id", project.id as never)
     .eq("is_active", true as never);
 
   query = applyVersionScopeFilter(query as never, input.versionId ?? null) as never;
 
-  const { data, error } = await query
+  const { data, error } = await readAllRows(() => query
     .order("updated_at", { ascending: false })
-    .order("id", { ascending: false });
+    .order("id", { ascending: false }));
 
   if (error) {
     throw mapSupabaseError(
@@ -2474,7 +2478,7 @@ export async function continueAffaireRegisterWithHypothesis(
 
   let assumptionsQuery = context.supabase
     .from("affaire_register_entries" as never)
-    .select(ENTRY_SELECT as never)
+    .select(ENTRY_SELECT as never, { count: "exact" })
     .eq("project_id", project.id as never)
     .eq("kind", "assumption" as never)
     .eq("is_active", true as never);
@@ -2483,10 +2487,10 @@ export async function continueAffaireRegisterWithHypothesis(
     sourceEntry.version_id
   ) as never;
 
-  const { data: assumptionData, error: assumptionError } = await assumptionsQuery.order(
+  const { data: assumptionData, error: assumptionError } = await readAllRows(() => assumptionsQuery.order(
     "created_at",
     { ascending: false }
-  );
+  ));
 
   if (assumptionError) {
     throw mapSupabaseError(

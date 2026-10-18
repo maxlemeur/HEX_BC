@@ -107,6 +107,8 @@ export type EstimateEditorStatusController = {
     canArchive: boolean;
     isStatusActionsDisabled: boolean;
     isSendBlockedForCurrentUser: boolean;
+    /** The draft's gating is read again after a write: the send-blocked alert may still change. */
+    isSendGatingRefreshing: boolean;
     sendWorkflowPhaseLabel: string | null;
   };
 };
@@ -212,6 +214,17 @@ export function useEstimateEditorStatusController({
       ? preloadedGatingSnapshot.value
       : null;
   const sendGating = workflowSendGating ?? preloadedSendGating;
+  // L'alerte « envoi bloqué » lit le dernier contrôle abouti de ce brouillon pendant qu'un jeton plus récent est
+  // contrôlé : `sendGating` reste masqué (rien n'agit sur un contrôle périmé), mais l'alerte ne disparaît plus le temps
+  // de chaque contrôle, ce qui déplaçait la grille après chaque écriture (V3E05, estimate-engine-v3-2.7.md §13.13).
+  const displayedSendGating =
+    sendGating ?? (preloadRequestKey ? preloadedGatingSnapshot?.value ?? null : null);
+  // Until the current token's check answers, that alert may still appear or disappear and move the
+  // controls below it (« Annuler les suggestions », docs/testing/bulk-edit-sync-baseline.md).
+  const isSendGatingRefreshing =
+    preloadRequestKey !== null &&
+    workflowSendGating === null &&
+    preloadedGatingSnapshot?.requestKey !== preloadRequestKey;
 
   const activeRouteVersionIdRef = useRef(routeVersionId);
   const previousRouteVersionIdRef = useRef(routeVersionId);
@@ -284,7 +297,9 @@ export function useEstimateEditorStatusController({
     }
 
     operationGenerationRef.current += 1;
-    preloadGenerationRef.current += 1;
+    // The gating read in flight is kept: its answer is still checked against the version and its
+    // token, and dropping it left the current token unchecked (gating masked, undo held) until the
+    // next write.
     isOperationInProgressRef.current = true;
     const scope = {
       versionId: routeVersionId,
@@ -807,7 +822,7 @@ export function useEstimateEditorStatusController({
     currentVersion?.id === routeVersionId ? currentVersion.status : null;
   const allowedTransitions = getAllowedTransitions(currentStatus);
   const hasKnownBlockingSendFlags =
-    (sendGating?.blockingFlags.length ?? 0) > 0;
+    (displayedSendGating?.blockingFlags.length ?? 0) > 0;
   const isStatusActionsDisabled =
     isUpdatingStatus ||
     isViewerReadOnly ||
@@ -860,19 +875,21 @@ export function useEstimateEditorStatusController({
         currentStatus === "sent" || currentStatus === "accepted",
       isStatusActionsDisabled,
       isSendBlockedForCurrentUser:
-        sendGating !== null &&
-        !sendGating.canSend &&
+        displayedSendGating !== null &&
+        !displayedSendGating.canSend &&
         hasKnownBlockingSendFlags &&
         !isAdmin,
+      isSendGatingRefreshing,
       sendWorkflowPhaseLabel: resolveWorkflowPhaseLabel(sendWorkflowPhase),
     }),
     [
       allowedTransitions,
       currentStatus,
+      displayedSendGating,
       hasKnownBlockingSendFlags,
       isAdmin,
+      isSendGatingRefreshing,
       isStatusActionsDisabled,
-      sendGating,
       sendWorkflowPhase,
     ]
   );

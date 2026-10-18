@@ -1263,10 +1263,15 @@ describe("verifyEstimateSeal", () => {
 
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
+    // Lot 2, sous-lot 2.7 (docs/testing/estimate-engine-v3-2.7.md §5.2, « Choix ») : la réponse
+    // porte aussi le marqueur, le contrat client et la charge de calcul retrouvés.
     await expect(verifyEstimateSeal(VERSION_ID)).resolves.toEqual({
       valid: true,
       computed_hash: sealHash,
       stored_hash: sealHash,
+      seal_payload_version: null,
+      client_contract_version: null,
+      calc_payload_version: 1,
     });
   });
 
@@ -1447,6 +1452,9 @@ describe("verifyEstimateSeal", () => {
       valid: true,
       computed_hash: v1SplitHash,
       stored_hash: v1SplitHash,
+      seal_payload_version: null,
+      client_contract_version: null,
+      calc_payload_version: 1,
     });
   });
 

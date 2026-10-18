@@ -54,6 +54,8 @@ export type EstimateEditorToolbarProps = {
   onOpenAssemblyPicker: () => void;
   onOpenImportFromEstimateDialog?: () => void;
   onOpenEstimateStructureDraftDialog?: () => void;
+  /** Sous-lot 2.10a (N3, D-g) : motif qui désactive la structure IA (moteur 3), sinon `null`. */
+  estimateStructureDraftUnavailableReason?: string | null;
   onOpenGeneratedOuvrageDialog?: () => void;
   onExpandAllSections?: () => void;
   onCollapseAllSections?: () => void;

@@ -1,3 +1,4 @@
+import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { isPriceStale } from "@/lib/catalogue/stale-prices";
@@ -239,7 +240,8 @@ export async function getCurrentAnomalySummary(
           profiles!inner ( id, full_name )
         )
       )
-    `
+    `,
+      { count: "exact" }
     )
     .eq("tenant_id", tenantId)
     .eq("item_type", "line");
@@ -248,7 +250,7 @@ export async function getCurrentAnomalySummary(
     itemsQuery = itemsQuery.eq("version_id", filters.version_id);
   }
 
-  const { data: rawItems, error: itemsError } = await itemsQuery;
+  const { data: rawItems, error: itemsError } = await readAllRows(() => itemsQuery);
 
   if (itemsError) {
     throw mapSupabaseError(
@@ -379,18 +381,18 @@ export async function getCurrentAnomalySummary(
     warningOverride,
   ] = await Promise.all([
     supplierPriceIdsArray.length > 0
-      ? supabase
+      ? readAllRowsInChunks(supplierPriceIdsArray, (pageIds) => supabase
           .from("supplier_pricebook")
-          .select("id, updated_at, created_at")
+          .select("id, updated_at, created_at", { count: "exact" })
           .eq("tenant_id", tenantId)
-          .in("id", supplierPriceIdsArray)
+          .in("id", pageIds))
       : Promise.resolve({ data: [], error: null }),
     allVersionIds.length > 0
-      ? supabase
+      ? readAllRowsInChunks(allVersionIds, (pageIds) => supabase
           .from("estimate_item_outlier_dismissals" as never)
-          .select("version_id, item_id, flag_key" as never)
+          .select("version_id, item_id, flag_key, id" as never, { count: "exact" })
           .eq("tenant_id" as never, tenantId as never)
-          .in("version_id" as never, allVersionIds as never)
+          .in("version_id" as never, pageIds as never))
       : Promise.resolve({ data: [], error: null }),
     getStalePriceDaysForTenant(tenantId, { supabase }),
     getFeatureFlagValueForTenant(tenantId, GATING_BLOCKING_FLAGS_KEY, {
@@ -648,15 +650,15 @@ export async function getAnomalyTrend(
   const twelveMonthsAgo = new Date(now);
   twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - TREND_MONTHS);
 
-  const { data: rawLogs, error: logsError } = await supabase
+  const { data: rawLogs, error: logsError } = await readAllRows(() => supabase
     .from("audit_logs")
-    .select("id, created_at, record_id, action, before_data, after_data")
+    .select("id, created_at, record_id, action, before_data, after_data", { count: "exact" })
     .eq("tenant_id", tenantId)
     .eq("table_name", "estimate_items")
     .in("action", ["INSERT", "UPDATE", "DELETE"])
     .gte("created_at", twelveMonthsAgo.toISOString())
     .order("created_at", { ascending: false })
-    .limit(MAX_AUDIT_ROWS);
+    .limit(MAX_AUDIT_ROWS), { limit: MAX_AUDIT_ROWS });
 
   if (logsError) {
     throw mapSupabaseError(

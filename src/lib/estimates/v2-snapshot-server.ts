@@ -10,6 +10,7 @@ import {
 } from "@/lib/estimates/engine/capabilities";
 import { ESTIMATE_VERSION_CONFLICT_MESSAGE } from "@/lib/estimates/constants";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
+import { freezeEstimateV3DocumentSnapshot } from "@/lib/estimates/v3-document-snapshot-server";
 import { freezeEstimateV3Snapshot } from "@/lib/estimates/v3-snapshot-server";
 import {
   calculateEstimateSnapshotForItems,
@@ -82,10 +83,12 @@ export async function freezeEstimateV2Snapshot(
   };
   const engine = resolveEstimateEngineVersion(version);
   if (usesSaleCoefficients(engine)) {
-    // Lot 2, sous-lot 2.5 : une v3 passe par son propre gel (D15) ; l'émission v3 (envoi,
-    // document) reste fermée jusqu'à M5 (2.7), par son refus nommé.
-    if (input.purpose !== "approval") throw new EstimateEngineUnavailableError();
-    return freezeEstimateV3Snapshot({ ...input, purpose: "approval" });
+    // Lot 2, sous-lots 2.5 puis 2.7 : une v3 passe par ses propres gels (D15) : approbation (M4)
+    // et document d'émission (M5, bail exact de la page). Aucun chemin d'émission n'appelle le
+    // gel « send » sans document : il reste refusé par son nom.
+    if (input.purpose === "approval") return freezeEstimateV3Snapshot({ ...input, purpose: "approval" });
+    if (input.purpose === "document") return freezeEstimateV3DocumentSnapshot(input);
+    throw new EstimateEngineUnavailableError();
   }
   if (!isUnifiedEngine(engine)) {
     throw badRequest("Le gel du snapshot est réservé au moteur de calcul v2.");

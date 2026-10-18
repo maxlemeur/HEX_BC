@@ -1,5 +1,7 @@
+import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 
+import { loadValidLaborRoleIdsForOwner } from "@/lib/estimates/estimate-assembly-helpers";
 import { badRequest, conflict, mapSupabaseError, notFound } from "@/lib/estimates/errors";
 import type { Database } from "@/types/database";
 
@@ -152,13 +154,13 @@ export async function loadEstimateTemplateItems(input: {
   tenantId: string;
   templateId: string;
 }) {
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("estimate_template_items")
-    .select("*")
+    .select("*", { count: "exact" })
     .eq("tenant_id", input.tenantId)
     .eq("template_id", input.templateId)
     .order("position", { ascending: true })
-    .order("id", { ascending: true });
+    .order("id", { ascending: true }));
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger les lignes du template.");
@@ -178,12 +180,12 @@ export async function loadTemplateLineCountByTemplateId(input: {
     return counts;
   }
 
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRowsInChunks(input.templateIds, (pageIds) => input.supabase
     .from("estimate_template_items")
-    .select("template_id")
+    .select("template_id, id", { count: "exact" })
     .eq("tenant_id", input.tenantId)
     .eq("item_type", "line")
-    .in("template_id", input.templateIds);
+    .in("template_id", pageIds));
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger le comptage des templates.");
@@ -194,4 +196,44 @@ export async function loadTemplateLineCountByTemplateId(input: {
   }
 
   return counts;
+}
+
+/**
+ * Lot 2, sous-lot 2.8 (rule 3, P-12), partagé depuis 2.10a avec la création depuis un modèle : une ligne qui
+ * porte des heures sans quantité n'a pas d'heures par unité en moteur 3 (refus nommé de M6).
+ */
+export function templateHoursWithoutQuantityMessage(title: string) {
+  return `La ligne « ${title} » du modèle porte des heures sans quantité : un chiffrage moteur 3 stocke des heures par unité. Renseignez sa quantité dans le modèle.`;
+}
+
+type TemplateLaborRoleItem = Partial<Pick<
+  EstimateTemplateItemRow,
+  "id" | "title" | "labor_role_id" | "labor_role_atelier_id" | "labor_role_chantier_id"
+>>;
+
+/**
+ * Lot 2, sous-lot 2.8 (review), partagé depuis 2.10a : dans une v3, un rôle MO du modèle qui n'est pas un rôle du
+ * propriétaire du devis serait valorisé à 0 €/h sans un mot par le moteur, puis refusé par toute écriture
+ * TypeScript suivante. Refus nommé, à l'insertion comme à la création depuis le modèle.
+ */
+export async function assertTemplateLaborRolesOwnedForV3(input: {
+  supabase: Supabase;
+  tenantId: string;
+  projectUserId: string;
+  templateItems: readonly TemplateLaborRoleItem[];
+}) {
+  const rolesOf = (item: TemplateLaborRoleItem) =>
+    [item.labor_role_id, item.labor_role_atelier_id, item.labor_role_chantier_id].filter((id): id is string => Boolean(id));
+  const validRoles = await loadValidLaborRoleIdsForOwner({
+    supabase: input.supabase, tenantId: input.tenantId, ownerUserId: input.projectUserId,
+    laborRoleIds: input.templateItems.flatMap(rolesOf),
+  });
+  const offending = input.templateItems.filter((item) => rolesOf(item).some((id) => !validRoles.has(id)));
+  if (offending.length === 0) return;
+
+  throw badRequest(
+    "Ce modèle porte des rôles de main-d'œuvre qui ne sont pas ceux du propriétaire du devis : un chiffrage moteur 3 compterait leurs heures à 0 €/h. Remplacez-les dans le modèle avant de l'insérer.",
+    { items: offending.map((item) => ({ id: item.id, title: item.title ?? "Ligne sans titre" })) },
+    "ESTIMATE_TEMPLATE_LABOR_ROLE_REQUIRED"
+  );
 }

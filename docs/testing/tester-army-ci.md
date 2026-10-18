@@ -629,7 +629,7 @@ public, mais au plus 20 jobs simultanés pour tout le dépôt).
 | --- | --- | --- | --- | --- |
 | Critical, suite complète | 10 à 15 min | environ 8 min (fixe 3 min 15 + 317 s simulées) | 1 → 3 shards (+ `army-takeoff` sur une PR) | 19 → 25 (`army-takeoff` compris des deux côtés) |
 | Full, nuit | 21 à 34 min | environ 10 min (fixe 4 min + 313 s simulées) | 1 → 5 shards + développement | 28 → 52 |
-| calc-v3, nuit | 19 à 28 min | environ 9 min (`offers`, 474 s, plus installation) | 1 → 6 phases | 25 → 25 |
+| calc-v3, nuit | 19 à 28 min | environ 9 min (`offers`, 474 s, plus installation) | 1 → 6 phases (8 depuis le 2.7, non mesurées) | 25 → 25 (six phases) |
 
 Simulation (`army-shards.json`, ordre des fichiers du scheduler, 2 workers par
 shard critical) : 550 s de parcours en un shard (mesuré 578 s), 404 s en deux,
@@ -718,6 +718,64 @@ critique. Le gain mural va de 1,5 fois (critical) à 3,2 fois (full), 2 à
 critical (mêmes jobs, `army-takeoff` compris), 1,5 fois pour full, 1 à 1,5 fois
 pour calc-v3.
 
+### Temps morts d'un shard (18/10/2026, soir)
+
+Run 39147767943 (PR #64, tête `11534e34`, suite critical complète, 3 shards,
+2 workers) : 7 min 52 s de la création du run à l'agrégation. Shard 1, chemin
+critique, 7 min 24 s : préparation, `npm ci` et caches 37 s ; Chromium 20 s
+(9 s d'apt, 8 s de téléchargement) ; pile 20 s ; instantané, pgTAP et RLS 21 s ;
+build 59 s ; parcours 4 min 46 s. Les deux autres shards : 4 min 15 s et
+4 min 08 s de parcours.
+
+- **V3E02 attendait 2 min pour rien.** `waitScreen`
+  (`e2e/army/local/engine-v3-editor-support.ts`) compare la lecture de l'écran
+  à l'attendu par `JSON.stringify`, donc dans l'ordre des clés : la ligne B
+  attendue `{status, pt}` est lue `{pt, status}`. Les quatre lectures de
+  `tstat-initial` et `tstat-back` n'égalaient jamais l'attendu et allaient au
+  bout de leur échéance de 30 s (41 lectures chacune), avant un `toEqual`, qui
+  ignore l'ordre, vert. V3E02 : 141 s dont 120 s d'attente ; le second worker
+  du shard restait inactif 3 min 30 s. Correction : comparaison dans un ordre
+  de clés canonique, le même jugement que le `toEqual` final ; aucune
+  assertion ne change. `engine-v3-editor.e2e.ts` passe de 262 s à 142 s
+  attendues.
+- **Durées absentes ou périmées.** `engine-v3-creators.e2e.ts` (113 s) et
+  `bulk-actions-v1-totals.e2e.ts` (36 s) comptaient les 20 s par défaut ;
+  `army-shards.json` reprend les durées de ce run pour la suite critical.
+  `secondsPerShard` critical passe de 360 à 300 s : environ 175 s de parcours à
+  2 workers, l'ordre du plus long fichier (142 s), au lieu de laisser un shard
+  dépasser le plancher. La suite complète reste à 4 shards (plafond inchangé).
+- **Chromium en arrière-plan.** Dans `army-critical-shard` et `army-takeoff`,
+  l'installation (`--with-deps`, inchangée) part en arrière-plan pendant la
+  pile, la base et le build ; `runApplication` attend son fichier `exit-code`
+  après le build, avant les parcours (`ARMY_BROWSER_INSTALL_DIR`), échoue avec
+  son journal (`browser-install.log` des preuves) si elle a échoué ou dure plus
+  de 10 min, et note `browserInstall` (code, attente) au manifeste. Sans la
+  variable, rien ne change.
+- **Build pendant les contrôles de base.** `runLocalSupabaseCi` appelle
+  `onStackStarted` avec le statut de la pile dès son démarrage ;
+  `run-tester-army-ci.ts` y lance le build de production des suites critical et
+  full (pas `full --phase development`, calc-v3, dev ni dev-loop), qui ne
+  reçoit que l'origine et les clés de la pile, jamais le compte ARMY ni le
+  transport SQL. Il tourne donc pendant l'instantané, pgTAP, RLS et la création
+  du compte ; `runApplication`, qui ne démarre qu'après pgTAP et RLS verts,
+  vérifie la même origine et la même clé anon puis l'attend avant les
+  parcours. Si les contrôles de base échouent, le run attend la fin du build
+  avant de garder ses preuves (jusqu'à environ 1 min de plus pour un run déjà
+  rouge). Vaut pour tous les runs de production critical et full, nuit
+  comprise ; Chromium en arrière-plan, pour le seul workflow critical.
+- **Non retenu.** Réutiliser le build de `main` : le client embarque l'URL et
+  la clé anon de la pile, propres à chaque shard. Sauter pgTAP et RLS dans un
+  shard : le runner n'ouvre les parcours qu'après eux (contrat du runner). Un
+  cinquième shard : le plancher de 142 s reste, pour un job de plus sur les 20.
+
+Attendu pour les fichiers de ce run : shard le plus long de 7 min 24 s à
+environ 5 min (31 s de préparation ; pile 20 s puis environ 60 s où le build
+couvre les 21 s de contrôles de base ; environ 175 s de parcours), run d'environ
+5 min 30 s au lieu de 7 min 52 s. `engine-v3-emission.e2e.ts`,
+`engine-v3-exports.e2e.ts` et `large-row-completeness.e2e.ts`, arrivés depuis,
+comptent encore les 20 s par défaut. À mesurer sur le run de la PR qui porte ces
+changements, avec la durée de RLS sous la charge du build.
+
 ### Chemins d'échec de l'agrégation, prouvés en CI
 
 Le 18/10/2026, une branche jetable (`throwaway/l2-aggregate-failure-proof`,
@@ -769,8 +827,9 @@ pas d'instantané de base (`db reset` complet), 1 worker, preuves
 `army-calc-v3-evidence` téléversées seulement après le contrôle de
 confidentialité du runner.
 
-- Sélection nocturne : les phases servies par le build de production
-  (`journeys`, `components`, `numeric`, `resume`, `access`, `offers`), une
+- Sélection nocturne : les phases servies par le build de production, toutes
+  depuis le sous-lot 2.7 (`journeys`, `components`, `numeric`, `resume`,
+  `access`, `offers`, `emission`, `emission-v3`), une
   invocation `run-tester-army-ci.ts calc-v3 --phase <phase>` par phase, chacune
   sur sa propre pile et dans son propre job (`army-calc-v3 <phase>`, matrice
   sans `fail-fast`) ; une phase rouge n'arrête pas les autres, et le job
@@ -780,40 +839,45 @@ confidentialité du runner.
   publié (sortie `evidence`, écrite seulement après le contrôle de
   confidentialité) ; `army-calc-v3-evidence` les réunit avec le manifeste
   d'agrégation.
-- Émission exclue : servie par `next dev` (`canUseDevelopmentEstimateTerms`
-  n'accepte les conditions bac à sable qu'en développement), OF00 y échoue 7/7
-  depuis la PR #34 (rechargement à chaud qui remonte l'éditeur ; 6/6 en
-  production avec un garde local). Le sous-lot 2.7 étend ce garde au profil de
-  production possédé et passe l'émission en production. Réactivation : ajouter
-  `emission` à `CALC_V3_NIGHTLY_PHASES` dans le workflow, rien d'autre ; le garde
-  `src/test/ci-guardrails.test.ts` exige que cette liste soit exactement
-  l'ensemble des phases dont `serverMode` vaut `production`
-  (`scripts/tester-army/calc-v3-phases.ts`) et n'interdit l'émission que tant
-  qu'elle n'est pas servie en production : dès que 2.7 bascule l'émission, le
-  Quality Gate reste rouge tant qu'elle n'y est pas ajoutée, et l'ajout suffit à
-  le remettre au vert. La PR de 2.7, qui modifie alors ce workflow, lance
-  elle-même la sélection nocturne, émission comprise (ci-dessous).
+- Émission dans la nuit depuis le sous-lot 2.7 : jusque-là servie par
+  `next dev` (`canUseDevelopmentEstimateTerms` n'acceptait les conditions bac à
+  sable qu'en développement), où OF00 échouait 7/7 depuis la PR #34
+  (rechargement à chaud qui remonte l'éditeur ; 6/6 en production avec un garde
+  local), elle restait hors de la nuit. Le 2.7 (PR #45) étend ce garde au profil
+  de production possédé, sert `emission` et la nouvelle phase `emission-v3` en
+  production, et les ajoute à `CALC_V3_NIGHTLY_PHASES` et aux options de
+  `phase`, rien d'autre. Le garde `src/test/ci-guardrails.test.ts` exige que
+  cette liste soit exactement l'ensemble des phases dont `serverMode` vaut
+  `production` (`scripts/tester-army/calc-v3-phases.ts`) et que les options
+  soient `nightly`, `all` puis chaque phase : une phase ajoutée ou basculée sans
+  le workflow fait échouer le Quality Gate. La PR #45, qui modifie ce workflow,
+  lance elle-même la sélection nocturne, émission comprise (ci-dessous).
 - Déclenchement manuel (`workflow_dispatch`, entrée `phase`) : `nightly`
   (défaut, la sélection ci-dessus), `all` (la campagne complète en une
   invocation, émission comprise, exactement `npm run e2e:army:calc-v3`) ou une
-  seule phase, émission comprise. Le nom passe par `env`, et le runner refuse
-  toute valeur qui n'est pas une phase. GitHub ne planifie et ne déclenche que
-  les workflows présents sur la branche par défaut : ni la nuit ni le
-  déclenchement manuel n'existent avant la fusion de ce workflow sur `main` ;
-  ensuite, un déclenchement sur une branche exécute la version de cette branche.
+  seule phase, `emission` et `emission-v3` comprises. Le nom passe par `env`,
+  et le runner refuse toute valeur qui n'est pas une phase. GitHub ne planifie
+  et ne déclenche que les workflows présents sur la branche par défaut : ni la
+  nuit ni le déclenchement manuel n'existent avant la fusion de ce workflow sur
+  `main` ; ensuite, un déclenchement sur une branche exécute la version de cette
+  branche.
 - Pull request : une PR vers `main` qui modifie
   `.github/workflows/e2e-army-calc-v3.yml` lance la sélection nocturne (filtre
   `paths`), si bien que le workflow est prouvé avant sa fusion ; aucune autre PR
   ne le lance. Un nouveau push sur la PR annule et remplace son run en cours ;
   un run nocturne ou déclenché n'est jamais annulé (groupe de concurrence par
   run).
-- Coût : six piles et six builds par nuit, chacun dans son job sur le cache
+- Coût : une pile et un build par phase, chacun dans son job sur le cache
   webpack restauré depuis `main` ; délai maximal d'un job de phase 80 min.
-  Avant les jobs parallèles, mesuré sur la PR #42 (un seul job, phases en
-  série) : 28 min 04 s (run 39096480257, tête `964775bc`, six phases vertes),
-  28 min 30 s (run 39089316912, tête `9467ba95`, `resume` rouge), 25 min 01 s
-  (run 39107622162) et 19 min 55 s (run 39109681565, tête `fef02223`). Durée
-  murale et coût en runner après : section [Jobs parallèles](#jobs-parallèles).
+  Avant les jobs parallèles, mesuré sur la PR #42 pour les six phases d'alors
+  (un seul job, phases en série) : 28 min 04 s (run 39096480257, tête
+  `964775bc`, six phases vertes), 28 min 30 s (run 39089316912, tête
+  `9467ba95`, `resume` rouge), 25 min 01 s (run 39107622162) et 19 min 55 s
+  (run 39109681565, tête `fef02223`). Durée murale et coût en runner après :
+  section [Jobs parallèles](#jobs-parallèles). Depuis le 2.7, la sélection
+  compte huit phases (`emission` et `emission-v3` en plus), soit huit piles et
+  huit builds par nuit : ce coût n'est pas encore mesuré (premier run : celui de
+  la PR #45), pas plus que la nuit, qui n'existe qu'après la fusion sur `main`.
 
 ## Contrat défini avant migration
 

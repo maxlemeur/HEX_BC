@@ -24,6 +24,7 @@ import {
   type ImportLinkedDpgfSourceResult,
 } from "@/lib/estimates/client";
 import type { EstimateVersionRow } from "@/lib/estimates/editor-items";
+import { describeV3ConvertedLines } from "@/lib/estimates/v3-converted-lines";
 
 const LINKED_DPGF_LOAD_ERROR =
   "Impossible de charger la source DPGF de l'affaire.";
@@ -760,8 +761,12 @@ export function useEstimateEditorImportController({
         execute: (versionId) => importEstimateSections(versionId, input),
         getResultVersionId: (result) => result.targetVersionId,
         getVersionToken: (result) => result.versionToken,
-        buildSummary: (result) =>
-          `${result.importedSectionsCount} section(s) et ${result.importedLinesCount} ligne(s) importées.`,
+        buildSummary: (result) => {
+          // Sous-lot 2.8b (A7, P-12) : sections v1/v2 entrées dans une v3, lignes dont les heures changent.
+          const converted = describeV3ConvertedLines(result.convertedLines);
+          return `${result.importedSectionsCount} section(s) et ${result.importedLinesCount} ligne(s) importées.` +
+            (converted ? ` ${converted}` : "");
+        },
       });
     },
     [runStructuralMutation]

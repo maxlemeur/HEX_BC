@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// Pagination faults are covered with the real SDK in read-all.test.ts.
+vi.mock("@/lib/supabase/read-all", () => import("@/test/complete-reads-fixture"));
+
+
 const { mockRequestHeadersGet } = vi.hoisted(() => ({
   mockRequestHeadersGet: vi.fn(),
 }));
@@ -2338,7 +2342,7 @@ function createAssemblyInsertSupabaseMock(input?: {
   emptyDependencyBuilder.order.mockReturnValue(emptyDependencyBuilder);
 
   const rpc = vi.fn(async (name: string, args: Record<string, unknown>) => {
-    if (name === "insert_estimate_assembly_into_version") return { data: insertedItems, error: input?.rpcError ?? null };
+    if (name === "insert_estimate_assembly_with_receipt") return { data: { count: insertedItems.length, items: insertedItems }, error: input?.rpcError ?? null };
     if (name === "finalize_estimate_assembly_calculation") {
       const projections = args.p_item_updates as Array<Record<string, unknown>>;
       return { data: {
@@ -2711,7 +2715,7 @@ describe("estimate assemblies insertion", () => {
 
     // Rien ne doit avoir ete insere.
     expect(supabase.rpc).not.toHaveBeenCalledWith(
-      "insert_estimate_assembly_into_version",
+      "insert_estimate_assembly_with_receipt",
       expect.anything()
     );
   });
@@ -2729,7 +2733,7 @@ describe("estimate assemblies insertion", () => {
     });
 
     expect(supabase.rpc).toHaveBeenCalledWith(
-      "insert_estimate_assembly_into_version",
+      "insert_estimate_assembly_with_receipt",
       expect.objectContaining({
         p_version_id: VERSION_ID,
         p_assembly_id: ASSEMBLY_ID,

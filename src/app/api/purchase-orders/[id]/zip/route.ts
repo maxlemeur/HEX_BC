@@ -1,3 +1,4 @@
+import { readAllRows } from "@/lib/supabase/read-all";
 import { ZipArchive } from "archiver";
 import { NextResponse } from "next/server";
 import { Readable } from "stream";
@@ -316,11 +317,11 @@ export async function GET(
     return NextResponse.json({ error: error instanceof Error ? error.message : "Lecture modifiée. Rechargez la commande." }, { status: 409 });
   }
 
-  const devisResult = await supabase
+  const devisResult = await readAllRows(() => supabase
     .from("purchase_order_devis")
-    .select("id, name, original_filename, storage_path, file_size_bytes, mime_type, position")
+    .select("id, name, original_filename, storage_path, file_size_bytes, mime_type, position", { count: "exact" })
     .eq("purchase_order_id", id)
-    .order("position", { ascending: true });
+    .order("position", { ascending: true }));
   if (devisResult.error || !Array.isArray(order.purchase_order_items)) {
     return NextResponse.json({ error: "Impossible de lire les éléments du dossier de commande." }, { status: 500 });
   }

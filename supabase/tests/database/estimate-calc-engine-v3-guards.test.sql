@@ -63,7 +63,12 @@ values
   ('public.persist_estimate_creation_atomic', 'création canonique (M4) : moteur attendu du client dans 1-3, comparé à la politique (absente = 2), contrat canonical_v3 sous politique 3'),
   ('public.list_approval_queue', 'marge v1 lue en margin_bp (texte = 1 conservé) ; v3 : marque nette d''un gel v3 frais, sinon NULL (M4)'),
   ('public.estimate_offer_client_items_match', 'branche v1/v2 inchangée ; faux pour tout moteur hors {1,2} depuis M1'),
-  ('public.require_fresh_v2_snapshot_for_publication', 'refus nommé ESTIMATE_V3_EMISSION_NOT_READY (retiré en M5)'),
+  ('public.require_fresh_v2_snapshot_for_publication', 'gouvernance de fraîcheur v2 héritée par la v3 (in (2, 3), invoker) ; v3 : bruts figés complets et Σ bruts = brut de version ; refus M1 ESTIMATE_V3_EMISSION_NOT_READY retiré en M5'),
+  ('public.estimate_offer_engine_client_contract', 'règle unique d''appariement moteur ⇔ contrat client (M5) : v3 ⇔ contrat 2, v1/v2 ⇔ contrat 1'),
+  ('public.estimate_offer_document_valid', 'contrat attendu par le moteur (M5) : aucun document historique sans contrat pour une v3 ; branche du contrat 1 inchangée'),
+  ('public.publish_estimate_pdf_generation', 'publication (M5) : contrat présenté = contrat du moteur, puis ancres du contrat 1 ou appariement exact du contrat 2'),
+  ('public.estimate_offer_client_items_match_v2', 'appariement du contrat 2 (M5) : faux pour tout moteur autre que 3'),
+  ('public.freeze_estimate_v3_document_snapshot', 'gel documentaire v3 (M5) : refuse tout moteur autre que 3'),
   ('public.freeze_estimate_v2_snapshot_without_explicit_rounding', 'gel v2 : refuse tout moteur autre que 2 (inchangé)'),
   ('public.freeze_estimate_v2_document_snapshot', 'gel documentaire v2 : refuse tout moteur autre que 2 (inchangé)'),
   ('public.save_estimate_settings_atomic', 'branches v1 et v2/v3 (in (2, 3), invoker) ; branche v3 sous contrat d''écrivain (M4)'),
@@ -78,7 +83,6 @@ values
   ('public.recalculate_takeoff_estimate_version', 'métré v1/v2 inchangé ; le contrat d''écrivain refuse la v3 (P-19)'),
   ('public.guard_estimate_item_engine_columns', 'contrat d''écrivain v3 sur les lignes (M1)'),
   ('public.guard_estimate_version_engine_v3_writer', 'contrat d''écrivain v3 sur les versions (M1)'),
-  ('public.guard_estimate_document_engine_v3', 'refus des documents v3 (M1, remplacé en M5)'),
   ('private.calc_engine_freezes_snapshot', 'prédicat d''héritage de la gouvernance v2 (M1)'),
   ('public.guard_estimate_v2_snapshot_columns', 'prédicat d''héritage en ligne in (2, 3) : garde security invoker, schéma private fermé à authenticated/service_role (M1) ; = 3 : suppression d''une ligne v3 sous contrat d''écrivain (M4, revue de la PR #33)'),
   ('public.guard_estimate_project_v2_owner_change', 'prédicat d''héritage en ligne in (2, 3) : garde security invoker, schéma private fermé à authenticated/service_role (M1)'),
@@ -776,7 +780,10 @@ select is(
 );
 
 -- ---------------------------------------------------------------------------
--- F-SQL-08 et F-SQL-09 : émission fermée, de façon explicite et nommée.
+-- F-SQL-08 et F-SQL-09 : émission d'une v3 gouvernée par son nom. Réalignées en 2.7 (M5) : le refus
+-- général de M1 (ESTIMATE_V3_EMISSION_NOT_READY) est levé, l'appariement moteur ⇔ contrat client et
+-- la fraîcheur v2 héritée le remplacent (docs/testing/estimate-engine-v3-2.7.md, « Implémentation
+-- SQL (M5) »). Le parcours d'émission v3 complet est prouvé par estimate-offer-contract-v2.test.sql.
 -- ---------------------------------------------------------------------------
 select is(
   pg_temp.v3_probe(array[
@@ -787,18 +794,18 @@ select is(
        select tenant_id, id, 'processing', gen_random_uuid(), 'manual', content_revision, now()
        from public.estimate_versions where id = 'a3210000-0000-4000-8000-000000000106'$s$
   ]),
-  '0A000 ESTIMATE_V3_EMISSION_NOT_READY',
-  'F-SQL-09 no document can be prepared for a v3'
+  'ok',
+  'F-SQL-09 a v3 document generation can be claimed (contract-less processing row, M5)'
 );
 
 select is(
   pg_temp.v3_probe(array[
-    $s$insert into public.estimate_documents (tenant_id, version_id, status, last_error)
-       select tenant_id, id, 'failed', 'essai'
+    $s$insert into public.estimate_documents (tenant_id, version_id, status, last_error, client_contract_version, client_contract_snapshot)
+       select tenant_id, id, 'failed', 'essai', 1, '{}'::jsonb
        from public.estimate_versions where id = 'a3210000-0000-4000-8000-000000000106'$s$
   ]),
-  '0A000 ESTIMATE_V3_EMISSION_NOT_READY',
-  'F-SQL-09 no document row of any status can exist for a v3'
+  '23514 OFFER_CLIENT_CONTRACT_ENGINE_MISMATCH',
+  'F-SQL-09 no document row of a v3 can carry the client contract 1, whatever its status (M5 pairing)'
 );
 
 select is(
@@ -806,8 +813,8 @@ select is(
     'set local role service_role',
     $s$update public.estimate_versions set status = 'sending' where id = 'a3210000-0000-4000-8000-000000000106'$s$
   ]),
-  '0A000 ESTIMATE_V3_EMISSION_NOT_READY',
-  'F-SQL-08 a v3 draft cannot move to sending'
+  '40001 ESTIMATE_V2_SNAPSHOT_STALE',
+  'F-SQL-08 a never-frozen v3 draft cannot move to sending (inherited freshness, M5)'
 );
 
 select is(
@@ -815,8 +822,8 @@ select is(
     'set local role service_role',
     $s$update public.estimate_versions set status = 'sent' where id = 'a3210000-0000-4000-8000-000000000106'$s$
   ]),
-  '0A000 ESTIMATE_V3_EMISSION_NOT_READY',
-  'F-SQL-08 a v3 draft cannot move to sent'
+  '40001 ESTIMATE_V2_SNAPSHOT_STALE',
+  'F-SQL-08 a never-frozen v3 draft cannot move to sent (inherited freshness, M5)'
 );
 
 select is(
@@ -824,8 +831,8 @@ select is(
     'set local role service_role',
     $s$update public.estimate_versions set status = 'sending' where id = 'a3210000-0000-4000-8000-000000000103'$s$
   ]),
-  '0A000 ESTIMATE_V3_EMISSION_NOT_READY',
-  'F-SQL-08 even a freshly frozen v3 cannot be published before the v3 emission contract'
+  '23514 ESTIMATE_V2_SNAPSHOT_INVALID',
+  'F-SQL-08 a v3 whose snapshot is fresh but whose frozen lines are incomplete cannot move to sending (M5)'
 );
 
 select is(
@@ -1146,6 +1153,163 @@ select is(
   ],
   array['22023 ESTIMATE_BATCH_INVALID_INPUT', '22023 ESTIMATE_BATCH_PROJECTION_MISMATCH', 'ok:true - 5'],
   'F-SQL-10 commit_estimate_batch writes a v3 only with the v3 footer and the exact v3 projection (M4)'
+);
+
+-- Revue Codex de la PR #59 (G2, 2.8b) : commit_estimate_batch est ouverte à authenticated ; un membre qui tient le
+-- verrou d'un brouillon peut l'appeler directement avec une provenance forgée dans p_created_ids. La base refuse par
+-- son nom toute référence (import, mapping, ligne mappée, document source) d'une autre entreprise que la version
+-- cible, et n'écrit rien. Une référence inconnue (supprimée depuis) reste admise ; un membre qui étiquette ses
+-- propres lignes avec une référence de sa propre entreprise est une limite acceptée (docs/testing/estimate-engine-v3-2.8b.md).
+-- Isolation : l'application n'envoie jamais de provenance étrangère, aucun parcours ne passe par cet appel direct.
+insert into public.estimate_projects (id, tenant_id, user_id, name, is_archived)
+select 'a3210000-0000-4000-8000-000000000011', membership.tenant_id, membership.user_id, 'Projet d''une autre entreprise', false
+from public.tenant_memberships membership
+where membership.user_id = 'a3210000-0000-4000-8000-000000000002'
+  and membership.tenant_id <> (select tenant_id from public.estimate_projects where id = 'a3210000-0000-4000-8000-000000000010');
+
+insert into public.dpgf_imports (id, tenant_id, user_id, filename, source_format, status, row_count, parse_mode, project_id)
+select fixture.id, project.tenant_id, project.user_id, fixture.filename, 'xlsx', 'completed', 1, 'server', project.id
+from (values
+    ('a3210000-0000-4000-8000-0000000006a0'::uuid, 'a3210000-0000-4000-8000-000000000011'::uuid, 'DPGF autre entreprise.xlsx'),
+    ('a3210000-0000-4000-8000-0000000006a1'::uuid, 'a3210000-0000-4000-8000-000000000010'::uuid, 'DPGF même entreprise.xlsx')
+  ) as fixture(id, project_id, filename)
+join public.estimate_projects project on project.id = fixture.project_id;
+
+insert into public.dpgf_rows_mapped (id, tenant_id, import_id, payload, status)
+select 'a3210000-0000-4000-8000-0000000006a2', tenant_id, id, '{"designation":"ligne étrangère"}'::jsonb, 'mapped'
+from public.dpgf_imports where id = 'a3210000-0000-4000-8000-0000000006a0';
+
+insert into public.dpgf_mappings (id, tenant_id, import_id, status, column_mapping)
+select 'a3210000-0000-4000-8000-0000000006a5', tenant_id, id, 'applied', '{}'::jsonb
+from public.dpgf_imports where id = 'a3210000-0000-4000-8000-0000000006a0';
+
+insert into public.affaire_intake_uploads (id, tenant_id, project_id, status)
+select 'a3210000-0000-4000-8000-0000000006a3', tenant_id, id, 'ready'
+from public.estimate_projects where id = 'a3210000-0000-4000-8000-000000000011';
+
+insert into public.affaire_intake_documents (id, tenant_id, project_id, upload_id, file_name, upload_status)
+select 'a3210000-0000-4000-8000-0000000006a4', tenant_id, project_id, id, 'CCTP autre entreprise.pdf', 'uploaded'
+from public.affaire_intake_uploads where id = 'a3210000-0000-4000-8000-0000000006a3';
+
+create function pg_temp.v3_copy_with_metadata(p_metadata jsonb)
+returns text
+language sql
+as $copy$
+  select pg_temp.v3_probe(
+    array[
+      'set local role authenticated',
+      $s$select set_config('request.jwt.claim.sub', 'a3210000-0000-4000-8000-000000000001', true)$s$,
+      format($s$create temporary table v3_batch_result on commit drop as
+         select public.commit_estimate_batch(
+           'a3210000-0000-4000-8000-000000000101',
+           gen_random_uuid(),
+           (select updated_at from public.estimate_versions where id = 'a3210000-0000-4000-8000-000000000101'),
+           'a3210000-0000-4000-8000-000000000301',
+           '[{"op":"create","data":{"item_type":"section","title":"Lot copié"}}]'::jsonb,
+           jsonb_build_array(jsonb_build_object('index', 0, 'id', 'a3210000-0000-4000-8000-000000000570', 'source_metadata', %L::jsonb)),
+           '[{"id":"a3210000-0000-4000-8000-000000000202","pu_ht_cents":4300,"line_total_ht_cents":8600,"line_tax_cents":1720,"line_total_ttc_cents":10320},{"id":"a3210000-0000-4000-8000-000000000203","pu_ht_cents":1300,"line_total_ht_cents":2600,"line_tax_cents":520,"line_total_ttc_cents":3120}]'::jsonb,
+           '{"total_ht_cents":11200,"total_tax_cents":2240,"total_ttc_cents":13440,"gross_ht_cents":11200,"discount_applied_cents":0,"commercial_rounding_cents":0}'::jsonb,
+           jsonb_build_object(
+             'labor_roles', jsonb_build_array(jsonb_build_object(
+               'id', 'a3210000-0000-4000-8000-000000000020',
+               'tenant_id', (select tenant_id from public.estimate_projects where id = 'a3210000-0000-4000-8000-000000000010'),
+               'user_id', 'a3210000-0000-4000-8000-000000000001',
+               'hourly_rate_cents', 5000)),
+             'margin_tiers', '[]'::jsonb,
+             'labor_split_flag', null),
+           null
+         ) as response$s$, p_metadata)
+    ],
+    $a$select (response->>'committed') || ' ' ||
+         (select count(*) from public.estimate_items where version_id = 'a3210000-0000-4000-8000-000000000101')::text || ' ' ||
+         coalesce((select source_metadata::text from public.estimate_items where id = 'a3210000-0000-4000-8000-000000000570'), '-') || ' ' ||
+         (response->'results'->0->'data'->'item' ? 'source_metadata')::text
+       from v3_batch_result$a$
+  )
+$copy$;
+
+select is(
+  array[
+    pg_temp.v3_copy_with_metadata('{"import_id":"a3210000-0000-4000-8000-0000000006a0","row_index":1}'),
+    pg_temp.v3_copy_with_metadata('{"import_id":"a3210000-0000-4000-8000-0000000006a1","mapped_row_id":"a3210000-0000-4000-8000-0000000006a2"}'),
+    pg_temp.v3_copy_with_metadata('{"mapping_id":"a3210000-0000-4000-8000-0000000006a5"}'),
+    pg_temp.v3_copy_with_metadata('{"_timax_provenance":{"source_page":2,"source_document_id":"a3210000-0000-4000-8000-0000000006a4"}}'),
+    pg_temp.v3_copy_with_metadata('{"_timax_provenance":{"sourceDocumentId":"A3210000-0000-4000-8000-0000000006A4"}}')
+  ],
+  array_fill('22023 ESTIMATE_BATCH_SOURCE_METADATA_FOREIGN'::text, array[5]),
+  'G2 commit_estimate_batch refuses by name a provenance naming an import, mapped row or source document of another tenant, nothing written'
+);
+
+select is(
+  pg_temp.v3_copy_with_metadata('{"import_id":"a3210000-0000-4000-8000-0000000006a1","mapped_row_id":"a3210000-0000-4000-8000-0000000006af","row_index":3,"_timax_provenance":{"source_page":4,"source_document_id":null}}'),
+  'ok:true 5 {"import_id": "a3210000-0000-4000-8000-0000000006a1", "row_index": 3, "mapped_row_id": "a3210000-0000-4000-8000-0000000006af", "_timax_provenance": {"source_page": 4, "source_document_id": null}} false',
+  'G2 a provenance of the same tenant (or a reference since deleted) is kept on the created item and not echoed by the receipt'
+);
+
+-- Revue interne de #59 (2.8b) : un lot de seules créations confie la profondeur au rejeu M6b, dont la remontée
+-- des parents s'arrêtait au nombre d'éléments créés. Sur une version existante, les ancêtres sont déjà stockés :
+-- une création isolée sous un sous-chapitre (niveau 3, maximum 3) passait. La base refuse, rien n'est écrit.
+-- Isolation : la préparation du lot refuse ces placements avant l'appel ; seul un appel direct de la RPC les
+-- envoie. Un niveau 4 est implanté hors déclencheurs (contrat de création) pour exposer aussi la ligne.
+create function pg_temp.v3_create_under(p_parent uuid, p_item_type text)
+returns text
+language sql
+as $depth$
+  select pg_temp.v3_probe(
+    array[
+      $s$select set_config('miaouffrage.estimate_v3_writer', 'a3210000-0000-4000-8000-000000000101', true),
+                set_config('miaouffrage.estimate_creation_atomic', 'a3210000-0000-4000-8000-000000000101', true)$s$,
+      $s$insert into public.estimate_items (id, tenant_id, version_id, parent_id, item_type, position, title)
+         select fixture.id, version.tenant_id, version.id, fixture.parent_id, 'section', 1, fixture.title
+         from public.estimate_versions version
+         cross join (values
+           ('a3210000-0000-4000-8000-000000000580'::uuid, 'a3210000-0000-4000-8000-000000000212'::uuid, 'Chapitre'),
+           ('a3210000-0000-4000-8000-000000000581'::uuid, 'a3210000-0000-4000-8000-000000000580'::uuid, 'Sous-chapitre'),
+           ('a3210000-0000-4000-8000-000000000582'::uuid, 'a3210000-0000-4000-8000-000000000581'::uuid, 'Niveau 4 implanté')
+         ) as fixture(id, parent_id, title)
+         where version.id = 'a3210000-0000-4000-8000-000000000101'$s$,
+      $s$select set_config('miaouffrage.estimate_creation_atomic', '', true),
+                set_config('miaouffrage.estimate_v3_writer', '', true)$s$,
+      'set local role authenticated',
+      $s$select set_config('request.jwt.claim.sub', 'a3210000-0000-4000-8000-000000000001', true)$s$,
+      format($s$create temporary table v3_batch_result on commit drop as
+         select public.commit_estimate_batch(
+           'a3210000-0000-4000-8000-000000000101',
+           gen_random_uuid(),
+           (select updated_at from public.estimate_versions where id = 'a3210000-0000-4000-8000-000000000101'),
+           'a3210000-0000-4000-8000-000000000301',
+           jsonb_build_array(jsonb_build_object('op', 'create', 'data', jsonb_build_object(
+             'item_type', %1$L, 'parent_id', %2$L, 'position', 2, 'title', 'Créé par appel direct'))),
+           '[{"index":0,"id":"a3210000-0000-4000-8000-000000000583"}]'::jsonb,
+           '[{"id":"a3210000-0000-4000-8000-000000000202","pu_ht_cents":4300,"line_total_ht_cents":8600,"line_tax_cents":1720,"line_total_ttc_cents":10320},{"id":"a3210000-0000-4000-8000-000000000203","pu_ht_cents":1300,"line_total_ht_cents":2600,"line_tax_cents":520,"line_total_ttc_cents":3120}]'::jsonb
+             || case when %1$L = 'line' then '[{"id":"a3210000-0000-4000-8000-000000000583","pu_ht_cents":0,"line_total_ht_cents":0,"line_tax_cents":0,"line_total_ttc_cents":0}]'::jsonb else '[]'::jsonb end,
+           '{"total_ht_cents":11200,"total_tax_cents":2240,"total_ttc_cents":13440,"gross_ht_cents":11200,"discount_applied_cents":0,"commercial_rounding_cents":0}'::jsonb,
+           jsonb_build_object(
+             'labor_roles', jsonb_build_array(jsonb_build_object(
+               'id', 'a3210000-0000-4000-8000-000000000020',
+               'tenant_id', (select tenant_id from public.estimate_projects where id = 'a3210000-0000-4000-8000-000000000010'),
+               'user_id', 'a3210000-0000-4000-8000-000000000001',
+               'hourly_rate_cents', 5000)),
+             'margin_tiers', '[]'::jsonb,
+             'labor_split_flag', null),
+           null
+         ) as response$s$, p_item_type, p_parent)
+    ],
+    $a$select (response->>'committed') || ' ' ||
+         (select count(*) from public.estimate_items where version_id = 'a3210000-0000-4000-8000-000000000101')::text
+       from v3_batch_result$a$
+  )
+$depth$;
+
+select is(
+  array[
+    pg_temp.v3_create_under('a3210000-0000-4000-8000-000000000581', 'section'),
+    pg_temp.v3_create_under('a3210000-0000-4000-8000-000000000582', 'line'),
+    pg_temp.v3_create_under('a3210000-0000-4000-8000-000000000580', 'section'),
+    pg_temp.v3_create_under('a3210000-0000-4000-8000-000000000581', 'line')
+  ],
+  array['22023 ESTIMATE_BATCH_INVALID_INPUT', '22023 ESTIMATE_BATCH_INVALID_INPUT', 'ok:true 8', 'ok:true 8'],
+  'Review of #59: a creations-only batch checks the depth against the stored ancestors (level 4 section and line under it refused, levels 3 kept)'
 );
 
 -- M4 (2.5, §1.7) : la création atomique a une branche v3 (même contrat que le lot).

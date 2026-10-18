@@ -4531,6 +4531,20 @@ export type Database = {
         };
         Returns: Database["public"]["Tables"]["estimate_versions"]["Row"];
       };
+      freeze_estimate_v3_document_snapshot: {
+        Args: {
+          p_version_id: string;
+          p_tenant_id: string;
+          p_expected_updated_at: string;
+          p_expected_content_revision: number;
+          p_actor_user_id: string;
+          p_draft_lock_session_id: string;
+          p_calculation_context: Json;
+          p_item_snapshots: Json;
+          p_version_totals: Json;
+        };
+        Returns: Database["public"]["Tables"]["estimate_versions"]["Row"];
+      };
       set_tenant_calc_policy: {
         Args: {
           p_tenant_id: string;
@@ -5111,6 +5125,14 @@ export type Database = {
           project_id: string;
           version_id: string;
         }[];
+      };
+      insert_estimate_template_with_receipt: {
+        Args: { p_version_id: string; p_template_id: string; p_after_item_id?: string | null };
+        Returns: Json;
+      };
+      insert_estimate_assembly_with_receipt: {
+        Args: { p_version_id: string; p_assembly_id: string; p_after_item_id?: string | null };
+        Returns: Json;
       };
       insert_estimate_assembly_into_version: {
         Args: {

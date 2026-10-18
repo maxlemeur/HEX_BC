@@ -1,5 +1,6 @@
 import { normalizeHeaderValue } from "@/lib/imports/tabular-normalization";
 import type { MappingTargetField, SourceToTargetMapping } from "@/lib/mappings/schemas";
+import { SUPPORTED_ESTIMATE_CURRENCIES } from "@/lib/money";
 
 /**
  * Declared import profiles (D11, sub-lot 2.3). A profile is recognised from the header row the
@@ -15,8 +16,12 @@ import type { MappingTargetField, SourceToTargetMapping } from "@/lib/mappings/s
  * - DPGF export (src/lib/estimates/dpgf-export.ts, 2.3 review): "Prix unitaire HT EUR" is the supply
  *   cost, "Majoration MO (%)" follows P-11 and the bare "Majoration MO" of its earlier files is the
  *   raw coefficient it wrote then.
+ * - DPGF export of an engine 3 estimate (src/lib/estimates/v3-export.ts, sub-lot 2.7, review of
+ *   8dd28c91): the same re-importable inputs, but "h MO / unité" is hours PER UNIT, never line hours,
+ *   and its "PU vente HT" and "Total HT brut" are published sale amounts, so controls: read as the
+ *   line total, they would price the labour twice. Its amount headers end with the version currency.
  */
-export type ImportProfileId = "optima" | "editor_export" | "dpgf_export";
+export type ImportProfileId = "optima" | "editor_export" | "dpgf_export" | "dpgf_export_v3";
 
 export type ImportProfileMatch = {
   id: ImportProfileId;
@@ -117,7 +122,44 @@ const DPGF_EXPORT_PROFILE: DeclaredProfile = {
   signature: ["AID", "Prix unitaire HT EUR", "h MO", "Rôle MO"],
 };
 
-const DECLARED_PROFILES = [OPTIMA_PROFILE, EDITOR_EXPORT_PROFILE, DPGF_EXPORT_PROFILE];
+/** One declared column per estimate currency: the v3 DPGF names its amount columns in the version currency. */
+function perCurrency(header: string, target: MappingTargetField): DeclaredColumn[] {
+  return SUPPORTED_ESTIMATE_CURRENCIES.map((currency) => ({ header: `${header} ${currency}`, target }));
+}
+
+const DPGF_V3_EXPORT_PROFILE: DeclaredProfile = {
+  id: "dpgf_export_v3",
+  label: "Export DPGF d'un devis au moteur de calcul 3",
+  columns: [
+    { header: "Type", target: null },
+    { header: "AID", target: null },
+    { header: "Désignation", target: "designation" },
+    { header: "Quantité", target: "quantity" },
+    { header: "Unité", target: "unit" },
+    { header: "Statut", target: null },
+    { header: "TVA (%)", target: null },
+    ...perCurrency("Prix unitaire HT", "unit_price_ht"),
+    { header: "Type FO", target: "supply_type" },
+    { header: "K FO", target: null },
+    { header: "h MO / unité", target: "labor_hours_per_unit" },
+    { header: "K MO", target: null },
+    { header: "Majoration MO (%)", target: "h_mo_majoration_percent" },
+    { header: "Rôle MO", target: null },
+    { header: "Catégorie", target: "category" },
+    { header: "h MO Atelier / unité", target: null },
+    { header: "K MO Atelier", target: null },
+    { header: "Rôle MO Atelier", target: null },
+    { header: "h MO Chantier / unité", target: null },
+    { header: "K MO Chantier", target: null },
+    { header: "Rôle MO Chantier", target: null },
+    ...perCurrency("PU vente HT", "control_unit_price"),
+    ...perCurrency("Total HT brut", "control_total_price"),
+  ],
+  // "Statut" and "h MO / unité" are absent from the v1/v2 DPGF export, whose "h MO" this file lacks.
+  signature: ["AID", "Statut", "h MO / unité", "Rôle MO"],
+};
+
+const DECLARED_PROFILES = [OPTIMA_PROFILE, EDITOR_EXPORT_PROFILE, DPGF_EXPORT_PROFILE, DPGF_V3_EXPORT_PROFILE];
 
 /**
  * Header identity shared by raw headers and the keys both upload parsers store: a raw header is

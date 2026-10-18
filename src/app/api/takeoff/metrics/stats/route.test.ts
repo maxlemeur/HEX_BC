@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// The HTTP pagination contract is exercised with the real SDK in read-all.test.ts.
+// These retained domain tests supply complete query results at the reader boundary.
+vi.mock("@/lib/supabase/read-all", () => import("@/test/complete-reads-fixture"));
+
+
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
@@ -266,7 +271,8 @@ describe("GET /api/takeoff/metrics/stats", () => {
     expect(builders.jobsBuilder.eq).toHaveBeenCalledWith("level", "C");
     expect(builders.runMetricsBuilder.eq).toHaveBeenCalledWith("level", "C");
     expect(builders.itemsSelect).toHaveBeenCalledWith(
-      "id, job_id, confidence, evidence, source_page, is_excluded"
+      "id, job_id, confidence, evidence, source_page, is_excluded",
+      { count: "exact" }
     );
     expect(builders.auditLogsBuilder.in).toHaveBeenNthCalledWith(1, "record_id", [
       "job-c-1",

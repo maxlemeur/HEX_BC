@@ -209,6 +209,8 @@ Point d'attention pour l'implémentation : sur le classeur hydraulique complet, 
    (pont M6), le finaliseur n'est plus appelé pour elle et son contrat d'écrivain le refuse toujours.
 4. **Règle 6 (section importée d'une autre version)** : refus nommé, prouvé par IO07 ; la conversion des
    heures par les règles des modèles est une suite du 2.8 (aucun test rouge ne la couvrait en phase rouge).
+   **Remplacé au 2.8b** ([fiche](estimate-engine-v3-2.8b.md)) : la section entre dans la v3, convertie (P-12) ou
+   copiée ; seul v3 → v1/v2 reste refusé par son nom (D-e). IO07 est réécrit en conséquence.
 5. **Routes d'insertion** : elles répondent 200 depuis toujours ; les parcours rouges IO05/IO06 attendaient
    201 par erreur, corrigé.
 6. **IO04** (collage dans la grille v3) attendait le 2.6 : levé, le 2.6 est fusionné et le collage v3 livré

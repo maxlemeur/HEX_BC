@@ -1,3 +1,4 @@
+import { readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { mapSupabaseError, unprocessableEntity } from "@/lib/estimates/errors";
 import { TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import type {
@@ -11,6 +12,7 @@ import type {
 } from "@/lib/takeoff/types";
 
 type EvidenceSelectResult = {
+  count?: number | null;
   data: unknown[] | null;
   error: unknown | null;
 };
@@ -26,7 +28,8 @@ type EvidenceSupabaseSelectBuilder = PromiseLike<EvidenceSelectResult> & {
   order: (
     column: string,
     options?: { ascending?: boolean }
-  ) => Promise<EvidenceSelectResult>;
+  ) => EvidenceSupabaseSelectBuilder;
+  range: (from: number, to: number) => EvidenceSupabaseSelectBuilder;
 };
 
 type EvidenceSupabaseUpdateBuilder = {
@@ -35,7 +38,7 @@ type EvidenceSupabaseUpdateBuilder = {
 };
 
 type EvidenceSupabaseTable = {
-  select: (columns: string) => EvidenceSupabaseSelectBuilder;
+  select: (columns: string, options?: { count: "exact" }) => EvidenceSupabaseSelectBuilder;
   update?: (payload: Record<string, unknown>) => EvidenceSupabaseUpdateBuilder;
   insert?: (payload: Record<string, unknown>[]) => Promise<EvidenceMutationResult>;
 };
@@ -563,11 +566,11 @@ export async function listSupplierPriceEvidenceRows(input: {
     return new Map();
   }
 
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRowsInChunks(uniqueIds, (pageIds) => input.supabase
     .from("supplier_pricebook")
-    .select("id, supplier_sku, unit, unit_price_cents, currency, valid_from, valid_to, notes, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku)")
+    .select("id, supplier_sku, unit, unit_price_cents, currency, valid_from, valid_to, notes, supplier_catalog_items!supplier_pricebook_supplier_catalog_item_id_fkey(supplier_sku)", { count: "exact" })
     .eq("tenant_id", input.tenantId)
-    .in("id", uniqueIds);
+    .in("id", pageIds));
 
   if (error) {
     throw toTakeoffError(
@@ -620,16 +623,17 @@ export async function syncTakeoffLineEvidences(input: {
     return;
   }
 
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRowsInChunks(lineIds, (pageIds) => input.supabase
     .from("estimate_line_evidences")
     .select(
-      "id, created_at, tenant_id, project_id, version_id, takeoff_job_id, estimate_item_id, fingerprint, evidence_type, evidence_kind, label, source_label, source_file_name, source_page, confidence_score, note, source_record_table, source_record_id, payload, author_user_id, invalidated_at, invalidated_by, invalidation_reason, supersedes_evidence_id"
+      "id, created_at, tenant_id, project_id, version_id, takeoff_job_id, estimate_item_id, fingerprint, evidence_type, evidence_kind, label, source_label, source_file_name, source_page, confidence_score, note, source_record_table, source_record_id, payload, author_user_id, invalidated_at, invalidated_by, invalidation_reason, supersedes_evidence_id",
+      { count: "exact" }
     )
     .eq("tenant_id", input.tenantId)
     .eq("version_id", input.versionId)
     .eq("takeoff_job_id", input.jobId)
-    .in("estimate_item_id", lineIds)
-    .is("invalidated_at", null);
+    .in("estimate_item_id", pageIds)
+    .is("invalidated_at", null));
 
   if (error) {
     throw toTakeoffError(
@@ -767,28 +771,31 @@ export async function listTakeoffLineEvidenceRows(input: {
     return [];
   }
 
-  let query = input.supabase
-    .from("estimate_line_evidences")
-    .select(
-      "id, created_at, tenant_id, project_id, version_id, takeoff_job_id, estimate_item_id, fingerprint, evidence_type, evidence_kind, label, source_label, source_file_name, source_page, confidence_score, note, source_record_table, source_record_id, payload, author_user_id, invalidated_at, invalidated_by, invalidation_reason, supersedes_evidence_id"
-    )
-    .eq("tenant_id", input.tenantId)
-    .eq("version_id", input.versionId)
-    .eq("takeoff_job_id", input.jobId)
-    .in("estimate_item_id", uniqueLineIds);
+  const { data, error } = await readAllRowsInChunks(uniqueLineIds, (pageIds) => {
+    let query = input.supabase
+      .from("estimate_line_evidences")
+      .select(
+        "id, created_at, tenant_id, project_id, version_id, takeoff_job_id, estimate_item_id, fingerprint, evidence_type, evidence_kind, label, source_label, source_file_name, source_page, confidence_score, note, source_record_table, source_record_id, payload, author_user_id, invalidated_at, invalidated_by, invalidation_reason, supersedes_evidence_id",
+        { count: "exact" }
+      )
+      .eq("tenant_id", input.tenantId)
+      .eq("version_id", input.versionId)
+      .eq("takeoff_job_id", input.jobId)
+      .in("estimate_item_id", pageIds);
 
-  if (!input.includeHistory) {
-    query = query.is("invalidated_at", null);
-  }
+    if (!input.includeHistory) {
+      query = query.is("invalidated_at", null);
+    }
 
-  const { data, error } = await query.order("created_at", { ascending: false });
+    return query.order("created_at", { ascending: false });
+  }, { order: [{ column: "created_at", ascending: false }] });
 
   if (error) {
-      throw toTakeoffError(
-        mapSupabaseError(error as never, "Impossible de charger les preuves persistees."),
-        {
-          fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-          retryable: false,
+    throw toTakeoffError(
+      mapSupabaseError(error as never, "Impossible de charger les preuves persistees."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
         jobId: input.jobId,
       }
     );
@@ -819,10 +826,10 @@ export async function mapTakeoffLineEvidencePanel(input: {
 
   let authorNameById = new Map<string, string>();
   if (authorIds.length > 0) {
-    const { data, error } = await input.supabase
+    const { data, error } = await readAllRowsInChunks(authorIds, (pageIds) => input.supabase
       .from("profiles")
-      .select("id, full_name")
-      .in("id", [...new Set(authorIds)]);
+      .select("id, full_name", { count: "exact" })
+      .in("id", pageIds));
 
     if (error) {
       throw toTakeoffError(

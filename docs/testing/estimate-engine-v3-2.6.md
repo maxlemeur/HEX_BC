@@ -331,7 +331,7 @@ prises par délégation du porteur, le 17/10/2026 :
 |---|---|
 | F26-17, présélection fournisseurs sur une v3 | **Recalcul persisté** par l'écrivain de lot de 2.5 (`POST …/batch`, `op: "update"`) : seuls `unit_price_ht_cents` et `selected_supplier_price_id` partent ; le serveur recalcule PU, nets, TVA et totaux et les vérifie (D12) dans la même transaction. Le refus nommé du §2 n'est pas retenu. La comparaison lit l'unité d'une ligne v3 dans `unit_code`, jamais dans `description` |
 | Remise vidée | Vider le champ de l'intention active la met à `none` (choix du §7, tenu par le module pur) |
-| Émission | Fermée jusqu'en 2.7 : « Envoyer » masqué sur une v3, exports désactivés ; PDF et envoi restent refusés par le serveur (`ESTIMATE_ENGINE_UNAVAILABLE`, V3FC02) |
+| Émission | Fermée jusqu'en 2.7 : « Envoyer » masqué sur une v3, exports désactivés ; PDF et envoi restent refusés par le serveur (`ESTIMATE_ENGINE_UNAVAILABLE`, V3FC02). **Ouverte à la fusion de 2.6 dans 2.7** ([estimate-engine-v3-2.7.md](estimate-engine-v3-2.7.md) §13) : « Envoyer » de l'éditeur, PDF, sceau et actions de statut de la fiche, « Exporter Excel » et « Exporter DPGF » de l'éditeur (routes serveur de 2.7, V3E15) ; seuls l'export CSV de l'éditeur (`editor-export.ts`) et le BDC restent fermés (P-20) |
 | Modèles, ouvrages, métré | Refusés sur une v3 jusqu'en 2.8, par les refus nommés existants du serveur (aucune conversion côté éditeur) |
 | Messages de refus des réglages | Ceux proposés au §1.2, suivis de « Valeur conservée : {valeur}. » |
 | TVA par défaut d'une v3 | Tout taux de 0 à 100 %, 2 décimales au plus ; la liste des taux de l'entreprise n'est pas imposée à la saisie, le gel la contrôle (D8) |
@@ -351,7 +351,7 @@ prises par délégation du porteur, le 17/10/2026 :
 | `src/lib/estimates/v3-editor.ts` (nouveau, pur) | lignes affichées depuis l'aperçu du moteur pur (PU, nets, TVA, parts FO/MO, heures dérivées), charge de ligne v3 (saisies seulement : `unit_code`, `pricing_status`, `h_mo*_per_unit`, jamais `h_mo` ni projection), référence de synchronisation, unité du référentiel (`ml — mètre linéaire`, alias validé, inconnue refusée par son nom), taux de TVA proposés, pied v3, pied stocké d'un brouillon | 238 / 1 200 |
 | `src/components/estimates/v3/V3LineCells.tsx` (nouveau) | contexte de grille v3, cellule « Unité pour {t} », « Heures de main-d’œuvre par unité » (`h_mo_per_unit`, 4 décimales) et `output` en lecture seule « Heures de main-d’œuvre totales », sélecteurs « Statut de chiffrage » et « Taux de TVA » | 242 / 1 200 |
 | `src/components/estimates/v3/EstimateV3DraftSummary.tsx` (nouveau) | lecture d'un brouillon v3 sur la fiche et l'impression : montants stockés, TVA par taux, lignes | 97 / 1 200 |
-| `useEstimateEditorState.impl.tsx` | moteur résolu une fois ; `useEstimateV3Settings` branché (aperçu, charge de sauvegarde, tiroir) ; chargement, relectures et normalisation par `editor-engine` ; charge v3 de `saveEstimateVersion` = `buildSavePayload()` (jamais de `discount_bp` dérivé ni de total client) ; lignes relues après « Oui » = nouvelle référence ; v3 : pas de multiplicateur de marge (`effective_margin_multiplier` jamais lu), envoi masqué, exports désactivés | 2 894 → 2 908 (pistes) → 2 926 après la fusion d'`origin/main` (§10.1) / 3 100 |
+| `useEstimateEditorState.impl.tsx` | moteur résolu une fois ; `useEstimateV3Settings` branché (aperçu, charge de sauvegarde, tiroir) ; chargement, relectures et normalisation par `editor-engine` ; charge v3 de `saveEstimateVersion` = `buildSavePayload()` (jamais de `discount_bp` dérivé ni de total client) ; lignes relues après « Oui » = nouvelle référence ; v3 : pas de multiplicateur de marge (`effective_margin_multiplier` jamais lu), envoi masqué, exports désactivés (depuis la fusion du 2.7 : « Envoyer », Excel et DPGF actifs, seuls CSV et BDC fermés, [2.7](estimate-engine-v3-2.7.md) §13.6) | 2 894 → 2 908 (pistes) → 2 926 après la fusion d'`origin/main` (§10.1) / 3 100 |
 | `useEstimateEditorSyncController.ts` | `:729` remplacé par `reconcilesEditorTotals` ; la charge de lot passe par `toEngineItemWrite` ; la référence de synchronisation porte les saisies v3 | 1 199 → 1 199 / 1 200 |
 | `useEstimateEditorCalculation.ts` | v3 : aucun calcul historique, lignes affichées depuis l'aperçu ; après la fusion, `computePersistedTotals` (PR #36) rend `null` sur une v3 | — |
 | `EstimateEditorTable.tsx` | pistes : inchangé, la grille reçoit le contexte v3 d'`EstimateEditorPage` ; intégration : l'unité de la comparaison fournisseurs vient du hook (`activeSupplierComparisonUnit`, F26-20) | 2 564 → 2 577 (2.9) → 2 578 / 2 600 |
@@ -1108,7 +1108,7 @@ Première assertion en échec de chaque parcours (les assertions `expect.soft` d
 | `V3E08` | 1 | (soft) P : 110,00 € / 25,00 € / 18,5 % ; « Hors lot » : 0,00 € / 0,00 € / - ; « Temps MO manquant » après la sauvegarde : non | (soft) P : 110,00 € / 11,50 € / 9,5 % ; « Hors lot » : 30,00 € / -30,00 € (en rouge) / - ; « Temps MO manquant » encore levé (F26-24, F26-25) |
 | `V3E09` | 1 | (soft) offre « barre » désactivée et refusée par son nom ; `description` nulle après l'association | (soft) offre « barre » active, sans refus ; `description` « ML » (F26-26) |
 | `V3E10` | 1 | question de propagation ouverte par Ctrl+S | aucune question (F26-27) |
-| `V3E11` | 1 | (soft) plus rien en attente après 0 % ; (soft) arrondi stocké 2,50 € sélectionné ; PDF et modèle désactivés avec leur raison | (soft) « Non sauvegardé » ; (soft) `value` « none », « Aucun », 5 options ; PDF et modèle actifs, aucune raison (F26-28 à F26-30) |
+| `V3E11` | 1 | (soft) plus rien en attente après 0 % ; (soft) arrondi stocké 2,50 € sélectionné ; PDF et modèle désactivés avec leur raison (depuis la fusion du 2.7 : PDF actif, seul le modèle fermé, [2.7](estimate-engine-v3-2.7.md) §13) | (soft) « Non sauvegardé » ; (soft) `value` « none », « Aucun », 5 options ; PDF et modèle actifs, aucune raison (F26-28 à F26-30) |
 | `V3E12` | 1 | « Examiner 1 suggestion » | « Examiner 3 suggestions » : **préalable faux**, la règle floue de `suggestion-scoring` appariait les trois lignes d'un même préfixe ; corrigé sans toucher une assertion (`1e235ce4` : mot-clé « robinetterie » porté par la seule ligne B) |
 | `V3E12` | 2 | K FO 1,3 sur B, HT 453,50 € | K FO 1, HT 434,00 €, refus générique (F26-32) |
 | `V3E13` | 1 | collage refusé par son nom, rien d'écrit | ligne collée créée, révision changée, HT 39,00 € (F26-31) |
@@ -1192,10 +1192,8 @@ migrations passée ; `git -c core.whitespace=cr-at-eol diff --check origin/main.
 
 ### 11.6 Limites restantes (après la revue)
 
-- **Éditeur mobile d'une ligne** (largeur téléphone) et **restauration d'un brouillon en conflit** : restent v2 sur une
-  v3. Dans l'éditeur mobile, une heure totale est ignorée sans message (la charge v3 retire `h_mo`) et l'unité saisie
-  s'écrit dans `description`, sans effet sur `unit_code` ; l'unité et les heures par unité se saisissent dans la
-  grille.
+- ~~**Éditeur mobile d'une ligne** (largeur téléphone) et **restauration d'un brouillon en conflit** : restent v2 sur
+  une v3~~ : corrigés par le sous-lot 2.6b (A13, A14 ; `estimate-engine-v3-2.6b.md`, V3E17, V3E18).
 - **Conversion et duplication de section** : « Convertir en section », « Convertir en ligne » (`PATCH /items`),
   « Dupliquer la section » et « Dupliquer vers un autre devis » (insertion directe, hors contrat d'écrivain de M4)
   sont refusés sur une v3 par le serveur, sans rien écrire ; le refus n'est pas nommé pour la v3 (avis « Conversion
@@ -1203,8 +1201,8 @@ migrations passée ; `git -c core.whitespace=cr-at-eol diff --check origin/main.
   contrat des modèles et des ouvrages (2.8) ou par un refus nommé.
 - **Collage** : refusé sur une v3 tant que son contrat n'est pas fixé (unité du référentiel, heures par unité ou
   totales, statut).
-- **Règles de suggestion qui proposent une unité** (`description`) : appliquées en lot sur une v3, elles l'écrivent dans
-  `description`, sans effet sur `unit_code`.
+- ~~**Règles de suggestion qui proposent une unité** (`description`) : appliquées en lot sur une v3, elles l'écrivent
+  dans `description`~~ : corrigé par le sous-lot 2.6b (A15, V3E19).
 - **Taux horaire d'un rôle** : seul le brouillon ouvert est recalculé ; un autre brouillon v3 du même propriétaire
   garde ses montants stockés jusqu'à sa prochaine écriture (contrat de 2.5 : chaque écrivain recalcule et vérifie).
 - **Sous-détail de ligne** : « Marge € » d'une v3 est brute (avant la remise et l'arrondi commercial du pied), comme

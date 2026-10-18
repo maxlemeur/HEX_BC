@@ -1,3 +1,4 @@
+import { readAllRows } from "@/lib/supabase/read-all";
 import * as XLSX from "xlsx";
 import { z } from "zod";
 
@@ -1279,27 +1280,30 @@ async function snapshotTakeoffPersistenceState(input: {
   level: ProcessableTakeoffLevel;
 }): Promise<TakeoffPersistenceSnapshot> {
   const [resultsResponse, itemsResponse, runMetricsResponse] = await Promise.all([
-    input.supabase
+    readAllRows(() => input.supabase
       .from("takeoff_results" as never)
       .select(
-        "id, tenant_id, job_id, extracted_json, warnings, tables, provider_meta, raw_response, confidence, token_count, cost_cents, duration_ms" as never
+        "id, tenant_id, job_id, extracted_json, warnings, tables, provider_meta, raw_response, confidence, token_count, cost_cents, duration_ms" as never,
+        { count: "exact" }
       )
       .eq("tenant_id" as never, input.job.tenant_id as never)
-      .eq("job_id" as never, input.job.id as never),
-    input.supabase
+      .eq("job_id" as never, input.job.id as never)),
+    readAllRows(() => input.supabase
       .from("takeoff_items" as never)
       .select(
-        "id, tenant_id, job_id, result_id, designation, quantity, unit, confidence, evidence, source_file_name, source_page, metadata, is_excluded, exclusion_reason, is_verified, verified_at, verified_by" as never
+        "id, tenant_id, job_id, result_id, designation, quantity, unit, confidence, evidence, source_file_name, source_page, metadata, is_excluded, exclusion_reason, is_verified, verified_at, verified_by" as never,
+        { count: "exact" }
       )
       .eq("tenant_id" as never, input.job.tenant_id as never)
-      .eq("job_id" as never, input.job.id as never),
-    input.supabase
+      .eq("job_id" as never, input.job.id as never)),
+    readAllRows(() => input.supabase
       .from("takeoff_run_metrics" as never)
       .select(
-        "id, tenant_id, job_id, result_id, level, provider, model, chunk_index, chunk_start_page, chunk_end_page, input_tokens, reasoning_tokens, output_tokens, total_tokens, cost_cents, duration_ms, timed_out, budget_exceeded, metadata" as never
+        "id, tenant_id, job_id, result_id, level, provider, model, chunk_index, chunk_start_page, chunk_end_page, input_tokens, reasoning_tokens, output_tokens, total_tokens, cost_cents, duration_ms, timed_out, budget_exceeded, metadata" as never,
+        { count: "exact" }
       )
       .eq("tenant_id" as never, input.job.tenant_id as never)
-      .eq("job_id" as never, input.job.id as never),
+      .eq("job_id" as never, input.job.id as never)),
   ]);
 
   if (resultsResponse.error) {

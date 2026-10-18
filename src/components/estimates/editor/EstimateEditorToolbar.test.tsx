@@ -54,7 +54,10 @@ function renderToolbar(
       onOpenVersionZeroDialog={vi.fn()}
       versionZeroActionLabel={versionZeroActionLabel}
       isVersionZeroActionDisabled={false}
-      isExportDisabled={false}
+      isExcelExportDisabled={false}
+      isCsvExportDisabled={false}
+      isDpgfExportDisabled={false}
+      isBdcExportDisabled={false}
       isExporting={false}
       exportLoadingLabel=""
       activeExportMode={null}

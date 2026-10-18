@@ -10,6 +10,7 @@ import {
 
 import { type SuggestionPreview } from "@/components/estimates/components/EstimateSuggestionRow";
 import { type SuggestionLearningState } from "@/components/estimates/estimate-editor-table-types";
+import { useEstimateV3Grid } from "@/components/estimates/v3/V3LineCells";
 import { sendEstimateSuggestionRuleFeedback } from "@/lib/estimates/client";
 import { rankSuggestions } from "@/lib/estimates/suggestion-scoring";
 import type { Database } from "@/types/database";
@@ -182,8 +183,11 @@ export function useEstimateEditorSuggestions({
     usageCountOverrideByRuleId,
   ]);
 
+  // Sous-lot 2.6b (A15, revue) : sur une v3, une règle ne remplace pas une unité choisie ; elle ne la propose donc pas,
+  // et une suggestion réduite à rien n'est pas affichée (comme en lot, bulk-suggest.ts).
+  const v3Grid = useEstimateV3Grid();
   const buildSuggestionParts = useCallback(
-    (rule: SuggestionRule) => {
+    (rule: SuggestionRule, keepsChosenUnit = false) => {
       const parts: string[] = [];
       if (rule.category_id) {
         const category = categoryById.get(rule.category_id);
@@ -194,7 +198,7 @@ export function useEstimateEditorSuggestions({
         const supplyType = supplyTypeById.get(supplyTypeId);
         parts.push(`Materiau: ${supplyType?.name ?? "Type inconnu"}`);
       }
-      if (rule.unit) parts.push(`Unité: ${rule.unit}`);
+      if (rule.unit && !keepsChosenUnit) parts.push(`Unité: ${rule.unit}`);
       if (rule.k_fo !== null) parts.push(`K FO: ${rule.k_fo}`);
       if (rule.k_mo !== null) parts.push(`K MO: ${rule.k_mo}`);
       if (rule.labor_role_id) {
@@ -226,7 +230,7 @@ export function useEstimateEditorSuggestions({
         .map((suggestion) => {
           const rule = suggestion.rule as SuggestionRule & Record<string, unknown>;
           const learningBoost = toSuggestionLearningBoost(rule);
-          const parts = buildSuggestionParts(rule);
+          const parts = buildSuggestionParts(rule, Boolean(v3Grid && item.unit_code));
           return {
             rule,
             score: suggestion.score,
@@ -252,6 +256,7 @@ export function useEstimateEditorSuggestions({
     isReadOnly,
     items,
     scoringRules,
+    v3Grid,
     visibleLineIds,
   ]);
 

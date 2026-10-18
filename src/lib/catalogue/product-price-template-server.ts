@@ -1,3 +1,4 @@
+import { readAllRows } from "@/lib/supabase/read-all";
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { maxPriceValidTo } from "@/lib/catalogue/price-validity";
@@ -147,8 +148,8 @@ export async function importProductPriceTemplate(
   const supabase = await getAuthenticatedSupabase();
 
   const [productsResult, suppliersResult] = await Promise.all([
-    supabase.from("products").select("id, reference"),
-    supabase.from("suppliers").select("id, name").eq("is_active", true),
+    readAllRows(() => supabase.from("products").select("id, reference", { count: "exact" })),
+    readAllRows(() => supabase.from("suppliers").select("id, name", { count: "exact" }).eq("is_active", true)),
   ]);
 
   if (productsResult.error) {
@@ -292,7 +293,7 @@ export async function importProductPriceTemplate(
     }
   }
 
-  const refreshedProductsResult = await supabase.from("products").select("id, reference");
+  const refreshedProductsResult = await readAllRows(() => supabase.from("products").select("id, reference", { count: "exact" }));
   if (refreshedProductsResult.error) {
     throw mapDatabaseError(
       refreshedProductsResult.error,

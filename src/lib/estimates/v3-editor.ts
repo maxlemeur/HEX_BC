@@ -207,6 +207,13 @@ export function readEstimateV3LineMargin(line: EstimateV3LineResult | null): Est
 
 /* ---------- Association d'un article (revue de 2.6, F26-26, même contrat que F26-20) ---------- */
 
+/**
+ * Sous-lot 2.8b (A8, D-b) : la conversion ligne ↔ section n'a pas d'écrivain v3 ; désactivée avec ce motif dans
+ * l'éditeur, refusée par le même message côté serveur (`ESTIMATE_V3_ITEM_CONVERSION_UNAVAILABLE`).
+ */
+export const ESTIMATE_V3_ITEM_CONVERSION_REASON =
+  "Conversion ligne ↔ section indisponible sur un devis au moteur de calcul 3 : supprimez l’élément puis recréez-le.";
+
 /** Libellé du refus, celui de la comparaison fournisseurs et de la suggestion du catalogue. */
 export const ESTIMATE_V3_UNIT_MISMATCH_LABEL = "Unité différente du devis";
 
@@ -287,6 +294,61 @@ export function resolveEstimateV3UnitInput(raw: string, currentUnitCode: string 
     return { kind: "invalid", message: `« ${text} » est un statut de ligne, pas une unité : choisissez-le dans la colonne Statut.` };
   }
   return { kind: "invalid", message: `Unité inconnue du référentiel : « ${text} ».` };
+}
+
+/**
+ * Lot 2, sous-lot 2.6b (A15) : unité proposée par une règle de suggestion sur une v3, résolue dans le référentiel
+ * (`unit_code`, jamais `description`) ; une unité inconnue ou un statut est refusé par son message.
+ */
+export function resolveEstimateV3RuleUnit(raw: string): { ok: true; unitCode: string | null } | { ok: false; message: string } {
+  const resolution = resolveEstimateV3UnitInput(raw, null);
+  if (resolution.kind === "invalid") return { ok: false, message: resolution.message };
+  return { ok: true, unitCode: resolution.kind === "unit" ? resolution.unitCode : null };
+}
+
+/**
+ * Lot 2, sous-lot 2.6b (A15, revue) : ce que l'unité d'une règle de suggestion écrit sur une ligne. v1/v2 :
+ * `description`, inchangé. v3 : `unit_code` du référentiel et seulement sur une ligne sans unité, une règle ne
+ * remplaçant jamais une unité choisie (comme en lot, `bulk-suggest.ts`) ; une unité inconnue est refusée par son nom.
+ */
+export function resolveEstimateRuleUnitPatch(
+  rawUnit: string | null | undefined,
+  line: Pick<EstimateItem, "unit_code">,
+  v3: boolean
+): { ok: true; patch: { description?: string; unit_code?: string } } | { ok: false; message: string } {
+  const unit = rawUnit?.trim();
+  if (!unit) return { ok: true, patch: {} };
+  if (!v3) return { ok: true, patch: { description: unit } };
+  if (line.unit_code) return { ok: true, patch: {} };
+  const resolution = resolveEstimateV3RuleUnit(unit);
+  if (!resolution.ok) return resolution;
+  return { ok: true, patch: resolution.unitCode ? { unit_code: resolution.unitCode } : {} };
+}
+
+/** Fiche article d'une ligne : unité affichée et refus d'une offre (v3 : `unit_code` ; v1/v2 : saisie ou description). */
+export function resolveEstimateArticleSheetUnit(
+  v3: boolean,
+  item: Pick<EstimateItem, "unit_code" | "description">,
+  unitDraft: string | undefined
+): { lineUnit: string | null; suggestionRefusal?: (suggestion: CataloguePriceSuggestion) => string | null } {
+  if (!v3) return { lineUnit: unitDraft ?? item.description ?? null };
+  return {
+    lineUnit: item.unit_code ?? null,
+    suggestionRefusal: (suggestion) => resolveEstimateV3SuggestionUnitRefusal(suggestion, item.unit_code),
+  };
+}
+
+/**
+ * Lot 2, sous-lot 2.6b (revue) : ligne de la liste mobile d'une v3. Une ligne non chiffrée affiche son statut ; une
+ * ligne chiffrée, son unité du référentiel ou « sans unité » (que le gel refuse), jamais l'unité « u » d'une v1/v2.
+ */
+export function resolveEstimateV3MobileLineMeta(item: Pick<EstimateItem, "pricing_status" | "unit_code">): {
+  unitValue: string; metaLabel: string | null;
+} {
+  const status = item.pricing_status ?? "priced";
+  if (status === "priced") return { unitValue: item.unit_code || "sans unité", metaLabel: null };
+  const label = ESTIMATE_V3_PRICING_STATUS_OPTIONS.find((option) => option.value === status)?.label ?? status;
+  return { unitValue: item.unit_code ?? "", metaLabel: label };
 }
 
 /* ---------- TVA (D8) ---------- */

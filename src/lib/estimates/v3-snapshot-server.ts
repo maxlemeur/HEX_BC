@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 
 import { readTenantCalcPolicy } from "@/lib/estimates/calc-policy-server";
 import { ESTIMATE_VERSION_CONFLICT_MESSAGE } from "@/lib/estimates/constants";
@@ -12,8 +12,9 @@ import type { Database, Json } from "@/types/database";
 /**
  * Lot 2, sous-lot 2.5 - gel v3 (conception D12, D15, §6.5) par `public.freeze_estimate_v3_snapshot`,
  * jumelle de la RPC v2 (même signature). Le TS calcule par le moteur pur 2.4 ; PostgreSQL recalcule
- * le devis complet et refuse tout écart d'un centime (`ESTIMATE_V3_PROJECTION_MISMATCH`). Seul le
- * gel d'approbation est ouvert en 2.5 : l'émission v3 (envoi, document) arrive avec M5 (2.7).
+ * le devis complet et refuse tout écart d'un centime (`ESTIMATE_V3_PROJECTION_MISMATCH`). Le gel
+ * d'approbation est ouvert en 2.5 ; le gel de document de l'émission (M5, 2.7) réutilise le même
+ * calcul et les mêmes refus nommés (`v3-document-snapshot-server.ts`).
  */
 
 type Supabase = SupabaseClient<Database>;
@@ -52,9 +53,20 @@ function resolveEmbeddedOne<T>(value: T | T[] | null): T | null {
   return Array.isArray(value) ? (value[0] ?? null) : value;
 }
 
-export async function freezeEstimateV3Snapshot(
-  input: FreezeEstimateV3SnapshotInput
-): Promise<EstimateV3FreezeResult> {
+/** Arguments calculés d'un gel v3 (contexte, lignes et totaux figés), contrôlés avant la RPC. */
+export type EstimateV3FreezeArguments = {
+  p_calculation_context: Json;
+  p_item_snapshots: Json;
+  p_version_totals: Json;
+};
+
+/**
+ * Calcul d'un gel v3 par le moteur pur, avec les refus nommés relus par le SQL (rôle, unité, taux
+ * autorisé). Commun au gel d'approbation et au gel de document de l'émission (2.7).
+ */
+export async function prepareEstimateV3FreezeArguments(
+  input: Pick<FreezeEstimateV3SnapshotInput, "supabase" | "tenantId" | "versionId">
+): Promise<EstimateV3FreezeArguments> {
   const { data: versionData, error: versionError } = await input.supabase
     .from("estimate_versions")
     .select(
@@ -110,6 +122,39 @@ export async function freezeEstimateV3Snapshot(
       "ESTIMATE_V3_TAX_RATE_NOT_ALLOWED");
   }
   await assertEstimateVersionUnchanged({ supabase: input.supabase, version: versionData });
+  return {
+    p_calculation_context: projection.context as unknown as Json,
+    p_item_snapshots: toEstimateV3ItemSnapshots(projection) as Json,
+    p_version_totals: toEstimateV3FrozenTotals(projection) as Json,
+  };
+}
+
+/** Refus d'une RPC de gel v3 rendus avec leur code (communs à l'approbation et au document). */
+export function toEstimateV3FreezeError(error: PostgrestError, expectedUpdatedAt: string): Error {
+  const named = NAMED_FREEZE_ERRORS.find((code) => error.message.includes(code));
+  if (named) return badRequest("Le gel v3 a été refusé par le contrôle du calcul.", { code: error.code }, named);
+  if (error.message.includes("ESTIMATE_V3_CALCULATION_CONTEXT_CONFLICT")) {
+    return conflict("Le contexte de calcul a changé. Rechargez le devis avant de poursuivre.", { code: error.code }, "CONTEXT_CHANGED");
+  }
+  if (error.code === "40001" || error.code === "40P01" || error.message.includes("ESTIMATE_VERSION_CONFLICT")) {
+    return conflict(ESTIMATE_VERSION_CONFLICT_MESSAGE, { updated_at: expectedUpdatedAt }, "VERSION_CONFLICT");
+  }
+  return mapSupabaseError(error, "Impossible de figer le calcul de la version cible.");
+}
+
+/** Ligne figée rendue par une RPC de gel v3, ou conflit de version. */
+export function toEstimateV3FreezeResult(data: unknown, expectedUpdatedAt: string): EstimateV3FreezeResult {
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) {
+    throw conflict(ESTIMATE_VERSION_CONFLICT_MESSAGE, { updated_at: expectedUpdatedAt }, "VERSION_CONFLICT");
+  }
+  return row as EstimateV3FreezeResult;
+}
+
+export async function freezeEstimateV3Snapshot(
+  input: FreezeEstimateV3SnapshotInput
+): Promise<EstimateV3FreezeResult> {
+  const computed = await prepareEstimateV3FreezeArguments(input);
   const { data, error } = await input.rpcClient.rpc("freeze_estimate_v3_snapshot", {
     p_version_id: input.versionId,
     p_tenant_id: input.tenantId,
@@ -117,24 +162,8 @@ export async function freezeEstimateV3Snapshot(
     p_expected_content_revision: input.expectedContentRevision,
     p_actor_user_id: input.actorUserId,
     p_purpose: input.purpose,
-    p_calculation_context: projection.context as unknown as Json,
-    p_item_snapshots: toEstimateV3ItemSnapshots(projection) as Json,
-    p_version_totals: toEstimateV3FrozenTotals(projection) as Json,
+    ...computed,
   });
-  if (error) {
-    const named = NAMED_FREEZE_ERRORS.find((code) => error.message.includes(code));
-    if (named) throw badRequest("Le gel v3 a été refusé par le contrôle du calcul.", { code: error.code }, named);
-    if (error.message.includes("ESTIMATE_V3_CALCULATION_CONTEXT_CONFLICT")) {
-      throw conflict("Le contexte de calcul a changé. Rechargez le devis avant de poursuivre.", { code: error.code }, "CONTEXT_CHANGED");
-    }
-    if (error.code === "40001" || error.code === "40P01" || error.message.includes("ESTIMATE_VERSION_CONFLICT")) {
-      throw conflict(ESTIMATE_VERSION_CONFLICT_MESSAGE, { updated_at: input.expectedUpdatedAt }, "VERSION_CONFLICT");
-    }
-    throw mapSupabaseError(error, "Impossible de figer le calcul de la version cible.");
-  }
-  const row = Array.isArray(data) ? data[0] : data;
-  if (!row) {
-    throw conflict(ESTIMATE_VERSION_CONFLICT_MESSAGE, { updated_at: input.expectedUpdatedAt }, "VERSION_CONFLICT");
-  }
-  return row as EstimateV3FreezeResult;
+  if (error) throw toEstimateV3FreezeError(error, input.expectedUpdatedAt);
+  return toEstimateV3FreezeResult(data, input.expectedUpdatedAt);
 }

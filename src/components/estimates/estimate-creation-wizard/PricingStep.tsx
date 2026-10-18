@@ -5,6 +5,7 @@ import { getCommercialRoundingOptions } from "@/components/estimates/rounding-op
 import { NumberInput, parseLocalizedNumberInput } from "@/components/ui-legacy/NumberInput";
 import {
   PROJECT_FAMILY_OPTIONS,
+  resolveWizardV3Rounding,
   type StepErrors,
   type WizardData,
 } from "@/components/estimates/estimate-creation-wizard/shared";
@@ -13,13 +14,68 @@ import { FieldDescription, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input, controlSizes, controlSurface } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { parseRatePercentDraft } from "@/lib/estimates/editor-values";
+import { usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import { cn } from "@/lib/utils";
 
 type PricingStepProps = {
   data: WizardData;
   errors: StepErrors;
+  /** Sous-lot 2.10a (A4) : moteur des nouvelles versions ; 3 remplace la marge par les coefficients de vente. */
+  engine?: 2 | 3;
   updateField: <K extends keyof WizardData>(key: K, value: WizardData[K]) => void;
 };
+
+const SALE_COEFFICIENT_INPUTS = [
+  { field: "saleCoefficientFo", id: "wiz-sale-coefficient-fo", label: "Coefficient de vente FO" },
+  { field: "saleCoefficientMo", id: "wiz-sale-coefficient-mo", label: "Coefficient de vente MO" },
+] as const;
+
+/** Moteur 3 (D5) : coefficients FO et MO de la version, initialisés à ceux de la politique. */
+function SaleCoefficientFields({
+  data,
+  errors,
+  updateField,
+}: Readonly<Pick<PricingStepProps, "data" | "errors" | "updateField">>) {
+  return (
+    <div
+      role="group"
+      aria-labelledby="wiz-sale-coefficients-label"
+      aria-describedby="wiz-sale-coefficients-hint"
+      className="flex min-w-0 flex-col gap-2 sm:col-span-2"
+    >
+      <span id="wiz-sale-coefficients-label" className="text-sm font-medium text-foreground">
+        Coefficients de vente <span aria-hidden="true">*</span>
+      </span>
+      <FieldDescription id="wiz-sale-coefficients-hint" className="text-xs">
+        PU = déboursé fourniture × coefficient FO + déboursé main-d&apos;œuvre × coefficient MO. Nombre
+        supérieur à 0 et au plus 10, 4 décimales au plus.
+      </FieldDescription>
+      <div className="grid gap-4 sm:grid-cols-2">
+        {SALE_COEFFICIENT_INPUTS.map(({ field, id, label }) => (
+          <div key={field} className="flex min-w-0 flex-col gap-2">
+            <FieldLabel htmlFor={id}>{label}</FieldLabel>
+            <Input
+              id={id}
+              type="text"
+              inputMode="decimal"
+              autoComplete="off"
+              value={data[field]}
+              aria-required="true"
+              aria-invalid={errors[field] ? true : undefined}
+              aria-describedby={errors[field] ? `${id}-error` : undefined}
+              onChange={(event) => updateField(field, event.target.value)}
+            />
+            {errors[field] && (
+              <FieldError id={`${id}-error`} className="text-danger">
+                {errors[field]}
+              </FieldError>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 const NUMBER_INPUT_CLASS = cn(controlSurface, controlSizes.md, "w-full pr-9");
 const PERCENT_SUFFIX_CLASS =
@@ -33,62 +89,13 @@ function parseNonNegativePercent(value: string) {
   return Math.max(parsedValue, 0);
 }
 
-export function PricingStep({
+/** Moteurs 1 et 2 : marge fixe ou par tranche, inchangée par le sous-lot 2.10a. */
+function MarginFields({
   data,
-  errors,
   updateField,
-}: PricingStepProps) {
-  const rounding = getCommercialRoundingOptions("EUR", data.roundingMode, Number(data.roundingStepCents));
-  function handleRoundingChange(value: string) {
-    const option = rounding.options.find((entry) => entry.value === value);
-    if (!option || option.preserved) return;
-    updateField("roundingMode", option.mode);
-    updateField("roundingStepCents", String(option.step));
-  }
-
+}: Readonly<Pick<PricingStepProps, "data" | "updateField">>) {
   return (
-    <div className="grid gap-6 sm:grid-cols-2">
-      <div className="flex min-w-0 flex-col gap-2">
-        <FieldLabel htmlFor="wiz-date-devis">
-          Date devis <span aria-hidden="true">*</span>
-        </FieldLabel>
-        <Input
-          id="wiz-date-devis"
-          type="date"
-          value={data.dateDevis}
-          aria-required="true"
-          aria-invalid={errors.dateDevis ? true : undefined}
-          aria-describedby={errors.dateDevis ? "wiz-date-devis-error" : undefined}
-          onChange={(event) => updateField("dateDevis", event.target.value)}
-        />
-        {errors.dateDevis && (
-          <FieldError id="wiz-date-devis-error" className="text-danger">
-            {errors.dateDevis}
-          </FieldError>
-        )}
-      </div>
-
-      <div className="flex min-w-0 flex-col gap-2">
-        <FieldLabel htmlFor="wiz-validite">
-          Validité (jours) <span aria-hidden="true">*</span>
-        </FieldLabel>
-        <Input
-          id="wiz-validite"
-          type="number"
-          min={1}
-          value={data.validiteJours}
-          aria-required="true"
-          aria-invalid={errors.validiteJours ? true : undefined}
-          aria-describedby={errors.validiteJours ? "wiz-validite-error" : undefined}
-          onChange={(event) => updateField("validiteJours", event.target.value)}
-        />
-        {errors.validiteJours && (
-          <FieldError id="wiz-validite-error" className="text-danger">
-            {errors.validiteJours}
-          </FieldError>
-        )}
-      </div>
-
+    <>
       <div
         role="group"
         aria-labelledby="wiz-margin-mode-label"
@@ -155,6 +162,79 @@ export function PricingStep({
           <MarginTiersExplanation />
         </div>
       )}
+    </>
+  );
+}
+
+export function PricingStep({
+  data,
+  errors,
+  engine = 2,
+  updateField,
+}: PricingStepProps) {
+  const isV3 = usesSaleCoefficients(engine);
+  // Moteur 3 (D7) : « Aucun » et les paliers inférieurs seulement, jamais un mode v2 restauré d'un brouillon.
+  const v3Rounding = isV3 ? resolveWizardV3Rounding(data) : null;
+  const rounding = getCommercialRoundingOptions(
+    "EUR",
+    v3Rounding?.mode ?? data.roundingMode,
+    v3Rounding?.step ?? Number(data.roundingStepCents)
+  );
+  function handleRoundingChange(value: string) {
+    const option = rounding.options.find((entry) => entry.value === value);
+    if (!option || option.preserved) return;
+    updateField("roundingMode", option.mode);
+    updateField("roundingStepCents", String(option.step));
+  }
+
+  return (
+    <div className="grid gap-6 sm:grid-cols-2">
+      <div className="flex min-w-0 flex-col gap-2">
+        <FieldLabel htmlFor="wiz-date-devis">
+          Date devis <span aria-hidden="true">*</span>
+        </FieldLabel>
+        <Input
+          id="wiz-date-devis"
+          type="date"
+          value={data.dateDevis}
+          aria-required="true"
+          aria-invalid={errors.dateDevis ? true : undefined}
+          aria-describedby={errors.dateDevis ? "wiz-date-devis-error" : undefined}
+          onChange={(event) => updateField("dateDevis", event.target.value)}
+        />
+        {errors.dateDevis && (
+          <FieldError id="wiz-date-devis-error" className="text-danger">
+            {errors.dateDevis}
+          </FieldError>
+        )}
+      </div>
+
+      <div className="flex min-w-0 flex-col gap-2">
+        <FieldLabel htmlFor="wiz-validite">
+          Validité (jours) <span aria-hidden="true">*</span>
+        </FieldLabel>
+        <Input
+          id="wiz-validite"
+          type="number"
+          min={1}
+          value={data.validiteJours}
+          aria-required="true"
+          aria-invalid={errors.validiteJours ? true : undefined}
+          aria-describedby={errors.validiteJours ? "wiz-validite-error" : undefined}
+          onChange={(event) => updateField("validiteJours", event.target.value)}
+        />
+        {errors.validiteJours && (
+          <FieldError id="wiz-validite-error" className="text-danger">
+            {errors.validiteJours}
+          </FieldError>
+        )}
+      </div>
+
+      {isV3 ? (
+        <SaleCoefficientFields data={data} errors={errors} updateField={updateField} />
+      ) : (
+        <MarginFields data={data} updateField={updateField} />
+      )}
 
       <div className="flex min-w-0 flex-col gap-2">
         <FieldLabel htmlFor="wiz-tax-rate">
@@ -208,8 +288,17 @@ export function PricingStep({
           ))}
         </NativeSelect>
         <FieldDescription id="wiz-rounding-hint" className="text-xs">
-          Le TTC est arrondi au palier inférieur, sans descendre sous le HT.
-          Un montant déjà exact reste inchangé.
+          {isV3 ? (
+            <>
+              Le HT net est arrondi au palier inférieur ; l’écart est une remise HT et la TVA est calculée
+              après lui.
+            </>
+          ) : (
+            <>
+              Le TTC est arrondi au palier inférieur, sans descendre sous le HT.
+              Un montant déjà exact reste inchangé.
+            </>
+          )}
         </FieldDescription>
       </div>
 

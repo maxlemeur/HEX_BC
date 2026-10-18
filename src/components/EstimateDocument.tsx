@@ -2,15 +2,20 @@ import {
   BusinessDocumentBrandHeader,
   BusinessDocumentFooter,
   BusinessDocumentFrame,
+  type BusinessDocumentCompany,
 } from "@/components/documents/BusinessDocumentPrimitives";
 import { EstimateDocumentTableRows } from "@/components/estimate-document/EstimateDocumentTableRows";
+import { EstimateDocumentTotalsV3 } from "@/components/estimate-document/EstimateDocumentTotalsV3";
 import {
   buildLegacyDocumentBreakdown,
   DOCUMENT_CALC_ENGINE_VERSION,
   prepareEstimateDocumentData,
+  prepareEstimateV3DocumentData,
   type EstimateDocumentCalculationVersion,
   type EstimateItem,
+  type PrepareEstimateDocumentV3Input,
 } from "@/components/estimate-document/prepare-estimate-document-data";
+import { footerFromStoredV3Document } from "@/lib/estimates/v3-document-presentation";
 import type { CalcEngineVersion } from "@/lib/estimates/calc-engine-version";
 import { normalizeDocumentIssuerDisplay } from "@/lib/documents/issuer-display";
 import {
@@ -67,6 +72,18 @@ export type EstimateDocumentProps = {
   preserveStoredSnapshot?: boolean;
   calculationVersion?: EstimateDocumentCalculationVersion;
   maxVisibleSectionLevel?: number | null;
+  /**
+   * Lot 2, sous-lot 2.7 : version v3 figée. Le document relit alors son gel (lignes brutes, pied
+   * v3) au lieu du moteur historique ; les grandeurs v1/v2 ci-dessus sont ignorées.
+   */
+  v3Version?: PrepareEstimateDocumentV3Input["version"];
+  /**
+   * Revue Codex de 3d78d662 : entreprise figée par la copie émise d'une v3 (contrat client 2), au lieu
+   * de la configuration courante. Les autres champs d'identité arrivent de la copie par leurs props.
+   */
+  company?: BusinessDocumentCompany;
+  /** Référence telle que la copie émise l'a figée, déjà suffixée de sa version : prime sur `estimateReference`. */
+  issuedEstimateReference?: string | null;
 };
 
 function formatDate(dateStr: string): string {
@@ -103,14 +120,16 @@ function EstimateContinuationHeader({
   title,
   versionNumber,
   documentLabel = "Document contractuel",
+  company,
 }: Readonly<{
   title: string;
   versionNumber: number;
   documentLabel?: string;
+  company?: BusinessDocumentCompany;
 }>) {
   return (
     <div className="mb-8">
-      <BusinessDocumentBrandHeader />
+      <BusinessDocumentBrandHeader company={company} />
       <div className="mt-6 flex items-end justify-between gap-4 border-b border-border pb-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-brand-orange">
@@ -131,7 +150,8 @@ function EstimateContinuationHeader({
 function EstimateTermsPage({
   terms,
   versionNumber,
-}: Readonly<{ terms: EstimateTermsSnapshot; versionNumber: number }>) {
+  company,
+}: Readonly<{ terms: EstimateTermsSnapshot; versionNumber: number; company?: BusinessDocumentCompany }>) {
   const clauses = parseEstimateTermsClauses(terms.body);
   const reviewLabel =
     terms.isDraft || !terms.legalReviewedAt
@@ -151,6 +171,7 @@ function EstimateTermsPage({
         documentLabel={
           terms.isDraft ? "Projet non contractuel" : "Document contractuel"
         }
+        company={company}
       />
       {terms.isDraft ? (
         <p
@@ -180,7 +201,7 @@ function EstimateTermsPage({
       <p className="mt-5 text-[10px] text-muted-foreground print:mt-3 print:text-[8px]">
         {reviewLabel}
       </p>
-      <BusinessDocumentFooter />
+      <BusinessDocumentFooter company={company} />
     </BusinessDocumentFrame>
   );
 }
@@ -219,14 +240,20 @@ export function EstimateDocument({
   preserveStoredSnapshot = false,
   calculationVersion,
   maxVisibleSectionLevel = null,
+  v3Version,
+  company,
+  issuedEstimateReference,
 }: EstimateDocumentProps) {
   const resolvedCurrency: SupportedEstimateCurrency =
     normalizeEstimateCurrency(currency) ?? "EUR";
+  const v3Prepared = v3Version
+    ? prepareEstimateV3DocumentData({ calcEngineVersion: 3, items, version: v3Version, currency: resolvedCurrency,
+        validiteJours, portalUrl, maxVisibleSectionLevel, layout })
+    : null;
 
-  const formattedEstimateReference = formatEstimateReference(
-    estimateReference,
-    versionNumber
-  );
+  const formattedEstimateReference = issuedEstimateReference !== undefined
+    ? issuedEstimateReference
+    : formatEstimateReference(estimateReference, versionNumber);
   const {
     rows,
     numberingById,
@@ -240,7 +267,7 @@ export function EstimateDocument({
     validiteLabel,
     taxLabel,
     qrLikeCells,
-  } = prepareEstimateDocumentData({
+  } = v3Prepared ?? prepareEstimateDocumentData({
     items,
     // EST-E26 (T6, étape 12) : le document dérive du moteur d'autorité. Le
     // breakdown est construit ici à partir des props actuelles (étape 13 le
@@ -296,7 +323,7 @@ export function EstimateDocument({
         className={`estimate-document estimate-document--${resolvedLayout.density}`}
       >
         <div className="mb-6">
-          <BusinessDocumentBrandHeader />
+          <BusinessDocumentBrandHeader company={company} />
 
           <div className="mt-5 grid gap-5 sm:grid-cols-[240px_minmax(0,1fr)_190px] sm:items-start print:mt-3 print:grid-cols-[220px_minmax(0,1fr)_160px] print:gap-3">
             <div className="min-w-0 text-sm">
@@ -348,7 +375,7 @@ export function EstimateDocument({
               {validiteLabel}
             </dd>
           </div>
-          {discountCents > 0 ? (
+          {!v3Prepared && discountCents > 0 ? (
             <div className="flex items-center justify-between gap-4">
               <dt>Remise</dt>
               <dd className="font-semibold text-secondary-foreground">
@@ -446,11 +473,15 @@ export function EstimateDocument({
                 lineUnitPriceHtById={lineUnitPriceHtById}
                 currency={resolvedCurrency}
                 layout={resolvedLayout}
+                v3LinesById={v3Prepared?.v3.linesById}
               />
             </tbody>
           </table>
         </div>
 
+        {v3Prepared ? (
+          <EstimateDocumentTotalsV3 footer={footerFromStoredV3Document(v3Prepared.v3.totals)} currency={resolvedCurrency} />
+        ) : (
         <div className="mb-8 flex justify-end print:mb-4">
           <div className="w-full max-w-[320px] overflow-hidden rounded-xl border border-border">
             <div className="flex items-center justify-between bg-brand-blue px-5 py-3 print-color-adjust">
@@ -513,6 +544,7 @@ export function EstimateDocument({
             ) : null}
           </div>
         </div>
+        )}
 
         {conditionsText && !conditionsOnNewPage ? (
           <EstimateConditionsBlock text={conditionsText} />
@@ -546,7 +578,7 @@ export function EstimateDocument({
           </div>
         ) : null}
 
-        <BusinessDocumentFooter />
+        <BusinessDocumentFooter company={company} />
       </BusinessDocumentFrame>
 
       {conditionsOnNewPage ? (
@@ -554,14 +586,15 @@ export function EstimateDocument({
           <EstimateContinuationHeader
             title={ESTIMATE_SERVICE_LIMITS_TITLE}
             versionNumber={versionNumber}
+            company={company}
           />
           <EstimateConditionsBlock text={conditionsText} showTitle={false} />
-          <BusinessDocumentFooter />
+          <BusinessDocumentFooter company={company} />
         </BusinessDocumentFrame>
       ) : null}
 
       {showTerms ? (
-        <EstimateTermsPage terms={terms} versionNumber={versionNumber} />
+        <EstimateTermsPage terms={terms} versionNumber={versionNumber} company={company} />
       ) : null}
     </>
   );

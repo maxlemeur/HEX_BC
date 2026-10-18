@@ -5,7 +5,9 @@ PostgREST renvoie au plus 1 000 lignes par requête (`supabase/config.toml`, `[a
 Plusieurs lectures de `src/lib/estimates/server.ts` ne sont pas paginées : sur une version v1/v2,
 elles tronquent la copie en silence et l'API répond 201. Le 2.8b ne pagine ces lectures que vers une
 v3 (`readAllItemsForV3Copy`, `paginate: true`) ; son parcours IO13 y montre la troncature. Ce
-document couvre les chemins v1/v2.
+document couvre les chemins v1/v2. Entre-temps, `33c7031b` a corrigé sur `main` la lecture des lignes
+DPGF mappées (`readAllRows`, P1 · 01 de `docs/audits/postgrest-1000-rows-2026-10-18.md`) ; cet audit
+écarte explicitement les copies de sections v1/v2, que couvre ce document.
 
 ## Ce que tronque la lecture
 
@@ -19,7 +21,7 @@ et Exécutions, run 3).
 
 ## Défaillances observables (écrites avant le code)
 
-| Id | Chemin | Lecture tronquée | Défaillance sur `main` |
+| Id | Chemin | Lecture tronquée | Défaillance sur `main` `6260621c` (RL4 et RL5 corrigés depuis par `33c7031b`) |
 | --- | --- | --- | --- |
 | RL1 | Dupliquer sur place la première section (`POST /api/estimates/{v}/sections/{s}/duplicate`) | `duplicateSectionInternal`, lignes de la version source | 10 lignes copiées sur 12, 201 |
 | RL2 | Liste des sections de la boîte d'import (`GET /api/estimates/{v}/sections`), puis import de la première dans une autre v2 (`POST …/import-sections`, `append`) | `listEstimateImportSections` ; `importSectionsFromVersion`, lignes source | 10 sections proposées sur 99, à 10 lignes chacune, puis 10 lignes importées, 201 |
@@ -57,20 +59,24 @@ Les lectures réutilisent les lecteurs complets existants, sans nouvelle abstrac
 
 - `readAllEstimateItems` (`src/lib/estimates/read-all-items-server.ts`, celui du recalcul et de la
   lecture de l'éditeur) pour les lignes source de `duplicateSectionInternal`, les lignes source et
-  cible de `importSectionsFromVersion` et la liste `listEstimateImportSections` : pages de 500,
-  nombre exact vérifié à chaque page, refus si la version change pendant la lecture ;
-- `fetchMappedRowsForImport` (`src/lib/affaires/import-flow-server.ts`, déjà celui de
-  `confirmUnifiedImportFlow` et des brouillons de structure) pour `dpgf_rows_mapped`, à la place de
-  `loadMappedRowsForImport`, supprimée. Ses deux appelants (import dans un brouillon, création depuis
-  le DPGF lié) en profitent ; la reprise sur zéro ligne reste inchangée.
+  cible de `importSectionsFromVersion` vers une v1/v2 et la liste `listEstimateImportSections` : pages
+  de 500, nombre exact vérifié à chaque page, refus si la version change pendant la lecture. Vers une
+  v3, ces copies gardent `readAllItemsForV3Copy` du 2.8b (la même lecture, épinglée à la version que
+  vérifie l'écrivain de lot) ;
+- `dpgf_rows_mapped` : le run 7 a été qualifié avec `fetchMappedRowsForImport`
+  (`src/lib/affaires/import-flow-server.ts`) à la place de `loadMappedRowsForImport`. À la fusion de
+  `main`, cette branche reprend le lecteur de `33c7031b` (`loadMappedRowsForImport` sur `readAllRows`,
+  erreurs SQL rendues par `mapSupabaseError`) ; RL4 et RL5 restent les parcours de ce lecteur pour ses
+  deux appelants (import dans un brouillon, création depuis le DPGF lié).
 
 L'ordre de lecture passe de (position, created_at) à (position, id). Les index uniques
 `estimate_items_root_position_unique` et `estimate_items_child_position_unique` interdisent deux
 frères à la même position : l'arbre copié, ses positions et l'ordre des lignes fusionnées ne changent
 pas.
 
-Avec le 2.8b (PR #59), le conflit se résout en gardant ces lectures pour tous les moteurs : son
-`readAllItemsForV3Copy` et son option `paginate` deviennent inutiles.
+Fusion de `main` après le 2.8b (PR #59, `8f7183ab`) : le conflit de `server.ts` se résout en lisant
+toutes les lignes pour tous les moteurs (v3 par `readAllItemsForV3Copy`, v1/v2 par
+`readAllEstimateItems`) ; seules ces trois lectures diffèrent de `main`.
 
 ## Exécutions
 
@@ -115,17 +121,15 @@ par la lecture de l'éditeur et le recalcul sur les mêmes versions.
   instruction d'AGENTS.md ; c'est l'insertion existante, pas une lecture ajoutée, et le temps par
   instruction n'est pas mesuré.
 - Le chemin v1 partage le code des lectures v2 (branche non v3) ; le parcours ne crée que des v2.
-- Lignes DPGF mappées : `fetchMappedRowsForImport` refuse une lecture dont le nombre change entre deux
-  pages (erreur simple, donc 500 générique de l'API, sans nouvelle tentative) ; l'ancienne lecture
+- Lignes DPGF mappées : `readAllRows` refuse une lecture dont le nombre change entre deux pages
+  (erreur simple, donc 500 générique de l'API, sans nouvelle tentative) ; l'ancienne lecture
   unique importait en silence l'état partiel. Ce cas demande un remappage (`createMapping` supprime puis
   réinsère par lots de 500, sans transaction commune) validé entre deux pages : aucun parcours ne le
   reproduit, il n'est ni réessayé ni couvert ici. Le remappage non atomique est antérieur : une lecture
   entre deux lots, stable, importe toujours un ensemble partiel en 201.
 - RL4 est synthétique : ses 995 lignes vides (refusées sans titre, puis ignorées) gardent l'insertion
   petite ; RL5 couvre le même lecteur sur 1 001 lignes chiffrées par la création, déjà ensembliste.
-- Hors périmètre, relevées au passage (même limite de 1 000 lignes, non corrigées ni couvertes ici) :
-  `listEstimateVersionVariants` compte les lignes de toutes les variantes en une lecture, donc sous-compte
-  en silence au-delà de 1 000 lignes au total ; `reorderEstimateItems` et `moveEstimateItem` lisent les
-  frères d'un parent en une lecture et refusent comme « liste obsolète » un parent de plus de 1 000
-  éléments ; `listEstimateImportSources` (versions proposées par la boîte d'import) ne garde que les
-  1 000 versions modifiées le plus récemment.
+- Hors périmètre, relevées au passage (même limite de 1 000 lignes, non couvertes ici) : le nombre de
+  lignes des variantes (`listEstimateVersionVariants`) et les frères lus par `reorderEstimateItems` et
+  `moveEstimateItem` sont paginés sur `main` par `33c7031b` ; `listEstimateImportSources` (versions
+  proposées par la boîte d'import, les 1 000 plus récentes seulement) n'y est pas corrigée.

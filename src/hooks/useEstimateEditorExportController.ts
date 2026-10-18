@@ -40,7 +40,13 @@ export type EstimateEditorExportController = {
     exportBdc: () => Promise<void>;
   };
   meta: {
-    isDisabled: boolean;
+    /** Excel, DPGF et BDC (GET /api/estimates/{id}/export). */
+    isStreamingDisabled: boolean;
+    /**
+     * CSV : construit par le client (editor-export.ts) pour une v1/v2, ce qui exige les réglages et les totaux ;
+     * écrit par le serveur depuis le document pour une v3 (GET …/export?format=csv, sous-lot 2.7b), comme Excel.
+     */
+    isCsvDisabled: boolean;
     loadingLabel: string;
   };
 };
@@ -57,6 +63,8 @@ export function useEstimateEditorExportController(input: {
   qualityFlagsByItemId: EstimateQualityFlagsByItemId;
   qualityCounts: EstimateQualityFlagCounts;
   isLaborSplitEnabled: boolean;
+  /** Moteur 3 : CSV écrit par le serveur depuis le document v3, jamais recalculé dans le navigateur. */
+  isV3?: boolean;
   reportError: (message: string) => void;
   resolveErrorMessage: (message: string) => string;
 }): EstimateEditorExportController {
@@ -72,6 +80,7 @@ export function useEstimateEditorExportController(input: {
     qualityFlagsByItemId,
     qualityCounts,
     isLaborSplitEnabled,
+    isV3 = false,
     reportError,
     resolveErrorMessage,
   } = input;
@@ -163,13 +172,17 @@ export function useEstimateEditorExportController(input: {
       includeModeQueryParam: boolean;
       logMessage: string;
       fallbackMessage: string;
+      /** CSV d'une v3 : même route, format csv (sous-lot 2.7b). */
+      csv?: boolean;
     }) => {
       if (isExporting || !versionId) return;
 
       setIsExporting(true);
-      setActiveMode(options.mode);
+      setActiveMode(options.csv ? "csv" : options.mode);
       try {
-        if (options.includeModeQueryParam) {
+        if (options.csv) {
+          await exportEstimate(versionId, "csv");
+        } else if (options.includeModeQueryParam) {
           await exportEstimate(versionId, "xlsx", {
             mode: options.mode,
           });
@@ -225,6 +238,17 @@ export function useEstimateEditorExportController(input: {
 
   const exportCsv = useCallback(async () => {
     if (isExporting) return;
+    if (isV3) {
+      // v3 : les totaux du client sont nuls ; le serveur écrit le CSV depuis le document v3 (sous-lot 2.7b).
+      await runStreamingExport({
+        mode: "standard",
+        includeModeQueryParam: false,
+        logMessage: "Erreur lors de l'export CSV v3.",
+        fallbackMessage: "Impossible d'exporter le devis en CSV.",
+        csv: true,
+      });
+      return;
+    }
 
     const recapRow = buildEstimateRecapRow({
       projectName,
@@ -267,12 +291,14 @@ export function useEstimateEditorExportController(input: {
   }, [
     fetchSupplierComparisonsByItemId,
     isLaborSplitEnabled,
+    isV3,
     items,
     laborRoleById,
     projectName,
     qualityCounts,
     qualityFlagsByItemId,
     settings,
+    runStreamingExport,
     supplyTypeById,
     totals,
     version,
@@ -297,13 +323,19 @@ export function useEstimateEditorExportController(input: {
     loadingLabel = "Export CSV...";
   }
 
+  // Excel, DPGF et BDC sont produits par GET /api/estimates/{id}/export : ils
+  // n'ont pas besoin des totaux du client (nuls sur une v3). Le CSV d'une
+  // v1/v2, construit ici (editor-export.ts), les exige ; celui d'une v3 vient
+  // de la même route (format csv) et suit donc le drapeau du streaming.
   const meta = useMemo(
     () => ({
-      isDisabled:
-        isExporting || !version || !settings || !totals,
+      isStreamingDisabled: isExporting || !version,
+      isCsvDisabled: isV3
+        ? isExporting || !version
+        : isExporting || !version || !settings || !totals,
       loadingLabel,
     }),
-    [isExporting, loadingLabel, settings, totals, version]
+    [isExporting, isV3, loadingLabel, settings, totals, version]
   );
 
   return useMemo(

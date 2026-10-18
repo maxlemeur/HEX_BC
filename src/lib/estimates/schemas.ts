@@ -1054,6 +1054,7 @@ export const instantiateEstimateFromTemplateSchema = z.preprocess(
       date_devis: record.date_devis ?? record.dateDevis,
       validite_jours: record.validite_jours ?? record.validiteJours,
       project_notes: record.project_notes ?? record.projectNotes,
+      expected_calc_engine_version: record.expected_calc_engine_version ?? record.expectedCalcEngineVersion,
     };
   },
   z
@@ -1064,6 +1065,8 @@ export const instantiateEstimateFromTemplateSchema = z.preprocess(
       date_devis: dateOnlySchema.optional(),
       validite_jours: positiveIntegerSchema.optional(),
       project_notes: optionalNullableTextSchema.optional(),
+      // Sous-lot 2.10a (D3) : comme `version.expected_calc_engine_version` de la création.
+      expected_calc_engine_version: expectedCalcEngineVersionSchema.optional(),
     })
     .superRefine((payload, ctx) => {
       if (payload.project_id || payload.project_name) {
@@ -1692,6 +1695,8 @@ export const importEstimateSectionsResultSchema = z.object({
   createdSectionIds: z.array(uuidSchema),
   createdLineIds: z.array(uuidSchema),
   versionToken: estimateVersionTokenDtoSchema.nullable(),
+  /** Sous-lot 2.8b (A7, P-12) : lignes v1/v2 entrées dans une v3 dont les heures changent (`converted_lines`). */
+  convertedLines: z.array(z.object({ title: z.string(), templateHours: z.number(), convertedHours: z.number() })).optional(),
 });
 export type ImportEstimateSectionsResult = z.infer<
   typeof importEstimateSectionsResultSchema
