@@ -452,6 +452,11 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
 //  V3X-15 Prix fournisseur d'une offre convertie (2.9, barre de 3 ml) non ramené à l'unité de la ligne.
 //  V3X-16 Régression v1/v2 : le CSV de l'éditeur ou le BDC d'une v2 change de colonnes ou de valeurs (garde V3X06,
 //         verte avant).
+// Ajouté à la revue de 37440c82 (V3X07) :
+//  V3X-17 Ventilation atelier/chantier d'une v3 : le CSV n'a pas les colonnes atelier/chantier et garde h/u, rôle et
+//         K MO de la ligne, que le moteur ignore ; le BDC juge la ventilation autrement que le moteur (`uses_split` :
+//         drapeau du calcul et heures, rôle ou K MO atelier/chantier) et écrit le K MO saisi au lieu du K MO pondéré
+//         par les heures, comme une v1/v2. Une ligne qui ne porte qu'un rôle atelier y garde ses heures et son rôle.
 
 /** Réponse brute d'une route d'export, lue dans le navigateur (statut, en-têtes, octets, corps JSON d'un refus). */
 async function fetchExport(browser: Browser, versionId: string, query: string) {
@@ -776,5 +781,82 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
       await record("v2-exports", { versionId, csv: { filename: csvFile.suggestedFilename, path: csvPath, bytes: csvBytes.length, sha256: digest(csvBytes), rows: csvRows },
         bdc: { url: bdc.url, filename: bdc.filename, path: bdc.path, bytes: bdc.bytes.length, sha256: bdc.sha256 }, expected, actual });
       expect(actual, "the v2 editor CSV and BDC V1.1 are unchanged (V3X-16)").toEqual(expected);
+    });
+
+  armyTest("V3X07 with the atelier/chantier labour split on, the v3 CSV adds the split columns and the v3 BDC reads a split line as the engine priced it: atelier and chantier roles, summed hours per unit, K MO weighted by hours; a line with only an atelier role is split too",
+    { session: "army", tags: ["critical", "local", "engine-v3"], timeout: 600_000 }, async ({ app, screen, browser, army }) => {
+      const ui: Ui = { app, screen, browser };
+      const record = (label: string, data: unknown) => recordEvidence(army, `v3x07-${label}`, data);
+      const title = (ref: string) => `${army.runPrefix} ${ref}`;
+      const draft = await prepareV3Draft(ui, army, "V3X07");
+      // Le propriétaire dédié a son propre tenant : le drapeau n'atteint aucun autre parcours.
+      const flag = await apiRequest<Envelope<unknown>>(browser, "PATCH", "/api/feature-flags",
+        { tenant_id: draft.owner.tenantId, flag_key: "EST_031_LABOR_SPLIT", enabled: true });
+      await record("split-flag", { tenantId: draft.owner.tenantId, status: flag.status, ok: flag.body.ok, error: flag.body.error ?? null });
+      expect([flag.status, flag.body.ok]).toEqual([200, true]);
+      const role = draft.tuyauteurId;
+      // c_FO 1,30, c_MO 1,20, Tuyauteur 40 €/h, sans majoration.
+      // S1 ventilée : 1 h atelier (K 1,5) + 1 h chantier (K 1) ; h/u, rôle et K MO de la ligne (3 h) ignorés par le moteur.
+      //    PU = 10,00 × 1,30 + (60,00 + 40,00) × 1,20 = 133,00 ; Q 2 : brut 266,00, FO 26,00, MO 240,00 ; K MO pondéré 1,25.
+      // S2 rôle atelier seul : ventilée sans heures (uses_split), MO 0. PU = 20,00 × 1,30 = 26,00 ; Q 1 : brut 26,00.
+      // P1 sans ventilation : PU = 5,00 × 1,30 + 40,00 × 1,20 = 54,50 ; Q 3 : brut 163,50, FO 19,50, MO 144,00.
+      // Brut 455,50 ; TVA 20 % 91,10 ; TTC 546,60.
+      const lines = [
+        { ...withLabor(title("S1"), "u", 2, 1000, "priced", 3, role), h_mo_atelier_per_unit: 1, k_mo_atelier: 1.5, labor_role_atelier_id: role,
+          h_mo_chantier_per_unit: 1, k_mo_chantier: 1, labor_role_chantier_id: role },
+        { ...withLabor(title("S2"), "ml", 1, 2000, "priced", 1, role), labor_role_atelier_id: role },
+        withLabor(title("P1"), "u", 3, 500, "priced", 1, role),
+      ];
+      await seedLines(ui, army, draft, "v3x07", lines);
+      const settled = await readEstimate(browser, draft.versionId);
+      expect([settled.version.calc_engine_version, ...totalsOf(settled)]).toEqual([3, 45550, 9110, 54660]);
+      const standard = await exportWorkbook(browser, draft.versionId, "standard");
+      const posteOf = (lineTitle: string) => String(standard.sheets.Devis?.rows.find((row) =>
+        normalized(row.cells["Désignation"]?.value) === lineTitle)?.cells.Poste?.value ?? "");
+
+      const csv = await fetchExport(browser, draft.versionId, "format=csv");
+      const rows = csv.status === 200 ? readCsv(csv.bytes) : [];
+      const header = [...V3_CSV_HEADER, "h MO atelier / unité", "Rôle MO atelier", "K MO atelier", "h MO chantier / unité", "Rôle MO chantier",
+        "K MO chantier"];
+      // Ligne ventilée : h/u, rôle et K MO de la ligne vides (le moteur ne les lit pas), colonnes atelier/chantier remplies.
+      const csvLine = (ref: string, unit: string, quantity: number, pr: number, legacy: [string, string, string], pu: number, gross: number,
+        split: string[]) => [draft.sectionTitle, posteOf(title(ref)), title(ref), unit, String(quantity), "Chiffrée", String(pr), "", "", "", "",
+        "1", legacy[0], "100", legacy[1], legacy[2], String(pu), String(gross), "20", ...split];
+      const footerRow = (label: string, value: string) => header.map((_, index) => (index === 2 ? label : index === 17 ? value : ""));
+      const csvActual = { status: csv.status, error: csv.error, header: rows[0] ?? null,
+        lines: rows.slice(1, 4).map((row) => row.map((cell) => normalized(cell))),
+        footer: rows.slice(4).map((row) => row.map((cell) => normalized(cell))) };
+      const csvExpected = { status: 200, error: null, header,
+        lines: [
+          csvLine("S1", "u", 2, 10, ["", "", ""], 133, 266, ["1", "Tuyauteur", "1.5", "1", "Tuyauteur", "1"]),
+          csvLine("S2", "ml", 1, 20, ["", "", ""], 26, 26, ["", "Tuyauteur", "1", "", "", "1"]),
+          csvLine("P1", "u", 3, 5, ["1", "Tuyauteur", "1"], 54.5, 163.5, ["", "", "", "", "", ""]),
+        ],
+        footer: [footerRow("Moteur de calcul", "3"), footerRow("Montants", "Aperçu du brouillon (non figé)"),
+          ...standardFooter(standard).map(([label, amount]) => footerRow(label, String(amount)))] };
+
+      const bdc = await fetchExport(browser, draft.versionId, "format=xlsx&mode=bdc");
+      const titles = { S1: title("S1"), S2: title("S2"), P1: title("P1") };
+      const view = bdc.status === 200 ? bdcView(await readSheets(bdc.bytes), titles) : null;
+      const bdcLine = (unit: string, quantity: number, pr: number, kMo: number, roleMo: string, fo: number, mo: number, hoursPerUnit: number,
+        pu: number) => ({
+        "Type": "line", "Unité": unit, "Quantité": quantity, "Type FO": "", "PU FO HT EUR": pr, "PR FO HT EUR": pr, "K FO": 1, "h MO": null,
+        "K MO": kMo, "Taux horaire MO EUR": null, "Rôle MO": roleMo, "Catégorie": "", "Total FO HT EUR": fo, "Total MO HT EUR": mo,
+        "Total HT EUR": Math.round((fo + mo) * 100) / 100, "Fournisseur 1 Nom": "", "Fournisseur 1 Prix EUR": null, "Fournisseur 1 Ref": "",
+        "Statut": "Chiffrée", "h MO / unité": hoursPerUnit, "PU vente HT EUR": pu });
+      const bdcActual = { status: bdc.status, error: bdc.error, header: view?.header ?? null, lines: view?.lines ?? null, sums: view?.sums ?? null };
+      const bdcExpected = { status: 200, error: null, header: [...BDC_V11_HEADER, ...BDC_V3_COLUMNS],
+        lines: {
+          S1: bdcLine("u", 2, 10, 1.25, "Atelier: Tuyauteur / Chantier: Tuyauteur", 26, 240, 2, 133),
+          S2: bdcLine("ml", 1, 20, 1, "Atelier: Tuyauteur", 26, 0, 0, 26),
+          P1: bdcLine("u", 3, 5, 1, "Tuyauteur", 19.5, 144, 1, 54.5),
+        },
+        sums: { fo: 2600 + 2600 + 1950, mo: 24000 + 14400, ht: 45550 } };
+      await record("exports", { versionId: draft.versionId, projectId: draft.projectId,
+        csv: { sha256: csv.sha256, bytes: csv.bytes.length, expected: csvExpected, actual: csvActual },
+        bdc: { sha256: bdc.sha256, bytes: bdc.bytes.length, expected: bdcExpected, actual: bdcActual },
+        standard: { sha256: standard.sha256 } });
+      expect({ csv: csvActual, bdc: bdcActual }, "the v3 CSV and BDC read the labour split as the engine priced it (V3X-17)")
+        .toEqual({ csv: csvExpected, bdc: bdcExpected });
     });
 }
