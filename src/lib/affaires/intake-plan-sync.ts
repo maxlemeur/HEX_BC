@@ -1,3 +1,4 @@
+import { readAllRows } from "@/lib/supabase/read-all";
 import { randomUUID } from "node:crypto";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -118,11 +119,11 @@ async function findProjectPlanSet(input: {
   supabase: Supabase;
   project: SyncProject;
 }) {
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("plan_sets" as never)
-    .select("id, estimate_version_id, name, metadata" as never)
+    .select("id, estimate_version_id, name, metadata" as never, { count: "exact" })
     .eq("project_id" as never, input.project.id as never)
-    .order("updated_at" as never, { ascending: false });
+    .order("updated_at" as never, { ascending: false }));
 
   if (error) {
     throw error;
@@ -207,10 +208,10 @@ async function listSyncedPlanFiles(input: {
   supabase: Supabase;
   planSetId: string;
 }) {
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("plan_files" as never)
-    .select("id, file_path, metadata" as never)
-    .eq("plan_set_id" as never, input.planSetId as never);
+    .select("id, file_path, metadata" as never, { count: "exact" })
+    .eq("plan_set_id" as never, input.planSetId as never));
 
   if (error) {
     throw error;

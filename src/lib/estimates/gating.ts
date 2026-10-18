@@ -1,3 +1,4 @@
+import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { isPriceStale } from "@/lib/catalogue/stale-prices";
@@ -408,12 +409,12 @@ export async function evaluateEstimateSendGating(
     warningOverride,
   ] = await Promise.all([
     readAllEstimateItems({ supabase, tenantId, versionId: version.id }),
-    supabase
+    readAllRows(() => supabase
       .from("margin_tiers")
-      .select("id")
+      .select("id", { count: "exact" })
       .eq("tenant_id", tenantId)
       .order("threshold_cents", { ascending: true })
-      .order("position", { ascending: true }),
+      .order("position", { ascending: true })),
     supabase
       .from("estimate_documents")
       .select("id")
@@ -466,11 +467,11 @@ export async function evaluateEstimateSendGating(
 
   let staleSupplierPriceIds = new Set<string>();
   if (selectedSupplierPriceIds.length > 0) {
-    const { data, error } = await supabase
+    const { data, error } = await readAllRowsInChunks(selectedSupplierPriceIds, (pageIds) => supabase
       .from("supplier_pricebook")
-      .select("id, updated_at, created_at")
+      .select("id, updated_at, created_at", { count: "exact" })
       .eq("tenant_id", tenantId)
-      .in("id", selectedSupplierPriceIds);
+      .in("id", pageIds));
 
     if (error) {
       throw mapSupabaseError(

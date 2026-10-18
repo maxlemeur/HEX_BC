@@ -1,3 +1,4 @@
+import { readAllRows } from "@/lib/supabase/read-all";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { badRequest, mapSupabaseError } from "@/lib/estimates/errors";
@@ -59,11 +60,11 @@ export async function loadHierarchyItems(input: {
   tenantId: string;
   versionId: string;
 }) {
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("estimate_items")
-    .select("id, parent_id, item_type")
+    .select("id, parent_id, item_type", { count: "exact" })
     .eq("tenant_id", input.tenantId)
-    .eq("version_id", input.versionId);
+    .eq("version_id", input.versionId));
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de vérifier la hiérarchie.");

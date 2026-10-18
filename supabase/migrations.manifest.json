@@ -255,6 +255,7 @@
     "20261018013249_estimate_creation_set_based_item_effects.sql": "8b4f54601e21a53b146d7306256f22c5273685e055e267ce87b149a707745dfb",
     "20261018093005_serialize_estimate_draft_lock_acquisition.sql": "66451e191aa8f317c83f2d87aacd39587fa6a6286b68ece431f7ae4352421178",
     "20261018102840_estimate_offer_client_contract_v2.sql": "d0a799c095fdc5b9efef2ab13cf9d13e871877fe03b355f1337d7a27ed32c84f",
+    "20261018170351_complete_estimate_insertion_receipts.sql": "249383335136dcc915d6f586c4f36e6f063da3385808e5ca08208378857e3c09",
     "20261018164448_estimate_engine_v3_default.sql": "0fdaba7ca035528c0f9440d6e8939d4b11856de11a4b29788f7a874da5170c15"
   }
 }

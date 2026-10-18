@@ -1,3 +1,4 @@
+import { readAllRows } from "@/lib/supabase/read-all";
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { cache } from "react";
@@ -1126,13 +1127,13 @@ async function loadImportRows(
   tenantId: string,
   limit: number
 ): Promise<Array<{ row_index: number; payload: unknown }>> {
-  const { data, error } = await supabase
+  const { data, error } = await readAllRows(() => supabase
     .from("dpgf_rows_raw")
-    .select("row_index, payload")
+    .select("row_index, payload, id", { count: "exact" })
     .eq("import_id", importId)
     .eq("tenant_id", tenantId)
     .order("row_index", { ascending: true })
-    .limit(limit);
+    .limit(limit), { limit: limit });
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger les lignes source.");

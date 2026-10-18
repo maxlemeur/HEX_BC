@@ -1,3 +1,4 @@
+import { readAllRows } from "@/lib/supabase/read-all";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { MarginMode } from "@/lib/estimate-calculations";
@@ -51,12 +52,12 @@ export async function loadMarginTiersForTotals(input: {
   supabase: Supabase;
   tenantId: string;
 }): Promise<MarginTier[]> {
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("margin_tiers")
-    .select("threshold_cents, multiplier")
+    .select("threshold_cents, multiplier, id", { count: "exact" })
     .eq("tenant_id", input.tenantId)
     .order("threshold_cents", { ascending: true })
-    .order("position", { ascending: true });
+    .order("position", { ascending: true }));
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger les tranches de marge.");

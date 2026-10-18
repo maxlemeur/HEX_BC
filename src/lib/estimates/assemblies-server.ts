@@ -1,3 +1,4 @@
+import { readAllRowsInChunks } from "@/lib/supabase/read-all";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { finalizeAssemblyCalculation } from "@/lib/estimates/assembly-calculation";
@@ -72,6 +73,20 @@ type EstimateItemRow = Database["public"]["Tables"]["estimate_items"]["Row"] & {
   labor_role_atelier_id?: string | null;
   labor_role_chantier_id?: string | null;
 };
+
+function readInsertionReceipt(value: unknown): EstimateItemRow[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw internalError("Reçu d’insertion incomplet.");
+  }
+  const receipt = value as { items?: unknown; count?: unknown };
+  if (!Array.isArray(receipt.items) || !Number.isSafeInteger(receipt.count) ||
+    receipt.count !== receipt.items.length || receipt.items.some(item =>
+      !item || typeof item !== "object" || typeof item.id !== "string") ||
+    new Set(receipt.items.map(item => item.id)).size !== receipt.items.length) {
+    throw internalError("Reçu d’insertion incomplet ou incohérent.");
+  }
+  return receipt.items as EstimateItemRow[];
+}
 
 export async function listEstimateAssemblies(
   query: ListEstimateAssembliesQueryInput
@@ -614,11 +629,11 @@ async function assertAssemblyLaborRolesResolved(input: {
 }) {
   const assemblyIds = await collectEstimateAssemblyTreeIds(input);
 
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRowsInChunks(assemblyIds, (pageIds) => input.supabase
     .from("estimate_assembly_items")
-    .select("id, title, cost_type, h_mo, labor_role_id")
+    .select("id, title, cost_type, h_mo, labor_role_id", { count: "exact" })
     .eq("tenant_id", input.tenantId)
-    .in("assembly_id", assemblyIds);
+    .in("assembly_id", pageIds));
 
   if (error) {
     throw mapSupabaseError(
@@ -701,7 +716,7 @@ export async function insertAssemblyIntoVersion(input: {
 
 
   const { data, error } = await supabase.rpc(
-    "insert_estimate_assembly_into_version",
+    "insert_estimate_assembly_with_receipt",
     {
       p_version_id: input.versionId,
       p_assembly_id: input.assemblyId,
@@ -727,7 +742,7 @@ export async function insertAssemblyIntoVersion(input: {
     throw mapSupabaseError(error, "Impossible d'insérer l'ouvrage.");
   }
 
-  const insertedItems = Array.isArray(data) ? (data as EstimateItemRow[]) : [];
+  const insertedItems = readInsertionReceipt(data);
   const insertedItemIds = insertedItems.map((item) => item.id);
 
   if (insertedItemIds.length === 0) {
@@ -884,9 +899,8 @@ export async function insertTemplateIntoVersion(input: {
     });
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RPC added in migration, types not yet regenerated
-  const { data, error } = await (supabase.rpc as any)(
-    "insert_estimate_template_into_version",
+  const { data, error } = await supabase.rpc(
+    "insert_estimate_template_with_receipt",
     {
       p_version_id: input.versionId,
       p_template_id: input.templateId,
@@ -912,7 +926,7 @@ export async function insertTemplateIntoVersion(input: {
     throw mapSupabaseError(error, "Impossible d'insérer le template.");
   }
 
-  const insertedItems = Array.isArray(data) ? (data as EstimateItemRow[]) : [];
+  const insertedItems = readInsertionReceipt(data);
   const insertedItemIds = insertedItems.map((item) => item.id);
 
   if (insertedItemIds.length === 0) {
@@ -923,12 +937,12 @@ export async function insertTemplateIntoVersion(input: {
     );
   }
 
-  const { data: reloadedItems, error: reloadError } = await supabase
+  const { data: reloadedItems, error: reloadError } = await readAllRowsInChunks(insertedItemIds, (pageIds) => supabase
     .from("estimate_items")
-    .select("*")
+    .select("*", { count: "exact" })
     .eq("tenant_id", tenantId)
     .eq("version_id", input.versionId)
-    .in("id", insertedItemIds);
+    .in("id", pageIds));
 
   if (reloadError) {
     throw mapSupabaseError(reloadError, "Impossible d'insérer le template.");

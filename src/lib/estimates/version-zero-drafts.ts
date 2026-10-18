@@ -1,3 +1,4 @@
+import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { randomUUID } from "node:crypto";
 import { resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
 import { EstimateEngineUnavailableError, usesPerUnitLabor } from "@/lib/estimates/engine/capabilities";
@@ -974,12 +975,12 @@ async function loadRelevantDrafts(input: {
   tenantId: string;
   versionId: string;
 }) {
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("estimate_version_zero_drafts")
-    .select("*")
+    .select("*", { count: "exact" })
     .eq("tenant_id", input.tenantId)
     .eq("version_id", input.versionId)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false }));
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger les snapshots V0.");
@@ -1889,13 +1890,13 @@ export async function enrichEstimateItemsWithVersionZeroProvenance(input: {
   }
 
   const [draftsResponse, lotsResponse, linesResponse] = await Promise.all([
-    input.supabase
+    readAllRowsInChunks(Array.from(new Set(applications.map((application) => application.draft_id))), (pageIds) => input.supabase
       .from("estimate_version_zero_drafts")
-      .select("*")
+      .select("*", { count: "exact" })
       .in(
         "id",
-        Array.from(new Set(applications.map((application) => application.draft_id)))
-      ),
+        pageIds
+      )),
     selectInChunks(
       Array.from(
         new Set(

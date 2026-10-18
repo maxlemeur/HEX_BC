@@ -1,3 +1,4 @@
+import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
@@ -204,19 +205,19 @@ export async function loadEstimateCalcContext(
   // --- Etapes 2, 4 et 5 en parallele (aucune ne depend des autres).
   const [itemsResult, marginTiersResult, isLaborSplitEnabled] = await Promise.all([
     // Etape 2 : superset des items, tri deterministe.
-    supabase
+    readAllRows(() => supabase
       .from("estimate_items")
-      .select("*")
+      .select("*", { count: "exact" })
       .eq("tenant_id", tenantId)
       .eq("version_id", versionId)
-      .order("position", { ascending: true }),
+      .order("position", { ascending: true })),
     // Etape 4 : bareme du tenant, charge sans condition sur margin_mode.
-    supabase
+    readAllRows(() => supabase
       .from("margin_tiers")
-      .select("threshold_cents, multiplier")
+      .select("threshold_cents, multiplier, id", { count: "exact" })
       .eq("tenant_id", tenantId)
       .order("threshold_cents", { ascending: true })
-      .order("position", { ascending: true }),
+      .order("position", { ascending: true })),
     // Etape 5a : le flag, lu UNE SEULE FOIS (isFeatureEnabled est fail-closed
     // et sans cache).
     isFeatureEnabled(tenantId, ESTIMATE_LABOR_SPLIT_FLAG_KEY, { supabase }),
@@ -243,12 +244,12 @@ export async function loadEstimateCalcContext(
   const laborRateById = new Map<string, number>();
 
   if (laborRoleIds.length > 0) {
-    const laborRolesResult = await supabase
+    const laborRolesResult = await readAllRowsInChunks(laborRoleIds, (pageIds) => supabase
       .from("labor_roles")
-      .select("id, hourly_rate_cents")
+      .select("id, hourly_rate_cents", { count: "exact" })
       // Pas de filtre user_id : cf. point 1 du bloc de documentation ci-dessus.
       .eq("tenant_id", tenantId)
-      .in("id", laborRoleIds);
+      .in("id", pageIds));
 
     if (laborRolesResult.error) {
       throw mapSupabaseError(laborRolesResult.error, LOAD_ERROR_MESSAGE);

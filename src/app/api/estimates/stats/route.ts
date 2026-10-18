@@ -1,3 +1,4 @@
+import { readAllRows } from "@/lib/supabase/read-all";
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import {
   mapSupabaseError,
@@ -70,7 +71,8 @@ export async function GET() {
     let versionsQuery = supabase
       .from("estimate_versions")
       .select(
-        "id, status, created_at, updated_at, total_ht_cents, estimate_projects!inner(user_id, tenant_id, is_archived)"
+        "id, status, created_at, updated_at, total_ht_cents, estimate_projects!inner(user_id, tenant_id, is_archived)",
+        { count: "exact" }
       )
       .eq("tenant_id", tenantId)
       .eq("estimate_projects.tenant_id", tenantId)
@@ -80,7 +82,7 @@ export async function GET() {
       versionsQuery = versionsQuery.eq("estimate_projects.user_id", userId);
     }
 
-    const { data, error } = await versionsQuery;
+    const { data, error } = await readAllRows(() => versionsQuery);
 
     if (error) {
       throw mapSupabaseError(error, "Impossible de charger les statistiques des chiffrages.");

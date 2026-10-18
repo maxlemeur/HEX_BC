@@ -1,3 +1,4 @@
+import { readAllRows, readAllRowsInChunks, type CompleteRowsQuery } from "@/lib/supabase/read-all";
 import type { PostgrestError } from "@supabase/supabase-js";
 import { cache } from "react";
 
@@ -497,17 +498,18 @@ const listLatestDirectionVersions = cache(async function listLatestDirectionVers
   const context = await getAuthenticatedContext();
   assertDirectionAccess(context.tenantRole);
 
-  const { data, error } = await context.supabase
+  const { data, error } = await readAllRows(() => context.supabase
     .from("estimate_versions")
     .select(
-      "id, tenant_id, project_id, version_number, status, approval_status, total_ht_cents, margin_bp, margin_multiplier, margin_mode, calc_engine_version, content_revision, calc_snapshot_content_revision, calc_snapshot_context, discount_bp, discount_amount_cents, gross_ht_cents, discount_applied_cents, updated_at, date_devis, validite_jours, estimate_projects!inner(id, user_id, name, client_name, is_archived)"
+      "id, tenant_id, project_id, version_number, status, approval_status, total_ht_cents, margin_bp, margin_multiplier, margin_mode, calc_engine_version, content_revision, calc_snapshot_content_revision, calc_snapshot_context, discount_bp, discount_amount_cents, gross_ht_cents, discount_applied_cents, updated_at, date_devis, validite_jours, estimate_projects!inner(id, user_id, name, client_name, is_archived)",
+      { count: "exact" }
     )
     .eq("tenant_id", context.tenantId)
     .neq("status", "archived")
     .eq("estimate_projects.is_archived", false)
     .order("project_id", { ascending: true })
     .order("version_number", { ascending: false })
-    .order("updated_at", { ascending: false });
+    .order("updated_at", { ascending: false }));
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger le portefeuille direction.");
@@ -638,14 +640,14 @@ async function listLatestJobsByVersionId(versionIds: string[]) {
   const jobRows = (
     await Promise.all(
       chunkItems(versionIds, DIRECTION_BATCH_SIZE).map(async (batch) => {
-        const { data, error } = await context.supabase
+        const { data, error } = await readAllRows(() => context.supabase
           .from("takeoff_jobs" as never)
-          .select("id, estimate_version_id, status, created_at, completed_at" as never)
+          .select("id, estimate_version_id, status, created_at, completed_at" as never, { count: "exact" })
           .in("estimate_version_id" as never, batch as never)
           .in("status" as never, ["completed", "applied"] as never)
           .order("estimate_version_id" as never, { ascending: true })
           .order("completed_at" as never, { ascending: false })
-          .order("created_at" as never, { ascending: false });
+          .order("created_at" as never, { ascending: false }));
 
         if (error) {
           throw mapSupabaseError(error, "Impossible de charger les derniers jobs métrés.");
@@ -674,7 +676,7 @@ async function listRiskAlertsByVersionId(versionIds: string[]) {
   const alertRows = (
     await Promise.all(
       chunkItems(versionIds, DIRECTION_BATCH_SIZE).map(async (batch) => {
-        const { data, error } = await context.supabase
+        const { data, error } = await readAllRows(() => context.supabase
           .from("estimate_risk_alerts" as never)
           .select(
             [
@@ -705,11 +707,12 @@ async function listRiskAlertsByVersionId(versionIds: string[]) {
               "is_active",
               "first_detected_at",
               "last_detected_at",
-            ].join(", ") as never
+            ].join(", ") as never,
+            { count: "exact" }
           )
           .eq("tenant_id" as never, context.tenantId as never)
           .eq("is_active" as never, true as never)
-          .in("version_id" as never, batch as never);
+          .in("version_id" as never, batch as never));
 
         if (error) {
           throw mapSupabaseError(error, "Impossible de charger les alertes de risque.");
@@ -782,20 +785,18 @@ async function listDirectionPlansMetricsByProjectId(
     chunkItems(versions, DIRECTION_BATCH_SIZE).map(async (batch) => {
       const projectIds = batch.map((version) => version.project_id);
       const versionIds = batch.map((version) => version.id);
-      const { data, error } = await (context.supabase
+      const { data, error } = await (readAllRowsInChunks(projectIds, (pageIds) => context.supabase
         .from("affaire_register_entries" as never)
-        .select("project_id, version_id, status" as never)
+        .select("project_id, version_id, status, id" as never, { count: "exact" })
         .eq("tenant_id" as never, context.tenantId as never)
         .eq("is_active" as never, true as never)
-        .in("project_id" as never, projectIds as never)
-        .or(`version_id.is.null,version_id.in.(${versionIds.join(",")})`) as PromiseLike<{
-        data: Array<{
+        .in("project_id" as never, pageIds as never)
+        .or(`version_id.is.null,version_id.in.(${versionIds.join(",")})`) as unknown as CompleteRowsQuery<{
+          id: string;
           project_id: string;
           version_id: string | null;
           status: string;
-        }> | null;
-        error: PostgrestError | null;
-      }>);
+      }, PostgrestError>));
 
       if (error) {
         throw mapSupabaseError(
@@ -845,11 +846,11 @@ async function listDirectionPlansMetricsByProjectId(
   const [linkRows, decisionRows, estimateItemRows] = await Promise.all([
     Promise.all(
       jobIdBatches.map(async (batch) => {
-        const { data, error } = await context.supabase
+        const { data, error } = await readAllRows(() => context.supabase
           .from("takeoff_dpgf_links" as never)
-          .select("takeoff_job_id" as never)
+          .select("takeoff_job_id, id" as never, { count: "exact" })
           .eq("tenant_id" as never, context.tenantId as never)
-          .in("takeoff_job_id" as never, batch as never);
+          .in("takeoff_job_id" as never, batch as never));
 
         if (error) {
           throw mapSupabaseError(
@@ -863,11 +864,11 @@ async function listDirectionPlansMetricsByProjectId(
     ),
     Promise.all(
       jobIdBatches.map(async (batch) => {
-        const { data, error } = await context.supabase
+        const { data, error } = await readAllRows(() => context.supabase
           .from("takeoff_dpgf_review_decisions" as never)
-          .select("takeoff_job_id" as never)
+          .select("takeoff_job_id, id" as never, { count: "exact" })
           .eq("tenant_id" as never, context.tenantId as never)
-          .in("takeoff_job_id" as never, batch as never);
+          .in("takeoff_job_id" as never, batch as never));
 
         if (error) {
           throw mapSupabaseError(
@@ -881,11 +882,11 @@ async function listDirectionPlansMetricsByProjectId(
     ),
     Promise.all(
       versionIdBatches.map(async (batch) => {
-        const { data, error } = await context.supabase
+        const { data, error } = await readAllRows(() => context.supabase
           .from("estimate_items" as never)
-          .select("version_id" as never)
+          .select("version_id, id" as never, { count: "exact" })
           .eq("tenant_id" as never, context.tenantId as never)
-          .in("version_id" as never, batch as never);
+          .in("version_id" as never, batch as never));
 
         if (error) {
           throw mapSupabaseError(

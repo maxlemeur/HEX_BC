@@ -1,3 +1,4 @@
+import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { buildAffaireRegisterHubHref } from "@/lib/affaires/register";
@@ -983,16 +984,16 @@ async function resolveRelatedTakeoffJobIds(input: {
   versionId: string;
 }) {
   const [directJobsResult, linkedJobsResult] = await Promise.all([
-    input.supabase
+    readAllRows(() => input.supabase
       .from("takeoff_jobs" as never)
-      .select("id" as never)
+      .select("id" as never, { count: "exact" })
       .eq("tenant_id" as never, input.tenantId as never)
-      .eq("estimate_version_id" as never, input.versionId as never),
-    input.supabase
+      .eq("estimate_version_id" as never, input.versionId as never)),
+    readAllRows(() => input.supabase
       .from("takeoff_version_links" as never)
-      .select("takeoff_job_id" as never)
+      .select("takeoff_job_id, id" as never, { count: "exact" })
       .eq("tenant_id" as never, input.tenantId as never)
-      .eq("target_version_id" as never, input.versionId as never),
+      .eq("target_version_id" as never, input.versionId as never)),
   ]);
 
   if (directJobsResult.error) {
@@ -1062,11 +1063,11 @@ async function loadRuleSignalContext(input: {
   }
 
   if (shouldLoadTakeoffEvidenceCoverage) {
-    const { data, error } = await input.supabase
+    const { data, error } = await readAllRowsInChunks(relatedJobIds, (pageIds) => input.supabase
       .from("takeoff_items" as never)
-      .select("id, evidence" as never)
+      .select("id, evidence" as never, { count: "exact" })
       .eq("tenant_id" as never, input.tenantId as never)
-      .in("job_id" as never, relatedJobIds as never);
+      .in("job_id" as never, pageIds as never));
 
     if (error) {
       throw mapSupabaseError(
@@ -1089,12 +1090,12 @@ async function loadRuleSignalContext(input: {
   }
 
   if (shouldLoadDpgfCoverage && input.lineItemIds.length > 0) {
-    const { data, error } = await input.supabase
+    const { data, error } = await readAllRowsInChunks(relatedJobIds, (pageIds) => input.supabase
       .from("takeoff_dpgf_links" as never)
-      .select("estimate_item_id" as never)
+      .select("estimate_item_id, id" as never, { count: "exact" })
       .eq("tenant_id" as never, input.tenantId as never)
       .eq("version_id" as never, input.versionId as never)
-      .in("takeoff_job_id" as never, relatedJobIds as never);
+      .in("takeoff_job_id" as never, pageIds as never));
 
     if (error) {
       throw mapSupabaseError(
@@ -1411,14 +1412,15 @@ export async function evaluateRules(input: {
 }): Promise<EvaluateRulesResult> {
   const supabase = toRulesSupabaseClient(input.supabase);
 
-  const { data: rulesData, error: rulesError } = await supabase
+  const { data: rulesData, error: rulesError } = await readAllRows(() => supabase
     .from("estimate_rules")
     .select(
-      "id, created_at, updated_at, tenant_id, rule_type, scope_type, scope_id, threshold_value, action, is_active"
+      "id, created_at, updated_at, tenant_id, rule_type, scope_type, scope_id, threshold_value, action, is_active",
+      { count: "exact" }
     )
     .eq("tenant_id", input.tenantId)
     .eq("is_active", true)
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: true }));
 
   if (rulesError) {
     throw mapSupabaseError(rulesError, "Impossible de charger les règles de devis.");
@@ -1463,16 +1465,17 @@ export async function evaluateRules(input: {
   });
 
   const relevantRuleIds = rules.map((rule) => rule.id);
-  const { data: approvalsData, error: approvalsError } = await supabase
+  const { data: approvalsData, error: approvalsError } = await readAllRowsInChunks(relevantRuleIds, (pageIds) => supabase
     .from("estimate_approvals")
     .select(
-      "id, created_at, updated_at, tenant_id, version_id, rule_id, requested_by, approved_by, status, decided_at, approved_content_revision, review_cycle_id, superseded_at"
+      "id, created_at, updated_at, tenant_id, version_id, rule_id, requested_by, approved_by, status, decided_at, approved_content_revision, review_cycle_id, superseded_at",
+      { count: "exact" }
     )
     .eq("tenant_id", input.tenantId)
     .eq("version_id", input.version.id)
-    .in("rule_id", relevantRuleIds)
+    .in("rule_id", pageIds)
     .is("superseded_at", null)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false }), { order: [{ column: "created_at", ascending: false }] });
 
   if (approvalsError) {
     throw mapSupabaseError(
@@ -2623,10 +2626,10 @@ async function listEstimateReviewCycles(input: {
   context: AuthenticatedContext;
   versionId: string;
 }) {
-  const { data, error } = await input.context.supabase
+  const { data, error } = await readAllRows(() => input.context.supabase
     .from("estimate_review_cycles")
     .select(
-      [
+      ([
         "id",
         "created_at",
         "updated_at",
@@ -2648,11 +2651,12 @@ async function listEstimateReviewCycles(input: {
         "requested_by_profile:requested_by(full_name)",
         "decided_by_profile:decided_by(full_name)",
         "assigned_reviewer_profile:assigned_reviewer_id(id, full_name, work_email)",
-      ].join(", ")
+      ].join(", ") + ", id"),
+      { count: "exact" }
     )
     .eq("tenant_id", input.context.tenantId)
     .eq("version_id", input.versionId)
-    .order("cycle_number", { ascending: false });
+    .order("cycle_number", { ascending: false }));
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger les cycles de revue.");
@@ -2670,7 +2674,7 @@ async function listEstimateReviewComments(input: {
     return [] as EstimateReviewCommentWithProfilesRow[];
   }
 
-  const { data, error } = await input.context.supabase
+  const { data, error } = await readAllRowsInChunks(input.cycleIds, (pageIds) => input.context.supabase
     .from("estimate_review_comments")
     .select(
       [
@@ -2685,12 +2689,13 @@ async function listEstimateReviewComments(input: {
         "comment",
         "created_by",
         "created_by_profile:created_by(full_name)",
-      ].join(", ")
+      ].join(", "),
+      { count: "exact" }
     )
     .eq("tenant_id", input.context.tenantId)
     .eq("version_id", input.versionId)
-    .in("cycle_id", input.cycleIds)
-    .order("created_at", { ascending: true });
+    .in("cycle_id", pageIds)
+    .order("created_at", { ascending: true }), { order: [{ column: "created_at", ascending: true }] });
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger les commentaires de revue.");
@@ -2708,10 +2713,10 @@ async function listEstimateReviewCorrectionItems(input: {
     return [] as EstimateReviewCorrectionItemWithProfilesRow[];
   }
 
-  const { data, error } = await input.context.supabase
+  const { data, error } = await readAllRowsInChunks(input.cycleIds, (pageIds) => input.context.supabase
     .from("estimate_review_correction_items" as never)
     .select(
-      [
+      ([
         "id",
         "created_at",
         "updated_at",
@@ -2728,12 +2733,13 @@ async function listEstimateReviewCorrectionItems(input: {
         "last_treated_by",
         "last_treatment_note",
         "last_treated_by_profile:last_treated_by(full_name)",
-      ].join(", ") as never
+      ].join(", ") as never + ", id") as never,
+      { count: "exact" }
     )
     .eq("tenant_id" as never, input.context.tenantId as never)
     .eq("version_id" as never, input.versionId as never)
-    .in("cycle_id" as never, input.cycleIds as never)
-    .order("created_at" as never, { ascending: true });
+    .in("cycle_id" as never, pageIds as never)
+    .order("created_at" as never, { ascending: true }), { order: [{ column: "created_at", ascending: true }] });
 
   if (error) {
     throw mapSupabaseError(
@@ -2754,7 +2760,7 @@ async function listEstimateReviewCorrectionEvents(input: {
     return [] as EstimateReviewCorrectionEventWithProfilesRow[];
   }
 
-  const { data, error } = await input.context.supabase
+  const { data, error } = await readAllRowsInChunks(input.cycleIds, (pageIds) => input.context.supabase
     .from("estimate_review_correction_events" as never)
     .select(
       [
@@ -2769,12 +2775,13 @@ async function listEstimateReviewCorrectionEvents(input: {
         "next_status",
         "note",
         "actor_profile:actor_user_id(full_name)",
-      ].join(", ") as never
+      ].join(", ") as never,
+      { count: "exact" }
     )
     .eq("tenant_id" as never, input.context.tenantId as never)
     .eq("version_id" as never, input.versionId as never)
-    .in("cycle_id" as never, input.cycleIds as never)
-    .order("created_at" as never, { ascending: true });
+    .in("cycle_id" as never, pageIds as never)
+    .order("created_at" as never, { ascending: true }), { order: [{ column: "created_at", ascending: true }] });
 
   if (error) {
     throw mapSupabaseError(
@@ -2880,13 +2887,13 @@ async function buildChangesSinceLastCycle(input: {
     return null;
   }
 
-  const { data, error } = await auditClient
+  const { data, error } = await readAllRows(() => auditClient
     .from("audit_logs")
-    .select("created_at, table_name, record_id, action, before_data, after_data")
+    .select("created_at, table_name, record_id, action, before_data, after_data, id", { count: "exact" })
     .eq("estimate_version_id", input.version.id)
     .gte("created_at", input.sourceCycle.decidedAt)
     .in("table_name", ["estimate_versions", "estimate_items"])
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: true }));
 
   if (error) {
     throw mapSupabaseError(
@@ -3500,25 +3507,27 @@ async function loadApprovalCommentTargetContext(input: {
   projectId: string;
 }) {
   const [exceptionResult, hypothesisResult] = await Promise.all([
-    input.context.supabase
+    readAllRows(() => input.context.supabase
       .from("estimate_risk_alerts" as never)
       .select(
-        "id, takeoff_job_id, line_id, lot_id, scope_type, scope_id, scope_label, severity, status, is_active" as never
+        "id, takeoff_job_id, line_id, lot_id, scope_type, scope_id, scope_label, severity, status, is_active" as never,
+        { count: "exact" }
       )
       .eq("tenant_id" as never, input.context.tenantId as never)
       .eq("version_id" as never, input.versionId as never)
       .eq("is_active" as never, true as never)
-      .order("scope_label" as never, { ascending: true }),
-    input.context.supabase
+      .order("scope_label" as never, { ascending: true })),
+    readAllRows(() => input.context.supabase
       .from("affaire_register_entries" as never)
       .select(
-        "id, project_id, version_id, kind, text, scope_type, scope_id, scope_label, severity, status, is_active" as never
+        "id, project_id, version_id, kind, text, scope_type, scope_id, scope_label, severity, status, is_active" as never,
+        { count: "exact" }
       )
       .eq("tenant_id" as never, input.context.tenantId as never)
       .eq("project_id" as never, input.projectId as never)
       .eq("kind" as never, "assumption" as never)
       .eq("is_active" as never, true as never)
-      .order("updated_at" as never, { ascending: false }),
+      .order("updated_at" as never, { ascending: false })),
   ]);
 
   if (exceptionResult.error) {
@@ -4002,16 +4011,17 @@ async function listPendingApprovalsForVersion(input: {
   context: AuthenticatedContext;
   versionId: string;
 }) {
-  const { data, error } = await input.context.supabase
+  const { data, error } = await readAllRows(() => input.context.supabase
     .from("estimate_approvals")
     .select(
-      "id, created_at, updated_at, tenant_id, version_id, rule_id, requested_by, approved_by, status, decided_at, approved_content_revision, review_cycle_id, superseded_at"
+      "id, created_at, updated_at, tenant_id, version_id, rule_id, requested_by, approved_by, status, decided_at, approved_content_revision, review_cycle_id, superseded_at",
+      { count: "exact" }
     )
     .eq("tenant_id", input.context.tenantId)
     .eq("version_id", input.versionId)
     .eq("status", "pending")
     .is("superseded_at", null)
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: true }));
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger les approbations en attente.");
@@ -4029,13 +4039,13 @@ async function listApprovalsForReviewCycle(input: {
 }) {
   const selection =
     "id, created_at, updated_at, tenant_id, version_id, rule_id, requested_by, approved_by, status, decided_at, approved_content_revision, review_cycle_id, superseded_at";
-  const linkedResult = await input.context.supabase
+  const linkedResult = await readAllRows(() => input.context.supabase
     .from("estimate_approvals")
-    .select(selection)
+    .select(selection, { count: "exact" })
     .eq("tenant_id", input.context.tenantId)
     .eq("version_id", input.versionId)
     .eq("review_cycle_id", input.cycleId)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false }));
 
   if (linkedResult.error) {
     throw mapSupabaseError(
@@ -4052,7 +4062,7 @@ async function listApprovalsForReviewCycle(input: {
   // temporal window is used only when no governed linked row exists.
   let legacyQuery = input.context.supabase
     .from("estimate_approvals")
-    .select(selection)
+    .select(selection, { count: "exact" })
     .eq("tenant_id", input.context.tenantId)
     .eq("version_id", input.versionId)
     .is("review_cycle_id", null)
@@ -4063,7 +4073,7 @@ async function listApprovalsForReviewCycle(input: {
     legacyQuery = legacyQuery.lte("created_at", input.decidedAt);
   }
 
-  const legacyResult = await legacyQuery;
+  const legacyResult = await readAllRows(() => legacyQuery);
   if (legacyResult.error) {
     throw mapSupabaseError(
       legacyResult.error,
@@ -4209,14 +4219,15 @@ async function findRulesForTenant(input: {
     return [] as EstimateRuleRow[];
   }
 
-  const { data, error } = await input.context.supabase
+  const { data, error } = await readAllRowsInChunks(input.ruleIds, (pageIds) => input.context.supabase
     .from("estimate_rules")
     .select(
-      "id, created_at, updated_at, tenant_id, rule_type, scope_type, scope_id, threshold_value, action, is_active"
+      "id, created_at, updated_at, tenant_id, rule_type, scope_type, scope_id, threshold_value, action, is_active",
+      { count: "exact" }
     )
     .eq("tenant_id", input.context.tenantId)
-    .in("id", input.ruleIds)
-    .order("created_at", { ascending: true });
+    .in("id", pageIds)
+    .order("created_at", { ascending: true }), { order: [{ column: "created_at", ascending: true }] });
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger les règles ciblees.");
@@ -4779,13 +4790,14 @@ export async function listEstimateRulesForCurrentTenant() {
   const context = await getAuthenticatedContext();
   assertAdminRole(context);
 
-  const { data, error } = await context.supabase
+  const { data, error } = await readAllRows(() => context.supabase
     .from("estimate_rules")
     .select(
-      "id, created_at, updated_at, tenant_id, rule_type, scope_type, scope_id, threshold_value, action, is_active"
+      "id, created_at, updated_at, tenant_id, rule_type, scope_type, scope_id, threshold_value, action, is_active",
+      { count: "exact" }
     )
     .eq("tenant_id", context.tenantId)
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: true }));
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger les règles.");

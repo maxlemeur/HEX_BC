@@ -1,3 +1,4 @@
+import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { createHash, randomUUID } from "node:crypto";
 import { listActiveTakeoffMappingRules } from "@/lib/takeoff/mapping-rules-server";
 import { parseWithSchema } from "@/lib/takeoff/server-helpers";
@@ -942,12 +943,12 @@ async function resolvePlanSetSourceFile(input: {
   jobId: string;
   maxPages: number;
 }) {
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("plan_files" as never)
-    .select("file_path, file_name, file_type, file_size_bytes, page_count" as never)
+    .select("file_path, file_name, file_type, file_size_bytes, page_count, id" as never, { count: "exact" })
     .eq("tenant_id" as never, input.tenantId as never)
     .eq("plan_set_id" as never, input.planSetId as never)
-    .order("created_at" as never, { ascending: true });
+    .order("created_at" as never, { ascending: true }));
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger les fichiers du jeu de plans.");
@@ -2967,15 +2968,15 @@ async function listTakeoffDpgfEstimateItems(input: {
   tenantId: string;
   versionId: string;
 }) {
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("estimate_items" as never)
-    .select(ESTIMATE_DPGF_COMPARE_SELECT as never)
+    .select(ESTIMATE_DPGF_COMPARE_SELECT as never, { count: "exact" })
     .eq("tenant_id" as never, input.tenantId as never)
     .eq("version_id" as never, input.versionId as never)
     .eq("item_type" as never, "line" as never)
     .order("position" as never, { ascending: true })
     .order("created_at" as never, { ascending: true })
-    .order("id" as never, { ascending: true });
+    .order("id" as never, { ascending: true }));
 
   if (error) {
     throw toTakeoffError(
@@ -3027,14 +3028,14 @@ async function listTakeoffDpgfManualLinks(input: {
   versionId: string;
   jobId: string;
 }) {
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("takeoff_dpgf_links" as never)
-    .select(TAKEOFF_DPGF_LINKS_SELECT as never)
+    .select(TAKEOFF_DPGF_LINKS_SELECT as never, { count: "exact" })
     .eq("tenant_id" as never, input.tenantId as never)
     .eq("version_id" as never, input.versionId as never)
     .eq("takeoff_job_id" as never, input.jobId as never)
     .order("created_at" as never, { ascending: true })
-    .order("id" as never, { ascending: true });
+    .order("id" as never, { ascending: true }));
 
   if (error) {
     throw toTakeoffError(
@@ -3056,14 +3057,14 @@ async function listTakeoffDpgfReviewDecisions(input: {
   versionId: string;
   jobId: string;
 }) {
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("takeoff_dpgf_review_decisions" as never)
-    .select(TAKEOFF_DPGF_REVIEW_DECISIONS_SELECT as never)
+    .select(TAKEOFF_DPGF_REVIEW_DECISIONS_SELECT as never, { count: "exact" })
     .eq("tenant_id" as never, input.tenantId as never)
     .eq("version_id" as never, input.versionId as never)
     .eq("takeoff_job_id" as never, input.jobId as never)
     .order("updated_at" as never, { ascending: false })
-    .order("id" as never, { ascending: false });
+    .order("id" as never, { ascending: false }));
 
   if (error) {
     throw toTakeoffError(
@@ -3228,13 +3229,13 @@ async function resolveDpgfUnitByRowIndex(input: {
     return new Map<number, string | null>();
   }
 
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("dpgf_rows_mapped" as never)
-    .select("id, payload" as never)
+    .select("id, payload" as never, { count: "exact" })
     .eq("tenant_id" as never, input.tenantId as never)
     .eq("import_id" as never, importRow.id as never)
     .order("created_at" as never, { ascending: true })
-    .order("id" as never, { ascending: true });
+    .order("id" as never, { ascending: true }));
 
   if (error) {
     throw toTakeoffError(
@@ -3346,14 +3347,14 @@ async function listEstimateRiskItems(input: {
   tenantId: string;
   versionId: string;
 }) {
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("estimate_items" as never)
-    .select(ESTIMATE_RISK_ITEMS_SELECT as never)
+    .select(ESTIMATE_RISK_ITEMS_SELECT as never, { count: "exact" })
     .eq("tenant_id" as never, input.tenantId as never)
     .eq("version_id" as never, input.versionId as never)
     .order("position" as never, { ascending: true })
     .order("created_at" as never, { ascending: true })
-    .order("id" as never, { ascending: true });
+    .order("id" as never, { ascending: true }));
 
   if (error) {
     throw toTakeoffError(
@@ -3459,12 +3460,12 @@ async function loadDismissedOutlierFlagsByItemId(input: {
   tenantId: string;
   versionId: string;
 }) {
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("estimate_item_outlier_dismissals" as never)
-    .select("item_id, flag_key" as never)
+    .select("item_id, flag_key, id" as never, { count: "exact" })
     .eq("tenant_id" as never, input.tenantId as never)
     .eq("version_id" as never, input.versionId as never)
-    .order("dismissed_at" as never, { ascending: true });
+    .order("dismissed_at" as never, { ascending: true }));
 
   if (error) {
     throw toTakeoffError(
@@ -3506,11 +3507,11 @@ async function loadStaleSupplierPriceItemIds(input: {
     return new Set<string>();
   }
 
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRowsInChunks(selectedSupplierPriceIds, (pageIds) => input.supabase
     .from("supplier_pricebook" as never)
-    .select("id, updated_at, created_at" as never)
+    .select("id, updated_at, created_at" as never, { count: "exact" })
     .eq("tenant_id" as never, input.tenantId as never)
-    .in("id" as never, selectedSupplierPriceIds as never);
+    .in("id" as never, pageIds as never));
 
   if (error) {
     throw toTakeoffError(
@@ -3553,12 +3554,12 @@ async function loadApplicableMinMarginThresholdBp(input: {
   projectId: string;
   categoryIds: Set<string>;
 }) {
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("estimate_rules" as never)
-    .select("scope_type, scope_id, threshold_value" as never)
+    .select("scope_type, scope_id, threshold_value, id" as never, { count: "exact" })
     .eq("tenant_id" as never, input.tenantId as never)
     .eq("is_active" as never, true as never)
-    .eq("rule_type" as never, "min_margin" as never);
+    .eq("rule_type" as never, "min_margin" as never));
 
   if (error) {
     throw toTakeoffError(
@@ -3675,15 +3676,15 @@ async function listActiveTakeoffRiskAlerts(input: {
   versionId: string;
   jobId: string;
 }) {
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("estimate_risk_alerts" as never)
-    .select(ESTIMATE_RISK_ALERTS_SELECT as never)
+    .select(ESTIMATE_RISK_ALERTS_SELECT as never, { count: "exact" })
     .eq("tenant_id" as never, input.tenantId as never)
     .eq("version_id" as never, input.versionId as never)
     .eq("takeoff_job_id" as never, input.jobId as never)
     .eq("is_active" as never, true as never)
     .order("updated_at" as never, { ascending: false })
-    .order("id" as never, { ascending: false });
+    .order("id" as never, { ascending: false }));
 
   if (error) {
     throw toTakeoffError(
@@ -3707,14 +3708,14 @@ async function listExistingRiskAlertRecords(input: {
   versionId: string;
   jobId: string;
 }) {
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("estimate_risk_alerts" as never)
-    .select(ESTIMATE_RISK_ALERTS_SELECT as never)
+    .select(ESTIMATE_RISK_ALERTS_SELECT as never, { count: "exact" })
     .eq("tenant_id" as never, input.tenantId as never)
     .eq("version_id" as never, input.versionId as never)
     .eq("takeoff_job_id" as never, input.jobId as never)
     .order("updated_at" as never, { ascending: false })
-    .order("id" as never, { ascending: false });
+    .order("id" as never, { ascending: false }));
 
   if (error) {
     throw toTakeoffError(
@@ -7001,13 +7002,14 @@ export async function applyTakeoffJob(
         tenantId,
         { supabase }
       );
-      const { data: guardItems, error: guardItemsError } = await supabase
+      const { data: guardItems, error: guardItemsError } = await readAllRows(() => supabase
         .from("takeoff_items" as never)
         .select(
-          "id, designation, confidence, evidence, source_page, is_verified, is_excluded" as never
+          "id, designation, confidence, evidence, source_page, is_verified, is_excluded" as never,
+          { count: "exact" }
         )
         .eq("tenant_id" as never, tenantId as never)
-        .eq("job_id" as never, normalizedJobId as never);
+        .eq("job_id" as never, normalizedJobId as never));
 
       if (guardItemsError) {
         throw toTakeoffError(
