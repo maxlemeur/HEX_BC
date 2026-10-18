@@ -20,7 +20,8 @@ commandes et les chemins tels qu'exécutés (`--grep '^V3E02\s'`, `v3e02-*`).
 | Fichier | Rôle |
 |---|---|
 | `supabase/tests/database/estimate-offer-contract-v2.test.sql` | pgTAP, F27-01 à F27-19 (§4) |
-| `e2e/army/local/engine-v3-emission.e2e.ts`, `engine-v3-emission-support.ts` | Parcours V3M01, V3M03 et V3M04 (calc-v3) et V3M02 (critique locale), §3 et §12 |
+| `e2e/army/local/engine-v3-emission.e2e.ts`, `engine-v3-emission-support.ts` | Parcours V3M01, V3M03, V3M04 et V3M05 (calc-v3) et V3M02 (critique locale), §3, §12 et §13 |
+| `e2e/army/local/engine-v3-editor-actions.e2e.ts` (fichier de 2.6) | V3E11 réécrit et V3E15 (critique locale) à la fusion du 2.6, §13 |
 | `scripts/tester-army/calc-v3-phases.ts` | Nouvelle phase `emission-v3` (collecteur sentinelle ; next dev au rouge, build de production possédé depuis l'intégration, §10.4) |
 | `scripts/tester-army/calc-v3-fixtures.ts` | Fixture de la phase : propriétaire dédié en politique 3, témoin v2 brouillon |
 | `scripts/tester-army/calc-v3-campaign.ts`, `e2e/army/local/calc-v3.config.ts` | Collecteur, garde réseau d'offre et lecture des PDF reçus pilotés par `sentinelCollector` (et non plus par le nom `emission`) |
@@ -1078,19 +1079,24 @@ Windows (`miaouffrage-l2-27`, `5f0fecd3`, changements locaux : documentation seu
 
 ### 12.4 Limites
 
+État de la revue, avant la fusion du 2.6 ; l'état fusionné est au §13.
+
 - **P-20 à arbitrer** : exports de l'éditeur et BDC d'une v3 restés fermés (refus nommé) ; la conception les
   propose pour 2.6 et avant 2.10. Sans décision, le 2.7 n'est pas conforme à son périmètre initial sur ce point.
-- La fiche d'une v3 (`[versionId]/page.tsx`) garde le bandeau de 2.1 : V3M-09 prouve la route qu'elle et l'affaire
-  lisent, pas le panneau d'approbation, que la vue de lecture v3 du 2.6 affichera (fusionnée : §13).
-- La fusion du 2.6 reste à faire (§10.6 ; faite le 18/10/2026, §13) ; elle exige de rejouer `db:ci:local`, V3M01 à V3M04, V3FC et la
-  campagne complète.
+  Depuis la fusion, l'éditeur d'une v3 ouvre Excel et DPGF ; seuls son export CSV et le BDC restent fermés (§13.2).
+- Historique : la fiche d'une v3 (`[versionId]/page.tsx`) gardait le bandeau de 2.1, et V3M-09 prouvait la route
+  qu'elle et l'affaire lisent, pas le panneau d'approbation. Depuis la fusion, la fiche d'une v3 est la vue de lecture
+  du 2.6, avec PDF, sceau et actions de statut (§13.2).
+- Historique : la fusion du 2.6 restait à faire (§10.6) et exigeait de rejouer `db:ci:local`, V3M01 à V3M04, V3FC et
+  la campagne complète. Elle est faite le 18/10/2026 et rejouée aux §13.4 et §13.6.
 - Le Supabase partagé n'est pas touché ; M5 n'y est pas appliquée.
 
 ## 13. Fusion du 2.6 (PR #44) et de la boucle Army (PR #43), 18/10/2026
 
 `git merge --no-ff origin/main` (`488382d5` : 2.6 fusionné en `da462ac4`, boucle `e2e:army:dev-loop` de la PR #43)
 sur `9ee5e240`, sans rebase ni poussée : fusion `2af3cb29`. Commits suivants : `8e33598b` et `ac19ec55` (rouges),
-`7418afcb` (correction), `803b5ba9` (sonde), puis ce document (documentation seule).
+`7418afcb` (correction), `803b5ba9` (sonde), puis ce document (documentation seule). Revue de cette fusion,
+rattrapage de `main` (`78533fe5`) et exports Excel et DPGF de l'éditeur v3 : §13.6.
 
 ### 13.1 Conflits et résolution
 
@@ -1115,14 +1121,17 @@ Défaillances observables, écrites avant le code (`e2e/army/local/engine-v3-emi
 | Éditeur d'une v3 sans « Envoyer » (émission manuelle), ou émission qui ne scelle pas (marqueur 5, contrat 2, charge 6) | V3M05 |
 | Fiche d'une v3 émise : « Non scellé » codé en dur, ni PDF original ni actions de statut ; acceptation par la fiche qui change le sceau | V3M05 |
 | Carte de lecture v3 disant le document client et l'émission « pas encore disponibles », titre « Brouillon » d'une v3 émise | V3M05 |
+| Éditeur d'une v3 : « Exporter Excel » et « Exporter DPGF » désactivés (même drapeau que le CSV, qui exige les totaux du client, nuls sur une v3), alors que leurs routes sont celles que 2.7 ouvre et que V3M02 prouve ; relevé par la revue (§13.6) | V3E15 (critique) : Excel et DPGF actifs, CSV et BDC fermés, dans le menu compact « Exporter » et dans « Plus d'actions » ; « Excel (.xlsx) » → `200` sur `…/export?format=xlsx`, en-tête v3 exact, « Moteur de calcul » 3 ; « Exporter DPGF » → `200` sur `…&mode=dpgf`, colonnes v3 |
 
 V3M05 tourne dans la phase calc-v3 `emission-v3` (le garde de la campagne critique refuse toute écriture `…/status`) ;
 la phase attend 4 résultats du fichier. Correction `7418afcb` : `EstimateDetailActionsMenu` (prop `closedEngineV3Template`)
 ne ferme plus que le modèle (2.8) ; la fiche v3 rend `EstimateStatusActions` et le sceau vérifié, lus par deux
 fonctions désormais partagées avec la fiche v1/v2 (`loadEmailDispatchProblem`, `resolveSealIntegrity`, sans
 changement de comportement) ; la carte de lecture titre « Devis émis au moteur de calcul 3 » une v3 émise ;
-l'éditeur offre « Envoyer » sur une v3. Restent fermés : les exports de l'éditeur d'une v3 (P-20, décision du porteur
-requise) et l'enregistrement comme modèle (2.8). Sonde `803b5ba9` : le premier vert lisait « Marquer accepté » absent
+l'éditeur offre « Envoyer » sur une v3. `7418afcb` laissait fermés les quatre exports de l'éditeur d'une v3 ; la revue
+l'a relevé et `0bf43c02` ouvre Excel et DPGF (§13.6). Restent fermés sur une v3 : l'export CSV de l'éditeur
+(`editor-export.ts`, construit par le client) et le BDC (P-20, décision du porteur requise), et l'enregistrement comme
+modèle (2.8). Sonde `803b5ba9` : le premier vert lisait « Marquer accepté » absent
 alors que la page l'affichait à l'échec (îlot client) ; attente bornée sans assertion, aucun attendu changé.
 
 ### 13.3 Preuves rouges et itérations (WSL, clone `~/miaouffrage-lot2-27`, aucun changement local)
@@ -1147,7 +1156,13 @@ concurrence (moins de quatre piles natives actives au départ). Journaux : `~/mi
 | `npm run engine:document-fingerprints -- check` | **sortie 0** en 44 s : 14 familles v1/v2 identiques. `.e2e/engine-v3/document-fingerprints/2026-10-18T05-20-35-248Z-check` |
 | `npm run db:upgrade-check -- lot2-2-7` | **sortie 0** en 20 s : 244 migrations de référence, 7 postérieures appliquées (dont `20261017205000` de 2.6 puis M5), 0 différence, contrôle négatif détecté |
 | `npm run db:upgrade-check -- lot2-2-7 --negative-control` | sortie 1 en 20 s, comme exigé : exactement 1 différence (`pu_ht_cents 1481 -> 1482`) |
-| `npm run e2e:army:local -- --app-port 3227` (sélection critique locale non filtrée, en plus : la fiche v1/v2 partage désormais deux fonctions avec la fiche v3) | **sortie 0** en 733 s : 96/96 (28 fichiers). `…/2026-10-18T05-21-59-346Z-critical` (`manifest.json` `63fcd009…`) |
+| `npm run e2e:army:local -- --app-port 3227` (sélection critique locale non filtrée, en plus : contrôle de régression général) | **sortie 0** en 733 s : 96/96 (28 fichiers). `…/2026-10-18T05-21-59-346Z-critical` (`manifest.json` `63fcd009…`) |
+
+La fiche d'un devis v1/v2, qui partage désormais `loadEmailDispatchProblem` et `resolveSealIntegrity` avec la fiche
+v3, est prouvée par la phase calc-v3 `emission` de la campagne complète ci-dessus : OF00 à OF0L
+(`offer-emission.e2e.ts`) y lisent le sceau `valid` et « Envoyer par email » sur la fiche v1/v2 (6/6,
+`…/2026-10-18T05-08-01-386Z-calc-v3`). La campagne critique non filtrée n'ouvre aucune fiche v1/v2 : elle reste un
+contrôle de régression général, pas la preuve de ce partage (correction de la revue, §13.6).
 
 Windows (`miaouffrage-l2-27`) : `npm run typecheck` sortie 0 ; `npx eslint --max-warnings=0` des fichiers touchés depuis la
 fusion et de l'impression résolue : sortie 0 ; `npx vitest run` complet (avant la sonde `803b5ba9`, qui ne touche qu'un
@@ -1161,13 +1176,60 @@ src/lib/estimate-v2-snapshot.ts` : vide ; `git -c core.whitespace=cr-at-eol diff
 
 ### 13.5 Limites
 
-- Aucune relecture indépendante de la résolution ni de `7418afcb` (AGENTS.md la demande) : à faire sur ce diff stable.
+- Relecture indépendante (lecture seule) faite sur `058dc448` : un défaut majeur et trois mineurs, traités au §13.6.
+  Les corrections du §13.6 n'ont pas encore de relecture de suivi.
 - V3M05 n'est atteint que par la campagne calc-v3 (`emission-v3`) : la sélection d'impact des PR, critique, ne le
-  choisit pas ; V3E11 (critique) tient l'état du menu de la fiche d'un brouillon.
-- P-20 (exports de l'éditeur et BDC d'une v3) reste à arbitrer ; l'envoi par courriel depuis la fiche d'une v3 passe par
-  la route `POST …/send` que V3M01 prouve, sans parcours d'écran de la fenêtre d'envoi.
+  choisit pas ; V3E11 (critique) tient l'état du menu de la fiche d'un brouillon, V3E15 (critique) celui des exports de
+  l'éditeur.
+- P-20 ne ferme plus, sur une v3, que l'export CSV de l'éditeur (`editor-export.ts`) et le BDC ; Excel et DPGF sont
+  ouverts dans l'éditeur (§13.6). L'envoi par courriel depuis la fiche d'une v3 passe par la route `POST …/send` que
+  V3M01 prouve, sans parcours d'écran de la fenêtre d'envoi.
 - Cette fusion ne touche pas le Supabase partagé ; M5 n'y est pas appliquée (la migration de 2.6 y a été appliquée après la PR #44, PR #46, hors de cette branche). Rien n'est poussé.
-- `origin/main` a avancé pendant la qualification (`78533fe5` : PR #46, rapport d'application de la migration de 2.6 au
-  partagé, documentation seule ; PR #47, `scripts/tester-army/dev-loop-state.ts`, chemins résolus de la boucle). Non
-  fusionnés ici : essai `git merge-tree` sans conflit après le retrait d'une note de ce document adjacente à la PR #46 ;
-  `dev-loop-state.ts` est un module du superviseur, entrée du build Army : une nouvelle fusion relance ce qu'elle invalide.
+- Historique : `origin/main` avait avancé pendant cette qualification (`78533fe5` : PR #46, rapport d'application de la
+  migration de 2.6 au partagé ; PR #47, `scripts/tester-army/dev-loop-state.ts`, chemins résolus de la boucle). Il est
+  fusionné en `088014df` et la qualification rejouée au §13.6.
+
+### 13.6 Revue de la fusion, rattrapage de `main` et exports de l'éditeur v3 (18/10/2026)
+
+Fusion `088014df` : `git fetch origin && git merge --no-ff origin/main` (`78533fe5` : PR #46, rapport d'application de
+la migration de 2.6 au Supabase partagé et une ligne de `estimate-engine-v3-2.6.md` ; PR #47,
+`scripts/tester-army/dev-loop-state.ts` en chemins résolus, `src/test/army-dev-loop.test.ts`, étape de reprise de
+`tester-army-local-development.md`), sans conflit, sans rebase ni poussée.
+
+Relecture indépendante en lecture seule sur `058dc448` :
+
+| Constat | Traitement |
+|---|---|
+| Majeur : la fusion laissait fermés, sur une v3, « Exporter Excel » et « Exporter DPGF » de l'éditeur, seul écran qui offre les exports v3 que 2.7 ouvre et que V3M02 prouve ; deux verrous : `isExportDisabled \|\| isV3` et le drapeau unique du contrôleur, qui exige des totaux du client, nuls sur une v3 | décision du coordinateur par délégation du porteur, conforme à P-20 (qui ne ferme que `editor-export.ts` et le BDC, §9.1) : rouge V3E15 `b9968ec9`, correction `0bf43c02` |
+| Mineur : le §13.4 attribuait la preuve de la fiche v1/v2 remaniée à la campagne critique non filtrée, qui n'ouvre aucune fiche v1/v2 | §13.4 crédite la phase calc-v3 `emission` (OF00 à OF0L) |
+| Mineur : descriptions courantes d'avant la fusion (inventaire du §1 sans V3M05, §12.4, ligne V3E11 du document 2.6, commentaire de la phase `emission-v3`) | corrigées : §1, §12.4 (rendu historique), [2.6](estimate-engine-v3-2.6.md) (ligne V3E11 et ligne « Émission »), `calc-v3-phases.ts` |
+| Mineur : branche en retard sur `origin/main` (`78533fe5`, dont `dev-loop-state.ts`, importé par le runner) | fusion `088014df` ; qualification rejouée ci-dessous |
+
+Correction `0bf43c02` :
+
+- `useEstimateEditorExportController` expose `isStreamingDisabled` (`isExporting || !version` : Excel, DPGF et BDC
+  passent par `GET /api/estimates/{id}/export` et n'ont pas besoin des totaux du client) et `isCsvDisabled`
+  (inchangé : `isExporting || !version || !settings || !totals`).
+- `useEstimateEditorState.impl.tsx` passe Excel et DPGF = `isStreamingDisabled`, CSV = `isCsvDisabled || isV3`,
+  BDC = `isStreamingDisabled || isV3`.
+- `EstimateEditorToolbar` reçoit un état par entrée (`isExcelExportDisabled`, `isCsvExportDisabled`,
+  `isDpgfExportDisabled`, `isBdcExportDisabled`) ; `ExportDropdown` reçoit `excelDisabled` et `csvDisabled` et ne
+  désactive son bouton que si `disabled` est vrai ou si les deux entrées sont fermées (la page des bons de commande, qui
+  ne passe que `disabled`, est inchangée).
+- v1/v2 inchangés par construction : la barre d'outils n'est rendue qu'à l'état `ready`, qui exige `version` et
+  `settings` ; sur une v1/v2, `totals` n'y est jamais nul (`computeDraftBreakdown`, `computeReadOnlyTotals`), donc
+  `isStreamingDisabled` et `isCsvDisabled` valent l'ancien drapeau unique, et « Exporter » est désactivé exactement
+  quand il l'était.
+- Les tests Vitest existants du contrôleur et de la barre suivent le renommage, sans test isolé ajouté ; la lecture
+  XLSX d'`engine-v3-emission-support.ts` est extraite en `readWorkbookRows`, que V3E15 réutilise.
+
+V3E15 (`engine-v3-editor-actions.e2e.ts`, campagne critique, bureau 1 280 px) : brouillon v3 d'une ligne X (2 u à
+100,00 € → PU 130,00 €, PT 260,00 €) ouvert dans l'éditeur. Les états sont lus dans le menu compact « Exporter »
+(« Excel (.xlsx) », « Fichier CSV (.csv) ») et dans « Plus d'actions » (« Exporter DPGF », « Exporter BDC V1.1 », et
+« Exporter Excel » et « Exporter CSV » du menu mobile, masqués à cette largeur, lus dans le DOM). « Excel (.xlsx) »
+puis « Exporter DPGF » sont téléchargés, chacun avec la réponse de sa route, et relus par ExcelJS.
+
+| Commande (WSL, `~/miaouffrage-lot2-27`, aucun changement local) | Arbre | Résultat |
+|---|---|---|
+| `E2E_ARMY_WORKERS=2 npm run e2e:army:local -- --grep "^V3E15\s" --app-port 3161` | `b9968ec9` | rouge attendu : « TesterArmy CI failed », `manifest.json` `status: failed` (`f92117c0…` ; le code de sortie n'a pas été capté par l'enveloppe de la commande). Attendu `{compact: true, compactExcel: true, compactCsv: false, menuExcel: true, menuCsv: false, dpgf: true, bdc: false}`, obtenu `{compact: false, compactExcel: null, compactCsv: null, menuExcel: false, menuCsv: false, dpgf: false, bdc: false}`. `.e2e/army/ci/2026-10-18T06-15-33-222Z-critical` |
+| idem | `0bf43c02` | **sortie 0** : états attendus ; Excel `200` sur `…/export?format=xlsx`, en-tête `Poste, Désignation, Unité, Quantité, Statut, TVA (%), PU HT, Total HT`, « Moteur de calcul » 3, ligne X 130 / 260 ; DPGF `200` sur `…&mode=dpgf`, colonnes « Statut », « h MO / unité », « PU vente HT EUR », « Total HT brut EUR », ligne X 130 / 260. `.e2e/army/ci/2026-10-18T06-19-41-201Z-critical` (`manifest.json` `c8d705e7…`) |
