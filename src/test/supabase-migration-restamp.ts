@@ -26,12 +26,12 @@ Usage:
   --at       First new UTC timestamp (default: now, or just after the base newest).
   --dry-run  Print the renames and the references without writing anything.
 
-Each file must be added by this branch, tracked and recorded in the manifest. It
-is renamed with git mv after the newest base migration, in its original order;
-its manifest key and every textual reference to its old name or timestamp in
-tracked files are updated, then the Git guard (pull_request against the base)
-and the manifest validation run. Only restamp a migration that no shared or
-remote Supabase project has applied.`;
+Merge the base into the branch first. Each file must be added by this branch,
+tracked and recorded in the manifest. It is renamed with git mv after the newest
+base migration, in its original order; its manifest key and every textual
+reference to its old name or timestamp in tracked files are updated, then the
+Git guard (pull_request against the base) and the manifest validation run. Only
+restamp a migration that no shared or remote Supabase project has applied.`;
 
 export interface MigrationRestampEntry {
   from: string;
@@ -199,6 +199,13 @@ export function planMigrationRestampTimestamps(input: {
         );
       }
     }
+    // Otherwise the Git guard refuses it only after the rename is written.
+    if (input.baseNewest && otherTimestamp <= input.baseNewest) {
+      throw new Error(
+        `${other} is also added by this branch and is not newer than the base newest ` +
+          `${input.baseNewest}; name it too`
+      );
+    }
   }
   return entries.map(({ from, to }) => ({ from, to }));
 }
@@ -305,12 +312,18 @@ export function runSupabaseMigrationRestamp(
     executeGit(["rev-parse", "--verify", `${options.base}^{commit}`]),
     `Cannot resolve the restamp base ${options.base}`
   ).trim();
-  const mergeBase = requireGitSuccess(
-    executeGit(["merge-base", baseSha, "HEAD"]),
-    `Cannot compute the merge-base of ${options.base} and HEAD`
-  ).trim();
+  // The reference search and the deployed-migration checks read the working
+  // tree: on a branch behind the base they would miss every file the base
+  // added since the fork. Once the base is merged, the merge-base is the base.
+  const merged = executeGit(["merge-base", "--is-ancestor", baseSha, "HEAD"]);
+  if (merged.status === 1) {
+    throw new Error(
+      `${options.base} is not merged into HEAD (${baseSha} is not an ancestor); ` +
+        `merge it first (git merge ${options.base}) so the files it added since the fork are searched too`
+    );
+  }
+  requireGitSuccess(merged, `Cannot check that ${options.base} is merged into HEAD`);
   const baseNames = listMigrationNames(executeGit, baseSha);
-  const mergeBaseNames = listMigrationNames(executeGit, mergeBase);
   const trackedPaths = requireGitSuccess(
     executeGit(["ls-files", "-z"]),
     "Cannot list tracked files"
@@ -337,7 +350,6 @@ export function runSupabaseMigrationRestamp(
       (name) =>
         trackedNames.has(name) &&
         !baseNames.has(name) &&
-        !mergeBaseNames.has(name) &&
         CANONICAL_MIGRATION_NAME.test(name) &&
         (!baseNewest || name.slice(0, 14) <= baseNewest)
     );
@@ -360,14 +372,11 @@ export function runSupabaseMigrationRestamp(
     if (named.includes(name)) {
       throw new Error(`${name} is named twice`);
     }
-    parseCanonicalName(name);
+    const { slug, timestamp } = parseCanonicalName(name);
     if (baseNames.has(name)) {
       throw new Error(
         `${name} is a deployed migration on ${options.base} (${baseSha}); deployed migrations are immutable`
       );
-    }
-    if (mergeBaseNames.has(name)) {
-      throw new Error(`${name} is not added by this branch: the merge-base ${mergeBase} has it`);
     }
     const absolutePath = path.join(migrationsDirectory, name);
     if (!fs.existsSync(absolutePath)) {
@@ -381,13 +390,24 @@ export function runSupabaseMigrationRestamp(
       throw new Error(`${name} is not tracked by Git; stage it with git add first`);
     }
     assertManifestEntry(name, manifest, currentHashes);
-    // A shared-Supabase report names the file it applied: renaming that file
-    // would orphan the record, and the migration is no longer unapplied.
+    // A shared-Supabase report records an application by the file name, the
+    // MCP apply_migration name (<timestamp>_<slug>) or a schema_migrations row
+    // (version <timestamp>, then name <slug>): renaming that migration would
+    // orphan the record, and it is no longer unapplied. A bare timestamp, as
+    // in a list of migrations still to apply, records nothing.
+    const applicationRecord = new RegExp(
+      `(?<![0-9])${timestamp}[^a-z0-9]{0,40}(?:name[^a-z0-9]{0,40})?${slug}(?![a-z0-9_])`,
+      "i"
+    );
     for (const report of sharedReports) {
       const reportPath = path.join(rootDirectory, report);
-      if (fs.existsSync(reportPath) && fs.readFileSync(reportPath, "latin1").includes(name)) {
+      const record = fs.existsSync(reportPath)
+        ? fs.readFileSync(reportPath, "latin1").match(applicationRecord)
+        : null;
+      if (record) {
         throw new Error(
-          `${name} is recorded by name in ${report}; a migration applied to shared Supabase keeps its name`
+          `${name} is recorded by name in ${report} (${record[0].replace(/\s+/g, " ")}); ` +
+            "a migration applied to shared Supabase keeps its name"
         );
       }
     }
@@ -446,7 +466,7 @@ export function runSupabaseMigrationRestamp(
       }
       const migrationName = migrationNameOf(filePath);
       if (migrationName && !namedSet.has(migrationName)) {
-        if (baseNames.has(migrationName) || mergeBaseNames.has(migrationName)) {
+        if (baseNames.has(migrationName)) {
           throw new Error(
             `deployed migration ${migrationName} mentions ${mentioned.join(", ")}; ` +
               "deployed migrations are immutable"

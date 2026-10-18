@@ -394,7 +394,7 @@ describe("migration restamp timestamps", () => {
     const between = "20260809105000_between.sql";
     expect(() =>
       plan({ ...input, named: ["20260809100000_a.sql"], otherBranchMigrations: [between] })
-    ).toThrow(between);
+    ).toThrow(`would reorder or collide with ${between}`);
     expect(
       plan({ ...input, named: ["20260809100000_a.sql", between], otherBranchMigrations: [] })
     ).toEqual([
@@ -408,6 +408,21 @@ describe("migration restamp timestamps", () => {
         otherBranchMigrations: ["20260810123000_same_second.sql"],
       })
     ).toThrow("20260810123000_same_second.sql");
+  });
+
+  it("refuses another branch migration that would stay at or below the base newest", () => {
+    // Equal is not newer either: the Git guard would refuse it after the rename.
+    expect(() =>
+      plan({
+        baseNewest: "20260810120000",
+        named: ["20260810121000_after_base.sql"],
+        now: new Date("2026-08-10T12:30:00Z"),
+        otherBranchMigrations: ["20260810120000_same_as_base.sql"],
+      })
+    ).toThrow(
+      "20260810120000_same_as_base.sql is also added by this branch and is not newer than " +
+        "the base newest 20260810120000"
+    );
   });
 });
 

@@ -77,19 +77,27 @@ vôtre. Juste avant la fusion, donnez-lui son horodatage final :
 
 ```bash
 git fetch origin
+git merge origin/main
 npm run supabase:migrations:restamp -- supabase/migrations/<fichier>.sql --dry-run
 npm run supabase:migrations:restamp -- supabase/migrations/<fichier>.sql
 ```
 
-L'outil refuse un fichier présent sur la base (`--base`, `origin/main` par défaut), non
-suivi, absent ou périmé dans le manifeste, ou nommé par un rapport
-`docs/testing/shared-supabase-*` (migration appliquée au partagé). Il prend un horodatage
-UTC postérieur à la plus récente de la base, dans la tolérance du garde (`--at` le fixe),
-garde l'ordre de plusieurs fichiers, fait le `git mv`, renomme la clé du manifeste (hash
-recalculé seulement si le fichier cite son ancien horodatage) et réécrit puis liste les
-références à l'ancien nom ou horodatage dans les fichiers suivis. Il lance enfin le garde
-Git (`pull_request` contre la base) et la validation du manifeste, et sort en erreur si
-l'un échoue. Relisez la prose réécrite avant de committer.
+L'outil refuse tant que la base (`--base`, `origin/main` par défaut) n'est pas fusionnée
+dans la branche : sinon les fichiers qu'elle a ajoutés depuis le fork ne seraient ni
+cherchés ni vérifiés. Il refuse un fichier présent sur la base, non suivi, absent ou
+périmé dans le manifeste, ou qu'un rapport `docs/testing/shared-supabase-*` enregistre
+comme appliqué au partagé : nom de fichier, nom MCP `<horodatage>_<slug>` ou ligne
+`schema_migrations` (version égale à l'horodatage, puis nom égal au slug). Un horodatage
+seul, comme dans une liste de migrations restant à appliquer, n'enregistre rien. Il
+refuse aussi quand une autre migration ajoutée par la branche, non nommée, resterait
+antérieure ou égale à la plus récente de la base : nommez-la aussi. Il prend un
+horodatage UTC postérieur à la plus récente de la base, dans la tolérance du garde
+(`--at` le fixe), garde l'ordre de plusieurs fichiers, fait le `git mv`, renomme la clé
+du manifeste et réécrit puis liste les références à l'ancien nom ou horodatage dans les
+fichiers suivis. Le hash ne change que pour une migration de la branche qui cite un
+ancien horodatage, le sien ou celui d'une autre. Il lance enfin le garde Git
+(`pull_request` contre la base) et la validation du manifeste, et sort en erreur si l'un
+échoue. Relisez la prose réécrite avant de committer.
 
 ### Runbook d'application via MCP
 
