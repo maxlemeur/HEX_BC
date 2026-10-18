@@ -52,6 +52,7 @@ import { LaborSplitCells } from "@/components/estimates/components/estimate-edit
 import { StandardMoCells } from "@/components/estimates/components/estimate-editor-row/StandardMoCells";
 import { EstimateLineNatureSelect } from "@/components/estimates/components/estimate-editor-row/EstimateLineNatureSelect";
 import { readEstimateV3GridLineMargin, useEstimateV3Grid, V3LineStateControls, V3UnitCell } from "@/components/estimates/v3/V3LineCells";
+import { ESTIMATE_V3_ITEM_CONVERSION_REASON } from "@/lib/estimates/v3-editor";
 import {
   type CataloguePriceSuggestion,
   type ColumnVisibilitySet,
@@ -1196,11 +1197,13 @@ export function LineRow({
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
-                    className="px-2.5 py-2"
-                    disabled={isReadOnly || isPendingCreate}
+                    className={v3Grid ? "max-w-72 flex-col items-start px-2.5 py-2" : "px-2.5 py-2"}
+                    disabled={isReadOnly || isPendingCreate || Boolean(v3Grid)}
+                    title={v3Grid ? ESTIMATE_V3_ITEM_CONVERSION_REASON : undefined}
                     onClick={() => onConvertLineToSection(item.id)}
                   >
                     Convertir en section
+                    {v3Grid ? <span className="text-xs font-normal text-muted-foreground">{ESTIMATE_V3_ITEM_CONVERSION_REASON}</span> : null}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     className="px-2.5 py-2"

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import {
-  EstimateBatchPreparationError, prepareEstimateBatch, sameEstimateBatchTimestamp,
+  EstimateBatchPreparationError, prepareEstimateBatch, sameEstimateBatchTimestamp, type EstimateBatchCreatedId,
 } from "@/lib/estimates/batch-preparation";
 import { canonicalizeEstimateBatchOperations } from "@/lib/estimates/batch-request";
 import { ApiError, badRequest, conflict, type SupabaseErrorLike } from "@/lib/estimates/errors";
@@ -49,6 +49,8 @@ export type ExecuteEstimateBatchOptions = {
   operationKey?: string;
   dryRun?: boolean;
   maxOperations?: number;
+  /** Server-side copies only (2.8b): identities of the created items, so that a child names a section created earlier in the batch, and the source_metadata of the copied item. Never set by the HTTP batch API. */
+  createdIds?: EstimateBatchCreatedId[];
 };
 
 export function resolveEstimateBatchMaxOperations(override?: number) {
@@ -79,6 +81,10 @@ const RPC_ERRORS: Record<string, [ApiError["status"], string]> = {
   ESTIMATE_BATCH_LOCK_REQUIRED: [409, "Un verrou actif de cette page est requis."],
   ESTIMATE_BATCH_IDEMPOTENCY_CONFLICT: [409, "Cette clé correspond à une autre demande."],
   ESTIMATE_BATCH_PROJECTION_MISMATCH: [400, "La projection du batch ne correspond pas à ses lignes."],
+  // 2.8b, revue Codex de la PR #59 (G2) : provenance (import, mapping, ligne mappée, document) d'une autre entreprise.
+  ESTIMATE_BATCH_SOURCE_METADATA_FOREIGN: [400, "La provenance d’un élément désigne un import ou un document d’une autre entreprise. Rien n’a été écrit."],
+  // 2.8b : reçu au-delà de 2 Mio, refusé par son nom dans la transaction (rien n’est écrit), plus en 400 générique.
+  ESTIMATE_BATCH_RECEIPT_TOO_LARGE: [413, "Le reçu de ce lot dépasserait 2 Mio. Rien n’a été écrit : découpez-le en lots plus petits."],
 };
 
 function rpcError(error: SupabaseErrorLike, mutation: boolean) {
@@ -217,7 +223,7 @@ export async function executeEstimateBatch(
   let prepared;
   try {
     prepared = await prepareEstimateBatch({ context, versionId, projectUserId: project.user_id,
-      expectedUpdatedAt: version.updated_at, operations });
+      expectedUpdatedAt: version.updated_at, operations, createdIds: options.createdIds });
   } catch (error) {
     if (!(error instanceof EstimateBatchPreparationError)) throw error;
     return { committed: false, version: initialVersion, results: [
@@ -234,7 +240,7 @@ export async function executeEstimateBatch(
     response = await context.supabase.rpc("commit_estimate_batch", {
       p_version_id: versionId, p_operation_key: operationKey!, p_expected_updated_at: concurrencyToken,
       p_draft_lock_session_id: lock.session_id, p_operations: operations as Json,
-      p_created_ids: prepared.createdIds, p_item_updates: prepared.itemUpdates,
+      p_created_ids: prepared.createdIds as Json, p_item_updates: prepared.itemUpdates,
       p_version_patch: prepared.versionPatch, p_calculation_context: prepared.calculationContext as Json,
       p_expected_aid_policy: prepared.expectedAidPolicy,
     });
