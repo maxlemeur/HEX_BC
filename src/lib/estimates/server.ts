@@ -3490,7 +3490,8 @@ export async function listEstimateImportSources(
   let request = supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, version_number, status, title, updated_at, total_ht_cents, estimate_projects!inner(id, tenant_id, user_id, name, is_archived)"
+      "id, project_id, version_number, status, title, updated_at, total_ht_cents, estimate_projects!inner(id, tenant_id, user_id, name, is_archived)",
+      { count: "exact" }
     )
     .eq("tenant_id", tenantId)
     .eq("estimate_projects.tenant_id", tenantId)
@@ -3504,9 +3505,9 @@ export async function listEstimateImportSources(
     request = request.eq("estimate_projects.user_id", context.userId);
   }
 
-  const { data, error } = await request
-    .order("updated_at", { ascending: false })
-    .order("version_number", { ascending: false });
+  // Every version, by pages in id order only (the API returns 1 000 rows at most): a version edited between
+  // two pages keeps its place, where an updated_at order would move it across pages and fail the read.
+  const { data, error } = await readAllRows(() => request);
 
   if (error) {
     throw mapSupabaseError(
@@ -3515,7 +3516,13 @@ export async function listEstimateImportSources(
     );
   }
 
-  const rows = (data ?? []) as EstimateImportSourceVersionRow[];
+  // Most recently updated first, as PostgreSQL orders them: keep the microseconds Date drops.
+  const updatedAtKey = (value: string) => Date.parse(value) * 1000 +
+    Number((value.match(/\.(\d+)(?:Z|[+-]\d\d:?\d\d)$/)?.[1] ?? "").padEnd(6, "0").slice(3, 6));
+  const rows = ((data ?? []) as EstimateImportSourceVersionRow[]).sort((left, right) =>
+    updatedAtKey(right.updated_at) - updatedAtKey(left.updated_at) ||
+    right.version_number - left.version_number ||
+    (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
   const items = rows
     .map((row): EstimateImportSourceVersionItem | null => {
       const project = resolveEmbeddedOne(row.estimate_projects);
