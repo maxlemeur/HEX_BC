@@ -1139,7 +1139,8 @@ armyTest("V3E17 at phone width the mobile line editor of a v3 writes unit_code f
     await openV3Editor(ui, army, draft, "v3e17");
     await waitForDraftLease(ui);
     await browser.setViewport({ width: 375, height: 812 });
-    const trigger = browser.locator(`[data-estimate-item-id="${line.id}"] [data-testid="estimate-mobile-line-editor-trigger"]`);
+    // À 375 px, la grille cède la place à la liste mobile (MobileEstimateList) : chaque ligne ouvre l'éditeur mobile.
+    const trigger = browser.locator(`[data-testid="estimate-mobile-line-${line.id}"]`);
     await expect(trigger).toBeVisible({ timeout: 30_000 });
     await trigger.click();
     const editor = screen.getByTestId("estimate-mobile-line-editor");
@@ -1163,15 +1164,18 @@ armyTest("V3E17 at phone width the mobile line editor of a v3 writes unit_code f
       return item?.unit_code === "ml" && Number(item?.h_mo_per_unit) === 1.5 && sameTotals(state, typed);
     });
     const savedLine = lineByTitle(saved, line.title);
+    // La liste mobile affiche l'unité du référentiel de la ligne v3 (« 2 × ml »), jamais description.
+    const listMeta = await browser.evaluate((id) => document
+      .querySelector(`[data-testid="estimate-mobile-line-${id}"] .estimate-mobile-line__meta .tabular-nums`)?.textContent?.trim() ?? null, line.id);
     const view = {
       fields, line: pickLine(savedLine, ["unit", "status", "quantity", "hPerUnit", "hMo", "pu", "net"]),
-      description: savedLine?.description ?? null, totals: totalsOf(saved), genericRefusal: await genericRefusalShown(ui),
+      description: savedLine?.description ?? null, listMeta, totals: totalsOf(saved), genericRefusal: await genericRefusalShown(ui),
     };
     await recordEvidence(army, "v3e17-mobile", { versionId: draft.versionId, lineId: line.id, actual: view, nativeDialogs: dialogs });
     expect(view, "the mobile line editor of a v3 writes unit_code and hours per unit through the v3 writer").toEqual({
       fields: { hoursPerUnit: true, lineHours: false },
       line: { unit: "ml", status: "priced", quantity: 2, hPerUnit: 1.5, hMo: 3, pu: 8500, net: 17000 },
-      description: null, totals: typed, genericRefusal: false,
+      description: null, listMeta: "2 × ml", totals: typed, genericRefusal: false,
     });
 
     // Le gel v3 (celui de l'émission, ouvert sur main par la demande d'approbation) accepte la ligne : elle a son unité.
