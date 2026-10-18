@@ -33,6 +33,7 @@ export function PriceBookCsvImport(props: Readonly<PriceBookCsvImportProps>) {
         isBusy={workflow.actionState.isBusy}
         isParsing={workflow.actionState.isParsing}
         isValidating={workflow.actionState.isValidating}
+        isLookupsLoading={workflow.actionState.isLookupsLoading}
         onFileChange={workflow.setSelectedFile}
         onAnalyzeFile={workflow.analyzeFile}
         onClearSelection={workflow.clearSelection}
@@ -54,6 +55,7 @@ export function PriceBookCsvImport(props: Readonly<PriceBookCsvImportProps>) {
             isResolving={workflow.actionState.isResolving}
             isCreatingMissing={workflow.actionState.isCreatingMissing}
             isSubmitting={workflow.actionState.isSubmitting}
+            isLookupsLoading={workflow.actionState.isLookupsLoading}
             onResolveAutomatically={workflow.resolveAutomatically}
             onCreateMissing={workflow.createMissing}
             onDownloadCorrectionsCsv={workflow.downloadCorrectionsCsv}
