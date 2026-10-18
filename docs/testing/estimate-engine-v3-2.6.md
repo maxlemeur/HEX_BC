@@ -1,6 +1,6 @@
 # Éditeur et réglages v3 (sous-lot 2.6) — défaillances, parcours E2E, implémentation et preuves
 
-Statut : **vert, intégré, revu** (18/10/2026 ; revue et corrections au §11). Le rouge a été écrit le 17/10/2026 sans code de production (isolation
+Statut : **vert, intégré, revu** (18/10/2026 ; revue, corrections et preuves au §11, qualifiées à `258daf9e`). Le rouge a été écrit le 17/10/2026 sans code de production (isolation
 Vitest au §5, parcours E2E au §9.8). L'implémentation, en deux pistes (réglages `e0022a1f`, grille `d97107a7` à
 `6521ab4a`), est au §8 ; l'intégration des deux pistes, la fusion d'`origin/main` et les preuves mesurées sont au
 §10. Ce document fixe les défaillances observables de l'éditeur v3 (§2), leur preuve (parcours E2E
@@ -1133,8 +1133,91 @@ correction est prouvée par le vert (§11.5).
 | `9f47fc93` | F26-24, F26-26 | `LineRow.tsx`, `V3LineCells.tsx`, `EstimateArticleSheet.tsx`, `EstimateEditorTable.tsx` |
 | `6c646080` | F26-30 | `EstimateDetailActionsMenu.tsx`, `[versionId]/page.tsx` |
 | `d0d82b4e` | R2-9 (commentaire) | migration `20261017205000`, `migrations.manifest.json` |
+| `13e7bc25` | ce chapitre (revue, rouges, corrections) | ce document |
+| `1c16ad40` | F26-26, relecture avant le vert : un prix de référence d'article (sans offre) dans une autre unité est aussi refusé | `v3-editor.ts` |
+| `258daf9e` | fusion d'`origin/main` (`89627add` : import CSV des offres fournisseurs), sans conflit ni recouvrement | — |
 
 Budgets (lignes non vides) : `EstimateEditorTable.tsx` 2 591 / 2 600, `useEstimateEditorState.impl.tsx` 2 946 / 3 100,
 `useEstimateEditorSyncController.ts` 1 199 / 1 200 (inchangé), `LineRow.tsx` 1 197 / 1 200,
 `useEstimateEditorSuggestionsController.ts` 1 224 / 1 400. `estimate-calculations.ts` et `estimate-v2-snapshot.ts` :
 aucun diff.
+
+### 11.5 Preuves au vert (18/10/2026)
+
+Révision qualifiée : `258daf9e` (fusion d'`origin/main` `89627add`, sans rebase ; `main` n'apporte que l'import CSV des
+offres fournisseurs et sa documentation, sans recouvrement avec 2.6). Même environnement qu'au §11.3 (diff local vide,
+`diffSha256` `e3b0c442…b855`, verrou natif : au plus deux exécutions natives possédées en parallèle, comptées par
+exécution).
+
+| Preuve | Commande | Résultat | Archive (clone WSL) |
+|---|---|---|---|
+| Parcours 2.6 et parcours v2 touchés par la revue | `E2E_ARMY_WORKERS=2 npm run e2e:army:local -- --grep "V3E\|V3P01\|V3FC\|bulk edit sync\|bulk move\|numeric entry"` | sortie 1 ; en amont inventaire conforme, pgTAP `Files=20, Tests=1854, Result: PASS`, « Behavioral RLS matrix passed. », build ; **26/27** : `V3E01` à `V3E13`, `V3P01`, `V3FC01`, `V3FC02`, `bulk-edit-sync` (3), `bulk-move` (1), `bulk-edit-sync-sources` (3, dont la présélection v2 P1), `numeric-entry` (2) verts en une tentative ; **`numeric entry v3` rouge** : « element is outside of the viewport: getByTestId("estimate-editor-settings-button") » (voir ci-dessous) | `.e2e/army/ci/2026-10-18T01-49-07-316Z-critical`, manifeste `4bbea21276d14de597991aa2a50b7e1ad0c1fc35b6bcc6535cd80d41292dcc2d`, confidentialité `passed` |
+| `numeric entry v3` seul | `E2E_ARMY_WORKERS=1 npm run e2e:army:local -- --grep "numeric entry v3"` | sortie 0 ; 1/1 vert (15,3 s), même révision | `.e2e/army/ci/2026-10-18T01-57-51-938Z-critical`, manifeste `23ba5a0337d33ff01439fd86b2ec4de02eac4cac64ad5a0b1187b1d1a9d93f97` |
+| Empreintes de documents | `npm run engine:document-fingerprints -- check` | sortie 0 ; 14 familles v1/v2, « Document fingerprints identical » | `.e2e/engine-v3/document-fingerprints/2026-10-18T02-01-23-234Z-check`, manifeste `7a2325bfcbccdc06726bf38326d899a64e2b193662599502108e838b528ae770` |
+| Parcours de référence 2.0 (hors CI) | `npm run e2e:army:calc-v3` | sortie 0 ; sources inchangées pendant la campagne ; `journeys` 11/11, `components` 5/5, `numeric` 4/4, `resume` 5/5, `access` 2/2, `offers` 10/10 (dont `OZ04`, présélection v1), `emission` 6/6 : **38/38** ; `OF00`, rouge intermittent en `next dev` depuis 2.9 (§10.3.1), vert à ce passage | `.e2e/army/ci/2026-10-18T02-02-13-007Z-calc-v3`, manifeste `2a61715935bed2515dd5fa9740c51e739c449f2d021f5638d29ba4261832d1d3`, confidentialité `passed` |
+| Qualité de PR | `npm run verify:pr` (WSL) | sortie 0 ; audit des dépendances (0 avis bloquant), 762 signatures vérifiées, budgets d'architecture (1 134 modules, 0 cycle), OpenAPI valide et synchronisée, `typecheck`, `lint` (`--max-warnings=0`), Vitest node 297 fichiers / 2 812 tests (1 fichier, 2 tests ignorés), jsdom 164 / 823, couverture critique 3 / 12 | journal non versionné du clone |
+
+**`numeric entry v3` dans la campagne combinée** : parcours v2 du sous-lot 2.3, jamais sélectionné jusque-là avec
+`bulk-edit-sync-sources`. Celui-ci bascule l'utilisateur ARMY partagé en mode Expert le temps de ses scénarios
+(`withSharedState`, préférence enregistrée au profil, donc hors de la session restaurée) ; à deux workers,
+`numeric entry v3`, qui suppose le mode Simplifié, a ouvert l'éditeur pendant cette fenêtre : l'écran à l'échec montre
+les pastilles du mode Expert (« Marge : 0% », « TVA : 20% », « Remise »…) et le bouton des réglages du menu
+d'affichage hors de la fenêtre. Seul, à la même révision, il passe. Course entre deux parcours v2 existants, sans lien
+avec le code de 2.6 (barre d'outils, menu d'affichage et mode d'interface inchangés) ; rien n'a été modifié pour la
+faire passer.
+
+Valeurs assertées au vert (0 c de tolérance) : `V3E05` — unités « xyz » et « HL » refusées par leur nom, cellule
+quittée, `unit_code` « u » ; suppression de C → 44 700 / 8 940 / 53 640 c ; annulation → C recréée (nouvel `id`, `u`,
+`priced`, h/u 0, PU 1 300 c) et 46 000 / 9 200 / 55 200 c ; annulation d'un ajout → ligne supprimée ; section T et sa
+ligne supprimées → 43 400 / 8 680 / 52 080 c. `V3E06` — majoration 150 % en lot → 48 200 / 9 640 / 57 840 c (PU de A
+20 200 c, h MO 2) ; déplacement vers T ; suppression en lot → 1 300 / 260 / 1 560 c ; annulation → A et B recréées dans
+T avec leurs saisies et la majoration 1,5. `V3E07` — taux 50 €/h → totaux stockés 56 000 / 11 200 / 67 200 c, fiche
+« Total HT » 560,00 €. `V3E08` — P : 110,00 € / 25,00 € / 18,5 % ; « Hors lot » : 0,00 € / 0,00 € / - ; « Temps MO
+manquant » levé avant, plus après la sauvegarde ni après rechargement. `V3E09` — offre « barre » désactivée,
+« Unité différente du devis : … » ; article en ml associé : `unit_code` ml, `description` nulle, PR 1 240 c, totaux
+3 224 / 645 / 3 869 c. `V3E10` — question ouverte par Ctrl+S (« Non » : version 1 000 pb, ligne 2 000 pb) et par
+« Enregistrer » à la fermeture (« Oui » : version et ligne 550 pb, 13 000 / 715 / 13 715 c, tiroir fermé). `V3E11` —
+0 % enregistré puis « À jour » ; arrondi stocké 2,50 € affiché « 2,50 € — palier inférieur (réglage actuel) » (options
+`none`, `100`, `250`, `1000`, `5000`, `10000`), « Aucun » enregistré ; fiche : PDF et modèle désactivés, raison
+affichée, « Dupliquer » actif. `V3E12` — K FO 1,3 sur B → 45 350 / 9 070 / 54 420 c, annulé → 43 400 / 8 680 /
+52 080 c. `V3E13` — collage refusé par son nom, aucune ligne, révision inchangée. `V3E01` à `V3E04`, `V3P01`,
+`V3FC01`, `V3FC02` : assertions inchangées, vertes (présélection v3 : recalcul persisté, 3 224 / 645 / 3 869 c).
+
+Windows (Node 24.19.0), à `258daf9e`, diff local vide : `npm run typecheck` sortie 0 ; `npx eslint --max-warnings=0` sur
+les 45 fichiers `.ts`/`.tsx` ajoutés ou modifiés par la branche, sortie 0 ; `npx vitest run --project=node` sur
+`army-impact-map`, `ci-guardrails`, `v3-settings-payload` (`V3S-01` à `V3S-04`, assertions inchangées),
+`supabase-migration-git-guard`, `upgrade-check` et `engine-frozen-corpus` : 6 fichiers, 41/41 ; garde Git des
+migrations passée ; `git -c core.whitespace=cr-at-eol diff --check origin/main...HEAD` propre ;
+`git diff --stat origin/main...HEAD -- src/lib/estimate-calculations.ts src/lib/estimate-v2-snapshot.ts` (et depuis
+`f1d94213`) vide. Sur Windows, `npm run verify:pr` s'est arrêté à `audit:signatures` (cache npm local illisible,
+`ENOENT`, environnement) : la chaîne complète qui fait foi est celle du clone WSL ci-dessus.
+
+### 11.6 Limites restantes (après la revue)
+
+- **Éditeur mobile d'une ligne** (largeur téléphone) et **restauration d'un brouillon en conflit** : restent v2 sur une
+  v3. Dans l'éditeur mobile, une heure totale est ignorée sans message (la charge v3 retire `h_mo`) et l'unité saisie
+  s'écrit dans `description`, sans effet sur `unit_code` ; l'unité et les heures par unité se saisissent dans la
+  grille.
+- **Conversion et duplication de section** : « Convertir en section », « Convertir en ligne » (`PATCH /items`),
+  « Dupliquer la section » et « Dupliquer vers un autre devis » (insertion directe, hors contrat d'écrivain de M4)
+  sont refusés sur une v3 par le serveur, sans rien écrire ; le refus n'est pas nommé pour la v3 (avis « Conversion
+  impossible » avec le message du moteur 3). Relevé à la revérification, hors des constats ; à fixer avec le
+  contrat des modèles et des ouvrages (2.8) ou par un refus nommé.
+- **Collage** : refusé sur une v3 tant que son contrat n'est pas fixé (unité du référentiel, heures par unité ou
+  totales, statut).
+- **Règles de suggestion qui proposent une unité** (`description`) : appliquées en lot sur une v3, elles l'écrivent dans
+  `description`, sans effet sur `unit_code`.
+- **Taux horaire d'un rôle** : seul le brouillon ouvert est recalculé ; un autre brouillon v3 du même propriétaire
+  garde ses montants stockés jusqu'à sa prochaine écriture (contrat de 2.5 : chaque écrivain recalcule et vérifie).
+- **Sous-détail de ligne** : « Marge € » d'une v3 est brute (avant la remise et l'arrondi commercial du pied), comme
+  le dit l'aide de la colonne ; aucune marge nette par ligne.
+- **F26-29** : « choisir “Aucun” ne déclenche pas d'événement » n'est pas discriminé par le parcours (`selectOption`
+  déclenche toujours l'événement) ; tenu par construction.
+- **F26-07, F26-27** : « rien n'est envoyé avant la réponse » est asserté par l'issue (version et lignes relues), pas
+  par l'absence de requête pendant que la question est ouverte.
+- Inchangés (§8.5) : pas de gestionnaire v3 des tranches de marge, liste des taux de TVA de l'entreprise non lue à la
+  saisie, instabilité non reproduite de la liste des rôles.
+- Migration `20261017205000` : à appliquer au Supabase partagé avant tout déploiement, sur autorisation explicite.
+- `OF00` (phase `emission` de calc-v3, `next dev`) : rouge intermittent hérité de 2.9 (§10.3.1), vert au passage du §11.5.
+- Course connue entre deux parcours v2 à deux workers (`bulk-edit-sync-sources`, qui bascule l'utilisateur ARMY partagé en
+  mode Expert, et `numeric entry v3`, qui suppose le mode Simplifié) : §11.5 ; hors de 2.6.
