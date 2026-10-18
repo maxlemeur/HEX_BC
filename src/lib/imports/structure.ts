@@ -115,6 +115,14 @@ function hasUsablePrice(mappedRow: JsonRecord) {
   return (unitPrice !== null && unitPrice > 0) || (total !== null && total > 0);
 }
 
+const SUBTOTAL_TITLE_PATTERN = /^sous[- ]?total\b/i;
+
+/** An estimate line row: a positive quantity (a VAT or TTC amount of a priced footer has none). */
+function hasLineQuantity(mappedRow: JsonRecord) {
+  const quantity = parseNumericValue(mappedRow.quantity);
+  return quantity !== null && quantity > 0;
+}
+
 function resolveTitle(mappedRow: JsonRecord) {
   return asText(mappedRow.designation) || asText(mappedRow.reference ?? mappedRow.hex_code);
 }
@@ -180,15 +188,35 @@ export function analyzeImportStructure(rows: ImportStructureRow[]): ImportStruct
   let footerStarted = false;
   let footerStartRowIndex: number | null = null;
   let zeroPriceRows = 0;
+  // Lot 2, sous-lot 2.8: an OPTIMA lot carries a « Sous-total » after each sub-lot (sometimes followed by
+  // the lot's own « Sous-total »), then the heading of the next one. Such a « Sous-total » (next titled row:
+  // a heading without quantity, or another such « Sous-total »; a line with a quantity further on) is ignored
+  // alone and the lines after it are kept. Any other total or legal row, a « Sous-total » followed by priced
+  // options, or the last « Sous-total » block still starts the footer.
+  const titledRows = sortedRows.filter((row) => resolveTitle(row.mappedRow));
+  const lastQuantityRowIndex = titledRows.reduce((last, row) =>
+    !isFooterTitle(resolveTitle(row.mappedRow)) && hasLineQuantity(row.mappedRow) ? row.rowIndex : last,
+  Number.NEGATIVE_INFINITY);
+  const isSubtotalRow = (row: ImportStructureRow) => SUBTOTAL_TITLE_PATTERN.test(stripAccents(resolveTitle(row.mappedRow)));
+  const intermediateSubtotalRowIndexes = new Set<number>();
+  for (let index = titledRows.length - 1; index >= 0; index -= 1) {
+    const row = titledRows[index]!;
+    const next = titledRows[index + 1];
+    if (!next || !isSubtotalRow(row) || row.rowIndex >= lastQuantityRowIndex) continue;
+    const nextIsHeading = !isFooterTitle(resolveTitle(next.mappedRow)) && !hasLineQuantity(next.mappedRow);
+    if (nextIsHeading || intermediateSubtotalRowIndexes.has(next.rowIndex)) intermediateSubtotalRowIndexes.add(row.rowIndex);
+  }
 
   for (const row of sortedRows) {
     const title = resolveTitle(row.mappedRow);
-    if (!footerStarted && title && isFooterTitle(title)) {
+    const isFooterRow = Boolean(title) && isFooterTitle(title);
+    const isIntermediateSubtotal = intermediateSubtotalRowIndexes.has(row.rowIndex);
+    if (!footerStarted && isFooterRow && !isIntermediateSubtotal) {
       footerStarted = true;
       footerStartRowIndex = row.rowIndex;
     }
 
-    if (footerStarted) {
+    if (footerStarted || isIntermediateSubtotal) {
       footerRowIndexes.push(row.rowIndex);
       continue;
     }

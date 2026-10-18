@@ -248,6 +248,7 @@ export function UnifiedImportFlow({
           structurePreview={previewData?.structurePreview ?? null}
           structurePlan={previewData?.structurePlan ?? { decisions: [] }}
           laborRoleId={previewData?.laborRoleId}
+          saleCoefficients={previewData?.saleCoefficients}
           onBack={handleBack}
           onSuccess={handleConfirmSuccess}
           onResultReady={setConfirmResult}

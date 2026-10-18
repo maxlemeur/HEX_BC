@@ -72,6 +72,38 @@ MCP ci-dessous.
 6. Lancer `npm run supabase:migrations:git-guard`, puis `npm run db:ci:local`.
 7. N'appliquer sur un projet partagé ou distant **que sur autorisation explicite de l'utilisateur**.
 
+Si `main` a reçu une migration plus récente pendant la vie de la PR, le garde refuse la
+vôtre. Juste avant la fusion, donnez-lui son horodatage final :
+
+```bash
+git fetch origin
+git merge origin/main
+npm run supabase:migrations:restamp -- supabase/migrations/<fichier>.sql --dry-run
+npm run supabase:migrations:restamp -- supabase/migrations/<fichier>.sql
+```
+
+Si la fusion s'arrête sur `supabase/migrations.manifest.json` (les deux côtés y ajoutent
+des entrées) : `git checkout --theirs supabase/migrations.manifest.json`, puis
+`npm run supabase:manifest:add`, qui réinscrit les migrations de la branche sans changer
+un hash déployé, et terminez la fusion.
+
+L'outil refuse tant que la base (`--base`, `origin/main` par défaut) n'est pas fusionnée
+dans la branche : sinon les fichiers qu'elle a ajoutés depuis le fork ne seraient ni
+cherchés ni vérifiés. Il refuse un fichier présent sur la base, non suivi, absent ou
+périmé dans le manifeste, ou qu'un rapport `docs/testing/shared-supabase-*` enregistre
+comme appliqué au partagé : nom de fichier, nom MCP `<horodatage>_<slug>` ou ligne
+`schema_migrations` (version égale à l'horodatage, puis nom égal au slug). Un horodatage
+seul, comme dans une liste de migrations restant à appliquer, n'enregistre rien. Il
+refuse aussi quand une autre migration ajoutée par la branche, non nommée, resterait
+antérieure ou égale à la plus récente de la base : nommez-la aussi. Il prend un
+horodatage UTC postérieur à la plus récente de la base, dans la tolérance du garde
+(`--at` le fixe), garde l'ordre de plusieurs fichiers, fait le `git mv`, renomme la clé
+du manifeste et réécrit puis liste les références à l'ancien nom ou horodatage dans les
+fichiers suivis. Le hash ne change que pour une migration de la branche qui cite un
+ancien horodatage, le sien ou celui d'une autre. Il lance enfin le garde Git
+(`pull_request` contre la base) et la validation du manifeste, et sort en erreur si l'un
+échoue. Relisez la prose réécrite avant de committer.
+
 ### Runbook d'application via MCP
 
 Quand l'application distante est autorisée :

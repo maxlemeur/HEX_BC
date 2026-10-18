@@ -361,3 +361,29 @@ describe("2.3 pasted majoration unit chosen in the mapping (D11, P-11)", () => {
     expect(row.reasons.join(" ")).toContain("choisissez « Majoration MO (%) » ou « Majoration MO (coefficient) »");
   });
 });
+
+// Sub-lot 2.8 (D16, D11): an OPTIMA paste into a v3 reads « Tps pose unitaire » as hours per unit and
+// « Prix Unitaire » as a control, and shows the interpreted values. Isolation exception: header and cell
+// interpretation cases; IO04 pastes the header and line O1 into a v3.
+describe("2.8 OPTIMA paste into a v3 (D16)", () => {
+  const headers = [
+    "N°", "Désignation", "Uté", "Qté", "Prix Unitaire", "Prix Total", "PR Fourniture unitaire",
+    "PR Total fourniture", "Tps pose unitaire", "Tps pose unitaire majoré", "Tps pose total",
+    "Coeff FO", "Coeff MO", "Majoration MO", "Taux horaire",
+  ];
+
+  it("reads Tps pose unitaire as hours per unit and Prix Unitaire as a control", () => {
+    const mapping = suggestClipboardColumnMapping(headers);
+    expect(mapping["Tps pose unitaire"]).toBe("h_mo_per_unit");
+    expect(mapping["Prix Unitaire"]).toBe("control_unit_price");
+  });
+
+  it("shows the interpreted values of line O1", () => {
+    const o1 = ["1", "O1", "ml", "20", "174,59", "3 491,80", "54,66", "1 093,20", "1,991", "1,991", "39,82", "1,3", "1,3", "0", "40"];
+    const matrix = parseTsvMatrix([headers.join("\t"), o1.join("\t")].join("\n"));
+    const row = buildClipboardPreviewRows(matrix, suggestClipboardColumnMapping(matrix.headers)).rows[0]!;
+    expect(row).toMatchObject({ status: "valid", values: {
+      designation: "O1", quantity: 20, unit: "ml", unit_price_ht: 54.66, h_mo_per_unit: 1.991, control_unit_price: 174.59,
+    } });
+  });
+});

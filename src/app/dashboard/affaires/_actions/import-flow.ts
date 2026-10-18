@@ -6,6 +6,7 @@ import { z } from "zod";
 import {
   buildImportFlowStats,
   normalizeMappedRowsForEstimateCreation,
+  readImportWorkbookParameters,
   resolveImportLaborRole,
   type ImportFlowLineValuesContext,
   type ImportFlowMappedRowInput,
@@ -31,7 +32,9 @@ import {
   normalizeNullableText,
   toRpcImportItems,
 } from "@/lib/affaires/import-flow-server";
+import { readTenantCalcPolicy } from "@/lib/estimates/calc-policy-server";
 import { persistCanonicalEstimateV2 } from "@/lib/estimates/canonical-v2-creation";
+import { usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import { IMPORT_CONTROL_TOLERANCE_CENTS, type ImportUnitPriceCheck } from "@/lib/imports/optima-profile";
 import {
   createMapping,
@@ -94,6 +97,16 @@ const structureDecisionSchema = z.union([
   }),
 ]);
 
+// Lot 2, sous-lot 2.8 (E4): a v3 sale coefficient, in ]0 ; 10] with four decimals at most (D5).
+const saleCoefficientSchema = z
+  .number()
+  .gt(0)
+  .lte(10)
+  .refine((value) => Math.abs(value * 10_000 - Math.round(value * 10_000)) < 1e-6, {
+    message: "Coefficient de vente : quatre décimales au plus.",
+  });
+const saleCoefficientsSchema = z.object({ fo: saleCoefficientSchema, mo: saleCoefficientSchema });
+
 const confirmUnifiedImportFlowSchema = z.object({
   importId: z.string().uuid("importId invalide."),
   projectId: z.string().uuid("projectId invalide.").nullable().optional(),
@@ -110,6 +123,8 @@ const confirmUnifiedImportFlowSchema = z.object({
   // Labour role of the imported hours chosen at the preview (E17). Omitted: the workbook rate
   // decides; null: the explicit « no role » choice (MO valued at 0 €/h, warned in the preview).
   laborRoleId: z.string().uuid("laborRoleId invalide.").nullable().optional(),
+  // Sale coefficients of the v3 chosen at the preview (2.8, E4). Omitted: the workbook's, else the policy's.
+  saleCoefficients: saleCoefficientsSchema.optional(),
 });
 export type ConfirmUnifiedImportFlowInput = z.infer<typeof confirmUnifiedImportFlowSchema>;
 
@@ -118,6 +133,7 @@ const previewUnifiedImportFlowLinesSchema = z.object({
   projectId: z.string().uuid("projectId invalide."),
   mapping: z.record(z.string(), z.union([z.string(), z.null()])),
   laborRoleId: z.string().uuid("laborRoleId invalide.").nullable().optional(),
+  saleCoefficients: saleCoefficientsSchema.optional(),
 });
 export type PreviewUnifiedImportFlowLinesInput = z.infer<typeof previewUnifiedImportFlowLinesSchema>;
 
@@ -155,7 +171,46 @@ export type ImportFlowLinesPreview = {
   };
   // Columns named as a duration per unit but read as the line's total hours (2.3 review, C-01).
   perUnitDurationsAsLineHours: string[];
+  // Lot 2, sous-lot 2.8: engine of the estimate the import creates, and the v3 sale coefficients.
+  engine: 2 | 3;
+  saleCoefficients: ImportSaleCoefficients | null;
 };
+
+/** Sale coefficients of the v3 an import creates (2.8, E4): the workbook's, the policy's, or a choice. */
+export type ImportSaleCoefficients = { fo: number; mo: number; source: "workbook" | "policy" | "choice" };
+
+function isSaleCoefficient(value: number | null | undefined): value is number {
+  return typeof value === "number" && value > 0 && value <= 10;
+}
+
+/**
+ * Under a policy at engine 3, the import creates a v3: its sale coefficients are those chosen at the
+ * preview, else the workbook parameter row's (FO and MO), else the policy's defaults. Null: v1/v2.
+ */
+async function resolveImportSaleCoefficients(input: {
+  supabase: Supabase;
+  tenantId: string;
+  rows: ImportFlowMappedRowInput[];
+  requested: { fo: number; mo: number } | undefined;
+}): Promise<ImportSaleCoefficients | null> {
+  const policy = await readTenantCalcPolicy(input.supabase, input.tenantId);
+  if (!usesSaleCoefficients(policy.engine)) return null;
+  if (input.requested) return { ...input.requested, source: "choice" };
+  const workbook = readImportWorkbookParameters(input.rows);
+  if (isSaleCoefficient(workbook?.coeffFo) && isSaleCoefficient(workbook?.coeffMo)) {
+    return { fo: workbook.coeffFo, mo: workbook.coeffMo, source: "workbook" };
+  }
+  if (isSaleCoefficient(policy.defaultSaleCoefficientFo) && isSaleCoefficient(policy.defaultSaleCoefficientMo)) {
+    return { fo: policy.defaultSaleCoefficientFo, mo: policy.defaultSaleCoefficientMo, source: "policy" };
+  }
+  throw new Error("La politique de calcul de l’entreprise n’a pas de coefficients de vente par défaut.");
+}
+
+function v3LineContext(saleCoefficients: ImportSaleCoefficients | null) {
+  return saleCoefficients
+    ? { engine: 3, saleCoefficientFo: saleCoefficients.fo, saleCoefficientMo: saleCoefficients.mo }
+    : {};
+}
 
 function hasImportedLaborHours(normalized: NormalizeImportFlowRowsResult) {
   return normalized.validLines.some((line) => line.hMo > 0);
@@ -419,11 +474,22 @@ export async function confirmUnifiedImportFlow(
     detectStructure: true,
     structureDecisions: parsed.data.structurePlan?.decisions ?? [],
   };
+  // Under a policy at engine 3 the created estimate is a v3 (2.8): lines normalized for engine 3.
+  const saleCoefficients =
+    parsed.data.createEstimate && requestedProjectId
+      ? await resolveImportSaleCoefficients({
+          supabase,
+          tenantId: membership.tenant_id,
+          rows: mappedRows,
+          requested: parsed.data.saleCoefficients,
+        })
+      : null;
   // The preview step showed h/u × Q, the workbook parameters and the labour role (P-16).
   const lineContext = {
     marginMultiplier: versionContext.margin_multiplier,
     defaultTaxRateBp: versionContext.tax_rate_bp,
     entry: "preview" as const,
+    ...v3LineContext(saleCoefficients),
   };
   let normalizedRows = normalizeMappedRowsForEstimateCreation(mappedRows, lineContext, normalizationOptions);
 
@@ -497,6 +563,9 @@ export async function confirmUnifiedImportFlow(
       },
       version: {
         title: normalizeNullableText(parsed.data.versionTitle) ?? "Import DPGF",
+        ...(saleCoefficients
+          ? { sale_coefficient_fo: saleCoefficients.fo, sale_coefficient_mo: saleCoefficients.mo }
+          : {}),
       },
       source: {
         kind: "import",
@@ -508,7 +577,9 @@ export async function confirmUnifiedImportFlow(
           importId: parsed.data.importId,
           mappingId,
         }),
+        ...(saleCoefficients ? { engine: 3 } : {}),
       },
+      ...(saleCoefficients ? { expectedCalcEngineVersion: 3 } : {}),
     });
   } catch (error) {
     throw new Error("Impossible de créer la version depuis l'import.", {
@@ -638,12 +709,19 @@ export async function previewUnifiedImportFlowLines(
       tenantId: membership.tenant_id,
     }),
   ]);
+  const saleCoefficients = await resolveImportSaleCoefficients({
+    supabase,
+    tenantId: membership.tenant_id,
+    rows,
+    requested: parsed.data.saleCoefficients,
+  });
   const { normalized, resolution } = normalizeWithLaborRole({
     rows,
     context: {
       marginMultiplier: versionContext.margin_multiplier,
       defaultTaxRateBp: versionContext.tax_rate_bp,
       entry: "preview",
+      ...v3LineContext(saleCoefficients),
     },
     options: { detectStructure: true },
     roles,
@@ -690,5 +768,7 @@ export async function previewUnifiedImportFlowLines(
         .slice(0, PREVIEW_LINE_LIMIT),
     },
     perUnitDurationsAsLineHours: findPerUnitDurationsMappedToLineHours(parsed.data.mapping),
+    engine: saleCoefficients ? 3 : 2,
+    saleCoefficients,
   };
 }

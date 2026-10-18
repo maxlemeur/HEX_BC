@@ -88,6 +88,9 @@ export function PreviewStep({
   const [linesPreviewAttempt, setLinesPreviewAttempt] = useState(0);
   // undefined: the server resolves the role from the workbook rate; null: explicitly none.
   const [selectedLaborRoleId, setSelectedLaborRoleId] = useState<string | null | undefined>(undefined);
+  const [selectedSaleCoefficients, setSelectedSaleCoefficients] = useState<
+    { fo: number; mo: number } | undefined
+  >(undefined);
   const linesRequestIdRef = useRef(0);
 
   const handlePreviewLimitChange = useCallback((limit: number) => {
@@ -204,6 +207,7 @@ export function PreviewStep({
       projectId,
       mapping,
       ...(selectedLaborRoleId === undefined ? {} : { laborRoleId: selectedLaborRoleId }),
+      ...(selectedSaleCoefficients === undefined ? {} : { saleCoefficients: selectedSaleCoefficients }),
     })
       .then((data) => {
         if (cancelled || linesRequestIdRef.current !== requestId) return;
@@ -224,7 +228,7 @@ export function PreviewStep({
     return () => {
       cancelled = true;
     };
-  }, [importId, linesPreviewAttempt, mapping, needsLinesPreview, projectId, selectedLaborRoleId]);
+  }, [importId, linesPreviewAttempt, mapping, needsLinesPreview, projectId, selectedLaborRoleId, selectedSaleCoefficients]);
 
   const roleChoiceRequired =
     needsLinesPreview && linesPreview?.laborRole.status === "choice_required";
@@ -234,6 +238,12 @@ export function PreviewStep({
       : linesPreview?.laborRole.status === "resolved"
         ? linesPreview.laborRole.roleId
         : undefined;
+  // Sub-lot 2.8: the coefficients the preview priced with are those the v3 is created with.
+  const resolvedSaleCoefficients =
+    selectedSaleCoefficients ??
+    (linesPreview?.saleCoefficients
+      ? { fo: linesPreview.saleCoefficients.fo, mo: linesPreview.saleCoefficients.mo }
+      : undefined);
   const isLinesPreviewBlocking =
     needsLinesPreview && (isLinesPreviewLoading || linesPreviewError !== null || roleChoiceRequired);
 
@@ -306,6 +316,7 @@ export function PreviewStep({
           error={linesPreviewError}
           selectedLaborRoleId={selectedLaborRoleId}
           onLaborRoleChange={setSelectedLaborRoleId}
+          onSaleCoefficientsChange={setSelectedSaleCoefficients}
           onRetry={() => setLinesPreviewAttempt((attempt) => attempt + 1)}
         />
       ) : null}
@@ -345,6 +356,7 @@ export function PreviewStep({
                 structurePreview: structurePreview!,
                 structurePlan: { decisions: structureDecisions },
                 ...(resolvedLaborRoleId === undefined ? {} : { laborRoleId: resolvedLaborRoleId }),
+                ...(resolvedSaleCoefficients === undefined ? {} : { saleCoefficients: resolvedSaleCoefficients }),
               }),
             )
           }

@@ -44,7 +44,7 @@ import {
 import type { MappingTargetField } from "../../src/lib/mappings/schemas";
 import { normalizeMeasurementUnit } from "../../src/lib/units/normalize";
 import { buildSourceEvidence, newEvidenceDirectory } from "../tester-army/local-recipe-common.mjs";
-import { centsHalfUp, controlCents } from "./optima-control";
+import { centsHalfUp, controlCents } from "../../src/lib/imports/optima-control";
 
 type Expectation = {
   priced: number;

@@ -538,18 +538,86 @@ generatedTest("GR05 preserves received pages and retries real list and resume re
   expect(intercepted.map((entry) => entry.mode)).toEqual(["list503", "list-invalid", "list-incoherent", "next503", "resume503"]);
 });
 
+type ActionDelivery = { startedAt: number; headersAt: number | null; settledAt: number | null; requestBody: string | null; status: number | null; contentType: string | null; bodyRead: boolean | null; bodyLength: number | null; containsMarker: boolean | null; error: string | null };
+
+// Records, in the page, the app's own fetch of one server action: only POSTs to
+// `pathname` carrying this exact `next-action` id, their status, and the body the
+// app receives, read to its end from a clone (only its length and whether it
+// holds `marker` are kept). The original request and response are forwarded
+// unchanged. A URL-only `waitForResponse` matches any request to the editor
+// URL, and its body is the DevTools copy: on the CI runner it was reported
+// `net::ERR_ABORTED` (docs/testing/tester-army-calc-v3.md, « GR06 en CI »).
+async function observeActionDelivery(browser: Browser, request: { pathname: string; actionId: string; marker: string }) {
+  await browser.evaluate((request) => {
+    const scope = window as Window & { __armyActionDelivery?: { original: typeof fetch; deliveries: ActionDelivery[] } };
+    if (scope.__armyActionDelivery) throw new Error("An action delivery observer is already installed.");
+    const capture = { original: window.fetch, deliveries: [] as ActionDelivery[] };
+    scope.__armyActionDelivery = capture;
+    window.fetch = async function(input, init) {
+      const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
+      const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+      const url = new URL(input instanceof Request ? input.url : String(input), location.href);
+      const entry: ActionDelivery | null = method === "POST" && url.origin === location.origin && url.pathname === request.pathname && headers.get("next-action") === request.actionId
+        ? { startedAt: Math.round(performance.now()), headersAt: null, settledAt: null, requestBody: typeof init?.body === "string" ? init.body : null, status: null, contentType: null, bodyRead: null, bodyLength: null, containsMarker: null, error: null }
+        : null;
+      if (entry) capture.deliveries.push(entry);
+      let response: Response;
+      try { response = await capture.original.call(window, input, init); }
+      catch (error) {
+        if (entry) { entry.settledAt = Math.round(performance.now()); entry.bodyRead = false; entry.error = error instanceof Error ? `${error.name}: ${error.message}` : "fetch rejected"; }
+        throw error;
+      }
+      if (entry) {
+        entry.headersAt = Math.round(performance.now());
+        entry.status = response.status;
+        entry.contentType = response.headers.get("content-type");
+        void response.clone().text().then((text) => {
+          entry.settledAt = Math.round(performance.now()); entry.bodyRead = true; entry.bodyLength = text.length; entry.containsMarker = text.includes(request.marker);
+        }, (error: unknown) => {
+          entry.settledAt = Math.round(performance.now()); entry.bodyRead = false; entry.error = error instanceof Error ? `${error.name}: ${error.message}` : "body read rejected";
+        });
+      }
+      return response;
+    };
+    return true;
+  }, request);
+}
+
+// Waits until every observed delivery is settled (body read to its end or
+// failed), then restores the page's fetch. An observer lost with its document
+// fails instead of reading as "no delivery".
+async function settledActionDeliveries(browser: Browser): Promise<ActionDelivery[]> {
+  const read = async () => JSON.parse(await browser.evaluate(() => JSON.stringify((window as Window & { __armyActionDelivery?: { deliveries: unknown[] } }).__armyActionDelivery?.deliveries ?? null))) as ActionDelivery[] | null;
+  try {
+    await expect.poll(async () => {
+      const deliveries = await read();
+      return deliveries === null ? "observer-lost" : deliveries.length > 0 && deliveries.every((delivery) => delivery.bodyRead !== null);
+    }, { timeout: 30_000 }).toBe(true);
+    return (await read())!;
+  } finally {
+    await browser.evaluate(() => {
+      const scope = window as Window & { __armyActionDelivery?: { original: typeof fetch } };
+      if (scope.__armyActionDelivery) { window.fetch = scope.__armyActionDelivery.original; delete scope.__armyActionDelivery; }
+      return true;
+    });
+  }
+}
+
 generatedTest("GR06 ignores an outstanding real resume when its dialog closes and another version opens", {
   session: "army", trace: "off", timeout: 180_000,
 }, async ({ app, browser, screen, generated }) => {
   const s = generated.fixture.scenarios.late, other = generated.fixture.scenarios.failure;
+  const resumeActionId = [...generated.actionNames].find(([, name]) => name === "fetchResumableGeneratedOuvrageDraft")?.[0];
+  if (!resumeActionId) throw new Error("The real resume action must exist in this build.");
   await openDialog({ app, browser, screen }, s);
   let release!: () => void;
   const held = new Promise<void>((resolve) => { release = resolve; });
   let observed = false, released = false;
-  const pattern = `${new URL(app.baseUrl!).origin}/dashboard/estimates/${s.versionId}/edit`;
+  const heldBodies: Array<string | null> = [];
   generated.intercept = async (route) => {
-    if (generated.actionNames.get(route.request.headers["next-action"] ?? "") === "fetchResumableGeneratedOuvrageDraft") {
+    if (route.request.headers["next-action"] === resumeActionId) {
       observed = true;
+      heldBodies.push(route.request.postData ?? null);
       await held;
       await route.fallback();
       released = true;
@@ -557,18 +625,27 @@ generatedTest("GR06 ignores an outstanding real resume when its dialog closes an
     }
     return false;
   };
+  await observeActionDelivery(browser, { pathname: `/dashboard/estimates/${s.versionId}/edit`, actionId: resumeActionId, marker: s.drafts[0].draftId });
   try {
     await screen.getByTestId(`generated-ouvrage-draft-${s.drafts[0].draftId}`).getByRole("button", "Reprendre", { exact: true }).tap();
     await expect.poll(() => observed).toBe(true);
     await browser.keyboard.press("Escape");
     await expect(screen.getByRole("dialog", "Générer des ouvrages", { exact: true })).toBeHidden();
-    const delivered = browser.waitForResponse(pattern, { timeout: 30_000 });
     release();
     await expect.poll(() => released).toBe(true);
-    const response = await delivered;
-    const flight = await response.text();
-    expect(response.status).toBe(200);
-    expect(flight.includes(s.drafts[0].draftId)).toBe(true);
+    // The held request is the one the app's fetch receives: same action id and
+    // body, status 200, a Flight body read to its end that holds the draft.
+    const deliveries = await settledActionDeliveries(browser);
+    await evidence(s, "late-resume-delivery", { heldRequests: heldBodies.length, deliveries: deliveries.map(({ requestBody, ...delivery }) => ({ ...delivery, sameBodyAsHeld: requestBody === heldBodies[0] })) });
+    expect(heldBodies).toHaveLength(1);
+    expect(deliveries).toHaveLength(1);
+    const delivery = deliveries[0];
+    expect(delivery.error).toBe(null);
+    expect(delivery.requestBody).toBe(heldBodies[0]);
+    expect(delivery.status).toBe(200);
+    expect(delivery.contentType?.startsWith("text/x-component")).toBe(true);
+    expect(delivery.bodyRead).toBe(true);
+    expect(delivery.containsMarker).toBe(true);
     await browser.evaluate(() => new Promise<boolean>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)))));
     await expect(screen.getByRole("dialog", "Générer des ouvrages", { exact: true })).toBeHidden();
     await expect(screen.getByTestId(`candidate-card-${s.drafts[0].candidates[0].candidateId}`)).toHaveCount(0);
@@ -582,7 +659,7 @@ generatedTest("GR06 ignores an outstanding real resume when its dialog closes an
     await openDialog({ app, browser, screen }, s);
     await resume(screen, s.drafts[0]);
     expect((await readEstimate(browser, s.versionId)).items.filter((item) => item.item_type === "line")).toHaveLength(0);
-    await evidence(s, "late-resume-scoped", { observed, released, responseStatus: response.status, responseFullyRead: true, dialogStillClosedAfterResponse: true, otherVersion: other.versionId, noAutomaticInsertion: true });
+    await evidence(s, "late-resume-scoped", { observed, released, heldRequests: heldBodies.length, delivery, responseStatus: delivery.status, responseFullyRead: delivery.bodyRead, dialogStillClosedAfterResponse: true, otherVersion: other.versionId, noAutomaticInsertion: true });
   } finally { release(); }
 });
 
