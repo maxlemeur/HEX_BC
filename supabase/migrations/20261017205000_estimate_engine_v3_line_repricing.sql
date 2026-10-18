@@ -10,8 +10,9 @@
 -- (public.bulk_update_estimate_items) écrit ensuite le PU du moteur, puis
 -- private.estimate_v3_assert_draft vérifie le PU de chaque ligne chiffrée (D12) dans la même
 -- transaction ; un PU provisoire resté tel quel y serait refusé. Seule une ligne v3 peut quitter le
--- statut « chiffrée » (CHECK de M4 : `priced` seulement en v1/v2), donc le déclencheur est sans effet
--- sur une v1/v2 et ne lit aucun moteur.
+-- statut « chiffrée » (garde de colonnes de M4, public.guard_estimate_item_engine_columns : `priced`
+-- seulement en v1/v2, ESTIMATE_ENGINE_COLUMN_NOT_SUPPORTED), donc le déclencheur est sans effet sur une
+-- v1/v2 et ne lit aucun moteur.
 
 create function private.provision_estimate_item_v3_repriced_pu()
 returns trigger
