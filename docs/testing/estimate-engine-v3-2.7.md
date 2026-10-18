@@ -30,6 +30,8 @@ commandes et les chemins tels qu'exécutés (`--grep '^V3E02\s'`, `v3e02-*`).
 | `scripts/tester-army/calc-v3-fixtures.ts` | Fixture de la phase : propriétaire dédié en politique 3, témoin v2 brouillon, second administrateur du tenant (V3M06, §13.8) |
 | `scripts/tester-army/calc-v3-campaign.ts`, `e2e/army/local/calc-v3.config.ts` | Collecteur, garde réseau d'offre et lecture des PDF reçus pilotés par `sentinelCollector` (et non plus par le nom `emission`) |
 | `scripts/tester-army/army-impact-map.json` | Parcours inscrits (la liste critique locale de `e2e.config.ts` prend `engine-v3-*.e2e.ts`) : `engine-v3-emission.e2e.ts` au groupe `print`, `engine-v3-exports.e2e.ts` au groupe `affaire-hub` (§13.8) |
+| `.github/workflows/e2e-army-calc-v3.yml` | `emission` et `emission-v3` dans la sélection nocturne (`CALC_V3_NIGHTLY_PHASES`), `emission-v3` dans les options de `phase`, comme l'exige la garde de la PR #42 (§13.10) |
+| `supabase/migrations/20261018102840_estimate_offer_client_contract_v2.sql` | M5 (§8), réhorodatée à la fusion de `main` du 18/10/2026, ex-`20261017213500` (§13.10) |
 
 ## 2. Défaillances observables et preuves
 
@@ -1561,3 +1563,95 @@ Limites :
   d'une v3 en `sending`, avis d'une copie invérifiable sans parcours, V3M05 et V3M06 hors de la sélection d'impact des
   PR (jusqu'à l'édition du workflow à la fusion).
 - Aucune relecture indépendante de ce traitement.
+
+### 13.10 Fusion de `main` (`d4b6ff73`) et réhorodatage de M5 (18/10/2026)
+
+Décision du coordinateur, par délégation du porteur : M5 est réhorodatée après toute migration de `main`, son
+contenu restant identique octet pour octet, car la répétition sur base partagée s'appuie sur lui. Le §13.8 est une
+seule section depuis `fdcf495b` (§13.9) : il n'y avait plus rien à fondre.
+
+**Fusion `690848cb`** (`git merge --no-ff origin/main`, sans rebase ni poussée) de `d4b6ff73` : PR #40 (2.8, M6
+`20261017225906` et M6b `20261018013249`), #42 (preuves CI ciblées et nuit calc-v3), #46, #47, relevé partagé de
+M6/M6b, leviers du 18/10 (outil de réhorodatage, règles d'`AGENTS.md`, capacité native), #48, #50 et #51. Les
+quatre conflits sont ceux de la recette du §13.9, résolus comme elle :
+
+| Fichier | Résolution |
+|---|---|
+| `supabase/migrations.manifest.json` | côté `main` (`git checkout --theirs`), puis `npm run supabase:manifest:add` réinscrit M5 sans changer un hash déployé (253 entrées) |
+| `scripts/tester-army/army-impact-map.json` | union : `engine-v3-exports.e2e.ts` et `engine-v3-import-optima.e2e.ts` (#40) dans `affaire-hub` ; `engine-v3-emission.e2e.ts` reste dans `print`, à côté des groupes `takeoff-*` de #42 |
+| `e2e/army/local/engine-v3-editor-actions.e2e.ts` | `DETAIL_TEMPLATE_REASON` et `DETAIL_ACTIONS_REASON_2_6` gardés (V3E11) ; `PASTE_REFUSAL` (que #40 n'emploie plus) et le `DETAIL_ACTIONS_REASON` de `main`, plus lu, retirés |
+| `docs/testing/tester-army-calc-v3.md` | section « CI nocturne » de #42 gardée et mise à jour (l'émission entre dans la nuit), limite « La CI nocturne ne lance pas l'émission… » reformulée, texte de cette branche sur la sonde du garde réseau gardé |
+
+Dans la même fusion, `.github/workflows/e2e-army-calc-v3.yml` : `emission-v3` ajoutée aux options de `phase`,
+`emission emission-v3` à `CALC_V3_NIGHTLY_PHASES`, commentaire d'en-tête réécrit (l'émission n'est plus exclue).
+`ci-guardrails.test.ts` et `army-impact-map.test.ts` : 33/33 sur l'arbre fusionné (Windows, avant le commit).
+
+Fusions automatiques relues, intention des deux côtés gardée :
+
+- `src/hooks/useEstimateEditorState.impl.tsx` : #40 remplace le refus de collage v3 par l'écrivain v3 (`v3Writer`) ;
+  cette branche sépare les drapeaux d'export et ouvre l'envoi d'une v3. Blocs disjoints.
+- `src/lib/estimates/server.ts` : #40 refuse par son nom la copie de section vers ou depuis une v3 (règle 6) ; cette
+  branche gèle le document v3, vérifie le sceau v3 et garde le contexte d'export. Blocs disjoints.
+- `src/types/database.ts` : colonnes v3 des modèles (#40) et RPC `freeze_estimate_v3_document_snapshot` (M5).
+- `supabase/tests/database/estimate-calc-engine-v3-guards.test.sql` : chaque côté ajoute ses lignes à l'inventaire
+  des fonctions ; F-SQL-08 et F-SQL-09 (M5) et F-SQL-10 (M6) sont des assertions distinctes. pgTAP est vert
+  ci-dessous avec M5 appliquée après M6 et M6b.
+- Profil `dpgf_export_v3` face au flux d'import v3 de #40 : #40 ne touche ni `optima-profile.ts` ni
+  `src/lib/mappings/`, et son chemin v3 lit les cibles que déclare le profil (`unit_price_ht`,
+  `labor_hours_per_unit`, `h_mo_majoration_percent`, `control_unit_price` pour le contrôle D11). Diagnostic local,
+  non versionné et sans valeur de parcours : les en-têtes exacts du DPGF v3, reconnus par `detectImportProfile`,
+  puis `normalizeMappedRowsForEstimateCreation` au moteur 3 aux coefficients de la source (1,30 / 1,20, rôle à
+  4 000 c). P1 revient à PU 13,00 € et PT 26,00 €, la ligne X de V3X02 à PU 67,50 € et PT 135,00 € (2 h), écart D11
+  de 0 c sur les deux, et la ligne incluse N1 est refusée (`invalid_unit_price`).
+
+**Réhorodatage `cab86923`.** `npm run supabase:migrations:restamp -- supabase/migrations/20261017213500_estimate_offer_client_contract_v2.sql --dry-run`,
+puis la même commande sans `--dry-run` : base `origin/main` `d4b6ff73`, migration la plus récente `20261018013249`,
+`git mv` vers `20261018102840_estimate_offer_client_contract_v2.sql`, clé du manifeste renommée, sha256 inchangé
+(`d0a799c095fdc5b9efef2ab13cf9d13e871877fe03b355f1337d7a27ed32c84f`, relu par `sha256sum` avant et après), garde Git
+(`pull_request` contre `d4b6ff73`) et validation du manifeste passées. L'outil a réécrit l'horodatage dans quatre
+fichiers : ce document, les listes « restantes » des rapports partagés du 2.6 (`.json` et `.md`) et de M6/M6b
+(`.json`). Prose relue : les lignes des §10.2, §12 et §13.1 qui disaient « aucun réhorodatage » décrivent des fusions
+passées et nomment désormais l'ancien horodatage ; le §8 dit l'ancien et le nouveau nom. La phrase du rapport du 2.6
+« M5, puis M6 et M6b » garde l'ordre prévu à sa date. M5 et M6/M6b ne partagent aucun objet : les fonctions d'offre,
+de document, d'envoi, de portail et de transition et la contrainte d'`estimate_documents` de M5 d'un côté, les
+fonctions de modèles, d'ouvrages, d'assemblages, de création et d'audit de M6/M6b de l'autre, sans référence croisée
+(relu sur l'arbre fusionné ; le contenu de M5 est celui de `3d78d662` que cite le rapport de M6/M6b).
+
+**Qualification de la tête de code `cab86923`** (WSL Ubuntu 24.04, clone `~/miaouffrage-lot2-27`, Node 24.19.0,
+`E2E_ARMY_WORKERS=2`, `NODE_OPTIONS=--max-old-space-size=4096`, aucun changement local, `diffSha256` `e3b0c442…`,
+en série sous la limite native de trois ; journaux `~/l27-r3-logs/*.log` : tête, état local, commande, sortie,
+durée murale) :
+
+| Commande | Résultat |
+|---|---|
+| `npm run supabase:migrations:git-guard -- --base d4b6ff73… --mode pull_request` ; `npm run supabase:validate` (Windows) | sortie 0 (2 changements) ; 253 fichiers, 253 versions uniques |
+| `npm run db:ci:local` | **sortie 0** en 33 s : migrations appliquées dans l'ordre M6, M6b, M5 ; pgTAP `Files=24, Tests=1941`, `Result: PASS` ; matrice RLS passée |
+| `npm run e2e:army:ci -- critical --app-port 3161` (non filtrée, comme la CI) | **sortie 0** en 510 s : 107/107, aucun `flaky` ni `skipped` (les 99 du §13.9 plus IO01 et IO03 à IO09 de #40). V3X01, V3X02, V3E01 à V3E13, V3E15, V3M02, V3FC01, V3FC02 et V3P01 verts au premier essai. `.e2e/army/ci/2026-10-18T10-32-44-815Z-critical` (`manifest.json` `b0545961…`) |
+| `npm run e2e:army:calc-v3 -- --phase journeys --app-port 3161` | **sortie 0** en 136 s : 11/11. `…/2026-10-18T10-41-32-385Z-calc-v3` (`7a0b3163…`) |
+| idem `--phase components` | **sortie 0** en 122 s : 5/5. `…/2026-10-18T10-43-49-901Z-calc-v3` (`61cdcfab…`) |
+| idem `--phase numeric` | **sortie 0** en 125 s : 4/4. `…/2026-10-18T10-45-52-639Z-calc-v3` (`e929866f…`) |
+| idem `--phase resume` | **sortie 0** en 102 s : 5/5 (GR01, GR03, GR05, GR07 et GR09, rouges à la base, hors sélection). `…/2026-10-18T10-47-58-716Z-calc-v3` (`8394348f…`) |
+| idem `--phase access` | **sortie 0** en 77 s : 2/2. `…/2026-10-18T10-49-41-818Z-calc-v3` (`c7ad45e4…`) |
+| idem `--phase offers` | **sortie 0** en 472 s : 10/10. `…/2026-10-18T10-50-59-933Z-calc-v3` (`94259636…`) |
+| idem `--phase emission` | **sortie 0** en 141 s : 6/6 (contrat 1, OF00 à OF0L), 4 PDF reçus. `…/2026-10-18T10-58-53-181Z-calc-v3` (`7de59efa…`) |
+| idem `--phase emission-v3` | **sortie 0** en 135 s : 6/6 (V3M01, V3M03 à V3M06), 6 PDF reçus. `…/2026-10-18T11-01-14-647Z-calc-v3` (`405bf7e9…`) |
+| `npm run db:upgrade-check -- lot2-2-7` | **sortie 0** en 23 s : 244 migrations de référence, 9 postérieures appliquées (M2, M1, M3, M4, M7, 2.6, M6, M6b, puis M5 sous son nouveau nom), 0 différence, contrôle négatif détecté. `.e2e/engine-v3/upgrade-check/2026-10-18T11-03-30-836Z-lot2-2-7` |
+| `npm run db:upgrade-check -- lot2-2-7 --negative-control` | sortie 1 en 20 s, comme exigé : exactement 1 différence (`pu_ht_cents 1481 -> 1482`). `…/2026-10-18T11-03-54-665Z-lot2-2-7-negative-control` |
+| `npm run engine:document-fingerprints -- check` (en plus) | **sortie 0** en 49 s : 14 familles v1/v2 identiques. `.e2e/engine-v3/document-fingerprints/2026-10-18T11-04-29-569Z-check` |
+
+Les phases calc-v3 sont jouées comme la sélection `nightly` du workflow : une invocation `--phase` et une pile par
+phase. Aucun des parcours instables connus (V3E01, V3E03, V3E05, collision du mode Expert entre
+`numeric-entry-v3` et `bulk-edit-sync-sources`) n'a échoué : aucune reprise. `npm run verify:pr` est joué sur la tête
+finale, ce relevé compris (description de la PR).
+
+Limites :
+
+- V3X01 réimporte toujours vers une v2 seulement. Le retour exact vers une v3 n'est prouvé que par le diagnostic
+  ci-dessus, pas par un parcours : ajouter à V3X01 un réimport du même DPGF dans une v3 (montants exacts, D11 au
+  centime) reste une suite, hors de cette intégration.
+- La sélection `nightly` de la PR, déclenchée par l'édition du workflow, ne tourne que sur le runner après la
+  poussée ; les huit invocations ci-dessus la reproduisent en local, phase par phase.
+- `AGENTS.md` (budget CI) chiffre la nuit calc-v3 à six piles et environ 28 minutes de runner ; elle en compte
+  huit désormais. Non modifié ici.
+- M5 n'est pas appliquée au Supabase partagé ; le coordinateur l'y applique après la fusion, sous son nouveau nom.
+- Aucune relecture indépendante de cette intégration.
