@@ -204,8 +204,12 @@ export function EstimateV3SettingsSection({
   const disabled = isReadOnly || !draft;
   const breakdown = controller.preview?.breakdown ?? null;
   const roundingValue = draft?.rounding_mode === "down" ? String(draft.rounding_step_cents) : "none";
-  const roundingStepProposed = draft?.rounding_mode !== "down" ||
-    (ROUNDING_STEPS_CENTS as readonly number[]).includes(draft.rounding_step_cents);
+  // Revue de 2.6 (F26-29) : un palier inférieur stocké hors de la liste (l'API admet tout pas ≥ 1 c) reste une
+  // option, celle qui s'affiche tant qu'il s'applique ; « Aucun » est alors un vrai changement.
+  const currentSteps = [controller.saved, draft].flatMap((settings) =>
+    settings?.rounding_mode === "down" && !(ROUNDING_STEPS_CENTS as readonly number[]).includes(settings.rounding_step_cents)
+      ? [settings.rounding_step_cents] : []);
+  const roundingSteps = [...new Set([...ROUNDING_STEPS_CENTS, ...currentSteps])].sort((left, right) => left - right);
   const missingRates = breakdown?.warnings.filter((warning) => warning.code === "ESTIMATE_V3_LABOR_RATE_MISSING").length ?? 0;
 
   return (
@@ -311,18 +315,15 @@ export function EstimateV3SettingsSection({
               }}
             >
               <option value="none">Aucun</option>
-              {ROUNDING_STEPS_CENTS.map((step) => (
+              {roundingSteps.map((step) => (
                 <option key={step} value={String(step)}>
-                  {`${formatCurrency(step, currency)} — palier inférieur`}
+                  {`${formatCurrency(step, currency)} — palier inférieur${currentSteps.includes(step) ? " (réglage actuel)" : ""}`}
                 </option>
               ))}
             </NativeSelect>
             <FieldDescription id="estimate-v3-rounding-hint" className="text-xs">
               Le HT net est arrondi au palier inférieur ; l’écart est une remise HT et la TVA est calculée
               après lui.
-              {roundingStepProposed || !draft
-                ? null
-                : ` Réglage actuel : palier inférieur de ${formatCurrency(draft.rounding_step_cents, currency)}, remplacé au prochain choix.`}
             </FieldDescription>
           </div>
         </div>

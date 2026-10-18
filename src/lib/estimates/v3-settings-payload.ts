@@ -235,7 +235,9 @@ function applyDiscount(
   if (rateBp === null || !isValidRateBp(rateBp)) {
     return refuse(draft, field, "ESTIMATE_V3_DISCOUNT_INVALID", DISCOUNT_RATE_INVALID_MESSAGE);
   }
-  return { draft: { ...draft, discount: { kind: "rate", rate_bp: rateBp } }, error: null };
+  // Revue de 2.6 (F26-28) : un taux nul est l'absence de remise ; enregistré (`null`, 0 pb), il se relit `none`, et
+  // un brouillon resté en `rate` 0 paraissait modifié après chaque sauvegarde (« Non sauvegardé » sans fin).
+  return { draft: { ...draft, discount: rateBp === 0 ? { kind: "none" } : { kind: "rate", rate_bp: rateBp } }, error: null };
 }
 
 /** Saisie d'un champ : brouillon inchangé et erreur nommée en cas de refus, jamais 0 ni arrondi. */

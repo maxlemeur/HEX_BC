@@ -105,6 +105,14 @@ export type EstimateV3SettingsController = {
   confirmTaxPropagation: (applyToLines: boolean, save: () => unknown) => void;
   /** Fermeture sans réponse : rien n'est envoyé. */
   cancelTaxPropagation: () => void;
+  /**
+   * Revue de 2.6 (F26-27) : question de propagation posée par une sauvegarde qui ne passe pas par
+   * « Enregistrer le paramétrage » (Ctrl+S, enregistrement à la fermeture du tiroir, navigation). Valide les textes
+   * en attente ; rend vrai aussitôt si aucune question n'est due (ou si elle a déjà sa réponse), sinon ouvre le
+   * dialogue (`onAsk` : rendre le tiroir visible) et rend vrai à la réponse, faux à la fermeture sans réponse. La
+   * réponse n'appelle pas d'autre sauvegarde : celle qui attend reprend avec la décision.
+   */
+  askTaxPropagation: (onAsk?: () => void) => Promise<boolean>;
   /** Charge v3 de `saveEstimateVersion` ; refuse tant qu'une erreur de champ ou la question de propagation reste ouverte. */
   buildSavePayload: () => EstimateV3SavePayloadResult;
   /** Abandon des modifications : retour aux réglages enregistrés. */
@@ -308,6 +316,14 @@ export function useEstimateV3Settings(input: UseEstimateV3SettingsInput): Estima
   stateRef.current = current;
   const itemsRef = useRef(input.items);
   itemsRef.current = input.items;
+  // Sauvegarde en attente de la réponse à la question de propagation (`askTaxPropagation`).
+  const answerRef = useRef<((answered: boolean) => void) | null>(null);
+  const settleAnswer = useCallback((answered: boolean) => {
+    const resolve = answerRef.current;
+    answerRef.current = null;
+    resolve?.(answered);
+    return resolve !== null;
+  }, []);
 
   const update = useCallback((next: EditorState) => {
     stateRef.current = next;
@@ -355,14 +371,33 @@ export function useEstimateV3Settings(input: UseEstimateV3SettingsInput): Estima
       taxDecision: { rateBp: latest.taxPropagation.rateBp, applyToLines },
       taxPropagation: null,
     });
+    // Une sauvegarde attend la réponse : elle reprend avec la décision, sans seconde sauvegarde.
+    if (settleAnswer(true)) return;
     // La sauvegarde courante de l'éditeur, pas celle de l'ouverture du dialogue : la version a pu être relue.
     void save();
-  }, [update]);
+  }, [settleAnswer, update]);
 
   const cancelTaxPropagation = useCallback(() => {
     const latest = stateRef.current;
     if (latest.taxPropagation) update({ ...latest, taxPropagation: null });
-  }, [update]);
+    settleAnswer(false);
+  }, [settleAnswer, update]);
+
+  const askTaxPropagation = useCallback((onAsk?: () => void) => new Promise<boolean>((resolve) => {
+    const committed = commitPendingTexts(stateRef.current);
+    if (committed !== stateRef.current) update(committed);
+    // Une erreur de champ est refusée par `buildSavePayload`, après : aucune question tant qu'elle reste.
+    const request = committed.draft && firstErrorMessage(committed.errors) === null
+      ? propagationNeedOf(committed, itemsRef.current) : null;
+    if (!request || decisionFor(committed, request)) {
+      resolve(true);
+      return;
+    }
+    settleAnswer(false);
+    answerRef.current = resolve;
+    update({ ...committed, taxPropagation: request });
+    onAsk?.();
+  }), [settleAnswer, update]);
 
   const buildSavePayload = useCallback((): EstimateV3SavePayloadResult => {
     const committed = commitPendingTexts(stateRef.current);
@@ -389,8 +424,9 @@ export function useEstimateV3Settings(input: UseEstimateV3SettingsInput): Estima
   }, [update]);
 
   const reset = useCallback(() => {
+    settleAnswer(false);
     update(freshState(baseline));
-  }, [baseline, update]);
+  }, [baseline, settleAnswer, update]);
 
   const { draft } = current;
   const preview = useMemo(
@@ -428,6 +464,7 @@ export function useEstimateV3Settings(input: UseEstimateV3SettingsInput): Estima
     taxPropagation: current.taxPropagation,
     confirmTaxPropagation,
     cancelTaxPropagation,
+    askTaxPropagation,
     buildSavePayload,
     reset,
     preview,
