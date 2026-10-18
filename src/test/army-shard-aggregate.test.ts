@@ -20,7 +20,10 @@
 // 6. shards of different revisions or sources, a revision other than the
 //    tested commit, a shard directory holding another shard's manifest, or a
 //    worker count other than the plan's;
-// 7. an unsharded whole-suite plan whose single shard ran a filtered list;
+// 7. an unsharded whole-suite plan whose single shard ran a filtered list, or
+//    a sharded whole-suite plan that misses a journey the e2e CLI discovers
+//    (each shard's report lists every discovered test, unselected ones
+//    skipped as outside its positional files);
 // 8. the full suite qualified without its development phase, or a filtered
 //    (--grep) dispatch recorded as the full suite;
 // 9. a calc-v3 phase red, missing, or recorded under another phase.
@@ -62,6 +65,8 @@ type UnitOptions = {
   phases: string[];
   /** Report files per phase: the files its selected results ran. */
   ran?: Record<string, string[]>;
+  /** Files the e2e CLI also discovered, outside the shard's positional files (unselected, skipped). */
+  discovered?: string[];
   journeyFiles?: string[];
   shard?: { index: number; total: number };
   workers?: number;
@@ -87,9 +92,13 @@ function writeUnit(options: UnitOptions) {
       file, kind: file === SETUP ? "setup" : "test", selected: true, status: "passed",
       titlePath: [`${file} journey`], tags: ["critical"], targetId: "chromium-desktop", ...(options.results?.(file) ?? {}),
     }));
-    const summary = { discovered: results.length, selected: results.length, executed: results.length, passed: results.length,
+    const unselected = (options.discovered ?? []).filter((file) => !files.includes(file)).map((file) => ({
+      file, kind: "test", selected: false, status: "skipped", skip: { cause: "filtered", reason: "file not selected by a positional argument" },
+      titlePath: [`${file} journey`], tags: ["critical"], targetId: "chromium-desktop",
+    }));
+    const summary = { discovered: results.length + unselected.length, selected: results.length, executed: results.length, passed: results.length,
       failed: 0, interrupted: 0, flaky: 0, skipped: 0, ...(options.summary ?? {}) };
-    write(`${phase}/report.json`, `${JSON.stringify({ schemaVersion: 1, run: { exitCode: 0, errors: [], summary, results } }, null, 2)}\n`);
+    write(`${phase}/report.json`, `${JSON.stringify({ schemaVersion: 1, run: { exitCode: 0, errors: [], summary, results: [...results, ...unselected] } }, null, 2)}\n`);
   }
   if (options.calcV3) write("calc-v3.json", `${JSON.stringify({ schemaVersion: "calc-v3-campaign-1", ...options.calcV3 }, null, 2)}\n`);
   const inventory: { path: string; sha256: string }[] = [];
@@ -262,6 +271,28 @@ describe("TesterArmy shard aggregation", () => {
       .toMatchObject({ status: "failed", problems: expect.stringContaining("army-critical-shard success") });
   });
 
+  it("checks a sharded whole suite against the files the e2e CLI discovered in every shard", () => {
+    const E = "e2e/army/critical/e.e2e.ts";
+    const whole = criticalSelection({ mode: "full", files: [] });
+    // The CLI discovers a journey the plan's listing missed: no shard ran it.
+    writeCriticalShards(undefined, () => ({ discovered: [SETUP, A, B, C, E] }));
+    expect(problems(critical(whole))).toMatchObject({ status: "failed",
+      problems: expect.stringContaining(`discovers journeys the plan does not list: ${E}`) });
+
+    fs.rmSync(evidence, { recursive: true, force: true });
+    writeCriticalShards(undefined, () => ({ discovered: [SETUP, A, B, C] }));
+    const result = aggregateEvidence(critical(whole));
+    expect(result.problems).toEqual([]);
+    const manifest = JSON.parse(fs.readFileSync(path.join(out, "manifest.json"), "utf8"));
+    expect(manifest).toMatchObject({ scope: "critical", union: { discovered: [SETUP, A, B, C].sort() } });
+
+    // A plan file the CLI does not discover (its glob reading differs) is refused too.
+    fs.rmSync(evidence, { recursive: true, force: true });
+    writeCriticalShards(undefined, () => ({ discovered: [SETUP, A, B] }));
+    expect(problems(critical(whole))).toMatchObject({ status: "failed",
+      problems: expect.stringContaining(`lists journeys the e2e CLI does not discover: ${C}`) });
+  });
+
   it("accepts an unsharded whole-suite plan only from a shard that ran the runner's own selection", () => {
     const whole = criticalSelection({ mode: "full", files: [], shards: { schemaVersion: "army-shard-plan-1", suite: "critical",
       reason: "fail-safe", files: [], workers: 2, durationsSha256: null, shards: [{ shard: 1, total: 1, files: [], seconds: 0 }] } });
@@ -291,6 +322,7 @@ describe("TesterArmy full and calc-v3 aggregation", () => {
   const full = (plan: unknown, results = fullResults()): AggregateInput => ({ suite: "full", plan, evidence, out, results, revision: REVISION });
   const writeFullShards = () => [[SETUP, A, D], [SETUP, B]].forEach((list, index) => writeUnit({
     suite: "full", artifact: `army-full-shard-${index + 1}-evidence`, scope: "filtered-full", phases: ["full"], ran: { full: list },
+    discovered: [SETUP, A, B, D],
     journeyFiles: [...list].sort(), shard: { index: index + 1, total: 2 },
     extra: { phasesNotRun: { development: "a filtered full run proves only the selected journeys of its production full phase" } },
   }));

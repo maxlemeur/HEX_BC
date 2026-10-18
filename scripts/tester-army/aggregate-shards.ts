@@ -10,6 +10,9 @@
 // its own passing, privacy-checked evidence whose bytes match the unit's
 // inventory, all units tested the same sources, each shard ran exactly its
 // planned files, and the shards together ran the plan's files, no file twice.
+// A sharded whole suite must also list exactly the files the e2e CLI
+// discovered: every shard's report records the whole discovery, the tests
+// outside its positional files skipped as unselected.
 // It writes <out>/manifest.json (each unit's manifest SHA-256) beside a copy of
 // every unit's evidence, so one artifact keeps the whole run.
 import { createHash } from "node:crypto";
@@ -47,7 +50,8 @@ type Unit = {
   shard?: PlannedShard;
   phase?: string;
 };
-type Report = { path: string; sha256: string; summary: unknown; files: string[] };
+/** files: what its selected results ran; discovered: every file the e2e CLI discovered, selected or not. */
+type Report = { path: string; sha256: string; summary: unknown; files: string[]; discovered: string[] };
 type UnitRecord = {
   id: string;
   artifact: string;
@@ -129,7 +133,8 @@ function checkPlan(plan: Plan, problems: string[]) {
 }
 
 /** Units the plan expects, with their artifact directories. */
-function plannedUnits(input: AggregateInput, problems: string[]): { units: Unit[]; plan?: Plan; scope: string } {
+/** wholeSuite: a sharded listing of the whole suite, which every shard's CLI discovery must equal. */
+function plannedUnits(input: AggregateInput, problems: string[]): { units: Unit[]; plan?: Plan; scope: string; wholeSuite?: boolean } {
   if (input.suite === "calc-v3") {
     const phases = strings(input.plan);
     if (!phases || phases.length === 0 || phases.some((phase) => !/^[a-z0-9-]+$/u.test(phase)) || new Set(phases).size !== phases.length) {
@@ -164,7 +169,8 @@ function plannedUnits(input: AggregateInput, problems: string[]): { units: Unit[
   if (input.suite === "full" && plan.development === "separate") {
     units.push({ id: "development", artifact: "army-full-development-evidence", kind: "development", phase: "development" });
   }
-  return { units, plan, scope };
+  const wholeSuite = plan.files.length > 0 && (input.suite === "critical" ? selection.mode === "full" : plan.development === "separate");
+  return { units, plan, scope, wholeSuite };
 }
 
 function checkJobs(input: AggregateInput, units: Unit[], plan: Plan | undefined, problems: string[]) {
@@ -215,7 +221,8 @@ function checkReport(unitDirectory: string, phase: string, where: string, proble
     ["selected", "executed", "passed"].some((key) => summary[key] !== results.length) || run.exitCode !== 0) {
     problems.push(`${where} ${relative} counts do not add up to every selected result executed and passed.`);
   }
-  return { path: relative, sha256: sha256(bytes), summary, files: sorted(results.map((result) => String(result.file))) };
+  const discovered = (Array.isArray(run.results) ? run.results : []).map((result) => String(record(result).file));
+  return { path: relative, sha256: sha256(bytes), summary, files: sorted(results.map((result) => String(result.file))), discovered: sorted(discovered) };
 }
 
 /** Checks one unit's evidence and returns what the aggregate manifest records of it. */
@@ -312,7 +319,7 @@ function checkUnit(input: AggregateInput, unit: Unit, plan: Plan | undefined, pr
 }
 
 /** Union, overlap and source identity across the units. */
-function checkAcrossUnits(input: AggregateInput, plan: Plan | undefined, records: UnitRecord[], problems: string[]) {
+function checkAcrossUnits(input: AggregateInput, plan: Plan | undefined, records: UnitRecord[], problems: string[], wholeSuite = false) {
   const sources = records.filter((unit) => unit.source);
   const revisions = sorted(sources.map((unit) => JSON.stringify(unit.source)));
   if (revisions.length > 1) problems.push(`Units tested different sources (revision, diff or inputs): ${sorted(sources.map((unit) => String(unit.source!.revision))).join(", ")}.`);
@@ -334,20 +341,29 @@ function checkAcrossUnits(input: AggregateInput, plan: Plan | undefined, records
   if (union.missing.length) problems.push(`Planned files missing from every shard: ${union.missing.join(", ")}.`);
   if (union.unexpected.length) problems.push(`Files run outside the plan: ${union.unexpected.join(", ")}.`);
   if (union.duplicated.length) problems.push(`Files run by two shards: ${union.duplicated.join(", ")}.`);
-  return union;
+  if (!wholeSuite) return union;
+  // Each shard's report lists every test the e2e CLI discovered for the suite,
+  // unselected ones skipped: the listing must be exactly that discovery.
+  const discoveries = records.filter((entry) => entry.kind === "shard" && entry.reports?.[0]).map((entry) => entry.reports![0].discovered);
+  const discovered = sorted(discoveries.flat());
+  const unlisted = sorted(discoveries.flatMap((files) => files.filter((file) => !plan.files.includes(file))));
+  const undiscovered = sorted(discoveries.flatMap((files) => plan.files.filter((file) => !files.includes(file))));
+  if (unlisted.length) problems.push(`The e2e CLI discovers journeys the plan does not list: ${unlisted.join(", ")}.`);
+  if (undiscovered.length) problems.push(`The plan lists journeys the e2e CLI does not discover: ${undiscovered.join(", ")}.`);
+  return { ...union, discovered };
 }
 
 export function aggregateEvidence(input: AggregateInput): AggregateResult {
   const startedAt = new Date().toISOString();
   const problems: string[] = [];
-  const { units, plan, scope } = plannedUnits(input, problems);
+  const { units, plan, scope, wholeSuite } = plannedUnits(input, problems);
   checkJobs(input, units, plan, problems);
   if (units.length === 0) {
     // An explicit none: nothing ran, nothing is claimed.
     return { status: problems.length ? "failed" : "not-run", problems, evidence: null };
   }
   const records = units.map((unit) => checkUnit(input, unit, plan, problems));
-  const union = checkAcrossUnits(input, plan, records, problems);
+  const union = checkAcrossUnits(input, plan, records, problems, wholeSuite);
   fs.rmSync(input.out, { recursive: true, force: true });
   for (const unit of units) {
     const source = path.join(input.evidence, unit.artifact);

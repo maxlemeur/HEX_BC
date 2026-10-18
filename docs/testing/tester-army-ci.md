@@ -504,7 +504,11 @@ parcours à 1 worker, phase développement 50 à 91 s. calc-v3, run 39109681565 
   unités ont testé la même révision (`GITHUB_SHA`), le même diff et les mêmes
   entrées ; chaque shard a exécuté exactement ses fichiers, et ensemble
   exactement ceux du plan, aucun deux fois ; pour une sélection `files`, le plan
-  couvre exactement la sélection. calc-v3 : chaque phase prévue a sa preuve et
+  couvre exactement la sélection ; pour la suite entière en shards, la liste du
+  plan est exactement celle que le CLI e2e a découverte dans chaque shard (le
+  `report.json` d'un shard liste tous les tests découverts, ceux hors de ses
+  fichiers ignorés avec le motif « file not selected by a positional
+  argument »). calc-v3 : chaque phase prévue a sa preuve et
   son `calc-v3.json` vert pour cette phase.
 - Preuves : chaque unité garde son artefact et son manifeste
   (`army-critical-shard-<n>-evidence`, `army-full-shard-<n>-evidence`,
@@ -555,9 +559,38 @@ mesurées en CI après le changement sont relevées ci-dessous.
 
 ### Mesures des jobs parallèles
 
-À relever sur les runs de la PR qui introduit ces jobs (suite critical complète
-et calc-v3 `nightly`, puisqu'elle modifie leurs workflows) et sur un
-déclenchement d'`e2e-army-full.yml` sans motif sur sa branche.
+Runs du 18/10/2026 sur la tête `cde9f237` de la PR #52 (commit de fusion
+`cbe04fa3` pour les runs de PR), mesurés par l'API des jobs (premier début au
+dernier fin de job) :
+
+| Workflow | Run | Durée murale | Avant | Minutes de runner |
+| --- | --- | --- | --- | --- |
+| Critical, suite complète (PR) | 39118155443 | **7 min 49 s** : sélection 7 s ; shards 6 min 08 s, 6 min 24 s et 7 min 17 s (étape des parcours 5 min 09 s à 6 min 18 s) ; agrégation 18 s ; `army-takeoff` 6 min 13 s en parallèle | médiane 16 min (12 min 25 s à 19 min 40 s, 10 runs) | 26 min 27 s |
+| calc-v3 `nightly` (PR) | 39118155457 | **10 min 00 s** : `offers` 9 min 36 s, les cinq autres phases 3 min 02 s à 4 min 21 s ; agrégation 14 s | 19 min 55 s à 28 min 30 s (4 runs) | 29 min 21 s |
+| Full, déclenchement sans motif | 39118690328 | **9 min 13 s** : plan 9 s ; shards 7 min 18 s à 7 min 46 s (jusqu'à 1 min 01 s d'attente d'un runner) ; développement 2 min 11 s sans build ; agrégation 15 s | médiane 25 min 26 s (21 min 11 s à 33 min 47 s, 9 runs) | 40 min 15 s |
+
+Quality Gate du même run de PR : 2 min 25 s. Aucun job critical ni calc-v3 n'a
+attendu un runner plus de 3 s.
+
+Agrégations, toutes vertes : critical, 28 fichiers prévus, exécutés et
+découverts par le CLI dans chaque shard (103 tests découverts ; 18, 60 et 27
+résultats sélectionnés, setup compris), aucun manquant, en trop ni en double,
+artefact `army-critical-evidence` ; full, 45 fichiers prévus et exécutés
+(164 tests découverts par shard ; 13, 35, 34, 32 et 54 sélectionnés) et la
+phase développement (4/4, `scope: full-development`), artefact
+`army-full-evidence` ; calc-v3, six phases vertes, artefact
+`army-calc-v3-evidence`. Le contrôle de découverte du CLI, ajouté ensuite à
+l'agrégation, a été rejoué en local sur les preuves téléchargées des runs
+39118155443 et 39118690328 : vert (28 et 45 fichiers découverts, égaux au
+plan). Les runs de la tête suivante, qui n'ajoute que ce contrôle et cette
+documentation, sont relevés dans la PR.
+
+Écarts au modèle : l'étape des parcours d'un shard critical (5 à 6 min) dépasse
+les 317 s simulées, et la phase `offers` (8 min 41 s d'étape) les 474 s mesurées
+dans l'ancien job, où son build reprenait le cache webpack des phases
+précédentes ; le shard le plus long reste le chemin critique. Le gain mural est
+de 2 à 2,8 fois, payé en minutes de runner : environ deux fois plus pour
+critical, 1,6 fois pour full, 1 à 1,5 fois pour calc-v3.
 
 ### Limites
 
@@ -565,9 +598,10 @@ déclenchement d'`e2e-army-full.yml` sans motif sur sa branche.
   déséquilibre les shards (durée murale, jamais couverture). Les remettre à
   jour depuis les `report.json` d'un run récent (somme des tests par fichier).
 - La liste de la suite entière est la lecture des globs d'`e2e.config.ts` par
-  `globToRegExp`, celle qui valide déjà la carte ; le runner refuse toujours un
-  fichier demandé qui ne tourne pas, mais un parcours que le CLI trouverait en
-  dehors de cette lecture ne serait pas listé.
+  `globToRegExp`, celle qui valide déjà la carte. Un parcours que le CLI
+  trouverait en dehors de cette lecture n'est pas lancé, mais l'agrégation le
+  voit dans la découverte de chaque shard et échoue : le défaut se voit au run,
+  pas avant.
 - Relancer un seul shard rouge relance aussi l'agrégation, qui relit les
   preuves de tous les shards du run.
 - Aucun contrôle requis par la protection de branche (le ruleset
