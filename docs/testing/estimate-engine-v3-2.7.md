@@ -344,9 +344,10 @@ sur les fichiers du parcours et du harnais sortie 0 ;
 
 ## 8. Implémentation SQL (M5)
 
-Migration `supabase/migrations/20261017213500_estimate_offer_client_contract_v2.sql` (commit `af708134`),
-horodatée après `20261017162000` (M4) et après `20261017172127` (M7, PR #34) : si une migration plus récente
-arrive sur `main`, `npm run supabase:migrations:restamp` puis `npm run supabase:manifest:add`. Aucune colonne
+Migration `supabase/migrations/20261018102840_estimate_offer_client_contract_v2.sql`. Écrite au commit
+`af708134` sous l'horodatage `20261017213500`, après `20261017162000` (M4) et `20261017172127` (M7, PR #34), elle
+est réhorodatée par `npm run supabase:migrations:restamp` à la fusion de `main` du 18/10/2026, après M6 et M6b de
+la PR #40, contenu inchangé (sha256 `d0a799c0…c84f`, §13.10). Aucune colonne
 ajoutée, aucune ligne réécrite (D17) : `upgrade_check.declared_new_columns()` reste inchangée. Le contrat
 supposé du §5.1 est tenu sans écart ; les assertions de `estimate-offer-contract-v2.test.sql` ne sont pas
 modifiées.
@@ -623,7 +624,7 @@ l'appariement SQL refuserait ferait échouer la publication en `22023` ou `23514
 
 - `8a2c4b9e` : `origin/main` à `78ca0855` (PR #34 = 2.9 avec M7 `20261017172127`, #36, #37). Un seul conflit,
   `supabase/migrations.manifest.json` : les deux entrées gardées dans l'ordre des horodatages. M5
-  (`20261017213500`) reste après M7 : **aucun réhorodatage**. M7 et M5 redéfinissent des objets disjoints
+  (alors `20261017213500`) reste après M7 : **aucun réhorodatage** à cette fusion (réhorodaté au §13.10). M7 et M5 redéfinissent des objets disjoints
   (M7 : `supplier_pricebook`, `private.purchase_*`, `create_estimate_purchase_order_drafts`,
   `update_supplier_offer`, `catalogue_products_page` ; M5 : fonctions d'offre, §8.2). Les autres fichiers
   communs (`server.ts`, `registry.ts`, `openapi.json`, `database.ts`, `calc-v3-phases.ts`,
@@ -1007,7 +1008,7 @@ Sur la tête fusionnée, sans modification des attendus, des empreintes ni des c
 Deux revues indépendantes en lecture seule ont relu le diff intégré (`94fcc5dd`). Chaque constat a été revérifié
 dans le code avant correction ; chaque défaut de comportement a reçu son test rouge d'abord. `main` (`89627add`,
 correctif d'import CSV fournisseur, aucun fichier du 2.7) a été fusionné avant les corrections (`4e99e5ef`) ;
-M5 reste après toute migration de `main`, sans réhorodatage. Aucune assertion d'un test d'exigence n'est
+M5 reste après toute migration de `main`, sans réhorodatage à cette fusion. Aucune assertion d'un test d'exigence n'est
 modifiée ; V3FC02 (réaligné au §10.3) est étendu.
 
 Commits : `4e99e5ef` (fusion), `f563cc1c` (tests rouges), `3f390d8e` (garde des conditions), `329a46c2` (sonde
@@ -1110,7 +1111,7 @@ rattrapage de `main` (`78533fe5`) et exports Excel et DPGF de l'éditeur v3 : §
 
 | Fichier | Résolution (intention des deux côtés) |
 |---|---|
-| `supabase/migrations.manifest.json` | les deux entrées ; `20261017205000_estimate_engine_v3_line_repricing.sql` (2.6) précède M5 (`20261017213500`), sans réhorodatage puisque 2.6 est arrivé le premier sur `main` |
+| `supabase/migrations.manifest.json` | les deux entrées ; `20261017205000_estimate_engine_v3_line_repricing.sql` (2.6) précède M5 (alors `20261017213500`), sans réhorodatage puisque 2.6 est arrivé le premier sur `main` |
 | `scripts/tester-army/army-impact-map.json` | union : `engine-v3-editor-actions`, `engine-v3-editor` et `engine-v3-emission` dans la liste locale ; `engine-v3-editor` et `engine-v3-emission` dans le groupe `print` ; la note de la règle `estimate-print` nomme V3E01 et V3M02 |
 | `print/page.tsx` | moteur inconnu : bandeau de 2.1 ; toute v3, brouillon ou émise : `EstimateV3PrintPage` (gel stocké ou aperçu du moteur pur, refus nommé d'un aperçu impossible, V3FC02). Le résumé de brouillon de 2.6 n'est plus servi par l'impression : 2.6 le donnait pour provisoire (« son document client arrive en 2.7 ») et il n'imprime ni les lignes brutes ni le pied qu'exige V3M02 (§9.5) ; il reste la vue de la fiche. Ses colonnes de sélection supplémentaires sont retirées avec lui. V3E01 (titre « Devis », aucun bandeau) passe sur le document v3 |
 
