@@ -8,14 +8,20 @@
  * jamais comme total : le serveur recalcule chaque écriture (2.5). Les charges de ligne v3 ne
  * portent que des saisies (D4, D12).
  */
+import type { CataloguePriceSuggestion } from "@/lib/estimates/catalogue-suggestions";
 import type { EstimateV3Breakdown, EstimateV3LineResult } from "@/lib/estimates/engine-v3";
 import {
+  buildEstimateItemInsertPayload,
   buildEstimateItemUpdatePayload,
   type EditorEstimateItem,
   type EstimateItem,
+  type EstimateItemInsertPayload,
   type EstimateItemUpdatePayload,
   type EstimateVersionRow,
 } from "@/lib/estimates/editor-items";
+import type { EstimateLineMargin } from "@/lib/estimates/line-margin";
+import { alternativePriceForLineUnit } from "@/lib/estimates/supplier-offer-purchase-unit";
+import { areSupplierUnitsCompatible } from "@/lib/estimates/supplier-offer-units";
 import {
   ESTIMATE_LINE_PRICING_STATUSES,
   MEASUREMENT_UNITS,
@@ -158,6 +164,95 @@ export function buildEditorItemSyncBaseline(item: EstimateItem): EstimateItemUpd
 /** Charge mise en file vers l'écriture de lot : une v3 n'envoie aucune valeur dérivée. */
 export function toEstimateV3ItemWrite(payload: EstimateItemUpdatePayload): EstimateItemUpdatePayload {
   return withoutDerivedKeys(payload);
+}
+
+/**
+ * Charge de recréation d'une ligne v3 (annulation d'une suppression, rétablissement d'un ajout ; revue de 2.6,
+ * F26-21) : la charge historique sans heures totales ni projection, plus les saisies v3 de la ligne (unité du
+ * référentiel, statut, heures par unité). La charge historique enverrait `h_mo` (refusé dès qu'il n'est pas nul,
+ * `ESTIMATE_V3_LABOR_HOURS_PER_UNIT_REQUIRED`) et perdrait `unit_code`, le statut et les heures par unité.
+ */
+export function buildEstimateV3ItemInsertPayload(
+  versionId: string,
+  item: EstimateItem,
+  overrides?: Parameters<typeof buildEstimateItemInsertPayload>[2]
+): EstimateItemInsertPayload {
+  const payload = buildEstimateItemInsertPayload(versionId, item, overrides);
+  if (item.item_type !== "line") return payload;
+  const next: Record<string, unknown> = { ...payload, ...pickV3InputFields(item) };
+  for (const key of V3_DERIVED_ITEM_KEYS) delete next[key];
+  return next as EstimateItemInsertPayload;
+}
+
+/* ---------- Colonnes « Deboursé sec », « Marge € », « Marque % » (revue de 2.6, F26-24) ---------- */
+
+const NO_MARGIN: EstimateLineMargin = { costCents: 0, saleCents: 0, marginCents: 0, markupRatio: null };
+
+/**
+ * Sous-détail d'une ligne v3 lu dans le moteur, jamais recalculé par la formule v1/v2 : déboursé sec =
+ * `cost_ht_cents`, vente = brut `gross_ht_cents` (avant la remise et l'arrondi commercial du pied, comme le dit
+ * l'aide de la colonne), marge = brut − déboursé, marque = marge / brut (nulle sans brut). Une ligne non chiffrée
+ * a un brut et un déboursé nuls ; une ligne encore inconnue du moteur (en création) n'affiche rien.
+ */
+export function readEstimateV3LineMargin(line: EstimateV3LineResult | null): EstimateLineMargin {
+  if (!line) return NO_MARGIN;
+  const marginCents = line.gross_ht_cents - line.cost_ht_cents;
+  return {
+    costCents: line.cost_ht_cents,
+    saleCents: line.gross_ht_cents,
+    marginCents,
+    markupRatio: line.gross_ht_cents > 0 ? marginCents / line.gross_ht_cents : null,
+  };
+}
+
+/* ---------- Association d'un article (revue de 2.6, F26-26, même contrat que F26-20) ---------- */
+
+/** Libellé du refus, celui de la comparaison fournisseurs et de la suggestion du catalogue. */
+export const ESTIMATE_V3_UNIT_MISMATCH_LABEL = "Unité différente du devis";
+
+/**
+ * Une suggestion du catalogue juge son offre dans l'unité de la ligne v3 (`unit_code`), jamais dans
+ * `description` (vide sur une ligne faite par la grille) : refus nommé quand l'offre prix une autre unité.
+ * Sans unité de ligne, rien n'est refusé (même règle que la saisie de la désignation).
+ */
+export function resolveEstimateV3SuggestionUnitRefusal(
+  suggestion: CataloguePriceSuggestion,
+  unitCode: string | null | undefined
+): string | null {
+  if (!suggestion.supplier_price_id) return null;
+  const linePrice = alternativePriceForLineUnit(suggestion, unitCode);
+  if (areSupplierUnitsCompatible(unitCode, linePrice.unit)) return null;
+  return `${ESTIMATE_V3_UNIT_MISMATCH_LABEL} : offre en ${linePrice.unit?.trim() ?? ""}, ligne en ${unitCode?.trim() ?? ""}.`;
+}
+
+export type EstimateV3ArticleAssociation =
+  | {
+      ok: true;
+      patch: Pick<EstimateItemUpdatePayload, "product_id" | "title" | "unit_price_ht_cents" | "selected_supplier_price_id">;
+    }
+  | { ok: false; message: string };
+
+/**
+ * « Associer ou remplacer l'article » sur une ligne v3 : l'article donne la désignation, le PR FO (prix de l'offre
+ * dans `unit_code`, conversion d'achat de 2.9 comprise) et l'offre ; l'unité reste celle du référentiel, choisie
+ * dans la cellule « U » ; `description` n'est jamais écrite. Une offre dans une autre unité est refusée.
+ */
+export function resolveEstimateV3ArticleAssociation(
+  suggestion: CataloguePriceSuggestion,
+  unitCode: string | null | undefined
+): EstimateV3ArticleAssociation {
+  const refusal = resolveEstimateV3SuggestionUnitRefusal(suggestion, unitCode);
+  if (refusal) return { ok: false, message: refusal };
+  const designation = suggestion.product_designation.trim();
+  return {
+    ok: true,
+    patch: {
+      product_id: suggestion.product_id,
+      title: designation || "Nouvelle ligne",
+      unit_price_ht_cents: alternativePriceForLineUnit(suggestion, unitCode).priceCents,
+      selected_supplier_price_id: suggestion.supplier_price_id,
+    },
+  };
 }
 
 /* ---------- Unités (référentiel, D9) ---------- */

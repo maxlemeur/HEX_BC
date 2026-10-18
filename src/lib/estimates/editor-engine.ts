@@ -18,9 +18,10 @@ import {
   requireHistoricalEngine,
   usesSaleCoefficients,
 } from "@/lib/estimates/engine/capabilities";
-import type { EstimateItemUpdatePayload } from "@/lib/estimates/editor-items";
+import type { EditorEstimateItem, EstimateItemUpdatePayload } from "@/lib/estimates/editor-items";
+import type { EstimateV3Breakdown } from "@/lib/estimates/engine-v3";
 import type { MarginTier } from "@/lib/estimates/margin-tiers";
-import { toEstimateV3ItemWrite } from "@/lib/estimates/v3-editor";
+import { applyEstimateV3PreviewToItems, indexEstimateV3Lines, toEstimateV3ItemWrite } from "@/lib/estimates/v3-editor";
 
 type EngineVersionSource = { calc_engine_version?: number | null } | null | undefined;
 type DraftNormalizationInput<T extends EstimateItemRecord> = Omit<Parameters<typeof normalizeDraftItems<T>>[0], "calcEngineVersion"> & {
@@ -113,4 +114,16 @@ export function resolveEditorInitialDiscountCents(input: {
     default:
       return assertNever(calcEngineVersion);
   }
+}
+
+/**
+ * Lignes lues par les contrôles qualité (« Temps MO manquant », nature de ligne) : en v3, avec les heures que le
+ * moteur dérive (Q × h/u) ; l'état de l'éditeur garde le `h_mo` relu, périmé dès qu'une saisie change Q ou h/u
+ * (revue de 2.6, F26-25). Une v1/v2 (`v3Breakdown` absent) garde ses lignes telles quelles.
+ */
+export function resolveEditorQualityItems<T extends EditorEstimateItem>(
+  items: T[],
+  v3Breakdown: EstimateV3Breakdown | null | undefined
+): T[] {
+  return v3Breakdown === undefined ? items : (applyEstimateV3PreviewToItems(items, indexEstimateV3Lines(v3Breakdown)) as T[]);
 }

@@ -10,13 +10,9 @@ import {
   type SetStateAction,
 } from "react";
 
-import { createEstimateBatchAttempt } from "@/lib/estimates/batch-intentions";
-import {
-  batchEstimateOperations,
-  bulkUpdateEstimateItems,
-  type EstimateVersionToken,
-} from "@/lib/estimates/client";
+import { bulkUpdateEstimateItems, type EstimateVersionToken } from "@/lib/estimates/client";
 import { resolveEditorEngineContext } from "@/lib/estimates/editor-engine";
+import { commitEstimateV3Operations } from "@/lib/estimates/v3-editor-writer";
 import {
   buildEstimateItemUpdatePayload,
   type EditorEstimateItem,
@@ -103,24 +99,17 @@ type ScopedSupplierDialogState = {
  * de lot de 2.5, comme une saisie de PR FO dans la grille : seuls le PR FO et l'offre retenue partent,
  * le serveur recalcule PU, nets, TVA et totaux et les vérifie (D12) dans la même transaction.
  */
-async function writeEstimateV3SupplierPreselection(
+function writeEstimateV3SupplierPreselection(
   versionId: string,
   updatedAt: string,
   updates: ReadonlyArray<{ id: string; updates: EstimateItemUpdatePayload }>
 ): Promise<EstimateVersionToken> {
-  const result = await batchEstimateOperations(
+  return commitEstimateV3Operations(
     versionId,
     updatedAt,
     updates.map((entry) => ({ op: "update" as const, id: entry.id, data: entry.updates })),
-    { attempt: createEstimateBatchAttempt() }
+    "La présélection fournisseurs n'a pas été enregistrée."
   );
-  if (!result.committed) {
-    const failed = result.results.find((entry) => entry.status === "error");
-    throw new Error(failed?.status === "error" ? failed.message : "La présélection fournisseurs n'a pas été enregistrée.");
-  }
-  return result.currentVersionToken?.updated_at === result.versionToken.updated_at
-    ? result.currentVersionToken
-    : result.versionToken;
 }
 
 const EMPTY_DIALOG_STATE: SupplierDialogState = {

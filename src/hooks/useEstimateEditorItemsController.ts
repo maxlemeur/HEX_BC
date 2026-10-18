@@ -38,6 +38,7 @@ import {
   reconcileCreatedItemWithLocalDraft,
   rollbackRemovedTempItems,
 } from "@/lib/estimates/editor-optimistic";
+import type { EstimateV3EditorWriter } from "@/lib/estimates/v3-editor-writer";
 import { getDefaultSectionTitleForLevel } from "@/lib/estimates/hierarchy";
 import {
   buildSiblingOrderByParent,
@@ -96,6 +97,11 @@ type EstimateEditorItemsControllerInput = {
   reloadItems: () => Promise<void>;
   /** Lot 2, sous-lot 2.6 : charge de ligne du moteur (v3 : saisies seulement) ; historique par défaut. */
   buildItemUpdatePayload?: (item: EstimateItem) => EstimateItemUpdatePayload;
+  /**
+   * Lot 2, sous-lot 2.6 (revue, F26-21) : sur une v3, suppressions et recréations par l'écrivain de lot (qui
+   * recalcule), jamais par la suppression directe que 2.5 refuse ; absent en v1/v2 (chemins historiques).
+   */
+  v3Writer?: EstimateV3EditorWriter;
 };
 
 export function useEstimateEditorItemsController({
@@ -116,7 +122,21 @@ export function useEstimateEditorItemsController({
   pushHistoryCommand,
   reloadItems,
   buildItemUpdatePayload = buildEstimateItemUpdatePayload,
+  v3Writer,
 }: EstimateEditorItemsControllerInput) {
+  const buildItemInsertPayload = v3Writer?.buildInsertPayload ?? buildEstimateItemInsertPayload;
+  // v1/v2 : suppression directe (inchangée) ; v3 : un lot `delete`, recalculé et vérifié (D12).
+  const deleteItemRecord = useCallback(async (versionId: string, itemId: string) => {
+    if (!v3Writer) return deleteEstimateItem(versionId, itemId);
+    await v3Writer.deleteItems(versionId, getVersionSnapshot()?.updated_at ?? "", [itemId]);
+  }, [getVersionSnapshot, v3Writer]);
+  // Nettoyage d'un élément retiré pendant sa création : au mieux en v1/v2 (inchangé) ; en v3, l'échec est signalé
+  // et la grille relue, sinon une ligne orpheline resterait enregistrée, invisible jusqu'au prochain rechargement.
+  const reportCleanupFailure = useCallback(async (error: unknown) => {
+    if (!v3Writer) return;
+    reportError(resolveErrorMessage(error instanceof Error ? error.message : "Impossible de supprimer la ligne."));
+    await reloadItems();
+  }, [reloadItems, reportError, resolveErrorMessage, v3Writer]);
   const queuedPatchesByTempIdRef = useRef<
     Map<string, EstimateItemUpdatePayload>
   >(new Map());
@@ -203,7 +223,7 @@ export function useEstimateEditorItemsController({
         const mappedParentId = snapshotItem.parent_id
           ? (idMap.get(snapshotItem.parent_id) ?? snapshotItem.parent_id)
           : null;
-        const payload = buildEstimateItemInsertPayload(versionId, snapshotItem, {
+        const payload = buildItemInsertPayload(versionId, snapshotItem, {
           parentId: mappedParentId,
           position: snapshotItem.position,
           title: snapshotItem.title,
@@ -217,7 +237,7 @@ export function useEstimateEditorItemsController({
 
       return { idMap, createdItems };
     },
-    [applyCreatedItemVersionToken]
+    [applyCreatedItemVersionToken, buildItemInsertPayload]
   );
 
   const applySiblingOrder = useCallback(
@@ -321,9 +341,10 @@ export function useEstimateEditorItemsController({
           removedTempItemIdsRef.current.delete(tempId);
           queuedPatchesByTempIdRef.current.delete(tempId);
           try {
-            await deleteEstimateItem(targetVersion.id, created.id);
-          } catch {
-            // Best-effort cleanup after a temp item was removed in flight.
+            await deleteItemRecord(targetVersion.id, created.id);
+          } catch (error) {
+            // Best-effort cleanup after a temp item was removed in flight (v1/v2).
+            await reportCleanupFailure(error);
           }
           return;
         }
@@ -359,7 +380,7 @@ export function useEstimateEditorItemsController({
               previous.filter((item) => !idsToRemove.has(item.id))
             );
             try {
-              await deleteEstimateItem(versionSnapshot.id, currentSectionId);
+              await deleteItemRecord(versionSnapshot.id, currentSectionId);
               if (context && !context.isCurrentScope()) return;
               setTotalsOutOfSync(false);
             } catch (error) {
@@ -371,7 +392,7 @@ export function useEstimateEditorItemsController({
           redo: async (context) => {
             const versionSnapshot = getVersionSnapshot();
             if (!versionSnapshot) throw new Error("Version introuvable.");
-            const payload = buildEstimateItemInsertPayload(
+            const payload = buildItemInsertPayload(
               versionSnapshot.id,
               created,
               {
@@ -408,6 +429,8 @@ export function useEstimateEditorItemsController({
     },
     [
       applyCreatedItemVersionToken,
+      buildItemInsertPayload,
+      deleteItemRecord,
       enqueueItemUpdate,
       getItemsSnapshot,
       getNextPosition,
@@ -416,6 +439,7 @@ export function useEstimateEditorItemsController({
       isMutationBlocked,
       mutationBlockedMessage,
       pushHistoryCommand,
+      reportCleanupFailure,
       reportError,
       resolveErrorMessage,
       resolveParentSectionLevel,
@@ -539,9 +563,10 @@ export function useEstimateEditorItemsController({
           removedTempItemIdsRef.current.delete(tempId);
           queuedPatchesByTempIdRef.current.delete(tempId);
           try {
-            await deleteEstimateItem(targetVersion.id, created.id);
-          } catch {
-            // Best-effort cleanup after a temp item was removed in flight.
+            await deleteItemRecord(targetVersion.id, created.id);
+          } catch (error) {
+            // Best-effort cleanup after a temp item was removed in flight (v1/v2).
+            await reportCleanupFailure(error);
           }
           return;
         }
@@ -573,7 +598,7 @@ export function useEstimateEditorItemsController({
               previous.filter((item) => item.id !== currentLineId)
             );
             try {
-              await deleteEstimateItem(versionSnapshot.id, currentLineId);
+              await deleteItemRecord(versionSnapshot.id, currentLineId);
               if (context && !context.isCurrentScope()) return;
               setTotalsOutOfSync(false);
             } catch (error) {
@@ -585,7 +610,7 @@ export function useEstimateEditorItemsController({
           redo: async (context) => {
             const versionSnapshot = getVersionSnapshot();
             if (!versionSnapshot) throw new Error("Version introuvable.");
-            const payload = buildEstimateItemInsertPayload(
+            const payload = buildItemInsertPayload(
               versionSnapshot.id,
               created,
               {
@@ -622,7 +647,9 @@ export function useEstimateEditorItemsController({
     },
     [
       applyCreatedItemVersionToken,
+      buildItemInsertPayload,
       buildItemUpdatePayload,
+      deleteItemRecord,
       enqueueItemUpdate,
       getItemsSnapshot,
       getNextPosition,
@@ -632,6 +659,7 @@ export function useEstimateEditorItemsController({
       isMutationBlocked,
       mutationBlockedMessage,
       pushHistoryCommand,
+      reportCleanupFailure,
       reportError,
       resolveErrorMessage,
       setItems,
@@ -700,7 +728,7 @@ export function useEstimateEditorItemsController({
       }
 
       try {
-        await deleteEstimateItem(targetVersionId, itemId);
+        await deleteItemRecord(targetVersionId, itemId);
         if (!isCurrentVersion(targetVersionId)) return;
 
         let currentDeletedRootId = itemId;
@@ -753,7 +781,7 @@ export function useEstimateEditorItemsController({
               previous.filter((item) => !redoIdsToRemove.has(item.id))
             );
             try {
-              await deleteEstimateItem(
+              await deleteItemRecord(
                 versionSnapshot.id,
                 currentDeletedRootId
               );
@@ -781,6 +809,7 @@ export function useEstimateEditorItemsController({
     },
     [
       applySiblingOrder,
+      deleteItemRecord,
       getItemsSnapshot,
       getVersionSnapshot,
       isCurrentVersion,

@@ -76,7 +76,11 @@ import { hasFreshEstimateV2Snapshot } from "@/lib/estimates/calc-engine-version"
 import { isLegacyEngine, isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
 import {
   normalizeEditorDraftItems, reconcilesEditorTotals, resolveEditorEngineContext, resolveEditorInitialDiscountCents,
+  resolveEditorQualityItems,
 } from "@/lib/estimates/editor-engine";
+import {
+  ESTIMATE_V3_EDITOR_WRITER, ESTIMATE_V3_PASTE_UNAVAILABLE_MESSAGE, recomputeEstimateV3AfterLaborRate,
+} from "@/lib/estimates/v3-editor-writer";
 import {
   buildEditorItemSyncBaseline, buildEstimateV3ItemUpdatePayload, buildEstimateV3SummaryView, indexEstimateV3Lines,
 } from "@/lib/estimates/v3-editor";
@@ -1141,6 +1145,8 @@ export function useEstimateEditorState({
   }, [laborRoles]);
 
   const deferredItems = useDeferredValue(items);
+  // Lot 2, sous-lot 2.6 (revue, F26-25) : contrôles qualité d'une v3 sur les heures du moteur, jamais un h_mo périmé.
+  const qualityItems = useMemo(() => resolveEditorQualityItems(deferredItems, v3Breakdown), [deferredItems, v3Breakdown]);
 
   const handleQualityVersionConflict = useCallback(
     (error: unknown) =>
@@ -1154,7 +1160,7 @@ export function useEstimateEditorState({
     activeVersionId: version?.id ?? null,
     reloadToken: reloadNonce,
     items,
-    deferredItems,
+    deferredItems: qualityItems,
     categories,
     settings,
     isReadOnly,
@@ -1481,6 +1487,10 @@ export function useEstimateEditorState({
         return;
       }
 
+      // Revue de 2.6 (F26-27) : Ctrl+S, la fermeture du tiroir et la navigation posent aussi la question de propagation
+      // de la TVA (tiroir rendu visible), et rien ne part avant la réponse ; Échap n'enregistre rien.
+      if (isV3 && v3Settings && !(await v3Settings.askTaxPropagation(() => handleOpenSettingsDrawer("tax")))) return;
+      if (!isCurrentSettingsSave()) return;
       const versionSnapshot = getVersionSnapshot();
       if (!versionSnapshot || versionSnapshot.id !== targetVersionId) return;
       // Lot 2, sous-lot 2.6 : charge v3 du module pur (D5, D6, D8), jamais de taux dérivé ni de total client.
@@ -1669,7 +1679,12 @@ export function useEstimateEditorState({
         prev.map((role) => (role.id === id ? { ...role, ...updates } : role))
       );
 
-      // v3 : l'aperçu suit le nouveau taux ; la prochaine écriture le recalcule au serveur (2.5).
+      // v3 (revue, F26-23) : un lot v3 recalcule et stocke lignes et totaux au nouveau taux (l'aperçu le suit déjà).
+      if (isV3 && updates.hourly_rate_cents !== undefined && !isReadOnly && !isConflictLocked) {
+        const snapshot = getVersionSnapshot() ?? version;
+        await recomputeEstimateV3AfterLaborRate(snapshot.id, snapshot.updated_at, itemsRef.current, id)?.catch((error: unknown) =>
+          setActionError(`Le taux horaire est enregistré, mais les montants du devis n'ont pas été recalculés : ${error instanceof Error ? error.message : "erreur inconnue"}`));
+      }
       if (updates.hourly_rate_cents === undefined || !settings || isV3) return;
 
       const nextHourlyRate = updates.hourly_rate_cents ?? 0;
@@ -1719,6 +1734,7 @@ export function useEstimateEditorState({
     [
       enqueueBufferedItemUpdate,
       conflictState?.message,
+      getVersionSnapshot,
       isConflictLocked,
       isReadOnly,
       isV3,
@@ -1920,6 +1936,7 @@ export function useEstimateEditorState({
     pushHistoryCommand,
     reloadItems,
     buildItemUpdatePayload: isV3 ? buildEstimateV3ItemUpdatePayload : undefined,
+    v3Writer: isV3 ? ESTIMATE_V3_EDITOR_WRITER : undefined,
   });
   const {
     addSection: handleAddSection,
@@ -2176,6 +2193,7 @@ export function useEstimateEditorState({
     applyVersionToken,
     markItemsSynced,
     handleVersionConflict,
+    v3Writer: isV3 ? ESTIMATE_V3_EDITOR_WRITER : undefined,
   });
   const {
     rules: suggestionRules,
@@ -2348,6 +2366,7 @@ export function useEstimateEditorState({
     recreateItemsFromSnapshots,
     applySiblingOrder,
     reloadItems,
+    v3Writer: isV3 ? ESTIMATE_V3_EDITOR_WRITER : undefined,
   });
   const {
     applyBulkMajoration: handleApplyBulkMajoration,
@@ -2378,6 +2397,7 @@ export function useEstimateEditorState({
     pushHistoryCommand,
     recreateItemsFromSnapshots,
     reloadItems,
+    unavailableMessage: isV3 ? ESTIMATE_V3_PASTE_UNAVAILABLE_MESSAGE : null,
   });
   const { pasteRows: handlePasteRows } = pasteController.actions;
 
