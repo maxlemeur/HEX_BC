@@ -33,7 +33,8 @@
 //    a qualifying critical run, or a qualifying run starts in a checkout
 //    whose loop shares its .e2e/army output;
 // 12. the supervisor entry (`e2e:army:ci -- dev-loop`) binds a shared-stack
-//    port that only the `start` client refuses;
+//    port, or takes a journey filter it then ignores, that only the `start`
+//    client refuses;
 // 13. the supervisor's own modules change under a running loop: an iteration
 //    then records the current checkout but applies the checks loaded at start.
 // 14. a state copied or restored into another checkout while its loop runs
@@ -804,6 +805,22 @@ describe("TesterArmy dev loop", () => {
     expect(result.stdout).toMatch(/A dev loop is open in this checkout/);
     expect(fs.readFileSync(statePath, "utf8")).toBe(before);
   }, 240_000);
+
+  it("refuses a journey filter in the supervisor entry: each run selects its own", () => {
+    // Same .env fence: should the refusal regress, the run stops there, after
+    // its session evidence (with the ignored filter) is written under .e2e.
+    for (const [args, refusal] of [
+      [["dev-loop", "--grep", "HUB03"], /dev-loop cannot be filtered/],
+      [["dev-loop", "--files", "e2e/army/critical/stale-save.e2e.ts"], /--files is restricted to critical and full/],
+    ] as const) {
+      const checkout = temporaryDirectory();
+      fs.writeFileSync(path.join(checkout, ".env"), "# refusal fence\n");
+      const result = runSupervisorEntry(checkout, [...args, "--app-port", "3118"]);
+      expect(result.status, `${result.stdout}${result.stderr}`).not.toBe(0);
+      expect(`${result.stdout}${result.stderr}`).toMatch(refusal);
+      expect(fs.existsSync(path.join(checkout, ".e2e")), args.join(" ")).toBe(false);
+    }
+  }, 120_000);
 
   describe.skipIf(process.platform === "win32")("supervisor session", () => {
     it("keeps the supervisor stoppable when a state write fails as a run starts", async () => {
