@@ -259,6 +259,7 @@
     "20261018172935_estimate_offer_client_contract_v2_order.sql": "3841e9ff3c679a4a16563c4a946b47c0ba6b3551d565982249d05c2bf1a30685",
     "20261018180306_estimate_v3_batch_copy_effects.sql": "d8ad054aabb0c4583ce588571c7f33e875e3e2ff108ec873685bc6f04028473b",
     "20261018183629_estimate_engine_v3_default.sql": "0fdaba7ca035528c0f9440d6e8939d4b11856de11a4b29788f7a874da5170c15",
-    "20261018193516_estimate_copy_items_set_based.sql": "abca15875f904aac7459afa5ba47134288f6098d9e6bcba951eb74ee85ae5365"
+    "20261018193516_estimate_copy_items_set_based.sql": "abca15875f904aac7459afa5ba47134288f6098d9e6bcba951eb74ee85ae5365",
+    "20261018204500_estimate_item_order_set_based_effects.sql": "54513c9d6a7f180379c436dae5332c31e2ee59d54f704d66399f5ee20e099b5b"
   }
 }
