@@ -121,12 +121,11 @@ async function applySuggestions({ screen }: Ui, persisted: () => Promise<unknown
   await screen.getByRole("tab", "Chiffrage", { exact: true }).click();
 }
 
-// The margin x1,2 through the settings dialog of the mounted editor: a navigation would remount
-// the editor and drop the undo state that the step judges.
+// The margin x1,2 through the settings dialog of the mounted editor, opened from the summary bar
+// (as connected-support): a navigation would remount the editor and drop the undo state that the
+// step judges.
 async function saveMargin1_2({ screen, browser }: Ui, versionId: string) {
-  await screen.getByRole("tab", DISPLAY_TAB).click();
-  await screen.getByTestId("estimate-editor-display-button", { visible: true }).click();
-  await screen.getByTestId("estimate-editor-settings-button", { visible: true }).click();
+  await screen.getByRole("button", "Ouvrir les paramètres", { exact: true }).click();
   const dialog = screen.getByRole("dialog", "Paramétrage du devis", { exact: true });
   await expect(dialog).toBeVisible();
   await dialog.getByRole("button", /^1\.20 \(marge de 20 %\)$/).click();
