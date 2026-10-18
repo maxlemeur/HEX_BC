@@ -8,8 +8,9 @@
 --    content revision bump that M6b replays in one pass would update it once per item. The other replayed effects
 --    (audit, coverage, depth) write the same rows either way: only the budget below sees them come back.
 -- 2. On the calibrated platform only (Apple silicon, native runtime): the median of 7 rolled-back runs of the
---    creation, then of a v3 settings save repricing every line, stays under 330 ms. Elsewhere the medians are
---    reported and the budget assertions are skipped: a shared CI runner is not the calibrated machine.
+--    creation, then of a v3 settings save repricing every line, stays under 330 ms. Elsewhere one run of each is
+--    reported and the budget assertions are skipped: a shared CI runner is not the calibrated machine, and the
+--    six extra runs would only lengthen every CI pgTAP phase.
 begin;
 
 create extension if not exists pgtap with schema extensions;
@@ -33,9 +34,12 @@ select public.set_tenant_calc_policy(current_setting('test.tenant_id')::uuid, 3:
 
 -- 330 ms = 8 s statement_timeout / (CI-under-load factor 12 x safety 2); see the document for the factor bounds.
 create temporary table lb29_budget as select 330::numeric as budget_ms,
-  version() like '%aarch64-apple-darwin%' as calibrated_platform;
+  version() like '%aarch64-apple-darwin%' as calibrated_platform,
+  case when version() like '%aarch64-apple-darwin%' then 7 else 1 end as runs,
+  clock_timestamp() as started_at;
 create temporary table lb29_sample (operation text, run integer, outcome text, duration_ms numeric, version_updates bigint);
 grant all on lb29_sample to service_role;
+grant select on lb29_budget to service_role;
 
 -- The IO01 profile: one import root, 60 lots each with one sub-lot, 15 priced v3 lines per sub-lot (1 021 items),
 -- with the DPGF provenance and OPTIMA structure metadata of an import.
@@ -128,7 +132,8 @@ set local role service_role;
 
 -- Scale invariance: an 8-item creation (root, lot, sub-lot, five lines) and the 1 021-item one.
 select pg_temp.lb29_create('create-small', 1, pg_temp.lb29_items(1, 5), gen_random_uuid());
-select pg_temp.lb29_create('create', run, pg_temp.lb29_items(60, 15), gen_random_uuid()) from generate_series(1, 7) run;
+select pg_temp.lb29_create('create', run, pg_temp.lb29_items(60, 15), gen_random_uuid())
+from generate_series(1, (select runs from lb29_budget)) run;
 -- The kept version, the subject of the settings saves.
 select pg_temp.lb29_create('create-kept', 1, pg_temp.lb29_items(60, 15), '29200000-0000-4000-8000-000000000101', true);
 
@@ -169,7 +174,7 @@ end
 $$;
 
 set local role service_role;
-select pg_temp.lb29_save_settings(run) from generate_series(1, 7) run;
+select pg_temp.lb29_save_settings(run) from generate_series(1, (select runs from lb29_budget)) run;
 reset role;
 
 create function pg_temp.lb29_median(p_operation text) returns numeric language sql as $$
@@ -188,10 +193,13 @@ select diag('statement_timeout of the API roles: ' || coalesce((select string_ag
   where role.rolname in ('anon', 'authenticated', 'authenticator', 'service_role')), 'none'));
 select diag(pg_temp.lb29_report('create'));
 select diag(pg_temp.lb29_report('settings'));
+select diag(format('probe runs and setup: %s ms', round(extract(epoch from clock_timestamp()
+  - (select started_at from lb29_budget)) * 1000)));
 
 select results_eq(
   $$select operation, count(*) filter (where outcome = 'ok') from lb29_sample group by operation order by operation$$,
-  $$values ('create'::text, 7::bigint), ('create-kept', 1), ('create-small', 1), ('settings', 7)$$,
+  format($f$values ('create'::text, %1$s::bigint), ('create-kept', 1), ('create-small', 1), ('settings', %1$s)$f$,
+    (select runs from lb29_budget)),
   'every v3 creation and settings save of the probe succeeds (failure: ' || coalesce((select string_agg(distinct outcome, '; ')
     from lb29_sample where outcome <> 'ok'), 'none') || ')'
 );

@@ -30,16 +30,17 @@ runs inside the normal pgTAP phase of `npm run db:ci:local` (and so of every CI 
 1. tenant on engine 3 (c_FO 1,3, c_MO 1,2); payload with the IO01 profile: one import root, 60 lots each with one
    sub-lot, 15 priced v3 lines per sub-lot (1 021 items), DPGF provenance and OPTIMA structure metadata. The
    payload is the one the 2.8 timing probe used;
-2. 7 creations, each rolled back in its own subtransaction, plus one 8-item creation, with the
+2. 7 creations on the calibrated platform (1 elsewhere), each rolled back in its own subtransaction, plus one 8-item creation, with the
    `estimate_versions` update count of each (`pg_stat_xact_user_tables`);
-3. one kept creation and its draft lease, then 7 rolled-back v3 settings saves (c_FO 1,3 → 2) with the projection
+3. one kept creation and its draft lease, then 7 rolled-back v3 settings saves (1 elsewhere) (c_FO 1,3 → 2) with the projection
    of all 900 lines;
 4. 6 assertions: all runs succeed, payload size, L1, one audit row per item, L2, L3. The `diag` lines print the
-   role timeouts and every run's duration.
+   role timeouts, every run's duration and the time of the probe's runs and setup.
 
 Budget assertions run when `version()` names `aarch64-apple-darwin` (the Supabase native runtime on Apple
-silicon, where the budget was calibrated). Elsewhere, including the Linux CI runners, they are reported as `skip`
-with the measured medians, and L1 still runs.
+silicon, where the budget was calibrated). Elsewhere, including the Linux CI runners, the probe makes one run of each,
+reports it in the `skip` message, and L1 still runs. Seven runs only matter for a median against the budget; on
+a runner where no budget is asserted they would only lengthen every CI pgTAP phase (army-critical, RLS matrix).
 
 Run it with the whole suite:
 
@@ -87,8 +88,19 @@ was 2,3–2,4 times over it. The settings
 save (≈ 75 ms) does not depend on M6b. An earlier set of runs at load 5–6 gave the same picture (green 264,5 and
 262,9 ms, red 783,5 and 786,4 ms).
 
-With this probe the local pgTAP phase takes 6–7 s for 23 files, against 3 s for the 22 files before it (8 s in the noisiest run); the red
-tree takes 10 s because its creations are slower.
+With this probe the local pgTAP phase takes 6–7 s for 23 files, against 3 s for the 22 files before it (8 s in
+the noisiest run); the red tree takes 10 s because its creations are slower.
+
+Cost of the probe on a non-calibrated platform, measured on the Mac by forcing the platform test to false (a local
+edit, not committed), alternated with the calibrated runs at load average 3,3–3,7, on the final file:
+
+| Path | Runs | Probe runs and setup (`diag`) | Whole pgTAP phase |
+| --- | --- | --- | --- |
+| calibrated | 7 + 7 | 2 716 ms, 2 633 ms | 6 s, 7 s |
+| not calibrated (CI path) | 1 + 1 | 629 ms, 636 ms | 5 s, 5 s |
+
+The single run saves about 2,0 s locally (−76 % of the probe). At the quiet CI factor of 1,5–2,7 that is roughly
+3–5,5 s per CI pgTAP phase: an estimate, the CI duration of the probe will be read in the job logs.
 
 ## Limits
 
