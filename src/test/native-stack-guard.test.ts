@@ -180,6 +180,51 @@ describe("native stack slots", () => {
     })).resolves.toHaveProperty("release");
   });
 
+  it("ends by the signal when Ctrl+C cancels a wait no caller owns", async () => {
+    const directory = slotDirectory();
+    await acquireNativeStackSlot({ label: "holder", directory, pid: 1, limit: 1, isAlive: () => true, listProcesses: noProcesses });
+    const raise = vi.spyOn(process, "kill").mockImplementation(() => true);
+    const cleanup = vi.fn();
+    const remove = cleanUpOnTerminationSignals(cleanup);
+    try {
+      const waiting = acquireNativeStackSlot({
+        label: "waiter", directory, pid: 2, limit: 1, waitMs: 3_600_000, isAlive: () => true,
+        listProcesses: noProcesses, sleep: () => new Promise(() => {}),
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+      process.emit("SIGINT", "SIGINT");
+      // No listener may survive the re-raise, or Node would treat the signal as handled.
+      expect(process.listenerCount("SIGINT")).toBe(0);
+      await expect(waiting).rejects.toThrow("cancelled by SIGINT");
+      // The waiter's own listener is not a caller: the guard cleans up and re-raises.
+      expect(cleanup).toHaveBeenCalledExactlyOnceWith("SIGINT");
+      expect(raise).toHaveBeenCalledExactlyOnceWith(process.pid, "SIGINT");
+    } finally {
+      remove();
+      raise.mockRestore();
+    }
+    expect(process.listenerCount("SIGINT") + process.listenerCount("SIGTERM")).toBe(0);
+  });
+
+  it("counts a Next build left by a dead launcher, never a build under a place or a launcher's own child", async () => {
+    const directory = slotDirectory();
+    const run = await acquireNativeStackSlot({ label: "army", directory, pid: 9, isAlive: () => true, listProcesses: noProcesses });
+    const listProcesses = () => [
+      "  500     1 /usr/bin/node /r/node_modules/next/dist/bin/next build --webpack",
+      "  610     9 node scripts/tester-army/build-local.mjs --execute",
+      "  611   610 /usr/bin/node --max-old-space-size=4096 node_modules/next/dist/bin/next build --webpack",
+      "  650     1 node scripts/next-build.mjs --webpack",
+      "  651   650 /usr/bin/node /r/node_modules/next/dist/bin/next build --webpack",
+      "  700     1 node /r/node_modules/next/dist/bin/next dev",
+    ];
+    // Taken: the Army run, the orphan build 500 and the launcher 650 (its child 651 once).
+    await expect(acquireNativeStackSlot({ label: "next", directory, pid: 2, limit: 3, isAlive: () => true, listProcesses }))
+      .rejects.toThrow(/3 of 3 places[\s\S]*run PID 9[\s\S]*production build: node scripts\/next-build\.mjs[\s\S]*Next build without a place: \/usr\/bin\/node \/r\/node_modules\/next\/dist\/bin\/next build/);
+    await expect(acquireNativeStackSlot({ label: "next", directory, pid: 2, limit: 4, isAlive: () => true, listProcesses }))
+      .resolves.toHaveProperty("release");
+    run.release();
+  });
+
   it("never admits more than the limit among racing processes", async () => {
     const directory = slotDirectory();
     const start = path.join(directory, "..", `${path.basename(directory)}.start`);

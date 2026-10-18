@@ -50,8 +50,10 @@ parsing, process signals, cross-process races), not a product journey.
   Supabase stack host (`supabase __supabase_stack_host__`) whose
   `projectRoot` no live slot records (a crashed or unguarded run, a manual
   stack) and every production build started as `node scripts/next-build.mjs`
-  (`npm run build`). The TesterArmy build goes through `build-local.mjs`, inside
-  a run that already holds a place. The limit, its default and
+  (`npm run build`), and every `next/dist/bin/next build` process with no
+  slot holder or launcher among its ancestors (a build that outlived its
+  launcher). The TesterArmy build goes through `build-local.mjs`, inside a
+  run that already holds a place. The limit, its default and
   `NATIVE_STACK_MAX_RUNS` are defined only in
   [Capacité locale](tester-army-local-development.md#capacité-locale-et-redémarrages-wsl-18102026).
   Beyond it the run is refused
@@ -87,6 +89,8 @@ parsing, process signals, cross-process races), not a product journey.
 | 5 real | three live holders, then `npm run build` | refused by the launcher before `next build`, `3 of 3 places`, holders named, exit 1 |
 | 5 real (CI) | same three holders, `CI=true npm run build` | passed the lock and started `next build` (stopped by hand), no place taken |
 | 5 real (release) | `node scripts/next-build.mjs --webpack`, places free, SIGINT once Next starts | one `production build (next-build.mjs)` slot during the build (stale files reclaimed), exit 130, no slot or `next build` left. Local builds print Node's one-line `MODULE_TYPELESS_PACKAGE_JSON` warning when loading the guard |
+| 5 real (orphan) | fake `node …/next/dist/bin/next build` reparented to PID 1, then a run with `NATIVE_STACK_MAX_RUNS=1` | refused, `Next build without a place` named. A `next build` under a slot holder (Army run) or a counted launcher is not counted again |
+| 3 real (wait) | one place held, `NATIVE_STACK_MAX_RUNS=1 NATIVE_STACK_WAIT_SECONDS=60`, SIGINT after 3 s | exit 130 (the wait's own listener is not taken for a caller's handler) |
 | 3 (Army dev) | isolation: caller-owned SIGINT during the database phases | the run stops before the next phase and destroys the stack; during the application phase the caller's graceful stop stays a success |
 | isolation | `src/test/native-stack-guard.test.ts`, `src/test/local-supabase-ci.test.ts` | 8 racing processes never admit more than 4 (fails when the count check is removed); orphan host and build counted, own host not, shell lines naming the host string ignored; SIGTERM child cleans once and dies by SIGTERM (fails without the re-raise) |
 | quality | `npm run verify:pr` | exit 0 |

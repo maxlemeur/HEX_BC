@@ -37,7 +37,7 @@ export interface AcquireNativeStackSlotOptions {
   pollMs?: number;
   pid?: number;
   isAlive?: (pid: number) => boolean;
-  /** This user's processes, one `<pid> <command line>` per line. */
+  /** This user's processes, one `<pid> <ppid> <command line>` per line. */
   listProcesses?: () => string[];
   sleep?: (ms: number) => Promise<void>;
 }
@@ -65,7 +65,7 @@ export function nativeStackLimit(environment: Readonly<Record<string, string | u
 }
 
 function listUserProcesses() {
-  const result = spawnSync("ps", ["-U", String(process.getuid?.() ?? os.userInfo().uid), "-o", "pid=,command="], {
+  const result = spawnSync("ps", ["-U", String(process.getuid?.() ?? os.userInfo().uid), "-o", "pid=,ppid=,command="], {
     encoding: "utf8", maxBuffer: 16 * 1024 * 1024, timeout: 10_000,
   });
   if (result.error || result.status !== 0) throw new Error("Could not list this user's processes to count native runs");
@@ -74,9 +74,31 @@ function listUserProcesses() {
 
 function processEntries(lines: readonly string[]) {
   return lines.map((line) => {
+    const withParent = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
+    if (withParent) return { pid: Number(withParent[1]), ppid: Number(withParent[2]), command: withParent[3] };
     const match = /^\s*(\d+)\s+(.*)$/.exec(line);
-    return match ? { pid: Number(match[1]), command: match[2] } : { pid: undefined, command: line };
+    return match ? { pid: Number(match[1]), ppid: undefined, command: match[2] } : { pid: undefined, ppid: undefined, command: line };
   });
+}
+
+const LAUNCHER = /^(?:\S*\/)?node\s+scripts\/next-build\.mjs(?:\s|$)/;
+const NEXT_BUILD = /(?:^|[\s/])next[\\/]dist[\\/]bin[\\/]next\s+build(?:\s|$)/;
+
+/**
+ * `next build` processes no place accounts for: neither a slot holder (an
+ * Army run, a local launcher) nor a launcher counted below is among their
+ * ancestors, e.g. a build that outlived a launcher killed by SIGKILL or OOM.
+ */
+function nextBuildsWithoutPlace(entries: ReturnType<typeof processEntries>, slotPids: ReadonlySet<number>) {
+  const parents = new Map(entries.flatMap(({ pid, ppid }) => pid === undefined || ppid === undefined ? [] : [[pid, ppid] as const]));
+  const launchers = new Set(entries.flatMap(({ pid, command }) => pid !== undefined && LAUNCHER.test(command) ? [pid] : []));
+  return entries.filter(({ ppid, command }) => {
+    if (!NEXT_BUILD.test(command)) return false;
+    for (let ancestor = ppid, depth = 0; ancestor !== undefined && depth < 64; ancestor = parents.get(ancestor), depth += 1) {
+      if (slotPids.has(ancestor) || launchers.has(ancestor)) return false;
+    }
+    return true;
+  }).map(({ command }) => command);
 }
 
 /** Workdirs of running Supabase native stack hosts. */
@@ -88,8 +110,8 @@ function stackHostRoots(entries: ReturnType<typeof processEntries>) {
 
 /** Production builds (`npm run build`) that hold no slot of their own. */
 function productionBuilds(entries: ReturnType<typeof processEntries>, slotPids: ReadonlySet<number>) {
-  return entries.filter(({ pid, command }) => (pid === undefined || !slotPids.has(pid)) &&
-    /^(?:\S*\/)?node\s+scripts\/next-build\.mjs(?:\s|$)/.test(command)).map(({ command }) => command);
+  return entries.filter(({ pid, command }) => (pid === undefined || !slotPids.has(pid)) && LAUNCHER.test(command))
+    .map(({ command }) => command);
 }
 
 function canonical(directory: string) {
@@ -99,6 +121,9 @@ function canonical(directory: string) {
     return path.resolve(directory);
   }
 }
+
+// The wait's own signal listener: never mistaken for a caller's handler.
+const INTERNAL_LISTENERS = new WeakSet<(...args: never[]) => unknown>();
 
 function isProcessAlive(pid: number) {
   try {
@@ -168,6 +193,7 @@ export async function acquireNativeStackSlot(options: AcquireNativeStackSlotOpti
     cancelled = signal;
     wake();
   };
+  INTERNAL_LISTENERS.add(onSignal);
   const record = { pid, label: options.label, cwd: process.cwd(), startedAt: new Date().toISOString() };
   try {
     for (;;) {
@@ -183,6 +209,8 @@ export async function acquireNativeStackSlot(options: AcquireNativeStackSlotOpti
             .map((root) => `native stack not owned by a guarded run: ${root}`),
           ...productionBuilds(commands, new Set(slots.map((slot) => slot.pid)))
             .map((command) => `production build: ${command.slice(0, 120)}`),
+          ...nextBuildsWithoutPlace(commands, new Set(slots.map((slot) => slot.pid)))
+            .map((command) => `Next build without a place: ${command.slice(0, 120)}`),
         ];
       } catch (error) {
         fs.rmSync(file, { force: true });
@@ -223,7 +251,7 @@ export async function acquireNativeStackSlot(options: AcquireNativeStackSlotOpti
   }
 }
 
-type SignalTarget = Pick<NodeJS.Process, "on" | "off" | "listenerCount" | "kill" | "pid">;
+type SignalTarget = Pick<NodeJS.Process, "on" | "off" | "listeners" | "kill" | "pid">;
 
 /**
  * Runs `cleanup` on SIGINT or SIGTERM, then raises the signal again so the
@@ -249,7 +277,7 @@ export function cleanUpOnTerminationSignals(
     if (cleaning) return;
     // Assumes no library registers a passive SIGINT/SIGTERM listener: any
     // other listener is taken to own the shutdown.
-    if (target.listenerCount(signal) > 1) {
+    if (target.listeners(signal).filter((listener) => !INTERNAL_LISTENERS.has(listener)).length > 1) {
       onCallerOwned?.(signal);
       return;
     }
@@ -260,6 +288,10 @@ export function cleanUpOnTerminationSignals(
       console.error(`Cleanup after ${signal} failed: ${error instanceof Error ? error.message : String(error)}`);
     }
     remove();
+    // A pending wait's listener would make Node treat the re-raised signal as handled.
+    for (const listener of target.listeners(signal)) {
+      if (INTERNAL_LISTENERS.has(listener)) target.off(signal, listener as (signal: NodeJS.Signals) => void);
+    }
     target.kill(target.pid, signal);
   };
   for (const signal of signals) target.on(signal, handler);

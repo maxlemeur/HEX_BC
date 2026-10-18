@@ -954,7 +954,9 @@ avant), réglables par `NATIVE_STACK_MAX_RUNS=<1-32>`. Prennent une place :
 chaque exécution gardée ; chaque hôte de pile (`supabase
 __supabase_stack_host__`) dont aucune place vivante n'enregistre le
 `projectRoot` (exécution plantée ou antérieure au verrou, pile ouverte à la
-main) ; chaque build `node scripts/next-build.mjs`. Au-delà, l'exécution est
+main) ; chaque build `node scripts/next-build.mjs` ; chaque `next build`
+qu'aucune place ni aucun lanceur ne couvre (build survivant à son lanceur
+tué). Au-delà, l'exécution est
 refusée par `NativeStackLimitError`, qui nomme les détenteurs ;
 `NATIVE_STACK_WAIT_SECONDS=<n>` attend jusqu'à `n` secondes, et Ctrl+C annule
 cette attente. Entre exécutions gardées, il n'y a pas de course : chacune crée
