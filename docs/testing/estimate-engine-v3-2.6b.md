@@ -18,16 +18,20 @@ Aucune migration. Les chemins v1/v2 ne changent pas : chaque correction est cond
 
 Parcours de `e2e/army/local/engine-v3-editor-actions.e2e.ts`, boucle de développement (pile native, port 3182).
 
+Itérations sous `.e2e/army/ci/2026-10-18T14-36-32-429Z-dev-loop/iterations/` (clone WSL, Node 24, 2 workers).
+
 | Parcours | Commit | Itération | Échec observé |
 |---|---|---|---|
-| V3E16 | `f8cfd013` | `001-2026-10-18T14-38-52-332Z` | porte d'envoi : `blocking: ["missing_price","no_pdf_generated"]`, les trois lignes de statut dans `missing_price` |
-| V3E17 | `7d1b1c6e` | `002-2026-10-18T14-42-55-148Z` | champ h/u absent (`hoursPerUnit: false`, `lineHours: true`), ligne relue `unit: null`, `hPerUnit: 0`, totaux 2 600 / 520 / 3 120 c |
-| V3E18 | `f8cfd013` | `001-…` | ligne restaurée inchangée : `unit: "u"`, `hPerUnit: 1`, totaux 12 200 / 2 440 / 14 640 c |
-| V3E19 | `f8cfd013` | `001-…` | aucun refus ; lignes relues `description: "ML"` et `"boite"`, `unit_code` nul |
+| V3E16 | `e573f71e` | `004-2026-10-18T14-54-49-624Z` | porte d'envoi : `blocking: ["missing_price","no_pdf_generated"]`, les trois lignes de statut dans `missing_price`, PM et HL (fourniture et pose) dans `missing_labor_time` |
+| V3E17 | `e573f71e` | `004-…` | champ h/u absent (`hoursPerUnit: false`, `lineHours: true`) ; après « Sauvegarder maintenant », `unit_code` nul et `description: "ml"`, totaux 2 600 / 520 / 3 120 c |
+| V3E18 | `e573f71e` | `004-…` | après restauration et Ctrl+S, ligne inchangée : `unit: "u"`, `hPerUnit: 1`, totaux 12 200 / 2 440 / 14 640 c |
+| V3E19 | `f8cfd013` | `001-2026-10-18T14-38-52-332Z` | aucun refus ; lignes relues `description: "ML"` et `"boite"`, `unit_code` nul |
 
-Le premier passage de V3E17 (`001-…`) s'arrêtait avant le défaut : à 375 px la grille cède la place à la liste
-mobile, le bouton de la grille est masqué. `7d1b1c6e` ouvre la ligne depuis la liste mobile (et attend « 2 × ml »
-dans la liste), puis V3E17 a été relancé rouge sur le défaut (`002-…`).
+Corrections des parcours avant la correction du code (attendus inchangés) : à 375 px la grille cède la place à la
+liste mobile, V3E17 ouvre donc la ligne depuis la liste (`7d1b1c6e`) ; V3E17 et V3E18 enregistrent avant de relire
+(l'enregistrement automatique attend 60 s), et la garde v2 de V3E16 s'exécute avant la navigation, sur la session
+qui tient le bail de l'ancre (`e573f71e`) ; V3E18 passe en mode Expert pour lire les jetons TVA et TTC du pied
+(`b1769c1a`, après le premier vert : l'état enregistré était déjà juste).
 
 ## 3. Correction
 
@@ -40,14 +44,22 @@ dans la liste), puis V3E17 a été relancé rouge sur le défaut (`002-…`).
   totales du moteur en lecture seule. La liste mobile affiche `unit_code` sur une v3.
 - A14 : `restoreConflictDraft` met en file la charge v3 (`buildEstimateV3ItemUpdatePayload`, saisies seulement)
   sur une v3 ; `applyRestoredDraft` n'y reprend pas les réglages du brouillon (forme v2).
-- A15 : en lot, `buildBulkSuggestPreview({ unitTarget: "unit_code" })` juge la ligne neutre et propose l'unité dans
-  `unit_code` ; le contrôleur la résout dans le référentiel avant toute écriture et refuse la sélection entière,
-  par le nom de l'unité, si l'une est inconnue. Sur une ligne, même résolution ; refus nommé par un avis, rien de
-  la règle n'est écrit.
+- A15 : en lot, `buildBulkSuggestPreview({ unitTarget: "unit_code" })` garde les lignes éligibles de 2.6 et propose
+  l'unité dans `unit_code`, seulement sur une ligne qui n'en a pas ; le contrôleur la résout dans le référentiel
+  avant toute écriture et refuse la sélection entière, par le nom de l'unité, si l'une est inconnue. Sur une ligne,
+  même résolution ; refus nommé par un avis, rien de la règle n'est écrit.
+- Régression vue à la première qualification (`.e2e/army/ci/2026-10-18T15-03-53-439Z-critical`, `b1769c1a`) :
+  la première version d'A15 jugeait l'éligibilité sur `unit_code` ; une ligne v3 qui a déjà son unité n'était plus
+  proposée (V3E12, V3E14 : « Examiner 1 suggestion » attendu). Corrigé par `__FIX2__` : éligibilité inchangée,
+  l'unité d'une règle ne remplace jamais une unité choisie.
 
 ## 4. Preuves
 
-Voir §4.1 (rempli à la qualification) et la description de la PR.
+| Preuve | Commande | Révision | Résultat | Trace |
+|---|---|---|---|---|
+| Verts en itération | `npm run e2e:army:dev-loop -- run --grep 'V3E1[6-9]'` puis `'V3E18'` | `41533b62`, `b1769c1a` | V3E16, V3E17, V3E19 verts ; V3E18 vert après `b1769c1a` | itérations `005-2026-10-18T14-58-04-291Z`, `006-2026-10-18T15-01-12-344Z` |
+| Qualification ciblée | __QUALIFY__ | | | |
+| Qualité | `npm run verify:pr` | __VERIFY__ | | |
 
 ## 5. Limites
 
