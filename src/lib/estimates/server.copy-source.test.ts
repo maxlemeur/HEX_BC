@@ -101,7 +101,12 @@ function fakeSupabase(versions: Map<string, VersionState>) {
     };
     return builder;
   };
-  return { client: { from }, inserts };
+  // The v1/v2 copies write through public.copy_estimate_items_atomic (docs/testing/copy-large-v2.md): a write is an insert too.
+  const rpc = async (name: string, args: unknown) => {
+    inserts.push({ rpc: name, args });
+    return { data: null, error: null };
+  };
+  return { client: { from, rpc }, inserts };
 }
 
 function arrange(versions: VersionState[]) {
@@ -112,7 +117,7 @@ function arrange(versions: VersionState[]) {
     const state = byId.get(versionId)!;
     return { version: { ...state.row }, project: state.row.estimate_projects } as never;
   });
-  vi.mocked(assertDraftLockOwnedByCurrentUser).mockResolvedValue(undefined as never);
+  vi.mocked(assertDraftLockOwnedByCurrentUser).mockResolvedValue({ session_id: "77777777-7777-4777-8777-777777777777" } as never);
   return supabase;
 }
 
