@@ -14,6 +14,7 @@ import {
 import { controlCents } from "../../../src/lib/imports/optima-control";
 import { ownedEstimateContext, querySql } from "./calculation-gate-support";
 // Aliased: not a React hook, despite its name.
+import { switchToExpertMode, waitForDraftLease } from "./engine-v3-editor-support";
 import { setTenantCalcPolicy, useDedicatedV3Owner as signUpDedicatedV3Owner, type V3Owner } from "./engine-v3-persistence-support";
 
 // Lot 2, sous-lot 2.8 — chemins d'entrée v3 (docs/testing/estimate-engine-v3-2.8.md). Défaillances
@@ -546,6 +547,35 @@ armyTest("IO07 sections enter a v3 from a v2 (converted, listed) and from a v3 (
         footer: true,
       });
 
+      // Revue 2.8b (F3) : la même section par « Importer depuis un autre devis » de l'éditeur ; le résumé liste la ligne
+      // dont les heures changent, comme l'insertion d'un modèle.
+      const uiTargetId = await blankV3(ui, army, projectId, "section-ui");
+      const releasedUi = await apiRequest(browser, "DELETE", `/api/estimates/${uiTargetId}/lock`);
+      expect(releasedUi.status).toBe(200);
+      await app.open(`/dashboard/estimates/${uiTargetId}/edit`);
+      await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible({ timeout: 60_000 });
+      await switchToExpertMode(ui);
+      await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible({ timeout: 60_000 });
+      await waitForDraftLease(ui);
+      await screen.getByRole("tab", /^Insérer(?: \d+)?$/).tap();
+      await screen.getByTestId("estimate-editor-insert-button").tap();
+      await screen.getByTestId("estimate-editor-import-from-estimate-button").tap();
+      const importDialog = screen.getByRole("dialog", "Importer depuis un autre devis", { exact: true });
+      const sourceSelect = importDialog.getByLabel("Devis source", { exact: true });
+      await expect(sourceSelect).toBeVisible({ timeout: 30_000 });
+      await sourceSelect.selectOption({ value: anchorId });
+      await importDialog.getByRole("button", "Continuer", { exact: true }).tap();
+      const sectionTitle = `${army.runPrefix} lot à importer`;
+      await importDialog.getByRole("checkbox", new RegExp(`^${sectionTitle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`)).check();
+      await importDialog.getByRole("button", "Continuer", { exact: true }).tap();
+      await importDialog.getByRole("button", "Importer", { exact: true }).tap();
+      const importSummary = screen.getByTestId("estimate-editor-alert-import-summary");
+      await expect(importSummary).toBeVisible({ timeout: 60_000 });
+      const summaryText = (await importSummary.textContent())?.replace(/\s+/g, " ").trim() ?? null;
+      await recordEvidence(army, "io-section-import-v2-ui", { uiTargetId, summaryText });
+      expect(summaryText).toBe(`1 section(s) et 2 ligne(s) importées. Heures converties au moteur de calcul 3 (h / Q au demi ` +
+        `supérieur) : ${army.runPrefix} collier : 1 h → 0,9 h.`);
+
       // v3 → v3: the inputs are copied as they are, the amounts recomputed by the writer (same coefficients).
       const otherId = await blankV3(ui, army, projectId, "section-b");
       await retakeLease(browser, otherId);
@@ -708,6 +738,32 @@ SELECT count(*) FROM public.dpgf_rows_mapped WHERE import_id = '${importId}';
   return importId;
 }
 
+/** Revue 2.8b (F4) : la provenance stockée des enfants d'une section, par position (SQL : la lecture de l'API la résume). */
+async function storedSourceMetadata(parentId: string) {
+  if (!UUID.test(parentId)) throw new Error("Invalid section identity.");
+  return querySql(`SELECT concat_ws('|', coalesce(source_metadata->>'import_id', '-'), coalesce(source_metadata->>'row_index', '-'),
+  source_metadata ? 'mapped_row_id', coalesce(source_metadata->'_timax_provenance'->>'sourceDocumentId', '-'))
+FROM public.estimate_items WHERE parent_id = '${parentId}'::uuid AND item_type = 'line' ORDER BY position;
+`);
+}
+
+/**
+ * Revue 2.8b (F4) : une provenance PDF (`_timax_provenance`, `sourceDocumentId`) posée en SQL sur une ligne v3, sous
+ * le contrat d'écrivain de sa version (seule colonne changée, aucun montant), comme l'import de l'affaire l'écrit.
+ */
+async function seedV3LineProvenance(versionId: string, title: string, documentId: string) {
+  if (!UUID.test(versionId) || !UUID.test(documentId) || !/^[A-Za-z0-9 .-]{1,160}$/.test(title)) throw new Error("Invalid provenance input.");
+  const output = await querySql(`BEGIN;
+SELECT set_config('miaouffrage.estimate_v3_writer', '${versionId}', true);
+UPDATE public.estimate_items SET source_metadata = jsonb_build_object('import_id', '${documentId}',
+  '_timax_provenance', jsonb_build_object('sourceDocumentId', '${documentId}', 'page', 3))
+WHERE version_id = '${versionId}'::uuid AND title = '${title}' AND item_type = 'line';
+COMMIT;
+SELECT count(*) FROM public.estimate_items WHERE version_id = '${versionId}'::uuid AND source_metadata ? '_timax_provenance';
+`);
+  if (output.at(-1) !== "1") throw new Error("The v3 line provenance was not persisted.");
+}
+
 async function storedTotalHtCents(versionId: string) {
   if (!UUID.test(versionId)) throw new Error("Invalid version identity.");
   const [total] = await querySql(`SELECT total_ht_cents FROM public.estimate_versions WHERE id = '${versionId}';\n`);
@@ -724,7 +780,7 @@ armyTest("IO10 the linked DPGF imported into a v3 draft keeps units and statuses
       // The draft's own coefficients (1,25 / 1,15), not the policy's (1,30 / 1,20), price the imported lines.
       await saveSettings(browser, army, versionId, "dpgf-lie", { sale_coefficient_fo: 1.25, sale_coefficient_mo: 1.15 });
       const before = await readEstimate(browser, versionId);
-      await seedLinkedDpgf(owner, projectId, filename, [
+      const importId = await seedLinkedDpgf(owner, projectId, filename, [
         { designation: `${army.runPrefix} tube`, unit: "ml", quantity: "10", unit_price_ht: "12,00" },
         { designation: `${army.runPrefix} collier`, unit: "u", quantity: "3", unit_price_ht: "4,00" },
         { designation: `${army.runPrefix} provision`, unit: "PM", quantity: "1" },
@@ -756,6 +812,8 @@ armyTest("IO10 the linked DPGF imported into a v3 draft keeps units and statuses
         pricedPu: lines.filter((line) => field(line, "pricing_status") === "priced").map((line) => num(field(line, "pu_ht_cents"))),
         provenance: lines.map((line) => [field(line, "source_provider"), field(line, "source_file_name"), field(line, "source_page")]),
         sectionProvenance: section ? [field(section, "source_provider"), field(section, "source_file_name")] : null,
+        // Revue 2.8b (F4) : la provenance de la ligne mappée (import, ligne, `mapped_row_id`) suit la ligne.
+        metadata: section ? await storedSourceMetadata(section.id) : null,
         previousItemsKept: before.items.every((item) => after.items.some((next) => next.id === item.id && next.title === item.title)),
         apiTotal: num(after.version.total_ht_cents),
         sqlTotal: await storedTotalHtCents(versionId),
@@ -774,6 +832,7 @@ armyTest("IO10 the linked DPGF imported into a v3 draft keeps units and statuses
         pricedPu: [1500, 500],
         provenance: [1, 2, 3, 4].map((page) => ["dpgf", filename, page]),
         sectionProvenance: ["dpgf", filename],
+        metadata: [1, 2, 3, 4].map((row) => `${importId}|${row}|t|-`),
         previousItemsKept: true,
         apiTotal: 16500,
         sqlTotal: 16500,
@@ -827,6 +886,8 @@ armyTest("IO11 a v3 section is duplicated in place and to another v3 with the sa
     try {
       const versionId = await blankV3(ui, army, projectId, "duplication");
       const sectionId = await seedV3Section(browser, army, versionId, roleId);
+      const documentId = randomUUID();
+      await seedV3LineProvenance(versionId, `${army.runPrefix} tube`, documentId);
       const source = await readEstimate(browser, versionId);
       const sourceShape = subtreeShape(source, sectionId);
       type Duplicated = { duplicated_section_id: string; copied_item_count: number; converted_lines?: CopyReport[] };
@@ -874,6 +935,8 @@ armyTest("IO11 a v3 section is duplicated in place and to another v3 with the sa
         },
         toOther: { shape: subtreeShape(other, toOther.body.data.duplicated_section_id), total: num(other.version.total_ht_cents),
           count: toOther.body.data.copied_item_count, converted: toOther.body.data.converted_lines ?? null },
+        // Revue 2.8b (F4) : la provenance PDF du tube (`_timax_provenance.sourceDocumentId`) suit les deux copies.
+        provenance: { inPlace: await storedSourceMetadata(copyId), toOther: await storedSourceMetadata(toOther.body.data.duplicated_section_id) },
       };
       await recordEvidence(army, "io-duplicate-observed", { versionId, otherId, sourceShape, sourceTotal: source.version.total_ht_cents, observed });
       const sourceTotal = num(source.version.total_ht_cents)!;
@@ -881,6 +944,8 @@ armyTest("IO11 a v3 section is duplicated in place and to another v3 with the sa
         inPlace: { title: `duplication lot (copie)`, shape: sourceShape, count: 5, sourceUnchanged: true,
           total: sourceTotal * 2, sqlTotal: sourceTotal * 2 },
         toOther: { shape: sourceShape, total: sourceTotal, count: 5, converted: [] },
+        provenance: { inPlace: [`${documentId}|-|f|${documentId}`, "-|-|f|-"],
+          toOther: [`${documentId}|-|f|${documentId}`, "-|-|f|-"] },
       });
       // Tube: 10,00 € × 1,30 + 0,5 h/u × 40 €/h × 1,20 = 37,00 € × 10 ml ; coude: 2,50 € × 1,30 + 0,25 × 40 × 1,20 = 15,25 € × 4 u.
       expect(sourceTotal).toBe(37_000 + 6_100);
@@ -937,9 +1002,12 @@ armyTest("IO12 line ↔ section conversion is disabled with its reason in a v3 e
       const sectionTitle = browser.locator(`[data-estimate-item-id="${sectionId}"] [data-testid="estimate-section-title-input"]`);
       await expect(sectionTitle).toBeEnabled({ timeout: 150_000 });
       await screen.getByRole("button", `Plus d'actions pour ${army.runPrefix} tube`, { exact: true }).tap();
-      const lineConvert = screen.getByRole("menuitem", "Convertir en section", { exact: true });
+      const reason = "Conversion ligne ↔ section indisponible sur un devis au moteur de calcul 3 : supprimez l’élément puis recréez-le.";
+      const lineConvert = screen.getByRole("menuitem", /^Convertir en section/);
       await expect(lineConvert).toBeVisible();
-      const lineMenu = { disabled: await lineConvert.getAttribute("aria-disabled"), reason: await lineConvert.getAttribute("title") };
+      // Revue 2.8b (F6) : l'entrée désactivée ne reçoit pas le survol (pointer-events: none), son motif est un texte visible.
+      const lineMenu = { disabled: await lineConvert.getAttribute("aria-disabled"), reason: await lineConvert.getAttribute("title"),
+        shown: await lineConvert.getByText(reason, { exact: true }).isVisible() };
       await browser.keyboard.press("Escape");
       await browser.evaluate((id) => {
         const row = document.querySelector(`[data-estimate-item-id="${id}"]`);
@@ -950,9 +1018,9 @@ armyTest("IO12 line ↔ section conversion is disabled with its reason in a v3 e
       }, empty.body.data.item.id);
       const sectionConvert = browser.locator('[data-testid="estimate-section-context-convert-to-line-button"]');
       await expect(sectionConvert).toBeVisible();
-      const sectionMenu = { disabled: await sectionConvert.isDisabled(), reason: await sectionConvert.getAttribute("title") };
+      const sectionMenu = { disabled: await sectionConvert.isDisabled(), reason: await sectionConvert.getAttribute("title"),
+        shown: await sectionConvert.getByText(reason, { exact: true }).isVisible() };
       const after = await readEstimate(browser, versionId);
-      const reason = "Conversion ligne ↔ section indisponible sur un devis au moteur de calcul 3 : supprimez l’élément puis recréez-le.";
       const observed = {
         responses: Object.fromEntries(Object.entries(probes).map(([name, response]) =>
           [name, [response.status, response.body.ok, response.body.error?.code ?? null]])),
@@ -965,8 +1033,8 @@ armyTest("IO12 line ↔ section conversion is disabled with its reason in a v3 e
       const refused = [409, false, "ESTIMATE_V3_ITEM_CONVERSION_UNAVAILABLE"];
       expect(observed).toEqual({
         responses: { lineToSection: refused, sectionToLine: refused },
-        lineMenu: { disabled: "true", reason },
-        sectionMenu: { disabled: true, reason },
+        lineMenu: { disabled: "true", reason, shown: true },
+        sectionMenu: { disabled: true, reason, shown: true },
         unchanged: true,
       });
     } finally {
@@ -974,9 +1042,13 @@ armyTest("IO12 line ↔ section conversion is disabled with its reason in a v3 e
     }
   });
 
-/** A v2 section of `count` lines written in SQL on the anchor (a v2: no v3 writer guard), for the batch limit. */
-async function seedLargeV2Section(owner: V3Owner, anchorId: string, count: number, position: number) {
-  if (!UUID.test(anchorId) || !Number.isSafeInteger(count) || count < 1 || count > 5000 || !Number.isSafeInteger(position)) throw new Error("Invalid large section input.");
+/**
+ * A v2 section of `count` lines written in SQL on the anchor (a v2: no v3 writer guard), for the batch limit. Line
+ * titles are `titleLength` characters long (the writer accepts 500); the v1/v2 writers never bounded them.
+ */
+async function seedLargeV2Section(owner: V3Owner, anchorId: string, count: number, position: number, titleLength = 55) {
+  if (!UUID.test(anchorId) || !Number.isSafeInteger(count) || count < 1 || count > 5000 || !Number.isSafeInteger(position) ||
+    !Number.isSafeInteger(titleLength) || titleLength < 55 || titleLength > 1000) throw new Error("Invalid large section input.");
   const sectionId = randomUUID();
   const output = await querySql(`BEGIN;
 INSERT INTO public.estimate_items (id, tenant_id, version_id, item_type, position, title)
@@ -985,7 +1057,8 @@ FROM public.estimate_versions v WHERE v.id = '${anchorId}'::uuid AND v.tenant_id
 INSERT INTO public.estimate_items (tenant_id, version_id, parent_id, item_type, position, title, description,
   quantity, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, h_mo_majoration, k_mo,
   pu_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents)
-SELECT v.tenant_id, v.id, '${sectionId}'::uuid, 'line', g, 'Fourniture et pose de canalisation PVC 110 mm, ligne ' || g, 'u', 1, 100, 2000, 1, 0, 1, 1, 130, 130, 26, 156
+SELECT v.tenant_id, v.id, '${sectionId}'::uuid, 'line', g,
+  rpad('Fourniture et pose de canalisation PVC 110 mm, ligne ' || g || ' ', ${titleLength}, 'x'), 'u', 1, 100, 2000, 1, 0, 1, 1, 130, 130, 26, 156
 FROM public.estimate_versions v CROSS JOIN generate_series(1, ${count}) AS g
 WHERE v.id = '${anchorId}'::uuid AND EXISTS (SELECT 1 FROM public.estimate_items s WHERE s.id = '${sectionId}'::uuid);
 COMMIT;
@@ -995,15 +1068,18 @@ SELECT count(*) FROM public.estimate_items WHERE parent_id = '${sectionId}'::uui
   return sectionId;
 }
 
-// C8 (2.8b) : une copie vers une v3 est un seul lot atomique de l'écrivain v3 ; au-delà de 1 000 opérations, refus
-// nommé qui renvoie vers l'import de l'affaire, jamais une écriture en plusieurs lots.
-armyTest("IO13 a section copy into a v3 is one atomic batch up to 1 000 operations and refused by name beyond it, pointing to the affaire import, nothing written", options,
+// C8 (2.8b) : une copie vers une v3 est un seul lot atomique de l'écrivain v3 ; au-delà de 100 opérations (revue :
+// 1 000 dépassaient le délai de 8 s en CI, run 39138950745), refus nommé qui renvoie vers l'import de l'affaire, jamais
+// une écriture en plusieurs lots. C9 (revue) : un titre au-delà de 500 caractères est refusé par son nom, rien n'est écrit.
+armyTest("IO13 a section copy into a v3 is one atomic batch up to 100 operations and refused by name beyond it, pointing to the affaire import, nothing written", options,
   async ({ app, screen, browser, army }) => {
     const ui = { app, screen, browser };
     const { owner, projectId, anchorId } = await prepareV3Owner(ui, army, "limite");
     try {
-      const largeSectionId = await seedLargeV2Section(owner, anchorId, 1000, 900);
-      const boundarySectionId = await seedLargeV2Section(owner, anchorId, 999, 901);
+      const largeSectionId = await seedLargeV2Section(owner, anchorId, 100, 900);
+      // At the limit with 400-character titles: the receipt of the writer stays under its 2 Mio.
+      const boundarySectionId = await seedLargeV2Section(owner, anchorId, 99, 901, 400);
+      const longTitleSectionId = await seedLargeV2Section(owner, anchorId, 1, 902, 501);
       const versionId = await blankV3(ui, army, projectId, "limite");
       await retakeLease(browser, versionId);
       const before = await readEstimate(browser, versionId);
@@ -1018,7 +1094,19 @@ armyTest("IO13 a section copy into a v3 is one atomic batch up to 1 000 operatio
       await recordEvidence(army, "io-copy-too-large", { versionId, anchorId, largeSectionId, message: response.body.error?.message, observed });
       expect(observed).toEqual({ response: [413, false, "ESTIMATE_V3_COPY_TOO_LARGE"], pointsToAffaireImport: true, unchanged: true });
 
-      // At the limit (1 section + 999 lines = 1 000 operations): one atomic batch, every line, amounts of the writer.
+      // C9: a line title over the writer's 500 characters is refused by name before any write.
+      const longTitle = await apiRequest<Envelope<unknown>>(browser, "POST", `/api/estimates/${versionId}/import-sections`,
+        { source_version_id: anchorId, section_ids: [longTitleSectionId] });
+      const afterLongTitle = await readEstimate(browser, versionId);
+      const named = {
+        response: [longTitle.status, longTitle.body.ok, longTitle.body.error?.code ?? null],
+        namesTheLine: (longTitle.body.error?.message ?? "").startsWith("« Fourniture et pose de canalisation PVC 110 mm, ligne 1 "),
+        unchanged: afterLongTitle.items.length === before.items.length && afterLongTitle.version.updated_at === before.version.updated_at,
+      };
+      await recordEvidence(army, "io-copy-long-title", { versionId, longTitleSectionId, message: longTitle.body.error?.message, named });
+      expect(named).toEqual({ response: [400, false, "ESTIMATE_V3_COPY_ITEM_INVALID"], namesTheLine: true, unchanged: true });
+
+      // At the limit (1 section + 99 lines = 100 operations): one atomic batch, every line, amounts of the writer.
       type Imported = { created_section_ids: string[]; created_line_ids: string[] };
       const atLimit = await apiRequest<Envelope<Imported>>(browser, "POST", `/api/estimates/${versionId}/import-sections`,
         { source_version_id: anchorId, section_ids: [boundarySectionId] });
@@ -1032,8 +1120,8 @@ armyTest("IO13 a section copy into a v3 is one atomic batch up to 1 000 operatio
         sqlTotal: await storedTotalHtCents(versionId),
       };
       await recordEvidence(army, "io-copy-at-limit", { versionId, boundarySectionId, boundary });
-      // 999 × (1,00 € × FO 1,30) = 1 298,70 € HT.
-      expect(boundary).toEqual({ response: [201, true, null], lines: 999, priced: 999, total: 129_870, sqlTotal: 129_870 });
+      // 99 × (1,00 € × FO 1,30) = 128,70 € HT.
+      expect(boundary).toEqual({ response: [201, true, null], lines: 99, priced: 99, total: 12_870, sqlTotal: 12_870 });
     } finally {
       await closePolicy(owner, army, "limite");
     }

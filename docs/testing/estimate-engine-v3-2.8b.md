@@ -2,8 +2,8 @@
 
 Statut : **vert** (18/10/2026). Branche `lot2/2.8b-copies-into-v3`, empilée sur `lot2/2.10a-createurs-v3`
 (`216ac4d0`, outil commun de normalisation des imports dans `src/lib/affaires/`). Source : plan vers 2.10 (§3
-« 2.8b », décisions D-b et D-e du 18/10/2026), inventaire des écarts v3 (A5 à A8). Aucune migration ;
-`src/lib/estimate-calculations.ts` et `src/lib/estimate-v2-snapshot.ts` inchangés.
+« 2.8b », décisions D-b et D-e du 18/10/2026), inventaire des écarts v3 (A5 à A8). Une migration depuis la revue
+(`20261018160000`, §6) ; `src/lib/estimate-calculations.ts` et `src/lib/estimate-v2-snapshot.ts` inchangés.
 
 ## 1. Défaillances observables (écrites avant le code)
 
@@ -16,7 +16,11 @@ Statut : **vert** (18/10/2026). Branche `lot2/2.8b-copies-into-v3`, empilée sur
 | C5 | Section v1/v2 entrée dans une v3 sans la règle P-12 ni rapport ; section v3 entrée dans une v1/v2 (D-e) | IO07 |
 | C6 | Conversion ligne ↔ section proposée sur une v3, puis message générique (D-b) | IO12 |
 | C7 | Copie v1/v2 → v1/v2 dont les montants changent | IO11 (garde) |
-| C8 | Copie de plus de 1 000 éléments écrite en partie, ou en plusieurs lots | IO13 |
+| C8 | Copie au-delà de la limite écrite en partie, en plusieurs lots, ou hors du délai de 8 s (revue : 100 opérations) | IO13 |
+| C9 | Élément hors des bornes de l'écrivain (titre de plus de 500 caractères) : 400 générique « Payload invalide. » (revue) | IO13 |
+| C10 | Conversion P-12 d'une copie v1/v2 → v3 rendue par l'API mais jamais montrée (revue) | IO07 |
+| C11 | `source_metadata` des éléments copiés perdue (`_timax_provenance`, `sourceDocumentId`, import) (revue) | IO10, IO11 |
+| C12 | Motif de la conversion désactivée invisible : l'entrée désactivée du menu ne reçoit pas le survol (revue) | IO12 |
 
 ## 2. Rouges conservés
 
@@ -34,8 +38,8 @@ Statut : **vert** (18/10/2026). Branche `lot2/2.8b-copies-into-v3`, empilée sur
 - **Écriture.** Une copie vers une v3 passe par l'écrivain de lot v3. `v3-section-copy.ts` construit les
   opérations, puis `executeEstimateBatch` / `commit_estimate_batch` les écrit en un seul lot, avec le jeton lu
   au départ et le verrou de la page. Les identités créées sont passées par `createdIds`, déjà acceptées par la
-  préparation. Au-delà de 1 000 opérations ou de 1 Mio : refus 413 `ESTIMATE_V3_COPY_TOO_LARGE` avant toute
-  écriture, qui renvoie vers l'import de l'affaire. Une opération refusée par l'écrivain est rendue avec son
+  préparation. Au-delà de 100 opérations (revue, §6), de 1 Mio ou d'un reçu estimé au-delà de 2 Mio : refus 413
+  `ESTIMATE_V3_COPY_TOO_LARGE` avant toute écriture, qui renvoie vers l'import de l'affaire. Une opération refusée par l'écrivain est rendue avec son
   code et l'élément nommé (rôle MO d'un autre propriétaire, unité inconnue, profondeur, position).
 - **Lecture complète.** Vers une v3, les lignes de la source et de la cible (`readAllEstimateItems`) et les lignes
   du DPGF lié sont lues par pages. Les lectures v1/v2 sont inchangées (§5).
@@ -61,7 +65,7 @@ Statut : **vert** (18/10/2026). Branche `lot2/2.8b-copies-into-v3`, empilée sur
 | IO07 | v2 → v3 : tube 0,5 h/u, collier 0,0003 h/u (1 h → 0,9 h listé), tube 37,00 € × 10 ; v3 → v3 identique ; v3 → v2 refusé deux fois, rien d'écrit |
 | IO11 (sur place par l'interface, vers une v3 par l'API) | sous-arbre identique, 5 éléments, total doublé (API = SQL) ; garde v2 → v2 : mêmes montants, aucun rapport |
 | IO12 | 409 nommé deux fois ; menus `aria-disabled` avec le motif ; rien d'écrit |
-| IO13 | 1 001 éléments : 413 `ESTIMATE_V3_COPY_TOO_LARGE`, message vers l'affaire, rien d'écrit ; à la limite (1 section + 999 lignes = 1 000 opérations) : 201, 999 lignes à 1,30 €, total 129 870 (API = SQL) |
+| IO13 (revue) | 101 opérations : 413 `ESTIMATE_V3_COPY_TOO_LARGE`, message vers l'affaire, rien d'écrit ; titre de 501 caractères : 400 `ESTIMATE_V3_COPY_ITEM_INVALID` qui nomme la ligne ; à la limite (1 section + 99 lignes = 100 opérations) : 201, 99 lignes à 1,30 €, total 12 870 (API = SQL) |
 | Run qualifiant et `verify:pr` | voir la description de la PR |
 
 ## 5. Limites
@@ -69,13 +73,35 @@ Statut : **vert** (18/10/2026). Branche `lot2/2.8b-copies-into-v3`, empilée sur
 - Les lectures v1/v2 non paginées restent telles quelles (comportement v1/v2 identique). Une copie v1/v2 → v1/v2
   ou un DPGF lié importé dans une v2 tronquent en silence au-delà de 1 000 lignes. Ce défaut existait avant ce
   lot et sort de son périmètre.
-- La copie vers une autre version et l'import de sections sont prouvés par l'API. Leurs dialogues appellent les
-  mêmes routes, mais aucun parcours ne les pilote.
+- La copie vers une autre version est prouvée par l'API ; son avis de conversion (toast avant la redirection) n'est
+  piloté par aucun parcours. L'import de sections est piloté par l'éditeur dans IO07.
+- Une copie vers une v3 est bornée à 100 opérations (§6). Au-delà, refus nommé : copier les sous-sections une à une,
+  ou importer depuis l'affaire.
+- Le DPGF lié importé dans une v2 ne garde pas non plus la `source_metadata` de ses lignes : comportement v1/v2
+  inchangé, hors périmètre.
 - Ne sont pas couverts par un parcours : rôle MO d'un autre propriétaire, profondeur dépassée, jeton périmé et
   cible verrouillée par un autre utilisateur. Ces refus nommés viennent de la préparation du lot et du verrou,
   déjà prouvés au 2.5.
 - La conversion ligne ↔ section par l'écrivain de lot reste à faire (D-b).
-- Le reçu de l'écrivain de lot est borné à 2 Mio (`ESTIMATE_BATCH_MAX_RECEIPT_BYTES`, contrat du 2.5). IO13 passe
-  à 1 000 opérations avec des libellés de 55 caractères. Avec des libellés beaucoup plus longs, une copie à la
-  limite pourrait dépasser ce reçu après l'écriture : l'issue serait alors rendue « inconnue » et la page
-  rechargerait.
+- Reçu de l'écrivain borné à 2 Mio : la base refuse un reçu plus gros avant la fin de la transaction
+  (`commit_estimate_batch`, `octet_length(response::text) > 2097152`), donc rien n'est écrit ; la copie estime ce
+  reçu et refuse par son nom avant d'écrire (§6).
+
+## 6. Revue (18/10/2026)
+
+| Constat | Disposition |
+|---|---|
+| CI rouge, shard 3 | Parcours IO13 identifié (preuve `2026-10-18T15-07-22-063Z-critical` du run 39138950745) : copie de 1 000 opérations en 503 `BATCH_OUTCOME_UNKNOWN` après 9,7 s, délai de 8 s des rôles de l'API. Corrigé par les deux lignes suivantes |
+| 1 000 opérations hors budget | Mesuré (L7, [budget](large-estimate-statement-budget.md#copy-into-a-v3-28b-l7)) : 10–15 s ; 100 opérations dans une v3 de 1 021 éléments : 4,1 s, la projection v3 réécrivait chaque ligne. `20261018160000` ne réécrit que les montants qui changent (282 ms) ; limite ramenée à 100 opérations, taille des lots de l'éditeur. Écart au plan (1 000) : le délai de la CI l'impose |
+| Rapport P-12 non montré | `converted_lines` lu par le client ; résumé de l'import de sections et avis de la copie vers une autre version |
+| `source_metadata` perdue | `p_created_ids` porte la `source_metadata` de l'élément copié (côté serveur seulement, hors requête canonique et reçu rejoué) ; A5 : métadonnées de la ligne mappée et `import_id` |
+| Reçu > 2 Mio « écrit puis inconnu » | Infirmé : la base refuse le reçu avant validation, rien n'est écrit (mesure : 1 000 opérations avec provenance → `ESTIMATE_BATCH_INVALID_INPUT`). Réel : un refus générique. Corrigé par l'estimation du reçu avant écriture (413 nommé) |
+| Motif invisible (menu) | Motif écrit dans les trois entrées désactivées |
+| Titre > 500 caractères | Bornes de l'écrivain vérifiées avant écriture : 400 `ESTIMATE_V3_COPY_ITEM_INVALID` qui nomme l'élément |
+
+- **Rouges** : boucle `2026-10-18T15-36-53-287Z-dev-loop`, itération 1, 5 sur 5 pour la bonne raison (IO07 résumé
+  sans conversion, IO10 et IO11 métadonnées vides, IO12 motif non visible, IO13 101 opérations en 201).
+- **Verts** : boucle `2026-10-18T15-53-18-287Z-dev-loop`, itération 1, 5 sur 5 (avec la migration) ; pgTAP de la boucle :
+  copie de 100 opérations dans la v3 de 1 021 éléments, 0 ligne réécrite.
+- **IO13 révisé** : 101 opérations → 413 ; titre de 501 caractères → 400 nommé ; à la limite (1 section + 99 lignes
+  de 400 caractères) → 201, 99 lignes, total 12 870 (API = SQL).

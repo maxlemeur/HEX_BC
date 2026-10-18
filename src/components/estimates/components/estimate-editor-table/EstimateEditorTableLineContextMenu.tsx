@@ -129,6 +129,9 @@ export function EstimateEditorTableLineContextMenu({
             title={isV3 ? ESTIMATE_V3_ITEM_CONVERSION_REASON : undefined}
           >
             Convertir en section
+            {isV3 ? (
+              <span className="block text-xs font-normal">{ESTIMATE_V3_ITEM_CONVERSION_REASON}</span>
+            ) : null}
           </button>
         </>
       ) : null}

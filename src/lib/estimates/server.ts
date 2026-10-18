@@ -2738,6 +2738,7 @@ async function importLinkedDpgfSourceIntoVersionInternal(
         rootPosition,
         sectionTitle: resolvedSectionTitle,
         filename: latestImport.filename,
+        importId: latestImport.id,
         lines: validLines.map((line, index) => ({ ...line, id: lineItemsPayload[index]!.id as string })),
       }),
     });

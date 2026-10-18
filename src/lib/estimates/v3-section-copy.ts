@@ -3,8 +3,10 @@
  *
  * Une v3 porte ses montants stockés sous D12 : toute ligne qui y entre passe par l'écrivain de lot de 2.5
  * (`executeEstimateBatch` puis `commit_estimate_batch`), jamais par une insertion directe, refusée par le garde SQL
- * (M4). Un seul lot atomique : au-delà de 1 000 opérations ou de 1 Mio, refus nommé qui renvoie vers l'import de
- * l'affaire (nouvelle version, atomique), jamais une écriture en plusieurs lots.
+ * (M4). Un seul lot atomique : au-delà de 100 opérations (une instruction dans le budget de
+ * docs/testing/large-estimate-statement-budget.md, L7), de 1 Mio ou d'un reçu estimé au-delà de 2 Mio, refus nommé qui
+ * renvoie vers l'import de l'affaire (nouvelle version, atomique), jamais une écriture en plusieurs lots. Les
+ * `source_metadata` des éléments copiés (provenance d'import) suivent par les identités de création, côté serveur.
  *
  * - v3 → v3 (même version ou une autre) : les saisies v3 sont copiées (unité du référentiel, statut, heures par
  *   unité) ; l'écrivain recalcule les montants aux coefficients de la cible.
@@ -19,12 +21,13 @@ import type { ValidImportFlowLine } from "@/lib/affaires/import-flow";
 
 import {
   ESTIMATE_BATCH_MAX_BODY_BYTES,
-  ESTIMATE_BATCH_MAX_OPERATIONS,
+  ESTIMATE_BATCH_MAX_RECEIPT_BYTES,
   executeEstimateBatch,
   type EstimateBatchCommittedResult,
 } from "@/lib/estimates/batch";
+import type { EstimateBatchCreatedId } from "@/lib/estimates/batch-preparation";
 import { ApiError, badRequest, conflict } from "@/lib/estimates/errors";
-import type { BatchOperationInput } from "@/lib/estimates/schemas";
+import { batchOperationSchema, type BatchOperationInput } from "@/lib/estimates/schemas";
 import {
   listTemplateLinesConvertedForV3,
   templateLineHoursPerUnitForV3,
@@ -41,8 +44,18 @@ export const ESTIMATE_V3_SECTION_COPY_TO_HISTORICAL_MESSAGE =
   "Une section d’un devis au moteur de calcul 3 ne se copie pas vers un devis au moteur 1 ou 2 : ses lignes non " +
   "chiffrées (HL, PM, inclus…) y deviendraient chiffrées.";
 
+/**
+ * Une copie vers une v3 est une instruction `commit_estimate_batch` : 100 opérations, la taille des lots de l'éditeur,
+ * restent dans le budget local de 330 ms (mesure L7) ; 1 000 dépassaient le délai de 8 s des rôles de l'API en CI.
+ */
+export const ESTIMATE_V3_COPY_MAX_OPERATIONS = 100;
+/** Marge du reçu de l'écrivain (2 Mio) : au-delà, la base refuse le lot par un code générique. */
+const RECEIPT_MARGIN_BYTES = 128 * 1024;
+/** Ligne stockée renvoyée par le reçu pour chaque création (colonnes et espaces du texte jsonb), hors saisies. */
+const RECEIPT_ROW_BYTES = 1800;
+
 export const ESTIMATE_V3_COPY_TOO_LARGE_MESSAGE =
-  "Cette copie dépasse la limite d’une écriture atomique dans un devis au moteur de calcul 3 (1 000 éléments, 1 Mio). " +
+  "Cette copie dépasse la limite d’une écriture atomique dans un devis au moteur de calcul 3 (100 éléments). " +
   "Plusieurs sections : copiez-les en plusieurs fois. Au-delà pour une seule section ou un DPGF : importez ces " +
   "lignes depuis l’affaire (« Importer la DPGF »), qui crée une nouvelle version en une fois. Rien n’a été copié.";
 
@@ -54,6 +67,18 @@ export function estimateV3SectionCopyToHistoricalError() {
 /** Ligne prête à l'écrivain : valeurs absentes omises (la création applique les défauts de la v3). */
 function compact<T extends Record<string, unknown>>(data: T): T {
   return Object.fromEntries(Object.entries(data).filter(([, value]) => value !== null && value !== undefined)) as T;
+}
+
+/** Provenance d'import de l'élément copié (`_timax_provenance`, `sourceDocumentId`, import, ligne mappée), si elle existe. */
+function sourceMetadataOf(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length > 0
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function createdId(index: number, id: string, metadata: unknown): EstimateBatchCreatedId {
+  const sourceMetadata = sourceMetadataOf(metadata);
+  return sourceMetadata ? { index, id, source_metadata: sourceMetadata } : { index, id };
 }
 
 function sectionOperation(item: ItemInsert, keepSourceJob: boolean): BatchOperationInput {
@@ -104,7 +129,7 @@ function lineOperation(item: ItemInsert, source: ItemRow, sourceIsV3: boolean, k
 
 export type V3CopyPlan = {
   operations: BatchOperationInput[];
-  createdIds: Array<{ index: number; id: string }>;
+  createdIds: EstimateBatchCreatedId[];
   titles: string[];
   convertedLines: TemplateV3ConvertedLine[];
 };
@@ -125,7 +150,7 @@ export function planV3SectionCopy(input: {
   for (const item of input.payload) {
     const source = input.sourceItemsById.get(input.sourceIdByNewId.get(item.id!) ?? "");
     if (!source || !item.id) throw new ApiError({ status: 500, code: "INTERNAL_ERROR", message: "Impossible de copier la section." });
-    plan.createdIds.push({ index: plan.operations.length, id: item.id });
+    plan.createdIds.push(createdId(plan.operations.length, item.id, source.source_metadata));
     plan.titles.push(item.title ?? source.title);
     if (item.item_type === "section") {
       plan.operations.push(sectionOperation(item, input.sameVersion));
@@ -138,9 +163,18 @@ export function planV3SectionCopy(input: {
   return plan;
 }
 
+function tooLarge(operations: number) {
+  return new ApiError({ status: 413, code: "ESTIMATE_V3_COPY_TOO_LARGE", message: ESTIMATE_V3_COPY_TOO_LARGE_MESSAGE,
+    details: { operations, max_operations: ESTIMATE_V3_COPY_MAX_OPERATIONS } });
+}
+
+const shortTitle = (title: string | undefined) =>
+  !title ? "Élément" : title.length > 80 ? `${title.slice(0, 79)}…` : title;
+
 /**
- * Un seul lot atomique dans la v3 cible, au jeton lu par l'appelant. Une opération refusée par l'écrivain est
- * rendue par son code, avec l'élément nommé ; rien n'est écrit.
+ * Un seul lot atomique dans la v3 cible, au jeton lu par l'appelant. Avant toute écriture : la limite (opérations,
+ * corps, reçu estimé) et les bornes de l'écrivain pour chaque élément (titre de 500 caractères…), refusées par leur
+ * nom. Une opération refusée par l'écrivain est rendue par son code, avec l'élément nommé ; rien n'est écrit.
  */
 export async function commitV3Copy(input: {
   versionId: string;
@@ -148,13 +182,28 @@ export async function commitV3Copy(input: {
   plan: Pick<V3CopyPlan, "operations" | "createdIds" | "titles">;
 }): Promise<EstimateBatchCommittedResult> {
   const { operations, createdIds, titles } = input.plan;
-  if (operations.length > ESTIMATE_BATCH_MAX_OPERATIONS ||
-    Buffer.byteLength(JSON.stringify({ operations }), "utf8") > ESTIMATE_BATCH_MAX_BODY_BYTES - 4096) {
-    throw new ApiError({ status: 413, code: "ESTIMATE_V3_COPY_TOO_LARGE", message: ESTIMATE_V3_COPY_TOO_LARGE_MESSAGE,
-      details: { operations: operations.length, max_operations: ESTIMATE_BATCH_MAX_OPERATIONS } });
+  const operationBytes = Buffer.byteLength(JSON.stringify({ operations }), "utf8");
+  const metadataBytes = Buffer.byteLength(JSON.stringify(createdIds.map((entry) => entry.source_metadata ?? null)), "utf8");
+  // Reçu : chaque opération y figure deux fois (requête et ligne stockée, texte jsonb espacé), avec sa provenance.
+  const receiptBytes = Math.ceil(1.2 * (2 * operationBytes + metadataBytes)) + operations.length * RECEIPT_ROW_BYTES;
+  if (operations.length > ESTIMATE_V3_COPY_MAX_OPERATIONS || operationBytes > ESTIMATE_BATCH_MAX_BODY_BYTES - 4096 ||
+    receiptBytes > ESTIMATE_BATCH_MAX_RECEIPT_BYTES - RECEIPT_MARGIN_BYTES) {
+    throw tooLarge(operations.length);
   }
+  operations.forEach((operation, index) => {
+    const parsed = batchOperationSchema.safeParse(operation);
+    if (parsed.success) return;
+    const issue = parsed.error.issues[0];
+    const field = issue?.path.filter((part) => part !== "data").join(".") || null;
+    throw badRequest(
+      `« ${shortTitle(titles[index])} » : ${issue?.message ?? "Valeur invalide."}${field ? ` (${field})` : ""} ` +
+        "Un devis au moteur de calcul 3 n’accepte pas cet élément tel quel ; corrigez-le dans la source. Rien n’a été copié.",
+      { index, field },
+      "ESTIMATE_V3_COPY_ITEM_INVALID"
+    );
+  });
   const result = await executeEstimateBatch(input.versionId, operations, {
-    concurrencyToken: input.updatedAt, operationKey: randomUUID(), maxOperations: ESTIMATE_BATCH_MAX_OPERATIONS, createdIds,
+    concurrencyToken: input.updatedAt, operationKey: randomUUID(), maxOperations: ESTIMATE_V3_COPY_MAX_OPERATIONS, createdIds,
   });
   if (result.committed) return result;
   const failed = result.results.at(-1);
@@ -172,23 +221,25 @@ export async function commitV3Copy(input: {
 /**
  * A5 : le DPGF lié importé dans un brouillon v3 existant. Lignes normalisées pour le moteur 3 par l'outil commun
  * d'import (unité du référentiel, statut à 0 €), aux coefficients du brouillon ; provenance de l'import gardée
- * (fournisseur `dpgf`, fichier, ligne source). Une section racine nouvelle, puis ses lignes, en un seul lot.
+ * (fournisseur `dpgf`, fichier, ligne source, `source_metadata` de la ligne mappée avec l'import). Une section racine
+ * nouvelle, puis ses lignes, en un seul lot.
  */
 export function planV3LinkedDpgfImport(input: {
   sectionId: string;
   rootPosition: number;
   sectionTitle: string;
   filename: string | null;
+  importId: string;
   lines: ReadonlyArray<ValidImportFlowLine & { id: string }>;
 }): Pick<V3CopyPlan, "operations" | "createdIds" | "titles"> {
   const operations: BatchOperationInput[] = [{ op: "create", data: compact({
     item_type: "section" as const, parent_id: null, position: input.rootPosition, title: input.sectionTitle,
     source_provider: "dpgf", source_file_name: input.filename,
   }) as CreateData } as BatchOperationInput];
-  const createdIds = [{ index: 0, id: input.sectionId }];
+  const createdIds = [createdId(0, input.sectionId, { import_id: input.importId })];
   const titles = [input.sectionTitle];
   input.lines.forEach((line, index) => {
-    createdIds.push({ index: operations.length, id: line.id });
+    createdIds.push(createdId(operations.length, line.id, { ...line.sourceMetadata, import_id: input.importId }));
     titles.push(line.title);
     operations.push({ op: "create", data: compact({
       item_type: "line" as const, parent_id: input.sectionId, position: index + 1, title: line.title,

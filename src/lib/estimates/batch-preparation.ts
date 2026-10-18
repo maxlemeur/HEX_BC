@@ -36,8 +36,10 @@ type Version = Database["public"]["Tables"]["estimate_versions"]["Row"];
 type ItemProjection = { id: string; pu_ht_cents: number | null; line_total_ht_cents: number;
   line_tax_cents: number; line_total_ttc_cents: number };
 export type EstimateBatchAidPolicy = { id: string; enabled: boolean; value: string | null } | null;
+/** Identity of a created item; `source_metadata` only from the server-side copies into a v3 (2.8b). */
+export type EstimateBatchCreatedId = { index: number; id: string; source_metadata?: Record<string, unknown> };
 export type PreparedEstimateBatch = {
-  createdIds: Array<{ index: number; id: string }>;
+  createdIds: EstimateBatchCreatedId[];
   itemUpdates: ItemProjection[];
   /** v1/v2 : trois totaux ; v3 : les six totaux de `EstimateV3VersionTotals`. */
   versionPatch: CalculatedEstimateTotals | EstimateV3VersionTotals;
@@ -81,7 +83,7 @@ export async function prepareEstimateBatch(input: {
   expectedUpdatedAt: string;
   operations: BatchOperationInput[];
   /** Internal aggregate preparation only; never populated by the HTTP batch API. */
-  createdIds?: Array<{ index: number; id: string }>;
+  createdIds?: EstimateBatchCreatedId[];
 }): Promise<PreparedEstimateBatch> {
   const { context, versionId } = input;
   const { supabase, tenantId } = context;
@@ -118,15 +120,20 @@ export async function prepareEstimateBatch(input: {
   const maximumDepth = clampMaxSectionDepth(version.max_section_depth);
   const createdIds: PreparedEstimateBatch["createdIds"] = [];
   const suppliedIds = new Map<number, string>();
+  const suppliedMetadata = new Map<number, Record<string, unknown>>();
   if (input.createdIds !== undefined) {
-    const parsed = z.array(z.object({ index: z.number().int().nonnegative(), id: z.string().uuid() }).strict()).parse(input.createdIds);
+    const parsed = z.array(z.object({ index: z.number().int().nonnegative(), id: z.string().uuid(),
+      source_metadata: z.record(z.string(), z.unknown()).optional() }).strict()).parse(input.createdIds);
     if (parsed.length !== input.operations.filter((operation) => operation.op === "create").length ||
       new Set(parsed.map((entry) => entry.index)).size !== parsed.length ||
       new Set(parsed.map((entry) => entry.id.toLowerCase())).size !== parsed.length ||
       parsed.some((entry) => input.operations[entry.index]?.op !== "create" || items.has(entry.id.toLowerCase()))) {
       throw badRequest("Les identités de création préparées sont invalides.");
     }
-    for (const entry of parsed) suppliedIds.set(entry.index, entry.id.toLowerCase());
+    for (const entry of parsed) {
+      suppliedIds.set(entry.index, entry.id.toLowerCase());
+      if (entry.source_metadata) suppliedMetadata.set(entry.index, entry.source_metadata);
+    }
   }
   const changedLineIds = new Set<string>();
   const checkedReferences = new Map<string, Promise<void>>();
@@ -265,7 +272,8 @@ export async function prepareEstimateBatch(input: {
         validatePlacement(item);
         await references(item);
         items.set(item.id, item);
-        createdIds.push({ index, id: item.id });
+        const sourceMetadata = suppliedMetadata.get(index);
+        createdIds.push(sourceMetadata ? { index, id: item.id, source_metadata: sourceMetadata } : { index, id: item.id });
         if (isLine) changedLineIds.add(item.id);
       } else if (operation.op === "update") {
         const current = items.get(operation.id);

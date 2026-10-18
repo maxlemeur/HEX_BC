@@ -231,6 +231,8 @@ export type DuplicateEstimateSectionResult = {
   targetVersionId: string;
   copiedItemCount: number;
   versionToken: EstimateVersionToken | null;
+  /** Sous-lot 2.8b (A6, P-12) : lignes v1/v2 entrées dans une v3 dont les heures changent (`converted_lines`). */
+  convertedLines?: V3ConvertedLine[];
 };
 
 export type EstimateImportSourceVersion = {
@@ -503,6 +505,9 @@ export type InstantiateEstimateTemplatePayload = {
   /** Sous-lot 2.10a (D3) : moteur des nouvelles versions lu par la page. */
   expectedCalcEngineVersion?: 2 | 3;
 };
+
+/** Ligne v1/v2 dont les heures changent en entrant dans une v3 (P-12) : heures source → heures dérivées. */
+export type V3ConvertedLine = { title: string; templateHours: number; convertedHours: number };
 
 /** Sous-lot 2.10a (P-12, D-h) : modèle entré dans une v3, lignes converties et réglages non repris. */
 export type InstantiateEstimateTemplateConversion = {
@@ -2689,6 +2694,20 @@ function parseEstimateImportSectionPreviews(
     .sort((left, right) => left.position - right.position);
 }
 
+/** Sous-lot 2.8b : `converted_lines` d'une copie vers une v3 (vide hors conversion v1/v2 → v3). */
+function parseV3ConvertedLines(value: unknown): V3ConvertedLine[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((line) => {
+    if (!isRecord(line)) return [];
+    const title = toStringValue(line.title);
+    const templateHours = toNumber(line.template_hours);
+    const convertedHours = toNumber(line.converted_hours);
+    return title !== null && templateHours !== null && convertedHours !== null
+      ? [{ title, templateHours, convertedHours }]
+      : [];
+  });
+}
+
 function parseImportEstimateSectionsResult(
   payload: unknown
 ): ImportEstimateSectionsResult | null {
@@ -2741,6 +2760,7 @@ function parseImportEstimateSectionsResult(
     createdSectionIds,
     createdLineIds,
     versionToken: parseVersionToken(root),
+    convertedLines: parseV3ConvertedLines(root.converted_lines),
   };
 }
 
@@ -3179,6 +3199,7 @@ function parseDuplicateEstimateSectionResult(
     targetVersionId,
     copiedItemCount,
     versionToken,
+    convertedLines: parseV3ConvertedLines(root.converted_lines),
   };
 }
 

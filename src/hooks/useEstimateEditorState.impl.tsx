@@ -34,6 +34,7 @@ import {
   EstimateSettingsSummaryBar,
   type SettingsSection,
 } from "@/components/estimates/EstimateSettingsSummaryBar";
+import { useToast } from "@/components/ui-legacy/Toast";
 import { useUserContext } from "@/components/UserContext";
 import { useEstimateEditorExportController } from "@/hooks/useEstimateEditorExportController";
 import { isEstimateEditorOperationScopeCurrent } from "@/hooks/estimate-editor-operation-scope";
@@ -84,6 +85,7 @@ import {
 import {
   buildEditorItemSyncBaseline, buildEstimateV3ItemUpdatePayload, buildEstimateV3SummaryView, indexEstimateV3Lines,
 } from "@/lib/estimates/v3-editor";
+import { describeV3ConvertedLines } from "@/lib/estimates/v3-converted-lines";
 import {
   DEFAULT_TAX_RATE_BP,
   ESTIMATE_VERSION_CONFLICT_MESSAGE,
@@ -415,6 +417,7 @@ export function useEstimateEditorState({
   externalActionError?: { message: string; key: number } | null;
 }): EstimateEditorStateModel {
   const router = useRouter();
+  const toast = useToast();
   const resolvedVersionId = versionId;
   const {
     autoOpenVersionZero: shouldAutoOpenVersionZero,
@@ -2499,9 +2502,14 @@ export function useEstimateEditorState({
         }
 
         targetLockAcquired = true;
-        await duplicateEstimateSection(synchronizedVersionSnapshot.id, sectionId, {
+        const duplicated = await duplicateEstimateSection(synchronizedVersionSnapshot.id, sectionId, {
           targetVersionId,
         });
+        // Sous-lot 2.8b (A6, P-12) : section v1/v2 copiée dans une v3, lignes dont les heures changent.
+        const converted = describeV3ConvertedLines(duplicated.convertedLines);
+        if (converted) {
+          toast.warning({ title: "Section copiée au moteur de calcul 3", description: converted, durationMs: 15_000 });
+        }
 
         redirected = true;
         router.push(`/dashboard/estimates/${targetVersionId}/edit`);
@@ -2532,6 +2540,7 @@ export function useEstimateEditorState({
       isReadOnly,
       readOnlyActionErrorMessage,
       router,
+      toast,
     ]
   );
 

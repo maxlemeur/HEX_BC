@@ -1197,12 +1197,13 @@ export function LineRow({
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
-                    className="px-2.5 py-2"
+                    className={v3Grid ? "max-w-72 flex-col items-start px-2.5 py-2" : "px-2.5 py-2"}
                     disabled={isReadOnly || isPendingCreate || Boolean(v3Grid)}
                     title={v3Grid ? ESTIMATE_V3_ITEM_CONVERSION_REASON : undefined}
                     onClick={() => onConvertLineToSection(item.id)}
                   >
                     Convertir en section
+                    {v3Grid ? <span className="text-xs font-normal text-muted-foreground">{ESTIMATE_V3_ITEM_CONVERSION_REASON}</span> : null}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     className="px-2.5 py-2"

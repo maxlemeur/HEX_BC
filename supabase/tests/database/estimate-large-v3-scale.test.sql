@@ -6,16 +6,21 @@
 -- - the creation updates its version as many times for 1 021 items as for 8 (once); the per-line content revision
 --   bump that M6b replays in one pass would update it once per item. The other replayed effects (audit, coverage,
 --   depth) write the same rows either way: only the opt-in budget sees them come back;
--- - the v3 settings save (c_FO 1,3 -> 2) rewrites all 900 priced lines, so the budget measures a real repricing.
+-- - the v3 settings save (c_FO 1,3 -> 2) rewrites all 900 priced lines, so the budget measures a real repricing;
+-- - sub-lot 2.8b (L7): a 100-operation copy into the 1 021-item v3 (commit_estimate_batch) commits and updates none of
+--   the lines already stored. Before 20261018160000 the v3 projection rewrote every line of the version, each no-op
+--   update firing the per-line revision bump and audit (4,1 s locally, the IO13 timeout in CI).
 begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = extensions, public, pg_catalog;
-select plan(5);
+select plan(7);
 
 \ir ../fixtures/large-v3-estimate.sql
 select pg_temp.lb29_run(1);
+select pg_temp.lb29_copy_run(1, array[100]);
 select * from pg_temp.lb29_diag();
+select * from pg_temp.lb29_copy_report();
 
 select pg_temp.lb29_succeeded(1);
 
@@ -42,6 +47,18 @@ select is(
   (select coalesce(min(updates), -1) from lb29_sample where operation = 'settings'),
   900::bigint,
   'the v3 settings save rewrites the price of each of the 900 lines'
+);
+
+select is(
+  (select string_agg(target || ' ' || outcome, ', ' order by target) from lb29_copy_sample),
+  'large ok, small ok',
+  'a 100-operation copy into a v3 commits in one batch, into an 8-item and into a 1 021-item version'
+);
+
+select is(
+  (select updates from lb29_copy_sample where target = 'large'),
+  0::bigint,
+  'a copy into the 1 021-item v3 updates none of its stored lines (the projection keeps unchanged amounts)'
 );
 
 select * from finish();

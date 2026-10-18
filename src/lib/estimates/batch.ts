@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import {
-  EstimateBatchPreparationError, prepareEstimateBatch, sameEstimateBatchTimestamp,
+  EstimateBatchPreparationError, prepareEstimateBatch, sameEstimateBatchTimestamp, type EstimateBatchCreatedId,
 } from "@/lib/estimates/batch-preparation";
 import { canonicalizeEstimateBatchOperations } from "@/lib/estimates/batch-request";
 import { ApiError, badRequest, conflict, type SupabaseErrorLike } from "@/lib/estimates/errors";
@@ -49,8 +49,8 @@ export type ExecuteEstimateBatchOptions = {
   operationKey?: string;
   dryRun?: boolean;
   maxOperations?: number;
-  /** Server-side copies only (2.8b): identities of the created items, so that a child names a section created earlier in the batch. Never set by the HTTP batch API. */
-  createdIds?: Array<{ index: number; id: string }>;
+  /** Server-side copies only (2.8b): identities of the created items, so that a child names a section created earlier in the batch, and the source_metadata of the copied item. Never set by the HTTP batch API. */
+  createdIds?: EstimateBatchCreatedId[];
 };
 
 export function resolveEstimateBatchMaxOperations(override?: number) {
@@ -236,7 +236,7 @@ export async function executeEstimateBatch(
     response = await context.supabase.rpc("commit_estimate_batch", {
       p_version_id: versionId, p_operation_key: operationKey!, p_expected_updated_at: concurrencyToken,
       p_draft_lock_session_id: lock.session_id, p_operations: operations as Json,
-      p_created_ids: prepared.createdIds, p_item_updates: prepared.itemUpdates,
+      p_created_ids: prepared.createdIds as Json, p_item_updates: prepared.itemUpdates,
       p_version_patch: prepared.versionPatch, p_calculation_context: prepared.calculationContext as Json,
       p_expected_aid_policy: prepared.expectedAidPolicy,
     });

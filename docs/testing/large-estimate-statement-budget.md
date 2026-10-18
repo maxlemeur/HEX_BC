@@ -14,7 +14,8 @@ deterministic check on every run, and a wall-clock budget on the calibrated mach
 | L1 | The per-line content revision bump comes back on the creation path (the version updated once per item, the main cost in IO01) | pgTAP, **every run, CI included**: a 1 021-item creation updates its version as many times as an 8-item creation. The other effects M6b replays (item audit, coverage invalidation, depth check) write the same rows on both paths, so no row count separates them: only L2 sees them come back |
 | L2 | The creation gets slower without per-line version updates (a new BEFORE row trigger with a lookup, a slower D12 check, a missing index, a heavier audit) | pgTAP, **opt-in** on the calibrated machine: median of 7 rolled-back creations ≤ 330 ms |
 | L3 | The v3 settings save (`save_estimate_settings_atomic`, every line's projection checked and written in one statement) slows down on 1 021 items | Every run: the save rewrites all 900 lines (so the measurement is a real repricing). Opt-in: median of 7 saves **reported, not asserted**. It is already over the budget (see « Settings save ») |
-| L4 | The v3 batch writer (`commit_estimate_batch`, paste and undo in batches of 100) slows down | **Not guarded, not measured.** Each call carries ≤ 100 items, about a tenth of the statements above, and a 1 000-item paste is 10 separate statements, so a single call is far from the timeout. The paste journeys assert behaviour, not timing; a timing scenario would belong in [tester-army-performance.md](tester-army-performance.md) |
+| L4 | The v3 batch writer (`commit_estimate_batch`, paste and undo in batches of 100) slows down | Through L7 since 2.8b: the copy probe is a batch of creates. The assumption « ≤ 100 items, far from the timeout » was wrong on a large v3 until `20261018160000` (see « Copy into a v3 ») |
+| L7 | A copy into a v3 (2.8b: sections, linked DPGF; one `commit_estimate_batch` of at most 100 operations) rewrites the stored lines again or slows down | pgTAP, **every run**: a 100-operation copy into the 1 021-item v3 commits and updates **0** stored lines. **Opt-in**: median of 7 such copies ≤ 330 ms |
 | L5 | The route, serialization or UI around the RPC is slow (time to « Devis créé », settings PATCH) | TesterArmy: IO01 step durations in `report.json` and the `io-settings-*` business artifacts (`elapsedMs.save`); reported, no threshold |
 | L6 | The 8 s timeout of the API roles changes | Reported by the probes (`diag` of `pg_roles.rolconfig`); the budget must then be derived again |
 | — | Reading a large estimate (`GET /api/estimates`, the ~60 s stall) | Out of scope: a separate investigation covers it |
@@ -92,6 +93,29 @@ The first version of this probe sent all-zero lines. Changing c_FO then left eve
 stored row, and the save's `IS DISTINCT FROM` filter skipped all 900 writes (~75 ms). The every-run assertion
 « rewrites 900 lines » now keeps the measurement honest.
 
+## Copy into a v3 (2.8b, L7)
+
+Review of PR #59 (18/10/2026): IO13 copied 1 000 operations into a v3 and timed out in CI (run
+[39138950745](https://github.com/maxlemeur/HEX_BC/actions/runs/39138950745), 503 `BATCH_OUTCOME_UNKNOWN`, nothing
+written). The probe `pg_temp.lb29_copy_run` (one root section and N - 1 priced lines carrying their provenance, rolled
+back, as the owner) measured it in WSL on a loaded Windows host, about twice slower than the calibrated Mac (the
+creation took 415–480 ms there against 245 ms):
+
+| Copy | Before `20261018160000` (5 runs) | After (7 runs for 100, 3 for 1 000) |
+| --- | --- | --- |
+| 100 operations into the 8-item v3 | 554 ms | **173 ms** |
+| 100 operations into the 1 021-item v3 | 4 102 ms | **282 ms**, 0 line updates |
+| 1 000 operations, 8-item / 1 021-item v3 | 10 263 / 15 184 ms | 2 300–3 390 ms without provenance; refused with provenance (receipt over 2 Mio, nothing written) |
+
+The profile (`pg_stat_xact_user_functions`) put 3,2 s of the 3,9 s of two 100-operation copies in
+`bulk_update_estimate_items`: the v3 projection rewrote every line of the version, each no-op update firing the
+revision bump, two audit rows and the coverage invalidation. `20261018160000` passes only the lines whose amounts
+differ (D12 still checks them all) and reads created ids and projections from maps. What remains is linear in the
+operations (per-line triggers about 1,1 ms, batch loop about 0,85 ms, the quadratic `canonical_estimate_batch_operations`
+about 0,6 s at 1 000), so a copy is capped at **100 operations**, the size of the editor batches: 282 ms here,
+about half on the Mac, a few seconds in CI. Beyond it, a named 413 points to the affaire import, which creates the
+version in one set-based statement (L1, L2).
+
 ## Measured results
 
 Final files, on the owner's Mac (Apple silicon, native runtime), alternated green and red at load average
@@ -122,6 +146,9 @@ logs.
   `ubuntu-24.04` runners. Only opt in on the calibrated machine. A slower machine, another runner class or a change
   in the army-critical job's parallelism invalidates the budget: measure again and update this page.
 - **Coverage**: the probes measure the database statements only. They do not cover the route, the network,
-  PostgREST, the read path or the batch writer (L4, L5). L1 sees only the per-line revision bump.
+  PostgREST or the read path (L5). L7 measures the batch writer for creates only (no update, delete or reorder). L1
+  sees only the per-line revision bump.
+- **L7 calibration**: the copy medians above come from WSL, not from the calibrated Mac; the opt-in L7 assertion was
+  not run there.
 - **Proof**: IO01 and IO02 in CI remain the proof that a real import and its settings changes fit in the timeout.
   This guard catches a regression earlier; it does not replace those journeys.

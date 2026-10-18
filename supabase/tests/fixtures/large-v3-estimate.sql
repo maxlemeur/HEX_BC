@@ -244,3 +244,133 @@ create function pg_temp.lb29_succeeded(p_runs integer) returns text language sql
     'every v3 creation and settings save of the probe succeeds (failure: ' || coalesce((select string_agg(distinct outcome, '; ')
       from lb29_sample where outcome <> 'ok'), 'none') || ')')
 $$;
+
+-- Sub-lot 2.8b (review, L7): a copy into a v3 is one commit_estimate_batch statement (sections from the same or
+-- another version, the linked DPGF): one root section and p_size - 1 priced lines under it, the IO13 profile, into
+-- the kept 1 021-item version ('large') and into a kept 8-item version ('small'). The projections of every line of
+-- the target and its v3 totals come from private.estimate_v3_compute_items before the clock, as
+-- prepareEstimateBatch sends them. Each copy runs as the owner (authenticated) and is rolled back.
+create temporary table lb29_copy (target text, size integer, version_id uuid, session_id uuid, operations jsonb,
+  created_ids jsonb, item_updates jsonb, version_patch jsonb);
+-- updates: estimate_items rows updated by the copy (L7: none, the lines already stored keep their amounts).
+create temporary table lb29_copy_sample (target text, size integer, run integer, outcome text, duration_ms numeric,
+  receipt_bytes integer, updates bigint);
+grant select on lb29_copy to authenticated;
+grant insert on lb29_copy_sample to authenticated;
+
+create function pg_temp.lb29_copy_payload(p_target text, p_version_id uuid, p_session_id uuid, p_size integer)
+returns void language plpgsql as $$
+declare
+  section_id uuid := gen_random_uuid();
+  line_ids uuid[];
+  canonical jsonb := private.estimate_v3_canonical_input(p_version_id);
+  computed jsonb;
+begin
+  select array_agg(gen_random_uuid()) into line_ids from generate_series(1, p_size - 1);
+  computed := private.estimate_v3_compute_items((select jsonb_agg(item order by (item ->> 'id')::uuid)
+    from jsonb_array_elements((canonical -> 'items') || (select jsonb_agg(jsonb_build_object('id', line_ids[n],
+      'item_type', 'line', 'parent_id', section_id, 'pricing_status', 'priced', 'tax_rate_bp', 2000, 'unit_code', 'ml',
+      'quantity', 20, 'unit_price_ht_cents', 500 + (n * 101) % 4000, 'k_fo', 1, 'h_mo_per_unit', 0,
+      'h_mo_atelier_per_unit', null, 'h_mo_chantier_per_unit', null, 'h_mo_majoration', 1, 'k_mo', 1,
+      'k_mo_atelier', 1, 'k_mo_chantier', 1, 'labor_rate_cents', 0, 'labor_rate_atelier_cents', null,
+      'labor_rate_chantier_cents', null)) from generate_series(1, p_size - 1) n)) item), canonical -> 'params');
+  insert into lb29_copy values (p_target, p_size, p_version_id, p_session_id,
+    jsonb_build_array(jsonb_build_object('op', 'create', 'data', jsonb_build_object('item_type', 'section',
+      'parent_id', null, 'position', (select coalesce(max(position), 0) + 1 from public.estimate_items
+        where version_id = p_version_id and parent_id is null), 'title', 'Copie LB29 ' || p_size,
+      'source_provider', 'dpgf', 'source_file_name', 'BEING - DPGF HYDRAULIQUE.xlsx')))
+    || (select jsonb_agg(jsonb_build_object('op', 'create', 'data', jsonb_build_object('item_type', 'line',
+      'parent_id', section_id, 'position', n, 'title', 'Fourniture et pose tube acier noir DN' || n || ' copie LB29',
+      'description', 'ml', 'quantity', 20, 'unit_price_ht_cents', 500 + (n * 101) % 4000, 'tax_rate_bp', 2000,
+      'k_fo', 1, 'h_mo_majoration', 1, 'k_mo', 1, 'unit_code', 'ml', 'pricing_status', 'priced', 'h_mo_per_unit', 0,
+      'source_provider', 'dpgf', 'source_file_name', 'BEING - DPGF HYDRAULIQUE.xlsx', 'source_page', n)) order by n)
+      from generate_series(1, p_size - 1) n),
+    -- Each line carries the provenance of its mapped row, as the copies send it (server-side created ids).
+    (select jsonb_agg(jsonb_build_object('index', n, 'id', case when n = 0 then section_id else line_ids[n] end)
+      || case when n = 0 then '{}'::jsonb else jsonb_build_object('source_metadata', jsonb_build_object('import_id',
+        section_id, 'mapped_row_id', gen_random_uuid(), 'row_index', n)) end order by n) from generate_series(0, p_size - 1) n),
+    (select jsonb_agg(jsonb_build_object('id', line -> 'id', 'pu_ht_cents', line -> 'pu_ht_cents',
+      'line_total_ht_cents', line -> 'line_total_ht_cents', 'line_tax_cents', line -> 'line_tax_cents',
+      'line_total_ttc_cents', line -> 'line_total_ttc_cents')) from jsonb_array_elements(computed -> 'lines') line),
+    (select jsonb_object_agg(key, computed -> 'totals' -> key) from unnest(array['total_ht_cents', 'total_tax_cents',
+      'total_ttc_cents', 'gross_ht_cents', 'discount_applied_cents', 'commercial_rounding_cents']) key));
+end
+$$;
+
+create function pg_temp.lb29_copy_once(p_target text, p_size integer, p_run integer) returns void
+language plpgsql as $$
+declare
+  started_at timestamptz;
+  duration numeric;
+  response jsonb;
+  receipt text;
+  updates_before bigint;
+  payload lb29_copy%rowtype;
+begin
+  select * into payload from lb29_copy where target = p_target and size = p_size;
+  begin
+    updates_before := pg_temp.lb29_updates('estimate_items');
+    started_at := clock_timestamp();
+    response := public.commit_estimate_batch(payload.version_id, gen_random_uuid(),
+      (select updated_at from public.estimate_versions where id = payload.version_id), payload.session_id,
+      payload.operations, payload.created_ids, payload.item_updates, payload.version_patch,
+      '{"labor_roles":[],"margin_tiers":[],"labor_split_flag":null}'::jsonb, null);
+    duration := round(extract(epoch from clock_timestamp() - started_at) * 1000, 1);
+    if (response ->> 'committed')::boolean is not true then
+      raise exception using errcode = 'P0001', message = 'LB29_REFUSED ' || left((response -> 'results' -> -1)::text, 300);
+    end if;
+    raise exception using errcode = 'P0001', message = 'LB29_ROLLBACK',
+      detail = octet_length(response::text) || ' ' || (pg_temp.lb29_updates('estimate_items') - updates_before);
+  exception when others then
+    get stacked diagnostics receipt = pg_exception_detail;
+    insert into lb29_copy_sample values (p_target, p_size, p_run,
+      case when sqlerrm = 'LB29_ROLLBACK' then 'ok' else sqlstate || ' ' || left(sqlerrm, 300) end, duration,
+      case when sqlerrm = 'LB29_ROLLBACK' then split_part(receipt, ' ', 1)::integer end,
+      case when sqlerrm = 'LB29_ROLLBACK' then split_part(receipt, ' ', 2)::bigint end);
+  end;
+end
+$$;
+
+-- After lb29_run: an 8-item v3 kept as the small target, a draft lease on it (the large one has its own), the
+-- payloads of p_sizes, then p_runs rolled-back copies of each size into each target.
+create function pg_temp.lb29_copy_run(p_runs integer, p_sizes integer[]) returns void language plpgsql as $$
+declare
+  small jsonb := pg_temp.lb29_priced(pg_temp.lb29_items(1, 5));
+begin
+  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+  perform set_config('role', 'service_role', true);
+  perform public.persist_estimate_creation_atomic(current_setting('test.tenant_id')::uuid,
+    '29200000-0000-4000-8000-000000000001', '29200000-0000-4000-8000-000000000010', null,
+    pg_temp.lb29_version('29200000-0000-4000-8000-000000000102', small -> 'totals'), small -> 'items', null);
+  perform set_config('role', 'none', true);
+  insert into public.draft_locks (version_id, user_id, tenant_id, expires_at, session_id)
+  values ('29200000-0000-4000-8000-000000000102', '29200000-0000-4000-8000-000000000001',
+    current_setting('test.tenant_id')::uuid, statement_timestamp() + interval '30 minutes',
+    '29200000-0000-4000-8000-000000000402');
+  perform pg_temp.lb29_copy_payload(target.name, target.version_id, target.session_id, size)
+  from (values ('small', '29200000-0000-4000-8000-000000000102'::uuid, '29200000-0000-4000-8000-000000000402'::uuid),
+    ('large', '29200000-0000-4000-8000-000000000101', '29200000-0000-4000-8000-000000000401'))
+    target(name, version_id, session_id)
+  cross join unnest(p_sizes) size;
+
+  perform set_config('request.jwt.claims',
+    '{"role":"authenticated","sub":"29200000-0000-4000-8000-000000000001"}', true);
+  perform set_config('request.jwt.claim.sub', '29200000-0000-4000-8000-000000000001', true);
+  perform set_config('role', 'authenticated', true);
+  perform pg_temp.lb29_copy_once(target, size, run)
+  from unnest(array['small', 'large']) target cross join unnest(p_sizes) size cross join generate_series(1, p_runs) run;
+  perform set_config('role', 'none', true);
+end
+$$;
+
+create function pg_temp.lb29_copy_median(p_target text, p_size integer) returns numeric language sql as $$
+  select percentile_cont(0.5) within group (order by duration_ms)::numeric from lb29_copy_sample
+  where target = p_target and size = p_size and outcome = 'ok'
+$$;
+create function pg_temp.lb29_copy_report() returns setof text language sql as $$
+  select diag(format('copy of %s operations into the %s target: median %s ms over %s runs (%s), receipt %s bytes, '
+      || '%s line updates, budget %s ms', size, target, pg_temp.lb29_copy_median(target, size), count(*),
+    string_agg(case when outcome = 'ok' then duration_ms::text else outcome end, ' ' order by run),
+    max(receipt_bytes), max(updates), (select budget_ms from lb29_budget)))
+  from lb29_copy_sample group by target, size order by size, target
+$$;

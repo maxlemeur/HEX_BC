@@ -184,6 +184,9 @@ export function EstimateEditorTableSectionDialogs({
             data-testid="estimate-section-context-convert-to-line-button"
           >
             Convertir en ligne
+            {isV3 ? (
+              <span className="block text-xs font-normal">{ESTIMATE_V3_ITEM_CONVERSION_REASON}</span>
+            ) : null}
           </button>
           <div className="estimate-section-context-menu__separator" />
           <button
