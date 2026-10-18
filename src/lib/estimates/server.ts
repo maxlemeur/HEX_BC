@@ -4057,15 +4057,16 @@ export async function duplicateEstimateVersion(
 }
 
 /**
- * Sous-lot 2.8b (C8) : toutes les lignes d'une version, par pages, au format d'une réponse de lecture. Revue Codex de
- * la PR #59 (G3) : au-delà de 500 éléments, la lecture prend plusieurs pages ; la version est relue après la dernière
- * (jeton et révision de contenu lus avec l'accès), sinon une modification concurrente de la source entre deux pages
- * donnerait une copie mêlant deux états. Version changée : 409 VERSION_CONFLICT, rien n'est copié.
+ * Toutes les lignes d'une version copiée, par pages (l'API rend 1 000 lignes au plus), quel que soit le moteur.
+ * Sous-lot 2.8b (C8, revue Codex de la PR #59, G3 ; PR #70 pour les v1/v2) : au-delà de 500 éléments, la lecture
+ * prend plusieurs pages ; la version est relue après la dernière (jeton et révision de contenu lus avec l'accès),
+ * sinon une modification concurrente entre deux pages donnerait une copie mêlant deux états. Version changée :
+ * 409 VERSION_CONFLICT, rien n'est copié.
  */
-async function readAllItemsForV3Copy(supabase: Supabase, tenantId: string, version: VersionAccessRow) {
-  const data = await readAllEstimateItems({ supabase, tenantId, versionId: version.id });
+async function readAllItemsForCopy(supabase: Supabase, tenantId: string, version: VersionAccessRow) {
+  const items = await readAllEstimateItems({ supabase, tenantId, versionId: version.id });
   await assertEstimateVersionUnchanged({ supabase, version });
-  return { data, error: null };
+  return items;
 }
 
 async function duplicateSectionInternal(input: {
@@ -4126,11 +4127,9 @@ async function duplicateSectionInternal(input: {
     userId,
   });
 
-  // Every item, by pages: the API returns 1 000 rows at most, and a partial read would copy part of the section.
-  // Into a v3 (2.8b, C8), the read is also pinned to the version its batch writer checks.
-  const sourceItems = targetIsV3
-    ? (await readAllItemsForV3Copy(supabase, tenantId, sourceVersion)).data
-    : await readAllEstimateItems({ supabase, tenantId, versionId: sourceVersion.id });
+  // Every item, by pages, pinned to the version read with its access: a partial or mixed read would copy part of
+  // the section, or two states of it.
+  const sourceItems = await readAllItemsForCopy(supabase, tenantId, sourceVersion);
   const subtree = collectSectionSubtreeItems(input.sectionId, sourceItems);
 
   if (!subtree) {
@@ -4279,13 +4278,12 @@ export async function importSectionsFromVersion(
   const sourceIsV3 = usesPerUnitLabor(resolveEstimateEngineVersion(sourceVersion));
   if (sourceIsV3 && !targetIsV3) throw estimateV3SectionCopyToHistoricalError();
 
-  // Every item of both versions, by pages: the API returns 1 000 rows at most. A partial source read would
-  // import part of a section; a partial target read would reuse its titles and child positions. Into a v3
-  // (2.8b, C8), each read is also pinned to the version its batch writer checks.
-  const readItems = async (version: VersionAccessRow) => targetIsV3
-    ? (await readAllItemsForV3Copy(supabase, tenantId, version)).data
-    : readAllEstimateItems({ supabase, tenantId, versionId: version.id });
-  const [sourceItems, targetItems] = await Promise.all([readItems(sourceVersion), readItems(targetVersion)]);
+  // Every item of both versions, by pages, each pinned to the version read with its access. A partial or mixed
+  // source read would import part of a section; a target one would reuse its titles and child positions.
+  const [sourceItems, targetItems] = await Promise.all([
+    readAllItemsForCopy(supabase, tenantId, sourceVersion),
+    readAllItemsForCopy(supabase, tenantId, targetVersion),
+  ]);
   const sourceItemById = new Map(sourceItems.map((item) => [item.id, item]));
 
   const selectedSectionIds = input.section_ids;

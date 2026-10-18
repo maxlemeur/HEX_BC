@@ -58,11 +58,12 @@ de runs CI) : il compte `defaultSeconds` jusqu'à sa première mesure en CI.
 Les lectures réutilisent les lecteurs complets existants, sans nouvelle abstraction :
 
 - `readAllEstimateItems` (`src/lib/estimates/read-all-items-server.ts`, celui du recalcul et de la
-  lecture de l'éditeur) pour les lignes source de `duplicateSectionInternal`, les lignes source et
-  cible de `importSectionsFromVersion` vers une v1/v2 et la liste `listEstimateImportSections` : pages
-  de 500, nombre exact vérifié à chaque page, refus si la version change pendant la lecture. Vers une
-  v3, ces copies gardent `readAllItemsForV3Copy` du 2.8b (la même lecture, épinglée à la version que
-  vérifie l'écrivain de lot) ;
+  lecture de l'éditeur) pour la liste `listEstimateImportSections` et, par `readAllItemsForCopy`, pour
+  les lignes source de `duplicateSectionInternal` et les lignes source et cible de
+  `importSectionsFromVersion` : pages de 500, nombre exact vérifié à chaque page. `readAllItemsForCopy`
+  (ex-`readAllItemsForV3Copy` du 2.8b, désormais pour tous les moteurs) relit ensuite la version
+  (`assertEstimateVersionUnchanged`) : une modification entre deux pages, même à nombre égal, est
+  refusée en 409 `VERSION_CONFLICT` avant toute écriture (revue Codex de la PR #70, P2) ;
 - `dpgf_rows_mapped` : le run 7 a été qualifié avec `fetchMappedRowsForImport`
   (`src/lib/affaires/import-flow-server.ts`) à la place de `loadMappedRowsForImport`. À la fusion de
   `main`, cette branche reprend le lecteur de `33c7031b` (`loadMappedRowsForImport` sur `readAllRows`,
@@ -75,8 +76,13 @@ frères à la même position : l'arbre copié, ses positions et l'ordre des lign
 pas.
 
 Fusion de `main` après le 2.8b (PR #59, `8f7183ab`) : le conflit de `server.ts` se résout en lisant
-toutes les lignes pour tous les moteurs (v3 par `readAllItemsForV3Copy`, v1/v2 par
-`readAllEstimateItems`) ; seules ces trois lectures diffèrent de `main`.
+toutes les lignes pour tous les moteurs ; seules ces trois lectures diffèrent de `main`.
+
+Régression isolée `src/lib/estimates/server.copy-source.test.ts` (exception à la règle E2E d'abord) :
+un parcours ne peut pas placer une modification entre deux requêtes de pages d'un même appel d'API.
+Ses doubles le font pour trois cas (source d'une duplication, source puis cible d'un import, chacune
+de 601 éléments modifiée après sa première page) : rouge sur `2b49f493` (la copie passe ses lectures et
+insère), vert avec l'épinglage (409 `VERSION_CONFLICT`, aucune insertion).
 
 ## Exécutions
 
