@@ -100,7 +100,8 @@ lançait que `dashboard-ux` et devait attendre ou déclencher la suite full de
   `army-impact-selection-2`) : sur une PR, les fichiers atteints plus le setup
   de connexion (`files`), ou `none`. Dès que la décision critical est `full`
   (chemin partagé ou non cartographié, diff vide, label `army-full`,
-  `workflow_dispatch`, erreur), tous les parcours du métré (`all`). Sur un push,
+  `workflow_dispatch`, erreur, ou changements qui atteignent tous les parcours
+  critical), tous les parcours du métré (`all`). Sur un push,
   `none` : le contrôle après fusion reste la suite critical, la nuit lance le
   métré. Repli sûr : la liste `all` est relue dans l'arbre de travail par les
   globs de la carte, si bien qu'un parcours ajouté sans être inscrit tourne quand
