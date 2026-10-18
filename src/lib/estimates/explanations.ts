@@ -1,3 +1,4 @@
+import { readAllRows } from "@/lib/supabase/read-all";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 
@@ -1242,14 +1243,14 @@ async function fetchTakeoffArtifacts(input: {
       .eq("estimate_item_id" as never, input.lineId as never)
       .is("superseded_at" as never, null)
       .maybeSingle(),
-    input.supabase
+    readAllRows(() => input.supabase
       .from("estimate_line_evidences" as never)
-      .select(ESTIMATE_LINE_EVIDENCES_SELECT as never)
+      .select(ESTIMATE_LINE_EVIDENCES_SELECT as never, { count: "exact" })
       .eq("version_id" as never, input.versionId as never)
       .eq("takeoff_job_id" as never, input.sourceJobId as never)
       .eq("estimate_item_id" as never, input.lineId as never)
       .is("invalidated_at" as never, null)
-      .order("created_at" as never, { ascending: true }),
+      .order("created_at" as never, { ascending: true })),
     input.supabase
       .from("estimate_risk_alerts" as never)
       .select(ESTIMATE_RISK_ALERTS_SELECT as never)

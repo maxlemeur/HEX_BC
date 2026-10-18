@@ -1,3 +1,4 @@
+import { readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { mapSupabaseError } from "@/lib/estimates/errors";
 import { TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
@@ -404,21 +405,15 @@ async function listJobsWithBlockingExceptions(
 
   const jobsWithExceptions = new Set<string>();
 
-  for (let start = 0; start < jobIds.length; start += JOBS_BATCH_SIZE) {
-    const batch = jobIds.slice(start, start + JOBS_BATCH_SIZE);
-    const { data, error } = await supabase
-      .from("takeoff_dpgf_review_decisions" as never)
-      .select("takeoff_job_id" as never)
-      .eq("tenant_id" as never, tenantId as never)
-      .in("takeoff_job_id" as never, batch as never);
+  const { data, error } = await readAllRowsInChunks(jobIds, (pageIds) => supabase
+    .from("takeoff_dpgf_review_decisions" as never)
+    .select("takeoff_job_id, id" as never, { count: "exact" })
+    .eq("tenant_id" as never, tenantId as never)
+    .in("takeoff_job_id" as never, pageIds as never));
 
-    if (error) {
-      return new Set();
-    }
-
-    for (const row of (data ?? []) as Array<{ takeoff_job_id: string }>) {
-      jobsWithExceptions.add(row.takeoff_job_id);
-    }
+  if (error) return new Set();
+  for (const row of (data ?? []) as Array<{ takeoff_job_id: string }>) {
+    jobsWithExceptions.add(row.takeoff_job_id);
   }
 
   return jobsWithExceptions;
@@ -483,11 +478,11 @@ async function batchEnrich(
     await Promise.all([
       // 1. Confidence: fetch all items with confidence for all enrichable jobs
       (async () => {
-        const { data, error } = await supabase
+        const { data, error } = await readAllRowsInChunks(jobIds, (pageIds) => supabase
           .from("takeoff_items" as never)
-          .select("job_id, confidence" as never)
+          .select("job_id, confidence, id" as never, { count: "exact" })
           .eq("tenant_id" as never, tenantId as never)
-          .in("job_id" as never, jobIds as never);
+          .in("job_id" as never, pageIds as never));
         if (error) {
           throw toTakeoffError(
             mapSupabaseError(error, "Impossible de calculer la confiance."),
@@ -499,11 +494,11 @@ async function batchEnrich(
 
       // 2. Exceptions: count review decisions per job (each decision = a reviewed line)
       (async () => {
-        const { data, error } = await supabase
+        const { data, error } = await readAllRowsInChunks(jobIds, (pageIds) => supabase
           .from("takeoff_dpgf_review_decisions" as never)
-          .select("takeoff_job_id" as never)
+          .select("takeoff_job_id, id" as never, { count: "exact" })
           .eq("tenant_id" as never, tenantId as never)
-          .in("takeoff_job_id" as never, jobIds as never);
+          .in("takeoff_job_id" as never, pageIds as never));
         if (error) {
           // Table may not exist yet in dev — degrade gracefully for enrichment
           return [] as Array<{ takeoff_job_id: string }>;
@@ -513,11 +508,11 @@ async function batchEnrich(
 
       // 3. Coverage: count linked DPGF lines per job
       (async () => {
-        const { data, error } = await supabase
+        const { data, error } = await readAllRowsInChunks(jobIds, (pageIds) => supabase
           .from("takeoff_dpgf_links" as never)
-          .select("takeoff_job_id, version_id, estimate_item_id" as never)
+          .select("takeoff_job_id, version_id, estimate_item_id, id" as never, { count: "exact" })
           .eq("tenant_id" as never, tenantId as never)
-          .in("takeoff_job_id" as never, jobIds as never);
+          .in("takeoff_job_id" as never, pageIds as never));
         if (error) {
           return [] as Array<{
             takeoff_job_id: string;
@@ -534,11 +529,11 @@ async function batchEnrich(
 
       // 4. Carry-over: check version links
       (async () => {
-        const { data, error } = await supabase
+        const { data, error } = await readAllRowsInChunks(jobIds, (pageIds) => supabase
           .from("takeoff_version_links" as never)
-          .select("takeoff_job_id, linked_from_version_id" as never)
+          .select("takeoff_job_id, linked_from_version_id, id" as never, { count: "exact" })
           .eq("tenant_id" as never, tenantId as never)
-          .in("takeoff_job_id" as never, jobIds as never);
+          .in("takeoff_job_id" as never, pageIds as never));
         if (error) {
           return [] as Array<{
             takeoff_job_id: string;
@@ -554,12 +549,12 @@ async function batchEnrich(
       // 5. Total estimate items per version (for coverage denominator)
       (async () => {
         const versionIds = [...new Set(jobs.map((j) => j.estimate_version_id))];
-        const { data, error } = await supabase
+        const { data, error } = await readAllRowsInChunks(versionIds, (pageIds) => supabase
           .from("estimate_items" as never)
-          .select("id, version_id" as never)
+          .select("id, version_id" as never, { count: "exact" })
           .eq("tenant_id" as never, tenantId as never)
           .eq("item_type" as never, "line" as never)
-          .in("version_id" as never, versionIds as never);
+          .in("version_id" as never, pageIds as never));
         if (error) {
           return [] as unknown as Array<{ id: string; version_id: string }>;
         }

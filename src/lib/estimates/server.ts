@@ -1,3 +1,4 @@
+import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { randomUUID } from "node:crypto";
 import { persistAtomicEstimateItem } from "@/lib/estimates/atomic-item-creation";
 import { normalizeStoredItemNumerics } from "@/lib/estimates/stored-item-numeric";
@@ -928,11 +929,11 @@ async function hydrateSuggestedCatalogueCandidates(input: {
   >();
 
   if (supplierPriceIds.length > 0) {
-    const { data: linksData, error: linksError } = await input.supabase
+    const { data: linksData, error: linksError } = await readAllRowsInChunks(supplierPriceIds, (pageIds) => input.supabase
       .from("dpgf_catalogue_links")
-      .select("supplier_price_id, material_index_id")
+      .select("supplier_price_id, material_index_id, id", { count: "exact" })
       .eq("tenant_id", input.tenantId)
-      .in("supplier_price_id", supplierPriceIds);
+      .in("supplier_price_id", pageIds));
 
     if (linksError) {
       throw mapSupabaseError(
@@ -954,11 +955,11 @@ async function hydrateSuggestedCatalogueCandidates(input: {
     );
 
     if (materialIndexIds.length > 0) {
-      const { data: indicesData, error: indicesError } = await input.supabase
+      const { data: indicesData, error: indicesError } = await readAllRowsInChunks(materialIndexIds, (pageIds) => input.supabase
         .from("material_indices")
-        .select("id, index_code, index_value, updated_at, index_date")
+        .select("id, index_code, index_value, updated_at, index_date", { count: "exact" })
         .eq("tenant_id", input.tenantId)
-        .in("id", materialIndexIds);
+        .in("id", pageIds));
 
       if (indicesError) {
         throw mapSupabaseError(
@@ -2471,13 +2472,13 @@ async function loadMappedRowsForImport(input: {
   tenantId: string;
   importId: string;
 }) {
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRows(() => input.supabase
     .from("dpgf_rows_mapped")
-    .select("id, payload, created_at")
+    .select("id, payload, created_at", { count: "exact" })
     .eq("tenant_id", input.tenantId)
     .eq("import_id", input.importId)
     .order("created_at", { ascending: true })
-    .order("id", { ascending: true });
+    .order("id", { ascending: true }));
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger les lignes DPGF mappées.");
@@ -3770,12 +3771,12 @@ export async function listEstimateVersionVariants(
   const versionIds = rows.map((row) => row.id);
 
   if (versionIds.length > 0) {
-    const { data: lineItemsData, error: lineItemsError } = await supabase
+    const { data: lineItemsData, error: lineItemsError } = await readAllRowsInChunks(versionIds, (pageIds) => supabase
       .from("estimate_items")
-      .select("version_id")
+      .select("version_id, id", { count: "exact" })
       .eq("tenant_id", tenantId)
       .eq("item_type", "line")
-      .in("version_id", versionIds);
+      .in("version_id", pageIds));
 
     if (lineItemsError) {
       throw mapSupabaseError(
@@ -3864,7 +3865,8 @@ export async function listLatestEstimates() {
   let query = supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, version_number, status, title, updated_at, total_ht_cents, date_devis, currency, validite_jours, estimate_projects!inner(id, name, reference, client_name, is_archived)"
+      "id, project_id, version_number, status, title, updated_at, total_ht_cents, date_devis, currency, validite_jours, estimate_projects!inner(id, name, reference, client_name, is_archived)",
+      { count: "exact" }
     )
     .eq("tenant_id", tenantId)
     .eq("estimate_projects.tenant_id", tenantId)
@@ -3874,9 +3876,9 @@ export async function listLatestEstimates() {
     query = query.eq("estimate_projects.user_id", userId);
   }
 
-  const { data, error } = await query
+  const { data, error } = await readAllRows(() => query
     .order("version_number", { ascending: false })
-    .order("updated_at", { ascending: false });
+    .order("updated_at", { ascending: false }));
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger la liste des chiffrages.");
@@ -7073,7 +7075,7 @@ export async function reorderEstimateItems(
 
   let siblingsQuery = supabase
     .from("estimate_items")
-    .select("id")
+    .select("id", { count: "exact" })
     .eq("tenant_id", tenantId)
     .eq("version_id", versionId);
 
@@ -7081,7 +7083,7 @@ export async function reorderEstimateItems(
     ? siblingsQuery.is("parent_id", null)
     : siblingsQuery.eq("parent_id", parentId);
 
-  const { data: siblings, error: siblingsError } = await siblingsQuery;
+  const { data: siblings, error: siblingsError } = await readAllRows(() => siblingsQuery);
 
   if (siblingsError) {
     throw mapSupabaseError(siblingsError, "Impossible de charger les lignes à reordonner.");
@@ -7239,7 +7241,7 @@ export async function moveEstimateItem(
   const loadSiblingIds = async (parentId: string | null) => {
     let query = supabase
       .from("estimate_items")
-      .select("id")
+      .select("id", { count: "exact" })
       .eq("tenant_id", tenantId)
       .eq("version_id", versionId)
       .order("position", { ascending: true })
@@ -7249,7 +7251,7 @@ export async function moveEstimateItem(
       ? query.is("parent_id", null)
       : query.eq("parent_id", parentId);
 
-    const { data: siblings, error: siblingsError } = await query;
+    const { data: siblings, error: siblingsError } = await readAllRows(() => query);
 
     if (siblingsError) {
       throw mapSupabaseError(

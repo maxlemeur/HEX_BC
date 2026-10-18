@@ -1,3 +1,4 @@
+import { readAllRows } from "@/lib/supabase/read-all";
 import { randomUUID } from "node:crypto";
 import { inflateRawSync } from "node:zlib";
 import { cache } from "react";
@@ -171,20 +172,14 @@ type AffaireIntakeSupabaseDeleteTable = {
   delete: () => AffaireIntakeSupabaseMutationQuery;
 };
 
-type AffaireIntakeSupabaseSelectQuery = {
-  eq: (
-    column: string,
-    value: string
-  ) => {
-    order: (
-      column: string,
-      options: { ascending: boolean }
-    ) => PromiseLike<unknown>;
-  };
+type AffaireIntakeSupabaseSelectQuery = PromiseLike<{ data: unknown[] | null; error: unknown; count?: number | null }> & {
+  order(column: string, options?: { ascending?: boolean }): AffaireIntakeSupabaseSelectQuery;
+  range(from: number, to: number): AffaireIntakeSupabaseSelectQuery;
+  eq: (column: string, value: string) => AffaireIntakeSupabaseSelectQuery;
 };
 
 type AffaireIntakeSupabaseSelectTable = {
-  select: (columns: string) => AffaireIntakeSupabaseSelectQuery;
+  select: (columns: string, options?: { count: "exact" }) => AffaireIntakeSupabaseSelectQuery;
 };
 
 type AffaireIntakeSupabaseUpdateTable = {
@@ -549,10 +544,10 @@ async function syncAffaireIntakeDocumentPriorities(input: {
     data: unknown[];
     error: unknown;
   }>(
-    getAffaireIntakeSelectTable(input.supabase, "affaire_intake_documents")
-      .select(DOCUMENT_SELECT as never)
+    readAllRows(() => getAffaireIntakeSelectTable(input.supabase, "affaire_intake_documents")
+      .select(DOCUMENT_SELECT as never, { count: "exact" })
       .eq("project_id", input.projectId)
-      .order("created_at", { ascending: true })
+      .order("created_at", { ascending: true }))
   );
 
   if (error) {
@@ -2855,12 +2850,12 @@ export const fetchAffaireIntakeWorkspace = cache(async (
     data: unknown[];
     error: unknown;
   }>(
-    context.supabase
+    readAllRows(() => context.supabase
       .from("affaire_intake_documents" as never)
-      .select(DOCUMENT_SELECT as never)
+      .select(DOCUMENT_SELECT as never, { count: "exact" })
       .eq("project_id", project.id)
       .order("created_at", { ascending: true })
-      .order("id", { ascending: true })
+      .order("id", { ascending: true }))
   );
 
   if (docsError) {
@@ -3268,12 +3263,12 @@ export async function setAffaireDocumentAsPrimary(input: {
       data: unknown[];
       error: unknown;
     }>(
-      context.supabase
+      readAllRows(() => context.supabase
         .from("affaire_intake_documents" as never)
-        .select(DOCUMENT_SELECT as never)
+        .select(DOCUMENT_SELECT as never, { count: "exact" })
         .eq("project_id", project.id)
         .eq("document_kind", document.document_kind)
-        .order("created_at", { ascending: true })
+        .order("created_at", { ascending: true }))
     );
 
   if (kindDocumentsError) {

@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// The HTTP pagination contract is exercised with the real SDK in read-all.test.ts.
+// These retained domain tests supply complete query results at the reader boundary.
+vi.mock("@/lib/supabase/read-all", () => import("@/test/complete-reads-fixture"));
+
+
 // Mock hoiste AVANT les imports : neutralise @/lib/feature-flags, qui importe
 // createSupabaseServerClient (donc next/headers) au niveau module.
 vi.mock("@/lib/feature-flags", () => ({
@@ -261,7 +266,7 @@ describe("loadEstimateCalcContext", () => {
 
     await loadEstimateCalcContext(asSupabase(client), VERSION_ID);
 
-    expect(selects.estimate_items).toHaveBeenCalledWith("*");
+    expect(selects.estimate_items).toHaveBeenCalledWith("*", { count: "exact" });
     expect(builders.estimate_items.order).toHaveBeenCalledWith("position", {
       ascending: true,
     });
@@ -281,7 +286,7 @@ describe("loadEstimateCalcContext", () => {
 
     const context = await loadEstimateCalcContext(asSupabase(client), VERSION_ID);
 
-    expect(selects.margin_tiers).toHaveBeenCalledWith("threshold_cents, multiplier");
+    expect(selects.margin_tiers).toHaveBeenCalledWith("threshold_cents, multiplier, id", { count: "exact" });
     expect(builders.margin_tiers.eq).toHaveBeenCalledWith("tenant_id", TENANT_ID);
     expect(builders.margin_tiers.order).toHaveBeenNthCalledWith(1, "threshold_cents", {
       ascending: true,

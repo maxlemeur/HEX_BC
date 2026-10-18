@@ -1,3 +1,4 @@
+import { readAllRows } from "@/lib/supabase/read-all";
 import { NextResponse } from "next/server";
 
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
@@ -90,10 +91,10 @@ export async function PATCH(
     );
   }
 
-  const { data: existingDevis, error: fetchError } = await supabase
+  const { data: existingDevis, error: fetchError } = await readAllRows(() => supabase
     .from("purchase_order_devis")
-    .select("id")
-    .eq("purchase_order_id", id);
+    .select("id", { count: "exact" })
+    .eq("purchase_order_id", id));
 
   if (fetchError) {
     return NextResponse.json({ error: fetchError.message }, { status: 400 });

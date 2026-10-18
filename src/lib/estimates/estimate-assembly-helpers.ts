@@ -1,3 +1,4 @@
+import { readAllRowsInChunks } from "@/lib/supabase/read-all";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { mapSupabaseError, notFound } from "@/lib/estimates/errors";
@@ -119,11 +120,11 @@ export async function loadAssemblyItemCountByAssemblyId(input: {
     return counts;
   }
 
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRowsInChunks(input.assemblyIds, (pageIds) => input.supabase
     .from("estimate_assembly_items")
-    .select("assembly_id")
+    .select("assembly_id, id", { count: "exact" })
     .eq("tenant_id", input.tenantId)
-    .in("assembly_id", input.assemblyIds);
+    .in("assembly_id", pageIds));
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger le comptage des ouvrages.");
@@ -147,11 +148,11 @@ export async function loadAssemblyMemberCountByAssemblyId(input: {
     return counts;
   }
 
-  const { data, error } = await input.supabase
+  const { data, error } = await readAllRowsInChunks(input.assemblyIds, (pageIds) => input.supabase
     .from("estimate_assembly_members")
-    .select("parent_assembly_id")
+    .select("parent_assembly_id, id", { count: "exact" })
     .eq("tenant_id", input.tenantId)
-    .in("parent_assembly_id", input.assemblyIds);
+    .in("parent_assembly_id", pageIds));
 
   if (error) {
     throw mapSupabaseError(
