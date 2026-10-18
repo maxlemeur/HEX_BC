@@ -7,7 +7,9 @@ import { PricingStep } from "@/components/estimates/estimate-creation-wizard/Pri
 import { ProjectStep } from "@/components/estimates/estimate-creation-wizard/ProjectStep";
 import { StepIndicator } from "@/components/estimates/estimate-creation-wizard/StepIndicator";
 import {
+  HISTORICAL_CREATION_ENGINE,
   STEPS,
+  type EstimateCreationEngine,
   type EstimateCreationResourcesState,
 } from "@/components/estimates/estimate-creation-wizard/shared";
 import {
@@ -23,22 +25,30 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import type { InstantiateEstimateTemplateConversion } from "@/lib/estimates/client";
+import { usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import { Loader2Icon } from "lucide-react";
 
 const QUICK_CREATE_HINT = "Créer directement avec les paramètres par défaut";
+const V3_PRICING_STEP_DESCRIPTION = "Coefficients de vente, TVA, arrondi";
 
 export type EstimateCreationResult = {
   linkedDpgfImportWarning?: string;
+  /** Sous-lot 2.10a (P-12, D-h) : modèle entré dans une v3, à montrer à l'utilisateur. */
+  templateConversion?: InstantiateEstimateTemplateConversion;
 };
 
 type EstimateCreationWizardProps = {
   onCreated: (versionId: string, result?: EstimateCreationResult) => void;
   projectId?: string;
+  /** Sous-lot 2.10a (N1) : moteur des nouvelles versions lu par la page serveur. */
+  creationEngine?: EstimateCreationEngine;
 };
 
 export function EstimateCreationWizard({
   onCreated,
   projectId,
+  creationEngine = HISTORICAL_CREATION_ENGINE,
 }: EstimateCreationWizardProps) {
   const [currentStep, setCurrentStep] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -56,7 +66,7 @@ export function EstimateCreationWizard({
     clearErrors,
     validateStep,
     markStepValidated,
-  } = useEstimateCreationDraft(projectId);
+  } = useEstimateCreationDraft(projectId, creationEngine);
 
   const resources: EstimateCreationResourcesState = useEstimateCreationResources({
     projectId,
@@ -87,11 +97,14 @@ export function EstimateCreationWizard({
     setSubmitError(null);
 
     try {
-      const result = await submitEstimateCreation({ data, projectId });
+      const result = await submitEstimateCreation({ data, projectId, creationEngine });
       clearEstimateCreationDraft();
-      if (result.linkedDpgfImportWarning) {
+      if (result.linkedDpgfImportWarning || result.templateConversion) {
         onCreated(result.versionId, {
-          linkedDpgfImportWarning: result.linkedDpgfImportWarning,
+          ...(result.linkedDpgfImportWarning
+            ? { linkedDpgfImportWarning: result.linkedDpgfImportWarning }
+            : {}),
+          ...(result.templateConversion ? { templateConversion: result.templateConversion } : {}),
         });
       } else {
         onCreated(result.versionId);
@@ -118,7 +131,7 @@ export function EstimateCreationWizard({
     setSubmitError(null);
 
     try {
-      const versionId = await quickCreateEstimateCreation({ data, projectId });
+      const versionId = await quickCreateEstimateCreation({ data, projectId, creationEngine });
       clearEstimateCreationDraft();
       onCreated(versionId);
     } catch (error) {
@@ -162,7 +175,9 @@ export function EstimateCreationWizard({
           {STEPS[currentStep].label}
         </h2>
         <p className="mb-6 text-sm text-muted-foreground">
-          {STEPS[currentStep].description}
+          {currentStep === 1 && usesSaleCoefficients(creationEngine.engine)
+            ? V3_PRICING_STEP_DESCRIPTION
+            : STEPS[currentStep].description}
         </p>
 
         {currentStep === 0 && (
@@ -178,6 +193,7 @@ export function EstimateCreationWizard({
           <PricingStep
             data={data}
             errors={errors}
+            engine={creationEngine.engine}
             updateField={updateField}
           />
         )}

@@ -4,10 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 
 import {
   FIELD_STEP_INDEX,
+  HISTORICAL_CREATION_ENGINE,
   STORAGE_KEY,
   getStepValidationErrors,
   initialWizardData,
   normalizeStoredDraft,
+  type EstimateCreationEngine,
   type StepErrors,
   type WizardData,
 } from "@/components/estimates/estimate-creation-wizard/shared";
@@ -38,16 +40,23 @@ export function clearEstimateCreationDraft() {
   }
 }
 
-export function useEstimateCreationDraft(projectId?: string) {
+export function useEstimateCreationDraft(
+  projectId?: string,
+  creationEngine: EstimateCreationEngine = HISTORICAL_CREATION_ENGINE
+) {
   const [validatedSteps, setValidatedSteps] = useState<Set<number>>(
     () => new Set()
   );
   const [data, setData] = useState<WizardData>(() => {
+    const initial = initialWizardData(creationEngine);
     const draft = loadDraft();
-    if (!draft) return initialWizardData();
+    if (!draft) return initial;
+    const restored = { ...initial, ...draft };
+    // Sous-lot 2.10a : un brouillon sans coefficient (enregistré en moteur 2) reprend ceux de la politique.
     return {
-      ...initialWizardData(),
-      ...draft,
+      ...restored,
+      saleCoefficientFo: restored.saleCoefficientFo || initial.saleCoefficientFo,
+      saleCoefficientMo: restored.saleCoefficientMo || initial.saleCoefficientMo,
     };
   });
   const [errors, setErrors] = useState<StepErrors>({});
@@ -91,7 +100,7 @@ export function useEstimateCreationDraft(projectId?: string) {
 
   const validateStep = useCallback(
     (step: number) => {
-      const stepErrors = getStepValidationErrors(step, data, projectId);
+      const stepErrors = getStepValidationErrors(step, data, projectId, creationEngine);
       if (stepErrors) {
         setErrors(stepErrors);
         return false;
@@ -99,7 +108,7 @@ export function useEstimateCreationDraft(projectId?: string) {
       setErrors({});
       return true;
     },
-    [data, projectId]
+    [creationEngine, data, projectId]
   );
 
   const markStepValidated = useCallback((step: number) => {
