@@ -131,6 +131,13 @@ Variantes écartées :
 
 Ni le parcours ni ses attentes ne changent : aucune reprise, aucune attente, aucun délai ajoutés.
 
+Changement de comportement assumé, dans toutes les grilles qui utilisent ce hook : quand un éditeur enregistré
+reçoit un `focusout` sans perdre le focus réel (changement de fenêtre ou d'onglet, clic dans le navigateur ou
+les outils de développement), `handleEditorBlur` remet `editingCellId` à `null` mais l'effet laisse désormais
+le focus dans l'éditeur ; au retour dans la fenêtre, la saisie reprend dans le champ, comme un champ natif, au
+lieu de revenir sur la cellule. Décision du coordinateur (délégation du porteur, 18/10/2026), relevée par la
+revue indépendante.
+
 ## Preuves au vert
 
 Même environnement que le diagnostic : WSL Ubuntu 24.04, Node 24.19.0, `e2e` 0.21.0 (`playwright-core` 1.64.0
