@@ -362,6 +362,17 @@ armyTest("V3C08 a takeoff targeting a v3 is refused by name before any analysis 
       await switchToExpertMode(ui);
       const planSet = await createPlanSet(ui, army, estimate, `${army.runPrefix} lot metre v3`);
       await uploadSamplePlan(ui, army, planSet);
+      // Proposition d'analyse du hub, affichée tant que la v3 (V2) n'a pas de ligne (affaire neuve).
+      await app.open(`/dashboard/affaires/${anchor.projectId}`);
+      const prompt = screen.getByRole("region", "Proposition d'analyse automatique", { exact: true });
+      await expect(prompt).toBeVisible({ timeout: 60_000 });
+      const proposal = {
+        targetsV3: (await prompt.getByText("Version cible : V2 (brouillon)", { exact: true }).count()) > 0,
+        reasonShown: (await prompt.getByText(TAKEOFF_V3_REASON, { exact: true }).count()) > 0,
+        launchEnabled: await prompt.getByRole("button", "Analyser maintenant", { exact: true }).isEnabled(),
+      };
+      // Une ligne dans la v3 : le hub quitte l'état d'affaire neuve et montre « Analyser les plans » (HUB01).
+      await seedSupplyLine(ui, versionId, `${army.runPrefix} ligne metre`, 3);
       await app.open(`/dashboard/affaires/${anchor.projectId}`);
       await expect(screen.getByRole("heading", "Plans, preuves & exceptions", { exact: true })).toBeVisible({ timeout: 60_000 });
       await screen.getByRole("button", "Plus", { exact: true }).click();
@@ -383,12 +394,13 @@ armyTest("V3C08 a takeoff targeting a v3 is refused by name before any analysis 
         return { status: response.status, code: body?.error?.code ?? null, message: body?.error?.message ?? null };
       }, { csv: "designation;quantity;unit\nBloc beton;12;u", name: `${army.runPrefix}-metre.csv`, versionId });
       const written = await jobs.list();
-      const observed = { targetIsV3: target === versionId, reasonShown, launchEnabled, api: [api.status, api.code], jobs: written.length,
-        policyUnchanged: samePolicy(await policySnapshot(owner), policy) };
+      const observed = { proposal, dialog: { targetIsV3: target === versionId, reasonShown, launchEnabled },
+        api: [api.status, api.code], jobs: written.length, policyUnchanged: samePolicy(await policySnapshot(owner), policy) };
       await recordEvidence(army, "v3c08", { owner, estimate, planSetId: planSet.id, api, written, observed });
       expect(observed).toEqual({
-        targetIsV3: true, reasonShown: true, launchEnabled: false, api: [409, "TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED"], jobs: 0,
-        policyUnchanged: true,
+        proposal: { targetsV3: true, reasonShown: true, launchEnabled: false },
+        dialog: { targetIsV3: true, reasonShown: true, launchEnabled: false },
+        api: [409, "TAKEOFF_APPLY_ENGINE_V3_UNSUPPORTED"], jobs: 0, policyUnchanged: true,
       });
     } finally {
       try {
@@ -417,6 +429,7 @@ armyTest("V3C09 the AI structure is disabled with its reason on a v3 and its aut
       await app.open(`/dashboard/estimates/${versionId}/edit`);
       await expect(grid(ui)).toBeVisible({ timeout: 60_000 });
       await waitForDraftLease(ui);
+      await screen.getByRole("tab", /^Insérer(?: \d+)?$/).tap();
       await screen.getByTestId("estimate-editor-insert-button").tap();
       const structure = screen.getByTestId("estimate-editor-open-structure-draft-button");
       await expect(structure).toBeVisible({ timeout: 30_000 });
