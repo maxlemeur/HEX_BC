@@ -3,7 +3,7 @@
 // the profile loads it at config time, so it must not import clients or fixtures.
 // Contract and failure modes: docs/testing/tester-army-calc-v3.md.
 
-export const CALC_V3_PHASES = ["journeys", "components", "numeric", "resume", "access", "offers", "emission"] as const;
+export const CALC_V3_PHASES = ["journeys", "components", "numeric", "resume", "access", "offers", "emission", "emission-v3"] as const;
 export type CalcV3Phase = (typeof CALC_V3_PHASES)[number];
 
 /** The developers' long-running local recipe stack (API 45585, DB 33485): never a calc-v3 target. */
@@ -12,8 +12,16 @@ export const CALC_V3_FORBIDDEN_PORTS: ReadonlySet<string> = new Set(["45585", "3
 export const CALC_V3_EMAIL_FROM = "ARMY Local <offer@army.invalid>";
 
 export type CalcV3PhaseDefinition = {
-  /** production: owned build + next start; development: next dev (sandbox terms, 2.0 emission only). */
+  /**
+   * production: owned build + next start (every phase since 2.7; the emission phases get the sandbox terms of
+   * the owned calc-v3 production profile, src/lib/estimates/pdf-terms-server.ts); development: next dev.
+   */
   serverMode: "production" | "development";
+  /**
+   * The phase sends real offers: the campaign starts the sentinel collector, the profile loads the
+   * offer network guard and the collected PDFs are read back (emission and emission-v3 only).
+   */
+  sentinelCollector?: boolean;
   /** The first file is the phase's own login setup; each phase runs in its own TesterArmy invocation. */
   tests: readonly string[];
   setupTitle: string;
@@ -105,7 +113,8 @@ export const CALC_V3_PHASE_DEFINITIONS: Readonly<Record<CalcV3Phase, CalcV3Phase
     maxDuration: 1_200_000,
   },
   emission: {
-    serverMode: "development",
+    serverMode: "production",
+    sentinelCollector: true,
     tests: ["e2e/army/local/offer-emission-auth.setup.e2e.ts", "e2e/army/local/offer-emission.e2e.ts"],
     setupTitle: "ordinary native ARMY login for local offer profile",
     expected: { "e2e/army/local/offer-emission-auth.setup.e2e.ts": 1, "e2e/army/local/offer-emission.e2e.ts": 5 },
@@ -120,6 +129,24 @@ export const CALC_V3_PHASE_DEFINITIONS: Readonly<Record<CalcV3Phase, CalcV3Phase
       /\s1\s+u\s+20,00\s*€\s+20,00\s*€/u,
       /Total\s+HT\s+20,00\s*€\s+TVA\s+4,00\s*€\s+Total\s+TTC\s+24,00\s*€/u,
     ],
+    maxDuration: 3_600_000,
+  },
+  // Sub-lot 2.7 (D14, D15, M5): a v3 issued under client contract 2 and calculation payload 6, on a
+  // dedicated owner whose tenant policy is at engine 3, plus a v2 witness issued first under
+  // contract 1 (docs/testing/estimate-engine-v3-2.7.md). Same owned production build, collector and
+  // offer guard as `emission`. The phase sends the v2 witness and the v3 S2 and S5 offers (S5 twice,
+  // V3M01), then an approved S2 (V3M03), and refuses by name the send of a v3 without a unit (V3M04).
+  // V3M05 (2.6 merge, 2.7 doc §13) prepares a v3 PDF from the detail page, issues the v3 from the
+  // editor and reads the issued detail page (seal, PDF, status actions). V3M06 (Codex review of 3d78d662,
+  // 2.7 doc §13.8) prints an issued v3 after its affaire changes and as the second admin of the fixture
+  // tenant. The PDFs differ by design, so the content is asserted per PDF by the journeys, not by a
+  // pattern shared by every collected PDF.
+  "emission-v3": {
+    serverMode: "production",
+    sentinelCollector: true,
+    tests: ["e2e/army/local/offer-emission-auth.setup.e2e.ts", "e2e/army/local/engine-v3-emission.e2e.ts"],
+    setupTitle: "ordinary native ARMY login for local offer profile",
+    expected: { "e2e/army/local/offer-emission-auth.setup.e2e.ts": 1, "e2e/army/local/engine-v3-emission.e2e.ts": 5 },
     maxDuration: 3_600_000,
   },
 };

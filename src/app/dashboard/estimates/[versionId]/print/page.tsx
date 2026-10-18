@@ -16,13 +16,11 @@ import {
   computeStoredDiscountCents,
 } from "@/lib/estimate-calculations";
 import { EstimateEngineUnavailableNotice } from "@/components/estimates/EstimateEngineUnavailableNotice";
-import { EstimateV3DraftSummary } from "@/components/estimates/v3/EstimateV3DraftSummary";
 import {
   resolveEstimateEngineVersionForDisplay,
   shouldPreserveStoredEstimateV2Snapshot,
 } from "@/lib/estimates/calc-engine-version";
 import { isLegacyEngine, requireHistoricalEngine, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
-import { readStoredEstimateV3DraftSummary } from "@/lib/estimates/v3-editor";
 import {
   loadMarginTiersForTotals,
   resolveRenderMarginMode,
@@ -43,6 +41,7 @@ import { normalizeEstimateCurrency } from "@/lib/money";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 import { EstimatePrintLayoutButton } from "./EstimatePrintLayoutButton";
+import { EstimateV3PrintPage } from "./EstimateV3PrintPage";
 
 type EstimateProject =
   Database["public"]["Tables"]["estimate_projects"]["Row"];
@@ -63,7 +62,7 @@ type PrintPageProps = {
 };
 
 const PRINT_VERSION_SELECT =
-  "id, updated_at, project_id, tenant_id, version_number, status, seal_hash, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, content_revision, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, gross_ht_cents, discount_applied_cents, commercial_rounding_cents, currency, estimate_projects ( name, reference, estimate_reference, site_address, client_name )";
+  "id, updated_at, project_id, tenant_id, version_number, status, seal_hash, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, content_revision, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, currency, estimate_projects ( name, reference, estimate_reference, site_address, client_name )";
 const LEGACY_PRINT_VERSION_SELECT =
   "id, updated_at, project_id, tenant_id, version_number, status, seal_hash, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, content_revision, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects ( name, reference, estimate_reference, site_address, client_name )";
 
@@ -170,9 +169,10 @@ export default async function PrintEstimatePage({
   if (!userContext.tenantId || userContext.tenantId !== version.tenant_id) {
     notFound();
   }
-  // Lot 2, sous-lots 2.1 puis 2.6 : un brouillon v3 s'imprime en aperçu de lecture (montants
-  // stockés) ; son document client (contrat client 2, pied v3 imprimé) arrive en 2.7. Seul un moteur
-  // inconnu garde le bandeau.
+  // Lot 2 : un moteur inconnu garde le bandeau (2.1). Une v3, brouillon (2.6) ou émise, s'imprime
+  // depuis 2.7 en document client : gel stocké (contrat client 2) ou aperçu du moteur pur, sans le
+  // moteur historique, dans une vue séparée (EstimateV3PrintPage) qui dit par son nom un aperçu
+  // impossible. Le résumé de lecture du brouillon (EstimateV3DraftSummary) reste celui de la fiche.
   const estimateEngine = resolveEstimateEngineVersionForDisplay(version);
   if (estimateEngine === null) {
     return (
@@ -183,46 +183,27 @@ export default async function PrintEstimatePage({
       />
     );
   }
+  if (usesSaleCoefficients(estimateEngine)) {
+    return (
+      <EstimateV3PrintPage
+        supabase={supabase}
+        tenantId={version.tenant_id}
+        versionId={versionId}
+        project={resolveProject(version.estimate_projects)}
+        issuer={{ name: userContext.profile?.full_name, role: userContext.profile?.job_title,
+          phone: userContext.profile?.phone, email: userContext.profile?.work_email ?? userContext.userEmail }}
+        previewLayout={previewLayout}
+        autoPrint={autoPrint}
+        portalUrl={resolveEstimatePortalUrl(versionId)}
+      />
+    );
+  }
+  const calcEngineVersion = requireHistoricalEngine(estimateEngine);
   const items = await readAllEstimateItems({
     supabase,
     tenantId: version.tenant_id,
     versionId,
   });
-  if (usesSaleCoefficients(estimateEngine)) {
-    await assertEstimateVersionUnchanged({ supabase, version });
-    const v3Project = resolveProject(version.estimate_projects);
-    return (
-      <div className="min-h-screen print:bg-surface">
-        <div className="no-print z-10 -mx-3 md:sticky md:top-0 border-b border-border bg-surface/95 px-3 py-4 backdrop-blur-md sm:-mx-6 sm:px-6">
-          <PageHeader
-            className="mx-auto mb-0 max-w-5xl sm:mb-0"
-            breadcrumbs={[
-              { label: "Affaires", href: "/dashboard/affaires" },
-              ...(version.project_id && v3Project?.name
-                ? [{ label: v3Project.name, href: `/dashboard/affaires/${version.project_id}` }]
-                : []),
-              { label: `V${version.version_number}`, href: `/dashboard/estimates/${versionId}` },
-              { label: "Impression" },
-            ]}
-            title="Aperçu avant impression"
-            meta={<span className="font-medium text-foreground-secondary">Devis V{version.version_number}</span>}
-          />
-        </div>
-        <div className="mx-auto max-w-5xl space-y-4 py-8 print:py-0">
-          <h1 className="text-2xl font-bold text-foreground">Devis</h1>
-          <p className="text-sm text-muted-foreground">
-            {[v3Project?.name, v3Project?.client_name, `V${version.version_number}`].filter(Boolean).join(" — ")}
-          </p>
-          <EstimateV3DraftSummary
-            summary={readStoredEstimateV3DraftSummary(version, items)}
-            items={items}
-            currency={normalizeEstimateCurrency(version.currency) ?? "EUR"}
-          />
-        </div>
-      </div>
-    );
-  }
-  const calcEngineVersion = requireHistoricalEngine(estimateEngine);
   const preserveStoredSnapshot =
     isLegacyEngine(calcEngineVersion)
       ? version.status !== "draft"

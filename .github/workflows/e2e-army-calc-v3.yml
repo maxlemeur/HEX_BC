@@ -11,14 +11,13 @@ name: TesterArmy calc-v3
 # parallel job (docs/testing/tester-army-ci.md, "Jobs parallèles"); a red
 # phase never stops the others. The army-calc-v3 job is the check: it fails
 # unless every planned phase passed with verified evidence, then retains it
-# all as army-calc-v3-evidence. The emission phase is excluded: it runs under
-# next dev (canUseDevelopmentEstimateTerms accepts the sandbox terms only in
-# development), where OF00 fails since PR #34 (dev hot reload remounts the
-# editor). Sub-lot 2.7 serves it from the production build; the guardrail
-# (src/test/ci-guardrails.test.ts) then requires "emission" in
-# CALC_V3_NIGHTLY_PHASES below, which re-enables it. A dispatch runs the
-# nightly selection, the whole campaign ("all", emission included, exactly
-# npm run e2e:army:calc-v3, one job) or one phase.
+# all as army-calc-v3-evidence. Since sub-lot 2.7 that is every phase: the
+# emission phases (contract 1 "emission", engine-3 "emission-v3") run from the
+# owned production build with the sandbox terms of its calc-v3 profile, so the
+# guardrail (src/test/ci-guardrails.test.ts) requires both in
+# CALC_V3_NIGHTLY_PHASES below. A dispatch runs the nightly selection, the
+# whole campaign ("all", exactly npm run e2e:army:calc-v3, one job) or one
+# phase.
 #
 # GitHub schedules and dispatches only a workflow already on the default
 # branch: a pull request that edits this file runs the nightly selection, so
@@ -42,6 +41,7 @@ on:
           - access
           - offers
           - emission
+          - emission-v3
   pull_request:
     branches: [main]
     paths:
@@ -124,7 +124,7 @@ jobs:
         # verbatim pass, and the runner still refuses any that is not a phase.
         env:
           # The production-served phases (scripts/tester-army/calc-v3-phases.ts).
-          CALC_V3_NIGHTLY_PHASES: "journeys components numeric resume access offers"
+          CALC_V3_NIGHTLY_PHASES: "journeys components numeric resume access offers emission emission-v3"
           CALC_V3_SELECTION: ${{ github.event_name == 'workflow_dispatch' && inputs.phase || 'nightly' }}
         run: |
           set -euo pipefail

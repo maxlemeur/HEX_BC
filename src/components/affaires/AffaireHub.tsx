@@ -29,6 +29,7 @@ import type {
 } from "@/lib/affaires/server";
 import type { EstimateApprovalDecisionJournal } from "@/lib/estimates/approval-decision-journal";
 import type { EstimateApprovalSummary } from "@/lib/estimates/rules-engine";
+import type { EstimateEngineVersion } from "@/lib/estimates/engine/capabilities";
 import type { ConfirmUnifiedImportFlowResult } from "@/app/dashboard/affaires/_actions/import-flow";
 
 import { useToast } from "@/components/ui-legacy/Toast";
@@ -120,6 +121,7 @@ type AffaireHubProps = {
   projectVersions?: Array<{
     id: string;
     versionNumber: number;
+    calcEngineVersion?: EstimateEngineVersion | null;
   }>;
   sectionErrors?: {
     timeline?: string;
@@ -1045,6 +1047,7 @@ export function AffaireHub({
                 planSetName={plansSummary.defaultPlanSetName ?? null}
                 planFileCount={plansSummary.defaultPlanSetFileCount ?? plansSummary.planFileCount}
                 launchRecommendation={plansSummary.launchRecommendation}
+                targetCalcEngineVersion={summary.currentVersion?.calcEngineVersion ?? null}
                 onLaunched={() => router.refresh()}
                 onDismissTemporary={dismissPromptTemporarily}
                 onDismissPermanent={dismissPromptPermanently}
@@ -1284,6 +1287,7 @@ export function AffaireHub({
                   id: summary.currentVersion.id,
                   status: summary.currentVersion.status,
                   versionNumber: summary.currentVersion.versionNumber,
+                  calcEngineVersion: summary.currentVersion.calcEngineVersion ?? null,
                 }
               : null
           }

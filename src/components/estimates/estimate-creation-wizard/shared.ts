@@ -10,10 +10,51 @@ import type {
 } from "@/lib/estimates/client";
 
 import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
+import { usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
+import {
+  formatEstimateV3Coefficient,
+  isValidEstimateV3SaleCoefficient,
+} from "@/lib/estimates/v3-settings-payload";
+import { parseCoefficient } from "@/lib/numeric-input/parsers";
 
 export { DEFAULT_TAX_RATE_BP };
 export const STORAGE_KEY = "est-wizard-draft";
 export const DEFAULT_VALIDITE_JOURS = 30;
+
+/**
+ * Lot 2, sous-lot 2.10a (N1, A4) : moteur des nouvelles versions de l'entreprise et coefficients de vente par
+ * défaut, lus côté serveur par la page de l'assistant (`readTenantCalcPolicy`). Chaque création de l'assistant
+ * envoie ce moteur comme attente ; la création relit la politique sous verrou (D3).
+ */
+export type EstimateCreationEngine = {
+  engine: 2 | 3;
+  saleCoefficientFo: number | null;
+  saleCoefficientMo: number | null;
+};
+
+/** Politique absente (moteur 2 jusqu'à la bascule), aussi le défaut d'un assistant monté sans page serveur. */
+export const HISTORICAL_CREATION_ENGINE: EstimateCreationEngine = {
+  engine: 2,
+  saleCoefficientFo: null,
+  saleCoefficientMo: null,
+};
+
+/** Moteur 3 : arrondi « aucun » ou inférieur seulement (D7) ; un autre mode restauré d'un brouillon vaut « aucun ». */
+export function resolveWizardV3Rounding(data: Pick<WizardData, "roundingMode" | "roundingStepCents">) {
+  return data.roundingMode === "down"
+    ? { mode: "down" as const, step: Number(data.roundingStepCents) }
+    : { mode: "none" as const, step: 1 };
+}
+
+/** Coefficient de vente saisi (virgule décimale, 4 décimales au plus) dans ]0 ; 10], sinon `null`. */
+export function parseWizardSaleCoefficient(text: string): number | null {
+  const value = parseCoefficient(text);
+  return isValidEstimateV3SaleCoefficient(value) ? value : null;
+}
+
+function formatDefaultSaleCoefficient(value: number | null) {
+  return value === null ? "" : formatEstimateV3Coefficient(value);
+}
 
 export const PROJECT_FAMILY_OPTIONS = [
   { value: "", label: "Non renseignée" },
@@ -42,6 +83,9 @@ export type WizardData = {
   taxRateBp: string;
   roundingMode: "none" | "nearest" | "up" | "down";
   roundingStepCents: string;
+  // Moteur 3 seulement (2.10a, A4) : texte saisi, comme les réglages de l'éditeur v3.
+  saleCoefficientFo: string;
+  saleCoefficientMo: string;
   currency: string;
   projectFamily: string;
   creationMode: "blank" | "template";
@@ -75,6 +119,8 @@ export const FIELD_STEP_INDEX: Record<keyof WizardData, number> = {
   taxRateBp: 1,
   roundingMode: 1,
   roundingStepCents: 1,
+  saleCoefficientFo: 1,
+  saleCoefficientMo: 1,
   currency: 1,
   projectFamily: 1,
   creationMode: 2,
@@ -87,7 +133,9 @@ export function todayISO(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-export function initialWizardData(): WizardData {
+export function initialWizardData(
+  creationEngine: EstimateCreationEngine = HISTORICAL_CREATION_ENGINE
+): WizardData {
   return {
     projectName: "",
     clientName: "",
@@ -100,6 +148,8 @@ export function initialWizardData(): WizardData {
     taxRateBp: String(DEFAULT_TAX_RATE_BP),
     roundingMode: "none",
     roundingStepCents: "1",
+    saleCoefficientFo: formatDefaultSaleCoefficient(creationEngine.saleCoefficientFo),
+    saleCoefficientMo: formatDefaultSaleCoefficient(creationEngine.saleCoefficientMo),
     currency: "EUR",
     projectFamily: "",
     creationMode: "blank",
@@ -180,10 +230,27 @@ export function parseZodErrors(error: unknown): StepErrors {
   return { _root: "Erreur de validation." };
 }
 
+const SALE_COEFFICIENT_FIELDS = [
+  ["saleCoefficientFo", "FO"],
+  ["saleCoefficientMo", "MO"],
+] as const;
+
+/** Moteur 3 (2.10a, A4) : coefficients de vente FO et MO, mêmes bornes que les réglages de l'éditeur v3. */
+function getV3PricingErrors(data: WizardData): StepErrors | null {
+  const errors: StepErrors = {};
+  for (const [field, label] of SALE_COEFFICIENT_FIELDS) {
+    if (parseWizardSaleCoefficient(data[field]) === null) {
+      errors[field] = `Coefficient de vente ${label} invalide : nombre supérieur à 0 et au plus 10, 4 décimales au plus.`;
+    }
+  }
+  return Object.keys(errors).length > 0 ? errors : null;
+}
+
 export function getStepValidationErrors(
   step: number,
   data: WizardData,
-  projectId?: string
+  projectId?: string,
+  creationEngine: EstimateCreationEngine = HISTORICAL_CREATION_ENGINE
 ): StepErrors | null {
   try {
     if (step === 0) {
@@ -195,6 +262,18 @@ export function getStepValidationErrors(
           title: data.title || null,
         });
       }
+    } else if (step === 1 && usesSaleCoefficients(creationEngine.engine)) {
+      const rounding = resolveWizardV3Rounding(data);
+      wizardStep2Schema.parse({
+        dateDevis: data.dateDevis,
+        validiteJours: Number(data.validiteJours),
+        marginMode: "fixed",
+        taxRateBp: Number(data.taxRateBp),
+        roundingMode: rounding.mode,
+        roundingStepCents: rounding.mode === "down" ? rounding.step : undefined,
+        currency: data.currency || undefined,
+      });
+      return getV3PricingErrors(data);
     } else if (step === 1) {
       wizardStep2Schema.parse({
         dateDevis: data.dateDevis,

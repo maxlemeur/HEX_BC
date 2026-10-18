@@ -28,7 +28,10 @@ export default async function PortalPage({ params }: PortalPageProps) {
   const reference = captured?.project.estimateReference ?? null;
   const versionNumber = captured?.version.number ?? offer.version.version_number;
   const currency = normalizeEstimateCurrency(captured?.version.currency ?? offer.version.currency) ?? "EUR";
-  const totalHtCents = captured?.totals.saleHtCents ?? offer.version.total_ht_cents;
+  // Lot 2, sous-lot 2.7 : le HT d'une copie au contrat 2 (moteur 3) est son HT net.
+  const totalHtCents = captured
+    ? (captured.schemaVersion === 2 ? captured.totals.netHtCents : captured.totals.saleHtCents)
+    : offer.version.total_ht_cents;
   const totalTtcCents = captured?.totals.payableTtcCents ?? offer.version.total_ttc_cents;
   const vatReverseCharge = (captured?.version.contractorRole ?? offer.version.contractor_role) === "subcontractor";
   const status = capability.status as PortalTokenStatus;

@@ -71,7 +71,7 @@ Aucune fonction métier n'a été appelée sur le partagé, et aucun devis v3 n'
 - Pas de relevé global des fonctions ni des tables hors du périmètre 2.6 : la migration ne crée qu'un objet et un déclencheur, sans `create or replace` d'objet existant.
 - Conseillers Supabase non relus : l'outil n'est pas exposé dans cette session.
 
-**Aucune autre migration, politique de calcul ou opération de déploiement n'a été exécutée.** Restent à appliquer après fusion de leurs PR : M5 (2.7, `20261017213500`), puis M6 et M6b (2.8). M8 (2.10) exige l'accord explicite du porteur.
+**Aucune autre migration, politique de calcul ou opération de déploiement n'a été exécutée.** Restent à appliquer après fusion de leurs PR : M5 (2.7, `20261018102840`), puis M6 et M6b (2.8). M8 (2.10) exige l'accord explicite du porteur.
 
 - [Rapport structuré](./shared-supabase-2-6-2026-10-18.json)
 - [Source immuable](https://github.com/maxlemeur/HEX_BC/blob/da462ac4622893c9d8287e4c56eaa9048eba20e5/supabase/migrations/20261017205000_estimate_engine_v3_line_repricing.sql)

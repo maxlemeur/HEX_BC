@@ -1,10 +1,14 @@
+import { resolveEstimateEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
+import type { EstimateEngineVersion } from "@/lib/estimates/engine/capabilities";
 import type { TakeoffDocumentRecommendation } from "@/lib/takeoff/document-classifier";
 
+// Sous-lot 2.10a (N3, D-f) : le moteur de chaque cible dit au lancement du métré qu'une v3 n'en reçoit pas.
 export type TakeoffLaunchContext = {
   currentVersion: {
     id: string;
     status: string;
     versionNumber: number;
+    calcEngineVersion?: EstimateEngineVersion | null;
   } | null;
   plansContext: {
     defaultPlanSetId: string | null;
@@ -16,6 +20,7 @@ export type TakeoffLaunchContext = {
   availableVersions: Array<{
     id: string;
     versionNumber: number;
+    calcEngineVersion?: EstimateEngineVersion | null;
   }>;
 };
 
@@ -24,8 +29,9 @@ export function buildTakeoffLaunchContext(input: {
     id: string;
     status: string;
     versionNumber: number;
+    calcEngineVersion?: EstimateEngineVersion | null;
   } | null;
-  versions: Array<{ id: string; version_number: number }>;
+  versions: Array<{ id: string; version_number: number; calc_engine_version?: number | null }>;
   plansSummary?: {
     defaultPlanSetId: string | null;
     defaultPlanSetName?: string | null;
@@ -49,6 +55,9 @@ export function buildTakeoffLaunchContext(input: {
     availableVersions: input.versions.map((version) => ({
       id: version.id,
       versionNumber: version.version_number,
+      ...(version.calc_engine_version !== undefined
+        ? { calcEngineVersion: resolveEstimateEngineVersionForDisplay(version) }
+        : {}),
     })),
   };
 }

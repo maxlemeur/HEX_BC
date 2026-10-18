@@ -16,15 +16,17 @@ import {
   shouldPreserveStoredEstimateV2Snapshot,
 } from "@/lib/estimates/calc-engine-version";
 import {
+  engineFreezesSnapshot,
   isLegacyEngine,
-  isUnifiedEngine,
   requireEstimateEngineVersion,
   requireHistoricalEngine,
+  usesSaleCoefficients,
 } from "@/lib/estimates/engine/capabilities";
 import { resolveRenderMarginMode } from "@/lib/estimates/margin-tiers-loader";
 import {
   buildLegacyDocumentBreakdown,
   prepareEstimateDocumentData,
+  prepareEstimateV3DocumentData,
   summarizeEstimateDocumentStructure,
   type EstimateDocumentPreparedData,
 } from "@/components/estimate-document/prepare-estimate-document-data";
@@ -85,6 +87,7 @@ import {
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { captureOfferClientContract } from "@/lib/estimates/offer-contract-capture";
 import { parseOfferPresentation, type ClientContract1 } from "@/lib/estimates/offer-contract";
+import { buildClientContract2, type ClientContract2 } from "@/lib/estimates/offer-contract-v2";
 import { buildCommercialEstimatePdfDocument } from "@/components/estimate-document/CommercialEstimateDocument";
 import { assertDraftLockOwnedByCurrentUser } from "@/lib/estimates/server-context";
 import { freezeEstimateV2Snapshot } from "@/lib/estimates/v2-snapshot-server";
@@ -116,7 +119,7 @@ type SupabaseErrorLike = {
 };
 
 const VERSION_ACCESS_SELECT =
-  "id, tenant_id, project_id, version_number, status, updated_at, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, currency, content_revision, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, site_address, client_name)";
+  "id, tenant_id, project_id, version_number, status, updated_at, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, gross_ht_cents, discount_applied_cents, commercial_rounding_cents, currency, content_revision, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, site_address, client_name)";
 const LEGACY_VERSION_ACCESS_SELECT =
   "id, tenant_id, project_id, version_number, status, updated_at, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, currency, content_revision, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, site_address, client_name)";
 type LaborRoleRate = Pick<
@@ -167,6 +170,9 @@ type VersionWithProject = Pick<
   | "calc_snapshot_context"
   | "status"
   | "updated_at"
+  | "gross_ht_cents"
+  | "discount_applied_cents"
+  | "commercial_rounding_cents"
 > & {
   estimate_projects: EmbeddedProject | EmbeddedProject[] | null;
 };
@@ -743,7 +749,7 @@ async function getVersionAccessOrThrow(
       .single();
 
     data = legacyResult.data
-      ? { ...legacyResult.data, rounding_adjustment_cents: 0 }
+      ? { ...legacyResult.data, rounding_adjustment_cents: 0, gross_ht_cents: null, discount_applied_cents: null, commercial_rounding_cents: null }
       : null;
     error = legacyResult.error;
   }
@@ -1450,8 +1456,8 @@ export async function markEstimatePdfProcessing(
 ): Promise<EstimatePdfGenerationClaim> {
   const context = await getAuthenticatedContext();
   let access = await getVersionAccessOrThrow(context, versionId);
-  // Lot 2, sous-lot 2.1 : une v3 est refusée par son nom avant tout verrou, gel ou appel SQL.
-  const calcEngineVersion = requireHistoricalEngine(requireEstimateEngineVersion(access.version));
+  // Lot 2, sous-lots 2.1 puis 2.7 : le moteur est lu strictement ; une v3 fige son document (M5).
+  const engine = requireEstimateEngineVersion(access.version);
   assertEstimatePdfMutationAllowed(access.version.status, "manual");
   assertCanWriteEstimateWorkflows(context.tenantRole);
   if (access.project.user_id !== context.userId && !context.isTenantAdmin) {
@@ -1469,7 +1475,7 @@ export async function markEstimatePdfProcessing(
   }
   const publicationClient = createServiceRoleClient();
 
-  if (isUnifiedEngine(calcEngineVersion)) {
+  if (engineFreezesSnapshot(engine)) {
     const frozen = await freezeEstimateV2Snapshot({
       supabase: context.supabase,
       rpcClient: publicationClient,
@@ -1522,7 +1528,7 @@ export async function generateEstimatePdfNow(
 ): Promise<PdfReadyPayload> {
   const context = await getAuthenticatedContext();
   const access = await getVersionAccessOrThrow(context, versionId);
-  const calcEngineVersion = requireHistoricalEngine(requireEstimateEngineVersion(access.version));
+  const engine = requireEstimateEngineVersion(access.version);
 
   const existing = await getDocumentRow({
     supabase: context.supabase,
@@ -1567,7 +1573,6 @@ export async function generateEstimatePdfNow(
   // here when server configuration is absent prevents an impossible fallback
   // to the authenticated client from being mistaken for a supported path.
   const publicationClient = createServiceRoleClient();
-  const storageClient = publicationClient;
 
   const claim =
     options.publicationClaim ??
@@ -1621,6 +1626,27 @@ export async function generateEstimatePdfNow(
       ? (storedTermsSnapshot ??
         (termsTemplate ? createEstimateTermsSnapshot(termsTemplate) : null))
       : storedTermsSnapshot;
+    const publish = (clientContract: ClientContract1 | ClientContract2) => renderAndPublishOfferPdf({
+      context, access, versionId, claim, publicationClient, logoDataUri, allowDevelopmentTerms,
+      clientContract, layout: effectiveLayout, termsSnapshot });
+    const identity = () => resolveOfferIdentity({ context, access, versionId, claim, issuer, publicationClient });
+    if (usesSaleCoefficients(engine)) {
+      // Lot 2, sous-lot 2.7 (D7, D8, D14) : le document d'une v3 relit son gel (aucun recalcul) et
+      // se publie sous le contrat client 2, rendu par le même document commercial.
+      const { version } = access;
+      const prepared = prepareEstimateV3DocumentData({ calcEngineVersion: 3, items, currency: version.currency,
+        version: { ...version, gross_ht_cents: version.gross_ht_cents ?? null, discount_applied_cents: version.discount_applied_cents ?? null,
+          commercial_rounding_cents: version.commercial_rounding_cents ?? null },
+        validiteJours: version.validite_jours, layout: effectiveLayout });
+      effectiveLayout = prepared.layout;
+      const captured = await identity();
+      await assertEstimateVersionUnchanged({ supabase: context.supabase, version: access.version });
+      return await publish(buildClientContract2({
+        version: { ...offerContractVersion({ access, versionId, claim, tenantId: context.tenantId }), calcEngineVersion: 3 },
+        ...captured, sourceRows: items, prepared, exclusions: access.version.exclusions,
+      }));
+    }
+    const calcEngineVersion = requireHistoricalEngine(engine);
     const lineItems = items.filter((item) => item.item_type === "line");
     const preserveStoredSnapshot =
       isLegacyEngine(calcEngineVersion)
@@ -1786,127 +1812,16 @@ export async function generateEstimatePdfNow(
       layout: effectiveLayout,
     });
     effectiveLayout = prepared.layout;
-    let capturedProject: ClientContract1["project"] = {
-      name: access.project.name,
-      reference: access.project.reference ?? null,
-      estimateReference: formatEstimateReference(access.project.estimate_reference, access.version.version_number),
-      clientName: access.project.client_name?.trim() || null,
-      siteAddress: access.project.site_address?.trim() || null,
-    };
-    let capturedIssuer: ClientContract1["issuer"] = {
-      userId: context.userId, displayName: issuer.name, displayRole: issuer.role,
-      phone: issuer.phone, email: issuer.email,
-    };
-    let capturedCompany: ClientContract1["company"] = COMPANY_INFO;
-    if (claim.purpose === "email") {
-      const { data: dispatch, error } = await publicationClient.from("estimate_emails")
-        .select("request_contract_version, offer_identity_snapshot, status")
-        .eq("tenant_id", context.tenantId).eq("version_id", versionId)
-        .eq("id", claim.dispatchId!).single();
-      const identity = dispatch?.offer_identity_snapshot as unknown as {
-        schemaVersion: number;
-        version: { id: string; tenantId: string; projectId: string; contentRevision: number };
-        project: ClientContract1["project"]; issuer: ClientContract1["issuer"]; company: ClientContract1["company"];
-      } | null;
-      if (error || dispatch?.request_contract_version !== 2 || dispatch.status !== "preparing" || !identity
-        || identity.schemaVersion !== 1 || Object.keys(identity).length !== 5 || !identity.version
-        || Object.keys(identity.version).length !== 4 || identity.version.id !== versionId
-        || identity.version.tenantId !== context.tenantId || identity.version.projectId !== access.project.id
-        || identity.version.contentRevision !== claim.contentRevision || identity.issuer?.userId !== context.userId) {
-        throw conflict("La préparation de cette offre a changé.", undefined, "ESTIMATE_EMAIL_DISPATCH_CONFLICT");
-      }
-      capturedProject = identity.project;
-      capturedIssuer = identity.issuer;
-      capturedCompany = identity.company;
-    }
+    const { project: capturedProject, issuer: capturedIssuer, company: capturedCompany } = await identity();
     await assertEstimateVersionUnchanged({ supabase: context.supabase, version: access.version });
     const clientContract = captureOfferClientContract({
-      version: {
-        id: versionId, tenantId: context.tenantId, projectId: access.project.id,
-        number: access.version.version_number, contentRevision: claim.contentRevision,
-        calcEngineVersion, dateDevis: access.version.date_devis, validiteJours: access.version.validite_jours,
-        currency: normalizeEstimateCurrency(access.version.currency) ?? "EUR",
-        contractorRole: vatReverseCharge ? "subcontractor" : "principal", taxRateBp: access.version.tax_rate_bp,
-      },
+      version: { ...offerContractVersion({ access, versionId, claim, tenantId: context.tenantId }), calcEngineVersion },
       project: capturedProject, issuer: capturedIssuer, company: capturedCompany,
       sourceRows: items, prepared, sourceLineIds: new Set(documentBreakdown.lineById.keys()),
       footer: { totalHtCents, actualVatCents: totalTaxCents, amountDueCents: totalTtcCents, roundingAdjustmentCents },
       exclusions: access.version.exclusions,
     });
-    const presentation = parseOfferPresentation({ contract: clientContract, layout: effectiveLayout, terms: termsSnapshot },
-      { allowDevelopmentTerms });
-    const pdfDocument = buildCommercialEstimatePdfDocument({
-      ...presentation,
-      logoDataUri, allowDevelopmentTerms,
-    });
-
-    let pdfBuffer: Buffer;
-    try {
-      pdfBuffer = await renderToBuffer(pdfDocument);
-    } catch (error) {
-      throw internalError("Impossible de générer le binaire PDF.", error);
-    }
-
-    const sha256Hash = createHash("sha256")
-      .update(pdfBuffer)
-      .digest("hex")
-      .toLowerCase();
-    const filePath = buildContentAddressedEstimatePdfPath({
-      tenantId: context.tenantId,
-      projectId: access.project.id,
-      versionId,
-      sha256Hash,
-    });
-
-    const { error: uploadError } = await storageClient.storage
-      .from(ESTIMATE_DOCUMENTS_BUCKET)
-      .upload(filePath, pdfBuffer, {
-        contentType: "application/pdf",
-        upsert: false,
-      });
-
-    if (
-      uploadError &&
-      !isImmutableStorageObjectAlreadyPresent(uploadError)
-    ) {
-      const failure = classifyEstimatePdfStorageFailure(uploadError, "upload");
-      throw internalError(
-        failure.message,
-        { reason: failure.reason },
-        "PDF_GENERATION_FAILED",
-      );
-    }
-
-    const generatedAt = new Date().toISOString();
-
-    await publishEstimatePdfGeneration({
-      client: publicationClient,
-      versionId,
-      tenantId: context.tenantId,
-      actorUserId: context.userId,
-      claim,
-      filePath,
-      sha256Hash,
-      fileSizeBytes: pdfBuffer.byteLength,
-      generatedAt,
-      layoutOptions: effectiveLayout as unknown as Json,
-      termsSnapshot: termsSnapshot as unknown as Json | null,
-      clientContractSnapshot: clientContract,
-    });
-
-    const downloadUrl = await createSignedUrlOrThrow({
-      supabase: context.supabase,
-      filePath,
-    });
-
-    return {
-      status: "ready",
-      download_url: downloadUrl,
-      file_path: filePath,
-      sha256_hash: sha256Hash,
-      file_size_bytes: pdfBuffer.byteLength,
-      generated_at: generatedAt,
-    };
+    return await publish(clientContract);
   } catch (error) {
     try {
       const message =
@@ -1928,6 +1843,162 @@ export async function generateEstimatePdfNow(
 
     throw error;
   }
+}
+
+/** Bloc `version` commun aux contrats client 1 et 2, sans le moteur (posé par l'appelant). */
+function offerContractVersion(input: {
+  access: VersionAccess;
+  versionId: string;
+  claim: EstimatePdfGenerationClaim;
+  tenantId: string;
+}): Omit<ClientContract1["version"], "calcEngineVersion"> {
+  const { version, project } = input.access;
+  return {
+    id: input.versionId, tenantId: input.tenantId, projectId: project.id,
+    number: version.version_number, contentRevision: input.claim.contentRevision,
+    dateDevis: version.date_devis, validiteJours: version.validite_jours,
+    currency: normalizeEstimateCurrency(version.currency) ?? "EUR",
+    contractorRole: version.contractor_role === "subcontractor" ? "subcontractor" : "principal", taxRateBp: version.tax_rate_bp,
+  };
+}
+
+/** Identité affichée : celle de la version, ou celle figée par la réservation d'un envoi. */
+async function resolveOfferIdentity(input: {
+  context: AuthenticatedContext;
+  access: VersionAccess;
+  versionId: string;
+  claim: EstimatePdfGenerationClaim;
+  issuer: PdfIssuer;
+  publicationClient: Supabase;
+}): Promise<Pick<ClientContract1, "project" | "issuer" | "company">> {
+  const { context, access, versionId, claim, issuer, publicationClient } = input;
+  let capturedProject: ClientContract1["project"] = {
+    name: access.project.name,
+    reference: access.project.reference ?? null,
+    estimateReference: formatEstimateReference(access.project.estimate_reference, access.version.version_number),
+    clientName: access.project.client_name?.trim() || null,
+    siteAddress: access.project.site_address?.trim() || null,
+  };
+  let capturedIssuer: ClientContract1["issuer"] = {
+    userId: context.userId, displayName: issuer.name, displayRole: issuer.role,
+    phone: issuer.phone, email: issuer.email,
+  };
+  let capturedCompany: ClientContract1["company"] = COMPANY_INFO;
+  if (claim.purpose === "email") {
+    const { data: dispatch, error } = await publicationClient.from("estimate_emails")
+      .select("request_contract_version, offer_identity_snapshot, status")
+      .eq("tenant_id", context.tenantId).eq("version_id", versionId)
+      .eq("id", claim.dispatchId!).single();
+    const identity = dispatch?.offer_identity_snapshot as unknown as {
+      schemaVersion: number;
+      version: { id: string; tenantId: string; projectId: string; contentRevision: number };
+      project: ClientContract1["project"]; issuer: ClientContract1["issuer"]; company: ClientContract1["company"];
+    } | null;
+    if (error || dispatch?.request_contract_version !== 2 || dispatch.status !== "preparing" || !identity
+      || identity.schemaVersion !== 1 || Object.keys(identity).length !== 5 || !identity.version
+      || Object.keys(identity.version).length !== 4 || identity.version.id !== versionId
+      || identity.version.tenantId !== context.tenantId || identity.version.projectId !== access.project.id
+      || identity.version.contentRevision !== claim.contentRevision || identity.issuer?.userId !== context.userId) {
+      throw conflict("La préparation de cette offre a changé.", undefined, "ESTIMATE_EMAIL_DISPATCH_CONFLICT");
+    }
+    capturedProject = identity.project;
+    capturedIssuer = identity.issuer;
+    capturedCompany = identity.company;
+  }
+  return { project: capturedProject, issuer: capturedIssuer, company: capturedCompany };
+}
+
+/** Rendu, dépôt immuable et publication d'une copie commerciale (contrat 1 ou 2). */
+async function renderAndPublishOfferPdf(input: {
+  context: AuthenticatedContext;
+  access: VersionAccess;
+  versionId: string;
+  claim: EstimatePdfGenerationClaim;
+  publicationClient: Supabase;
+  logoDataUri: string | null;
+  allowDevelopmentTerms: boolean;
+  clientContract: ClientContract1 | ClientContract2;
+  layout: EstimatePdfLayoutOptions;
+  termsSnapshot: EstimateTermsSnapshot | null;
+}): Promise<PdfReadyPayload> {
+  const { context, access, versionId, claim, publicationClient, logoDataUri, allowDevelopmentTerms, clientContract } = input;
+  const effectiveLayout = input.layout;
+  const termsSnapshot = input.termsSnapshot;
+  const storageClient = publicationClient;
+  const presentation = parseOfferPresentation({ contract: clientContract, layout: effectiveLayout, terms: termsSnapshot },
+    { allowDevelopmentTerms });
+  const pdfDocument = buildCommercialEstimatePdfDocument({
+    ...presentation,
+    logoDataUri, allowDevelopmentTerms,
+  });
+
+  let pdfBuffer: Buffer;
+  try {
+    pdfBuffer = await renderToBuffer(pdfDocument);
+  } catch (error) {
+    throw internalError("Impossible de générer le binaire PDF.", error);
+  }
+
+  const sha256Hash = createHash("sha256")
+    .update(pdfBuffer)
+    .digest("hex")
+    .toLowerCase();
+  const filePath = buildContentAddressedEstimatePdfPath({
+    tenantId: context.tenantId,
+    projectId: access.project.id,
+    versionId,
+    sha256Hash,
+  });
+
+  const { error: uploadError } = await storageClient.storage
+    .from(ESTIMATE_DOCUMENTS_BUCKET)
+    .upload(filePath, pdfBuffer, {
+      contentType: "application/pdf",
+      upsert: false,
+    });
+
+  if (
+    uploadError &&
+    !isImmutableStorageObjectAlreadyPresent(uploadError)
+  ) {
+    const failure = classifyEstimatePdfStorageFailure(uploadError, "upload");
+    throw internalError(
+      failure.message,
+      { reason: failure.reason },
+      "PDF_GENERATION_FAILED",
+    );
+  }
+
+  const generatedAt = new Date().toISOString();
+
+  await publishEstimatePdfGeneration({
+    client: publicationClient,
+    versionId,
+    tenantId: context.tenantId,
+    actorUserId: context.userId,
+    claim,
+    filePath,
+    sha256Hash,
+    fileSizeBytes: pdfBuffer.byteLength,
+    generatedAt,
+    layoutOptions: effectiveLayout as unknown as Json,
+    termsSnapshot: termsSnapshot as unknown as Json | null,
+    clientContractSnapshot: clientContract,
+  });
+
+  const downloadUrl = await createSignedUrlOrThrow({
+    supabase: context.supabase,
+    filePath,
+  });
+
+  return {
+    status: "ready",
+    download_url: downloadUrl,
+    file_path: filePath,
+    sha256_hash: sha256Hash,
+    file_size_bytes: pdfBuffer.byteLength,
+    generated_at: generatedAt,
+  };
 }
 
 export async function getEstimatePdfLayoutConfiguration(
