@@ -309,17 +309,29 @@ async function blankV3(ui: Ui, army: ArmyState, projectId: string, label: string
 armyTest("IO04 pasting the OPTIMA header and line O1 into a v3 shows h/u 1,991 and the control, and prices 166,63 € at 1,30 / 1,20", options,
   async ({ app, screen, browser, army }) => {
     const ui = { app, screen, browser };
-    const { owner, projectId } = await prepareV3Owner(ui, army, "collage");
+    const { owner, projectId, roleId } = await prepareV3Owner(ui, army, "collage");
     try {
       const versionId = await blankV3(ui, army, projectId, "collage");
+      const sectionId = (await readEstimate(browser, versionId)).items.find((item) => item.item_type === "section")!.id;
+      // The lease taken by the API (blankV3) is handed back, so that the editor page takes it and becomes editable.
+      const released = await apiRequest(browser, "DELETE", `/api/estimates/${versionId}/lock`);
+      expect(released.status).toBe(200);
       await app.open(`/dashboard/estimates/${versionId}/edit`);
       await expect(screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible({ timeout: 60_000 });
+      // The pasted lines go into the selected section: a v3 line belongs to a section.
+      const sectionTitle = browser.locator(`[data-estimate-item-id="${sectionId}"] [data-testid="estimate-section-title-input"]`);
+      await expect(sectionTitle).toBeEnabled({ timeout: 150_000 });
+      await sectionTitle.click();
+      await browser.evaluate(() => new Promise<boolean>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)))));
       const title = `${army.runPrefix} O1`;
       const tsv = [
-        ["N°", "Désignation", "Uté", "Qté", "Prix Unitaire", "Prix Total", "PR Fourniture unitaire", "PR Total fourniture",
+        // The workbook header as Excel copies it: « Prix⏎Unitaire » and « Prix⏎Total » hold a line break, quoted.
+        ["N°", "Désignation", "Uté", "Qté", "\"Prix\r\nUnitaire\"", "\"Prix\r\nTotal\"", "PR Fourniture unitaire", "PR Total fourniture",
           "Tps pose unitaire", "Tps pose unitaire majoré", "Tps pose total", "Coeff FO", "Coeff MO", "Majoration MO", "Taux horaire"].join("\t"),
-        ["1", title, "ml", "20", "174,59", "3 491,80", "54,66", "1 093,20", "1,991", "1,991", "39,82", "1,3", "1,3", "0", "40"].join("\t"),
-      ].join("\n");
+        // The workbook layout: the parameters on row 2 only (L2:O2, « Taux horaire » 40), none on line O1.
+        ["", "", "", "0", "", "", "", "", "", "", "", "1,3", "1,3", "0", "40"].join("\t"),
+        ["1", title, "ml", "20", "174,59", "3 491,80", "54,66", "1 093,20", "1,991", "1,991", "39,82", "", "", "", ""].join("\t"),
+      ].join("\r\n");
       await browser.evaluate((text) => {
         const target = document.querySelector('[role="grid"][aria-label="Lignes de devis"]');
         if (!(target instanceof HTMLElement)) throw new Error("Estimate paste target missing.");
@@ -332,12 +344,18 @@ armyTest("IO04 pasting the OPTIMA header and line O1 into a v3 shows h/u 1,991 a
       await expect(dialog).toBeVisible();
       await expect(dialog.getByText("h/u 1,991", { exact: true })).toBeVisible();
       await expect(dialog.getByText("Prix Unitaire 174,59 : contrôle", { exact: true })).toBeVisible();
+      await expect(dialog.getByText("Paramètres du classeur : taux horaire 40,00 €/h, non collés", { exact: true })).toBeVisible();
+      // The labour role follows the import rule: the single active role at the sheet's « Taux horaire » (40 €/h),
+      // read on its parameter row.
+      await expect(screen.getByLabel("Rôle MO des lignes collées", { exact: true })).toHaveValue(roleId);
       await screen.getByTestId("paste-preview-dialog-confirm-button").click();
       await expect.poll(async () => lineItems(await readEstimate(browser, versionId)).some((line) => line.title === title), { timeout: 30_000 }).toBe(true);
       const line = lineItems(await readEstimate(browser, versionId)).find((entry) => entry.title === title)!;
-      const observed = { unitCode: field(line, "unit_code"), hoursPerUnit: num(field(line, "h_mo_per_unit")), hMo: num(line.h_mo), pu: line.pu_ht_cents };
+      const observed = { unitCode: field(line, "unit_code"), hoursPerUnit: num(field(line, "h_mo_per_unit")), hMo: num(line.h_mo),
+        roleId: field(line, "labor_role_id"), pu: line.pu_ht_cents, parentId: field(line, "parent_id") };
       await recordEvidence(army, "io-paste", { versionId, observed });
-      expect(observed).toEqual({ unitCode: "ml", hoursPerUnit: 1.991, hMo: 39.82, pu: 16663 });
+      // 54,66 € × FO 1,30 + 1,991 h/u × 40 €/h × MO 1,20 = 166,63 € per unit.
+      expect(observed).toEqual({ unitCode: "ml", hoursPerUnit: 1.991, hMo: 39.82, roleId, pu: 16663, parentId: sectionId });
     } finally {
       await closePolicy(owner, army, "collage");
     }

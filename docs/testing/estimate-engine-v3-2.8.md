@@ -1,11 +1,12 @@
 # Chemins d'entrée v3 (sous-lot 2.8)
 
-Statut : **phase verte** (IO04 attend le 2.6), branche `lot2/2.8-chemins-entree-v3` (base `main` `78ca0855`,
-2.9 compris) ; création atomique accélérée par M6b après le dépassement de délai d'IO01 en CI (dernière section).
+Statut : **phase verte**, branche `lot2/2.8-chemins-entree-v3` (base `main` `78ca0855`, 2.9 compris, puis 2.6
+fusionné) ; création atomique accélérée par M6b après le dépassement de délai d'IO01 en CI ; collage v3 livré après
+la fusion du 2.6 (IO04 vert). Ces deux suites ont chacune leur section en fin de fiche.
 Source : [conception du lot 2](../audit-independant-2026-10-14/lot2/conception-lot2-moteur-v3.md), §14 « 2.8 »,
 D16, D11, §5.4, §6.1 M6, §7 ; décisions P-12 et P-14 (validées le 16/10/2026). Dépendances livrées : 2.3
-(profil OPTIMA, parseurs), 2.5 (persistance v3, M4). Le collage dans la grille v3 dépend du 2.6, en cours ;
-ses scénarios ne dépendent pas des libellés de la grille v3.
+(profil OPTIMA, parseurs), 2.5 (persistance v3, M4). Le collage dans la grille v3 dépendait du 2.6, fusionné
+depuis (section « Collage v3 »).
 
 Règle d'entrée, tous moteurs : aucune ligne d'un devis existant n'est modifiée ; un chemin vers une v1/v2 se
 comporte comme avant (corpus figé, empreintes documentaires et montée de version identiques).
@@ -31,7 +32,9 @@ explicitement ou refuse** (D16) ; aucun ne multiplie des heures par unité par Q
      feuille), comme pour `dpgf-import` ; `sourceDocumentId` et `_timax_provenance` restent ceux d'un import
      PDF (I9), chemin inchangé.
 2. **Collage vers une v3** : les en-têtes OPTIMA sont reconnus (« Tps pose unitaire » → h/u, « Prix
-   Unitaire » → contrôle) ; l'aperçu montre les valeurs interprétées.
+   Unitaire » → contrôle, « Taux horaire » → choix du rôle MO) ; l'aperçu montre les valeurs interprétées ;
+   unité par le référentiel ou statut, jamais en texte libre ; heures de ligne refusées ; écriture par
+   l'écrivain de lot v3 (section « Collage v3 »).
 3. **Ouvrage de bibliothèque vers une v3** : h/u = `h_mo / default_quantity`, exact à 4 décimales, sinon
    refus nommé ; quantité par défaut à 0 avec des heures → refus nommé ; unité normalisée.
 4. **Ouvrage généré vers une v3** : la ligne porte le rendement par unité, jamais un total d'heures.
@@ -169,7 +172,7 @@ Point d'attention pour l'implémentation : sur le classeur hydraulique complet, 
 - **Collage** (`clipboard.ts`) : « Tps pose unitaire » → h/u ; sur une feuille reconnue par le profil OPTIMA,
   « Prix Unitaire » → contrôle (jamais collé ; ailleurs il reste non mappé, règle 2.3) et « Majoration MO » →
   majoration additive (0 = ×1) ;
-  sur une v1/v2, h/u × Q en heures de ligne (P-16). La grille v3 qui applique le collage relève du 2.6.
+  sur une v1/v2, h/u × Q en heures de ligne (P-16). Sur une v3 : section « Collage v3 » (après la fusion du 2.6).
 - **Ouvrage de bibliothèque et modèle** (`assemblies-server.ts`) : la v3 reçoit ses montants dans la
   transaction d'insertion (pas de finalisation v1/v2) ; l'insertion d'un modèle liste les lignes converties
   (`converted_lines`, `template-v3-hours.ts`, miroir exact de M6) ; les refus de M6 arrivent nommés à
@@ -208,8 +211,9 @@ Point d'attention pour l'implémentation : sur le classeur hydraulique complet, 
    heures par les règles des modèles est une suite du 2.8 (aucun test rouge ne la couvrait en phase rouge).
 5. **Routes d'insertion** : elles répondent 200 depuis toujours ; les parcours rouges IO05/IO06 attendaient
    201 par erreur, corrigé.
-6. **IO04** (collage dans la grille v3) attend le 2.6 : la PR 2.8 se fusionne après le 2.6 et reste rouge sur
-   IO04 jusque-là ; l'interprétation du collage est prouvée en Vitest.
+6. **IO04** (collage dans la grille v3) attendait le 2.6 : levé, le 2.6 est fusionné et le collage v3 livré
+   (section « Collage v3 ») ; IO04 sélectionne désormais la section cible avant de coller (une ligne v3 appartient
+   à une section) et vérifie le rôle MO choisi.
 7. **Limites connues, non traitées** : `converted_lines` ne compare que les heures MO totales (atelier et
    chantier non listés) ; une ligne non chiffrée (HL, PM…) d'un modèle issu d'une v3, insérée dans une v1/v2,
    y devient chiffrée (colonnes v3 ignorées) ; une unité non résolue par le référentiel n'est pas signalée à
@@ -368,3 +372,95 @@ transaction). Corrigés : exemption de la garde liée aussi au contrat de créat
 fraîcheur) ; audit des étapes lié aux deux réglages ; pont à usage unique ; assertions d'audit complétées et
 refus de la garde testés ; commentaire de la RPC sur l'ordre du payload rectifié (la clé étrangère `parent_id`
 est différée).
+
+## Collage v3 (règle 2, après la fusion du 2.6)
+
+Le 2.6 (PR #44, `da462ac4`) a livré la grille v3 et refusé par son nom tout collage dans une v3 (F26-31,
+« contrat de collage v3 à définir »), en laissant au 2.8 ce contrat. Fusions de `main` dans la branche :
+`5b987685` (2.6 et boucle locale ; seul le manifeste des migrations en conflit ; la migration du 2.6,
+`20261017205000`, ne redéfinit aucune fonction recopiée par M6 ou M6b) et `8dda3c9b` (documentation, PR #46).
+
+**Contrat** (`src/lib/estimates/v3-paste.ts`, `clipboard.ts`, `useEstimateClipboard.ts`,
+`useEstimateEditorPasteController.ts`) :
+
+- chaque ligne collée écrit ses saisies v3 : unité par le référentiel (`unit_code`), ou statut de ligne pour une
+  mention (« HL », « PM », « Hors lot »…, ligne à 0 €) ; unité vide : à choisir dans la grille ; unité inconnue :
+  ligne refusée, jamais écrite en texte libre (`description` reste vide) ;
+- heures : « Tps pose unitaire » (ou toute colonne associée à « Heures MO par unité ») → `h_mo_per_unit` ; une
+  colonne d'heures de ligne non nulle est refusée (même règle que l'import, `line_hours_require_hours_per_unit`) ;
+- feuille OPTIMA : « Prix Unitaire » est un contrôle affiché, jamais collé ; la ligne de paramètres (ligne 2, sans
+  désignation) est montrée et jamais collée ; son « Taux horaire » choisit le rôle MO et sa majoration MO (N2)
+  s'applique, comme à l'import, aux lignes qui n'en portent pas ; ses coefficients FO/MO sont ignorés (le collage
+  ne change jamais les coefficients de vente de la version) ;
+- rôle MO des lignes à heures : règle de l'import OPTIMA (E17), au taux de la ligne de paramètres ou des lignes :
+  le rôle choisi dans l'aperçu, sinon l'unique rôle actif à ce taux, sinon un choix explicite (confirmation
+  inactive) ; sans taux, MO à 0 €/h signalé, modifiable ; un taux illisible (« quarante ») ne choisit rien et ne
+  refuse jamais la ligne (« 40 », « 40,00 € », « 40,1234 » se lisent) ;
+- l'aperçu (« Aperçu du collage ») ajoute la colonne « Valeurs écrites (moteur 3) » (« Unité ml », « h/u 1,991 »,
+  « Prix Unitaire 174,59 : contrôle », la ligne de paramètres) et le choix « Rôle MO des lignes collées » ; une
+  ligne refusée est exclue d'office, et sur une v3 une ligne que l'association des colonnes rend écrivable (ou non)
+  est incluse (ou exclue) d'office, un choix manuel sur une ligne inchangée étant gardé ;
+- écriture par l'écrivain de lot v3 : création par lots de 100, repositionnement après la ligne active, annulation
+  par lots de 100 suppressions (au-delà, la grille relit l'état enregistré si un lot échoue), jamais par les routes
+  directes ; montants recalculés et contrôlés (D12) ; le rétablissement reprend la recréation v3 du 2.6 (F26-21)
+  puis repositionne par le lot ;
+- copie de la grille d'une v3 : heures par unité (« h/u », relues à l'identique) au lieu des heures de ligne, et
+  pour une ligne non chiffrée la mention de son statut dans la colonne « Unité » ; une copie v3 se recolle donc
+  dans une v3 (le rôle MO n'est pas copié : il est résolu de nouveau, avec son message) ;
+- tous moteurs : une copie d'Excel dont l'en-tête contient un saut de ligne (« Prix⏎Unitaire », « Prix⏎Total »
+  des classeurs OPTIMA, mis entre guillemets par Excel) est lue en une ligne d'en-tête ; une guillemet ouverte et
+  jamais fermée garde la lecture ligne à ligne d'avant.
+
+Une v1/v2 colle comme avant (h/u × Q en heures de ligne, routes et annulation inchangées) ; ses seules différences
+observables : « Taux horaire » d'une feuille OPTIMA apparaît associé dans l'aperçu (jamais écrit ni bloquant) et un
+en-tête Excel à saut de ligne est désormais lu.
+
+**Défaillances visées** : P1 l'unité collée part dans `description` et `unit_code` reste vide ; P2 des heures
+totales sont écrites ou refusées par un message générique ; P3 le PU ignore le taux horaire de la feuille
+(MO à 0 €/h sans le dire), y compris quand il n'est que sur la ligne de paramètres ; P4 l'annulation ou le
+repositionnement passent par une route directe, dépassent la limite d'un lot ou désynchronisent le jeton de
+version ; P5 un collage v1/v2 change ; P6 l'en-tête réel d'un classeur OPTIMA n'est pas reconnu ; P7 une copie v3
+ne se recolle pas dans une v3.
+
+**Preuves** :
+
+- **IO04** (rouge sur `5b987685` : aperçu sans « h/u 1,991 ») : l'en-tête réel copié par Excel (cellules
+  « Prix⏎Unitaire » et « Prix⏎Total » entre guillemets), la ligne de paramètres (« Taux horaire » 40) et la ligne O1
+  sans paramètres, collés dans la section choisie (bail rendu par l'API, page éditable) ; l'aperçu montre
+  « h/u 1,991 », « Prix Unitaire 174,59 : contrôle » et « Paramètres du classeur : taux horaire 40,00 €/h, non
+  collés » ; rôle choisi au taux de la feuille ; O1 : `unit_code` ml, h/u 1,991, h 39,82, rôle Tuyauteur,
+  section choisie, PU 166,63 € à 1,30 / 1,20.
+- **V3E13**, parcours du 2.6 réécrit au nouveau contrat (il prouvait le refus que le 2.8 lève ; rouge sur
+  `5b987685`) : deux lignes (13,00 € et 6,50 €), collage générique 2 ml × 10,00 € ancré sur la première ; ligne
+  collée en deuxième position (repositionnement par le lot), `unit_code` ml, `description` vide, 0 h de ligne,
+  PU 13,00 €, totaux 45,50 / 9,10 / 54,60 €, révision de contenu incrémentée ; annulation : ligne supprimée par le
+  lot, ordre et totaux 19,50 / 3,90 / 23,40 € revenus.
+- **Vitest** (isolation justifiée : cas d'unité, de statut, d'heures, de taux et d'analyse du presse-papiers, et
+  annulation de 101 lignes, chers en parcours), écrits rouges avant leur code : `v3-paste.test.ts` (« Taux
+  horaire » OPTIMA seulement, O1, statut HL, unité vide ou inconnue, heures de ligne refusées, quatre décimales
+  de h/u, ligne de paramètres et son taux, taux illisible non bloquant et « 40,00 € », copie Excel de l'en-tête
+  réel, guillemet jamais fermée, majoration N2, statut d'une copie v3, copie v3 recollée, rôle au taux d'une
+  ligne ou de la ligne de paramètres, taux divergents ou sans rôle, choix et refus explicites) ;
+  `useEstimateEditorPasteController.test.ts` (charge v3 sans clé dérivée et repositionnement par l'écrivain v3 ;
+  annulation de 101 lignes en lots de 100 puis 1).
+
+- **Sélection TesterArmy** (pile possédée, `8dda3c9b` et ces changements, sources inchangées pendant le build,
+  journaux `.e2e/lot2-2.8/green/paste-v3/`) : `numeric-entry`, `numeric-entry-v3`, `dpgf-import`,
+  `import-optima-v2`, `engine-v3-editor`, `engine-v3-editor-actions` (V3E05 à V3E13), `engine-v3-import-optima`
+  (IO01 à IO09) : 31 parcours sur 31.
+
+**Revues indépendantes** (lecture seule) : la première n'a relevé aucun écart sur les chemins v1/v2 ni sur la
+charge v3 ; corrigés : annulation au-delà de 100 lignes, taux lu sur la ligne de paramètres (seule place du taux
+dans les deux classeurs réels, vérifié), copie v3 recollable, taux jamais bloquant, repositionnement prouvé par
+V3E13, cas Vitest impossible remplacé, inclusion recalculée sur une v3. La revue de suivi a confirmé ces
+corrections ; corrigés ensuite : en-tête Excel à saut de ligne (défaut antérieur du découpage, qui empêchait de
+reconnaître une feuille OPTIMA réelle), majoration de la ligne de paramètres, statut d'une copie v3, taux en
+« € », relecture après un échec d'annulation partielle, notes limitées aux lignes valides et à la ligne de
+paramètres.
+
+**Limites** : le rétablissement d'un collage v3 n'est pas rejoué en parcours ; un rôle choisi s'applique à toutes
+les lignes à heures du collage (un rôle par collage, comme l'import) ; le contrôle « Prix Unitaire » est montré,
+pas comparé au PU du moteur (les coefficients de la version, pas ceux du classeur, s'appliquent) ; la suppression
+et le repositionnement d'une annulation v3 sont deux lots, non atomiques ; `estimate-batch-client` (BC04, collage
+v1/v2 par paquets de 100) ne tourne que sous le profil de couverture `batch-atomic`, non rejoué : le chemin v1/v2
+du contrôleur n'appelle que les mêmes routes et ses tests Vitest restent verts.

@@ -31,6 +31,8 @@ export const CLIPBOARD_TARGET_FIELDS = [
   // Sub-lot 2.8 (D16, D11): OPTIMA « Tps pose unitaire » and the « Prix Unitaire » sale control.
   "h_mo_per_unit",
   "control_unit_price",
+  // « Taux horaire » of an OPTIMA sheet: chooses the labour role of the lines pasted into a v3, never pasted.
+  "hourly_rate",
 ] as const;
 
 export type ClipboardTargetField = (typeof CLIPBOARD_TARGET_FIELDS)[number];
@@ -83,6 +85,7 @@ export type ClipboardPreviewValues = {
   h_mo_majoration: number | null;
   h_mo_per_unit: number | null;
   control_unit_price: number | null;
+  hourly_rate: number | null;
 };
 
 export type ClipboardPreviewRow = {
@@ -176,10 +179,14 @@ const TARGET_FIELD_ALIASES: Record<ClipboardTargetField, string[]> = {
     "temps pose unitaire",
     "heures par unite",
     "heures mo par unite",
+    // The grid copy's own header (v3 copy), read exactly: « h u » would match « tech unit » as a substring.
+    "h/u",
   ],
   // The workbook's sale price is a control (D11), never the supply cost. « Prix Unitaire » is proposed
   // only on a sheet recognised by the OPTIMA profile (below): elsewhere it stays unmapped (2.3 review).
   control_unit_price: ["control_unit_price"],
+  // Like the control, proposed only from the OPTIMA profile's « Taux horaire » parameter column (below).
+  hourly_rate: ["hourly_rate"],
 };
 
 const BDC_HEADER_MARKERS = new Set<string>([
@@ -255,6 +262,7 @@ const CLIPBOARD_COPY_HEADERS: Record<ClipboardTargetField, string> = {
   h_mo_majoration: MAJORATION_PERCENT_HEADER,
   h_mo_per_unit: "h/u",
   control_unit_price: "Prix Unitaire",
+  hourly_rate: "Taux horaire",
 };
 
 const FIELD_LABELS: Record<ClipboardTargetField, string> = {
@@ -269,6 +277,7 @@ const FIELD_LABELS: Record<ClipboardTargetField, string> = {
   h_mo_majoration: "Majoration MO",
   h_mo_per_unit: "Heures MO par unité",
   control_unit_price: "Prix Unitaire (contrôle)",
+  hourly_rate: "Taux horaire",
 };
 
 type ClipboardNumericField = Exclude<
@@ -295,6 +304,7 @@ const NUMERIC_FIELDS = new Set<ClipboardNumericField>([
   "h_mo_majoration",
   "h_mo_per_unit",
   "control_unit_price",
+  "hourly_rate",
 ]);
 
 function stripAccents(value: string): string {
@@ -341,6 +351,43 @@ function parseTsvLine(line: string): string[] {
 
   cells.push(current.trim());
   return cells;
+}
+
+/**
+ * Records of a pasted sheet. Excel quotes a cell holding a line break (« Prix⏎Unitaire », « Prix⏎Total » in the
+ * OPTIMA header): a line break inside a quoted cell, opened at the start of a field, stays in that cell (2.8 review).
+ * A quote that never closes keeps the line-by-line reading, as before.
+ */
+function splitTsvRecords(input: string): string[] {
+  const records: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  let fieldStart = true;
+  for (let index = 0; index < input.length; index += 1) {
+    const character = input[index];
+    if (inQuotes) {
+      if (character === "\"" && input[index + 1] === "\"") {
+        current += "\"\"";
+        index += 1;
+        continue;
+      }
+      if (character === "\"") inQuotes = false;
+      current += character;
+      continue;
+    }
+    if (character === "\n") {
+      records.push(current);
+      current = "";
+      fieldStart = true;
+      continue;
+    }
+    if (character === "\"" && fieldStart) inQuotes = true;
+    fieldStart = character === "\t";
+    current += character;
+  }
+  if (inQuotes) return input.split("\n");
+  records.push(current);
+  return records;
 }
 
 function normalizeRowLength(row: string[], columnCount: number): string[] {
@@ -416,6 +463,7 @@ function createEmptyPreviewValues(): ClipboardPreviewValues {
     h_mo_majoration: null,
     h_mo_per_unit: null,
     control_unit_price: null,
+    hourly_rate: null,
   };
 }
 
@@ -557,7 +605,7 @@ export function parseTsvMatrix(input: string): ClipboardTsvMatrix {
     };
   }
 
-  const rawLines = normalizedInput.split("\n");
+  const rawLines = splitTsvRecords(normalizedInput);
   while (rawLines.length > 0 && rawLines[0].trim().length === 0) {
     rawLines.shift();
   }
@@ -684,7 +732,7 @@ export function suggestClipboardColumnMapping(headers: string[]): ClipboardColum
       for (const alias of aliases) {
         bestScore = Math.max(
           bestScore,
-          field === "control_unit_price"
+          field === "control_unit_price" || field === "hourly_rate" || alias === "h/u"
             ? (normalizeClipboardHeader(alias) === normalizedHeader ? scoreAliasMatch(normalizedHeader, alias) : 0)
             : scoreAliasMatch(normalizedHeader, alias, field !== "unit_price_ht")
         );
@@ -735,8 +783,8 @@ export function suggestClipboardColumnMapping(headers: string[]): ClipboardColum
     usedFields.add(candidate.field);
   }
 
-  // Sub-lot 2.8: a sheet recognised by the 2.3 OPTIMA profile declares its majoration additive and its
-  // « Prix Unitaire » a sale control.
+  // Sub-lot 2.8: a sheet recognised by the 2.3 OPTIMA profile declares its majoration additive, its
+  // « Prix Unitaire » a sale control and its « Taux horaire » the rate that chooses a v3 labour role.
   const profile = detectImportProfile(headers);
   if (profile?.id === "optima") {
     for (const [sourceHeader, target] of Object.entries(profile.mapping)) {
@@ -746,6 +794,10 @@ export function suggestClipboardColumnMapping(headers: string[]): ClipboardColum
       if (target === "control_unit_price" && mapping[sourceHeader] === undefined &&
         !Object.values(mapping).includes("control_unit_price")) {
         mapping[sourceHeader] = "control_unit_price";
+      }
+      if (target === "param_hourly_rate" && mapping[sourceHeader] === undefined &&
+        !Object.values(mapping).includes("hourly_rate")) {
+        mapping[sourceHeader] = "hourly_rate";
       }
     }
   }
@@ -836,15 +888,21 @@ export function buildClipboardPreviewRows(
         // Seul le prix unitaire est un montant ; quantites, heures et
         // coefficients acceptent trois decimales (T16), la precision de leur stockage.
         // « Prix Unitaire » (control) may carry more than two decimals: it is a reading, never stored.
-        const grammarValue = parseClipboardNumber(
-          rawCell,
-          field === "unit_price_ht" ? "money" : "quantity"
-        );
+        const grammarValue = field === "hourly_rate"
+          // A rate is read as money (« 40,00 € ») or, failing that, as a decimal (« 40,1234 »).
+          ? (parseClipboardNumber(rawCell, "money") ?? parseClipboardNumber(rawCell, "quantity"))
+          : parseClipboardNumber(rawCell, field === "unit_price_ht" ? "money" : "quantity");
         const storedParser = STORED_PRECISION_PARSERS[field];
         const parsedValue =
           grammarValue === null || grammarValue < 0 || !storedParser
             ? grammarValue
             : storedParser(rawCell);
+        if (field === "hourly_rate" && (parsedValue === null || parsedValue < 0)) {
+          // Never pasted: an unreadable rate chooses no role, it never refuses the line (2.8 review).
+          values.hourly_rate = null;
+          continue;
+        }
+
         if (parsedValue === null) {
           // Même message qu'en grille et dans les réglages (D11), précédé du champ refusé.
           reasons.push(`${FIELD_LABELS[field]} : ${NUMERIC_INPUT_ERROR}`);

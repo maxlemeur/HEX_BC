@@ -19,6 +19,8 @@ import {
   type EstimateVersionRow,
 } from "@/lib/estimates/editor-items";
 import { isRecord, toFiniteNumber } from "@/lib/estimates/editor-values";
+import { commitEstimateV3Operations, type EstimateV3EditorWriter } from "@/lib/estimates/v3-editor-writer";
+import { interpretClipboardRowForV3 } from "@/lib/estimates/v3-paste";
 
 const PASTE_CREATE_BATCH_MAX_OPERATIONS = 100;
 
@@ -56,10 +58,11 @@ type EstimateEditorPasteControllerInput = {
   ) => Promise<RecreatedItems>;
   reloadItems: () => Promise<void>;
   /**
-   * Lot 2, sous-lot 2.6 (revue, F26-31) : refus nommé du collage, avant toute écriture, tant que son contrat v3
-   * (unité du référentiel, heures par unité) n'est pas fixé ; absent en v1/v2.
+   * Lot 2, sous-lot 2.8, règle 2 (lève le refus F26-31 du 2.6) : sur une v3, les lignes collées portent leurs saisies
+   * v3 (unité du référentiel ou statut, heures par unité, rôle MO choisi dans l'aperçu) et passent par l'écrivain de lot,
+   * comme leur repositionnement et l'annulation du collage ; absent en v1/v2.
    */
-  unavailableMessage?: string | null;
+  v3Writer?: EstimateV3EditorWriter;
 };
 
 export function useEstimateEditorPasteController({
@@ -81,22 +84,51 @@ export function useEstimateEditorPasteController({
   pushHistoryCommand,
   recreateItemsFromSnapshots,
   reloadItems,
-  unavailableMessage = null,
+  v3Writer,
 }: EstimateEditorPasteControllerInput) {
+  // v1/v2 : routes directes (inchangées) ; v3 : un lot recalculé et vérifié (D12), dont le jeton de version est repris.
+  const reorderSiblings = useCallback(
+    async (versionId: string, parentId: string | null, orderedIds: string[]) => {
+      if (!v3Writer) return reorderEstimateItems(versionId, parentId, orderedIds);
+      const token = await commitEstimateV3Operations(versionId, getVersionSnapshot()?.updated_at ?? "",
+        [{ op: "reorder", data: { parent_id: parentId, ordered_ids: orderedIds } }],
+        "Impossible de repositionner les lignes collées.");
+      applyVersionToken(token.updated_at);
+    },
+    [applyVersionToken, getVersionSnapshot, v3Writer]
+  );
+  const deletePastedItems = useCallback(
+    async (versionId: string, itemIds: string[]) => {
+      if (!v3Writer) {
+        for (const itemId of itemIds) {
+          await deleteEstimateItem(versionId, itemId);
+        }
+        return;
+      }
+      // Un lot v3 porte au plus PASTE_CREATE_BATCH_MAX_OPERATIONS opérations, comme la création.
+      for (let start = 0; start < itemIds.length; start += PASTE_CREATE_BATCH_MAX_OPERATIONS) {
+        const token = await v3Writer.deleteItems(versionId, getVersionSnapshot()?.updated_at ?? "",
+          itemIds.slice(start, start + PASTE_CREATE_BATCH_MAX_OPERATIONS));
+        applyVersionToken(token.updated_at);
+      }
+    },
+    [applyVersionToken, getVersionSnapshot, v3Writer]
+  );
+
   const pasteRows = useCallback(
     async ({
       anchorRowId,
       rows,
+      laborRoleId = null,
     }: {
       anchorRowId: string | null;
       rows: ClipboardPreviewValues[];
+      laborRoleId?: string | null;
     }) => {
       if (isMutationBlocked) {
         reportError(mutationBlockedMessage);
         return;
       }
-      // L'aperçu du collage affiche le refus ; rien n'est écrit.
-      if (unavailableMessage) throw new Error(unavailableMessage);
       if (!(await ensureGroupedActionCanProceed("coller les lignes"))) return;
 
       const versionSnapshot = getVersionSnapshot();
@@ -146,6 +178,38 @@ export function useEstimateEditorPasteController({
           Math.max(toFiniteNumber(row.unit_price_ht, 0), 0) * 100
         );
         const kFo = Math.max(toFiniteNumber(row.k_fo, 1), 0);
+        const normalizedSupplyType = row.supply_type?.trim().toLowerCase();
+        const supplyTypeId = normalizedSupplyType
+          ? (supplyTypeIdByLowerName.get(normalizedSupplyType) ?? null)
+          : null;
+        if (v3Writer) {
+          // v3 : saisies seulement, jamais d'unité dans description, d'heures de ligne ni de projection (D4, D12).
+          const interpretation = interpretClipboardRowForV3(row);
+          if (!interpretation.ok) throw new Error(interpretation.reasons[0]);
+          const { unit_code, pricing_status, h_mo_per_unit } = interpretation.write;
+          const v3Payload: Record<string, unknown> = {
+            version_id: targetVersionId,
+            parent_id: targetParentId,
+            item_type: "line",
+            position: nextPosition++,
+            title: row.designation?.trim() || "Nouvelle ligne",
+            description: null,
+            quantity,
+            unit_price_ht_cents: unitPriceHtCents,
+            tax_rate_bp: settings.tax_rate_bp,
+            k_fo: kFo,
+            h_mo_majoration: Math.max(toFiniteNumber(row.h_mo_majoration, 1), 0),
+            k_mo: Math.max(toFiniteNumber(row.k_mo, 1), 0),
+            labor_role_id: (h_mo_per_unit ?? 0) > 0 ? laborRoleId : null,
+            category_id: null,
+            supply_type_id: supplyTypeId,
+            selected_supplier_price_id: null,
+            unit_code,
+            pricing_status,
+            h_mo_per_unit,
+          };
+          return v3Payload as EstimateItemInsertPayload;
+        }
         // Sub-lot 2.8 (P-16): a v1/v2 stores the line's hours; pasted hours per unit become h/u × Q.
         const hMo = row.h_mo_per_unit !== null && row.h_mo_per_unit !== undefined
           ? (computeLineHoursFromHoursPerUnit(quantity, Math.max(row.h_mo_per_unit, 0)) ?? 0)
@@ -181,7 +245,6 @@ export function useEstimateEditorPasteController({
             isLaborSplitEnabled,
           }
         );
-        const normalizedSupplyType = row.supply_type?.trim().toLowerCase();
         const payload: EstimateItemInsertPayload = {
           version_id: targetVersionId,
           parent_id: targetParentId,
@@ -199,9 +262,7 @@ export function useEstimateEditorPasteController({
           pu_ht_cents: lineValues.puHtCents,
           labor_role_id: null,
           category_id: null,
-          supply_type_id: normalizedSupplyType
-            ? (supplyTypeIdByLowerName.get(normalizedSupplyType) ?? null)
-            : null,
+          supply_type_id: supplyTypeId,
           selected_supplier_price_id: null,
           line_total_ht_cents: lineValues.saleLineCents,
           line_tax_cents: lineValues.taxLineCents,
@@ -318,7 +379,7 @@ export function useEstimateEditorPasteController({
 
       if (afterOrderedIds.join("|") !== currentOrderedIds.join("|")) {
         try {
-          await reorderEstimateItems(
+          await reorderSiblings(
             targetVersionId,
             targetParentId,
             afterOrderedIds
@@ -364,9 +425,7 @@ export function useEstimateEditorPasteController({
             previous.filter((item) => !idsToDelete.has(item.id))
           );
           try {
-            for (const itemId of currentInsertedIds) {
-              await deleteEstimateItem(currentVersion.id, itemId);
-            }
+            await deletePastedItems(currentVersion.id, currentInsertedIds);
             const survivingIds = new Set(
               undoSnapshot
                 .filter((item) => !idsToDelete.has(item.id))
@@ -376,7 +435,7 @@ export function useEstimateEditorPasteController({
               survivingIds.has(itemId)
             );
             if (restoredBeforeOrder.length > 0) {
-              await reorderEstimateItems(
+              await reorderSiblings(
                 currentVersion.id,
                 targetParentId,
                 restoredBeforeOrder
@@ -402,7 +461,9 @@ export function useEstimateEditorPasteController({
             setTotalsOutOfSync(false);
           } catch (error) {
             if (context && !context.isCurrentScope()) return;
-            setItems(undoSnapshot);
+            // v3 : un premier lot de suppressions a pu être enregistré ; la grille relit l'état enregistré.
+            if (v3Writer) await reloadItems();
+            else setItems(undoSnapshot);
             throw error;
           }
         },
@@ -423,7 +484,7 @@ export function useEstimateEditorPasteController({
             (item) => recreated.idMap.get(item.id) ?? item.id
           );
           try {
-            await reorderEstimateItems(
+            await reorderSiblings(
               currentVersion.id,
               targetParentId,
               remappedAfterOrder
@@ -454,6 +515,7 @@ export function useEstimateEditorPasteController({
     },
     [
       applyVersionToken,
+      deletePastedItems,
       ensureGroupedActionCanProceed,
       getItemsSnapshot,
       getVersionSnapshot,
@@ -464,6 +526,7 @@ export function useEstimateEditorPasteController({
       pushHistoryCommand,
       recreateItemsFromSnapshots,
       reloadItems,
+      reorderSiblings,
       reportError,
       resolveErrorMessage,
       setItems,
@@ -471,7 +534,7 @@ export function useEstimateEditorPasteController({
       settings,
       supplyTypeIdByLowerName,
       triggerVersionReload,
-      unavailableMessage,
+      v3Writer,
     ]
   );
 
