@@ -1529,6 +1529,10 @@ export function useEstimateEditorState({
         return;
       }
       if (!isCurrentSettingsSave()) return;
+      // The server repriced every line at these settings: an undo captured before would write
+      // back the lines, and on v1 the totals, of the previous ones.
+      clearUndoRedoHistory();
+      discardBulkSuggestUndo();
 
       const updatedVersion = saved.version;
       const mergedVersion = {
@@ -2201,6 +2205,7 @@ export function useEstimateEditorState({
     toggleAll: handleToggleAllBulkSuggestItems,
     applySelected: handleApplyBulkSuggest,
     undoLastApply: handleUndoBulkSuggest,
+    discardUndo: discardBulkSuggestUndo,
   } = suggestionsController.actions;
   const {
     preview: bulkSuggestPreview,

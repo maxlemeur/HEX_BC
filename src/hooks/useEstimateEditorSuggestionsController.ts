@@ -125,6 +125,8 @@ export type EstimateEditorSuggestionsController = {
     toggleAll: (checked: boolean) => void;
     applySelected: () => Promise<void>;
     undoLastApply: () => Promise<void>;
+    /** Drops the undo of the last apply, once a settings save has repriced its lines. */
+    discardUndo: () => void;
     resetScope: (versionId?: string) => boolean;
   };
   meta: {
@@ -1308,6 +1310,14 @@ export function useEstimateEditorSuggestionsController({
     setTotalsOutOfSync,
   ]);
 
+  // A settings save reprices every line on the server. The lines kept for the undo carry the
+  // amounts of the previous settings, which a v1 draft would store as sent.
+  const discardUndo = useCallback(() => {
+    setInteractiveState((previous) =>
+      previous.undoState ? { ...previous, undoState: null } : previous
+    );
+  }, []);
+
   return {
     state: {
       rules,
@@ -1334,6 +1344,7 @@ export function useEstimateEditorSuggestionsController({
       toggleAll,
       applySelected,
       undoLastApply,
+      discardUndo,
       resetScope,
     },
     meta: {
