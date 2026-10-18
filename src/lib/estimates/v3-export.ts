@@ -108,6 +108,29 @@ function rowWriter(sheet: Worksheet, currency: SupportedEstimateCurrency) {
   };
 }
 
+/**
+ * Ventilation atelier/chantier avec laquelle le document a été chiffré : drapeau du contexte de calcul (gel stocké, ou
+ * aperçu calculé au drapeau courant), jamais le drapeau courant d'un gel plus ancien.
+ */
+export function laborSplitEnabledOf(document: EstimateV3ExportDocument): boolean {
+  const context = document.version.calc_snapshot_context as { labor_split_enabled?: unknown } | null;
+  return context?.labor_split_enabled === true;
+}
+
+/**
+ * Ligne chiffrée avec la ventilation, au même déclenchement que le moteur 3 (`uses_split`) : drapeau du calcul et heures
+ * atelier ou chantier positives, rôle atelier ou chantier (son taux), ou K MO atelier ou chantier différent de 1.
+ * Aucun montant n'en dépend : il choisit les colonnes de main-d'oeuvre lues par l'export.
+ */
+export function usesEstimateV3LaborSplit(document: EstimateV3ExportDocument, item: EstimateItem): boolean {
+  const positive = (value: number | string | null | undefined) => Number(value ?? 0) > 0;
+  const notNeutral = (value: number | string | null | undefined) => value !== null && value !== undefined && Number(value) !== 1;
+  return laborSplitEnabledOf(document) && (
+    positive(item.h_mo_atelier_per_unit) || positive(item.h_mo_chantier_per_unit)
+    || Boolean(item.labor_role_atelier_id) || Boolean(item.labor_role_chantier_id)
+    || notNeutral(item.k_mo_atelier) || notNeutral(item.k_mo_chantier));
+}
+
 /** Source des montants exportés : gel du devis, ou aperçu d'un brouillon modifié depuis son gel (jamais présenté figé). */
 export function amountsSourceLabel(document: EstimateV3ExportDocument): string {
   return document.frozen ? "Gel du devis" : "Aperçu du brouillon (non figé)";

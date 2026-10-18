@@ -33,6 +33,7 @@ import {
   euros,
   footerEntries,
   loadEstimateV3ExportDocument,
+  usesEstimateV3LaborSplit,
   type EstimateV3ExportDocument,
 } from "@/lib/estimates/v3-export";
 import { ESTIMATE_VAT_REVERSE_CHARGE_NOTICE } from "@/lib/estimates/document-copy";
@@ -630,8 +631,10 @@ function buildBdcRows(input: {
  * Lot 2, sous-lot 2.7b (A10, D-a) : lignes BDC V1.1 d'une v3, lues dans le document v3 (gel, ou aperçu d'un brouillon
  * modifié depuis son gel), jamais recalculées par le moteur v1/v2 (D12). Unité du référentiel (`unit_code`), PR FO saisi,
  * K FO et K MO saisis, FO, MO (= brut − FO) et HT bruts du document ; « h MO » et « Taux horaire MO » restent vides (les
- * heures par unité et le statut vont dans les colonnes v3). Une ligne non chiffrée porte 0 € et son libellé de statut,
- * sans prix ni heures. Les prix fournisseurs sont ramenés à l'unité de la ligne (2.9).
+ * heures par unité et le statut vont dans les colonnes v3). Ligne ventilée au déclenchement du moteur
+ * (`usesEstimateV3LaborSplit` : drapeau du calcul, heures, rôle ou K MO atelier/chantier) : rôles « Atelier : … /
+ * Chantier : … », h/u additionnées et K MO pondéré par les heures, comme le BDC d'une v1/v2. Une ligne non chiffrée porte
+ * 0 € et son libellé de statut, sans prix ni heures. Les prix fournisseurs sont ramenés à l'unité de la ligne (2.9).
  */
 function buildBdcV3Rows(input: {
   document: EstimateV3ExportDocument;
@@ -639,7 +642,6 @@ function buildBdcV3Rows(input: {
   laborRoleNameById: Map<string, string>;
   categoryById: Map<string, string>;
   comparisonByItemId: Map<string, SupplierComparison>;
-  isLaborSplitEnabled: boolean;
 }): BdcExportRow[] {
   const { prepared } = input.document;
   const depths = depthsOf(input.document.items);
@@ -662,16 +664,19 @@ function buildBdcV3Rows(input: {
     }
     const line = prepared.v3.linesById[item.id];
     const priced = line.pricingStatus === "priced";
-    const split = input.isLaborSplitEnabled
-      && ((item.h_mo_atelier_per_unit ?? 0) > 0 || (item.h_mo_chantier_per_unit ?? 0) > 0);
+    const split = usesEstimateV3LaborSplit(input.document, item);
     const roleMo = split
       ? [item.labor_role_atelier_id ? `Atelier: ${roleName(item.labor_role_atelier_id, "Rôle atelier")}` : "",
         item.labor_role_chantier_id ? `Chantier: ${roleName(item.labor_role_chantier_id, "Rôle chantier")}` : ""]
         .filter(Boolean).join(" / ")
       : roleName(item.labor_role_id, "");
-    const hoursPerUnit = split
-      ? (item.h_mo_atelier_per_unit ?? 0) + (item.h_mo_chantier_per_unit ?? 0)
-      : (item.h_mo_per_unit ?? null);
+    const hoursAtelier = Number(item.h_mo_atelier_per_unit ?? 0);
+    const hoursChantier = Number(item.h_mo_chantier_per_unit ?? 0);
+    const hoursPerUnit = split ? hoursAtelier + hoursChantier : (item.h_mo_per_unit ?? null);
+    // Même K MO de ligne ventilée que le BDC v1/v2 (`resolveLaborCoefficient`) : pondéré par les heures, 1 sans heures.
+    const kMo = !split ? (item.k_mo ?? 1) : hoursAtelier + hoursChantier <= 0 ? 1
+      : (hoursAtelier * Number(item.k_mo_atelier ?? 1) + hoursChantier * Number(item.k_mo_chantier ?? 1))
+        / (hoursAtelier + hoursChantier);
     const comparison = input.comparisonByItemId.get(item.id);
     const [supplier1, supplier2, supplier3] = ([0, 1, 2] as const)
       .map((rank) => resolveSupplierByRank(comparison, rank, line.unitCode));
@@ -684,7 +689,7 @@ function buildBdcV3Rows(input: {
       prFoHtEur: priced ? euros(item.unit_price_ht_cents) : null,
       kFo: item.k_fo ?? 1,
       hMo: null,
-      kMo: item.k_mo ?? 1,
+      kMo,
       tauxHoraireMoEur: null,
       roleMo,
       categorie: item.category_id ? (input.categoryById.get(item.category_id) ?? "") : "",
@@ -908,7 +913,6 @@ async function buildBdcExportPayload(
         laborRoleNameById,
         categoryById,
         comparisonByItemId: new Map(v3Comparisons.map((comparison) => [comparison.item_id, comparison])),
-        isLaborSplitEnabled: details.is_labor_split_enabled ?? isLaborSplitEnabled,
       }),
       v3: { document },
     };

@@ -21,7 +21,9 @@ import {
   euros,
   footerEntries,
   loadEstimateV3ExportDocument,
+  laborSplitEnabledOf,
   rate,
+  usesEstimateV3LaborSplit,
   type EstimateV3ExportDocument,
 } from "@/lib/estimates/v3-export";
 
@@ -30,7 +32,9 @@ import {
  * (`loadEstimateV3ExportDocument`), comme les classeurs du 2.7. Aucun montant n'est calculé ici ni dans le navigateur :
  * PU et brut de ligne publiés, pied du document (brut, remise, arrondi commercial, HT net, TVA par taux, TTC). Unité du
  * référentiel (`unit_code`), heures par unité, statut ; une ligne non chiffrée porte le libellé de son statut au lieu
- * d'un prix (même convention que le DPGF v3 du 2.7). Le CSV d'une v1/v2 reste construit par l'éditeur
+ * d'un prix (même convention que le DPGF v3 du 2.7). Document chiffré avec la ventilation atelier/chantier : colonnes
+ * atelier et chantier ajoutées à la fin, comme le CSV v1/v2 ; sur une ligne ventilée (`uses_split` du moteur), h/u, rôle
+ * et K MO de la ligne, que le moteur ignore, restent vides. Le CSV d'une v1/v2 reste construit par l'éditeur
  * (`editor-export.ts`) : cette route le refuse par un 409 nommé. Même écriture que ce CSV (SheetJS, « ; », BOM UTF-8).
  */
 
@@ -39,10 +43,14 @@ export const ESTIMATE_CSV_EXPORT_V3_ONLY = "ESTIMATE_CSV_EXPORT_V3_ONLY";
 
 type CsvCell = string | number;
 
-export function estimateV3CsvHeader(currency: string): string[] {
+/** Colonnes atelier/chantier, ajoutées à la fin quand le document est chiffré avec la ventilation (comme en v1/v2). */
+const LABOR_SPLIT_HEADER = ["h MO atelier / unité", "Rôle MO atelier", "K MO atelier", "h MO chantier / unité", "Rôle MO chantier",
+  "K MO chantier"];
+
+export function estimateV3CsvHeader(currency: string, laborSplit = false): string[] {
   return ["Chemin chapitre", "Poste", "Désignation", "Unité", "Quantité", "Statut", `Prix unitaire HT (${currency})`, "Type FO",
     "Fournisseur 1", "Fournisseur 2", "Fournisseur 3", "K FO", "h MO / unité", MAJORATION_PERCENT_HEADER, "Rôle MO", "K MO",
-    `PU HT (${currency})`, `Total HT (${currency})`, "TVA (%)"];
+    `PU HT (${currency})`, `Total HT (${currency})`, "TVA (%)", ...(laborSplit ? LABOR_SPLIT_HEADER : [])];
 }
 
 /** Lignes du CSV v3 (en-tête, lignes du document, puis pied sous « Désignation » / « Total HT »). */
@@ -55,7 +63,9 @@ export function buildEstimateV3CsvRows(input: {
 }): CsvCell[][] {
   const { document } = input;
   const { prepared } = document;
-  const header = estimateV3CsvHeader(currencyOf(document));
+  const laborSplit = laborSplitEnabledOf(document);
+  const currency = currencyOf(document);
+  const header = estimateV3CsvHeader(currency, laborSplit);
   const byId = new Map(document.items.map((item) => [item.id, item]));
   const sectionPath = (parentId: string | null) => {
     const parts: string[] = [];
@@ -75,6 +85,8 @@ export function buildEstimateV3CsvRows(input: {
     const priced = line.pricingStatus === "priced";
     const status = ESTIMATE_V3_STATUS_DOCUMENT_LABELS[line.pricingStatus];
     const [supplier1, supplier2, supplier3] = input.supplierLabels(item.id, line.unitCode);
+    const split = usesEstimateV3LaborSplit(document, item);
+    const hours = (value: number | null | undefined) => (priced ? (value ?? "") : "");
     rows.push([
       sectionPath(item.parent_id),
       prepared.numberingById[item.id] ?? `${item.position}`,
@@ -88,16 +100,20 @@ export function buildEstimateV3CsvRows(input: {
       supplier2,
       supplier3,
       item.k_fo ?? 1,
-      priced ? (item.h_mo_per_unit ?? "") : "",
+      split ? "" : hours(item.h_mo_per_unit),
       priced ? majorationCoefficientToPercent(item.h_mo_majoration ?? 1) : "",
-      role(item.labor_role_id),
-      item.k_mo ?? 1,
+      split ? "" : role(item.labor_role_id),
+      split ? "" : (item.k_mo ?? 1),
       priced ? (euros(line.unitSaleHtCents) ?? "") : "",
       priced ? (euros(line.saleHtCents) ?? "") : status,
       rate(line.taxRateBp) ?? "",
+      ...(!laborSplit ? [] : split
+        ? [hours(item.h_mo_atelier_per_unit), role(item.labor_role_atelier_id), item.k_mo_atelier ?? 1,
+          hours(item.h_mo_chantier_per_unit), role(item.labor_role_chantier_id), item.k_mo_chantier ?? 1]
+        : ["", "", "", "", "", ""]),
     ]);
   }
-  const totalColumn = header.length - 2;
+  const totalColumn = header.indexOf(`Total HT (${currency})`);
   const footerRow = (label: string, value: CsvCell) =>
     header.map((_, index): CsvCell => (index === 2 ? label : index === totalColumn ? value : ""));
   rows.push([]);
