@@ -169,6 +169,37 @@ async function watchSendBlockedUnmount(browser: Ui["browser"]) {
     (window as unknown as { __sendBlockedUnmounted?: boolean }).__sendBlockedUnmounted ?? null);
 }
 
+// Records, frame by frame in the page, whether the undo is offered enabled until the probe is read.
+async function watchUndoEnabled(browser: Ui["browser"]) {
+  await browser.evaluate(() => {
+    const state = window as unknown as { __undoEnabled?: boolean; __undoWatch?: boolean };
+    state.__undoEnabled = false;
+    state.__undoWatch = true;
+    const selector = '[data-testid="estimate-editor-alert-undo-bulk-suggest-button"]';
+    const check = () => {
+      if (!state.__undoWatch) return;
+      const button = document.querySelector<HTMLButtonElement>(selector);
+      if (button && !button.disabled) state.__undoEnabled = true;
+      requestAnimationFrame(check);
+    };
+    check();
+    return null;
+  });
+  return () => browser.evaluate(() => {
+    const state = window as unknown as { __undoEnabled?: boolean; __undoWatch?: boolean };
+    state.__undoWatch = false;
+    return state.__undoEnabled ?? null;
+  });
+}
+
+// Lets the page commit what it has received before the journey moves on.
+async function settleFrames(browser: Ui["browser"], frames: number) {
+  await browser.evaluate((count) => new Promise<null>((resolve) => {
+    const step = (left: number) => (left <= 0 ? resolve(null) : requestAnimationFrame(() => step(left - 1)));
+    step(count);
+  }), frames);
+}
+
 async function suggestionJourney(
   ui: Ui, army: ArmyState, owner: DedicatedOwner, label: string,
   beforeApply?: (versionId: string) => Promise<void>,
@@ -251,47 +282,44 @@ armyTest(
       const sendBlocked = screen.getByTestId("estimate-editor-alert-send-blocked");
       // An undo offered before the apply has finished was ignored without a word.
       await expect(undo).toBeDisabled();
-      await feedback.release();
-      await expect(undo).toBeEnabled({ timeout: 30_000 });
-      // BT5: the undo stores its own totals. The manual save first brings the stored totals to the
-      // lines, so that a stale apply (BT4) cannot hide a stale undo.
-      await reconcileStoredTotals({ browser, screen }, army, { estimate: ids, step: "bulk-sync-s2-apply", expected: AT_K_FO_1_3 });
       // The fresh line keeps blocking anomalies: their alert sits above the undo. While the gating of
-      // the new token loads, it keeps its place. The press spans the gating answer: a remounted alert
-      // moved the button between mousedown and mouseup, and the click never reached it.
+      // the new token loads, it keeps its place.
       await expect(sendBlocked).toBeVisible();
       const sendBlockedUnmounted = await watchSendBlockedUnmount(browser);
-      // Centres: the pressed button is scaled by its active style, around its centre.
+      const undoEnabledDuringGating = await watchUndoEnabled(browser);
       const centre = async () => {
         const box = await undo.boundingBox();
         expect(box).not.toBeNull();
         return { x: Math.round(box!.x + box!.width / 2), y: Math.round(box!.y + box!.height / 2) };
       };
-      const pressed = await centre();
-      await browser.mouse.move(pressed.x, pressed.y);
-      await browser.mouse.down();
-      let released: Awaited<ReturnType<typeof centre>> | null = null;
-      try {
-        const gatingAnswer = browser.waitForResponse(`**/api/estimates/${ids.versionId}/gating`);
-        await gating.release();
-        expect((await gatingAnswer).status).toBe(200);
-        await expect(sendBlocked).toBeVisible();
-        // Two frames: the gating answer is committed before the button is measured again.
-        await browser.evaluate(() => new Promise<null>((resolve) =>
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)))));
-        released = await centre();
-      } finally {
-        await browser.mouse.up();
-      }
+      const before = await centre();
+      const feedbackAnswer = browser.waitForResponse(`**/api/estimates/${ids.versionId}/suggestion-rules/*/feedback`);
+      await feedback.release();
+      expect((await feedbackAnswer).status).toBe(200);
+      // The apply has ended; the gating of its token is still held. Its answer may add or remove the
+      // alert above the undo (blocked to sendable, review of #64), so a press across it could land
+      // on a moved button: the undo waits for that answer too.
+      await settleFrames(browser, 10);
+      const enabledDuringGating = await undoEnabledDuringGating();
+      const gatingAnswer = browser.waitForResponse(`**/api/estimates/${ids.versionId}/gating`);
+      await gating.release();
+      expect((await gatingAnswer).status).toBe(200);
+      await expect(undo).toBeEnabled({ timeout: 30_000 });
+      const after = await centre();
+      // BT5: the undo stores its own totals. The manual save first brings the stored totals to the
+      // lines, so that a stale apply (BT4) cannot hide a stale undo.
+      await reconcileStoredTotals({ browser, screen }, army, { estimate: ids, step: "bulk-sync-s2-apply", expected: AT_K_FO_1_3 });
+      await undo.click();
       try {
         await expect.poll(persistedKFo, { timeout: 30_000, interval: 500 }).toBe(1);
       } finally {
         await recordEvidence(army, "bulk-sync-s2-undo-press", {
-          versionId: ids.versionId, itemId: line.id, pressed, released,
+          versionId: ids.versionId, itemId: line.id, before, after, enabledDuringGating,
           sendBlockedUnmounted: await sendBlockedUnmounted(), kFo: (await persistedKFo()) ?? null,
         });
       }
-      expect(released).toEqual(pressed);
+      expect(enabledDuringGating, "undo enabled while the gating of the apply's token was loading").toBe(false);
+      expect(after).toEqual(before);
       expect(await sendBlockedUnmounted(), "send-blocked alert unmounted across the gating reload").toBe(false);
       await expectStoredTotals(browser, army, { estimate: ids, step: "bulk-sync-s2-undo", expected: AT_K_FO_1 });
       await expect(cell).toHaveValue("1");

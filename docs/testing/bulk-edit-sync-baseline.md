@@ -237,18 +237,26 @@ Deux fenêtres font perdre un clic sur un bouton proposé et actif, sans message
 
 | Défaillance observable | Scénario et oracle (S2 renforcé) |
 | --- | --- |
-| U1. « Annuler les suggestions » cliqué pendant la fin de l'application est ignoré | Le retour d'usage de la règle est retenu par le parcours ; le bouton doit être **désactivé** tant qu'il est retenu, puis actif une fois relâché. |
-| U2. Le rechargement des conditions d'envoi déplace l'annulation sous le pointeur | La lecture `GET …/gating` provoquée par le nouveau jeton de l'application est retenue ; l'alerte « anomalies bloquantes » reste visible, ne se démonte jamais (observateur dans la page) et le centre du bouton ne bouge pas. L'appui (`mouse.down`) précède la réponse, le relâchement (`mouse.up`) la suit ; l'annulation doit écrire `k_fo` 1. |
+| U1. « Annuler les suggestions » cliqué pendant la fin de l'application est ignoré | Le retour d'usage de la règle est retenu par le parcours ; le bouton doit être **désactivé** tant qu'il est retenu. |
+| U2. Le rechargement des conditions d'envoi déplace l'annulation sous le pointeur | La lecture `GET …/gating` provoquée par le nouveau jeton de l'application est retenue ; l'alerte « anomalies bloquantes » reste visible, ne se démonte jamais (observateur dans la page) et le centre du bouton ne bouge pas entre avant et après la réponse. |
+| U3. La réponse des conditions retire (ou ajoute) l'alerte pendant un appui | Relevé de la revue Codex de #64 : un passage de « bloqué » à « envoyable » démonte l'alerte au moment exact de la réponse. Le retour d'usage relâché et sa réponse reçue, la lecture des conditions reste retenue ; une sonde dans la page relève à chaque image si le bouton est actif. Il doit rester **désactivé** jusqu'à la réponse, puis devenir actif ; le clic écrit alors `k_fo` 1. |
 
 Le parcours retient ces deux requêtes (`holdNextRequest`, puis `fallback()`
 vers la route de la campagne) : il force la pire chronologie au lieu d'attendre
-qu'elle survienne. Preuve : `bulk-sync-s2-undo-press.json` (centres à l'appui et
-au relâchement, démontage de l'alerte, `k_fo`).
+qu'elle survienne. U3 ne dépend pas du sens du changement : tant que la lecture
+est en cours, aucun appui ne peut viser le bouton, que l'alerte reste, parte ou
+arrive. Preuve : `bulk-sync-s2-undo-press.json` (centres avant et après la
+réponse, bouton actif pendant la lecture, démontage de l'alerte, `k_fo`).
 
 ### Correction
 
 - `useEstimateEditorState.impl.tsx` : `isUndoBulkSuggestDisabled` vaut
-  `isSaveBlocked || isApplyingBulkSuggest`.
+  `isSaveBlocked || isApplyingBulkSuggest || isSendGatingRefreshing` (U3,
+  après la revue Codex de #64).
+- `useEstimateEditorStatusController.ts` : `meta.isSendGatingRefreshing` est
+  vrai tant que le préchargement d'un brouillon n'a pas répondu (succès ou
+  échec) pour sa clé courante, hors conditions déjà relues par l'envoi. Le
+  préchargement retient de nouveau sa clé à côté de la version.
 - `useEstimateEditorStatusController.ts` : le dernier résultat préchargé pour
   la même version reste affiché pendant la lecture du nouveau jeton (le
   préchargement retient la version, plus la clé de requête). Un brouillon d'une
@@ -293,7 +301,15 @@ Empreintes des fichiers finaux exécutés : parcours `e9d88fda…4332`, état de
 l'éditeur `2c905a18…4857`, contrôleur de statut `7da3f6ff…2979`, son test
 `344e5e47…a8e5`. Vitest des contrôleurs de statut et de suggestions 37/37 ;
 `tsc --noEmit`, ESLint `--max-warnings=0` des fichiers touchés et
-`git diff --check` sans erreur. `npm run verify:pr` complet n'a pas été lancé.
+`git diff --check` sans erreur. `npm run verify:pr` sur ces sources : exit 0.
+
+Suite de la revue Codex de #64 (U3), même clone, `npm run e2e:army:local --
+--grep '<motif>' --app-port 3127` :
+
+| Run | Sources | Résultat | `report.json` SHA-256 |
+| --- | --- | --- | --- |
+| `.e2e/army/ci/2026-10-18T17-10-20-368Z-critical` | parcours U3, code de `11534e34` | **rouge U3** : « undo enabled while the gating of the apply's token was loading: expected true to be false » | `a72539ad…6fe0` |
+| `.e2e/army/ci/2026-10-18T17-15-56-872Z-critical` (`--grep 'bulk edit sync'`, 2 workers) | parcours U3 + correction U3 | **8/8** ; S2 : bouton jamais actif pendant la lecture retenue, centre (1149, 394) inchangé, alerte jamais démontée, `k_fo` 1 ; pgTAP et matrice RLS verts | `99c456ac…3f4b` |
 
 Limites : la trace et la sonde de répétition (S2 ×6, horodatages des montages
 et des évènements pointeur) ne sont pas commitées. L'attribution des requêtes du

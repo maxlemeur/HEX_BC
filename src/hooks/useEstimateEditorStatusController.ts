@@ -36,6 +36,7 @@ type GatingScope = Omit<RouteScope, "operationGeneration">;
 
 type PreloadedGatingSnapshot = {
   versionId: string;
+  requestKey: string;
   value: EstimateSendGatingResponse | null;
 };
 
@@ -107,6 +108,8 @@ export type EstimateEditorStatusController = {
     canArchive: boolean;
     isStatusActionsDisabled: boolean;
     isSendBlockedForCurrentUser: boolean;
+    /** The draft's gating is read again after a write: the send-blocked alert may still change. */
+    isSendGatingRefreshing: boolean;
     sendWorkflowPhaseLabel: string | null;
   };
 };
@@ -216,6 +219,10 @@ export function useEstimateEditorStatusController({
       ? preloadedGatingSnapshot.value
       : null;
   const sendGating = workflowSendGating ?? preloadedSendGating;
+  const isSendGatingRefreshing =
+    preloadRequestKey !== null &&
+    workflowSendGating === null &&
+    preloadedGatingSnapshot?.requestKey !== preloadRequestKey;
 
   const activeRouteVersionIdRef = useRef(routeVersionId);
   const previousRouteVersionIdRef = useRef(routeVersionId);
@@ -326,6 +333,7 @@ export function useEstimateEditorStatusController({
           ...current,
           preloadedGatingSnapshot: {
             versionId: activeVersionId,
+            requestKey: preloadRequestKey,
             value: result,
           },
         }));
@@ -340,6 +348,7 @@ export function useEstimateEditorStatusController({
             ...current,
             preloadedGatingSnapshot: {
               versionId: activeVersionId,
+              requestKey: preloadRequestKey,
               value: null,
             },
           }));
@@ -869,6 +878,7 @@ export function useEstimateEditorStatusController({
         !sendGating.canSend &&
         hasKnownBlockingSendFlags &&
         !isAdmin,
+      isSendGatingRefreshing,
       sendWorkflowPhaseLabel: resolveWorkflowPhaseLabel(sendWorkflowPhase),
     }),
     [
@@ -876,6 +886,7 @@ export function useEstimateEditorStatusController({
       currentStatus,
       hasKnownBlockingSendFlags,
       isAdmin,
+      isSendGatingRefreshing,
       isStatusActionsDisabled,
       sendGating,
       sendWorkflowPhase,
