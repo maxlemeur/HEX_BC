@@ -1039,9 +1039,11 @@ consultatif, puis `delete` et `insert`) suit le rechargement de `checkpoint`
 (`engine-v3-editor-support.ts:512`), sans attendre le bail de la page rechargée. Cette page
 l'acquiert par un simple `insert` (`acquireLock`, `src/lib/estimates/locks.ts`), hors du verrou
 consultatif. Cause probable, non prouvée : cette acquisition s'insère entre le `delete` et
-l'`insert` de la reprise, d'où le 23505. Ni la PR #40 ni cette branche ne touchent ce parcours, ses
-aides, les verrous ou leur migration. Aucune attente ni relance n'est ajoutée ; le défaut est à
-suivre à part, comme V3E01.
+l'`insert` de la reprise, d'où le 23505. Ni la PR #40 ni cette branche ne touchent l'étape de
+reprise du bail, le code des verrous ou leur migration ; cette branche a seulement déplacé dans
+`dedicated-owner.ts` l'aide d'inscription du propriétaire qu'utilise V3E03, étape antérieure à la
+reprise et réussie. Aucune attente ni relance n'est ajoutée ; le défaut est à suivre à part, comme
+V3E01.
 
 Contrôles du clone WSL sur `be40ed54` (journaux `pr40-typecheck`, `pr40-eslint`, `pr40-vitest`) :
 
