@@ -3,6 +3,9 @@ import { expect } from "e2e";
 import { apiRequest, armyTest, createLineViaApi, ownEstimate, readEstimate, recordEvidence } from "../critical/fixtures";
 import { querySql } from "./calculation-gate-support";
 import { signUpDedicatedOwner } from "./dedicated-owner";
+import {
+  fillProjectStep, nextStep, openWizard, ownedProjectIdsNamed, readPricingStep, sentExpectation, sentVersion, submitWizard,
+} from "./engine-v3-creators-support";
 import { assertOwnedLocalBackend, inputValue, openSettings, type Envelope, type Ui } from "./engine-v3-editor-support";
 import { setTenantCalcPolicy, type V3Owner } from "./engine-v3-persistence-support";
 
@@ -14,9 +17,12 @@ import { setTenantCalcPolicy, type V3Owner } from "./engine-v3-persistence-suppo
 //          lieu d'échouer fermé avec CONTEXT_CHANGED, sans rien écrire (D3).
 //  F210-07 Une v2 dupliquée alors que son entreprise crée des v3 devient une v3, change un montant, ou sa source
 //          change (D17, P-15).
+//  F210-11 Sans ligne de politique, le défaut TS (ABSENT_TENANT_CALC_POLICY, lu par l'assistant, l'import, le modèle)
+//          diverge des replis SQL de M8 : l'assistant propose ou enregistre une v3 à d'autres coefficients que 1,30 / 1,20.
 // V3S01 est le rouge de M8 (absente → 2 avant la bascule). V3S02 est une garde : verte avant M8, elle doit le
-// rester après. Chaque parcours tourne sur son propre propriétaire (dedicated-owner.ts) : V3S01 sans ligne de
-// politique (le défaut d'une entreprise neuve), V3S02 en politique 2 explicite puis 3 par l'unique écrivain.
+// rester après. V3S01b (revue, ajouté après M8) couvre F210-11 par l'assistant. Chaque parcours tourne sur son
+// propre propriétaire (dedicated-owner.ts) : V3S01 et V3S01b sans ligne de politique (le défaut d'une entreprise
+// neuve), V3S02 en politique 2 explicite puis 3 par l'unique écrivain.
 const options = { session: "army", tags: ["critical", "local", "engine-v3"], timeout: 240_000 } as const;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const NEUTRAL_VERSION = {
@@ -121,6 +127,50 @@ armyTest("V3S01 without a policy row a new estimate is a v3 at the documented 1,
     const policyAfter = await policyState(owner);
     await recordEvidence(army, "v3s01-policy-after", { expected: policyBefore, actual: policyAfter });
     expect(policyAfter).toEqual(policyBefore);
+  });
+
+armyTest("V3S01b without a policy row the wizard offers, sends and stores the TS absent default 1,30 / 1,20 on a v3", options,
+  async ({ app, screen, browser, army }) => {
+    const ui: Ui = { app, screen, browser };
+    assertOwnedLocalBackend();
+    const dedicated = await signUpDedicatedOwner(browser, app.baseUrl!, army.runPrefix, { tag: "V3S01B", calcPolicy: "absent" });
+    const owner: V3Owner = { tenantId: dedicated.tenantId, userId: dedicated.userId };
+    await app.open("/dashboard/affaires");
+    const policyBefore = await policyState(owner);
+    expect(policyBefore).toEqual({ rows: 0, engine: null, events: 0 });
+
+    // F210-11: the pricing step is filled from the TS default the server page reads for an absent policy.
+    const projectName = `ARMY-L2-V3S01B-${army.runPrefix}`;
+    await openWizard(ui);
+    await fillProjectStep(ui, { projectName, title: `${army.runPrefix} V3S01b assistant` });
+    await nextStep(ui);
+    const offered = await readPricingStep(ui);
+    const expectedOffer = { saleCoefficientFo: "1,30", saleCoefficientMo: "1,20", marginControls: [], roundingOutsideV3: [] };
+    await recordEvidence(army, "v3s01b-offered", { owner, expected: expectedOffer, actual: offered });
+    expect(offered).toEqual(expectedOffer);
+    await nextStep(ui);
+    await expect(screen.getByRole("heading", "Import", { exact: true })).toBeVisible();
+
+    // The wizard always sends its coefficients: what is stored is the TS default, not the SQL fallback.
+    const outcome = await submitWizard(ui, army, "v3s01b", { trigger: "create", endpoint: "estimates" });
+    const sent = sentVersion(outcome) ?? {};
+    const projects = await ownedProjectIdsNamed(owner, projectName);
+    const stored = projects.length === 1 ? await storedVersions(projects[0]!) : [];
+    const observed = {
+      status: outcome.status, code: outcome.code, expectation: sentExpectation(outcome),
+      sent: [sent.sale_coefficient_fo ?? null, sent.sale_coefficient_mo ?? null], projects: projects.length,
+      stored: stored.map(({ engine, coefficients, totals }) => ({ engine, coefficients, totals })),
+      editorOpened: outcome.versionId !== null && outcome.versionId === stored[0]?.id,
+    };
+    const expected = {
+      status: 201, code: null, expectation: 3, sent: [1.3, 1.2], projects: 1,
+      stored: [{ engine: 3, coefficients: ["1.3000", "1.2000"], totals: [0, 0, 0] }], editorOpened: true,
+    };
+    await recordEvidence(army, "v3s01b-created", { owner, projectName, expected, actual: observed });
+    expect(observed, "SQL read: the wizard's v3 at the TS absent default, equal to the M8 fallback").toEqual(expected);
+
+    // F210-09: the creation wrote no policy row and no journal event.
+    expect(await policyState(owner)).toEqual(policyBefore);
   });
 
 armyTest("V3S02 guard: a v2 duplicated while its tenant creates engine 3 stays a v2 and its source is untouched", options,
