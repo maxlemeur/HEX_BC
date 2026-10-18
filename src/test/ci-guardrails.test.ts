@@ -696,6 +696,8 @@ describe("CI and local quality guardrails", () => {
     const suites = [
       { suite: "critical", file: ".github/workflows/e2e-army-critical.yml", output: "critical_shards", aggregate: "army-critical", name: "army-critical",
         unit: "army-critical-shard-${{ matrix.shard }}-evidence", pattern: "army-critical-shard-*-evidence", artifact: "army-critical-evidence" },
+      { suite: "takeoff", file: ".github/workflows/e2e-army-critical.yml", output: "takeoff_shards", aggregate: "army-takeoff", name: "army-takeoff",
+        unit: "army-takeoff-shard-${{ matrix.shard }}-evidence", pattern: "army-takeoff-shard-*-evidence", artifact: "army-takeoff-evidence" },
       { suite: "full", file: ".github/workflows/e2e-army-full.yml", output: "shards", aggregate: "army-full", name: fullName,
         unit: "army-full-shard-${{ matrix.shard }}-evidence", pattern: "army-full-*-evidence", artifact: "army-full-evidence" },
       { suite: "calc-v3", file: ".github/workflows/e2e-army-calc-v3.yml", output: "phases", aggregate: "army-calc-v3", name: "army-calc-v3",
@@ -706,7 +708,12 @@ describe("CI and local quality guardrails", () => {
       const jobs = workflowJobs(workflow);
       const { plan, units, development } = AGGREGATE_JOBS[suite];
       const needed = [plan, units, ...(development ? [development] : [])];
-      expect(Object.keys(jobs).sort(), file).toEqual([...needed, aggregate, ...(suite === "critical" ? ["army-takeoff"] : [])].sort());
+      // A workflow holds exactly the jobs of the suites it aggregates (critical and takeoff share one).
+      const fileJobs = suites.filter((other) => other.file === file).flatMap((other) => {
+        const jobsOf = AGGREGATE_JOBS[other.suite];
+        return [jobsOf.plan, jobsOf.units, ...(jobsOf.development ? [jobsOf.development] : []), other.aggregate];
+      });
+      expect(Object.keys(jobs).sort(), file).toEqual([...new Set(fileJobs)].sort());
 
       // The matrix is the plan job's output, and a red shard never cancels the others.
       expect(jobs[units], file).toMatch(new RegExp(`^ {4}needs: ${plan}$`, "mu"));
