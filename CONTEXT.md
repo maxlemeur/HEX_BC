@@ -7,15 +7,40 @@ fournitures et main-d’œuvre, ou main-d’œuvre seule. Elle détermine les ch
 obligatoires. Si des valeurs saisies contredisent cette nature, elles sont
 conservées mais la publication est bloquée jusqu’à correction.
 
+## Moteur de calcul
+
+Contrat qui calcule les montants d’une version de devis, épinglé sur la version
+(`calc_engine_version`). Depuis la bascule du lot 2 (sous-lot 2.10b), une
+nouvelle version est en moteur 3 ; les moteurs 1 et 2 sont historiques : les
+versions qui les portent les gardent, sans conversion.
+
+## Politique de calcul de l’entreprise
+
+Réglage par entreprise qui décide du moteur des nouvelles versions et de leurs
+coefficients de vente par défaut. Sans politique, le moteur 3 à 1,30 (FO) et
+1,20 (MO) ; une politique 2 explicite, posée par l’équipe avec un motif, garde
+le moteur 2 pour cette entreprise.
+
+## Coefficient de vente FO / MO
+
+En moteur 3, multiplicateurs de la version appliqués au déboursé des
+fournitures (FO) et à celui de la main-d’œuvre (MO) pour obtenir le prix de
+vente. Ils remplacent la marge, le coefficient global et les paliers des
+moteurs 1 et 2.
+
 ## Arrondi commercial
 
-Ajustement optionnel appliqué après le calcul HT et de la TVA. Il ne constitue
-pas de la TVA. Les sorties présentent séparément le TTC calculé, l’arrondi
-commercial et le montant final à payer.
+Ajustement optionnel du montant final. En moteur 3, c’est une remise HT qui
+ramène le total HT, après remise, au palier inférieur choisi ; la TVA est
+ensuite calculée par taux (P-06, avis de l’expert-comptable requis avant usage
+client réel). En moteurs 1 et 2, il est appliqué après le calcul HT et de la
+TVA et ne constitue pas de la TVA. Les sorties présentent séparément le TTC
+calculé, l’arrondi commercial et le montant final à payer.
 
 ## Montant à payer
 
-Montant contractuel final : total HT + TVA comptable + arrondi commercial.
+Montant contractuel final : total HT + TVA comptable + arrondi commercial
+(moteurs 1 et 2) ; en moteur 3, HT après remise et arrondi + TVA par taux.
 
 ## Seuil d’approbation
 

@@ -165,8 +165,11 @@ function createVersionContextBuilder(
   return builder;
 }
 
-// Lot 2, sous-lot 2.8: the tenant calc policy decides whether the import creates a v3 (null: engine 2).
-function createCalcPolicyBuilder(policy: { engine: number; fo: number; mo: number } | null = null) {
+// Lot 2, sous-lot 2.8: the tenant calc policy decides whether the import creates a v3. Since 2.10b (M8) an absent
+// policy means engine 3: the v2 cases run under the explicit policy 2 (D-i).
+function createCalcPolicyBuilder(
+  policy: { engine: number; fo: number | null; mo: number | null } | null = { engine: 2, fo: null, mo: null },
+) {
   const builder = {
     select: vi.fn(),
     eq: vi.fn(),

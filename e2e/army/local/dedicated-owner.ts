@@ -7,7 +7,11 @@ import { querySql } from "./calculation-gate-support";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-export type DedicatedOwner = { tenantId: string; userId: string; email: string; uiMode: "simplified" | "expert" };
+export type DedicatedOwner = {
+  tenantId: string; userId: string; email: string; uiMode: "simplified" | "expert";
+  /** Engine of the tenant's policy row, `null` without a row (lot 2, sub-lot 2.10b). */
+  calcPolicyEngine: 2 | null;
+};
 
 /**
  * A disposable owner for one journey on the owned loopback stack. The critical campaign shares one
@@ -17,9 +21,16 @@ export type DedicatedOwner = { tenantId: string; userId: string; email: string; 
  * personal tenant `ARMY <tag> <run>`, sets its UI mode as the native owner when asked, and swaps this
  * browser context's Supabase session cookies for it; the other contexts keep the campaign account.
  * The password never leaves this process and the session lives only in this context's cookies.
+ *
+ * Lot 2, sub-lot 2.10b (D-i, docs/testing/estimate-engine-v3-2.10.md): since M8 a tenant without a policy
+ * row creates engine 3. A dedicated owner is a v1/v2 owner unless its journey says otherwise: its tenant gets
+ * the explicit policy 2 (the per-tenant opt-out) from the policy's only writer, as service_role (P-13), before
+ * the journey's first creation. A v3 journey opens its own policy-3 window (setTenantCalcPolicy);
+ * `calcPolicy: "absent"` leaves the tenant without a row, the default of a new tenant (V3S01).
  */
 export async function signUpDedicatedOwner(
-  browser: Browser, appBaseUrl: string, runPrefix: string, role: { tag: string; uiMode?: "expert" },
+  browser: Browser, appBaseUrl: string, runPrefix: string,
+  role: { tag: string; uiMode?: "expert"; calcPolicy?: "absent" },
 ): Promise<DedicatedOwner> {
   const backend = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!);
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -60,13 +71,27 @@ BEGIN
 ${role.uiMode ? `  UPDATE public.profiles SET ui_mode = '${role.uiMode}' WHERE id = '${userId}';
   IF NOT FOUND THEN RAISE EXCEPTION 'The dedicated owner has no profile'; END IF;
 ` : ""}END ${tag};
-COMMIT;
+${role.calcPolicy === "absent" ? "" : `SET LOCAL ROLE service_role;
+SELECT public.set_tenant_calc_policy(
+  p_tenant_id => (SELECT m.tenant_id FROM public.tenant_memberships m WHERE m.user_id = '${userId}' AND m.role = 'admin' AND m.is_default),
+  p_new_estimate_calc_engine => 2::smallint, p_default_sale_coefficient_fo => NULL, p_default_sale_coefficient_mo => NULL,
+  p_allowed_tax_rates_bp => NULL, p_change_reason => 'ARMY ${role.tag} ${runPrefix}: dedicated v2 owner (2.10b D-i)',
+  p_actor_user_id => '${userId}'::uuid);
+RESET ROLE;
+`}COMMIT;
 SELECT jsonb_build_object(
   'tenants', (SELECT coalesce(jsonb_agg(m.tenant_id), '[]'::jsonb) FROM public.tenant_memberships m WHERE m.user_id = '${userId}'),
-  'uiMode', (SELECT p.ui_mode FROM public.profiles p WHERE p.id = '${userId}'));
+  'uiMode', (SELECT p.ui_mode FROM public.profiles p WHERE p.id = '${userId}'),
+  'calcPolicyEngine', (SELECT p.new_estimate_calc_engine FROM public.tenant_calc_policies p JOIN public.tenant_memberships m
+    ON m.tenant_id = p.tenant_id AND m.user_id = '${userId}'));
 `);
-  const { tenants, uiMode } = JSON.parse(output.at(-1) ?? "{}") as { tenants?: string[]; uiMode?: string };
+  const { tenants, uiMode, calcPolicyEngine } = JSON.parse(output.at(-1) ?? "{}") as {
+    tenants?: string[]; uiMode?: string; calcPolicyEngine?: number | null;
+  };
   if (tenants?.length !== 1 || !UUID.test(tenants[0])) throw new Error("The dedicated owner must have exactly one tenant.");
   if (uiMode !== (role.uiMode ?? "simplified")) throw new Error("The dedicated owner's UI mode differs from the requested one.");
-  return { tenantId: tenants[0], userId, email, uiMode };
+  if ((calcPolicyEngine ?? null) !== (role.calcPolicy === "absent" ? null : 2)) {
+    throw new Error("The dedicated owner's calc policy differs from the requested one.");
+  }
+  return { tenantId: tenants[0], userId, email, uiMode, calcPolicyEngine: role.calcPolicy === "absent" ? null : 2 };
 }

@@ -60,7 +60,7 @@ create temporary table v3_engine_literal_whitelist (
 insert into v3_engine_literal_whitelist (function_name, reason)
 values
   ('public.enforce_estimate_calc_engine_on_insert', 'contrats d''insertion : admission 1-3, coercition canonical_v2 -> 2, canonical_v3 et duplicate_source_v3 -> 3 (M4), legacy_v1 -> 1, refus de 3 hors de ces contrats et de la fixture'),
-  ('public.persist_estimate_creation_atomic', 'création canonique (M4) : moteur attendu du client dans 1-3, comparé à la politique (absente = 2), contrat canonical_v3 sous politique 3'),
+  ('public.persist_estimate_creation_atomic', 'création canonique (M4) : moteur attendu du client dans 1-3, comparé à la politique (absente = 3 depuis M8, sous-lot 2.10b), contrat canonical_v3 sous politique 3'),
   ('public.list_approval_queue', 'marge v1 lue en margin_bp (texte = 1 conservé) ; v3 : marque nette d''un gel v3 frais, sinon NULL (M4)'),
   ('public.estimate_offer_client_items_match', 'branche v1/v2 inchangée ; faux pour tout moteur hors {1,2} depuis M1'),
   ('public.require_fresh_v2_snapshot_for_publication', 'gouvernance de fraîcheur v2 héritée par la v3 (in (2, 3), invoker) ; v3 : bruts figés complets et Σ bruts = brut de version ; refus M1 ESTIMATE_V3_EMISSION_NOT_READY retiré en M5'),
@@ -293,9 +293,17 @@ select is(
   'F-SQL-02 the duplicate_source insertion contract cannot produce engine 3'
 );
 
+-- Sub-lot 2.10b (D-i): since M8 an absent policy means engine 3, so the policy 2 of this guard is explicit
+-- (written inside the probe, rolled back with it).
 select is(
   pg_temp.v3_probe(array[
     'set local role service_role',
+    $s$select public.set_tenant_calc_policy(
+         p_tenant_id => (select tenant_id from public.estimate_projects where id = 'a3210000-0000-4000-8000-000000000010'),
+         p_new_estimate_calc_engine => 2::smallint, p_default_sale_coefficient_fo => null,
+         p_default_sale_coefficient_mo => null, p_allowed_tax_rates_bp => null,
+         p_change_reason => 'Fixture: politique 2 explicite (2.10b)',
+         p_actor_user_id => 'a3210000-0000-4000-8000-000000000001')$s$,
     $s$select public.persist_estimate_creation_atomic(
          (select tenant_id from public.estimate_projects where id = 'a3210000-0000-4000-8000-000000000010'),
          'a3210000-0000-4000-8000-000000000001',
@@ -307,7 +315,7 @@ select is(
        )$s$
   ]),
   '40001 ESTIMATE_CALC_POLICY_CONTEXT_CHANGED',
-  'F-SQL-02 without a policy at engine 3, the canonical creation RPC refuses a client expecting engine 3 (M4)'
+  'F-SQL-02 under a policy at engine 2, the canonical creation RPC refuses a client expecting engine 3 (M4)'
 );
 
 select is(

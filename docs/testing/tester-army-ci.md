@@ -879,6 +879,18 @@ confidentialité du runner.
   huit builds par nuit : ce coût n'est pas encore mesuré (premier run : celui de
   la PR #45), pas plus que la nuit, qui n'existe qu'après la fusion sur `main`.
 
+## Politique de calcul de l'entreprise de recette (sous-lot 2.10b)
+
+Depuis la bascule du lot 2 (M8), une entreprise sans ligne de politique crée ses nouvelles versions en
+moteur 3. Les parcours de la campagne sont des parcours v1/v2 (pilote A : 91 échecs sur 176 dès la première
+création sous une politique 3). Le lanceur pose donc, après le provisionnement, la **politique 2 explicite**
+de l'entreprise de recette par `set_tenant_calc_policy` (`service_role`), et l'inscrit dans
+`manifest.fixtures.tenantCalcPolicy` ; les acteurs calc-v3 et les propriétaires dédiés font de même. Un
+parcours du moteur 3 tourne sur son propriétaire dédié et y ouvre sa politique 3. Pilotes seulement (`critical`
+et `full`) : `--tenant-calc-engine 3` (politique 3, 1,30 / 1,20) ou `--tenant-calc-engine absent` (aucune ligne,
+le défaut d'une entreprise neuve). Décision D-l, à ratifier par le porteur :
+[estimate-engine-v3-2.10.md](estimate-engine-v3-2.10.md) §2, §5.
+
 ## Contrat défini avant migration
 
 Les anciens workflows Playwright critical/nightly sont remplacés par TesterArmy

@@ -30,7 +30,8 @@ import { grid, releaseVersion, switchToExpertMode, waitForDraftLease } from "./e
 //  F12     Le métré d'une v3 est lancé, puis refusé à l'application seulement.
 //  F13     La structure IA d'une v3 s'ouvre, puis est refusée à la génération.
 //  F14     L'évolution de la marge retire les v3 sans le dire.
-//  F15     Gardes : sous une politique absente, chaque créateur rend la même v2 qu'aujourd'hui.
+//  F15     Gardes : sous une politique 2 explicite (retrait par entreprise depuis M8, 2.10b), chaque créateur
+//          rend la même v2 qu'avant la bascule.
 // Revue (§9) :
 //  R1      Le métré lancé depuis une source v3 copie d'abord cette source (P-15), puis la copie est refusée.
 //  R2      Les refus nommés de M6 et les heures atelier / chantier n'ont aucune preuve sur le chemin de création.
@@ -51,7 +52,7 @@ function createdOf(versions: StoredVersion[], outcome: WizardOutcome | { version
   return versions.find((version) => version.id === outcome.versionId) ?? null;
 }
 
-/** v2 settings that a creator must keep unchanged under an absent policy (F15). */
+/** v2 settings that a creator must keep unchanged under an explicit policy 2 (F15). */
 function v2Settings(version: StoredVersion | null) {
   return version ? {
     engine: version.engine, coefficients: [version.fo, version.mo],
@@ -610,9 +611,9 @@ armyTest("V3C14 the hub margin card names a blank v3 without a section as unavai
     }
   });
 
-/* ---------- F15 : gardes sous une politique absente ---------- */
+/* ---------- F15 : gardes sous une politique 2 explicite (depuis M8, une politique absente vaut 3) ---------- */
 
-armyTest("V3C11 guard: under an absent policy the wizard (margin, tiers, quick) and the onboarding still create today's v2", options,
+armyTest("V3C11 guard: under an explicit policy 2 the wizard (margin, tiers, quick) and the onboarding still create today's v2", options,
   async ({ app, screen, browser, army }) => {
     const ui: Ui = { app, screen, browser };
     const owner = await signUpCreatorOwner(ui, army);
@@ -658,7 +659,8 @@ armyTest("V3C11 guard: under an absent policy the wizard (margin, tiers, quick) 
       policyAfter: await policySnapshot(owner),
     };
     await recordEvidence(army, "v3c11", { owner, policyBefore, versions, onboardingVersions, observed });
-    expect(policyBefore).toBeNull();
+    // Sub-lot 2.10b (D-i): the dedicated owner holds the explicit policy 2, the per-tenant opt-out of M8.
+    expect(policyBefore).toMatchObject({ engine: 2, fo: null, mo: null, events: 1 });
     expect(observed).toEqual({
       statuses: [201, 201, 201], expectations: [true, true, true],
       margin: { engine: 2, coefficients: [null, null], margin: ["fixed", 1.15, 1500], global: 1, discount: ["simple", []], rounding: ["down", 10000] },
@@ -666,11 +668,11 @@ armyTest("V3C11 guard: under an absent policy the wizard (margin, tiers, quick) 
       tiered: { engine: 2, coefficients: [null, null], margin: ["tiered", 1.15, 1500], global: 1, discount: ["simple", []], rounding: ["none", 10000] },
       quickInheritsTiered: true,
       onboarding: { engine: 2, coefficients: [null, null], margin: ["fixed", 1, 0], global: 1, discount: ["simple", []], rounding: ["none", 1] },
-      policyAfter: null,
+      policyAfter: policyBefore,
     });
   });
 
-armyTest("V3C12 guard: under an absent policy the wizard from a v2 template and from a linked DPGF still create today's v2", options,
+armyTest("V3C12 guard: under an explicit policy 2 the wizard from a v2 template and from a linked DPGF still create today's v2", options,
   async ({ app, screen, browser, army }) => {
     const ui: Ui = { app, screen, browser };
     const owner = await signUpCreatorOwner(ui, army);
@@ -725,7 +727,8 @@ armyTest("V3C12 guard: under an absent policy the wizard from a v2 template and 
     };
     await recordEvidence(army, "v3c12", { owner, policyBefore, sourceVersion, sourceFacts, templateFacts, linked, dpgfFacts, observed });
     const titles = templateLines(army);
-    expect(policyBefore).toBeNull();
+    // Sub-lot 2.10b (D-i): the dedicated owner holds the explicit policy 2, the per-tenant opt-out of M8.
+    expect(policyBefore).toMatchObject({ engine: 2, fo: null, mo: null, events: 1 });
     expect(observed).toEqual({
       statuses: [201, 201], expectations: [true, true],
       template: v2Settings(sourceVersion ?? null),
@@ -735,7 +738,7 @@ armyTest("V3C12 guard: under an absent policy the wizard from a v2 template and 
       dpgf: { engine: 2, coefficients: [null, null], margin: ["fixed", 1, 0], global: 1, discount: ["simple", []], rounding: ["none", 1] },
       dpgfLines: [[linked.lines.robinet, "u", null, 1, 6500, 6500, 6500, 1300], [linked.lines.tube, "m", null, 2, 1250, 1250, 2500, 500]],
       dpgfTotals: [9000, 1800, 10800],
-      policyAfter: null,
+      policyAfter: policyBefore,
     });
   });
 

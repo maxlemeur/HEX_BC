@@ -97,6 +97,25 @@ select
 from public.tenant_memberships as owner_membership
 where owner_membership.user_id = '71000000-0000-4000-8000-000000000001';
 
+-- Lot 2, sub-lot 2.10b (D-i): this suite governs engine 2. Since M8 a tenant without a policy row creates
+-- engine 3, so every fixture tenant gets the explicit policy 2 (the per-tenant opt-out) through its only writer.
+select public.set_tenant_calc_policy(
+  p_tenant_id => tenant.id, p_new_estimate_calc_engine => 2::smallint,
+  p_default_sale_coefficient_fo => null, p_default_sale_coefficient_mo => null, p_allowed_tax_rates_bp => null,
+  p_change_reason => 'Fixture: sujet v2 (2.10b)', p_actor_user_id => tenant.created_by
+)
+from public.tenants as tenant
+where tenant.id in (
+  select membership.tenant_id
+  from public.tenant_memberships as membership
+  where membership.user_id in (
+    '71000000-0000-4000-8000-000000000001',
+    '71000000-0000-4000-8000-000000000002',
+    '71000000-0000-4000-8000-000000000003'
+  )
+)
+order by tenant.id;
+
 insert into public.estimate_projects (
   id,
   tenant_id,

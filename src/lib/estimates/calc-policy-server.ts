@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { NEW_ESTIMATE_CALC_ENGINE_VERSION } from "@/lib/estimates/calc-engine-version";
 import { conflict, internalError, mapSupabaseError, type SupabaseErrorLike } from "@/lib/estimates/errors";
 import type { Database } from "@/types/database";
 
@@ -10,7 +11,8 @@ import type { Database } from "@/types/database";
  *
  * La politique dit quel moteur reçoivent les nouvelles versions ; elle n'est écrite que par
  * `public.set_tenant_calc_policy` (service_role, lot 2) et lue ici avec le client de l'utilisateur
- * (RLS : lecture par les membres). Une politique absente vaut moteur 2 jusqu'à la bascule (2.10).
+ * (RLS : lecture par les membres). Depuis la bascule (sous-lot 2.10b, M8), une politique absente vaut le
+ * moteur 3 aux coefficients 1,30 / 1,20 ; une ligne de politique 2 explicite garde le moteur 2.
  * La décision finale appartient à `persist_estimate_creation_atomic`, qui relit la politique
  * `FOR SHARE` : la lecture TS ne sert qu'à échouer tôt et à connaître les coefficients par défaut.
  */
@@ -30,11 +32,15 @@ export type TenantCalcPolicy = {
 /** Taux de la proposition validée pour le développement (D8, P-07), défaut de la colonne. */
 export const DEFAULT_ALLOWED_TAX_RATES_BP: readonly number[] = [2000, 1000, 550, 210];
 
-/** Politique absente : moteur 2, sans coefficients (D3). */
+/**
+ * Politique absente (D3, P-02, P-07) : moteur 3, coefficients de vente 1,30 (FO) et 1,20 (MO), quatre taux.
+ * Seul défaut TS ; il doit rester égal aux replis de `persist_estimate_creation_atomic` posés par M8
+ * (`supabase/migrations/*_estimate_engine_v3_default.sql`), que la base applique seule sous verrou.
+ */
 export const ABSENT_TENANT_CALC_POLICY: TenantCalcPolicy = {
-  engine: 2,
-  defaultSaleCoefficientFo: null,
-  defaultSaleCoefficientMo: null,
+  engine: NEW_ESTIMATE_CALC_ENGINE_VERSION,
+  defaultSaleCoefficientFo: 1.3,
+  defaultSaleCoefficientMo: 1.2,
   allowedTaxRatesBp: DEFAULT_ALLOWED_TAX_RATES_BP,
 };
 

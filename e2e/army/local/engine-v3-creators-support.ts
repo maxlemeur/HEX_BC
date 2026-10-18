@@ -43,7 +43,7 @@ export const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve
 
 /* ---------- Propriétaire, politique ---------- */
 
-/** A disposable owner on the owned loopback stack, its personal ARMY tenant at an absent policy. */
+/** A disposable owner on the owned loopback stack, its personal ARMY tenant at the explicit policy 2 (2.10b D-i). */
 export async function signUpCreatorOwner(ui: Ui, army: ArmyState): Promise<V3Owner> {
   const dedicated = await signUpDedicatedV3Owner(ui.browser, ui.app.baseUrl!, army.runPrefix);
   await ui.app.open("/dashboard/affaires");
@@ -197,7 +197,7 @@ export async function takeLease(browser: Browser, versionId: string) {
   expect([200, 201]).toContain(lease.status);
 }
 
-/** A v2 affaire created by the API under the absent policy (the anchor of the journeys). */
+/** A v2 affaire created by the API under the explicit policy 2 (the anchor of the journeys). */
 export async function createV2Affaire(ui: Ui, army: ArmyState, projectName: string, version: Record<string, unknown> = {}) {
   const created = await createVersion(ui, { project: { name: projectName }, version: { ...NEUTRAL_VERSION, title: `${army.runPrefix} ancre v2`, ...version } });
   expect([created.status, created.body.ok, created.body.data?.version?.calc_engine_version]).toEqual([201, true, 2]);
@@ -206,7 +206,7 @@ export async function createV2Affaire(ui: Ui, army: ArmyState, projectName: stri
   return ids;
 }
 
-/** One more v2 version in the affaire, under the absent policy. */
+/** One more v2 version in the affaire, under the explicit policy 2. */
 export async function createV2Version(ui: Ui, army: ArmyState, projectId: string, title: string, version: Record<string, unknown> = {}) {
   const created = await createVersion(ui, { project_id: projectId, version: { ...NEUTRAL_VERSION, title, ...version } });
   expect([created.status, created.body.ok, created.body.data?.version?.calc_engine_version]).toEqual([201, true, 2]);

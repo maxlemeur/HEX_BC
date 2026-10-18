@@ -28,6 +28,11 @@ select set_config('test.tenant_id',
 insert into public.estimate_projects (id, tenant_id, user_id, name) values
   ('28100000-0000-4000-8000-000000000010', current_setting('test.tenant_id')::uuid,
    '28100000-0000-4000-8000-000000000001', 'EC28 affaire');
+-- Lot 2, sub-lot 2.10b (D-i): the reference cases are engine 2. Since M8 a tenant without a policy row creates
+-- engine 3, so the tenant starts at the explicit policy 2 (the per-tenant opt-out); the v3 case below moves it to 3.
+select public.set_tenant_calc_policy(p_tenant_id => current_setting('test.tenant_id')::uuid,
+  p_new_estimate_calc_engine => 2::smallint, p_default_sale_coefficient_fo => null, p_default_sale_coefficient_mo => null,
+  p_allowed_tax_rates_bp => null, p_change_reason => 'EC28 v2 (2.10b)', p_actor_user_id => '28100000-0000-4000-8000-000000000001');
 
 create temporary table ec28_outcome (case_name text primary key, outcome text) on commit drop;
 grant all on ec28_outcome to service_role, authenticated;

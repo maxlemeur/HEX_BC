@@ -83,6 +83,11 @@ la politique → **2.6** éditeur → **2.7** document et émission → **2.8** 
 Tant que la politique d'entreprise reste au moteur 2, aucun sous-lot de 2.1 à 2.9 ne change un montant v1/v2.
 Tout chemin v3 non encore livré refuse avec une erreur nommée.
 
+**Statut au 18/10/2026.** 2.10 est découpé en 2.10a (créateurs prêts pour le moteur 3) et 2.10b (pilote puis
+bascule, M8). 2.10b fusionne **en dernier**, après 2.7, 2.6b, 2.7b, 2.8b et 2.10a ; sa M8 est réhorodatée à la
+fusion. Décisions D-a à D-k, approbation de M8 par le porteur (18/10/2026) et pilote A :
+`docs/testing/estimate-engine-v3-2.10.md`.
+
 ---
 
 ## 1. Faits vérifiés dans le code (ils corrigent les trois propositions)
@@ -190,7 +195,7 @@ refus. Le premier ne prouve pas la protection ; le second fait copier de très g
 
 ### D3 — Activation par une politique d'entreprise typée
 
-- Table `public.tenant_calc_policies`, décrite au §6.3. Une ligne absente vaut moteur 2 jusqu'à la bascule.
+- Table `public.tenant_calc_policies`, décrite au §6.3. Une ligne absente vaut moteur 2 jusqu'à la bascule, moteur 3 (1,30 / 1,20) depuis M8 (2.10b) ; une ligne 2 explicite garde le moteur 2.
   La table contient le moteur des nouvelles versions, les coefficients de vente par défaut, les taux de TVA
   autorisés, le motif, l'auteur et la date. Un journal `tenant_calc_policy_events` l'accompagne.
 - Écriture uniquement par `public.set_tenant_calc_policy` (`security definer`), **exécutable par
@@ -878,7 +883,7 @@ et `coalesce(…, 1) = 2`. Toute nouvelle comparaison exige donc une revue expli
 
 | Fichier:lignes | Changement | Sous-lot |
 |---|---|---|
-| `src/lib/estimates/calc-engine-version.ts:28-37`, `:45-90` | `resolveCalcEngineVersion` : 3 lève, 4 et plus lèvent, le reste ne change pas ; `hasFreshEstimateV2Snapshot` et `shouldPreserveStoredEstimateV2Snapshot` passent par `engineFreezesSnapshot` (résultat identique pour 1 et 2). `NEW_ESTIMATE_CALC_ENGINE_VERSION` reste 2 jusqu'en 2.10. | 2.1 |
+| `src/lib/estimates/calc-engine-version.ts:28-37`, `:45-90` | `resolveCalcEngineVersion` : 3 lève, 4 et plus lèvent, le reste ne change pas ; `hasFreshEstimateV2Snapshot` et `shouldPreserveStoredEstimateV2Snapshot` passent par `engineFreezesSnapshot` (résultat identique pour 1 et 2). `NEW_ESTIMATE_CALC_ENGINE_VERSION` reste 2 jusqu'en 2.10 (2.10b : 3, typé `EstimateEngineVersion`, moteur d'une politique absente ; la préparation v2 garde sa constante 2). | 2.1 |
 | `calc-engine-version.test.ts:23` | « 3 → lève `EstimateEngineUnavailableError` » ; ajout de 4 → erreur | 2.1 |
 | Les 49 sites de l'annexe A (hors moteur historique) | Prédicat ou aiguillage exhaustif ; branche v3 = `EstimateEngineUnavailableError` jusqu'au sous-lot qui l'implémente | 2.1, puis 2.5 à 2.8 |
 | `eslint.config.mjs:107-126` | Sélecteur `no-restricted-syntax`, à ajouter aux deux blocs (celui de `src/app/api/**` remplace les options de celui de `src/**`), sur toute `BinaryExpression` `===`, `!==`, `==` ou `!=` entre un littéral 1, 2 ou 3 et `calcEngineVersion`, `engine`, `*.calc_engine_version`, `*.calcEngineVersion` ou `resolveCalcEngineVersion(…)`. Exemptés : `calc-engine-version.ts`, `engine/**`, `engine-v3/**`, `estimate-calculations.ts`, `estimate-v2-snapshot.ts`. | 2.1 |
@@ -1090,6 +1095,11 @@ aucun sous-lot n'est plus bloqué par une décision ★. L'avis de l'expert-comp
 avant tout usage client réel, pas avant le développement. Les 14 arbitrages du rapport d'audit (§6 du rapport,
 `docs/audit-independant-2026-10-14/rapport-audit-independant.pdf`) sont eux aussi validés tels que proposés par
 l'auditeur (registre : colonne `decision_porteur` de `registre-audit.csv`).
+
+**Décisions du 18/10/2026 (sous-lot 2.10)** : la migration M8 (politique absente = moteur 3) est **approuvée par
+le porteur** ; D-a à D-k sont prises par le coordinateur sous délégation explicite du porteur. Texte, portée et
+suites : `docs/testing/estimate-engine-v3-2.10.md` §2. Cette approbation n'autorise ni l'application de M8 au
+Supabase partagé ni un déploiement (autorisations distinctes, §10 du cahier 2.10).
 
 | Id | Question | Proposition | Avant | Statut |
 |---|---|---|---|---|
@@ -1594,6 +1604,10 @@ migration distante sans autorisation explicite.
 
 ### 2.10 — Pilote puis bascule
 
+- **Statut (18/10/2026)** : découpé en 2.10a (créateurs prêts pour le moteur 3, PR #57) et 2.10b (pilote A,
+  M8, défauts TS, documentation ; fusion en dernier). Pilote A, triage et preuves :
+  `docs/testing/estimate-engine-v3-2.10.md`. Écart proposé au porteur (D-l) : l'entreprise de recette de la
+  campagne est posée en politique 2 explicite, les parcours v3 tournent sur des propriétaires dédiés.
 - **Périmètre** :
   - pilote : `set_tenant_calc_policy` à 3 pour l'entreprise de recette locale (recréée à chaque
     exécution par `scripts/run-tester-army-ci.ts`, dont la préparation pose alors la politique), campagne E2E

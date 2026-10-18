@@ -24033,7 +24033,7 @@
                         "const": 3
                       }
                     ],
-                    "description": "Moteur de calcul attendu par le client (absent = 2). S'il diffère de la politique de l'entreprise, la création est refusée en 409 CONTEXT_CHANGED sans rien écrire."
+                    "description": "Moteur de calcul attendu par le client (absent = 2). S'il diffère de la politique de l'entreprise, la création est refusée en 409 CONTEXT_CHANGED sans rien écrire. Depuis la bascule (sous-lot 2.10b, M8), une entreprise sans politique crée en moteur 3 aux coefficients de vente 1,30 (FO) et 1,20 (MO) : un client sans attente y reçoit ce 409 ; une politique 2 explicite garde le moteur 2."
                   },
                   "sale_coefficient_fo": {
                     "type": "number",
@@ -54229,7 +54229,7 @@
                     "const": 3
                   }
                 ],
-                "description": "Moteur de calcul attendu par le client (absent = 2). S'il diffère de la politique de l'entreprise, la création est refusée en 409 CONTEXT_CHANGED sans rien écrire."
+                "description": "Moteur de calcul attendu par le client (absent = 2). S'il diffère de la politique de l'entreprise, la création est refusée en 409 CONTEXT_CHANGED sans rien écrire. Depuis la bascule (sous-lot 2.10b, M8), une entreprise sans politique crée en moteur 3 aux coefficients de vente 1,30 (FO) et 1,20 (MO) : un client sans attente y reçoit ce 409 ; une politique 2 explicite garde le moteur 2."
               }
             }
           },
