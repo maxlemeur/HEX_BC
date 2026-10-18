@@ -182,6 +182,22 @@ function createTrackResult(
   };
 }
 
+// Stands for the editor's persisted-totals calculation: the sums of the rows it receives, so that
+// a call on the wrong rows sends wrong totals.
+function totalsOf(rows: EditorEstimateItem[]) {
+  const lines = rows.filter((row) => row.item_type === "line");
+  const sum = (
+    key: "line_total_ht_cents" | "line_tax_cents" | "line_total_ttc_cents"
+  ) => lines.reduce((total, row) => total + (row[key] ?? 0), 0);
+  return {
+    total_ht_cents: sum("line_total_ht_cents"),
+    total_tax_cents: sum("line_tax_cents"),
+    total_ttc_cents: sum("line_total_ttc_cents"),
+  };
+}
+// One line as normalizeLine leaves it (1440, 288, 1728), one line as created (1000, 200, 1200).
+const ONE_NORMALIZED = { total_ht_cents: 1440, total_tax_cents: 288, total_ttc_cents: 1728 };
+
 function createBulkResult(
   updatedAt: string,
   updatedCount = 1,
@@ -239,6 +255,7 @@ function createHarness(input?: {
     if (version) version = { ...version, updated_at: updatedAt };
   });
   const handleVersionConflict = vi.fn().mockReturnValue(false);
+  const computeVersionTotalsPatch = vi.fn(totalsOf);
   const categories: EstimateCategory[] = [];
 
   const rendered = renderHook(
@@ -261,6 +278,7 @@ function createHarness(input?: {
         reportError,
         resolveErrorMessage,
         ensureGroupedActionCanProceed,
+        computeVersionTotalsPatch,
         applyVersionToken,
         markItemsSynced: vi.fn(),
         handleVersionConflict,
@@ -289,6 +307,7 @@ function createHarness(input?: {
     reportError,
     resolveErrorMessage,
     ensureGroupedActionCanProceed,
+    computeVersionTotalsPatch,
     applyVersionToken,
     handleVersionConflict,
   };
@@ -651,7 +670,8 @@ describe("useEstimateEditorSuggestionsController", () => {
     expect(clientMocks.bulkUpdateEstimateItems).toHaveBeenCalledWith(
       VERSION_A,
       "token-initial",
-      [expect.objectContaining({ id: "line-1" })]
+      [expect.objectContaining({ id: "line-1" })],
+      { total_ht_cents: 2440, total_tax_cents: 488, total_ttc_cents: 2928 }
     );
     expect(harness.normalizeLine).toHaveBeenCalledTimes(1);
     expect(
@@ -664,10 +684,16 @@ describe("useEstimateEditorSuggestionsController", () => {
     const harness = createHarness({ items: lines });
     await hydrateWithRule(harness);
     await openSuggestionDialog(harness);
+    const applied = { total_ht_cents: 2880, total_tax_cents: 576, total_ttc_cents: 3456 };
+    const restored = { total_ht_cents: 2000, total_tax_cents: 400, total_ttc_cents: 2400 };
+    const recalculated = { total_ht_cents: 2001, total_tax_cents: 400, total_ttc_cents: 2401 };
     clientMocks.bulkUpdateEstimateItems
       .mockReset()
       .mockResolvedValueOnce(createBulkResult("token-applied", 2))
-      .mockResolvedValueOnce(createBulkResult("token-undone", 2));
+      .mockResolvedValueOnce({
+        ...createBulkResult("token-undone", 2),
+        totals: recalculated,
+      });
 
     await act(async () => {
       await harness.result.current.actions.applySelected();
@@ -694,7 +720,8 @@ describe("useEstimateEditorSuggestionsController", () => {
             k_fo: 1.2,
           }),
         }),
-      ]
+      ],
+      applied
     );
     expect(clientMocks.sendEstimateSuggestionRuleFeedback).toHaveBeenCalledWith(
       VERSION_A,
@@ -702,7 +729,10 @@ describe("useEstimateEditorSuggestionsController", () => {
       "accept",
       2
     );
-    expect(harness.applyVersionToken).toHaveBeenCalledWith("token-applied");
+    expect(harness.applyVersionToken).toHaveBeenCalledWith(
+      "token-applied",
+      applied
+    );
     expect(harness.result.current.meta.appliedCount).toBe(2);
     expect(harness.getItems().map((item) => item.description)).toEqual([
       "u",
@@ -736,10 +766,30 @@ describe("useEstimateEditorSuggestionsController", () => {
             k_fo: 1,
           }),
         }),
-      ]
+      ],
+      restored
     );
     expect(harness.getItems()).toEqual(lines);
-    expect(harness.applyVersionToken).toHaveBeenLastCalledWith("token-undone");
+    // The apply on the suggested lines, the undo on the restored ones.
+    expect(
+      harness.computeVersionTotalsPatch.mock.calls.map(([rows]) =>
+        rows.map((row) => [row.id, row.k_fo, row.line_total_ht_cents])
+      )
+    ).toEqual([
+      [
+        ["line-1", 1.2, 1440],
+        ["line-2", 1.2, 1440],
+      ],
+      [
+        ["line-1", 1, 1000],
+        ["line-2", 1, 1000],
+      ],
+    ]);
+    // A v1 draft stores the patch as sent; a v2 draft returns the totals it recalculated.
+    expect(harness.applyVersionToken).toHaveBeenLastCalledWith(
+      "token-undone",
+      recalculated
+    );
     expect(harness.result.current.state.undoState).toBeNull();
     expect(harness.setTotalsOutOfSync).toHaveBeenNthCalledWith(1, false);
     expect(harness.setTotalsOutOfSync).toHaveBeenNthCalledWith(2, false);
@@ -757,7 +807,10 @@ describe("useEstimateEditorSuggestionsController", () => {
       await harness.result.current.actions.applySelected();
     });
 
-    expect(harness.applyVersionToken).toHaveBeenCalledWith("token-next");
+    expect(harness.applyVersionToken).toHaveBeenCalledWith(
+      "token-next",
+      ONE_NORMALIZED
+    );
     expect(harness.result.current.meta.appliedCount).toBe(1);
     expect(harness.getItems()[0]?.description).toBe("u");
     expect(harness.reportError).toHaveBeenCalledWith(
@@ -882,7 +935,10 @@ describe("useEstimateEditorSuggestionsController", () => {
       applyPromise = harness.result.current.actions.applySelected();
     });
     await waitFor(() =>
-      expect(harness.applyVersionToken).toHaveBeenCalledWith("token-next")
+      expect(harness.applyVersionToken).toHaveBeenCalledWith(
+        "token-next",
+        ONE_NORMALIZED
+      )
     );
 
     harness.replaceExternalVersion(createVersion(VERSION_B, "token-b"));

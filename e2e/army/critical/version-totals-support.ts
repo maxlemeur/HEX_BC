@@ -1,11 +1,25 @@
 import type { Browser } from "@e2e-dev/web";
 import { expect, type App, type Screen } from "e2e";
 
-import { readEstimate, recordEvidence, type ArmyState, type OwnedEstimate } from "./fixtures";
+import { apiRequest, readEstimate, recordEvidence, type ArmyState, type OwnedEstimate } from "./fixtures";
 
 type Ui = { app: App; screen: Screen; browser: Browser };
 export type StoredTotals = [ht: number, tax: number, ttc: number];
 type StoredTotalsInput = { estimate: OwnedEstimate; step: string; expected: StoredTotals };
+type Envelope<T> = { ok: boolean; data: T; error?: { code: string; message: string } };
+type LaborRole = { id: string; name: string; hourly_rate_cents: number; is_active: boolean };
+
+/**
+ * The owned CI tenant has exactly one active labour role at 40 €/h, created for this run's account
+ * (run-tester-army-ci.ts), as import-optima-v2 reads it. Journeys that price labour use it.
+ */
+export async function basisLaborRole(browser: Browser, versionId: string) {
+  const details = await apiRequest<Envelope<{ labor_roles: LaborRole[] }>>(browser, "GET", `/api/estimates/${versionId}`);
+  expect(details.status).toBe(200);
+  const roles = details.body.data.labor_roles.filter((role) => role.is_active && role.hourly_rate_cents === 4000);
+  expect(roles, "one active labour role at 40 €/h").toHaveLength(1);
+  return roles[0];
+}
 
 // "12,34 €" as Intl fr-FR prints it: its group and currency separators (U+202F, U+00A0) match \s.
 function euroPattern(cents: number) {
@@ -28,6 +42,8 @@ async function readStoredTotals(browser: Browser, versionId: string) {
     lines: lines.map((item) => ({
       id: item.id, title: item.title, quantity: item.quantity, price: item.unit_price_ht_cents,
       selected: item.selected_supplier_price_id ?? null,
+      kFo: item.k_fo ?? null, hMo: item.h_mo ?? null, majoration: item.h_mo_majoration ?? null,
+      laborRoleId: item.labor_role_id ?? null,
       totals: [item.line_total_ht_cents, item.line_tax_cents, item.line_total_ttc_cents],
     })),
   };
@@ -51,6 +67,37 @@ export async function expectStoredTotals(browser: Browser, army: ArmyState, inpu
   const read = await readStoredTotals(browser, estimate.versionId);
   await recordEvidence(army, `${step}-stored-totals`, { projectId: estimate.projectId, expected, ...read.evidence });
   expectTotals(read, expected);
+}
+
+/**
+ * Ctrl+S with no buffered edit: on a V2 draft the editor's manual save writes the version totals
+ * of its lines when the stored ones differ (allowManualTotalsReconciliation), and writes no line.
+ * A journey calls it before an undo, so that the undo starts from stored totals equal to the lines
+ * and its own write is the only one judged. Polled: this save is the reconciling one. The shortcut
+ * is pressed with no grid input focused: a grid input commits its value on blur, changed or not,
+ * and that commit is an undo step of its own (patch-item) that the next "Annuler" would take.
+ */
+export async function reconcileStoredTotals(
+  { browser, screen }: Pick<Ui, "browser" | "screen">, army: ArmyState, input: StoredTotalsInput,
+) {
+  const { estimate, step, expected } = input;
+  // The editor listens on window: from the page body, the shortcut reaches it.
+  await browser.evaluate(() => {
+    (document.activeElement as HTMLElement | null)?.blur();
+    return null;
+  });
+  await browser.keyboard.press("ControlOrMeta+s");
+  let read = await readStoredTotals(browser, estimate.versionId);
+  try {
+    await expect.poll(async () => (read = await readStoredTotals(browser, estimate.versionId)).stored,
+      { timeout: 30_000, interval: 500 }).toEqual(expected);
+  } finally {
+    await recordEvidence(army, `${step}-reconciled-totals`, { projectId: estimate.projectId, expected, ...read.evidence });
+  }
+  expect(read.fromLines, "persisted lines").toEqual(expected);
+  // The API can observe the commit before the editor receives its acknowledgement (waitForAutoSave):
+  // the next action starts only once the editor reports the save as done.
+  await expect(screen.getByTestId("estimate-page-toolbar-autosave-status")).toHaveText(/^(Sauvegardé|À jour)$/);
 }
 
 /**
