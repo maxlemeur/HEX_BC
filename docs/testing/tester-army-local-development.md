@@ -180,12 +180,15 @@ etc.). Le superviseur les a chargés au démarrage et leurs contrôles sont ceux
 ce moment : leur empreinte est relevée dans l'état et chaque `run` la compare
 avant tout build ou parcours. Durcir un garde Army se vérifie donc après un
 redémarrage de la boucle. Ces deux contrôles (entrées de la pile et modules du
-superviseur) sont refaits juste avant les parcours. Une migration modifiée
-pendant le build lui-même le fait déjà échouer (`build-local.mjs` compare son
-empreinte de sources, diff du dépôt compris, avant et après :
-`sourceChangedDuringBuild`) ; le second contrôle couvre les instants qui
-restent, entre le premier contrôle et le relevé de `build-local.mjs`, puis
-entre la fin du build et les parcours. L'itération reconstruit aussi quand le manifeste
+superviseur) sont refaits juste avant les parcours. Pendant le build,
+`build-local.mjs` ne refuse que la modification d'un fichier suivi par Git
+(migration ou `config.toml` existants) : il compare avant et après le diff du
+dépôt (`git diff HEAD`, `sourceChangedDuringBuild`). Ses fichiers non suivis
+se limitent aux portées de `buildSourceEvidence` (`src`, `scripts`, etc.), dont
+`supabase/` ne fait pas partie. Une migration ajoutée pendant le build lui
+échappe donc, comme toute modification faite avant son premier relevé ou après
+le dernier : seul le second contrôle, juste avant les parcours, la refuse. Il
+n'est pas redondant. L'itération reconstruit aussi quand le manifeste
 du build courant (`.e2e/army/recipes/builds/<id>/manifest.json`) a disparu
 ou ne correspond plus à son empreinte : sans lui, l'itération ne pourrait pas
 prouver les entrées de son build.
@@ -217,15 +220,17 @@ socket `0600`). Un seul superviseur par checkout : l'état est créé en exclusi
 
 Arrêt, expiration et état abandonné :
 
-- une boucle n'est tenue pour fermée que si quatre conditions sont réunies :
+- une boucle n'est tenue pour fermée que si trois conditions sont réunies :
   le répertoire de travail de sa pile a disparu, son entrée du registre natif
   (`~/.supabase/stacks/<id>/`, qui garde `data/` et `state.json` jusqu'au
-  `stack destroy`) a disparu, ses huit ports sont fermés, et son port
-  applicatif est fermé sur `127.0.0.1` comme sur `::1`. Le superviseur comme
-  `stop` appliquent cette preuve avant de retirer l'état ; sinon l'état passe
-  en `cleanup-failed` avec la cause. `runLocalSupabaseCi` supprime le
-  répertoire même quand `stack destroy` échoue : seule l'entrée du registre
-  révèle alors la pile restante ;
+  `stack destroy`) a disparu, et ses huit ports sont fermés. Une quatrième
+  s'y ajoute si la boucle s'est arrêtée pendant les parcours d'une itération
+  (`journeysStartedAt` dans l'état, voir plus bas) : son port applicatif doit
+  être fermé sur `127.0.0.1` comme sur `::1`. Le superviseur comme `stop`
+  appliquent cette preuve avant de retirer l'état ; sinon l'état passe en
+  `cleanup-failed` avec la cause. `runLocalSupabaseCi` supprime le répertoire
+  même quand `stack destroy` échoue : seule l'entrée du registre révèle alors
+  la pile restante ;
 - une entrée du registre dont `state.json` manque, est illisible (droits),
   n'est pas du JSON ou ne porte pas `identity.projectRoot` peut être la pile de
   la boucle : elle n'est jamais ignorée. Elle est relue une fois après une
@@ -233,15 +238,25 @@ Arrêt, expiration et état abandonné :
   preuve non faite, avec son nom dans l'erreur. Une telle entrée laissée par
   une autre session bloque donc la libération de l'état tant qu'elle n'a pas
   été inspectée à la main ;
-- le port applicatif fait partie de la preuve parce qu'un `kill -9` du
-  superviseur pendant une itération laisse vivre ses enfants : le processus
-  des parcours et son `next start` continuent sur ce port. `stop` détruit
-  quand même la pile, mais garde l'état en `cleanup-failed` (« application
-  port … still listening ») jusqu'à la fermeture du port ; un nouveau `stop`
-  retire alors l'état. `stop` ne termine pas ces processus : le run natif du
-  18/10 a vu `next-server` rester orphelin plus de trois minutes, et il faut
-  l'arrêter à la main (voir « Correctifs après la seconde revue »). Une
-  origine dont le port est illisible ne prouve rien ;
+- le port applicatif n'appartient à la boucle que pendant les parcours d'une
+  itération. Un `kill -9` du superviseur à ce moment laisse vivre ses
+  enfants : le processus des parcours et son `next start` continuent sur ce
+  port. Chaque itération écrit donc `journeysStartedAt` dans l'état juste
+  avant ses parcours. Elle ne l'efface qu'une fois les parcours revenus et le
+  port refermé sur les deux boucles locales ; s'il écoute encore, la marque
+  reste et le manifeste d'itération porte `appPortAfterJourneys`. Avec la
+  marque, `stop` détruit quand même la pile, mais garde l'état en
+  `cleanup-failed` (« application port … still listening ») jusqu'à la
+  fermeture du port ; un nouveau `stop` retire alors l'état. `stop` ne termine
+  pas ces processus : le run natif du 18/10 a vu `next-server` rester orphelin
+  plus de trois minutes, et il faut l'arrêter à la main (voir « Correctifs
+  après la seconde revue »). Avec la marque, une origine dont le port est
+  illisible ne prouve rien. Sans la marque (boucle au repos, jamais lancée ou
+  tuée hors des parcours), le port n'est pas sondé, puisqu'un autre processus
+  peut l'utiliser : `appPortClosed` vaut `null` dans le rapport de `stop` et
+  dans `devLoopCleanup`. Le superviseur vérifie aussi le port applicatif avant
+  de revendiquer le checkout : un `start` sur un port occupé échoue avec
+  « Local application port … is unavailable », sans écrire d'état ;
 - un état copié ou restauré dans un autre checkout (copie du dépôt, sauvegarde
   restaurée) nomme le superviseur, la socket et la pile de son checkout
   d'origine. `start`, `run` et `stop` refusent donc tout état dont le champ
@@ -250,6 +265,31 @@ Arrêt, expiration et état abandonné :
   signalé, arrêté ni supprimé, et le message renvoie vers le checkout
   d'origine. `status` le classe `foreign-checkout` sans sonder le pid. Le
   fichier copié se retire à la main, une fois vérifié que c'est une copie ;
+- un checkout déplacé ou renommé (`mv`) emporte son `.e2e/` : son état
+  enregistre un `checkout` qui n'existe plus (cas « recorded checkout no
+  longer exists » du message). Ce n'est pas une copie, et sa pile native peut
+  exister encore. `start`, `run` et `stop` le refusent aussi, avec « records
+  checkout …, which no longer exists (moved or renamed?) », sans rien signaler
+  ni supprimer. Avant de retirer cet état, reprendre la pile à la main, comme
+  la reprise du 16/10, depuis le checkout où se trouve l'état :
+  1. vérifier qu'aucun superviseur de cette boucle ne tourne plus
+     (`ps -o args= -p <supervisor.pid>` et `readlink /proc/<pid>/cwd`). S'il
+     tourne encore, son répertoire courant a suivi le déplacement, mais ses
+     écritures d'état visent l'ancien chemin : lui envoyer `SIGTERM`, attendre
+     sa fin, puis vérifier les points 2 et 3 quoi qu'il annonce (ce cas n'a
+     pas été exécuté) ;
+  2. chercher l'entrée du registre dont `identity.projectRoot` est
+     `stack.rootDirectory`, parmi `~/.supabase/stacks/*/state.json`, et
+     vérifier que son port `api` fait partie de `stack.ports` ;
+  3. si `stack.rootDirectory` existe et que son `supabase/config.toml` porte
+     `project_id = "<stack.projectId>"`, ou si l'entrée du registre existe,
+     recréer au besoin ce répertoire avec un `supabase/config.toml` qui ne
+     contient que `project_id = "<stack.projectId>"`, `[experimental]` et
+     `stack = true`. Lancer ensuite `npx supabase stop --workdir <répertoire>`
+     puis `npx supabase stack destroy --yes --workdir <répertoire>`, et
+     supprimer ce répertoire ;
+  4. une fois l'entrée du registre disparue et `stack.ports` fermés, retirer
+     le répertoire de la socket s'il reste, puis `state.json` ;
 - `stop` vérifie que le pid enregistré est bien ce superviseur (ligne de
   commande et répertoire courant, pas un pid recyclé), lui envoie `SIGTERM` et
   attend sa fin. Le superviseur interrompt le run en cours, sort de
@@ -368,9 +408,11 @@ ordre :
     superviseur de l'autre checkout, `run` pilote sa socket, le nettoyage
     retire sa socket ou sa pile.
 15. Une migration ou `config.toml` modifiés après le premier contrôle d'une
-    itération, autour de sa reconstruction (`build-local.mjs` ne refuse que
-    ceux faits pendant qu'il construit), atteignent les parcours, qui tournent
-    alors sur le schéma du démarrage.
+    itération atteignent les parcours, qui tournent alors sur le schéma du
+    démarrage. Pendant le build, `build-local.mjs` ne refuse que la
+    modification d'un fichier suivi, par le diff du dépôt : une migration
+    ajoutée, comme toute modification faite hors de ses relevés, n'est
+    refusée que par le contrôle refait avant les parcours.
 16. Après un `kill -9` pendant une itération, le processus des parcours et son
     `next start` survivent sur le port applicatif, tandis que `stop` annonce
     la boucle fermée et retire son état.
@@ -380,6 +422,20 @@ ordre :
 18. Une entrée du registre illisible, malformée ou sans droit de lecture est
     ignorée : la preuve annonce le registre vide et supprime le seul état de
     reprise.
+
+La revue de suivi du 18/10 (relecture indépendante des correctifs 14 à 18) en
+a ajouté deux :
+
+19. La preuve exige le port applicatif fermé alors que la boucle n'y possède
+    aucun processus. Un `start` sur un port qu'un autre processus occupe, ou
+    une boucle au repos à côté d'un serveur sans rapport, laisse alors un état
+    `cleanup-failed`. Cet état bloque `e2e:army:local`, `e2e:army:ci` et
+    `e2e:army:calc-v3` dans le checkout et masque la vraie cause. Une boucle
+    tuée pendant ses parcours doit pourtant garder son état jusqu'à la
+    fermeture du port.
+20. Un état dont le checkout enregistré n'existe plus (déplacé ou renommé)
+    est présenté comme une copie : le message pousse à supprimer le seul lien
+    vers une pile native au lieu de la reprendre.
 
 `src/test/local-supabase-ci.test.ts` vérifie en plus le nouveau rappel
 `onProjectPrepared` : identité et ports du projet isolé transmis avant le
@@ -509,7 +565,7 @@ Runs natifs dans le clone WSL sur `8b8462f4`, port applicatif 3187, sélection
 | `run`, sans build | 5,9 s | 2/2 ; l'itération nomme et garde une copie vérifiée du manifeste de son build (1771 entrées), inventoriée |
 | état copié dans un autre checkout (`git worktree` du clone, même révision) : `status`, `run`, `start`, `stop` depuis la copie | < 0,3 s chacun | `status` : `foreign-checkout` ; les trois autres, code 1, « Nothing was signalled, stopped or removed » ; superviseur vivant, socket et ports intacts, deux états inchangés |
 | `run` depuis le clone, ensuite | 5,4 s | 2/2, la boucle est intacte |
-| source modifiée, migration modifiée 8 s après le début du build | 42,2 s | refus par `build-local.mjs` (`sourceChangedDuringBuild`), garde déjà présent ; aucun parcours |
+| source modifiée, migration suivie modifiée 8 s après le début du build | 42,2 s | refus par `build-local.mjs` (`sourceChangedDuringBuild`, par le diff du dépôt), garde déjà présent ; aucun parcours |
 | sources restaurées, `run` | 45,8 s | build (le précédent avait remplacé `BUILD_ID`), puis 2/2 |
 | `stop` | 2,2 s | pile, registre, 8 ports et port applicatif fermés (IPv4, IPv6), état retiré |
 | 2e boucle : source modifiée, migration modifiée juste après la décision de build, avant le relevé de `build-local.mjs` | 40,8 s | build réussi (`sourceChangedDuringBuild: false`), puis échec « Migrations or supabase/config.toml changed » avant tout parcours |
@@ -534,6 +590,67 @@ vérifier que son répertoire courant est ce checkout, l'arrêter, puis relancer
 Non exécutés : une entrée du registre natif illisible, couverte seulement par
 test d'isolation sur un registre jetable (le registre réel est partagé avec
 les autres sessions) ; macOS.
+
+#### Correctifs après la revue de suivi (18/10/2026)
+
+Les trois constats de la revue de suivi ont été vérifiés dans le code avant
+correction, et le premier a été reproduit par son test :
+
+- échec 19 (majeur) : le superviseur revendiquait le checkout avant de
+  vérifier le port applicatif, et `proveLoopClosed` sondait ce port même
+  quand la boucle n'y avait rien lancé. Le port est désormais vérifié avant
+  la revendication, et sondé seulement tant que `journeysStartedAt` marque
+  l'état ;
+- échec 20 (mineur) : un checkout enregistré disparu reçoit sa propre raison
+  et la procédure de reprise décrite plus haut, au lieu du conseil de
+  supprimer une copie ;
+- échec 15 (mineur) : la documentation et l'en-tête du test affirmaient que
+  `build-local.mjs` refusait déjà une migration modifiée pendant le build.
+  C'est faux pour une migration ajoutée, fichier non suivi hors des portées
+  de `buildSourceEvidence`. Le test existant de l'échec 15 crée justement une
+  telle migration, et son commentaire le dit maintenant. Le comportement ne
+  change pas.
+
+Tests écrits d'abord, contre le code inchangé (`68ca4966`) : RED sous
+Windows, 3 échecs, 12 réussis, 8 sautés ; sous WSL, 5 échecs, 18 réussis.
+Chacun échoue pour sa raison. Un `start` sur un port tenu laisse `state.json`
+en `cleanup-failed`, `devLoopCleanup.appPortClosed: false`, et l'erreur « The
+dev loop was not provably closed » remplace « Local application port … is
+unavailable ». L'état d'une boucle au repos est gardé à cause d'un serveur
+sans rapport. Un checkout disparu est présenté comme une copie, en unitaire
+comme par un vrai `stop`. Aucune marque n'est posée pendant les parcours.
+GREEN : Windows 15 réussis et 8 sautés, WSL 23/23. Contrôle final avec
+`ci-guardrails` et `local-supabase-ci` : Windows 53 réussis et 8 sautés, WSL
+61/61. Typecheck et ESLint ciblé passent.
+
+Runs natifs dans le clone WSL sur `d4a6bba4`, port applicatif 3187, sélection
+`--grep HUB03`. Le « serveur sans rapport » est un `net.Server` Node lancé
+depuis `/tmp` sur `127.0.0.1:3187`.
+
+| Étape | Durée murale | Résultat |
+| --- | --- | --- |
+| `start` pendant qu'un serveur sans rapport tient 3187 | 1,2 s | code 1 ; le manifeste de session garde « Local application port 3187 is unavailable on 127.0.0.1 », sans `devLoopCleanup` ; aucun `state.json`, `status` : `absent` |
+| `start` | 67,3 s | prêt |
+| `run`, sans build | 5,7 s | 2/2 ; `journeysStartedAt` présent pendant les parcours (23 relevés, port ouvert puis refermé), absent ensuite |
+| état copié dans un `git worktree` du clone : `status`, `stop` | < 0,3 s chacun | `foreign-checkout`, « copied or restored from another checkout » ; `stop` code 1, rien de signalé |
+| même copie, `checkout` réécrit vers un chemin absent : `status`, `stop` | < 0,3 s chacun | `foreign-checkout`, « no longer exists (moved or renamed?) », « recover it by hand » ; `stop` code 1, rien de signalé ; superviseur vivant, socket et ports intacts, états inchangés |
+| serveur sans rapport sur 3187, boucle au repos, `stop` | 2,2 s | code 0 : pile, registre et 8 ports fermés, `appPortClosed: null`, état retiré ; manifeste `stopped` |
+| 2e boucle : `start`, `run` | 62,2 s + 5,2 s | prêt, 2/2, marque effacée |
+| `kill -9` du superviseur pendant les parcours | — | l'état garde `journeysStartedAt` ; survivent le processus SDK `e2e`, `next-server` sur 3187 et les hôtes Supabase |
+| `stop` | 11,8 s | code 1 : pile détruite (répertoire, registre, ports), `appPortClosed: false`, état en `cleanup-failed` |
+| attente de 180 s | — | `next-server` orphelin écoute toujours sur 3187 ; arrêté à la main (identifié par son répertoire courant dans le clone) |
+| `stop` ensuite | 0,2 s | code 0, `appPortClosed: true`, état retiré |
+| 3e boucle : `start`, `run`, puis `kill -9` au repos | 62,3 s + 5,2 s | 6 ports de la pile ouverts, pas de marque |
+| serveur sans rapport sur 3187, `stop` | 1,9 s | code 0 : `stop` détruit lui-même la pile, `appPortClosed: null`, état retiré |
+
+Les itérations terminées et les manifestes de session écrits enregistrent
+`qualification: false` et `privacy: passed` ; l'itération tuée garde déjà le
+manifeste et le journal de son build. Journaux, états, manifestes, scripts et
+`SHA256SUMS` : `.codex-tmp/e2e-dev-loop-20261018/review-followup/` du worktree
+`miaouffrage-e2e-loop`.
+
+Non exécutés : un checkout réellement déplacé pendant que son superviseur
+tourne (procédure manuelle ci-dessus, non rejouée) ; macOS.
 
 ### Build de production et limite de heap
 
