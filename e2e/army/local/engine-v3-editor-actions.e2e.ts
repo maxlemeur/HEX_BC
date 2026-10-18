@@ -1377,16 +1377,18 @@ armyTest("V3E19 a suggestion rule's unit is written to unit_code on a v3 in bulk
     const draft = await prepareV3Draft(ui, army, "V3E19");
     const title = (ref: string) => `${army.runPrefix} ${ref}`;
     // G, T et H sans unité (brouillon admis, D9) ; K, à 0 €, a déjà son unité (u) : une règle ne la remplace ni en lot
-    // ni sur sa ligne (A15). Chaque désignation porte seule le mot-clé de sa règle.
+    // ni sur sa ligne (A15). La règle de K porte aussi un K FO : sa suggestion reste affichée et appliquée sans l'unité
+    // (revue de 2.6b, A15-L). Chaque désignation porte seule le mot-clé de sa règle.
     const [lineG, lineT, lineH, lineK] = await seedLines(ui, army, draft, "v3e19", [
       { ...supply(title("gaine"), 2, 1000), unit_code: null }, { ...supply(title("fourreau"), 1, 500), unit_code: null },
       { ...supply(title("chemin"), 1, 0), unit_code: null }, supply(title("corniere"), 1, 0)]);
     const totals: Totals = [3250, 650, 3900];
     await lockVersion(browser, draft.versionId);
     const rules: unknown[] = [];
-    for (const [name, keyword, unit] of [["G", "gaine", "ML"], ["T", "fourreau", "boite"], ["H", "chemin", "M2"], ["K", "corniere", "M2"]]) {
+    for (const [name, keyword, unit, extra] of [["G", "gaine", "ML", {}], ["T", "fourreau", "boite", {}], ["H", "chemin", "M2", {}],
+      ["K", "corniere", "M2", { k_fo: 1.25 }]] as const) {
       const rule = await apiRequest<Envelope<Record<string, { id: string }>>>(browser, "POST", `/api/estimates/${draft.versionId}/suggestion-rules`,
-        { name: `${army.runPrefix} unite ${name}`, match_value: keyword, unit, is_active: true });
+        { name: `${army.runPrefix} unite ${name}`, match_value: keyword, unit, is_active: true, ...extra });
       rules.push(rule);
       expect([200, 201]).toContain(rule.status);
       expect(rule.body.ok).toBe(true);
@@ -1400,12 +1402,14 @@ armyTest("V3E19 a suggestion rule's unit is written to unit_code on a v3 in bulk
       const item = state.items.find(candidate => candidate.id === id);
       return { unit: (item?.unit_code as string | null | undefined) ?? null, description: item?.description ?? null };
     };
+    const kFoOf = (state: ArmyEstimate, id: string) => Number(state.items.find(candidate => candidate.id === id)?.k_fo);
 
-    // En lot : l'unité inconnue « boite » est refusée par son nom, sans rien écrire ; « ML » devient unit_code = ml.
+    // En lot : l'unité inconnue « boite » est refusée par son nom, sans rien écrire ; « ML » devient unit_code = ml. K n'y
+    // propose que son K FO ; il est décoché pour être appliqué sur sa ligne.
     await screen.getByRole("tab", /^Affichage & contrôle(?: \d+)?$/).tap();
     await screen.getByTestId("estimate-editor-display-button", { visible: true }).tap();
     const review = screen.getByTestId("estimate-editor-bulk-suggestions-button");
-    await expect(review).toHaveText("Examiner 3 suggestions", { timeout: 30_000 });
+    await expect(review).toHaveText("Examiner 4 suggestions", { timeout: 30_000 });
     await review.tap();
     const suggestions = screen.getByRole("dialog", "Application en masse des suggestions", { exact: true });
     await expect(suggestions).toBeVisible({ timeout: 30_000 });
@@ -1425,6 +1429,7 @@ armyTest("V3E19 a suggestion rule's unit is written to unit_code on a v3 in bulk
     });
     await suggestions.getByLabel(`Sélectionner la ligne ${lineT.title}`, { exact: true }).uncheck();
     await suggestions.getByLabel(`Sélectionner la ligne ${lineH.title}`, { exact: true }).uncheck();
+    await suggestions.getByLabel(`Sélectionner la ligne ${lineK.title}`, { exact: true }).uncheck();
     await suggestions.getByRole("button", "Appliquer", { exact: true }).tap();
     const applied = await waitState(ui, draft.versionId, (state) => unitOf(state, lineG.id).unit === "ml");
     const appliedView = { lines: [unitOf(applied, lineG.id), unitOf(applied, lineT.id), unitOf(applied, lineH.id)], totals: totalsOf(applied), genericRefusal: await genericRefusalShown(ui) };
@@ -1461,22 +1466,26 @@ armyTest("V3E19 a suggestion rule's unit is written to unit_code on a v3 in bulk
     });
 
     // Sur une ligne sans unité, une unité connue (« M2 ») va dans unit_code, jamais dans description. Sur K, déjà en
-    // « u », la même unité n'est pas proposée : une unité choisie est gardée, comme en lot (revue de 2.6b, A15) ; les
-    // suggestions des deux lignes sont calculées ensemble, K se lit donc dès que celle de H est affichée.
+    // « u », la même unité n'est ni proposée ni écrite : la suggestion n'y affiche et n'y applique que son K FO, une unité
+    // choisie est gardée, comme en lot (revue de 2.6b, A15-L).
     expect(await becomes(() => markRowSuggestion("H"), 30_000), "the row suggestion of H is shown").toBe(true);
-    const chosenUnitProposed = await markRowSuggestion("K");
+    expect(await becomes(() => markRowSuggestion("K"), 30_000), "the row suggestion of K is shown for its K FO").toBe(true);
+    const kParts = normalized(await browser.evaluate(() =>
+      document.querySelector("[data-army-target=\"v3e19-K\"] .estimate-suggestion__list")?.textContent ?? ""));
     await browser.locator("[data-army-target=\"v3e19-H\"] .estimate-suggestion__actions .btn-primary").click();
+    expect(await becomes(() => markRowSuggestion("K"), 30_000), "the row suggestion of K is still shown").toBe(true);
+    await browser.locator("[data-army-target=\"v3e19-K\"] .estimate-suggestion__actions .btn-primary").click();
     await browser.keyboard.press("ControlOrMeta+s");
-    const oneApplied = await waitState(ui, draft.versionId, (state) => unitOf(state, lineH.id).unit !== null);
+    const oneApplied = await waitState(ui, draft.versionId, (state) => unitOf(state, lineH.id).unit !== null && kFoOf(state, lineK.id) === 1.25);
     const oneAppliedView = {
-      chosenUnitProposed,
+      chosenUnitProposed: kParts.includes("Unité"), kFoProposed: kParts.includes("K FO:"),
       lines: [unitOf(oneApplied, lineG.id), unitOf(oneApplied, lineT.id), unitOf(oneApplied, lineH.id), unitOf(oneApplied, lineK.id)],
-      totals: totalsOf(oneApplied), genericRefusal: await genericRefusalShown(ui),
+      kFo: kFoOf(oneApplied, lineK.id), totals: totalsOf(oneApplied), genericRefusal: await genericRefusalShown(ui),
     };
-    await recordEvidence(army, "v3e19-one-line-applied", { versionId: draft.versionId, actual: oneAppliedView, nativeDialogs: dialogs });
+    await recordEvidence(army, "v3e19-one-line-applied", { versionId: draft.versionId, kParts, actual: oneAppliedView, nativeDialogs: dialogs });
     expect(oneAppliedView, "one line's known rule unit is written to unit_code on a v3, never over a chosen unit").toEqual({
-      chosenUnitProposed: false,
+      chosenUnitProposed: false, kFoProposed: true,
       lines: [{ unit: "ml", description: null }, { unit: null, description: null }, { unit: "m2", description: null }, { unit: "u", description: null }],
-      totals, genericRefusal: false,
+      kFo: 1.25, totals, genericRefusal: false,
     });
   });
