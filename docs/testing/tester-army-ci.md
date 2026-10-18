@@ -718,6 +718,64 @@ critique. Le gain mural va de 1,5 fois (critical) à 3,2 fois (full), 2 à
 critical (mêmes jobs, `army-takeoff` compris), 1,5 fois pour full, 1 à 1,5 fois
 pour calc-v3.
 
+### Temps morts d'un shard (18/10/2026, soir)
+
+Run 39147767943 (PR #64, tête `11534e34`, suite critical complète, 3 shards,
+2 workers) : 7 min 52 s de la création du run à l'agrégation. Shard 1, chemin
+critique, 7 min 24 s : préparation, `npm ci` et caches 37 s ; Chromium 20 s
+(9 s d'apt, 8 s de téléchargement) ; pile 20 s ; instantané, pgTAP et RLS 21 s ;
+build 59 s ; parcours 4 min 46 s. Les deux autres shards : 4 min 15 s et
+4 min 08 s de parcours.
+
+- **V3E02 attendait 2 min pour rien.** `waitScreen`
+  (`e2e/army/local/engine-v3-editor-support.ts`) compare la lecture de l'écran
+  à l'attendu par `JSON.stringify`, donc dans l'ordre des clés : la ligne B
+  attendue `{status, pt}` est lue `{pt, status}`. Les quatre lectures de
+  `tstat-initial` et `tstat-back` n'égalaient jamais l'attendu et allaient au
+  bout de leur échéance de 30 s (41 lectures chacune), avant un `toEqual`, qui
+  ignore l'ordre, vert. V3E02 : 141 s dont 120 s d'attente ; le second worker
+  du shard restait inactif 3 min 30 s. Correction : comparaison dans un ordre
+  de clés canonique, le même jugement que le `toEqual` final ; aucune
+  assertion ne change. `engine-v3-editor.e2e.ts` passe de 262 s à 142 s
+  attendues.
+- **Durées absentes ou périmées.** `engine-v3-creators.e2e.ts` (113 s) et
+  `bulk-actions-v1-totals.e2e.ts` (36 s) comptaient les 20 s par défaut ;
+  `army-shards.json` reprend les durées de ce run pour la suite critical.
+  `secondsPerShard` critical passe de 360 à 300 s : environ 175 s de parcours à
+  2 workers, l'ordre du plus long fichier (142 s), au lieu de laisser un shard
+  dépasser le plancher. La suite complète reste à 4 shards (plafond inchangé).
+- **Chromium en arrière-plan.** Dans `army-critical-shard` et `army-takeoff`,
+  l'installation (`--with-deps`, inchangée) part en arrière-plan pendant la
+  pile, la base et le build ; `runApplication` attend son fichier `exit-code`
+  après le build, avant les parcours (`ARMY_BROWSER_INSTALL_DIR`), échoue avec
+  son journal (`browser-install.log` des preuves) si elle a échoué ou dure plus
+  de 10 min, et note `browserInstall` (code, attente) au manifeste. Sans la
+  variable, rien ne change.
+- **Build pendant les contrôles de base.** `runLocalSupabaseCi` appelle
+  `onStackStarted` avec le statut de la pile dès son démarrage ;
+  `run-tester-army-ci.ts` y lance le build de production des suites critical et
+  full (pas `full --phase development`, calc-v3, dev ni dev-loop), qui ne
+  reçoit que l'origine et les clés de la pile, jamais le compte ARMY ni le
+  transport SQL. Il tourne donc pendant l'instantané, pgTAP, RLS et la création
+  du compte ; `runApplication`, qui ne démarre qu'après pgTAP et RLS verts,
+  vérifie la même origine et la même clé anon puis l'attend avant les
+  parcours. Si les contrôles de base échouent, le run attend la fin du build
+  avant de garder ses preuves (jusqu'à environ 1 min de plus pour un run déjà
+  rouge). Vaut pour tous les runs de production critical et full, nuit
+  comprise ; Chromium en arrière-plan, pour le seul workflow critical.
+- **Non retenu.** Réutiliser le build de `main` : le client embarque l'URL et
+  la clé anon de la pile, propres à chaque shard. Sauter pgTAP et RLS dans un
+  shard : le runner n'ouvre les parcours qu'après eux (contrat du runner). Un
+  cinquième shard : le plancher de 142 s reste, pour un job de plus sur les 20.
+
+Attendu pour les fichiers de ce run : shard le plus long de 7 min 24 s à
+environ 5 min (31 s de préparation ; pile 20 s puis environ 60 s où le build
+couvre les 21 s de contrôles de base ; environ 175 s de parcours), run d'environ
+5 min 30 s au lieu de 7 min 52 s. `engine-v3-emission.e2e.ts`,
+`engine-v3-exports.e2e.ts` et `large-row-completeness.e2e.ts`, arrivés depuis,
+comptent encore les 20 s par défaut. À mesurer sur le run de la PR qui porte ces
+changements, avec la durée de RLS sous la charge du build.
+
 ### Chemins d'échec de l'agrégation, prouvés en CI
 
 Le 18/10/2026, une branche jetable (`throwaway/l2-aggregate-failure-proof`,
