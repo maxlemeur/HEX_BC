@@ -95,12 +95,16 @@ insère), vert avec l'épinglage (409 `VERSION_CONFLICT`, aucune insertion).
 | 5 | idem run 4 + correctif (`server.ts` `sha256` `c5200b9d…`) | idem | Vert, 5/5 en 11,89 s, valeurs exactes : RL1 12 lignes sur 12, empreinte égale à la source, 39 000 / 7 800 / 46 800 enregistrés, relus et sommés en SQL ; RL2 99 sections proposées à 12 lignes (390 HT), 12 lignes importées (390 / 78 / 468) ; RL3 lignes fusionnées aux positions 13 et 14, 38 625 HT ; RL4 6 lignes, 995 ignorées, 29 955 HT ; RL5 1 001 lignes, 2 507 505 HT. Durées : RL1 1 472 ms, RL2 400 ms (liste) et 489 ms (import), RL3 1 165 ms, RL4 335 ms, RL5 655 ms | `.e2e/army/ci/2026-10-18T16-18-26-898Z-critical` ; `ARMY-1792340387830-bba31318-*`, `ARMY-1792340392066-e5573ba5-*`, `ARMY-1792340394788-120405c0-*`, `ARMY-1792340397668-6c988c43-*`, `ARMY-1792340398574-4db83cc0-*` |
 | 6 | `main` `6260621c` + parcours final, durées d'amorçage enregistrées (`sha256` `82cafe5b…`), sans correctif | idem | Rouge, 5/5 échecs, mêmes valeurs que le run 4. Amorçages : 1 135 à 1 196 ms par grande version, 44 à 45 ms par DPGF | `.e2e/army/ci/2026-10-18T16-26-43-731Z-critical` ; `ARMY-1792340902167-86908eef-*`, `ARMY-1792340907268-868cd16d-*`, `ARMY-1792340909790-0023d686-*`, `ARMY-1792340912029-7d813094-*`, `ARMY-1792340913006-4f2ac6d5-*` |
 | 7 | idem run 6 + correctif (`server.ts` `sha256` `c5200b9d…`) | idem | **Vert, 5/5**, mêmes valeurs exactes que le run 5. Durées : RL1 amorçage 1 068 ms, duplication 1 489 ms ; RL2 1 398 / 509 (liste) / 552 ms (import) ; RL3 1 268 / 914 ms ; RL4 53 / 526 ms ; RL5 47 / 761 ms | `.e2e/army/ci/2026-10-18T16-29-04-657Z-critical` ; `ARMY-1792341052141-88f7bfc3-*`, `ARMY-1792341056532-e7c06f08-*`, `ARMY-1792341060180-413eefe9-*`, `ARMY-1792341063318-ee9e4656-*`, `ARMY-1792341064659-fb7e21c1-*` |
+| 8 | `f38958c9` (fusion de `main` + épinglage des lectures, revue Codex P2) | `npm run e2e:army:local -- --grep 'RL0' --app-port 3173` | Vert, RL01 à RL05 5/5 en 12,64 s | `.e2e/army/ci/2026-10-18T19-39-58-940Z-critical` ; `ARMY-1792352517364-*` à `ARMY-1792352528823-*` |
+| 9 | idem | `npm run e2e:army:local -- --grep 'IO07\|IO1[0-4]' --app-port 3173` | Vert, copies vers une v3 (IO07, IO10 à IO14) 6/6 en 44,77 s | `.e2e/army/ci/2026-10-18T19-43-08-239Z-critical` |
 
 Les runs 6 (rouge) et 7 (vert) portent sur les sources finales avant la fusion de `main` et font foi ;
 les runs 1 à 5 tracent la reprise du parcours. Après la fusion (`4d21582c`, 2.8b et `33c7031b`),
 `npm run verify:pr` réussit sur cette tête (node 307 fichiers / 3 289 tests, 2 ignorés ; jsdom 165 / 831 ;
-frontières 3 / 12) ; les parcours RL01 à RL05 et les copies v3 (IO10 à IO13) sur la tête fusionnée
-relèvent de la CI de la PR, les exécutions natives locales étant suspendues. `npm run verify:pr` sur la source du run 7 (`6260621c` + correctif, clone WSL) :
+frontières 3 / 12) ; la CI de la PR #70 (run 39156437050, sélection critique complète) a passé RL01 à
+RL05 et les copies v3 sur cette tête. Après l'épinglage (`f38958c9`), runs 8 et 9 ci-dessus, régression
+isolée verte et `npm run verify:pr` réussi (node 308 fichiers / 3 292 tests ; jsdom 165 / 831 ;
+frontières 3 / 12). `npm run verify:pr` sur la source du run 7 (`6260621c` + correctif, clone WSL) :
 succès (node 303 fichiers / 2 939 tests, 2 ignorés ; jsdom 165 / 831 ; couverture des frontières
 critiques 3 / 12).
 
