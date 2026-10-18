@@ -103,7 +103,7 @@ le renouvellement de la page de reprise recevait 409. Chaque run ajoute le même
 
 Migration `20261018093005_serialize_estimate_draft_lock_acquisition.sql`, plus
 récente que toutes celles d'`origin/main`, au commit puis après la fusion
-d'`origin/main` `76b71c9e` (dernière : `20261018013249`) : le trigger `BEFORE INSERT`
+d'`origin/main` `80d90011` (dernière : `20261018013249`) : le trigger `BEFORE INSERT`
 de `draft_locks` (`assign_draft_lock_tenant_id`) prend le même verrou
 consultatif que la reprise (`hashtextextended(version_id::text, 0)`) avant
 d'atteindre l'index unique. Une reprise qui attend supprime l'acquisition
@@ -135,6 +135,19 @@ migrations, pgTAP (22 fichiers, 1 886 tests) et matrice RLS verts au démarrage.
 | Vitest node : `locks.test.ts`, `lock/route.test.ts`, `supabase-migration-history-regressions`, `supabase-migration-git-guard`, `army-impact-map` ; jsdom : `useDraftLock.test.ts` | 35/35 ; 22/22 |
 | `git diff --check` de la branche | sortie 0 |
 
+Re-preuve après la fusion d'`origin/main` `80d90011`, sur la tête fusionnée
+`61bb751a` sans changement local (`diffSha256` vide), `E2E_ARMY_WORKERS=2` :
+
+| Contrôle | Résultat |
+| --- | --- |
+| `npm run e2e:army:local -- --grep "LOCK0" --app-port 3176` | sortie 0 ; 3/3 (LOCK01, LOCK02, setup), une tentative chacun ; 107 s ; `.e2e/army/ci/2026-10-18T10-22-00-289Z-critical` (`manifest.json` sha256 `fcc186be…a408`), run SDK `01a14e89-be69-75fa-8715-d1034a7f6e7a` |
+| `npm run e2e:army:local -- --grep "V3E\|V3P01\|V3FC" --app-port 3176` | sortie 0 ; 17/17 (V3E01 à V3E13, V3P01, V3FC01, V3FC02, setup), une tentative chacun, aucun skip ; 300 s ; `.e2e/army/ci/2026-10-18T10-23-47-266Z-critical` (`manifest.json` sha256 `46cd82fe…d588`), run SDK `01a14e8b-08ad-71ea-979f-75507d64ae1c` |
+| `app.log` des deux runs après le dernier « Ready in » | aucun `draft_locks_version_id_key` (les 5 entrées antérieures viennent de la boucle de référence) |
+| `npm run supabase:migrations:git-guard -- --base 80d90011…`, modes `local` et `pull_request` | sortie 0 ; 2 changements dans le périmètre |
+| `npm run typecheck` | sortie 0 |
+| Vitest node : les cinq suites ci-dessus et `supabase-migration-restamp` ; jsdom : `useDraftLock.test.ts` | 58/58 ; 22/22 |
+| `git diff --check 80d90011...HEAD` | sortie 0 |
+
 Les preuves sont dans le clone WSL `~/miaouffrage-v3e03` (Node 24.19.0, Ubuntu
 24.04, pile native possédée détruite après chaque run). Aucun module Vitest
 n'est touché par la branche : les suites listées sont celles du verrou et des
@@ -143,7 +156,7 @@ migrations.
 ## Limites
 
 - Les itérations de boucle ne sont pas des runs qualifiants ; les runs
-  qualifiants sont ceux du tableau. `LOCK02` est hors du motif `V3E|V3P01|V3FC`
+  qualifiants sont ceux des tableaux. `LOCK02` est hors du motif `V3E|V3P01|V3FC`
   et a son propre run.
 - Avant correction, `V3E03` échouait 2 fois sur 16 : 25 verts consécutifs
   auraient encore environ 3,5 % de chances avec le défaut ((14/16)^25). La
