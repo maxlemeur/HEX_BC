@@ -1177,7 +1177,8 @@ src/lib/estimate-v2-snapshot.ts` : vide ; `git -c core.whitespace=cr-at-eol diff
 ### 13.5 Limites
 
 - Relecture indépendante (lecture seule) faite sur `058dc448` : un défaut majeur et trois mineurs, traités au §13.6.
-  Les corrections du §13.6 n'ont pas encore de relecture de suivi.
+  Relecture de suivi sur `d2ba4762` : les quatre traitements tiennent ; un mineur nouveau (motif faux de non-reprise),
+  traité au §13.7.
 - V3M05 n'est atteint que par la campagne calc-v3 (`emission-v3`) : la sélection d'impact des PR, critique, ne le
   choisit pas ; V3E11 (critique) tient l'état du menu de la fiche d'un brouillon, V3E15 (critique) celui des exports de
   l'éditeur.
@@ -1231,7 +1232,7 @@ puis « Exporter DPGF » sont téléchargés, chacun avec la réponse de sa rout
 
 | Commande (WSL, `~/miaouffrage-lot2-27`, aucun changement local) | Arbre | Résultat |
 |---|---|---|
-| `E2E_ARMY_WORKERS=2 npm run e2e:army:local -- --grep "^V3E15\s" --app-port 3161` | `b9968ec9` | rouge attendu : « TesterArmy CI failed », `manifest.json` `status: failed` (`f92117c0…` ; le code de sortie n'a pas été capté par l'enveloppe de la commande). Attendu `{compact: true, compactExcel: true, compactCsv: false, menuExcel: true, menuCsv: false, dpgf: true, bdc: false}`, obtenu `{compact: false, compactExcel: null, compactCsv: null, menuExcel: false, menuCsv: false, dpgf: false, bdc: false}`. `.e2e/army/ci/2026-10-18T06-15-33-222Z-critical` |
+| `E2E_ARMY_WORKERS=2 npm run e2e:army:local -- --grep "^V3E15\s" --app-port 3161` | `b9968ec9` | rouge attendu : « TesterArmy CI failed », `manifest.json` `status: failed` (`f92117c0…`), étape `journeys-critical` `exitCode` 1, `critical/report.json` `run.exitCode` 1, 1 des 2 parcours en échec (le `exit=0` final de `v3e15-red.log` est celui de l'enveloppe de la commande, pas celui du runner). Attendu `{compact: true, compactExcel: true, compactCsv: false, menuExcel: true, menuCsv: false, dpgf: true, bdc: false}`, obtenu `{compact: false, compactExcel: null, compactCsv: null, menuExcel: false, menuCsv: false, dpgf: false, bdc: false}`. `.e2e/army/ci/2026-10-18T06-15-33-222Z-critical` |
 | idem | `0bf43c02` | **sortie 0** : états attendus ; Excel `200` sur `…/export?format=xlsx`, en-tête `Poste, Désignation, Unité, Quantité, Statut, TVA (%), PU HT, Total HT`, « Moteur de calcul » 3, ligne X 130 / 260 ; DPGF `200` sur `…&mode=dpgf`, colonnes « Statut », « h MO / unité », « PU vente HT EUR », « Total HT brut EUR », ligne X 130 / 260. `.e2e/army/ci/2026-10-18T06-19-41-201Z-critical` (`manifest.json` `c8d705e7…`) |
 
 Qualification de la tête `4187b524` (code, journeys et documentation corrigés ; la tête finale n'y ajoute que ce
@@ -1254,10 +1255,51 @@ test, `useEstimateEditorState.impl.tsx`, `engine-v3-editor-actions.e2e.ts`, `eng
 `git -c core.whitespace=cr-at-eol diff --check origin/main...HEAD` : sortie 0 ; `git diff origin/main...HEAD --
 src/lib/estimate-calculations.ts src/lib/estimate-v2-snapshot.ts` : vide.
 
-Non rejoués après `803b5ba9` (§13.4), faute d'entrée touchée : `db:ci:local` (aucune migration ni test SQL ; ses
-pgTAP et matrice RLS repassent en tête de chaque run ci-dessus), empreintes de documents, `db:upgrade-check`, phases
-calc-v3 autres que `emission-v3`, campagne critique non filtrée.
+Non rejoués après `803b5ba9` (§13.4), sans entrée touchée : `db:ci:local` (aucune migration ni test SQL ; ses pgTAP et
+matrice RLS repassent en tête de chaque run ci-dessus), empreintes de documents, `db:upgrade-check`. La campagne critique
+non filtrée et les phases calc-v3 autres que `emission-v3` avaient, elles, des entrées changées (contrôles d'export de
+l'éditeur de `0bf43c02`, `dev-loop-state.ts` du runner apporté par `088014df`) : la relecture de suivi l'a relevé et
+elles sont rejouées au §13.7.
 
 Reste : la PR #40 (2.8), ouverte, entre en conflit avec cette branche dans `engine-v3-editor-actions.e2e.ts`
 (constantes de V3E11 contre le retrait de `PASTE_REFUSAL`) et dans `supabase/migrations.manifest.json`. Ces conflits
 existaient déjà à `058dc448` ; V3E15 et l'éditeur fusionnent sans conflit (essai `git merge-tree` contre `f00da33b`).
+Conflits avec les PR #41 et #42 : §13.7.
+
+### 13.7 Relecture de suivi et reprise des campagnes invalidées (18/10/2026)
+
+Relecture indépendante en lecture seule sur `d2ba4762` (`origin/main` relu : `78533fe5`). Les quatre traitements du
+§13.6 tiennent. Les rouge et vert de V3E15 sont authentiques : un seul des deux verrous laissé en place ferme au moins
+une des sept entrées lues. Les cinq manifestes cités sont relus à l'identique. Sur une v1/v2, les états de la barre
+sont inchangés par construction.
+
+| Constat | Traitement |
+|---|---|
+| Mineur : le §13.6 disait la campagne critique non filtrée et les phases calc-v3 autres que `emission-v3` non rejouées « faute d'entrée touchée ». C'est faux : `0bf43c02` change les contrôles d'export de l'éditeur que cliquent `journeys` (`estimate-totals-order`, `estimate-create-atomic`, `estimate-batch-atomic`), `components`, `numeric` et `resume` (bouton DPGF), et `088014df` apporte `dev-loop-state.ts`, importé par le runner et listé `full` dans la carte d'impact | les deux campagnes sont rejouées ci-dessous sur l'arbre de code final. Le motif du §13.6 est corrigé. `db:ci:local`, les empreintes et `db:upgrade-check` restent sans entrée changée depuis `803b5ba9` : leurs graphes d'import (esbuild, `document-fingerprints.ts`, `document-fingerprints-worker.ts`, `upgrade-check.ts`, `run-local-supabase-ci.ts` et la matrice `rls.e2e.test.ts` qu'il lance) ne contiennent aucun des fichiers modifiés depuis, et aucune migration ni aucun test SQL n'a changé |
+| Polissage : `v3e15-red.log` finit par `exit=0` alors que le run a échoué | le relevé rouge du §13.6 cite l'étape `journeys-critical` `exitCode` 1 du manifeste et `critical/report.json` `run.exitCode` 1 |
+| Polissage : inventaire du document 2.6 (ligne `useEstimateEditorState.impl.tsx`, « exports désactivés ») | renvoi « depuis la fusion du 2.7 » ajouté ([2.6](estimate-engine-v3-2.6.md)) |
+| Polissage : description de la PR (« V3E13 relève de la PR #40 ») et conflits avec #42 absents | description corrigée. Conflits relevés ci-dessous |
+
+Reprise sur `d2ba4762`. Son arbre de code et ses parcours sont ceux de `4187b524` (§13.6). La tête suivante n'ajoute que
+ce relevé et les documents. Exécutions WSL (`~/miaouffrage-lot2-27`, Node 24.19.0, `E2E_ARMY_WORKERS=2`,
+`NODE_OPTIONS=--max-old-space-size=4096`), sans changement local (`diffSha256` vide), en série après la garde de
+concurrence. Journaux `~/miaouffrage-lot2-27/.e2e/lot2-2.7/followup-*.log` (tête, état local, commande, code de sortie
+et durée).
+
+| Commande | Résultat |
+|---|---|
+| `npm run e2e:army:local -- --app-port 3161` (sélection critique locale non filtrée) | **sortie 0** en 454 s : 97/97 (96 du §13.4 + V3E15). `.e2e/army/ci/2026-10-18T06-52-31-823Z-critical` (`manifest.json` `17480a29…`) |
+| `npm run e2e:army:calc-v3 -- --app-port 3162` (campagne complète) | **sortie 0** en 731 s, toutes phases en build de production, sources inchangées pendant le run : journeys 11, components 5, numeric 4, resume 5, access 2, offers 10, emission 6 (4 PDF reçus), emission-v3 5 (V3M01, V3M03, V3M04, V3M05 ; 5 PDF reçus). `…/2026-10-18T07-00-06-836Z-calc-v3` (`manifest.json` `5e07b0af…`) |
+
+Conflits avec les PR ouvertes, par essai `git merge-tree` de leurs têtes poussées contre cette branche puis contre
+`origin/main` :
+
+- **#40** (`f00da33b`) : `engine-v3-editor-actions.e2e.ts` et `supabase/migrations.manifest.json` (§13.6). #40
+  fusionne sans conflit dans `main`, donc ces conflits sont propres à cette branche.
+- **#42** (`964775bc`) : `docs/testing/tester-army-calc-v3.md` est propre à cette branche ;
+  `scripts/run-tester-army-ci.ts` et `scripts/tester-army/army-impact-map.json` entrent déjà en conflit avec `main`.
+- **#41** (`32cfcc69`) : `useEstimateEditorBulkController.ts` et `useEstimateEditorSuggestionsController.ts` entrent déjà en
+  conflit avec `main` ; cette branche n'en ajoute aucun.
+
+La PR fusionnée en second résout ses conflits et rejoue ce qu'ils invalident. Ce traitement n'a pas de troisième
+relecture.
