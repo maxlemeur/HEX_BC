@@ -16,6 +16,7 @@ Aucune migration. Les chemins v1/v2 ne changent pas : chaque correction est cond
 | A13-L | (revue) La liste mobile garde le repli « u » des v1/v2 | Une ligne v3 sans unité (que le gel refuse) et une ligne de statut s'affichent « × u » |
 | A14 | Restauration d'un brouillon en conflit par la charge v2 | Saisies v3 (unité, h/u) perdues, réglages de marge v2 réappliqués : état « Non sauvegardé », Ctrl+S enregistre ce paramétrage (400) au lieu des lignes |
 | A15 | Unité d'une règle de suggestion écrite dans `description` | Unité perdue en silence ; une unité inconnue du référentiel n'est pas refusée |
+| A15-L | (revue, décision du 18/10) Sur une ligne, la suggestion d'une règle remplace l'unité déjà choisie | Unité de la ligne écrasée en silence par celle de la règle, alors qu'en lot elle est gardée |
 
 ## 2. Rouges (avant correction)
 
@@ -51,6 +52,14 @@ Parcours commités par `9b904649`, rouges sur le code de `7eb6fe01` : itération
 Le radar levait aussi 27 alertes « preuve absente » (`missing_proof`) sur ces lignes : elles ne dépendent pas des
 drapeaux de qualité ni du statut ; V3E20 a été restreint à `atypical_price` avant le vert, d'après cette trace.
 
+### Décision du 18/10 sur A15-L, après la fusion de `main`
+
+V3E19 commité par `caa51eca`, rouge sur le code de `76daf992` (fusion de `main` dans `c8aa0965`) :
+`.e2e/army/ci/2026-10-18T16-47-15-046Z-critical` (`--grep V3E19`, manifeste `17a074c8…99cc8e`). La suggestion de la
+ligne K, déjà en « u », propose l'unité « M2 » de sa règle (`chosenUnitProposed: true`) ; l'appliquer la remplaçait
+(ronde précédente : H de « u » à `m2`, `3eda1215`). Le reste est conforme : lot G, T, H refusé par « boite », puis G
+en `ml` ; T refusé sur sa ligne ; H, sans unité, écrit `m2` sur sa ligne ; totaux 3 250 / 650 / 3 900 c.
+
 ## 3. Correction
 
 - G1 : `computeEstimateQualityFlagsForItem` ne lève aucun drapeau sur une ligne non `priced` : première ronde, prix et
@@ -68,9 +77,10 @@ drapeaux de qualité ni du statut ; V3E20 a été restreint à `atypical_price` 
 - A15 : en lot, `buildBulkSuggestPreview({ unitTarget: "unit_code" })` garde les lignes éligibles de 2.6 et propose
   l'unité dans `unit_code`, seulement sur une ligne qui n'en a pas ; le contrôleur la résout dans le référentiel
   avant toute écriture et refuse la sélection entière, par le nom de l'unité, si l'une est inconnue. Sur une ligne,
-  même résolution, puis l'unité choisie va dans `unit_code` et remplace celle de la ligne, comme elle remplace
-  `description` en v1/v2 (choix explicite sur cette ligne) ; une unité inconnue est refusée par un avis, rien de la
-  règle n'est écrit.
+  même résolution et, depuis la décision du 18/10 (A15-L), seulement sur une ligne sans unité : la suggestion d'une
+  ligne v3 qui a son unité ne propose pas celle de la règle et n'est pas affichée si elle se réduit à rien, comme en
+  lot (`useEstimateEditorSuggestions`, `resolveEstimateRuleUnitPatch`) ; une unité inconnue est refusée par un avis,
+  rien de la règle n'est écrit. En v1/v2, l'unité d'une règle va toujours dans `description`.
 - Régression vue à la première qualification (`.e2e/army/ci/2026-10-18T15-03-53-439Z-critical`, `b1769c1a`) :
   la première version d'A15 jugeait l'éligibilité sur `unit_code` ; une ligne v3 qui a déjà son unité n'était plus
   proposée (V3E12, V3E14 : « Examiner 1 suggestion » attendu). Corrigé par `f7d5fde5` : éligibilité inchangée ; en
@@ -79,6 +89,10 @@ drapeaux de qualité ni du statut ; V3E20 a été restreint à `atypical_price` 
   `useEstimateEditorSyncController.ts` (1 212 > 1 200) : `366dfebd` déplace la résolution de l'unité d'une règle dans
   `resolveEstimateV3RuleUnit` (`v3-editor.ts`) et le choix de la charge restaurée dans `applyRestoredDraft`, sans
   changer le comportement.
+- La fusion de `main` (`76daf992`, avec 2.7 #45 et les quatre lignes de 2.10a #57 dans la table) a porté
+  `EstimateEditorTable.tsx` à 2 604 lignes non vides (CI `Statique` rouge, run 39145855324) : `706cc62f` déplace
+  l'unité d'une règle (`resolveEstimateRuleUnitPatch`) et l'unité de la fiche article
+  (`resolveEstimateArticleSheetUnit`) dans `v3-editor.ts` ; 2 598 lignes, budget inchangé.
 
 ## 4. Preuves
 
@@ -107,10 +121,29 @@ Revue (clone WSL, Node 24, 2 workers, port 3182) :
 L'arbre des verts ne diffère de `3eda1215` que par la fin de ligne d'une ligne de `EstimateEditorTable.tsx` (LF au
 lieu de CRLF, pour `git diff --check`).
 
+Décision A15-L et fusion de `main` (clone WSL, Node 24, 2 workers, port 3182 ; seuls les parcours touchés, la CI de
+la PR qualifie le reste) :
+
+| Preuve | Commande | Révision | Résultat | Trace |
+|---|---|---|---|---|
+| Rouge | `E2E_ARMY_WORKERS=2 npm run e2e:army:local -- --app-port 3182 --grep V3E19` | `caa51eca` (parcours sur le code de `76daf992`) | sortie 1 : V3E19 rouge, `chosenUnitProposed: true` (§2) | `.e2e/army/ci/2026-10-18T16-47-15-046Z-critical`, manifeste `17a074c8…99cc8e` |
+| Vert | idem, `--grep 'V3E03\|V3E09\|V3E16\|V3E19\|local article association'` | `706cc62f`, arbre propre | sortie 0 ; pgTAP `Files=24, Tests=1941`, matrice RLS passée ; 5/5 (configuration, V3E03, V3E09, V3E16 relancé après la fusion de #45, V3E19 avec `chosenUnitProposed: false` et K en `u`) | `.e2e/army/ci/2026-10-18T17-16-31-453Z-critical`, manifeste `1be729e0…6c89` |
+| Garde v2 de la fiche article | `E2E_ARMY_WORKERS=2 npm run e2e:army:ci -- calc-v3 --phase offers --grep PU0 --app-port 3182` | `706cc62f`, arbre propre | sortie 0 ; 6/6 (configuration, PU01-PU05 : PU04 associe un article sur une ligne v2 en barres, PU05 sur une v3) | `.e2e/army/ci/2026-10-18T17-24-42-209Z-calc-v3`, manifeste `78bc5619…02e06e3` |
+| Qualité | `npm run verify:pr` | `706cc62f`, arbre propre | sortie 0 en 1 min 45 s ; Vitest node 3 281 tests (2 ignorés), jsdom 831, couverture critique 12 | journal local du clone WSL |
+
+`article-association.e2e.ts` (« local article association », chemin v1/v2 de la fiche article) n'est dans aucun
+ensemble de parcours : le `--grep` du vert ne l'a pas retenu et `full --files` le refuse (`NO_TESTS`,
+`.e2e/army/ci/2026-10-18T17-19-45-335Z-full`). PU04 couvre ce chemin à sa place ; seul, il échoue avant la fiche
+(`expected 26245 to be 8748`, `.e2e/army/ci/2026-10-18T17-22-22-352Z-calc-v3`) parce qu'il dépend de la conversion
+d'offre que PU01 enregistre : la garde lance donc PU01-PU05. Le commit suivant `706cc62f` ne touche que cette fiche.
+
 ## 5. Limites
 
 - Décision de la revue : aucun contrôle de qualité sur une ligne non chiffrée, quantité comprise (le plan ne citait
-  que prix et temps). Prise sous la délégation du 18/10/2026 ; à confirmer par le porteur avant l'usage client réel.
+  que prix et temps). Confirmée par le coordinateur le 18/10/2026 (délégation du porteur) pour le prix, le temps et
+  la quantité ; les autres drapeaux d'une telle ligne (rôle MO, nature, offre périmée, répartition MO, valeurs
+  atypiques) tombent avec eux, puisqu'elle ne porte aucun montant. Une ligne v3 chiffrée sans quantité reste
+  `missing_quantity` (V3E20).
 - G1 rend les lignes de statut neutres, pas le lot OPTIMA tel qu'importé : V3E20 relit encore 1 036 lignes chiffrées
   sans quantité et 1 018 sans prix (titres et articles non quantifiés : le classeur hydraulique a 1 344 lignes sans
   quantité hors statut), plus une violation de règle (`rule_violation`), qui bloquent l'envoi. Hors de G1 : à traiter à
@@ -120,8 +153,9 @@ lieu de CRLF, pour `git diff --check`).
 - A14 : V3E18 prouve qu'aucun réglage v2 n'est en attente (avis, état d'enregistrement) ; l'enregistrement refusé
   (400) d'une marge v2 sur une v3 n'est pas rejoué.
 - Liste mobile v1/v2 : aucun parcours ne la couvre ; inchangée par construction (expression de `main`).
-- La garde v1 (V1BT) n'est pas relancée à la revue : aucun chemin de lot ni de suggestion n'a changé depuis
-  `366dfebd`.
+- La garde v1 (V1BT) n'est pas relancée : aucun chemin de lot n'a changé depuis `366dfebd`. Sur une ligne v1/v2,
+  l'unité d'une règle va toujours dans `description` (`resolveEstimateRuleUnitPatch`, branche v1/v2) ; aucun parcours
+  n'applique une suggestion de ligne sur une v1/v2.
 - Pied de l'éditeur mobile (PU, total) : montants relus de la ligne, comme la grille, rafraîchis après
   l'enregistrement.
 - Suggestion de ligne : l'unité refusée l'est par un avis éphémère (toast), sans trace dans la ligne.
