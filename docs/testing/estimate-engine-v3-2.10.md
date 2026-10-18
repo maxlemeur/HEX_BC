@@ -221,9 +221,9 @@ changement (`git diff --stat` vide) ; le corpus figé v1/v2 est rejoué par `ver
   `409 CONTEXT_CHANGED` (sans écriture) tant que le code déployé ne la suit pas. Les deux sens échouent : un
   commit qui contient 2.10a sans `6aa1ed31` (défaut TS « absente = 2 ») contre une base avec M8, et un commit
   qui contient `6aa1ed31` (défaut TS « absente = 3 ») contre une base sans M8.
-- **État et ordre.** Déjà appliquées au Supabase partagé : M6, M6b, M5, M7 et `20261018170351` ;
-  `20261018172935` (#65, ordre du contrat 2) relève de l'autorisation permanente et précède M8, qui vient
-  ensuite. Deux ordres sûrs, chacun sur autorisation distincte :
+- **État et ordre.** Déjà appliquées au Supabase partagé : M6, M6b, M5, M7, `20261018170351` et `20261018172935`
+  (`docs/testing/shared-supabase-m5b-2026-10-18.md`) ; `20261018180306` (#59, copies vers une v3) relève de
+  l'autorisation permanente et précède M8, qui vient ensuite. Deux ordres sûrs, chacun sur autorisation distincte :
   1. écrire d'abord une politique 2 explicite pour chaque entreprise du Supabase partagé, dont l'entreprise de la
      campagne `e2e:army:critical` partagée (écriture de politique, R12), puis M8 et le déploiement dans
      n'importe quel ordre : rien ne change pour elles tant que l'équipe ne les passe pas à 3 ;
@@ -284,10 +284,22 @@ politique 2 explicite) sont rejoués avec M8 :
 | calc-v3, toutes les phases (CI, `workflow_dispatch` sur la branche) | `gh workflow run e2e-army-calc-v3.yml --ref lot2/2.10b-bascule-m8 -f phase=all`, run [39152484822](https://github.com/maxlemeur/HEX_BC/actions/runs/39152484822) (`0cd19f9f`, `diffSha256` du vide) | vert : pgTAP 26 fichiers, 1 977 tests ; matrice RLS ; journeys, components, numeric, resume, access, offers, emission et emission-v3 `passed` (`calc-v3.json`, artefact `army-calc-v3-evidence`) |
 | Critique non filtrée et takeoff (CI, `workflow_dispatch` sur la branche) | `gh workflow run e2e-army-critical.yml --ref lot2/2.10b-bascule-m8`, run [39152486473](https://github.com/maxlemeur/HEX_BC/actions/runs/39152486473) (`0cd19f9f`) | vert : sélection, 4 shards critiques et `army-takeoff` |
 
+**Quatrième fusion** (`80600ca6`, `origin/main` `8f7183ab` : #59 copies vers une v3, #64, #66 et la migration
+`20261018180306_estimate_v3_batch_copy_effects`, qui redéfinit `estimate_creation_replay_item_effects_for_writer`
+à signature égale, celle qu'appelle M8, sans redéfinir `persist_estimate_creation_atomic`) : seul conflit, le
+manifeste (les deux entrées gardées) ; `openapi.json` fusionné sans conflit et validé. M8 réhorodatée
+`20261018180027` → `20261018183629` (`c1cb5bba`, sha256 `0fdaba7c…` inchangé). Les ancres v2 des parcours IO
+appartiennent à des propriétaires dédiés en politique 2 explicite (phase 1) ; leur fixture SQL `large-v3-estimate`
+écrit sa propre politique 3.
+
+| Preuve sur la tête fusionnée | Commande | Résultat |
+|---|---|---|
+| Quatrième fusion : garde Git, historique, SQL, RLS et parcours touchés | `git-guard -- --base 8f7183ab`, `supabase:validate`, `critical --grep "V3S0\|V3C11\|V3C12\|IO1[0-4]"` (`c1cb5bba`, clone propre, 2 workers, 101 s) | verts ; pgTAP **26 fichiers, 1 982 tests** ; matrice RLS verte ; V3S01, V3S01b, V3S02, V3C11, V3C12, IO10 à IO14 verts (11 / 11 avec l'authentification) ; preuve `.e2e/army/ci/2026-10-18T18-36-58-327Z-critical` (clone WSL) |
+
 Seule la tête fusionnée et ce qu'elle change sont rejoués localement (consigne de vitesse du porteur, 18/10) : la
 sélection critique non filtrée et les parcours takeoff tournent dans la CI de la PR, qui fait foi. calc-v3 n'y
-tourne pas : son dispatch manuel (§7) est un préalable de fusion ; il est vert sur `0cd19f9f` (ligne ci-dessus), et
-les phases qu'invalide la fusion de #59 sont rejouées sur la tête finale.
+tourne pas : son dispatch manuel (§7) est un préalable de fusion ; il est vert sur `0cd19f9f` (troisième fusion) et
+est relancé (`-f phase=all`) sur la tête finale, après la fusion de #59.
 `verify:pr` est lancé une fois sur la tête finale (résultat dans le corps de la PR).
 
 ## 10. Revue interne avant le premier push (18/10/2026)
