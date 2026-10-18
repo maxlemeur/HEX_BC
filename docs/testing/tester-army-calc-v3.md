@@ -289,10 +289,12 @@ retenue est avortée au lieu d'être relâchée (`--grep '^GR06\s'`, archive
 null`. Windows : `npm run typecheck`, `npx eslint e2e/army/local/generated-ouvrage-resume.e2e.ts
 --max-warnings=0` et `npx vitest run --project=node src/test/ci-guardrails.test.ts` (18/18) passent.
 
-**Reste à prouver.** Le correctif n'a pas encore tourné sur le runner. Si celui-ci annule réellement la
-requête, et pas seulement la copie DevTools, GR06 restera rouge avec l'erreur vue par la page dans
-`late-resume-delivery` : ce serait alors un constat sur le navigateur ou l'application, plus une course
-du parcours.
+**Sur le runner.** Run 39096480257 (PR #42, tête `964775bc`, sélection `nightly`, 18/10 04:15–04:43 UTC) :
+les six phases passent, dont `resume` (GR02, GR04, GR06, GR08). Cette tête précède la fusion de
+`origin/main` `488382d5` (éditeur v3 de 2.6, PR #44) : seul le run calc-v3 de la PR sur la tête fusionnée
+poussée vaut pour l'arbre fusionné. Si le runner annulait réellement la requête, et pas seulement la copie
+DevTools, GR06 serait rouge avec l'erreur vue par la page dans `late-resume-delivery` : ce serait alors un
+constat sur le navigateur ou l'application, plus une course du parcours.
 
 ## Limites
 

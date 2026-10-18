@@ -341,6 +341,23 @@ HUB03` 2/2 en 7,0 s ; `run --files e2e/army/critical/hub-plans-card.e2e.ts`
 ports retirés) n'est pas une qualification ; pendant qu'elle était ouverte, ce
 même `full --files` a été refusé avant toute pile.
 
+Ces runs ne prouvent pas le full non filtré de l'arbre fusionné (phase `full`
+puis phase développement, `scope: full`), et aucun job de PR ne le prouve :
+`army-critical` lance `critical`, `army-takeoff` lance `full --files`
+(`filtered-full`), et `e2e-army-full.yml` n'a pas de déclencheur
+`pull_request`. Ce chemin, que la fusion modifie (`fullPhases` de cette branche,
+`RunContext` de #43), est prouvé par un déclenchement d'`e2e-army-full.yml`
+sans motif sur la tête fusionnée poussée ; son run et son manifeste
+(`scope: full`, phases `full` et `development` réussies, aucun `phasesNotRun`)
+restent à consigner ici. De même, le run calc-v3 de la PR 39096480257 (tête
+`964775bc`, sélection `nightly`, six phases vertes dont `resume` avec GR06, voir
+[GR06 en CI](tester-army-calc-v3.md#gr06-en-ci)) précède la fusion de
+`488382d5` : seul le run calc-v3 de la PR sur la tête fusionnée poussée vaut
+pour l'arbre fusionné, GR06 compris face à l'éditeur v3 de #44. La seconde
+fusion, `origin/main` `78533fe5` (PR #46, trace de la migration 2.6 ; PR #47,
+chemins résolus de la boucle dans `dev-loop-state.ts`), ne touche ni le chemin
+full ni les workflows ; ses gardes de la boucle sont rejoués par Vitest.
+
 Chiffres CI de référence : la description de la PR qui introduit ces
 changements relève, avec les identifiants de run, la suite critical complète à
 2 workers et le Quality Gate de cette PR, caches froids (la PR modifie ce
@@ -360,7 +377,9 @@ sur `main`, qui enregistre ces caches.
   n'est pas un `/api/<famille>` littéral, n'est pas vu ; la règle des points
   d'entrée, le push sur `main` et la nuit rattrapent le reste.
 - Gains mesurés en local seulement à la rédaction (section Mesures) ; le run CI
-  de la PR, suite complète, fait foi.
+  de la PR, suite critical complète, fait foi. Aucun job de PR ne lance le full
+  non filtré (phase développement comprise) : une PR qui modifie ce chemin le
+  prouve par un déclenchement d'`e2e-army-full.yml` sans motif sur sa tête.
 - Métré : les règles `takeoff-*` décrivent les pages que chaque parcours ouvre
   (lecture des parcours au 18/10/2026) et surestiment plutôt (par exemple tout
   `src/app/dashboard/orders/**` pour US-4.4). Une page ouverte par un lien
