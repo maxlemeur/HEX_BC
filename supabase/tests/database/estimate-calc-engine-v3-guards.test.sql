@@ -1246,6 +1246,72 @@ select is(
   'G2 a provenance of the same tenant (or a reference since deleted) is kept on the created item and not echoed by the receipt'
 );
 
+-- Revue interne de #59 (2.8b) : un lot de seules créations confie la profondeur au rejeu M6b, dont la remontée
+-- des parents s'arrêtait au nombre d'éléments créés. Sur une version existante, les ancêtres sont déjà stockés :
+-- une création isolée sous un sous-chapitre (niveau 3, maximum 3) passait. La base refuse, rien n'est écrit.
+-- Isolation : la préparation du lot refuse ces placements avant l'appel ; seul un appel direct de la RPC les
+-- envoie. Un niveau 4 est implanté hors déclencheurs (contrat de création) pour exposer aussi la ligne.
+create function pg_temp.v3_create_under(p_parent uuid, p_item_type text)
+returns text
+language sql
+as $depth$
+  select pg_temp.v3_probe(
+    array[
+      $s$select set_config('miaouffrage.estimate_v3_writer', 'a3210000-0000-4000-8000-000000000101', true),
+                set_config('miaouffrage.estimate_creation_atomic', 'a3210000-0000-4000-8000-000000000101', true)$s$,
+      $s$insert into public.estimate_items (id, tenant_id, version_id, parent_id, item_type, position, title)
+         select fixture.id, version.tenant_id, version.id, fixture.parent_id, 'section', 1, fixture.title
+         from public.estimate_versions version
+         cross join (values
+           ('a3210000-0000-4000-8000-000000000580'::uuid, 'a3210000-0000-4000-8000-000000000212'::uuid, 'Chapitre'),
+           ('a3210000-0000-4000-8000-000000000581'::uuid, 'a3210000-0000-4000-8000-000000000580'::uuid, 'Sous-chapitre'),
+           ('a3210000-0000-4000-8000-000000000582'::uuid, 'a3210000-0000-4000-8000-000000000581'::uuid, 'Niveau 4 implanté')
+         ) as fixture(id, parent_id, title)
+         where version.id = 'a3210000-0000-4000-8000-000000000101'$s$,
+      $s$select set_config('miaouffrage.estimate_creation_atomic', '', true),
+                set_config('miaouffrage.estimate_v3_writer', '', true)$s$,
+      'set local role authenticated',
+      $s$select set_config('request.jwt.claim.sub', 'a3210000-0000-4000-8000-000000000001', true)$s$,
+      format($s$create temporary table v3_batch_result on commit drop as
+         select public.commit_estimate_batch(
+           'a3210000-0000-4000-8000-000000000101',
+           gen_random_uuid(),
+           (select updated_at from public.estimate_versions where id = 'a3210000-0000-4000-8000-000000000101'),
+           'a3210000-0000-4000-8000-000000000301',
+           jsonb_build_array(jsonb_build_object('op', 'create', 'data', jsonb_build_object(
+             'item_type', %1$L, 'parent_id', %2$L, 'position', 2, 'title', 'Créé par appel direct'))),
+           '[{"index":0,"id":"a3210000-0000-4000-8000-000000000583"}]'::jsonb,
+           '[{"id":"a3210000-0000-4000-8000-000000000202","pu_ht_cents":4300,"line_total_ht_cents":8600,"line_tax_cents":1720,"line_total_ttc_cents":10320},{"id":"a3210000-0000-4000-8000-000000000203","pu_ht_cents":1300,"line_total_ht_cents":2600,"line_tax_cents":520,"line_total_ttc_cents":3120}]'::jsonb
+             || case when %1$L = 'line' then '[{"id":"a3210000-0000-4000-8000-000000000583","pu_ht_cents":0,"line_total_ht_cents":0,"line_tax_cents":0,"line_total_ttc_cents":0}]'::jsonb else '[]'::jsonb end,
+           '{"total_ht_cents":11200,"total_tax_cents":2240,"total_ttc_cents":13440,"gross_ht_cents":11200,"discount_applied_cents":0,"commercial_rounding_cents":0}'::jsonb,
+           jsonb_build_object(
+             'labor_roles', jsonb_build_array(jsonb_build_object(
+               'id', 'a3210000-0000-4000-8000-000000000020',
+               'tenant_id', (select tenant_id from public.estimate_projects where id = 'a3210000-0000-4000-8000-000000000010'),
+               'user_id', 'a3210000-0000-4000-8000-000000000001',
+               'hourly_rate_cents', 5000)),
+             'margin_tiers', '[]'::jsonb,
+             'labor_split_flag', null),
+           null
+         ) as response$s$, p_item_type, p_parent)
+    ],
+    $a$select (response->>'committed') || ' ' ||
+         (select count(*) from public.estimate_items where version_id = 'a3210000-0000-4000-8000-000000000101')::text
+       from v3_batch_result$a$
+  )
+$depth$;
+
+select is(
+  array[
+    pg_temp.v3_create_under('a3210000-0000-4000-8000-000000000581', 'section'),
+    pg_temp.v3_create_under('a3210000-0000-4000-8000-000000000582', 'line'),
+    pg_temp.v3_create_under('a3210000-0000-4000-8000-000000000580', 'section'),
+    pg_temp.v3_create_under('a3210000-0000-4000-8000-000000000581', 'line')
+  ],
+  array['22023 ESTIMATE_BATCH_INVALID_INPUT', '22023 ESTIMATE_BATCH_INVALID_INPUT', 'ok:true 8', 'ok:true 8'],
+  'Review of #59: a creations-only batch checks the depth against the stored ancestors (level 4 section and line under it refused, levels 3 kept)'
+);
+
 -- M4 (2.5, §1.7) : la création atomique a une branche v3 (même contrat que le lot).
 select is(
   array[

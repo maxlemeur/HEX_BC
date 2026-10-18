@@ -1104,11 +1104,13 @@ armyTest("IO12 line ↔ section conversion is disabled with its reason in a v3 e
  * titles are `titleLength` characters long (the writer accepts 500); the v1/v2 writers never bounded them. With
  * `provenance`, each line carries the source_metadata of an imported workbook row (import, mapping, mapped row, OPTIMA
  * structure), as the affaire import writes it: the copy carries it to the v3 (F2), and the receipt must not echo it.
+ * Descriptions are `descriptionLength` characters long (`u`, a unit, by default; longer, no unit).
  */
 async function seedLargeV2Section(owner: V3Owner, anchorId: string, count: number, position: number, titleLength = 55,
-  provenance = false) {
+  provenance = false, descriptionLength = 1) {
   if (!UUID.test(anchorId) || !Number.isSafeInteger(count) || count < 1 || count > 5000 || !Number.isSafeInteger(position) ||
-    !Number.isSafeInteger(titleLength) || titleLength < 55 || titleLength > 1000) throw new Error("Invalid large section input.");
+    !Number.isSafeInteger(titleLength) || titleLength < 55 || titleLength > 1000 || !Number.isSafeInteger(descriptionLength) ||
+    descriptionLength < 1 || descriptionLength > 2000) throw new Error("Invalid large section input.");
   const sectionId = randomUUID();
   const output = await querySql(`BEGIN;
 INSERT INTO public.estimate_items (id, tenant_id, version_id, item_type, position, title)
@@ -1118,7 +1120,7 @@ INSERT INTO public.estimate_items (tenant_id, version_id, parent_id, item_type, 
   quantity, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, h_mo_majoration, k_mo,
   pu_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents, source_metadata)
 SELECT v.tenant_id, v.id, '${sectionId}'::uuid, 'line', g,
-  rpad('Fourniture et pose de canalisation PVC 110 mm, ligne ' || g || ' ', ${titleLength}, 'x'), 'u', 1, 100, 2000, 1, 0, 1, 1, 130, 130, 26, 156,
+  rpad('Fourniture et pose de canalisation PVC 110 mm, ligne ' || g || ' ', ${titleLength}, 'x'), rpad('u', ${descriptionLength}, 'd'), 1, 100, 2000, 1, 0, 1, 1, 130, 130, 26, 156,
   ${provenance ? `jsonb_build_object('import_id', '${randomUUID()}', 'mapping_id', '${randomUUID()}', 'mapped_row_id', gen_random_uuid(),
     'row_index', g, 'notes', null, 'sheet_name', 'PLOMBERIE', 'source_row_number', g + 12, 'bold_columns', '[]'::jsonb,
     'merged_columns', '[]'::jsonb, 'outline_level', null, '_timax_structure', jsonb_build_object('sheet_name', 'PLOMBERIE',
@@ -1149,6 +1151,9 @@ armyTest("IO13 a section copy into a v3 is one atomic batch up to 1 000 operatio
       const longTitleSectionId = await seedLargeV2Section(owner, anchorId, 1, 902, 501);
       // 1 000 operations whose receipt (the stored rows, 200-character titles) goes over the writer's 2 Mio.
       const heavyReceiptSectionId = await seedLargeV2Section(owner, anchorId, 999, 903, 200);
+      // 1 000 operations under the compact 1 Mio (about 1,02 Mo with 500-character titles and 161-character
+      // descriptions) but over it as the jsonb text the database measures (« ": " and ", », about 37 Ko more).
+      const spacedSectionId = await seedLargeV2Section(owner, anchorId, 999, 904, 500, false, 161);
       const versionId = await blankV3(ui, army, projectId, "limite");
       await retakeLease(browser, versionId);
       const before = await readEstimate(browser, versionId);
@@ -1187,6 +1192,19 @@ armyTest("IO13 a section copy into a v3 is one atomic batch up to 1 000 operatio
       };
       await recordEvidence(army, "io-copy-heavy-receipt", { versionId, heavyReceiptSectionId, message: heavy.body.error?.message, heavyObserved });
       expect(heavyObserved).toEqual({ response: [413, false, "ESTIMATE_V3_COPY_TOO_LARGE"], pointsToAffaireImport: true, unchanged: true });
+
+      // Review of #59: within the compact 1 Mio but over it as the database measures its jsonb text, the copy is refused
+      // by its name before any write, never the generic 400 of the writer.
+      const spaced = await apiRequest<Envelope<unknown>>(browser, "POST", `/api/estimates/${versionId}/import-sections`,
+        { source_version_id: anchorId, section_ids: [spacedSectionId] });
+      const afterSpaced = await readEstimate(browser, versionId);
+      const spacedObserved = {
+        response: [spaced.status, spaced.body.ok, spaced.body.error?.code ?? null],
+        pointsToAffaireImport: (spaced.body.error?.message ?? "").includes("depuis l’affaire"),
+        unchanged: afterSpaced.items.length === before.items.length && afterSpaced.version.updated_at === before.version.updated_at,
+      };
+      await recordEvidence(army, "io-copy-jsonb-size", { versionId, spacedSectionId, message: spaced.body.error?.message, spacedObserved });
+      expect(spacedObserved).toEqual({ response: [413, false, "ESTIMATE_V3_COPY_TOO_LARGE"], pointsToAffaireImport: true, unchanged: true });
 
       // At the limit (1 section + 999 lines = 1 000 operations): one atomic batch, every line, amounts of the writer.
       type Imported = { created_section_ids: string[]; created_line_ids: string[] };
