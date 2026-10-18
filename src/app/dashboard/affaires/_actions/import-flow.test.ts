@@ -165,6 +165,32 @@ function createVersionContextBuilder(
   return builder;
 }
 
+// Lot 2, sous-lot 2.8: the tenant calc policy decides whether the import creates a v3 (null: engine 2).
+function createCalcPolicyBuilder(policy: { engine: number; fo: number; mo: number } | null = null) {
+  const builder = {
+    select: vi.fn(),
+    eq: vi.fn(),
+    maybeSingle: vi.fn(),
+  };
+
+  builder.select.mockReturnValue(builder);
+  builder.eq.mockReturnValue(builder);
+  builder.maybeSingle.mockResolvedValue({
+    data: policy
+      ? {
+          tenant_id: TENANT_ID,
+          new_estimate_calc_engine: policy.engine,
+          default_sale_coefficient_fo: policy.fo,
+          default_sale_coefficient_mo: policy.mo,
+          allowed_tax_rates_bp: [2000],
+        }
+      : null,
+    error: null,
+  });
+
+  return builder;
+}
+
 function createSupabaseStub(input: {
   membershipBuilder: ReturnType<typeof createMembershipBuilder>;
   importBuilder?: ReturnType<typeof createImportSelectBuilder>;
@@ -172,6 +198,7 @@ function createSupabaseStub(input: {
   latestMappingBuilder?: ReturnType<typeof createLatestMappingBuilder>;
   mappedRowsBuilder?: ReturnType<typeof createMappedRowsBuilder>;
   versionContextBuilder?: ReturnType<typeof createVersionContextBuilder>;
+  calcPolicyBuilder?: ReturnType<typeof createCalcPolicyBuilder>;
   rpcResult?: {
     data: unknown;
     error: unknown;
@@ -184,6 +211,7 @@ function createSupabaseStub(input: {
     dpgf_mappings: input.latestMappingBuilder ? [input.latestMappingBuilder] : [],
     dpgf_rows_mapped: input.mappedRowsBuilder ? [input.mappedRowsBuilder] : [],
     estimate_versions: input.versionContextBuilder ? [input.versionContextBuilder] : [],
+    tenant_calc_policies: [input.calcPolicyBuilder ?? createCalcPolicyBuilder()],
   };
 
   const supabase = {
@@ -378,6 +406,45 @@ describe("confirmUnifiedImportFlow", () => {
     expect(supabase.rpc).not.toHaveBeenCalled();
     expect(revalidatePath).toHaveBeenCalledWith(`/dashboard/affaires/${PROJECT_ID}`);
     expect(revalidatePath).toHaveBeenCalledWith(`/dashboard/estimates/${VERSION_ID}/edit`);
+  });
+
+  it("2.8: under a policy at engine 3, creates a v3 from the workbook coefficients and v3 lines", async () => {
+    const supabase = createSupabaseStub({
+      membershipBuilder: createMembershipBuilder(),
+      importBuilder: createImportSelectBuilder(PROJECT_ID),
+      projectBuilder: createProjectSelectBuilder(true),
+      latestMappingBuilder: createLatestMappingBuilder("mapping-latest"),
+      mappedRowsBuilder: createMappedRowsBuilder([
+        {
+          id: "mapped-params",
+          payload: { row_index: 1, mapped_row: { param_coeff_fo: 1.3, param_coeff_mo: 1.25, h_mo_majoration_additive: 0 } },
+        },
+        {
+          id: "mapped-1",
+          payload: { row_index: 2, mapped_row: { designation: "Tube", quantity: 20, unit: "ml", unit_price_ht: 54.66 } },
+        },
+        {
+          id: "mapped-2",
+          payload: { row_index: 3, mapped_row: { designation: "Hors lot", quantity: 1, unit: "HL", unit_price_ht: 0 } },
+        },
+      ]),
+      versionContextBuilder: createVersionContextBuilder(null, 1, 2000),
+      calcPolicyBuilder: createCalcPolicyBuilder({ engine: 3, fo: 1.3, mo: 1.2 }),
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await confirmUnifiedImportFlow({ importId: IMPORT_ID, projectId: PROJECT_ID, createEstimate: true });
+
+    const input = vi.mocked(persistCanonicalEstimateV2).mock.calls.at(-1)![0];
+    expect(input).toMatchObject({
+      expectedCalcEngineVersion: 3,
+      version: { sale_coefficient_fo: 1.3, sale_coefficient_mo: 1.25 },
+      source: { kind: "import", engine: 3 },
+    });
+    const lines = input.source.kind === "import" ? input.source.items.filter((item) => item.item_type === "line") : [];
+    expect(lines.map((line) => line.item_type === "line" && [line.title, line.unit_code, line.pricing_status, line.pu_ht_cents]))
+      .toEqual([["Tube", "ml", "priced", 7106], ["Hors lot", null, "out_of_scope", 0]]);
   });
 
   it("leaves an unlinked import untouched until canonical creation claims it atomically", async () => {

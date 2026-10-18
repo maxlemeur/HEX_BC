@@ -29,7 +29,8 @@ import {
 //  V3E11 — remise de 0 % enregistrée sans état « en attente » ; palier d'arrondi hors liste affiché tel qu'appliqué ;
 //          actions PDF et modèle de la fiche fermées par leur nom ;
 //  V3E12 — suggestions en lot appliquées et annulées par l'écrivain v3 ;
-//  V3E13 — collage de lignes refusé par son nom avant toute écriture ;
+//  V3E13 — collage de lignes écrit par l'écrivain v3 (unité du référentiel, jamais description ni heures totales), et
+//          son annulation (sous-lot 2.8, qui lève le refus nommé de la revue du 2.6) ;
 //  V3E14 — un enregistrement des réglages v3 (« Oui » à la propagation de la TVA) ferme l'annulation d'une majoration
 //          en lot et celle des suggestions, qui réécriraient l'ancien taux (fusion de la PR #41 avec 2.6,
 //          docs/testing/version-totals-after-bulk-actions.md).
@@ -42,7 +43,6 @@ const chips = (totals: Totals, rate = "20", extra: string[] = []) => [
 ];
 const apostrophes = (text: string) => text.replace(/[’']/g, "'");
 // Messages nommés retenus par la revue (doc 2.6 §11.2).
-const PASTE_REFUSAL = "Le collage de lignes n’est pas encore disponible pour un devis au moteur de calcul 3";
 const DETAIL_ACTIONS_REASON = "Moteur de calcul 3 : le PDF et l’enregistrement comme modèle ne sont pas encore disponibles";
 const UNIT_REFUSED = "Unité différente du devis";
 
@@ -793,19 +793,25 @@ armyTest("V3E12 bulk suggestions are applied to v3 lines and undone through the 
     });
   });
 
-armyTest("V3E13 pasting rows into a v3 grid is refused by name before any write",
+armyTest("V3E13 pasting rows into a v3 grid writes their v3 inputs through the v3 writer, and its undo deletes them through it",
   options(300_000), async ({ app, screen, browser, army }) => {
     const ui: Ui = { app, screen, browser };
     const dialogs = await recordDialogs(ui);
     const draft = await prepareV3Draft(ui, army, "V3E13");
-    const [line] = await seedLines(ui, army, draft, "v3e13", [supply(`${army.runPrefix} ancre`, 1, 1000)]);
+    const [line, tail] = await seedLines(ui, army, draft, "v3e13",
+      [supply(`${army.runPrefix} ancre`, 1, 1000), supply(`${army.runPrefix} suite`, 1, 500)]);
     await switchToExpertMode(ui);
     await openV3Editor(ui, army, draft, "v3e13");
     await waitForDraftLease(ui);
     const before = await readConsistent(ui, draft.versionId);
+    const initial: Totals = [1950, 390, 2340];
+    const order = (state: ArmyEstimate) => state.items.filter((item) => item.item_type === "line")
+      .sort((left, right) => Number(left.position) - Number(right.position)).map((item) => item.title);
 
-    // F26-31 : le collage v1/v2 écrirait l'unité dans description (unit_code perdu) et des heures totales (refusées) ;
-    // tant que son contrat v3 n'est pas fixé, il est refusé par son nom, sans rien écrire.
+    // F26-31, levé par le 2.8 : le collage v1/v2 écrirait l'unité dans description (unit_code perdu) et des heures
+    // totales (refusées). Sur une v3, l'unité passe par le référentiel (« ml » → unit_code), l'aperçu montre la valeur
+    // interprétée et la ligne est écrite par l'écrivain de lot v3 juste après la ligne active (repositionnement par le
+    // lot) : 2 × 10,00 € × 1,30 = 26,00 € HT.
     const pastedTitle = `${army.runPrefix} ligne collée ${randomUUID().slice(0, 4)}`;
     await browser.locator(`[data-estimate-item-id="${line.id}"] [data-testid="estimate-line-title-input"]`).click();
     await browser.evaluate(() => new Promise<boolean>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)))));
@@ -820,20 +826,33 @@ armyTest("V3E13 pasting rows into a v3 grid is refused by name before any write"
     }, tsv);
     const pasteDialog = screen.getByRole("dialog", "Aperçu du collage", { exact: true });
     await expect(pasteDialog).toBeVisible({ timeout: 30_000 });
+    await expect(pasteDialog.getByText("Unité ml", { exact: true })).toBeVisible();
     await screen.getByTestId("paste-preview-dialog-confirm-button").tap();
-    const errors = screen.getByTestId("paste-preview-dialog-errors");
-    const refused = await becomes(async () => (await errors.count()) === 1 &&
-      apostrophes(normalized(await errors.textContent())).includes(apostrophes(PASTE_REFUSAL)));
-    await pause(2_000);
-    const after = await readConsistent(ui, draft.versionId);
+    await expect(pasteDialog).toBeHidden({ timeout: 30_000 });
+    const pasted = await waitState(ui, draft.versionId, (state) => lineByTitle(state, pastedTitle) !== null &&
+      sameTotals(state, [4550, 910, 5460]) && order(state)[1] === pastedTitle);
+    const pastedLine = lineByTitle(pasted, pastedTitle);
     const view = {
-      refused, pasted: lineByTitle(after, pastedTitle) !== null,
-      revisionUnchanged: after.version.content_revision === before.version.content_revision, totals: totalsOf(after),
+      line: pickLine(pastedLine, ["unit", "status", "quantity", "prFo", "hPerUnit", "hMo", "pu", "net", "taxRateBp", "roleId"]),
+      description: pastedLine?.description ?? null, order: order(pasted),
+      totals: totalsOf(pasted), revisionBumped: pasted.version.content_revision > before.version.content_revision,
+      genericRefusal: await genericRefusalShown(ui),
     };
-    await recordEvidence(army, "v3e13-paste", { versionId: draft.versionId, tsv, actual: view, nativeDialogs: dialogs,
-      dialogText: (await pasteDialog.isVisible()) ? apostrophes(normalized(await pasteDialog.textContent())) : null });
-    expect(view, "a paste into a v3 grid is refused by name and writes nothing").toEqual({
-      refused: true, pasted: false, revisionUnchanged: true, totals: [1300, 260, 1560],
+    await recordEvidence(army, "v3e13-paste", { versionId: draft.versionId, tsv, actual: view, nativeDialogs: dialogs });
+    expect(view, "a paste into a v3 grid writes its v3 inputs through the v3 writer").toEqual({
+      line: { unit: "ml", status: "priced", quantity: 2, prFo: 1000, hPerUnit: null, hMo: 0, pu: 1300, net: 2600, taxRateBp: 2000, roleId: null },
+      description: null, order: [line.title, pastedTitle, tail.title], totals: [4550, 910, 5460], revisionBumped: true,
+      genericRefusal: false,
+    });
+
+    // Annuler le collage supprime la ligne collée par le lot v3.
+    await undo(ui);
+    const undone = await waitState(ui, draft.versionId, (state) => lineByTitle(state, pastedTitle) === null && sameTotals(state, initial));
+    const undoneView = { present: lineByTitle(undone, pastedTitle) !== null, order: order(undone), totals: totalsOf(undone),
+      genericRefusal: await genericRefusalShown(ui) };
+    await recordEvidence(army, "v3e13-undo", { versionId: draft.versionId, actual: undoneView, nativeDialogs: dialogs });
+    expect(undoneView, "undoing a v3 paste deletes the pasted line through the v3 writer").toEqual({
+      present: false, order: [line.title, tail.title], totals: initial, genericRefusal: false,
     });
   });
 

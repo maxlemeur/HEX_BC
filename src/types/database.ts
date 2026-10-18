@@ -3223,6 +3223,8 @@ export type Database = {
           rounding_mode: "none" | "nearest" | "up" | "down";
           rounding_step_cents: number;
           validite_jours: number;
+          sale_coefficient_fo: number | null;
+          sale_coefficient_mo: number | null;
         };
         Insert: {
           id?: string;
@@ -3246,6 +3248,8 @@ export type Database = {
           rounding_mode?: "none" | "nearest" | "up" | "down";
           rounding_step_cents?: number;
           validite_jours?: number;
+          sale_coefficient_fo?: number | null;
+          sale_coefficient_mo?: number | null;
         };
         Update: {
           id?: string;
@@ -3269,6 +3273,8 @@ export type Database = {
           rounding_mode?: "none" | "nearest" | "up" | "down";
           rounding_step_cents?: number;
           validite_jours?: number;
+          sale_coefficient_fo?: number | null;
+          sale_coefficient_mo?: number | null;
         };
         Relationships: [];
       };
@@ -3304,6 +3310,11 @@ export type Database = {
           line_total_ht_cents: number | null;
           line_tax_cents: number | null;
           line_total_ttc_cents: number | null;
+          unit_code?: string | null;
+          pricing_status?: Database["public"]["Enums"]["estimate_line_pricing_status"];
+          h_mo_per_unit?: number | null;
+          h_mo_atelier_per_unit?: number | null;
+          h_mo_chantier_per_unit?: number | null;
         };
         Insert: {
           id?: string;
@@ -3336,6 +3347,11 @@ export type Database = {
           line_total_ht_cents?: number | null;
           line_tax_cents?: number | null;
           line_total_ttc_cents?: number | null;
+          unit_code?: string | null;
+          pricing_status?: Database["public"]["Enums"]["estimate_line_pricing_status"];
+          h_mo_per_unit?: number | null;
+          h_mo_atelier_per_unit?: number | null;
+          h_mo_chantier_per_unit?: number | null;
         };
         Update: {
           id?: string;
@@ -3368,6 +3384,11 @@ export type Database = {
           line_total_ht_cents?: number | null;
           line_tax_cents?: number | null;
           line_total_ttc_cents?: number | null;
+          unit_code?: string | null;
+          pricing_status?: Database["public"]["Enums"]["estimate_line_pricing_status"];
+          h_mo_per_unit?: number | null;
+          h_mo_atelier_per_unit?: number | null;
+          h_mo_chantier_per_unit?: number | null;
         };
         Relationships: [];
       };

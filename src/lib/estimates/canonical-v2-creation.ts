@@ -130,6 +130,11 @@ type CanonicalV2CreationSource =
       filename: string;
       sectionTitle?: string | null;
       items: RpcImportItemPayload[];
+      /**
+       * Lot 2, sous-lot 2.8 (D16) : 3 quand les lignes ont été normalisées pour le moteur 3 (heures par
+       * unité, unité du référentiel, statut). Seul un tel import entre dans une v3 ; sans lui, refus nommé.
+       */
+      engine?: number;
     };
 
 export type PersistCanonicalEstimateV2Input = {
@@ -463,6 +468,14 @@ function createImportItems(source: Extract<CanonicalV2CreationSource, { kind: "i
       line_total_ht_cents: sourceItem.line_total_ht_cents,
       line_tax_cents: sourceItem.line_tax_cents,
       line_total_ttc_cents: sourceItem.line_total_ttc_cents,
+      // Sub-lot 2.8: the v3 columns of a line normalized for engine 3, absent otherwise.
+      ...(sourceItem.pricing_status !== undefined
+        ? {
+            unit_code: sourceItem.unit_code ?? null,
+            pricing_status: sourceItem.pricing_status,
+            h_mo_per_unit: sourceItem.h_mo_per_unit ?? null,
+          }
+        : {}),
     });
     insertedLineCount += 1;
   });
@@ -814,10 +827,12 @@ export async function persistCanonicalEstimateV2(
       : null;
   const projectUserId = existingContext?.projectUserId ?? input.actorUserId;
   const policy = await readTenantCalcPolicy(input.supabase, input.tenantId);
-  // Modèles, imports et autres chemins d'entrée v3 : sous-lot 2.8 (D16). Sous politique 3, refus nommé et
-  // définitif avant la comparaison des attentes : un chemin sans attente (import, création rapide) ne doit
-  // pas recevoir le CONTEXT_CHANGED « rechargez la page », qui boucle (revue 2.5).
-  if (input.source.kind !== "blank" && usesSaleCoefficients(policy.engine)) throw new EstimateEngineUnavailableError();
+  // Sous-lot 2.8 (D16) : sous politique 3, seuls une v3 vierge et un import normalisé pour le moteur 3 entrent ;
+  // tout autre chemin (modèle, création rapide, assistant) reçoit un refus nommé et définitif avant la
+  // comparaison des attentes : un chemin sans attente ne doit pas recevoir le CONTEXT_CHANGED « rechargez la
+  // page », qui boucle (revue 2.5).
+  const entersV3 = input.source.kind === "blank" || (input.source.kind === "import" && input.source.engine === 3);
+  if (!entersV3 && usesSaleCoefficients(policy.engine)) throw new EstimateEngineUnavailableError();
   const engine = resolveNewEstimateEngine({ policy, expectedEngine: input.expectedCalcEngineVersion });
   const sourceResult = resolveCanonicalSource(input.source);
   let prepared: { versionPayload: Record<string, unknown>; persistedItems: CanonicalEstimateCreationItem[] };
@@ -841,16 +856,31 @@ export async function persistCanonicalEstimateV2(
         overrides: input.version,
         latestVersion: existingContext?.latestVersion ?? null,
         policy,
-        // Toujours 0 en 2.5 (seule une v3 vierge est créée) ; même règle que la v2 pour les entrées de 2.8.
         requiredSectionDepth: requiredSectionDepthOf(sourceResult.items),
       });
+      // Sous-lot 2.8 : un import entre avec ses lignes v3 ; leurs montants sont ceux du moteur 3 aux
+      // coefficients fournis (la RPC les revérifie, estimate_v3_assert_draft_for_writer).
+      if (sourceResult.items.length > 0 && V3_CREATION_SETTINGS.some((key) => input.version?.[key] == null)) {
+        throw internalError("Un import vers le moteur 3 fournit ses coefficients de vente.");
+      }
+      const lineItems = sourceResult.items
+        .filter((item) => item.item_type === "line")
+        .map((item) => ({
+          ...toCalculationItem(item),
+          unit_code: item.unit_code ?? null,
+          pricing_status: item.pricing_status ?? "priced",
+          h_mo_per_unit: item.h_mo_per_unit ?? null,
+          h_mo_atelier_per_unit: item.h_mo_atelier_per_unit ?? null,
+          h_mo_chantier_per_unit: item.h_mo_chantier_per_unit ?? null,
+        }));
       const calculated = await calculateEstimateV3SnapshotForItems({
         supabase: input.supabase,
         tenantId: input.tenantId,
         projectUserId,
         version: versionPayload,
-        lineItems: [],
+        lineItems,
       });
+      const lineById = new Map(lineItems.length > 0 ? calculated.breakdown.lines.map((line) => [line.id, line]) : []);
       // Coefficients que le client n'a pas fournis : la RPC prend ceux de la politique qu'elle relit FOR SHARE
       // sous le verrou consultatif, jamais ceux lus ici sans verrou (revue 2.5). Une v3 à blanc vaut 0 sous
       // n'importe quels coefficients : les totaux calculés restent exacts.
@@ -860,7 +890,18 @@ export async function persistCanonicalEstimateV2(
       }
       prepared = {
         versionPayload: { ...persistedPayload, ...toEstimateV3VersionTotals(calculated.breakdown) },
-        persistedItems: [],
+        persistedItems: sourceResult.items.map((item) => {
+          const line = item.item_type === "line" ? lineById.get(item.id!) : undefined;
+          return line
+            ? {
+                ...item,
+                pu_ht_cents: line.pu_ht_cents,
+                line_total_ht_cents: line.line_total_ht_cents,
+                line_tax_cents: line.line_tax_cents,
+                line_total_ttc_cents: line.line_total_ttc_cents,
+              }
+            : item;
+        }),
       };
       break;
     }

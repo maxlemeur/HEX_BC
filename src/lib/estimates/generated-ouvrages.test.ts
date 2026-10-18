@@ -573,6 +573,7 @@ describe("insertGeneratedOuvrages", () => {
     existingFallback?: boolean;
     manualLaborQuantity?: number;
     commitError?: { code: string; message: string };
+    engine?: 3;
   } = {}) {
     const reviewedItems = createSubdetailItemRows().map((item) =>
       item.cost_type === "labor" && options.manualLaborQuantity !== undefined
@@ -590,7 +591,9 @@ describe("insertGeneratedOuvrages", () => {
       fragments: [createFragmentRow()], reviewToken: REVIEW_TOKEN,
     };
     const supabase = createSupabaseStub({
-      estimate_versions: { select: [createQueryBuilder({ data: createVersionAccessRow(), error: null })] },
+      estimate_versions: { select: [createQueryBuilder({ data: options.engine
+        ? { ...createVersionAccessRow(), calc_engine_version: options.engine }
+        : createVersionAccessRow(), error: null })] },
       draft_locks: { select: [createQueryBuilder({ data: {
         id: "lock-1", version_id: VERSION_ID, user_id: USER_ID, session_id: LOCK_SESSION_ID,
         locked_at: EXPECTED_UPDATED_AT, expires_at: "2099-03-07T09:30:00.000Z",
@@ -700,6 +703,20 @@ describe("insertGeneratedOuvrages", () => {
     expect(prepared(supabase).componentProjections).toEqual([
       expect.objectContaining({ hMo: 0.101, kMo: 9.901, dsCents: 1500 }),
     ]);
+  });
+
+  it("2.8: into a v3, prepares the line per unit and lets the v3 engine price it (no client projection)", async () => {
+    const { supabase } = setup({ engine: 3 });
+    await insertGeneratedOuvrages(request());
+    const operations = vi.mocked(prepareEstimateBatch).mock.calls[0][0].operations;
+    // 54 h for 120 m2: 0,45 h/u; the line never carries a total of hours (D16).
+    expect(operations[1]).toMatchObject({ op: "create", data: { item_type: "line", quantity: 120, h_mo_per_unit: 0.45 } });
+    expect(operations[1].op === "create" && "h_mo" in operations[1].data).toBe(false);
+    const commit = supabase.rpc.mock.calls.find(([name]) => name === "commit_generated_ouvrages")![1] as Record<string, unknown>;
+    expect([commit.p_item_updates, commit.p_version_patch]).toEqual([[], {}]);
+    expect(commit.p_calculation_context).toEqual({ labor_roles: [], margin_tiers: [], labor_split_flag: null });
+    // The reviewed item keeps its hours: the commit checks them against the mapping, then stores h / Q.
+    expect(prepared(supabase).item).toMatchObject({ h_mo: 54, quantity: 120 });
   });
 
   it("reuses the explicit 'À classer' section when it already exists", async () => {
