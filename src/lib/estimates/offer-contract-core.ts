@@ -2,10 +2,11 @@ import type { EstimatePdfLayoutOptions } from "@/lib/estimates/pdf-layout";
 
 /**
  * Primitives strictes partagées par le contrat client 1 (`offer-contract.ts`) et le contrat
- * client 2 (`offer-contract-v2-parse.ts`, lot 2, sous-lot 2.7, D14). Elles ont été déplacées
- * telles quelles depuis `offer-contract.ts` : le contrat 2 réutilise les validateurs du contrat 1
- * sans que les deux modules dépendent l'un de l'autre à l'exécution (aucun cycle, budgets
- * d'architecture). Aucune règle ni aucun message ne change.
+ * client 2 (`offer-contract-v2-parser.ts`, lot 2, sous-lot 2.7, D14). Elles ont été déplacées
+ * telles quelles depuis `offer-contract.ts` : le parseur du contrat 2 réutilise les validateurs du
+ * contrat 1 sans importer `offer-contract.ts` à l'exécution (il n'en lit qu'un type), tandis que
+ * `offer-contract.ts` importe le parseur pour aiguiller un contrat 2 ; aucun cycle à l'exécution
+ * (budgets d'architecture). Aucune règle ni aucun message ne change.
  */
 
 type TermsFields = {

@@ -20,8 +20,8 @@ type Collector = { origin: string; directory: string; close: () => Promise<void>
 // `scripts/run-tester-army-ci.ts calc-v3` once pgTAP and RLS have passed.
 // Contract and failure modes: docs/testing/tester-army-calc-v3.md. Each phase
 // is its own TesterArmy invocation of e2e.calc-v3.config.ts with fresh
-// fixtures; production phases share one owned build, the emission phases run
-// last under `next dev` with the sentinel collector. A phase passes only when
+// fixtures; every phase serves the same owned production build (`next start`),
+// the emission phases last, with the sentinel collector. A phase passes only when
 // every selected result passed, nothing was skipped, retried, interrupted or
 // silently deselected, its server guard reported, the sources and build stayed
 // frozen and its evidence survived redaction.

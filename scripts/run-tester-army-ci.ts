@@ -47,7 +47,7 @@ for (let index = 3; index < process.argv.length; index += 2) {
     new RegExp(value);
     grep = value;
   } else if (option === "--phase") {
-    if (suite !== "calc-v3" || !isCalcV3Phase(value)) throw new Error("--phase names one calc-v3 phase: journeys|components|numeric|resume|access|emission.");
+    if (suite !== "calc-v3" || !isCalcV3Phase(value)) throw new Error("--phase names one calc-v3 phase: journeys|components|numeric|resume|access|offers|emission|emission-v3.");
     calcV3Phase = value;
   } else {
     if (!/^[0-9]+$/.test(value) || Number(value) < 1024 || Number(value) > 65535) {

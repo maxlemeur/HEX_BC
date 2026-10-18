@@ -34,7 +34,7 @@ import { admitCollectedResendDecision, offerTest, recordOfferEvidence } from "./
 //  V3M-07 L'acceptation au portail d'une v3 échoue ou change son sceau.
 //  V3M-08 Régression : une v2 émise avant (contrat 1, charge 4, marqueur 5) ne se vérifie plus ou
 //         change de SHA-256 de PDF après les émissions v3.
-// Ajoutés à la revue 2.7 (docs/testing/estimate-engine-v3-2.7.md §10.6) :
+// Ajoutés à la revue 2.7 (docs/testing/estimate-engine-v3-2.7.md §12) :
 //  V3M-09 Le résumé d'approbation d'une version émise (GET …/approval, lu par la fiche et l'affaire)
 //         échoue : la relecture tente l'écriture que guard_estimate_versions_readonly refuse (régression
 //         de e4fc30cf ; le panneau d'approbation disparaît).
@@ -450,7 +450,7 @@ if (process.env.E2E_ARMY_SUITE === "critical") {
       await generatePdf(browser, record, "s5", ids.versionId);
       await expectIssuedDocument(ui, record, "s5", ids.versionId, S5, await storedPdfBytes(browser, ids.versionId));
 
-      // Revue 2.7 (§10.6) : une v3 sans ligne chiffrée a un récapitulatif de TVA vide ; l'en-tête de validité du
+      // Revue 2.7 (§12) : une v3 sans ligne chiffrée a un récapitulatif de TVA vide ; l'en-tête de validité du
       // document client reprend le taux par défaut de la version (3a8e576a ; rouge sans lui : « TVA : » vide).
       await app.open("/dashboard/affaires");
       const unpriced = await createV3(browser, army, record, "V3M02-unpriced");

@@ -147,7 +147,7 @@ describe("development estimate terms production sandbox boundary", () => {
 // de ce profil, et jamais sur la pile longue des développeurs (45585, 33485), réservée au cas
 // `offer`, inchangé. Isolation justifiée : un parcours ne peut ni poser un marqueur d'hébergement
 // ni démarrer une pile sur 45585 (interdite à la campagne) pour prouver le refus.
-// Revue 2.7 (docs/testing/estimate-engine-v3-2.7.md §10.6) : la pile doit être POSSÉDÉE, pas seulement
+// Revue 2.7 (docs/testing/estimate-engine-v3-2.7.md §12) : la pile doit être POSSÉDÉE, pas seulement
 // hors des ports des développeurs. Le profil exige le marqueur positif du lanceur
 // (`E2E_CALC_V3_OWNED_STACK=1`, posé par calc-v3-campaign.ts et transmis à l'application par
 // calc-v3.config.ts) et le répertoire de sa campagne d'émission,
