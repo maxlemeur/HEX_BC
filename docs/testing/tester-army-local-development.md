@@ -280,7 +280,11 @@ Arrêt, expiration et état abandonné :
      pas été exécuté) ;
   2. chercher l'entrée du registre dont `identity.projectRoot` est
      `stack.rootDirectory`, parmi `~/.supabase/stacks/*/state.json`, et
-     vérifier que son port `api` fait partie de `stack.ports` ;
+     vérifier que son port `api` fait partie de `stack.ports`. La CLI enregistre
+     le chemin réel : sous macOS, `/private/var/folders/…` pour un
+     `stack.rootDirectory` en `/var/folders/…` (`/var` est un lien vers
+     `/private/var`). Comparer donc après résolution des liens, celle du parent
+     si le répertoire a disparu ;
   3. si `stack.rootDirectory` existe et que son `supabase/config.toml` porte
      `project_id = "<stack.projectId>"`, ou si l'entrée du registre existe,
      recréer au besoin ce répertoire avec un `supabase/config.toml` qui ne
@@ -307,8 +311,9 @@ Arrêt, expiration et état abandonné :
   qui nomme ce superviseur ;
 - si le répertoire de travail a aussi disparu (un redémarrage WSL vide `/tmp`),
   `stop` retrouve la pile dans le registre natif : `identity.projectRoot` est
-  égal au répertoire enregistré et le port `api` déclaré fait partie des ports
-  enregistrés. Seules ces deux valeurs sont lues, jamais les `credentials` de
+  égal au répertoire enregistré, liens résolus des deux côtés (par le parent
+  pour un répertoire disparu ; macOS `/var` -> `/private/var`), et le port `api`
+  déclaré fait partie des ports enregistrés. Seules ces deux valeurs sont lues, jamais les `credentials` de
   l'entrée. La CLI 2.120 refuse un `--workdir` absent : `stop` recrée donc le
   répertoire temporaire possédé, vide hormis un `supabase/config.toml` qui porte
   le `project_id` enregistré et `[experimental] stack = true`, comme la reprise

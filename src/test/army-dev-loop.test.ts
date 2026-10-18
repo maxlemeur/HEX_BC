@@ -8,7 +8,8 @@
 // 1. two supervisors claim one checkout and share its .e2e/army build;
 // 2. a dead supervisor, or a recycled pid now running something else, is
 //    taken for a live loop (stop then skips the orphaned stack), or a live
-//    loop is taken for a stale one (stop destroys a stack in use);
+//    loop is taken for a stale one (stop destroys a stack in use), also when
+//    the checkout is reached through a symbolic link;
 // 3. a key, a database URL or the account address reaches the state file;
 // 4. a journey-only change triggers a rebuild, or an application change, a
 //    deleted source or a build replaced by another run in this checkout does
@@ -25,8 +26,9 @@
 //    port;
 // 9. a dead supervisor's workdir is gone (a WSL restart empties /tmp) while
 //    its native registry entry and data remain: stop reports the stack
-//    destroyed and deletes the only record of it, or a supervisor releases
-//    its state although `stack destroy` failed;
+//    destroyed and deletes the only record of it (also when the registry
+//    holds the resolved path, as macOS /private/var), or a supervisor
+//    releases its state although `stack destroy` failed;
 // 10. a failed state write during a run leaves the supervisor busy forever,
 //    disarms its idle TTL or replaces the iteration's result;
 // 11. an iteration's raw SDK archive under .e2e/army/critical/runs/ reads as
@@ -485,7 +487,7 @@ describe("TesterArmy dev loop", () => {
       const entry = path.join(registry, id.repeat(64 / id.length));
       fs.mkdirSync(entry, { recursive: true });
       fs.writeFileSync(path.join(entry, "state.json"), JSON.stringify({
-        identity: { projectRoot: path.join(realParent, name), stackName: "default" }, ports: [{ key: "api", host: "127.0.0.1", port: 54321 }],
+        identity: { projectRoot: path.join(fs.realpathSync(realParent), name), stackName: "default" }, ports: [{ key: "api", host: "127.0.0.1", port: 54321 }],
       }));
       return path.basename(entry);
     };
