@@ -25,6 +25,15 @@
 //    selector is unsure, skipped by the takeoff job for anything but an
 //    explicit "none", or listed in a form (a subfolder, for example) the
 //    runner's full --files refuses before running anything.
+// 9. the partition of a selection into parallel shard jobs (army-shards.json,
+//    planShards) loses or doubles a journey: a selected file in no shard or in
+//    two, a shard without the login setup or without an authenticated business
+//    journey (the runner refuses it), a plan that depends on the order of its
+//    input, a list the runner's --files would refuse or that cannot be
+//    established still sharded instead of one shard running the runner's own
+//    whole suite, a nightly full listing taken from the map instead of
+//    e2e.config.ts and the working tree (an unregistered journey would never
+//    run), or a matrix output the workflow cannot read.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -38,17 +47,25 @@ import {
   criticalSuiteJourneys,
   expandJourneys,
   fullOnlySuiteJourneys,
+  fullSelectionGlobs,
   globToRegExp,
   listRepositoryFiles,
   loadImpactMap,
+  loadShardDurations,
   matchesAny,
+  planFullSuite,
+  planShards,
   selectFromRepository,
   selectJourneys,
+  shardMatrix,
   validateImpactMap,
+  validateShardDurations,
   type ImpactMap,
+  type ShardDurations,
+  type ShardPlan,
   type SourceGraph,
 } from "../../scripts/tester-army/select-journeys";
-import { FULL_ONLY_JOURNEY_FILE } from "../../scripts/tester-army/journey-files.mjs";
+import { CRITICAL_JOURNEY_FILE, FULL_JOURNEY_FILE, FULL_ONLY_JOURNEY_FILE } from "../../scripts/tester-army/journey-files.mjs";
 
 const root = process.cwd();
 const SELECTOR = "scripts/tester-army/select-journeys.ts";
@@ -459,22 +476,199 @@ describe("TesterArmy critical impact map", () => {
   });
 });
 
+describe("TesterArmy shard plans", () => {
+  let durations: ShardDurations;
+
+  beforeAll(() => {
+    durations = loadShardDurations(root).durations;
+  });
+
+  /** A plan's shards: numbered 1..n, each with the setup and an authenticated journey, disjoint, together the plan's files. */
+  function expectPartition(plan: ShardPlan, expected: readonly string[], label: string) {
+    const setup = map.suite.setup;
+    const anonymous = new Set(map.suite.anonymous);
+    expect(plan.files, label).toEqual([...expected].sort());
+    expect(plan.shards.map((shard) => [shard.shard, shard.total]), label)
+      .toEqual(plan.shards.map((_, index) => [index + 1, plan.shards.length]));
+    const owners = new Map<string, number[]>();
+    for (const shard of plan.shards) {
+      expect(shard.files, `${label} shard ${shard.shard}`).toContain(setup);
+      expect(shard.files.some((file) => file !== setup && !anonymous.has(file)), `${label} shard ${shard.shard} authenticated`).toBe(true);
+      expect(shard.files, `${label} shard ${shard.shard} sorted`).toEqual([...shard.files].sort());
+      for (const file of shard.files) if (file !== setup) owners.set(file, [...(owners.get(file) ?? []), shard.shard]);
+    }
+    expect([...owners].filter(([, shards]) => shards.length !== 1), `${label} overlap`).toEqual([]);
+    expect([...owners.keys(), setup].sort(), `${label} union`).toEqual([...expected].sort());
+  }
+
+  it("partitions every selected journey into exactly one shard, with the login setup and an authenticated journey in each", () => {
+    expect(validateShardDurations(durations, [...map.suite.journeys, ...fullOnlySuiteFromConfig(),
+      ...fullSelectionListing()])).toEqual([]);
+    const settings = durations.suites.critical;
+
+    // The full critical suite (a shared-core path): the e2e.config.ts listing, split.
+    const full = selectFromRepository(root, { event: "pull_request", paths: ["scripts/run-tester-army-ci.ts"], repositoryFiles: files });
+    expect(full.mode).toBe("full");
+    expect(full.shards.shards.length).toBeGreaterThan(1);
+    expect(full.shards.shards.length).toBeLessThanOrEqual(settings.maxShards);
+    expect(full.shards.workers).toBe(settings.workers);
+    expectPartition(full.shards, criticalSuiteFromConfig(), "full critical suite");
+
+    // An impact selection: exactly its files, the anchor of an anonymous change included.
+    for (const paths of [["src/app/dashboard/estimates/[versionId]/edit/page.tsx"], ["e2e/army/critical/auth-rejection.e2e.ts"]]) {
+      const selection = selectFromRepository(root, { event: "pull_request", paths, repositoryFiles: files });
+      expect(selection.mode, paths[0]).toBe("files");
+      expectPartition(selection.shards, selection.files, paths[0]);
+    }
+    // A small selection stays one job: no shard costs a stack and a build for seconds of journeys.
+    const small = selectFromRepository(root, { event: "pull_request", paths: ["e2e/army/critical/dpgf-import.e2e.ts"], repositoryFiles: files });
+    expect(small.shards.shards).toEqual([{ shard: 1, total: 1, files: small.files, seconds: expect.any(Number) }]);
+
+    // Nothing to run: no shard, so the matrix job is skipped and the aggregate claims nothing.
+    const none = selectFromRepository(root, { event: "pull_request", paths: ["docs/testing/tester-army-ci.md"], repositoryFiles: files });
+    expect(none.mode).toBe("none");
+    expect(none.shards).toMatchObject({ files: [], shards: [] });
+  });
+
+  it("plans the same shards whatever the order of the selection, the heaviest journeys spread first", () => {
+    const listing = criticalSuiteFromConfig();
+    const plan = (order: string[]) => planShards({ suite: "critical", files: order, wholeSuite: true, setup: map.suite.setup,
+      anonymous: map.suite.anonymous, accepts: CRITICAL_JOURNEY_FILE, durations });
+    const reference = plan(listing);
+    expect(plan([...listing].reverse())).toEqual(reference);
+    expect(plan([...listing].sort((a, b) => b.length - a.length || a.localeCompare(b)))).toEqual(reference);
+    // Longest-first assignment: no shard exceeds another by more than the heaviest journey.
+    const weight = (file: string) => durations.seconds[file] ?? durations.defaultSeconds;
+    const heaviest = Math.max(...listing.filter((file) => file !== map.suite.setup).map(weight));
+    const loads = reference.shards.map((shard) => shard.seconds);
+    expect(Math.max(...loads) - Math.min(...loads)).toBeLessThanOrEqual(heaviest);
+    expect(reference.shards.map((shard) => shard.seconds))
+      .toEqual(reference.shards.map((shard) => shard.files.filter((file) => file !== map.suite.setup).reduce((sum, file) => sum + weight(file), 0)));
+  });
+
+  it("runs one unsharded shard, never a partial list, when the list is refused by the runner or cannot be established", () => {
+    const listing = criticalSuiteFromConfig();
+    const base = { suite: "critical" as const, setup: map.suite.setup, anonymous: map.suite.anonymous, accepts: CRITICAL_JOURNEY_FILE };
+    const whole = { files: [], shards: [{ shard: 1, total: 1, files: [], seconds: 0 }] };
+    // A path the runner's critical --files refuses (subfolder): the runner's own whole suite.
+    expect(planShards({ ...base, files: [...listing, "e2e/army/critical/nested/x.e2e.ts"], wholeSuite: true, durations }))
+      .toMatchObject(whole);
+    // No measured durations: one shard; the whole suite runs the runner's own selection, a selection its files.
+    expect(planShards({ ...base, files: listing, wholeSuite: true, durations: null })).toMatchObject(whole);
+    const editor = selectFromRepository(root, { event: "pull_request", paths: ["src/app/dashboard/estimates/[versionId]/edit/page.tsx"], repositoryFiles: files });
+    expect(planShards({ ...base, files: editor.files, wholeSuite: false, durations: null }))
+      .toMatchObject({ files: editor.files, shards: [{ shard: 1, total: 1, files: editor.files }] });
+    // A selection without its login setup is not a runner selection either.
+    expect(planShards({ ...base, files: editor.files.filter((file) => file !== map.suite.setup), wholeSuite: false, durations }))
+      .toMatchObject(whole);
+
+    // Fail-safe of the selector (a journey the map does not list): full suite, one unsharded shard.
+    const unmapped = selectFromRepository(root, {
+      event: "pull_request", paths: ["src/app/dashboard/estimates/[versionId]/edit/page.tsx"],
+      repositoryFiles: [...files, "e2e/army/critical/zz-unmapped-journey.e2e.ts"],
+    });
+    expect(unmapped.mode).toBe("full");
+    expect(unmapped.shards).toMatchObject(whole);
+  });
+
+  it("shards the nightly full suite from e2e.config.ts and the working tree, its development phase in its own job", () => {
+    const added = "e2e/army/extended/zz-unregistered-journey.e2e.ts";
+    const plan = planFullSuite(root, { repositoryFiles: [...files, added] });
+    expect(plan.development).toBe("separate");
+    expect(plan.workers).toBe(durations.suites.full.workers);
+    expect(plan.shards.length).toBeGreaterThan(1);
+    expect(plan.shards.length).toBeLessThanOrEqual(durations.suites.full.maxShards);
+    expect(plan.files).toContain(added);
+    expectPartition(plan, [...fullSelectionListing(), added], "full suite");
+    expect(plan.files.filter((file) => !FULL_JOURNEY_FILE.test(file))).toEqual([]);
+
+    // A filtered dispatch (--grep) is one unsharded shard without the development phase.
+    expect(planFullSuite(root, { repositoryFiles: files, unsharded: "dispatch --grep" }))
+      .toMatchObject({ files: [], development: "none", shards: [{ shard: 1, total: 1, files: [] }] });
+    // An unreadable full list: one unsharded shard running both phases on its stack, as before sharding.
+    expect(planFullSuite(root, { repositoryFiles: files, config: "export default {};" }))
+      .toMatchObject({ files: [], development: "in-shard", shards: [{ shard: 1, total: 1, files: [] }] });
+  });
+
+  it("names only journeys of the suites and keeps every limit usable", () => {
+    const known = [...map.suite.journeys, ...fullSelectionListing()];
+    expect(validateShardDurations({ ...durations, seconds: { ...durations.seconds, "e2e/army/critical/zz-gone.e2e.ts": 5 } }, known))
+      .toEqual(["army-shards.json times e2e/army/critical/zz-gone.e2e.ts, which no suite runs."]);
+    expect(validateShardDurations({ ...durations, suites: { ...durations.suites, full: { maxShards: 0, secondsPerShard: 320, workers: 1 } } }, known))
+      .toEqual(["army-shards.json suite full needs maxShards from 1 to 8, secondsPerShard above 0 and workers from 1 to 4."]);
+  });
+
+  it("hands the workflow one matrix entry per shard, its files comma-joined", () => {
+    const environment = { ...process.env };
+    delete environment.GITHUB_STEP_SUMMARY;
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "army-shards-"));
+    try {
+      const readOutputs = (args: string[]) => {
+        const output = path.join(directory, `${args.join("-").replace(/[^a-z]+/gu, "-")}.txt`);
+        const result = spawnSync(process.execPath, [SELECTOR, ...args], {
+          cwd: root, encoding: "utf8", env: { ...environment, GITHUB_OUTPUT: output }, windowsHide: true,
+        });
+        expect(result.status, result.stderr).toBe(0);
+        return Object.fromEntries(fs.readFileSync(output, "utf8").trim().split("\n").map((line) => {
+          const index = line.indexOf("=");
+          return [line.slice(0, index), line.slice(index + 1)];
+        }));
+      };
+      const paths = path.join(directory, "paths.txt");
+      fs.writeFileSync(paths, "scripts/run-tester-army-ci.ts\n");
+      const critical = readOutputs(["--event", "pull_request", "--paths-file", paths]);
+      expect(critical.mode).toBe("full");
+      const matrix = JSON.parse(critical.critical_shards) as Array<{ shard: number; total: number; files: string }>;
+      const selection = selectFromRepository(root, { event: "pull_request", paths: ["scripts/run-tester-army-ci.ts"] });
+      expect(matrix).toEqual(shardMatrix(selection.shards));
+      expect(matrix.map((entry) => entry.files.split(",")).flat().filter((file) => file !== map.suite.setup).sort())
+        .toEqual(criticalSuiteFromConfig().filter((file) => file !== map.suite.setup));
+
+      fs.writeFileSync(paths, "docs/testing/tester-army-ci.md\n");
+      expect(readOutputs(["--event", "pull_request", "--paths-file", paths])).toMatchObject({ mode: "none", critical_shards: "[]" });
+
+      const nightly = readOutputs(["--plan", "full"]);
+      expect(nightly.development).toBe("separate");
+      expect(JSON.parse(nightly.shards)).toEqual(shardMatrix(planFullSuite(root, {})));
+      expect(readOutputs(["--plan", "full", "--unsharded", "dispatch --grep"]))
+        .toMatchObject({ development: "none", shards: JSON.stringify([{ shard: 1, total: 1, files: "" }]) });
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+/** Journey files the e2e.config.ts full selection runs in this working tree. */
+function fullSelectionListing(): string[] {
+  const globs = fullSelectionGlobs(fs.readFileSync(path.join(root, "e2e.config.ts"), "utf8"));
+  return files.filter((file) => globs.some((glob) => globToRegExp(glob).test(file))).sort();
+}
+
 describe("TesterArmy critical workflow wiring", () => {
   const read = (file: string) => fs.readFileSync(path.join(root, file), "utf8");
   const steps = (workflow: string) => workflow.split(/^\s+- name:/mu).slice(1);
 
   it("skips the journeys only on an explicit none and keeps workers and cache saves in scope", () => {
     const workflow = read(".github/workflows/e2e-army-critical.yml");
-    const all = steps(workflow);
-    const selectStep = all.findIndex((step) => /^\s+node .*scripts\/tester-army\/select-journeys\.ts /mu.test(step));
-    const install = all.findIndex((step) => /^\s+run: npm ci\b/mu.test(step));
-    const journeys = all.find((step) => step.trimStart().startsWith("Run native database and TesterArmy critical journeys"));
-    expect(selectStep).toBeGreaterThan(-1);
-    expect(selectStep).toBeLessThan(install);
+    const jobs = jobBlocks(workflow);
+    // One decision, before any install: a "none" selection starts no shard.
+    const select = steps(jobs["army-select"]);
+    expect(select.some((step) => /^\s+node .*scripts\/tester-army\/select-journeys\.ts /mu.test(step))).toBe(true);
+    expect(select.some((step) => /^\s+run: npm ci\b/mu.test(step))).toBe(false);
+    for (const output of ["mode", "files", "full_only_mode", "full_only_files", "critical_shards"]) {
+      expect(jobs["army-select"]).toContain(`\n      ${output}: \${{ steps.select.outputs.${output} }}\n`);
+    }
+    // An empty or missing selector output must run the journeys: only an
+    // explicit none skips the shards (an empty matrix then fails, never passes).
+    const shard = jobs["army-critical-shard"];
+    expect(shard).toMatch(/^ {4}if: needs\.army-select\.outputs\.mode != 'none'$/mu);
+    expect(shard).not.toMatch(/mode == /u);
+    expect(shard).toContain("\n        include: ${{ fromJSON(needs.army-select.outputs.critical_shards) }}\n");
+    const journeys = steps(shard).find((step) => step.trimStart().startsWith("Run native database and TesterArmy critical journeys"));
     expect(journeys).toBeDefined();
-    // An empty or missing selector output must run the full suite.
-    expect(journeys).toContain("if: steps.select.outputs.mode != 'none'");
     expect(journeys).toMatch(/^\s+E2E_ARMY_WORKERS: "2"$/mu);
+    expect(journeys).toMatch(/^\s+ARMY_FILES: \$\{\{ matrix\.files \}\}$/mu);
+    expect(journeys).toContain('run: node --import tsx scripts/run-tester-army-ci.ts critical --shard "$ARMY_SHARD" ${ARMY_FILES:+--files "$ARMY_FILES"}');
 
     for (const file of fs.readdirSync(path.join(root, ".github/workflows"))) {
       const other = read(`.github/workflows/${file}`);
@@ -482,10 +676,12 @@ describe("TesterArmy critical workflow wiring", () => {
       expect(count, file).toBe(file === "e2e-army-critical.yml" ? 1 : 0);
     }
 
-    const saves = all.filter((step) => /uses: actions\/cache\/save@/u.test(step));
+    // Only shard 1 of a push to main saves: the caches are the same in every shard.
+    const saves = steps(workflow).filter((step) => /uses: actions\/cache\/save@/u.test(step));
     expect(saves.length).toBeGreaterThan(0);
     for (const save of saves) {
-      expect(save).toMatch(/if: .*github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'/u);
+      expect(save).toMatch(/if: .*github\.event_name == 'push' && github\.ref == 'refs\/heads\/main' && matrix\.shard == 1\b/u);
+      expect(shard).toContain(save);
     }
     expect(workflow).not.toMatch(/uses: actions\/cache@/u);
   });
@@ -493,33 +689,27 @@ describe("TesterArmy critical workflow wiring", () => {
   it("runs the takeoff journeys a change reaches in a parallel job, at one worker, skipping only an explicit none", () => {
     const workflow = read(".github/workflows/e2e-army-critical.yml");
     const jobs = jobBlocks(workflow);
-    expect(Object.keys(jobs)).toEqual(["army-critical", "army-takeoff"]);
-    const critical = steps(jobs["army-critical"]);
+    expect(Object.keys(jobs)).toEqual(["army-select", "army-critical-shard", "army-takeoff", "army-critical"]);
     const takeoff = steps(jobs["army-takeoff"]);
-    expect(jobs["army-takeoff"]).not.toMatch(/^\s+needs:/mu);
+    // Same decision as the critical shards: army-select's, read once, never recomputed.
+    expect(jobs["army-takeoff"]).toMatch(/^ {4}needs: army-select$/mu);
+    expect(jobs["army-takeoff"]).not.toMatch(/scripts\/tester-army\/select-journeys\.ts/u);
+    expect(jobs["army-takeoff"]).not.toMatch(/^ {4}if:/mu);
 
-    // Same decision in both jobs: the selector step is byte-identical below its name.
-    const selectStep = (job: string[]) => job.find((step) => /scripts\/tester-army\/select-journeys\.ts /u.test(step));
-    const withoutName = (step: string | undefined) => step?.split("\n").slice(1).join("\n");
-    expect(selectStep(takeoff)).toBeDefined();
-    expect(withoutName(selectStep(takeoff))).toBe(withoutName(selectStep(critical)));
-    const selectIndex = takeoff.indexOf(selectStep(takeoff)!);
-
-    const gated = takeoff.slice(selectIndex + 1).filter((step) => !step.trimStart().startsWith("No takeoff journey"));
+    const gated = takeoff.slice(1).filter((step) => !step.trimStart().startsWith("No takeoff journey"));
     expect(gated.length).toBeGreaterThan(0);
     for (const step of gated) {
       // An empty or missing output runs the journeys (fail-safe).
-      expect(step).toMatch(/^\s+if: .*steps\.select\.outputs\.full_only_mode != 'none'/mu);
+      expect(step).toMatch(/^\s+if: .*needs\.army-select\.outputs\.full_only_mode != 'none'/mu);
       expect(step).not.toMatch(/full_only_mode == /u);
       expect(step).not.toMatch(/uses: actions\/cache\/save@/u);
     }
     const run = takeoff.find((step) => step.trimStart().startsWith("Run native database and TesterArmy takeoff journeys"));
     expect(run).toBeDefined();
-    expect(run).toMatch(/^\s+ARMY_FILES: \$\{\{ steps\.select\.outputs\.full_only_files \}\}$/mu);
+    expect(run).toMatch(/^\s+ARMY_FILES: \$\{\{ needs\.army-select\.outputs\.full_only_files \}\}$/mu);
     expect(run).toContain('run: node --import tsx scripts/run-tester-army-ci.ts full ${ARMY_FILES:+--files "$ARMY_FILES"}');
     // One worker, as in the nightly full suite where these journeys are qualified.
     expect(jobs["army-takeoff"]).not.toContain("E2E_ARMY_WORKERS");
-    expect(takeoff.findIndex((step) => /^\s+run: npm ci\b/mu.test(step))).toBeGreaterThan(selectIndex);
   });
 });
 
