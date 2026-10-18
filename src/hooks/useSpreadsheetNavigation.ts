@@ -479,6 +479,17 @@ export function useSpreadsheetNavigation({
       return;
     }
 
+    // The active cell's own editor holds focus: the user is editing it, even
+    // when this pass comes from a render whose `editingCellId` predates that
+    // focus (V3E01: a deferred render's effects flushed in the focus event).
+    // Read the live focus, never the closure, or the editor loses its input.
+    if (
+      isEditorElement(activeElement) &&
+      editorElementsRef.current.get(activeCellId) === activeElement
+    ) {
+      return;
+    }
+
     if (activeElement !== cellElement) {
       cellElement.focus();
     }

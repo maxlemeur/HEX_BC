@@ -35,6 +35,12 @@ armyTest(
     // 2. Settings panel: the same refusal for "1.250"; "1 000" is 1 000 € after reload (C-11).
     await screen.getByRole("tab", "Affichage & contrôle", { exact: true }).click();
     await screen.getByTestId("estimate-editor-display-button", { visible: true }).click();
+    // Precondition, as in numeric-entry.e2e.ts: the shared account keeps its default Simplifié mode,
+    // without which the Expert-only « Contrôles avancés » push the settings button out of the viewport.
+    const displayMenu = screen.getByRole("dialog", "Options d’affichage du chiffrage", { exact: true });
+    await expect(displayMenu).toBeVisible();
+    expect(await displayMenu.getByRole("region", "Contrôles avancés", { exact: true }).count(),
+      "Precondition: the shared campaign account must be in Simplifié mode; a journey switched profiles.ui_mode").toBe(0);
     await screen.getByTestId("estimate-editor-settings-button", { visible: true }).click();
     await expect(screen.getByRole("dialog", "Paramétrage du devis", { exact: true })).toBeVisible();
     const discount = screen.getByLabel("Remise (EUR HT)", { exact: true });

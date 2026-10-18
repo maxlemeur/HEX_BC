@@ -13,6 +13,7 @@ import {
   type EstimateItem,
   type EstimateItemUpdatePayload,
   type EstimateVersionRow,
+  type EstimateVersionTotalsPatch,
 } from "@/lib/estimates/editor-items";
 import { toFiniteNumber } from "@/lib/estimates/editor-values";
 import type { EstimateV3EditorWriter } from "@/lib/estimates/v3-editor-writer";
@@ -45,7 +46,19 @@ type EstimateEditorBulkControllerInput = {
   reportError: (message: string | null) => void;
   resolveErrorMessage: (message: string) => string;
   normalizeLine: (item: EditorEstimateItem) => EditorEstimateItem;
-  applyVersionToken: (updatedAt: string, contentRevision?: number) => void;
+  /**
+   * Version totals of these rows, from the editor's persisted-totals calculation (v1/v2). A v3
+   * sends none: its writer recalculates and checks them (D12).
+   */
+  computeVersionTotalsPatch: (
+    items: EditorEstimateItem[]
+  ) => EstimateVersionTotalsPatch | undefined;
+  /** `contentRevision`: returned by the v3 writer only (lot 2, sous-lot 2.6). */
+  applyVersionToken: (
+    updatedAt: string,
+    totals?: EstimateVersionTotalsPatch,
+    contentRevision?: number
+  ) => void;
   markItemsSynced: (
     entries: ReadonlyArray<{ id: string; updates: EstimateItemUpdatePayload }>
   ) => void;
@@ -85,6 +98,7 @@ export function useEstimateEditorBulkController({
   reportError,
   resolveErrorMessage,
   normalizeLine,
+  computeVersionTotalsPatch,
   applyVersionToken,
   markItemsSynced,
   ensureGroupedActionCanProceed,
@@ -115,6 +129,23 @@ export function useEstimateEditorBulkController({
       const updatedById = new Map(
         targetLines.map((line) => [line.id, line])
       );
+      // The lines and the version totals they imply are written by one RPC: the
+      // stored totals feed the affaires list, approvals and documents. A v3
+      // sends no client total: its writer recalculates and checks them (D12).
+      // A move changes no amount and keeps its line-only write: with a version
+      // patch, a v2 draft rewrites every line, and the RPC's negative-position
+      // pass then collides on (parent_id, position) when a line moves back
+      // beside a sibling holding its old position (bulk-move undo, 409).
+      const sendsVersionTotals = !v3Writer && buildUpdate !== buildPlacedLineUpdatePayload;
+      const versionTotalsPatch = sendsVersionTotals
+        ? computeVersionTotalsPatch(
+            snapshot.map((item) => updatedById.get(item.id) ?? item)
+          )
+        : undefined;
+      if (sendsVersionTotals && !versionTotalsPatch) {
+        reportError("Impossible de calculer les totaux du devis.");
+        throw new Error("Impossible de calculer les totaux du devis.");
+      }
       setItems((previous) =>
         previous.map((item) => updatedById.get(item.id) ?? item)
       );
@@ -125,11 +156,12 @@ export function useEstimateEditorBulkController({
 
       try {
         const bulkResult = v3Writer
-          ? { versionToken: await v3Writer.updateItems(targetVersionId, versionSnapshot.updated_at, updates) }
+          ? { versionToken: await v3Writer.updateItems(targetVersionId, versionSnapshot.updated_at, updates), totals: undefined }
           : await bulkUpdateEstimateItems(
               targetVersionId,
               versionSnapshot.updated_at,
-              updates
+              updates,
+              versionTotalsPatch
             );
         if (
           getVersionSnapshot()?.id !== targetVersionId ||
@@ -137,8 +169,11 @@ export function useEstimateEditorBulkController({
         ) {
           return false;
         }
+        // v2 returns the totals it recalculated; v1 stores the patch as sent.
+        // Only the v3 writer returns the content revision the editor resumes from.
         applyVersionToken(
           bulkResult.versionToken.updated_at,
+          bulkResult.totals ?? versionTotalsPatch,
           v3Writer ? bulkResult.versionToken.content_revision : undefined
         );
         // Without a fresh baseline, an edit back to the previous value is dropped.
@@ -166,6 +201,8 @@ export function useEstimateEditorBulkController({
     [
       applyVersionToken,
       buildLineUpdate,
+      buildPlacedLineUpdatePayload,
+      computeVersionTotalsPatch,
       getItemsSnapshot,
       getVersionSnapshot,
       handleVersionConflict,

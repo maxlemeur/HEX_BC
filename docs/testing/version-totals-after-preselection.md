@@ -251,10 +251,14 @@ Deux constats, vérifiés puis corrigés (`f2b297dc`, commentaire `ebcbb74d`).
    phase calc-v3 `offers`, qu'aucun workflow ne lance. Correction : V1PT01
    (T2 bis), même chemin v1, ajouté à la sélection `full` de `e2e.config.ts`,
    lancée chaque nuit par `e2e-army-full.yml`. V1PT01 n'est pas dans la
-   sélection critical : il bascule le profil du compte partagé en mode Expert,
-   comme `bulk-edit-sync-sources`. La CI critical lance 2 workers, donc des
-   fichiers en parallèle : la restauration du mode par l'un ferait échouer
-   l'autre. La suite `full` nocturne tourne à 1 worker. La carte d'impact ne
+   sélection critical : il bascule le profil du compte partagé en mode Expert.
+   La CI critical lance 2 workers, donc des fichiers en parallèle : un parcours
+   de l'autre worker verrait ce mode. La suite `full` nocturne tourne à 1 worker.
+   Mise à jour du 18/10/2026 : `bulk-edit-sync-sources` basculait lui aussi le
+   compte partagé et a fait échouer ainsi la CI 39084774584 ; il tourne depuis
+   sous des propriétaires dédiés et ne touche plus ce profil
+   ([« Mode Expert du compte partagé »](version-totals-after-bulk-actions.md#mode-expert-du-compte-partagé-ci-39084774584)).
+   La carte d'impact ne
    change pas (elle ne liste que la sélection critical) ; la modification de
    `e2e.config.ts` sélectionne la suite critical complète sur la PR.
 
