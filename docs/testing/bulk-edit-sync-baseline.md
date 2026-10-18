@@ -305,6 +305,7 @@ Suite de la revue Codex de #64 (U3), même clone, `npm run e2e:army:local --
 | --- | --- | --- | --- |
 | `.e2e/army/ci/2026-10-18T17-10-20-368Z-critical` | parcours U3, code de `11534e34` | **rouge U3** : « undo enabled while the gating of the apply's token was loading: expected true to be false » | `a72539ad…6fe0` |
 | `.e2e/army/ci/2026-10-18T17-15-56-872Z-critical` (`--grep 'bulk edit sync'`, 2 workers) | parcours U3 + correction U3 | **8/8** ; S2 : bouton jamais actif pendant la lecture retenue, centre (1149, 394) inchangé, alerte jamais démontée, `k_fo` 1 ; pgTAP et matrice RLS verts | `99c456ac…3f4b` |
+| `.e2e/army/ci/2026-10-18T17-20-21-058Z-critical` (même commande) | tête fusionnée avec `main` `efc52944` (`displayedSendGating` de `7fa27468`) | **8/8** ; S2 : bouton jamais actif pendant la lecture, centre (1149, 394) inchangé, alerte jamais démontée ; `npm run verify:pr` ensuite sur cette tête : exit 0 (Vitest 3 289 + 831 + 12) | `670189dc…438e` |
 
 Limites : la trace et la sonde de répétition (S2 ×6, horodatages des montages
 et des évènements pointeur) ne sont pas commitées. L'attribution des requêtes du
