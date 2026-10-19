@@ -552,7 +552,8 @@ describe("TesterArmy shard plans", () => {
     expect(contracts.takeoffShards.shards).toEqual([{ shard: 1, total: 1, files: contracts.fullOnly.files, seconds: expect.any(Number) }]);
     expect(none.fullOnly.mode).toBe("none");
     expect(none.takeoffShards).toMatchObject({ files: [], shards: [] });
-  });
+    // Every critical, takeoff and full plan in-process: timed out at 5,06 s on a loaded runner (PR #71, run 39178555436).
+  }, 30_000);
 
   it("plans the same shards whatever the order of the selection, the heaviest journeys spread first", () => {
     const listing = criticalSuiteFromConfig();
