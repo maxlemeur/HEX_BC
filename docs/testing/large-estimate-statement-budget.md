@@ -31,7 +31,7 @@ Derivation, sources and limits below.
 | L2 | The creation gets slower without per-line version updates (a new BEFORE row trigger with a lookup, a slower D12 check, a missing index, a heavier audit) | pgTAP, **opt-in** in WSL, bulk tier: median of 7 rolled-back creations ≤ **500 ms** (1 000 ms pro rata of the 1 021-item probe to the 2 031-item hydraulic v3) |
 | L3 | The v3 settings save (`save_estimate_settings_atomic`, every line's projection checked and written in one statement) slows down on 1 021 items | Every run: the save rewrites all 900 lines (so the measurement is a real repricing). Opt-in, bulk tier: median of 7 saves **reported, not asserted**. It is over its 500 ms pro rata (see « Settings save ») |
 | L4 | The v3 batch writer (`commit_estimate_batch`, paste and undo in batches of 100) slows down | pgTAP, **opt-in**, interactive tier: median of 7 batches of 100 creates (the copy probe at 100 operations) into the 1 021-item v3 ≤ **400 ms**. The assumption « ≤ 100 items, far from the timeout » was wrong on a large v3 until `20261018180306` (see « Copy into a v3 ») |
-| L7 | A copy into a v3 (2.8b: sections, linked DPGF; one `commit_estimate_batch` of at most 1 000 operations) rewrites the stored lines again, slows down or its receipt goes over 2 Mio | pgTAP, **every run**: a 1 000-operation copy with provenance into the 8-item and the 1 021-item v3 commits and updates **0** stored lines. **Opt-in**, option A: median of 7 such copies into the 1 021-item v3 ≤ **875 ms**, derived from the 3,5 s CI/production maximum |
+| L7 | A copy into a v3 (2.8b: sections, linked DPGF; one `commit_estimate_batch` of at most 1 000 operations) rewrites the stored lines again, slows down or its receipt goes over 2 Mio | pgTAP, **every run**: a 1 000-operation copy with provenance into the 8-item and the 1 021-item v3 commits and updates **0** stored lines; since lot 3.1 each copy writes its items with **one** INSERT statement and a copy refused at operation 500 reports that index and writes nothing. **Opt-in**, option A: median of 7 such copies into the 1 021-item v3 ≤ **875 ms**, derived from the 3,5 s CI/production maximum. **Ceiling pass** (lot 3.1, [lot3-1-v3-copy-scale.md](lot3-1-v3-copy-scale.md)): one such copy ≤ **3 500 ms** wherever the database checks run alone, CI included (E2E RLS Matrix) |
 | L8 | Reorder and move of ~1 000 siblings in a v1/v2 draft (`reorder_estimate_items`, `move_estimate_item`) take the per-row content revision bump and audit back, or slow down ([reorder-move-large-v2.md](reorder-move-large-v2.md)) | pgTAP, **every run**: the RPCs update their version once per operation where the per-row path updates it once per written row (4 against 52), with the same audit rows. **Opt-in**, interactive tier: median of 7 reversals of a section of 1 000 lines and of 7 moves of its first line into a section of 3 lines ≤ **400 ms** each; the move between sections of 1 000 and 999 lines is reported |
 | L5 | The route, serialization or UI around the RPC is slow (time to « Devis créé », settings PATCH) | TesterArmy: IO01 step durations in `report.json` and the `io-settings-*` business artifacts (`elapsedMs.save`); reported, no threshold |
 | L6 | The 8 s timeout of the API roles or the CI/WSL factor F changes | Reported by the probes (`diag` of `pg_roles.rolconfig`, and every CI job's creation and settings durations); the tiers must then be derived again |
@@ -62,6 +62,7 @@ Two files use it:
 | File | Runs | When | Assertions |
 | --- | --- | --- | --- |
 | [`supabase/tests/database/estimate-large-v3-scale.test.sql`](../../supabase/tests/database/estimate-large-v3-scale.test.sql) | N = 1 | every `db:ci:local`, so every CI job that runs it | all statements succeed, payload size, L1, one audit row per item, the settings save rewrites 900 lines, L7 (the 1 000-operation copies commit, 0 line updates); durations reported, never asserted |
+| [`supabase/tests/ceiling/estimate-v3-copy-ceiling.test.sql`](../../supabase/tests/ceiling/estimate-v3-copy-ceiling.test.sql) | N = 1 | every `db:ci:local` whose caller starts nothing alongside the database checks (local runs, CI E2E RLS Matrix); skipped and logged in the Army jobs, whose production build runs beside them | the 1 000-operation copies commit; into the 1 021-item v3 ≤ 3 500 ms (lot 3.1) |
 | [`supabase/tests/budget/estimate-large-v3-statement-budget.test.sql`](../../supabase/tests/budget/estimate-large-v3-statement-budget.test.sql) | N = 7 | only with `DB_CI_STATEMENT_BUDGET=enforce`, after the main pgTAP phase | all statements and copies succeed, L2 (creation median ≤ 500 ms), L7 (1 000-operation copy median ≤ 875 ms), L4 (100-operation batch median ≤ 400 ms); settings median reported |
 
 The budget is opt-in rather than inferred from the platform: it is calibrated in WSL (Ubuntu 24.04 on the Windows
@@ -123,6 +124,11 @@ DB_CI_STATEMENT_BUDGET=enforce npm run db:ci:local
   every-run `diag` lines stay diagnostic: until this change they printed CI values beside the local budget (PR #59,
   run [39138950745](https://github.com/maxlemeur/HEX_BC/actions/runs/39138950745): « create: median 584.8 ms over
   1 runs, budget 330 ms », settings 1 383,7 ms); they now label it « local WSL budget … (opt-in) ».
+  **Lot 3.1 exception, the copy ceiling**: the owner asked for a CI assertion of the 3,5 s maximum. Over 303 CI
+  samples of the every-run copy probe (18–19/10/2026), the E2E RLS Matrix job, where `db:ci:local` runs alone, peaked
+  at 2 277 ms, while the Army shards, whose production build starts beside pgTAP, reached 5 596 ms with 15 of 281
+  samples over 3,5 s. The ceiling is therefore a separate pass that runs only where nothing starts alongside the
+  database checks ([lot3-1-v3-copy-scale.md](lot3-1-v3-copy-scale.md)). The local tiers above stay opt-in.
 
 WSL outcome on 18/10/2026, before this change (shared host, single runs from the every-run probe, medians of 7 from
 the budget pass):
@@ -300,7 +306,8 @@ and 7 settings saves). The `diag` line gives the real duration in each CI job lo
   ([copy-row-limit-v2.md](copy-row-limit-v2.md)), is borderline. L1 sees only the per-line revision bump.
 - **Routes**: `statement_timeout` does not bound a route, and the tiers guard statements, not routes. IO01's wait
   from « Confirmer l'import » to « Devis créé » grew from 4,2 s to 10–18 s since `59b3b6bf`, not yet investigated;
-  IO13 reached 7 984 ms in run 39153968200. Diagnosing its reads, preparation and SQL separately belongs to the
-  optimization after the copy v1/v2 and reorder PRs; this calibration changes none of those paths.
+  IO13 reached 7 984 ms in run 39153968200. Lot 3.1 split IO13 locally into reads, receipt, RPC and SQL and cut
+  its route median from 1 282 to 777 ms ([lot3-1-v3-copy-scale.md](lot3-1-v3-copy-scale.md)); no CI trace of the route
+  was taken.
 - **Proof**: IO01, IO02 and IO13 in CI remain the proof that a real import, its settings changes and a 1 000-line
   copy fit in the timeout. This guard catches a regression earlier; it does not replace those journeys.

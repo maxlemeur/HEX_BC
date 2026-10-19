@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   EstimateBatchPreparationError, prepareEstimateBatch, sameEstimateBatchTimestamp, type EstimateBatchCreatedId,
+  type EstimateBatchItem,
 } from "@/lib/estimates/batch-preparation";
 import { canonicalizeEstimateBatchOperations } from "@/lib/estimates/batch-request";
 import { ApiError, badRequest, conflict, type SupabaseErrorLike } from "@/lib/estimates/errors";
@@ -51,6 +52,12 @@ export type ExecuteEstimateBatchOptions = {
   maxOperations?: number;
   /** Server-side copies only (2.8b): identities of the created items, so that a child names a section created earlier in the batch, and the source_metadata of the copied item. Never set by the HTTP batch API. */
   createdIds?: EstimateBatchCreatedId[];
+  /**
+   * Server-side copies only (lot 3.1): every item of the target version, read by the caller after its access and
+   * checked against `concurrencyToken` (assertEstimateVersionUnchanged), so the preparation does not read them again.
+   * Never set by the HTTP batch API.
+   */
+  targetItems?: readonly EstimateBatchItem[];
 };
 
 export function resolveEstimateBatchMaxOperations(override?: number) {
@@ -223,7 +230,7 @@ export async function executeEstimateBatch(
   let prepared;
   try {
     prepared = await prepareEstimateBatch({ context, versionId, projectUserId: project.user_id,
-      expectedUpdatedAt: version.updated_at, operations, createdIds: options.createdIds });
+      expectedUpdatedAt: version.updated_at, operations, createdIds: options.createdIds, targetItems: options.targetItems });
   } catch (error) {
     if (!(error instanceof EstimateBatchPreparationError)) throw error;
     return { committed: false, version: initialVersion, results: [

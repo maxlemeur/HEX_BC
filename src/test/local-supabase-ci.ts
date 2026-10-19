@@ -1112,6 +1112,26 @@ export async function runLocalSupabaseCi(
     validatePgTapReport(pgTapOutput, expectedTestFiles);
     dependencies.log(pgTapOutput.trim());
     dependencies.log("Database pgTAP tests passed.");
+    // Lot 3.1: the owner's CI/production maxima (a 1 000-operation copy into a v3: 3,5 s), single runs asserted
+    // wherever the database checks run alone, CI included (E2E RLS Matrix). A caller that starts work alongside them
+    // (onStackStarted: the Army production build) skips them: the same probe measured that build's load too, up to
+    // 5,6 s (docs/testing/lot3-1-v3-copy-scale.md).
+    if (dependencies.onStackStarted) {
+      dependencies.log("CI statement ceilings skipped: work started alongside the database checks.");
+    } else {
+      checkpoint("run CI statement ceilings");
+      const ceilingOutput = dependencies.supabase(withWorkdir([
+        "test",
+        "db",
+        "--local",
+        path.join(project.rootDirectory, "supabase", "tests", "ceiling"),
+      ]), true);
+      validatePgTapReport(ceilingOutput, fs.readdirSync(
+        path.join(process.cwd(), "supabase", "tests", "ceiling")
+      ).filter((file) => file.endsWith(".sql")).length);
+      dependencies.log(ceilingOutput.trim());
+      dependencies.log("CI statement ceilings passed.");
+    }
     // Wall-clock budgets are opt-in and never run in CI: they are calibrated in
     // WSL, and a single-run CI timing depends on the runner class drawn
     // (docs/testing/large-estimate-statement-budget.md).

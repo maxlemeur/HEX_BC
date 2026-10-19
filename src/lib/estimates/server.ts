@@ -74,7 +74,9 @@ import { isSupplierOfferPriceEligible } from "@/lib/estimates/supplier-offer-pri
 import {
   alternativePriceForLineUnit, offerEstimateUnit, offerEstimateUnitPriceCents,
 } from "@/lib/estimates/supplier-offer-purchase-unit";
-import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
+import {
+  assertEstimateVersionUnchanged, readAllEstimateItems, readEstimateItemSubtrees,
+} from "@/lib/estimates/read-all-items-server";
 import { insertCopiedEstimateItems, type CopiedEstimateItem } from "@/lib/estimates/copy-items-server";
 import { persistAtomicEstimateSettings } from "@/lib/estimates/settings-atomic";
 import { pickV3ItemInputFields } from "@/lib/estimates/v3-persistence";
@@ -4100,6 +4102,18 @@ async function readAllItemsForCopy(supabase: Supabase, tenantId: string, version
   return items;
 }
 
+/**
+ * Lot 3.1 (docs/testing/lot3-1-v3-copy-scale.md) : la source d'une copie, réduite aux sections sélectionnées et à leur
+ * descendance (ce que la copie lit), par niveaux et par pages, puis la même vérification de version que
+ * `readAllItemsForCopy`. Un identifiant hors de la version ou qui n'est pas une section reste refusé par l'appelant.
+ */
+async function readSelectedSubtreesForCopy(supabase: Supabase, tenantId: string, version: VersionAccessRow,
+  sectionIds: readonly string[]) {
+  const items = await readEstimateItemSubtrees({ supabase, tenantId, versionId: version.id, ids: sectionIds });
+  await assertEstimateVersionUnchanged({ supabase, version });
+  return items;
+}
+
 async function duplicateSectionInternal(input: {
   sectionId: string;
   targetVersionId?: string;
@@ -4158,9 +4172,9 @@ async function duplicateSectionInternal(input: {
     userId,
   });
 
-  // Every item, by pages, pinned to the version read with its access: a partial or mixed read would copy part of
-  // the section, or two states of it.
-  const sourceItems = await readAllItemsForCopy(supabase, tenantId, sourceVersion);
+  // The section and its descendants, by pages, pinned to the version read with its access: a partial or mixed read
+  // would copy part of the section, or two states of it.
+  const sourceItems = await readSelectedSubtreesForCopy(supabase, tenantId, sourceVersion, [input.sectionId]);
   const subtree = collectSectionSubtreeItems(input.sectionId, sourceItems);
 
   if (!subtree) {
@@ -4309,10 +4323,11 @@ export async function importSectionsFromVersion(
   const sourceIsV3 = usesPerUnitLabor(resolveEstimateEngineVersion(sourceVersion));
   if (sourceIsV3 && !targetIsV3) throw estimateV3SectionCopyToHistoricalError();
 
-  // Every item of both versions, by pages, each pinned to the version read with its access. A partial or mixed
-  // source read would import part of a section; a target one would reuse its titles and child positions.
+  // The selected sections of the source with their descendants and every item of the target, by pages, each pinned
+  // to the version read with its access. A partial or mixed source read would import part of a section; a target one
+  // would reuse its titles and child positions.
   const [sourceItems, targetItems] = await Promise.all([
-    readAllItemsForCopy(supabase, tenantId, sourceVersion),
+    readSelectedSubtreesForCopy(supabase, tenantId, sourceVersion, input.section_ids),
     readAllItemsForCopy(supabase, tenantId, targetVersion),
   ]);
   const sourceItemById = new Map(sourceItems.map((item) => [item.id, item]));
@@ -4455,7 +4470,8 @@ export async function importSectionsFromVersion(
       sourceIsV3,
       sameVersion: sourceVersion.id === targetVersion.id,
     });
-    const committed = await commitV3Copy({ versionId: targetVersion.id, updatedAt: targetVersion.updated_at, plan });
+    const committed = await commitV3Copy({ versionId: targetVersion.id, updatedAt: targetVersion.updated_at, plan,
+      targetItems });
     return {
       source_version_id: sourceVersion.id,
       target_version_id: targetVersion.id,

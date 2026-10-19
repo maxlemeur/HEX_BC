@@ -260,6 +260,7 @@
     "20261018180306_estimate_v3_batch_copy_effects.sql": "d8ad054aabb0c4583ce588571c7f33e875e3e2ff108ec873685bc6f04028473b",
     "20261018183629_estimate_engine_v3_default.sql": "0fdaba7ca035528c0f9440d6e8939d4b11856de11a4b29788f7a874da5170c15",
     "20261018193516_estimate_copy_items_set_based.sql": "abca15875f904aac7459afa5ba47134288f6098d9e6bcba951eb74ee85ae5365",
-    "20261018204500_estimate_item_order_set_based_effects.sql": "54513c9d6a7f180379c436dae5332c31e2ee59d54f704d66399f5ee20e099b5b"
+    "20261018204500_estimate_item_order_set_based_effects.sql": "54513c9d6a7f180379c436dae5332c31e2ee59d54f704d66399f5ee20e099b5b",
+    "20261019123000_estimate_batch_set_based_creates.sql": "6d124d2201402dd34e9e1d26256492eaf9d36099d5fac101215d64eb193132e1"
   }
 }
