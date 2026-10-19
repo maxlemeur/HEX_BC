@@ -25,13 +25,12 @@ import { assertOwnedLocalBackend, createdData, type Envelope } from "./legacy-v1
 //  LR5  The import dialog (GET /api/estimates/import-sources) offers the 1 000 most recently updated
 //       versions of the tenant only: with 1 001 versions beside the current one, in a tenant of its own, the
 //       oldest is missing.
-// Every write stays small: every written item runs the per-item effects, among them one content revision bump
-// of the version per row (docs/testing/large-estimate-statement-budget.md). A complete reorder or move of 1 001
-// siblings rewrites about 2 000 rows in one RPC, measured at 2 s locally, past the 8 s timeout at the CI load
-// factor of that record. LR2 and LR3 therefore send a list missing one sibling: the fixed check refuses it naming
-// every sibling, before any write. The complete operation succeeded in a recorded local run
-// (docs/testing/row-limit-reads.md). The SQL seeds write at most SEED_BATCH rows per transaction.
-// The large content is seeded in SQL on the owned native stack, and every outcome is checked against SQL.
+// LR02 and LR03 first send the list of a client that has not seen one sibling: the check must refuse it naming
+// every sibling, before any write. They then send the complete list, which must succeed past the limit: the
+// reversal of the 1 001 lines, the move of line 1 001. A complete operation rewrites about 2 000 rows in one RPC;
+// since the set-based per-row effects of docs/testing/reorder-move-large-v2.md it fits the 8 s timeout at the
+// planning factor 4 of docs/testing/large-estimate-statement-budget.md. The SQL seeds write at most SEED_BATCH rows
+// per transaction. The large content is seeded in SQL on the owned native stack, and every outcome is checked against SQL.
 const options = { session: "army", tags: ["critical", "local", "row-limit-reads"], timeout: 300_000 } as const;
 type Triple = [number, number, number];
 type Totals = { total_ht_cents: number; total_tax_cents: number; total_ttc_cents: number };
@@ -170,6 +169,12 @@ FROM public.estimate_items WHERE parent_id = '${sectionId}'::uuid;
   };
 }
 
+/** Whether stored children are `expected` by position, with their count, distinct positions and bounds. */
+const inOrder = (stored: Awaited<ReturnType<typeof children>>, expected: string[]) => ({
+  inRequestedOrder: JSON.stringify(stored.ids) === JSON.stringify(expected), count: stored.count,
+  distinctPositions: stored.distinctPositions, positions: stored.positions,
+});
+
 /** The version as SQL stores it: engine, stored totals, its line count and the sums of its line totals. */
 async function versionTruth(versionId: string) {
   if (!UUID.test(versionId)) throw new Error("Invalid version identity.");
@@ -228,40 +233,52 @@ armyTest("LR01 the variant comparison of a v2 and its variant holding 1 100 line
     });
   });
 
-armyTest("LR02 a reorder list of a section of 1 001 lines missing its last line is refused, nothing moves", options,
+armyTest("LR02 a section of 1 001 lines refuses a reorder list missing its last line, then is reversed completely", options,
   async ({ app, browser, army }) => {
     await app.open("/dashboard/affaires");
     const { versionId, owner } = await v2Draft(browser, army, "reorder");
     const { result: [section], ms: seedMs } = await timed(() => seedSections(owner.tenantId, versionId, `${army.runPrefix} lot`, [LARGE]));
     await storeSeededTotals(versionId);
-    // The order of a client that has not seen the 1 001st line: the first 1 000 lines, reversed.
-    const stale = section.lineIds.slice(0, LARGE - 1).reverse();
     await retakeLease(browser, versionId);
     type Reordered = { updated_count: number };
     type Refused = { expected_ids?: string[] };
-    const { result: response, ms } = await timed(() => apiRequest<Envelope<Reordered> & { error?: { details?: Refused } }>(browser, "POST",
-      `/api/estimates/${versionId}/items/reorder`, { parent_id: section.sectionId, ordered_ids: stale }));
-    const expectedIds = response.body.error?.details?.expected_ids ?? null;
-    const after = await children(section.sectionId);
-    const observed = {
-      response: responseOf(response),
-      updated: response.body.data?.updated_count ?? null,
+    const reorder = (orderedIds: string[]) => timed(() => apiRequest<Envelope<Reordered> & { error?: { details?: Refused } }>(browser,
+      "POST", `/api/estimates/${versionId}/items/reorder`, { parent_id: section.sectionId, ordered_ids: orderedIds }));
+    // The order of a client that has not seen the 1 001st line: the first 1 000 lines, reversed.
+    const { result: refused, ms: refusalMs } = await reorder(section.lineIds.slice(0, LARGE - 1).reverse());
+    const expectedIds = refused.body.error?.details?.expected_ids ?? null;
+    const afterRefusal = await children(section.sectionId);
+    const stale = {
+      response: responseOf(refused),
+      updated: refused.body.data?.updated_count ?? null,
       expected: { count: expectedIds?.length ?? null, every: sameIds(expectedIds, section.lineIds) },
-      unchanged: JSON.stringify(after.ids) === JSON.stringify(section.lineIds),
-      sql: await versionTruth(versionId),
+      unchanged: JSON.stringify(afterRefusal.ids) === JSON.stringify(section.lineIds),
     };
-    await recordEvidence(army, "lr02-reorder-large-section", { versionId, sectionId: section.sectionId, elapsedMs: { seed: seedMs, reorder: ms },
-      message: response.body.error?.message ?? null, observed });
+    // The complete list reversed: line g goes to position 1 002 - g.
+    const reversed = [...section.lineIds].reverse();
+    const { result: applied, ms: reorderMs } = await reorder(reversed);
+    const after = await children(section.sectionId);
+    const complete = {
+      response: responseOf(applied),
+      updated: applied.body.data?.updated_count ?? null,
+      section: { ...inOrder(after, reversed), reversed: after.reversed },
+    };
+    const observed = { stale, complete, sql: await versionTruth(versionId) };
+    await recordEvidence(army, "lr02-reorder-large-section", { versionId, sectionId: section.sectionId,
+      elapsedMs: { seed: seedMs, refusal: refusalMs, reorder: reorderMs },
+      messages: { refusal: refused.body.error?.message ?? null, reorder: applied.body.error?.message ?? null }, observed });
     expect(observed).toEqual({
-      response: [409, false, "CONFLICT"],
-      updated: null,
-      expected: { count: LARGE, every: true },
-      unchanged: true,
+      stale: { response: [409, false, "CONFLICT"], updated: null, expected: { count: LARGE, every: true }, unchanged: true },
+      complete: {
+        response: [200, true, null],
+        updated: LARGE,
+        section: { inRequestedOrder: true, count: LARGE, distinctPositions: LARGE, positions: [1, LARGE], reversed: LARGE },
+      },
       sql: { engine: 2, stored: range(1, LARGE), lines: LARGE, lineSums: range(1, LARGE) },
     });
   });
 
-armyTest("LR03 a move out of a section of 1 001 lines is checked against every sibling, nothing moves", options,
+armyTest("LR03 a move out of a section of 1 001 lines is checked against every sibling, then line 1 001 moves out", options,
   async ({ app, browser, army }) => {
     await app.open("/dashboard/affaires");
     const { versionId, owner } = await v2Draft(browser, army, "move");
@@ -270,36 +287,55 @@ armyTest("LR03 a move out of a section of 1 001 lines is checked against every s
       seedSections(owner.tenantId, versionId, `${army.runPrefix} lot`, [1, LARGE]));
     await storeSeededTotals(versionId);
     const ranks = { target: await physicalRank(versionId, target.sectionId) };
-    // The last line moves out; the source order of a client that has not seen line 1 000.
+    // The last line moves out, after the target's line.
     const movedId = source.lineIds[LARGE - 1];
     const remaining = source.lineIds.slice(0, LARGE - 1);
+    const orderedTarget = [...target.lineIds, movedId];
     await retakeLease(browser, versionId);
     type Moved = { updated_count: number };
     type Refused = { reason?: string; expected_source_ids?: string[] };
-    const { result: response, ms } = await timed(() => apiRequest<Envelope<Moved> & { error?: { details?: Refused } }>(browser, "POST",
-      `/api/estimates/${versionId}/items/move`, {
+    const move = (orderedSource: string[]) => timed(() => apiRequest<Envelope<Moved> & { error?: { details?: Refused } }>(browser,
+      "POST", `/api/estimates/${versionId}/items/move`, {
         item_id: movedId, from_parent_id: source.sectionId, to_parent_id: target.sectionId,
-        ordered_source_ids: remaining.slice(0, -1), ordered_target_ids: [...target.lineIds, movedId],
+        ordered_source_ids: orderedSource, ordered_target_ids: orderedTarget,
       }));
-    const details = response.body.error?.details;
-    const [sourceAfter, targetAfter] = [await children(source.sectionId), await children(target.sectionId)];
-    const observed = {
-      response: responseOf(response),
-      updated: response.body.data?.updated_count ?? null,
+    // The source order of a client that has not seen line 1 000.
+    const { result: refused, ms: refusalMs } = await move(remaining.slice(0, -1));
+    const details = refused.body.error?.details;
+    const [sourceRefused, targetRefused] = [await children(source.sectionId), await children(target.sectionId)];
+    const stale = {
+      response: responseOf(refused),
+      updated: refused.body.data?.updated_count ?? null,
       refusal: { reason: details?.reason ?? null, expectedSource: details?.expected_source_ids?.length ?? null,
         every: sameIds(details?.expected_source_ids, remaining) },
-      unchanged: JSON.stringify(sourceAfter.ids) === JSON.stringify(source.lineIds) &&
-        JSON.stringify(targetAfter.ids) === JSON.stringify(target.lineIds),
-      sql: await versionTruth(versionId),
+      unchanged: JSON.stringify(sourceRefused.ids) === JSON.stringify(source.lineIds) &&
+        JSON.stringify(targetRefused.ids) === JSON.stringify(target.lineIds),
     };
+    // The complete source order: lines 1 to 1 000 stay in order, line 1 001 ends the target.
+    const { result: applied, ms: moveMs } = await move(remaining);
+    const [sourceAfter, targetAfter] = [await children(source.sectionId), await children(target.sectionId)];
+    const complete = {
+      response: responseOf(applied),
+      updated: applied.body.data?.updated_count ?? null,
+      source: inOrder(sourceAfter, remaining),
+      target: inOrder(targetAfter, orderedTarget),
+    };
+    const observed = { stale, complete, sql: await versionTruth(versionId) };
     await recordEvidence(army, "lr03-move-out-of-large-section", { versionId, sourceId: source.sectionId, targetId: target.sectionId, movedId,
-      physicalRank: ranks, elapsedMs: { seed: seedMs, move: ms }, message: response.body.error?.message ?? null, observed });
+      physicalRank: ranks, elapsedMs: { seed: seedMs, refusal: refusalMs, move: moveMs },
+      messages: { refusal: refused.body.error?.message ?? null, move: applied.body.error?.message ?? null }, observed });
     const all = add(range(1, 1), range(1, LARGE));
     expect(observed).toEqual({
-      response: [409, false, "CONFLICT"],
-      updated: null,
-      refusal: { reason: null, expectedSource: LARGE - 1, every: true },
-      unchanged: true,
+      stale: {
+        response: [409, false, "CONFLICT"], updated: null,
+        refusal: { reason: null, expectedSource: LARGE - 1, every: true }, unchanged: true,
+      },
+      complete: {
+        response: [200, true, null],
+        updated: (LARGE - 1) + 2,
+        source: { inRequestedOrder: true, count: LARGE - 1, distinctPositions: LARGE - 1, positions: [1, LARGE - 1] },
+        target: { inRequestedOrder: true, count: 2, distinctPositions: 2, positions: [1, 2] },
+      },
       sql: { engine: 2, stored: all, lines: LARGE + 1, lineSums: all },
     });
   });
