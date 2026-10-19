@@ -62,6 +62,8 @@ export type EstimateEditorStatusControllerInput = {
   isViewerReadOnly: boolean;
   isConflictLocked: boolean;
   conflictMessage?: string | null;
+  /** History writes and incomplete recoveries must finish before a status transition. */
+  isHistoryBlocked?: boolean;
   isDraftLockPending: boolean;
   draftLockPendingMessage?: string;
   isDraftLockedByOther: boolean;
@@ -169,6 +171,7 @@ export function useEstimateEditorStatusController({
   isViewerReadOnly,
   isConflictLocked,
   conflictMessage,
+  isHistoryBlocked = false,
   isDraftLockPending,
   draftLockPendingMessage = "Acquisition du verrou de brouillon en cours.",
   isDraftLockedByOther,
@@ -189,6 +192,20 @@ export function useEstimateEditorStatusController({
   const [scopedState, setScopedState] = useState<ScopedStatusState>(() =>
     createEmptyStatusState(routeVersionId)
   );
+  const [previousHistoryBlocked, setPreviousHistoryBlocked] = useState(isHistoryBlocked);
+  // Clear the previous confirmation before rendering children, including after recovery ends.
+  if (previousHistoryBlocked !== isHistoryBlocked) {
+    setPreviousHistoryBlocked(isHistoryBlocked);
+    if (isHistoryBlocked) {
+      setScopedState((current) => ({
+        ...current,
+        workflowSendGating: null,
+        isSendGatingDialogOpen: false,
+        isUpdatingStatus: false,
+        sendWorkflowPhase: null,
+      }));
+    }
+  }
   const projectedState =
     scopedState.scopeKey === routeVersionId
       ? scopedState
@@ -233,6 +250,7 @@ export function useEstimateEditorStatusController({
   const isOperationInProgressRef = useRef(false);
   const gatingScopeRef = useRef<GatingScope | null>(null);
   const preloadGenerationRef = useRef(0);
+  const historyBlockedRef = useRef(isHistoryBlocked);
 
   const updateStateForScope = useCallback(
     (
@@ -262,6 +280,17 @@ export function useEstimateEditorStatusController({
     gatingScopeRef.current = null;
   }, [routeVersionId]);
 
+  useLayoutEffect(() => {
+    historyBlockedRef.current = isHistoryBlocked;
+    if (!isHistoryBlocked) return;
+
+    // A confirmation obtained before an undo/recovery cannot authorize sending
+    // the restored draft, even if its earlier gating read answers afterwards.
+    operationGenerationRef.current += 1;
+    isOperationInProgressRef.current = false;
+    gatingScopeRef.current = null;
+  }, [isHistoryBlocked, routeVersionId]);
+
   useEffect(
     () => () => {
       routeGenerationRef.current += 1;
@@ -283,7 +312,8 @@ export function useEstimateEditorStatusController({
   const isOperationScopeCurrent = useCallback(
     (scope: RouteScope) =>
       isRouteScopeCurrent(scope) &&
-      operationGenerationRef.current === scope.operationGeneration,
+      operationGenerationRef.current === scope.operationGeneration &&
+      !historyBlockedRef.current,
     [isRouteScopeCurrent]
   );
 
@@ -291,6 +321,7 @@ export function useEstimateEditorStatusController({
     if (
       !routeVersionId ||
       activeRouteVersionIdRef.current !== routeVersionId ||
+      historyBlockedRef.current ||
       isOperationInProgressRef.current
     ) {
       return null;
@@ -534,7 +565,8 @@ export function useEstimateEditorStatusController({
     ) => {
       let sealingTimer: ReturnType<typeof setTimeout> | null = null;
       try {
-        if (isOperationScopeCurrent(scope) && nextStatus === "sent") {
+        if (!isOperationScopeCurrent(scope)) return false;
+        if (nextStatus === "sent") {
           updateStateForScope(scope.versionId, (current) => ({
             ...current,
             sendWorkflowPhase: "pdf",
@@ -549,6 +581,7 @@ export function useEstimateEditorStatusController({
           }, 250);
         }
 
+        if (!isOperationScopeCurrent(scope)) return false;
         const updatedVersion = await updateEstimateStatus(
           sourceVersion.id,
           nextStatus,
@@ -658,6 +691,7 @@ export function useEstimateEditorStatusController({
 
   const confirmSend = useCallback(
     async (force = false) => {
+      if (historyBlockedRef.current) return;
       const gatingScope = gatingScopeRef.current;
       if (
         !gatingScope ||
@@ -825,6 +859,7 @@ export function useEstimateEditorStatusController({
     (displayedSendGating?.blockingFlags.length ?? 0) > 0;
   const isStatusActionsDisabled =
     isUpdatingStatus ||
+    isHistoryBlocked ||
     isViewerReadOnly ||
     isConflictLocked ||
     isDraftLockPending ||

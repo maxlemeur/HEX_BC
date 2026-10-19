@@ -4,6 +4,11 @@ import { useCallback, useMemo, type Dispatch, type SetStateAction } from "react"
 
 import type { EstimateEditorHistoryCommand } from "@/hooks/useEstimateEditorHistoryController";
 import {
+  createEstimateDeletionRestorer,
+  type EstimateDeletionRecreationOptions,
+  type RecreatedEstimateDeletionItems,
+} from "@/hooks/estimate-editor-deletion-history";
+import {
   bulkUpdateEstimateItems,
   deleteEstimateItem,
 } from "@/lib/estimates/client";
@@ -18,11 +23,6 @@ import {
 import { toFiniteNumber } from "@/lib/estimates/editor-values";
 import type { EstimateV3EditorWriter } from "@/lib/estimates/v3-editor-writer";
 import { buildSiblingOrderByParent } from "@/app/dashboard/estimates/[versionId]/edit/utils/item-tree";
-
-type RecreatedItems = {
-  idMap: Map<string, string>;
-  createdItems: EstimateItem[];
-};
 
 // A move is only saved with its placement; the line payload alone omits it.
 function withPlacement(
@@ -71,8 +71,9 @@ type EstimateEditorBulkControllerInput = {
   pushHistoryCommand: (command: EstimateEditorHistoryCommand) => void;
   recreateItemsFromSnapshots: (
     versionId: string,
-    snapshots: EstimateItem[]
-  ) => Promise<RecreatedItems>;
+    snapshots: EstimateItem[],
+    options?: EstimateDeletionRecreationOptions
+  ) => Promise<RecreatedEstimateDeletionItems>;
   applySiblingOrder: (
     versionId: string,
     siblingOrderByParent: Map<string | null, string[]>,
@@ -107,7 +108,6 @@ export function useEstimateEditorBulkController({
   pushHistoryCommand,
   recreateItemsFromSnapshots,
   applySiblingOrder,
-  reloadItems,
   v3Writer,
 }: EstimateEditorBulkControllerInput) {
   const buildLineUpdate = v3Writer?.buildUpdatePayload ?? buildEstimateItemUpdatePayload;
@@ -344,47 +344,32 @@ export function useEstimateEditorBulkController({
         if (getVersionSnapshot()?.id !== targetVersionId) return;
         setTotalsOutOfSync(false);
         let currentDeletedLineIds = selectedLines.map((line) => line.id);
+        const restorer = createEstimateDeletionRestorer({
+          versionId: targetVersionId,
+          snapshots: selectedLines,
+          siblingOrderByParent,
+          itemId: selectedLines[0]?.id ?? null,
+          plural: selectedLines.length > 1,
+          isCurrentVersion: () => getVersionSnapshot()?.id === targetVersionId,
+          recreateItemsFromSnapshots,
+          applySiblingOrder,
+          setItems,
+          onRestored: (idMap) => {
+            currentDeletedLineIds = selectedLines.map((line) => idMap.get(line.id) ?? line.id);
+          },
+        });
         pushHistoryCommand({
           label: "bulk-delete-lines",
           undo: async (context) => {
-            const currentVersion = getVersionSnapshot();
-            if (!currentVersion) throw new Error("Version introuvable.");
-            const undoSnapshot = getItemsSnapshot();
-            try {
-              const recreated = await recreateItemsFromSnapshots(
-                currentVersion.id,
-                selectedLines
-              );
-              if (context && !context.isCurrentScope()) return;
-              setItems([...undoSnapshot, ...recreated.createdItems]);
-              if (context) {
-                await applySiblingOrder(
-                  currentVersion.id,
-                  siblingOrderByParent,
-                  recreated.idMap,
-                  context.isCurrentScope
-                );
-              } else {
-                await applySiblingOrder(
-                  currentVersion.id,
-                  siblingOrderByParent,
-                  recreated.idMap
-                );
-              }
-              if (context && !context.isCurrentScope()) return;
-              currentDeletedLineIds = selectedLines.map(
-                (line) => recreated.idMap.get(line.id) ?? line.id
-              );
-              setTotalsOutOfSync(false);
-            } catch (error) {
-              if (context && !context.isCurrentScope()) return;
-              await reloadItems();
-              throw error;
-            }
+            await restorer.undo(context);
+            if (context && !context.isCurrentScope()) return;
+            if (getVersionSnapshot()?.id !== targetVersionId) return;
+            setTotalsOutOfSync(false);
           },
           redo: async (context) => {
+            if (context && !context.isCurrentScope()) return;
             const currentVersion = getVersionSnapshot();
-            if (!currentVersion) throw new Error("Version introuvable.");
+            if (!currentVersion || currentVersion.id !== targetVersionId) return;
             const redoSnapshot = getItemsSnapshot();
             const toDelete = new Set(currentDeletedLineIds);
             setItems((previous) =>
@@ -395,10 +380,14 @@ export function useEstimateEditorBulkController({
                 await v3Writer.deleteItems(currentVersion.id, currentVersion.updated_at, currentDeletedLineIds);
               } else {
                 for (const lineId of currentDeletedLineIds) {
+                  if (context && !context.isCurrentScope()) return;
+                  if (getVersionSnapshot()?.id !== targetVersionId) return;
                   await deleteEstimateItem(currentVersion.id, lineId);
                 }
               }
               if (context && !context.isCurrentScope()) return;
+              if (getVersionSnapshot()?.id !== targetVersionId) return;
+              restorer.reset();
               setTotalsOutOfSync(false);
             } catch (error) {
               if (context && !context.isCurrentScope()) return;
@@ -445,7 +434,6 @@ export function useEstimateEditorBulkController({
       handleVersionConflict,
       pushHistoryCommand,
       recreateItemsFromSnapshots,
-      reloadItems,
       reportError,
       resolveErrorMessage,
       setItems,

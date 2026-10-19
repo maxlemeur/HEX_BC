@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { memo, useCallback, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { EstimateEditorSkeleton } from "@/components/estimates/EstimateEditorSkeleton";
 import { EstimateEditorTable } from "@/components/estimates/EstimateEditorTable";
@@ -11,6 +11,7 @@ import {
   type SettingsSection,
 } from "@/components/estimates/EstimateSettingsSummaryBar";
 import { EstimateEditorAlerts } from "@/components/estimates/editor/EstimateEditorAlerts";
+import { EstimateEditorHistoryFeedback } from "@/components/estimates/editor/EstimateEditorHistoryFeedback";
 import { EstimateEditorToolbar } from "@/components/estimates/editor/EstimateEditorToolbar";
 import { EstimateV3GridProvider } from "@/components/estimates/v3/V3LineCells";
 import { EmptyState } from "@/components/layout/empty-state";
@@ -146,6 +147,52 @@ export function EstimateEditorPage({
   const summaryBarProps = readyMeta?.summaryBarProps ?? null;
   const projectId = readyMeta?.projectId ?? null;
   const editorTableProps = readyMeta?.editorTableProps ?? null;
+  const { feedback: historyFeedback, recovery: historyRecovery } = historyController.state;
+  const historyActionFocusRef = useRef<{ versionId: string; element: HTMLElement } | null>(null);
+  const runHistoryAction = useCallback((direction: "undo" | "redo") => {
+    const element = document.activeElement;
+    historyActionFocusRef.current = element instanceof HTMLElement && element !== document.body
+      ? { versionId, element }
+      : null;
+    return historyController.actions[direction]();
+  }, [historyController.actions, versionId]);
+  const undoHistory = useCallback(() => runHistoryAction("undo"), [runHistoryAction]);
+  const redoHistory = useCallback(() => runHistoryAction("redo"), [runHistoryAction]);
+  useLayoutEffect(() => {
+    if (historyController.state.isExecuting) return;
+    const target = historyActionFocusRef.current;
+    historyActionFocusRef.current = null;
+    if (target?.versionId === versionId && target.element.isConnected &&
+        !target.element.matches(":disabled") && document.activeElement === document.body) {
+      target.element.focus({ preventScroll: true });
+    }
+  }, [historyController.state.isExecuting, versionId]);
+  const [historyFocusTarget, setHistoryFocusTarget] = useState<{ versionId: string; itemId: string } | null>(null);
+  const historyFocusItemId = historyFocusTarget?.versionId === versionId ? historyFocusTarget.itemId : null;
+  const locateHistoryItem = useCallback(() => {
+    if (!historyRecovery?.itemId) return;
+    const row = document.querySelector<HTMLElement>(
+      `[role="grid"][aria-label="Lignes de devis"] [data-estimate-item-id="${historyRecovery.itemId}"]`
+    );
+    const rect = row?.getBoundingClientRect();
+    if (row && rect && rect.height > 0 && rect.top >= 0 && rect.bottom <= window.innerHeight) {
+      row.tabIndex = -1;
+      row.focus({ preventScroll: true });
+      return;
+    }
+    setHistoryFocusTarget({ versionId, itemId: historyRecovery.itemId });
+  }, [historyRecovery, versionId]);
+  const handleHistoryItemLocated = useCallback(() => {
+    if (!historyFocusItemId) return;
+    const row = document.querySelector<HTMLElement>(
+      `[role="grid"][aria-label="Lignes de devis"] [data-estimate-item-id="${historyFocusItemId}"]`
+    );
+    if (row) {
+      row.tabIndex = -1;
+      row.focus({ preventScroll: true });
+    }
+    setHistoryFocusTarget(null);
+  }, [historyFocusItemId]);
   const drawerProps = readyMeta?.drawerProps ?? null;
   const v3Grid = readyMeta?.v3Grid ?? null;
   const alertsRegion = useMemo(
@@ -162,6 +209,15 @@ export function EstimateEditorPage({
       toolbarProps && summaryBarProps ? (
         <EstimateEditorToolbar
           {...toolbarProps}
+          {...(toolbarProps.autoSaveStatus !== "error" && toolbarProps.autoSaveStatus !== "offline" && historyFeedback?.kind === "pending" ? {
+            autoSaveStatus: "saving" as const,
+            autoSaveStatusLabel: historyFeedback.message,
+            autoSaveStatusClassName: "status-badge status-sent",
+          } : toolbarProps.autoSaveStatus !== "error" && toolbarProps.autoSaveStatus !== "offline" && historyRecovery ? {
+            autoSaveStatus: "error" as const,
+            autoSaveStatusLabel: "Position à vérifier",
+            autoSaveStatusClassName: "status-badge status-canceled",
+          } : {})}
           projectId={projectId}
           summaryNode={
             <div data-testid="estimate-editor-summary-bar">
@@ -170,7 +226,7 @@ export function EstimateEditorPage({
           }
         />
       ) : null,
-    [projectId, summaryBarProps, toolbarProps]
+    [historyFeedback, historyRecovery, projectId, summaryBarProps, toolbarProps]
   );
   // Lot 2, sous-lot 2.6 : une v3 fournit à la grille les lignes de son moteur (cellules v3).
   const tableRegion = useMemo(
@@ -180,13 +236,18 @@ export function EstimateEditorPage({
           <div data-testid="estimate-editor-table-region">
             <MemoizedEstimateEditorTable
               {...editorTableProps}
+              onUndo={undoHistory}
+              onRedo={redoHistory}
+              scrollToItemId={historyFocusItemId ?? editorTableProps.scrollToItemId}
+              revealScrollTarget={Boolean(historyFocusItemId)}
+              onScrollToItemHandled={historyFocusItemId ? handleHistoryItemLocated : editorTableProps.onScrollToItemHandled}
               ribbonHeaderNode={ribbonHeader}
               ribbonAlertsNode={alertsRegion}
             />
           </div>
         </EstimateV3GridProvider>
       ) : null,
-    [alertsRegion, editorTableProps, ribbonHeader, v3Grid]
+    [alertsRegion, editorTableProps, handleHistoryItemLocated, historyFocusItemId, redoHistory, ribbonHeader, undoHistory, v3Grid]
   );
   const drawerRegion = useMemo(
     () =>
@@ -249,6 +310,14 @@ export function EstimateEditorPage({
   return (
     <div className="animate-fade-in" data-testid="estimate-editor-page">
       {tableRegion}
+      <EstimateEditorHistoryFeedback
+        feedback={historyFeedback}
+        recovery={historyRecovery}
+        canRetry={readyMeta.canRetryHistoryRecovery && !historyController.state.isExecuting}
+        onRetry={undoHistory}
+        onLocate={locateHistoryItem}
+        onDismiss={historyController.actions.dismissNotice}
+      />
 
       {drawerRegion}
       <div data-testid="estimate-editor-bulk-suggest-dialog-region">

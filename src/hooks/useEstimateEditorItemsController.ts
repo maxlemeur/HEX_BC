@@ -11,6 +11,10 @@ import {
 
 import type { EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
 import type { EstimateEditorHistoryCommand } from "@/hooks/useEstimateEditorHistoryController";
+import {
+  createEstimateDeletionRestorer,
+  type EstimateDeletionRecreationOptions,
+} from "@/hooks/estimate-editor-deletion-history";
 import { computeEstimateLineValues } from "@/lib/estimate-calculations";
 import {
   createEstimateItem,
@@ -215,11 +219,16 @@ export function useEstimateEditorItemsController({
   );
 
   const recreateItemsFromSnapshots = useCallback(
-    async (versionId: string, snapshots: EstimateItem[]) => {
+    async (
+      versionId: string,
+      snapshots: EstimateItem[],
+      options: EstimateDeletionRecreationOptions = {}
+    ) => {
       const idMap = new Map<string, string>();
       const createdItems: EstimateItem[] = [];
 
       for (const snapshotItem of sortItemsForTreeRecreation(snapshots)) {
+        if (!isCurrentVersion(versionId) || options.isCurrentScope?.() === false) break;
         const mappedParentId = snapshotItem.parent_id
           ? (idMap.get(snapshotItem.parent_id) ?? snapshotItem.parent_id)
           : null;
@@ -233,11 +242,12 @@ export function useEstimateEditorItemsController({
         });
         idMap.set(snapshotItem.id, created.id);
         createdItems.push(created);
+        options.onProgress?.({ idMap: new Map(idMap), createdItems: [...createdItems] });
       }
 
       return { idMap, createdItems };
     },
-    [applyCreatedItemVersionToken, buildItemInsertPayload]
+    [applyCreatedItemVersionToken, buildItemInsertPayload, isCurrentVersion]
   );
 
   const applySiblingOrder = useCallback(
@@ -250,39 +260,32 @@ export function useEstimateEditorItemsController({
       if (siblingOrderByParent.size === 0) return;
 
       const currentItemIds = new Set(
-        getItemsSnapshot().map((item) => item.id)
+        [...getItemsSnapshot().map((item) => item.id), ...idMap.values()]
       );
-      const nextPositionById = new Map<string, number>();
 
       for (const [parentId, orderedIds] of siblingOrderByParent.entries()) {
+        if (!isCurrentScope()) return;
         const mappedParentId = parentId ? (idMap.get(parentId) ?? parentId) : null;
         const mappedOrderedIds = orderedIds
           .map((itemId) => idMap.get(itemId) ?? itemId)
           .filter((itemId) => currentItemIds.has(itemId));
-        if (mappedOrderedIds.length === 0) continue;
+        if (mappedOrderedIds.length === 0) {
+          throw new Error("Impossible de confirmer l'ordre des lignes restaurées.");
+        }
 
         await reorderEstimateItems(
           versionId,
           mappedParentId,
           mappedOrderedIds
         );
+        // The deletion restorer owns this map. An acknowledged parent is not
+        // written again if a later parent fails and the user resumes ordering.
+        siblingOrderByParent.delete(parentId);
         if (!isCurrentScope()) return;
-        mappedOrderedIds.forEach((itemId, index) => {
-          nextPositionById.set(itemId, index + 1);
-        });
+        const nextPositionById = new Map(mappedOrderedIds.map((itemId, index) => [itemId, index + 1]));
+        setItems((previous) => previous.map((item) => nextPositionById.has(item.id)
+          ? { ...item, position: nextPositionById.get(item.id) ?? item.position } : item));
       }
-
-      if (nextPositionById.size === 0 || !isCurrentScope()) return;
-      setItems((previous) =>
-        previous.map((item) =>
-          nextPositionById.has(item.id)
-            ? {
-                ...item,
-                position: nextPositionById.get(item.id) ?? item.position,
-              }
-            : item
-        )
-      );
     },
     [getItemsSnapshot, setItems]
   );
@@ -732,46 +735,32 @@ export function useEstimateEditorItemsController({
         if (!isCurrentVersion(targetVersionId)) return;
 
         let currentDeletedRootId = itemId;
+        const restorer = createEstimateDeletionRestorer({
+          versionId: targetVersionId,
+          snapshots: deletedSnapshots,
+          siblingOrderByParent,
+          itemId,
+          plural: deletedSnapshots.length > 1,
+          isCurrentVersion: () => getVersionSnapshot()?.id === targetVersionId,
+          recreateItemsFromSnapshots,
+          applySiblingOrder,
+          setItems,
+          onRestored: (idMap) => {
+            currentDeletedRootId = idMap.get(itemId) ?? currentDeletedRootId;
+          },
+        });
         pushHistoryCommand({
           label: "delete-item",
           undo: async (context) => {
-            const versionSnapshot = getVersionSnapshot();
-            if (!versionSnapshot) throw new Error("Version introuvable.");
-            const undoSnapshot = getItemsSnapshot();
-            try {
-              const recreated = await recreateItemsFromSnapshots(
-                versionSnapshot.id,
-                deletedSnapshots
-              );
-              if (context && !context.isCurrentScope()) return;
-              setItems([...undoSnapshot, ...recreated.createdItems]);
-              try {
-                await applySiblingOrder(
-                  versionSnapshot.id,
-                  siblingOrderByParent,
-                  recreated.idMap,
-                  context?.isCurrentScope
-                );
-              } catch (error) {
-                if (context && !context.isCurrentScope()) return;
-                console.error(
-                  "Impossible de restaurer l'ordre exact après annulation de suppression.",
-                  error
-                );
-              }
-              if (context && !context.isCurrentScope()) return;
-              currentDeletedRootId =
-                recreated.idMap.get(itemId) ?? currentDeletedRootId;
-              setTotalsOutOfSync(false);
-            } catch (error) {
-              if (context && !context.isCurrentScope()) return;
-              await reloadItems();
-              throw error;
-            }
+            await restorer.undo(context);
+            if (context && !context.isCurrentScope()) return;
+            if (getVersionSnapshot()?.id !== targetVersionId) return;
+            setTotalsOutOfSync(false);
           },
           redo: async (context) => {
+            if (context && !context.isCurrentScope()) return;
             const versionSnapshot = getVersionSnapshot();
-            if (!versionSnapshot) throw new Error("Version introuvable.");
+            if (!versionSnapshot || versionSnapshot.id !== targetVersionId) return;
             const redoSnapshot = getItemsSnapshot();
             const redoIdsToRemove = collectSubtreeItemIds(
               redoSnapshot,
@@ -786,6 +775,8 @@ export function useEstimateEditorItemsController({
                 currentDeletedRootId
               );
               if (context && !context.isCurrentScope()) return;
+              if (getVersionSnapshot()?.id !== targetVersionId) return;
+              restorer.reset();
               setTotalsOutOfSync(false);
             } catch (error) {
               if (context && !context.isCurrentScope()) return;

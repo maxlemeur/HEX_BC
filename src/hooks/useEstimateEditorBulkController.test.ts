@@ -160,7 +160,23 @@ function createHarness(input: HarnessInput = {}) {
     idMap: new Map<string, string>(),
     createdItems: [],
   });
-  const applySiblingOrder = vi.fn().mockResolvedValue(undefined);
+  const siblingOrderSnapshots: Array<Map<string | null, string[]>> = [];
+  const applySiblingOrder = vi.fn(
+    async (
+      _versionId: string,
+      remainingParents: Map<string | null, string[]>,
+      _idMap?: Map<string, string>,
+      isCurrentScope: () => boolean = () => true
+    ) => {
+      if (!isCurrentScope()) return;
+      // The real helper consumes each acknowledged parent. Keep a copy before
+      // consumption: Vitest records the original, mutable Map by reference.
+      siblingOrderSnapshots.push(new Map(
+        Array.from(remainingParents, ([parentId, ids]) => [parentId, [...ids]])
+      ));
+      remainingParents.clear();
+    }
+  );
   const reloadItems = vi.fn().mockResolvedValue(undefined);
 
   const rendered = renderHook(() =>
@@ -205,6 +221,7 @@ function createHarness(input: HarnessInput = {}) {
     pushHistoryCommand,
     recreateItemsFromSnapshots,
     applySiblingOrder,
+    siblingOrderSnapshots,
     reloadItems,
   };
 }
@@ -649,21 +666,25 @@ describe("useEstimateEditorBulkController", () => {
     });
     expect(harness.recreateItemsFromSnapshots).toHaveBeenCalledWith(
       "version-1",
-      [lineA, lineB]
+      [lineA, lineB],
+      {
+        isCurrentScope: expect.any(Function),
+        onProgress: expect.any(Function),
+      }
     );
-    const siblingOrder = harness.applySiblingOrder.mock.calls[0][1] as Map<
-      string | null,
-      string[]
-    >;
+    const siblingOrder = harness.siblingOrderSnapshots[0];
     expect(siblingOrder.get("section-1")).toEqual([
       "line-a",
       "line-survivor",
       "line-b",
     ]);
+    const remainingParents = harness.applySiblingOrder.mock.calls[0][1];
+    expect(remainingParents.size).toBe(0);
     expect(harness.applySiblingOrder).toHaveBeenCalledWith(
       "version-1",
-      siblingOrder,
-      idMap
+      remainingParents,
+      idMap,
+      expect.any(Function)
     );
     expect(new Set(harness.getItems().map((item) => item.id))).toEqual(
       new Set(["line-survivor", "line-a-new", "line-b-new"])
